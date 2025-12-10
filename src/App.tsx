@@ -76,15 +76,24 @@ function App() {
   return (
     <ReaperProvider autoStart={true} transportInterval={30} trackInterval={200}>
       <div className="min-h-screen bg-gray-950 text-white p-4">
-        {/* Header */}
-        <header className="flex items-center justify-between mb-6">
-          <h1 className="text-xl font-bold">Reactper</h1>
+        {/* Connection status - top right */}
+        <div className="absolute top-4 right-4">
           <ConnectionStatus />
-        </header>
+        </div>
 
-        {/* Transport */}
+        {/* Time Display - centered at top */}
+        <section className="text-center mb-4">
+          <TimeDisplay format="both" showState className="inline-block" />
+        </section>
+
+        {/* Current Region */}
+        <section className="flex justify-center mb-4">
+          <RegionDisplay />
+        </section>
+
+        {/* Transport Controls */}
         <section className="mb-6">
-          <div className="flex items-center gap-4 mb-4">
+          <div className="flex flex-wrap items-center justify-center gap-3 mb-3">
             <PlayButton />
             <StopButton />
             <RecordButton />
@@ -95,16 +104,7 @@ function App() {
             <RepeatButton />
             <TapTempoButton />
           </div>
-          <div className="flex items-center gap-4">
-            <TimeDisplay format="both" showState />
-            <RegionDisplay />
-          </div>
-        </section>
-
-        {/* Quick Actions */}
-        <section className="mb-6">
-          <h2 className="text-lg font-semibold mb-3">Quick Actions</h2>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-2">
             <ActionButton actionId={40042} title="Go to Start of Project">
               <SkipBack size={16} className="inline-block mr-1" />
               Start
@@ -126,14 +126,12 @@ function App() {
 
         {/* Tracks */}
         <section>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold">Tracks</h2>
-            <TrackFilter
-              value={trackFilter}
-              onChange={setTrackFilter}
-              className="w-48"
-            />
-          </div>
+          <TrackFilter
+            value={trackFilter}
+            onChange={setTrackFilter}
+            className="mb-3 max-w-xs"
+            placeholder="Filter tracks..."
+          />
           <TrackList filter={trackFilter} />
         </section>
 

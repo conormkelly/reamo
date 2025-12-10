@@ -26,8 +26,8 @@ export function MonitorButton({
 
   const stateStyles = {
     off: 'bg-gray-700 text-gray-300 hover:bg-gray-600',
-    on: 'bg-yellow-500 text-black',
-    auto: 'bg-blue-500 text-white',
+    on: 'bg-gray-200 text-gray-900',
+    auto: 'bg-red-900 text-red-200',
   };
 
   const stateLabels = {

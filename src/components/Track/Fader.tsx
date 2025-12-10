@@ -7,33 +7,33 @@ import { useState, useCallback, useRef, type ReactElement } from 'react';
 import { useReaper } from '../ReaperProvider';
 import { useTrack } from '../../hooks/useTrack';
 
-/** Unity gain fader position (0dB) - approximately 0.716 in REAPER's scale */
-const UNITY_GAIN_POSITION = 0.716;
+/** Linear volume for unity gain (0dB) - exactly 1.0 */
+const UNITY_GAIN_VOLUME = 1.0;
 
 export interface FaderProps {
   trackIndex: number;
   className?: string;
   height?: number;
-  /** Position to reset to on double-tap (default: 0.716 = unity/0dB) */
-  resetPosition?: number;
+  /** Linear volume to reset to on double-tap (default: 1.0 = unity/0dB) */
+  resetVolume?: number;
 }
 
 export function Fader({
   trackIndex,
   className = '',
   height = 150,
-  resetPosition = UNITY_GAIN_POSITION,
+  resetVolume = UNITY_GAIN_VOLUME,
 }: FaderProps): ReactElement {
   const { send } = useReaper();
-  const { faderPosition, volumeDb, setFaderPosition } = useTrack(trackIndex);
+  const { faderPosition, volumeDb, setFaderPosition, setVolume } = useTrack(trackIndex);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const lastTapRef = useRef<number>(0);
 
-  // Handle double-tap to reset to unity
+  // Handle double-tap to reset to unity - use setVolume directly to avoid fader curve round-trip
   const handleDoubleTap = useCallback(() => {
-    send(setFaderPosition(resetPosition));
-  }, [send, setFaderPosition, resetPosition]);
+    send(setVolume(resetVolume));
+  }, [send, setVolume, resetVolume]);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent | React.TouchEvent) => {

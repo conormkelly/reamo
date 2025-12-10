@@ -4,8 +4,21 @@
  */
 
 import type { ReactElement } from 'react';
+import { useMemo } from 'react';
 import { useTransport } from '../../hooks/useTransport';
 import { PlayStateLabel } from '../../core/types';
+
+/**
+ * Format seconds as MM:SS.ms
+ */
+function formatTime(seconds: number): string {
+  const absSeconds = Math.abs(seconds);
+  const sign = seconds < 0 ? '-' : '';
+  const mins = Math.floor(absSeconds / 60);
+  const secs = Math.floor(absSeconds % 60);
+  const ms = Math.floor((absSeconds % 1) * 1000);
+  return `${sign}${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+}
 
 export interface TimeDisplayProps {
   className?: string;
@@ -20,9 +33,10 @@ export function TimeDisplay({
   format = 'time',
   showState = false,
 }: TimeDisplayProps): ReactElement {
-  const { playState, positionString, positionBeats } = useTransport();
+  const { playState, positionSeconds, positionBeats } = useTransport();
 
   const stateLabel = PlayStateLabel[playState];
+  const timeString = useMemo(() => formatTime(positionSeconds), [positionSeconds]);
 
   return (
     <div className={`font-mono ${className}`}>
@@ -30,11 +44,11 @@ export function TimeDisplay({
         <div className="text-xs uppercase text-gray-400 mb-1">{stateLabel}</div>
       )}
       <div className="text-2xl">
-        {format === 'time' && positionString}
+        {format === 'time' && timeString}
         {format === 'beats' && positionBeats}
         {format === 'both' && (
           <>
-            <span>{positionString}</span>
+            <span>{timeString}</span>
             <span className="text-gray-500 mx-2">|</span>
             <span className="text-gray-400">{positionBeats}</span>
           </>
