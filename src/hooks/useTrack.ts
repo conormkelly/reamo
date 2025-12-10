@@ -28,7 +28,8 @@ export interface UseTrackReturn {
   name: string;
   volumeDb: string;
   faderPosition: number;
-  panString: string;
+  pan: number;
+  panDisplay: string;
   isMuted: boolean;
   isSoloed: boolean;
   isRecordArmed: boolean;
@@ -64,7 +65,8 @@ export function useTrack(trackIndex: number): UseTrackReturn {
         name: '',
         volumeDb: '-inf dB',
         faderPosition: 0,
-        panString: 'center',
+        pan: 0,
+        panDisplay: 'center',
         isMuted: false,
         isSoloed: false,
         isRecordArmed: false,
@@ -80,7 +82,8 @@ export function useTrack(trackIndex: number): UseTrackReturn {
       name: track.name,
       volumeDb: volumeToDbString(track.volume),
       faderPosition: volumeToFader(track.volume),
-      panString: panToString(track.pan),
+      pan: track.pan,
+      panDisplay: panToString(track.pan),
       isMuted: isMuted(track),
       isSoloed: isSoloed(track),
       isRecordArmed: isRecordArmed(track),

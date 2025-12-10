@@ -1,6 +1,6 @@
 /**
  * Track Strip Component
- * A complete track channel strip with fader and buttons
+ * A complete track channel strip with fader, pan, and buttons
  */
 
 import type { ReactElement } from 'react';
@@ -8,19 +8,22 @@ import { useTrack } from '../../hooks/useTrack';
 import { MuteButton } from './MuteButton';
 import { SoloButton } from './SoloButton';
 import { Fader } from './Fader';
+import { PanKnob } from './PanKnob';
 
 export interface TrackStripProps {
   trackIndex: number;
   className?: string;
   showFader?: boolean;
+  showPan?: boolean;
 }
 
 export function TrackStrip({
   trackIndex,
   className = '',
   showFader = true,
+  showPan = true,
 }: TrackStripProps): ReactElement | null {
-  const { exists, name, color, panString, isRecordArmed } = useTrack(trackIndex);
+  const { exists, name, color, isRecordArmed } = useTrack(trackIndex);
 
   if (!exists) {
     return null;
@@ -44,7 +47,7 @@ export function TrackStrip({
       {showFader && <Fader trackIndex={trackIndex} className="mb-2" />}
 
       {/* Pan */}
-      <div className="text-xs text-gray-500 mb-2">{panString}</div>
+      {showPan && <PanKnob trackIndex={trackIndex} className="mb-2" />}
 
       {/* Buttons */}
       <div className="flex gap-1">

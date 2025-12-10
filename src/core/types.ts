@@ -155,6 +155,7 @@ export type ParsedResponse =
   | { type: 'EXTSTATE'; data: ExtState }
   | { type: 'PROJEXTSTATE'; data: ExtState }
   | { type: 'GET/REPEAT'; value: boolean }
+  | { type: 'GET/TEMPO'; bpm: number }
   | { type: 'UNKNOWN'; raw: string };
 
 // Connection status
@@ -176,4 +177,5 @@ export const ActionCommands = {
   NEXT_MARKER: 40173,
   TOGGLE_METRONOME: 40364,
   TOGGLE_REPEAT: 1068,
+  TAP_TEMPO: 1134,
 } as const;

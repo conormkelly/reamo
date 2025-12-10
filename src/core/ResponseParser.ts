@@ -170,6 +170,12 @@ function parseLine(line: string): ParsedResponse | null {
       return { type: 'GET/REPEAT', value: tokens[1] !== '0' };
     }
 
+    case 'GET/TEMPO':
+    case 'TEMPO': {
+      if (tokens.length < 2) return null;
+      return { type: 'GET/TEMPO', bpm: parseFloat(tokens[1]) };
+    }
+
     default:
       // Handle GET/TRACK/x/... responses
       if (command.startsWith('GET/TRACK/')) {

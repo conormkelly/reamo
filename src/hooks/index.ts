@@ -2,3 +2,4 @@ export { useReaperConnection, type UseReaperConnectionOptions, type UseReaperCon
 export { useTransport, type UseTransportReturn } from './useTransport';
 export { useTracks, type UseTracksReturn } from './useTracks';
 export { useTrack, type UseTrackReturn } from './useTrack';
+export { useDoubleTap, type UseDoubleTapOptions, type UseDoubleTapResult } from './useDoubleTap';

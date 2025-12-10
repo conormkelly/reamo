@@ -83,8 +83,11 @@ export function useReaperConnection(
 
     startedRef.current = true;
 
-    // Set up default polling
-    connectionRef.current.poll(commands.transport(), transportInterval);
+    // Set up default polling (TRANSPORT + BEATPOS for BPM calculation)
+    connectionRef.current.poll(
+      commands.join(commands.transport(), commands.beatPos()),
+      transportInterval
+    );
     connectionRef.current.poll(
       commands.join(commands.trackCount(), commands.allTracks()),
       trackInterval

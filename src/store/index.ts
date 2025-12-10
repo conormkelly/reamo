@@ -38,6 +38,10 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
           get().updateTrack(response.data);
           break;
 
+        case 'BEATPOS':
+          get().updateBeatPosition(response.data);
+          break;
+
         case 'GET/REPEAT':
           get().setRepeat(response.value);
           break;

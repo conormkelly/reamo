@@ -2,3 +2,5 @@ export { ReaperProvider, useReaper, type ReaperProviderProps } from './ReaperPro
 export { ConnectionStatus, type ConnectionStatusProps } from './ConnectionStatus';
 export * from './Transport';
 export * from './Track';
+export * from './Markers';
+export * from './Actions';
