@@ -25,12 +25,22 @@ export function RegionDisplay({
   const currentRegion = useMemo(() => {
     if (regions.length === 0) return null;
 
-    // Find region that contains the current position
+    // At boundary points, prefer the region that STARTS there
+    // Use small epsilon for floating-point comparison
+    const epsilon = 0.001;
+    for (const region of regions) {
+      if (Math.abs(positionSeconds - region.start) < epsilon && positionSeconds < region.end) {
+        return region;
+      }
+    }
+
+    // Otherwise, find region that contains the current position
     for (const region of regions) {
       if (positionSeconds >= region.start && positionSeconds < region.end) {
         return region;
       }
     }
+
     return null;
   }, [regions, positionSeconds]);
 
