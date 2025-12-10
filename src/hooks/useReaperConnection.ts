@@ -92,6 +92,8 @@ export function useReaperConnection(
       commands.join(commands.trackCount(), commands.allTracks()),
       trackInterval
     );
+    // Poll regions less frequently (every 2 seconds)
+    connectionRef.current.poll(commands.regions(), 2000);
 
     // Start the connection
     connectionRef.current.start();

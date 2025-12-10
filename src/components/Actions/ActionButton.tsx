@@ -4,6 +4,7 @@
  */
 
 import type { ReactElement, ReactNode } from 'react';
+import { Music, Undo2, Redo2, Save } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import * as commands from '../../core/CommandBuilder';
 
@@ -107,7 +108,8 @@ export function MetronomeButton({
       className={className}
       size={size}
     >
-      🎵 Click
+      <Music size={16} className="inline-block mr-1" />
+      Click
     </ActionButton>
   );
 }
@@ -128,7 +130,8 @@ export function UndoButton({
       className={className}
       size={size}
     >
-      ↶ Undo
+      <Undo2 size={16} className="inline-block mr-1" />
+      Undo
     </ActionButton>
   );
 }
@@ -149,7 +152,8 @@ export function RedoButton({
       className={className}
       size={size}
     >
-      ↷ Redo
+      <Redo2 size={16} className="inline-block mr-1" />
+      Redo
     </ActionButton>
   );
 }
@@ -171,7 +175,8 @@ export function SaveButton({
       className={className}
       size={size}
     >
-      💾 Save
+      <Save size={16} className="inline-block mr-1" />
+      Save
     </ActionButton>
   );
 }

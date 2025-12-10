@@ -4,6 +4,7 @@
  */
 
 import type { ReactElement } from 'react';
+import { Repeat } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { ToggleButton } from './ToggleButton';
 import { ActionCommands } from '../../core/types';
@@ -40,7 +41,8 @@ export function RepeatButton({
       className={className}
       size={size}
     >
-      🔁 Repeat
+      <Repeat size={16} className="inline-block mr-1" />
+      Loop
     </ToggleButton>
   );
 }

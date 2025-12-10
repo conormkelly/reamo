@@ -3,6 +3,7 @@
  */
 
 import type { ReactElement } from 'react';
+import { Square } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useTransport } from '../../hooks/useTransport';
 
@@ -27,7 +28,8 @@ export function StopButton({ className = '' }: StopButtonProps): ReactElement {
           : 'bg-gray-700 text-white hover:bg-gray-600'
       } ${className}`}
     >
-      ■ Stop
+      <Square size={16} className="inline-block mr-1" />
+        Stop
     </button>
   );
 }

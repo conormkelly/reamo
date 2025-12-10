@@ -3,6 +3,7 @@
  */
 
 import type { ReactElement } from 'react';
+import { Play } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useTransport } from '../../hooks/useTransport';
 
@@ -27,7 +28,8 @@ export function PlayButton({ className = '' }: PlayButtonProps): ReactElement {
           : 'bg-gray-700 text-white hover:bg-gray-600'
       } ${className}`}
     >
-      {isPlaying ? '▶ Playing' : '▶ Play'}
+      <Play size={16} className="inline-block mr-1" />
+        {isPlaying ? 'Playing' : 'Play'}
     </button>
   );
 }

@@ -7,10 +7,11 @@ import { create } from 'zustand';
 import { createConnectionSlice, type ConnectionSlice } from './slices/connectionSlice';
 import { createTransportSlice, type TransportSlice } from './slices/transportSlice';
 import { createTracksSlice, type TracksSlice } from './slices/tracksSlice';
-import type { ParsedResponse } from '../core/types';
+import { createRegionsSlice, type RegionsSlice } from './slices/regionsSlice';
+import type { ParsedResponse, Region } from '../core/types';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & TracksSlice & {
+export type ReaperStore = ConnectionSlice & TransportSlice & TracksSlice & RegionsSlice & {
   // Response handler action
   handleResponses: (responses: ParsedResponse[]) => void;
 };
@@ -21,9 +22,14 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   ...createConnectionSlice(set, get, store),
   ...createTransportSlice(set, get, store),
   ...createTracksSlice(set, get, store),
+  ...createRegionsSlice(set, get, store),
 
   // Handle incoming responses from REAPER
   handleResponses: (responses: ParsedResponse[]) => {
+    // Collect regions from REGION_LIST responses
+    const collectedRegions: Region[] = [];
+    let inRegionList = false;
+
     for (const response of responses) {
       switch (response.type) {
         case 'TRANSPORT':
@@ -46,9 +52,24 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
           get().setRepeat(response.value);
           break;
 
-        // Add more response handlers as needed
+        case 'REGION_LIST':
+          inRegionList = true;
+          break;
+
+        case 'REGION':
+          if (inRegionList) {
+            collectedRegions.push(response.data);
+          }
+          break;
+
+        case 'REGION_LIST_END':
+          if (inRegionList) {
+            get().setRegions(collectedRegions);
+            inRegionList = false;
+          }
+          break;
+
         default:
-          // Ignore unhandled responses
           break;
       }
     }
@@ -59,3 +80,4 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
 export type { ConnectionSlice } from './slices/connectionSlice';
 export type { TransportSlice } from './slices/transportSlice';
 export type { TracksSlice } from './slices/tracksSlice';
+export type { RegionsSlice } from './slices/regionsSlice';

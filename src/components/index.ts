@@ -3,4 +3,5 @@ export { ConnectionStatus, type ConnectionStatusProps } from './ConnectionStatus
 export * from './Transport';
 export * from './Track';
 export * from './Markers';
+export * from './Regions';
 export * from './Actions';

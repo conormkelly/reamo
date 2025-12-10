@@ -3,6 +3,7 @@
  */
 
 import type { ReactElement } from 'react';
+import { Circle } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useTransport } from '../../hooks/useTransport';
 
@@ -27,7 +28,8 @@ export function RecordButton({ className = '' }: RecordButtonProps): ReactElemen
           : 'bg-gray-700 text-white hover:bg-red-600'
       } ${className}`}
     >
-      ● {isRecording ? 'Recording' : 'Record'}
+      <Circle size={16} className="inline-block mr-1 fill-current" />
+        {isRecording ? 'Recording' : 'Record'}
     </button>
   );
 }

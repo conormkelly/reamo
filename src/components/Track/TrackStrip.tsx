@@ -7,6 +7,8 @@ import type { ReactElement } from 'react';
 import { useTrack } from '../../hooks/useTrack';
 import { MuteButton } from './MuteButton';
 import { SoloButton } from './SoloButton';
+import { RecordArmButton } from './RecordArmButton';
+import { MonitorButton } from './MonitorButton';
 import { Fader } from './Fader';
 import { PanKnob } from './PanKnob';
 
@@ -23,7 +25,7 @@ export function TrackStrip({
   showFader = true,
   showPan = true,
 }: TrackStripProps): ReactElement | null {
-  const { exists, name, color, isRecordArmed } = useTrack(trackIndex);
+  const { exists, name, color } = useTrack(trackIndex);
 
   if (!exists) {
     return null;
@@ -50,14 +52,17 @@ export function TrackStrip({
       {showPan && <PanKnob trackIndex={trackIndex} className="mb-2" />}
 
       {/* Buttons */}
-      <div className="flex gap-1">
+      <div className="flex gap-1 mb-1">
         <MuteButton trackIndex={trackIndex} />
         <SoloButton trackIndex={trackIndex} />
       </div>
 
-      {/* Record arm indicator */}
-      {isRecordArmed && (
-        <div className="mt-2 w-3 h-3 rounded-full bg-red-500 animate-pulse" />
+      {/* Record controls (not on master) */}
+      {trackIndex !== 0 && (
+        <div className="flex gap-1">
+          <RecordArmButton trackIndex={trackIndex} />
+          <MonitorButton trackIndex={trackIndex} />
+        </div>
       )}
     </div>
   );

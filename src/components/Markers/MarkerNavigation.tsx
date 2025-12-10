@@ -4,6 +4,7 @@
  */
 
 import type { ReactElement } from 'react';
+import { SkipBack, SkipForward } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import * as commands from '../../core/CommandBuilder';
 
@@ -41,10 +42,12 @@ export function MarkerNavigation({
   return (
     <div className={`flex items-center gap-2 ${className}`}>
       <button onClick={handlePrev} className={buttonClass} title="Previous Marker">
-        ⏮{showLabels && <span className="ml-1">Prev</span>}
+        <SkipBack size={16} className="inline-block" />
+        {showLabels && <span className="ml-1">Prev</span>}
       </button>
       <button onClick={handleNext} className={buttonClass} title="Next Marker">
-        {showLabels && <span className="mr-1">Next</span>}⏭
+        {showLabels && <span className="mr-1">Next</span>}
+        <SkipForward size={16} className="inline-block" />
       </button>
     </div>
   );

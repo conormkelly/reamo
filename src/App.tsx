@@ -3,7 +3,9 @@
  * A simple REAPER control surface
  */
 
+import { useState, useMemo } from 'react';
 import './index.css';
+import { VolumeX, Volume2, SkipBack } from 'lucide-react';
 import {
   ReaperProvider,
   ConnectionStatus,
@@ -13,7 +15,10 @@ import {
   TimeDisplay,
   TrackStrip,
   LevelMeter,
+  TrackFilter,
   MarkerNavigation,
+  RegionNavigation,
+  RegionDisplay,
   MetronomeButton,
   UndoButton,
   RedoButton,
@@ -24,18 +29,30 @@ import {
 } from './components';
 import { useTracks } from './hooks';
 
-function TrackList() {
+function TrackList({ filter }: { filter: string }) {
   const { userTracks } = useTracks();
+
+  const filteredTracks = useMemo(() => {
+    if (!filter.trim()) return userTracks;
+    const lowerFilter = filter.toLowerCase();
+    return userTracks.filter((track) =>
+      track.name.toLowerCase().includes(lowerFilter)
+    );
+  }, [userTracks, filter]);
 
   return (
     <div className="flex gap-2 overflow-x-auto pb-4">
-      {/* Master track */}
+      {/* Master track (always shown) */}
       <TrackStripWithMeter trackIndex={0} />
 
-      {/* User tracks */}
-      {userTracks.map((track) => (
+      {/* Filtered user tracks */}
+      {filteredTracks.map((track) => (
         <TrackStripWithMeter key={track.index} trackIndex={track.index} />
       ))}
+
+      {userTracks.length > 0 && filteredTracks.length === 0 && (
+        <div className="text-gray-500 p-4">No matching tracks</div>
+      )}
 
       {userTracks.length === 0 && (
         <div className="text-gray-500 p-4">No tracks in project</div>
@@ -54,6 +71,8 @@ function TrackStripWithMeter({ trackIndex }: { trackIndex: number }) {
 }
 
 function App() {
+  const [trackFilter, setTrackFilter] = useState('');
+
   return (
     <ReaperProvider autoStart={true} transportInterval={30} trackInterval={200}>
       <div className="min-h-screen bg-gray-950 text-white p-4">
@@ -71,34 +90,51 @@ function App() {
             <RecordButton />
             <div className="w-px h-8 bg-gray-700" />
             <MarkerNavigation showLabels={false} />
+            <RegionNavigation showLabels={false} />
             <div className="w-px h-8 bg-gray-700" />
             <RepeatButton />
             <TapTempoButton />
           </div>
-          <TimeDisplay format="both" showState />
+          <div className="flex items-center gap-4">
+            <TimeDisplay format="both" showState />
+            <RegionDisplay />
+          </div>
         </section>
 
         {/* Quick Actions */}
         <section className="mb-6">
           <h2 className="text-lg font-semibold mb-3">Quick Actions</h2>
           <div className="flex flex-wrap gap-2">
+            <ActionButton actionId={40042} title="Go to Start of Project">
+              <SkipBack size={16} className="inline-block mr-1" />
+              Start
+            </ActionButton>
             <MetronomeButton />
             <UndoButton />
             <RedoButton />
             <SaveButton />
             <ActionButton actionId={40340} title="Unsolo All Tracks">
-              🔇 Unsolo All
+              <VolumeX size={16} className="inline-block mr-1" />
+              Unsolo All
             </ActionButton>
             <ActionButton actionId={40339} title="Unmute All Tracks">
-              🔊 Unmute All
+              <Volume2 size={16} className="inline-block mr-1" />
+              Unmute All
             </ActionButton>
           </div>
         </section>
 
         {/* Tracks */}
         <section>
-          <h2 className="text-lg font-semibold mb-3">Tracks</h2>
-          <TrackList />
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold">Tracks</h2>
+            <TrackFilter
+              value={trackFilter}
+              onChange={setTrackFilter}
+              className="w-48"
+            />
+          </div>
+          <TrackList filter={trackFilter} />
         </section>
 
         {/* Footer */}
