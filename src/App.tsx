@@ -5,27 +5,21 @@
 
 import { useState, useMemo } from 'react';
 import './index.css';
-import { VolumeX, Volume2, SkipBack } from 'lucide-react';
 import {
   ReaperProvider,
   ConnectionStatus,
-  PlayButton,
-  StopButton,
-  RecordButton,
+  TransportBar,
   TimeDisplay,
   TrackStrip,
   LevelMeter,
   TrackFilter,
-  MarkerNavigation,
-  RegionNavigation,
   RegionDisplay,
   MetronomeButton,
   UndoButton,
   RedoButton,
   SaveButton,
-  ActionButton,
   TapTempoButton,
-  RepeatButton,
+  Timeline,
 } from './components';
 import { useTracks } from './hooks';
 
@@ -76,15 +70,15 @@ function App() {
   return (
     <ReaperProvider autoStart={true} transportInterval={30} trackInterval={200}>
       <div className="min-h-screen bg-gray-950 text-white p-4">
-        {/* Connection status - top right */}
-        <div className="absolute top-4 right-4">
-          <ConnectionStatus />
-        </div>
-
-        {/* Time Display - centered at top */}
-        <section className="text-center mb-4">
-          <TimeDisplay format="both" showState className="inline-block" />
-        </section>
+        {/* Header: Time left, Connection + Tempo right */}
+        <header className="flex items-center justify-between mb-4">
+          <TimeDisplay format="both" />
+          <div className="flex items-center gap-3">
+            <MetronomeButton />
+            <TapTempoButton />
+            <ConnectionStatus />
+          </div>
+        </header>
 
         {/* Current Region */}
         <section className="flex justify-center mb-4">
@@ -93,35 +87,17 @@ function App() {
 
         {/* Transport Controls */}
         <section className="mb-6">
-          <div className="flex flex-wrap items-center justify-center gap-3 mb-3">
-            <PlayButton />
-            <StopButton />
-            <RecordButton />
-            <div className="w-px h-8 bg-gray-700" />
-            <MarkerNavigation showLabels={false} />
-            <RegionNavigation showLabels={false} />
-            <div className="w-px h-8 bg-gray-700" />
-            <RepeatButton />
-            <TapTempoButton />
-          </div>
+          <TransportBar className="mb-3" />
           <div className="flex flex-wrap items-center justify-center gap-2">
-            <ActionButton actionId={40042} title="Go to Start of Project">
-              <SkipBack size={16} className="inline-block mr-1" />
-              Start
-            </ActionButton>
-            <MetronomeButton />
             <UndoButton />
             <RedoButton />
             <SaveButton />
-            <ActionButton actionId={40340} title="Unsolo All Tracks">
-              <VolumeX size={16} className="inline-block mr-1" />
-              Unsolo All
-            </ActionButton>
-            <ActionButton actionId={40339} title="Unmute All Tracks">
-              <Volume2 size={16} className="inline-block mr-1" />
-              Unmute All
-            </ActionButton>
           </div>
+        </section>
+
+        {/* Timeline */}
+        <section className="mb-6">
+          <Timeline height={80} />
         </section>
 
         {/* Tracks */}

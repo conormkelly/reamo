@@ -5,3 +5,4 @@ export * from './Track';
 export * from './Markers';
 export * from './Regions';
 export * from './Actions';
+export * from './Timeline';

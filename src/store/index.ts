@@ -8,10 +8,11 @@ import { createConnectionSlice, type ConnectionSlice } from './slices/connection
 import { createTransportSlice, type TransportSlice } from './slices/transportSlice';
 import { createTracksSlice, type TracksSlice } from './slices/tracksSlice';
 import { createRegionsSlice, type RegionsSlice } from './slices/regionsSlice';
-import type { ParsedResponse, Region } from '../core/types';
+import { createMarkersSlice, type MarkersSlice } from './slices/markersSlice';
+import type { ParsedResponse, Region, Marker } from '../core/types';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & TracksSlice & RegionsSlice & {
+export type ReaperStore = ConnectionSlice & TransportSlice & TracksSlice & RegionsSlice & MarkersSlice & {
   // Response handler action
   handleResponses: (responses: ParsedResponse[]) => void;
 };
@@ -23,12 +24,15 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   ...createTransportSlice(set, get, store),
   ...createTracksSlice(set, get, store),
   ...createRegionsSlice(set, get, store),
+  ...createMarkersSlice(set, get, store),
 
   // Handle incoming responses from REAPER
   handleResponses: (responses: ParsedResponse[]) => {
-    // Collect regions from REGION_LIST responses
+    // Collect regions and markers from list responses
     const collectedRegions: Region[] = [];
+    const collectedMarkers: Marker[] = [];
     let inRegionList = false;
+    let inMarkerList = false;
 
     for (const response of responses) {
       switch (response.type) {
@@ -69,6 +73,23 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
           }
           break;
 
+        case 'MARKER_LIST':
+          inMarkerList = true;
+          break;
+
+        case 'MARKER':
+          if (inMarkerList) {
+            collectedMarkers.push(response.data);
+          }
+          break;
+
+        case 'MARKER_LIST_END':
+          if (inMarkerList) {
+            get().setMarkers(collectedMarkers);
+            inMarkerList = false;
+          }
+          break;
+
         default:
           break;
       }
@@ -81,3 +102,4 @@ export type { ConnectionSlice } from './slices/connectionSlice';
 export type { TransportSlice } from './slices/transportSlice';
 export type { TracksSlice } from './slices/tracksSlice';
 export type { RegionsSlice } from './slices/regionsSlice';
+export type { MarkersSlice } from './slices/markersSlice';
