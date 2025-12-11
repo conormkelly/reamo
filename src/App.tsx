@@ -70,9 +70,8 @@ function App() {
   return (
     <ReaperProvider autoStart={true} transportInterval={30} trackInterval={200}>
       <div className="min-h-screen bg-gray-950 text-white p-4">
-        {/* Header: Time left, Connection + Tempo right */}
-        <header className="flex items-center justify-between mb-4">
-          <TimeDisplay format="both" />
+        {/* Header: Connection + Tempo right */}
+        <header className="flex items-center justify-end mb-4">
           <div className="flex items-center gap-3">
             <MetronomeButton />
             <TapTempoButton />
@@ -80,9 +79,9 @@ function App() {
           </div>
         </header>
 
-        {/* Current Region */}
+        {/* Time Display - centered above transport */}
         <section className="flex justify-center mb-4">
-          <RegionDisplay />
+          <TimeDisplay format="both" />
         </section>
 
         {/* Transport Controls */}
@@ -93,6 +92,11 @@ function App() {
             <RedoButton />
             <SaveButton />
           </div>
+        </section>
+
+        {/* Current Region - just above timeline */}
+        <section className="flex justify-center mb-2">
+          <RegionDisplay className="text-base [&_span]:text-base [&_span]:max-w-[250px]" />
         </section>
 
         {/* Timeline */}
