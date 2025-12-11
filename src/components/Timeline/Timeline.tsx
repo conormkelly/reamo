@@ -298,7 +298,7 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
             style={{
               left: `${timeToPercent(region.start)}%`,
               width: `${timeToPercent(region.end) - timeToPercent(region.start)}%`,
-              backgroundColor: reaperColorToCSS(region.color, 'rgba(139, 92, 246, 0.3)'),
+              backgroundColor: reaperColorToCSS(region.color, 'rgba(75, 85, 99, 0.5)'),
             }}
           >
             <span className="absolute top-1 left-1 text-xs text-white truncate max-w-full px-1 bg-black/30 rounded">
@@ -325,7 +325,7 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
             className="absolute top-0 bottom-0 w-0.5 bg-red-500"
             style={{ left: `${timeToPercent(marker.position)}%` }}
           >
-            <span className="absolute -top-0 left-1 text-xs text-red-400 font-bold">
+            <span className="absolute bottom-1 left-1 text-xs text-red-400 font-bold">
               {marker.id}
             </span>
           </div>
