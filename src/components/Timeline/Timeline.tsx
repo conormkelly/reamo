@@ -283,7 +283,7 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
       <h3 className="text-sm font-medium text-gray-400 mb-2">Timeline</h3>
       <div
         ref={containerRef}
-        className="relative bg-gray-800 rounded-lg overflow-hidden touch-none select-none"
+        className="relative bg-gray-800 rounded-t-lg overflow-hidden touch-none select-none"
         style={{ height }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -353,6 +353,19 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
           <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-sm">
             No regions or markers
           </div>
+        )}
+      </div>
+
+      {/* Selection indicator bar below timeline */}
+      <div className="relative h-2 bg-gray-900 rounded-b-lg">
+        {storedTimeSelection && (
+          <div
+            className="absolute top-0 bottom-0 bg-yellow-400"
+            style={{
+              left: `${timeToPercent(storedTimeSelection.start)}%`,
+              width: `${timeToPercent(storedTimeSelection.end) - timeToPercent(storedTimeSelection.start)}%`,
+            }}
+          />
         )}
       </div>
     </div>
