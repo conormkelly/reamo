@@ -18,6 +18,7 @@ export interface TransportSlice {
   positionString: string;
   positionBeats: string;
   isRepeat: boolean;
+  isMetronome: boolean;
   bpm: number | null;
   fullBeatPosition: number;
   timeSignature: string;
@@ -29,6 +30,7 @@ export interface TransportSlice {
   setPlayState: (state: PlayState) => void;
   setPosition: (seconds: number) => void;
   setRepeat: (repeat: boolean) => void;
+  setMetronome: (metronome: boolean) => void;
   setBpm: (bpm: number | null) => void;
   setTimeSelection: (selection: TimeSelection | null) => void;
 }
@@ -40,6 +42,7 @@ export const createTransportSlice: StateCreator<TransportSlice> = (set, get) => 
   positionString: '0:00.000',
   positionBeats: '1.1.00',
   isRepeat: false,
+  isMetronome: false,
   bpm: null,
   fullBeatPosition: 0,
   timeSignature: '4/4',
@@ -79,6 +82,7 @@ export const createTransportSlice: StateCreator<TransportSlice> = (set, get) => 
   setPlayState: (playState) => set({ playState }),
   setPosition: (positionSeconds) => set({ positionSeconds }),
   setRepeat: (isRepeat) => set({ isRepeat }),
+  setMetronome: (isMetronome) => set({ isMetronome }),
   setBpm: (bpm) => set({ bpm }),
   setTimeSelection: (timeSelection) => set({ timeSelection }),
 });

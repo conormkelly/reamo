@@ -9,7 +9,8 @@ import { createTransportSlice, type TransportSlice } from './slices/transportSli
 import { createTracksSlice, type TracksSlice } from './slices/tracksSlice';
 import { createRegionsSlice, type RegionsSlice } from './slices/regionsSlice';
 import { createMarkersSlice, type MarkersSlice } from './slices/markersSlice';
-import type { ParsedResponse, Region, Marker } from '../core/types';
+import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
+import { ActionCommands } from '../core/types';
 
 // Combined store type
 export type ReaperStore = ConnectionSlice & TransportSlice & TracksSlice & RegionsSlice & MarkersSlice & {
@@ -89,6 +90,14 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
             inMarkerList = false;
           }
           break;
+
+        case 'CMDSTATE': {
+          const cmdState = response.data as CommandState;
+          if (cmdState.commandId === ActionCommands.TOGGLE_METRONOME) {
+            get().setMetronome(cmdState.state === 1);
+          }
+          break;
+        }
 
         default:
           break;

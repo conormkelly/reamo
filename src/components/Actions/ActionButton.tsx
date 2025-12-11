@@ -4,9 +4,11 @@
  */
 
 import type { ReactElement, ReactNode } from 'react';
-import { Music, Undo2, Redo2, Save } from 'lucide-react';
+import { Gauge, Undo2, Redo2, Save } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
+import { useReaperStore } from '../../store';
 import * as commands from '../../core/CommandBuilder';
+import { ToggleButton } from './ToggleButton';
 
 export interface ActionButtonProps {
   /** REAPER action command ID (number or registered string ID like "_RS...") */
@@ -101,16 +103,20 @@ export function MetronomeButton({
   className = '',
   size = 'md',
 }: MetronomeButtonProps): ReactElement {
+  const isMetronome = useReaperStore((state) => state.isMetronome);
+
   return (
-    <ActionButton
+    <ToggleButton
       actionId={40364}
+      isActive={isMetronome}
+      activeColor="yellow"
       title="Toggle Metronome"
       className={className}
       size={size}
     >
-      <Music size={16} className="inline-block mr-1" />
-      Click
-    </ActionButton>
+      <Gauge size={16} className="inline-block align-middle mr-1" />
+      <span className="align-middle">Click</span>
+    </ToggleButton>
   );
 }
 
@@ -130,8 +136,8 @@ export function UndoButton({
       className={className}
       size={size}
     >
-      <Undo2 size={16} className="inline-block mr-1" />
-      Undo
+      <Undo2 size={16} className="inline-block align-middle mr-1" />
+      <span className="align-middle">Undo</span>
     </ActionButton>
   );
 }
@@ -152,8 +158,8 @@ export function RedoButton({
       className={className}
       size={size}
     >
-      <Redo2 size={16} className="inline-block mr-1" />
-      Redo
+      <Redo2 size={16} className="inline-block align-middle mr-1" />
+      <span className="align-middle">Redo</span>
     </ActionButton>
   );
 }
@@ -175,8 +181,8 @@ export function SaveButton({
       className={className}
       size={size}
     >
-      <Save size={16} className="inline-block mr-1" />
-      Save
+      <Save size={16} className="inline-block align-middle mr-1" />
+      <span className="align-middle">Save</span>
     </ActionButton>
   );
 }
