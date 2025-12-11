@@ -402,6 +402,15 @@ export function tapTempo(): string {
 }
 
 /**
+ * Build a set tempo command (requires REAPER 6.13+)
+ * @param bpm - Tempo in BPM (2-960)
+ */
+export function setTempo(bpm: number): string {
+  const clampedBpm = Math.max(2, Math.min(960, Math.round(bpm)));
+  return `OSC/tempo%2Fraw:${clampedBpm}`;
+}
+
+/**
  * Build a custom action command by ID
  */
 export function action(commandId: number | string): string {
