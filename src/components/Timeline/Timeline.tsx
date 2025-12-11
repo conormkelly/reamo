@@ -354,7 +354,7 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
             className="absolute top-0 bottom-0 w-0.5 bg-red-500"
             style={{ left: `${timeToPercent(marker.position)}%` }}
           >
-            <span className="absolute bottom-1 left-1 text-xs text-red-400 font-bold">
+            <span className="absolute bottom-1 left-1.5 text-xs text-red-400 font-bold">
               {marker.id}
             </span>
           </div>
