@@ -38,6 +38,8 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
   const { positionSeconds, seekTo } = useTransport();
   const regions = useReaperStore((state) => state.regions);
   const markers = useReaperStore((state) => state.markers);
+  const storedTimeSelection = useReaperStore((state) => state.timeSelection);
+  const setStoredTimeSelection = useReaperStore((state) => state.setTimeSelection);
 
   // Gesture state
   const [isHolding, setIsHolding] = useState(false);
@@ -95,8 +97,10 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
         commands.setPosition(start) // Return cursor to start
       );
       send(cmds);
+      // Store locally for display
+      setStoredTimeSelection({ start, end });
     },
-    [send]
+    [send, setStoredTimeSelection]
   );
 
   // Navigate to position
@@ -302,6 +306,17 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
             </span>
           </div>
         ))}
+
+        {/* Stored Time Selection */}
+        {storedTimeSelection && (
+          <div
+            className="absolute top-0 bottom-0 bg-yellow-500/20 border-l-2 border-r-2 border-yellow-400 pointer-events-none"
+            style={{
+              left: `${timeToPercent(storedTimeSelection.start)}%`,
+              width: `${timeToPercent(storedTimeSelection.end) - timeToPercent(storedTimeSelection.start)}%`,
+            }}
+          />
+        )}
 
         {/* Markers */}
         {markers.map((marker) => (

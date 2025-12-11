@@ -6,6 +6,11 @@
 import type { StateCreator } from 'zustand';
 import type { PlayState, TransportState, BeatPosition } from '../../core/types';
 
+export interface TimeSelection {
+  start: number;
+  end: number;
+}
+
 export interface TransportSlice {
   // State
   playState: PlayState;
@@ -16,6 +21,7 @@ export interface TransportSlice {
   bpm: number | null;
   fullBeatPosition: number;
   timeSignature: string;
+  timeSelection: TimeSelection | null;
 
   // Actions
   updateTransport: (transport: TransportState) => void;
@@ -24,6 +30,7 @@ export interface TransportSlice {
   setPosition: (seconds: number) => void;
   setRepeat: (repeat: boolean) => void;
   setBpm: (bpm: number | null) => void;
+  setTimeSelection: (selection: TimeSelection | null) => void;
 }
 
 export const createTransportSlice: StateCreator<TransportSlice> = (set, get) => ({
@@ -36,6 +43,7 @@ export const createTransportSlice: StateCreator<TransportSlice> = (set, get) => 
   bpm: null,
   fullBeatPosition: 0,
   timeSignature: '4/4',
+  timeSelection: null,
 
   // Actions
   updateTransport: (transport) =>
@@ -72,4 +80,5 @@ export const createTransportSlice: StateCreator<TransportSlice> = (set, get) => 
   setPosition: (positionSeconds) => set({ positionSeconds }),
   setRepeat: (isRepeat) => set({ isRepeat }),
   setBpm: (bpm) => set({ bpm }),
+  setTimeSelection: (timeSelection) => set({ timeSelection }),
 });
