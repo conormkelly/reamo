@@ -7,8 +7,10 @@ import type { StateCreator } from 'zustand';
 import type { PlayState, TransportState, BeatPosition } from '../../core/types';
 
 export interface TimeSelection {
-  start: number;
-  end: number;
+  /** Start position in beats (tempo-independent) */
+  startBeats: number;
+  /** End position in beats (tempo-independent) */
+  endBeats: number;
 }
 
 export interface TransportSlice {

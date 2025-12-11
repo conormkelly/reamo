@@ -33,13 +33,37 @@ function reaperColorToCSS(color: number | undefined, fallback: string): string {
 /**
  * Timeline component showing regions and markers
  */
+/**
+ * Convert seconds to beats
+ */
+function secondsToBeats(seconds: number, bpm: number): number {
+  return seconds * (bpm / 60);
+}
+
+/**
+ * Convert beats to seconds
+ */
+function beatsToSeconds(beats: number, bpm: number): number {
+  return beats * (60 / bpm);
+}
+
 export function Timeline({ className = '', height = 80 }: TimelineProps): ReactElement {
   const { send } = useReaper();
   const { positionSeconds, seekTo } = useTransport();
   const regions = useReaperStore((state) => state.regions);
   const markers = useReaperStore((state) => state.markers);
+  const bpm = useReaperStore((state) => state.bpm);
   const storedTimeSelection = useReaperStore((state) => state.timeSelection);
   const setStoredTimeSelection = useReaperStore((state) => state.setTimeSelection);
+
+  // Convert stored beat-based selection to seconds for display
+  const timeSelectionSeconds = useMemo(() => {
+    if (!storedTimeSelection || !bpm) return null;
+    return {
+      start: beatsToSeconds(storedTimeSelection.startBeats, bpm),
+      end: beatsToSeconds(storedTimeSelection.endBeats, bpm),
+    };
+  }, [storedTimeSelection, bpm]);
 
   // Gesture state
   const [isHolding, setIsHolding] = useState(false);
@@ -88,19 +112,24 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
 
   // Set time selection in REAPER (5 commands: move to start, set start, move to end, set end, return to start)
   const setTimeSelection = useCallback(
-    (start: number, end: number) => {
+    (startSeconds: number, endSeconds: number) => {
       const cmds = commands.join(
-        commands.setPosition(start),
+        commands.setPosition(startSeconds),
         commands.action(40625), // Set time selection start
-        commands.setPosition(end),
+        commands.setPosition(endSeconds),
         commands.action(40626), // Set time selection end
-        commands.setPosition(start) // Return cursor to start
+        commands.setPosition(startSeconds) // Return cursor to start
       );
       send(cmds);
-      // Store locally for display
-      setStoredTimeSelection({ start, end });
+      // Store locally in beats (so it stays aligned when tempo changes)
+      if (bpm) {
+        setStoredTimeSelection({
+          startBeats: secondsToBeats(startSeconds, bpm),
+          endBeats: secondsToBeats(endSeconds, bpm),
+        });
+      }
     },
-    [send, setStoredTimeSelection]
+    [send, setStoredTimeSelection, bpm]
   );
 
   // Navigate to position
@@ -308,12 +337,12 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
         ))}
 
         {/* Stored Time Selection */}
-        {storedTimeSelection && (
+        {timeSelectionSeconds && (
           <div
             className="absolute top-0 bottom-0 bg-yellow-500/20 border-l-2 border-r-2 border-yellow-400 pointer-events-none"
             style={{
-              left: `${timeToPercent(storedTimeSelection.start)}%`,
-              width: `${timeToPercent(storedTimeSelection.end) - timeToPercent(storedTimeSelection.start)}%`,
+              left: `${timeToPercent(timeSelectionSeconds.start)}%`,
+              width: `${timeToPercent(timeSelectionSeconds.end) - timeToPercent(timeSelectionSeconds.start)}%`,
             }}
           />
         )}
@@ -358,12 +387,12 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
 
       {/* Selection indicator bar below timeline */}
       <div className="relative h-2 bg-gray-900 rounded-b-lg">
-        {storedTimeSelection && (
+        {timeSelectionSeconds && (
           <div
             className="absolute top-0 bottom-0 bg-yellow-400"
             style={{
-              left: `${timeToPercent(storedTimeSelection.start)}%`,
-              width: `${timeToPercent(storedTimeSelection.end) - timeToPercent(storedTimeSelection.start)}%`,
+              left: `${timeToPercent(timeSelectionSeconds.start)}%`,
+              width: `${timeToPercent(timeSelectionSeconds.end) - timeToPercent(timeSelectionSeconds.start)}%`,
             }}
           />
         )}

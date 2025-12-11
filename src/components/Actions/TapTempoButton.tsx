@@ -34,6 +34,7 @@ export function TapTempoButton({
 }: TapTempoButtonProps): ReactElement {
   const { send } = useReaper();
   const bpm = useReaperStore((state) => state.bpm);
+  const setBpm = useReaperStore((state) => state.setBpm);
 
   // Gesture state
   const [showDialog, setShowDialog] = useState(false);
@@ -83,10 +84,19 @@ export function TapTempoButton({
   const setTempo = useCallback(
     (newBpm: number) => {
       const clampedBpm = Math.max(2, Math.min(960, Math.round(newBpm)));
-      send(commands.setTempo(clampedBpm));
+      // Optimistic update - show new BPM immediately (works even at position 0)
+      setBpm(clampedBpm);
       setInputValue(String(clampedBpm));
+      // Send tempo change + request fresh region data
+      send(
+        commands.join(
+          commands.setTempo(clampedBpm),
+          commands.regions(),
+          commands.markers()
+        )
+      );
     },
-    [send]
+    [send, setBpm]
   );
 
   const handleInputChange = useCallback(
