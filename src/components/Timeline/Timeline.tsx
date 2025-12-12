@@ -8,7 +8,8 @@ import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
 import { useTransport } from '../../hooks/useTransport';
 import * as commands from '../../core/CommandBuilder';
-import type { Region } from '../../core/types';
+import type { Region, Marker } from '../../core/types';
+import { MarkerEditModal, isMarkerMoveable, getMarkerMoveAction } from './MarkerEditModal';
 
 export interface TimelineProps {
   className?: string;
@@ -18,6 +19,8 @@ export interface TimelineProps {
 
 // Hold duration threshold in ms
 const HOLD_THRESHOLD = 300;
+// Long-press threshold for marker edit modal
+const MARKER_HOLD_THRESHOLD = 500;
 // Vertical distance to cancel playhead drag (pixels)
 const VERTICAL_CANCEL_THRESHOLD = 50;
 
@@ -49,14 +52,64 @@ function beatsToSeconds(beats: number, bpm: number): number {
   return beats * (60 / bpm);
 }
 
+/**
+ * Snap seconds to nearest subbeat grid
+ * @param seconds Time in seconds
+ * @param bpm Beats per minute
+ * @param subdivisions Subdivisions per beat (4 = 16th notes, 2 = 8th notes)
+ */
+function snapToGrid(seconds: number, bpm: number, subdivisions: number = 4): number {
+  const beatsPerSecond = bpm / 60;
+  const subbeatsPerSecond = beatsPerSecond * subdivisions;
+  const subbeat = Math.round(seconds * subbeatsPerSecond);
+  return subbeat / subbeatsPerSecond;
+}
+
+/**
+ * Parse REAPER's bar.beat string to get the bar number
+ * Format: "bar.beat.ticks" like "-4.1.00" or "56.2.45"
+ */
+function parseReaperBar(positionBeats: string): number {
+  const parts = positionBeats.split('.');
+  return parseInt(parts[0], 10);
+}
+
+/**
+ * Format beats as Bar.Beat.Subdivision with correct REAPER bar offset
+ */
+function formatBeatsWithOffset(
+  seconds: number,
+  bpm: number,
+  barOffset: number,
+  beatsPerBar: number = 4
+): string {
+  const totalBeats = secondsToBeats(seconds, bpm);
+  const calculatedBar = Math.floor(totalBeats / beatsPerBar) + 1;
+  const actualBar = calculatedBar + barOffset;
+  const beat = Math.floor(totalBeats % beatsPerBar) + 1;
+  const sub = Math.round((totalBeats % 1) * 4) + 1; // 16th note subdivision
+  return `${actualBar}.${beat}.${sub}`;
+}
+
 export function Timeline({ className = '', height = 120 }: TimelineProps): ReactElement {
   const { send } = useReaper();
   const { positionSeconds, seekTo } = useTransport();
   const regions = useReaperStore((state) => state.regions);
   const markers = useReaperStore((state) => state.markers);
   const bpm = useReaperStore((state) => state.bpm);
+  const positionBeats = useReaperStore((state) => state.positionBeats);
   const storedTimeSelection = useReaperStore((state) => state.timeSelection);
   const setStoredTimeSelection = useReaperStore((state) => state.setTimeSelection);
+
+  // Calculate bar offset from REAPER's actual bar numbering
+  // This handles projects that don't start at bar 1 (e.g., -4.1.00)
+  const barOffset = useMemo(() => {
+    if (!bpm || !positionBeats || positionSeconds <= 0) return 0;
+    const actualBar = parseReaperBar(positionBeats);
+    const totalBeats = secondsToBeats(positionSeconds, bpm);
+    const calculatedBar = Math.floor(totalBeats / 4) + 1; // Assuming 4/4
+    return actualBar - calculatedBar;
+  }, [bpm, positionBeats, positionSeconds]);
 
   // Convert stored beat-based selection to seconds for display
   // Filter out invalid 0-width selections
@@ -80,6 +133,16 @@ export function Timeline({ className = '', height = 120 }: TimelineProps): React
   const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false);
   const [playheadDragStartY, setPlayheadDragStartY] = useState<number | null>(null);
   const [playheadPreviewPercent, setPlayheadPreviewPercent] = useState<number | null>(null);
+
+  // Marker drag state
+  const [isDraggingMarker, setIsDraggingMarker] = useState(false);
+  const [draggedMarker, setDraggedMarker] = useState<Marker | null>(null);
+  const [markerDragStartY, setMarkerDragStartY] = useState<number | null>(null);
+  const [markerDragPreviewPercent, setMarkerDragPreviewPercent] = useState<number | null>(null);
+  const markerHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Marker edit modal state
+  const [editingMarker, setEditingMarker] = useState<Marker | null>(null);
 
   // Calculate timeline bounds
   const { timelineStart, duration } = useMemo(() => {
@@ -380,6 +443,159 @@ export function Timeline({ className = '', height = 120 }: TimelineProps): React
     ]
   );
 
+  // Marker drag handlers
+  const handleMarkerPointerDown = useCallback(
+    (e: React.PointerEvent, marker: Marker) => {
+      e.stopPropagation();
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
+      const canMove = isMarkerMoveable(marker.id);
+
+      setDraggedMarker(marker);
+      setMarkerDragStartY(e.clientY);
+
+      if (canMove) {
+        setMarkerDragPreviewPercent(timeToPercent(marker.position));
+      }
+
+      // Start long-press timer for edit modal
+      markerHoldTimerRef.current = setTimeout(() => {
+        // Long press detected - open edit modal
+        setEditingMarker(marker);
+        // Cancel any drag
+        setIsDraggingMarker(false);
+        setDraggedMarker(null);
+        setMarkerDragStartY(null);
+        setMarkerDragPreviewPercent(null);
+      }, MARKER_HOLD_THRESHOLD);
+    },
+    [timeToPercent]
+  );
+
+  const handleMarkerPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!draggedMarker || !containerRef.current) return;
+
+      const canMove = isMarkerMoveable(draggedMarker.id);
+
+      // If moved significantly, we're dragging (cancel long-press timer)
+      const movedSignificantly = Math.abs(e.clientX - (containerRef.current.getBoundingClientRect().left + (timeToPercent(draggedMarker.position) / 100) * containerRef.current.getBoundingClientRect().width)) > 5;
+
+      if (movedSignificantly && markerHoldTimerRef.current) {
+        clearTimeout(markerHoldTimerRef.current);
+        markerHoldTimerRef.current = null;
+        if (canMove) {
+          setIsDraggingMarker(true);
+        }
+      }
+
+      if (!isDraggingMarker || !canMove) return;
+
+      const rect = containerRef.current.getBoundingClientRect();
+      const deltaY = markerDragStartY !== null ? Math.abs(e.clientY - markerDragStartY) : 0;
+      const isOutsideVertically =
+        e.clientY < rect.top - VERTICAL_CANCEL_THRESHOLD ||
+        e.clientY > rect.bottom + VERTICAL_CANCEL_THRESHOLD;
+
+      if (isOutsideVertically || deltaY > VERTICAL_CANCEL_THRESHOLD) {
+        // Cancel - snap back to original position
+        setMarkerDragPreviewPercent(timeToPercent(draggedMarker.position));
+        return;
+      }
+
+      // Calculate time from drag position
+      const rawPercent = ((e.clientX - rect.left) / rect.width) * 100;
+      const rawTime = timelineStart + (rawPercent / 100) * duration;
+
+      // Snap to grid (16th notes) if we have BPM
+      const snappedTime = bpm ? snapToGrid(rawTime, bpm, 4) : rawTime;
+      const snappedPercent = timeToPercent(snappedTime);
+
+      setMarkerDragPreviewPercent(Math.max(0, Math.min(100, snappedPercent)));
+    },
+    [draggedMarker, isDraggingMarker, markerDragStartY, timeToPercent, timelineStart, duration, bpm]
+  );
+
+  const handleMarkerPointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      // Clear long-press timer
+      if (markerHoldTimerRef.current) {
+        clearTimeout(markerHoldTimerRef.current);
+        markerHoldTimerRef.current = null;
+      }
+
+      if (!draggedMarker || !containerRef.current) {
+        setDraggedMarker(null);
+        setMarkerDragStartY(null);
+        setMarkerDragPreviewPercent(null);
+        setIsDraggingMarker(false);
+        return;
+      }
+
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+
+      const canMove = isMarkerMoveable(draggedMarker.id);
+
+      // If we were dragging and marker is moveable, commit the move
+      if (isDraggingMarker && canMove && markerDragPreviewPercent !== null) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const deltaY = markerDragStartY !== null ? Math.abs(e.clientY - markerDragStartY) : 0;
+        const isOutsideVertically =
+          e.clientY < rect.top - VERTICAL_CANCEL_THRESHOLD ||
+          e.clientY > rect.bottom + VERTICAL_CANCEL_THRESHOLD;
+
+        // Only commit if not cancelled
+        if (!isOutsideVertically && deltaY <= VERTICAL_CANCEL_THRESHOLD) {
+          const newTime = timelineStart + (markerDragPreviewPercent / 100) * duration;
+          const actionId = getMarkerMoveAction(draggedMarker.id);
+          if (actionId) {
+            // Seek to new position, then move marker
+            send(commands.join(
+              commands.setPosition(newTime),
+              commands.action(actionId)
+            ));
+          }
+        }
+      }
+
+      // Reset state
+      setIsDraggingMarker(false);
+      setDraggedMarker(null);
+      setMarkerDragStartY(null);
+      setMarkerDragPreviewPercent(null);
+    },
+    [draggedMarker, isDraggingMarker, markerDragStartY, markerDragPreviewPercent, timelineStart, duration, send]
+  );
+
+  // Marker edit modal callbacks
+  const handleMarkerMove = useCallback(
+    (markerId: number, newPositionSeconds: number) => {
+      const actionId = getMarkerMoveAction(markerId);
+      if (actionId) {
+        send(commands.join(
+          commands.setPosition(newPositionSeconds),
+          commands.action(actionId)
+        ));
+      }
+    },
+    [send]
+  );
+
+  const handleMarkerDelete = useCallback(
+    (markerPositionSeconds: number) => {
+      // Seek to marker position, then delete marker near cursor
+      send(commands.join(
+        commands.setPosition(markerPositionSeconds),
+        commands.action(40613) // Delete marker near cursor
+      ));
+    },
+    [send]
+  );
+
+  const handleReorderAllMarkers = useCallback(() => {
+    send(commands.action(40898)); // Renumber all markers in timeline order
+  }, [send]);
+
   // Calculate selection preview bounds
   const selectionPreview = useMemo(() => {
     if (dragStart === null || dragEnd === null) return null;
@@ -509,6 +725,43 @@ export function Timeline({ className = '', height = 120 }: TimelineProps): React
             <div className="absolute top-0 -left-[11px] w-6 h-6 z-40">
               <div className="absolute top-0.5 left-1/2 -translate-x-1/2 w-4 h-1.5 bg-white rounded-sm shadow-lg ring-2 ring-blue-400" />
             </div>
+            {/* Position pill showing time and beats - at bottom so finger doesn't obscure */}
+            <div className="absolute bottom-1 -translate-x-1/2 z-40">
+              <div className="bg-gray-900 border border-blue-400 rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg">
+                {(() => {
+                  const seconds = timelineStart + (playheadPreviewPercent / 100) * duration;
+                  const mins = Math.floor(seconds / 60);
+                  const secs = (seconds % 60).toFixed(1);
+                  const timeStr = `${mins}:${secs.padStart(4, '0')}`;
+                  const beatsStr = bpm ? formatBeatsWithOffset(seconds, bpm, barOffset) : '';
+                  return beatsStr ? `${timeStr} | ${beatsStr}` : timeStr;
+                })()}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Preview marker during drag */}
+        {isDraggingMarker && draggedMarker && markerDragPreviewPercent !== null && (
+          <div
+            className="absolute top-0 bottom-0 pointer-events-none"
+            style={{ left: `${markerDragPreviewPercent}%` }}
+          >
+            {/* Preview line */}
+            <div className="absolute top-0 bottom-0 left-0 w-0.5 bg-red-400 z-10" />
+            {/* Position pill showing time and beats */}
+            <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 z-40">
+              <div className="bg-gray-900 border border-red-400 rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg">
+                {(() => {
+                  const seconds = timelineStart + (markerDragPreviewPercent / 100) * duration;
+                  const mins = Math.floor(seconds / 60);
+                  const secs = (seconds % 60).toFixed(1);
+                  const timeStr = `${mins}:${secs.padStart(4, '0')}`;
+                  const beatsStr = bpm ? formatBeatsWithOffset(seconds, bpm, barOffset) : '';
+                  return beatsStr ? `${timeStr} | ${beatsStr}` : timeStr;
+                })()}
+              </div>
+            </div>
           </div>
         )}
 
@@ -533,16 +786,41 @@ export function Timeline({ className = '', height = 120 }: TimelineProps): React
           />
         )}
         {/* Marker pills - offset by 1px to center on 2px-wide marker line */}
-        {markers.map((marker) => (
-          <div
-            key={`marker-pill-${marker.id}`}
-            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 min-w-4 h-4 px-1 bg-red-600 rounded-full flex items-center justify-center"
-            style={{ left: `calc(${timeToPercent(marker.position)}% + 1px)` }}
-          >
-            <span className="text-[10px] text-white font-bold leading-none">{marker.id}</span>
-          </div>
-        ))}
+        {markers.map((marker) => {
+          const canMove = isMarkerMoveable(marker.id);
+          const isBeingDragged = draggedMarker?.id === marker.id;
+          return (
+            <div
+              key={`marker-pill-${marker.id}`}
+              className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 min-w-4 h-4 px-1 rounded-full flex items-center justify-center touch-none select-none transition-opacity ${
+                canMove
+                  ? 'bg-red-600 cursor-grab active:cursor-grabbing'
+                  : 'bg-gray-500 cursor-not-allowed'
+              } ${isBeingDragged && isDraggingMarker ? 'opacity-50' : ''}`}
+              style={{ left: `calc(${timeToPercent(marker.position)}% + 1px)` }}
+              onPointerDown={(e) => handleMarkerPointerDown(e, marker)}
+              onPointerMove={handleMarkerPointerMove}
+              onPointerUp={handleMarkerPointerUp}
+              onPointerCancel={handleMarkerPointerUp}
+            >
+              <span className="text-[10px] text-white font-bold leading-none">{marker.id}</span>
+            </div>
+          );
+        })}
       </div>
+
+      {/* Marker Edit Modal */}
+      {editingMarker && (
+        <MarkerEditModal
+          marker={editingMarker}
+          bpm={bpm || 120}
+          barOffset={barOffset}
+          onClose={() => setEditingMarker(null)}
+          onMove={handleMarkerMove}
+          onDelete={handleMarkerDelete}
+          onReorderAll={handleReorderAllMarkers}
+        />
+      )}
     </div>
   );
 }
