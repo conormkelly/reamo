@@ -18,6 +18,8 @@ export interface TimelineProps {
 
 // Hold duration threshold in ms
 const HOLD_THRESHOLD = 300;
+// Vertical distance to cancel playhead drag (pixels)
+const VERTICAL_CANCEL_THRESHOLD = 50;
 
 /**
  * Convert REAPER color (0xaarrggbb) to CSS color
@@ -73,6 +75,11 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
   const [dragEnd, setDragEnd] = useState<number | null>(null);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Playhead drag state
+  const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false);
+  const [playheadDragStartY, setPlayheadDragStartY] = useState<number | null>(null);
+  const [playheadPreviewPercent, setPlayheadPreviewPercent] = useState<number | null>(null);
 
   // Calculate timeline bounds
   const { timelineStart, duration } = useMemo(() => {
@@ -192,6 +199,9 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
   // Handle touch/mouse start
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
+      // Don't start timeline selection if dragging playhead
+      if (isDraggingPlayhead) return;
+
       const time = positionToTime(e.clientX);
       setDragStart(time);
       setDragEnd(time);
@@ -205,7 +215,7 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
       // Capture pointer for drag events
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
-    [positionToTime]
+    [positionToTime, isDraggingPlayhead]
   );
 
   // Handle touch/mouse move
@@ -291,6 +301,85 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
     ]
   );
 
+  // Playhead position
+  const playheadPercent = timeToPercent(positionSeconds);
+
+  // Playhead drag handlers
+  const handlePlayheadPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.stopPropagation();
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
+      setIsDraggingPlayhead(true);
+      setPlayheadDragStartY(e.clientY);
+      setPlayheadPreviewPercent(playheadPercent);
+    },
+    [playheadPercent]
+  );
+
+  const handlePlayheadPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!isDraggingPlayhead || !containerRef.current) return;
+
+      const rect = containerRef.current.getBoundingClientRect();
+      const deltaY =
+        playheadDragStartY !== null ? Math.abs(e.clientY - playheadDragStartY) : 0;
+      const isOutsideVertically =
+        e.clientY < rect.top - VERTICAL_CANCEL_THRESHOLD ||
+        e.clientY > rect.bottom + VERTICAL_CANCEL_THRESHOLD;
+
+      if (isOutsideVertically || deltaY > VERTICAL_CANCEL_THRESHOLD) {
+        // Show cancel state - preview snaps back to current playhead
+        setPlayheadPreviewPercent(playheadPercent);
+        return;
+      }
+
+      // Update preview position
+      const percent = ((e.clientX - rect.left) / rect.width) * 100;
+      setPlayheadPreviewPercent(Math.max(0, Math.min(100, percent)));
+    },
+    [isDraggingPlayhead, playheadDragStartY, playheadPercent]
+  );
+
+  const handlePlayheadPointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      if (!isDraggingPlayhead || !containerRef.current) return;
+
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+
+      const rect = containerRef.current.getBoundingClientRect();
+      const deltaY =
+        playheadDragStartY !== null ? Math.abs(e.clientY - playheadDragStartY) : 0;
+      const isOutsideVertically =
+        e.clientY < rect.top - VERTICAL_CANCEL_THRESHOLD ||
+        e.clientY > rect.bottom + VERTICAL_CANCEL_THRESHOLD;
+
+      // Only commit if not cancelled
+      if (
+        !isOutsideVertically &&
+        deltaY <= VERTICAL_CANCEL_THRESHOLD &&
+        playheadPreviewPercent !== null
+      ) {
+        const newTime = timelineStart + (playheadPreviewPercent / 100) * duration;
+        send(seekTo(newTime));
+      }
+
+      // Reset state
+      setIsDraggingPlayhead(false);
+      setPlayheadDragStartY(null);
+      setPlayheadPreviewPercent(null);
+    },
+    [
+      isDraggingPlayhead,
+      playheadDragStartY,
+      playheadPreviewPercent,
+      timelineStart,
+      duration,
+      send,
+      seekTo,
+    ]
+  );
+
   // Calculate selection preview bounds
   const selectionPreview = useMemo(() => {
     if (dragStart === null || dragEnd === null) return null;
@@ -305,9 +394,6 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
 
     return { start, end };
   }, [dragStart, dragEnd, isHolding, findNearestBoundary]);
-
-  // Playhead position
-  const playheadPercent = timeToPercent(positionSeconds);
 
   return (
     <div className={`${className}`}>
@@ -332,7 +418,7 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
               backgroundColor: reaperColorToCSS(region.color, 'rgba(75, 85, 99, 0.5)'),
             }}
           >
-            <span className="absolute top-1 left-1 text-xs text-white truncate max-w-full px-1 bg-black/45 rounded z-20">
+            <span className="absolute top-2.5 left-1 text-xs text-white truncate max-w-full px-1 bg-black/45 rounded z-20">
               {region.name}
             </span>
           </div>
@@ -373,11 +459,42 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
           />
         )}
 
-        {/* Playhead */}
+        {/* Playhead with grab handle */}
         <div
-          className="absolute top-0 bottom-0 w-0.5 bg-white pointer-events-none z-10"
+          className={`absolute top-0 bottom-0 ${isDraggingPlayhead ? 'opacity-50' : ''}`}
           style={{ left: `${playheadPercent}%` }}
-        />
+        >
+          {/* Playhead line - above markers (z-10), below region labels (z-20) */}
+          <div className="absolute top-0 bottom-0 left-0 w-0.5 bg-white pointer-events-none z-10" />
+
+          {/* Grab handle - T-shape at top, above everything */}
+          <div
+            className="absolute -top-0.5 -left-[11px] w-6 h-6 cursor-grab active:cursor-grabbing z-30"
+            style={{ touchAction: 'none' }}
+            onPointerDown={handlePlayheadPointerDown}
+            onPointerMove={handlePlayheadPointerMove}
+            onPointerUp={handlePlayheadPointerUp}
+            onPointerCancel={handlePlayheadPointerUp}
+          >
+            {/* Visible T-bar */}
+            <div className="absolute top-0.5 left-1/2 -translate-x-1/2 w-4 h-1.5 bg-white rounded-sm shadow-md" />
+          </div>
+        </div>
+
+        {/* Preview playhead during drag */}
+        {isDraggingPlayhead && playheadPreviewPercent !== null && (
+          <div
+            className="absolute top-0 bottom-0 pointer-events-none"
+            style={{ left: `${playheadPreviewPercent}%` }}
+          >
+            {/* Preview line - same z as main playhead line */}
+            <div className="absolute top-0 bottom-0 left-0 w-0.5 bg-white z-10" />
+            {/* Preview T-bar with highlight - above everything */}
+            <div className="absolute top-0 -left-[11px] w-6 h-6 z-40">
+              <div className="absolute top-0.5 left-1/2 -translate-x-1/2 w-4 h-1.5 bg-white rounded-sm shadow-lg ring-2 ring-blue-400" />
+            </div>
+          </div>
+        )}
 
         {/* Empty state */}
         {regions.length === 0 && markers.length === 0 && (
