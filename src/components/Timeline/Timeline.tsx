@@ -49,7 +49,7 @@ function beatsToSeconds(beats: number, bpm: number): number {
   return beats * (60 / bpm);
 }
 
-export function Timeline({ className = '', height = 80 }: TimelineProps): ReactElement {
+export function Timeline({ className = '', height = 120 }: TimelineProps): ReactElement {
   const { send } = useReaper();
   const { positionSeconds, seekTo } = useTransport();
   const regions = useReaperStore((state) => state.regions);
@@ -435,17 +435,13 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
           />
         )}
 
-        {/* Markers */}
+        {/* Markers - lines only, labels in bottom bar */}
         {markers.map((marker) => (
           <div
             key={`marker-${marker.id}`}
             className="absolute top-0 bottom-0 w-0.5 bg-red-500"
             style={{ left: `${timeToPercent(marker.position)}%` }}
-          >
-            <span className="absolute bottom-1 left-1.5 text-xs text-red-400 font-bold">
-              {marker.id}
-            </span>
-          </div>
+          />
         ))}
 
         {/* Selection Preview */}
@@ -504,17 +500,28 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
         )}
       </div>
 
-      {/* Selection indicator bar below timeline */}
-      <div className="relative h-2 bg-gray-900 rounded-b-lg">
+      {/* Bottom bar - selection indicator and marker pills */}
+      <div className="relative h-5 bg-gray-900 rounded-b-lg">
+        {/* Time selection indicator - top half */}
         {timeSelectionSeconds && (
           <div
-            className="absolute top-0 bottom-0 bg-yellow-400"
+            className="absolute top-0 h-1/2 bg-yellow-400"
             style={{
               left: `${timeToPercent(timeSelectionSeconds.start)}%`,
               width: `${timeToPercent(timeSelectionSeconds.end) - timeToPercent(timeSelectionSeconds.start)}%`,
             }}
           />
         )}
+        {/* Marker pills - offset by 1px to center on 2px-wide marker line */}
+        {markers.map((marker) => (
+          <div
+            key={`marker-pill-${marker.id}`}
+            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 min-w-4 h-4 px-1 bg-red-600 rounded-full flex items-center justify-center"
+            style={{ left: `calc(${timeToPercent(marker.position)}% + 1px)` }}
+          >
+            <span className="text-[10px] text-white font-bold leading-none">{marker.id}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
