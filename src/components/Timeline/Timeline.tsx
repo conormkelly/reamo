@@ -398,30 +398,50 @@ export function Timeline({ className = '', height = 120 }: TimelineProps): React
   return (
     <div className={`${className}`}>
       <h3 className="text-sm font-medium text-gray-400 mb-2">Timeline</h3>
+
+      {/* Top bar - region labels (color bar + text) */}
+      <div className="relative h-[25px] bg-gray-900 rounded-t-lg">
+        {regions.map((region) => (
+          <div
+            key={`region-label-${region.id}`}
+            className="absolute top-0 bottom-0 border-l border-r border-gray-600 flex flex-col"
+            style={{
+              left: `${timeToPercent(region.start)}%`,
+              width: `${timeToPercent(region.end) - timeToPercent(region.start)}%`,
+            }}
+          >
+            {/* Color bar - 5px */}
+            <div
+              className="h-[5px] w-full"
+              style={{ backgroundColor: reaperColorToCSS(region.color, 'rgb(75, 85, 99)') }}
+            />
+            {/* Region name */}
+            <span className="h-5 flex items-center px-1 text-[11px] text-white font-semibold truncate">
+              {region.name}
+            </span>
+          </div>
+        ))}
+      </div>
+
       <div
         ref={containerRef}
-        className="relative bg-gray-800 rounded-t-lg overflow-hidden touch-none select-none"
+        className="relative bg-gray-800 overflow-hidden touch-none select-none"
         style={{ height }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
       >
-        {/* Regions */}
+        {/* Regions - blocks only (no color), labels in top bar */}
         {regions.map((region) => (
           <div
             key={`region-${region.id}`}
-            className="absolute top-0 bottom-0 border-l border-r border-gray-600"
+            className="absolute top-0 bottom-0 border-l border-r border-gray-600 bg-gray-700/50"
             style={{
               left: `${timeToPercent(region.start)}%`,
               width: `${timeToPercent(region.end) - timeToPercent(region.start)}%`,
-              backgroundColor: reaperColorToCSS(region.color, 'rgba(75, 85, 99, 0.5)'),
             }}
-          >
-            <span className="absolute top-2.5 left-1 text-xs text-white truncate max-w-full px-1 bg-black/45 rounded z-20">
-              {region.name}
-            </span>
-          </div>
+          />
         ))}
 
         {/* Stored Time Selection */}
