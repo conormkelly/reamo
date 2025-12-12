@@ -115,7 +115,7 @@ export function TransportBar({ className = '' }: TransportBarProps): ReactElemen
   // Determine record button styling based on auto-punch mode
   const recordInactiveClass = isAutoPunch
     ? 'bg-red-900/30 hover:bg-red-800/50 ring-2 ring-red-500/50'
-    : 'bg-red-900/30 hover:bg-red-800/50';
+    : 'bg-red-900/30 hover:bg-red-800/50 ring-2 ring-red-500/30';
 
   return (
     <div className={`flex items-center justify-center gap-2 ${className}`}>
