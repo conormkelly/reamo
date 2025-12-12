@@ -330,7 +330,7 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
               backgroundColor: reaperColorToCSS(region.color, 'rgba(75, 85, 99, 0.5)'),
             }}
           >
-            <span className="absolute top-1 left-1 text-xs text-white truncate max-w-full px-1 bg-black/30 rounded">
+            <span className="absolute top-1 left-1 text-xs text-white truncate max-w-full px-1 bg-black/45 rounded z-20">
               {region.name}
             </span>
           </div>
