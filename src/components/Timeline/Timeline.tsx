@@ -57,12 +57,14 @@ export function Timeline({ className = '', height = 80 }: TimelineProps): ReactE
   const setStoredTimeSelection = useReaperStore((state) => state.setTimeSelection);
 
   // Convert stored beat-based selection to seconds for display
+  // Filter out invalid 0-width selections
   const timeSelectionSeconds = useMemo(() => {
     if (!storedTimeSelection || !bpm) return null;
-    return {
-      start: beatsToSeconds(storedTimeSelection.startBeats, bpm),
-      end: beatsToSeconds(storedTimeSelection.endBeats, bpm),
-    };
+    const start = beatsToSeconds(storedTimeSelection.startBeats, bpm);
+    const end = beatsToSeconds(storedTimeSelection.endBeats, bpm);
+    // Don't show selections with negligible width (less than 0.01 seconds)
+    if (Math.abs(end - start) < 0.01) return null;
+    return { start, end };
   }, [storedTimeSelection, bpm]);
 
   // Gesture state

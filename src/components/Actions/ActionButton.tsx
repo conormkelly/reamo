@@ -4,7 +4,7 @@
  */
 
 import { useState, useRef, useCallback, type ReactElement, type ReactNode } from 'react';
-import { Gauge, Undo2, Redo2, Save, MapPinPlus, Minus, Plus } from 'lucide-react';
+import { Gauge, Undo2, Redo2, Save, MapPinPlus, Minus, Plus, SkipBack, SkipForward, X } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
 import * as commands from '../../core/CommandBuilder';
@@ -316,5 +316,102 @@ export function AddMarkerButton({
       <MapPinPlus size={16} className="mr-1" />
       <span>Add Marker</span>
     </ActionButton>
+  );
+}
+
+export interface PrevMarkerButtonProps {
+  className?: string;
+  size?: 'sm' | 'md' | 'lg';
+}
+
+/**
+ * Button to go to previous marker or project start
+ * Action ID 40172: Go to previous marker/project start
+ */
+export function PrevMarkerButton({
+  className = '',
+  size = 'md',
+}: PrevMarkerButtonProps): ReactElement {
+  return (
+    <ActionButton
+      actionId={40172}
+      title="Previous Marker"
+      className={`flex items-center ${className}`}
+      size={size}
+    >
+      <SkipBack size={16} className="mr-1" />
+      <span>Prev</span>
+    </ActionButton>
+  );
+}
+
+export interface NextMarkerButtonProps {
+  className?: string;
+  size?: 'sm' | 'md' | 'lg';
+}
+
+/**
+ * Button to go to next marker or project end
+ * Action ID 40173: Go to next marker/project end
+ */
+export function NextMarkerButton({
+  className = '',
+  size = 'md',
+}: NextMarkerButtonProps): ReactElement {
+  return (
+    <ActionButton
+      actionId={40173}
+      title="Next Marker"
+      className={`flex items-center ${className}`}
+      size={size}
+    >
+      <span>Next</span>
+      <SkipForward size={16} className="ml-1" />
+    </ActionButton>
+  );
+}
+
+export interface ClearSelectionButtonProps {
+  className?: string;
+  size?: 'sm' | 'md' | 'lg';
+}
+
+/**
+ * Button to clear time selection and loop points
+ * Action ID 40020: Remove (unselect) time selection and loop points
+ * Also clears the local UI state for the selection
+ */
+export function ClearSelectionButton({
+  className = '',
+  size = 'md',
+}: ClearSelectionButtonProps): ReactElement {
+  const { send } = useReaper();
+  const setTimeSelection = useReaperStore((state) => state.setTimeSelection);
+
+  const handleClick = useCallback(() => {
+    send(commands.action(40020));
+    setTimeSelection(null);
+  }, [send, setTimeSelection]);
+
+  const sizeClasses = {
+    sm: 'px-2 py-1 text-sm',
+    md: 'px-3 py-2',
+    lg: 'px-4 py-3 text-lg',
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      title="Clear Selection"
+      className={`
+        ${sizeClasses[size]}
+        bg-gray-700 text-white hover:bg-gray-600 active:bg-gray-500
+        rounded font-medium transition-colors flex items-center
+        ${className}
+      `}
+    >
+      <X size={16} className="mr-1" />
+      <span>Clear</span>
+    </button>
   );
 }

@@ -19,6 +19,8 @@ import {
   RedoButton,
   SaveButton,
   AddMarkerButton,
+  PrevMarkerButton,
+  NextMarkerButton,
   TapTempoButton,
   Timeline,
 } from './components';
@@ -105,8 +107,10 @@ function App() {
           <Timeline height={80} />
         </section>
 
-        {/* Add Marker - centered below timeline */}
-        <section className="flex justify-center mb-6">
+        {/* Marker Navigation - centered below timeline */}
+        <section className="flex justify-center items-center gap-2 mb-6">
+          <PrevMarkerButton />
+          <NextMarkerButton />
           <AddMarkerButton />
         </section>
 
