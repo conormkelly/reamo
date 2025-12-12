@@ -13,7 +13,6 @@ import {
   TrackStrip,
   LevelMeter,
   TrackFilter,
-  RegionDisplay,
   MetronomeButton,
   UndoButton,
   RedoButton,
@@ -95,11 +94,6 @@ function App() {
             <RedoButton />
             <SaveButton />
           </div>
-        </section>
-
-        {/* Current Region - just above timeline */}
-        <section className="flex justify-center mb-2">
-          <RegionDisplay className="text-base [&_span]:text-base [&_span]:max-w-[250px]" />
         </section>
 
         {/* Timeline */}
