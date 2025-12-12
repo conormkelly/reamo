@@ -411,6 +411,17 @@ export function setTempo(bpm: number): string {
 }
 
 /**
+ * Build a set metronome volume command
+ * Uses action 999 (Set metronome volume) via OSC CC
+ * @param volume - Volume level 0.0 to 1.0
+ * Note: No feedback available from REAPER - UI must maintain local state
+ */
+export function setMetronomeVolume(volume: number): string {
+  const clampedVolume = Math.max(0, Math.min(1, volume));
+  return `OSC/action%2F999%2Fcc:${clampedVolume}`;
+}
+
+/**
  * Build a custom action command by ID
  */
 export function action(commandId: number | string): string {

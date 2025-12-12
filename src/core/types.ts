@@ -178,4 +178,5 @@ export const ActionCommands = {
   TOGGLE_METRONOME: 40364,
   TOGGLE_REPEAT: 1068,
   TAP_TEMPO: 1134,
+  AUTO_PUNCH: 40076,
 } as const;

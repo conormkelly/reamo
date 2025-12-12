@@ -4,11 +4,13 @@ export {
   UndoButton,
   RedoButton,
   SaveButton,
+  AddMarkerButton,
   type ActionButtonProps,
   type MetronomeButtonProps,
   type UndoButtonProps,
   type RedoButtonProps,
   type SaveButtonProps,
+  type AddMarkerButtonProps,
 } from './ActionButton';
 
 export { ToggleButton, type ToggleButtonProps } from './ToggleButton';

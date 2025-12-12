@@ -3,12 +3,14 @@
  * Triggers any REAPER action by command ID
  */
 
-import type { ReactElement, ReactNode } from 'react';
-import { Gauge, Undo2, Redo2, Save } from 'lucide-react';
+import { useState, useRef, useCallback, type ReactElement, type ReactNode } from 'react';
+import { Gauge, Undo2, Redo2, Save, MapPinPlus, Minus, Plus } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
 import * as commands from '../../core/CommandBuilder';
-import { ToggleButton } from './ToggleButton';
+
+// Hold duration threshold in ms
+const HOLD_THRESHOLD = 300;
 
 export interface ActionButtonProps {
   /** REAPER action command ID (number or registered string ID like "_RS...") */
@@ -99,24 +101,128 @@ export interface MetronomeButtonProps {
   size?: 'sm' | 'md' | 'lg';
 }
 
+// SWS action IDs for metronome volume
+const SWS_METRO_VOL_DOWN = '_S&M_METRO_VOL_DOWN';
+const SWS_METRO_VOL_UP = '_S&M_METRO_VOL_UP';
+
+/**
+ * Metronome button with long-press for volume control
+ * - Tap: Toggle metronome on/off
+ * - Long press: Open volume adjustment dialog with +/- buttons
+ */
 export function MetronomeButton({
   className = '',
   size = 'md',
 }: MetronomeButtonProps): ReactElement {
+  const { send } = useReaper();
   const isMetronome = useReaperStore((state) => state.isMetronome);
 
+  // Long-press state
+  const [showDialog, setShowDialog] = useState(false);
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wasHoldRef = useRef(false);
+
+  const handlePointerDown = useCallback(() => {
+    wasHoldRef.current = false;
+    holdTimerRef.current = setTimeout(() => {
+      wasHoldRef.current = true;
+      setShowDialog(true);
+    }, HOLD_THRESHOLD);
+  }, []);
+
+  const handlePointerUp = useCallback(() => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    // If it wasn't a hold, toggle metronome
+    if (!wasHoldRef.current && !showDialog) {
+      send(commands.toggleMetronome());
+    }
+  }, [send, showDialog]);
+
+  const handlePointerCancel = useCallback(() => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+  }, []);
+
+  const handleVolumeUp = useCallback(() => {
+    send(commands.action(SWS_METRO_VOL_UP));
+  }, [send]);
+
+  const handleVolumeDown = useCallback(() => {
+    send(commands.action(SWS_METRO_VOL_DOWN));
+  }, [send]);
+
+  const handleOverlayClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.target === e.currentTarget) {
+        setShowDialog(false);
+      }
+    },
+    []
+  );
+
+  const sizeClasses = {
+    sm: 'px-2 py-1 text-sm',
+    md: 'px-3 py-2',
+    lg: 'px-4 py-3 text-lg',
+  };
+
+  const activeClass = isMetronome
+    ? 'bg-yellow-500/20 text-yellow-500 hover:bg-yellow-500/30'
+    : 'bg-gray-700 text-gray-300 hover:bg-gray-600';
+
   return (
-    <ToggleButton
-      actionId={40364}
-      isActive={isMetronome}
-      activeColor="yellow"
-      title="Toggle Metronome"
-      className={className}
-      size={size}
-    >
-      <Gauge size={16} className="inline-block align-middle mr-1" />
-      <span className="align-middle">Click</span>
-    </ToggleButton>
+    <>
+      <button
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        onPointerLeave={handlePointerCancel}
+        title="Toggle Metronome - hold for volume"
+        className={`
+          ${sizeClasses[size]}
+          ${activeClass}
+          rounded font-medium transition-colors touch-none select-none
+          ${className}
+        `}
+      >
+        <Gauge size={16} className="inline-block align-middle mr-1" />
+        <span className="align-middle">Click</span>
+      </button>
+
+      {/* Volume Dialog */}
+      {showDialog && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          onClick={handleOverlayClick}
+        >
+          <div className="bg-gray-800 rounded-lg p-4 shadow-xl border border-gray-700">
+            <div className="text-sm text-gray-400 mb-3 text-center">Metronome Volume</div>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleVolumeDown}
+                className="w-14 h-14 rounded-lg bg-gray-700 hover:bg-gray-600 active:bg-gray-500 flex items-center justify-center text-2xl"
+              >
+                <Minus size={28} />
+              </button>
+              <button
+                onClick={handleVolumeUp}
+                className="w-14 h-14 rounded-lg bg-gray-700 hover:bg-gray-600 active:bg-gray-500 flex items-center justify-center text-2xl"
+              >
+                <Plus size={28} />
+              </button>
+            </div>
+            <div className="text-xs text-gray-500 mt-3 text-center">
+              ~0.2 dB per tap
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -183,6 +289,32 @@ export function SaveButton({
     >
       <Save size={16} className="inline-block align-middle mr-1" />
       <span className="align-middle">Save</span>
+    </ActionButton>
+  );
+}
+
+export interface AddMarkerButtonProps {
+  className?: string;
+  size?: 'sm' | 'md' | 'lg';
+}
+
+/**
+ * Button to insert a marker at the current playback position
+ * Action ID 40157: Insert marker at current position
+ */
+export function AddMarkerButton({
+  className = '',
+  size = 'md',
+}: AddMarkerButtonProps): ReactElement {
+  return (
+    <ActionButton
+      actionId={40157}
+      title="Add Marker"
+      className={`flex items-center ${className}`}
+      size={size}
+    >
+      <MapPinPlus size={16} className="mr-1" />
+      <span>Add Marker</span>
     </ActionButton>
   );
 }

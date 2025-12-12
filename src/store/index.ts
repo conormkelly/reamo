@@ -95,6 +95,8 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
           const cmdState = response.data as CommandState;
           if (cmdState.commandId === ActionCommands.TOGGLE_METRONOME) {
             get().setMetronome(cmdState.state === 1);
+          } else if (cmdState.commandId === ActionCommands.AUTO_PUNCH) {
+            get().setAutoPunch(cmdState.state === 1);
           }
           break;
         }

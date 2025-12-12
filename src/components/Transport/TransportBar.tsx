@@ -3,12 +3,15 @@
  * Icon-only transport controls matching REAPER's native layout
  */
 
-import type { ReactElement } from 'react';
-import { SkipBack, Play, Pause, Repeat, Square, Circle } from 'lucide-react';
+import { useRef, useCallback, type ReactElement } from 'react';
+import { SkipBack, Play, Pause, Repeat, Square, Circle, RefreshCw } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useTransport } from '../../hooks/useTransport';
 import { useReaperStore } from '../../store';
 import * as commands from '../../core/CommandBuilder';
+
+// Hold duration threshold in ms
+const HOLD_THRESHOLD = 300;
 
 export interface TransportBarProps {
   className?: string;
@@ -18,6 +21,7 @@ interface TransportButtonProps {
   onClick: () => void;
   isActive?: boolean;
   activeColor?: 'green' | 'red' | 'gray';
+  inactiveClass?: string;
   title: string;
   children: React.ReactNode;
   pulse?: boolean;
@@ -27,6 +31,7 @@ function TransportButton({
   onClick,
   isActive = false,
   activeColor = 'gray',
+  inactiveClass,
   title,
   children,
   pulse = false,
@@ -37,6 +42,8 @@ function TransportButton({
     gray: 'bg-gray-500',
   };
 
+  const defaultInactiveClass = 'bg-gray-700 hover:bg-gray-600';
+
   return (
     <button
       onClick={onClick}
@@ -44,7 +51,7 @@ function TransportButton({
       className={`
         w-11 h-11 rounded-full flex items-center justify-center
         transition-colors
-        ${isActive ? colorClasses[activeColor] : 'bg-gray-700 hover:bg-gray-600'}
+        ${isActive ? colorClasses[activeColor] : (inactiveClass || defaultInactiveClass)}
         ${pulse ? 'animate-pulse' : ''}
       `}
     >
@@ -61,13 +68,54 @@ export function TransportBar({ className = '' }: TransportBarProps): ReactElemen
   const { send } = useReaper();
   const { isPlaying, isPaused, isStopped, isRecording, play, pause, stop, record } = useTransport();
   const isRepeat = useReaperStore((state) => state.isRepeat);
+  const isAutoPunch = useReaperStore((state) => state.isAutoPunch);
+
+  // Long-press state for Record button
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wasHoldRef = useRef(false);
 
   const handleSkipToStart = () => send(commands.action(40042));
   const handlePlay = () => send(play());
   const handlePause = () => send(pause());
   const handleRepeat = () => send(commands.toggleRepeat());
   const handleStop = () => send(stop());
-  const handleRecord = () => send(record());
+
+  // Record button long-press handlers
+  const handleRecordPointerDown = useCallback(() => {
+    wasHoldRef.current = false;
+    holdTimerRef.current = setTimeout(() => {
+      wasHoldRef.current = true;
+      // Toggle between normal and auto-punch mode
+      if (isAutoPunch) {
+        send(commands.action(40252)); // Set record mode to normal
+      } else {
+        send(commands.action(40076)); // Set record mode to time selection auto-punch
+      }
+    }, HOLD_THRESHOLD);
+  }, [send, isAutoPunch]);
+
+  const handleRecordPointerUp = useCallback(() => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    // If it wasn't a hold, toggle record
+    if (!wasHoldRef.current) {
+      send(record());
+    }
+  }, [send, record]);
+
+  const handleRecordPointerCancel = useCallback(() => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+  }, []);
+
+  // Determine record button styling based on auto-punch mode
+  const recordInactiveClass = isAutoPunch
+    ? 'bg-red-900/30 hover:bg-red-800/50 ring-2 ring-red-500/50'
+    : 'bg-red-900/30 hover:bg-red-800/50';
 
   return (
     <div className={`flex items-center justify-center gap-2 ${className}`}>
@@ -116,16 +164,25 @@ export function TransportBar({ className = '' }: TransportBarProps): ReactElemen
         <Square size={18} fill={isStopped ? 'currentColor' : 'none'} />
       </TransportButton>
 
-      {/* Record */}
-      <TransportButton
-        onClick={handleRecord}
-        isActive={isRecording}
-        activeColor="red"
-        title="Record"
-        pulse={isRecording}
+      {/* Record - with long-press for auto-punch toggle */}
+      <button
+        onPointerDown={handleRecordPointerDown}
+        onPointerUp={handleRecordPointerUp}
+        onPointerCancel={handleRecordPointerCancel}
+        onPointerLeave={handleRecordPointerCancel}
+        title={isAutoPunch ? "Record (Auto-Punch) - hold to toggle mode" : "Record - hold to toggle auto-punch"}
+        className={`
+          w-11 h-11 rounded-full flex items-center justify-center
+          transition-colors touch-none select-none
+          ${isRecording ? 'bg-red-500 animate-pulse' : recordInactiveClass}
+        `}
       >
-        <Circle size={20} fill="currentColor" />
-      </TransportButton>
+        {isAutoPunch ? (
+          <RefreshCw size={20} strokeWidth={2.5} />
+        ) : (
+          <Circle size={20} fill="currentColor" />
+        )}
+      </button>
     </div>
   );
 }
