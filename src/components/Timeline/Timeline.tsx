@@ -15,6 +15,8 @@ export interface TimelineProps {
   className?: string;
   /** Minimum height in pixels */
   height?: number;
+  /** Whether time selection sync is in progress */
+  isSyncing?: boolean;
 }
 
 // Hold duration threshold in ms
@@ -91,7 +93,7 @@ function formatBeatsWithOffset(
   return `${actualBar}.${beat}.${sub}`;
 }
 
-export function Timeline({ className = '', height = 120 }: TimelineProps): ReactElement {
+export function Timeline({ className = '', height = 120, isSyncing = false }: TimelineProps): ReactElement {
   const { send } = useReaper();
   const { positionSeconds, seekTo } = useTransport();
   const regions = useReaperStore((state) => state.regions);
@@ -691,27 +693,29 @@ export function Timeline({ className = '', height = 120 }: TimelineProps): React
           />
         )}
 
-        {/* Playhead with grab handle */}
-        <div
-          className={`absolute top-0 bottom-0 ${isDraggingPlayhead ? 'opacity-50' : ''}`}
-          style={{ left: `${playheadPercent}%` }}
-        >
-          {/* Playhead line - above markers (z-10), below region labels (z-20) */}
-          <div className="absolute top-0 bottom-0 left-0 w-0.5 bg-white pointer-events-none z-10" />
-
-          {/* Grab handle - T-shape at top, above everything */}
+        {/* Playhead with grab handle - hidden while syncing */}
+        {!isSyncing && (
           <div
-            className="absolute -top-0.5 -left-[11px] w-6 h-6 cursor-grab active:cursor-grabbing z-30"
-            style={{ touchAction: 'none' }}
-            onPointerDown={handlePlayheadPointerDown}
-            onPointerMove={handlePlayheadPointerMove}
-            onPointerUp={handlePlayheadPointerUp}
-            onPointerCancel={handlePlayheadPointerUp}
+            className={`absolute top-0 bottom-0 ${isDraggingPlayhead ? 'opacity-50' : ''}`}
+            style={{ left: `${playheadPercent}%` }}
           >
-            {/* Visible T-bar */}
-            <div className="absolute top-0.5 left-1/2 -translate-x-1/2 w-4 h-1.5 bg-white rounded-sm shadow-md" />
+            {/* Playhead line - above markers (z-10), below region labels (z-20) */}
+            <div className="absolute top-0 bottom-0 left-0 w-0.5 bg-white pointer-events-none z-10" />
+
+            {/* Grab handle - T-shape at top, above everything */}
+            <div
+              className="absolute -top-0.5 -left-[11px] w-6 h-6 cursor-grab active:cursor-grabbing z-30"
+              style={{ touchAction: 'none' }}
+              onPointerDown={handlePlayheadPointerDown}
+              onPointerMove={handlePlayheadPointerMove}
+              onPointerUp={handlePlayheadPointerUp}
+              onPointerCancel={handlePlayheadPointerUp}
+            >
+              {/* Visible T-bar */}
+              <div className="absolute top-0.5 left-1/2 -translate-x-1/2 w-4 h-1.5 bg-white rounded-sm shadow-md" />
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Preview playhead during drag */}
         {isDraggingPlayhead && playheadPreviewPercent !== null && (
@@ -769,6 +773,15 @@ export function Timeline({ className = '', height = 120 }: TimelineProps): React
         {regions.length === 0 && markers.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-sm">
             No regions or markers
+          </div>
+        )}
+
+        {/* Syncing indicator */}
+        {isSyncing && (
+          <div className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none">
+            <div className="px-3 py-1.5 bg-gray-900/90 border border-yellow-500/50 rounded-full text-yellow-400 text-xs font-medium animate-pulse">
+              Syncing...
+            </div>
           </div>
         )}
       </div>

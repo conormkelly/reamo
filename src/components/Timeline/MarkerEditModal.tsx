@@ -140,7 +140,7 @@ export function MarkerEditModal({
 
   const canMove = isMarkerMoveable(marker.id);
 
-  // Initialize values from marker position
+  // Initialize values from marker
   useEffect(() => {
     setTimeValue(formatTime(marker.position));
     const beats = secondsToBeats(marker.position, bpm);
@@ -198,7 +198,7 @@ export function MarkerEditModal({
       onClick={onClose}
     >
       <div
-        className="bg-gray-800 rounded-lg shadow-xl w-72 max-w-[90vw] overflow-hidden"
+        className="bg-gray-800 rounded-lg shadow-xl w-80 max-w-[90vw] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -214,6 +214,11 @@ export function MarkerEditModal({
 
         {/* Content */}
         <div className="p-4 space-y-4">
+          {/* Marker name if present */}
+          {marker.name && (
+            <p className="text-gray-300 text-sm">{marker.name}</p>
+          )}
+
           {/* Position Input */}
           <div className="space-y-2">
             <label className="text-sm text-gray-400">Position</label>

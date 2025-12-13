@@ -26,12 +26,15 @@ export interface TimeDisplayProps {
   format?: 'time' | 'beats' | 'both';
   /** Show playback state label */
   showState?: boolean;
+  /** Whether time selection sync is in progress */
+  isSyncing?: boolean;
 }
 
 export function TimeDisplay({
   className = '',
   format = 'time',
   showState = false,
+  isSyncing = false,
 }: TimeDisplayProps): ReactElement {
   const { playState, positionSeconds, positionBeats } = useTransport();
 
@@ -44,13 +47,23 @@ export function TimeDisplay({
         <div className="text-xs uppercase text-gray-400 mb-1">{stateLabel}</div>
       )}
       <div className="text-2xl">
-        {format === 'time' && timeString}
-        {format === 'beats' && positionBeats}
-        {format === 'both' && (
+        {isSyncing ? (
           <>
-            <span>{timeString}</span>
+            <span className="text-gray-500">-</span>
             <span className="text-gray-500 mx-2">|</span>
-            <span className="text-gray-400">{positionBeats}</span>
+            <span className="text-gray-500">-</span>
+          </>
+        ) : (
+          <>
+            {format === 'time' && timeString}
+            {format === 'beats' && positionBeats}
+            {format === 'both' && (
+              <>
+                <span>{timeString}</span>
+                <span className="text-gray-500 mx-2">|</span>
+                <span className="text-gray-400">{positionBeats}</span>
+              </>
+            )}
           </>
         )}
       </div>
