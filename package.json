@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "deploy": "npm run build && cp ./dist/index.html ../reamo.html",
+    "deploy": "npm run build && cp ./dist/index.html ./reamo.html",
     "lint": "eslint .",
     "preview": "vite preview"
   },
