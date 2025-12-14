@@ -8,7 +8,7 @@ import type { ReactElement } from 'react';
 import { useTrack } from '../../hooks/useTrack';
 import { useLongPress } from '../../hooks/useLongPress';
 import { useReaper } from '../ReaperProvider';
-import { setSelection } from '../../core/CommandBuilder';
+import { setSelection, unselectAllItems, join } from '../../core/CommandBuilder';
 import { MuteButton } from './MuteButton';
 import { SoloButton } from './SoloButton';
 import { RecordArmButton } from './RecordArmButton';
@@ -35,8 +35,13 @@ export function TrackStrip({
   // Long-press to toggle track selection
   const { handlers: longPressHandlers } = useLongPress({
     onLongPress: () => {
-      // Toggle: if selected, deselect (0). If not selected, select (1)
-      send(setSelection(trackIndex, isSelected ? 0 : 1));
+      if (isSelected) {
+        // Deselecting: clear item selection first, then deselect track
+        send(join(unselectAllItems(), setSelection(trackIndex, 0)));
+      } else {
+        // Selecting: just select the track
+        send(setSelection(trackIndex, 1));
+      }
     },
     duration: 300,
   });

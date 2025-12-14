@@ -455,6 +455,14 @@ export function previousTake(): string {
 }
 
 /**
+ * Unselect all items
+ * Action 40289: "Item: Unselect (clear selection of) all items"
+ */
+export function unselectAllItems(): string {
+  return '40289';
+}
+
+/**
  * Join multiple commands with semicolons
  */
 export function join(...commands: string[]): string {
