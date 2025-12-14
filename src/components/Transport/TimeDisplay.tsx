@@ -5,6 +5,7 @@
 
 import type { ReactElement } from 'react';
 import { useMemo } from 'react';
+import { Loader2 } from 'lucide-react';
 import { useTransport } from '../../hooks/useTransport';
 import { PlayStateLabel } from '../../core/types';
 
@@ -48,11 +49,7 @@ export function TimeDisplay({
       )}
       <div className="text-2xl">
         {isSyncing ? (
-          <>
-            <span className="text-gray-500">-</span>
-            <span className="text-gray-500 mx-2">|</span>
-            <span className="text-gray-500">-</span>
-          </>
+          <Loader2 className="w-6 h-6 text-gray-500 animate-spin inline-block" />
         ) : (
           <>
             {format === 'time' && timeString}
