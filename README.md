@@ -12,6 +12,24 @@ A modern React + TypeScript web interface for controlling [REAPER](https://www.r
 - **Auto-Punch Mode** - Time selection recording with visual indicators
 - **Touch-Optimized** - Gesture support for mobile/tablet control surfaces
 
+## Why Reactper?
+
+This project was built to solve a specific songwriting problem: **staying at the instrument**.
+
+The typical home recording workflow kills creativity. You sit at the piano, get an idea, walk to the computer, set up a track, adjust levels, hit record, walk back, try to remember what you were playing... by then the moment's gone. Worse, you end up polishing 16 bars forever while the song goes nowhere.
+
+**The Reactper workflow:**
+
+1. **Pre-structure or start blank** - Set up a REAPER project with regions (intro, verse, chorus, bridge, outro) or start completely fresh
+2. **Stay at your instrument** - Mount an iPad near your piano/guitar running Reactper
+3. **Tap in the tempo** - No need to touch the computer, dial in or tap the BPM from your playing position
+4. **Capture ideas in boxes** - Each region is a container for an idea. Record a rough verse, move to the chorus, try a bridge. Use auto-punch to nail specific sections
+5. **End with a scaffold** - Instead of 16 over-produced bars, you have rough ideas across the whole song structure recorded to a click
+
+The goal is **idea capture, not production**. Get the song down while you're in creative mode. The engineering can wait.
+
+Features like tap tempo, time selection auto-punch, and region-focused navigation exist specifically to minimize the gap between having an idea and recording it - all without leaving your instrument.
+
 ## Tech Stack
 
 - **React 19** + **TypeScript 5.9**
