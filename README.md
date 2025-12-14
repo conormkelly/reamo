@@ -55,7 +55,7 @@ The production build creates a single `dist/index.html` file that can be served 
 
 ## Architecture Overview
 
-```
+```txt
 User Interaction → UI Component → useReaper().send(command)
                                          ↓
                             ReaperConnection queues command
@@ -75,7 +75,7 @@ User Interaction → UI Component → useReaper().send(command)
 
 ## Project Structure
 
-```
+```txt
 src/
 ├── core/                        # REAPER communication layer
 │   ├── ReaperConnection.ts      # HTTP polling client with backoff
@@ -638,7 +638,7 @@ interface TransportState {
 
 ### Endpoint Format
 
-```
+```txt
 GET /_/[command1];[command2];[command3]
 ```
 
