@@ -10,6 +10,7 @@ A modern React + TypeScript web interface for controlling [REAPER](https://www.r
 - **Marker Management** - Navigate, add, move, delete, and reorder markers
 - **Tempo Control** - Display BPM, tap tempo, set exact tempo
 - **Auto-Punch Mode** - Time selection recording with visual indicators
+- **Take Switching** - A/B compare takes without leaving your instrument
 - **Touch-Optimized** - Gesture support for mobile/tablet control surfaces
 
 ## Why Reactper?
@@ -24,11 +25,12 @@ The typical home recording workflow kills creativity. You sit at the piano, get 
 2. **Stay at your instrument** - Mount an iPad near your piano/guitar running Reactper
 3. **Tap in the tempo** - No need to touch the computer, dial in or tap the BPM from your playing position
 4. **Capture ideas in boxes** - Each region is a container for an idea. Record a rough verse, move to the chorus, try a bridge. Use auto-punch to nail specific sections
-5. **End with a scaffold** - Instead of 16 over-produced bars, you have rough ideas across the whole song structure recorded to a click
+5. **Compare takes on the fly** - Not sure if that last take was better? Long-press the track, switch between takes to A/B compare without touching the computer
+6. **End with a scaffold** - Instead of 16 over-produced bars, you have rough ideas across the whole song structure recorded to a click
 
 The goal is **idea capture, not production**. Get the song down while you're in creative mode. The engineering can wait.
 
-Features like tap tempo, time selection auto-punch, and region-focused navigation exist specifically to minimize the gap between having an idea and recording it - all without leaving your instrument.
+Features like tap tempo, time selection auto-punch, take switching, and region-focused navigation exist specifically to minimize the gap between having an idea and recording it - all without leaving your instrument.
 
 ## Tech Stack
 
@@ -95,6 +97,7 @@ src/
 ├── components/                  # React UI components
 │   ├── ReaperProvider.tsx       # Connection context provider
 │   ├── ConnectionStatus.tsx     # Connection indicator
+│   ├── TakeSwitcher.tsx         # Take switching controls
 │   ├── Transport/               # TransportBar, TimeDisplay, buttons
 │   ├── Track/                   # TrackStrip, Fader, PanKnob, LevelMeter
 │   ├── Timeline/                # Timeline with regions/markers/playhead
@@ -107,7 +110,8 @@ src/
 │   ├── useTracks.ts             # All tracks access
 │   ├── useTrack.ts              # Single track state & controls
 │   ├── useTimeSelectionSync.ts  # Time selection detection
-│   └── useDoubleTap.ts          # Double-tap gesture detection
+│   ├── useDoubleTap.ts          # Double-tap gesture detection
+│   └── useLongPress.ts          # Long-press gesture detection
 │
 ├── utils/                       # Utility functions
 │   ├── volume.ts                # dB/linear/fader conversions
@@ -379,10 +383,11 @@ Access all tracks.
 function TrackList() {
   const {
     trackCount,
-    tracks,        // Sorted array of all tracks
-    getTrack,      // getTrack(index) => Track | undefined
-    masterTrack,   // Track 0
-    userTracks     // Tracks 1+
+    tracks,          // Sorted array of all tracks
+    getTrack,        // getTrack(index) => Track | undefined
+    masterTrack,     // Track 0
+    userTracks,      // Tracks 1+
+    selectedTracks   // Currently selected tracks
   } = useTracks();
 
   return (
@@ -452,7 +457,7 @@ Wrap your app to establish the REAPER connection.
 ### Track Components
 
 ```tsx
-// Full track channel strip
+// Full track channel strip (long-press to select for take switching)
 <TrackStrip trackIndex={0} />  // Master
 <TrackStrip trackIndex={1} />  // Track 1
 
@@ -465,6 +470,21 @@ Wrap your app to establish the REAPER connection.
 <RecordArmButton trackIndex={1} />
 <MonitorButton trackIndex={1} />
 ```
+
+### Take Switcher
+
+Switch between takes on selected track within time selection.
+
+```tsx
+<TakeSwitcher />
+```
+
+**Behavior:**
+
+- Hidden when no tracks selected
+- Shows "TAKES · Track Name" header when track selected
+- Prev/Next Take buttons when single track + time selection active
+- Hints shown when conditions not met (e.g., "Select a region to switch takes")
 
 ### Timeline
 
@@ -674,6 +694,9 @@ GET /_/[command1];[command2];[command3]
 | 40029 | Undo |
 | 40030 | Redo |
 | 40026 | Save Project |
+| 40718 | Select items in time selection on selected tracks |
+| 42611 | Switch items to next take |
+| 42612 | Switch items to previous take |
 
 ---
 
@@ -768,6 +791,8 @@ npm run preview
 
 ### Latest
 
+- **Take Switching** - A/B compare takes without leaving your instrument. Long-press a track to select it, then use Prev/Next Take buttons to switch between recordings in the current time selection
+- **Track Selection** - Long-press any track strip to select it (blue glow indicator). Selection state syncs with REAPER
 - **Time Selection Sync** - Auto-detect REAPER's current time selection on startup via cursor position probing
 - **Marker Edit Modal** - Long-press markers to open edit dialog with move, delete, and reorder options
 - **Record Mode Indicator** - Red border on record button distinguishes normal vs auto-punch mode

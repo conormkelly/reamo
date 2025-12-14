@@ -22,6 +22,7 @@ import {
   NextMarkerButton,
   TapTempoButton,
   Timeline,
+  TakeSwitcher,
 } from './components';
 import { useTracks, useTimeSelectionSync } from './hooks';
 
@@ -119,6 +120,11 @@ function AppContent() {
           placeholder="Filter tracks..."
         />
         <TrackList filter={trackFilter} />
+      </section>
+
+      {/* Take Switcher - below mixer */}
+      <section className="mt-4">
+        <TakeSwitcher />
       </section>
 
       {/* Footer */}

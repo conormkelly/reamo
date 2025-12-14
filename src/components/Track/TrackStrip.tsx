@@ -1,10 +1,14 @@
 /**
  * Track Strip Component
  * A complete track channel strip with fader, pan, and buttons
+ * Long-press to select track for take switching
  */
 
 import type { ReactElement } from 'react';
 import { useTrack } from '../../hooks/useTrack';
+import { useLongPress } from '../../hooks/useLongPress';
+import { useReaper } from '../ReaperProvider';
+import { setSelection } from '../../core/CommandBuilder';
 import { MuteButton } from './MuteButton';
 import { SoloButton } from './SoloButton';
 import { RecordArmButton } from './RecordArmButton';
@@ -25,16 +29,33 @@ export function TrackStrip({
   showFader = true,
   showPan = true,
 }: TrackStripProps): ReactElement | null {
-  const { exists, name, color } = useTrack(trackIndex);
+  const { exists, name, color, isSelected } = useTrack(trackIndex);
+  const { send } = useReaper();
+
+  // Long-press to toggle track selection
+  const { handlers: longPressHandlers } = useLongPress({
+    onLongPress: () => {
+      // Toggle: if selected, deselect (0). If not selected, select (1)
+      send(setSelection(trackIndex, isSelected ? 0 : 1));
+    },
+    duration: 300,
+  });
 
   if (!exists) {
     return null;
   }
 
+  // Determine border style: selected = blue, custom color, or default gray
+  // Always set explicit inline styles to avoid conflicts with Tailwind classes
+  const borderStyle = isSelected
+    ? { borderColor: '#3b82f6', boxShadow: '0 0 0 2px rgba(59, 130, 246, 0.5)' }
+    : { borderColor: color || '#374151', boxShadow: 'none' };
+
   return (
     <div
-      className={`flex flex-col items-center p-2 bg-gray-900 rounded-lg border border-gray-700 min-w-[80px] ${className}`}
-      style={color ? { borderColor: color } : undefined}
+      className={`flex flex-col items-center p-2 bg-gray-900 rounded-lg border min-w-[80px] select-none ${className}`}
+      style={borderStyle}
+      {...longPressHandlers}
     >
       {/* Track name */}
       <div

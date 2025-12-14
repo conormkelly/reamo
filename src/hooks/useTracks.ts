@@ -5,7 +5,7 @@
 
 import { useMemo } from 'react';
 import { useReaperStore } from '../store';
-import type { Track } from '../core/types';
+import { isSelected, type Track } from '../core/types';
 
 export interface UseTracksReturn {
   /** Total track count (excluding master) */
@@ -18,6 +18,8 @@ export interface UseTracksReturn {
   masterTrack: Track | undefined;
   /** User tracks (index 1+) */
   userTracks: Track[];
+  /** Currently selected tracks */
+  selectedTracks: Track[];
 }
 
 /**
@@ -45,11 +47,17 @@ export function useTracks(): UseTracksReturn {
     return tracks.filter((t) => t.index > 0);
   }, [tracks]);
 
+  // Selected tracks
+  const selectedTracks = useMemo(() => {
+    return tracks.filter((t) => isSelected(t));
+  }, [tracks]);
+
   return {
     trackCount,
     tracks,
     getTrack,
     masterTrack,
     userTracks,
+    selectedTracks,
   };
 }

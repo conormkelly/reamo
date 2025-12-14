@@ -428,6 +428,32 @@ export function action(commandId: number | string): string {
   return String(commandId);
 }
 
+// Take switching commands
+
+/**
+ * Select all items on selected tracks in current time selection
+ * Action 40718: "Item: Select all items on selected tracks in current time selection"
+ */
+export function selectItemsInTimeSelection(): string {
+  return '40718';
+}
+
+/**
+ * Switch selected items to next take
+ * Action 42611: "Take: Switch items to next take"
+ */
+export function nextTake(): string {
+  return '42611';
+}
+
+/**
+ * Switch selected items to previous take
+ * Action 42612: "Take: Switch items to previous take"
+ */
+export function previousTake(): string {
+  return '42612';
+}
+
 /**
  * Join multiple commands with semicolons
  */
