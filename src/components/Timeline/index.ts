@@ -1,1 +1,6 @@
 export { Timeline, type TimelineProps } from './Timeline';
+export { TimelineModeToggle } from './TimelineModeToggle';
+export { RegionEditActionBar } from './RegionEditActionBar';
+export { RegionInfoBar } from './RegionInfoBar';
+export { AddRegionModal } from './AddRegionModal';
+export { MarkerEditModal, isMarkerMoveable, getMarkerMoveAction, type MarkerEditModalProps } from './MarkerEditModal';

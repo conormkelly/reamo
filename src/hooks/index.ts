@@ -5,3 +5,4 @@ export { useTrack, type UseTrackReturn } from './useTrack';
 export { useDoubleTap, type UseDoubleTapOptions, type UseDoubleTapResult } from './useDoubleTap';
 export { useLongPress, type UseLongPressOptions, type UseLongPressResult } from './useLongPress';
 export { useTimeSelectionSync, type UseTimeSelectionSyncReturn } from './useTimeSelectionSync';
+export { useRegionEditScriptDetection } from './useRegionEditScriptDetection';

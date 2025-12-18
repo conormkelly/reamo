@@ -9,11 +9,12 @@ import { createTransportSlice, type TransportSlice } from './slices/transportSli
 import { createTracksSlice, type TracksSlice } from './slices/tracksSlice';
 import { createRegionsSlice, type RegionsSlice } from './slices/regionsSlice';
 import { createMarkersSlice, type MarkersSlice } from './slices/markersSlice';
+import { createRegionEditSlice, type RegionEditSlice } from './slices/regionEditSlice';
 import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
 import { ActionCommands } from '../core/types';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & TracksSlice & RegionsSlice & MarkersSlice & {
+export type ReaperStore = ConnectionSlice & TransportSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & {
   // Response handler action
   handleResponses: (responses: ParsedResponse[]) => void;
 };
@@ -26,6 +27,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   ...createTracksSlice(set, get, store),
   ...createRegionsSlice(set, get, store),
   ...createMarkersSlice(set, get, store),
+  ...createRegionEditSlice(set, get, store),
 
   // Handle incoming responses from REAPER
   handleResponses: (responses: ParsedResponse[]) => {
@@ -101,6 +103,16 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
           break;
         }
 
+        case 'EXTSTATE': {
+          const extState = response.data;
+          // Check for Reamo script installation flag
+          if (extState.section === 'Reamo' && extState.key === 'script_installed') {
+            get().setLuaScriptInstalled(extState.value === '1');
+            get().setLuaScriptChecked(true);
+          }
+          break;
+        }
+
         default:
           break;
       }
@@ -114,3 +126,10 @@ export type { TransportSlice } from './slices/transportSlice';
 export type { TracksSlice } from './slices/tracksSlice';
 export type { RegionsSlice } from './slices/regionsSlice';
 export type { MarkersSlice } from './slices/markersSlice';
+export type { RegionEditSlice, TimelineMode, DragType, PendingRegionChange } from './slices/regionEditSlice';
+
+// Expose store on window for E2E tests (development only)
+if (import.meta.env.DEV) {
+  (window as unknown as { __REAPER_STORE__: typeof useReaperStore }).
+    __REAPER_STORE__ = useReaperStore;
+}

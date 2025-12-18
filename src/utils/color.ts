@@ -76,6 +76,38 @@ export function getContrastColor(reaperColor: number): 'black' | 'white' {
 }
 
 /**
+ * Convert hex string to REAPER native color
+ * @param hex - CSS hex color string like "#ff5500" or "ff5500"
+ * @returns REAPER color in 0x01RRGGBB format, or 0 if invalid
+ */
+export function hexToReaperColor(hex: string): number {
+  const match = hex.match(/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if (!match) return 0;
+  const r = parseInt(match[1], 16);
+  const g = parseInt(match[2], 16);
+  const b = parseInt(match[3], 16);
+  // REAPER format: 0x01RRGGBB (high byte is flag)
+  return (r << 16) | (g << 8) | b | 0x1000000;
+}
+
+/**
+ * Convert REAPER color to hex string with fallback
+ * @param reaperColor - Color in REAPER format
+ * @param fallback - Fallback hex color if no custom color (default: '#808080')
+ * @returns CSS hex color string
+ */
+export function reaperColorToHexWithFallback(
+  reaperColor: number | undefined,
+  fallback: string = '#808080'
+): string {
+  if (!reaperColor || reaperColor === 0) return fallback;
+  const r = (reaperColor >> 16) & 0xFF;
+  const g = (reaperColor >> 8) & 0xFF;
+  const b = reaperColor & 0xFF;
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
+/**
  * Darken or lighten a REAPER color
  * @param reaperColor - Color in 0xaarrggbb format
  * @param amount - Amount to adjust (-1 to 1, negative = darker)

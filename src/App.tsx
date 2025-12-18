@@ -22,9 +22,14 @@ import {
   NextMarkerButton,
   TapTempoButton,
   Timeline,
+  TimelineModeToggle,
+  RegionEditActionBar,
+  RegionInfoBar,
+  AddRegionModal,
   TakeSwitcher,
 } from './components';
-import { useTracks, useTimeSelectionSync } from './hooks';
+import { useTracks, useTimeSelectionSync, useRegionEditScriptDetection } from './hooks';
+import { useReaperStore } from './store';
 
 function TrackList({ filter }: { filter: string }) {
   const { userTracks } = useTracks();
@@ -69,9 +74,14 @@ function TrackStripWithMeter({ trackIndex }: { trackIndex: number }) {
 
 function AppContent() {
   const [trackFilter, setTrackFilter] = useState('');
+  const [showAddRegionModal, setShowAddRegionModal] = useState(false);
+  const timelineMode = useReaperStore((s) => s.timelineMode);
 
   // Sync REAPER's time selection on init
   const { isSyncing } = useTimeSelectionSync();
+
+  // Detect if the region editing Lua script is installed
+  useRegionEditScriptDetection();
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-4">
@@ -90,7 +100,7 @@ function AppContent() {
       </section>
 
       {/* Transport Controls */}
-      <section className="mb-6">
+      <section className="mb-12">
         <TransportBar className="mb-3" />
         <div className="flex flex-wrap items-center justify-center gap-2">
           <UndoButton />
@@ -101,15 +111,28 @@ function AppContent() {
 
       {/* Timeline */}
       <section className="mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-medium text-gray-400">Timeline</h3>
+          <TimelineModeToggle />
+        </div>
         <Timeline height={80} isSyncing={isSyncing} />
+        <RegionInfoBar
+          className="mt-2"
+          onAddRegion={timelineMode === 'regions' ? () => setShowAddRegionModal(true) : undefined}
+        />
+        <div className="mt-2">
+          <RegionEditActionBar />
+        </div>
       </section>
 
-      {/* Marker Navigation - centered below timeline */}
-      <section className="flex justify-center items-center gap-2 mb-6">
-        <PrevMarkerButton />
-        <NextMarkerButton />
-        <AddMarkerButton />
-      </section>
+      {/* Marker Navigation - centered below timeline, hidden in regions mode */}
+      {timelineMode === 'navigate' && (
+        <section className="flex justify-center items-center gap-2 mb-6">
+          <PrevMarkerButton />
+          <NextMarkerButton />
+          <AddMarkerButton />
+        </section>
+      )}
 
       {/* Tracks */}
       <section>
@@ -131,6 +154,12 @@ function AppContent() {
       <footer className="mt-8 text-center text-gray-600 text-sm">
         REAPER Web Control • Built with React + Zustand
       </footer>
+
+      {/* Add Region Modal */}
+      <AddRegionModal
+        isOpen={showAddRegionModal}
+        onClose={() => setShowAddRegionModal(false)}
+      />
     </div>
   );
 }

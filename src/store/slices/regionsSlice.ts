@@ -20,6 +20,7 @@ export const createRegionsSlice: StateCreator<RegionsSlice> = (set) => ({
   regions: [],
 
   // Actions
-  setRegions: (regions) => set({ regions }),
+  // Sort regions by start time to ensure consistent indexing with displayRegions
+  setRegions: (regions) => set({ regions: [...regions].sort((a, b) => a.start - b.start) }),
   clearRegions: () => set({ regions: [] }),
 });
