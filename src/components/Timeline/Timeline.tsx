@@ -11,6 +11,15 @@ import * as commands from '../../core/CommandBuilder';
 import type { Region, Marker } from '../../core/types';
 import { MarkerEditModal, isMarkerMoveable, getMarkerMoveAction } from './MarkerEditModal';
 import type { DragType } from '../../store';
+import {
+  secondsToBeats,
+  beatsToSeconds,
+  formatBeats,
+  formatDelta,
+  parseReaperBar,
+  snapToGrid,
+  reaperColorToRgba,
+} from '../../utils';
 
 export interface TimelineProps {
   className?: string;
@@ -26,97 +35,6 @@ const HOLD_THRESHOLD = 300;
 const MARKER_HOLD_THRESHOLD = 500;
 // Vertical distance to cancel playhead drag (pixels)
 const VERTICAL_CANCEL_THRESHOLD = 50;
-
-/**
- * Convert REAPER color (0xaarrggbb) to CSS color
- */
-function reaperColorToCSS(color: number | undefined, fallback: string): string {
-  if (!color || color === 0) return fallback;
-  const r = (color >> 16) & 0xff;
-  const g = (color >> 8) & 0xff;
-  const b = color & 0xff;
-  return `rgb(${r}, ${g}, ${b})`;
-}
-
-/**
- * Timeline component showing regions and markers
- */
-/**
- * Convert seconds to beats
- */
-function secondsToBeats(seconds: number, bpm: number): number {
-  return seconds * (bpm / 60);
-}
-
-/**
- * Convert beats to seconds
- */
-function beatsToSeconds(beats: number, bpm: number): number {
-  return beats * (60 / bpm);
-}
-
-/**
- * Snap seconds to nearest subbeat grid
- * @param seconds Time in seconds
- * @param bpm Beats per minute
- * @param subdivisions Subdivisions per beat (4 = 16th notes, 2 = 8th notes)
- */
-function snapToGrid(seconds: number, bpm: number, subdivisions: number = 4): number {
-  const beatsPerSecond = bpm / 60;
-  const subbeatsPerSecond = beatsPerSecond * subdivisions;
-  const subbeat = Math.round(seconds * subbeatsPerSecond);
-  return subbeat / subbeatsPerSecond;
-}
-
-/**
- * Parse REAPER's bar.beat string to get the bar number
- * Format: "bar.beat.ticks" like "-4.1.00" or "56.2.45"
- */
-function parseReaperBar(positionBeats: string): number {
-  const parts = positionBeats.split('.');
-  return parseInt(parts[0], 10);
-}
-
-/**
- * Format beats as Bar.Beat.Subdivision with correct REAPER bar offset
- */
-function formatBeatsWithOffset(
-  seconds: number,
-  bpm: number,
-  barOffset: number,
-  beatsPerBar: number = 4
-): string {
-  const rawBeats = secondsToBeats(seconds, bpm);
-  // Round to nearest 16th note (0.25 beats) to handle floating point precision
-  const totalBeats = Math.round(rawBeats * 4) / 4;
-  const calculatedBar = Math.floor(totalBeats / beatsPerBar) + 1;
-  const actualBar = calculatedBar + barOffset;
-  const beat = Math.floor(totalBeats % beatsPerBar) + 1; // 1-based like REAPER
-  const sub = Math.round((totalBeats % 1) * 4); // 0-based like REAPER (0-3 for 16th notes)
-  return `${actualBar}.${beat}.${sub.toString().padStart(2, '0')}`;
-}
-
-/**
- * Format a duration delta as +/- bars and beats
- */
-function formatDelta(deltaSeconds: number, bpm: number, beatsPerBar: number = 4): string {
-  const sign = deltaSeconds >= 0 ? '+' : '-';
-  const absSeconds = Math.abs(deltaSeconds);
-  const rawBeats = secondsToBeats(absSeconds, bpm);
-  const totalBeats = Math.round(rawBeats * 4) / 4;
-  const bars = Math.floor(totalBeats / beatsPerBar);
-  const beats = Math.round(totalBeats % beatsPerBar);
-
-  if (bars > 0 && beats > 0) {
-    return `${sign}${bars}b ${beats}`;
-  } else if (bars > 0) {
-    return `${sign}${bars} bar${bars !== 1 ? 's' : ''}`;
-  } else if (beats > 0) {
-    return `${sign}${beats} beat${beats !== 1 ? 's' : ''}`;
-  } else {
-    return '0';
-  }
-}
 
 export function Timeline({ className = '', height = 120, isSyncing = false }: TimelineProps): ReactElement {
   const { send } = useReaper();
@@ -1045,7 +963,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
               {/* Color bar - 5px */}
               <div
                 className="h-[5px] w-full"
-                style={{ backgroundColor: reaperColorToCSS(region.color, 'rgb(75, 85, 99)') }}
+                style={{ backgroundColor: region.color ? reaperColorToRgba(region.color, 1) ?? 'rgb(75, 85, 99)' : 'rgb(75, 85, 99)' }}
               />
               {/* Region name */}
               <span className="h-5 flex items-center px-1 text-[11px] text-white font-semibold truncate">
@@ -1168,7 +1086,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
             {/* Position pill showing bar position at bottom */}
             <div className="absolute bottom-1 -translate-x-1/2 z-40">
               <div className="bg-gray-900 border border-green-400 rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg">
-                {bpm ? formatBeatsWithOffset(insertionPoint, bpm, barOffset) : `${insertionPoint.toFixed(1)}s`}
+                {bpm ? formatBeats(insertionPoint, bpm, barOffset) : `${insertionPoint.toFixed(1)}s`}
               </div>
             </div>
           </div>
@@ -1206,7 +1124,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
                 {/* Position pill showing bar position at bottom */}
                 <div className="absolute bottom-1 -translate-x-1/2 z-40">
                   <div className="bg-gray-900 border border-green-400 rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg">
-                    {bpm ? formatBeatsWithOffset(resizeEdgePosition, bpm, barOffset) : `${resizeEdgePosition.toFixed(1)}s`}
+                    {bpm ? formatBeats(resizeEdgePosition, bpm, barOffset) : `${resizeEdgePosition.toFixed(1)}s`}
                   </div>
                 </div>
               </div>
@@ -1266,7 +1184,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
                   const mins = Math.floor(seconds / 60);
                   const secs = (seconds % 60).toFixed(1);
                   const timeStr = `${mins}:${secs.padStart(4, '0')}`;
-                  const beatsStr = bpm ? formatBeatsWithOffset(seconds, bpm, barOffset) : '';
+                  const beatsStr = bpm ? formatBeats(seconds, bpm, barOffset) : '';
                   return beatsStr ? `${timeStr} | ${beatsStr}` : timeStr;
                 })()}
               </div>
@@ -1290,7 +1208,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
                   const mins = Math.floor(seconds / 60);
                   const secs = (seconds % 60).toFixed(1);
                   const timeStr = `${mins}:${secs.padStart(4, '0')}`;
-                  const beatsStr = bpm ? formatBeatsWithOffset(seconds, bpm, barOffset) : '';
+                  const beatsStr = bpm ? formatBeats(seconds, bpm, barOffset) : '';
                   return beatsStr ? `${timeStr} | ${beatsStr}` : timeStr;
                 })()}
               </div>

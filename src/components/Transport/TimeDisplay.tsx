@@ -8,18 +8,7 @@ import { useMemo } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useTransport } from '../../hooks/useTransport';
 import { PlayStateLabel } from '../../core/types';
-
-/**
- * Format seconds as MM:SS.ms
- */
-function formatTime(seconds: number): string {
-  const absSeconds = Math.abs(seconds);
-  const sign = seconds < 0 ? '-' : '';
-  const mins = Math.floor(absSeconds / 60);
-  const secs = Math.floor(absSeconds % 60);
-  const ms = Math.floor((absSeconds % 1) * 1000);
-  return `${sign}${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
-}
+import { formatTime } from '../../utils';
 
 export interface TimeDisplayProps {
   className?: string;
@@ -40,7 +29,7 @@ export function TimeDisplay({
   const { playState, positionSeconds, positionBeats } = useTransport();
 
   const stateLabel = PlayStateLabel[playState];
-  const timeString = useMemo(() => formatTime(positionSeconds), [positionSeconds]);
+  const timeString = useMemo(() => formatTime(positionSeconds, { precision: 3, showSign: true }), [positionSeconds]);
 
   return (
     <div className={`font-mono ${className}`}>

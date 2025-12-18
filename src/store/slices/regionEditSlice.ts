@@ -6,6 +6,7 @@
 
 import type { StateCreator } from 'zustand';
 import type { Region } from '../../core/types';
+import { snapToGrid } from '../../utils';
 
 // Timeline mode: navigate (existing behavior) or regions (editing)
 export type TimelineMode = 'navigate' | 'regions';
@@ -108,12 +109,8 @@ function getMinRegionLength(bpm: number | null): number {
   return (60 / bpm) * beatsPerBar;
 }
 
-// Snap time to beat grid (for region editing)
-function snapToBeats(seconds: number, bpm: number): number {
-  const beatsPerSecond = bpm / 60;
-  const beat = Math.round(seconds * beatsPerSecond);
-  return beat / beatsPerSecond;
-}
+// Helper to snap to beat grid (1 subdivision = quarter notes)
+const snapToBeats = (seconds: number, bpm: number) => snapToGrid(seconds, bpm, 1);
 
 export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) => ({
   // Initial state

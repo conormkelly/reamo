@@ -6,6 +6,7 @@
 import { useState, useCallback, useEffect, type ReactElement } from 'react';
 import { X, Trash2, ListOrdered, Move } from 'lucide-react';
 import type { Marker } from '../../core/types';
+import { formatTime, secondsToBeats, beatsToSeconds } from '../../utils';
 
 export interface MarkerEditModalProps {
   marker: Marker;
@@ -43,15 +44,6 @@ export function isMarkerMoveable(markerId: number): boolean {
  */
 export function getMarkerMoveAction(markerId: number): number | null {
   return MARKER_MOVE_ACTIONS[markerId] ?? null;
-}
-
-/**
- * Format seconds as MM:SS.ms
- */
-function formatTime(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${mins}:${secs.toFixed(3).padStart(6, '0')}`;
 }
 
 /**
@@ -110,20 +102,6 @@ function parseBars(barStr: string, barOffset: number, beatsPerBar: number = 4): 
   return null;
 }
 
-/**
- * Convert seconds to beats
- */
-function secondsToBeats(seconds: number, bpm: number): number {
-  return seconds * (bpm / 60);
-}
-
-/**
- * Convert beats to seconds
- */
-function beatsToSeconds(beats: number, bpm: number): number {
-  return beats * (60 / bpm);
-}
-
 export function MarkerEditModal({
   marker,
   bpm,
@@ -142,7 +120,7 @@ export function MarkerEditModal({
 
   // Initialize values from marker
   useEffect(() => {
-    setTimeValue(formatTime(marker.position));
+    setTimeValue(formatTime(marker.position, { precision: 3 }));
     const beats = secondsToBeats(marker.position, bpm);
     setBeatsValue(formatBars(beats, barOffset));
     setError(null);

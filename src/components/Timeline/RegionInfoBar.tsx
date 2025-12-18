@@ -8,7 +8,17 @@
 import { useState, useRef, useEffect, type ReactElement } from 'react';
 import { Plus, Trash2, CopyPlus } from 'lucide-react';
 import { useReaperStore } from '../../store';
-import { hexToReaperColor, reaperColorToHexWithFallback } from '../../utils';
+import {
+  hexToReaperColor,
+  reaperColorToHexWithFallback,
+  secondsToBeats,
+  formatTime,
+  formatBeats,
+  formatDuration,
+  parseBarBeatToSeconds,
+  parseDurationToSeconds,
+  parseReaperBar,
+} from '../../utils';
 import type { Region } from '../../core/types';
 import { DeleteRegionModal } from './DeleteRegionModal';
 
@@ -18,86 +28,8 @@ interface RegionInfoBarProps {
 }
 
 /**
- * Convert seconds to beats
- */
-function secondsToBeats(seconds: number, bpm: number): number {
-  return seconds * (bpm / 60);
-}
-
-/**
- * Convert beats to seconds
- */
-function beatsToSeconds(beats: number, bpm: number): number {
-  return beats * (60 / bpm);
-}
-
-/**
- * Format time as minutes:seconds.ms
- */
-function formatTime(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = (seconds % 60).toFixed(2);
-  return `${mins}:${secs.padStart(5, '0')}`;
-}
-
-/**
- * Format beats as Bar.Beat.Sub with offset
- * Rounds to nearest 16th note to avoid floating point errors
- */
-function formatBeats(seconds: number, bpm: number, barOffset: number, beatsPerBar: number = 4): string {
-  const rawBeats = secondsToBeats(seconds, bpm);
-  // Round to nearest 16th note (0.25 beats) to handle floating point precision
-  const totalBeats = Math.round(rawBeats * 4) / 4;
-  const calculatedBar = Math.floor(totalBeats / beatsPerBar) + 1;
-  const actualBar = calculatedBar + barOffset;
-  const beat = Math.floor(totalBeats % beatsPerBar) + 1; // 1-based like REAPER
-  const sub = Math.round((totalBeats % 1) * 4); // 0-based like REAPER (0-3 for 16th notes)
-  return `${actualBar}.${beat}.${sub.toString().padStart(2, '0')}`;
-}
-
-/**
- * Parse bar.beat.sub string to seconds
- * Returns null if invalid
- */
-function parseBarBeatToSeconds(input: string, bpm: number, barOffset: number, beatsPerBar: number = 4): number | null {
-  const parts = input.trim().split('.');
-  if (parts.length < 2) return null;
-
-  const bar = parseInt(parts[0], 10);
-  const beat = parseInt(parts[1], 10);
-  const sub = parts.length > 2 ? parseInt(parts[2], 10) : 0;
-
-  if (isNaN(bar) || isNaN(beat) || isNaN(sub)) return null;
-  if (beat < 1 || beat > beatsPerBar) return null;
-  if (sub < 0 || sub > 3) return null;
-
-  // Convert back to seconds
-  const adjustedBar = bar - barOffset;
-  const totalBeats = (adjustedBar - 1) * beatsPerBar + (beat - 1) + (sub / 4);
-  return beatsToSeconds(totalBeats, bpm);
-}
-
-/**
- * Format duration in bars and beats
- * Rounds to nearest 16th note to avoid floating point errors
- */
-function formatDuration(seconds: number, bpm: number, beatsPerBar: number = 4): string {
-  const rawBeats = secondsToBeats(seconds, bpm);
-  // Round to nearest 16th note (0.25 beats) to handle floating point precision
-  const totalBeats = Math.round(rawBeats * 4) / 4;
-  const bars = Math.floor(totalBeats / beatsPerBar);
-  const beats = Math.round(totalBeats % beatsPerBar);
-  if (bars > 0 && beats > 0) {
-    return `${bars} bar${bars !== 1 ? 's' : ''} ${beats} beat${beats !== 1 ? 's' : ''}`;
-  } else if (bars > 0) {
-    return `${bars} bar${bars !== 1 ? 's' : ''}`;
-  } else {
-    return `${beats} beat${beats !== 1 ? 's' : ''}`;
-  }
-}
-
-/**
  * Format duration as editable string (just the number of bars)
+ * UI-specific format for the editable duration field
  */
 function formatDurationEditable(seconds: number, bpm: number, beatsPerBar: number = 4): string {
   const rawBeats = secondsToBeats(seconds, bpm);
@@ -111,43 +43,6 @@ function formatDurationEditable(seconds: number, bpm: number, beatsPerBar: numbe
   } else {
     return `0.${beats}`; // e.g., "0.2" for 2 beats
   }
-}
-
-/**
- * Parse duration string to seconds
- * Formats: "8" = 8 bars, "8.2" = 8 bars 2 beats, "0.4" = 4 beats
- * Plain number = bars (most intuitive for music)
- */
-function parseDurationToSeconds(input: string, bpm: number, beatsPerBar: number = 4): number | null {
-  const trimmed = input.trim();
-
-  // Check for "X.Y" format (bars.beats)
-  const barBeatMatch = trimmed.match(/^(\d+)\.(\d+)$/);
-  if (barBeatMatch) {
-    const bars = parseInt(barBeatMatch[1], 10);
-    const beats = parseInt(barBeatMatch[2], 10);
-    if (beats > beatsPerBar) return null; // Invalid beat count
-    const totalBeats = bars * beatsPerBar + beats;
-    return beatsToSeconds(totalBeats, bpm);
-  }
-
-  // Plain number = bars
-  const barsMatch = trimmed.match(/^(\d+)$/);
-  if (barsMatch) {
-    const bars = parseInt(barsMatch[1], 10);
-    const totalBeats = bars * beatsPerBar;
-    return beatsToSeconds(totalBeats, bpm);
-  }
-
-  return null;
-}
-
-/**
- * Parse REAPER's bar.beat string to get the bar number
- */
-function parseReaperBar(positionBeats: string): number {
-  const parts = positionBeats.split('.');
-  return parseInt(parts[0], 10);
 }
 
 type EditingField = 'name' | 'start' | 'end' | 'length' | 'color' | null;
