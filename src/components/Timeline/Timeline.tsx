@@ -10,15 +10,13 @@ import { useTransport } from '../../hooks/useTransport';
 import * as commands from '../../core/CommandBuilder';
 import type { Region, Marker } from '../../core/types';
 import { MarkerEditModal, isMarkerMoveable, getMarkerMoveAction } from './MarkerEditModal';
-import { usePlayheadDrag, useMarkerDrag } from './hooks';
-import type { DragType } from '../../store';
+import { usePlayheadDrag, useMarkerDrag, useRegionDrag } from './hooks';
 import {
   secondsToBeats,
   beatsToSeconds,
   formatBeats,
   formatDelta,
   parseReaperBar,
-  snapToGrid,
   reaperColorToRgba,
 } from '../../utils';
 
@@ -132,19 +130,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   // Region edit modal state (TODO: implement RegionEditModal)
   const [_editingRegion, setEditingRegion] = useState<{ region: Region; index: number } | null>(null);
 
-  // Edge handle hit zone size in pixels
-  const EDGE_HANDLE_SIZE = 20;
-
-  // Long-press threshold for region edit modal
-  const REGION_HOLD_THRESHOLD = 500;
-
-  // Region hold timer ref
-  const regionHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Track if region was already selected when tap started (for toggle behavior)
-  const wasSelectedOnTapStartRef = useRef<boolean>(false);
-
-  // Gesture state
+  // Gesture state (navigate mode)
   const [isHolding, setIsHolding] = useState(false);
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [dragEnd, setDragEnd] = useState<number | null>(null);
@@ -154,8 +140,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   // Marker edit modal state
   const [editingMarker, setEditingMarker] = useState<Marker | null>(null);
 
-  // Calculate timeline bounds (expands dynamically when dragging beyond current extent)
-  const { timelineStart, duration } = useMemo(() => {
+  // Calculate base timeline bounds (without drag targets - used as fallback when cancelled)
+  const { baseTimelineStart, baseDuration } = useMemo(() => {
     const start = 0;
     let end = 0;
 
@@ -167,24 +153,17 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       if (marker.position > end) end = marker.position;
     }
 
-    // Also consider current drag target (for smooth expansion while dragging)
-    if (resizeEdgePosition !== null && resizeEdgePosition > end) {
-      end = resizeEdgePosition;
-    }
-    if (insertionPoint !== null && insertionPoint > end) {
-      end = insertionPoint;
-    }
-    if (dragCurrentTime !== null && dragCurrentTime > end) {
-      end = dragCurrentTime;
-    }
-
     // Add some padding at the end
     end = Math.max(end * 1.05, 10);
 
-    return { timelineStart: start, duration: end - start };
-  }, [displayRegions, markers, resizeEdgePosition, insertionPoint, dragCurrentTime]);
+    return { baseTimelineStart: start, baseDuration: end - start };
+  }, [displayRegions, markers]);
 
-  // Convert time to percentage position
+  // Use base bounds for hook calculations (stable positioning)
+  const timelineStart = baseTimelineStart;
+  const duration = baseDuration;
+
+  // Convert time to percentage position (using base values for stability)
   const timeToPercent = useCallback(
     (time: number) => {
       if (duration === 0) return 0;
@@ -222,6 +201,78 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       return timelineStart + percent * duration;
     },
     [timelineStart, duration]
+  );
+
+  // Region drag hook (handles move, resize with vertical-cancel)
+  const {
+    handlePointerDown: handleRegionPointerDown,
+    handlePointerMove: handleRegionPointerMove,
+    handlePointerUp: handleRegionPointerUp,
+    isCancelled: isRegionDragCancelled,
+  } = useRegionDrag({
+    containerRef,
+    timelineStart,
+    duration,
+    bpm,
+    displayRegions,
+    baseDisplayRegions,
+    selectedRegionIndices,
+    regions,
+    timeToPercent,
+    positionToTime,
+    regionDragType,
+    regionDragIndex,
+    dragStartTime,
+    dragCurrentTime,
+    isRegionSelected,
+    selectRegion,
+    deselectRegion,
+    clearSelection,
+    startDrag,
+    updateDrag,
+    endDrag,
+    cancelDrag,
+    resizeRegion,
+    moveRegion,
+    getDisplayRegions,
+    onEditRegion: (region, index) => setEditingRegion({ region, index }),
+  });
+
+  // Calculate render-specific timeline bounds
+  // Extends timeline to show drag targets, but NOT when resize drag is cancelled
+  const renderDuration = useMemo(() => {
+    let end = baseDuration / 1.05; // Remove the 1.05 padding to get actual end
+
+    // Don't extend timeline when resize drag is cancelled (shrink back to original)
+    const isResizing = regionDragType === 'resize-start' || regionDragType === 'resize-end';
+    if (isResizing && isRegionDragCancelled) {
+      return baseDuration; // Use base duration without extension
+    }
+
+    // Extend for active (non-cancelled) resize operations
+    if (resizeEdgePosition !== null && resizeEdgePosition > end) {
+      end = resizeEdgePosition;
+    }
+    // Extend for move operations (insertion point)
+    if (insertionPoint !== null && insertionPoint > end) {
+      end = insertionPoint;
+    }
+    // Extend for any drag target
+    if (dragCurrentTime !== null && dragCurrentTime > end) {
+      end = dragCurrentTime;
+    }
+
+    // Add padding
+    return Math.max(end * 1.05, 10);
+  }, [baseDuration, resizeEdgePosition, insertionPoint, dragCurrentTime, regionDragType, isRegionDragCancelled]);
+
+  // Render-specific timeToPercent (uses extended bounds when appropriate)
+  const renderTimeToPercent = useCallback(
+    (time: number) => {
+      if (renderDuration === 0) return 0;
+      return ((time - baseTimelineStart) / renderDuration) * 100;
+    },
+    [baseTimelineStart, renderDuration]
   );
 
   // Set time selection in REAPER (5 commands: move to start, set start, move to end, set end, return to start)
@@ -267,49 +318,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     [regions]
   );
 
-  // Find region index at position (using displayRegions for pending changes)
-  const findRegionIndexAtPosition = useCallback(
-    (clientX: number): number | null => {
-      if (!containerRef.current) return null;
-      const time = positionToTime(clientX);
-
-      for (let i = 0; i < displayRegions.length; i++) {
-        const region = displayRegions[i];
-        if (time >= region.start && time < region.end) {
-          return i;
-        }
-      }
-      return null;
-    },
-    [displayRegions, positionToTime]
-  );
-
-  // Determine drag type (resize-start, resize-end, or move) based on click position
-  const detectDragType = useCallback(
-    (clientX: number, regionIndex: number): DragType => {
-      if (!containerRef.current) return 'move';
-
-      const rect = containerRef.current.getBoundingClientRect();
-      const region = displayRegions[regionIndex];
-      if (!region) return 'move';
-
-      const startPercent = timeToPercent(region.start);
-      const endPercent = timeToPercent(region.end);
-
-      const startX = rect.left + (startPercent / 100) * rect.width;
-      const endX = rect.left + (endPercent / 100) * rect.width;
-
-      if (Math.abs(clientX - startX) < EDGE_HANDLE_SIZE) {
-        return 'resize-start';
-      }
-      if (Math.abs(clientX - endX) < EDGE_HANDLE_SIZE) {
-        return 'resize-end';
-      }
-      return 'move';
-    },
-    [displayRegions, timeToPercent]
-  );
-
   // Find nearest boundary (region edge or marker) to a time
   const findNearestBoundary = useCallback(
     (time: number): number => {
@@ -350,51 +358,14 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       // Don't start timeline selection if dragging playhead
       if (isDraggingPlayhead) return;
 
-      const time = positionToTime(e.clientX);
-
-      // Region editing mode
+      // Region editing mode - delegate to hook
       if (timelineMode === 'regions') {
-        const regionIndex = findRegionIndexAtPosition(e.clientX);
-
-        if (regionIndex !== null) {
-          const wasSelected = isRegionSelected(regionIndex);
-          const dragType = detectDragType(e.clientX, regionIndex);
-
-          // Track selection state at tap start for toggle behavior in pointerUp
-          wasSelectedOnTapStartRef.current = wasSelected;
-
-          // If already selected and tapped again, add to multi-select
-          if (wasSelected && selectedRegionIndices.length === 1) {
-            // Start long-press timer for edit modal
-            regionHoldTimerRef.current = setTimeout(() => {
-              const region = displayRegions[regionIndex];
-              if (region) {
-                setEditingRegion({ region, index: regionIndex });
-              }
-              // Cancel any drag
-              cancelDrag();
-            }, REGION_HOLD_THRESHOLD);
-          }
-
-          // Start drag operation - allow dragging even with pending changes
-          // so users can continue editing before committing
-          startDrag(dragType, regionIndex, e.clientX, time);
-
-          // Select the region if not already selected
-          if (!wasSelected) {
-            selectRegion(regionIndex);
-          }
-        } else {
-          // Tapped on empty area - clear selection
-          clearSelection();
-        }
-
-        // Capture pointer
-        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+        handleRegionPointerDown(e);
         return;
       }
 
       // Navigate mode (existing behavior)
+      const time = positionToTime(e.clientX);
       setDragStart(time);
       setDragEnd(time);
       setIsHolding(false);
@@ -407,119 +378,22 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       // Capture pointer for drag events
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
-    [
-      positionToTime,
-      isDraggingPlayhead,
-      timelineMode,
-      findRegionIndexAtPosition,
-      isRegionSelected,
-      detectDragType,
-      selectedRegionIndices,
-      displayRegions,
-      startDrag,
-      selectRegion,
-      clearSelection,
-      cancelDrag,
-    ]
+    [positionToTime, isDraggingPlayhead, timelineMode, handleRegionPointerDown]
   );
 
   // Handle touch/mouse move
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
-      const time = positionToTime(e.clientX);
-
-      // Region editing mode
-      if (timelineMode === 'regions' && regionDragType !== 'none' && regionDragIndex !== null) {
-        // Clear long-press timer if we moved
-        if (regionHoldTimerRef.current) {
-          clearTimeout(regionHoldTimerRef.current);
-          regionHoldTimerRef.current = null;
-        }
-
-        // For move operations, snap to valid insertion points only
-        // Valid points depend on direction of move and account for gap closure
-        if (regionDragType === 'move' && dragStartTime !== null) {
-          const indicesToMove = selectedRegionIndices.length > 0
-            ? selectedRegionIndices
-            : [regionDragIndex];
-
-          // IMPORTANT: Use baseDisplayRegions (positions BEFORE the drag), not displayRegions (preview)
-          // This ensures we snap to the original positions, not the shifting preview
-          const primaryRegion = baseDisplayRegions[regionDragIndex];
-          if (primaryRegion) {
-            // Calculate where the region's start would be after the move
-            const delta = time - dragStartTime;
-            const newStart = primaryRegion.start + delta;
-            const regionDuration = primaryRegion.end - primaryRegion.start;
-
-            // Build valid insertion points accounting for gap closure:
-            // When we remove the region from its position, regions AFTER it shift LEFT by regionDuration
-            // So we need to adjust snap points accordingly:
-            // - Position 0 (to make it first)
-            // - The dragged region's own start (no movement = always valid)
-            // - Start of regions BEFORE: valid as-is (they don't shift)
-            // - Start of regions AFTER: adjusted (subtract regionDuration for gap closure)
-            // - The adjusted end position (lastEnd - regionDuration)
-            const snapPoints: number[] = [0];
-            let lastEnd = 0;
-
-            // Always include the region's own position (allows "canceling" by returning to original)
-            snapPoints.push(primaryRegion.start);
-
-            baseDisplayRegions.forEach((region, index) => {
-              if (!indicesToMove.includes(index)) {
-                if (region.start < primaryRegion.start) {
-                  // Regions BEFORE: their starts are valid as-is (they don't shift)
-                  snapPoints.push(region.start);
-                } else {
-                  // Regions AFTER: adjust their starts for gap closure
-                  // When we remove the dragged region, these shift left by regionDuration
-                  // So the valid insertion point is their original start minus regionDuration
-                  snapPoints.push(region.start - regionDuration);
-                }
-                if (region.end > lastEnd) {
-                  lastEnd = region.end;
-                }
-              }
-            });
-
-            // Add the adjusted end position (accounting for gap closure when we remove the region)
-            // When we remove the region, everything after shifts left by regionDuration
-            if (lastEnd > 0) {
-              const adjustedLastEnd = lastEnd - regionDuration;
-              snapPoints.push(adjustedLastEnd);
-            }
-
-            // ALWAYS snap to the nearest valid point (no free positioning)
-            let snappedStart = snapPoints[0];
-            let minDist = Infinity;
-
-            for (const point of snapPoints) {
-              const dist = Math.abs(newStart - point);
-              if (dist < minDist) {
-                minDist = dist;
-                snappedStart = point;
-              }
-            }
-
-            // Adjust the time to produce the snapped position
-            const snappedDelta = snappedStart - primaryRegion.start;
-            const snappedTime = dragStartTime + snappedDelta;
-            updateDrag(e.clientX, snappedTime);
-            return;
-          }
-        }
-
-        // For resize operations, snap to bar boundaries (4 beats) for less sensitivity
-        const snappedTime = bpm ? snapToGrid(time, bpm, 4) : time;
-
-        updateDrag(e.clientX, snappedTime);
+      // Region editing mode - delegate to hook
+      if (timelineMode === 'regions') {
+        handleRegionPointerMove(e);
         return;
       }
 
       // Navigate mode
       if (dragStart === null) return;
 
+      const time = positionToTime(e.clientX);
       setDragEnd(time);
 
       // If moved significantly, we're definitely dragging
@@ -532,88 +406,21 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         setIsHolding(true); // Treat drag as selection mode
       }
     },
-    [dragStart, positionToTime, timelineMode, regionDragType, regionDragIndex, updateDrag, bpm, duration, displayRegions, baseDisplayRegions, selectedRegionIndices, dragStartTime]
+    [dragStart, positionToTime, timelineMode, handleRegionPointerMove]
   );
 
   // Handle touch/mouse end
   const handlePointerUp = useCallback(
     (e: React.PointerEvent) => {
-      // Clear hold timers
+      // Clear hold timer (navigate mode)
       if (holdTimerRef.current) {
         clearTimeout(holdTimerRef.current);
         holdTimerRef.current = null;
       }
-      if (regionHoldTimerRef.current) {
-        clearTimeout(regionHoldTimerRef.current);
-        regionHoldTimerRef.current = null;
-      }
 
-      // Region editing mode
+      // Region editing mode - delegate to hook
       if (timelineMode === 'regions') {
-        if (regionDragType !== 'none' && regionDragIndex !== null && dragStartTime !== null && dragCurrentTime !== null) {
-          const delta = dragCurrentTime - dragStartTime;
-          const wasDragging = Math.abs(delta) > 0.05; // More than 50ms movement
-
-          if (wasDragging) {
-            // Get the region from baseDisplayRegions (original positions, not drag preview)
-            const region = baseDisplayRegions[regionDragIndex];
-            if (region) {
-              // CRITICAL: regionDragIndex and selectedRegionIndices are DISPLAY indices (sorted by time)
-              // But moveRegion/resizeRegion expect REGION indices (position in original regions array)
-              // The _pendingKey on each display region stores the original region index
-              const regionIndex = (region as { _pendingKey?: number })._pendingKey ?? regionDragIndex;
-
-              if (regionDragType === 'resize-start') {
-                // Resize start edge - use region index, not display index
-                resizeRegion(regionIndex, 'start', dragCurrentTime, regions, bpm);
-              } else if (regionDragType === 'resize-end') {
-                // Resize end edge - use region index, not display index
-                resizeRegion(regionIndex, 'end', dragCurrentTime, regions, bpm);
-              } else if (regionDragType === 'move') {
-                // Convert display indices to region indices (via _pendingKey)
-                const displayIndicesToMove = selectedRegionIndices.length > 0
-                  ? selectedRegionIndices
-                  : [regionDragIndex];
-
-                const regionIndicesToMove = displayIndicesToMove.map(displayIdx => {
-                  const r = baseDisplayRegions[displayIdx] as { _pendingKey?: number };
-                  return r._pendingKey ?? displayIdx;
-                });
-
-                // Move region(s) - pass region indices, not display indices
-                moveRegion(regionIndicesToMove, delta, regions);
-
-                // After move, find new display indices and update selection
-                // Use setTimeout to let state update first
-                setTimeout(() => {
-                  const updatedDisplayRegions = getDisplayRegions(regions);
-                  const newDisplayIndices = regionIndicesToMove
-                    .map(regIdx => {
-                      return updatedDisplayRegions.findIndex(
-                        r => (r as { _pendingKey?: number })._pendingKey === regIdx
-                      );
-                    })
-                    .filter(idx => idx !== -1);
-
-                  // Update selection to the new display indices
-                  if (newDisplayIndices.length > 0) {
-                    clearSelection();
-                    newDisplayIndices.forEach(idx => selectRegion(idx));
-                  }
-                }, 0);
-              }
-            }
-          } else {
-            // Was just a tap - toggle selection only if it was already selected before tap started
-            if (wasSelectedOnTapStartRef.current) {
-              // Deselect if it was already selected when tap started
-              deselectRegion(regionDragIndex);
-            }
-          }
-        }
-
-        endDrag();
-        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+        handleRegionPointerUp(e);
         return;
       }
 
@@ -669,23 +476,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       setTimeSelection,
       navigateTo,
       timelineMode,
-      regionDragType,
-      regionDragIndex,
-      dragStartTime,
-      dragCurrentTime,
-      displayRegions,
-      baseDisplayRegions,
-      resizeRegion,
-      moveRegion,
-      selectedRegionIndices,
-      regions,
-      bpm,
-      isRegionSelected,
-      deselectRegion,
-      endDrag,
-      getDisplayRegions,
-      clearSelection,
-      selectRegion,
+      handleRegionPointerUp,
     ]
   );
 
@@ -788,8 +579,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
                     : 'border-gray-600'
               } ${pendingRingClass}`}
               style={{
-                left: `${timeToPercent(region.start)}%`,
-                width: `${timeToPercent(region.end) - timeToPercent(region.start)}%`,
+                left: `${renderTimeToPercent(region.start)}%`,
+                width: `${renderTimeToPercent(region.end) - renderTimeToPercent(region.start)}%`,
               }}
             >
               {/* Color bar - 5px */}
@@ -839,8 +630,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
                     : 'border-gray-600 bg-gray-700/50'
               } ${pendingRingClass}`}
               style={{
-                left: `${timeToPercent(region.start)}%`,
-                width: `${timeToPercent(region.end) - timeToPercent(region.start)}%`,
+                left: `${renderTimeToPercent(region.start)}%`,
+                width: `${renderTimeToPercent(region.end) - renderTimeToPercent(region.start)}%`,
               }}
             >
               {/* Edge handles - only show for single selection when no pending changes */}
@@ -875,8 +666,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
                 : 'bg-yellow-500/20 border-yellow-400'
             }`}
             style={{
-              left: `${timeToPercent(timeSelectionSeconds.start)}%`,
-              width: `${timeToPercent(timeSelectionSeconds.end) - timeToPercent(timeSelectionSeconds.start)}%`,
+              left: `${renderTimeToPercent(timeSelectionSeconds.start)}%`,
+              width: `${renderTimeToPercent(timeSelectionSeconds.end) - renderTimeToPercent(timeSelectionSeconds.start)}%`,
             }}
           />
         )}
@@ -888,7 +679,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
             className={`absolute top-0 bottom-0 w-0.5 ${
               timelineMode === 'regions' ? 'bg-gray-600 opacity-40' : 'bg-red-500'
             }`}
-            style={{ left: `${timeToPercent(marker.position)}%` }}
+            style={{ left: `${renderTimeToPercent(marker.position)}%` }}
           />
         ))}
 
@@ -897,8 +688,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           <div
             className="absolute top-0 bottom-0 bg-blue-500/30 border-l-2 border-r-2 border-blue-400 pointer-events-none"
             style={{
-              left: `${timeToPercent(selectionPreview.start)}%`,
-              width: `${timeToPercent(selectionPreview.end) - timeToPercent(selectionPreview.start)}%`,
+              left: `${renderTimeToPercent(selectionPreview.start)}%`,
+              width: `${renderTimeToPercent(selectionPreview.end) - renderTimeToPercent(selectionPreview.start)}%`,
             }}
           />
         )}
@@ -907,7 +698,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         {insertionPoint !== null && regionDragType === 'move' && (
           <div
             className="absolute top-0 bottom-0 pointer-events-none z-20"
-            style={{ left: `${timeToPercent(insertionPoint)}%` }}
+            style={{ left: `${renderTimeToPercent(insertionPoint)}%` }}
           >
             {/* Main insertion line */}
             <div className="absolute top-0 bottom-0 left-0 w-1 bg-green-400 shadow-lg shadow-green-400/50" />
@@ -924,8 +715,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           </div>
         )}
 
-        {/* Resize Edge Position Indicator */}
-        {resizeEdgePosition !== null && (regionDragType === 'resize-start' || regionDragType === 'resize-end') && regionDragIndex !== null && (
+        {/* Resize Edge Position Indicator - hidden when drag is cancelled */}
+        {resizeEdgePosition !== null && (regionDragType === 'resize-start' || regionDragType === 'resize-end') && regionDragIndex !== null && !isRegionDragCancelled && (
           (() => {
             const originalRegion = regions[regionDragIndex];
             const originalEdge = regionDragType === 'resize-start' ? originalRegion?.start : originalRegion?.end;
@@ -935,7 +726,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
             return (
               <div
                 className="absolute top-0 bottom-0 pointer-events-none z-20"
-                style={{ left: `${timeToPercent(resizeEdgePosition)}%` }}
+                style={{ left: `${renderTimeToPercent(resizeEdgePosition)}%` }}
               >
                 {/* Main edge line */}
                 <div className="absolute top-0 bottom-0 left-0 w-1 bg-green-400 shadow-lg shadow-green-400/50" />
@@ -968,7 +759,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         {!isSyncing && (
           <div
             className={`absolute top-0 bottom-0 ${isDraggingPlayhead ? 'opacity-50' : ''}`}
-            style={{ left: `${playheadPercent}%` }}
+            style={{ left: `${renderTimeToPercent(positionSeconds)}%` }}
           >
             {/* Playhead line - above markers (z-10), below region labels (z-20) */}
             <div className={`absolute top-0 bottom-0 left-0 w-0.5 pointer-events-none z-10 ${
@@ -1074,8 +865,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
               timelineMode === 'regions' ? 'bg-gray-600 opacity-40' : 'bg-yellow-400'
             }`}
             style={{
-              left: `${timeToPercent(timeSelectionSeconds.start)}%`,
-              width: `${timeToPercent(timeSelectionSeconds.end) - timeToPercent(timeSelectionSeconds.start)}%`,
+              left: `${renderTimeToPercent(timeSelectionSeconds.start)}%`,
+              width: `${renderTimeToPercent(timeSelectionSeconds.end) - renderTimeToPercent(timeSelectionSeconds.start)}%`,
             }}
           />
         )}
@@ -1093,7 +884,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
                     ? 'bg-red-600 cursor-grab active:cursor-grabbing'
                     : 'bg-gray-500 cursor-not-allowed'
               } ${isBeingDragged && isDraggingMarker ? 'opacity-50' : ''}`}
-              style={{ left: `calc(${timeToPercent(marker.position)}% + 1px)` }}
+              style={{ left: `calc(${renderTimeToPercent(marker.position)}% + 1px)` }}
               onPointerDown={timelineMode === 'regions' ? undefined : (e) => handleMarkerPointerDown(e, marker)}
               onPointerMove={timelineMode === 'regions' ? undefined : handleMarkerPointerMove}
               onPointerUp={timelineMode === 'regions' ? undefined : handleMarkerPointerUp}
