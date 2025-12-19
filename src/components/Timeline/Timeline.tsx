@@ -9,15 +9,17 @@ import { useReaper } from '../ReaperProvider';
 import { useTransport } from '../../hooks/useTransport';
 import * as commands from '../../core/CommandBuilder';
 import type { Region, Marker } from '../../core/types';
-import { MarkerEditModal, isMarkerMoveable, getMarkerMoveAction } from './MarkerEditModal';
+import { MarkerEditModal, getMarkerMoveAction } from './MarkerEditModal';
 import { usePlayheadDrag, useMarkerDrag, useRegionDrag } from './hooks';
+import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
+import { TimelineMarkerLines, TimelineMarkerPills } from './TimelineMarkers';
+import { TimelinePlayhead, PlayheadDragPreview, MarkerDragPreview } from './TimelinePlayhead';
 import {
   secondsToBeats,
   beatsToSeconds,
   formatBeats,
   formatDelta,
   parseReaperBar,
-  reaperColorToRgba,
 } from '../../utils';
 
 export interface TimelineProps {
@@ -558,43 +560,15 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     <div className={`${className}`}>
       {/* Top bar - region labels (color bar + text) */}
       <div className="relative h-[25px] bg-gray-900 rounded-t-lg">
-        {displayRegions.map((region, idx) => {
-          // Use _pendingKey from display region metadata for selection/pending lookup
-          // This is stable across drag preview reordering
-          const pendingKey = (region as { _pendingKey?: number })._pendingKey ?? idx;
-          const isSelected = timelineMode === 'regions' && selectedPendingKeys.has(pendingKey);
-          const isNewRegion = (region as { _isNew?: boolean })._isNew === true;
-          const hasPending = pendingChanges[pendingKey] !== undefined;
-          const isBeingDragged = draggedPendingKey === pendingKey && regionDragType !== 'none';
-          // New regions get white outline, modified existing get orange
-          const pendingRingClass = isNewRegion ? 'ring-1 ring-white' : hasPending ? 'ring-1 ring-amber-400' : '';
-          return (
-            <div
-              key={`region-label-${region.id}`}
-              className={`absolute top-0 bottom-0 border-l border-r flex flex-col ${
-                isBeingDragged
-                  ? 'border-purple-400 z-20 bg-gray-900'
-                  : isSelected
-                    ? 'border-purple-400 z-10'
-                    : 'border-gray-600'
-              } ${pendingRingClass}`}
-              style={{
-                left: `${renderTimeToPercent(region.start)}%`,
-                width: `${renderTimeToPercent(region.end) - renderTimeToPercent(region.start)}%`,
-              }}
-            >
-              {/* Color bar - 5px */}
-              <div
-                className="h-[5px] w-full"
-                style={{ backgroundColor: region.color ? reaperColorToRgba(region.color, 1) ?? 'rgb(75, 85, 99)' : 'rgb(75, 85, 99)' }}
-              />
-              {/* Region name */}
-              <span className="h-5 flex items-center px-1 text-[11px] text-white font-semibold truncate">
-                {region.name}
-              </span>
-            </div>
-          );
-        })}
+        <TimelineRegionLabels
+          displayRegions={displayRegions}
+          timelineMode={timelineMode}
+          selectedPendingKeys={selectedPendingKeys}
+          pendingChanges={pendingChanges}
+          draggedPendingKey={draggedPendingKey}
+          regionDragType={regionDragType}
+          renderTimeToPercent={renderTimeToPercent}
+        />
       </div>
 
       <div
@@ -607,55 +581,16 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         onPointerCancel={handlePointerUp}
       >
         {/* Regions - blocks only (no color), labels in top bar */}
-        {displayRegions.map((region, idx) => {
-          // Use _pendingKey from display region metadata for selection/pending lookup
-          // This is stable across drag preview reordering
-          const pendingKey = (region as { _pendingKey?: number })._pendingKey ?? idx;
-          const isSelected = timelineMode === 'regions' && selectedPendingKeys.has(pendingKey);
-          const isNewRegion = (region as { _isNew?: boolean })._isNew === true;
-          const hasPending = pendingChanges[pendingKey] !== undefined;
-          const isSingleSelection = isSelected && selectedPendingKeys.size === 1;
-          const isBeingDragged = draggedPendingKey === pendingKey && regionDragType !== 'none';
-          // New regions get white outline, modified existing get orange
-          const pendingRingClass = isNewRegion ? 'ring-1 ring-inset ring-white' : hasPending ? 'ring-1 ring-inset ring-amber-400' : '';
-
-          return (
-            <div
-              key={`region-${region.id}`}
-              className={`absolute top-0 bottom-0 border-l border-r ${
-                isBeingDragged
-                  ? 'border-purple-400 bg-purple-500/50 z-20'
-                  : isSelected
-                    ? 'border-purple-400 bg-purple-500/30 z-10'
-                    : 'border-gray-600 bg-gray-700/50'
-              } ${pendingRingClass}`}
-              style={{
-                left: `${renderTimeToPercent(region.start)}%`,
-                width: `${renderTimeToPercent(region.end) - renderTimeToPercent(region.start)}%`,
-              }}
-            >
-              {/* Edge handles - only show for single selection when no pending changes */}
-              {isSingleSelection && !hasPendingChanges() && (
-                <>
-                  {/* Left edge handle */}
-                  <div
-                    className="absolute left-0 top-0 bottom-0 w-5 cursor-ew-resize flex items-center justify-start"
-                    style={{ touchAction: 'none' }}
-                  >
-                    <div className="w-1.5 h-8 bg-purple-400 rounded-r-sm" />
-                  </div>
-                  {/* Right edge handle */}
-                  <div
-                    className="absolute right-0 top-0 bottom-0 w-5 cursor-ew-resize flex items-center justify-end"
-                    style={{ touchAction: 'none' }}
-                  >
-                    <div className="w-1.5 h-8 bg-purple-400 rounded-l-sm" />
-                  </div>
-                </>
-              )}
-            </div>
-          );
-        })}
+        <TimelineRegionBlocks
+          displayRegions={displayRegions}
+          timelineMode={timelineMode}
+          selectedPendingKeys={selectedPendingKeys}
+          pendingChanges={pendingChanges}
+          draggedPendingKey={draggedPendingKey}
+          regionDragType={regionDragType}
+          hasPendingChanges={hasPendingChanges}
+          renderTimeToPercent={renderTimeToPercent}
+        />
 
         {/* Stored Time Selection */}
         {timeSelectionSeconds && (
@@ -673,15 +608,11 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         )}
 
         {/* Markers - lines only, labels in bottom bar */}
-        {markers.map((marker) => (
-          <div
-            key={`marker-${marker.id}`}
-            className={`absolute top-0 bottom-0 w-0.5 ${
-              timelineMode === 'regions' ? 'bg-gray-600 opacity-40' : 'bg-red-500'
-            }`}
-            style={{ left: `${renderTimeToPercent(marker.position)}%` }}
-          />
-        ))}
+        <TimelineMarkerLines
+          markers={markers}
+          timelineMode={timelineMode}
+          renderTimeToPercent={renderTimeToPercent}
+        />
 
         {/* Selection Preview */}
         {selectionPreview && (
@@ -755,89 +686,38 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           })()
         )}
 
-        {/* Playhead with grab handle - hidden while syncing */}
-        {!isSyncing && (
-          <div
-            className={`absolute top-0 bottom-0 ${isDraggingPlayhead ? 'opacity-50' : ''}`}
-            style={{ left: `${renderTimeToPercent(positionSeconds)}%` }}
-          >
-            {/* Playhead line - above markers (z-10), below region labels (z-20) */}
-            <div className={`absolute top-0 bottom-0 left-0 w-0.5 pointer-events-none z-10 ${
-              timelineMode === 'regions' ? 'bg-gray-500 opacity-40' : 'bg-white'
-            }`} />
-
-            {/* Grab handle - T-shape at top, above everything */}
-            <div
-              className={`absolute -top-0.5 -left-[11px] w-6 h-6 z-30 ${
-                timelineMode === 'regions'
-                  ? 'pointer-events-none opacity-40'
-                  : 'cursor-grab active:cursor-grabbing'
-              }`}
-              style={{ touchAction: 'none' }}
-              onPointerDown={timelineMode === 'regions' ? undefined : handlePlayheadPointerDown}
-              onPointerMove={timelineMode === 'regions' ? undefined : handlePlayheadPointerMove}
-              onPointerUp={timelineMode === 'regions' ? undefined : handlePlayheadPointerUp}
-              onPointerCancel={timelineMode === 'regions' ? undefined : handlePlayheadPointerUp}
-            >
-              {/* Visible T-bar */}
-              <div className={`absolute top-0.5 left-1/2 -translate-x-1/2 w-4 h-1.5 rounded-sm shadow-md ${
-                timelineMode === 'regions' ? 'bg-gray-500' : 'bg-white'
-              }`} />
-            </div>
-          </div>
-        )}
+        {/* Playhead with grab handle */}
+        <TimelinePlayhead
+          positionSeconds={positionSeconds}
+          timelineMode={timelineMode}
+          isSyncing={isSyncing}
+          isDraggingPlayhead={isDraggingPlayhead}
+          renderTimeToPercent={renderTimeToPercent}
+          handlePlayheadPointerDown={handlePlayheadPointerDown}
+          handlePlayheadPointerMove={handlePlayheadPointerMove}
+          handlePlayheadPointerUp={handlePlayheadPointerUp}
+        />
 
         {/* Preview playhead during drag */}
-        {isDraggingPlayhead && playheadPreviewPercent !== null && (
-          <div
-            className="absolute top-0 bottom-0 pointer-events-none"
-            style={{ left: `${playheadPreviewPercent}%` }}
-          >
-            {/* Preview line - same z as main playhead line */}
-            <div className="absolute top-0 bottom-0 left-0 w-0.5 bg-white z-10" />
-            {/* Preview T-bar with highlight - above everything */}
-            <div className="absolute top-0 -left-[11px] w-6 h-6 z-40">
-              <div className="absolute top-0.5 left-1/2 -translate-x-1/2 w-4 h-1.5 bg-white rounded-sm shadow-lg ring-2 ring-blue-400" />
-            </div>
-            {/* Position pill showing time and beats - at bottom so finger doesn't obscure */}
-            <div className="absolute bottom-1 -translate-x-1/2 z-40">
-              <div className="bg-gray-900 border border-blue-400 rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg">
-                {(() => {
-                  const seconds = timelineStart + (playheadPreviewPercent / 100) * duration;
-                  const mins = Math.floor(seconds / 60);
-                  const secs = (seconds % 60).toFixed(1);
-                  const timeStr = `${mins}:${secs.padStart(4, '0')}`;
-                  const beatsStr = bpm ? formatBeats(seconds, bpm, barOffset) : '';
-                  return beatsStr ? `${timeStr} | ${beatsStr}` : timeStr;
-                })()}
-              </div>
-            </div>
-          </div>
-        )}
+        <PlayheadDragPreview
+          playheadPreviewPercent={playheadPreviewPercent}
+          isDraggingPlayhead={isDraggingPlayhead}
+          timelineStart={timelineStart}
+          duration={duration}
+          bpm={bpm}
+          barOffset={barOffset}
+        />
 
         {/* Preview marker during drag */}
-        {isDraggingMarker && draggedMarker && markerDragPreviewPercent !== null && (
-          <div
-            className="absolute top-0 bottom-0 pointer-events-none"
-            style={{ left: `${markerDragPreviewPercent}%` }}
-          >
-            {/* Preview line */}
-            <div className="absolute top-0 bottom-0 left-0 w-0.5 bg-red-400 z-10" />
-            {/* Position pill showing time and beats */}
-            <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 z-40">
-              <div className="bg-gray-900 border border-red-400 rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg">
-                {(() => {
-                  const seconds = timelineStart + (markerDragPreviewPercent / 100) * duration;
-                  const mins = Math.floor(seconds / 60);
-                  const secs = (seconds % 60).toFixed(1);
-                  const timeStr = `${mins}:${secs.padStart(4, '0')}`;
-                  const beatsStr = bpm ? formatBeats(seconds, bpm, barOffset) : '';
-                  return beatsStr ? `${timeStr} | ${beatsStr}` : timeStr;
-                })()}
-              </div>
-            </div>
-          </div>
-        )}
+        <MarkerDragPreview
+          draggedMarker={draggedMarker}
+          isDraggingMarker={isDraggingMarker}
+          markerDragPreviewPercent={markerDragPreviewPercent}
+          timelineStart={timelineStart}
+          duration={duration}
+          bpm={bpm}
+          barOffset={barOffset}
+        />
 
         {/* Empty state */}
         {displayRegions.length === 0 && markers.length === 0 && (
@@ -871,31 +751,16 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           />
         )}
         {/* Marker pills - offset by 1px to center on 2px-wide marker line */}
-        {markers.map((marker) => {
-          const canMove = isMarkerMoveable(marker.id) && timelineMode !== 'regions';
-          const isBeingDragged = draggedMarker?.id === marker.id;
-          return (
-            <div
-              key={`marker-pill-${marker.id}`}
-              className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 min-w-4 h-4 px-1 rounded-full flex items-center justify-center touch-none select-none transition-opacity ${
-                timelineMode === 'regions'
-                  ? 'bg-gray-600 pointer-events-none opacity-40'
-                  : canMove
-                    ? 'bg-red-600 cursor-grab active:cursor-grabbing'
-                    : 'bg-gray-500 cursor-not-allowed'
-              } ${isBeingDragged && isDraggingMarker ? 'opacity-50' : ''}`}
-              style={{ left: `calc(${renderTimeToPercent(marker.position)}% + 1px)` }}
-              onPointerDown={timelineMode === 'regions' ? undefined : (e) => handleMarkerPointerDown(e, marker)}
-              onPointerMove={timelineMode === 'regions' ? undefined : handleMarkerPointerMove}
-              onPointerUp={timelineMode === 'regions' ? undefined : handleMarkerPointerUp}
-              onPointerCancel={timelineMode === 'regions' ? undefined : handleMarkerPointerUp}
-            >
-              <span className={`text-[10px] font-bold leading-none ${
-                timelineMode === 'regions' ? 'text-gray-400' : 'text-white'
-              }`}>{marker.id}</span>
-            </div>
-          );
-        })}
+        <TimelineMarkerPills
+          markers={markers}
+          timelineMode={timelineMode}
+          renderTimeToPercent={renderTimeToPercent}
+          draggedMarker={draggedMarker}
+          isDraggingMarker={isDraggingMarker}
+          handleMarkerPointerDown={handleMarkerPointerDown}
+          handleMarkerPointerMove={handleMarkerPointerMove}
+          handleMarkerPointerUp={handleMarkerPointerUp}
+        />
       </div>
 
       {/* Marker Edit Modal */}
