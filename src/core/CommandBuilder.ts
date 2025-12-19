@@ -69,13 +69,6 @@ export function getRepeat(): string {
 }
 
 /**
- * Build a command to get current tempo (BPM)
- */
-export function getTempo(): string {
-  return 'GET/TEMPO';
-}
-
-/**
  * Build a command to get command state (e.g., metronome toggle)
  */
 export function getCommandState(commandId: number | string): string {
