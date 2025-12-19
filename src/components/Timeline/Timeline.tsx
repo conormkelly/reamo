@@ -10,6 +10,7 @@ import { useTransport } from '../../hooks/useTransport';
 import * as commands from '../../core/CommandBuilder';
 import type { Region, Marker } from '../../core/types';
 import { MarkerEditModal, isMarkerMoveable, getMarkerMoveAction } from './MarkerEditModal';
+import { usePlayheadDrag, useMarkerDrag } from './hooks';
 import type { DragType } from '../../store';
 import {
   secondsToBeats,
@@ -31,10 +32,6 @@ export interface TimelineProps {
 
 // Hold duration threshold in ms
 const HOLD_THRESHOLD = 300;
-// Long-press threshold for marker edit modal
-const MARKER_HOLD_THRESHOLD = 500;
-// Vertical distance to cancel playhead drag (pixels)
-const VERTICAL_CANCEL_THRESHOLD = 50;
 
 export function Timeline({ className = '', height = 120, isSyncing = false }: TimelineProps): ReactElement {
   const { send } = useReaper();
@@ -154,18 +151,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Playhead drag state
-  const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false);
-  const [playheadDragStartY, setPlayheadDragStartY] = useState<number | null>(null);
-  const [playheadPreviewPercent, setPlayheadPreviewPercent] = useState<number | null>(null);
-
-  // Marker drag state
-  const [isDraggingMarker, setIsDraggingMarker] = useState(false);
-  const [draggedMarker, setDraggedMarker] = useState<Marker | null>(null);
-  const [markerDragStartY, setMarkerDragStartY] = useState<number | null>(null);
-  const [markerDragPreviewPercent, setMarkerDragPreviewPercent] = useState<number | null>(null);
-  const markerHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   // Marker edit modal state
   const [editingMarker, setEditingMarker] = useState<Marker | null>(null);
 
@@ -207,6 +192,26 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     },
     [timelineStart, duration]
   );
+
+  // Playhead position and drag hook (must be before handlePointerDown which uses isDraggingPlayhead)
+  const playheadPercent = timeToPercent(positionSeconds);
+  const handlePlayheadSeek = useCallback(
+    (newTime: number) => send(seekTo(newTime)),
+    [send, seekTo]
+  );
+  const {
+    isDragging: isDraggingPlayhead,
+    previewPercent: playheadPreviewPercent,
+    handlePointerDown: handlePlayheadPointerDown,
+    handlePointerMove: handlePlayheadPointerMove,
+    handlePointerUp: handlePlayheadPointerUp,
+  } = usePlayheadDrag({
+    containerRef,
+    playheadPercent,
+    timelineStart,
+    duration,
+    onSeek: handlePlayheadSeek,
+  });
 
   // Convert x position to time
   const positionToTime = useCallback(
@@ -684,210 +689,37 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     ]
   );
 
-  // Playhead position
-  const playheadPercent = timeToPercent(positionSeconds);
-
-  // Playhead drag handlers
-  const handlePlayheadPointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      e.stopPropagation();
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
-
-      setIsDraggingPlayhead(true);
-      setPlayheadDragStartY(e.clientY);
-      setPlayheadPreviewPercent(playheadPercent);
+  // Marker drag hook
+  const handleMarkerMoveFromDrag = useCallback(
+    (markerId: number, newPositionSeconds: number) => {
+      const actionId = getMarkerMoveAction(markerId);
+      if (actionId) {
+        send(commands.join(
+          commands.setPosition(newPositionSeconds),
+          commands.action(actionId)
+        ));
+      }
     },
-    [playheadPercent]
+    [send]
   );
+  const {
+    isDragging: isDraggingMarker,
+    draggedMarker,
+    previewPercent: markerDragPreviewPercent,
+    handlePointerDown: handleMarkerPointerDown,
+    handlePointerMove: handleMarkerPointerMove,
+    handlePointerUp: handleMarkerPointerUp,
+  } = useMarkerDrag({
+    containerRef,
+    timelineStart,
+    duration,
+    bpm,
+    timeToPercent,
+    onEdit: setEditingMarker,
+    onMove: handleMarkerMoveFromDrag,
+  });
 
-  const handlePlayheadPointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!isDraggingPlayhead || !containerRef.current) return;
-
-      const rect = containerRef.current.getBoundingClientRect();
-      const deltaY =
-        playheadDragStartY !== null ? Math.abs(e.clientY - playheadDragStartY) : 0;
-      const isOutsideVertically =
-        e.clientY < rect.top - VERTICAL_CANCEL_THRESHOLD ||
-        e.clientY > rect.bottom + VERTICAL_CANCEL_THRESHOLD;
-
-      if (isOutsideVertically || deltaY > VERTICAL_CANCEL_THRESHOLD) {
-        // Show cancel state - preview snaps back to current playhead
-        setPlayheadPreviewPercent(playheadPercent);
-        return;
-      }
-
-      // Update preview position
-      const percent = ((e.clientX - rect.left) / rect.width) * 100;
-      setPlayheadPreviewPercent(Math.max(0, Math.min(100, percent)));
-    },
-    [isDraggingPlayhead, playheadDragStartY, playheadPercent]
-  );
-
-  const handlePlayheadPointerUp = useCallback(
-    (e: React.PointerEvent) => {
-      if (!isDraggingPlayhead || !containerRef.current) return;
-
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-
-      const rect = containerRef.current.getBoundingClientRect();
-      const deltaY =
-        playheadDragStartY !== null ? Math.abs(e.clientY - playheadDragStartY) : 0;
-      const isOutsideVertically =
-        e.clientY < rect.top - VERTICAL_CANCEL_THRESHOLD ||
-        e.clientY > rect.bottom + VERTICAL_CANCEL_THRESHOLD;
-
-      // Only commit if not cancelled
-      if (
-        !isOutsideVertically &&
-        deltaY <= VERTICAL_CANCEL_THRESHOLD &&
-        playheadPreviewPercent !== null
-      ) {
-        const newTime = timelineStart + (playheadPreviewPercent / 100) * duration;
-        send(seekTo(newTime));
-      }
-
-      // Reset state
-      setIsDraggingPlayhead(false);
-      setPlayheadDragStartY(null);
-      setPlayheadPreviewPercent(null);
-    },
-    [
-      isDraggingPlayhead,
-      playheadDragStartY,
-      playheadPreviewPercent,
-      timelineStart,
-      duration,
-      send,
-      seekTo,
-    ]
-  );
-
-  // Marker drag handlers
-  const handleMarkerPointerDown = useCallback(
-    (e: React.PointerEvent, marker: Marker) => {
-      e.stopPropagation();
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
-
-      const canMove = isMarkerMoveable(marker.id);
-
-      setDraggedMarker(marker);
-      setMarkerDragStartY(e.clientY);
-
-      if (canMove) {
-        setMarkerDragPreviewPercent(timeToPercent(marker.position));
-      }
-
-      // Start long-press timer for edit modal
-      markerHoldTimerRef.current = setTimeout(() => {
-        // Long press detected - open edit modal
-        setEditingMarker(marker);
-        // Cancel any drag
-        setIsDraggingMarker(false);
-        setDraggedMarker(null);
-        setMarkerDragStartY(null);
-        setMarkerDragPreviewPercent(null);
-      }, MARKER_HOLD_THRESHOLD);
-    },
-    [timeToPercent]
-  );
-
-  const handleMarkerPointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!draggedMarker || !containerRef.current) return;
-
-      const canMove = isMarkerMoveable(draggedMarker.id);
-
-      // If moved significantly, we're dragging (cancel long-press timer)
-      const movedSignificantly = Math.abs(e.clientX - (containerRef.current.getBoundingClientRect().left + (timeToPercent(draggedMarker.position) / 100) * containerRef.current.getBoundingClientRect().width)) > 5;
-
-      if (movedSignificantly && markerHoldTimerRef.current) {
-        clearTimeout(markerHoldTimerRef.current);
-        markerHoldTimerRef.current = null;
-        if (canMove) {
-          setIsDraggingMarker(true);
-        }
-      }
-
-      if (!isDraggingMarker || !canMove) return;
-
-      const rect = containerRef.current.getBoundingClientRect();
-      const deltaY = markerDragStartY !== null ? Math.abs(e.clientY - markerDragStartY) : 0;
-      const isOutsideVertically =
-        e.clientY < rect.top - VERTICAL_CANCEL_THRESHOLD ||
-        e.clientY > rect.bottom + VERTICAL_CANCEL_THRESHOLD;
-
-      if (isOutsideVertically || deltaY > VERTICAL_CANCEL_THRESHOLD) {
-        // Cancel - snap back to original position
-        setMarkerDragPreviewPercent(timeToPercent(draggedMarker.position));
-        return;
-      }
-
-      // Calculate time from drag position
-      const rawPercent = ((e.clientX - rect.left) / rect.width) * 100;
-      const rawTime = timelineStart + (rawPercent / 100) * duration;
-
-      // Snap to grid (16th notes) if we have BPM
-      const snappedTime = bpm ? snapToGrid(rawTime, bpm, 4) : rawTime;
-      const snappedPercent = timeToPercent(snappedTime);
-
-      setMarkerDragPreviewPercent(Math.max(0, Math.min(100, snappedPercent)));
-    },
-    [draggedMarker, isDraggingMarker, markerDragStartY, timeToPercent, timelineStart, duration, bpm]
-  );
-
-  const handleMarkerPointerUp = useCallback(
-    (e: React.PointerEvent) => {
-      // Clear long-press timer
-      if (markerHoldTimerRef.current) {
-        clearTimeout(markerHoldTimerRef.current);
-        markerHoldTimerRef.current = null;
-      }
-
-      if (!draggedMarker || !containerRef.current) {
-        setDraggedMarker(null);
-        setMarkerDragStartY(null);
-        setMarkerDragPreviewPercent(null);
-        setIsDraggingMarker(false);
-        return;
-      }
-
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-
-      const canMove = isMarkerMoveable(draggedMarker.id);
-
-      // If we were dragging and marker is moveable, commit the move
-      if (isDraggingMarker && canMove && markerDragPreviewPercent !== null) {
-        const rect = containerRef.current.getBoundingClientRect();
-        const deltaY = markerDragStartY !== null ? Math.abs(e.clientY - markerDragStartY) : 0;
-        const isOutsideVertically =
-          e.clientY < rect.top - VERTICAL_CANCEL_THRESHOLD ||
-          e.clientY > rect.bottom + VERTICAL_CANCEL_THRESHOLD;
-
-        // Only commit if not cancelled
-        if (!isOutsideVertically && deltaY <= VERTICAL_CANCEL_THRESHOLD) {
-          const newTime = timelineStart + (markerDragPreviewPercent / 100) * duration;
-          const actionId = getMarkerMoveAction(draggedMarker.id);
-          if (actionId) {
-            // Seek to new position, then move marker
-            send(commands.join(
-              commands.setPosition(newTime),
-              commands.action(actionId)
-            ));
-          }
-        }
-      }
-
-      // Reset state
-      setIsDraggingMarker(false);
-      setDraggedMarker(null);
-      setMarkerDragStartY(null);
-      setMarkerDragPreviewPercent(null);
-    },
-    [draggedMarker, isDraggingMarker, markerDragStartY, markerDragPreviewPercent, timelineStart, duration, send]
-  );
-
-  // Marker edit modal callbacks
+  // Marker edit modal callbacks (also used by MarkerEditModal)
   const handleMarkerMove = useCallback(
     (markerId: number, newPositionSeconds: number) => {
       const actionId = getMarkerMoveAction(markerId);
