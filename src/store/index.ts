@@ -105,10 +105,15 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
 
         case 'EXTSTATE': {
           const extState = response.data;
-          // Check for Reamo script installation flag
+          // Check for Reamo region script installation flag
           if (extState.section === 'Reamo' && extState.key === 'script_installed') {
             get().setLuaScriptInstalled(extState.value === '1');
             get().setLuaScriptChecked(true);
+          }
+          // Check for Reamo marker script installation flag
+          if (extState.section === 'Reamo' && extState.key === 'marker_script_installed') {
+            get().setMarkerScriptInstalled(extState.value === '1');
+            get().setMarkerScriptChecked(true);
           }
           break;
         }

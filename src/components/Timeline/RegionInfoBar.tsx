@@ -6,7 +6,7 @@
  */
 
 import { useState, useRef, useEffect, type ReactElement } from 'react';
-import { Plus, Trash2, CopyPlus } from 'lucide-react';
+import { Plus, Trash2, CopyPlus, RotateCcw } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import {
   hexToReaperColor,
@@ -21,6 +21,9 @@ import {
 } from '../../utils';
 import type { Region } from '../../core/types';
 import { DeleteRegionModal } from './DeleteRegionModal';
+
+// Default region color in REAPER (shown when color = 0)
+const DEFAULT_REGION_COLOR = '#688585';
 
 interface RegionInfoBarProps {
   className?: string;
@@ -114,7 +117,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
   const existingColors = new Set<string>();
   displayRegions.forEach((r) => {
     if (r.color) {
-      existingColors.add(reaperColorToHexWithFallback(r.color));
+      existingColors.add(reaperColorToHexWithFallback(r.color, DEFAULT_REGION_COLOR));
     }
   });
 
@@ -129,7 +132,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
   })();
 
   const duration = region ? region.end - region.start : 0;
-  const currentColor = region ? reaperColorToHexWithFallback(region.color) : '#808080';
+  const currentColor = region ? reaperColorToHexWithFallback(region.color, DEFAULT_REGION_COLOR) : DEFAULT_REGION_COLOR;
 
   const handleFieldClick = (field: EditingField) => {
     if (!region || selectedIndex === null) return;
@@ -154,10 +157,21 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
     }
   };
 
+  // Check if region uses default color (color = 0 or undefined)
+  const isDefaultColor = !region?.color || region.color === 0;
+
   const handleColorSelect = (hex: string) => {
     if (pendingKey === null) return;
     const reaperColor = hexToReaperColor(hex);
     updateRegionMeta(pendingKey, { color: reaperColor }, regions);
+    setShowColorPicker(false);
+    setEditingField(null);
+  };
+
+  const handleColorReset = () => {
+    if (pendingKey === null) return;
+    // Send 0 to reset to REAPER's default region color
+    updateRegionMeta(pendingKey, { color: 0 }, regions);
     setShowColorPicker(false);
     setEditingField(null);
   };
@@ -368,26 +382,38 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
                     ref={colorPickerRef}
                     className="absolute top-full left-0 mt-2 p-3 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 min-w-[200px]"
                   >
-                    {/* Existing colors from project */}
-                    {existingColors.size > 0 && (
-                      <div className="mb-3">
-                        <div className="text-xs text-gray-400 mb-1.5">From project</div>
-                        <div className="flex gap-2 overflow-x-auto pb-1 max-w-[200px]">
-                          {Array.from(existingColors).map((color) => (
-                            <button
-                              key={color}
-                              onClick={() => handleColorSelect(color)}
-                              className={`w-6 h-6 rounded border-2 transition-all flex-shrink-0 ${
-                                currentColor.toLowerCase() === color.toLowerCase()
-                                  ? 'border-white scale-110'
-                                  : 'border-transparent hover:border-gray-400'
-                              }`}
-                              style={{ backgroundColor: color }}
-                            />
-                          ))}
-                        </div>
+                    {/* Default + Project colors row */}
+                    <div className="mb-3">
+                      <div className="flex gap-2 overflow-x-auto pb-1 max-w-[200px] items-center">
+                        {/* Default (reset) color - always first */}
+                        <button
+                          onClick={handleColorReset}
+                          className={`w-6 h-6 rounded border-2 transition-all flex-shrink-0 relative ${
+                            isDefaultColor
+                              ? 'border-white scale-110'
+                              : 'border-transparent hover:border-gray-400'
+                          }`}
+                          style={{ backgroundColor: DEFAULT_REGION_COLOR }}
+                          title="Reset to default"
+                        >
+                          <RotateCcw size={10} className="absolute inset-0 m-auto text-white/80" />
+                        </button>
+
+                        {/* Existing colors from project */}
+                        {Array.from(existingColors).map((color) => (
+                          <button
+                            key={color}
+                            onClick={() => handleColorSelect(color)}
+                            className={`w-6 h-6 rounded border-2 transition-all flex-shrink-0 ${
+                              !isDefaultColor && currentColor.toLowerCase() === color.toLowerCase()
+                                ? 'border-white scale-110'
+                                : 'border-transparent hover:border-gray-400'
+                            }`}
+                            style={{ backgroundColor: color }}
+                          />
+                        ))}
                       </div>
-                    )}
+                    </div>
                     {/* Color picker and hex input */}
                     <div className="text-xs text-gray-400 mb-1.5">Pick color</div>
                     <div className="flex gap-2 items-center">
@@ -400,8 +426,8 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
                       />
                       <input
                         type="text"
-                        placeholder="#ff0000"
-                        defaultValue={currentColor}
+                        placeholder="Default"
+                        defaultValue={isDefaultColor ? '' : currentColor}
                         className="flex-1 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-xs font-mono focus:outline-none focus:border-purple-400"
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
@@ -418,7 +444,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
               </div>
             </div>
 
-            {/* Line 2: Start, End, Length */}
+            {/* Line 2: Start, End */}
             <div className="flex items-center gap-3">
               {/* Start position */}
               {renderField(
@@ -436,9 +462,20 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
                 bpm ? formatBeats(region.end, bpm, barOffset) : formatTime(region.end)
               )}
 
-              <div className="w-px h-4 bg-gray-600 flex-shrink-0" />
+              {/* Length - inline on larger screens */}
+              <div className="hidden sm:flex items-center gap-3">
+                <div className="w-px h-4 bg-gray-600 flex-shrink-0" />
+                {renderField(
+                  'length',
+                  'Length',
+                  bpm ? formatDuration(duration, bpm) : `${duration.toFixed(2)}s`,
+                  'text-purple-300 font-medium'
+                )}
+              </div>
+            </div>
 
-              {/* Duration/Length */}
+            {/* Line 3: Length - mobile only */}
+            <div className="flex sm:hidden items-center gap-3">
               {renderField(
                 'length',
                 'Length',

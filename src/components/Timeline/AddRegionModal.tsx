@@ -4,9 +4,12 @@
  */
 
 import { useState, useEffect, useRef, type ReactElement } from 'react';
-import { X } from 'lucide-react';
+import { X, RotateCcw } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { hexToReaperColor, reaperColorToHexWithFallback } from '../../utils';
+
+// Default region color in REAPER (shown when color = 0)
+const DEFAULT_REGION_COLOR = '#688585';
 
 interface AddRegionModalProps {
   isOpen: boolean;
@@ -111,7 +114,7 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
   })();
 
   const [name, setName] = useState('New Region');
-  const [selectedColor, setSelectedColor] = useState('#3498db'); // Default blue
+  const [selectedColor, setSelectedColor] = useState<string | null>(null); // null = REAPER default (gray)
   const [startBar, setStartBar] = useState('1');
   const [lengthBars, setLengthBars] = useState('8');
   const [error, setError] = useState<string | null>(null);
@@ -130,7 +133,7 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
       const displayRegions = getDisplayRegions(regions);
       displayRegions.forEach((r) => {
         if (r.color) {
-          colors.add(reaperColorToHexWithFallback(r.color));
+          colors.add(reaperColorToHexWithFallback(r.color, DEFAULT_REGION_COLOR));
         }
       });
       existingColorsRef.current = Array.from(colors);
@@ -162,8 +165,8 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
         setStartBar('1');
       }
       setName('');
-      // Default to first existing color or blue
-      setSelectedColor(existingColorsRef.current[0] || '#3498db');
+      // Default to REAPER's default color (null = gray)
+      setSelectedColor(null);
       setLengthBars('8');
       setError(null);
     }
@@ -214,7 +217,8 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
     const start = beatsToSeconds(adjustedBeats, effectiveBpm);
     const end = start + beatsToSeconds(lengthBarsNum * beatsPerBar, effectiveBpm);
 
-    const color = hexToReaperColor(selectedColor);
+    // null = REAPER default (pass undefined to let REAPER assign default color)
+    const color = selectedColor ? hexToReaperColor(selectedColor) : undefined;
 
     // Create the region (as pending change, with ripple logic)
     createRegion(start, end, name.trim(), bpm, color, regions);
@@ -263,26 +267,38 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">Color</label>
 
-            {/* Existing colors from project */}
-            {existingColors.length > 0 && (
-              <div className="mb-3">
-                <span className="text-xs text-gray-400 mb-1.5 block">From project</span>
-                <div className="flex gap-2 overflow-x-auto py-1 px-1 -mx-1">
-                  {existingColors.map((color) => (
-                    <button
-                      key={color}
-                      onClick={() => setSelectedColor(color)}
-                      className={`w-8 h-8 rounded-lg border-2 transition-all flex-shrink-0 ${
-                        selectedColor.toLowerCase() === color.toLowerCase()
-                          ? 'border-white scale-110'
-                          : 'border-transparent hover:border-gray-400'
-                      }`}
-                      style={{ backgroundColor: color }}
-                    />
-                  ))}
-                </div>
+            {/* Default + Project colors row */}
+            <div className="mb-3">
+              <div className="flex gap-2 overflow-x-auto py-1 px-1 -mx-1 items-center">
+                {/* Default (reset) color - always first */}
+                <button
+                  onClick={() => setSelectedColor(null)}
+                  className={`w-8 h-8 rounded-lg border-2 transition-all flex-shrink-0 relative ${
+                    selectedColor === null
+                      ? 'border-white scale-110'
+                      : 'border-transparent hover:border-gray-400'
+                  }`}
+                  style={{ backgroundColor: DEFAULT_REGION_COLOR }}
+                  title="Use default color"
+                >
+                  <RotateCcw size={12} className="absolute inset-0 m-auto text-white/80" />
+                </button>
+
+                {/* Existing colors from project */}
+                {existingColors.map((color) => (
+                  <button
+                    key={color}
+                    onClick={() => setSelectedColor(color)}
+                    className={`w-8 h-8 rounded-lg border-2 transition-all flex-shrink-0 ${
+                      selectedColor !== null && selectedColor.toLowerCase() === color.toLowerCase()
+                        ? 'border-white scale-110'
+                        : 'border-transparent hover:border-gray-400'
+                    }`}
+                    style={{ backgroundColor: color }}
+                  />
+                ))}
               </div>
-            )}
+            </div>
 
             {/* Color picker and hex input */}
             <div>
@@ -290,21 +306,23 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
               <div className="flex gap-2 items-center">
                 <input
                   type="color"
-                  value={selectedColor}
+                  value={selectedColor ?? DEFAULT_REGION_COLOR}
                   onChange={(e) => setSelectedColor(e.target.value)}
                   className="w-10 h-10 rounded-lg border-2 border-gray-600 cursor-pointer bg-transparent"
                   title="Pick a color"
                 />
                 <input
                   type="text"
-                  value={selectedColor}
+                  value={selectedColor ?? ''}
                   onChange={(e) => {
                     const val = e.target.value;
-                    if (/^#[0-9a-f]{0,6}$/i.test(val) || /^[0-9a-f]{0,6}$/i.test(val)) {
+                    if (val === '') {
+                      setSelectedColor(null);
+                    } else if (/^#[0-9a-f]{0,6}$/i.test(val) || /^[0-9a-f]{0,6}$/i.test(val)) {
                       setSelectedColor(val.startsWith('#') ? val : `#${val}`);
                     }
                   }}
-                  placeholder="#ff0000"
+                  placeholder="Default"
                   className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm font-mono focus:outline-none focus:border-purple-400"
                 />
               </div>

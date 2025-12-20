@@ -6,6 +6,7 @@
 import type { ReactElement } from 'react';
 import type { Marker } from '../../core/types';
 import { isMarkerMoveable } from './MarkerEditModal';
+import { reaperColorToHex } from '../../utils';
 
 export interface TimelineMarkersProps {
   /** Markers to display */
@@ -30,6 +31,25 @@ export interface TimelineMarkerPillsProps extends TimelineMarkersProps {
 }
 
 /**
+ * Get the outline color for a marker
+ * - Uses marker's custom color if available
+ * - Falls back to red (#dc2626) for markers without custom color
+ * - Gray (#6b7280) for non-moveable markers (11+) or in regions mode
+ */
+function getMarkerColor(marker: Marker, timelineMode: 'navigate' | 'regions'): string {
+  const isMoveable = isMarkerMoveable(marker.id);
+
+  // In regions mode or non-moveable markers: gray
+  if (timelineMode === 'regions' || !isMoveable) {
+    return '#6b7280'; // gray-500
+  }
+
+  // Use marker's custom color or default red
+  const customColor = marker.color ? reaperColorToHex(marker.color) : null;
+  return customColor || '#dc2626'; // red-600
+}
+
+/**
  * Marker lines in the main timeline area
  */
 export function TimelineMarkerLines({
@@ -39,21 +59,32 @@ export function TimelineMarkerLines({
 }: TimelineMarkersProps): ReactElement {
   return (
     <>
-      {markers.map((marker) => (
-        <div
-          key={`marker-${marker.id}`}
-          className={`absolute top-0 bottom-0 w-0.5 ${
-            timelineMode === 'regions' ? 'bg-gray-600 opacity-40' : 'bg-red-500'
-          }`}
-          style={{ left: `${renderTimeToPercent(marker.position)}%` }}
-        />
-      ))}
+      {markers.map((marker) => {
+        const color = getMarkerColor(marker, timelineMode);
+        const opacity = timelineMode === 'regions' ? 0.4 : 1;
+        return (
+          <div
+            key={`marker-${marker.id}`}
+            className="absolute top-0 bottom-0 w-0.5"
+            style={{
+              left: `${renderTimeToPercent(marker.position)}%`,
+              backgroundColor: color,
+              opacity,
+            }}
+          />
+        );
+      })}
     </>
   );
 }
 
 /**
  * Marker pills in the bottom bar (interactive)
+ * Design: Outlined pill with dark interior, white text
+ * - 2px colored outline (marker color or red default)
+ * - Thin dark stroke outside for contrast with light colors
+ * - Dark gray interior (bg-gray-800)
+ * - White text for number
  */
 export function TimelineMarkerPills({
   markers,
@@ -70,25 +101,33 @@ export function TimelineMarkerPills({
       {markers.map((marker) => {
         const canMove = isMarkerMoveable(marker.id) && timelineMode !== 'regions';
         const isBeingDragged = draggedMarker?.id === marker.id;
+        const outlineColor = getMarkerColor(marker, timelineMode);
+        const isDisabled = timelineMode === 'regions';
+
         return (
           <div
             key={`marker-pill-${marker.id}`}
-            className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 min-w-4 h-4 px-1 rounded-full flex items-center justify-center touch-none select-none transition-opacity ${
-              timelineMode === 'regions'
-                ? 'bg-gray-600 pointer-events-none opacity-40'
+            className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center touch-none select-none transition-opacity bg-gray-800 ${
+              isDisabled
+                ? 'pointer-events-none opacity-40'
                 : canMove
-                  ? 'bg-red-600 cursor-grab active:cursor-grabbing'
-                  : 'bg-gray-500 cursor-not-allowed'
+                  ? 'cursor-grab active:cursor-grabbing'
+                  : 'cursor-not-allowed'
             } ${isBeingDragged && isDraggingMarker ? 'opacity-50' : ''}`}
-            style={{ left: `calc(${renderTimeToPercent(marker.position)}% + 1px)` }}
-            onPointerDown={timelineMode === 'regions' ? undefined : (e) => handleMarkerPointerDown(e, marker)}
-            onPointerMove={timelineMode === 'regions' ? undefined : handleMarkerPointerMove}
-            onPointerUp={timelineMode === 'regions' ? undefined : handleMarkerPointerUp}
-            onPointerCancel={timelineMode === 'regions' ? undefined : handleMarkerPointerUp}
+            style={{
+              left: `calc(${renderTimeToPercent(marker.position)}% + 1px)`,
+              // 2px colored outline + 1px dark stroke outside for contrast
+              border: `2px solid ${outlineColor}`,
+              boxShadow: '0 0 0 1px rgba(0,0,0,0.5)',
+            }}
+            onPointerDown={isDisabled ? undefined : (e) => handleMarkerPointerDown(e, marker)}
+            onPointerMove={isDisabled ? undefined : handleMarkerPointerMove}
+            onPointerUp={isDisabled ? undefined : handleMarkerPointerUp}
+            onPointerCancel={isDisabled ? undefined : handleMarkerPointerUp}
           >
-            <span className={`text-[10px] font-bold leading-none ${
-              timelineMode === 'regions' ? 'text-gray-400' : 'text-white'
-            }`}>{marker.id}</span>
+            <span className="text-[10px] font-bold leading-none text-white">
+              {marker.id}
+            </span>
           </div>
         );
       })}

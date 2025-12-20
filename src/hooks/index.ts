@@ -6,3 +6,5 @@ export { useDoubleTap, type UseDoubleTapOptions, type UseDoubleTapResult } from 
 export { useLongPress, type UseLongPressOptions, type UseLongPressResult } from './useLongPress';
 export { useTimeSelectionSync, type UseTimeSelectionSyncReturn } from './useTimeSelectionSync';
 export { useRegionEditScriptDetection } from './useRegionEditScriptDetection';
+export { useMarkerEditScriptDetection } from './useMarkerEditScriptDetection';
+export { useCurrentMarker, type UseCurrentMarkerReturn } from './useCurrentMarker';

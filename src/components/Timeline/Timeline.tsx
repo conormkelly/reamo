@@ -495,6 +495,19 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     },
     [send]
   );
+  // Get marker selection action from store
+  const setSelectedMarkerId = useReaperStore((state) => state.setSelectedMarkerId);
+  const setMarkerLocked = useReaperStore((state) => state.setMarkerLocked);
+
+  // Handle marker selection (locks auto-advance)
+  const handleMarkerSelect = useCallback(
+    (markerId: number) => {
+      setSelectedMarkerId(markerId);
+      setMarkerLocked(true);
+    },
+    [setSelectedMarkerId, setMarkerLocked]
+  );
+
   const {
     isDragging: isDraggingMarker,
     draggedMarker,
@@ -510,6 +523,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     timeToPercent,
     onEdit: setEditingMarker,
     onMove: handleMarkerMoveFromDrag,
+    onSelect: handleMarkerSelect,
   });
 
   // Marker edit modal callbacks (also used by MarkerEditModal)

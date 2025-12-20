@@ -42,6 +42,9 @@ async function setupTestFixtures(page: Page) {
       ],
       markers: [],
 
+      // Set position outside all regions so auto-select doesn't interfere with tests
+      positionSeconds: 50,
+
       // Reset edit state
       selectedRegionIndices: [],
       pendingChanges: {},
@@ -108,9 +111,10 @@ test.describe('Timeline gestures', () => {
 
   test('displays regions from test fixtures', async ({ page }) => {
     // All three regions should be visible in the label bar
-    await expect(page.locator('text=Intro')).toBeVisible()
-    await expect(page.locator('text=Verse')).toBeVisible()
-    await expect(page.locator('text=Chorus')).toBeVisible()
+    // Use span locator to target region labels specifically (not MarkerInfoBar buttons)
+    await expect(page.locator('span:has-text("Intro")')).toBeVisible()
+    await expect(page.locator('span:has-text("Verse")')).toBeVisible()
+    await expect(page.locator('span:has-text("Chorus")')).toBeVisible()
   })
 
   test('tap region to select', async ({ page }) => {

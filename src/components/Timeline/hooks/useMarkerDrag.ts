@@ -28,6 +28,8 @@ export interface UseMarkerDragOptions {
   onEdit: (marker: Marker) => void;
   /** Callback when drag completes - receives marker ID and new position */
   onMove: (markerId: number, newPositionSeconds: number) => void;
+  /** Callback when marker is tapped/selected (not dragged or long-pressed) */
+  onSelect?: (markerId: number) => void;
 }
 
 export interface UseMarkerDragResult {
@@ -53,6 +55,7 @@ export function useMarkerDrag({
   timeToPercent,
   onEdit,
   onMove,
+  onSelect,
 }: UseMarkerDragOptions): UseMarkerDragResult {
   const [isDragging, setIsDragging] = useState(false);
   const [draggedMarker, setDraggedMarker] = useState<Marker | null>(null);
@@ -135,7 +138,8 @@ export function useMarkerDrag({
 
   const handlePointerUp = useCallback(
     (e: React.PointerEvent) => {
-      // Clear long-press timer
+      // Clear long-press timer (if it fired, draggedMarker is already null)
+      const longPressWasPending = holdTimerRef.current !== null;
       if (holdTimerRef.current) {
         clearTimeout(holdTimerRef.current);
         holdTimerRef.current = null;
@@ -152,6 +156,11 @@ export function useMarkerDrag({
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
 
       const canMove = isMarkerMoveable(draggedMarker.id);
+
+      // If not dragging and long-press timer was still pending, this is a tap - select the marker
+      if (!isDragging && longPressWasPending && onSelect) {
+        onSelect(draggedMarker.id);
+      }
 
       // If we were dragging and marker is moveable, commit the move
       if (isDragging && canMove && previewPercent !== null) {
@@ -177,7 +186,7 @@ export function useMarkerDrag({
       setDragStartY(null);
       setPreviewPercent(null);
     },
-    [draggedMarker, isDragging, dragStartY, previewPercent, timelineStart, duration, containerRef, onMove]
+    [draggedMarker, isDragging, dragStartY, previewPercent, timelineStart, duration, containerRef, onMove, onSelect]
   );
 
   return {

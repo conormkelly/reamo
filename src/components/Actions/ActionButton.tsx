@@ -339,8 +339,7 @@ export function PrevMarkerButton({
       className={`flex items-center ${className}`}
       size={size}
     >
-      <SkipBack size={16} className="mr-1" />
-      <span>Prev</span>
+      <SkipBack size={20} />
     </ActionButton>
   );
 }
@@ -365,8 +364,7 @@ export function NextMarkerButton({
       className={`flex items-center ${className}`}
       size={size}
     >
-      <span>Next</span>
-      <SkipForward size={16} className="ml-1" />
+      <SkipForward size={20} />
     </ActionButton>
   );
 }

@@ -4,12 +4,14 @@
  */
 
 import { useState, useMemo } from 'react';
+import { RectangleHorizontal } from 'lucide-react';
 import './index.css';
 import {
   ReaperProvider,
   ConnectionStatus,
   TransportBar,
   TimeDisplay,
+  RecordingActionsBar,
   TrackStrip,
   LevelMeter,
   TrackFilter,
@@ -26,9 +28,11 @@ import {
   RegionEditActionBar,
   RegionInfoBar,
   AddRegionModal,
+  MakeSelectionModal,
   TakeSwitcher,
+  MarkerInfoBar,
 } from './components';
-import { useTracks, useTimeSelectionSync, useRegionEditScriptDetection } from './hooks';
+import { useTracks, useTimeSelectionSync, useRegionEditScriptDetection, useMarkerEditScriptDetection } from './hooks';
 import { useReaperStore } from './store';
 
 function TrackList({ filter }: { filter: string }) {
@@ -75,6 +79,7 @@ function TrackStripWithMeter({ trackIndex }: { trackIndex: number }) {
 function AppContent() {
   const [trackFilter, setTrackFilter] = useState('');
   const [showAddRegionModal, setShowAddRegionModal] = useState(false);
+  const [showMakeSelectionModal, setShowMakeSelectionModal] = useState(false);
   const timelineMode = useReaperStore((s) => s.timelineMode);
 
   // Sync REAPER's time selection on init
@@ -82,6 +87,9 @@ function AppContent() {
 
   // Detect if the region editing Lua script is installed
   useRegionEditScriptDetection();
+
+  // Detect if the marker editing Lua script is installed
+  useMarkerEditScriptDetection();
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-4">
@@ -100,7 +108,7 @@ function AppContent() {
       </section>
 
       {/* Transport Controls */}
-      <section className="mb-12">
+      <section className="mb-6">
         <TransportBar className="mb-3" />
         <div className="flex flex-wrap items-center justify-center gap-2">
           <UndoButton />
@@ -108,6 +116,9 @@ function AppContent() {
           <SaveButton />
         </div>
       </section>
+
+      {/* Recording Quick Actions - visible during recording */}
+      <RecordingActionsBar className="mb-6" />
 
       {/* Timeline */}
       <section className="mb-4">
@@ -125,12 +136,26 @@ function AppContent() {
         </div>
       </section>
 
-      {/* Marker Navigation - centered below timeline, hidden in regions mode */}
+      {/* Marker Info & Navigation - hidden in regions mode */}
       {timelineMode === 'navigate' && (
-        <section className="flex justify-center items-center gap-2 mb-6">
-          <PrevMarkerButton />
-          <NextMarkerButton />
-          <AddMarkerButton />
+        <section className="mb-6 flex flex-col sm:flex-row sm:items-center gap-3">
+          {/* Marker Info Bar - shows current marker with editing */}
+          <MarkerInfoBar className="flex-1" />
+
+          {/* Navigation buttons */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => setShowMakeSelectionModal(true)}
+              title="Set time selection"
+              className="px-3 py-2 bg-gray-700 text-white hover:bg-gray-600 active:bg-gray-500 rounded font-medium transition-colors flex items-center"
+            >
+              <RectangleHorizontal size={16} className="mr-1" />
+              <span>Selection</span>
+            </button>
+            <PrevMarkerButton />
+            <NextMarkerButton />
+            <AddMarkerButton />
+          </div>
         </section>
       )}
 
@@ -159,6 +184,12 @@ function AppContent() {
       <AddRegionModal
         isOpen={showAddRegionModal}
         onClose={() => setShowAddRegionModal(false)}
+      />
+
+      {/* Make Selection Modal */}
+      <MakeSelectionModal
+        isOpen={showMakeSelectionModal}
+        onClose={() => setShowMakeSelectionModal(false)}
       />
     </div>
   );

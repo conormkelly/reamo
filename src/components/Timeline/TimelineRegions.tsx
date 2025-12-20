@@ -8,6 +8,9 @@ import type { Region } from '../../core/types';
 import type { DragType, PendingRegionChange } from '../../store';
 import { reaperColorToRgba } from '../../utils';
 
+// Default region color in REAPER (shown when color = 0) - #688585 as RGB
+const DEFAULT_REGION_COLOR_RGB = 'rgb(104, 133, 133)';
+
 export interface TimelineRegionsProps {
   /** Regions to display (with pending changes applied) */
   displayRegions: Region[];
@@ -70,7 +73,7 @@ export function TimelineRegionLabels({
             {/* Color bar - 5px */}
             <div
               className="h-[5px] w-full"
-              style={{ backgroundColor: region.color ? reaperColorToRgba(region.color, 1) ?? 'rgb(75, 85, 99)' : 'rgb(75, 85, 99)' }}
+              style={{ backgroundColor: region.color ? reaperColorToRgba(region.color, 1) ?? DEFAULT_REGION_COLOR_RGB : DEFAULT_REGION_COLOR_RGB }}
             />
             {/* Region name */}
             <span className="h-5 flex items-center px-1 text-[11px] text-white font-semibold truncate">

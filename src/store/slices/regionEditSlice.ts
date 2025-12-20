@@ -46,7 +46,25 @@ export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) =
     if (mode === 'navigate' && get().hasPendingChanges()) {
       get().cancelChanges();
     }
-    set({ timelineMode: mode, selectedRegionIndices: [] });
+
+    // When entering regions mode, auto-select the region at current playhead position
+    let autoSelectedIndex: number[] = [];
+    if (mode === 'regions') {
+      // Access the full store to get position and regions
+      const store = get() as { positionSeconds?: number; regions?: Region[] };
+      const position = store.positionSeconds ?? 0;
+      const regions = store.regions ?? [];
+
+      // Find region containing the playhead (start <= position < end)
+      const regionIndex = regions.findIndex(
+        (r) => r.start <= position && position < r.end
+      );
+      if (regionIndex !== -1) {
+        autoSelectedIndex = [regionIndex];
+      }
+    }
+
+    set({ timelineMode: mode, selectedRegionIndices: autoSelectedIndex });
   },
 
   // Selection actions

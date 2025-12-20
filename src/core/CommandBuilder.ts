@@ -455,6 +455,32 @@ export function unselectAllItems(): string {
   return '40289';
 }
 
+// Time selection commands
+
+/**
+ * Set time selection start point at current position
+ * Action 40625: "Time selection: Set start point"
+ */
+export function setTimeSelectionStart(): string {
+  return '40625';
+}
+
+/**
+ * Set time selection end point at current position
+ * Action 40626: "Time selection: Set end point"
+ */
+export function setTimeSelectionEnd(): string {
+  return '40626';
+}
+
+/**
+ * Remove time selection and loop points
+ * Action 40020: "Time selection: Remove (unselect) time selection and loop points"
+ */
+export function clearTimeSelection(): string {
+  return '40020';
+}
+
 /**
  * Join multiple commands with semicolons
  */

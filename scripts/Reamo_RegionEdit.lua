@@ -1,22 +1,28 @@
 -- Reamo_RegionEdit.lua
 -- Region editing operations for Reamo web interface
--- Version 1.0
+-- Version 2.0 (Background polling version)
 --
 -- Installation:
 -- 1. Copy this file to your REAPER Scripts folder
 -- 2. Actions > Show action list > Load ReaScript
 -- 3. Select this script
--- 4. The script will be available as "Script: Reamo_RegionEdit.lua"
+-- 4. Run once to start the background service
+-- 5. The script will run in the background, polling for actions
 --
 -- Usage:
--- This script is triggered by the Reamo web interface via ExtState.
--- It reads commands from ExtState, processes region operations, and
--- signals completion back to the web interface.
+-- This script runs continuously in the background using reaper.defer().
+-- The Reamo web interface sets ExtState values, and this script picks them up
+-- and processes region operations.
 
 local SECTION = "Reamo"
-local VERSION = "1.0"
+local VERSION = "2.0"
+local POLL_INTERVAL = 0.1 -- Poll every 100ms
 
--- Set installed flag on load (this runs every time the script is loaded)
+-- Track if script is running
+local isRunning = true
+local lastPollTime = 0
+
+-- Set installed flag on load
 reaper.SetExtState(SECTION, "script_installed", "1", false)
 reaper.SetExtState(SECTION, "script_version", VERSION, false)
 
@@ -40,7 +46,7 @@ local function parseIndices(str)
   return indices
 end
 
--- Get region data by index
+-- Get region data by enumeration index (includes markers)
 local function getRegion(idx)
   local retval, isrgn, pos, rgnend, name, markrgnidx, color = reaper.EnumProjectMarkers3(0, idx)
   if retval and isrgn then
@@ -52,6 +58,26 @@ local function getRegion(idx)
       markrgnidx = markrgnidx,
       color = color
     }
+  end
+  return nil
+end
+
+-- Find region by markrgnidx (REAPER's region ID)
+-- This is needed because EnumProjectMarkers3 enumerates both markers and regions
+local function findRegionByMarkrgnidx(targetMarkrgnidx)
+  local numMarkers = reaper.CountProjectMarkers(0)
+  for i = 0, numMarkers - 1 do
+    local retval, isrgn, pos, rgnend, name, markrgnidx, color = reaper.EnumProjectMarkers3(0, i)
+    if retval and isrgn and markrgnidx == targetMarkrgnidx then
+      return {
+        idx = i,  -- Enumeration index (needed for SetProjectMarkerByIndex2)
+        pos = pos,
+        rgnend = rgnend,
+        name = name,
+        markrgnidx = markrgnidx,
+        color = color
+      }
+    end
   end
   return nil
 end
@@ -174,9 +200,10 @@ local function trimRegionAtPoint(pos)
 end
 
 -- Handle resize operation
-local function handleResize(idx, newStart, newEnd, mode)
-  local region = getRegion(idx)
-  if not region then return false, "Region not found" end
+-- markrgnidx: REAPER's region ID (not enumeration index)
+local function handleResize(markrgnidx, newStart, newEnd, mode)
+  local region = findRegionByMarkrgnidx(markrgnidx)
+  if not region then return false, "Region not found (markrgnidx=" .. tostring(markrgnidx) .. ")" end
 
   local minLen = getMinRegionLength()
 
@@ -203,14 +230,15 @@ local function handleResize(idx, newStart, newEnd, mode)
     local deltaStart = newStart - region.pos
 
     if deltaEnd ~= 0 then
-      shiftRegionsFrom(region.rgnend, deltaEnd, idx)
+      shiftRegionsFrom(region.rgnend, deltaEnd, region.idx)
     end
     if deltaStart ~= 0 then
-      shiftRegionsFrom(region.pos, deltaStart, idx)
+      shiftRegionsFrom(region.pos, deltaStart, region.idx)
     end
   end
 
-  reaper.SetProjectMarkerByIndex2(0, idx, true, newStart, newEnd, region.markrgnidx, region.name, region.color, 0)
+  -- Use region.idx (enumeration index) for the actual update
+  reaper.SetProjectMarkerByIndex2(0, region.idx, true, newStart, newEnd, region.markrgnidx, region.name, region.color, 0)
   return true
 end
 
@@ -270,7 +298,7 @@ local function handleMove(indices, destStart, mode)
 end
 
 -- Handle create operation
-local function handleCreate(startPos, endPos, name)
+local function handleCreate(startPos, endPos, name, color)
   local minLen = getMinRegionLength()
   if endPos - startPos < minLen then
     endPos = startPos + minLen
@@ -279,25 +307,81 @@ local function handleCreate(startPos, endPos, name)
   -- Trim existing regions (replace semantics)
   trimRegionsInRange(startPos, endPos)
 
-  -- Create new region
-  reaper.AddProjectMarker2(0, true, startPos, endPos, name, -1, 0)
+  -- Create new region with color
+  local regionColor = color or 0
+  reaper.AddProjectMarker2(0, true, startPos, endPos, name, -1, regionColor)
+  return true
+end
+
+-- Handle update operation (position, name, and/or color)
+-- markrgnidx: REAPER's region ID (not enumeration index)
+-- If color=0, we need to delete/recreate to reset to default (REAPER API quirk)
+local function handleUpdate(markrgnidx, newStart, newEnd, newName, newColor)
+  local region = findRegionByMarkrgnidx(markrgnidx)
+  if not region then return false, "Region not found (markrgnidx=" .. tostring(markrgnidx) .. ")" end
+
+  local minLen = getMinRegionLength()
+
+  -- Use existing values if not provided
+  local finalStart = newStart or region.pos
+  local finalEnd = newEnd or region.rgnend
+  local finalName = newName or region.name
+  local finalColor = region.color
+
+  -- Handle color (check for explicit 0 vs nil/empty)
+  local resetToDefault = false
+  if newColor ~= nil then
+    if newColor == 0 then
+      -- Special case: reset to default requires delete/recreate
+      -- because SetProjectMarkerByIndex2 treats color=0 as "don't modify"
+      resetToDefault = true
+      finalColor = 0
+    else
+      finalColor = newColor
+    end
+  end
+
+  -- Enforce minimum length
+  if finalEnd - finalStart < minLen then
+    finalEnd = finalStart + minLen
+  end
+
+  -- Ensure non-negative
+  if finalStart < 0 then finalStart = 0 end
+  if finalEnd < finalStart then finalEnd = finalStart + minLen end
+
+  if resetToDefault then
+    -- Delete and recreate region to reset color to default
+    reaper.DeleteProjectMarkerByIndex(0, region.idx)
+    reaper.AddProjectMarker2(0, true, finalStart, finalEnd, finalName, markrgnidx, 0)
+  else
+    -- Normal update
+    reaper.SetProjectMarkerByIndex2(0, region.idx, true, finalStart, finalEnd, region.markrgnidx, finalName, finalColor, 0)
+  end
   return true
 end
 
 -- Handle delete operation
-local function handleDelete(idx)
-  local region = getRegion(idx)
-  if not region then return false, "Region not found" end
+-- markrgnidx: REAPER's region ID (not enumeration index)
+local function handleDelete(markrgnidx)
+  local region = findRegionByMarkrgnidx(markrgnidx)
+  if not region then return false, "Region not found (markrgnidx=" .. tostring(markrgnidx) .. ")" end
 
-  reaper.DeleteProjectMarkerByIndex(0, idx)
+  reaper.DeleteProjectMarkerByIndex(0, region.idx)
   return true
 end
 
 -- Parse batch data and execute operations
+-- NOTE: Batch operations use "replace" mode because the web UI already calculates
+-- all final positions including ripple effects. We don't want to double-ripple.
 local function handleBatch(batchData, mode)
   if not batchData or batchData == "" then
     return false, "No batch data"
   end
+
+  -- For batch operations, always use "replace" mode to avoid double-rippling
+  -- The web UI already calculated all the final positions
+  local batchMode = "replace"
 
   -- Parse operations (semicolon-separated)
   for op in string.gmatch(batchData, "([^;]+)") do
@@ -309,12 +393,23 @@ local function handleBatch(batchData, mode)
     local opType = parts[1]
 
     if opType == "resize" then
-      -- resize|idx|newStart|newEnd
-      local idx = tonumber(parts[2])
+      -- resize|markrgnidx|newStart|newEnd (legacy, for backwards compatibility)
+      local markrgnidx = tonumber(parts[2])
       local newStart = tonumber(parts[3])
       local newEnd = tonumber(parts[4])
-      if idx then
-        handleResize(idx, newStart, newEnd, mode)
+      if markrgnidx then
+        handleResize(markrgnidx, newStart, newEnd, batchMode)
+      end
+
+    elseif opType == "update" then
+      -- update|markrgnidx|newStart|newEnd|name|color
+      local markrgnidx = tonumber(parts[2])
+      local newStart = tonumber(parts[3])
+      local newEnd = tonumber(parts[4])
+      local name = parts[5] or nil
+      local color = tonumber(parts[6])
+      if markrgnidx then
+        handleUpdate(markrgnidx, newStart, newEnd, name, color)
       end
 
     elseif opType == "move" then
@@ -322,23 +417,24 @@ local function handleBatch(batchData, mode)
       local indices = parseIndices(parts[2] or "")
       local destStart = tonumber(parts[3])
       if #indices > 0 and destStart then
-        handleMove(indices, destStart, mode)
+        handleMove(indices, destStart, batchMode)
       end
 
     elseif opType == "create" then
-      -- create|start|end|name
+      -- create|start|end|name|color
       local startPos = tonumber(parts[2])
       local endPos = tonumber(parts[3])
       local name = parts[4] or "Region"
+      local color = tonumber(parts[5])
       if startPos and endPos then
-        handleCreate(startPos, endPos, name)
+        handleCreate(startPos, endPos, name, color)
       end
 
     elseif opType == "delete" then
-      -- delete|idx
-      local idx = tonumber(parts[2])
-      if idx then
-        handleDelete(idx)
+      -- delete|markrgnidx
+      local markrgnidx = tonumber(parts[2])
+      if markrgnidx then
+        handleDelete(markrgnidx)
       end
     end
   end
@@ -353,12 +449,11 @@ local function clearExtState()
   reaper.SetExtState(SECTION, "mode", "", false)
 end
 
--- Main entry point
-local function main()
+-- Process any pending action
+local function processAction()
   local action = reaper.GetExtState(SECTION, "action")
   if action == "" then
-    -- No action to perform, just set the installed flag (already done at top)
-    return
+    return -- No action to perform
   end
 
   local mode = reaper.GetExtState(SECTION, "mode")
@@ -391,4 +486,23 @@ local function main()
   reaper.UpdateArrange()
 end
 
-main()
+-- Main polling loop
+local function poll()
+  -- Check if we should stop
+  local stopFlag = reaper.GetExtState(SECTION, "stop_script")
+  if stopFlag == "1" then
+    reaper.SetExtState(SECTION, "stop_script", "", false)
+    reaper.SetExtState(SECTION, "script_installed", "0", false)
+    return -- Don't defer, script exits
+  end
+
+  -- Process any pending action
+  processAction()
+
+  -- Keep running
+  reaper.defer(poll)
+end
+
+-- Start the polling loop
+reaper.ShowConsoleMsg("Reamo Region Edit v" .. VERSION .. " started (background polling mode)\n")
+poll()
