@@ -152,9 +152,6 @@ export function RegionEditActionBar(): ReactElement | null {
     cancelChanges();
   }, [cancelChanges]);
 
-  // Count pending changes
-  const pendingCount = Object.keys(pendingChanges).length;
-
   // Don't show if no pending changes
   if (!hasPendingChanges()) {
     return null;
@@ -174,7 +171,7 @@ export function RegionEditActionBar(): ReactElement | null {
           ) : isCommitting ? (
             'Saving changes...'
           ) : (
-            `${pendingCount} region${pendingCount !== 1 ? 's' : ''} affected`
+            `Unsaved changes`
           )}
         </span>
       </div>
