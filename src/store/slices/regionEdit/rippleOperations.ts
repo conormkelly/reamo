@@ -98,6 +98,10 @@ export function calculateResizeRipple(params: ResizeRippleParams): PendingChange
 
         const otherRegion = regions[i];
         const otherExisting = changes[i];
+
+        // Skip deleted regions - don't resurrect them
+        if (otherExisting?.isDeleted) continue;
+
         const otherStart = otherExisting?.newStart ?? otherRegion.start;
         const otherEnd = otherExisting?.newEnd ?? otherRegion.end;
 
@@ -165,6 +169,10 @@ export function calculateResizeRipple(params: ResizeRippleParams): PendingChange
 
         const otherRegion = regions[i];
         const otherExisting = changes[i];
+
+        // Skip deleted regions - don't resurrect them
+        if (otherExisting?.isDeleted) continue;
+
         const otherStart = otherExisting?.newStart ?? otherRegion.start;
         const otherEnd = otherExisting?.newEnd ?? otherRegion.end;
 

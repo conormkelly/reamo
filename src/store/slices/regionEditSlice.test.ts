@@ -224,6 +224,59 @@ describe('regionEditSlice', () => {
       expect(displayRegions.find(r => r.name === 'Prelude')?.end).toBe(2)
     })
 
+    it('does not resurrect deleted regions when resizing end edge', () => {
+      const regions = useReaperStore.getState().regions
+
+      // Delete Verse (region at index 1) with "leave gap" mode
+      useReaperStore.getState().deleteRegion(1, regions)
+
+      // Verify Verse is deleted
+      let displayRegions = useReaperStore.getState().getDisplayRegions(regions)
+      expect(displayRegions.find(r => r.name === 'Verse')).toBeUndefined()
+      expect(displayRegions.length).toBe(2) // Intro and Chorus
+
+      // Now extend Intro's end from 10 to 15
+      // This should NOT resurrect the deleted Verse region
+      useReaperStore.getState().resizeRegion(0, 'end', 15, regions, 120)
+
+      displayRegions = useReaperStore.getState().getDisplayRegions(regions)
+
+      // Intro now [0, 15]
+      expect(displayRegions.find(r => r.name === 'Intro')?.end).toBe(15)
+
+      // Verse should still be deleted (not resurrected)
+      expect(displayRegions.find(r => r.name === 'Verse')).toBeUndefined()
+      expect(displayRegions.length).toBe(2)
+
+      // Chorus should be shifted (it starts at 20, which is after Intro's original end of 10)
+      expect(displayRegions.find(r => r.name === 'Chorus')?.start).toBe(25)
+    })
+
+    it('does not resurrect deleted regions when resizing start edge', () => {
+      const regions = useReaperStore.getState().regions
+
+      // Delete Intro (region at index 0) with "leave gap" mode
+      useReaperStore.getState().deleteRegion(0, regions)
+
+      // Verify Intro is deleted
+      let displayRegions = useReaperStore.getState().getDisplayRegions(regions)
+      expect(displayRegions.find(r => r.name === 'Intro')).toBeUndefined()
+      expect(displayRegions.length).toBe(2) // Verse and Chorus
+
+      // Now extend Verse's start backwards from 10 to 5
+      // This should NOT resurrect the deleted Intro region
+      useReaperStore.getState().resizeRegion(1, 'start', 5, regions, 120)
+
+      displayRegions = useReaperStore.getState().getDisplayRegions(regions)
+
+      // Verse now starts at 5
+      expect(displayRegions.find(r => r.name === 'Verse')?.start).toBe(5)
+
+      // Intro should still be deleted (not resurrected)
+      expect(displayRegions.find(r => r.name === 'Intro')).toBeUndefined()
+      expect(displayRegions.length).toBe(2)
+    })
+
     it('handles resize of new pending region affecting other new pending regions', () => {
       const regions = useReaperStore.getState().regions
 
