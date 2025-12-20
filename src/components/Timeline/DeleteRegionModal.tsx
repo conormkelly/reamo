@@ -7,6 +7,7 @@ import { useState, useEffect, useRef, type ReactElement } from 'react';
 import { X, Trash2 } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import type { Region } from '../../core/types';
+import { reaperColorToRgba } from '../../utils';
 
 export type DeleteMode = 'leave-gap' | 'extend-previous' | 'ripple-back';
 
@@ -126,17 +127,20 @@ export function DeleteRegionModal({
 
         {/* Body */}
         <div className="p-4 space-y-4">
-          {/* Region info */}
-          <div className="bg-gray-700/50 rounded-lg p-3">
-            <div className="text-white font-medium">{region.name}</div>
-            <div className="text-sm text-gray-400 mt-1">Duration: {durationText}</div>
+          {/* Region info - simple inline with color accent */}
+          <div className="flex items-center gap-3">
+            <div
+              className="w-1 h-10 rounded-full"
+              style={{ backgroundColor: region.color ? reaperColorToRgba(region.color, 1) ?? '#6b7280' : '#6b7280' }}
+            />
+            <div>
+              <div className="text-white font-medium">{region.name}</div>
+              <div className="text-sm text-gray-400">{durationText}</div>
+            </div>
           </div>
 
           {/* Delete mode options */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              How to handle the gap:
-            </label>
             <div className="space-y-2">
               {/* Leave gap option */}
               <label
@@ -218,7 +222,7 @@ export function DeleteRegionModal({
           </div>
 
           {/* Info about pending state */}
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-center text-gray-400">
             Deletion will be staged as a pending change. Click Save to apply to REAPER.
           </p>
         </div>
