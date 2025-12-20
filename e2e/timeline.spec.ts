@@ -7,6 +7,11 @@
 
 import { test, expect, Page } from '@playwright/test'
 
+// Helper to get the RegionEditActionBar (amber background bar that appears when there are pending changes)
+function getRegionEditActionBar(page: Page) {
+  return page.locator('[class*="bg-amber-900"]')
+}
+
 // Wait for store to be available and inject test fixtures
 async function setupTestFixtures(page: Page) {
   // Wait for the store to be exposed on window
@@ -217,8 +222,9 @@ test.describe('Undo/Redo', () => {
       state.moveRegion([0], 5, state.regions)
     })
 
-    // Should show Undo button (now enabled)
-    const undoButton = page.getByRole('button', { name: /undo/i })
+    // Should show Undo button (now enabled) - scoped to RegionEditActionBar
+    const actionBar = getRegionEditActionBar(page)
+    const undoButton = actionBar.getByRole('button', { name: /undo/i })
     await expect(undoButton).toBeVisible()
     await expect(undoButton).toBeEnabled()
 
@@ -241,8 +247,9 @@ test.describe('Undo/Redo', () => {
       state.moveRegion([0], 5, state.regions)
     })
 
-    // Click Undo
-    await page.getByRole('button', { name: /undo/i }).click()
+    // Click Undo - scoped to RegionEditActionBar
+    const actionBar = getRegionEditActionBar(page)
+    await actionBar.getByRole('button', { name: /undo/i }).click()
 
     // Need to make another change to show the action bar again
     // since hasPendingChanges is now false
@@ -263,7 +270,7 @@ test.describe('Undo/Redo', () => {
     })
 
     // Undo once (should still have pending changes from first edit)
-    await page.getByRole('button', { name: /undo/i }).click()
+    await actionBar.getByRole('button', { name: /undo/i }).click()
 
     // Should still have pending changes (from first move)
     let hasPending = await page.evaluate(() => {
@@ -273,7 +280,7 @@ test.describe('Undo/Redo', () => {
     expect(hasPending).toBe(true)
 
     // Redo button should be enabled now
-    const redoButton = page.getByRole('button', { name: /redo/i })
+    const redoButton = actionBar.getByRole('button', { name: /redo/i })
     await expect(redoButton).toBeEnabled()
 
     // Click Redo
@@ -304,10 +311,11 @@ test.describe('Undo/Redo', () => {
     })
     expect(historyLength).toBe(3)
 
-    // Undo 3 times
-    await page.getByRole('button', { name: /undo/i }).click()
-    await page.getByRole('button', { name: /undo/i }).click()
-    await page.getByRole('button', { name: /undo/i }).click()
+    // Undo 3 times - scoped to RegionEditActionBar
+    const actionBar = getRegionEditActionBar(page)
+    await actionBar.getByRole('button', { name: /undo/i }).click()
+    await actionBar.getByRole('button', { name: /undo/i }).click()
+    await actionBar.getByRole('button', { name: /undo/i }).click()
 
     // Should have no pending changes
     const hasPending = await page.evaluate(() => {
@@ -326,8 +334,9 @@ test.describe('Undo/Redo', () => {
       state.moveRegion([1], 5, state.regions)
     })
 
-    // Undo once
-    await page.getByRole('button', { name: /undo/i }).click()
+    // Undo once - scoped to RegionEditActionBar
+    const actionBar = getRegionEditActionBar(page)
+    await actionBar.getByRole('button', { name: /undo/i }).click()
 
     // Verify redo is available
     let canRedo = await page.evaluate(() => {
