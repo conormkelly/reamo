@@ -152,7 +152,7 @@ function AppContent() {
 
       {/* Footer */}
       <footer className="mt-8 text-center text-gray-600 text-sm">
-        REAPER Web Control • Built with React + Zustand
+        REAmo - REAPER Web Control
       </footer>
 
       {/* Add Region Modal */}
