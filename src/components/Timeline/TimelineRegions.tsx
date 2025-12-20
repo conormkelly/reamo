@@ -50,7 +50,7 @@ export function TimelineRegionLabels({
         const hasPending = pendingChanges[pendingKey] !== undefined;
         const isBeingDragged = draggedPendingKey === pendingKey && regionDragType !== 'none';
         // New regions get white outline, modified existing get orange
-        const pendingRingClass = isNewRegion ? 'ring-1 ring-white' : hasPending ? 'ring-1 ring-amber-400' : '';
+        const pendingRingClass = isNewRegion ? 'ring-1 ring-inset ring-white' : hasPending ? 'ring-1 ring-inset ring-amber-400' : '';
 
         return (
           <div
