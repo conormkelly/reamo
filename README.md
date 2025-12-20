@@ -16,6 +16,17 @@ A modern web control surface for [REAPER](https://www.reaper.fm/), designed for 
 
 That's it! Refresh the page whenever REAPER is running.
 
+### Optional: Lua Scripts for Full Editing
+
+For **marker and region name/color editing**, install the companion Lua scripts:
+
+1. Copy `scripts/Reamo_RegionEdit.lua` and `scripts/Reamo_MarkerEdit.lua` to your REAPER scripts folder
+2. In REAPER, go to **Actions** > **Show action list**
+3. Click **Load ReaScript** and select each script
+4. Run both scripts (they stay running in the background using `defer()`)
+
+Without these scripts, Reamo still works for navigation and basic editing - you just can't change marker/region names or colors from the web interface.
+
 ### REAPER Web Server Setup
 
 1. Open **REAPER**
@@ -35,14 +46,16 @@ That's it! Refresh the page whenever REAPER is running.
 ## Features
 
 - **Transport Control** - Play, pause, stop, record with visual feedback
+- **Recording Workflow** - Scrap (delete take), Retake (delete and restart), or Keep (stop recording) - quick actions visible during recording
 - **Track Management** - Volume faders, pan knobs, mute/solo/arm, real-time level metering
 - **Timeline Visualization** - Interactive timeline with regions, markers, playhead, and time selection
 - **Region Editing** - Drag, resize, and reorder regions directly on the timeline with ripple editing and full undo/redo support
-- **Marker Management** - Navigate, add, move, delete, and reorder markers
+- **Marker Management** - Navigate between markers, add/move/delete markers, inline name and color editing with auto-advance during playback
+- **Time Selection** - Set precise start/end points using bar.beat notation or time, with quick clear option
 - **Tempo Control** - Display BPM, tap tempo, set exact tempo
 - **Auto-Punch Mode** - Time selection recording with visual indicators
 - **Take Switching** - A/B compare takes without leaving your instrument
-- **Touch-Optimized** - Gesture support for mobile/tablet control surfaces
+- **Touch-Optimized** - Gesture support for mobile/tablet control surfaces, responsive layout for iPhone and iPad
 
 ## Why Reamo?
 
@@ -135,11 +148,11 @@ src/
 │   ├── ReaperProvider.tsx       # Connection context provider
 │   ├── ConnectionStatus.tsx     # Connection indicator
 │   ├── TakeSwitcher.tsx         # Take switching controls
-│   ├── Transport/               # TransportBar, TimeDisplay, buttons
+│   ├── Transport/               # TransportBar, TimeDisplay, RecordingActionsBar
 │   ├── Track/                   # TrackStrip, Fader, PanKnob, LevelMeter
 │   ├── Regions/                 # RegionNavigation, RegionDisplay
-│   ├── Timeline/                # Timeline with editing, modals, drag hooks
-│   ├── Markers/                 # MarkerNavigation
+│   ├── Timeline/                # Timeline, RegionInfoBar, modals, drag hooks
+│   ├── Markers/                 # MarkerInfoBar with inline editing
 │   └── Actions/                 # ActionButton, TapTempoButton, etc.
 │
 ├── hooks/                       # Custom React hooks
@@ -147,7 +160,10 @@ src/
 │   ├── useTransport.ts          # Transport state & commands
 │   ├── useTracks.ts             # All tracks access
 │   ├── useTrack.ts              # Single track state & controls
+│   ├── useCurrentMarker.ts      # Auto-advancing current marker tracking
 │   ├── useTimeSelectionSync.ts  # Time selection sync with REAPER
+│   ├── useRegionEditScriptDetection.ts  # Lua script detection
+│   ├── useMarkerEditScriptDetection.ts  # Lua script detection
 │   ├── useDoubleTap.ts          # Double-tap gesture detection
 │   └── useLongPress.ts          # Long-press gesture detection
 │
