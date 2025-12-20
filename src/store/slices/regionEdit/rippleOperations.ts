@@ -92,6 +92,7 @@ export function calculateResizeRipple(params: ResizeRippleParams): PendingChange
 
     // RIPPLE: When extending start backwards, trim overlapped regions
     if (newStart < originalStart) {
+      // Trim existing regions
       for (let i = 0; i < regions.length; i++) {
         if (i === index) continue;
 
@@ -111,6 +112,23 @@ export function calculateResizeRipple(params: ResizeRippleParams): PendingChange
             newEnd: newStart,
             name: otherRegion.name,
             color: otherRegion.color,
+          };
+        }
+      }
+
+      // Trim new pending regions (negative keys)
+      for (const keyStr of Object.keys(changes)) {
+        const key = parseInt(keyStr, 10);
+        if (key >= 0 || key === index) continue;
+        const pending = changes[key];
+        if (!pending || pending.isDeleted || !pending.isNew) continue;
+
+        // If this region ends after the new start and starts before the new start,
+        // it's being overlapped - trim its end to the new start
+        if (pending.newEnd > newStart && pending.newStart < newStart) {
+          changes[key] = {
+            ...pending,
+            newEnd: newStart,
           };
         }
       }
@@ -141,6 +159,7 @@ export function calculateResizeRipple(params: ResizeRippleParams): PendingChange
     const delta = newEnd - originalEnd;
 
     if (Math.abs(delta) > EPSILON) {
+      // Shift existing regions
       for (let i = 0; i < regions.length; i++) {
         if (i === index) continue;
 
@@ -159,6 +178,23 @@ export function calculateResizeRipple(params: ResizeRippleParams): PendingChange
             newEnd: otherEnd + delta,
             name: otherRegion.name,
             color: otherRegion.color,
+          };
+        }
+      }
+
+      // Shift new pending regions (negative keys)
+      for (const keyStr of Object.keys(changes)) {
+        const key = parseInt(keyStr, 10);
+        if (key >= 0 || key === index) continue;
+        const pending = changes[key];
+        if (!pending || pending.isDeleted || !pending.isNew) continue;
+
+        // Only affect regions that start at or after the original end
+        if (pending.newStart >= originalEnd) {
+          changes[key] = {
+            ...pending,
+            newStart: pending.newStart + delta,
+            newEnd: pending.newEnd + delta,
           };
         }
       }

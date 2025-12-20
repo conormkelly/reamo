@@ -168,6 +168,88 @@ describe('regionEditSlice', () => {
       expect(displayRegions.find(r => r.name === 'Verse')?.start).toBe(15)
       expect(displayRegions.find(r => r.name === 'Chorus')?.start).toBe(25)
     })
+
+    it('extends region end and ripples new pending regions (negative keys)', () => {
+      const regions = useReaperStore.getState().regions
+
+      // First, create a new region at the end (will get negative key like -1)
+      useReaperStore.getState().createRegion(30, 40, 'Outro', 120, 0xffff00, regions)
+
+      // Verify the new region was created
+      let displayRegions = useReaperStore.getState().getDisplayRegions(regions)
+      expect(displayRegions.find(r => r.name === 'Outro')?.start).toBe(30)
+      expect(displayRegions.find(r => r.name === 'Outro')?.end).toBe(40)
+
+      // Now extend Chorus's end from 30 to 35 (add 5 seconds)
+      // This should ripple the new "Outro" region forward
+      useReaperStore.getState().resizeRegion(2, 'end', 35, regions, 120)
+
+      displayRegions = useReaperStore.getState().getDisplayRegions(regions)
+
+      // Chorus now [20, 35]
+      expect(displayRegions.find(r => r.name === 'Chorus')?.end).toBe(35)
+
+      // Outro should have been rippled forward by 5 seconds: [30, 40] -> [35, 45]
+      expect(displayRegions.find(r => r.name === 'Outro')?.start).toBe(35)
+      expect(displayRegions.find(r => r.name === 'Outro')?.end).toBe(45)
+    })
+
+    it('extends region start and trims new pending regions (negative keys)', () => {
+      const regions = useReaperStore.getState().regions
+
+      // First, create a new region that overlaps with Verse: [5, 15]
+      // Note: createRegion will shift existing regions, so let's create before Intro
+      useReaperStore.getState().createRegion(0, 5, 'Prelude', 120, 0xffff00, regions)
+
+      // Verify initial state after create
+      let displayRegions = useReaperStore.getState().getDisplayRegions(regions)
+      const prelude = displayRegions.find(r => r.name === 'Prelude')
+      expect(prelude?.start).toBe(0)
+      expect(prelude?.end).toBe(5)
+
+      // Intro got pushed: [0,10] -> [5,15]
+      const intro = displayRegions.find(r => r.name === 'Intro')
+      expect(intro?.start).toBe(5)
+
+      // Now extend Intro's start backwards from 5 to 2
+      // This should trim the "Prelude" region's end from 5 to 2
+      useReaperStore.getState().resizeRegion(0, 'start', 2, regions, 120)
+
+      displayRegions = useReaperStore.getState().getDisplayRegions(regions)
+
+      // Intro now starts at 2
+      expect(displayRegions.find(r => r.name === 'Intro')?.start).toBe(2)
+
+      // Prelude should have been trimmed: end from 5 to 2
+      expect(displayRegions.find(r => r.name === 'Prelude')?.end).toBe(2)
+    })
+
+    it('handles resize of new pending region affecting other new pending regions', () => {
+      const regions = useReaperStore.getState().regions
+
+      // Create two new contiguous regions at the end
+      useReaperStore.getState().createRegion(30, 40, 'Bridge', 120, 0xffff00, regions)
+      useReaperStore.getState().createRegion(40, 50, 'Outro', 120, 0xff00ff, regions)
+
+      let displayRegions = useReaperStore.getState().getDisplayRegions(regions)
+      expect(displayRegions.find(r => r.name === 'Bridge')?.end).toBe(40)
+      expect(displayRegions.find(r => r.name === 'Outro')?.start).toBe(40)
+
+      // Get the pending key for Bridge (should be -1)
+      const bridgePendingKey = (displayRegions.find(r => r.name === 'Bridge') as any)?._pendingKey
+
+      // Extend Bridge's end from 40 to 45
+      useReaperStore.getState().resizeRegion(bridgePendingKey, 'end', 45, regions, 120)
+
+      displayRegions = useReaperStore.getState().getDisplayRegions(regions)
+
+      // Bridge now [30, 45]
+      expect(displayRegions.find(r => r.name === 'Bridge')?.end).toBe(45)
+
+      // Outro should have been rippled: [40, 50] -> [45, 55]
+      expect(displayRegions.find(r => r.name === 'Outro')?.start).toBe(45)
+      expect(displayRegions.find(r => r.name === 'Outro')?.end).toBe(55)
+    })
   })
 
   describe('selection state', () => {
