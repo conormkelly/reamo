@@ -37,6 +37,7 @@ That's it! Refresh the page whenever REAPER is running.
 - **Transport Control** - Play, pause, stop, record with visual feedback
 - **Track Management** - Volume faders, pan knobs, mute/solo/arm, real-time level metering
 - **Timeline Visualization** - Interactive timeline with regions, markers, playhead, and time selection
+- **Region Editing** - Drag, resize, and reorder regions directly on the timeline with ripple editing and full undo/redo support
 - **Marker Management** - Navigate, add, move, delete, and reorder markers
 - **Tempo Control** - Display BPM, tap tempo, set exact tempo
 - **Auto-Punch Mode** - Time selection recording with visual indicators
@@ -127,7 +128,8 @@ src/
 │       ├── transportSlice.ts    # Playback, position, time selection
 │       ├── tracksSlice.ts       # Track state by index
 │       ├── markersSlice.ts      # Marker list
-│       └── regionsSlice.ts      # Region list
+│       ├── regionsSlice.ts      # Region list
+│       └── regionEditSlice.ts   # Region editing state with undo/redo
 │
 ├── components/                  # React UI components
 │   ├── ReaperProvider.tsx       # Connection context provider
@@ -135,8 +137,9 @@ src/
 │   ├── TakeSwitcher.tsx         # Take switching controls
 │   ├── Transport/               # TransportBar, TimeDisplay, buttons
 │   ├── Track/                   # TrackStrip, Fader, PanKnob, LevelMeter
-│   ├── Timeline/                # Timeline with regions/markers/playhead
-│   ├── Markers/                 # MarkerNav, MarkerEditModal
+│   ├── Regions/                 # RegionNavigation, RegionDisplay
+│   ├── Timeline/                # Timeline with editing, modals, drag hooks
+│   ├── Markers/                 # MarkerNavigation
 │   └── Actions/                 # ActionButton, TapTempoButton, etc.
 │
 ├── hooks/                       # Custom React hooks
@@ -144,14 +147,15 @@ src/
 │   ├── useTransport.ts          # Transport state & commands
 │   ├── useTracks.ts             # All tracks access
 │   ├── useTrack.ts              # Single track state & controls
-│   ├── useTimeSelectionSync.ts  # Time selection detection
+│   ├── useTimeSelectionSync.ts  # Time selection sync with REAPER
 │   ├── useDoubleTap.ts          # Double-tap gesture detection
 │   └── useLongPress.ts          # Long-press gesture detection
 │
 ├── utils/                       # Utility functions
 │   ├── volume.ts                # dB/linear/fader conversions
 │   ├── pan.ts                   # Pan value formatting
-│   └── color.ts                 # REAPER color conversion
+│   ├── color.ts                 # REAPER color conversion
+│   └── time.ts                  # Time/beat formatting utilities
 │
 ├── App.tsx                      # Main app component
 ├── main.tsx                     # React entry point
@@ -263,8 +267,13 @@ const {
 <PanKnob trackIndex={1} />
 <LevelMeter trackIndex={1} />
 
-// Timeline
+// Timeline (supports view and edit modes)
 <Timeline height={120} />
+<RegionEditActionBar />  // Undo/redo, pending changes indicator
+
+// Regions
+<RegionNavigation />
+<RegionDisplay />
 
 // Actions
 <TapTempoButton />
