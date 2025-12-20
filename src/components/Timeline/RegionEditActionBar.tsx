@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback, type ReactElement } from 'react';
-import { Save, X, Loader2, AlertCircle } from 'lucide-react';
+import { Save, X, Loader2, AlertCircle, Undo2, Redo2 } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
 import * as commands from '../../core/CommandBuilder';
@@ -24,6 +24,11 @@ export function RegionEditActionBar(): ReactElement | null {
   const setCommitError = useReaperStore((s) => s.setCommitError);
   const isCommitting = useReaperStore((s) => s.isCommitting);
   const commitError = useReaperStore((s) => s.commitError);
+  const canUndo = useReaperStore((s) => s.canUndo);
+  const canRedo = useReaperStore((s) => s.canRedo);
+  const undo = useReaperStore((s) => s.undo);
+  const redo = useReaperStore((s) => s.redo);
+  const isDragging = useReaperStore((s) => s.dragType !== 'none');
 
   const [pollingForProcessed, setPollingForProcessed] = useState(false);
 
@@ -175,6 +180,26 @@ export function RegionEditActionBar(): ReactElement | null {
       </div>
 
       <div className="flex items-center gap-2">
+        {/* Undo/Redo buttons */}
+        <div className="flex items-center gap-1 mr-2">
+          <button
+            onClick={() => undo()}
+            disabled={!canUndo() || isCommitting || isDragging}
+            className="flex items-center justify-center w-8 h-8 text-gray-300 bg-gray-700 hover:bg-gray-600 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Undo"
+          >
+            <Undo2 size={16} />
+          </button>
+          <button
+            onClick={() => redo()}
+            disabled={!canRedo() || isCommitting || isDragging}
+            className="flex items-center justify-center w-8 h-8 text-gray-300 bg-gray-700 hover:bg-gray-600 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Redo"
+          >
+            <Redo2 size={16} />
+          </button>
+        </div>
+
         <button
           onClick={handleCancel}
           disabled={isCommitting}

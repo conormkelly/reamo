@@ -9,7 +9,7 @@ import type { Region } from '../../core/types';
 
 // Re-export types for consumers
 export type { TimelineMode, DragType, PendingRegionChange, RegionEditSlice, DisplayRegion } from './regionEditSlice.types';
-export type { DeleteMode, PendingChangesRecord } from './regionEditSlice.types';
+export type { DeleteMode, PendingChangesRecord, RegionEditHistorySnapshot } from './regionEditSlice.types';
 
 import type { RegionEditSlice } from './regionEditSlice.types';
 import {
@@ -37,6 +37,8 @@ export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) =
   luaScriptChecked: false,
   isCommitting: false,
   commitError: null,
+  historyStack: [],
+  redoStack: [],
 
   // Mode actions
   setTimelineMode: (mode) => {
@@ -68,6 +70,7 @@ export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) =
 
   // Edit actions (always ripple mode)
   resizeRegion: (index, edge, newTime, regions, bpm) => {
+    get().pushToHistory();
     const changes = calculateResizeRipple({
       index,
       edge,
@@ -80,6 +83,7 @@ export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) =
   },
 
   moveRegion: (indices, deltaTime, regions) => {
+    get().pushToHistory();
     const changes = calculateMoveRipple({
       indices,
       deltaTime,
@@ -90,6 +94,7 @@ export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) =
   },
 
   createRegion: (start, end, name, bpm, color, regions) => {
+    get().pushToHistory();
     const result = calculateCreateRipple({
       start,
       end,
@@ -110,6 +115,7 @@ export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) =
     const region = regions[index];
     if (!region) return;
 
+    get().pushToHistory();
     set({
       pendingChanges: {
         ...get().pendingChanges,
@@ -129,6 +135,7 @@ export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) =
   },
 
   deleteRegionWithMode: (index, mode, regions) => {
+    get().pushToHistory();
     const changes = calculateDeleteRipple({
       index,
       mode,
@@ -142,6 +149,7 @@ export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) =
   },
 
   updateRegionMeta: (index, updates, regions) => {
+    get().pushToHistory();
     const changes = { ...get().pendingChanges };
     const existing = changes[index];
 
@@ -213,6 +221,8 @@ export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) =
       selectedRegionIndices: [],
       isCommitting: false,
       commitError: null,
+      historyStack: [],
+      redoStack: [],
     });
   },
 
@@ -223,10 +233,92 @@ export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) =
       selectedRegionIndices: [],
       isCommitting: false,
       commitError: null,
+      historyStack: [],
+      redoStack: [],
     }),
 
   setCommitting: (committing) => set({ isCommitting: committing }),
   setCommitError: (error) => set({ commitError: error }),
+
+  // Undo/redo actions
+  pushToHistory: () => {
+    const { pendingChanges, nextNewRegionKey, selectedRegionIndices, historyStack } = get();
+    const maxHistorySize = 50;
+
+    // Create snapshot of current state
+    const snapshot = {
+      pendingChanges: { ...pendingChanges },
+      nextNewRegionKey,
+      selectedRegionIndices: [...selectedRegionIndices],
+    };
+
+    // Add to history stack, respecting max size
+    const newStack = [...historyStack, snapshot];
+    if (newStack.length > maxHistorySize) {
+      newStack.shift(); // Remove oldest entry (FIFO)
+    }
+
+    set({
+      historyStack: newStack,
+      redoStack: [], // Clear redo stack on any new action
+    });
+  },
+
+  undo: () => {
+    const { historyStack, pendingChanges, nextNewRegionKey, selectedRegionIndices, redoStack } = get();
+
+    if (historyStack.length === 0) return;
+
+    // Save current state to redo stack before reverting
+    const currentSnapshot = {
+      pendingChanges: { ...pendingChanges },
+      nextNewRegionKey,
+      selectedRegionIndices: [...selectedRegionIndices],
+    };
+
+    // Pop last state from history stack
+    const newHistoryStack = [...historyStack];
+    const previousState = newHistoryStack.pop()!;
+
+    set({
+      pendingChanges: previousState.pendingChanges,
+      nextNewRegionKey: previousState.nextNewRegionKey,
+      selectedRegionIndices: previousState.selectedRegionIndices,
+      historyStack: newHistoryStack,
+      redoStack: [...redoStack, currentSnapshot],
+    });
+  },
+
+  redo: () => {
+    const { redoStack, pendingChanges, nextNewRegionKey, selectedRegionIndices, historyStack } = get();
+
+    if (redoStack.length === 0) return;
+
+    // Save current state to history stack
+    const currentSnapshot = {
+      pendingChanges: { ...pendingChanges },
+      nextNewRegionKey,
+      selectedRegionIndices: [...selectedRegionIndices],
+    };
+
+    // Pop from redo stack
+    const newRedoStack = [...redoStack];
+    const nextState = newRedoStack.pop()!;
+
+    set({
+      pendingChanges: nextState.pendingChanges,
+      nextNewRegionKey: nextState.nextNewRegionKey,
+      selectedRegionIndices: nextState.selectedRegionIndices,
+      historyStack: [...historyStack, currentSnapshot],
+      redoStack: newRedoStack,
+    });
+  },
+
+  canUndo: () => get().historyStack.length > 0,
+
+  canRedo: () => get().redoStack.length > 0,
+
+  clearHistory: () => set({ historyStack: [], redoStack: [] }),
 
   // Lua detection
   setLuaScriptInstalled: (installed) => set({ luaScriptInstalled: installed }),

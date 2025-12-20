@@ -37,6 +37,16 @@ export type DisplayRegion = Region & {
 /** Record of pending changes keyed by region index */
 export type PendingChangesRecord = Record<number, PendingRegionChange>;
 
+/**
+ * A snapshot of the undoable region edit state
+ * Used for undo/redo within a single editing session
+ */
+export interface RegionEditHistorySnapshot {
+  pendingChanges: PendingChangesRecord;
+  nextNewRegionKey: number;
+  selectedRegionIndices: number[];
+}
+
 export interface RegionEditSlice {
   // Mode state
   timelineMode: TimelineMode;
@@ -69,6 +79,10 @@ export interface RegionEditSlice {
   isCommitting: boolean;
   commitError: string | null;
 
+  // Undo/redo history (local to editing session)
+  historyStack: RegionEditHistorySnapshot[];
+  redoStack: RegionEditHistorySnapshot[];
+
   // Mode actions
   setTimelineMode: (mode: TimelineMode) => void;
 
@@ -98,6 +112,14 @@ export interface RegionEditSlice {
   cancelChanges: () => void;
   setCommitting: (committing: boolean) => void;
   setCommitError: (error: string | null) => void;
+
+  // Undo/redo actions
+  undo: () => void;
+  redo: () => void;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
+  clearHistory: () => void;
+  pushToHistory: () => void;
 
   // Lua detection
   setLuaScriptInstalled: (installed: boolean) => void;

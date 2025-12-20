@@ -202,3 +202,209 @@ test.describe('Timeline gestures', () => {
     expect(hasPending).toBe(false)
   })
 })
+
+test.describe('Undo/Redo', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/')
+    await setupTestFixtures(page)
+  })
+
+  test('undo button appears and reverts changes', async ({ page }) => {
+    // Make an edit via store
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      const state = store.getState()
+      state.moveRegion([0], 5, state.regions)
+    })
+
+    // Should show Undo button (now enabled)
+    const undoButton = page.getByRole('button', { name: /undo/i })
+    await expect(undoButton).toBeVisible()
+    await expect(undoButton).toBeEnabled()
+
+    // Click Undo
+    await undoButton.click()
+
+    // Pending changes should be cleared
+    const hasPending = await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      return store.getState().hasPendingChanges()
+    })
+    expect(hasPending).toBe(false)
+  })
+
+  test('redo button restores undone changes', async ({ page }) => {
+    // Make an edit via store
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      const state = store.getState()
+      state.moveRegion([0], 5, state.regions)
+    })
+
+    // Click Undo
+    await page.getByRole('button', { name: /undo/i }).click()
+
+    // Need to make another change to show the action bar again
+    // since hasPendingChanges is now false
+    // Actually, after undo we should have redo available but no pending changes
+    // The action bar won't show if no pending changes...
+    // Let me check if redo can work differently
+
+    // Actually the redo button is only visible when the action bar is visible
+    // which requires pending changes. After undo, if there are no pending changes,
+    // the action bar disappears. Let's test the undo/redo flow with multiple changes.
+
+    // Make two edits
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      const state = store.getState()
+      state.moveRegion([0], 5, state.regions)
+      state.moveRegion([1], 5, state.regions)
+    })
+
+    // Undo once (should still have pending changes from first edit)
+    await page.getByRole('button', { name: /undo/i }).click()
+
+    // Should still have pending changes (from first move)
+    let hasPending = await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      return store.getState().hasPendingChanges()
+    })
+    expect(hasPending).toBe(true)
+
+    // Redo button should be enabled now
+    const redoButton = page.getByRole('button', { name: /redo/i })
+    await expect(redoButton).toBeEnabled()
+
+    // Click Redo
+    await redoButton.click()
+
+    // Should have both changes back
+    const historyLength = await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      return store.getState().historyStack.length
+    })
+    expect(historyLength).toBe(2)
+  })
+
+  test('undo multiple edits sequentially', async ({ page }) => {
+    // Make 3 edits via store
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      const state = store.getState()
+      state.resizeRegion(0, 'end', 15, state.regions, 120)
+      state.resizeRegion(1, 'end', 25, state.regions, 120)
+      state.resizeRegion(2, 'end', 35, state.regions, 120)
+    })
+
+    // Verify history has 3 items
+    let historyLength = await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      return store.getState().historyStack.length
+    })
+    expect(historyLength).toBe(3)
+
+    // Undo 3 times
+    await page.getByRole('button', { name: /undo/i }).click()
+    await page.getByRole('button', { name: /undo/i }).click()
+    await page.getByRole('button', { name: /undo/i }).click()
+
+    // Should have no pending changes
+    const hasPending = await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      return store.getState().hasPendingChanges()
+    })
+    expect(hasPending).toBe(false)
+  })
+
+  test('new edit after undo clears redo stack', async ({ page }) => {
+    // Make 2 edits
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      const state = store.getState()
+      state.moveRegion([0], 5, state.regions)
+      state.moveRegion([1], 5, state.regions)
+    })
+
+    // Undo once
+    await page.getByRole('button', { name: /undo/i }).click()
+
+    // Verify redo is available
+    let canRedo = await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      return store.getState().canRedo()
+    })
+    expect(canRedo).toBe(true)
+
+    // Make a new edit
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      const state = store.getState()
+      state.moveRegion([2], 5, state.regions)
+    })
+
+    // Redo should no longer be available
+    canRedo = await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      return store.getState().canRedo()
+    })
+    expect(canRedo).toBe(false)
+  })
+
+  test('save clears undo/redo history', async ({ page }) => {
+    // Make an edit
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      const state = store.getState()
+      state.moveRegion([0], 5, state.regions)
+    })
+
+    // Verify we can undo
+    let canUndo = await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      return store.getState().canUndo()
+    })
+    expect(canUndo).toBe(true)
+
+    // Click Save (this will clear pending and history)
+    await page.getByRole('button', { name: 'Save' }).nth(1).click()
+
+    // Wait for save to complete
+    await page.waitForTimeout(500)
+
+    // History should be cleared
+    const historyCleared = await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      const state = store.getState()
+      return state.historyStack.length === 0 && state.redoStack.length === 0
+    })
+    expect(historyCleared).toBe(true)
+  })
+
+  test('cancel clears undo/redo history', async ({ page }) => {
+    // Make an edit
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      const state = store.getState()
+      state.moveRegion([0], 5, state.regions)
+    })
+
+    // Verify we can undo
+    let canUndo = await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      return store.getState().canUndo()
+    })
+    expect(canUndo).toBe(true)
+
+    // Click Cancel
+    await page.getByRole('button', { name: /cancel/i }).click()
+
+    // History should be cleared
+    const historyCleared = await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      const state = store.getState()
+      return state.historyStack.length === 0 && state.redoStack.length === 0
+    })
+    expect(historyCleared).toBe(true)
+  })
+})

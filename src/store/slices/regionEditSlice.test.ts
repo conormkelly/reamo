@@ -189,4 +189,302 @@ describe('regionEditSlice', () => {
       expect(useReaperStore.getState().selectedRegionIndices).toEqual([])
     })
   })
+
+  describe('undo/redo', () => {
+    beforeEach(() => {
+      // Also reset history stacks
+      useReaperStore.setState({
+        historyStack: [],
+        redoStack: [],
+      })
+    })
+
+    describe('basic undo/redo', () => {
+      it('canUndo returns false initially', () => {
+        expect(useReaperStore.getState().canUndo()).toBe(false)
+      })
+
+      it('canRedo returns false initially', () => {
+        expect(useReaperStore.getState().canRedo()).toBe(false)
+      })
+
+      it('canUndo returns true after an edit', () => {
+        const regions = useReaperStore.getState().regions
+        useReaperStore.getState().resizeRegion(0, 'end', 15, regions, 120)
+        expect(useReaperStore.getState().canUndo()).toBe(true)
+      })
+
+      it('undo restores previous state', () => {
+        const regions = useReaperStore.getState().regions
+
+        // Make a change
+        useReaperStore.getState().resizeRegion(0, 'end', 15, regions, 120)
+        expect(Object.keys(useReaperStore.getState().pendingChanges).length).toBeGreaterThan(0)
+
+        // Undo
+        useReaperStore.getState().undo()
+        expect(useReaperStore.getState().pendingChanges).toEqual({})
+      })
+
+      it('redo restores undone state', () => {
+        const regions = useReaperStore.getState().regions
+
+        // Make a change
+        useReaperStore.getState().resizeRegion(0, 'end', 15, regions, 120)
+        const changesAfterResize = { ...useReaperStore.getState().pendingChanges }
+
+        // Undo
+        useReaperStore.getState().undo()
+        expect(useReaperStore.getState().pendingChanges).toEqual({})
+
+        // Redo
+        useReaperStore.getState().redo()
+        expect(useReaperStore.getState().pendingChanges).toEqual(changesAfterResize)
+      })
+
+      it('new action clears redo stack', () => {
+        const regions = useReaperStore.getState().regions
+
+        // Make two changes
+        useReaperStore.getState().resizeRegion(0, 'end', 15, regions, 120)
+        useReaperStore.getState().resizeRegion(1, 'end', 25, regions, 120)
+
+        // Undo once
+        useReaperStore.getState().undo()
+        expect(useReaperStore.getState().canRedo()).toBe(true)
+
+        // Make new change
+        useReaperStore.getState().resizeRegion(2, 'end', 35, regions, 120)
+
+        // Redo should be cleared
+        expect(useReaperStore.getState().canRedo()).toBe(false)
+      })
+
+      it('commitChanges clears history', () => {
+        const regions = useReaperStore.getState().regions
+
+        useReaperStore.getState().resizeRegion(0, 'end', 15, regions, 120)
+        expect(useReaperStore.getState().canUndo()).toBe(true)
+
+        useReaperStore.getState().commitChanges()
+
+        expect(useReaperStore.getState().historyStack).toEqual([])
+        expect(useReaperStore.getState().redoStack).toEqual([])
+        expect(useReaperStore.getState().canUndo()).toBe(false)
+      })
+
+      it('cancelChanges clears history', () => {
+        const regions = useReaperStore.getState().regions
+
+        useReaperStore.getState().resizeRegion(0, 'end', 15, regions, 120)
+        useReaperStore.getState().cancelChanges()
+
+        expect(useReaperStore.getState().historyStack).toEqual([])
+        expect(useReaperStore.getState().redoStack).toEqual([])
+      })
+
+      it('preserves selection after undo', () => {
+        const regions = useReaperStore.getState().regions
+
+        useReaperStore.getState().selectRegion(0)
+        useReaperStore.getState().resizeRegion(0, 'end', 15, regions, 120)
+
+        // Selection should be captured in the snapshot
+        useReaperStore.getState().undo()
+
+        // Original selection was [0] before the resize
+        expect(useReaperStore.getState().selectedRegionIndices).toEqual([0])
+      })
+    })
+
+    describe('operation-specific undo/redo', () => {
+      it('undo/redo after resize start edge', () => {
+        const regions = useReaperStore.getState().regions
+
+        // Resize Verse start edge from 10 to 5
+        useReaperStore.getState().resizeRegion(1, 'start', 5, regions, 120)
+
+        const displayAfterResize = useReaperStore.getState().getDisplayRegions(regions)
+        expect(displayAfterResize.find(r => r.name === 'Verse')?.start).toBe(5)
+
+        // Undo
+        useReaperStore.getState().undo()
+        expect(useReaperStore.getState().hasPendingChanges()).toBe(false)
+
+        // Redo
+        useReaperStore.getState().redo()
+        const displayAfterRedo = useReaperStore.getState().getDisplayRegions(regions)
+        expect(displayAfterRedo.find(r => r.name === 'Verse')?.start).toBe(5)
+      })
+
+      it('undo/redo after resize end edge', () => {
+        const regions = useReaperStore.getState().regions
+
+        // Resize Intro end edge from 10 to 15
+        useReaperStore.getState().resizeRegion(0, 'end', 15, regions, 120)
+
+        const displayAfterResize = useReaperStore.getState().getDisplayRegions(regions)
+        expect(displayAfterResize.find(r => r.name === 'Intro')?.end).toBe(15)
+
+        // Undo
+        useReaperStore.getState().undo()
+        expect(useReaperStore.getState().hasPendingChanges()).toBe(false)
+
+        // Redo
+        useReaperStore.getState().redo()
+        const displayAfterRedo = useReaperStore.getState().getDisplayRegions(regions)
+        expect(displayAfterRedo.find(r => r.name === 'Intro')?.end).toBe(15)
+      })
+
+      it('undo/redo after move single region', () => {
+        const regions = useReaperStore.getState().regions
+
+        // Move Chorus back by 10 seconds
+        useReaperStore.getState().moveRegion([2], -10, regions)
+
+        const displayAfterMove = useReaperStore.getState().getDisplayRegions(regions)
+        expect(displayAfterMove.find(r => r.name === 'Chorus')?.start).toBe(10)
+
+        // Undo
+        useReaperStore.getState().undo()
+        expect(useReaperStore.getState().hasPendingChanges()).toBe(false)
+
+        // Redo
+        useReaperStore.getState().redo()
+        const displayAfterRedo = useReaperStore.getState().getDisplayRegions(regions)
+        expect(displayAfterRedo.find(r => r.name === 'Chorus')?.start).toBe(10)
+      })
+
+      it('undo/redo after create region', () => {
+        const regions = useReaperStore.getState().regions
+
+        // Create a new region at position 30
+        useReaperStore.getState().createRegion(30, 40, 'Bridge', 120, 0xffff00, regions)
+
+        const displayAfterCreate = useReaperStore.getState().getDisplayRegions(regions)
+        expect(displayAfterCreate.find(r => r.name === 'Bridge')).toBeDefined()
+        expect(displayAfterCreate.length).toBe(4)
+
+        // Undo
+        useReaperStore.getState().undo()
+        const displayAfterUndo = useReaperStore.getState().getDisplayRegions(regions)
+        expect(displayAfterUndo.find(r => r.name === 'Bridge')).toBeUndefined()
+        expect(displayAfterUndo.length).toBe(3)
+
+        // Redo
+        useReaperStore.getState().redo()
+        const displayAfterRedo = useReaperStore.getState().getDisplayRegions(regions)
+        expect(displayAfterRedo.find(r => r.name === 'Bridge')).toBeDefined()
+      })
+
+      it('undo/redo after delete region', () => {
+        const regions = useReaperStore.getState().regions
+
+        // Delete Verse (region at index 1)
+        useReaperStore.getState().deleteRegion(1, regions)
+
+        const displayAfterDelete = useReaperStore.getState().getDisplayRegions(regions)
+        expect(displayAfterDelete.find(r => r.name === 'Verse')).toBeUndefined()
+
+        // Undo
+        useReaperStore.getState().undo()
+        expect(useReaperStore.getState().hasPendingChanges()).toBe(false)
+
+        // Redo
+        useReaperStore.getState().redo()
+        const displayAfterRedo = useReaperStore.getState().getDisplayRegions(regions)
+        expect(displayAfterRedo.find(r => r.name === 'Verse')).toBeUndefined()
+      })
+
+      it('undo/redo after delete with ripple-back mode', () => {
+        const regions = useReaperStore.getState().regions
+
+        // Delete Verse with ripple-back mode
+        useReaperStore.getState().deleteRegionWithMode(1, 'ripple-back', regions)
+
+        const displayAfterDelete = useReaperStore.getState().getDisplayRegions(regions)
+        // Chorus should have rippled back
+        expect(displayAfterDelete.find(r => r.name === 'Chorus')?.start).toBe(10)
+
+        // Undo
+        useReaperStore.getState().undo()
+        expect(useReaperStore.getState().hasPendingChanges()).toBe(false)
+
+        // Redo
+        useReaperStore.getState().redo()
+        const displayAfterRedo = useReaperStore.getState().getDisplayRegions(regions)
+        expect(displayAfterRedo.find(r => r.name === 'Chorus')?.start).toBe(10)
+      })
+    })
+
+    describe('multiple sequential edits', () => {
+      it('undo multiple times, then redo multiple times', () => {
+        const regions = useReaperStore.getState().regions
+
+        // Make 3 changes
+        useReaperStore.getState().resizeRegion(0, 'end', 15, regions, 120) // Change 1
+        useReaperStore.getState().resizeRegion(1, 'end', 25, regions, 120) // Change 2
+        useReaperStore.getState().resizeRegion(2, 'end', 35, regions, 120) // Change 3
+
+        expect(useReaperStore.getState().historyStack.length).toBe(3)
+
+        // Undo all 3
+        useReaperStore.getState().undo()
+        expect(useReaperStore.getState().historyStack.length).toBe(2)
+        useReaperStore.getState().undo()
+        expect(useReaperStore.getState().historyStack.length).toBe(1)
+        useReaperStore.getState().undo()
+        expect(useReaperStore.getState().historyStack.length).toBe(0)
+
+        // Should be back to initial state
+        expect(useReaperStore.getState().hasPendingChanges()).toBe(false)
+        expect(useReaperStore.getState().redoStack.length).toBe(3)
+
+        // Redo all 3
+        useReaperStore.getState().redo()
+        useReaperStore.getState().redo()
+        useReaperStore.getState().redo()
+
+        expect(useReaperStore.getState().historyStack.length).toBe(3)
+        expect(useReaperStore.getState().redoStack.length).toBe(0)
+      })
+
+      it('undo/redo with multiple edits interleaved', () => {
+        const regions = useReaperStore.getState().regions
+
+        // Resize, then move, then create
+        useReaperStore.getState().resizeRegion(0, 'end', 15, regions, 120)
+        useReaperStore.getState().moveRegion([2], -5, regions)
+        useReaperStore.getState().createRegion(30, 40, 'Outro', 120, 0xffff00, regions)
+
+        expect(useReaperStore.getState().historyStack.length).toBe(3)
+
+        // Undo the create
+        useReaperStore.getState().undo()
+        const displayAfterUndo1 = useReaperStore.getState().getDisplayRegions(regions)
+        expect(displayAfterUndo1.find(r => r.name === 'Outro')).toBeUndefined()
+
+        // Undo the move
+        useReaperStore.getState().undo()
+
+        // Undo the resize
+        useReaperStore.getState().undo()
+        expect(useReaperStore.getState().hasPendingChanges()).toBe(false)
+      })
+    })
+
+    describe('history limit', () => {
+      it('respects maxHistorySize limit (FIFO eviction)', () => {
+        const regions = useReaperStore.getState().regions
+
+        // Make 60 changes (exceeds default limit of 50)
+        for (let i = 0; i < 60; i++) {
+          useReaperStore.getState().resizeRegion(0, 'end', 15 + i * 0.1, regions, 120)
+        }
+
+        // Should only have 50 items in history (oldest evicted)
+        expect(useReaperStore.getState().historyStack.length).toBe(50)
+      })
+    })
+  })
 })
