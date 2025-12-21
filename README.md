@@ -2,30 +2,56 @@
 
 A modern web control surface for [REAPER](https://www.reaper.fm/), designed for songwriting workflows. Control transport, tracks, and more from your iPad or tablet while staying at your instrument.
 
-## Quick Start (Non-Technical Users)
+## Installation
 
-**Just want the control surface? No coding required.**
+### Automatic (Recommended)
 
-1. **Download** `reamo.html` from the [Releases page](../../releases)
-2. **Copy** it to your REAPER web folder:
+1. **Download** the latest `Reamo-vX.X.zip` from [Releases](../../releases)
+2. **Extract** the ZIP file
+3. **Open REAPER** and open the **Actions** menu (shortcut: `?` or `Cmd+?` on Mac, `Ctrl+?` on Windows)
+4. Search for and run: **"ReaScript: Run ReaScript (EEL, Lua, or Python)..."** (Action ID: 41060)
+5. Select `Install_Reamo.lua` from the extracted folder
+6. **Follow the prompts** to complete installation
+
+After installation, enable REAPER's web server:
+
+1. Go to **Preferences > Web interface** (or **Control/OSC/Web** on older versions)
+2. Check **Enable**
+3. Set port (default: 8080)
+4. Restart REAPER
+
+Access Reamo at `http://localhost:8080/reamo.html` (or your computer's IP for other devices).
+
+### Uninstall
+
+Run `Uninstall_Reamo.lua` from the original extracted folder using the same "Run ReaScript" action.
+
+### Manual Installation
+
+<details>
+<summary>Click to expand manual steps</summary>
+
+If the automatic installer doesn't work:
+
+1. Copy `reamo.html` to your REAPER www folder:
    - **macOS**: `~/Library/Application Support/REAPER/reaper_www_root/`
    - **Windows**: `%APPDATA%\REAPER\reaper_www_root\`
    - **Linux**: `~/.config/REAPER/reaper_www_root/`
-3. **Enable REAPER's web server** (see setup below)
-4. **Open** `http://YOUR-COMPUTER-IP:8888/reamo.html` on your tablet
 
-That's it! Refresh the page whenever REAPER is running.
+2. Copy the Lua scripts to REAPER's Scripts folder:
+   - Copy `Reamo_RegionEdit.lua` and `Reamo_MarkerEdit.lua` to `Scripts/Reamo/`
 
-### Optional: Lua Scripts for Full Editing
+3. For auto-start, add to `Scripts/__startup.lua`:
 
-For **marker and region name/color editing**, install the companion Lua scripts:
+   ```lua
+   -- REAMO_AUTOSTART_BEGIN
+   pcall(dofile, reaper.GetResourcePath() .. "/Scripts/Reamo/Reamo_Startup.lua")
+   -- REAMO_AUTOSTART_END
+   ```
 
-1. Copy `scripts/Reamo_RegionEdit.lua` and `scripts/Reamo_MarkerEdit.lua` to your REAPER scripts folder
-2. In REAPER, go to **Actions** > **Show action list**
-3. Click **Load ReaScript** and select each script
-4. Run both scripts (they stay running in the background using `defer()`)
+4. Enable REAPER's web server (see below)
 
-Without these scripts, Reamo still works for navigation and basic editing - you just can't change marker/region names or colors from the web interface.
+</details>
 
 ### REAPER Web Server Setup
 
@@ -34,12 +60,11 @@ Without these scripts, Reamo still works for navigation and basic editing - you 
 3. Navigate to **Control/OSC/Web** in the left sidebar
 4. Click **Add** and select **Web browser interface**
 5. Configure:
-   - **Port**: 8888 (default, or choose another)
-   - **Access**: Set to your local network (e.g., `192.168.*.*`) or `*` for any
-   - **Default web page**: Leave blank or set to `reamo.html`
+   - **Port**: 8080 (or choose another)
+   - **Default interface**: Set to `reamo.html`
 6. Click **OK** to save
 7. Find your computer's IP address (System Preferences > Network on macOS, or `ipconfig` on Windows)
-8. On your tablet, open: `http://YOUR-IP:8888/reamo.html`
+8. On your tablet, open: `http://YOUR-IP:8080/reamo.html`
 
 ---
 

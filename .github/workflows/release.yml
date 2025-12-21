@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Triggers on version tags like v1.0.0
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write  # Needed to create releases
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Copy build to reamo.html
+        run: cp ./dist/index.html ./reamo.html
+
+      - name: Create release directory
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          RELEASE_DIR="Reamo-v${VERSION}"
+          mkdir -p "$RELEASE_DIR"
+
+          # Copy installer files
+          cp installer/Install_Reamo.lua "$RELEASE_DIR/"
+          cp installer/Uninstall_Reamo.lua "$RELEASE_DIR/"
+          cp installer/Reamo_Startup.lua "$RELEASE_DIR/"
+          cp installer/README.txt "$RELEASE_DIR/"
+
+          # Copy app and scripts
+          cp reamo.html "$RELEASE_DIR/"
+          cp scripts/Reamo_RegionEdit.lua "$RELEASE_DIR/"
+          cp scripts/Reamo_MarkerEdit.lua "$RELEASE_DIR/"
+
+          # Create ZIP
+          zip -r "Reamo-v${VERSION}.zip" "$RELEASE_DIR"
+
+          # Generate checksum
+          sha256sum "Reamo-v${VERSION}.zip" > "Reamo-v${VERSION}.zip.sha256"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            Reamo-v*.zip
+            Reamo-v*.zip.sha256
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}

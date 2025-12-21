@@ -2,16 +2,9 @@
 -- Marker name/color editing for Reamo web interface
 -- Version 1.0
 --
--- Installation:
--- 1. Copy this file to your REAPER Scripts folder
--- 2. Actions > Show action list > Load ReaScript
--- 3. Select this script
--- 4. Run the script - it will poll for marker edit commands
--- 5. For continuous operation, set up SWS/S&M: Run script at startup
---
--- Usage:
--- This script polls ExtState for marker edit commands from the Reamo web interface.
--- It reads name/color changes and applies them to REAPER markers.
+-- This script is automatically installed and started by the Reamo installer.
+-- It runs continuously in the background using reaper.defer(), polling for
+-- marker editing commands from the Reamo web interface via ExtState.
 
 local SECTION = "Reamo"
 local VERSION = "1.0"

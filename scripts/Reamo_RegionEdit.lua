@@ -2,17 +2,9 @@
 -- Region editing operations for Reamo web interface
 -- Version 2.0 (Background polling version)
 --
--- Installation:
--- 1. Copy this file to your REAPER Scripts folder
--- 2. Actions > Show action list > Load ReaScript
--- 3. Select this script
--- 4. Run once to start the background service
--- 5. The script will run in the background, polling for actions
---
--- Usage:
--- This script runs continuously in the background using reaper.defer().
--- The Reamo web interface sets ExtState values, and this script picks them up
--- and processes region operations.
+-- This script is automatically installed and started by the Reamo installer.
+-- It runs continuously in the background using reaper.defer(), polling for
+-- region editing commands from the Reamo web interface via ExtState.
 
 local SECTION = "Reamo"
 local VERSION = "2.0"
@@ -504,5 +496,4 @@ local function poll()
 end
 
 -- Start the polling loop
-reaper.ShowConsoleMsg("Reamo Region Edit v" .. VERSION .. " started (background polling mode)\n")
 poll()
