@@ -13,9 +13,10 @@ local function startReamo()
 
     -- Defer to let REAPER fully initialize
     reaper.defer(function()
-        -- Load the region and marker editing scripts
+        -- Load the region, marker, and time signature scripts
         local ok1, err1 = pcall(dofile, scriptsPath .. "Reamo_RegionEdit.lua")
         local ok2, err2 = pcall(dofile, scriptsPath .. "Reamo_MarkerEdit.lua")
+        local ok3, err3 = pcall(dofile, scriptsPath .. "Reamo_TimeSig.lua")
 
         -- Log errors to console (don't show dialogs on startup)
         if not ok1 then
@@ -23,6 +24,9 @@ local function startReamo()
         end
         if not ok2 then
             reaper.ShowConsoleMsg("Reamo: Failed to load MarkerEdit - " .. tostring(err2) .. "\n")
+        end
+        if not ok3 then
+            reaper.ShowConsoleMsg("Reamo: Failed to load TimeSig - " .. tostring(err3) .. "\n")
         end
     end)
 end

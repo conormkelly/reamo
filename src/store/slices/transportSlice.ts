@@ -22,6 +22,8 @@ export interface TransportSlice {
   isRepeat: boolean;
   isMetronome: boolean;
   isAutoPunch: boolean;
+  isCountInRecord: boolean;
+  isCountInPlayback: boolean;
   metronomeVolume: number;
   bpm: number | null;
   fullBeatPosition: number;
@@ -36,6 +38,8 @@ export interface TransportSlice {
   setRepeat: (repeat: boolean) => void;
   setMetronome: (metronome: boolean) => void;
   setAutoPunch: (autoPunch: boolean) => void;
+  setCountInRecord: (enabled: boolean) => void;
+  setCountInPlayback: (enabled: boolean) => void;
   setMetronomeVolume: (volume: number) => void;
   setBpm: (bpm: number | null) => void;
   setTimeSelection: (selection: TimeSelection | null) => void;
@@ -50,6 +54,8 @@ export const createTransportSlice: StateCreator<TransportSlice> = (set, get) => 
   isRepeat: false,
   isMetronome: false,
   isAutoPunch: false,
+  isCountInRecord: false,
+  isCountInPlayback: false,
   metronomeVolume: 0.25, // Default ~-12dB
   bpm: null,
   fullBeatPosition: 0,
@@ -70,10 +76,15 @@ export const createTransportSlice: StateCreator<TransportSlice> = (set, get) => 
     const timeSignature = `${beatPos.timeSignatureNumerator}/${beatPos.timeSignatureDenominator}`;
 
     // Calculate BPM from beat position if we have a valid position
-    // BPM = (beats / seconds) * 60
+    // REAPER's fullBeatPosition counts in denominator beats (eighths for X/8, quarters for X/4)
+    // We normalize to quarter-note BPM for consistent display
     let newBpm = get().bpm;
     if (beatPos.positionSeconds > 0.1) {
-      const calculatedBpm = (beatPos.fullBeatPosition / beatPos.positionSeconds) * 60;
+      const rawBpm = (beatPos.fullBeatPosition / beatPos.positionSeconds) * 60;
+      // Normalize to quarter-note BPM: multiply by (4 / denominator)
+      // For 4/4: rawBpm * 1 = no change
+      // For 6/8: rawBpm * 0.5 = converts eighth-note BPM to quarter-note BPM
+      const calculatedBpm = rawBpm * (4 / beatPos.timeSignatureDenominator);
       // Only update if it's a reasonable BPM (20-300)
       if (calculatedBpm >= 20 && calculatedBpm <= 300) {
         newBpm = calculatedBpm;
@@ -92,6 +103,8 @@ export const createTransportSlice: StateCreator<TransportSlice> = (set, get) => 
   setRepeat: (isRepeat) => set({ isRepeat }),
   setMetronome: (isMetronome) => set({ isMetronome }),
   setAutoPunch: (isAutoPunch) => set({ isAutoPunch }),
+  setCountInRecord: (isCountInRecord) => set({ isCountInRecord }),
+  setCountInPlayback: (isCountInPlayback) => set({ isCountInPlayback }),
   setMetronomeVolume: (metronomeVolume) => set({ metronomeVolume }),
   setBpm: (bpm) => set({ bpm }),
   setTimeSelection: (timeSelection) => set({ timeSelection }),

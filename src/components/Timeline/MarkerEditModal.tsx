@@ -15,6 +15,7 @@ export interface MarkerEditModalProps {
   marker: Marker;
   bpm: number;
   barOffset: number;
+  beatsPerBar?: number;
   onClose: () => void;
   onMove: (markerId: number, newPositionSeconds: number) => void;
   onDelete: (markerPositionSeconds: number) => void;
@@ -124,6 +125,7 @@ export function MarkerEditModal({
   marker,
   bpm,
   barOffset,
+  beatsPerBar = 4,
   onClose,
   onMove,
   onDelete,
@@ -161,12 +163,12 @@ export function MarkerEditModal({
   useEffect(() => {
     setTimeValue(formatTime(marker.position, { precision: 3 }));
     const beats = secondsToBeats(marker.position, bpm);
-    setBeatsValue(formatBars(beats, barOffset));
+    setBeatsValue(formatBars(beats, barOffset, beatsPerBar));
     setNameValue(marker.name || '');
     // null = default (no custom color), otherwise use hex value
     setColorValue(marker.color ? reaperColorToHex(marker.color) : null);
     setError(null);
-  }, [marker, bpm, barOffset]);
+  }, [marker, bpm, barOffset, beatsPerBar]);
 
   const handleMove = useCallback(() => {
     if (!canMove) return;
@@ -176,7 +178,7 @@ export function MarkerEditModal({
     if (editMode === 'time') {
       newPositionSeconds = parseTime(timeValue);
     } else {
-      const beats = parseBars(beatsValue, barOffset);
+      const beats = parseBars(beatsValue, barOffset, beatsPerBar);
       if (beats !== null) {
         newPositionSeconds = beatsToSeconds(beats, bpm);
       }

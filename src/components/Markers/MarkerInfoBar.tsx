@@ -47,6 +47,13 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
   const bpm = useReaperStore((s) => s.bpm);
   const positionBeats = useReaperStore((s) => s.positionBeats);
   const positionSeconds = useReaperStore((s) => s.positionSeconds);
+  const timeSignature = useReaperStore((s) => s.timeSignature);
+
+  // Parse time signature numerator (beats per bar) and denominator
+  const { beatsPerBar, denominator } = (() => {
+    const [num, denom] = timeSignature.split('/').map(Number);
+    return { beatsPerBar: num || 4, denominator: denom || 4 };
+  })();
 
   const { currentMarker, setLocked } = useCurrentMarker();
 
@@ -68,9 +75,11 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
   const barOffset = (() => {
     if (!bpm || !positionBeats) return 0;
     const actualBar = parseReaperBar(positionBeats);
-    const rawBeats = secondsToBeats(positionSeconds, bpm);
-    const totalBeats = Math.round(rawBeats * 4) / 4;
-    const calculatedBar = Math.floor(totalBeats / 4) + 1;
+    // BPM is in quarter notes, convert to denominator beats
+    const quarterNoteBeats = secondsToBeats(positionSeconds, bpm);
+    const denominatorBeats = quarterNoteBeats * (denominator / 4);
+    const totalBeats = Math.round(denominatorBeats * 4) / 4;
+    const calculatedBar = Math.floor(totalBeats / beatsPerBar) + 1;
     return actualBar - calculatedBar;
   })();
 
@@ -211,7 +220,7 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
   // Format position as beats or time
   const formatPosition = (seconds: number): string => {
     if (bpm) {
-      return formatBeats(seconds, bpm, barOffset);
+      return formatBeats(seconds, bpm, barOffset, beatsPerBar, denominator);
     }
     return formatTime(seconds);
   };

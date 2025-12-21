@@ -99,6 +99,13 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
   const bpm = useReaperStore((s) => s.bpm);
   const positionBeats = useReaperStore((s) => s.positionBeats);
   const positionSeconds = useReaperStore((s) => s.positionSeconds);
+  const timeSignature = useReaperStore((s) => s.timeSignature);
+
+  // Parse time signature numerator (beats per bar)
+  const beatsPerBar = (() => {
+    const [num] = timeSignature.split('/').map(Number);
+    return num || 4;
+  })();
 
   // Calculate bar offset from REAPER's actual bar numbering
   // This handles projects that don't start at bar 1 (e.g., -4.1.00)
@@ -109,7 +116,7 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
     const actualBar = parseReaperBar(positionBeats);
     const rawBeats = secondsToBeats(positionSeconds, bpm);
     const totalBeats = Math.round(rawBeats * 4) / 4;
-    const calculatedBar = Math.floor(totalBeats / 4) + 1;
+    const calculatedBar = Math.floor(totalBeats / beatsPerBar) + 1;
     return actualBar - calculatedBar;
   })();
 

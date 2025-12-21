@@ -23,6 +23,7 @@ import {
   PrevMarkerButton,
   NextMarkerButton,
   TapTempoButton,
+  TimeSignatureButton,
   Timeline,
   TimelineModeToggle,
   RegionEditActionBar,
@@ -98,6 +99,7 @@ function AppContent() {
         <div className="flex items-center gap-3">
           <MetronomeButton />
           <TapTempoButton />
+          <TimeSignatureButton />
           <ConnectionStatus />
         </div>
       </header>

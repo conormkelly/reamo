@@ -1,0 +1,206 @@
+/**
+ * Time Signature Button Component
+ * Displays current time signature and allows changing it via modal
+ * Requires Reamo_TimeSig.lua script for setting time signature
+ */
+
+import { useState, useCallback, type ReactElement } from 'react';
+import { Minus, Plus } from 'lucide-react';
+import { useReaper } from '../ReaperProvider';
+import { useReaperStore } from '../../store';
+import * as commands from '../../core/CommandBuilder';
+
+// Common time signature presets
+const TIME_SIG_PRESETS = [
+  { num: 3, denom: 4, label: '3/4' },
+  { num: 4, denom: 4, label: '4/4' },
+  { num: 6, denom: 8, label: '6/8' },
+];
+
+// Valid denominators (note values)
+const VALID_DENOMINATORS = [2, 4, 8, 16];
+
+export interface TimeSignatureButtonProps {
+  className?: string;
+  size?: 'sm' | 'md' | 'lg';
+}
+
+/**
+ * Button that displays time signature and opens modal to change it
+ * - Tap: opens time signature editor
+ * - Requires Reamo_TimeSig.lua script to be running
+ */
+export function TimeSignatureButton({
+  className = '',
+  size = 'md',
+}: TimeSignatureButtonProps): ReactElement {
+  const { send } = useReaper();
+  const timeSignature = useReaperStore((state) => state.timeSignature);
+
+  const [showDialog, setShowDialog] = useState(false);
+  const [numerator, setNumerator] = useState(4);
+  const [denominator, setDenominator] = useState(4);
+
+  // Parse current time signature when opening dialog
+  const handleClick = useCallback(() => {
+    const [num, denom] = timeSignature.split('/').map(Number);
+    setNumerator(num || 4);
+    setDenominator(denom || 4);
+    setShowDialog(true);
+  }, [timeSignature]);
+
+  const handleSetTimeSignature = useCallback(
+    (num: number, denom: number) => {
+      // Send via ExtState to Lua script
+      send(commands.setExtState('Reamo', 'timesig_numerator', String(num)));
+      send(commands.setExtState('Reamo', 'timesig_denominator', String(denom)));
+      send(commands.setExtState('Reamo', 'timesig_processed', ''));
+      send(commands.setExtState('Reamo', 'timesig_action', 'set')); // Action LAST
+      setShowDialog(false);
+    },
+    [send]
+  );
+
+  const handleNumeratorUp = useCallback(() => {
+    setNumerator((n) => Math.min(32, n + 1));
+  }, []);
+
+  const handleNumeratorDown = useCallback(() => {
+    setNumerator((n) => Math.max(1, n - 1));
+  }, []);
+
+  const handleDenominatorUp = useCallback(() => {
+    setDenominator((d) => {
+      const idx = VALID_DENOMINATORS.indexOf(d);
+      return idx < VALID_DENOMINATORS.length - 1 ? VALID_DENOMINATORS[idx + 1] : d;
+    });
+  }, []);
+
+  const handleDenominatorDown = useCallback(() => {
+    setDenominator((d) => {
+      const idx = VALID_DENOMINATORS.indexOf(d);
+      return idx > 0 ? VALID_DENOMINATORS[idx - 1] : d;
+    });
+  }, []);
+
+  const handlePreset = useCallback(
+    (num: number, denom: number) => {
+      setNumerator(num);
+      setDenominator(denom);
+      handleSetTimeSignature(num, denom);
+    },
+    [handleSetTimeSignature]
+  );
+
+  const handleApply = useCallback(() => {
+    handleSetTimeSignature(numerator, denominator);
+  }, [numerator, denominator, handleSetTimeSignature]);
+
+  const handleOverlayClick = useCallback((e: React.MouseEvent) => {
+    if (e.target === e.currentTarget) {
+      setShowDialog(false);
+    }
+  }, []);
+
+  const sizeClasses = {
+    sm: 'px-2 py-1 text-sm min-w-12',
+    md: 'px-3 py-2 min-w-14',
+    lg: 'px-4 py-3 text-lg min-w-16',
+  };
+
+  return (
+    <>
+      <button
+        onClick={handleClick}
+        title="Time Signature - tap to change"
+        className={`
+          ${sizeClasses[size]}
+          bg-gray-700 text-white hover:bg-gray-600 active:bg-gray-500
+          rounded font-medium font-mono transition-colors
+          ${className}
+        `}
+      >
+        {timeSignature}
+      </button>
+
+      {/* Time Signature Dialog */}
+      {showDialog && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          onClick={handleOverlayClick}
+        >
+          <div className="bg-gray-800 rounded-lg p-4 shadow-xl border border-gray-700 min-w-[220px]">
+            <div className="text-sm text-gray-400 mb-4 text-center">Time Signature</div>
+
+            {/* Numerator */}
+            <div className="flex items-center justify-center gap-3 mb-2">
+              <button
+                onClick={handleNumeratorDown}
+                className="w-10 h-10 rounded bg-gray-700 hover:bg-gray-600 active:bg-gray-500 flex items-center justify-center"
+              >
+                <Minus size={20} />
+              </button>
+              <div className="w-12 h-12 flex items-center justify-center text-2xl font-mono font-bold">
+                {numerator}
+              </div>
+              <button
+                onClick={handleNumeratorUp}
+                className="w-10 h-10 rounded bg-gray-700 hover:bg-gray-600 active:bg-gray-500 flex items-center justify-center"
+              >
+                <Plus size={20} />
+              </button>
+            </div>
+
+            {/* Divider line */}
+            <div className="w-20 h-0.5 bg-gray-500 mx-auto mb-2" />
+
+            {/* Denominator */}
+            <div className="flex items-center justify-center gap-3 mb-4">
+              <button
+                onClick={handleDenominatorDown}
+                className="w-10 h-10 rounded bg-gray-700 hover:bg-gray-600 active:bg-gray-500 flex items-center justify-center"
+              >
+                <Minus size={20} />
+              </button>
+              <div className="w-12 h-12 flex items-center justify-center text-2xl font-mono font-bold">
+                {denominator}
+              </div>
+              <button
+                onClick={handleDenominatorUp}
+                className="w-10 h-10 rounded bg-gray-700 hover:bg-gray-600 active:bg-gray-500 flex items-center justify-center"
+              >
+                <Plus size={20} />
+              </button>
+            </div>
+
+            {/* Apply button */}
+            <button
+              onClick={handleApply}
+              className="w-full py-2 mb-4 rounded bg-blue-600 hover:bg-blue-500 active:bg-blue-700 font-medium transition-colors"
+            >
+              Apply {numerator}/{denominator}
+            </button>
+
+            {/* Presets */}
+            <div className="text-xs text-gray-500 mb-2 text-center">Presets</div>
+            <div className="flex items-center justify-center gap-2">
+              {TIME_SIG_PRESETS.map((preset) => (
+                <button
+                  key={preset.label}
+                  onClick={() => handlePreset(preset.num, preset.denom)}
+                  className={`px-3 py-1.5 rounded text-sm font-mono transition-colors ${
+                    numerator === preset.num && denominator === preset.denom
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

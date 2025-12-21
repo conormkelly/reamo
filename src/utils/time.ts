@@ -64,19 +64,23 @@ export function formatTime(seconds: number, options?: FormatTimeOptions): string
  * Rounds to nearest 16th note to handle floating point precision
  *
  * @param seconds - Time in seconds (always >= 0)
- * @param bpm - Beats per minute
+ * @param bpm - Beats per minute (quarter-note BPM, normalized)
  * @param barOffset - REAPER's bar numbering offset (projects can start at bar -4, 1, etc.)
  * @param beatsPerBar - Time signature numerator (default: 4)
+ * @param denominator - Time signature denominator (default: 4)
  */
 export function formatBeats(
   seconds: number,
   bpm: number,
   barOffset: number,
-  beatsPerBar: number = 4
+  beatsPerBar: number = 4,
+  denominator: number = 4
 ): string {
-  const rawBeats = secondsToBeats(seconds, bpm);
-  // Round to nearest 16th note (0.25 beats) to handle floating point precision
-  const totalBeats = Math.round(rawBeats * 4) / 4;
+  // BPM is in quarter notes, convert to denominator beats for bar calculation
+  const quarterNoteBeats = secondsToBeats(seconds, bpm);
+  const denominatorBeats = quarterNoteBeats * (denominator / 4);
+  // Round to nearest 16th note equivalent
+  const totalBeats = Math.round(denominatorBeats * 4) / 4;
   const calculatedBar = Math.floor(totalBeats / beatsPerBar) + 1;
   const actualBar = calculatedBar + barOffset;
   const beat = Math.floor(totalBeats % beatsPerBar) + 1; // 1-based like REAPER
@@ -87,15 +91,20 @@ export function formatBeats(
 /**
  * Format duration in human-readable bars/beats (e.g., "8 bars 2 beats")
  * Rounds to nearest 16th note to avoid floating point errors
+ *
+ * @param denominator - Time signature denominator (default: 4)
  */
 export function formatDuration(
   seconds: number,
   bpm: number,
-  beatsPerBar: number = 4
+  beatsPerBar: number = 4,
+  denominator: number = 4
 ): string {
-  const rawBeats = secondsToBeats(seconds, bpm);
-  // Round to nearest 16th note (0.25 beats) to handle floating point precision
-  const totalBeats = Math.round(rawBeats * 4) / 4;
+  // BPM is in quarter notes, convert to denominator beats
+  const quarterNoteBeats = secondsToBeats(seconds, bpm);
+  const denominatorBeats = quarterNoteBeats * (denominator / 4);
+  // Round to nearest 16th note equivalent
+  const totalBeats = Math.round(denominatorBeats * 4) / 4;
   const bars = Math.floor(totalBeats / beatsPerBar);
   const beats = Math.round(totalBeats % beatsPerBar);
 
@@ -111,16 +120,21 @@ export function formatDuration(
 /**
  * Format a time delta with +/- sign (e.g., "+2 bars", "-1 beat")
  * Used for showing resize/move changes
+ *
+ * @param denominator - Time signature denominator (default: 4)
  */
 export function formatDelta(
   deltaSeconds: number,
   bpm: number,
-  beatsPerBar: number = 4
+  beatsPerBar: number = 4,
+  denominator: number = 4
 ): string {
   const sign = deltaSeconds >= 0 ? '+' : '-';
   const absSeconds = Math.abs(deltaSeconds);
-  const rawBeats = secondsToBeats(absSeconds, bpm);
-  const totalBeats = Math.round(rawBeats * 4) / 4;
+  // BPM is in quarter notes, convert to denominator beats
+  const quarterNoteBeats = secondsToBeats(absSeconds, bpm);
+  const denominatorBeats = quarterNoteBeats * (denominator / 4);
+  const totalBeats = Math.round(denominatorBeats * 4) / 4;
   const bars = Math.floor(totalBeats / beatsPerBar);
   const beats = Math.round(totalBeats % beatsPerBar);
 
@@ -150,13 +164,15 @@ export function parseReaperBar(positionBeats: string): number {
 
 /**
  * Parse Bar.Beat.Sub input to seconds
+ * @param denominator - Time signature denominator (default: 4)
  * @returns seconds or null if invalid input
  */
 export function parseBarBeatToSeconds(
   input: string,
   bpm: number,
   barOffset: number,
-  beatsPerBar: number = 4
+  beatsPerBar: number = 4,
+  denominator: number = 4
 ): number | null {
   const parts = input.trim().split('.');
   if (parts.length < 2) return null;
@@ -169,22 +185,26 @@ export function parseBarBeatToSeconds(
   if (beat < 1 || beat > beatsPerBar) return null;
   if (sub < 0 || sub > 3) return null;
 
-  // Convert back to seconds
+  // Calculate denominator beats, then convert to quarter notes for beatsToSeconds
   const adjustedBar = bar - barOffset;
-  const totalBeats = (adjustedBar - 1) * beatsPerBar + (beat - 1) + sub / 4;
-  return beatsToSeconds(totalBeats, bpm);
+  const totalDenominatorBeats = (adjustedBar - 1) * beatsPerBar + (beat - 1) + sub / 4;
+  // Convert denominator beats to quarter notes (BPM is in quarter notes)
+  const quarterNoteBeats = totalDenominatorBeats * (4 / denominator);
+  return beatsToSeconds(quarterNoteBeats, bpm);
 }
 
 /**
  * Parse duration string to seconds
  * Formats: "8" = 8 bars, "8.2" = 8 bars 2 beats, "0.4" = 4 beats
  * Plain number = bars (most intuitive for music)
+ * @param denominator - Time signature denominator (default: 4)
  * @returns seconds or null if invalid
  */
 export function parseDurationToSeconds(
   input: string,
   bpm: number,
-  beatsPerBar: number = 4
+  beatsPerBar: number = 4,
+  denominator: number = 4
 ): number | null {
   const trimmed = input.trim();
 
@@ -194,16 +214,20 @@ export function parseDurationToSeconds(
     const bars = parseInt(barBeatMatch[1], 10);
     const beats = parseInt(barBeatMatch[2], 10);
     if (beats > beatsPerBar) return null; // Invalid beat count
-    const totalBeats = bars * beatsPerBar + beats;
-    return beatsToSeconds(totalBeats, bpm);
+    // Total denominator beats, convert to quarter notes for beatsToSeconds
+    const totalDenominatorBeats = bars * beatsPerBar + beats;
+    const quarterNoteBeats = totalDenominatorBeats * (4 / denominator);
+    return beatsToSeconds(quarterNoteBeats, bpm);
   }
 
   // Plain number = bars
   const barsMatch = trimmed.match(/^(\d+)$/);
   if (barsMatch) {
     const bars = parseInt(barsMatch[1], 10);
-    const totalBeats = bars * beatsPerBar;
-    return beatsToSeconds(totalBeats, bpm);
+    // Total denominator beats, convert to quarter notes for beatsToSeconds
+    const totalDenominatorBeats = bars * beatsPerBar;
+    const quarterNoteBeats = totalDenominatorBeats * (4 / denominator);
+    return beatsToSeconds(quarterNoteBeats, bpm);
   }
 
   return null;

@@ -118,6 +118,7 @@ local function install()
         html = scriptDir .. "/reamo.html",
         regionEdit = scriptDir .. "/Reamo_RegionEdit.lua",
         markerEdit = scriptDir .. "/Reamo_MarkerEdit.lua",
+        timeSig = scriptDir .. "/Reamo_TimeSig.lua",
         startup = scriptDir .. "/Reamo_Startup.lua",
     }
 
@@ -191,6 +192,9 @@ Proceed with installation?]],
     if not ok then table.insert(errors, err) end
 
     ok, err = copyFile(sourceFiles.markerEdit, destPaths.scriptsReamo .. "/Reamo_MarkerEdit.lua")
+    if not ok then table.insert(errors, err) end
+
+    ok, err = copyFile(sourceFiles.timeSig, destPaths.scriptsReamo .. "/Reamo_TimeSig.lua")
     if not ok then table.insert(errors, err) end
 
     ok, err = copyFile(sourceFiles.startup, destPaths.scriptsReamo .. "/Reamo_Startup.lua")

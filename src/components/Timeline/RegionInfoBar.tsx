@@ -33,10 +33,13 @@ interface RegionInfoBarProps {
 /**
  * Format duration as editable string (just the number of bars)
  * UI-specific format for the editable duration field
+ * @param denominator - Time signature denominator (default: 4)
  */
-function formatDurationEditable(seconds: number, bpm: number, beatsPerBar: number = 4): string {
-  const rawBeats = secondsToBeats(seconds, bpm);
-  const totalBeats = Math.round(rawBeats * 4) / 4;
+function formatDurationEditable(seconds: number, bpm: number, beatsPerBar: number = 4, denominator: number = 4): string {
+  // BPM is in quarter notes, convert to denominator beats
+  const quarterNoteBeats = secondsToBeats(seconds, bpm);
+  const denominatorBeats = quarterNoteBeats * (denominator / 4);
+  const totalBeats = Math.round(denominatorBeats * 4) / 4;
   const bars = Math.floor(totalBeats / beatsPerBar);
   const beats = Math.round(totalBeats % beatsPerBar);
   if (bars > 0 && beats > 0) {
@@ -63,6 +66,13 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
   const bpm = useReaperStore((s) => s.bpm);
   const positionBeats = useReaperStore((s) => s.positionBeats);
   const positionSeconds = useReaperStore((s) => s.positionSeconds);
+  const timeSignature = useReaperStore((s) => s.timeSignature);
+
+  // Parse time signature numerator (beats per bar) and denominator
+  const { beatsPerBar, denominator } = (() => {
+    const [num, denom] = timeSignature.split('/').map(Number);
+    return { beatsPerBar: num || 4, denominator: denom || 4 };
+  })();
 
   const [editingField, setEditingField] = useState<EditingField>(null);
   const [editValue, setEditValue] = useState('');
@@ -125,9 +135,11 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
   const barOffset = (() => {
     if (!bpm || !positionBeats) return 0;
     const actualBar = parseReaperBar(positionBeats);
-    const rawBeats = secondsToBeats(positionSeconds, bpm);
-    const totalBeats = Math.round(rawBeats * 4) / 4;
-    const calculatedBar = Math.floor(totalBeats / 4) + 1;
+    // BPM is in quarter notes, convert to denominator beats
+    const quarterNoteBeats = secondsToBeats(positionSeconds, bpm);
+    const denominatorBeats = quarterNoteBeats * (denominator / 4);
+    const totalBeats = Math.round(denominatorBeats * 4) / 4;
+    const calculatedBar = Math.floor(totalBeats / beatsPerBar) + 1;
     return actualBar - calculatedBar;
   })();
 
@@ -149,11 +161,11 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
     if (field === 'name') {
       setEditValue(region.name);
     } else if (field === 'start') {
-      setEditValue(formatBeats(region.start, bpm!, barOffset));
+      setEditValue(formatBeats(region.start, bpm!, barOffset, beatsPerBar, denominator));
     } else if (field === 'end') {
-      setEditValue(formatBeats(region.end, bpm!, barOffset));
+      setEditValue(formatBeats(region.end, bpm!, barOffset, beatsPerBar, denominator));
     } else if (field === 'length') {
-      setEditValue(formatDurationEditable(duration, bpm!));
+      setEditValue(formatDurationEditable(duration, bpm!, beatsPerBar, denominator));
     }
   };
 
@@ -190,17 +202,17 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
       let newSeconds: number | null = null;
 
       if (editingField === 'start') {
-        newSeconds = parseBarBeatToSeconds(editValue, bpm, barOffset);
+        newSeconds = parseBarBeatToSeconds(editValue, bpm, barOffset, beatsPerBar, denominator);
         if (newSeconds !== null && newSeconds >= 0 && newSeconds < region.end) {
           resizeRegion(pendingKey, 'start', newSeconds, regions, bpm);
         }
       } else if (editingField === 'end') {
-        newSeconds = parseBarBeatToSeconds(editValue, bpm, barOffset);
+        newSeconds = parseBarBeatToSeconds(editValue, bpm, barOffset, beatsPerBar, denominator);
         if (newSeconds !== null && newSeconds > region.start) {
           resizeRegion(pendingKey, 'end', newSeconds, regions, bpm);
         }
       } else if (editingField === 'length') {
-        const newDuration = parseDurationToSeconds(editValue, bpm);
+        const newDuration = parseDurationToSeconds(editValue, bpm, beatsPerBar, denominator);
         if (newDuration !== null && newDuration > 0) {
           const newEnd = region.start + newDuration;
           resizeRegion(pendingKey, 'end', newEnd, regions, bpm);
@@ -450,7 +462,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
               {renderField(
                 'start',
                 'Start',
-                bpm ? formatBeats(region.start, bpm, barOffset) : formatTime(region.start)
+                bpm ? formatBeats(region.start, bpm, barOffset, beatsPerBar, denominator) : formatTime(region.start)
               )}
 
               <div className="w-px h-4 bg-gray-600 flex-shrink-0" />
@@ -459,7 +471,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
               {renderField(
                 'end',
                 'End',
-                bpm ? formatBeats(region.end, bpm, barOffset) : formatTime(region.end)
+                bpm ? formatBeats(region.end, bpm, barOffset, beatsPerBar, denominator) : formatTime(region.end)
               )}
 
               {/* Length - inline on larger screens */}
@@ -468,7 +480,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
                 {renderField(
                   'length',
                   'Length',
-                  bpm ? formatDuration(duration, bpm) : `${duration.toFixed(2)}s`,
+                  bpm ? formatDuration(duration, bpm, beatsPerBar, denominator) : `${duration.toFixed(2)}s`,
                   'text-purple-300 font-medium'
                 )}
               </div>
@@ -479,7 +491,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
               {renderField(
                 'length',
                 'Length',
-                bpm ? formatDuration(duration, bpm) : `${duration.toFixed(2)}s`,
+                bpm ? formatDuration(duration, bpm, beatsPerBar, denominator) : `${duration.toFixed(2)}s`,
                 'text-purple-300 font-medium'
               )}
             </div>

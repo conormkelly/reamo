@@ -16,13 +16,12 @@ const EPSILON = 0.001;
 export const snapToBeats = (seconds: number, bpm: number) => snapToGrid(seconds, bpm, 1);
 
 /**
- * Calculate minimum region length (1 bar) from BPM
+ * Calculate minimum region length (1 bar) from BPM and time signature
  */
-export function getMinRegionLength(bpm: number | null): number {
+export function getMinRegionLength(bpm: number | null, beatsPerBar: number = 4): number {
   if (!bpm || bpm <= 0) {
     return 2; // Default to 2 seconds if no BPM
   }
-  const beatsPerBar = 4; // Assuming 4/4
   return (60 / bpm) * beatsPerBar;
 }
 
@@ -35,6 +34,7 @@ export interface ResizeRippleParams {
   newTime: number;
   regions: Region[];
   bpm: number | null;
+  beatsPerBar?: number;
   pendingChanges: PendingChangesRecord;
 }
 
@@ -43,8 +43,8 @@ export interface ResizeRippleParams {
  * Returns the updated pending changes
  */
 export function calculateResizeRipple(params: ResizeRippleParams): PendingChangesRecord {
-  const { index, edge, newTime, regions, bpm, pendingChanges } = params;
-  const minLength = getMinRegionLength(bpm);
+  const { index, edge, newTime, regions, bpm, beatsPerBar = 4, pendingChanges } = params;
+  const minLength = getMinRegionLength(bpm, beatsPerBar);
   const changes = { ...pendingChanges };
   const existing = changes[index];
 
@@ -382,6 +382,7 @@ export interface CreateRippleParams {
   end: number;
   name: string;
   bpm: number | null;
+  beatsPerBar?: number;
   color: number | undefined;
   regions: Region[];
   pendingChanges: PendingChangesRecord;
@@ -401,10 +402,10 @@ export interface CreateRippleResult {
  * Returns the updated pending changes and the key for the new region
  */
 export function calculateCreateRipple(params: CreateRippleParams): CreateRippleResult {
-  const { start, bpm, color, regions, pendingChanges, nextNewRegionKey, name } = params;
+  const { start, bpm, beatsPerBar = 4, color, regions, pendingChanges, nextNewRegionKey, name } = params;
   let { end } = params;
 
-  const minLength = getMinRegionLength(bpm);
+  const minLength = getMinRegionLength(bpm, beatsPerBar);
   if (end - start < minLength) {
     end = start + minLength;
   }

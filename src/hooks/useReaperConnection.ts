@@ -83,13 +83,15 @@ export function useReaperConnection(
 
     startedRef.current = true;
 
-    // Set up default polling (TRANSPORT + BEATPOS for BPM calculation + metronome/auto-punch state)
+    // Set up default polling (TRANSPORT + BEATPOS for BPM calculation + metronome/auto-punch/count-in state)
     connectionRef.current.poll(
       commands.join(
         commands.transport(),
         commands.beatPos(),
         commands.getCommandState(40364), // Metronome state
-        commands.getCommandState(40076)  // Auto-punch state
+        commands.getCommandState(40076), // Auto-punch state
+        commands.getCommandState('_SWS_AWCOUNTRECTOG'),  // Count-in before recording
+        commands.getCommandState('_SWS_AWCOUNTPLAYTOG')  // Count-in before playback
       ),
       transportInterval
     );

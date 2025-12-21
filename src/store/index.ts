@@ -11,7 +11,7 @@ import { createRegionsSlice, type RegionsSlice } from './slices/regionsSlice';
 import { createMarkersSlice, type MarkersSlice } from './slices/markersSlice';
 import { createRegionEditSlice, type RegionEditSlice } from './slices/regionEditSlice';
 import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
-import { ActionCommands } from '../core/types';
+import { ActionCommands, SWSCommands } from '../core/types';
 
 // Combined store type
 export type ReaperStore = ConnectionSlice & TransportSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & {
@@ -99,6 +99,10 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
             get().setMetronome(cmdState.state === 1);
           } else if (cmdState.commandId === ActionCommands.AUTO_PUNCH) {
             get().setAutoPunch(cmdState.state === 1);
+          } else if (cmdState.commandId === SWSCommands.COUNT_IN_RECORD) {
+            get().setCountInRecord(cmdState.state === 1);
+          } else if (cmdState.commandId === SWSCommands.COUNT_IN_PLAYBACK) {
+            get().setCountInPlayback(cmdState.state === 1);
           }
           break;
         }

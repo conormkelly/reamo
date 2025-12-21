@@ -40,6 +40,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   const markers = useReaperStore((state) => state.markers);
   const bpm = useReaperStore((state) => state.bpm);
   const positionBeats = useReaperStore((state) => state.positionBeats);
+  const timeSignature = useReaperStore((state) => state.timeSignature);
   const storedTimeSelection = useReaperStore((state) => state.timeSelection);
   const setStoredTimeSelection = useReaperStore((state) => state.setTimeSelection);
 
@@ -67,17 +68,25 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   const insertionPoint = useReaperStore((state) => state.insertionPoint);
   const resizeEdgePosition = useReaperStore((state) => state.resizeEdgePosition);
 
+  // Parse time signature numerator (beats per bar) and denominator
+  const { beatsPerBar, denominator } = useMemo(() => {
+    const [num, denom] = timeSignature.split('/').map(Number);
+    return { beatsPerBar: num || 4, denominator: denom || 4 };
+  }, [timeSignature]);
+
   // Calculate bar offset from REAPER's actual bar numbering
   // This handles projects that don't start at bar 1 (e.g., -4.1.00)
   const barOffset = useMemo(() => {
     if (!bpm || !positionBeats || positionSeconds <= 0) return 0;
     const actualBar = parseReaperBar(positionBeats);
-    const rawBeats = secondsToBeats(positionSeconds, bpm);
-    // Round to nearest 16th note to handle floating point precision
-    const totalBeats = Math.round(rawBeats * 4) / 4;
-    const calculatedBar = Math.floor(totalBeats / 4) + 1; // Assuming 4/4
+    // BPM is in quarter notes, convert to denominator beats
+    const quarterNoteBeats = secondsToBeats(positionSeconds, bpm);
+    const denominatorBeats = quarterNoteBeats * (denominator / 4);
+    // Round to nearest 16th note equivalent
+    const totalBeats = Math.round(denominatorBeats * 4) / 4;
+    const calculatedBar = Math.floor(totalBeats / beatsPerBar) + 1;
     return actualBar - calculatedBar;
-  }, [bpm, positionBeats, positionSeconds]);
+  }, [bpm, positionBeats, positionSeconds, beatsPerBar, denominator]);
 
   // Convert stored beat-based selection to seconds for display
   // Filter out invalid 0-width selections
@@ -654,7 +663,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
             {/* Position pill showing bar position at bottom */}
             <div className="absolute bottom-1 -translate-x-1/2 z-40">
               <div className="bg-gray-900 border border-green-400 rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg">
-                {bpm ? formatBeats(insertionPoint, bpm, barOffset) : `${insertionPoint.toFixed(1)}s`}
+                {bpm ? formatBeats(insertionPoint, bpm, barOffset, beatsPerBar, denominator) : `${insertionPoint.toFixed(1)}s`}
               </div>
             </div>
           </div>
@@ -685,14 +694,14 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
                     <div className={`rounded px-2 py-0.5 text-xs font-mono whitespace-nowrap shadow-lg ${
                       delta < 0 ? 'bg-red-900/90 text-red-200 border border-red-500' : 'bg-green-900/90 text-green-200 border border-green-500'
                     }`}>
-                      {formatDelta(delta, bpm!)}
+                      {formatDelta(delta, bpm!, beatsPerBar, denominator)}
                     </div>
                   </div>
                 )}
                 {/* Position pill showing bar position at bottom */}
                 <div className="absolute bottom-1 -translate-x-1/2 z-40">
                   <div className="bg-gray-900 border border-green-400 rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg">
-                    {bpm ? formatBeats(resizeEdgePosition, bpm, barOffset) : `${resizeEdgePosition.toFixed(1)}s`}
+                    {bpm ? formatBeats(resizeEdgePosition, bpm, barOffset, beatsPerBar, denominator) : `${resizeEdgePosition.toFixed(1)}s`}
                   </div>
                 </div>
               </div>
@@ -720,6 +729,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           duration={duration}
           bpm={bpm}
           barOffset={barOffset}
+          beatsPerBar={beatsPerBar}
+          denominator={denominator}
         />
 
         {/* Preview marker during drag */}
@@ -731,6 +742,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           duration={duration}
           bpm={bpm}
           barOffset={barOffset}
+          beatsPerBar={beatsPerBar}
+          denominator={denominator}
         />
 
         {/* Empty state */}
@@ -783,6 +796,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           marker={editingMarker}
           bpm={bpm || 120}
           barOffset={barOffset}
+          beatsPerBar={beatsPerBar}
           onClose={() => setEditingMarker(null)}
           onMove={handleMarkerMove}
           onDelete={handleMarkerDelete}

@@ -146,6 +146,13 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
   const positionSeconds = useReaperStore((s) => s.positionSeconds);
   const timeSelection = useReaperStore((s) => s.timeSelection);
   const setTimeSelection = useReaperStore((s) => s.setTimeSelection);
+  const timeSignature = useReaperStore((s) => s.timeSignature);
+
+  // Parse time signature numerator (beats per bar)
+  const beatsPerBar = (() => {
+    const [num] = timeSignature.split('/').map(Number);
+    return num || 4;
+  })();
 
   // Calculate bar offset from REAPER's actual bar numbering
   const barOffset = (() => {
@@ -154,7 +161,7 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
     const actualBar = parseReaperBar(positionBeats);
     const rawBeats = secondsToBeats(positionSeconds, bpm);
     const totalBeats = Math.round(rawBeats * 4) / 4;
-    const calculatedBar = Math.floor(totalBeats / 4) + 1;
+    const calculatedBar = Math.floor(totalBeats / beatsPerBar) + 1;
     return actualBar - calculatedBar;
   })();
 
@@ -175,7 +182,6 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
       // Capture barOffset when modal opens - use this fixed value for all conversions
       capturedBarOffsetRef.current = barOffset;
       const effectiveBpm = bpm && bpm > 0 ? bpm : 120;
-      const beatsPerBar = 4;
 
       // Pre-populate with current time selection if exists
       if (timeSelection) {
@@ -214,7 +220,6 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
     prevModeRef.current = mode;
 
     const effectiveBpm = bpm && bpm > 0 ? bpm : 120;
-    const beatsPerBar = 4;
     // Use captured barOffset to ensure consistent conversions
     const offset = capturedBarOffsetRef.current;
 
@@ -287,7 +292,6 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
   };
 
   const handleApply = () => {
-    const beatsPerBar = 4;
     const effectiveBpm = bpm && bpm > 0 ? bpm : 120;
     // Use captured barOffset for consistency
     const offset = capturedBarOffsetRef.current;

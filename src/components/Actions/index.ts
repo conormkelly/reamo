@@ -21,4 +21,5 @@ export {
 
 export { ToggleButton, type ToggleButtonProps } from './ToggleButton';
 export { TapTempoButton, type TapTempoButtonProps } from './TapTempoButton';
+export { TimeSignatureButton, type TimeSignatureButtonProps } from './TimeSignatureButton';
 export { RepeatButton, type RepeatButtonProps } from './RepeatButton';

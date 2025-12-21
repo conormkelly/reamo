@@ -39,6 +39,10 @@ export interface PlayheadPreviewProps {
   bpm: number | null;
   /** Bar offset for beat formatting */
   barOffset: number;
+  /** Beats per bar from time signature */
+  beatsPerBar?: number;
+  /** Time signature denominator */
+  denominator?: number;
 }
 
 export interface MarkerDragPreviewProps {
@@ -56,6 +60,10 @@ export interface MarkerDragPreviewProps {
   bpm: number | null;
   /** Bar offset for beat formatting */
   barOffset: number;
+  /** Beats per bar from time signature */
+  beatsPerBar?: number;
+  /** Time signature denominator */
+  denominator?: number;
 }
 
 /**
@@ -115,6 +123,8 @@ export function PlayheadDragPreview({
   duration,
   bpm,
   barOffset,
+  beatsPerBar = 4,
+  denominator = 4,
 }: PlayheadPreviewProps): ReactElement | null {
   if (!isDraggingPlayhead || playheadPreviewPercent === null) return null;
 
@@ -122,7 +132,7 @@ export function PlayheadDragPreview({
   const mins = Math.floor(seconds / 60);
   const secs = (seconds % 60).toFixed(1);
   const timeStr = `${mins}:${secs.padStart(4, '0')}`;
-  const beatsStr = bpm ? formatBeats(seconds, bpm, barOffset) : '';
+  const beatsStr = bpm ? formatBeats(seconds, bpm, barOffset, beatsPerBar, denominator) : '';
 
   return (
     <div
@@ -156,6 +166,8 @@ export function MarkerDragPreview({
   duration,
   bpm,
   barOffset,
+  beatsPerBar = 4,
+  denominator = 4,
 }: MarkerDragPreviewProps): ReactElement | null {
   if (!isDraggingMarker || !draggedMarker || markerDragPreviewPercent === null) return null;
 
@@ -163,7 +175,7 @@ export function MarkerDragPreview({
   const mins = Math.floor(seconds / 60);
   const secs = (seconds % 60).toFixed(1);
   const timeStr = `${mins}:${secs.padStart(4, '0')}`;
-  const beatsStr = bpm ? formatBeats(seconds, bpm, barOffset) : '';
+  const beatsStr = bpm ? formatBeats(seconds, bpm, barOffset, beatsPerBar, denominator) : '';
 
   return (
     <div

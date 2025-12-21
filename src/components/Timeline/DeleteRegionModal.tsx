@@ -19,7 +19,7 @@ interface DeleteRegionModalProps {
 }
 
 /**
- * Convert seconds to beats
+ * Convert seconds to beats (quarter notes)
  */
 function secondsToBeats(seconds: number, bpm: number): number {
   return seconds * (bpm / 60);
@@ -27,10 +27,13 @@ function secondsToBeats(seconds: number, bpm: number): number {
 
 /**
  * Format duration in bars and beats
+ * @param denominator - Time signature denominator (default: 4)
  */
-function formatDuration(seconds: number, bpm: number, beatsPerBar: number = 4): string {
-  const rawBeats = secondsToBeats(seconds, bpm);
-  const totalBeats = Math.round(rawBeats * 4) / 4;
+function formatDuration(seconds: number, bpm: number, beatsPerBar: number = 4, denominator: number = 4): string {
+  // BPM is in quarter notes, convert to denominator beats
+  const quarterNoteBeats = secondsToBeats(seconds, bpm);
+  const denominatorBeats = quarterNoteBeats * (denominator / 4);
+  const totalBeats = Math.round(denominatorBeats * 4) / 4;
   const bars = Math.floor(totalBeats / beatsPerBar);
   const beats = Math.round(totalBeats % beatsPerBar);
   if (bars > 0 && beats > 0) {
@@ -52,6 +55,13 @@ export function DeleteRegionModal({
   const regions = useReaperStore((s) => s.regions);
   const getDisplayRegions = useReaperStore((s) => s.getDisplayRegions);
   const bpm = useReaperStore((s) => s.bpm);
+  const timeSignature = useReaperStore((s) => s.timeSignature);
+
+  // Parse time signature numerator (beats per bar) and denominator
+  const { beatsPerBar, denominator } = (() => {
+    const [num, denom] = timeSignature.split('/').map(Number);
+    return { beatsPerBar: num || 4, denominator: denom || 4 };
+  })();
 
   const [deleteMode, setDeleteMode] = useState<DeleteMode>('leave-gap');
   const modalRef = useRef<HTMLDivElement>(null);
@@ -100,7 +110,7 @@ export function DeleteRegionModal({
   if (!isOpen || !region) return null;
 
   const duration = region.end - region.start;
-  const durationText = bpm ? formatDuration(duration, bpm) : `${duration.toFixed(2)}s`;
+  const durationText = bpm ? formatDuration(duration, bpm, beatsPerBar, denominator) : `${duration.toFixed(2)}s`;
 
   return (
     <div
