@@ -8,6 +8,12 @@ import { X } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
 import { useTimeSignature, useBarOffset } from '../../hooks';
+import {
+  beatsToSeconds,
+  secondsToBeats,
+  parseBarBeatTicksToBeats,
+  formatBeatsToBarBeatTicks,
+} from '../../utils';
 import * as commands from '../../core/CommandBuilder';
 
 interface MakeSelectionModalProps {
@@ -16,79 +22,9 @@ interface MakeSelectionModalProps {
 }
 
 /**
- * Convert beats to seconds
- */
-function beatsToSeconds(beats: number, bpm: number): number {
-  return beats * (60 / bpm);
-}
-
-/**
- * Convert seconds to beats
- */
-function secondsToBeats(seconds: number, bpm: number): number {
-  return seconds * (bpm / 60);
-}
-
-/**
- * Parse bar.beat.ticks format to total beats from bar 1
- * Examples: "69" -> bar 69, "69.2" -> bar 69 beat 2, "69.1.40" -> bar 69 beat 1.4
- * Returns beats from the start of bar 1 (0-indexed internally)
- */
-function parseBarBeatTicks(input: string, beatsPerBar: number = 4): number | null {
-  const trimmed = input.trim();
-  if (!trimmed) return null;
-
-  const parts = trimmed.split('.');
-  const bar = parseInt(parts[0], 10);
-  if (isNaN(bar)) return null;
-
-  let beat = 1; // Default to beat 1
-  let tickFraction = 0;
-
-  if (parts.length >= 2 && parts[1] !== '') {
-    beat = parseInt(parts[1], 10);
-    if (isNaN(beat) || beat < 1 || beat > beatsPerBar) {
-      beat = Math.max(1, Math.min(beatsPerBar, beat || 1));
-    }
-  }
-
-  if (parts.length >= 3 && parts[2] !== '') {
-    const ticks = parseInt(parts[2], 10);
-    if (!isNaN(ticks)) {
-      tickFraction = Math.max(0, Math.min(99, ticks)) / 100;
-    }
-  }
-
-  // Calculate total beats from bar 1
-  const totalBeats = (bar - 1) * beatsPerBar + (beat - 1) + tickFraction;
-  return totalBeats;
-}
-
-/**
- * Format beats to bar.beat.ticks string
- * Handles floating point precision by rounding very small negative values to 0
- */
-function formatBarBeatTicks(totalBeats: number, beatsPerBar: number = 4): string {
-  // Handle floating point precision - round very small negatives to 0
-  const roundedBeats = Math.abs(totalBeats) < 0.001 ? 0 : totalBeats;
-  // Round to avoid floating point issues (e.g., 19.9995 → 20)
-  const snappedBeats = Math.round(roundedBeats * 100) / 100;
-
-  const bar = Math.floor(snappedBeats / beatsPerBar) + 1;
-  const beatInBar = snappedBeats - Math.floor(snappedBeats / beatsPerBar) * beatsPerBar;
-  const beat = Math.floor(beatInBar) + 1;
-  const ticks = Math.round((beatInBar % 1) * 100);
-
-  if (ticks > 0) {
-    return `${bar}.${beat}.${ticks.toString().padStart(2, '0')}`;
-  }
-  return `${bar}.${beat}`;
-}
-
-/**
  * Format seconds to time string (MM:SS.mmm or HH:MM:SS.mmm)
  */
-function formatTime(seconds: number): string {
+function formatTimeLocal(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
   const secs = seconds % 60;
@@ -102,7 +38,7 @@ function formatTime(seconds: number): string {
 /**
  * Parse time string to seconds
  */
-function parseTime(input: string): number | null {
+function parseTimeLocal(input: string): number | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
 
@@ -138,7 +74,7 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
   const timeSelection = useReaperStore((s) => s.timeSelection);
   const setTimeSelection = useReaperStore((s) => s.setTimeSelection);
 
-  const { beatsPerBar } = useTimeSignature();
+  const { beatsPerBar, denominator } = useTimeSignature();
   const barOffset = useBarOffset();
 
   const [mode, setMode] = useState<'beats' | 'time'>('beats');
@@ -165,13 +101,16 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
         const endSeconds = beatsToSeconds(timeSelection.endBeats, effectiveBpm);
 
         if (mode === 'beats') {
-          const startBeatsAdjusted = timeSelection.startBeats + capturedBarOffsetRef.current * beatsPerBar;
-          const endBeatsAdjusted = timeSelection.endBeats + capturedBarOffsetRef.current * beatsPerBar;
-          setStartValue(formatBarBeatTicks(startBeatsAdjusted, beatsPerBar));
-          setEndValue(formatBarBeatTicks(endBeatsAdjusted, beatsPerBar));
+          // Convert quarter-note beats to denominator beats, then add bar offset
+          const startDenomBeats = timeSelection.startBeats * (denominator / 4);
+          const endDenomBeats = timeSelection.endBeats * (denominator / 4);
+          const startBeatsAdjusted = startDenomBeats + capturedBarOffsetRef.current * beatsPerBar;
+          const endBeatsAdjusted = endDenomBeats + capturedBarOffsetRef.current * beatsPerBar;
+          setStartValue(formatBeatsToBarBeatTicks(startBeatsAdjusted, beatsPerBar));
+          setEndValue(formatBeatsToBarBeatTicks(endBeatsAdjusted, beatsPerBar));
         } else {
-          setStartValue(formatTime(startSeconds));
-          setEndValue(formatTime(endSeconds));
+          setStartValue(formatTimeLocal(startSeconds));
+          setEndValue(formatTimeLocal(endSeconds));
         }
       } else {
         // Default to bar 1 to bar 2
@@ -180,12 +119,12 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
           setEndValue('2.1');
         } else {
           setStartValue('0:00.000');
-          setEndValue(formatTime(beatsToSeconds(4, effectiveBpm)));
+          setEndValue(formatTimeLocal(beatsToSeconds(4, effectiveBpm)));
         }
       }
     }
     wasOpenRef.current = isOpen;
-  }, [isOpen, bpm, barOffset, timeSelection, mode]);
+  }, [isOpen, bpm, barOffset, timeSelection, mode, beatsPerBar, denominator]);
 
   // Convert values when mode changes while modal is open
   useEffect(() => {
@@ -204,47 +143,53 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
     let endSeconds: number | null = null;
 
     if (prevMode === 'beats') {
-      // Parse from bar.beat format
-      const startBeats = parseBarBeatTicks(startValue, beatsPerBar);
-      const endBeats = parseBarBeatTicks(endValue, beatsPerBar);
+      // Parse from bar.beat format (gets denominator beats)
+      const startDenomBeats = parseBarBeatTicksToBeats(startValue, beatsPerBar);
+      const endDenomBeats = parseBarBeatTicksToBeats(endValue, beatsPerBar);
 
-      if (startBeats !== null) {
-        const adjustedStartBeats = startBeats - offset * beatsPerBar;
-        startSeconds = beatsToSeconds(adjustedStartBeats, effectiveBpm);
+      if (startDenomBeats !== null) {
+        // Remove bar offset, then convert to quarter notes
+        const adjustedDenomBeats = startDenomBeats - offset * beatsPerBar;
+        const quarterNoteBeats = adjustedDenomBeats * (4 / denominator);
+        startSeconds = beatsToSeconds(quarterNoteBeats, effectiveBpm);
       }
-      if (endBeats !== null) {
-        const adjustedEndBeats = endBeats - offset * beatsPerBar;
-        endSeconds = beatsToSeconds(adjustedEndBeats, effectiveBpm);
+      if (endDenomBeats !== null) {
+        const adjustedDenomBeats = endDenomBeats - offset * beatsPerBar;
+        const quarterNoteBeats = adjustedDenomBeats * (4 / denominator);
+        endSeconds = beatsToSeconds(quarterNoteBeats, effectiveBpm);
       }
     } else {
       // Parse from time format
-      startSeconds = parseTime(startValue);
-      endSeconds = parseTime(endValue);
+      startSeconds = parseTimeLocal(startValue);
+      endSeconds = parseTimeLocal(endValue);
     }
 
     // Format to new mode
     if (mode === 'time') {
       // Convert to time format
       if (startSeconds !== null) {
-        setStartValue(formatTime(startSeconds));
+        setStartValue(formatTimeLocal(startSeconds));
       }
       if (endSeconds !== null) {
-        setEndValue(formatTime(endSeconds));
+        setEndValue(formatTimeLocal(endSeconds));
       }
     } else {
       // Convert to bar.beat format
       if (startSeconds !== null) {
-        const startBeats = secondsToBeats(startSeconds, effectiveBpm) + offset * beatsPerBar;
-        setStartValue(formatBarBeatTicks(startBeats, beatsPerBar));
+        // Convert seconds to quarter notes, then to denominator beats, then add bar offset
+        const quarterNoteBeats = secondsToBeats(startSeconds, effectiveBpm);
+        const denomBeats = quarterNoteBeats * (denominator / 4) + offset * beatsPerBar;
+        setStartValue(formatBeatsToBarBeatTicks(denomBeats, beatsPerBar));
       }
       if (endSeconds !== null) {
-        const endBeats = secondsToBeats(endSeconds, effectiveBpm) + offset * beatsPerBar;
-        setEndValue(formatBarBeatTicks(endBeats, beatsPerBar));
+        const quarterNoteBeats = secondsToBeats(endSeconds, effectiveBpm);
+        const denomBeats = quarterNoteBeats * (denominator / 4) + offset * beatsPerBar;
+        setEndValue(formatBeatsToBarBeatTicks(denomBeats, beatsPerBar));
       }
     }
 
     setError(null);
-  }, [mode, isOpen, bpm, startValue, endValue]);
+  }, [mode, isOpen, bpm, startValue, endValue, beatsPerBar, denominator]);
 
   // Close on escape key
   useEffect(() => {
@@ -276,27 +221,30 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
     let endSeconds: number;
 
     if (mode === 'beats') {
-      const startBeats = parseBarBeatTicks(startValue, beatsPerBar);
-      const endBeats = parseBarBeatTicks(endValue, beatsPerBar);
+      // Parse to get denominator beats
+      const startDenomBeats = parseBarBeatTicksToBeats(startValue, beatsPerBar);
+      const endDenomBeats = parseBarBeatTicksToBeats(endValue, beatsPerBar);
 
-      if (startBeats === null) {
+      if (startDenomBeats === null) {
         setError('Start must be a valid position (e.g., 1.1 or 5.2.50)');
         return;
       }
-      if (endBeats === null) {
+      if (endDenomBeats === null) {
         setError('End must be a valid position (e.g., 2.1 or 10.1)');
         return;
       }
 
-      // Adjust for bar offset
-      const adjustedStartBeats = startBeats - offset * beatsPerBar;
-      const adjustedEndBeats = endBeats - offset * beatsPerBar;
+      // Remove bar offset (in denominator beats), then convert to quarter notes
+      const adjustedStartDenom = startDenomBeats - offset * beatsPerBar;
+      const adjustedEndDenom = endDenomBeats - offset * beatsPerBar;
+      const startQuarterNotes = adjustedStartDenom * (4 / denominator);
+      const endQuarterNotes = adjustedEndDenom * (4 / denominator);
 
-      startSeconds = beatsToSeconds(adjustedStartBeats, effectiveBpm);
-      endSeconds = beatsToSeconds(adjustedEndBeats, effectiveBpm);
+      startSeconds = beatsToSeconds(startQuarterNotes, effectiveBpm);
+      endSeconds = beatsToSeconds(endQuarterNotes, effectiveBpm);
     } else {
-      const parsedStart = parseTime(startValue);
-      const parsedEnd = parseTime(endValue);
+      const parsedStart = parseTimeLocal(startValue);
+      const parsedEnd = parseTimeLocal(endValue);
 
       if (parsedStart === null) {
         setError('Start must be a valid time (e.g., 0:30 or 1:25.500)');

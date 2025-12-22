@@ -163,6 +163,83 @@ export function parseReaperBar(positionBeats: string): number {
 }
 
 /**
+ * Parse bar.beat.ticks format to total beats from bar 1
+ * This is a pure function for modal forms that work with beats directly.
+ *
+ * @example parseBarBeatTicksToBeats("1.1", 4) => 0 (bar 1 beat 1 = 0 beats from start)
+ * @example parseBarBeatTicksToBeats("2.1", 4) => 4 (bar 2 beat 1 = 4 beats in 4/4)
+ * @example parseBarBeatTicksToBeats("1.1.50", 4) => 0.5 (bar 1 beat 1.5)
+ * @returns total beats from bar 1, beat 1, or null if invalid
+ */
+export function parseBarBeatTicksToBeats(
+  input: string,
+  beatsPerBar: number = 4
+): number | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  const parts = trimmed.split('.');
+  const bar = parseInt(parts[0], 10);
+  if (isNaN(bar)) return null;
+
+  let beat = 1; // Default to beat 1
+  let tickFraction = 0;
+
+  if (parts.length >= 2 && parts[1] !== '') {
+    beat = parseInt(parts[1], 10);
+    if (isNaN(beat) || beat < 1 || beat > beatsPerBar) {
+      beat = Math.max(1, Math.min(beatsPerBar, beat || 1));
+    }
+  }
+
+  if (parts.length >= 3 && parts[2] !== '') {
+    const ticks = parseInt(parts[2], 10);
+    if (!isNaN(ticks)) {
+      // Ticks are 0-99 representing percentage of beat
+      tickFraction = Math.max(0, Math.min(99, ticks)) / 100;
+    }
+  }
+
+  // Calculate total beats from bar 1 (bar 1, beat 1 = 0 beats)
+  const totalBeats = (bar - 1) * beatsPerBar + (beat - 1) + tickFraction;
+  return totalBeats;
+}
+
+/**
+ * Format beats to bar.beat.ticks string
+ * This is a pure function for modal forms that work with beats directly.
+ * Handles floating point precision by rounding.
+ *
+ * @param includeBeat - If true, always include beat (e.g., "1.1"). If false, omit beat when at beat 1 (e.g., "1")
+ * @example formatBeatsToBarBeatTicks(0, 4) => "1.1" (0 beats = bar 1, beat 1)
+ * @example formatBeatsToBarBeatTicks(4, 4) => "2.1" (4 beats = bar 2 in 4/4)
+ * @example formatBeatsToBarBeatTicks(4.5, 4) => "2.2.50" (4.5 beats = bar 2, beat 2, tick 50)
+ */
+export function formatBeatsToBarBeatTicks(
+  totalBeats: number,
+  beatsPerBar: number = 4,
+  includeBeat: boolean = true
+): string {
+  // Handle floating point precision - round very small negatives to 0
+  const roundedBeats = Math.abs(totalBeats) < 0.001 ? 0 : totalBeats;
+  // Round to avoid floating point issues
+  const snappedBeats = Math.round(roundedBeats * 100) / 100;
+
+  const bar = Math.floor(snappedBeats / beatsPerBar) + 1;
+  const beatInBar = snappedBeats - Math.floor(snappedBeats / beatsPerBar) * beatsPerBar;
+  const beat = Math.floor(beatInBar) + 1;
+  const ticks = Math.round((beatInBar % 1) * 100);
+
+  if (ticks > 0) {
+    return `${bar}.${beat}.${ticks.toString().padStart(2, '0')}`;
+  }
+  if (includeBeat) {
+    return `${bar}.${beat}`;
+  }
+  return `${bar}`;
+}
+
+/**
  * Parse Bar.Beat.Ticks input to seconds
  * Uses REAPER's ticks format (0-99 representing percentage of beat)
  * @param denominator - Time signature denominator (default: 4)

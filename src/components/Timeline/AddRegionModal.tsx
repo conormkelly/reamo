@@ -6,8 +6,15 @@
 import { useState, useEffect, useRef, type ReactElement } from 'react';
 import { X, RotateCcw } from 'lucide-react';
 import { useReaperStore } from '../../store';
-import { useBarOffset } from '../../hooks';
-import { hexToReaperColor, reaperColorToHexWithFallback } from '../../utils';
+import { useBarOffset, useTimeSignature } from '../../hooks';
+import {
+  hexToReaperColor,
+  reaperColorToHexWithFallback,
+  beatsToSeconds,
+  secondsToBeats,
+  parseBarBeatTicksToBeats,
+  formatBeatsToBarBeatTicks,
+} from '../../utils';
 
 // Default region color in REAPER (shown when color = 0)
 const DEFAULT_REGION_COLOR = '#688585';
@@ -15,73 +22,6 @@ const DEFAULT_REGION_COLOR = '#688585';
 interface AddRegionModalProps {
   isOpen: boolean;
   onClose: () => void;
-}
-
-/**
- * Convert beats to seconds
- */
-function beatsToSeconds(beats: number, bpm: number): number {
-  return beats * (60 / bpm);
-}
-
-/**
- * Convert seconds to beats
- */
-function secondsToBeats(seconds: number, bpm: number): number {
-  return seconds * (bpm / 60);
-}
-
-/**
- * Parse bar.beat.ticks format to total beats from bar 1
- * Examples: "69" -> bar 69, "69.2" -> bar 69 beat 2, "69.1.40" -> bar 69 beat 1.4
- * Returns beats from the start of bar 1 (0-indexed internally)
- */
-function parseBarBeatTicks(input: string, beatsPerBar: number = 4): number | null {
-  const trimmed = input.trim();
-  if (!trimmed) return null;
-
-  const parts = trimmed.split('.');
-  const bar = parseInt(parts[0], 10);
-  if (isNaN(bar)) return null;
-
-  let beat = 1; // Default to beat 1
-  let tickFraction = 0;
-
-  if (parts.length >= 2 && parts[1] !== '') {
-    beat = parseInt(parts[1], 10);
-    if (isNaN(beat) || beat < 1 || beat > beatsPerBar) {
-      // Allow beat to be 0 for simplicity, clamp to valid range
-      beat = Math.max(1, Math.min(beatsPerBar, beat || 1));
-    }
-  }
-
-  if (parts.length >= 3 && parts[2] !== '') {
-    const ticks = parseInt(parts[2], 10);
-    if (!isNaN(ticks)) {
-      // Ticks are typically 0-99 representing percentage of beat
-      tickFraction = Math.max(0, Math.min(99, ticks)) / 100;
-    }
-  }
-
-  // Calculate total beats from bar 1
-  // Bar 1, beat 1 = 0 beats from start
-  const totalBeats = (bar - 1) * beatsPerBar + (beat - 1) + tickFraction;
-  return totalBeats;
-}
-
-/**
- * Format beats to bar.beat.ticks string
- */
-function formatBarBeatTicks(totalBeats: number, beatsPerBar: number = 4): string {
-  const bar = Math.floor(totalBeats / beatsPerBar) + 1;
-  const beatInBar = totalBeats % beatsPerBar;
-  const beat = Math.floor(beatInBar) + 1;
-  const ticks = Math.round((beatInBar % 1) * 100);
-
-  if (ticks > 0) {
-    return `${bar}.${beat}.${ticks.toString().padStart(2, '0')}`;
-  }
-  return `${bar}`;
 }
 
 export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactElement | null {
@@ -92,6 +32,7 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
   const bpm = useReaperStore((s) => s.bpm);
 
   const barOffset = useBarOffset();
+  const { beatsPerBar, denominator } = useTimeSignature();
 
   const [name, setName] = useState('New Region');
   const [selectedColor, setSelectedColor] = useState<string | null>(null); // null = REAPER default (gray)
@@ -136,11 +77,12 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
 
       // Calculate start position from defaultStartSeconds (with bar offset for projects not starting at bar 1)
       if (bpm && bpm > 0) {
-        const beatsPerBar = 4;
-        const totalBeats = secondsToBeats(defaultStartSeconds, bpm);
-        // Add bar offset (converted to beats)
-        const adjustedBeats = totalBeats + barOffset * beatsPerBar;
-        setStartBar(formatBarBeatTicks(adjustedBeats, beatsPerBar));
+        // Convert seconds to quarter notes, then to denominator beats
+        const quarterNotes = secondsToBeats(defaultStartSeconds, bpm);
+        const denomBeats = quarterNotes * (denominator / 4);
+        // Add bar offset (in denominator beats)
+        const adjustedBeats = denomBeats + barOffset * beatsPerBar;
+        setStartBar(formatBeatsToBarBeatTicks(adjustedBeats, beatsPerBar, false));
       } else {
         setStartBar('1');
       }
@@ -151,7 +93,7 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
       setError(null);
     }
     wasOpenRef.current = isOpen;
-  }, [isOpen, bpm, barOffset, regions, pendingChanges, getDisplayRegions]);
+  }, [isOpen, bpm, barOffset, beatsPerBar, denominator, regions, pendingChanges, getDisplayRegions]);
 
   // Close on escape key
   useEffect(() => {
@@ -175,12 +117,11 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
   };
 
   const handleCreate = () => {
-    const beatsPerBar = 4;
     const effectiveBpm = bpm && bpm > 0 ? bpm : 120;
 
-    // Parse start position (bar.beat.ticks format)
-    const startBeats = parseBarBeatTicks(startBar, beatsPerBar);
-    if (startBeats === null) {
+    // Parse start position (bar.beat.ticks format) - returns denominator beats
+    const startDenomBeats = parseBarBeatTicksToBeats(startBar, beatsPerBar);
+    if (startDenomBeats === null) {
       setError('Start must be a valid position (e.g., 69 or 69.2.40)');
       return;
     }
@@ -192,10 +133,14 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
     }
 
     // Calculate start and end in seconds (accounting for bar offset)
-    // startBeats is from bar 1, need to adjust by barOffset
-    const adjustedBeats = startBeats - barOffset * beatsPerBar;
-    const start = beatsToSeconds(adjustedBeats, effectiveBpm);
-    const end = start + beatsToSeconds(lengthBarsNum * beatsPerBar, effectiveBpm);
+    // Remove bar offset (in denominator beats), convert to quarter notes, then to seconds
+    const adjustedDenomBeats = startDenomBeats - barOffset * beatsPerBar;
+    const startQuarterNotes = adjustedDenomBeats * (4 / denominator);
+    const start = beatsToSeconds(startQuarterNotes, effectiveBpm);
+    // Length in bars (denominator beats), convert to quarter notes for duration
+    const lengthDenomBeats = lengthBarsNum * beatsPerBar;
+    const lengthQuarterNotes = lengthDenomBeats * (4 / denominator);
+    const end = start + beatsToSeconds(lengthQuarterNotes, effectiveBpm);
 
     // null = REAPER default (pass undefined to let REAPER assign default color)
     const color = selectedColor ? hexToReaperColor(selectedColor) : undefined;
