@@ -6,7 +6,7 @@
 import type { ReactElement } from 'react';
 import type { Marker } from '../../core/types';
 import { isMarkerMoveable } from './MarkerEditModal';
-import { reaperColorToHex } from '../../utils';
+import { reaperColorToHex, formatTime } from '../../utils';
 
 export interface TimelineMarkersProps {
   /** Markers to display */
@@ -71,6 +71,7 @@ export function TimelineMarkerLines({
               backgroundColor: color,
               opacity,
             }}
+            aria-hidden="true"
           />
         );
       })}
@@ -104,9 +105,18 @@ export function TimelineMarkerPills({
         const outlineColor = getMarkerColor(marker, timelineMode);
         const isDisabled = timelineMode === 'regions';
 
+        // Build descriptive label for screen readers
+        const positionStr = formatTime(marker.position);
+        const nameStr = marker.name ? `: ${marker.name}` : '';
+        const stateStr = !canMove ? ' (not moveable)' : '';
+        const ariaLabel = `Marker ${marker.id}${nameStr} at ${positionStr}${stateStr}`;
+
         return (
           <div
             key={`marker-pill-${marker.id}`}
+            role="button"
+            aria-label={ariaLabel}
+            aria-disabled={!canMove}
             className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center touch-none select-none transition-opacity bg-gray-800 ${
               isDisabled
                 ? 'pointer-events-none opacity-40'
