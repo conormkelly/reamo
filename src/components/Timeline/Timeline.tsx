@@ -797,6 +797,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           bpm={bpm || 120}
           barOffset={barOffset}
           beatsPerBar={beatsPerBar}
+          denominator={denominator}
           onClose={() => setEditingMarker(null)}
           onMove={handleMarkerMove}
           onDelete={handleMarkerDelete}

@@ -16,6 +16,7 @@ export interface MarkerEditModalProps {
   bpm: number;
   barOffset: number;
   beatsPerBar?: number;
+  denominator?: number;
   onClose: () => void;
   onMove: (markerId: number, newPositionSeconds: number) => void;
   onDelete: (markerPositionSeconds: number) => void;
@@ -75,18 +76,31 @@ function parseTime(timeStr: string): number | null {
 
 /**
  * Format beats as Bar.Beat with offset for REAPER project alignment
+ *
+ * @param beats - Quarter-note beats (from secondsToBeats)
+ * @param barOffset - Bar offset for project alignment
+ * @param beatsPerBar - Numerator of time signature (e.g., 6 for 6/8)
+ * @param denominator - Denominator of time signature (e.g., 8 for 6/8)
  */
-function formatBars(beats: number, barOffset: number, beatsPerBar: number = 4): string {
-  const calculatedBar = Math.floor(beats / beatsPerBar) + 1;
+function formatBars(beats: number, barOffset: number, beatsPerBar = 4, denominator = 4): string {
+  // Convert quarter-note beats to denominator-note beats
+  const denominatorBeats = beats * (denominator / 4);
+  const calculatedBar = Math.floor(denominatorBeats / beatsPerBar) + 1;
   const actualBar = calculatedBar + barOffset;
-  const beat = (beats % beatsPerBar) + 1;
+  const beat = (denominatorBeats % beatsPerBar) + 1;
   return `${actualBar}.${beat.toFixed(2)}`;
 }
 
 /**
- * Parse bar.beat string to total beats, accounting for REAPER bar offset
+ * Parse bar.beat string to total quarter-note beats, accounting for REAPER bar offset
+ *
+ * @param barStr - Input string in "Bar.Beat" format
+ * @param barOffset - Bar offset for project alignment
+ * @param beatsPerBar - Numerator of time signature (e.g., 6 for 6/8)
+ * @param denominator - Denominator of time signature (e.g., 8 for 6/8)
+ * @returns Total quarter-note beats, or null if invalid input
  */
-function parseBars(barStr: string, barOffset: number, beatsPerBar: number = 4): number | null {
+function parseBars(barStr: string, barOffset: number, beatsPerBar = 4, denominator = 4): number | null {
   const trimmed = barStr.trim();
 
   // Try Bar.Beat format (can be negative bars like -4.1)
@@ -97,9 +111,12 @@ function parseBars(barStr: string, barOffset: number, beatsPerBar: number = 4): 
     // Convert display bar to calculated bar by subtracting offset
     const calculatedBar = displayBar - barOffset - 1; // -1 because bars are 1-indexed
     if (beat >= 0) {
-      const totalBeats = calculatedBar * beatsPerBar + beat;
+      // Total beats in denominator units
+      const totalDenominatorBeats = calculatedBar * beatsPerBar + beat;
+      // Convert denominator beats to quarter-note beats
+      const quarterNoteBeats = totalDenominatorBeats * (4 / denominator);
       // Allow negative results for negative bars
-      return totalBeats >= 0 ? totalBeats : 0;
+      return quarterNoteBeats >= 0 ? quarterNoteBeats : 0;
     }
   }
 
@@ -126,6 +143,7 @@ export function MarkerEditModal({
   bpm,
   barOffset,
   beatsPerBar = 4,
+  denominator = 4,
   onClose,
   onMove,
   onDelete,
@@ -163,12 +181,12 @@ export function MarkerEditModal({
   useEffect(() => {
     setTimeValue(formatTime(marker.position, { precision: 3 }));
     const beats = secondsToBeats(marker.position, bpm);
-    setBeatsValue(formatBars(beats, barOffset, beatsPerBar));
+    setBeatsValue(formatBars(beats, barOffset, beatsPerBar, denominator));
     setNameValue(marker.name || '');
     // null = default (no custom color), otherwise use hex value
     setColorValue(marker.color ? reaperColorToHex(marker.color) : null);
     setError(null);
-  }, [marker, bpm, barOffset, beatsPerBar]);
+  }, [marker, bpm, barOffset, beatsPerBar, denominator]);
 
   const handleMove = useCallback(() => {
     if (!canMove) return;
@@ -178,7 +196,7 @@ export function MarkerEditModal({
     if (editMode === 'time') {
       newPositionSeconds = parseTime(timeValue);
     } else {
-      const beats = parseBars(beatsValue, barOffset, beatsPerBar);
+      const beats = parseBars(beatsValue, barOffset, beatsPerBar, denominator);
       if (beats !== null) {
         newPositionSeconds = beatsToSeconds(beats, bpm);
       }
@@ -191,7 +209,7 @@ export function MarkerEditModal({
 
     onMove(marker.id, newPositionSeconds);
     onClose();
-  }, [canMove, editMode, timeValue, beatsValue, bpm, barOffset, marker.id, onMove, onClose]);
+  }, [canMove, editMode, timeValue, beatsValue, bpm, barOffset, beatsPerBar, denominator, marker.id, onMove, onClose]);
 
   const handleSaveNameColor = useCallback(async () => {
     if (!canEditNameColor || !hasNameColorChanges) return;

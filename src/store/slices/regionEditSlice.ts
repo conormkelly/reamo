@@ -89,11 +89,12 @@ export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) =
   // Edit actions (always ripple mode)
   resizeRegion: (index, edge, newTime, regions, bpm) => {
     get().pushToHistory();
-    // Get beatsPerBar from time signature
+    // Get time signature from store
     const store = get() as { timeSignature?: string };
     const timeSignature = store.timeSignature ?? '4/4';
-    const [num] = timeSignature.split('/').map(Number);
+    const [num, denom] = timeSignature.split('/').map(Number);
     const beatsPerBar = num || 4;
+    const denominator = denom || 4;
 
     const changes = calculateResizeRipple({
       index,
@@ -102,6 +103,7 @@ export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) =
       regions,
       bpm,
       beatsPerBar,
+      denominator,
       pendingChanges: get().pendingChanges,
     });
     set({ pendingChanges: changes });
@@ -120,11 +122,12 @@ export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) =
 
   createRegion: (start, end, name, bpm, color, regions) => {
     get().pushToHistory();
-    // Get beatsPerBar from time signature
+    // Get time signature from store
     const store = get() as { timeSignature?: string };
     const timeSignature = store.timeSignature ?? '4/4';
-    const [num] = timeSignature.split('/').map(Number);
+    const [num, denom] = timeSignature.split('/').map(Number);
     const beatsPerBar = num || 4;
+    const denominator = denom || 4;
 
     const result = calculateCreateRipple({
       start,
@@ -132,6 +135,7 @@ export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) =
       name,
       bpm,
       beatsPerBar,
+      denominator,
       color,
       regions,
       pendingChanges: get().pendingChanges,

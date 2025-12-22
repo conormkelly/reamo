@@ -17,12 +17,21 @@ export const snapToBeats = (seconds: number, bpm: number) => snapToGrid(seconds,
 
 /**
  * Calculate minimum region length (1 bar) from BPM and time signature
+ *
+ * @param bpm - Quarter-note BPM (normalized)
+ * @param beatsPerBar - Numerator of time signature (e.g., 6 for 6/8)
+ * @param denominator - Denominator of time signature (e.g., 8 for 6/8)
+ * @returns Duration of one bar in seconds
  */
-export function getMinRegionLength(bpm: number | null, beatsPerBar: number = 4): number {
+export function getMinRegionLength(bpm: number | null, beatsPerBar = 4, denominator = 4): number {
   if (!bpm || bpm <= 0) {
     return 2; // Default to 2 seconds if no BPM
   }
-  return (60 / bpm) * beatsPerBar;
+  // Convert beatsPerBar (in denominator units) to quarter-note beats
+  // For 6/8: 6 eighth notes = 3 quarter notes
+  // For 2/2: 2 half notes = 4 quarter notes
+  const quarterNoteBeats = beatsPerBar * (4 / denominator);
+  return (60 / bpm) * quarterNoteBeats;
 }
 
 /**
@@ -35,6 +44,7 @@ export interface ResizeRippleParams {
   regions: Region[];
   bpm: number | null;
   beatsPerBar?: number;
+  denominator?: number;
   pendingChanges: PendingChangesRecord;
 }
 
@@ -43,8 +53,8 @@ export interface ResizeRippleParams {
  * Returns the updated pending changes
  */
 export function calculateResizeRipple(params: ResizeRippleParams): PendingChangesRecord {
-  const { index, edge, newTime, regions, bpm, beatsPerBar = 4, pendingChanges } = params;
-  const minLength = getMinRegionLength(bpm, beatsPerBar);
+  const { index, edge, newTime, regions, bpm, beatsPerBar = 4, denominator = 4, pendingChanges } = params;
+  const minLength = getMinRegionLength(bpm, beatsPerBar, denominator);
   const changes = { ...pendingChanges };
   const existing = changes[index];
 
@@ -383,6 +393,7 @@ export interface CreateRippleParams {
   name: string;
   bpm: number | null;
   beatsPerBar?: number;
+  denominator?: number;
   color: number | undefined;
   regions: Region[];
   pendingChanges: PendingChangesRecord;
@@ -402,10 +413,10 @@ export interface CreateRippleResult {
  * Returns the updated pending changes and the key for the new region
  */
 export function calculateCreateRipple(params: CreateRippleParams): CreateRippleResult {
-  const { start, bpm, beatsPerBar = 4, color, regions, pendingChanges, nextNewRegionKey, name } = params;
+  const { start, bpm, beatsPerBar = 4, denominator = 4, color, regions, pendingChanges, nextNewRegionKey, name } = params;
   let { end } = params;
 
-  const minLength = getMinRegionLength(bpm, beatsPerBar);
+  const minLength = getMinRegionLength(bpm, beatsPerBar, denominator);
   if (end - start < minLength) {
     end = start + minLength;
   }

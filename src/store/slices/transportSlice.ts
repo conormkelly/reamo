@@ -28,6 +28,8 @@ export interface TransportSlice {
   bpm: number | null;
   fullBeatPosition: number;
   timeSignature: string;
+  timeSignatureNumerator: number;
+  timeSignatureDenominator: number;
   timeSelection: TimeSelection | null;
 
   // Actions
@@ -60,6 +62,8 @@ export const createTransportSlice: StateCreator<TransportSlice> = (set, get) => 
   bpm: null,
   fullBeatPosition: 0,
   timeSignature: '4/4',
+  timeSignatureNumerator: 4,
+  timeSignatureDenominator: 4,
   timeSelection: null,
 
   // Actions
@@ -94,6 +98,8 @@ export const createTransportSlice: StateCreator<TransportSlice> = (set, get) => 
     set({
       fullBeatPosition: beatPos.fullBeatPosition,
       timeSignature,
+      timeSignatureNumerator: beatPos.timeSignatureNumerator,
+      timeSignatureDenominator: beatPos.timeSignatureDenominator,
       bpm: newBpm,
     });
   },

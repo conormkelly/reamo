@@ -8,3 +8,6 @@ export { useTimeSelectionSync, type UseTimeSelectionSyncReturn } from './useTime
 export { useRegionEditScriptDetection } from './useRegionEditScriptDetection';
 export { useMarkerEditScriptDetection } from './useMarkerEditScriptDetection';
 export { useCurrentMarker, type UseCurrentMarkerReturn } from './useCurrentMarker';
+export { useTimeSignature, type UseTimeSignatureReturn } from './useTimeSignature';
+export { useBarOffset } from './useBarOffset';
+export { useTimeFormatters, type UseTimeFormattersReturn } from './useTimeFormatters';
