@@ -101,13 +101,11 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
         const endSeconds = beatsToSeconds(timeSelection.endBeats, effectiveBpm);
 
         if (mode === 'beats') {
-          // Convert quarter-note beats to denominator beats, then add bar offset
+          // Convert quarter-note beats to denominator beats, barOffset handled by utility
           const startDenomBeats = timeSelection.startBeats * (denominator / 4);
           const endDenomBeats = timeSelection.endBeats * (denominator / 4);
-          const startBeatsAdjusted = startDenomBeats + capturedBarOffsetRef.current * beatsPerBar;
-          const endBeatsAdjusted = endDenomBeats + capturedBarOffsetRef.current * beatsPerBar;
-          setStartValue(formatBeatsToBarBeatTicks(startBeatsAdjusted, beatsPerBar));
-          setEndValue(formatBeatsToBarBeatTicks(endBeatsAdjusted, beatsPerBar));
+          setStartValue(formatBeatsToBarBeatTicks(startDenomBeats, beatsPerBar, true, capturedBarOffsetRef.current));
+          setEndValue(formatBeatsToBarBeatTicks(endDenomBeats, beatsPerBar, true, capturedBarOffsetRef.current));
         } else {
           setStartValue(formatTimeLocal(startSeconds));
           setEndValue(formatTimeLocal(endSeconds));
@@ -143,19 +141,17 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
     let endSeconds: number | null = null;
 
     if (prevMode === 'beats') {
-      // Parse from bar.beat format (gets denominator beats)
-      const startDenomBeats = parseBarBeatTicksToBeats(startValue, beatsPerBar);
-      const endDenomBeats = parseBarBeatTicksToBeats(endValue, beatsPerBar);
+      // Parse from bar.beat format - barOffset handled by utility
+      const startDenomBeats = parseBarBeatTicksToBeats(startValue, beatsPerBar, offset);
+      const endDenomBeats = parseBarBeatTicksToBeats(endValue, beatsPerBar, offset);
 
       if (startDenomBeats !== null) {
-        // Remove bar offset, then convert to quarter notes
-        const adjustedDenomBeats = startDenomBeats - offset * beatsPerBar;
-        const quarterNoteBeats = adjustedDenomBeats * (4 / denominator);
+        // Convert denominator beats to quarter notes
+        const quarterNoteBeats = startDenomBeats * (4 / denominator);
         startSeconds = beatsToSeconds(quarterNoteBeats, effectiveBpm);
       }
       if (endDenomBeats !== null) {
-        const adjustedDenomBeats = endDenomBeats - offset * beatsPerBar;
-        const quarterNoteBeats = adjustedDenomBeats * (4 / denominator);
+        const quarterNoteBeats = endDenomBeats * (4 / denominator);
         endSeconds = beatsToSeconds(quarterNoteBeats, effectiveBpm);
       }
     } else {
@@ -174,17 +170,17 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
         setEndValue(formatTimeLocal(endSeconds));
       }
     } else {
-      // Convert to bar.beat format
+      // Convert to bar.beat format - barOffset handled by utility
       if (startSeconds !== null) {
-        // Convert seconds to quarter notes, then to denominator beats, then add bar offset
+        // Convert seconds to quarter notes, then to denominator beats
         const quarterNoteBeats = secondsToBeats(startSeconds, effectiveBpm);
-        const denomBeats = quarterNoteBeats * (denominator / 4) + offset * beatsPerBar;
-        setStartValue(formatBeatsToBarBeatTicks(denomBeats, beatsPerBar));
+        const denomBeats = quarterNoteBeats * (denominator / 4);
+        setStartValue(formatBeatsToBarBeatTicks(denomBeats, beatsPerBar, true, offset));
       }
       if (endSeconds !== null) {
         const quarterNoteBeats = secondsToBeats(endSeconds, effectiveBpm);
-        const denomBeats = quarterNoteBeats * (denominator / 4) + offset * beatsPerBar;
-        setEndValue(formatBeatsToBarBeatTicks(denomBeats, beatsPerBar));
+        const denomBeats = quarterNoteBeats * (denominator / 4);
+        setEndValue(formatBeatsToBarBeatTicks(denomBeats, beatsPerBar, true, offset));
       }
     }
 
@@ -221,9 +217,9 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
     let endSeconds: number;
 
     if (mode === 'beats') {
-      // Parse to get denominator beats
-      const startDenomBeats = parseBarBeatTicksToBeats(startValue, beatsPerBar);
-      const endDenomBeats = parseBarBeatTicksToBeats(endValue, beatsPerBar);
+      // Parse to get denominator beats - barOffset handled by utility
+      const startDenomBeats = parseBarBeatTicksToBeats(startValue, beatsPerBar, offset);
+      const endDenomBeats = parseBarBeatTicksToBeats(endValue, beatsPerBar, offset);
 
       if (startDenomBeats === null) {
         setError('Start must be a valid position (e.g., 1.1 or 5.2.50)');
@@ -234,11 +230,9 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
         return;
       }
 
-      // Remove bar offset (in denominator beats), then convert to quarter notes
-      const adjustedStartDenom = startDenomBeats - offset * beatsPerBar;
-      const adjustedEndDenom = endDenomBeats - offset * beatsPerBar;
-      const startQuarterNotes = adjustedStartDenom * (4 / denominator);
-      const endQuarterNotes = adjustedEndDenom * (4 / denominator);
+      // Convert denominator beats to quarter notes
+      const startQuarterNotes = startDenomBeats * (4 / denominator);
+      const endQuarterNotes = endDenomBeats * (4 / denominator);
 
       startSeconds = beatsToSeconds(startQuarterNotes, effectiveBpm);
       endSeconds = beatsToSeconds(endQuarterNotes, effectiveBpm);

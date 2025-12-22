@@ -80,9 +80,8 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
         // Convert seconds to quarter notes, then to denominator beats
         const quarterNotes = secondsToBeats(defaultStartSeconds, bpm);
         const denomBeats = quarterNotes * (denominator / 4);
-        // Add bar offset (in denominator beats)
-        const adjustedBeats = denomBeats + barOffset * beatsPerBar;
-        setStartBar(formatBeatsToBarBeatTicks(adjustedBeats, beatsPerBar, false));
+        // formatBeatsToBarBeatTicks now handles bar offset internally
+        setStartBar(formatBeatsToBarBeatTicks(denomBeats, beatsPerBar, false, barOffset));
       } else {
         setStartBar('1');
       }
@@ -120,7 +119,8 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
     const effectiveBpm = bpm && bpm > 0 ? bpm : 120;
 
     // Parse start position (bar.beat.ticks format) - returns denominator beats
-    const startDenomBeats = parseBarBeatTicksToBeats(startBar, beatsPerBar);
+    // barOffset is handled by the utility - no manual adjustment needed
+    const startDenomBeats = parseBarBeatTicksToBeats(startBar, beatsPerBar, barOffset);
     if (startDenomBeats === null) {
       setError('Start must be a valid position (e.g., 69 or 69.2.40)');
       return;
@@ -132,10 +132,9 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
       return;
     }
 
-    // Calculate start and end in seconds (accounting for bar offset)
-    // Remove bar offset (in denominator beats), convert to quarter notes, then to seconds
-    const adjustedDenomBeats = startDenomBeats - barOffset * beatsPerBar;
-    const startQuarterNotes = adjustedDenomBeats * (4 / denominator);
+    // Calculate start and end in seconds
+    // barOffset already handled by parseBarBeatTicksToBeats, convert denominator beats to quarter notes
+    const startQuarterNotes = startDenomBeats * (4 / denominator);
     const start = beatsToSeconds(startQuarterNotes, effectiveBpm);
     // Length in bars (denominator beats), convert to quarter notes for duration
     const lengthDenomBeats = lengthBarsNum * beatsPerBar;

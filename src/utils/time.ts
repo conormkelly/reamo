@@ -166,21 +166,26 @@ export function parseReaperBar(positionBeats: string): number {
  * Parse bar.beat.ticks format to total beats from bar 1
  * This is a pure function for modal forms that work with beats directly.
  *
+ * @param barOffset - REAPER's bar numbering offset (projects can start at bar -4, 1, 5, etc.). Default: 0
  * @example parseBarBeatTicksToBeats("1.1", 4) => 0 (bar 1 beat 1 = 0 beats from start)
  * @example parseBarBeatTicksToBeats("2.1", 4) => 4 (bar 2 beat 1 = 4 beats in 4/4)
- * @example parseBarBeatTicksToBeats("1.1.50", 4) => 0.5 (bar 1 beat 1.5)
+ * @example parseBarBeatTicksToBeats("5.1", 4, 4) => 0 (bar 5 with offset 4 = 0 beats from start)
  * @returns total beats from bar 1, beat 1, or null if invalid
  */
 export function parseBarBeatTicksToBeats(
   input: string,
-  beatsPerBar: number = 4
+  beatsPerBar: number = 4,
+  barOffset: number = 0
 ): number | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
 
   const parts = trimmed.split('.');
-  const bar = parseInt(parts[0], 10);
-  if (isNaN(bar)) return null;
+  const displayBar = parseInt(parts[0], 10);
+  if (isNaN(displayBar)) return null;
+
+  // Remove bar offset to get the internal bar number
+  const bar = displayBar - barOffset;
 
   let beat = 1; // Default to beat 1
   let tickFraction = 0;
@@ -211,21 +216,24 @@ export function parseBarBeatTicksToBeats(
  * Handles floating point precision by rounding.
  *
  * @param includeBeat - If true, always include beat (e.g., "1.1"). If false, omit beat when at beat 1 (e.g., "1")
+ * @param barOffset - REAPER's bar numbering offset (projects can start at bar -4, 1, 5, etc.). Default: 0
  * @example formatBeatsToBarBeatTicks(0, 4) => "1.1" (0 beats = bar 1, beat 1)
  * @example formatBeatsToBarBeatTicks(4, 4) => "2.1" (4 beats = bar 2 in 4/4)
- * @example formatBeatsToBarBeatTicks(4.5, 4) => "2.2.50" (4.5 beats = bar 2, beat 2, tick 50)
+ * @example formatBeatsToBarBeatTicks(0, 4, true, 4) => "5.1" (0 beats with offset 4 = bar 5)
  */
 export function formatBeatsToBarBeatTicks(
   totalBeats: number,
   beatsPerBar: number = 4,
-  includeBeat: boolean = true
+  includeBeat: boolean = true,
+  barOffset: number = 0
 ): string {
   // Handle floating point precision - round very small negatives to 0
   const roundedBeats = Math.abs(totalBeats) < 0.001 ? 0 : totalBeats;
   // Round to avoid floating point issues
   const snappedBeats = Math.round(roundedBeats * 100) / 100;
 
-  const bar = Math.floor(snappedBeats / beatsPerBar) + 1;
+  const calculatedBar = Math.floor(snappedBeats / beatsPerBar) + 1;
+  const bar = calculatedBar + barOffset; // Apply bar offset for display
   const beatInBar = snappedBeats - Math.floor(snappedBeats / beatsPerBar) * beatsPerBar;
   const beat = Math.floor(beatInBar) + 1;
   const ticks = Math.round((beatInBar % 1) * 100);

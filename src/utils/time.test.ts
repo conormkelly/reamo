@@ -19,6 +19,8 @@ import {
   formatDelta,
   parseBarBeatToSeconds,
   parseDurationToSeconds,
+  parseBarBeatTicksToBeats,
+  formatBeatsToBarBeatTicks,
   snapToGrid,
 } from './time'
 
@@ -466,5 +468,324 @@ describe('Edge cases and precision', () => {
     expect(formatBeats(0.25, bpm, 0, 4, 4)).toBe('1.1.50')
     // 0.375 seconds = 0.75 beats = 75 ticks
     expect(formatBeats(0.375, bpm, 0, 4, 4)).toBe('1.1.75')
+  })
+})
+
+// ============ BEATS-BASED UTILITIES (for modal forms) ============
+
+describe('parseBarBeatTicksToBeats - parse bar.beat.ticks to total beats', () => {
+  describe('4/4 time signature', () => {
+    const beatsPerBar = 4
+
+    it('parses 1.1 to 0 beats (bar 1, beat 1 = start)', () => {
+      expect(parseBarBeatTicksToBeats('1.1', beatsPerBar)).toBe(0)
+    })
+
+    it('parses 1 to 0 beats (just bar number)', () => {
+      expect(parseBarBeatTicksToBeats('1', beatsPerBar)).toBe(0)
+    })
+
+    it('parses 2.1 to 4 beats (bar 2 in 4/4)', () => {
+      expect(parseBarBeatTicksToBeats('2.1', beatsPerBar)).toBe(4)
+    })
+
+    it('parses 1.2 to 1 beat', () => {
+      expect(parseBarBeatTicksToBeats('1.2', beatsPerBar)).toBe(1)
+    })
+
+    it('parses 1.3 to 2 beats', () => {
+      expect(parseBarBeatTicksToBeats('1.3', beatsPerBar)).toBe(2)
+    })
+
+    it('parses 1.4 to 3 beats', () => {
+      expect(parseBarBeatTicksToBeats('1.4', beatsPerBar)).toBe(3)
+    })
+
+    it('parses 1.2.50 to 1.5 beats (beat 2, tick 50 = half beat)', () => {
+      expect(parseBarBeatTicksToBeats('1.2.50', beatsPerBar)).toBe(1.5)
+    })
+
+    it('parses 1.1.25 to 0.25 beats', () => {
+      expect(parseBarBeatTicksToBeats('1.1.25', beatsPerBar)).toBe(0.25)
+    })
+
+    it('parses 3.2.75 correctly', () => {
+      // Bar 3, beat 2, tick 75 = (3-1)*4 + (2-1) + 0.75 = 8 + 1 + 0.75 = 9.75
+      expect(parseBarBeatTicksToBeats('3.2.75', beatsPerBar)).toBe(9.75)
+    })
+
+    it('returns null for empty input', () => {
+      expect(parseBarBeatTicksToBeats('', beatsPerBar)).toBeNull()
+    })
+
+    it('returns null for non-numeric input', () => {
+      expect(parseBarBeatTicksToBeats('abc', beatsPerBar)).toBeNull()
+    })
+
+    it('clamps beat to valid range (beat > beatsPerBar)', () => {
+      // Beat 5 in 4/4 should clamp to beat 4
+      const result = parseBarBeatTicksToBeats('1.5', beatsPerBar)
+      expect(result).toBe(3) // Clamped to beat 4 = 3 beats from start
+    })
+
+    it('clamps beat to valid range (beat < 1)', () => {
+      // Beat 0 should clamp to beat 1
+      const result = parseBarBeatTicksToBeats('1.0', beatsPerBar)
+      expect(result).toBe(0) // Clamped to beat 1 = 0 beats from start
+    })
+
+    it('clamps ticks to 0-99 range', () => {
+      // Tick 150 should clamp to 99
+      expect(parseBarBeatTicksToBeats('1.1.150', beatsPerBar)).toBe(0.99)
+      // Tick -10 should clamp to 0
+      expect(parseBarBeatTicksToBeats('1.1.-10', beatsPerBar)).toBe(0)
+    })
+  })
+
+  describe('6/8 time signature', () => {
+    const beatsPerBar = 6
+
+    it('parses 1.1 to 0 beats', () => {
+      expect(parseBarBeatTicksToBeats('1.1', beatsPerBar)).toBe(0)
+    })
+
+    it('parses 2.1 to 6 beats (1 bar in 6/8)', () => {
+      expect(parseBarBeatTicksToBeats('2.1', beatsPerBar)).toBe(6)
+    })
+
+    it('parses 1.4 to 3 beats (beat 4 in 6/8)', () => {
+      expect(parseBarBeatTicksToBeats('1.4', beatsPerBar)).toBe(3)
+    })
+
+    it('parses 1.6 to 5 beats (last beat of bar)', () => {
+      expect(parseBarBeatTicksToBeats('1.6', beatsPerBar)).toBe(5)
+    })
+
+    it('parses 2.4.50 correctly', () => {
+      // Bar 2, beat 4, tick 50 = 6 + 3 + 0.5 = 9.5
+      expect(parseBarBeatTicksToBeats('2.4.50', beatsPerBar)).toBe(9.5)
+    })
+  })
+
+  describe('3/4 time signature', () => {
+    const beatsPerBar = 3
+
+    it('parses 2.1 to 3 beats (1 bar in 3/4)', () => {
+      expect(parseBarBeatTicksToBeats('2.1', beatsPerBar)).toBe(3)
+    })
+
+    it('parses 5.3 correctly', () => {
+      // Bar 5, beat 3 = (5-1)*3 + (3-1) = 12 + 2 = 14
+      expect(parseBarBeatTicksToBeats('5.3', beatsPerBar)).toBe(14)
+    })
+  })
+})
+
+describe('formatBeatsToBarBeatTicks - format beats to bar.beat.ticks string', () => {
+  describe('4/4 time signature', () => {
+    const beatsPerBar = 4
+
+    it('formats 0 beats as 1.1 (bar 1, beat 1)', () => {
+      expect(formatBeatsToBarBeatTicks(0, beatsPerBar)).toBe('1.1')
+    })
+
+    it('formats 4 beats as 2.1 (bar 2 in 4/4)', () => {
+      expect(formatBeatsToBarBeatTicks(4, beatsPerBar)).toBe('2.1')
+    })
+
+    it('formats 1 beat as 1.2', () => {
+      expect(formatBeatsToBarBeatTicks(1, beatsPerBar)).toBe('1.2')
+    })
+
+    it('formats 2 beats as 1.3', () => {
+      expect(formatBeatsToBarBeatTicks(2, beatsPerBar)).toBe('1.3')
+    })
+
+    it('formats 3 beats as 1.4', () => {
+      expect(formatBeatsToBarBeatTicks(3, beatsPerBar)).toBe('1.4')
+    })
+
+    it('formats 4.5 beats as 2.1.50 (bar 2, beat 1, tick 50)', () => {
+      // 4.5 beats = 1 full bar (4 beats) + 0.5 beats into bar 2
+      // 0.5 beats into bar = beat 1, tick 50
+      expect(formatBeatsToBarBeatTicks(4.5, beatsPerBar)).toBe('2.1.50')
+    })
+
+    it('formats 0.25 beats as 1.1.25', () => {
+      expect(formatBeatsToBarBeatTicks(0.25, beatsPerBar)).toBe('1.1.25')
+    })
+
+    it('formats 9.75 beats as 3.2.75', () => {
+      expect(formatBeatsToBarBeatTicks(9.75, beatsPerBar)).toBe('3.2.75')
+    })
+
+    it('handles includeBeat=false (omits beat when at beat 1)', () => {
+      expect(formatBeatsToBarBeatTicks(0, beatsPerBar, false)).toBe('1')
+      expect(formatBeatsToBarBeatTicks(4, beatsPerBar, false)).toBe('2')
+    })
+
+    it('with includeBeat=false, ticks still show beat, but whole beats only show bar', () => {
+      // When there are ticks, include beat (can't omit it without losing tick context)
+      expect(formatBeatsToBarBeatTicks(0.5, beatsPerBar, false)).toBe('1.1.50')
+      // When at a whole beat, includeBeat=false means only show bar
+      // Note: This loses beat information - e.g., beat 2 of bar 1 shows as just "1"
+      expect(formatBeatsToBarBeatTicks(1, beatsPerBar, false)).toBe('1')
+    })
+  })
+
+  describe('6/8 time signature', () => {
+    const beatsPerBar = 6
+
+    it('formats 0 beats as 1.1', () => {
+      expect(formatBeatsToBarBeatTicks(0, beatsPerBar)).toBe('1.1')
+    })
+
+    it('formats 6 beats as 2.1 (1 bar in 6/8)', () => {
+      expect(formatBeatsToBarBeatTicks(6, beatsPerBar)).toBe('2.1')
+    })
+
+    it('formats 3 beats as 1.4 (beat 4 of 6)', () => {
+      expect(formatBeatsToBarBeatTicks(3, beatsPerBar)).toBe('1.4')
+    })
+
+    it('formats 9.5 beats as 2.4.50', () => {
+      expect(formatBeatsToBarBeatTicks(9.5, beatsPerBar)).toBe('2.4.50')
+    })
+  })
+
+  describe('3/4 time signature', () => {
+    const beatsPerBar = 3
+
+    it('formats 3 beats as 2.1', () => {
+      expect(formatBeatsToBarBeatTicks(3, beatsPerBar)).toBe('2.1')
+    })
+
+    it('formats 14 beats as 5.3', () => {
+      expect(formatBeatsToBarBeatTicks(14, beatsPerBar)).toBe('5.3')
+    })
+  })
+
+  describe('edge cases', () => {
+    it('handles very small negative values (floating point errors)', () => {
+      // -0.0001 should be treated as 0
+      expect(formatBeatsToBarBeatTicks(-0.0001, 4)).toBe('1.1')
+    })
+
+    it('rounds correctly near beat boundaries', () => {
+      // 0.999 should round to 1.00 = beat 2
+      expect(formatBeatsToBarBeatTicks(0.999, 4)).toBe('1.2')
+      // 0.994 should round to 0.99
+      expect(formatBeatsToBarBeatTicks(0.994, 4)).toBe('1.1.99')
+    })
+
+    it('pads ticks with leading zero', () => {
+      expect(formatBeatsToBarBeatTicks(0.05, 4)).toBe('1.1.05')
+    })
+  })
+
+  describe('round-trip consistency', () => {
+    it('parse -> format returns equivalent string', () => {
+      const testCases = ['1.1', '2.1', '1.2.50', '3.4.25', '10.3']
+      for (const input of testCases) {
+        const beats = parseBarBeatTicksToBeats(input, 4)
+        expect(beats).not.toBeNull()
+        const formatted = formatBeatsToBarBeatTicks(beats!, 4)
+        // Re-parse to compare numerically (handles "1.1" vs "1.1.00")
+        const reparsed = parseBarBeatTicksToBeats(formatted, 4)
+        expect(reparsed).toBeCloseTo(beats!, 2)
+      }
+    })
+
+    it('format -> parse returns original beats', () => {
+      const testCases = [0, 1, 4, 4.5, 9.75, 100]
+      for (const beats of testCases) {
+        const formatted = formatBeatsToBarBeatTicks(beats, 4)
+        const parsed = parseBarBeatTicksToBeats(formatted, 4)
+        expect(parsed).toBeCloseTo(beats, 2)
+      }
+    })
+  })
+
+  describe('barOffset support', () => {
+    const beatsPerBar = 4
+
+    describe('formatBeatsToBarBeatTicks with barOffset', () => {
+      it('formats 0 beats with offset 4 as 5.1 (project starts at bar 5)', () => {
+        expect(formatBeatsToBarBeatTicks(0, beatsPerBar, true, 4)).toBe('5.1')
+      })
+
+      it('formats 4 beats with offset 4 as 6.1', () => {
+        expect(formatBeatsToBarBeatTicks(4, beatsPerBar, true, 4)).toBe('6.1')
+      })
+
+      it('formats 0 beats with negative offset as negative bar', () => {
+        // Project starts at bar -4, offset = -5
+        expect(formatBeatsToBarBeatTicks(0, beatsPerBar, true, -5)).toBe('-4.1')
+      })
+
+      it('formats with offset 0 same as without offset (backward compatible)', () => {
+        expect(formatBeatsToBarBeatTicks(8, beatsPerBar, true, 0)).toBe('3.1')
+        expect(formatBeatsToBarBeatTicks(8, beatsPerBar)).toBe('3.1')
+      })
+
+      it('formats with ticks and offset correctly', () => {
+        expect(formatBeatsToBarBeatTicks(0.5, beatsPerBar, true, 4)).toBe('5.1.50')
+      })
+    })
+
+    describe('parseBarBeatTicksToBeats with barOffset', () => {
+      it('parses 5.1 with offset 4 as 0 beats (bar 5 = start)', () => {
+        expect(parseBarBeatTicksToBeats('5.1', beatsPerBar, 4)).toBe(0)
+      })
+
+      it('parses 6.1 with offset 4 as 4 beats', () => {
+        expect(parseBarBeatTicksToBeats('6.1', beatsPerBar, 4)).toBe(4)
+      })
+
+      it('parses -4.1 with offset -5 as 0 beats', () => {
+        expect(parseBarBeatTicksToBeats('-4.1', beatsPerBar, -5)).toBe(0)
+      })
+
+      it('parses with offset 0 same as without offset (backward compatible)', () => {
+        expect(parseBarBeatTicksToBeats('3.1', beatsPerBar, 0)).toBe(8)
+        expect(parseBarBeatTicksToBeats('3.1', beatsPerBar)).toBe(8)
+      })
+
+      it('parses with ticks and offset correctly', () => {
+        expect(parseBarBeatTicksToBeats('5.1.50', beatsPerBar, 4)).toBe(0.5)
+      })
+    })
+
+    describe('round-trip with barOffset', () => {
+      it('format -> parse returns original beats with offset', () => {
+        const offset = 4
+        const testCases = [0, 1, 4, 4.5, 9.75]
+        for (const beats of testCases) {
+          const formatted = formatBeatsToBarBeatTicks(beats, beatsPerBar, true, offset)
+          const parsed = parseBarBeatTicksToBeats(formatted, beatsPerBar, offset)
+          expect(parsed).toBeCloseTo(beats, 2)
+        }
+      })
+
+      it('works with negative offset', () => {
+        const offset = -5
+        const testCases = [0, 4, 8.5]
+        for (const beats of testCases) {
+          const formatted = formatBeatsToBarBeatTicks(beats, beatsPerBar, true, offset)
+          const parsed = parseBarBeatTicksToBeats(formatted, beatsPerBar, offset)
+          expect(parsed).toBeCloseTo(beats, 2)
+        }
+      })
+
+      it('works with 6/8 time and offset', () => {
+        const beatsPerBar6 = 6
+        const offset = 3
+        const beats = 12 // 2 bars in 6/8
+        const formatted = formatBeatsToBarBeatTicks(beats, beatsPerBar6, true, offset)
+        expect(formatted).toBe('6.1') // bar 3 + offset 3 = bar 6
+        const parsed = parseBarBeatTicksToBeats(formatted, beatsPerBar6, offset)
+        expect(parsed).toBe(12)
+      })
+    })
   })
 })

@@ -6,7 +6,16 @@
 import { useState, useCallback, useEffect, type ReactElement } from 'react';
 import { X, Trash2, ListOrdered, Move, Save, RotateCcw } from 'lucide-react';
 import type { Marker } from '../../core/types';
-import { formatTime, secondsToBeats, beatsToSeconds, reaperColorToHex, hexToReaperColor, reaperColorToHexWithFallback } from '../../utils';
+import {
+  formatTime,
+  secondsToBeats,
+  beatsToSeconds,
+  reaperColorToHex,
+  hexToReaperColor,
+  reaperColorToHexWithFallback,
+  formatBeatsToBarBeatTicks,
+  parseBarBeatTicksToBeats,
+} from '../../utils';
 import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
 import * as commands from '../../core/CommandBuilder';
@@ -75,52 +84,25 @@ function parseTime(timeStr: string): number | null {
 }
 
 /**
- * Format beats as Bar.Beat with offset for REAPER project alignment
- *
- * @param beats - Quarter-note beats (from secondsToBeats)
- * @param barOffset - Bar offset for project alignment
- * @param beatsPerBar - Numerator of time signature (e.g., 6 for 6/8)
- * @param denominator - Denominator of time signature (e.g., 8 for 6/8)
+ * Format quarter-note beats as Bar.Beat.Ticks with offset for REAPER project alignment
+ * Uses centralized utility with denominator conversion
  */
-function formatBars(beats: number, barOffset: number, beatsPerBar = 4, denominator = 4): string {
-  // Convert quarter-note beats to denominator-note beats
-  const denominatorBeats = beats * (denominator / 4);
-  const calculatedBar = Math.floor(denominatorBeats / beatsPerBar) + 1;
-  const actualBar = calculatedBar + barOffset;
-  const beat = (denominatorBeats % beatsPerBar) + 1;
-  return `${actualBar}.${beat.toFixed(2)}`;
+function formatBars(quarterNoteBeats: number, barOffset: number, beatsPerBar = 4, denominator = 4): string {
+  // Convert quarter-note beats to denominator beats (e.g., 6/8 uses eighth notes)
+  const denominatorBeats = quarterNoteBeats * (denominator / 4);
+  return formatBeatsToBarBeatTicks(denominatorBeats, beatsPerBar, true, barOffset);
 }
 
 /**
- * Parse bar.beat string to total quarter-note beats, accounting for REAPER bar offset
- *
- * @param barStr - Input string in "Bar.Beat" format
- * @param barOffset - Bar offset for project alignment
- * @param beatsPerBar - Numerator of time signature (e.g., 6 for 6/8)
- * @param denominator - Denominator of time signature (e.g., 8 for 6/8)
- * @returns Total quarter-note beats, or null if invalid input
+ * Parse bar.beat.ticks string to quarter-note beats, accounting for REAPER bar offset
+ * Uses centralized utility with denominator conversion
  */
 function parseBars(barStr: string, barOffset: number, beatsPerBar = 4, denominator = 4): number | null {
-  const trimmed = barStr.trim();
-
-  // Try Bar.Beat format (can be negative bars like -4.1)
-  const match = trimmed.match(/^(-?\d+)(?:\.(\d+(?:\.\d*)?))?$/);
-  if (match) {
-    const displayBar = parseInt(match[1], 10);
-    const beat = match[2] ? parseFloat(match[2]) - 1 : 0; // Beats are 1-indexed
-    // Convert display bar to calculated bar by subtracting offset
-    const calculatedBar = displayBar - barOffset - 1; // -1 because bars are 1-indexed
-    if (beat >= 0) {
-      // Total beats in denominator units
-      const totalDenominatorBeats = calculatedBar * beatsPerBar + beat;
-      // Convert denominator beats to quarter-note beats
-      const quarterNoteBeats = totalDenominatorBeats * (4 / denominator);
-      // Allow negative results for negative bars
-      return quarterNoteBeats >= 0 ? quarterNoteBeats : 0;
-    }
-  }
-
-  return null;
+  const denominatorBeats = parseBarBeatTicksToBeats(barStr, beatsPerBar, barOffset);
+  if (denominatorBeats === null) return null;
+  // Convert denominator beats to quarter-note beats
+  const quarterNoteBeats = denominatorBeats * (4 / denominator);
+  return quarterNoteBeats >= 0 ? quarterNoteBeats : 0;
 }
 
 // Default marker color in REAPER (shown when color = 0)
