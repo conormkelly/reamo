@@ -83,28 +83,6 @@ function parseTime(timeStr: string): number | null {
   return null;
 }
 
-/**
- * Format quarter-note beats as Bar.Beat.Ticks with offset for REAPER project alignment
- * Uses centralized utility with denominator conversion
- */
-function formatBars(quarterNoteBeats: number, barOffset: number, beatsPerBar = 4, denominator = 4): string {
-  // Convert quarter-note beats to denominator beats (e.g., 6/8 uses eighth notes)
-  const denominatorBeats = quarterNoteBeats * (denominator / 4);
-  return formatBeatsToBarBeatTicks(denominatorBeats, beatsPerBar, true, barOffset);
-}
-
-/**
- * Parse bar.beat.ticks string to quarter-note beats, accounting for REAPER bar offset
- * Uses centralized utility with denominator conversion
- */
-function parseBars(barStr: string, barOffset: number, beatsPerBar = 4, denominator = 4): number | null {
-  const denominatorBeats = parseBarBeatTicksToBeats(barStr, beatsPerBar, barOffset);
-  if (denominatorBeats === null) return null;
-  // Convert denominator beats to quarter-note beats
-  const quarterNoteBeats = denominatorBeats * (4 / denominator);
-  return quarterNoteBeats >= 0 ? quarterNoteBeats : 0;
-}
-
 // Default marker color in REAPER (shown when color = 0)
 const DEFAULT_MARKER_COLOR = '#dc2626';
 
@@ -162,8 +140,10 @@ export function MarkerEditModal({
   // Initialize values from marker
   useEffect(() => {
     setTimeValue(formatTime(marker.position, { precision: 3 }));
-    const beats = secondsToBeats(marker.position, bpm);
-    setBeatsValue(formatBars(beats, barOffset, beatsPerBar, denominator));
+    const quarterNoteBeats = secondsToBeats(marker.position, bpm);
+    // Convert quarter-note beats to denominator beats for display
+    const denominatorBeats = quarterNoteBeats * (denominator / 4);
+    setBeatsValue(formatBeatsToBarBeatTicks(denominatorBeats, beatsPerBar, true, barOffset));
     setNameValue(marker.name || '');
     // null = default (no custom color), otherwise use hex value
     setColorValue(marker.color ? reaperColorToHex(marker.color) : null);
@@ -178,8 +158,11 @@ export function MarkerEditModal({
     if (editMode === 'time') {
       newPositionSeconds = parseTime(timeValue);
     } else {
-      const beats = parseBars(beatsValue, barOffset, beatsPerBar, denominator);
-      if (beats !== null) {
+      // Parse bar.beat string and convert to quarter-note beats
+      const denominatorBeats = parseBarBeatTicksToBeats(beatsValue, beatsPerBar, barOffset);
+      if (denominatorBeats !== null) {
+        const quarterNoteBeats = denominatorBeats * (4 / denominator);
+        const beats = quarterNoteBeats >= 0 ? quarterNoteBeats : 0;
         newPositionSeconds = beatsToSeconds(beats, bpm);
       }
     }
