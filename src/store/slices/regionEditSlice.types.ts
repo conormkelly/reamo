@@ -4,6 +4,18 @@
 
 import type { Region } from '../../core/types';
 
+/**
+ * Properties from other slices that RegionEditSlice needs access to.
+ * Used to properly type the StateCreator so get() returns the correct type.
+ */
+export interface RegionEditSharedState {
+  positionSeconds: number;
+  regions: Region[];
+  bpm: number | null;
+  timeSignatureNumerator: number;
+  timeSignatureDenominator: number;
+}
+
 /** Timeline mode: navigate (existing behavior) or regions (editing) */
 export type TimelineMode = 'navigate' | 'regions';
 

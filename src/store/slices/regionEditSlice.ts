@@ -9,9 +9,9 @@ import type { Region } from '../../core/types';
 
 // Re-export types for consumers
 export type { TimelineMode, DragType, PendingRegionChange, RegionEditSlice, DisplayRegion } from './regionEditSlice.types';
-export type { DeleteMode, PendingChangesRecord, RegionEditHistorySnapshot } from './regionEditSlice.types';
+export type { DeleteMode, PendingChangesRecord, RegionEditHistorySnapshot, RegionEditSharedState } from './regionEditSlice.types';
 
-import type { RegionEditSlice } from './regionEditSlice.types';
+import type { RegionEditSlice, RegionEditSharedState } from './regionEditSlice.types';
 import {
   calculateResizeRipple,
   calculateMoveRipple,
@@ -20,7 +20,10 @@ import {
   calculateDragPreview,
 } from './regionEdit';
 
-export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) => ({
+/** Combined store type for proper typing of get() - includes shared state from other slices */
+type RegionEditStore = RegionEditSharedState & RegionEditSlice;
+
+export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], RegionEditSlice> = (set, get) => ({
   // Initial state
   timelineMode: 'navigate',
   selectedRegionIndices: [],
@@ -50,14 +53,11 @@ export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) =
     // When entering regions mode, auto-select the region at current playhead position
     let autoSelectedIndex: number[] = [];
     if (mode === 'regions') {
-      // Access the full store to get position and regions
-      const store = get() as { positionSeconds?: number; regions?: Region[] };
-      const position = store.positionSeconds ?? 0;
-      const regions = store.regions ?? [];
+      const { positionSeconds, regions } = get();
 
       // Find region containing the playhead (start <= position < end)
       const regionIndex = regions.findIndex(
-        (r) => r.start <= position && position < r.end
+        (r) => r.start <= positionSeconds && positionSeconds < r.end
       );
       if (regionIndex !== -1) {
         autoSelectedIndex = [regionIndex];
@@ -89,12 +89,7 @@ export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) =
   // Edit actions (always ripple mode)
   resizeRegion: (index, edge, newTime, regions, bpm) => {
     get().pushToHistory();
-    // Get time signature from store
-    const store = get() as { timeSignature?: string };
-    const timeSignature = store.timeSignature ?? '4/4';
-    const [num, denom] = timeSignature.split('/').map(Number);
-    const beatsPerBar = num || 4;
-    const denominator = denom || 4;
+    const { timeSignatureNumerator, timeSignatureDenominator } = get();
 
     const changes = calculateResizeRipple({
       index,
@@ -102,8 +97,8 @@ export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) =
       newTime,
       regions,
       bpm,
-      beatsPerBar,
-      denominator,
+      beatsPerBar: timeSignatureNumerator,
+      denominator: timeSignatureDenominator,
       pendingChanges: get().pendingChanges,
     });
     set({ pendingChanges: changes });
@@ -122,20 +117,15 @@ export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) =
 
   createRegion: (start, end, name, bpm, color, regions) => {
     get().pushToHistory();
-    // Get time signature from store
-    const store = get() as { timeSignature?: string };
-    const timeSignature = store.timeSignature ?? '4/4';
-    const [num, denom] = timeSignature.split('/').map(Number);
-    const beatsPerBar = num || 4;
-    const denominator = denom || 4;
+    const { timeSignatureNumerator, timeSignatureDenominator } = get();
 
     const result = calculateCreateRipple({
       start,
       end,
       name,
       bpm,
-      beatsPerBar,
-      denominator,
+      beatsPerBar: timeSignatureNumerator,
+      denominator: timeSignatureDenominator,
       color,
       regions,
       pendingChanges: get().pendingChanges,
@@ -365,8 +355,9 @@ export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) =
 
   getDisplayRegions: (regions) => {
     const pending = get().pendingChanges;
-    type DisplayRegion = Region & { _pendingKey: number; _isNew?: boolean };
-    const result: DisplayRegion[] = [];
+    // DisplayRegion type is imported from regionEditSlice.types
+    type LocalDisplayRegion = Region & { _pendingKey: number; _isNew?: boolean };
+    const result: LocalDisplayRegion[] = [];
 
     // Add modified existing regions
     for (let i = 0; i < regions.length; i++) {
@@ -440,7 +431,7 @@ export const createRegionEditSlice: StateCreator<RegionEditSlice> = (set, get) =
       dragRegionIndex,
       dragStartTime,
       dragCurrentTime,
-      bpm: (get() as { bpm?: number | null }).bpm,
+      bpm: get().bpm,
     });
 
     set({
