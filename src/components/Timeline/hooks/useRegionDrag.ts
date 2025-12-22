@@ -7,7 +7,7 @@
  * original position. This matches the behavior of usePlayheadDrag and useMarkerDrag.
  */
 
-import { useState, useRef, useCallback, type RefObject } from 'react';
+import { useState, useRef, useCallback, useEffect, type RefObject } from 'react';
 import type { Region } from '../../../core/types';
 import type { DragType } from '../../../store';
 import { snapToGrid } from '../../../utils';
@@ -60,7 +60,6 @@ export interface UseRegionDragOptions {
   cancelDrag: () => void;
   resizeRegion: (index: number, edge: 'start' | 'end', newTime: number, regions: Region[], bpm: number | null) => void;
   moveRegion: (indices: number[], delta: number, regions: Region[]) => void;
-  getDisplayRegions: (regions: Region[]) => Region[];
 
   // Callbacks
   onEditRegion?: (region: Region, index: number) => void;
@@ -106,7 +105,6 @@ export function useRegionDrag({
   cancelDrag,
   resizeRegion,
   moveRegion,
-  getDisplayRegions,
   onEditRegion,
 }: UseRegionDragOptions): UseRegionDragResult {
   // Local state for vertical-cancel
@@ -118,6 +116,15 @@ export function useRegionDrag({
 
   // Long-press timer for edit modal
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup hold timer on unmount to prevent state updates after unmount
+  useEffect(() => {
+    return () => {
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+      }
+    };
+  }, []);
 
   // Find region index at position
   const findRegionIndexAtPosition = useCallback(
@@ -381,26 +388,9 @@ export function useRegionDrag({
                 return r._pendingKey ?? displayIdx;
               });
 
-              // Move region(s)
+              // Move region(s) - selection is cleared since display indices may change after reordering
               moveRegion(regionIndicesToMove, delta, regions);
-
-              // After move, find new display indices and update selection
-              setTimeout(() => {
-                const updatedDisplayRegions = getDisplayRegions(regions);
-                const newDisplayIndices = regionIndicesToMove
-                  .map(regIdx => {
-                    return updatedDisplayRegions.findIndex(
-                      r => (r as { _pendingKey?: number })._pendingKey === regIdx
-                    );
-                  })
-                  .filter(idx => idx !== -1);
-
-                // Update selection to the new display indices
-                if (newDisplayIndices.length > 0) {
-                  clearSelection();
-                  newDisplayIndices.forEach(idx => selectRegion(idx));
-                }
-              }, 0);
+              clearSelection();
             }
           }
         } else {
@@ -428,9 +418,7 @@ export function useRegionDrag({
       bpm,
       resizeRegion,
       moveRegion,
-      getDisplayRegions,
       clearSelection,
-      selectRegion,
       deselectRegion,
       endDrag,
     ]

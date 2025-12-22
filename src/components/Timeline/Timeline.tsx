@@ -221,7 +221,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     cancelDrag,
     resizeRegion,
     moveRegion,
-    getDisplayRegions,
     onEditRegion: (region, index) => setEditingRegion({ region, index }),
   });
 
