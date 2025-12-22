@@ -3,7 +3,7 @@
  * Vertical volume fader with drag support and double-tap to reset
  */
 
-import { useState, useCallback, useRef, type ReactElement } from 'react';
+import { useState, useCallback, useRef, useEffect, type ReactElement } from 'react';
 import { useReaper } from '../ReaperProvider';
 import { useTrack } from '../../hooks/useTrack';
 
@@ -29,6 +29,16 @@ export function Fader({
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const lastTapRef = useRef<number>(0);
+  const cleanupRef = useRef<(() => void) | null>(null);
+
+  // Cleanup event listeners on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (cleanupRef.current) {
+        cleanupRef.current();
+      }
+    };
+  }, []);
 
   // Handle double-tap to reset to unity - use setVolume directly to avoid fader curve round-trip
   const handleDoubleTap = useCallback(() => {
@@ -81,12 +91,16 @@ export function Fader({
         document.removeEventListener('mouseup', handleUp);
         document.removeEventListener('touchmove', handleMove);
         document.removeEventListener('touchend', handleUp);
+        cleanupRef.current = null;
       };
 
       document.addEventListener('mousemove', handleMove);
       document.addEventListener('mouseup', handleUp);
       document.addEventListener('touchmove', handleMove, { passive: false });
       document.addEventListener('touchend', handleUp);
+
+      // Store cleanup function for unmount
+      cleanupRef.current = handleUp;
     },
     [send, setFaderPosition, handleDoubleTap]
   );
