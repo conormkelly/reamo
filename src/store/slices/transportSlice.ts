@@ -27,7 +27,6 @@ export interface TransportSlice {
   metronomeVolume: number;
   bpm: number | null;
   fullBeatPosition: number;
-  timeSignature: string;
   timeSignatureNumerator: number;
   timeSignatureDenominator: number;
   timeSelection: TimeSelection | null;
@@ -61,7 +60,6 @@ export const createTransportSlice: StateCreator<TransportSlice> = (set, get) => 
   metronomeVolume: 0.25, // Default ~-12dB
   bpm: null,
   fullBeatPosition: 0,
-  timeSignature: '4/4',
   timeSignatureNumerator: 4,
   timeSignatureDenominator: 4,
   timeSelection: null,
@@ -77,8 +75,6 @@ export const createTransportSlice: StateCreator<TransportSlice> = (set, get) => 
     }),
 
   updateBeatPosition: (beatPos) => {
-    const timeSignature = `${beatPos.timeSignatureNumerator}/${beatPos.timeSignatureDenominator}`;
-
     // Calculate BPM from beat position if we have a valid position
     // REAPER's fullBeatPosition counts in denominator beats (eighths for X/8, quarters for X/4)
     // We normalize to quarter-note BPM for consistent display
@@ -97,7 +93,6 @@ export const createTransportSlice: StateCreator<TransportSlice> = (set, get) => 
 
     set({
       fullBeatPosition: beatPos.fullBeatPosition,
-      timeSignature,
       timeSignatureNumerator: beatPos.timeSignatureNumerator,
       timeSignatureDenominator: beatPos.timeSignatureDenominator,
       bpm: newBpm,

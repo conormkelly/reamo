@@ -222,13 +222,15 @@ test.describe('Region bar position calculations (store verification)', () => {
 
       return {
         bpm: Math.round(store.getState().bpm),
-        timeSignature: store.getState().timeSignature,
+        timeSignatureNumerator: store.getState().timeSignatureNumerator,
+        timeSignatureDenominator: store.getState().timeSignatureDenominator,
       }
     })
 
     // Verify BPM is normalized to 90 (not 180)
     expect(result.bpm).toBe(90)
-    expect(result.timeSignature).toBe('6/8')
+    expect(result.timeSignatureNumerator).toBe(6)
+    expect(result.timeSignatureDenominator).toBe(8)
   })
 
   test('4/4: Store correctly computes BPM', async ({ page }) => {
@@ -255,12 +257,14 @@ test.describe('Region bar position calculations (store verification)', () => {
 
       return {
         bpm: Math.round(store.getState().bpm),
-        timeSignature: store.getState().timeSignature,
+        timeSignatureNumerator: store.getState().timeSignatureNumerator,
+        timeSignatureDenominator: store.getState().timeSignatureDenominator,
       }
     })
 
     expect(result.bpm).toBe(120)
-    expect(result.timeSignature).toBe('4/4')
+    expect(result.timeSignatureNumerator).toBe(4)
+    expect(result.timeSignatureDenominator).toBe(4)
   })
 
   test('3/4: Store correctly computes BPM', async ({ page }) => {
@@ -287,11 +291,13 @@ test.describe('Region bar position calculations (store verification)', () => {
 
       return {
         bpm: Math.round(store.getState().bpm),
-        timeSignature: store.getState().timeSignature,
+        timeSignatureNumerator: store.getState().timeSignatureNumerator,
+        timeSignatureDenominator: store.getState().timeSignatureDenominator,
       }
     })
 
     expect(result.bpm).toBe(180)
-    expect(result.timeSignature).toBe('3/4')
+    expect(result.timeSignatureNumerator).toBe(3)
+    expect(result.timeSignatureDenominator).toBe(4)
   })
 })

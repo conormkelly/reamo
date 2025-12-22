@@ -7,6 +7,7 @@ import { useState, useEffect, useRef, type ReactElement } from 'react';
 import { X } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
+import { useTimeSignature, useBarOffset } from '../../hooks';
 import * as commands from '../../core/CommandBuilder';
 
 interface MakeSelectionModalProps {
@@ -26,14 +27,6 @@ function beatsToSeconds(beats: number, bpm: number): number {
  */
 function secondsToBeats(seconds: number, bpm: number): number {
   return seconds * (bpm / 60);
-}
-
-/**
- * Parse REAPER's bar.beat string to get the bar number
- */
-function parseReaperBar(positionBeats: string): number {
-  const parts = positionBeats.split('.');
-  return parseInt(parts[0], 10);
 }
 
 /**
@@ -142,28 +135,11 @@ function parseTime(input: string): number | null {
 export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps): ReactElement | null {
   const { send } = useReaper();
   const bpm = useReaperStore((s) => s.bpm);
-  const positionBeats = useReaperStore((s) => s.positionBeats);
-  const positionSeconds = useReaperStore((s) => s.positionSeconds);
   const timeSelection = useReaperStore((s) => s.timeSelection);
   const setTimeSelection = useReaperStore((s) => s.setTimeSelection);
-  const timeSignature = useReaperStore((s) => s.timeSignature);
 
-  // Parse time signature numerator (beats per bar)
-  const beatsPerBar = (() => {
-    const [num] = timeSignature.split('/').map(Number);
-    return num || 4;
-  })();
-
-  // Calculate bar offset from REAPER's actual bar numbering
-  const barOffset = (() => {
-    if (!bpm || !positionBeats) return 0;
-    if (positionSeconds < 0) return 0;
-    const actualBar = parseReaperBar(positionBeats);
-    const rawBeats = secondsToBeats(positionSeconds, bpm);
-    const totalBeats = Math.round(rawBeats * 4) / 4;
-    const calculatedBar = Math.floor(totalBeats / beatsPerBar) + 1;
-    return actualBar - calculatedBar;
-  })();
+  const { beatsPerBar } = useTimeSignature();
+  const barOffset = useBarOffset();
 
   const [mode, setMode] = useState<'beats' | 'time'>('beats');
   const [startValue, setStartValue] = useState('1.1');

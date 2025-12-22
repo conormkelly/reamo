@@ -60,8 +60,8 @@ export function formatTime(seconds: number, options?: FormatTimeOptions): string
 }
 
 /**
- * Format seconds as Bar.Beat.Sub (e.g., "5.2.00")
- * Rounds to nearest 16th note to handle floating point precision
+ * Format seconds as Bar.Beat.Ticks (e.g., "5.2.50")
+ * Uses REAPER's ticks format (0-99 representing percentage of beat)
  *
  * @param seconds - Time in seconds (always >= 0)
  * @param bpm - Beats per minute (quarter-note BPM, normalized)
@@ -79,13 +79,13 @@ export function formatBeats(
   // BPM is in quarter notes, convert to denominator beats for bar calculation
   const quarterNoteBeats = secondsToBeats(seconds, bpm);
   const denominatorBeats = quarterNoteBeats * (denominator / 4);
-  // Round to nearest 16th note equivalent
-  const totalBeats = Math.round(denominatorBeats * 4) / 4;
+  // Round to nearest tick (1/100 of a beat)
+  const totalBeats = Math.round(denominatorBeats * 100) / 100;
   const calculatedBar = Math.floor(totalBeats / beatsPerBar) + 1;
   const actualBar = calculatedBar + barOffset;
   const beat = Math.floor(totalBeats % beatsPerBar) + 1; // 1-based like REAPER
-  const sub = Math.round((totalBeats % 1) * 4); // 0-based like REAPER (0-3 for 16th notes)
-  return `${actualBar}.${beat}.${sub.toString().padStart(2, '0')}`;
+  const ticks = Math.round((totalBeats % 1) * 100); // 0-99 ticks like REAPER
+  return `${actualBar}.${beat}.${ticks.toString().padStart(2, '0')}`;
 }
 
 /**
@@ -163,7 +163,8 @@ export function parseReaperBar(positionBeats: string): number {
 }
 
 /**
- * Parse Bar.Beat.Sub input to seconds
+ * Parse Bar.Beat.Ticks input to seconds
+ * Uses REAPER's ticks format (0-99 representing percentage of beat)
  * @param denominator - Time signature denominator (default: 4)
  * @returns seconds or null if invalid input
  */
@@ -179,15 +180,15 @@ export function parseBarBeatToSeconds(
 
   const bar = parseInt(parts[0], 10);
   const beat = parseInt(parts[1], 10);
-  const sub = parts.length > 2 ? parseInt(parts[2], 10) : 0;
+  const ticks = parts.length > 2 ? parseInt(parts[2], 10) : 0;
 
-  if (isNaN(bar) || isNaN(beat) || isNaN(sub)) return null;
+  if (isNaN(bar) || isNaN(beat) || isNaN(ticks)) return null;
   if (beat < 1 || beat > beatsPerBar) return null;
-  if (sub < 0 || sub > 3) return null;
+  if (ticks < 0 || ticks > 99) return null;
 
   // Calculate denominator beats, then convert to quarter notes for beatsToSeconds
   const adjustedBar = bar - barOffset;
-  const totalDenominatorBeats = (adjustedBar - 1) * beatsPerBar + (beat - 1) + sub / 4;
+  const totalDenominatorBeats = (adjustedBar - 1) * beatsPerBar + (beat - 1) + ticks / 100;
   // Convert denominator beats to quarter notes (BPM is in quarter notes)
   const quarterNoteBeats = totalDenominatorBeats * (4 / denominator);
   return beatsToSeconds(quarterNoteBeats, bpm);

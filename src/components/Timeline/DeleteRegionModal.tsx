@@ -6,6 +6,7 @@
 import { useState, useEffect, useRef, type ReactElement } from 'react';
 import { X, Trash2 } from 'lucide-react';
 import { useReaperStore } from '../../store';
+import { useTimeFormatters } from '../../hooks';
 import type { Region } from '../../core/types';
 import { reaperColorToRgba } from '../../utils';
 
@@ -18,33 +19,6 @@ interface DeleteRegionModalProps {
   regionIndex: number | null;
 }
 
-/**
- * Convert seconds to beats (quarter notes)
- */
-function secondsToBeats(seconds: number, bpm: number): number {
-  return seconds * (bpm / 60);
-}
-
-/**
- * Format duration in bars and beats
- * @param denominator - Time signature denominator (default: 4)
- */
-function formatDuration(seconds: number, bpm: number, beatsPerBar: number = 4, denominator: number = 4): string {
-  // BPM is in quarter notes, convert to denominator beats
-  const quarterNoteBeats = secondsToBeats(seconds, bpm);
-  const denominatorBeats = quarterNoteBeats * (denominator / 4);
-  const totalBeats = Math.round(denominatorBeats * 4) / 4;
-  const bars = Math.floor(totalBeats / beatsPerBar);
-  const beats = Math.round(totalBeats % beatsPerBar);
-  if (bars > 0 && beats > 0) {
-    return `${bars} bar${bars !== 1 ? 's' : ''} ${beats} beat${beats !== 1 ? 's' : ''}`;
-  } else if (bars > 0) {
-    return `${bars} bar${bars !== 1 ? 's' : ''}`;
-  } else {
-    return `${beats} beat${beats !== 1 ? 's' : ''}`;
-  }
-}
-
 export function DeleteRegionModal({
   isOpen,
   onClose,
@@ -54,14 +28,7 @@ export function DeleteRegionModal({
   const deleteRegionWithMode = useReaperStore((s) => s.deleteRegionWithMode);
   const regions = useReaperStore((s) => s.regions);
   const getDisplayRegions = useReaperStore((s) => s.getDisplayRegions);
-  const bpm = useReaperStore((s) => s.bpm);
-  const timeSignature = useReaperStore((s) => s.timeSignature);
-
-  // Parse time signature numerator (beats per bar) and denominator
-  const { beatsPerBar, denominator } = (() => {
-    const [num, denom] = timeSignature.split('/').map(Number);
-    return { beatsPerBar: num || 4, denominator: denom || 4 };
-  })();
+  const { formatDuration } = useTimeFormatters();
 
   const [deleteMode, setDeleteMode] = useState<DeleteMode>('leave-gap');
   const modalRef = useRef<HTMLDivElement>(null);
@@ -110,7 +77,7 @@ export function DeleteRegionModal({
   if (!isOpen || !region) return null;
 
   const duration = region.end - region.start;
-  const durationText = bpm ? formatDuration(duration, bpm, beatsPerBar, denominator) : `${duration.toFixed(2)}s`;
+  const durationText = formatDuration(duration);
 
   return (
     <div

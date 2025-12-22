@@ -6,6 +6,7 @@
 import { useState, useEffect, useRef, type ReactElement } from 'react';
 import { X, RotateCcw } from 'lucide-react';
 import { useReaperStore } from '../../store';
+import { useBarOffset } from '../../hooks';
 import { hexToReaperColor, reaperColorToHexWithFallback } from '../../utils';
 
 // Default region color in REAPER (shown when color = 0)
@@ -28,14 +29,6 @@ function beatsToSeconds(beats: number, bpm: number): number {
  */
 function secondsToBeats(seconds: number, bpm: number): number {
   return seconds * (bpm / 60);
-}
-
-/**
- * Parse REAPER's bar.beat string to get the bar number
- */
-function parseReaperBar(positionBeats: string): number {
-  const parts = positionBeats.split('.');
-  return parseInt(parts[0], 10);
 }
 
 /**
@@ -97,28 +90,8 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
   const pendingChanges = useReaperStore((s) => s.pendingChanges);
   const getDisplayRegions = useReaperStore((s) => s.getDisplayRegions);
   const bpm = useReaperStore((s) => s.bpm);
-  const positionBeats = useReaperStore((s) => s.positionBeats);
-  const positionSeconds = useReaperStore((s) => s.positionSeconds);
-  const timeSignature = useReaperStore((s) => s.timeSignature);
 
-  // Parse time signature numerator (beats per bar)
-  const beatsPerBar = (() => {
-    const [num] = timeSignature.split('/').map(Number);
-    return num || 4;
-  })();
-
-  // Calculate bar offset from REAPER's actual bar numbering
-  // This handles projects that don't start at bar 1 (e.g., -4.1.00)
-  const barOffset = (() => {
-    if (!bpm || !positionBeats) return 0;
-    // Allow calculation even at position 0 - we can still derive offset from positionBeats
-    if (positionSeconds < 0) return 0;
-    const actualBar = parseReaperBar(positionBeats);
-    const rawBeats = secondsToBeats(positionSeconds, bpm);
-    const totalBeats = Math.round(rawBeats * 4) / 4;
-    const calculatedBar = Math.floor(totalBeats / beatsPerBar) + 1;
-    return actualBar - calculatedBar;
-  })();
+  const barOffset = useBarOffset();
 
   const [name, setName] = useState('New Region');
   const [selectedColor, setSelectedColor] = useState<string | null>(null); // null = REAPER default (gray)

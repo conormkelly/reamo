@@ -6,7 +6,7 @@
 import { useState, useRef, useCallback, useMemo, type ReactElement } from 'react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
-import { useTransport } from '../../hooks/useTransport';
+import { useTransport, useTimeSignature, useBarOffset } from '../../hooks';
 import * as commands from '../../core/CommandBuilder';
 import type { Region, Marker } from '../../core/types';
 import { MarkerEditModal, getMarkerMoveAction } from './MarkerEditModal';
@@ -14,13 +14,7 @@ import { usePlayheadDrag, useMarkerDrag, useRegionDrag } from './hooks';
 import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
 import { TimelineMarkerLines, TimelineMarkerPills } from './TimelineMarkers';
 import { TimelinePlayhead, PlayheadDragPreview, MarkerDragPreview } from './TimelinePlayhead';
-import {
-  secondsToBeats,
-  beatsToSeconds,
-  formatBeats,
-  formatDelta,
-  parseReaperBar,
-} from '../../utils';
+import { secondsToBeats, beatsToSeconds, formatBeats, formatDelta } from '../../utils';
 
 export interface TimelineProps {
   className?: string;
@@ -39,10 +33,12 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   const regions = useReaperStore((state) => state.regions);
   const markers = useReaperStore((state) => state.markers);
   const bpm = useReaperStore((state) => state.bpm);
-  const positionBeats = useReaperStore((state) => state.positionBeats);
-  const timeSignature = useReaperStore((state) => state.timeSignature);
   const storedTimeSelection = useReaperStore((state) => state.timeSelection);
   const setStoredTimeSelection = useReaperStore((state) => state.setTimeSelection);
+
+  // Time signature and bar offset from hooks
+  const { beatsPerBar, denominator } = useTimeSignature();
+  const barOffset = useBarOffset();
 
   // Region editing state
   const timelineMode = useReaperStore((state) => state.timelineMode);
@@ -67,26 +63,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   const dragStartTime = useReaperStore((state) => state.dragStartTime);
   const insertionPoint = useReaperStore((state) => state.insertionPoint);
   const resizeEdgePosition = useReaperStore((state) => state.resizeEdgePosition);
-
-  // Parse time signature numerator (beats per bar) and denominator
-  const { beatsPerBar, denominator } = useMemo(() => {
-    const [num, denom] = timeSignature.split('/').map(Number);
-    return { beatsPerBar: num || 4, denominator: denom || 4 };
-  }, [timeSignature]);
-
-  // Calculate bar offset from REAPER's actual bar numbering
-  // This handles projects that don't start at bar 1 (e.g., -4.1.00)
-  const barOffset = useMemo(() => {
-    if (!bpm || !positionBeats || positionSeconds <= 0) return 0;
-    const actualBar = parseReaperBar(positionBeats);
-    // BPM is in quarter notes, convert to denominator beats
-    const quarterNoteBeats = secondsToBeats(positionSeconds, bpm);
-    const denominatorBeats = quarterNoteBeats * (denominator / 4);
-    // Round to nearest 16th note equivalent
-    const totalBeats = Math.round(denominatorBeats * 4) / 4;
-    const calculatedBar = Math.floor(totalBeats / beatsPerBar) + 1;
-    return actualBar - calculatedBar;
-  }, [bpm, positionBeats, positionSeconds, beatsPerBar, denominator]);
 
   // Convert stored beat-based selection to seconds for display
   // Filter out invalid 0-width selections

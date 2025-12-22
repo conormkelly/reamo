@@ -7,7 +7,7 @@
 import { useState, useCallback, type ReactElement } from 'react';
 import { Minus, Plus } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
-import { useReaperStore } from '../../store';
+import { useTimeSignature } from '../../hooks';
 import * as commands from '../../core/CommandBuilder';
 
 // Common time signature presets
@@ -35,19 +35,18 @@ export function TimeSignatureButton({
   size = 'md',
 }: TimeSignatureButtonProps): ReactElement {
   const { send } = useReaper();
-  const timeSignature = useReaperStore((state) => state.timeSignature);
+  const { beatsPerBar: storeBeatsPerBar, denominator: storeDenominator } = useTimeSignature();
 
   const [showDialog, setShowDialog] = useState(false);
   const [numerator, setNumerator] = useState(4);
   const [denominator, setDenominator] = useState(4);
 
-  // Parse current time signature when opening dialog
+  // Use store values when opening dialog
   const handleClick = useCallback(() => {
-    const [num, denom] = timeSignature.split('/').map(Number);
-    setNumerator(num || 4);
-    setDenominator(denom || 4);
+    setNumerator(storeBeatsPerBar);
+    setDenominator(storeDenominator);
     setShowDialog(true);
-  }, [timeSignature]);
+  }, [storeBeatsPerBar, storeDenominator]);
 
   const handleSetTimeSignature = useCallback(
     (num: number, denom: number) => {
@@ -120,7 +119,7 @@ export function TimeSignatureButton({
           ${className}
         `}
       >
-        {timeSignature}
+        {storeBeatsPerBar}/{storeDenominator}
       </button>
 
       {/* Time Signature Dialog */}

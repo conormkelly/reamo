@@ -8,17 +8,8 @@
 import { useState, useRef, useEffect, type ReactElement } from 'react';
 import { Plus, Trash2, CopyPlus, RotateCcw } from 'lucide-react';
 import { useReaperStore } from '../../store';
-import {
-  hexToReaperColor,
-  reaperColorToHexWithFallback,
-  secondsToBeats,
-  formatTime,
-  formatBeats,
-  formatDuration,
-  parseBarBeatToSeconds,
-  parseDurationToSeconds,
-  parseReaperBar,
-} from '../../utils';
+import { useTimeFormatters } from '../../hooks';
+import { hexToReaperColor, reaperColorToHexWithFallback, secondsToBeats } from '../../utils';
 import type { Region } from '../../core/types';
 import { DeleteRegionModal } from './DeleteRegionModal';
 
@@ -63,16 +54,16 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
   const createRegion = useReaperStore((s) => s.createRegion);
   const selectRegion = useReaperStore((s) => s.selectRegion);
   const nextNewRegionKey = useReaperStore((s) => s.nextNewRegionKey);
-  const bpm = useReaperStore((s) => s.bpm);
-  const positionBeats = useReaperStore((s) => s.positionBeats);
-  const positionSeconds = useReaperStore((s) => s.positionSeconds);
-  const timeSignature = useReaperStore((s) => s.timeSignature);
 
-  // Parse time signature numerator (beats per bar) and denominator
-  const { beatsPerBar, denominator } = (() => {
-    const [num, denom] = timeSignature.split('/').map(Number);
-    return { beatsPerBar: num || 4, denominator: denom || 4 };
-  })();
+  const {
+    formatBeats,
+    formatDuration,
+    parseBarBeat,
+    parseDuration,
+    bpm,
+    beatsPerBar,
+    denominator,
+  } = useTimeFormatters();
 
   const [editingField, setEditingField] = useState<EditingField>(null);
   const [editValue, setEditValue] = useState('');
@@ -131,18 +122,6 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
     }
   });
 
-  // Calculate bar offset from REAPER's actual bar numbering
-  const barOffset = (() => {
-    if (!bpm || !positionBeats) return 0;
-    const actualBar = parseReaperBar(positionBeats);
-    // BPM is in quarter notes, convert to denominator beats
-    const quarterNoteBeats = secondsToBeats(positionSeconds, bpm);
-    const denominatorBeats = quarterNoteBeats * (denominator / 4);
-    const totalBeats = Math.round(denominatorBeats * 4) / 4;
-    const calculatedBar = Math.floor(totalBeats / beatsPerBar) + 1;
-    return actualBar - calculatedBar;
-  })();
-
   const duration = region ? region.end - region.start : 0;
   const currentColor = region ? reaperColorToHexWithFallback(region.color, DEFAULT_REGION_COLOR) : DEFAULT_REGION_COLOR;
 
@@ -161,9 +140,9 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
     if (field === 'name') {
       setEditValue(region.name);
     } else if (field === 'start') {
-      setEditValue(formatBeats(region.start, bpm!, barOffset, beatsPerBar, denominator));
+      setEditValue(formatBeats(region.start));
     } else if (field === 'end') {
-      setEditValue(formatBeats(region.end, bpm!, barOffset, beatsPerBar, denominator));
+      setEditValue(formatBeats(region.end));
     } else if (field === 'length') {
       setEditValue(formatDurationEditable(duration, bpm!, beatsPerBar, denominator));
     }
@@ -202,17 +181,17 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
       let newSeconds: number | null = null;
 
       if (editingField === 'start') {
-        newSeconds = parseBarBeatToSeconds(editValue, bpm, barOffset, beatsPerBar, denominator);
+        newSeconds = parseBarBeat(editValue);
         if (newSeconds !== null && newSeconds >= 0 && newSeconds < region.end) {
           resizeRegion(pendingKey, 'start', newSeconds, regions, bpm);
         }
       } else if (editingField === 'end') {
-        newSeconds = parseBarBeatToSeconds(editValue, bpm, barOffset, beatsPerBar, denominator);
+        newSeconds = parseBarBeat(editValue);
         if (newSeconds !== null && newSeconds > region.start) {
           resizeRegion(pendingKey, 'end', newSeconds, regions, bpm);
         }
       } else if (editingField === 'length') {
-        const newDuration = parseDurationToSeconds(editValue, bpm, beatsPerBar, denominator);
+        const newDuration = parseDuration(editValue);
         if (newDuration !== null && newDuration > 0) {
           const newEnd = region.start + newDuration;
           resizeRegion(pendingKey, 'end', newEnd, regions, bpm);
@@ -462,7 +441,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
               {renderField(
                 'start',
                 'Start',
-                bpm ? formatBeats(region.start, bpm, barOffset, beatsPerBar, denominator) : formatTime(region.start)
+                formatBeats(region.start)
               )}
 
               <div className="w-px h-4 bg-gray-600 flex-shrink-0" />
@@ -471,7 +450,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
               {renderField(
                 'end',
                 'End',
-                bpm ? formatBeats(region.end, bpm, barOffset, beatsPerBar, denominator) : formatTime(region.end)
+                formatBeats(region.end)
               )}
 
               {/* Length - inline on larger screens */}
@@ -480,7 +459,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
                 {renderField(
                   'length',
                   'Length',
-                  bpm ? formatDuration(duration, bpm, beatsPerBar, denominator) : `${duration.toFixed(2)}s`,
+                  formatDuration(duration),
                   'text-purple-300 font-medium'
                 )}
               </div>
@@ -491,7 +470,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
               {renderField(
                 'length',
                 'Length',
-                bpm ? formatDuration(duration, bpm, beatsPerBar, denominator) : `${duration.toFixed(2)}s`,
+                formatDuration(duration),
                 'text-purple-300 font-medium'
               )}
             </div>

@@ -18,7 +18,8 @@ describe('transportSlice - BPM Normalization', () => {
     // Reset store to initial state
     useReaperStore.setState({
       bpm: null,
-      timeSignature: '4/4',
+      timeSignatureNumerator: 4,
+      timeSignatureDenominator: 4,
       fullBeatPosition: 0,
     })
   })
@@ -42,7 +43,8 @@ describe('transportSlice - BPM Normalization', () => {
       store.updateBeatPosition(beatPos)
 
       expect(useReaperStore.getState().bpm).toBeCloseTo(120, 0)
-      expect(useReaperStore.getState().timeSignature).toBe('4/4')
+      expect(useReaperStore.getState().timeSignatureNumerator).toBe(4)
+      expect(useReaperStore.getState().timeSignatureDenominator).toBe(4)
     })
 
     it('calculates BPM correctly at 90 BPM', () => {
@@ -88,7 +90,8 @@ describe('transportSlice - BPM Normalization', () => {
 
       // Should be 90, not 180
       expect(useReaperStore.getState().bpm).toBeCloseTo(90, 0)
-      expect(useReaperStore.getState().timeSignature).toBe('6/8')
+      expect(useReaperStore.getState().timeSignatureNumerator).toBe(6)
+      expect(useReaperStore.getState().timeSignatureDenominator).toBe(8)
     })
 
     it('normalizes BPM correctly at 60 quarter-note BPM', () => {
@@ -158,7 +161,8 @@ describe('transportSlice - BPM Normalization', () => {
       store.updateBeatPosition(beatPos)
 
       expect(useReaperStore.getState().bpm).toBeCloseTo(60, 0)
-      expect(useReaperStore.getState().timeSignature).toBe('12/8')
+      expect(useReaperStore.getState().timeSignatureNumerator).toBe(12)
+      expect(useReaperStore.getState().timeSignatureDenominator).toBe(8)
     })
   })
 
@@ -180,7 +184,8 @@ describe('transportSlice - BPM Normalization', () => {
       store.updateBeatPosition(beatPos)
 
       expect(useReaperStore.getState().bpm).toBeCloseTo(120, 0)
-      expect(useReaperStore.getState().timeSignature).toBe('3/4')
+      expect(useReaperStore.getState().timeSignatureNumerator).toBe(3)
+      expect(useReaperStore.getState().timeSignatureDenominator).toBe(4)
     })
   })
 
@@ -227,7 +232,8 @@ describe('transportSlice - BPM Normalization', () => {
       store.updateBeatPosition(beatPos)
 
       expect(useReaperStore.getState().bpm).toBeCloseTo(60, 0)
-      expect(useReaperStore.getState().timeSignature).toBe('2/2')
+      expect(useReaperStore.getState().timeSignatureNumerator).toBe(2)
+      expect(useReaperStore.getState().timeSignatureDenominator).toBe(2)
     })
   })
 
@@ -305,7 +311,8 @@ describe('transportSlice - BPM Normalization', () => {
 
       store.updateBeatPosition(beatPos)
 
-      expect(useReaperStore.getState().timeSignature).toBe('6/8')
+      expect(useReaperStore.getState().timeSignatureNumerator).toBe(6)
+      expect(useReaperStore.getState().timeSignatureDenominator).toBe(8)
     })
   })
 })

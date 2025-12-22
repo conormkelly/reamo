@@ -456,12 +456,15 @@ describe('Edge cases and precision', () => {
     expect(parseInt(sub)).not.toBeNaN()
   })
 
-  it('handles sub-values correctly', () => {
-    // Test various sub positions (16th notes)
+  it('handles ticks correctly', () => {
+    // Test various tick positions (0-99 like REAPER)
     const bpm = 120
-    // 0.125 seconds = 1 16th note at 120 BPM
-    expect(formatBeats(0.125, bpm, 0, 4, 4)).toBe('1.1.01')
-    expect(formatBeats(0.25, bpm, 0, 4, 4)).toBe('1.1.02')
-    expect(formatBeats(0.375, bpm, 0, 4, 4)).toBe('1.1.03')
+    // At 120 BPM: 1 beat = 0.5 seconds
+    // 0.125 seconds = 0.25 beats = 25 ticks
+    expect(formatBeats(0.125, bpm, 0, 4, 4)).toBe('1.1.25')
+    // 0.25 seconds = 0.5 beats = 50 ticks
+    expect(formatBeats(0.25, bpm, 0, 4, 4)).toBe('1.1.50')
+    // 0.375 seconds = 0.75 beats = 75 ticks
+    expect(formatBeats(0.375, bpm, 0, 4, 4)).toBe('1.1.75')
   })
 })

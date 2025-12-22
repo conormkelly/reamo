@@ -9,16 +9,9 @@ import { useState, useRef, useEffect, useCallback, type ReactElement } from 'rea
 import { RotateCcw } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
-import { useCurrentMarker } from '../../hooks/useCurrentMarker';
+import { useCurrentMarker, useTimeFormatters } from '../../hooks';
 import * as commands from '../../core/CommandBuilder';
-import {
-  reaperColorToHex,
-  hexToReaperColor,
-  formatTime,
-  formatBeats,
-  parseReaperBar,
-  secondsToBeats,
-} from '../../utils';
+import { reaperColorToHex, hexToReaperColor } from '../../utils';
 
 // Default marker color in REAPER (shown when color = 0)
 const DEFAULT_MARKER_COLOR = '#dc2626';
@@ -44,18 +37,9 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
   const timelineMode = useReaperStore((s) => s.timelineMode);
   const markerScriptInstalled = useReaperStore((s) => s.markerScriptInstalled);
   const markers = useReaperStore((s) => s.markers);
-  const bpm = useReaperStore((s) => s.bpm);
-  const positionBeats = useReaperStore((s) => s.positionBeats);
-  const positionSeconds = useReaperStore((s) => s.positionSeconds);
-  const timeSignature = useReaperStore((s) => s.timeSignature);
-
-  // Parse time signature numerator (beats per bar) and denominator
-  const { beatsPerBar, denominator } = (() => {
-    const [num, denom] = timeSignature.split('/').map(Number);
-    return { beatsPerBar: num || 4, denominator: denom || 4 };
-  })();
 
   const { currentMarker, setLocked } = useCurrentMarker();
+  const { formatBeats } = useTimeFormatters();
 
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameValue, setNameValue] = useState('');
@@ -70,18 +54,6 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
   if (timelineMode !== 'navigate') {
     return null;
   }
-
-  // Calculate bar offset from REAPER's actual bar numbering
-  const barOffset = (() => {
-    if (!bpm || !positionBeats) return 0;
-    const actualBar = parseReaperBar(positionBeats);
-    // BPM is in quarter notes, convert to denominator beats
-    const quarterNoteBeats = secondsToBeats(positionSeconds, bpm);
-    const denominatorBeats = quarterNoteBeats * (denominator / 4);
-    const totalBeats = Math.round(denominatorBeats * 4) / 4;
-    const calculatedBar = Math.floor(totalBeats / beatsPerBar) + 1;
-    return actualBar - calculatedBar;
-  })();
 
   // Get colors from existing markers for picker
   const existingColors = new Set<string>();
@@ -217,13 +189,8 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
     setLocked(false);
   };
 
-  // Format position as beats or time
-  const formatPosition = (seconds: number): string => {
-    if (bpm) {
-      return formatBeats(seconds, bpm, barOffset, beatsPerBar, denominator);
-    }
-    return formatTime(seconds);
-  };
+  // Format position as beats (hook handles fallback to time if no BPM)
+  const formatPosition = (seconds: number): string => formatBeats(seconds);
 
   return (
     <div className={`flex items-center gap-2 min-w-0 ${className}`}>
