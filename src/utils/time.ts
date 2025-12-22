@@ -24,8 +24,8 @@ export function beatsToSeconds(beats: number, bpm: number): number {
 // ============ FORMATTING ============
 
 export interface FormatTimeOptions {
-  /** Decimal precision: 2 (centiseconds) or 3 (milliseconds). Default: 2 */
-  precision?: 2 | 3;
+  /** Decimal precision: 1 (deciseconds), 2 (centiseconds), or 3 (milliseconds). Default: 2 */
+  precision?: 1 | 2 | 3;
   /** Show +/- sign for negative times. Default: false */
   showSign?: boolean;
 }
@@ -36,6 +36,7 @@ export interface FormatTimeOptions {
  *
  * @example formatTime(83.333333) => "1:23.33"
  * @example formatTime(83.333333, { precision: 3 }) => "1:23.333"
+ * @example formatTime(83.333333, { precision: 1 }) => "1:23.3"
  * @example formatTime(-5.5, { showSign: true }) => "-0:05.50"
  */
 export function formatTime(seconds: number, options?: FormatTimeOptions): string {
@@ -52,6 +53,10 @@ export function formatTime(seconds: number, options?: FormatTimeOptions): string
     const secs = Math.floor(absSeconds % 60);
     const ms = Math.floor((absSeconds % 1) * 1000);
     return `${sign}${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+  } else if (precision === 1) {
+    // Decisecond precision (e.g., "1:23.4") - used for drag previews
+    const secs = (absSeconds % 60).toFixed(1);
+    return `${sign}${mins}:${secs.padStart(4, '0')}`;
   } else {
     // Centisecond precision (e.g., "1:23.45")
     const secs = (absSeconds % 60).toFixed(2);

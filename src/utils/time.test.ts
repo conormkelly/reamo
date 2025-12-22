@@ -14,6 +14,7 @@ import { describe, it, expect } from 'vitest'
 import {
   secondsToBeats,
   beatsToSeconds,
+  formatTime,
   formatBeats,
   formatDuration,
   formatDelta,
@@ -59,6 +60,42 @@ describe('Core Conversions', () => {
       const seconds = 2.5
       expect(beatsToSeconds(secondsToBeats(seconds, bpm), bpm)).toBeCloseTo(seconds)
     })
+  })
+})
+
+describe('formatTime - MM:SS.xxx formatting', () => {
+  it('formats with default precision (2 decimal places)', () => {
+    expect(formatTime(83.333)).toBe('1:23.33')
+    expect(formatTime(0)).toBe('0:00.00')
+    expect(formatTime(5.5)).toBe('0:05.50')
+  })
+
+  it('formats with precision 1 (deciseconds) for drag previews', () => {
+    expect(formatTime(83.333, { precision: 1 })).toBe('1:23.3')
+    expect(formatTime(0, { precision: 1 })).toBe('0:00.0')
+    expect(formatTime(5.5, { precision: 1 })).toBe('0:05.5')
+    expect(formatTime(65.15, { precision: 1 })).toBe('1:05.2') // rounds
+  })
+
+  it('formats with precision 3 (milliseconds)', () => {
+    expect(formatTime(83.5, { precision: 3 })).toBe('1:23.500')
+    expect(formatTime(0, { precision: 3 })).toBe('0:00.000')
+    expect(formatTime(5.125, { precision: 3 })).toBe('0:05.125')
+  })
+
+  it('pads seconds correctly', () => {
+    expect(formatTime(5, { precision: 1 })).toBe('0:05.0')
+    expect(formatTime(5, { precision: 2 })).toBe('0:05.00')
+    expect(formatTime(5, { precision: 3 })).toBe('0:05.000')
+  })
+
+  it('shows sign for negative times when requested', () => {
+    expect(formatTime(-5.5, { showSign: true })).toBe('-0:05.50')
+    expect(formatTime(-65.5, { showSign: true })).toBe('-1:05.50')
+  })
+
+  it('does not show sign by default', () => {
+    expect(formatTime(-5.5)).toBe('0:05.50')
   })
 })
 

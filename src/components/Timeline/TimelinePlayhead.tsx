@@ -5,7 +5,7 @@
 
 import type { ReactElement } from 'react';
 import type { Marker } from '../../core/types';
-import { formatBeats } from '../../utils';
+import { formatBeats, formatTime } from '../../utils';
 
 export interface TimelinePlayheadProps {
   /** Current playhead position in seconds */
@@ -129,9 +129,7 @@ export function PlayheadDragPreview({
   if (!isDraggingPlayhead || playheadPreviewPercent === null) return null;
 
   const seconds = timelineStart + (playheadPreviewPercent / 100) * duration;
-  const mins = Math.floor(seconds / 60);
-  const secs = (seconds % 60).toFixed(1);
-  const timeStr = `${mins}:${secs.padStart(4, '0')}`;
+  const timeStr = formatTime(seconds, { precision: 1 });
   const beatsStr = bpm ? formatBeats(seconds, bpm, barOffset, beatsPerBar, denominator) : '';
 
   return (
@@ -172,9 +170,7 @@ export function MarkerDragPreview({
   if (!isDraggingMarker || !draggedMarker || markerDragPreviewPercent === null) return null;
 
   const seconds = timelineStart + (markerDragPreviewPercent / 100) * duration;
-  const mins = Math.floor(seconds / 60);
-  const secs = (seconds % 60).toFixed(1);
-  const timeStr = `${mins}:${secs.padStart(4, '0')}`;
+  const timeStr = formatTime(seconds, { precision: 1 });
   const beatsStr = bpm ? formatBeats(seconds, bpm, barOffset, beatsPerBar, denominator) : '';
 
   return (
