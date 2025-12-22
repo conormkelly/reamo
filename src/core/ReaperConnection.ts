@@ -178,8 +178,11 @@ export class ReaperConnection {
           this.timeoutTimer = null;
         }
 
-        if (this.xhr.responseText !== '') {
-          // Success
+        if (this.xhr.getResponseHeader('Server') === null) {
+          // No Server header means connection failed
+          this.handleError();
+        } else {
+          // Valid response (even if empty) - connection is working
           const previousErrorCount = this.errorCount;
           this.errorCount = 0;
 
@@ -187,12 +190,11 @@ export class ReaperConnection {
             this.onConnectionChange(true, 0);
           }
 
-          // Parse and dispatch response
-          const responses = parseResponse(this.xhr.responseText);
-          this.onResponse(responses);
-        } else if (this.xhr.getResponseHeader('Server') === null) {
-          // Connection error
-          this.handleError();
+          // Parse and dispatch response if there's content
+          if (this.xhr.responseText !== '') {
+            const responses = parseResponse(this.xhr.responseText);
+            this.onResponse(responses);
+          }
         }
 
         // Schedule next update
