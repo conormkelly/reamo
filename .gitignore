@@ -7,6 +7,7 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Frontend build artifacts
 node_modules
 dist
 dist-ssr
@@ -14,6 +15,10 @@ dist-ssr
 playwright-report
 test-results
 releases
+
+# Extension build artifacts (Zig)
+.zig-cache
+zig-out
 
 # Editor directories and files
 .vscode/*
@@ -25,3 +30,6 @@ releases
 *.njsproj
 *.sln
 *.sw?
+
+# Claude
+.claude
