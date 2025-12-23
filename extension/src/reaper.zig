@@ -44,6 +44,9 @@ pub const Api = struct {
     // Tempo
     setCurrentBPM: ?*const fn (?*anyopaque, f64, bool) callconv(.c) void = null,
 
+    // Project info
+    getProjectLength: ?*const fn (?*anyopaque) callconv(.c) f64 = null,
+
     // Command state
     getToggleCommandState: ?*const fn (c_int) callconv(.c) c_int = null,
     namedCommandLookup_fn: ?*const fn ([*:0]const u8) callconv(.c) c_int = null,
@@ -117,6 +120,8 @@ pub const Api = struct {
             .timeMap2_timeToBeats = getFunc(info, "TimeMap2_timeToBeats", fn (?*anyopaque, f64, ?*c_int, ?*c_int, ?*f64, ?*c_int) callconv(.c) f64),
             // Tempo
             .setCurrentBPM = getFunc(info, "SetCurrentBPM", fn (?*anyopaque, f64, bool) callconv(.c) void),
+            // Project info
+            .getProjectLength = getFunc(info, "GetProjectLength", fn (?*anyopaque) callconv(.c) f64),
             // Command state
             .getToggleCommandState = getFunc(info, "GetToggleCommandState", fn (c_int) callconv(.c) c_int),
             .namedCommandLookup_fn = getFunc(info, "NamedCommandLookup", fn ([*:0]const u8) callconv(.c) c_int),
@@ -280,6 +285,12 @@ pub const Api = struct {
         // Clamp to REAPER's valid range (2-960 BPM)
         const clamped = @max(2.0, @min(960.0, bpm));
         f(null, clamped, true); // true = add undo point
+    }
+
+    // Project length in seconds (based on last item/region end)
+    pub fn projectLength(self: *const Api) f64 {
+        const f = self.getProjectLength orelse return 0.0;
+        return f(null);
     }
 
     // Command toggle state: returns 1 if on, 0 if off, -1 if not toggle command

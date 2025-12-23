@@ -917,7 +917,8 @@ Events are sent to all connected clients when state changes. Polling occurs ~30m
     "timeSignature": {"numerator": 4, "denominator": 4},
     "timeSelection": {"start": 0.000, "end": 60.000},
     "repeat": false,
-    "metronome": {"enabled": true, "volume": 0.5000, "volumeDb": -6.02}
+    "metronome": {"enabled": true, "volume": 0.5000, "volumeDb": -6.02},
+    "projectLength": 180.500
   }
 }
 ```
@@ -933,6 +934,7 @@ Events are sent to all connected clients when state changes. Polling occurs ~30m
 | `timeSelection` | object | Start/end of time selection (0,0 if none) |
 | `repeat` | bool | Repeat/loop mode enabled |
 | `metronome` | object | Metronome state and volume |
+| `projectLength` | float | Project length in seconds (based on last item/region end) |
 
 ### `tracks` Event
 

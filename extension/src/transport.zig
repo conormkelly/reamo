@@ -14,6 +14,7 @@ pub const State = struct {
     repeat: bool = false,
     metronome_enabled: bool = false,
     metronome_volume: f64 = 1.0, // Linear amplitude (0.0-4.0)
+    project_length: f64 = 0, // Project length in seconds
     // Position in bar.beat format (for display)
     position_bar: c_int = 1,
     position_beat: f64 = 1.0, // Beat within bar (1-based, fractional = ticks)
@@ -29,6 +30,7 @@ pub const State = struct {
         if (self.repeat != other.repeat) return false;
         if (self.metronome_enabled != other.metronome_enabled) return false;
         if (!floatEql(self.metronome_volume, other.metronome_volume)) return false;
+        if (!floatEql(self.project_length, other.project_length)) return false;
 
         // Position changes frequently during playback - only check when stopped
         if (self.play_state == 0) {
@@ -79,6 +81,7 @@ pub const State = struct {
             .repeat = api.getRepeat(),
             .metronome_enabled = api.isMetronomeEnabled(),
             .metronome_volume = api.getMetronomeVolume(),
+            .project_length = api.projectLength(),
             .position_bar = beats_info.measures,
             .position_beat = beats_info.beats_in_measure + 1.0, // Convert 0-based to 1-based
         };
@@ -93,7 +96,7 @@ pub const State = struct {
         const ticks: u32 = @intFromFloat(@mod(self.position_beat, 1.0) * 100.0);
 
         const result = std.fmt.bufPrint(buf,
-            \\{{"type":"event","event":"transport","payload":{{"playState":{d},"position":{d:.3},"positionBeats":"{d}.{d}.{d:0>2}","cursorPosition":{d:.3},"bpm":{d:.2},"timeSignature":{{"numerator":{d},"denominator":{d}}},"timeSelection":{{"start":{d:.3},"end":{d:.3}}},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}}}}}}
+            \\{{"type":"event","event":"transport","payload":{{"playState":{d},"position":{d:.3},"positionBeats":"{d}.{d}.{d:0>2}","cursorPosition":{d:.3},"bpm":{d:.2},"timeSignature":{{"numerator":{d},"denominator":{d}}},"timeSelection":{{"start":{d:.3},"end":{d:.3}}},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"projectLength":{d:.3}}}}}
         , .{
             self.play_state,
             self.currentPosition(),
@@ -110,6 +113,7 @@ pub const State = struct {
             if (self.metronome_enabled) "true" else "false",
             self.metronome_volume,
             metro_vol_db,
+            self.project_length,
         }) catch return null;
 
         return result;
@@ -189,6 +193,7 @@ test "State.toJson" {
         .repeat = true,
         .metronome_enabled = true,
         .metronome_volume = 0.5,
+        .project_length = 180.5,
         .position_bar = 12,
         .position_beat = 3.45, // Beat 3, 45% through
     };
@@ -205,6 +210,7 @@ test "State.toJson" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"denominator\":4") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"metronome\":{\"enabled\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"volume\":0.5") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"projectLength\":180.5") != null);
 }
 
 test "State.eql detects repeat changes" {
