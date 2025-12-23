@@ -23,9 +23,43 @@ This document outlines a plan to build a native REAPER extension (dylib/dll) in 
 
 ## Project - Current State
 
-- **PoC validated**: Zig extension loads in REAPER, sets EXTSTATE values, readable via HTTP
-- **Build working**: `make extension` compiles and installs to REAPER UserPlugins
-- **Next step**: Implement WebSocket server in extension (Phase 1 below)
+- **Phase 1 complete**: WebSocket server running, clients can connect, command queue working
+- **Phase 2 complete**: Transport state polling, change detection, play/stop/pause/record/toggle/seek commands
+- **Code refactored**: Clean module structure (reaper.zig, transport.zig, protocol.zig, commands.zig, ws_server.zig)
+- **Next step**: Implement markers & regions (Phase 3 below)
+
+## Development Notes (Project-Specific)
+
+### Key Files & Resources
+
+- **REAPER API headers**: `docs/reaper_plugin_functions.h` — authoritative function signatures
+- **Frontend types**: `frontend/src/core/types.ts` — command IDs, PlayState enum, protocol definitions
+- **Test client**: `extension/test-client.html` — browser-based WebSocket testing
+
+### REAPER Extension Gotchas
+
+1. **Use STOP_SAVE (1016) not STOP (40667)** — 40667 can crash if state isn't right
+2. **Deferred init is mandatory** — Never start servers in `ReaperPluginEntry`, use timer callback
+3. **File logging for debugging**: `/tmp/reamo-extension.log` with timestamps helps debug shutdown issues
+4. **websocket.zig shutdown quirk**: The library's `stop()` blocks forever on a condition variable. Solution: detach the thread immediately after starting, skip `stop()` on shutdown, let OS clean up
+
+### Extension Module Structure
+
+```txt
+extension/src/
+├── main.zig        # Entry point, lifecycle, timers
+├── reaper.zig      # REAPER API wrapper, safe function loading
+├── transport.zig   # Transport state polling, change detection (has unit tests)
+├── protocol.zig    # JSON parsing/building (has unit tests)
+├── commands.zig    # Command registry pattern - add new commands here
+└── ws_server.zig   # WebSocket server, client management, ring buffer queue
+```
+
+### Adding New Commands
+
+1. Add handler function in `commands.zig`
+2. Add entry to `registry` array
+3. If new REAPER API needed, add to `reaper.zig` Api struct and load() function
 
 ## Background
 
@@ -997,21 +1031,21 @@ This may be a "nice to have" optimization rather than essential.
 
 ## Implementation Phases
 
-### Phase 1: Core Extension
+### Phase 1: Core Extension ✅
 
-- [ ] Zig project setup with build.zig for dylib/dll output
-- [ ] REAPER plugin entry point and API function loading
-- [ ] Timer callback registration
-- [ ] WebSocket server on background thread
-- [ ] Mutex-protected command queue
+- [x] Zig project setup with build.zig for dylib/dll output
+- [x] REAPER plugin entry point and API function loading
+- [x] Timer callback registration
+- [x] WebSocket server on background thread
+- [x] Mutex-protected command queue (ring buffer)
 
-### Phase 2: Transport & Time Selection
+### Phase 2: Transport & Time Selection ✅
 
-- [ ] Transport state polling and change detection
-- [ ] Direct time selection via GetSet_LoopTimeRange2
-- [ ] Direct BPM via GetProjectTimeSignature2
-- [ ] Push-based updates to connected clients
-- [ ] Transport commands (play, pause, stop, seek)
+- [x] Transport state polling and change detection
+- [x] Direct time selection via GetSet_LoopTimeRange2
+- [x] Direct BPM via GetProjectTimeSignature2
+- [x] Push-based updates to connected clients
+- [x] Transport commands (play, pause, stop, seek, toggle, record)
 
 ### Phase 3: Markers & Regions
 

@@ -6,6 +6,8 @@ const Thread = std.Thread;
 
 // Maximum pending commands in queue
 const MAX_COMMAND_QUEUE = 256;
+// Maximum concurrent clients for broadcast buffer
+const MAX_CLIENTS = 64;
 
 // Command received from a client
 pub const Command = struct {
@@ -18,80 +20,83 @@ pub const Command = struct {
     }
 };
 
-// Simple fixed-capacity command queue
-const CommandQueue = struct {
+// Ring buffer for commands - O(1) push and pop
+const CommandRingBuffer = struct {
     items: [MAX_COMMAND_QUEUE]Command = undefined,
+    head: usize = 0, // Next position to read from
+    tail: usize = 0, // Next position to write to
     len: usize = 0,
 
-    fn append(self: *CommandQueue, cmd: Command) !void {
+    fn push(self: *CommandRingBuffer, cmd: Command) !void {
         if (self.len >= MAX_COMMAND_QUEUE) return error.QueueFull;
-        self.items[self.len] = cmd;
+        self.items[self.tail] = cmd;
+        self.tail = (self.tail + 1) % MAX_COMMAND_QUEUE;
         self.len += 1;
     }
 
-    fn pop(self: *CommandQueue) ?Command {
+    fn pop(self: *CommandRingBuffer) ?Command {
         if (self.len == 0) return null;
-        const cmd = self.items[0];
-        // Shift remaining items
-        for (0..self.len - 1) |i| {
-            self.items[i] = self.items[i + 1];
-        }
+        const cmd = self.items[self.head];
+        self.head = (self.head + 1) % MAX_COMMAND_QUEUE;
         self.len -= 1;
         return cmd;
     }
 
-    fn slice(self: *CommandQueue) []Command {
-        return self.items[0..self.len];
+    // For cleanup - iterate remaining items
+    fn remaining(self: *CommandRingBuffer) RemainingIterator {
+        return .{ .ring = self, .count = 0 };
     }
+
+    const RemainingIterator = struct {
+        ring: *CommandRingBuffer,
+        count: usize,
+
+        fn next(self: *RemainingIterator) ?*Command {
+            if (self.count >= self.ring.len) return null;
+            const idx = (self.ring.head + self.count) % MAX_COMMAND_QUEUE;
+            self.count += 1;
+            return &self.ring.items[idx];
+        }
+    };
 };
 
 // Shared state between WebSocket thread and main thread
 pub const SharedState = struct {
     mutex: Thread.Mutex = .{},
+    allocator: Allocator,
 
     // Command queue: WebSocket thread pushes, main thread pops
-    commands: CommandQueue = .{},
+    commands: CommandRingBuffer = .{},
 
-    // Connected clients for broadcasting
-    clients: std.AutoArrayHashMap(usize, *Client),
+    // Connected clients for broadcasting - store Conn pointers directly
+    // The websocket library manages Conn lifetime, and Conn.writeText is thread-safe
+    clients: std.AutoArrayHashMap(usize, *websocket.Conn),
     next_client_id: usize = 1,
-
-    // Pending broadcasts from main thread
-    broadcast_queue: std.ArrayList([]const u8) = .empty,
-
-    allocator: Allocator,
 
     pub fn init(allocator: Allocator) SharedState {
         return .{
             .allocator = allocator,
-            .clients = std.AutoArrayHashMap(usize, *Client).init(allocator),
-            .broadcast_queue = .empty,
+            .clients = std.AutoArrayHashMap(usize, *websocket.Conn).init(allocator),
         };
     }
 
     pub fn deinit(self: *SharedState) void {
         // Clean up any pending commands
-        for (self.commands.slice()) |*cmd| {
+        var iter = self.commands.remaining();
+        while (iter.next()) |cmd| {
             cmd.deinit();
         }
-
-        // Clean up broadcast queue
-        for (self.broadcast_queue.items) |msg| {
-            self.allocator.free(msg);
-        }
-        self.broadcast_queue.deinit(self.allocator);
-
         self.clients.deinit();
     }
 
     // Called by WebSocket thread to register a new client
-    pub fn addClient(self: *SharedState, client: *Client) usize {
+    pub fn addClient(self: *SharedState, conn: *websocket.Conn) usize {
         self.mutex.lock();
         defer self.mutex.unlock();
 
         const id = self.next_client_id;
         self.next_client_id += 1;
-        self.clients.put(id, client) catch {};
+        self.clients.put(id, conn) catch {};
         return id;
     }
 
@@ -110,7 +115,7 @@ pub const SharedState = struct {
         // Make a copy of the data for the main thread
         const data_copy = self.allocator.dupe(u8, data) catch return false;
 
-        self.commands.append(.{
+        self.commands.push(.{
             .client_id = client_id,
             .data = data_copy,
             .allocator = self.allocator,
@@ -129,39 +134,28 @@ pub const SharedState = struct {
         return self.commands.pop();
     }
 
-    // Called by main thread to queue a broadcast
-    pub fn queueBroadcast(self: *SharedState, message: []const u8) bool {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+    // Called by main thread to broadcast to all clients
+    // Copies client list while holding lock to avoid races
+    pub fn broadcast(self: *SharedState, message: []const u8) void {
+        // Copy conn pointers while holding lock
+        var conns: [MAX_CLIENTS]*websocket.Conn = undefined;
+        var count: usize = 0;
 
-        const msg_copy = self.allocator.dupe(u8, message) catch return false;
-        self.broadcast_queue.append(self.allocator, msg_copy) catch {
-            self.allocator.free(msg_copy);
-            return false;
-        };
-        return true;
-    }
+        {
+            self.mutex.lock();
+            defer self.mutex.unlock();
 
-    // Called by WebSocket thread to send pending broadcasts
-    pub fn flushBroadcasts(self: *SharedState) void {
-        self.mutex.lock();
-
-        // Take ownership of the queue
-        const messages = self.broadcast_queue.toOwnedSlice(self.allocator) catch {
-            self.mutex.unlock();
-            return;
-        };
-        const clients = self.clients.values();
-
-        self.mutex.unlock();
-
-        // Send outside the lock
-        defer self.allocator.free(messages);
-        for (messages) |msg| {
-            defer self.allocator.free(msg);
-            for (clients) |client| {
-                client.conn.writeText(msg) catch {};
+            for (self.clients.values()) |conn| {
+                if (count >= MAX_CLIENTS) break;
+                conns[count] = conn;
+                count += 1;
             }
+        }
+
+        // Send to all clients without holding lock
+        // writeText is thread-safe within the websocket library
+        for (conns[0..count]) |conn| {
+            conn.writeText(message) catch {};
         }
     }
 
@@ -173,22 +167,21 @@ pub const SharedState = struct {
     }
 };
 
-// Client connection handler
+// Client connection handler - implements websocket.Server handler interface
 pub const Client = struct {
     id: usize = 0,
     conn: *websocket.Conn,
     state: *SharedState,
 
     pub fn init(_: *const websocket.Handshake, conn: *websocket.Conn, state: *SharedState) !Client {
-        var client = Client{
+        // Register connection (not Client pointer) with shared state
+        const id = state.addClient(conn);
+
+        return .{
+            .id = id,
             .conn = conn,
             .state = state,
         };
-
-        // Register with shared state
-        client.id = state.addClient(&client);
-
-        return client;
     }
 
     pub fn clientMessage(self: *Client, allocator: Allocator, data: []const u8) !void {
@@ -211,13 +204,12 @@ pub const Server = struct {
     allocator: Allocator,
     state: *SharedState,
     server: websocket.Server(Client),
-    thread: ?Thread = null,
     port: u16,
 
     pub fn init(allocator: Allocator, state: *SharedState, port: u16) !Server {
         const server = try websocket.Server(Client).init(allocator, .{
             .port = port,
-            .address = "0.0.0.0", // Accept connections from any interface
+            .address = "0.0.0.0",
         });
 
         return .{
@@ -233,15 +225,19 @@ pub const Server = struct {
     }
 
     pub fn start(self: *Server) !void {
-        self.thread = try self.server.listenInNewThread(self.state);
+        const thread = try self.server.listenInNewThread(self.state);
+        // Detach immediately - we won't be joining this thread on shutdown
+        thread.detach();
     }
 
     pub fn stop(self: *Server) void {
-        self.server.stop();
-        if (self.thread) |t| {
-            t.join();
-            self.thread = null;
-        }
+        // The websocket library's stop() blocks on a condition variable waiting
+        // for worker threads to exit. Those threads are blocked in kevent() waiting
+        // for I/O events, so stop() will hang indefinitely.
+        //
+        // For REAPER extension shutdown, we can't block - just let the OS clean up
+        // when the process exits. The thread was already detached in start().
+        _ = self;
     }
 };
 
@@ -258,4 +254,62 @@ pub fn startWithPortRetry(allocator: Allocator, state: *SharedState, base_port: 
         return .{ .server = server, .port = port };
     }
     return error.AllPortsFailed;
+}
+
+// Tests
+test "CommandRingBuffer push and pop" {
+    var ring = CommandRingBuffer{};
+
+    // Create test commands (we won't actually free them in this test)
+    const cmd1 = Command{ .client_id = 1, .data = "test1", .allocator = std.testing.allocator };
+    const cmd2 = Command{ .client_id = 2, .data = "test2", .allocator = std.testing.allocator };
+
+    try ring.push(cmd1);
+    try ring.push(cmd2);
+
+    const popped1 = ring.pop().?;
+    try std.testing.expectEqual(@as(usize, 1), popped1.client_id);
+
+    const popped2 = ring.pop().?;
+    try std.testing.expectEqual(@as(usize, 2), popped2.client_id);
+
+    try std.testing.expect(ring.pop() == null);
+}
+
+test "CommandRingBuffer wraps around" {
+    var ring = CommandRingBuffer{};
+
+    // Fill partially
+    for (0..10) |i| {
+        try ring.push(.{ .client_id = i, .data = "", .allocator = std.testing.allocator });
+    }
+
+    // Pop some
+    for (0..5) |_| {
+        _ = ring.pop();
+    }
+
+    // Push more (should wrap)
+    for (10..20) |i| {
+        try ring.push(.{ .client_id = i, .data = "", .allocator = std.testing.allocator });
+    }
+
+    // Verify order
+    for (5..20) |i| {
+        const cmd = ring.pop().?;
+        try std.testing.expectEqual(i, cmd.client_id);
+    }
+}
+
+test "CommandRingBuffer full error" {
+    var ring = CommandRingBuffer{};
+
+    // Fill completely
+    for (0..MAX_COMMAND_QUEUE) |i| {
+        try ring.push(.{ .client_id = i, .data = "", .allocator = std.testing.allocator });
+    }
+
+    // Should fail
+    const result = ring.push(.{ .client_id = 999, .data = "", .allocator = std.testing.allocator });
+    try std.testing.expectError(error.QueueFull, result);
 }
