@@ -4,6 +4,11 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const websocket = b.dependency("websocket", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const lib = b.addLibrary(.{
         .linkage = .dynamic,
         .name = "reaper_reamo",
@@ -11,6 +16,9 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
+            .imports = &.{
+                .{ .name = "websocket", .module = websocket.module("websocket") },
+            },
         }),
     });
 
