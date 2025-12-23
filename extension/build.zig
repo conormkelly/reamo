@@ -24,13 +24,14 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(lib);
 
-    // Unit tests - test modules that don't depend on websocket
+    // Unit tests - test modules that don't depend on websocket or parent imports
+    // Note: commands/mod.zig tests run via library build (depends on ws_server)
     const test_modules = [_][]const u8{
         "src/protocol.zig",
         "src/transport.zig",
         "src/markers.zig",
         "src/items.zig",
-        "src/commands.zig",
+        "src/tracks.zig",
     };
 
     const test_step = b.step("test", "Run unit tests");

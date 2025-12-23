@@ -3,7 +3,8 @@ const reaper = @import("reaper.zig");
 const transport = @import("transport.zig");
 const markers = @import("markers.zig");
 const items = @import("items.zig");
-const commands = @import("commands.zig");
+const tracks = @import("tracks.zig");
+const commands = @import("commands/mod.zig");
 const ws_server = @import("ws_server.zig");
 
 // Configuration
@@ -19,6 +20,7 @@ var g_port: u16 = 0;
 var g_last_transport: transport.State = .{};
 var g_last_markers: markers.State = .{};
 var g_last_items: items.State = .{};
+var g_last_tracks: tracks.State = .{};
 var g_initialized: bool = false;
 
 // Debug logging (can be disabled in release)
@@ -72,6 +74,14 @@ fn initTimerCallback() callconv(.c) void {
     state.* = ws_server.SharedState.init(g_allocator);
     g_shared_state = state;
 
+    // Generate session token and store in EXTSTATE
+    var token_bytes: [16]u8 = undefined;
+    std.crypto.random.bytes(&token_bytes);
+    const token_hex = std.fmt.bytesToHex(token_bytes, .lower);
+    state.setToken(&token_hex);
+    api.setExtStateStr("Reamo", "SessionToken", &token_hex);
+    api.log("Reamo: Session token generated", .{});
+
     // Start WebSocket server
     const result = ws_server.startWithPortRetry(g_allocator, state, DEFAULT_PORT, MAX_PORT_ATTEMPTS) catch {
         api.logSimple("Reamo: Could not bind to ports 9224-9233");
@@ -90,6 +100,7 @@ fn initTimerCallback() callconv(.c) void {
     g_last_transport = transport.State.poll(api);
     g_last_markers = markers.State.poll(api);
     g_last_items = items.State.poll(api);
+    g_last_tracks = tracks.State.poll(api);
 
     api.log("Reamo: WebSocket server started on port {d}", .{g_port});
     logFile("WebSocket server started");
@@ -110,7 +121,7 @@ fn processTimerCallback() callconv(.c) void {
     while (shared_state.popCommand()) |cmd| {
         var command = cmd;
         defer command.deinit();
-        commands.dispatch(api, command.data);
+        commands.dispatch(api, command.client_id, command.data, shared_state);
     }
 
     // Poll transport state and broadcast changes
@@ -148,6 +159,16 @@ fn processTimerCallback() callconv(.c) void {
         }
     }
     g_last_items = current_items;
+
+    // Poll tracks and broadcast changes
+    const current_tracks = tracks.State.poll(api);
+    if (!current_tracks.eql(&g_last_tracks)) {
+        var buf: [16384]u8 = undefined; // Large buffer for many tracks
+        if (current_tracks.toJson(&buf)) |json| {
+            shared_state.broadcast(json);
+        }
+    }
+    g_last_tracks = current_tracks;
 }
 
 // Shutdown - called when REAPER unloads the extension
@@ -217,6 +238,7 @@ test {
     _ = @import("transport.zig");
     _ = @import("markers.zig");
     _ = @import("items.zig");
-    _ = @import("commands.zig");
+    _ = @import("tracks.zig");
+    _ = @import("commands/mod.zig");
     _ = @import("ws_server.zig");
 }

@@ -1,5 +1,6 @@
 const std = @import("std");
 const websocket = @import("websocket");
+const protocol = @import("protocol.zig");
 
 const Allocator = std.mem.Allocator;
 const Thread = std.Thread;
@@ -8,6 +9,8 @@ const Thread = std.Thread;
 const MAX_COMMAND_QUEUE = 256;
 // Maximum concurrent clients for broadcast buffer
 const MAX_CLIENTS = 64;
+// Session token length (hex string = 32 chars for 16 bytes)
+const TOKEN_HEX_LENGTH = 32;
 
 // Command received from a client
 pub const Command = struct {
@@ -73,11 +76,39 @@ pub const SharedState = struct {
     clients: std.AutoArrayHashMap(usize, *websocket.Conn),
     next_client_id: usize = 1,
 
+    // Session token for authentication (hex string)
+    session_token: [TOKEN_HEX_LENGTH]u8 = undefined,
+    token_set: bool = false,
+
     pub fn init(allocator: Allocator) SharedState {
         return .{
             .allocator = allocator,
             .clients = std.AutoArrayHashMap(usize, *websocket.Conn).init(allocator),
         };
+    }
+
+    // Set the session token (called by main.zig on startup)
+    pub fn setToken(self: *SharedState, token: []const u8) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const len = @min(token.len, TOKEN_HEX_LENGTH);
+        @memcpy(self.session_token[0..len], token[0..len]);
+        self.token_set = true;
+    }
+
+    // Validate a token (called during hello handshake)
+    pub fn validateToken(self: *SharedState, token: ?[]const u8) bool {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        // If no token is set, allow all connections (backwards compatibility)
+        if (!self.token_set) return true;
+
+        const t = token orelse return false;
+        if (t.len != TOKEN_HEX_LENGTH) return false;
+
+        return std.mem.eql(u8, t, &self.session_token);
     }
 
     pub fn deinit(self: *SharedState) void {
@@ -159,6 +190,21 @@ pub const SharedState = struct {
         }
     }
 
+    // Called by main thread to send to a specific client only
+    pub fn sendToClient(self: *SharedState, client_id: usize, message: []const u8) void {
+        var conn: ?*websocket.Conn = null;
+
+        {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+            conn = self.clients.get(client_id);
+        }
+
+        if (conn) |c| {
+            c.writeText(message) catch {};
+        }
+    }
+
     // Get client count (for logging)
     pub fn clientCount(self: *SharedState) usize {
         self.mutex.lock();
@@ -172,6 +218,7 @@ pub const Client = struct {
     id: usize = 0,
     conn: *websocket.Conn,
     state: *SharedState,
+    authenticated: bool = false,
 
     pub fn init(_: *const websocket.Handshake, conn: *websocket.Conn, state: *SharedState) !Client {
         // Register connection (not Client pointer) with shared state
@@ -181,16 +228,65 @@ pub const Client = struct {
             .id = id,
             .conn = conn,
             .state = state,
+            .authenticated = false,
         };
     }
 
     pub fn clientMessage(self: *Client, allocator: Allocator, data: []const u8) !void {
         _ = allocator;
 
-        // Queue command for main thread to process
-        if (!self.state.pushCommand(self.id, data)) {
-            // Queue full, send error
-            try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"QUEUE_FULL\",\"message\":\"Command queue full\"}}");
+        // Check message type
+        const msg_type = protocol.MessageType.parse(data);
+
+        switch (msg_type) {
+            .hello => {
+                // Handle hello handshake
+                const hello = protocol.HelloMessage.parse(data);
+
+                // Validate token
+                if (!self.state.validateToken(hello.token)) {
+                    // Invalid token - send error and close
+                    try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"INVALID_TOKEN\",\"message\":\"Invalid or missing authentication token\"}}");
+                    self.conn.close(.{ .code = 4001, .reason = "Invalid token" }) catch {};
+                    return;
+                }
+
+                // Check protocol version
+                if (hello.protocol_version) |client_version| {
+                    if (client_version != protocol.PROTOCOL_VERSION) {
+                        // Protocol mismatch - send error with our version
+                        var buf: [128]u8 = undefined;
+                        const err_json = std.fmt.bufPrint(&buf, "{{\"type\":\"error\",\"error\":{{\"code\":\"PROTOCOL_MISMATCH\",\"message\":\"Expected protocol version {d}\"}}}}", .{protocol.PROTOCOL_VERSION}) catch return;
+                        try self.conn.writeText(err_json);
+                        self.conn.close(.{ .code = 4002, .reason = "Protocol mismatch" }) catch {};
+                        return;
+                    }
+                }
+
+                // Success - mark authenticated and send hello response
+                self.authenticated = true;
+                var buf: [128]u8 = undefined;
+                const response = protocol.buildHelloResponse(&buf);
+                try self.conn.writeText(response);
+                return;
+            },
+            .command => {
+                // Require authentication for commands
+                if (!self.authenticated and self.state.token_set) {
+                    try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"NOT_AUTHENTICATED\",\"message\":\"Send hello message first\"}}");
+                    return;
+                }
+
+                // Queue command for main thread to process
+                if (!self.state.pushCommand(self.id, data)) {
+                    // Queue full, send error
+                    try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"QUEUE_FULL\",\"message\":\"Command queue full\"}}");
+                }
+            },
+            .unknown => {
+                // Unknown message type - ignore or send error
+                try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"UNKNOWN_MESSAGE\",\"message\":\"Unknown message type\"}}");
+            },
         }
     }
 

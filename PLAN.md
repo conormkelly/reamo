@@ -1387,6 +1387,41 @@ Zig provides memory safety by default. Additionally:
 - No manual pointer arithmetic
 - No use-after-free possible with Zig's ownership model
 
+#### 7. Safe Numeric Conversions
+
+Zig's `@intFromFloat` will panic on NaN/Inf values. REAPER APIs return floats that may be corrupt. Always use safe wrappers:
+
+```zig
+// Generic safe conversion (reaper.zig)
+fn safeFloatToInt(comptime T: type, val: f64, default: T) T {
+    if (std.math.isNan(val) or std.math.isInf(val)) return default;
+    const min_val: f64 = @floatFromInt(std.math.minInt(T));
+    const max_val: f64 = @floatFromInt(std.math.maxInt(T));
+    const clamped = @max(min_val, @min(max_val, val));
+    return @intFromFloat(clamped);
+}
+
+// Domain-specific with clamping (transport.zig)
+fn safeTimeSigNum(val: f64) u32 {
+    if (std.math.isNan(val) or std.math.isInf(val)) return 4;
+    const clamped = @max(1.0, @min(32.0, val));  // Valid range: 1-32
+    return @intFromFloat(clamped);
+}
+
+// Input validation at trust boundary (commands.zig)
+fn validatePosition(pos: ?f64) ?f64 {
+    const p = pos orelse return null;
+    if (std.math.isNan(p) or std.math.isInf(p)) return null;
+    if (p < 0) return null;
+    return p;
+}
+```
+
+Use the appropriate pattern:
+- `safeFloatToInt`: When reading REAPER API values that become integers
+- Domain-specific (like `safeTimeSigNum`): When valid ranges are known
+- `validatePosition`: At WebSocket boundary to reject bad client input
+
 ### Testing Strategy
 
 #### Unit Tests

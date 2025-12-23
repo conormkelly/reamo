@@ -8,16 +8,22 @@ pub const State = struct {
     cursor_position: f64 = 0,
     bpm: f64 = 120,
     time_sig_num: f64 = 4,
+    time_sig_denom: c_int = 4,
     time_sel_start: f64 = 0,
     time_sel_end: f64 = 0,
+    repeat: bool = false,
+    metronome: bool = false,
 
     // Comparison with tolerance for change detection
     pub fn eql(self: State, other: State) bool {
         if (self.play_state != other.play_state) return false;
         if (!floatEql(self.bpm, other.bpm)) return false;
         if (self.time_sig_num != other.time_sig_num) return false;
+        if (self.time_sig_denom != other.time_sig_denom) return false;
         if (!floatEql(self.time_sel_start, other.time_sel_start)) return false;
         if (!floatEql(self.time_sel_end, other.time_sel_end)) return false;
+        if (self.repeat != other.repeat) return false;
+        if (self.metronome != other.metronome) return false;
 
         // Position changes frequently during playback - only check when stopped
         if (self.play_state == 0) {
@@ -48,6 +54,8 @@ pub const State = struct {
     pub fn poll(api: *const reaper.Api) State {
         const ts = api.timeSignature();
         const sel = api.timeSelection();
+        // Get time signature denominator from cursor position beats info
+        const beats_info = api.timeToBeats(api.cursorPosition());
 
         return .{
             .play_state = api.playState(),
@@ -55,23 +63,29 @@ pub const State = struct {
             .cursor_position = api.cursorPosition(),
             .bpm = ts.bpm,
             .time_sig_num = ts.num,
+            .time_sig_denom = beats_info.time_sig_denom,
             .time_sel_start = sel.start,
             .time_sel_end = sel.end,
+            .repeat = api.getRepeat(),
+            .metronome = api.isMetronomeEnabled(),
         };
     }
 
     // Build JSON event for this state
     pub fn toJson(self: State, buf: []u8) ?[]const u8 {
         const result = std.fmt.bufPrint(buf,
-            \\{{"type":"event","event":"transport","payload":{{"playState":{d},"position":{d:.3},"cursorPosition":{d:.3},"bpm":{d:.2},"timeSignature":{{"numerator":{d},"denominator":4}},"timeSelection":{{"start":{d:.3},"end":{d:.3}}}}}}}
+            \\{{"type":"event","event":"transport","payload":{{"playState":{d},"position":{d:.3},"cursorPosition":{d:.3},"bpm":{d:.2},"timeSignature":{{"numerator":{d},"denominator":{d}}},"timeSelection":{{"start":{d:.3},"end":{d:.3}}},"repeat":{s},"metronome":{s}}}}}
         , .{
             self.play_state,
             self.currentPosition(),
             self.cursor_position,
             self.bpm,
             safeTimeSigNum(self.time_sig_num),
+            self.time_sig_denom,
             self.time_sel_start,
             self.time_sel_end,
+            if (self.repeat) "true" else "false",
+            if (self.metronome) "true" else "false",
         }) catch return null;
 
         return result;
@@ -145,8 +159,10 @@ test "State.toJson" {
         .cursor_position = 5.0,
         .bpm = 120.0,
         .time_sig_num = 4,
+        .time_sig_denom = 4,
         .time_sel_start = 0,
         .time_sel_end = 30.0,
+        .repeat = true,
     };
 
     var buf: [512]u8 = undefined;
@@ -156,6 +172,20 @@ test "State.toJson" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"playState\":1") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"position\":10.5") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"bpm\":120") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"repeat\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"denominator\":4") != null);
+}
+
+test "State.eql detects repeat changes" {
+    const a = State{ .repeat = false };
+    const b = State{ .repeat = true };
+    try std.testing.expect(!a.eql(b));
+}
+
+test "State.eql detects metronome changes" {
+    const a = State{ .metronome = false };
+    const b = State{ .metronome = true };
+    try std.testing.expect(!a.eql(b));
 }
 
 test "PlayState helpers" {

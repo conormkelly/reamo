@@ -68,9 +68,10 @@
             font-size: 14px;
             margin-left: 10px;
         }
-        #ws-status.connected { background: #0f9b0f; }
+        #ws-status.connected { background: #f39c12; }
         #ws-status.disconnected { background: #e94560; }
-        #ws-status.connecting { background: #f39c12; }
+        #ws-status.connecting { background: #4a4a6a; }
+        #ws-status.authenticated { background: #0f9b0f; }
         #message-input {
             width: 100%;
             padding: 12px;
@@ -128,6 +129,8 @@
     <script>
         let ws = null;
         let wsPort = 9224;
+        let sessionToken = null;
+        let authenticated = false;
 
         function log(message, type = 'info') {
             const logEl = document.getElementById('log');
@@ -142,9 +145,15 @@
         function updateWsStatus(status) {
             const statusEl = document.getElementById('ws-status');
             statusEl.className = status;
-            statusEl.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+            const labels = {
+                'disconnected': 'Disconnected',
+                'connecting': 'Connecting',
+                'connected': 'Connected (no auth)',
+                'authenticated': 'Authenticated'
+            };
+            statusEl.textContent = labels[status] || status;
 
-            document.getElementById('ws-connect-btn').disabled = status === 'connected' || status === 'connecting';
+            document.getElementById('ws-connect-btn').disabled = status !== 'disconnected';
             document.getElementById('ws-disconnect-btn').disabled = status === 'disconnected';
         }
 
@@ -192,17 +201,31 @@
                 addResult('extstate-results', 'WebSocketPort EXTSTATE', false, e.message);
             }
 
+            // Test SessionToken
+            try {
+                const token = await fetchExtState('Reamo', 'SessionToken');
+                if (token) {
+                    sessionToken = token;
+                    addResult('extstate-results', 'SessionToken EXTSTATE', true, `Value: "${token.substring(0, 8)}..." (${token.length} chars)`);
+                } else {
+                    addResult('extstate-results', 'SessionToken EXTSTATE', false, 'Not found - extension may not be loaded');
+                }
+            } catch (e) {
+                addResult('extstate-results', 'SessionToken EXTSTATE', false, e.message);
+            }
+
             // Summary
             const allPassed = document.querySelectorAll('#extstate-results .step.fail').length === 0;
             const summary = document.createElement('div');
             summary.className = 'status-box';
             summary.innerHTML = allPassed
-                ? `<h3 class="success">EXTSTATE OK</h3><p>Extension loaded. WebSocket port: ${wsPort}</p>`
+                ? `<h3 class="success">EXTSTATE OK</h3><p>Extension loaded. WebSocket port: ${wsPort}, Token ready.</p>`
                 : '<h3 class="error">EXTSTATE Failed</h3><p>Make sure REAPER is running and the extension is loaded.</p>';
             results.appendChild(summary);
         }
 
         async function connectWebSocket() {
+            authenticated = false;
             updateWsStatus('connecting');
             // Use same host as page (works for both localhost and remote access)
             const wsHost = window.location.hostname;
@@ -213,11 +236,35 @@
 
                 ws.onopen = () => {
                     updateWsStatus('connected');
-                    log('Connected!', 'received');
+                    log('Socket connected, sending hello handshake...', 'info');
+
+                    // Send hello message with token
+                    const hello = {
+                        type: 'hello',
+                        clientVersion: '1.0.0',
+                        protocolVersion: 1,
+                        token: sessionToken
+                    };
+                    ws.send(JSON.stringify(hello));
+                    log(`→ ${JSON.stringify(hello)}`, 'sent');
                 };
 
                 ws.onmessage = (event) => {
                     log(`← ${event.data}`, 'received');
+
+                    // Parse response to check for hello acknowledgment
+                    try {
+                        const msg = JSON.parse(event.data);
+                        if (msg.type === 'hello' && msg.extensionVersion) {
+                            authenticated = true;
+                            updateWsStatus('authenticated');
+                            log(`Handshake complete! Extension v${msg.extensionVersion}, Protocol v${msg.protocolVersion}`, 'received');
+                        } else if (msg.type === 'error') {
+                            log(`Server error: ${msg.error?.code} - ${msg.error?.message}`, 'error');
+                        }
+                    } catch (e) {
+                        // Not JSON, ignore
+                    }
                 };
 
                 ws.onerror = (error) => {
@@ -226,6 +273,7 @@
 
                 ws.onclose = (event) => {
                     updateWsStatus('disconnected');
+                    authenticated = false;
                     log(`Disconnected (code: ${event.code}, reason: ${event.reason || 'none'})`, 'info');
                     ws = null;
                 };

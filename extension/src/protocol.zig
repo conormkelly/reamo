@@ -1,15 +1,36 @@
 const std = @import("std");
 
+// Protocol version - increment when breaking changes are made
+pub const PROTOCOL_VERSION: u32 = 1;
+pub const EXTENSION_VERSION = "0.6.0";
+
 // Incoming message types
 pub const MessageType = enum {
     command,
+    hello,
     unknown,
 
     pub fn parse(data: []const u8) MessageType {
         if (jsonGetString(data, "type")) |t| {
             if (std.mem.eql(u8, t, "command")) return .command;
+            if (std.mem.eql(u8, t, "hello")) return .hello;
         }
         return .unknown;
+    }
+};
+
+// Hello message from client (for handshake)
+pub const HelloMessage = struct {
+    client_version: ?[]const u8,
+    protocol_version: ?u32,
+    token: ?[]const u8,
+
+    pub fn parse(data: []const u8) HelloMessage {
+        return .{
+            .client_version = jsonGetString(data, "clientVersion"),
+            .protocol_version = if (jsonGetInt(data, "protocolVersion")) |v| @intCast(@as(u32, @bitCast(v))) else null,
+            .token = jsonGetString(data, "token"),
+        };
     }
 };
 
@@ -21,6 +42,11 @@ pub const CommandMessage = struct {
     pub fn parse(data: []const u8) ?CommandMessage {
         const command = jsonGetString(data, "command") orelse return null;
         return .{ .command = command, .raw = data };
+    }
+
+    // Get the correlation ID for response routing (optional)
+    pub fn getId(self: CommandMessage) ?[]const u8 {
+        return jsonGetString(self.raw, "id");
     }
 
     // Get a float parameter from the message
@@ -252,6 +278,20 @@ pub fn buildError(buf: []u8, code: []const u8, message: []const u8) []const u8 {
     return w.slice();
 }
 
+// Build hello response (sent after successful handshake)
+pub fn buildHelloResponse(buf: []u8) []const u8 {
+    var w = JsonWriter.init(buf);
+    w.beginObject();
+    w.field("type");
+    w.string("hello");
+    w.field("extensionVersion");
+    w.string(EXTENSION_VERSION);
+    w.field("protocolVersion");
+    w.int(PROTOCOL_VERSION);
+    w.endObject();
+    return w.slice();
+}
+
 // Tests
 test "jsonGetString" {
     const data = "{\"type\":\"command\",\"command\":\"transport/play\"}";
@@ -330,4 +370,25 @@ test "writeJsonString handles empty string" {
 
     try writeJsonString(w, "");
     try std.testing.expectEqual(@as(usize, 0), stream.getWritten().len);
+}
+
+test "MessageType.parse recognizes hello" {
+    const hello_data = "{\"type\":\"hello\",\"clientVersion\":\"1.0.0\"}";
+    try std.testing.expectEqual(MessageType.hello, MessageType.parse(hello_data));
+}
+
+test "HelloMessage.parse extracts fields" {
+    const data = "{\"type\":\"hello\",\"clientVersion\":\"1.0.0\",\"protocolVersion\":1,\"token\":\"abc123\"}";
+    const msg = HelloMessage.parse(data);
+    try std.testing.expectEqualStrings("1.0.0", msg.client_version.?);
+    try std.testing.expectEqual(@as(u32, 1), msg.protocol_version.?);
+    try std.testing.expectEqualStrings("abc123", msg.token.?);
+}
+
+test "buildHelloResponse" {
+    var buf: [256]u8 = undefined;
+    const json = buildHelloResponse(&buf);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"extensionVersion\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"protocolVersion\"") != null);
 }
