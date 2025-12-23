@@ -1,5 +1,6 @@
 const std = @import("std");
 const reaper = @import("reaper.zig");
+const protocol = @import("protocol.zig");
 
 // Maximum items/takes we track
 pub const MAX_ITEMS = 512;
@@ -182,14 +183,14 @@ pub const State = struct {
             w.print("\"color\":{d},\"locked\":{},\"activeTakeIdx\":{d},\"notes\":\"", .{
                 item.color, item.locked, item.active_take_idx
             }) catch return null;
-            writeJsonString(w, item.getNotes()) catch return null;
+            protocol.writeJsonString(w, item.getNotes()) catch return null;
             w.writeAll("\",\"takes\":[") catch return null;
 
             for (0..item.take_count) |t| {
                 if (t > 0) w.writeByte(',') catch return null;
                 const take = &item.takes[t];
                 w.writeAll("{\"name\":\"") catch return null;
-                writeJsonString(w, take.getName()) catch return null;
+                protocol.writeJsonString(w, take.getName()) catch return null;
                 w.print("\",\"isActive\":{}}}", .{take.is_active}) catch return null;
             }
 
@@ -200,26 +201,6 @@ pub const State = struct {
         return stream.getWritten();
     }
 };
-
-// Helper to escape JSON strings
-fn writeJsonString(writer: anytype, s: []const u8) !void {
-    for (s) |c| {
-        switch (c) {
-            '"' => try writer.writeAll("\\\""),
-            '\\' => try writer.writeAll("\\\\"),
-            '\n' => try writer.writeAll("\\n"),
-            '\r' => try writer.writeAll("\\r"),
-            '\t' => try writer.writeAll("\\t"),
-            else => {
-                if (c < 0x20) {
-                    try writer.print("\\u{x:0>4}", .{c});
-                } else {
-                    try writer.writeByte(c);
-                }
-            },
-        }
-    }
-}
 
 // Tests
 test "Take equality" {

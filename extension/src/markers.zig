@@ -1,5 +1,6 @@
 const std = @import("std");
 const reaper = @import("reaper.zig");
+const protocol = @import("protocol.zig");
 
 // Maximum markers/regions we track (matches frontend reasonable limits)
 pub const MAX_MARKERS = 256;
@@ -126,7 +127,7 @@ pub const State = struct {
             if (i > 0) w.writeByte(',') catch return null;
             const m = &self.markers[i];
             w.print("{{\"id\":{d},\"position\":{d:.3},\"name\":\"", .{ m.id, m.position }) catch return null;
-            writeJsonString(w, m.getName()) catch return null;
+            protocol.writeJsonString(w, m.getName()) catch return null;
             w.print("\",\"color\":{d}}}", .{m.color}) catch return null;
         }
 
@@ -145,7 +146,7 @@ pub const State = struct {
             if (i > 0) w.writeByte(',') catch return null;
             const r = &self.regions[i];
             w.print("{{\"id\":{d},\"start\":{d:.3},\"end\":{d:.3},\"name\":\"", .{ r.id, r.start, r.end }) catch return null;
-            writeJsonString(w, r.getName()) catch return null;
+            protocol.writeJsonString(w, r.getName()) catch return null;
             w.print("\",\"color\":{d}}}", .{r.color}) catch return null;
         }
 
@@ -153,26 +154,6 @@ pub const State = struct {
         return stream.getWritten();
     }
 };
-
-// Helper to escape JSON strings
-fn writeJsonString(writer: anytype, s: []const u8) !void {
-    for (s) |c| {
-        switch (c) {
-            '"' => try writer.writeAll("\\\""),
-            '\\' => try writer.writeAll("\\\\"),
-            '\n' => try writer.writeAll("\\n"),
-            '\r' => try writer.writeAll("\\r"),
-            '\t' => try writer.writeAll("\\t"),
-            else => {
-                if (c < 0x20) {
-                    try writer.print("\\u{x:0>4}", .{c});
-                } else {
-                    try writer.writeByte(c);
-                }
-            },
-        }
-    }
-}
 
 // Tests
 test "Marker equality" {
@@ -239,15 +220,6 @@ test "State regions JSON output" {
         "{\"type\":\"event\",\"event\":\"regions\",\"payload\":{\"regions\":[{\"id\":2,\"start\":0.000,\"end\":30.000,\"name\":\"Intro\",\"color\":255}]}}",
         json,
     );
-}
-
-test "JSON string escaping" {
-    var buf: [256]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
-    const w = stream.writer();
-
-    try writeJsonString(w, "test\"quote");
-    try std.testing.expectEqualStrings("test\\\"quote", stream.getWritten());
 }
 
 test "markers changed detection" {

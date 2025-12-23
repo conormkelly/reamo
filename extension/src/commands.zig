@@ -5,6 +5,16 @@ const protocol = @import("protocol.zig");
 // Command handler function type
 pub const Handler = *const fn (*const reaper.Api, protocol.CommandMessage) void;
 
+// Helper to create null-terminated string from optional slice
+// Returns pointer to buffer (null-terminated) or empty string literal
+fn toNullTerminated(buf: *[65]u8, str: ?[]const u8) [*:0]const u8 {
+    const s = str orelse return "";
+    const len = @min(s.len, 64);
+    @memcpy(buf[0..len], s[0..len]);
+    buf[len] = 0;
+    return @ptrCast(buf);
+}
+
 // Command registry entry
 const Entry = struct {
     name: []const u8,
@@ -110,14 +120,8 @@ fn handleMarkerAdd(api: *const reaper.Api, cmd: protocol.CommandMessage) void {
     const pos = cmd.getFloat("position") orelse return;
     const color = cmd.getInt("color") orelse 0;
 
-    // Get name - need null-terminated string for REAPER API
     var name_buf: [65]u8 = undefined;
-    const name: [*:0]const u8 = if (cmd.getString("name")) |n| blk: {
-        const len = @min(n.len, 64);
-        @memcpy(name_buf[0..len], n[0..len]);
-        name_buf[len] = 0;
-        break :blk @ptrCast(&name_buf);
-    } else "";
+    const name = toNullTerminated(&name_buf, cmd.getString("name"));
 
     const id = api.addMarker(pos, name, color);
     if (id >= 0) {
@@ -131,12 +135,7 @@ fn handleMarkerUpdate(api: *const reaper.Api, cmd: protocol.CommandMessage) void
     const color = cmd.getInt("color") orelse 0;
 
     var name_buf: [65]u8 = undefined;
-    const name: [*:0]const u8 = if (cmd.getString("name")) |n| blk: {
-        const len = @min(n.len, 64);
-        @memcpy(name_buf[0..len], n[0..len]);
-        name_buf[len] = 0;
-        break :blk @ptrCast(&name_buf);
-    } else "";
+    const name = toNullTerminated(&name_buf, cmd.getString("name"));
 
     if (api.updateMarker(id, pos, name, color)) {
         api.log("Reamo: Updated marker {d}", .{id});
@@ -171,12 +170,7 @@ fn handleRegionAdd(api: *const reaper.Api, cmd: protocol.CommandMessage) void {
     const color = cmd.getInt("color") orelse 0;
 
     var name_buf: [65]u8 = undefined;
-    const name: [*:0]const u8 = if (cmd.getString("name")) |n| blk: {
-        const len = @min(n.len, 64);
-        @memcpy(name_buf[0..len], n[0..len]);
-        name_buf[len] = 0;
-        break :blk @ptrCast(&name_buf);
-    } else "";
+    const name = toNullTerminated(&name_buf, cmd.getString("name"));
 
     const id = api.addRegion(start, end, name, color);
     if (id >= 0) {
@@ -191,12 +185,7 @@ fn handleRegionUpdate(api: *const reaper.Api, cmd: protocol.CommandMessage) void
     const color = cmd.getInt("color") orelse 0;
 
     var name_buf: [65]u8 = undefined;
-    const name: [*:0]const u8 = if (cmd.getString("name")) |n| blk: {
-        const len = @min(n.len, 64);
-        @memcpy(name_buf[0..len], n[0..len]);
-        name_buf[len] = 0;
-        break :blk @ptrCast(&name_buf);
-    } else "";
+    const name = toNullTerminated(&name_buf, cmd.getString("name"));
 
     if (api.updateRegion(id, start, end, name, color)) {
         api.log("Reamo: Updated region {d}", .{id});

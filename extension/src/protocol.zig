@@ -215,6 +215,26 @@ pub fn buildEvent(buf: []u8, event_name: []const u8, payload_fn: fn (*JsonWriter
     return w.slice();
 }
 
+// Helper to escape JSON strings - used by state modules for serialization
+pub fn writeJsonString(writer: anytype, s: []const u8) !void {
+    for (s) |c| {
+        switch (c) {
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            else => {
+                if (c < 0x20) {
+                    try writer.print("\\u{x:0>4}", .{c});
+                } else {
+                    try writer.writeByte(c);
+                }
+            },
+        }
+    }
+}
+
 // Build error response
 pub fn buildError(buf: []u8, code: []const u8, message: []const u8) []const u8 {
     var w = JsonWriter.init(buf);
