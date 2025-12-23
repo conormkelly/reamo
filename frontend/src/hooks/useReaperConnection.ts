@@ -1,130 +1,124 @@
 /**
- * REAPER Connection Hook
- * Manages the connection lifecycle and wires responses to the store
+ * REAPER WebSocket Connection Hook
+ * Manages the WebSocket connection lifecycle and wires messages to the store
  */
 
 import { useEffect, useRef, useCallback } from 'react';
-import { ReaperConnection, type ReaperConnectionOptions } from '../core/ReaperConnection';
+import { WebSocketConnection } from '../core/WebSocketConnection';
+import type { ConnectionState } from '../core/WebSocketTypes';
+import type { WSCommand } from '../core/WebSocketCommands';
 import { useReaperStore } from '../store';
-import * as commands from '../core/CommandBuilder';
 
 export interface UseReaperConnectionOptions {
-  /** Base URL for REAPER's HTTP server (default: '') */
-  baseUrl?: string;
+  /** WebSocket port (default: 9224) */
+  port?: number;
+  /** Auth token (optional) */
+  token?: string;
   /** Auto-start connection on mount (default: true) */
   autoStart?: boolean;
-  /** Transport polling interval in ms (default: 30) */
-  transportInterval?: number;
-  /** Track polling interval in ms (default: 500) */
-  trackInterval?: number;
 }
 
 export interface UseReaperConnectionReturn {
   /** Whether connected to REAPER */
   connected: boolean;
+  /** Current connection state */
+  connectionState: ConnectionState;
   /** Current error count */
   errorCount: number;
   /** Start the connection */
   start: () => void;
   /** Stop the connection */
   stop: () => void;
-  /** Send a one-time command */
-  send: (command: string) => void;
+  /** Send a command (raw) */
+  send: (command: string, params?: Record<string, unknown>) => void;
+  /** Send a WSCommand object */
+  sendCommand: (cmd: WSCommand) => void;
   /** The underlying connection instance */
-  connection: ReaperConnection | null;
+  connection: WebSocketConnection | null;
 }
 
 /**
- * Hook to manage the REAPER connection
+ * Hook to manage the REAPER WebSocket connection
  */
 export function useReaperConnection(
   options: UseReaperConnectionOptions = {}
 ): UseReaperConnectionReturn {
-  const {
-    baseUrl = '',
-    autoStart = true,
-    transportInterval = 30,
-    trackInterval = 500,
-  } = options;
+  const { port = 9224, token, autoStart = true } = options;
 
-  const connectionRef = useRef<ReaperConnection | null>(null);
+  const connectionRef = useRef<WebSocketConnection | null>(null);
   const startedRef = useRef(false);
 
   // Get store actions and state
-  const handleResponses = useReaperStore((state) => state.handleResponses);
-  const updateConnectionStatus = useReaperStore(
-    (state) => state.updateConnectionStatus
+  const handleWebSocketMessage = useReaperStore(
+    (state) => state.handleWebSocketMessage
   );
+  const setConnected = useReaperStore((state) => state.setConnected);
+  const setErrorCount = useReaperStore((state) => state.setErrorCount);
   const connected = useReaperStore((state) => state.connected);
   const errorCount = useReaperStore((state) => state.errorCount);
 
+  // Track connection state
+  const connectionStateRef = useRef<ConnectionState>('disconnected');
+
   // Initialize connection
   useEffect(() => {
-    const connectionOptions: ReaperConnectionOptions = {
-      baseUrl,
-      onResponse: handleResponses,
-      onConnectionChange: updateConnectionStatus,
-    };
+    const connection = new WebSocketConnection({
+      port,
+      token,
+      onStateChange: (state, error) => {
+        connectionStateRef.current = state;
+        setConnected(state === 'connected');
+        if (state === 'error') {
+          // Increment error count - get current value from store
+          const currentCount = useReaperStore.getState().errorCount;
+          setErrorCount(currentCount + 1);
+          console.error('[useReaperConnection] Error:', error);
+        } else if (state === 'connected') {
+          setErrorCount(0);
+        }
+      },
+      onMessage: handleWebSocketMessage,
+    });
 
-    connectionRef.current = new ReaperConnection(connectionOptions);
+    connectionRef.current = connection;
 
     return () => {
-      if (connectionRef.current) {
-        connectionRef.current.stop();
-        connectionRef.current = null;
-      }
+      connection.stop();
+      connectionRef.current = null;
       startedRef.current = false;
     };
-  }, [baseUrl, handleResponses, updateConnectionStatus]);
+  }, [port, token, handleWebSocketMessage, setConnected, setErrorCount]);
 
   // Start connection
   const start = useCallback(() => {
     if (!connectionRef.current || startedRef.current) return;
-
     startedRef.current = true;
-
-    // Set up default polling (TRANSPORT + BEATPOS for BPM calculation + metronome/auto-punch/count-in state)
-    connectionRef.current.poll(
-      commands.join(
-        commands.transport(),
-        commands.beatPos(),
-        commands.getCommandState(40364), // Metronome state
-        commands.getCommandState(40076), // Auto-punch state
-        commands.getCommandState('_SWS_AWCOUNTRECTOG'),  // Count-in before recording
-        commands.getCommandState('_SWS_AWCOUNTPLAYTOG')  // Count-in before playback
-      ),
-      transportInterval
-    );
-    connectionRef.current.poll(
-      commands.join(commands.trackCount(), commands.allTracks()),
-      trackInterval
-    );
-    // Poll regions and markers less frequently (every 2 seconds)
-    connectionRef.current.poll(
-      commands.join(commands.regions(), commands.markers()),
-      2000
-    );
-
-    // Start the connection
     connectionRef.current.start();
-
-    // Mark as connected initially (will be updated by actual responses)
-    updateConnectionStatus(true, 0);
-  }, [transportInterval, trackInterval, updateConnectionStatus]);
+  }, []);
 
   // Stop connection
   const stop = useCallback(() => {
     if (connectionRef.current) {
       connectionRef.current.stop();
       startedRef.current = false;
-      updateConnectionStatus(false, 0);
+      setConnected(false);
     }
-  }, [updateConnectionStatus]);
+  }, [setConnected]);
 
-  // Send command
-  const send = useCallback((command: string) => {
+  // Send command (raw)
+  const send = useCallback(
+    (command: string, params?: Record<string, unknown>) => {
+      if (connectionRef.current) {
+        connectionRef.current.send(command, params);
+      }
+    },
+    []
+  );
+
+  // Send WSCommand object
+  const sendCommand = useCallback((cmd: WSCommand) => {
     if (connectionRef.current) {
-      connectionRef.current.send(command);
+      connectionRef.current.send(cmd.command, cmd.params);
     }
   }, []);
 
@@ -137,10 +131,12 @@ export function useReaperConnection(
 
   return {
     connected,
+    connectionState: connectionStateRef.current,
     errorCount,
     start,
     stop,
     send,
+    sendCommand,
     connection: connectionRef.current,
   };
 }

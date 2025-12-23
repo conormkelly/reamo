@@ -12,11 +12,27 @@ import { createMarkersSlice, type MarkersSlice } from './slices/markersSlice';
 import { createRegionEditSlice, type RegionEditSlice } from './slices/regionEditSlice';
 import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
 import { ActionCommands, SWSCommands } from '../core/types';
+import type {
+  ServerMessage,
+  TransportEventPayload,
+  TracksEventPayload,
+  MarkersEventPayload,
+  RegionsEventPayload,
+} from '../core/WebSocketTypes';
+import {
+  isEventMessage,
+  isTransportEvent,
+  isTracksEvent,
+  isMarkersEvent,
+  isRegionsEvent,
+} from '../core/WebSocketTypes';
 
 // Combined store type
 export type ReaperStore = ConnectionSlice & TransportSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & {
-  // Response handler action
+  // Response handler action (legacy HTTP)
   handleResponses: (responses: ParsedResponse[]) => void;
+  // WebSocket message handler
+  handleWebSocketMessage: (message: ServerMessage) => void;
 };
 
 // Create the combined store
@@ -125,6 +141,84 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
         default:
           break;
       }
+    }
+  },
+
+  // Handle WebSocket messages
+  handleWebSocketMessage: (message: ServerMessage) => {
+    if (!isEventMessage(message)) return;
+
+    if (isTransportEvent(message)) {
+      const p = message.payload as TransportEventPayload;
+      set({
+        playState: p.playState,
+        positionSeconds: p.position,
+        positionBeats: p.positionBeats,
+        bpm: p.bpm,
+        timeSignatureNumerator: p.timeSignature.numerator,
+        timeSignatureDenominator: p.timeSignature.denominator,
+        isRepeat: p.repeat,
+        isMetronome: p.metronome.enabled,
+        metronomeVolume: p.metronome.volume,
+        // Convert time selection from seconds to beats for compatibility
+        // TODO: Simplify - store seconds directly, convert in UI if needed
+        timeSelection: p.timeSelection.start !== p.timeSelection.end
+          ? {
+              startBeats: p.timeSelection.start * (p.bpm / 60),
+              endBeats: p.timeSelection.end * (p.bpm / 60),
+            }
+          : null,
+      });
+    } else if (isTracksEvent(message)) {
+      const p = message.payload as TracksEventPayload;
+      // Convert WSTrack format to Track format
+      const tracks: Record<number, import('../core/types').Track> = {};
+      for (const t of p.tracks) {
+        // Build flags bitfield from boolean fields
+        let flags = 0;
+        if (t.mute) flags |= 8; // MUTED
+        if (t.solo) flags |= 16; // SOLOED
+        if (t.recArm) flags |= 64; // RECORD_ARMED
+        if (t.recMon === 1) flags |= 128; // RECORD_MONITOR_ON
+        if (t.recMon === 2) flags |= 256; // RECORD_MONITOR_AUTO
+        if (!t.fxEnabled) flags |= 4; // HAS_FX (inverted - fxEnabled=false means disabled)
+
+        tracks[t.idx] = {
+          index: t.idx,
+          name: t.name,
+          color: t.color,
+          volume: t.volume,
+          pan: t.pan,
+          flags,
+          lastMeterPeak: 0,
+          lastMeterPos: 0,
+          width: 0,
+          panMode: 0,
+          sendCount: 0,
+          receiveCount: 0,
+          hwOutCount: 0,
+        };
+      }
+      set({ tracks, trackCount: p.tracks.length });
+    } else if (isMarkersEvent(message)) {
+      const p = message.payload as MarkersEventPayload;
+      const markers: Marker[] = p.markers.map((m) => ({
+        id: m.id,
+        position: m.position,
+        name: m.name,
+        color: m.color || undefined,
+      }));
+      get().setMarkers(markers);
+    } else if (isRegionsEvent(message)) {
+      const p = message.payload as RegionsEventPayload;
+      const regions: Region[] = p.regions.map((r) => ({
+        id: r.id,
+        start: r.start,
+        end: r.end,
+        name: r.name,
+        color: r.color || undefined,
+      }));
+      get().setRegions(regions);
     }
   },
 }));

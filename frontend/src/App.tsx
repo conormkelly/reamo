@@ -199,7 +199,7 @@ function AppContent() {
 
 function App() {
   return (
-    <ReaperProvider autoStart={true} transportInterval={30} trackInterval={200}>
+    <ReaperProvider autoStart={true}>
       <AppContent />
     </ReaperProvider>
   );
