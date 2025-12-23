@@ -1,7 +1,7 @@
 const std = @import("std");
 
 // Debug logging - set to false for release builds
-pub const DEBUG_LOGGING = true;
+pub const DEBUG_LOGGING = false;
 
 // REAPER plugin API version
 pub const PLUGIN_VERSION: c_int = 0x20E;
@@ -46,6 +46,7 @@ pub const Api = struct {
 
     // Command state
     getToggleCommandState: ?*const fn (c_int) callconv(.c) c_int = null,
+    namedCommandLookup_fn: ?*const fn ([*:0]const u8) callconv(.c) c_int = null,
 
     // Markers & Regions
     countProjectMarkers: ?*const fn (?*anyopaque, ?*c_int, ?*c_int) callconv(.c) c_int = null,
@@ -118,6 +119,7 @@ pub const Api = struct {
             .setCurrentBPM = getFunc(info, "SetCurrentBPM", fn (?*anyopaque, f64, bool) callconv(.c) void),
             // Command state
             .getToggleCommandState = getFunc(info, "GetToggleCommandState", fn (c_int) callconv(.c) c_int),
+            .namedCommandLookup_fn = getFunc(info, "NamedCommandLookup", fn ([*:0]const u8) callconv(.c) c_int),
             .countProjectMarkers = getFunc(info, "CountProjectMarkers", fn (?*anyopaque, ?*c_int, ?*c_int) callconv(.c) c_int),
             .enumProjectMarkers3 = getFunc(info, "EnumProjectMarkers3", fn (?*anyopaque, c_int, ?*bool, ?*f64, ?*f64, ?*[*:0]const u8, ?*c_int, ?*c_int) callconv(.c) c_int),
             .addProjectMarker2 = getFunc(info, "AddProjectMarker2", fn (?*anyopaque, bool, f64, f64, [*:0]const u8, c_int, c_int) callconv(.c) c_int),
@@ -284,6 +286,18 @@ pub const Api = struct {
     pub fn getCommandState(self: *const Api, cmd: c_int) c_int {
         const f = self.getToggleCommandState orelse return -1;
         return f(cmd);
+    }
+
+    // Named command lookup: converts command name (e.g., "_SWS_ABOUT") to command ID
+    // Returns 0 if command not found
+    pub fn namedCommandLookup(self: *const Api, name: []const u8) c_int {
+        const f = self.namedCommandLookup_fn orelse return 0;
+        // Need null-terminated string
+        var buf: [256]u8 = undefined;
+        const len = @min(name.len, buf.len - 1);
+        @memcpy(buf[0..len], name[0..len]);
+        buf[len] = 0;
+        return f(@ptrCast(&buf));
     }
 
     // Metronome state
@@ -609,6 +623,16 @@ pub const Api = struct {
         return safeFloatToInt(c_int, f(item, "C_LOCK"), 0) != 0;
     }
 
+    pub fn getItemSelected(self: *const Api, item: *anyopaque) bool {
+        const f = self.getMediaItemInfo_Value orelse return false;
+        return safeFloatToInt(c_int, f(item, "B_UISEL"), 0) != 0;
+    }
+
+    pub fn setItemSelected(self: *const Api, item: *anyopaque, selected: bool) bool {
+        const f = self.setMediaItemInfo_Value orelse return false;
+        return f(item, "B_UISEL", if (selected) 1.0 else 0.0);
+    }
+
     pub fn getItemActiveTakeIdx(self: *const Api, item: *anyopaque) c_int {
         const f = self.getMediaItemInfo_Value orelse return 0;
         return safeFloatToInt(c_int, f(item, "I_CURTAKE"), 0);
@@ -769,6 +793,7 @@ pub const Command = struct {
     // Transport
     pub const PLAY: c_int = 1007;
     pub const PAUSE: c_int = 1008;
+    pub const PLAY_PAUSE: c_int = 40073; // Play/pause toggle
     pub const RECORD: c_int = 1013;
     pub const STOP: c_int = 1016; // Stop
     pub const STOP_AND_SAVE: c_int = 40667; // Stop (save all recorded media)

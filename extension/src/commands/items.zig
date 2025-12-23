@@ -7,11 +7,12 @@ const mod = @import("mod.zig");
 pub const handlers = [_]mod.Entry{
     .{ .name = "item/setActiveTake", .handler = handleItemSetActiveTake },
     .{ .name = "item/move", .handler = handleItemMove },
-    .{ .name = "item/color", .handler = handleItemColor },
-    .{ .name = "item/lock", .handler = handleItemLock },
-    .{ .name = "item/notes", .handler = handleItemNotes },
+    .{ .name = "item/setColor", .handler = handleItemColor },
+    .{ .name = "item/setLock", .handler = handleItemLock },
+    .{ .name = "item/setNotes", .handler = handleItemNotes },
     .{ .name = "item/delete", .handler = handleItemDelete },
     .{ .name = "item/goto", .handler = handleItemGoto },
+    .{ .name = "item/select", .handler = handleItemSelect },
     .{ .name = "item/selectInTimeSel", .handler = handleSelectInTimeSel },
     .{ .name = "item/unselectAll", .handler = handleUnselectAll },
 };
@@ -124,6 +125,22 @@ fn handleItemGoto(api: *const reaper.Api, cmd: protocol.CommandMessage, response
     };
     const position = api.getItemPosition(item_info.item);
     api.setCursorPos(position);
+}
+
+// Select a single item (deselects all others first)
+fn handleItemSelect(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const item_info = getItemFromCmd(api, cmd) orelse {
+        response.err("NOT_FOUND", "Item not found");
+        return;
+    };
+
+    // Deselect all items first
+    api.runCommand(reaper.Command.UNSELECT_ALL_ITEMS);
+
+    // Select the specified item
+    if (api.setItemSelected(item_info.item, true)) {
+        api.log("Reamo: Selected item", .{});
+    }
 }
 
 // Select all items within time selection (on selected tracks)

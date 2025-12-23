@@ -95,10 +95,10 @@ fn handleProjGet(api: *const reaper.Api, cmd: protocol.CommandMessage, response:
     const extname_z = mod.toNullTerminated(&extname_buf, extname);
     const key_z = mod.toNullTerminated(&key_buf, key);
 
-    var value_buf: [4096]u8 = undefined;
+    var value_buf: [16384]u8 = undefined;
     if (api.getProjExtStateValue(extname_z, key_z, &value_buf)) |value| {
         // Build JSON response
-        var payload_buf: [4200]u8 = undefined;
+        var payload_buf: [16500]u8 = undefined;
         const payload = std.fmt.bufPrint(&payload_buf, "{{\"value\":\"{s}\"}}", .{value}) catch {
             response.err("VALUE_TOO_LONG", "Value exceeds buffer size");
             return;
@@ -127,12 +127,12 @@ fn handleProjSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response:
     // Convert to null-terminated strings
     var extname_buf: [65]u8 = undefined;
     var key_buf: [65]u8 = undefined;
-    var value_buf: [4097]u8 = undefined;
+    var value_buf: [16385]u8 = undefined;
     const extname_z = mod.toNullTerminated(&extname_buf, extname);
     const key_z = mod.toNullTerminated(&key_buf, key);
 
     // Value can be longer for project state
-    const value_len = @min(value.len, 4096);
+    const value_len = @min(value.len, 16384);
     @memcpy(value_buf[0..value_len], value[0..value_len]);
     value_buf[value_len] = 0;
     const value_z: [*:0]const u8 = @ptrCast(&value_buf);

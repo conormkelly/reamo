@@ -9,7 +9,7 @@ pub const MAX_TRACKS: usize = 128;
 pub const MAX_METERED_TRACKS: usize = 16;
 
 // Maximum track name length
-pub const MAX_NAME_LEN: usize = 64;
+pub const MAX_NAME_LEN: usize = 128;
 
 // Single track state
 pub const Track = struct {

@@ -10,7 +10,7 @@ pub const MAX_REGIONS = 256;
 pub const Marker = struct {
     id: c_int,
     position: f64,
-    name: [64]u8 = undefined,
+    name: [128]u8 = undefined,
     name_len: usize = 0,
     color: c_int,
 
@@ -32,7 +32,7 @@ pub const Region = struct {
     id: c_int,
     start: f64,
     end: f64,
-    name: [64]u8 = undefined,
+    name: [128]u8 = undefined,
     name_len: usize = 0,
     color: c_int,
 

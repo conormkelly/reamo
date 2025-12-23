@@ -6,12 +6,12 @@ const mod = @import("mod.zig");
 // Time selection command handlers
 pub const handlers = [_]mod.Entry{
     .{ .name = "timeSelection/set", .handler = handleSet },
-    .{ .name = "timeSelection/setBars", .handler = handleSetBars },
+    .{ .name = "timeSelection/setByBars", .handler = handleSetBars },
     .{ .name = "timeSelection/clear", .handler = handleClear },
     .{ .name = "timeSelection/goStart", .handler = handleGoStart },
     .{ .name = "timeSelection/goEnd", .handler = handleGoEnd },
-    .{ .name = "timeSelection/setStart", .handler = handleSetStart },
-    .{ .name = "timeSelection/setEnd", .handler = handleSetEnd },
+    .{ .name = "timeSelection/setStartAtCursor", .handler = handleSetStart },
+    .{ .name = "timeSelection/setEndAtCursor", .handler = handleSetEnd },
 };
 
 // Set time selection by seconds

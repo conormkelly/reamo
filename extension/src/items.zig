@@ -5,7 +5,7 @@ const protocol = @import("protocol.zig");
 // Maximum items/takes we track
 pub const MAX_ITEMS = 512;
 pub const MAX_TAKES_PER_ITEM = 8;
-pub const MAX_NAME_LEN = 64;
+pub const MAX_NAME_LEN = 128;
 
 // Take data
 pub const Take = struct {
@@ -37,10 +37,11 @@ pub const Item = struct {
     // Properties
     color: c_int = 0,
     locked: bool = false,
+    selected: bool = false,
     active_take_idx: c_int = 0,
 
     // Notes (truncated to fit)
-    notes: [256]u8 = undefined,
+    notes: [1024]u8 = undefined,
     notes_len: usize = 0,
 
     // Takes
@@ -58,6 +59,7 @@ pub const Item = struct {
         if (@abs(self.length - other.length) > 0.001) return false;
         if (self.color != other.color) return false;
         if (self.locked != other.locked) return false;
+        if (self.selected != other.selected) return false;
         if (self.active_take_idx != other.active_take_idx) return false;
         if (self.notes_len != other.notes_len) return false;
         if (!std.mem.eql(u8, self.getNotes(), other.getNotes())) return false;
@@ -121,10 +123,11 @@ pub const State = struct {
                 item.length = len;
                 item.color = api.getItemColor(item_ptr);
                 item.locked = api.getItemLocked(item_ptr);
+                item.selected = api.getItemSelected(item_ptr);
                 item.active_take_idx = api.getItemActiveTakeIdx(item_ptr);
 
                 // Get notes
-                var notes_buf: [256]u8 = undefined;
+                var notes_buf: [1024]u8 = undefined;
                 const notes = api.getItemNotes(item_ptr, &notes_buf);
                 const notes_copy_len = @min(notes.len, item.notes.len);
                 @memcpy(item.notes[0..notes_copy_len], notes[0..notes_copy_len]);
@@ -180,8 +183,8 @@ pub const State = struct {
             w.print("{{\"trackIdx\":{d},\"itemIdx\":{d},\"position\":{d:.3},\"length\":{d:.3},", .{
                 item.track_idx, item.item_idx, item.position, item.length
             }) catch return null;
-            w.print("\"color\":{d},\"locked\":{},\"activeTakeIdx\":{d},\"notes\":\"", .{
-                item.color, item.locked, item.active_take_idx
+            w.print("\"color\":{d},\"locked\":{},\"selected\":{},\"activeTakeIdx\":{d},\"notes\":\"", .{
+                item.color, item.locked, item.selected, item.active_take_idx
             }) catch return null;
             protocol.writeJsonString(w, item.getNotes()) catch return null;
             w.writeAll("\",\"takes\":[") catch return null;
@@ -278,7 +281,7 @@ test "State items JSON output" {
     const json = state.itemsToJson(&buf).?;
 
     try std.testing.expectEqualStrings(
-        "{\"type\":\"event\",\"event\":\"items\",\"payload\":{\"timeSelection\":{\"start\":5.000,\"end\":20.000},\"items\":[{\"trackIdx\":0,\"itemIdx\":0,\"position\":10.000,\"length\":5.000,\"color\":16711680,\"locked\":false,\"activeTakeIdx\":0,\"notes\":\"\",\"takes\":[{\"name\":\"Main\",\"isActive\":true}]}]}}",
+        "{\"type\":\"event\",\"event\":\"items\",\"payload\":{\"timeSelection\":{\"start\":5.000,\"end\":20.000},\"items\":[{\"trackIdx\":0,\"itemIdx\":0,\"position\":10.000,\"length\":5.000,\"color\":16711680,\"locked\":false,\"selected\":false,\"activeTakeIdx\":0,\"notes\":\"\",\"takes\":[{\"name\":\"Main\",\"isActive\":true}]}]}}",
         json,
     );
 }

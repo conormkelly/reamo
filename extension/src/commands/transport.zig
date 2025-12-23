@@ -9,9 +9,9 @@ pub const handlers = [_]mod.Entry{
     .{ .name = "transport/stop", .handler = handleStop },
     .{ .name = "transport/pause", .handler = handlePause },
     .{ .name = "transport/record", .handler = handleRecord },
-    .{ .name = "transport/toggle", .handler = handleToggle },
+    .{ .name = "transport/playPause", .handler = handlePlayPause },
     .{ .name = "transport/seek", .handler = handleSeek },
-    .{ .name = "transport/abort", .handler = handleAbort },
+    .{ .name = "transport/stopAndDelete", .handler = handleStopAndDelete },
     .{ .name = "transport/goStart", .handler = handleGoStart },
     .{ .name = "transport/goEnd", .handler = handleGoEnd },
     .{ .name = "transport/seekBeats", .handler = handleSeekBeats },
@@ -33,15 +33,8 @@ fn handleRecord(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.Resp
     api.runCommand(reaper.Command.RECORD);
 }
 
-fn handleToggle(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
-    const state = api.playState();
-    if (state & 1 != 0) {
-        // Currently playing, pause
-        api.runCommand(reaper.Command.PAUSE);
-    } else {
-        // Currently stopped/paused, play
-        api.runCommand(reaper.Command.PLAY);
-    }
+fn handlePlayPause(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+    api.runCommand(reaper.Command.PLAY_PAUSE);
 }
 
 fn handleSeek(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
@@ -52,8 +45,8 @@ fn handleSeek(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *m
     api.setCursorPos(pos);
 }
 
-// Abort recording - stops and DELETES all recorded media
-fn handleAbort(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+// Stop and DELETE all recorded media - use with caution!
+fn handleStopAndDelete(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.STOP_AND_DELETE);
 }
 
