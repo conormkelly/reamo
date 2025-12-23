@@ -117,7 +117,7 @@ fn handleItemDelete(api: *const reaper.Api, cmd: protocol.CommandMessage, respon
     if (api.deleteItem(item_info.track, item_info.item)) {
         api.log("Reamo: Deleted item", .{});
     }
-    api.undoEndBlock("Delete item (API)");
+    api.undoEndBlock("Delete item (Reamo)");
 }
 
 fn handleItemGoto(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
