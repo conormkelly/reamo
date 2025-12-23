@@ -38,6 +38,26 @@ pub const Api = struct {
     setProjectMarker4: ?*const fn (?*anyopaque, c_int, bool, f64, f64, [*:0]const u8, c_int, c_int) callconv(.c) bool = null,
     deleteProjectMarker: ?*const fn (?*anyopaque, c_int, bool) callconv(.c) bool = null,
 
+    // Tracks
+    countTracks: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
+    getTrack: ?*const fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque = null,
+    getTrackName: ?*const fn (?*anyopaque, [*]u8, c_int) callconv(.c) bool = null,
+
+    // Items
+    countTrackMediaItems: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
+    getTrackMediaItem: ?*const fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque = null,
+    getMediaItemInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8) callconv(.c) f64 = null,
+    setMediaItemInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8, f64) callconv(.c) bool = null,
+    getSetMediaItemInfo_String: ?*const fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool = null,
+    deleteTrackMediaItem: ?*const fn (?*anyopaque, ?*anyopaque) callconv(.c) bool = null,
+
+    // Takes
+    getMediaItemNumTakes: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
+    getMediaItemTake: ?*const fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque = null,
+    getActiveTake: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque = null,
+    getTakeName: ?*const fn (?*anyopaque) callconv(.c) ?[*:0]const u8 = null,
+    getSetMediaItemTakeInfo_String: ?*const fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool = null,
+
     // Load API from REAPER plugin info
     pub fn load(info: *PluginInfo) ?Api {
         const showConsoleMsg = getFunc(info, "ShowConsoleMsg", fn ([*:0]const u8) callconv(.c) void) orelse return null;
@@ -58,6 +78,23 @@ pub const Api = struct {
             .addProjectMarker2 = getFunc(info, "AddProjectMarker2", fn (?*anyopaque, bool, f64, f64, [*:0]const u8, c_int, c_int) callconv(.c) c_int),
             .setProjectMarker4 = getFunc(info, "SetProjectMarker4", fn (?*anyopaque, c_int, bool, f64, f64, [*:0]const u8, c_int, c_int) callconv(.c) bool),
             .deleteProjectMarker = getFunc(info, "DeleteProjectMarker", fn (?*anyopaque, c_int, bool) callconv(.c) bool),
+            // Tracks
+            .countTracks = getFunc(info, "CountTracks", fn (?*anyopaque) callconv(.c) c_int),
+            .getTrack = getFunc(info, "GetTrack", fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque),
+            .getTrackName = getFunc(info, "GetTrackName", fn (?*anyopaque, [*]u8, c_int) callconv(.c) bool),
+            // Items
+            .countTrackMediaItems = getFunc(info, "CountTrackMediaItems", fn (?*anyopaque) callconv(.c) c_int),
+            .getTrackMediaItem = getFunc(info, "GetTrackMediaItem", fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque),
+            .getMediaItemInfo_Value = getFunc(info, "GetMediaItemInfo_Value", fn (?*anyopaque, [*:0]const u8) callconv(.c) f64),
+            .setMediaItemInfo_Value = getFunc(info, "SetMediaItemInfo_Value", fn (?*anyopaque, [*:0]const u8, f64) callconv(.c) bool),
+            .getSetMediaItemInfo_String = getFunc(info, "GetSetMediaItemInfo_String", fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool),
+            .deleteTrackMediaItem = getFunc(info, "DeleteTrackMediaItem", fn (?*anyopaque, ?*anyopaque) callconv(.c) bool),
+            // Takes
+            .getMediaItemNumTakes = getFunc(info, "GetMediaItemNumTakes", fn (?*anyopaque) callconv(.c) c_int),
+            .getMediaItemTake = getFunc(info, "GetMediaItemTake", fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque),
+            .getActiveTake = getFunc(info, "GetActiveTake", fn (?*anyopaque) callconv(.c) ?*anyopaque),
+            .getTakeName = getFunc(info, "GetTakeName", fn (?*anyopaque) callconv(.c) ?[*:0]const u8),
+            .getSetMediaItemTakeInfo_String = getFunc(info, "GetSetMediaItemTakeInfo_String", fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool),
         };
     }
 
@@ -216,6 +253,127 @@ pub const Api = struct {
         const f = self.deleteProjectMarker orelse return false;
         return f(null, id, true);
     }
+
+    // Track methods
+
+    pub fn trackCount(self: *const Api) c_int {
+        return if (self.countTracks) |f| f(null) else 0;
+    }
+
+    pub fn getTrackByIdx(self: *const Api, idx: c_int) ?*anyopaque {
+        const f = self.getTrack orelse return null;
+        return f(null, idx);
+    }
+
+    pub fn getTrackNameStr(self: *const Api, track: *anyopaque, buf: []u8) []const u8 {
+        const f = self.getTrackName orelse return "";
+        if (f(track, buf.ptr, @intCast(buf.len))) {
+            return std.mem.sliceTo(buf, 0);
+        }
+        return "";
+    }
+
+    // Item methods
+
+    pub fn trackItemCount(self: *const Api, track: *anyopaque) c_int {
+        const f = self.countTrackMediaItems orelse return 0;
+        return f(track);
+    }
+
+    pub fn getItemByIdx(self: *const Api, track: *anyopaque, idx: c_int) ?*anyopaque {
+        const f = self.getTrackMediaItem orelse return null;
+        return f(track, idx);
+    }
+
+    pub fn getItemPosition(self: *const Api, item: *anyopaque) f64 {
+        const f = self.getMediaItemInfo_Value orelse return 0;
+        return f(item, "D_POSITION");
+    }
+
+    pub fn getItemLength(self: *const Api, item: *anyopaque) f64 {
+        const f = self.getMediaItemInfo_Value orelse return 0;
+        return f(item, "D_LENGTH");
+    }
+
+    pub fn getItemColor(self: *const Api, item: *anyopaque) c_int {
+        const f = self.getMediaItemInfo_Value orelse return 0;
+        return @intFromFloat(f(item, "I_CUSTOMCOLOR"));
+    }
+
+    pub fn getItemLocked(self: *const Api, item: *anyopaque) bool {
+        const f = self.getMediaItemInfo_Value orelse return false;
+        return @as(c_int, @intFromFloat(f(item, "C_LOCK"))) != 0;
+    }
+
+    pub fn getItemActiveTakeIdx(self: *const Api, item: *anyopaque) c_int {
+        const f = self.getMediaItemInfo_Value orelse return 0;
+        return @intFromFloat(f(item, "I_CURTAKE"));
+    }
+
+    pub fn setItemPosition(self: *const Api, item: *anyopaque, pos: f64) bool {
+        const f = self.setMediaItemInfo_Value orelse return false;
+        return f(item, "D_POSITION", pos);
+    }
+
+    pub fn setItemColor(self: *const Api, item: *anyopaque, color: c_int) bool {
+        const f = self.setMediaItemInfo_Value orelse return false;
+        return f(item, "I_CUSTOMCOLOR", @floatFromInt(color));
+    }
+
+    pub fn setItemLocked(self: *const Api, item: *anyopaque, locked: bool) bool {
+        const f = self.setMediaItemInfo_Value orelse return false;
+        return f(item, "C_LOCK", if (locked) 1.0 else 0.0);
+    }
+
+    pub fn setItemActiveTake(self: *const Api, item: *anyopaque, take_idx: c_int) bool {
+        const f = self.setMediaItemInfo_Value orelse return false;
+        return f(item, "I_CURTAKE", @floatFromInt(take_idx));
+    }
+
+    pub fn getItemNotes(self: *const Api, item: *anyopaque, buf: []u8) []const u8 {
+        const f = self.getSetMediaItemInfo_String orelse return "";
+        if (f(item, "P_NOTES", buf.ptr, false)) {
+            return std.mem.sliceTo(buf, 0);
+        }
+        return "";
+    }
+
+    pub fn setItemNotes(self: *const Api, item: *anyopaque, notes: []const u8) bool {
+        const f = self.getSetMediaItemInfo_String orelse return false;
+        var buf: [1024]u8 = undefined;
+        const len = @min(notes.len, buf.len - 1);
+        @memcpy(buf[0..len], notes[0..len]);
+        buf[len] = 0;
+        return f(item, "P_NOTES", &buf, true);
+    }
+
+    pub fn deleteItem(self: *const Api, track: *anyopaque, item: *anyopaque) bool {
+        const f = self.deleteTrackMediaItem orelse return false;
+        return f(track, item);
+    }
+
+    // Take methods
+
+    pub fn itemTakeCount(self: *const Api, item: *anyopaque) c_int {
+        const f = self.getMediaItemNumTakes orelse return 0;
+        return f(item);
+    }
+
+    pub fn getTakeByIdx(self: *const Api, item: *anyopaque, idx: c_int) ?*anyopaque {
+        const f = self.getMediaItemTake orelse return null;
+        return f(item, idx);
+    }
+
+    pub fn getItemActiveTake(self: *const Api, item: *anyopaque) ?*anyopaque {
+        const f = self.getActiveTake orelse return null;
+        return f(item);
+    }
+
+    pub fn getTakeNameStr(self: *const Api, take: *anyopaque) []const u8 {
+        const f = self.getTakeName orelse return "";
+        const ptr = f(take) orelse return "";
+        return std.mem.sliceTo(ptr, 0);
+    }
 };
 
 // REAPER action command IDs
@@ -224,4 +382,7 @@ pub const Command = struct {
     pub const PAUSE: c_int = 1008;
     pub const RECORD: c_int = 1013;
     pub const STOP: c_int = 1016;
+    // Take commands (operate on selected item's active take)
+    pub const DELETE_ACTIVE_TAKE: c_int = 40129;
+    pub const CROP_TO_ACTIVE_TAKE: c_int = 40131;
 };

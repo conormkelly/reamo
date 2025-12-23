@@ -2,6 +2,7 @@ const std = @import("std");
 const reaper = @import("reaper.zig");
 const transport = @import("transport.zig");
 const markers = @import("markers.zig");
+const items = @import("items.zig");
 const commands = @import("commands.zig");
 const ws_server = @import("ws_server.zig");
 
@@ -17,6 +18,7 @@ var g_server: ?ws_server.Server = null;
 var g_port: u16 = 0;
 var g_last_transport: transport.State = .{};
 var g_last_markers: markers.State = .{};
+var g_last_items: items.State = .{};
 var g_initialized: bool = false;
 
 // Debug logging (can be disabled in release)
@@ -87,6 +89,7 @@ fn initTimerCallback() callconv(.c) void {
     // Initialize state caches
     g_last_transport = transport.State.poll(api);
     g_last_markers = markers.State.poll(api);
+    g_last_items = items.State.poll(api);
 
     api.log("Reamo: WebSocket server started on port {d}", .{g_port});
     logFile("WebSocket server started");
@@ -135,6 +138,16 @@ fn processTimerCallback() callconv(.c) void {
         }
     }
     g_last_markers = current_markers;
+
+    // Poll items and broadcast changes
+    const current_items = items.State.poll(api);
+    if (current_items.itemsChanged(&g_last_items)) {
+        var buf: [32768]u8 = undefined; // Large buffer for many items with takes
+        if (current_items.itemsToJson(&buf)) |json| {
+            shared_state.broadcast(json);
+        }
+    }
+    g_last_items = current_items;
 }
 
 // Shutdown - called when REAPER unloads the extension
@@ -203,6 +216,7 @@ test {
     _ = @import("protocol.zig");
     _ = @import("transport.zig");
     _ = @import("markers.zig");
+    _ = @import("items.zig");
     _ = @import("commands.zig");
     _ = @import("ws_server.zig");
 }

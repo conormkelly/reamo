@@ -26,8 +26,9 @@ This document outlines a plan to build a native REAPER extension (dylib/dll) in 
 - **Phase 1 complete**: WebSocket server running, clients can connect, command queue working
 - **Phase 2 complete**: Transport state polling, change detection, play/stop/pause/record/toggle/seek commands
 - **Phase 3 complete**: Markers & regions enumeration, change detection, CRUD commands
-- **Code refactored**: Clean module structure (reaper.zig, transport.zig, markers.zig, protocol.zig, commands.zig, ws_server.zig)
-- **Next step**: Items & Takes (Phase 4)
+- **Phase 4 complete**: Items & takes enumeration, time selection filtering, item/take commands
+- **Code refactored**: Clean module structure (reaper.zig, transport.zig, markers.zig, items.zig, protocol.zig, commands.zig, ws_server.zig)
+- **Next step**: Client Integration (Phase 5)
 
 ## Development Notes (Project-Specific)
 
@@ -44,6 +45,11 @@ This document outlines a plan to build a native REAPER extension (dylib/dll) in 
 3. **File logging for debugging**: `/tmp/reamo-extension.log` with timestamps helps debug shutdown issues
 4. **websocket.zig shutdown quirk**: The library's `stop()` blocks forever on a condition variable. Solution: detach the thread immediately after starting, skip `stop()` on shutdown, let OS clean up
 
+### Zig Gotchas
+
+1. **Avoid primitive type names as variables** — `i1`, `i2`, `i8`, `u1`, `u8` etc. are Zig types. Use `item1` not `i1`
+2. **Use `const` for loop variables** — Zig 0.15 errors on `var` when you don't mutate (e.g., `const w = stream.writer()`)
+
 ### Extension Module Structure
 
 ```txt
@@ -52,6 +58,7 @@ extension/src/
 ├── reaper.zig      # REAPER API wrapper, safe function loading
 ├── transport.zig   # Transport state polling, change detection (has unit tests)
 ├── markers.zig     # Marker/region state, change detection (has unit tests)
+├── items.zig       # Item/take state, time selection filtering (has unit tests)
 ├── protocol.zig    # JSON parsing/building (has unit tests)
 ├── commands.zig    # Command registry pattern - add new commands here
 └── ws_server.zig   # WebSocket server, client management, ring buffer queue
@@ -1055,13 +1062,18 @@ This may be a "nice to have" optimization rather than essential.
 - [x] CRUD commands for markers and regions (add, update, delete, goto)
 - [x] Push-based updates (full state per category, as designed)
 
-### Phase 4: Items & Takes
+### Phase 4: Items & Takes ✅
 
-- [ ] Item enumeration within time selection
-- [ ] Take enumeration per item
-- [ ] Item/take property access
-- [ ] Item commands (move, trim, color, lock, notes, delete)
-- [ ] Take commands (switch, delete, crop, rename)
+- [x] Item enumeration within time selection (filters to overlapping items)
+- [x] Take enumeration per item (with isActive flag)
+- [x] Item/take property access (position, length, color, locked, notes, activeTakeIdx)
+- [x] Item commands (setActiveTake, move, color, lock, notes, delete, goto)
+- [x] Take commands (delete, cropToActive via REAPER action commands)
+
+**Implementation notes:**
+- Items identified by `trackIdx` + `itemIdx` pair (not unique IDs)
+- Time selection filtering: only items overlapping selection are broadcast
+- Take operations use REAPER's built-in action commands (40129, 40131) which operate on selected items
 
 ### Phase 5: Client Integration
 
