@@ -30,6 +30,7 @@ pub fn build(b: *std.Build) void {
         "src/transport.zig",
         "src/markers.zig",
         "src/items.zig",
+        "src/commands.zig",
     };
 
     const test_step = b.step("test", "Run unit tests");

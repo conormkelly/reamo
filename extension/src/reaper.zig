@@ -103,6 +103,16 @@ pub const Api = struct {
         return @ptrCast(@alignCast(ptr));
     }
 
+    // Safe float to int conversion - handles NaN/Inf from corrupt data
+    fn safeFloatToInt(comptime T: type, val: f64, default: T) T {
+        if (std.math.isNan(val) or std.math.isInf(val)) return default;
+        // Clamp to representable range for the target type
+        const min_val: f64 = @floatFromInt(std.math.minInt(T));
+        const max_val: f64 = @floatFromInt(std.math.maxInt(T));
+        const clamped = @max(min_val, @min(max_val, val));
+        return @intFromFloat(clamped);
+    }
+
     // Safe wrapper methods
 
     pub fn log(self: *const Api, comptime fmt: []const u8, args: anytype) void {
@@ -297,17 +307,17 @@ pub const Api = struct {
 
     pub fn getItemColor(self: *const Api, item: *anyopaque) c_int {
         const f = self.getMediaItemInfo_Value orelse return 0;
-        return @intFromFloat(f(item, "I_CUSTOMCOLOR"));
+        return safeFloatToInt(c_int, f(item, "I_CUSTOMCOLOR"), 0);
     }
 
     pub fn getItemLocked(self: *const Api, item: *anyopaque) bool {
         const f = self.getMediaItemInfo_Value orelse return false;
-        return @as(c_int, @intFromFloat(f(item, "C_LOCK"))) != 0;
+        return safeFloatToInt(c_int, f(item, "C_LOCK"), 0) != 0;
     }
 
     pub fn getItemActiveTakeIdx(self: *const Api, item: *anyopaque) c_int {
         const f = self.getMediaItemInfo_Value orelse return 0;
-        return @intFromFloat(f(item, "I_CURTAKE"));
+        return safeFloatToInt(c_int, f(item, "I_CURTAKE"), 0);
     }
 
     pub fn setItemPosition(self: *const Api, item: *anyopaque, pos: f64) bool {

@@ -285,3 +285,49 @@ test "JsonWriter" {
     w.endObject();
     try std.testing.expectEqualStrings("{\"name\":\"test\",\"value\":42}", w.slice());
 }
+
+test "writeJsonString escapes special characters" {
+    var buf: [256]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    const w = stream.writer();
+
+    try writeJsonString(w, "quote\"here");
+    try std.testing.expectEqualStrings("quote\\\"here", stream.getWritten());
+}
+
+test "writeJsonString escapes backslash" {
+    var buf: [256]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    const w = stream.writer();
+
+    try writeJsonString(w, "path\\to\\file");
+    try std.testing.expectEqualStrings("path\\\\to\\\\file", stream.getWritten());
+}
+
+test "writeJsonString escapes newlines and tabs" {
+    var buf: [256]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    const w = stream.writer();
+
+    try writeJsonString(w, "line1\nline2\ttabbed");
+    try std.testing.expectEqualStrings("line1\\nline2\\ttabbed", stream.getWritten());
+}
+
+test "writeJsonString escapes control characters" {
+    var buf: [256]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    const w = stream.writer();
+
+    // Test a control character (ASCII 1 = SOH)
+    try writeJsonString(w, "before\x01after");
+    try std.testing.expectEqualStrings("before\\u0001after", stream.getWritten());
+}
+
+test "writeJsonString handles empty string" {
+    var buf: [256]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    const w = stream.writer();
+
+    try writeJsonString(w, "");
+    try std.testing.expectEqual(@as(usize, 0), stream.getWritten().len);
+}

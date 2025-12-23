@@ -30,6 +30,14 @@ pub const State = struct {
         return @abs(a - b) <= 0.001;
     }
 
+    // Safe conversion for time signature numerator - clamps to valid range
+    // Prevents panic on NaN/Inf from corrupt project data
+    fn safeTimeSigNum(val: f64) u32 {
+        if (std.math.isNan(val) or std.math.isInf(val)) return 4;
+        const clamped = @max(1.0, @min(32.0, val));
+        return @intFromFloat(clamped);
+    }
+
     // Get current position based on play state
     pub fn currentPosition(self: State) f64 {
         // If playing (bit 0 set), use play position, otherwise cursor
@@ -61,7 +69,7 @@ pub const State = struct {
             self.currentPosition(),
             self.cursor_position,
             self.bpm,
-            @as(u32, @intFromFloat(self.time_sig_num)),
+            safeTimeSigNum(self.time_sig_num),
             self.time_sel_start,
             self.time_sel_end,
         }) catch return null;
@@ -156,4 +164,20 @@ test "PlayState helpers" {
     try std.testing.expect(PlayState.isPlaying(5)); // recording includes playing bit
     try std.testing.expect(PlayState.isRecording(5));
     try std.testing.expect(!PlayState.isRecording(1));
+}
+
+test "safeTimeSigNum handles edge cases" {
+    // Normal values
+    try std.testing.expectEqual(@as(u32, 4), State.safeTimeSigNum(4.0));
+    try std.testing.expectEqual(@as(u32, 3), State.safeTimeSigNum(3.0));
+
+    // Clamping
+    try std.testing.expectEqual(@as(u32, 1), State.safeTimeSigNum(0.0));
+    try std.testing.expectEqual(@as(u32, 1), State.safeTimeSigNum(-5.0));
+    try std.testing.expectEqual(@as(u32, 32), State.safeTimeSigNum(100.0));
+
+    // NaN and Inf return default of 4
+    try std.testing.expectEqual(@as(u32, 4), State.safeTimeSigNum(std.math.nan(f64)));
+    try std.testing.expectEqual(@as(u32, 4), State.safeTimeSigNum(std.math.inf(f64)));
+    try std.testing.expectEqual(@as(u32, 4), State.safeTimeSigNum(-std.math.inf(f64)));
 }

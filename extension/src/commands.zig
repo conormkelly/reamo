@@ -15,6 +15,14 @@ fn toNullTerminated(buf: *[65]u8, str: ?[]const u8) [*:0]const u8 {
     return @ptrCast(buf);
 }
 
+// Validate position value - returns null if invalid (NaN, Inf, or negative)
+fn validatePosition(pos: ?f64) ?f64 {
+    const p = pos orelse return null;
+    if (std.math.isNan(p) or std.math.isInf(p)) return null;
+    if (p < 0) return null;
+    return p;
+}
+
 // Command registry entry
 const Entry = struct {
     name: []const u8,
@@ -109,15 +117,14 @@ fn handleToggle(api: *const reaper.Api, _: protocol.CommandMessage) void {
 }
 
 fn handleSeek(api: *const reaper.Api, cmd: protocol.CommandMessage) void {
-    if (cmd.getFloat("position")) |pos| {
-        api.setCursorPos(pos);
-    }
+    const pos = validatePosition(cmd.getFloat("position")) orelse return;
+    api.setCursorPos(pos);
 }
 
 // Marker command handlers
 
 fn handleMarkerAdd(api: *const reaper.Api, cmd: protocol.CommandMessage) void {
-    const pos = cmd.getFloat("position") orelse return;
+    const pos = validatePosition(cmd.getFloat("position")) orelse return;
     const color = cmd.getInt("color") orelse 0;
 
     var name_buf: [65]u8 = undefined;
@@ -229,6 +236,13 @@ fn handleItemSetActiveTake(api: *const reaper.Api, cmd: protocol.CommandMessage)
     const item_info = getItemFromCmd(api, cmd) orelse return;
     const take_idx = cmd.getInt("takeIdx") orelse return;
 
+    // Bounds check: verify take index is valid
+    const num_takes = api.itemTakeCount(item_info.item);
+    if (take_idx < 0 or take_idx >= num_takes) {
+        api.log("Reamo: Invalid take index {d} (item has {d} takes)", .{ take_idx, num_takes });
+        return;
+    }
+
     if (api.setItemActiveTake(item_info.item, take_idx)) {
         api.log("Reamo: Set active take to {d}", .{take_idx});
     }
@@ -236,7 +250,7 @@ fn handleItemSetActiveTake(api: *const reaper.Api, cmd: protocol.CommandMessage)
 
 fn handleItemMove(api: *const reaper.Api, cmd: protocol.CommandMessage) void {
     const item_info = getItemFromCmd(api, cmd) orelse return;
-    const position = cmd.getFloat("position") orelse return;
+    const position = validatePosition(cmd.getFloat("position")) orelse return;
 
     if (api.setItemPosition(item_info.item, position)) {
         api.log("Reamo: Moved item to {d:.2}", .{position});
@@ -347,4 +361,44 @@ test "registry contains expected commands" {
         }
         try std.testing.expect(found);
     }
+}
+
+test "toNullTerminated with value" {
+    var buf: [65]u8 = undefined;
+    const result = toNullTerminated(&buf, "hello");
+    try std.testing.expectEqualStrings("hello", std.mem.sliceTo(result, 0));
+}
+
+test "toNullTerminated with null returns empty string" {
+    var buf: [65]u8 = undefined;
+    const result = toNullTerminated(&buf, null);
+    try std.testing.expectEqual(@as(usize, 0), std.mem.len(result));
+}
+
+test "toNullTerminated truncates long strings" {
+    var buf: [65]u8 = undefined;
+    // Create a string longer than 64 chars
+    const long_str = "a" ** 100;
+    const result = toNullTerminated(&buf, long_str);
+    try std.testing.expectEqual(@as(usize, 64), std.mem.len(result));
+}
+
+test "validatePosition accepts valid positions" {
+    try std.testing.expectEqual(@as(?f64, 0.0), validatePosition(0.0));
+    try std.testing.expectEqual(@as(?f64, 10.5), validatePosition(10.5));
+    try std.testing.expectEqual(@as(?f64, 1000.0), validatePosition(1000.0));
+}
+
+test "validatePosition rejects invalid positions" {
+    // Null
+    try std.testing.expect(validatePosition(null) == null);
+
+    // Negative
+    try std.testing.expect(validatePosition(-1.0) == null);
+    try std.testing.expect(validatePosition(-0.001) == null);
+
+    // NaN and Inf
+    try std.testing.expect(validatePosition(std.math.nan(f64)) == null);
+    try std.testing.expect(validatePosition(std.math.inf(f64)) == null);
+    try std.testing.expect(validatePosition(-std.math.inf(f64)) == null);
 }
