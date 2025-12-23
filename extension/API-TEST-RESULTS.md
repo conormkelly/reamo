@@ -306,7 +306,7 @@ These weren't tested to avoid data loss:
 - ✅ `extstate/get`
 - ✅ `extstate/set`
 - ✅ `extstate/projSet`
-- ⚠️ `extstate/projGet` (buggy - returns only first char)
+- ✅ `extstate/projGet`
 
 ### Undo
 - ✅ `undo/add`
@@ -323,7 +323,6 @@ These weren't tested to avoid data loss:
 ### High Priority (Core functionality gaps)
 1. `transport/playPause` - Common toggle action
 2. `item/select` - Essential for item operations
-3. `extstate/projGet` bug fix - Data corruption
 
 ### Medium Priority (Convenience features)
 4. `timeSelection/setByBars` - Bar-based selection
