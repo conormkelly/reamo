@@ -332,9 +332,12 @@ pub const Api = struct {
     // ExtState: get project-specific extended state
     pub fn getProjExtStateValue(self: *const Api, extname: [*:0]const u8, key: [*:0]const u8, buf: []u8) ?[]const u8 {
         const f = self.getProjExtState orelse return null;
-        const len = f(null, extname, key, buf.ptr, @intCast(buf.len));
+        const buf_size: c_int = @intCast(buf.len);
+        const len = f(null, extname, key, buf.ptr, buf_size);
         if (len <= 0) return null;
-        return buf[0..@intCast(len)];
+        // Note: REAPER's return value is unreliable - find the actual null terminator
+        const actual_len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
+        return buf[0..actual_len];
     }
 
     // ExtState: set project-specific extended state

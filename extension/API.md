@@ -879,7 +879,7 @@ Execute a REAPER action by command ID.
 | `commandId` | int | Yes | REAPER command ID |
 
 ```json
-{"type": "command", "command": "action/executeCommand", "commandId": 40364}
+{"type": "command", "command": "action/execute", "commandId": 40364}
 ```
 
 ### `action/executeByName`
