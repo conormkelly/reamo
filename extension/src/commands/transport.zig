@@ -52,9 +52,9 @@ fn handleSeek(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *m
     api.setCursorPos(pos);
 }
 
-// Abort recording - stops and deletes recorded media
+// Abort recording - stops and DELETES all recorded media
 fn handleAbort(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
-    api.runCommand(reaper.Command.ABORT_RECORDING);
+    api.runCommand(reaper.Command.STOP_AND_DELETE);
 }
 
 // Go to project start

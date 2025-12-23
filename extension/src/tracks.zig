@@ -1,5 +1,6 @@
 const std = @import("std");
 const reaper = @import("reaper.zig");
+const protocol = @import("protocol.zig");
 
 // Maximum tracks to poll (keeps buffer sizes bounded)
 pub const MAX_TRACKS: usize = 128;
@@ -7,9 +8,15 @@ pub const MAX_TRACKS: usize = 128;
 // Maximum armed tracks to meter (keeps polling bounded)
 pub const MAX_METERED_TRACKS: usize = 16;
 
+// Maximum track name length
+pub const MAX_NAME_LEN: usize = 64;
+
 // Single track state
 pub const Track = struct {
     idx: c_int = 0,
+    name: [MAX_NAME_LEN]u8 = undefined,
+    name_len: usize = 0,
+    color: c_int = 0, // Native OS color (0 = default)
     volume: f64 = 1.0, // 0..inf (1.0 = 0dB)
     pan: f64 = 0.0, // -1.0..1.0
     mute: bool = false,
@@ -18,8 +25,15 @@ pub const Track = struct {
     rec_mon: c_int = 0, // 0=off, 1=normal, 2=not when playing
     fx_enabled: bool = true,
 
+    pub fn getName(self: *const Track) []const u8 {
+        return self.name[0..self.name_len];
+    }
+
     pub fn eql(self: Track, other: Track) bool {
         if (self.idx != other.idx) return false;
+        if (self.name_len != other.name_len) return false;
+        if (!std.mem.eql(u8, self.name[0..self.name_len], other.name[0..other.name_len])) return false;
+        if (self.color != other.color) return false;
         if (!floatEql(self.volume, other.volume)) return false;
         if (!floatEql(self.pan, other.pan)) return false;
         if (self.mute != other.mute) return false;
@@ -58,16 +72,24 @@ pub const State = struct {
         for (0..state.count) |i| {
             const idx: c_int = @intCast(i);
             if (api.getTrackByIdx(idx)) |track| {
-                state.tracks[i] = .{
-                    .idx = idx,
-                    .volume = api.getTrackVolume(track),
-                    .pan = api.getTrackPan(track),
-                    .mute = api.getTrackMute(track),
-                    .solo = api.getTrackSolo(track),
-                    .rec_arm = api.getTrackRecArm(track),
-                    .rec_mon = api.getTrackRecMon(track),
-                    .fx_enabled = api.getTrackFxEnabled(track),
-                };
+                var t = &state.tracks[i];
+                t.idx = idx;
+
+                // Get track name
+                var name_buf: [MAX_NAME_LEN]u8 = undefined;
+                const name = api.getTrackNameStr(track, &name_buf);
+                const name_copy_len = @min(name.len, MAX_NAME_LEN);
+                @memcpy(t.name[0..name_copy_len], name[0..name_copy_len]);
+                t.name_len = name_copy_len;
+
+                t.color = api.getTrackColor(track);
+                t.volume = api.getTrackVolume(track);
+                t.pan = api.getTrackPan(track);
+                t.mute = api.getTrackMute(track);
+                t.solo = api.getTrackSolo(track);
+                t.rec_arm = api.getTrackRecArm(track);
+                t.rec_mon = api.getTrackRecMon(track);
+                t.fx_enabled = api.getTrackFxEnabled(track);
             }
         }
         return state;
@@ -84,19 +106,18 @@ pub const State = struct {
         for (0..self.count) |i| {
             if (i > 0) writer.writeByte(',') catch return null;
             const t = &self.tracks[i];
-            writer.print(
-                "{{\"idx\":{d},\"volume\":{d:.4},\"pan\":{d:.3},\"mute\":{s},\"solo\":{d},\"recArm\":{s},\"recMon\":{d},\"fxEnabled\":{s}}}",
-                .{
-                    t.idx,
-                    t.volume,
-                    t.pan,
-                    if (t.mute) "true" else "false",
-                    t.solo,
-                    if (t.rec_arm) "true" else "false",
-                    t.rec_mon,
-                    if (t.fx_enabled) "true" else "false",
-                },
-            ) catch return null;
+            writer.print("{{\"idx\":{d},\"name\":\"", .{t.idx}) catch return null;
+            protocol.writeJsonString(writer, t.getName()) catch return null;
+            writer.print("\",\"color\":{d},\"volume\":{d:.4},\"pan\":{d:.3},\"mute\":{s},\"solo\":{d},\"recArm\":{s},\"recMon\":{d},\"fxEnabled\":{s}}}", .{
+                t.color,
+                t.volume,
+                t.pan,
+                if (t.mute) "true" else "false",
+                t.solo,
+                if (t.rec_arm) "true" else "false",
+                t.rec_mon,
+                if (t.fx_enabled) "true" else "false",
+            }) catch return null;
         }
 
         writer.writeAll("]") catch return null;
@@ -207,16 +228,28 @@ test "State.eql detects track count changes" {
 test "State.toJson without metering" {
     var state = State{};
     state.count = 2;
-    state.tracks[0] = .{ .idx = 0, .volume = 1.0, .pan = 0.0, .mute = false, .solo = 0, .rec_arm = false, .rec_mon = 0, .fx_enabled = true };
-    state.tracks[1] = .{ .idx = 1, .volume = 0.5, .pan = -0.5, .mute = true, .solo = 1, .rec_arm = true, .rec_mon = 1, .fx_enabled = false };
 
-    var buf: [2048]u8 = undefined;
+    // Track 0 with name "Drums"
+    state.tracks[0] = .{ .idx = 0, .color = 16711680, .volume = 1.0, .pan = 0.0, .mute = false, .solo = 0, .rec_arm = false, .rec_mon = 0, .fx_enabled = true };
+    state.tracks[0].name[0..5].* = "Drums".*;
+    state.tracks[0].name_len = 5;
+
+    // Track 1 with name "Bass"
+    state.tracks[1] = .{ .idx = 1, .color = 255, .volume = 0.5, .pan = -0.5, .mute = true, .solo = 1, .rec_arm = true, .rec_mon = 1, .fx_enabled = false };
+    state.tracks[1].name[0..4].* = "Bass".*;
+    state.tracks[1].name_len = 4;
+
+    var buf: [4096]u8 = undefined;
     const json = state.toJson(&buf, null).?;
 
     // Verify structure
     try std.testing.expect(std.mem.indexOf(u8, json, "\"event\":\"tracks\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"idx\":0") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"idx\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"name\":\"Drums\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"name\":\"Bass\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"color\":16711680") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"color\":255") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"mute\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"recArm\":true") != null);
     // No meters key when metering is null

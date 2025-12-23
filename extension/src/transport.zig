@@ -14,6 +14,9 @@ pub const State = struct {
     repeat: bool = false,
     metronome_enabled: bool = false,
     metronome_volume: f64 = 1.0, // Linear amplitude (0.0-4.0)
+    // Position in bar.beat format (for display)
+    position_bar: c_int = 1,
+    position_beat: f64 = 1.0, // Beat within bar (1-based, fractional = ticks)
 
     // Comparison with tolerance for change detection
     pub fn eql(self: State, other: State) bool {
@@ -56,13 +59,18 @@ pub const State = struct {
     pub fn poll(api: *const reaper.Api) State {
         const ts = api.timeSignature();
         const sel = api.timeSelection();
-        // Get time signature denominator from cursor position beats info
-        const beats_info = api.timeToBeats(api.cursorPosition());
+        const play_state = api.playState();
+        const play_pos = api.playPosition();
+        const cursor_pos = api.cursorPosition();
+
+        // Get current position for bar.beat display
+        const current_pos = if (play_state & 1 != 0) play_pos else cursor_pos;
+        const beats_info = api.timeToBeats(current_pos);
 
         return .{
-            .play_state = api.playState(),
-            .play_position = api.playPosition(),
-            .cursor_position = api.cursorPosition(),
+            .play_state = play_state,
+            .play_position = play_pos,
+            .cursor_position = cursor_pos,
             .bpm = ts.bpm,
             .time_sig_num = ts.num,
             .time_sig_denom = beats_info.time_sig_denom,
@@ -71,17 +79,27 @@ pub const State = struct {
             .repeat = api.getRepeat(),
             .metronome_enabled = api.isMetronomeEnabled(),
             .metronome_volume = api.getMetronomeVolume(),
+            .position_bar = beats_info.measures,
+            .position_beat = beats_info.beats_in_measure + 1.0, // Convert 0-based to 1-based
         };
     }
 
     // Build JSON event for this state
     pub fn toJson(self: State, buf: []u8) ?[]const u8 {
         const metro_vol_db = reaper.Api.linearToDb(self.metronome_volume);
+
+        // Format bar.beat.ticks (e.g., "12.3.45")
+        const beat_int: u32 = @intFromFloat(@max(1.0, @trunc(self.position_beat)));
+        const ticks: u32 = @intFromFloat(@mod(self.position_beat, 1.0) * 100.0);
+
         const result = std.fmt.bufPrint(buf,
-            \\{{"type":"event","event":"transport","payload":{{"playState":{d},"position":{d:.3},"cursorPosition":{d:.3},"bpm":{d:.2},"timeSignature":{{"numerator":{d},"denominator":{d}}},"timeSelection":{{"start":{d:.3},"end":{d:.3}}},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}}}}}}
+            \\{{"type":"event","event":"transport","payload":{{"playState":{d},"position":{d:.3},"positionBeats":"{d}.{d}.{d:0>2}","cursorPosition":{d:.3},"bpm":{d:.2},"timeSignature":{{"numerator":{d},"denominator":{d}}},"timeSelection":{{"start":{d:.3},"end":{d:.3}}},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}}}}}}
         , .{
             self.play_state,
             self.currentPosition(),
+            self.position_bar,
+            beat_int,
+            ticks,
             self.cursor_position,
             self.bpm,
             safeTimeSigNum(self.time_sig_num),
@@ -171,6 +189,8 @@ test "State.toJson" {
         .repeat = true,
         .metronome_enabled = true,
         .metronome_volume = 0.5,
+        .position_bar = 12,
+        .position_beat = 3.45, // Beat 3, 45% through
     };
 
     var buf: [512]u8 = undefined;
@@ -179,6 +199,7 @@ test "State.toJson" {
     // Verify it's valid-ish JSON with expected fields
     try std.testing.expect(std.mem.indexOf(u8, json, "\"playState\":1") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"position\":10.5") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"positionBeats\":\"12.3.45\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"bpm\":120") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"repeat\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"denominator\":4") != null);

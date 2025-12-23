@@ -183,7 +183,7 @@ test "registry contains expected commands" {
         "take/prev",
         // Time selection
         "timeSelection/set",
-        "timeSelection/setBeats",
+        "timeSelection/setBars",
         "timeSelection/clear",
         "timeSelection/goStart",
         "timeSelection/goEnd",

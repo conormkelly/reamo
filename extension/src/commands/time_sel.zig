@@ -6,7 +6,7 @@ const mod = @import("mod.zig");
 // Time selection command handlers
 pub const handlers = [_]mod.Entry{
     .{ .name = "timeSelection/set", .handler = handleSet },
-    .{ .name = "timeSelection/setBeats", .handler = handleSetBeats },
+    .{ .name = "timeSelection/setBars", .handler = handleSetBars },
     .{ .name = "timeSelection/clear", .handler = handleClear },
     .{ .name = "timeSelection/goStart", .handler = handleGoStart },
     .{ .name = "timeSelection/goEnd", .handler = handleGoEnd },
@@ -34,9 +34,9 @@ fn handleSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
     api.log("Reamo: Set time selection {d:.2} - {d:.2}", .{ start, end });
 }
 
-// Set time selection by bar.beat
+// Set time selection by bar (with optional beat precision)
 // Supports flexible input: {startBar, endBar} at minimum, optionally startBeat, endBeat
-fn handleSetBeats(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+fn handleSetBars(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const start_bar = cmd.getInt("startBar") orelse {
         response.err("MISSING_START_BAR", "startBar is required");
         return;

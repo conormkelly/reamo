@@ -571,6 +571,12 @@ pub const Api = struct {
         return f(track, "I_FXEN", if (enabled) 1.0 else 0.0);
     }
 
+    // Track color: returns native OS color (0 = default/no custom color)
+    pub fn getTrackColor(self: *const Api, track: *anyopaque) c_int {
+        const f = self.getMediaTrackInfo_Value orelse return 0;
+        return safeFloatToInt(c_int, f(track, "I_CUSTOMCOLOR"), 0);
+    }
+
     // Item methods
 
     pub fn trackItemCount(self: *const Api, track: *anyopaque) c_int {
@@ -764,8 +770,9 @@ pub const Command = struct {
     pub const PLAY: c_int = 1007;
     pub const PAUSE: c_int = 1008;
     pub const RECORD: c_int = 1013;
-    pub const STOP: c_int = 1016; // Stop and save
-    pub const ABORT_RECORDING: c_int = 40668; // Stop, delete recorded media
+    pub const STOP: c_int = 1016; // Stop
+    pub const STOP_AND_SAVE: c_int = 40667; // Stop (save all recorded media)
+    pub const STOP_AND_DELETE: c_int = 40668; // Stop (DELETE all recorded media)
     pub const TOGGLE_REPEAT: c_int = 1068;
 
     // Navigation
