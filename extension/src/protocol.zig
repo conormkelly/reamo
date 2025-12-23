@@ -32,6 +32,11 @@ pub const CommandMessage = struct {
     pub fn getString(self: CommandMessage, key: []const u8) ?[]const u8 {
         return jsonGetString(self.raw, key);
     }
+
+    // Get an integer parameter from the message
+    pub fn getInt(self: CommandMessage, key: []const u8) ?c_int {
+        return jsonGetInt(self.raw, key);
+    }
 };
 
 // Simple JSON field extraction (no allocations)
@@ -87,6 +92,40 @@ pub fn jsonGetFloat(data: []const u8, key: []const u8) ?f64 {
 
     if (num_end > num_start) {
         return std.fmt.parseFloat(f64, data[num_start..num_end]) catch null;
+    }
+    return null;
+}
+
+pub fn jsonGetInt(data: []const u8, key: []const u8) ?c_int {
+    // Build search pattern: "key"
+    var pattern_buf: [64]u8 = undefined;
+    const pattern = std.fmt.bufPrint(&pattern_buf, "\"{s}\"", .{key}) catch return null;
+
+    const key_start = std.mem.indexOf(u8, data, pattern) orelse return null;
+    const after_key = key_start + pattern.len;
+
+    // Find the colon
+    const colon = std.mem.indexOfPos(u8, data, after_key, ":") orelse return null;
+
+    // Skip whitespace
+    var num_start = colon + 1;
+    while (num_start < data.len and (data[num_start] == ' ' or data[num_start] == '\t')) {
+        num_start += 1;
+    }
+
+    // Find end of number (integers only - no decimal point)
+    var num_end = num_start;
+    while (num_end < data.len) {
+        const c = data[num_end];
+        if (c == '-' or c == '+' or (c >= '0' and c <= '9')) {
+            num_end += 1;
+        } else {
+            break;
+        }
+    }
+
+    if (num_end > num_start) {
+        return std.fmt.parseInt(c_int, data[num_start..num_end], 10) catch null;
     }
     return null;
 }

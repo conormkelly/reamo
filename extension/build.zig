@@ -28,6 +28,7 @@ pub fn build(b: *std.Build) void {
     const test_modules = [_][]const u8{
         "src/protocol.zig",
         "src/transport.zig",
+        "src/markers.zig",
     };
 
     const test_step = b.step("test", "Run unit tests");

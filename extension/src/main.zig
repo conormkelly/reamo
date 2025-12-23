@@ -1,6 +1,7 @@
 const std = @import("std");
 const reaper = @import("reaper.zig");
 const transport = @import("transport.zig");
+const markers = @import("markers.zig");
 const commands = @import("commands.zig");
 const ws_server = @import("ws_server.zig");
 
@@ -15,6 +16,7 @@ var g_shared_state: ?*ws_server.SharedState = null;
 var g_server: ?ws_server.Server = null;
 var g_port: u16 = 0;
 var g_last_transport: transport.State = .{};
+var g_last_markers: markers.State = .{};
 var g_initialized: bool = false;
 
 // Debug logging (can be disabled in release)
@@ -82,8 +84,9 @@ fn initTimerCallback() callconv(.c) void {
     const port_str = std.fmt.bufPrint(&port_buf, "{d}", .{g_port}) catch "9224";
     api.setExtStateStr("Reamo", "WebSocketPort", port_str);
 
-    // Initialize transport state cache
+    // Initialize state caches
     g_last_transport = transport.State.poll(api);
+    g_last_markers = markers.State.poll(api);
 
     api.log("Reamo: WebSocket server started on port {d}", .{g_port});
     logFile("WebSocket server started");
@@ -108,14 +111,30 @@ fn processTimerCallback() callconv(.c) void {
     }
 
     // Poll transport state and broadcast changes
-    const current = transport.State.poll(api);
-    if (!current.eql(g_last_transport)) {
+    const current_transport = transport.State.poll(api);
+    if (!current_transport.eql(g_last_transport)) {
         var buf: [512]u8 = undefined;
-        if (current.toJson(&buf)) |json| {
+        if (current_transport.toJson(&buf)) |json| {
             shared_state.broadcast(json);
         }
-        g_last_transport = current;
+        g_last_transport = current_transport;
     }
+
+    // Poll markers/regions and broadcast changes
+    const current_markers = markers.State.poll(api);
+    if (current_markers.markersChanged(&g_last_markers)) {
+        var buf: [8192]u8 = undefined; // Larger buffer for many markers
+        if (current_markers.markersToJson(&buf)) |json| {
+            shared_state.broadcast(json);
+        }
+    }
+    if (current_markers.regionsChanged(&g_last_markers)) {
+        var buf: [8192]u8 = undefined;
+        if (current_markers.regionsToJson(&buf)) |json| {
+            shared_state.broadcast(json);
+        }
+    }
+    g_last_markers = current_markers;
 }
 
 // Shutdown - called when REAPER unloads the extension
@@ -183,6 +202,7 @@ export fn ReaperPluginEntry(hInstance: ?*anyopaque, rec: ?*reaper.PluginInfo) ca
 test {
     _ = @import("protocol.zig");
     _ = @import("transport.zig");
+    _ = @import("markers.zig");
     _ = @import("commands.zig");
     _ = @import("ws_server.zig");
 }

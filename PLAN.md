@@ -25,8 +25,9 @@ This document outlines a plan to build a native REAPER extension (dylib/dll) in 
 
 - **Phase 1 complete**: WebSocket server running, clients can connect, command queue working
 - **Phase 2 complete**: Transport state polling, change detection, play/stop/pause/record/toggle/seek commands
-- **Code refactored**: Clean module structure (reaper.zig, transport.zig, protocol.zig, commands.zig, ws_server.zig)
-- **Next step**: Implement markers & regions (Phase 3 below)
+- **Phase 3 complete**: Markers & regions enumeration, change detection, CRUD commands
+- **Code refactored**: Clean module structure (reaper.zig, transport.zig, markers.zig, protocol.zig, commands.zig, ws_server.zig)
+- **Next step**: Items & Takes (Phase 4)
 
 ## Development Notes (Project-Specific)
 
@@ -50,6 +51,7 @@ extension/src/
 ├── main.zig        # Entry point, lifecycle, timers
 ├── reaper.zig      # REAPER API wrapper, safe function loading
 ├── transport.zig   # Transport state polling, change detection (has unit tests)
+├── markers.zig     # Marker/region state, change detection (has unit tests)
 ├── protocol.zig    # JSON parsing/building (has unit tests)
 ├── commands.zig    # Command registry pattern - add new commands here
 └── ws_server.zig   # WebSocket server, client management, ring buffer queue
@@ -1047,11 +1049,11 @@ This may be a "nice to have" optimization rather than essential.
 - [x] Push-based updates to connected clients
 - [x] Transport commands (play, pause, stop, seek, toggle, record)
 
-### Phase 3: Markers & Regions
+### Phase 3: Markers & Regions ✅
 
-- [ ] Marker/region enumeration and change detection
-- [ ] CRUD commands for markers and regions
-- [ ] Delta updates (track adds/updates/deletes)
+- [x] Marker/region enumeration and change detection
+- [x] CRUD commands for markers and regions (add, update, delete, goto)
+- [x] Push-based updates (full state per category, as designed)
 
 ### Phase 4: Items & Takes
 
