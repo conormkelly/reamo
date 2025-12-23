@@ -23,7 +23,9 @@ fn handleMarkerAdd(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
     var name_buf: [65]u8 = undefined;
     const name = mod.toNullTerminated(&name_buf, cmd.getString("name"));
 
+    api.undoBeginBlock();
     const id = api.addMarker(pos, name, color);
+    api.undoEndBlock("Add marker (API)");
     if (id >= 0) {
         api.log("Reamo: Added marker {d} at {d:.2}", .{ id, pos });
     }
@@ -40,9 +42,11 @@ fn handleMarkerUpdate(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
     var name_buf: [65]u8 = undefined;
     const name = mod.toNullTerminated(&name_buf, cmd.getString("name"));
 
+    api.undoBeginBlock();
     if (api.updateMarker(id, pos, name, color)) {
         api.log("Reamo: Updated marker {d}", .{id});
     }
+    api.undoEndBlock("Update marker (API)");
 }
 
 fn handleMarkerDelete(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
@@ -50,9 +54,11 @@ fn handleMarkerDelete(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
         response.err("MISSING_ID", "Marker id is required");
         return;
     };
+    api.undoBeginBlock();
     if (api.deleteMarker(id)) {
         api.log("Reamo: Deleted marker {d}", .{id});
     }
+    api.undoEndBlock("Delete marker (API)");
 }
 
 fn handleMarkerGoto(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
