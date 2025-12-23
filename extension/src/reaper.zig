@@ -86,6 +86,14 @@ pub const Api = struct {
     undo_EndBlock2: ?*const fn (?*anyopaque, [*:0]const u8, c_int) callconv(.c) void = null,
     undo_OnStateChange: ?*const fn ([*:0]const u8) callconv(.c) void = null,
 
+    // Metering
+    track_GetPeakInfo: ?*const fn (?*anyopaque, c_int) callconv(.c) f64 = null,
+    track_GetPeakHoldDB: ?*const fn (?*anyopaque, c_int, bool) callconv(.c) f64 = null,
+
+    // Project config variables (for metronome volume, etc.)
+    projectconfig_var_getoffs: ?*const fn ([*:0]const u8, ?*c_int) callconv(.c) c_int = null,
+    projectconfig_var_addr: ?*const fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque = null,
+
     // Load API from REAPER plugin info
     pub fn load(info: *PluginInfo) ?Api {
         const showConsoleMsg = getFunc(info, "ShowConsoleMsg", fn ([*:0]const u8) callconv(.c) void) orelse return null;
@@ -142,6 +150,12 @@ pub const Api = struct {
             .undo_BeginBlock2 = getFunc(info, "Undo_BeginBlock2", fn (?*anyopaque) callconv(.c) void),
             .undo_EndBlock2 = getFunc(info, "Undo_EndBlock2", fn (?*anyopaque, [*:0]const u8, c_int) callconv(.c) void),
             .undo_OnStateChange = getFunc(info, "Undo_OnStateChange", fn ([*:0]const u8) callconv(.c) void),
+            // Metering
+            .track_GetPeakInfo = getFunc(info, "Track_GetPeakInfo", fn (?*anyopaque, c_int) callconv(.c) f64),
+            .track_GetPeakHoldDB = getFunc(info, "Track_GetPeakHoldDB", fn (?*anyopaque, c_int, bool) callconv(.c) f64),
+            // Project config variables
+            .projectconfig_var_getoffs = getFunc(info, "projectconfig_var_getoffs", fn ([*:0]const u8, ?*c_int) callconv(.c) c_int),
+            .projectconfig_var_addr = getFunc(info, "projectconfig_var_addr", fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque),
         };
     }
 
@@ -657,6 +671,90 @@ pub const Api = struct {
         const f = self.getTakeName orelse return "";
         const ptr = f(take) orelse return "";
         return std.mem.sliceTo(ptr, 0);
+    }
+
+    // Metering methods
+
+    /// Get track peak level (1.0 = 0dB, 0.0 = -inf)
+    /// Channel: 0 = left, 1 = right
+    pub fn getTrackPeakInfo(self: *const Api, track: *anyopaque, channel: c_int) f64 {
+        const f = self.track_GetPeakInfo orelse return 0.0;
+        return f(track, channel);
+    }
+
+    /// Get track peak hold in dB×0.01 (0 = 0dB, -100 = -1dB, 200 = +2dB)
+    /// Set clear=true to reset the hold value
+    pub fn getTrackPeakHoldDB(self: *const Api, track: *anyopaque, channel: c_int, clear: bool) f64 {
+        const f = self.track_GetPeakHoldDB orelse return -10000.0;
+        return f(track, channel, clear);
+    }
+
+    /// Clear peak hold for both channels of a track
+    pub fn clearTrackPeakHold(self: *const Api, track: *anyopaque) void {
+        _ = self.getTrackPeakHoldDB(track, 0, true);
+        _ = self.getTrackPeakHoldDB(track, 1, true);
+    }
+
+    // Metronome volume methods
+
+    // dB conversion constants
+    const MIN_DB: f64 = -60.0; // Treat as -inf below this
+    const MAX_DB: f64 = 12.0; // Maximum +12dB
+
+    /// Convert linear amplitude to dB
+    pub fn linearToDb(linear: f64) f64 {
+        if (linear <= 0.0) return MIN_DB;
+        const db = 20.0 * @log10(linear);
+        return @max(MIN_DB, @min(MAX_DB, db));
+    }
+
+    /// Convert dB to linear amplitude
+    pub fn dbToLinear(db: f64) f64 {
+        if (db <= MIN_DB) return 0.0;
+        return std.math.pow(f64, 10.0, db / 20.0);
+    }
+
+    /// Get metronome primary beat volume (linear amplitude, 0.0-4.0 range)
+    pub fn getMetronomeVolume(self: *const Api) f64 {
+        const getoffs = self.projectconfig_var_getoffs orelse return 1.0;
+        const getaddr = self.projectconfig_var_addr orelse return 1.0;
+
+        var sz: c_int = 0;
+        const offs = getoffs("projmetrov1", &sz);
+        if (offs < 0) return 1.0;
+        if (sz != 8) return 1.0; // sizeof(f64)
+
+        const ptr = getaddr(null, offs) orelse return 1.0;
+        const vol_ptr: *f64 = @ptrCast(@alignCast(ptr));
+        return vol_ptr.*;
+    }
+
+    /// Get metronome volume in dB (-60 to +12)
+    pub fn getMetronomeVolumeDb(self: *const Api) f64 {
+        return linearToDb(self.getMetronomeVolume());
+    }
+
+    /// Set metronome primary beat volume (linear amplitude)
+    pub fn setMetronomeVolume(self: *const Api, vol: f64) bool {
+        const getoffs = self.projectconfig_var_getoffs orelse return false;
+        const getaddr = self.projectconfig_var_addr orelse return false;
+
+        var sz: c_int = 0;
+        const offs = getoffs("projmetrov1", &sz);
+        if (offs < 0) return false;
+        if (sz != 8) return false;
+
+        const ptr = getaddr(null, offs) orelse return false;
+        const vol_ptr: *f64 = @ptrCast(@alignCast(ptr));
+
+        // Clamp to valid range (0.0 to ~4.0 for +12dB max)
+        vol_ptr.* = @max(0.0, @min(4.0, vol));
+        return true;
+    }
+
+    /// Set metronome volume in dB (-60 to +12)
+    pub fn setMetronomeVolumeDb(self: *const Api, db: f64) bool {
+        return self.setMetronomeVolume(dbToLinear(db));
     }
 };
 

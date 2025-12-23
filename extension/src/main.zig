@@ -21,6 +21,7 @@ var g_last_transport: transport.State = .{};
 var g_last_markers: markers.State = .{};
 var g_last_items: items.State = .{};
 var g_last_tracks: tracks.State = .{};
+var g_last_metering: tracks.MeteringState = .{};
 var g_initialized: bool = false;
 
 // Debug logging (can be disabled in release)
@@ -160,15 +161,24 @@ fn processTimerCallback() callconv(.c) void {
     }
     g_last_items = current_items;
 
-    // Poll tracks and broadcast changes
+    // Poll tracks and metering, broadcast changes
     const current_tracks = tracks.State.poll(api);
-    if (!current_tracks.eql(&g_last_tracks)) {
+    const current_metering = tracks.MeteringState.poll(api);
+
+    // Broadcast if tracks changed OR if we have active metering
+    // (metering values change constantly so we always send when metering is active)
+    const tracks_changed = !current_tracks.eql(&g_last_tracks);
+    const has_metering = current_metering.hasData();
+
+    if (tracks_changed or has_metering) {
         var buf: [16384]u8 = undefined; // Large buffer for many tracks
-        if (current_tracks.toJson(&buf)) |json| {
+        const metering_ptr: ?*const tracks.MeteringState = if (has_metering) &current_metering else null;
+        if (current_tracks.toJson(&buf, metering_ptr)) |json| {
             shared_state.broadcast(json);
         }
     }
     g_last_tracks = current_tracks;
+    g_last_metering = current_metering;
 }
 
 // Shutdown - called when REAPER unloads the extension

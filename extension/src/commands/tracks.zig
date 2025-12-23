@@ -12,6 +12,7 @@ pub const handlers = [_]mod.Entry{
     .{ .name = "track/setRecArm", .handler = handleSetRecArm },
     .{ .name = "track/setRecMon", .handler = handleSetRecMon },
     .{ .name = "track/setFxEnabled", .handler = handleSetFxEnabled },
+    .{ .name = "meter/clearClip", .handler = handleClearClip },
 };
 
 // Helper to get track by index from command
@@ -118,4 +119,17 @@ fn handleSetFxEnabled(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
     if (api.setTrackFxEnabled(track, enabled)) {
         api.log("Reamo: Set track FX enabled to {}", .{enabled});
     }
+}
+
+// Clear clip indicator for a track's input meter
+fn handleClearClip(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const track = getTrackFromCmd(api, cmd) orelse {
+        response.err("NOT_FOUND", "Track not found");
+        return;
+    };
+    // Clear REAPER's internal peak hold for both channels
+    // Next metering poll will see hold is now clear (no clipping)
+    api.clearTrackPeakHold(track);
+    api.log("Reamo: Cleared clip indicator for track", .{});
+    response.success(null);
 }

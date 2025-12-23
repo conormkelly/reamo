@@ -12,7 +12,8 @@ pub const State = struct {
     time_sel_start: f64 = 0,
     time_sel_end: f64 = 0,
     repeat: bool = false,
-    metronome: bool = false,
+    metronome_enabled: bool = false,
+    metronome_volume: f64 = 1.0, // Linear amplitude (0.0-4.0)
 
     // Comparison with tolerance for change detection
     pub fn eql(self: State, other: State) bool {
@@ -23,7 +24,8 @@ pub const State = struct {
         if (!floatEql(self.time_sel_start, other.time_sel_start)) return false;
         if (!floatEql(self.time_sel_end, other.time_sel_end)) return false;
         if (self.repeat != other.repeat) return false;
-        if (self.metronome != other.metronome) return false;
+        if (self.metronome_enabled != other.metronome_enabled) return false;
+        if (!floatEql(self.metronome_volume, other.metronome_volume)) return false;
 
         // Position changes frequently during playback - only check when stopped
         if (self.play_state == 0) {
@@ -67,14 +69,16 @@ pub const State = struct {
             .time_sel_start = sel.start,
             .time_sel_end = sel.end,
             .repeat = api.getRepeat(),
-            .metronome = api.isMetronomeEnabled(),
+            .metronome_enabled = api.isMetronomeEnabled(),
+            .metronome_volume = api.getMetronomeVolume(),
         };
     }
 
     // Build JSON event for this state
     pub fn toJson(self: State, buf: []u8) ?[]const u8 {
+        const metro_vol_db = reaper.Api.linearToDb(self.metronome_volume);
         const result = std.fmt.bufPrint(buf,
-            \\{{"type":"event","event":"transport","payload":{{"playState":{d},"position":{d:.3},"cursorPosition":{d:.3},"bpm":{d:.2},"timeSignature":{{"numerator":{d},"denominator":{d}}},"timeSelection":{{"start":{d:.3},"end":{d:.3}}},"repeat":{s},"metronome":{s}}}}}
+            \\{{"type":"event","event":"transport","payload":{{"playState":{d},"position":{d:.3},"cursorPosition":{d:.3},"bpm":{d:.2},"timeSignature":{{"numerator":{d},"denominator":{d}}},"timeSelection":{{"start":{d:.3},"end":{d:.3}}},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}}}}}}
         , .{
             self.play_state,
             self.currentPosition(),
@@ -85,7 +89,9 @@ pub const State = struct {
             self.time_sel_start,
             self.time_sel_end,
             if (self.repeat) "true" else "false",
-            if (self.metronome) "true" else "false",
+            if (self.metronome_enabled) "true" else "false",
+            self.metronome_volume,
+            metro_vol_db,
         }) catch return null;
 
         return result;
@@ -163,6 +169,8 @@ test "State.toJson" {
         .time_sel_start = 0,
         .time_sel_end = 30.0,
         .repeat = true,
+        .metronome_enabled = true,
+        .metronome_volume = 0.5,
     };
 
     var buf: [512]u8 = undefined;
@@ -174,6 +182,8 @@ test "State.toJson" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"bpm\":120") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"repeat\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"denominator\":4") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"metronome\":{\"enabled\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"volume\":0.5") != null);
 }
 
 test "State.eql detects repeat changes" {
@@ -183,8 +193,14 @@ test "State.eql detects repeat changes" {
 }
 
 test "State.eql detects metronome changes" {
-    const a = State{ .metronome = false };
-    const b = State{ .metronome = true };
+    const a = State{ .metronome_enabled = false };
+    const b = State{ .metronome_enabled = true };
+    try std.testing.expect(!a.eql(b));
+}
+
+test "State.eql detects metronome volume changes" {
+    const a = State{ .metronome_volume = 1.0 };
+    const b = State{ .metronome_volume = 0.5 };
     try std.testing.expect(!a.eql(b));
 }
 
