@@ -4,6 +4,29 @@
 
 This document outlines a plan to build a native REAPER extension (dylib/dll) in Zig that provides a WebSocket-based API for Reamo, replacing the current HTTP polling architecture with a push-based system and enabling new capabilities not possible with REAPER's built-in HTTP control surface.
 
+> **Note for future sessions:** Before implementing, run `git log --oneline -10` to check recent commits. The codebase may have evolved beyond this plan. If you find deviations, check with the human operator before proceeding.
+
+## Project Structure
+
+```txt
+├── extension/           # Zig REAPER extension (WebSocket server)
+│   ├── src/main.zig     # Plugin entry point
+│   ├── build.zig        # Zig 0.15 build config
+│   └── build.zig.zon    # Package manifest
+├── frontend/            # React timeline UI (Vite + TypeScript)
+│   └── src/
+├── docs/
+│   └── websocket-api-spec.yaml  # OpenAPI 3.0 message schemas (see note below)
+├── Makefile             # `make all` builds both, `make extension` installs to REAPER
+└── PLAN.md
+```
+
+## Project - Current State
+
+- **PoC validated**: Zig extension loads in REAPER, sets EXTSTATE values, readable via HTTP
+- **Build working**: `make extension` compiles and installs to REAPER UserPlugins
+- **Next step**: Implement WebSocket server in extension (Phase 1 below)
+
 ## Background
 
 ### Project Philosophy
@@ -717,7 +740,7 @@ Just: **"See what I recorded, tidy it up, make quick keep/trash decisions, move 
 
 ## Enhancement: Metering with Clip Indicators
 
-### Current State
+### Metering - Current State
 
 The app has input metering but it's transient-only — no peak hold or clip indication. Users can't tell at a glance if they clipped during a take.
 
