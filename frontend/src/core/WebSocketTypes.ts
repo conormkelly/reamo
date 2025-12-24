@@ -92,6 +92,7 @@ export interface TransportEventPayload {
     volumeDb: number; // dB
   };
   projectLength: number; // seconds
+  barOffset: number; // bar offset (e.g., -4 means time 0 = bar 1, display starts at bar -4)
 }
 
 // =============================================================================

@@ -30,6 +30,7 @@ export interface TransportSlice {
   timeSignatureNumerator: number;
   timeSignatureDenominator: number;
   timeSelection: TimeSelection | null;
+  barOffset: number;
 
   // Actions
   updateTransport: (transport: TransportState) => void;
@@ -63,6 +64,7 @@ export const createTransportSlice: StateCreator<TransportSlice> = (set, get) => 
   timeSignatureNumerator: 4,
   timeSignatureDenominator: 4,
   timeSelection: null,
+  barOffset: 0,
 
   // Actions
   updateTransport: (transport) =>

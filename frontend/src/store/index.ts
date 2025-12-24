@@ -173,6 +173,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
               endBeats: p.timeSelection.end * (normalizedBpm / 60),
             }
           : null,
+        barOffset: p.barOffset ?? 0,
       });
     } else if (isTracksEvent(message)) {
       const p = message.payload as TracksEventPayload;

@@ -15,6 +15,7 @@ pub const State = struct {
     metronome_enabled: bool = false,
     metronome_volume: f64 = 1.0, // Linear amplitude (0.0-4.0)
     project_length: f64 = 0, // Project length in seconds
+    bar_offset: c_int = 0, // Project bar offset (e.g., -4 means time 0 = bar 1, display starts at -4)
     // Position in bar.beat format (for display)
     position_bar: c_int = 1,
     position_beat: f64 = 1.0, // Beat within bar (1-based, fractional = ticks)
@@ -31,6 +32,7 @@ pub const State = struct {
         if (self.metronome_enabled != other.metronome_enabled) return false;
         if (!floatEql(self.metronome_volume, other.metronome_volume)) return false;
         if (!floatEql(self.project_length, other.project_length)) return false;
+        if (self.bar_offset != other.bar_offset) return false;
 
         // Position changes: check cursor when stopped, play_position when playing
         if (self.play_state == 0) {
@@ -86,6 +88,7 @@ pub const State = struct {
             .metronome_enabled = api.isMetronomeEnabled(),
             .metronome_volume = api.getMetronomeVolume(),
             .project_length = api.projectLength(),
+            .bar_offset = api.getBarOffset(),
             .position_bar = beats_info.measures,
             .position_beat = beats_info.beats_in_measure + 1.0, // Convert 0-based to 1-based
         };
@@ -95,16 +98,18 @@ pub const State = struct {
     pub fn toJson(self: State, buf: []u8) ?[]const u8 {
         const metro_vol_db = reaper.Api.linearToDb(self.metronome_volume);
 
-        // Format bar.beat.ticks (e.g., "12.3.45")
+        // Format bar.beat.ticks (e.g., "12.3.45" or "-4.1.00")
+        // Apply bar_offset to get display bar number (REAPER's bar 1 at time 0 + offset)
+        const display_bar = self.position_bar + self.bar_offset;
         const beat_int: u32 = @intFromFloat(@max(1.0, @trunc(self.position_beat)));
         const ticks: u32 = @intFromFloat(@mod(self.position_beat, 1.0) * 100.0);
 
         const result = std.fmt.bufPrint(buf,
-            \\{{"type":"event","event":"transport","payload":{{"playState":{d},"position":{d:.3},"positionBeats":"{d}.{d}.{d:0>2}","cursorPosition":{d:.3},"bpm":{d:.2},"timeSignature":{{"numerator":{d},"denominator":{d}}},"timeSelection":{{"start":{d:.3},"end":{d:.3}}},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"projectLength":{d:.3}}}}}
+            \\{{"type":"event","event":"transport","payload":{{"playState":{d},"position":{d:.3},"positionBeats":"{d}.{d}.{d:0>2}","cursorPosition":{d:.3},"bpm":{d:.2},"timeSignature":{{"numerator":{d},"denominator":{d}}},"timeSelection":{{"start":{d:.3},"end":{d:.3}}},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"projectLength":{d:.3},"barOffset":{d}}}}}
         , .{
             self.play_state,
             self.currentPosition(),
-            self.position_bar,
+            display_bar,
             beat_int,
             ticks,
             self.cursor_position,
@@ -118,6 +123,7 @@ pub const State = struct {
             self.metronome_volume,
             metro_vol_db,
             self.project_length,
+            self.bar_offset,
         }) catch return null;
 
         return result;
@@ -205,6 +211,7 @@ test "State.toJson" {
         .metronome_enabled = true,
         .metronome_volume = 0.5,
         .project_length = 180.5,
+        .bar_offset = -4,
         .position_bar = 12,
         .position_beat = 3.45, // Beat 3, 45% through
     };
@@ -215,13 +222,15 @@ test "State.toJson" {
     // Verify it's valid-ish JSON with expected fields
     try std.testing.expect(std.mem.indexOf(u8, json, "\"playState\":1") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"position\":10.5") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json, "\"positionBeats\":\"12.3.45\"") != null);
+    // Bar 12 + offset -4 = display bar 8
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"positionBeats\":\"8.3.45\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"bpm\":120") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"repeat\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"denominator\":4") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"metronome\":{\"enabled\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"volume\":0.5") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"projectLength\":180.5") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"barOffset\":-4") != null);
 }
 
 test "State.eql detects repeat changes" {

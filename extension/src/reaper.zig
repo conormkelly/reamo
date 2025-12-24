@@ -808,6 +808,22 @@ pub const Api = struct {
 
     // Time signature methods (using project config variables like REAPER's Project Settings dialog)
 
+    /// Get project bar offset (e.g., -4 means display starts at bar -4, time 0 = bar 1)
+    /// Returns 0 if bar offset is not set (bar 1 starts at time 0)
+    pub fn getBarOffset(self: *const Api) c_int {
+        const getoffs = self.projectconfig_var_getoffs orelse return 0;
+        const getaddr = self.projectconfig_var_addr orelse return 0;
+
+        var sz: c_int = 0;
+        const offs = getoffs("projmeasoffs", &sz);
+        if (offs < 0) return 0;
+        if (sz != 4) return 0; // sizeof(c_int)
+
+        const ptr = getaddr(null, offs) orelse return 0;
+        const val_ptr: *c_int = @ptrCast(@alignCast(ptr));
+        return val_ptr.*;
+    }
+
     /// Get project time signature numerator (beats per measure, e.g., 6 for 6/8)
     pub fn getTimeSignatureNumerator(self: *const Api) c_int {
         const getoffs = self.projectconfig_var_getoffs orelse return 4;
