@@ -39,6 +39,8 @@ function setupNegativeBarProject() {
     bpm: 90,
     positionBeats: '9.1.00', // Currently at bar 9
     positionSeconds: 34.667,
+    // barOffset = -5 makes beat 0 display as bar -4 (calculatedBar 1 + (-5) = -4)
+    barOffset: -5,
     // Time selection from bar 1 to bar 9 (stored as beats from time 0)
     // Bar 1.1 = 20 beats, Bar 9.1 = 52 beats (at 90 BPM: 13.333s to 34.667s)
     timeSelection: {
