@@ -28,7 +28,7 @@ export interface MarkerEditModalProps {
   denominator?: number;
   onClose: () => void;
   onMove: (markerId: number, newPositionSeconds: number) => void;
-  onDelete: (markerPositionSeconds: number) => void;
+  onDelete: (markerId: number) => void;
   onReorderAll: () => void;
 }
 
@@ -206,9 +206,9 @@ export function MarkerEditModal({
   }, [canEditNameColor, hasNameColorChanges, marker.id, nameValue, colorValue, sendCommand, onClose]);
 
   const handleDelete = useCallback(() => {
-    onDelete(marker.position);
+    onDelete(marker.id);
     onClose();
-  }, [marker.position, onDelete, onClose]);
+  }, [marker.id, onDelete, onClose]);
 
   const handleReorder = useCallback(() => {
     onReorderAll();
