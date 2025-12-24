@@ -8,3 +8,4 @@ export { useCurrentMarker, type UseCurrentMarkerReturn } from './useCurrentMarke
 export { useTimeSignature, type UseTimeSignatureReturn } from './useTimeSignature';
 export { useBarOffset } from './useBarOffset';
 export { useTimeFormatters, type UseTimeFormattersReturn } from './useTimeFormatters';
+export { useTransportAnimation, getTransportAnimationState } from './useTransportAnimation';

@@ -26,6 +26,7 @@ import {
   isMarkersEvent,
   isRegionsEvent,
 } from '../core/WebSocketTypes';
+import { transportEngine } from '../core/TransportAnimationEngine';
 
 // Combined store type
 export type ReaperStore = ConnectionSlice & TransportSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & {
@@ -155,6 +156,18 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
       // For 4/4: bpm * (4/4) = no change
       // For 6/8: bpm * (4/8) = bpm * 0.5 (180 eighth-note BPM → 90 quarter-note BPM)
       const normalizedBpm = p.bpm * (4 / p.timeSignature.denominator);
+
+      // Feed transport animation engine for client-side interpolation
+      transportEngine.onServerUpdate({
+        position: p.position,
+        positionBeats: p.positionBeats,
+        bpm: normalizedBpm,
+        playState: p.playState,
+        timeSignatureNumerator: p.timeSignature.numerator,
+        timeSignatureDenominator: p.timeSignature.denominator,
+        barOffset: p.barOffset ?? 0,
+      });
+
       set({
         playState: p.playState,
         positionSeconds: p.position,

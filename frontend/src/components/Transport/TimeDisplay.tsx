@@ -1,12 +1,15 @@
 /**
  * Time Display Component
- * Shows current playback position
+ * Shows current playback position with smooth 60fps updates
+ *
+ * Uses client-side interpolation via the TransportAnimationEngine
+ * for smooth display updates without React re-render overhead.
  */
 
-import type { ReactElement } from 'react';
-import { useMemo } from 'react';
+import { useRef, type ReactElement } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useTransport } from '../../hooks/useTransport';
+import { useTransportAnimation } from '../../hooks';
 import { PlayStateLabel } from '../../core/types';
 import { formatTime } from '../../utils';
 
@@ -26,10 +29,23 @@ export function TimeDisplay({
   showState = false,
   isSyncing = false,
 }: TimeDisplayProps): ReactElement {
-  const { playState, positionSeconds, positionBeats } = useTransport();
+  const { playState } = useTransport();
+
+  // Refs for direct DOM updates at 60fps
+  const timeRef = useRef<HTMLSpanElement>(null);
+  const beatsRef = useRef<HTMLSpanElement>(null);
+
+  // Subscribe to 60fps animation updates
+  useTransportAnimation((state) => {
+    if (timeRef.current) {
+      timeRef.current.textContent = formatTime(state.position, { precision: 3, showSign: true });
+    }
+    if (beatsRef.current) {
+      beatsRef.current.textContent = state.positionBeats;
+    }
+  }, []);
 
   const stateLabel = PlayStateLabel[playState];
-  const timeString = useMemo(() => formatTime(positionSeconds, { precision: 3, showSign: true }), [positionSeconds]);
 
   return (
     <div className={`font-mono ${className}`}>
@@ -41,13 +57,13 @@ export function TimeDisplay({
           <Loader2 className="w-6 h-6 text-gray-500 animate-spin inline-block" />
         ) : (
           <>
-            {format === 'time' && timeString}
-            {format === 'beats' && positionBeats}
+            {format === 'time' && <span ref={timeRef}>0:00.000</span>}
+            {format === 'beats' && <span ref={beatsRef}>1.1.00</span>}
             {format === 'both' && (
               <>
-                <span>{timeString}</span>
+                <span ref={timeRef}>0:00.000</span>
                 <span className="text-gray-500 mx-2">|</span>
-                <span className="text-gray-400">{positionBeats}</span>
+                <span ref={beatsRef} className="text-gray-400">1.1.00</span>
               </>
             )}
           </>

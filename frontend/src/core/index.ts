@@ -45,3 +45,11 @@ export { WebSocketConnection, type WebSocketConnectionOptions } from './WebSocke
 
 // WebSocket commands
 export * as commands from './WebSocketCommands';
+
+// Transport animation engine (client-side interpolation)
+export {
+  TransportAnimationEngine,
+  transportEngine,
+  type TransportAnimationState,
+  type TransportSubscriber,
+} from './TransportAnimationEngine';

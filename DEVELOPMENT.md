@@ -308,6 +308,36 @@ The project uses `lucide-react` for icons. Import individually:
 import { Lock, Unlock, Circle, Headphones } from 'lucide-react';
 ```
 
+### Transport Animation (60fps Interpolation)
+
+For smooth playhead and time display updates, we use client-side interpolation via `TransportAnimationEngine`. This avoids React re-renders for high-frequency position updates.
+
+**Pattern:** Use refs + direct DOM manipulation instead of state:
+
+```tsx
+import { useRef } from 'react';
+import { useTransportAnimation } from '../../hooks';
+
+function SmoothPosition() {
+  const ref = useRef<HTMLSpanElement>(null);
+
+  useTransportAnimation((state) => {
+    if (ref.current) {
+      ref.current.textContent = state.position.toFixed(2);
+    }
+  }, []);
+
+  return <span ref={ref}>0.00</span>;
+}
+```
+
+**Key files:**
+- `core/TransportAnimationEngine.ts` - Singleton engine, receives server updates, interpolates at 60fps
+- `hooks/useTransportAnimation.ts` - Hook to subscribe to engine updates
+- `TimelinePlayhead.tsx`, `TimeDisplay.tsx` - Components using this pattern
+
+**When to use:** Any UI element that displays transport position during playback and needs smooth visual updates.
+
 ## Testing Conventions
 
 ### Philosophy

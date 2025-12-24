@@ -6,20 +6,6 @@
 
 **Recommendation**: Server-managed undo blocks. Extension tracks "last idle value" per control, auto-creates undo block on first change, commits after 500ms idle.
 
-### Client-Side Interpolation (Research Needed)
-
-The time display updates at ~30ms intervals (33fps), which can appear slightly choppy.
-
-**Potential solution:** Client-side interpolation - instead of displaying exactly what the server sends, the client predicts position between updates:
-
-```
-Server pushes (every ~50ms): position, playState, bpm
-Client interpolates (every ~16ms / 60fps):
-  displayPosition = serverPosition + (timeSinceLastUpdate × playRate)
-```
-
-**Status:** Undecided. Need more research on complexity vs. benefit trade-off.
-
 ## Items Mode
 
 ### Rationale

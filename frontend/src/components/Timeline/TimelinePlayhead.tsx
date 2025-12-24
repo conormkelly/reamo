@@ -1,14 +1,19 @@
 /**
  * TimelinePlayhead Component
  * Renders the playhead line, grab handle, and drag previews
+ *
+ * Uses client-side interpolation for smooth 60fps playhead movement.
+ * The playhead position is updated via refs and direct DOM manipulation
+ * to avoid React re-render overhead.
  */
 
-import type { ReactElement } from 'react';
+import { useRef, useLayoutEffect, type ReactElement } from 'react';
 import type { Marker } from '../../core/types';
 import { formatBeats, formatTime } from '../../utils';
+import { useTransportAnimation } from '../../hooks';
 
 export interface TimelinePlayheadProps {
-  /** Current playhead position in seconds */
+  /** Current playhead position in seconds (used for initial render and when stopped) */
   positionSeconds: number;
   /** Current timeline mode */
   timelineMode: 'navigate' | 'regions';
@@ -68,6 +73,7 @@ export interface MarkerDragPreviewProps {
 
 /**
  * Main playhead line and grab handle
+ * Uses client-side interpolation for smooth 60fps updates
  */
 export function TimelinePlayhead({
   positionSeconds,
@@ -79,10 +85,27 @@ export function TimelinePlayhead({
   handlePlayheadPointerMove,
   handlePlayheadPointerUp,
 }: TimelinePlayheadProps): ReactElement | null {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Keep renderTimeToPercent in a ref so animation callback has current value
+  const renderTimeToPercentRef = useRef(renderTimeToPercent);
+  useLayoutEffect(() => {
+    renderTimeToPercentRef.current = renderTimeToPercent;
+  }, [renderTimeToPercent]);
+
+  // Subscribe to 60fps animation updates
+  useTransportAnimation((state) => {
+    if (containerRef.current) {
+      const percent = renderTimeToPercentRef.current(state.position);
+      containerRef.current.style.left = `${percent}%`;
+    }
+  }, []);
+
   if (isSyncing) return null;
 
   return (
     <div
+      ref={containerRef}
       className={`absolute top-0 bottom-0 ${isDraggingPlayhead ? 'opacity-50' : ''}`}
       style={{ left: `${renderTimeToPercent(positionSeconds)}%` }}
     >
