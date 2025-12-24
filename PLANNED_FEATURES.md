@@ -1,11 +1,8 @@
 # Planned Features
 
-### Track Collapse/Hide
+### Remove Legacy TakeSwitcher
 
-Add an eye icon or accordion button to hide/collapse tracks in the mixer view. Options:
-- Eye icon: show/hide individual tracks
-- Accordion: collapse all to just names, expand on tap
-- Could tie into track folder hierarchy
+The TakeSwitcher component below the mixer is outdated. Remove it - take management will be handled by Items Mode instead.
 
 ### Undo Strategy for Continuous Controls
 

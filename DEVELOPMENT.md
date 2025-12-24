@@ -246,12 +246,43 @@ const TrackFlags = {
 };
 ```
 
-### UI State in Store
+### UI State: Store vs Local
 
-For UI-only state that needs to be shared across components (like `mixerLocked`), add it to the appropriate Zustand slice rather than prop drilling. Components read directly:
+**Use Zustand store** for UI state shared across components (like `mixerLocked`):
 
 ```typescript
 const mixerLocked = useReaperStore((s) => s.mixerLocked);
+```
+
+**Use local `useState`** for UI state scoped to one component (like section collapse):
+
+```typescript
+const [mixerCollapsed, setMixerCollapsed] = useState(false);
+```
+
+### Collapsible Sections
+
+Pattern for accordion-style collapsible sections (see Timeline, Mixer):
+
+```tsx
+import { ChevronDown, ChevronRight } from 'lucide-react';
+
+const [collapsed, setCollapsed] = useState(false);
+
+<section>
+  <div className="flex items-center gap-1 mb-2">
+    <button
+      onClick={() => setCollapsed(!collapsed)}
+      className="flex items-center gap-1 text-sm font-medium text-gray-400 hover:text-gray-300"
+    >
+      {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+      <h3>Section Name</h3>
+    </button>
+  </div>
+  {!collapsed && (
+    <>{/* Section content */}</>
+  )}
+</section>
 ```
 
 ### Disabling Interactive Controls

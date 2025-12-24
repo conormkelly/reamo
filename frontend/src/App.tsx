@@ -4,7 +4,7 @@
  */
 
 import { useState, useMemo } from 'react';
-import { RectangleHorizontal, Lock, Unlock } from 'lucide-react';
+import { RectangleHorizontal, Lock, Unlock, ChevronDown, ChevronRight } from 'lucide-react';
 import './index.css';
 import {
   ReaperProvider,
@@ -100,6 +100,7 @@ function AppContent() {
   const [trackFilter, setTrackFilter] = useState('');
   const [showAddRegionModal, setShowAddRegionModal] = useState(false);
   const [showMakeSelectionModal, setShowMakeSelectionModal] = useState(false);
+  const [mixerCollapsed, setMixerCollapsed] = useState(false);
   const timelineMode = useReaperStore((s) => s.timelineMode);
 
   return (
@@ -171,18 +172,31 @@ function AppContent() {
         </section>
       )}
 
-      {/* Tracks */}
-      <section>
-        <div className="flex items-center gap-2 mb-3">
-          <TrackFilter
-            value={trackFilter}
-            onChange={setTrackFilter}
-            className="max-w-xs"
-            placeholder="Filter tracks..."
-          />
-          <MixerLockButton />
+      {/* Mixer */}
+      <section className="mb-4">
+        <div className="flex items-center gap-1 mb-2">
+          <button
+            onClick={() => setMixerCollapsed(!mixerCollapsed)}
+            className="flex items-center gap-1 text-sm font-medium text-gray-400 hover:text-gray-300 transition-colors"
+          >
+            {mixerCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+            <h3>Mixer</h3>
+          </button>
         </div>
-        <TrackList filter={trackFilter} />
+        {!mixerCollapsed && (
+          <>
+            <div className="flex items-center gap-2 mb-3">
+              <TrackFilter
+                value={trackFilter}
+                onChange={setTrackFilter}
+                className="max-w-xs"
+                placeholder="Filter tracks..."
+              />
+              <MixerLockButton />
+            </div>
+            <TrackList filter={trackFilter} />
+          </>
+        )}
       </section>
 
       {/* Take Switcher - below mixer */}
