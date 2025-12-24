@@ -4,6 +4,8 @@ This document captures implementation details, API quirks, and outstanding work 
 
 ## Architecture Overview
 
+### Project Structure
+
 ```
 reaper_www_root/
 ├── extension/           # Zig REAPER extension (WebSocket server)
@@ -34,6 +36,46 @@ reaper_www_root/
 ├── Makefile             # Build commands: make all, make extension, make frontend
 └── reamo.html           # Built frontend (single-file, copied from frontend/dist)
 ```
+
+### Threading Model
+
+```
+┌─────────────────────┐     ┌──────────────────────┐
+│  Main Thread        │     │  WebSocket Thread    │
+│  (REAPER context)   │     │  server.listen()     │
+│                     │     │                      │
+│  Timer callback:    │     │  Handler callbacks:  │
+│  - Poll REAPER state│◄───►│  - clientMessage()   │
+│  - Diff & push      │     │  - close()           │
+│  - Process commands │     │                      │
+└─────────┬───────────┘     └──────────┬───────────┘
+          │                            │
+          └────────────┬───────────────┘
+                       ▼
+              ┌────────────────────┐
+              │  Shared State      │
+              │  (Mutex-protected) │
+              │  - Command queue   │
+              │  - Connected clients│
+              │  - Cached state    │
+              └────────────────────┘
+```
+
+**All REAPER API calls must happen on the main thread.** The pattern:
+
+1. WebSocket thread receives command
+2. Push to mutex-protected queue
+3. Timer callback (main thread) processes queue
+4. Execute REAPER API calls
+5. Push response/updates to clients
+
+### Library Choice
+
+**websocket.zig** (github.com/karlseguin/websocket.zig):
+
+- Uses epoll (Linux) / kqueue (macOS) for non-blocking I/O
+- Thread-safe `conn.write()` and `server.stop()`
+- Falls back to blocking mode on Windows
 
 ## Data Flow
 
@@ -105,6 +147,18 @@ pub fn getTrackByUnifiedIdx(self: *const Api, idx: c_int) ?*anyopaque {
 ```
 
 **CountTracks()** returns user track count only (excludes master).
+
+### Key API Functions
+
+```c
+// Transport & Time Selection
+int GetPlayState();                              // &1=playing, &2=paused, &4=recording
+double GetPlayPosition();                        // Playback position (seconds)
+double GetCursorPosition();                      // Edit cursor position (seconds)
+void GetProjectTimeSignature2(proj, &bpm, &num, &denom);  // Direct BPM!
+void GetSet_LoopTimeRange2(proj, isSet, isLoop, &start, &end, allowAuto);
+int GetProjectStateChangeCount(proj);            // Change detection
+```
 
 ### Custom Colors
 
@@ -211,61 +265,107 @@ const TrackFlags = {
 
 6. **Pointer events in JSDOM are limited** - Full gesture testing requires mocking `getBoundingClientRect()`. State integration tests are more reliable. Use Playwright for real gesture testing.
 
-## Planned Features
+## Extension Robustness
 
-### Mixer Lock Mode
+### Prime Directive: Never Crash REAPER
 
-Add a lock/unlock toggle icon beside the "Filter tracks" bar. When locked:
-- Disables all fader and button input
-- Prevents accidental changes while scrolling on mobile
-- Visual indicator (lock icon, maybe dimmed controls)
+A crash in our extension = potential data loss for the user. REAPER may have unsaved project changes. The extension must be bulletproof.
 
-### Track Collapse/Hide
+### Defensive Programming
 
-Add an eye icon or accordion button to hide/collapse tracks in the mixer view. Options:
-- Eye icon: show/hide individual tracks
-- Accordion: collapse all to just names, expand on tap
-- Could tie into track folder hierarchy
+**Validate everything at trust boundaries:**
 
-### Undo Strategy for Continuous Controls
-
-**Problem**: Fader moves generate many small changes. How do we handle undo?
-
-**Options**:
-
-1. **Server-managed undo blocks** (preferred - keeps client dumb)
-   - Server detects "gesture start" (first value change after idle)
-   - Server opens undo block, buffers changes
-   - Server detects "gesture end" (no changes for N ms)
-   - Server closes undo block with final value
-   - Cancel = server reverts to value at gesture start
-
-2. **Client-managed undo blocks**
-   - Client sends `undo/begin` on mousedown/touchstart
-   - Client sends `undo/end` on mouseup/touchend
-   - More network overhead, client needs to track state
-   - Cancel would need client to remember original value
-
-3. **No undo for continuous controls**
-   - Simplest, but poor UX for accidental changes
-
-**Recommendation**: Start with server-managed. Extension tracks "last idle value" per control, auto-creates undo block on first change, commits after 500ms idle.
-
-### Remove Legacy Takes Section
-
-The current Takes section below the mixer will be removed. Being replaced with item-based takes approach (see separate takes design doc).
-
-## Outstanding Work
-
-### 1. Meter Smoothing (Optional Polish)
-
-Current 30ms updates can look choppy. Options:
-
-**CSS transition** (simplest):
-```tsx
-// In LevelMeter.tsx, already has duration-75 but could increase:
-className={`... transition-all duration-100 ...`}
+```zig
+fn validatePosition(pos: ?f64) ?f64 {
+    const p = pos orelse return null;
+    if (std.math.isNan(p) or std.math.isInf(p)) return null;
+    if (p < 0) return null;
+    return p;
+}
 ```
+
+**Safe numeric conversions** - Zig's `@intFromFloat` panics on NaN/Inf:
+
+```zig
+fn safeFloatToInt(comptime T: type, val: f64, default: T) T {
+    if (std.math.isNan(val) or std.math.isInf(val)) return default;
+    const min_val: f64 = @floatFromInt(std.math.minInt(T));
+    const max_val: f64 = @floatFromInt(std.math.maxInt(T));
+    const clamped = @max(min_val, @min(max_val, val));
+    return @intFromFloat(clamped);
+}
+```
+
+**Always check REAPER API returns for NULL:**
+
+```zig
+const item = api.getMediaItem(proj, itemIndex) orelse {
+    writer.err("NOT_FOUND", "Item not found");
+    return;
+};
+```
+
+### Graceful Degradation
+
+| Failure | Response |
+|---------|----------|
+| REAPER API returns unexpected value | Log warning, skip operation, continue |
+| JSON parse failure | Return error to client, don't crash |
+| Client sends garbage | Disconnect that client, others unaffected |
+| Out of memory | Return error to client, don't allocate |
+
+## Protocol & Versioning
+
+### Hello Handshake
+
+Client → Server (on connect):
+```json
+{
+  "type": "hello",
+  "clientVersion": "1.2.0",
+  "protocolVersion": 1,
+  "token": "session-token"
+}
+```
+
+Server → Client:
+```json
+{
+  "type": "hello",
+  "extensionVersion": "1.0.0",
+  "protocolVersion": 1
+}
+```
+
+### Compatibility Rules
+
+| Scenario | Behavior |
+|----------|----------|
+| Protocol versions match | Normal operation |
+| Client protocol > Server | Client shows "Please update REAPER extension" |
+| Server protocol > Client | Server sends error, close with 4002 |
+
+### EXTSTATE Discovery
+
+Client discovers WebSocket port via HTTP:
+
+```bash
+curl -s "http://localhost:8099/_/GET/EXTSTATE/Reamo/WebsocketPort"
+curl -s "http://localhost:8099/_/GET/EXTSTATE/Reamo/SessionToken"
+```
+
+## Extension Configuration
+
+### Design Philosophy
+
+Non-technical musicians should never see error dialogs or need to configure ports. The extension should "just work."
+
+- Default port: 9224
+- Max attempts: 10 (ports 9224-9233)
+- No error dialogs on failure — just a console message
+- Stores successful port in EXTSTATE for client discovery
+
+**Never show `MB_OK` error dialogs.** Musicians don't want modal popups interrupting their session.
 
 ## Build & Test
 
@@ -293,6 +393,12 @@ make install          # Install frontend npm dependencies
 **Note**: After extension changes, restart REAPER to load the new plugin.
 
 ## Debugging
+
+### Key Files & Resources
+
+- **REAPER API headers**: `docs/reaper_plugin_functions.h` — authoritative function signatures
+- **Frontend types**: `frontend/src/core/types.ts` — command IDs, PlayState enum, protocol definitions
+- **Test client**: `extension/test-client.html` — browser-based WebSocket testing
 
 ### WebSocket Testing
 
@@ -333,3 +439,5 @@ Then check REAPER's console (Actions → Show console).
 5. **REAPER must be restarted** after extension changes - it's a native plugin
 
 6. **Pre-fader metering doesn't exist** - Track_GetPeakInfo is always post-fader
+
+7. **Zig `@intFromFloat` panics on NaN/Inf** - always use `safeFloatToInt()` for REAPER API values
