@@ -401,9 +401,9 @@ pub const Api = struct {
 
     // Time conversion: seconds to beats info
     pub const BeatsInfo = struct {
-        beats: f64, // Quarter notes from project start
+        beats: f64, // Total beats from project start (in time sig denominator units)
         measures: c_int, // Measure number (1-based)
-        beats_in_measure: f64, // Beat position within measure
+        beats_in_measure: f64, // Beat position within measure (0-indexed with fraction)
         time_sig_denom: c_int, // Time signature denominator
     };
 
@@ -411,18 +411,20 @@ pub const Api = struct {
         const f = self.timeMap2_timeToBeats orelse return .{
             .beats = 0,
             .measures = 1,
-            .beats_in_measure = 1,
+            .beats_in_measure = 0, // 0-indexed (beat 1 = index 0)
             .time_sig_denom = 4,
         };
         var measures: c_int = 0;
-        var cml: c_int = 0; // beats since last measure
         var fullbeats: f64 = 0;
         var cdenom: c_int = 4;
-        const beats = f(null, time, &measures, &cml, &fullbeats, &cdenom);
+        // The RETURN VALUE is beats within measure (0-indexed with fraction)
+        // cml (4th param) is just the time sig numerator, so we pass null
+        // fullbeats is cumulative from project start
+        const beats_in_measure = f(null, time, &measures, null, &fullbeats, &cdenom);
         return .{
-            .beats = beats,
+            .beats = fullbeats, // Total beats from project start
             .measures = measures + 1, // Convert to 1-based
-            .beats_in_measure = fullbeats - @as(f64, @floatFromInt(cml)) + 1.0, // 1-based beat in measure
+            .beats_in_measure = beats_in_measure, // Return value IS beats within measure (0-indexed)
             .time_sig_denom = cdenom,
         };
     }

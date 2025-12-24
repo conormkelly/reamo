@@ -76,7 +76,7 @@ export interface MarkerDragPreviewProps {
  * Uses client-side interpolation for smooth 60fps updates
  */
 export function TimelinePlayhead({
-  positionSeconds,
+  positionSeconds: _positionSeconds,
   timelineMode,
   isSyncing,
   isDraggingPlayhead,
@@ -94,6 +94,8 @@ export function TimelinePlayhead({
   }, [renderTimeToPercent]);
 
   // Subscribe to 60fps animation updates
+  // This is the ONLY place we set left position - not in JSX style prop
+  // to avoid React and animation callback fighting each other
   useTransportAnimation((state) => {
     if (containerRef.current) {
       const percent = renderTimeToPercentRef.current(state.position);
@@ -107,7 +109,6 @@ export function TimelinePlayhead({
     <div
       ref={containerRef}
       className={`absolute top-0 bottom-0 ${isDraggingPlayhead ? 'opacity-50' : ''}`}
-      style={{ left: `${renderTimeToPercent(positionSeconds)}%` }}
     >
       {/* Playhead line - above markers (z-10), below region labels (z-20) */}
       <div className={`absolute top-0 bottom-0 left-0 w-0.5 pointer-events-none z-10 ${

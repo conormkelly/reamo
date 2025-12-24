@@ -104,9 +104,9 @@ export class TransportAnimationEngine {
     this.serverPlayState = data.playState;
     this.lastPositionBeats = data.positionBeats;
 
-    // Calculate prediction error
+    // Calculate prediction error (position is in seconds, so just add elapsed seconds)
     const elapsed = (now - this.lastServerTime) / 1000;
-    const predicted = this.serverPosition + (wasPlaying ? elapsed * (this.serverBpm / 60) : 0);
+    const predicted = this.serverPosition + (wasPlaying ? elapsed : 0);
     const error = Math.abs(data.position - predicted);
 
     // Decide correction strategy
@@ -162,9 +162,8 @@ export class TransportAnimationEngine {
     const safeDelta = Math.min(deltaMs, MAX_DELTA_MS);
     this.lastFrameTime = timestamp;
 
-    // Interpolate position: position += deltaSeconds * beatsPerSecond
-    const beatsPerSecond = this.serverBpm / 60;
-    this.localPosition += (safeDelta / 1000) * beatsPerSecond;
+    // Interpolate position: add elapsed time in seconds (1x playback speed)
+    this.localPosition += safeDelta / 1000;
 
     // Notify subscribers
     this.notifySubscribers();
@@ -210,23 +209,16 @@ export class TransportAnimationEngine {
   }
 
   /**
-   * Format position as bar.beat.ticks
-   * Matches the format from REAPER: "bar.beat.ticks"
+   * Get the current beat position string.
+   *
+   * We don't interpolate bar.beat.ticks because calculating it correctly
+   * across all time signatures (4/4, 6/8, etc.) with barOffset is complex.
+   * The server sends the authoritative positionBeats string at ~30Hz,
+   * which is sufficient for bar/beat display. The main visual improvement
+   * from interpolation is in the seconds display and playhead position.
    */
-  private formatBeats(positionSeconds: number): string {
-    if (this.serverBpm <= 0) return this.lastPositionBeats;
-
-    const beatsPerSecond = this.serverBpm / 60;
-    const totalBeats = positionSeconds * beatsPerSecond;
-    const beatsPerBar = this.timeSignatureNumerator;
-
-    // Calculate bar and beat (1-indexed)
-    const bar = Math.floor(totalBeats / beatsPerBar) + 1 + this.barOffset;
-    const beatInBar = (totalBeats % beatsPerBar) + 1;
-    const beatWhole = Math.floor(beatInBar);
-    const ticks = Math.floor((beatInBar - beatWhole) * 100);
-
-    return `${bar}.${beatWhole}.${ticks.toString().padStart(2, '0')}`;
+  private formatBeats(_positionSeconds: number): string {
+    return this.lastPositionBeats;
   }
 
   /**
