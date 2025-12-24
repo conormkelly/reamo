@@ -100,6 +100,7 @@ function AppContent() {
   const [showAddRegionModal, setShowAddRegionModal] = useState(false);
   const [showMakeSelectionModal, setShowMakeSelectionModal] = useState(false);
   const [mixerCollapsed, setMixerCollapsed] = useState(false);
+  const [timelineCollapsed, setTimelineCollapsed] = useState(false);
   const timelineMode = useReaperStore((s) => s.timelineMode);
 
   return (
@@ -135,21 +136,31 @@ function AppContent() {
       {/* Timeline */}
       <section className="mb-4">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-medium text-gray-400">Timeline</h3>
-          <TimelineModeToggle />
+          <button
+            onClick={() => setTimelineCollapsed(!timelineCollapsed)}
+            className="flex items-center gap-1 text-sm font-medium text-gray-400 hover:text-gray-300 transition-colors"
+          >
+            {timelineCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+            <h3>Timeline</h3>
+          </button>
+          {!timelineCollapsed && <TimelineModeToggle />}
         </div>
-        <Timeline height={80} />
-        <RegionInfoBar
-          className="mt-2"
-          onAddRegion={timelineMode === 'regions' ? () => setShowAddRegionModal(true) : undefined}
-        />
-        <div className="mt-2">
-          <RegionEditActionBar />
-        </div>
+        {!timelineCollapsed && (
+          <>
+            <Timeline height={80} />
+            <RegionInfoBar
+              className="mt-2"
+              onAddRegion={timelineMode === 'regions' ? () => setShowAddRegionModal(true) : undefined}
+            />
+            <div className="mt-2">
+              <RegionEditActionBar />
+            </div>
+          </>
+        )}
       </section>
 
-      {/* Marker Info & Navigation - hidden in regions mode */}
-      {timelineMode === 'navigate' && (
+      {/* Marker Info & Navigation - hidden in regions mode or when timeline collapsed */}
+      {!timelineCollapsed && timelineMode === 'navigate' && (
         <section className="mb-6 flex flex-col sm:flex-row sm:items-center gap-3">
           {/* Marker Info Bar - shows current marker with editing */}
           <MarkerInfoBar className="flex-1" />
