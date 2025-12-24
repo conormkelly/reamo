@@ -133,9 +133,6 @@ volumeToDb(linear)      // Linear amplitude → dB (1.0 → 0dB)
 dbToVolume(dB)          // dB → linear amplitude
 volumeToFader(linear)   // Linear → fader position (0-1, logarithmic)
 faderToVolume(pos)      // Fader position → linear
-
-// Old HTTP format (no longer used):
-meterToDb(value)        // Was for dB * 10 integer format - DEPRECATED
 ```
 
 ### Color Conversion
@@ -175,28 +172,30 @@ Current 30ms updates can look choppy. Options:
 className={`... transition-all duration-100 ...`}
 ```
 
-**Separate meter polling** (smoother but more complex):
-- Run meter polling at 10-15ms instead of 30ms
-- Send meters as separate event type
-- Would need to decouple from track state change detection
-
 ## Build & Test
 
 ```bash
-# Build everything
+# Build everything (runs tests first, then builds)
 make all
 
-# Build just extension (installs to REAPER UserPlugins)
-make extension
+# Run all tests (frontend unit + E2E + extension)
+make test
 
-# Build just frontend (copies to reamo.html)
-make frontend
+# Run individual test suites
+make test-frontend    # Vitest unit tests
+make test-e2e         # Playwright E2E tests
+make test-extension   # Zig unit tests
 
-# Run frontend dev server with hot reload
-make dev
+# Build without tests
+make frontend         # Build frontend (copies to reamo.html)
+make extension        # Build extension (installs to REAPER UserPlugins)
 
-# After extension changes: restart REAPER to load new plugin
+# Development
+make dev              # Run frontend dev server with hot reload
+make install          # Install frontend npm dependencies
 ```
+
+**Note**: After extension changes, restart REAPER to load the new plugin.
 
 ## Debugging
 

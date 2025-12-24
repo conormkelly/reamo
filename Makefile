@@ -1,7 +1,7 @@
-.PHONY: all frontend extension clean
+.PHONY: all frontend extension clean test test-frontend test-extension test-e2e
 
-# Default target
-all: frontend extension
+# Default target: run tests first, then build
+all: test frontend extension
 
 # Build frontend and copy to www root
 frontend:
@@ -37,10 +37,24 @@ install:
 dev:
 	cd frontend && npm run dev
 
-# Run frontend tests
-test:
+# Run all tests (frontend unit + E2E + extension)
+test: test-frontend test-e2e test-extension
+
+# Run frontend unit tests (vitest)
+test-frontend:
+	@echo "Running frontend unit tests..."
 	cd frontend && npm test
 
-# Type check
+# Run frontend E2E tests (playwright)
+test-e2e:
+	@echo "Running E2E tests..."
+	cd frontend && npm run test:e2e
+
+# Run extension unit tests (zig)
+test-extension:
+	@echo "Running extension tests..."
+	cd extension && zig build test
+
+# Type check frontend
 typecheck:
 	cd frontend && npm run build -- --mode development
