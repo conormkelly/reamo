@@ -27,7 +27,7 @@ fn handleRegionAdd(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
 
     api.undoBeginBlock();
     const id = api.addRegion(start, end, name, color);
-    api.undoEndBlock("Add region (Reamo)");
+    api.undoEndBlock("Reamo: Add region");
     if (id >= 0) {
         api.log("Reamo: Added region {d} from {d:.2} to {d:.2}", .{ id, start, end });
     }
@@ -49,7 +49,7 @@ fn handleRegionUpdate(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
     if (api.updateRegion(id, start, end, name, color)) {
         api.log("Reamo: Updated region {d}", .{id});
     }
-    api.undoEndBlock("Update region (Reamo)");
+    api.undoEndBlock("Reamo: Update region");
 }
 
 fn handleRegionDelete(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
@@ -61,7 +61,7 @@ fn handleRegionDelete(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
     if (api.deleteRegion(id)) {
         api.log("Reamo: Deleted region {d}", .{id});
     }
-    api.undoEndBlock("Delete region (Reamo)");
+    api.undoEndBlock("Reamo: Delete region");
 }
 
 fn handleRegionGoto(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {

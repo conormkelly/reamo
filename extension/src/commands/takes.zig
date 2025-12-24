@@ -15,7 +15,7 @@ fn handleTakeDelete(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.
     // Operates on selected items - uses REAPER's built-in command
     api.undoBeginBlock();
     api.runCommand(reaper.Command.DELETE_ACTIVE_TAKE);
-    api.undoEndBlock("Delete active take (Reamo)");
+    api.undoEndBlock("Reamo: Delete active take");
     api.log("Reamo: Deleted active take", .{});
 }
 
@@ -23,7 +23,7 @@ fn handleTakeCropToActive(api: *const reaper.Api, _: protocol.CommandMessage, _:
     // Operates on selected items - uses REAPER's built-in command
     api.undoBeginBlock();
     api.runCommand(reaper.Command.CROP_TO_ACTIVE_TAKE);
-    api.undoEndBlock("Crop to active take (Reamo)");
+    api.undoEndBlock("Reamo: Crop to active take");
     api.log("Reamo: Cropped to active take", .{});
 }
 

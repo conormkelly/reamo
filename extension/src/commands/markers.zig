@@ -25,7 +25,7 @@ fn handleMarkerAdd(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
 
     api.undoBeginBlock();
     const id = api.addMarker(pos, name, color);
-    api.undoEndBlock("Add marker (Reamo)");
+    api.undoEndBlock("Reamo: Add marker");
     if (id >= 0) {
         api.log("Reamo: Added marker {d} at {d:.2}", .{ id, pos });
     }
@@ -46,7 +46,7 @@ fn handleMarkerUpdate(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
     if (api.updateMarker(id, pos, name, color)) {
         api.log("Reamo: Updated marker {d}", .{id});
     }
-    api.undoEndBlock("Update marker (Reamo)");
+    api.undoEndBlock("Reamo: Update marker");
 }
 
 fn handleMarkerDelete(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
@@ -58,7 +58,7 @@ fn handleMarkerDelete(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
     if (api.deleteMarker(id)) {
         api.log("Reamo: Deleted marker {d}", .{id});
     }
-    api.undoEndBlock("Delete marker (Reamo)");
+    api.undoEndBlock("Reamo: Delete marker");
 }
 
 fn handleMarkerGoto(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {

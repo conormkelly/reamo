@@ -38,7 +38,7 @@ fn handleSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
     const success = api.setTimeSignature(numerator, denominator);
 
     // End undo block
-    api.undoEndBlock("Adjust time signature (Reamo)");
+    api.undoEndBlock("Reamo: Adjust time signature");
 
     if (success) {
         api.log("Reamo: Set time signature to {d}/{d}", .{ numerator, denominator });
