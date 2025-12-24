@@ -1,9 +1,5 @@
 # Planned Features
 
-### Remove Legacy TakeSwitcher
-
-The TakeSwitcher component below the mixer is outdated. Remove it - take management will be handled by Items Mode instead.
-
 ### Undo Strategy for Continuous Controls
 
 **Problem**: Fader moves generate many small changes. How do we handle undo?

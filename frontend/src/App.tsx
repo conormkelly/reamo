@@ -30,7 +30,6 @@ import {
   RegionInfoBar,
   AddRegionModal,
   MakeSelectionModal,
-  TakeSwitcher,
   MarkerInfoBar,
 } from './components';
 import { useTracks } from './hooks';
@@ -197,11 +196,6 @@ function AppContent() {
             <TrackList filter={trackFilter} />
           </>
         )}
-      </section>
-
-      {/* Take Switcher - below mixer */}
-      <section className="mt-4">
-        <TakeSwitcher />
       </section>
 
       {/* Footer */}
