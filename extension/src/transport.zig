@@ -94,6 +94,11 @@ pub const State = struct {
         };
     }
 
+    // Truncate to 3 decimal places (matching REAPER's display behavior)
+    fn truncateMs(val: f64) f64 {
+        return @trunc(val * 1000.0) / 1000.0;
+    }
+
     // Build JSON event for this state
     pub fn toJson(self: State, buf: []u8) ?[]const u8 {
         const metro_vol_db = reaper.Api.linearToDb(self.metronome_volume);
@@ -102,27 +107,35 @@ pub const State = struct {
         // Apply bar_offset to get display bar number (REAPER's bar 1 at time 0 + offset)
         const display_bar = self.position_bar + self.bar_offset;
         const beat_int: u32 = @intFromFloat(@max(1.0, @trunc(self.position_beat)));
-        const ticks: u32 = @intFromFloat(@mod(self.position_beat, 1.0) * 100.0);
+        // Round ticks to match REAPER's display (add 0.5 before truncating)
+        const ticks: u32 = @intFromFloat(@mod(self.position_beat, 1.0) * 100.0 + 0.5);
+
+        // Truncate time values to 3 decimal places to match REAPER's display
+        const position = truncateMs(self.currentPosition());
+        const cursor_position = truncateMs(self.cursor_position);
+        const time_sel_start = truncateMs(self.time_sel_start);
+        const time_sel_end = truncateMs(self.time_sel_end);
+        const project_length = truncateMs(self.project_length);
 
         const result = std.fmt.bufPrint(buf,
             \\{{"type":"event","event":"transport","payload":{{"playState":{d},"position":{d:.3},"positionBeats":"{d}.{d}.{d:0>2}","cursorPosition":{d:.3},"bpm":{d:.2},"timeSignature":{{"numerator":{d},"denominator":{d}}},"timeSelection":{{"start":{d:.3},"end":{d:.3}}},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"projectLength":{d:.3},"barOffset":{d}}}}}
         , .{
             self.play_state,
-            self.currentPosition(),
+            position,
             display_bar,
             beat_int,
             ticks,
-            self.cursor_position,
+            cursor_position,
             self.bpm,
             safeTimeSigNum(self.time_sig_num),
             self.time_sig_denom,
-            self.time_sel_start,
-            self.time_sel_end,
+            time_sel_start,
+            time_sel_end,
             if (self.repeat) "true" else "false",
             if (self.metronome_enabled) "true" else "false",
             self.metronome_volume,
             metro_vol_db,
-            self.project_length,
+            project_length,
             self.bar_offset,
         }) catch return null;
 

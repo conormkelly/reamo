@@ -50,8 +50,9 @@ export function formatTime(seconds: number, options?: FormatTimeOptions): string
 
   if (precision === 3) {
     // Millisecond precision (e.g., "1:23.456")
+    // Use Math.round to handle floating point errors (e.g., 17.485 becomes 17.4849999... in JS)
     const secs = Math.floor(absSeconds % 60);
-    const ms = Math.floor((absSeconds % 1) * 1000);
+    const ms = Math.round((absSeconds % 1) * 1000);
     return `${sign}${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
   } else if (precision === 1) {
     // Decisecond precision (e.g., "1:23.4") - used for drag previews
