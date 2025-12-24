@@ -63,6 +63,26 @@ reaper_www_root/
 
 5. **React components** consume via hooks (`useTrack`, `useTracks`)
 
+## Conventions
+
+### Undo Blocks
+
+All REAPER undo blocks must be prefixed with "Reamo: " for easy identification in REAPER's undo history:
+
+```zig
+api.undoBeginBlock();
+// ... make changes ...
+api.undoEndBlock("Reamo: Adjust time signature");
+```
+
+### Command Naming
+
+WebSocket commands use `domain/action` format:
+- `track/setVolume`, `track/setMute`, `track/setSelected`
+- `transport/play`, `transport/stop`, `transport/seek`
+- `meter/clearClip`
+- `marker/update`, `marker/delete`
+
 ## REAPER API Critical Knowledge
 
 ### Track Indexing
