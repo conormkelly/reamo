@@ -24,6 +24,13 @@ var g_last_tracks: tracks.State = .{};
 var g_last_metering: tracks.MeteringState = .{};
 var g_initialized: bool = false;
 
+// Hot reload detection
+var g_html_path_buf: [512]u8 = undefined;
+var g_html_path: ?[]const u8 = null;
+var g_html_mtime: i128 = 0;
+var g_file_check_counter: u32 = 0;
+const FILE_CHECK_INTERVAL: u32 = 60; // Check every ~2 seconds (60 * 33ms)
+
 // Debug logging (can be disabled in release)
 var g_log_file: ?std.fs.File = null;
 
@@ -67,6 +74,25 @@ fn initTimerCallback() callconv(.c) void {
     initLogFile();
     logFile("initTimerCallback() started");
 
+    // Initialize hot reload file path
+    if (api.resourcePath()) |res_path| {
+        std.debug.print("[Reamo] Resource path: {s}\n", .{res_path});
+        const written = std.fmt.bufPrint(&g_html_path_buf, "{s}/reaper_www_root/reamo.html", .{res_path}) catch null;
+        if (written) |path| {
+            g_html_path = path;
+            std.debug.print("[Reamo] Watching: {s}\n", .{path});
+            // Get initial mtime
+            if (std.fs.cwd().statFile(path)) |stat| {
+                g_html_mtime = stat.mtime;
+                std.debug.print("[Reamo] Initial mtime: {}\n", .{stat.mtime});
+            } else |err| {
+                std.debug.print("[Reamo] Could not stat file: {s}\n", .{@errorName(err)});
+            }
+        }
+    } else {
+        std.debug.print("[Reamo] Could not get resource path\n", .{});
+    }
+
     // Create shared state
     const state = g_allocator.create(ws_server.SharedState) catch {
         api.logSimple("Reamo: Failed to allocate shared state");
@@ -74,6 +100,9 @@ fn initTimerCallback() callconv(.c) void {
     };
     state.* = ws_server.SharedState.init(g_allocator);
     g_shared_state = state;
+
+    // Sync initial HTML mtime to shared state
+    state.setHtmlMtime(g_html_mtime);
 
     // Generate session token and store in EXTSTATE
     var token_bytes: [16]u8 = undefined;
@@ -213,6 +242,28 @@ fn processTimerCallback() callconv(.c) void {
     }
     g_last_tracks = current_tracks;
     g_last_metering = current_metering;
+
+    // Check for HTML file changes (hot reload) - every ~2 seconds
+    g_file_check_counter += 1;
+    if (g_file_check_counter >= FILE_CHECK_INTERVAL) {
+        g_file_check_counter = 0;
+
+        if (g_html_path) |path| {
+            if (std.fs.cwd().statFile(path)) |stat| {
+                if (stat.mtime != g_html_mtime) {
+                    std.debug.print("[Reamo] HTML changed: mtime {} -> {}\n", .{ g_html_mtime, stat.mtime });
+                    g_html_mtime = stat.mtime;
+                    // Update shared state so new clients get the current mtime
+                    shared_state.setHtmlMtime(stat.mtime);
+                    // Broadcast reload event to all clients
+                    shared_state.broadcast("{\"type\":\"event\",\"event\":\"reload\"}");
+                    std.debug.print("[Reamo] Broadcast reload event\n", .{});
+                }
+            } else |err| {
+                std.debug.print("[Reamo] Stat failed: {s}\n", .{@errorName(err)});
+            }
+        }
+    }
 }
 
 // Shutdown - called when REAPER unloads the extension

@@ -83,6 +83,9 @@ pub const SharedState = struct {
     session_token: [TOKEN_HEX_LENGTH]u8 = undefined,
     token_set: bool = false,
 
+    // HTML file mtime for hot reload (set by main thread, read by WS thread for hello response)
+    html_mtime: i128 = 0,
+
     pub fn init(allocator: Allocator) SharedState {
         return .{
             .allocator = allocator,
@@ -113,6 +116,20 @@ pub const SharedState = struct {
         if (t.len != TOKEN_HEX_LENGTH) return false;
 
         return std.mem.eql(u8, t, &self.session_token);
+    }
+
+    // Update the HTML mtime (called by main thread when file changes)
+    pub fn setHtmlMtime(self: *SharedState, mtime: i128) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        self.html_mtime = mtime;
+    }
+
+    // Get the HTML mtime (called by WS thread for hello response)
+    pub fn getHtmlMtime(self: *SharedState) i128 {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        return self.html_mtime;
     }
 
     pub fn deinit(self: *SharedState) void {
@@ -156,6 +173,7 @@ pub const SharedState = struct {
         const id = self.next_client_id;
         self.next_client_id += 1;
         self.clients.put(id, conn) catch {};
+        std.log.info("CLIENT ADD id={d} total={d}", .{ id, self.clients.count() });
         return id;
     }
 
@@ -164,6 +182,7 @@ pub const SharedState = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
         _ = self.clients.swapRemove(id);
+        std.log.info("CLIENT REMOVE id={d} total={d}", .{ id, self.clients.count() });
     }
 
     // Called by WebSocket thread to queue a command for main thread
@@ -194,42 +213,25 @@ pub const SharedState = struct {
     }
 
     // Called by main thread to broadcast to all clients
-    // Copies client list while holding lock to avoid races
+    // Must hold lock while writing to prevent use-after-free if client disconnects
     pub fn broadcast(self: *SharedState, message: []const u8) void {
-        // Copy conn pointers while holding lock
-        var conns: [MAX_CLIENTS]*websocket.Conn = undefined;
-        var count: usize = 0;
+        self.mutex.lock();
+        defer self.mutex.unlock();
 
-        {
-            self.mutex.lock();
-            defer self.mutex.unlock();
-
-            for (self.clients.values()) |conn| {
-                if (count >= MAX_CLIENTS) break;
-                conns[count] = conn;
-                count += 1;
-            }
-        }
-
-        // Send to all clients without holding lock
         // writeText is thread-safe within the websocket library
-        for (conns[0..count]) |conn| {
+        for (self.clients.values()) |conn| {
             conn.writeText(message) catch {};
         }
     }
 
     // Called by main thread to send to a specific client only
+    // Must hold lock while writing to prevent use-after-free if client disconnects
     pub fn sendToClient(self: *SharedState, client_id: usize, message: []const u8) void {
-        var conn: ?*websocket.Conn = null;
+        self.mutex.lock();
+        defer self.mutex.unlock();
 
-        {
-            self.mutex.lock();
-            defer self.mutex.unlock();
-            conn = self.clients.get(client_id);
-        }
-
-        if (conn) |c| {
-            c.writeText(message) catch {};
+        if (self.clients.get(client_id)) |conn| {
+            conn.writeText(message) catch {};
         }
     }
 
@@ -293,8 +295,8 @@ pub const Client = struct {
 
                 // Success - mark authenticated and send hello response
                 self.authenticated = true;
-                var buf: [128]u8 = undefined;
-                const response = protocol.buildHelloResponse(&buf);
+                var buf: [256]u8 = undefined;
+                const response = protocol.buildHelloResponse(&buf, self.state.getHtmlMtime());
                 try self.conn.writeText(response);
 
                 // Request initial state snapshot from main thread

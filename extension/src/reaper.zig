@@ -101,6 +101,9 @@ pub const Api = struct {
     // UI refresh
     updateTimeline_fn: ?*const fn () callconv(.c) void = null,
 
+    // Resource path
+    getResourcePath: ?*const fn () callconv(.c) [*:0]const u8 = null,
+
     // Load API from REAPER plugin info
     pub fn load(info: *PluginInfo) ?Api {
         const showConsoleMsg = getFunc(info, "ShowConsoleMsg", fn ([*:0]const u8) callconv(.c) void) orelse return null;
@@ -168,7 +171,16 @@ pub const Api = struct {
             .projectconfig_var_addr = getFunc(info, "projectconfig_var_addr", fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque),
             // UI refresh
             .updateTimeline_fn = getFunc(info, "UpdateTimeline", fn () callconv(.c) void),
+            // Resource path
+            .getResourcePath = getFunc(info, "GetResourcePath", fn () callconv(.c) [*:0]const u8),
         };
+    }
+
+    /// Get path to REAPER's resource directory
+    pub fn resourcePath(self: *const Api) ?[]const u8 {
+        const func = self.getResourcePath orelse return null;
+        const path = func();
+        return std.mem.sliceTo(path, 0);
     }
 
     fn getFunc(info: *PluginInfo, name: [*:0]const u8, comptime T: type) ?*const T {

@@ -22,6 +22,10 @@ export interface WebSocketConnectionOptions {
   onStateChange?: (state: ConnectionState, error?: string) => void;
   /** Called when a server message is received */
   onMessage?: (message: ServerMessage) => void;
+  /** Called when we've exhausted all retry attempts */
+  onGaveUp?: () => void;
+  /** Max retry attempts before giving up (default: 10) */
+  maxRetries?: number;
 }
 
 /**
@@ -46,19 +50,28 @@ async function fetchExtState(section: string, key: string): Promise<string | nul
 const INITIAL_RETRY_DELAY = 1000;
 const MAX_RETRY_DELAY = 30000;
 const RETRY_MULTIPLIER = 1.5;
+const DEFAULT_MAX_RETRIES = 10;
 
 export class WebSocketConnection {
   private ws: WebSocket | null = null;
   private options: WebSocketConnectionOptions;
   private state: ConnectionState = 'disconnected';
   private retryDelay = INITIAL_RETRY_DELAY;
+  private retryCount = 0;
   private retryTimeout: ReturnType<typeof setTimeout> | null = null;
   private extensionVersion: string | null = null;
   private pendingResponses = new Map<string, (response: unknown) => void>();
+  private gaveUp = false;
+  // Discovered values (can be refreshed on reconnect)
+  private discoveredPort: number | null = null;
+  private discoveredToken: string | null = null;
+  // HTML mtime for stale content detection on reconnect
+  private htmlMtime: number | null = null;
 
   constructor(options: WebSocketConnectionOptions = {}) {
     this.options = {
       port: 9224,
+      maxRetries: DEFAULT_MAX_RETRIES,
       ...options,
     };
   }
@@ -79,29 +92,48 @@ export class WebSocketConnection {
       return;
     }
 
-    // Auto-discover port and token from EXTSTATE if not provided
-    if (!this.options.token || !this.options.port) {
-      console.log('[WS] Discovering connection params from EXTSTATE...');
+    // Reset retry state on fresh start
+    this.retryCount = 0;
+    this.retryDelay = INITIAL_RETRY_DELAY;
+    this.gaveUp = false;
 
-      // Fetch port
-      if (!this.options.port) {
-        const port = await fetchExtState('Reamo', 'WebSocketPort');
-        if (port) {
-          this.options.port = parseInt(port, 10);
-          console.log(`[WS] Discovered port: ${this.options.port}`);
-        } else {
-          this.options.port = 9224; // Default
-        }
-      }
+    await this.discoverAndConnect();
+  }
 
-      // Fetch token
-      if (!this.options.token) {
-        const token = await fetchExtState('Reamo', 'SessionToken');
-        if (token) {
-          this.options.token = token;
-          console.log('[WS] Discovered session token');
-        }
-      }
+  /** Retry connection after giving up (for manual retry button) */
+  async retry(): Promise<void> {
+    if (this.state === 'connecting' || this.state === 'connected') {
+      return;
+    }
+
+    console.log('[WS] Manual retry requested');
+    this.retryCount = 0;
+    this.retryDelay = INITIAL_RETRY_DELAY;
+    this.gaveUp = false;
+
+    await this.discoverAndConnect();
+  }
+
+  /** Whether we've given up reconnecting */
+  get hasGivenUp(): boolean {
+    return this.gaveUp;
+  }
+
+  /** Discover connection params and connect */
+  private async discoverAndConnect(): Promise<void> {
+    // Always refresh port and token from EXTSTATE (handles REAPER restart)
+    console.log('[WS] Discovering connection params from EXTSTATE...');
+
+    const port = await fetchExtState('Reamo', 'WebSocketPort');
+    if (port) {
+      this.discoveredPort = parseInt(port, 10);
+      console.log(`[WS] Discovered port: ${this.discoveredPort}`);
+    }
+
+    const token = await fetchExtState('Reamo', 'SessionToken');
+    if (token) {
+      this.discoveredToken = token;
+      console.log('[WS] Discovered session token');
     }
 
     this.connect();
@@ -156,10 +188,13 @@ export class WebSocketConnection {
   private connect(): void {
     this.setState('connecting');
 
+    // Use discovered port, fallback to options, then default
+    const port = this.discoveredPort ?? this.options.port ?? 9224;
+
     // Use same hostname as page (works for both localhost and network access)
     const host = window.location.hostname || 'localhost';
-    const url = `ws://${host}:${this.options.port}`;
-    console.log(`[WS] Connecting to ${url}`);
+    const url = `ws://${host}:${port}`;
+    console.log(`[WS] Connecting to ${url} (attempt ${this.retryCount + 1}/${this.options.maxRetries})`);
 
     try {
       this.ws = new WebSocket(url);
@@ -197,7 +232,9 @@ export class WebSocketConnection {
 
   private sendHello(): void {
     if (!this.ws) return;
-    const hello = createHello(this.options.token);
+    // Use discovered token, fallback to options
+    const token = this.discoveredToken ?? this.options.token;
+    const hello = createHello(token);
     this.ws.send(JSON.stringify(hello));
   }
 
@@ -214,6 +251,17 @@ export class WebSocketConnection {
     if (isHelloResponse(msg)) {
       this.extensionVersion = msg.extensionVersion;
       console.log(`[WS] Hello received, extension v${msg.extensionVersion}`);
+
+      // Check for stale content on reconnect
+      if (msg.htmlMtime !== undefined) {
+        if (this.htmlMtime !== null && this.htmlMtime !== msg.htmlMtime) {
+          console.log(`[WS] HTML mtime changed (${this.htmlMtime} -> ${msg.htmlMtime}), reloading...`);
+          window.location.reload();
+          return;
+        }
+        this.htmlMtime = msg.htmlMtime;
+      }
+
       this.setState('connected');
       return;
     }
@@ -242,10 +290,22 @@ export class WebSocketConnection {
 
   private scheduleRetry(): void {
     this.clearRetryTimeout();
-    console.log(`[WS] Retrying in ${this.retryDelay}ms`);
+    this.retryCount++;
+
+    // Check if we've exceeded max retries
+    if (this.retryCount >= (this.options.maxRetries ?? DEFAULT_MAX_RETRIES)) {
+      console.log(`[WS] Gave up after ${this.retryCount} attempts`);
+      this.gaveUp = true;
+      this.setState('disconnected');
+      this.options.onGaveUp?.();
+      return;
+    }
+
+    console.log(`[WS] Retrying in ${this.retryDelay}ms (attempt ${this.retryCount}/${this.options.maxRetries})`);
     this.retryTimeout = setTimeout(() => {
       this.retryTimeout = null;
-      this.connect();
+      // Refresh token on each retry (handles REAPER restart with new token)
+      this.discoverAndConnect();
     }, this.retryDelay);
 
     // Exponential backoff

@@ -3,7 +3,7 @@
  * Manages the WebSocket connection lifecycle and wires messages to the store
  */
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { WebSocketConnection } from '../core/WebSocketConnection';
 import type { ConnectionState } from '../core/WebSocketTypes';
 import type { WSCommand } from '../core/WebSocketCommands';
@@ -25,10 +25,14 @@ export interface UseReaperConnectionReturn {
   connectionState: ConnectionState;
   /** Current error count */
   errorCount: number;
+  /** Whether we've given up trying to reconnect */
+  gaveUp: boolean;
   /** Start the connection */
   start: () => void;
   /** Stop the connection */
   stop: () => void;
+  /** Retry connection after giving up */
+  retry: () => void;
   /** Send a command (raw) */
   send: (command: string, params?: Record<string, unknown>) => void;
   /** Send a WSCommand object */
@@ -48,7 +52,10 @@ export function useReaperConnection(
   const connectionRef = useRef<WebSocketConnection | null>(null);
   const startedRef = useRef(false);
 
-  // Get store actions and state
+  // Track gave-up state
+  const [gaveUp, setGaveUp] = useState(false);
+
+  // Get store actions and state - use refs to avoid effect re-runs
   const handleWebSocketMessage = useReaperStore(
     (state) => state.handleWebSocketMessage
   );
@@ -57,27 +64,44 @@ export function useReaperConnection(
   const connected = useReaperStore((state) => state.connected);
   const errorCount = useReaperStore((state) => state.errorCount);
 
+  // Store callbacks in refs to avoid triggering effect re-runs
+  const handleWebSocketMessageRef = useRef(handleWebSocketMessage);
+  const setConnectedRef = useRef(setConnected);
+  const setErrorCountRef = useRef(setErrorCount);
+
+  // Keep refs updated
+  useEffect(() => {
+    handleWebSocketMessageRef.current = handleWebSocketMessage;
+    setConnectedRef.current = setConnected;
+    setErrorCountRef.current = setErrorCount;
+  });
+
   // Track connection state
   const connectionStateRef = useRef<ConnectionState>('disconnected');
 
-  // Initialize connection
+  // Initialize connection - only depends on port/token, not callbacks
   useEffect(() => {
     const connection = new WebSocketConnection({
       port,
       token,
       onStateChange: (state, error) => {
         connectionStateRef.current = state;
-        setConnected(state === 'connected');
+        setConnectedRef.current(state === 'connected');
         if (state === 'error') {
           // Increment error count - get current value from store
           const currentCount = useReaperStore.getState().errorCount;
-          setErrorCount(currentCount + 1);
+          setErrorCountRef.current(currentCount + 1);
           console.error('[useReaperConnection] Error:', error);
         } else if (state === 'connected') {
-          setErrorCount(0);
+          setErrorCountRef.current(0);
+          setGaveUp(false); // Reset gave-up state on successful connect
         }
       },
-      onMessage: handleWebSocketMessage,
+      onMessage: (msg) => handleWebSocketMessageRef.current(msg),
+      onGaveUp: () => {
+        console.log('[useReaperConnection] Connection gave up after max retries');
+        setGaveUp(true);
+      },
     });
 
     connectionRef.current = connection;
@@ -87,7 +111,7 @@ export function useReaperConnection(
       connectionRef.current = null;
       startedRef.current = false;
     };
-  }, [port, token, handleWebSocketMessage, setConnected, setErrorCount]);
+  }, [port, token]);
 
   // Start connection
   const start = useCallback(() => {
@@ -104,6 +128,14 @@ export function useReaperConnection(
       setConnected(false);
     }
   }, [setConnected]);
+
+  // Retry connection (after giving up)
+  const retry = useCallback(() => {
+    if (connectionRef.current) {
+      setGaveUp(false);
+      connectionRef.current.retry();
+    }
+  }, []);
 
   // Send command (raw)
   const send = useCallback(
@@ -133,8 +165,10 @@ export function useReaperConnection(
     connected,
     connectionState: connectionStateRef.current,
     errorCount,
+    gaveUp,
     start,
     stop,
+    retry,
     send,
     sendCommand,
     connection: connectionRef.current,

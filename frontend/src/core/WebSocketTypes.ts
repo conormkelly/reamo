@@ -23,6 +23,7 @@ export interface HelloResponse {
   type: 'hello';
   extensionVersion: string;
   protocolVersion: number;
+  htmlMtime?: number; // For hot reload detection on reconnect
 }
 
 /** Command message (client → server) */
@@ -49,10 +50,10 @@ export interface ResponseMessage {
 export interface EventMessage {
   type: 'event';
   event: EventType;
-  payload: EventPayload;
+  payload?: EventPayload; // Optional for events like 'reload' that have no payload
 }
 
-export type EventType = 'transport' | 'tracks' | 'markers' | 'regions' | 'items';
+export type EventType = 'transport' | 'tracks' | 'markers' | 'regions' | 'items' | 'reload';
 
 export type EventPayload =
   | TransportEventPayload

@@ -225,6 +225,10 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
         color: r.color || undefined,
       }));
       get().setRegions(regions);
+    } else if (message.event === 'reload') {
+      // Hot reload - extension detected file change
+      console.log('[Store] Reload event received, refreshing page...');
+      window.location.reload();
     }
   },
 }));

@@ -279,7 +279,8 @@ pub fn buildError(buf: []u8, code: []const u8, message: []const u8) []const u8 {
 }
 
 // Build hello response (sent after successful handshake)
-pub fn buildHelloResponse(buf: []u8) []const u8 {
+// Includes htmlMtime so clients can detect stale content on reconnect
+pub fn buildHelloResponse(buf: []u8, html_mtime: i128) []const u8 {
     var w = JsonWriter.init(buf);
     w.beginObject();
     w.field("type");
@@ -288,6 +289,8 @@ pub fn buildHelloResponse(buf: []u8) []const u8 {
     w.string(EXTENSION_VERSION);
     w.field("protocolVersion");
     w.int(PROTOCOL_VERSION);
+    w.field("htmlMtime");
+    w.int(@as(i64, @intCast(@divTrunc(html_mtime, 1_000_000_000)))); // Convert to seconds
     w.endObject();
     return w.slice();
 }
@@ -387,8 +390,9 @@ test "HelloMessage.parse extracts fields" {
 
 test "buildHelloResponse" {
     var buf: [256]u8 = undefined;
-    const json = buildHelloResponse(&buf);
+    const json = buildHelloResponse(&buf, 1735000000_000_000_000); // Example mtime in nanoseconds
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"hello\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"extensionVersion\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"protocolVersion\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"htmlMtime\":1735000000") != null);
 }
