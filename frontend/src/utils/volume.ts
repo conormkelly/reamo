@@ -85,15 +85,6 @@ export function dbToFader(dB: number): number {
 }
 
 /**
- * Convert REAPER meter value (dB * 10) to dB
- * @param meterValue - Meter value from REAPER (integer, dB * 10)
- * @returns dB value
- */
-export function meterToDb(meterValue: number): number {
-  return meterValue / 10;
-}
-
-/**
  * Clamp a dB value to a reasonable display range
  * @param dB - dB value
  * @param min - Minimum dB (default -60)

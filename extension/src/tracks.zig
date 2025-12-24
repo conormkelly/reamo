@@ -24,6 +24,7 @@ pub const Track = struct {
     rec_arm: bool = false,
     rec_mon: c_int = 0, // 0=off, 1=normal, 2=not when playing
     fx_enabled: bool = true,
+    selected: bool = false,
 
     pub fn getName(self: *const Track) []const u8 {
         return self.name[0..self.name_len];
@@ -41,6 +42,7 @@ pub const Track = struct {
         if (self.rec_arm != other.rec_arm) return false;
         if (self.rec_mon != other.rec_mon) return false;
         if (self.fx_enabled != other.fx_enabled) return false;
+        if (self.selected != other.selected) return false;
         return true;
     }
 
@@ -93,6 +95,7 @@ pub const State = struct {
                 t.rec_arm = api.getTrackRecArm(track);
                 t.rec_mon = api.getTrackRecMon(track);
                 t.fx_enabled = api.getTrackFxEnabled(track);
+                t.selected = api.getTrackSelected(track);
             }
         }
         return state;
@@ -111,7 +114,7 @@ pub const State = struct {
             const t = &self.tracks[i];
             writer.print("{{\"idx\":{d},\"name\":\"", .{t.idx}) catch return null;
             protocol.writeJsonString(writer, t.getName()) catch return null;
-            writer.print("\",\"color\":{d},\"volume\":{d:.4},\"pan\":{d:.3},\"mute\":{s},\"solo\":{d},\"recArm\":{s},\"recMon\":{d},\"fxEnabled\":{s}}}", .{
+            writer.print("\",\"color\":{d},\"volume\":{d:.4},\"pan\":{d:.3},\"mute\":{s},\"solo\":{d},\"recArm\":{s},\"recMon\":{d},\"fxEnabled\":{s},\"selected\":{s}}}", .{
                 t.color,
                 t.volume,
                 t.pan,
@@ -120,6 +123,7 @@ pub const State = struct {
                 if (t.rec_arm) "true" else "false",
                 t.rec_mon,
                 if (t.fx_enabled) "true" else "false",
+                if (t.selected) "true" else "false",
             }) catch return null;
         }
 

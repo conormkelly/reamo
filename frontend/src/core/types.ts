@@ -57,14 +57,15 @@ export interface Track {
   flags: number;
   volume: number; // Linear: 0 = -inf, 1 = 0dB, 4 = +12dB
   pan: number; // -1 to 1
-  lastMeterPeak: number; // dB * 10
-  lastMeterPos: number; // dB * 10
+  lastMeterPeak: number; // Linear amplitude: 1.0 = 0dB
+  lastMeterPos: number; // Linear amplitude: 1.0 = 0dB
+  clipped: boolean; // Sticky clip indicator (true if ever exceeded 0dB)
   width: number; // -1 to 1 (stereo width / pan2)
   panMode: number;
   sendCount: number;
   receiveCount: number;
   hwOutCount: number;
-  color: number; // 0xaarrggbb format, 0 if no custom color
+  color: number; // 0x01rrggbb format, 0 if no custom color
 }
 
 // Helper methods for track flags

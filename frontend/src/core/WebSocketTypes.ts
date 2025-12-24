@@ -111,6 +111,7 @@ export interface WSTrack {
   recArm: boolean;
   recMon: number; // 0 = off, 1 = on, 2 = not when playing
   fxEnabled: boolean;
+  selected: boolean;
 }
 
 export interface WSMeter {

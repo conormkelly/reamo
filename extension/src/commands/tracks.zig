@@ -12,6 +12,7 @@ pub const handlers = [_]mod.Entry{
     .{ .name = "track/setRecArm", .handler = handleSetRecArm },
     .{ .name = "track/setRecMon", .handler = handleSetRecMon },
     .{ .name = "track/setFxEnabled", .handler = handleSetFxEnabled },
+    .{ .name = "track/setSelected", .handler = handleSetSelected },
     .{ .name = "meter/clearClip", .handler = handleClearClip },
 };
 
@@ -119,6 +120,18 @@ fn handleSetFxEnabled(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
     const enabled = if (cmd.getInt("enabled")) |v| v != 0 else !api.getTrackFxEnabled(track);
     if (api.setTrackFxEnabled(track, enabled)) {
         api.log("Reamo: Set track FX enabled to {}", .{enabled});
+    }
+}
+
+// Set track selected (toggle if no value provided)
+fn handleSetSelected(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const track = getTrackFromCmd(api, cmd) orelse {
+        response.err("NOT_FOUND", "Track not found");
+        return;
+    };
+    const selected = if (cmd.getInt("selected")) |v| v != 0 else !api.getTrackSelected(track);
+    if (api.setTrackSelected(track, selected)) {
+        api.log("Reamo: Set track selected to {}", .{selected});
     }
 }
 

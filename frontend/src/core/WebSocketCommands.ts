@@ -165,6 +165,10 @@ export const track = {
     command: 'track/setFxEnabled',
     params: { trackIdx, enabled },
   }),
+  setSelected: (trackIdx: number, selected?: number): WSCommand => ({
+    command: 'track/setSelected',
+    params: { trackIdx, selected },
+  }),
 };
 
 // =============================================================================

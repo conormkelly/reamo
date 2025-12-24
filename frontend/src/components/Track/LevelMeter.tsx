@@ -90,8 +90,8 @@ export function LevelMeter({
         />
       )}
 
-      {/* Clip indicator */}
-      {peakDb >= maxDb && (
+      {/* Clip indicator - uses sticky flag from extension (cleared via meter/clearClip) */}
+      {track?.clipped && (
         <div
           className={`absolute bg-red-500 animate-pulse ${
             isVertical ? 'top-0 left-0 right-0 h-2' : 'right-0 top-0 bottom-0 w-2'

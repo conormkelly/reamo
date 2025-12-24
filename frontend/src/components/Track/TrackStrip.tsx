@@ -8,7 +8,7 @@ import type { ReactElement } from 'react';
 import { useTrack } from '../../hooks/useTrack';
 import { useLongPress } from '../../hooks/useLongPress';
 import { useReaper } from '../ReaperProvider';
-import { item } from '../../core/WebSocketCommands';
+import { track } from '../../core/WebSocketCommands';
 import { MuteButton } from './MuteButton';
 import { SoloButton } from './SoloButton';
 import { RecordArmButton } from './RecordArmButton';
@@ -33,17 +33,10 @@ export function TrackStrip({
   const { sendCommand } = useReaper();
 
   // Long-press to toggle track selection
-  // TODO: Add track selection WebSocket command - for now we use REAPER actions
   const { handlers: longPressHandlers } = useLongPress({
     onLongPress: () => {
-      if (isSelected) {
-        // Deselecting: clear item selection first, then deselect track
-        sendCommand(item.unselectAll());
-        // Track deselection would need a custom action or extended API
-      } else {
-        // Selecting: would need track selection WebSocket command
-        // For now this is a no-op - track selection via long-press disabled
-      }
+      // Toggle selection - omit 'selected' param to toggle
+      sendCommand(track.setSelected(trackIndex));
     },
     duration: 300,
   });
@@ -62,13 +55,13 @@ export function TrackStrip({
     <div
       className={`flex flex-col items-center p-2 bg-gray-900 rounded-lg border min-w-[80px] select-none ${className}`}
       style={borderStyle}
-      {...longPressHandlers}
     >
-      {/* Track name */}
+      {/* Track name - long-press here to toggle selection */}
       <div
-        className="w-full text-center text-sm font-medium truncate mb-2 px-1"
+        className="w-full text-center text-sm font-medium truncate mb-2 px-1 cursor-pointer"
         title={name}
         style={color ? { color } : undefined}
+        {...longPressHandlers}
       >
         {trackIndex === 0 ? 'Master' : name || `Track ${trackIndex}`}
       </div>

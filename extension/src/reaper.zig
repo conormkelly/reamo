@@ -634,6 +634,17 @@ pub const Api = struct {
         return f(track, "I_FXEN", if (enabled) 1.0 else 0.0);
     }
 
+    // Track selection: true/false
+    pub fn getTrackSelected(self: *const Api, track: *anyopaque) bool {
+        const f = self.getMediaTrackInfo_Value orelse return false;
+        return f(track, "I_SELECTED") != 0;
+    }
+
+    pub fn setTrackSelected(self: *const Api, track: *anyopaque, selected: bool) bool {
+        const f = self.setMediaTrackInfo_Value orelse return false;
+        return f(track, "I_SELECTED", if (selected) 1.0 else 0.0);
+    }
+
     // Track color: returns native OS color (0 = default/no custom color)
     // REAPER uses bit 24 (0x01000000) as an "enabled" flag - if not set, track uses theme default
     pub fn getTrackColor(self: *const Api, track: *anyopaque) c_int {

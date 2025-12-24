@@ -182,6 +182,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
       for (const t of p.tracks) {
         // Build flags bitfield from boolean fields
         let flags = 0;
+        if (t.selected) flags |= 2; // SELECTED (TrackFlags.SELECTED = 2)
         if (t.mute) flags |= 8; // MUTED
         if (t.solo) flags |= 16; // SOLOED
         if (t.recArm) flags |= 64; // RECORD_ARMED
@@ -198,6 +199,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
           flags,
           lastMeterPeak: 0,
           lastMeterPos: 0,
+          clipped: false,
           width: 0,
           panMode: 0,
           sendCount: 0,
@@ -206,7 +208,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
         };
       }
 
-      // Process meter data - update track objects with peak levels
+      // Process meter data - update track objects with peak levels and clip state
       // WebSocket sends linear amplitude (1.0 = 0dB), use max of L/R for mono display
       if (p.meters && p.meters.length > 0) {
         for (const m of p.meters) {
@@ -214,6 +216,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
             const peak = Math.max(m.peakL, m.peakR);
             tracks[m.trackIdx].lastMeterPeak = peak;
             tracks[m.trackIdx].lastMeterPos = peak;
+            tracks[m.trackIdx].clipped = m.clipped;
           }
         }
       }
