@@ -1118,8 +1118,10 @@ This may be a "nice to have" optimization rather than essential.
 - [x] Update Reamo to use WebSocket connection
 - [x] Remove HTTP polling code (CommandBuilder.ts, ResponseParser.ts, ReaperConnection.ts deleted)
 - [x] Migrate all components from HTTP CommandBuilder to WebSocket commands
-- [ ] Remove time selection hack (useTimeSelectionSync.ts - still present but unused)
-- [ ] Remove BPM calculation workaround
+- [x] Remove time selection hack (useTimeSelectionSync.ts deleted)
+- [x] Remove script detection hooks (useRegionEditScriptDetection.ts, useMarkerEditScriptDetection.ts deleted)
+- [x] Set luaScriptInstalled/markerScriptInstalled defaults to true in store
+- [ ] Remove BPM calculation workaround (useBarOffset still calculates from position data)
 - [ ] Implement Items mode UI
 
 **Migration notes:**

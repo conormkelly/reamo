@@ -33,7 +33,7 @@ import {
   TakeSwitcher,
   MarkerInfoBar,
 } from './components';
-import { useTracks, useTimeSelectionSync, useRegionEditScriptDetection, useMarkerEditScriptDetection } from './hooks';
+import { useTracks } from './hooks';
 import { useReaperStore } from './store';
 
 function TrackList({ filter }: { filter: string }) {
@@ -83,15 +83,6 @@ function AppContent() {
   const [showMakeSelectionModal, setShowMakeSelectionModal] = useState(false);
   const timelineMode = useReaperStore((s) => s.timelineMode);
 
-  // Sync REAPER's time selection on init
-  const { isSyncing } = useTimeSelectionSync();
-
-  // Detect if the region editing Lua script is installed
-  useRegionEditScriptDetection();
-
-  // Detect if the marker editing Lua script is installed
-  useMarkerEditScriptDetection();
-
   return (
     <div className="min-h-screen bg-gray-950 text-white p-4">
       {/* Header: Connection + Tempo right */}
@@ -106,7 +97,7 @@ function AppContent() {
 
       {/* Time Display - centered above transport */}
       <section className="flex justify-center mb-4">
-        <TimeDisplay format="both" isSyncing={isSyncing} />
+        <TimeDisplay format="both" />
       </section>
 
       {/* Transport Controls */}
@@ -128,7 +119,7 @@ function AppContent() {
           <h3 className="text-sm font-medium text-gray-400">Timeline</h3>
           <TimelineModeToggle />
         </div>
-        <Timeline height={80} isSyncing={isSyncing} />
+        <Timeline height={80} />
         <RegionInfoBar
           className="mt-2"
           onAddRegion={timelineMode === 'regions' ? () => setShowAddRegionModal(true) : undefined}

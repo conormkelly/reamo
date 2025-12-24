@@ -37,8 +37,8 @@ export interface MarkersSlice {
 export const createMarkersSlice: StateCreator<MarkersSlice> = (set) => ({
   // Initial state
   markers: [],
-  markerScriptInstalled: false,
-  markerScriptChecked: false,
+  markerScriptInstalled: true, // WebSocket extension handles marker editing directly
+  markerScriptChecked: true,
   selectedMarkerId: null,
   pendingMarkerEdits: null,
   isMarkerLocked: false,
