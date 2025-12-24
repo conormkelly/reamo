@@ -6,6 +6,7 @@
 import { useState, useCallback, useRef, useEffect, type ReactElement } from 'react';
 import { useReaper } from '../ReaperProvider';
 import { useTrack } from '../../hooks/useTrack';
+import { useReaperStore } from '../../store';
 
 /** Linear volume for unity gain (0dB) - exactly 1.0 */
 const UNITY_GAIN_VOLUME = 1.0;
@@ -26,6 +27,7 @@ export function Fader({
 }: FaderProps): ReactElement {
   const { sendCommand } = useReaper();
   const { faderPosition, volumeDb, setFaderPosition, setVolume } = useTrack(trackIndex);
+  const mixerLocked = useReaperStore((s) => s.mixerLocked);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const lastTapRef = useRef<number>(0);
@@ -47,6 +49,9 @@ export function Fader({
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent | React.TouchEvent) => {
+      // Ignore input when mixer is locked
+      if (mixerLocked) return;
+
       // Check for double-tap
       const now = Date.now();
       if (now - lastTapRef.current < 300) {
@@ -102,7 +107,7 @@ export function Fader({
       // Store cleanup function for unmount
       cleanupRef.current = handleUp;
     },
-    [sendCommand, setFaderPosition, handleDoubleTap]
+    [sendCommand, setFaderPosition, handleDoubleTap, mixerLocked]
   );
 
   const handleHeight = Math.max(0, Math.min(height, faderPosition * height));
@@ -111,9 +116,9 @@ export function Fader({
     <div className={`flex flex-col items-center gap-1 ${className}`}>
       <div
         ref={containerRef}
-        className={`relative w-8 bg-gray-800 rounded cursor-ns-resize select-none ${
-          isDragging ? 'ring-2 ring-blue-400' : ''
-        }`}
+        className={`relative w-8 bg-gray-800 rounded select-none ${
+          mixerLocked ? 'cursor-not-allowed opacity-50' : 'cursor-ns-resize'
+        } ${isDragging ? 'ring-2 ring-blue-400' : ''}`}
         style={{ height }}
         onMouseDown={handleMouseDown}
         onTouchStart={handleMouseDown}

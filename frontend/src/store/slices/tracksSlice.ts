@@ -10,6 +10,7 @@ export interface TracksSlice {
   // State
   trackCount: number;
   tracks: Record<number, Track>; // Using Record instead of Map for Zustand compatibility
+  mixerLocked: boolean; // Prevents accidental fader/button changes
 
   // Actions
   setTrackCount: (count: number) => void;
@@ -17,12 +18,15 @@ export interface TracksSlice {
   updateTracks: (tracks: Track[]) => void;
   removeTrack: (index: number) => void;
   clearTracks: () => void;
+  setMixerLocked: (locked: boolean) => void;
+  toggleMixerLock: () => void;
 }
 
 export const createTracksSlice: StateCreator<TracksSlice> = (set) => ({
   // Initial state
   trackCount: 0,
   tracks: {},
+  mixerLocked: false,
 
   // Actions
   setTrackCount: (trackCount) =>
@@ -63,4 +67,8 @@ export const createTracksSlice: StateCreator<TracksSlice> = (set) => ({
     }),
 
   clearTracks: () => set({ tracks: {}, trackCount: 0 }),
+
+  setMixerLocked: (locked) => set({ mixerLocked: locked }),
+
+  toggleMixerLock: () => set((state) => ({ mixerLocked: !state.mixerLocked })),
 });

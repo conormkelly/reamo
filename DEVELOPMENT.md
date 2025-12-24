@@ -2,6 +2,18 @@
 
 This document captures implementation details, API quirks, and outstanding work for the Reamo REAPER web controller.
 
+## Quick Start
+
+```bash
+make frontend    # Build frontend → reamo.html (auto-reloads on iPad)
+make extension   # Build extension → REAPER UserPlugins (restart REAPER to load)
+make test        # Run all tests before committing
+```
+
+**Frontend changes** are visible immediately — the web UI auto-reloads when `reamo.html` is updated.
+
+**Extension changes** require restarting REAPER to load the new plugin.
+
 ## Architecture Overview
 
 ### Project Structure
@@ -234,6 +246,37 @@ const TrackFlags = {
 };
 ```
 
+### UI State in Store
+
+For UI-only state that needs to be shared across components (like `mixerLocked`), add it to the appropriate Zustand slice rather than prop drilling. Components read directly:
+
+```typescript
+const mixerLocked = useReaperStore((s) => s.mixerLocked);
+```
+
+### Disabling Interactive Controls
+
+Pattern for making controls respect a "disabled" state:
+
+1. **Early return in handler** - prevents the action
+2. **Visual feedback** - shows the user it's disabled
+
+```typescript
+// In handler:
+if (mixerLocked) return;
+
+// In className:
+className={`... ${mixerLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+```
+
+### Icons
+
+The project uses `lucide-react` for icons. Import individually:
+
+```typescript
+import { Lock, Unlock, Circle, Headphones } from 'lucide-react';
+```
+
 ## Testing Conventions
 
 ### Philosophy
@@ -264,6 +307,8 @@ const TrackFlags = {
 5. **Long-press needs async** - Use `vi.useFakeTimers()` and `vi.advanceTimersByTime()` for testing hold gestures.
 
 6. **Pointer events in JSDOM are limited** - Full gesture testing requires mocking `getBoundingClientRect()`. State integration tests are more reliable. Use Playwright for real gesture testing.
+
+7. **Hooks with timeouts need refs for current values** - If a timeout callback needs the "current" value (not the stale closure value), store it in a ref that's updated on each render. See `usePeakHold` for the pattern.
 
 ## Extension Robustness
 

@@ -6,6 +6,7 @@
 import { useState, useCallback, useRef, type ReactElement } from 'react';
 import { useReaper } from '../ReaperProvider';
 import { useTrack } from '../../hooks/useTrack';
+import { useReaperStore } from '../../store';
 
 /** Center pan position */
 const CENTER_PAN = 0;
@@ -36,6 +37,7 @@ export function PanKnob({
 }: PanKnobProps): ReactElement {
   const { sendCommand } = useReaper();
   const { pan, panDisplay, setPan } = useTrack(trackIndex);
+  const mixerLocked = useReaperStore((s) => s.mixerLocked);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const lastTapRef = useRef<number>(0);
@@ -47,6 +49,9 @@ export function PanKnob({
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent | React.TouchEvent) => {
+      // Ignore input when mixer is locked
+      if (mixerLocked) return;
+
       // Check for double-tap
       const now = Date.now();
       if (now - lastTapRef.current < 300) {
@@ -100,7 +105,7 @@ export function PanKnob({
       document.addEventListener('touchmove', handleMove, { passive: false });
       document.addEventListener('touchend', handleUp);
     },
-    [sendCommand, setPan, handleDoubleTap]
+    [sendCommand, setPan, handleDoubleTap, mixerLocked]
   );
 
   // Calculate indicator position (0-100%)
@@ -110,9 +115,9 @@ export function PanKnob({
     <div className={`flex flex-col items-center gap-1 ${className}`}>
       <div
         ref={containerRef}
-        className={`relative h-4 bg-gray-800 rounded cursor-ew-resize select-none ${
-          isDragging ? 'ring-2 ring-blue-400' : ''
-        }`}
+        className={`relative h-4 bg-gray-800 rounded select-none ${
+          mixerLocked ? 'cursor-not-allowed opacity-50' : 'cursor-ew-resize'
+        } ${isDragging ? 'ring-2 ring-blue-400' : ''}`}
         style={{ width }}
         onMouseDown={handleMouseDown}
         onTouchStart={handleMouseDown}

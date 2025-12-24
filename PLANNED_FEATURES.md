@@ -1,12 +1,5 @@
 # Planned Features
 
-### Mixer Lock Mode
-
-Add a lock/unlock toggle icon beside the "Filter tracks" bar. When locked:
-- Disables all fader and button input
-- Prevents accidental changes while scrolling on mobile
-- Visual indicator (lock icon, maybe dimmed controls)
-
 ### Track Collapse/Hide
 
 Add an eye icon or accordion button to hide/collapse tracks in the mixer view. Options:
@@ -19,15 +12,6 @@ Add an eye icon or accordion button to hide/collapse tracks in the mixer view. O
 **Problem**: Fader moves generate many small changes. How do we handle undo?
 
 **Recommendation**: Server-managed undo blocks. Extension tracks "last idle value" per control, auto-creates undo block on first change, commits after 500ms idle.
-
-### Meter Smoothing (Optional Polish)
-
-Current 30ms updates can look choppy. Options:
-
-**CSS transition** (simplest):
-```tsx
-className={`... transition-all duration-100 ...`}
-```
 
 ### Client-Side Interpolation (Research Needed)
 

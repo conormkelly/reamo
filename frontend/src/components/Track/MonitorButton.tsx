@@ -7,6 +7,7 @@ import type { ReactElement } from 'react';
 import { Headphones } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useTrack } from '../../hooks/useTrack';
+import { useReaperStore } from '../../store';
 
 export interface MonitorButtonProps {
   trackIndex: number;
@@ -19,8 +20,10 @@ export function MonitorButton({
 }: MonitorButtonProps): ReactElement {
   const { sendCommand } = useReaper();
   const { recordMonitorState, cycleRecordMonitor } = useTrack(trackIndex);
+  const mixerLocked = useReaperStore((s) => s.mixerLocked);
 
   const handleClick = () => {
+    if (mixerLocked) return;
     sendCommand(cycleRecordMonitor());
   };
 
@@ -40,7 +43,9 @@ export function MonitorButton({
     <button
       onClick={handleClick}
       title={stateLabels[recordMonitorState]}
-      className={`px-2 py-1 rounded text-sm font-medium transition-colors ${stateStyles[recordMonitorState]} ${className}`}
+      className={`px-2 py-1 rounded text-sm font-medium transition-colors ${
+        mixerLocked ? 'opacity-50 cursor-not-allowed' : ''
+      } ${stateStyles[recordMonitorState]} ${className}`}
     >
       <Headphones size={14} className="inline-block" />
     </button>

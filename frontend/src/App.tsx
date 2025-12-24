@@ -4,7 +4,7 @@
  */
 
 import { useState, useMemo } from 'react';
-import { RectangleHorizontal } from 'lucide-react';
+import { RectangleHorizontal, Lock, Unlock } from 'lucide-react';
 import './index.css';
 import {
   ReaperProvider,
@@ -74,6 +74,25 @@ function TrackStripWithMeter({ trackIndex }: { trackIndex: number }) {
       <LevelMeter trackIndex={trackIndex} height={200} />
       <TrackStrip trackIndex={trackIndex} />
     </div>
+  );
+}
+
+function MixerLockButton() {
+  const mixerLocked = useReaperStore((s) => s.mixerLocked);
+  const toggleMixerLock = useReaperStore((s) => s.toggleMixerLock);
+
+  return (
+    <button
+      onClick={toggleMixerLock}
+      className={`p-2 rounded transition-colors ${
+        mixerLocked
+          ? 'bg-yellow-600 text-white'
+          : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+      }`}
+      title={mixerLocked ? 'Unlock mixer controls' : 'Lock mixer controls'}
+    >
+      {mixerLocked ? <Lock size={18} /> : <Unlock size={18} />}
+    </button>
   );
 }
 
@@ -154,12 +173,15 @@ function AppContent() {
 
       {/* Tracks */}
       <section>
-        <TrackFilter
-          value={trackFilter}
-          onChange={setTrackFilter}
-          className="mb-3 max-w-xs"
-          placeholder="Filter tracks..."
-        />
+        <div className="flex items-center gap-2 mb-3">
+          <TrackFilter
+            value={trackFilter}
+            onChange={setTrackFilter}
+            className="max-w-xs"
+            placeholder="Filter tracks..."
+          />
+          <MixerLockButton />
+        </div>
         <TrackList filter={trackFilter} />
       </section>
 
