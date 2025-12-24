@@ -7,7 +7,7 @@ import { type ReactElement } from 'react';
 import { Trash2, RotateCcw, Check } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useTransport } from '../../hooks/useTransport';
-import * as commands from '../../core/CommandBuilder';
+import { transport } from '../../core/WebSocketCommands';
 
 export interface RecordingActionsBarProps {
   className?: string;
@@ -20,7 +20,7 @@ export interface RecordingActionsBarProps {
  * - Keep: Stop and keep the take (happy with it)
  */
 export function RecordingActionsBar({ className = '' }: RecordingActionsBarProps): ReactElement | null {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
   const { isRecording } = useTransport();
 
   // Only show when recording
@@ -29,24 +29,24 @@ export function RecordingActionsBar({ className = '' }: RecordingActionsBarProps
   }
 
   const handleScrap = () => {
-    // Stop and delete all recorded media (action 40668)
+    // Stop and delete all recorded media
     // REAPER will return playhead to where recording started
-    send(commands.abortRecording());
+    sendCommand(transport.stopAndDelete());
   };
 
   const handleRetake = () => {
     // Stop and delete all recorded media, then restart recording
-    send(commands.abortRecording());
+    sendCommand(transport.stopAndDelete());
 
     // Small delay to ensure stop completes, then restart recording
     setTimeout(() => {
-      send(commands.record());
+      sendCommand(transport.record());
     }, 50);
   };
 
   const handleKeep = () => {
     // Stop recording normally (keeps the take)
-    send(commands.stop());
+    sendCommand(transport.stop());
   };
 
   return (

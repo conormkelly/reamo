@@ -27,8 +27,9 @@ This document outlines a plan to build a native REAPER extension (dylib/dll) in 
 - **Phase 2 complete**: Transport state polling, change detection, play/stop/pause/record/toggle/seek commands
 - **Phase 3 complete**: Markers & regions enumeration, change detection, CRUD commands
 - **Phase 4 complete**: Items & takes enumeration, time selection filtering, item/take commands
+- **Phase 5 complete**: Frontend migrated from HTTP to WebSocket (old HTTP code deleted)
 - **Code refactored**: Clean module structure (reaper.zig, transport.zig, markers.zig, items.zig, protocol.zig, commands.zig, ws_server.zig)
-- **Next step**: Client Integration (Phase 5)
+- **Next step**: Cleanup remaining HTTP workarounds, implement Items mode UI
 
 ## Development Notes (Project-Specific)
 
@@ -44,6 +45,43 @@ This document outlines a plan to build a native REAPER extension (dylib/dll) in 
 2. **Deferred init is mandatory** — Never start servers in `ReaperPluginEntry`, use timer callback
 3. **File logging for debugging**: `/tmp/reamo-extension.log` with timestamps helps debug shutdown issues
 4. **websocket.zig shutdown quirk**: The library's `stop()` blocks forever on a condition variable. Solution: detach the thread immediately after starting, skip `stop()` on shutdown, let OS clean up
+
+### Testing WebSocket Commands
+
+**Getting the session token:**
+
+```bash
+# Query EXTSTATE via HTTP (port 8099 or whatever REAPER's HTTP is on)
+curl -s "http://localhost:8099/_/GET/EXTSTATE/Reamo/SessionToken"
+# Returns: EXTSTATE	Reamo	SessionToken	<32-char-hex-token>
+```
+
+**Sending commands via websocat:**
+
+```bash
+TOKEN="<paste-token-here>"
+/bin/bash -c '(echo "{\"type\":\"hello\",\"clientVersion\":\"1.0.0\",\"protocolVersion\":1,\"token\":\"'$TOKEN'\"}"
+ echo "{\"type\":\"command\",\"command\":\"transport/playPause\",\"id\":\"1\"}"
+ sleep 0.3) | websocat ws://localhost:9224 2>&1 | head -5'
+```
+
+**Example commands:**
+
+```json
+// Transport
+{"type":"command","command":"transport/play","id":"1"}
+{"type":"command","command":"transport/stop","id":"2"}
+{"type":"command","command":"transport/seek","params":{"position":10.5},"id":"3"}
+
+// Track
+{"type":"command","command":"track/setMute","params":{"trackIdx":0},"id":"4"}
+{"type":"command","command":"track/setVolume","params":{"trackIdx":0,"volume":0.5},"id":"5"}
+
+// Markers
+{"type":"command","command":"marker/add","params":{"position":5.0,"name":"Verse"},"id":"6"}
+```
+
+**Browser test client:** Open `extension/test-client.html` in browser (served via REAPER HTTP).
 
 ### Zig Gotchas
 
@@ -1075,13 +1113,20 @@ This may be a "nice to have" optimization rather than essential.
 - Time selection filtering: only items overlapping selection are broadcast
 - Take operations use REAPER's built-in action commands (40129, 40131) which operate on selected items
 
-### Phase 5: Client Integration
+### Phase 5: Client Integration ✅
 
-- [ ] Update Reamo to use WebSocket connection
-- [ ] Remove HTTP polling code
-- [ ] Remove time selection hack
+- [x] Update Reamo to use WebSocket connection
+- [x] Remove HTTP polling code (CommandBuilder.ts, ResponseParser.ts, ReaperConnection.ts deleted)
+- [x] Migrate all components from HTTP CommandBuilder to WebSocket commands
+- [ ] Remove time selection hack (useTimeSelectionSync.ts - still present but unused)
 - [ ] Remove BPM calculation workaround
 - [ ] Implement Items mode UI
+
+**Migration notes:**
+- Pattern change: `send(commands.action(id))` → `sendCommand(action.execute(id))`
+- HTTP batching (`commands.join()`) replaced with direct WebSocket commands
+- String action IDs use `action.executeByName()`, numeric IDs use `action.execute()`
+- Track commands toggle when no value provided (e.g., `setMute(trackIdx)` toggles)
 
 ---
 

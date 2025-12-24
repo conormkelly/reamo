@@ -10,14 +10,14 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useReaper } from './ReaperProvider';
 import { useTracks } from '../hooks/useTracks';
 import { useReaperStore } from '../store';
-import * as commands from '../core/CommandBuilder';
+import { item, take } from '../core/WebSocketCommands';
 
 export interface TakeSwitcherProps {
   className?: string;
 }
 
 export function TakeSwitcher({ className = '' }: TakeSwitcherProps): ReactElement | null {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
   const { selectedTracks } = useTracks();
   const timeSelection = useReaperStore((state) => state.timeSelection);
 
@@ -43,23 +43,15 @@ export function TakeSwitcher({ className = '' }: TakeSwitcherProps): ReactElemen
   const handlePrevTake = () => {
     if (!isEnabled) return;
     // Select items in time selection on selected track, then switch to previous take
-    send(
-      commands.join(
-        commands.selectItemsInTimeSelection(),
-        commands.previousTake()
-      )
-    );
+    sendCommand(item.selectInTimeSel());
+    sendCommand(take.prev());
   };
 
   const handleNextTake = () => {
     if (!isEnabled) return;
     // Select items in time selection on selected track, then switch to next take
-    send(
-      commands.join(
-        commands.selectItemsInTimeSelection(),
-        commands.nextTake()
-      )
-    );
+    sendCommand(item.selectInTimeSel());
+    sendCommand(take.next());
   };
 
   // Determine hint text when take switching isn't available

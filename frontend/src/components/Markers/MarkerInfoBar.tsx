@@ -10,7 +10,7 @@ import { RotateCcw } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
 import { useCurrentMarker, useTimeFormatters } from '../../hooks';
-import * as commands from '../../core/CommandBuilder';
+import { extstate } from '../../core/WebSocketCommands';
 import { reaperColorToHex, hexToReaperColor } from '../../utils';
 
 // Default marker color in REAPER (shown when color = 0)
@@ -33,7 +33,7 @@ interface MarkerInfoBarProps {
 }
 
 export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElement | null {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
   const timelineMode = useReaperStore((s) => s.timelineMode);
   const markerScriptInstalled = useReaperStore((s) => s.markerScriptInstalled);
   const markers = useReaperStore((s) => s.markers);
@@ -109,21 +109,18 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
 
       // Write to EXTSTATE for Lua script to process
       // Set marker_action LAST to avoid race condition (Lua polls for action)
-      send(commands.setExtState('Reamo', 'marker_id', String(currentMarker.id)));
-      send(commands.setExtState('Reamo', 'marker_name', name));
-      send(commands.setExtState('Reamo', 'marker_color', String(color)));
-      send(commands.setExtState('Reamo', 'marker_processed', ''));
-      send(commands.setExtState('Reamo', 'marker_action', 'edit'));
+      sendCommand(extstate.set('Reamo', 'marker_id', String(currentMarker.id)));
+      sendCommand(extstate.set('Reamo', 'marker_name', name));
+      sendCommand(extstate.set('Reamo', 'marker_color', String(color)));
+      sendCommand(extstate.set('Reamo', 'marker_processed', ''));
+      sendCommand(extstate.set('Reamo', 'marker_action', 'edit'));
 
-      // Wait for script to process
+      // Wait for script to process (WebSocket will push updated markers)
       await new Promise((resolve) => setTimeout(resolve, 300));
-
-      // Refresh markers
-      send(commands.markers());
 
       setIsSaving(false);
     },
-    [currentMarker, send]
+    [currentMarker, sendCommand]
   );
 
   const handleNameClick = () => {

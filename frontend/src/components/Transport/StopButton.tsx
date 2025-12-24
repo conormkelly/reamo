@@ -12,11 +12,11 @@ export interface StopButtonProps {
 }
 
 export function StopButton({ className = '' }: StopButtonProps): ReactElement {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
   const { isStopped, stop } = useTransport();
 
   const handleClick = () => {
-    send(stop());
+    sendCommand(stop());
   };
 
   return (

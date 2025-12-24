@@ -17,11 +17,11 @@ export function RecordArmButton({
   trackIndex,
   className = '',
 }: RecordArmButtonProps): ReactElement {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
   const { isRecordArmed, toggleRecordArm } = useTrack(trackIndex);
 
   const handleClick = () => {
-    send(toggleRecordArm());
+    sendCommand(toggleRecordArm());
   };
 
   return (

@@ -8,7 +8,7 @@ import { useState, useRef, useCallback, useEffect, type ReactElement } from 'rea
 import { Minus, Plus } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
-import * as commands from '../../core/CommandBuilder';
+import { tempo } from '../../core/WebSocketCommands';
 
 // Hold duration threshold in ms
 const HOLD_THRESHOLD = 300;
@@ -32,7 +32,7 @@ export function TapTempoButton({
   size = 'md',
   showLabel = true,
 }: TapTempoButtonProps): ReactElement {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
   const bpm = useReaperStore((state) => state.bpm);
   const setBpm = useReaperStore((state) => state.setBpm);
 
@@ -70,9 +70,9 @@ export function TapTempoButton({
     }
     // If it wasn't a hold, send tap tempo
     if (!wasHoldRef.current && !showDialog) {
-      send(commands.tapTempo());
+      sendCommand(tempo.tap());
     }
-  }, [send, showDialog]);
+  }, [sendCommand, showDialog]);
 
   const handlePointerCancel = useCallback(() => {
     if (holdTimerRef.current) {
@@ -81,22 +81,16 @@ export function TapTempoButton({
     }
   }, []);
 
-  const setTempo = useCallback(
+  const applyTempo = useCallback(
     (newBpm: number) => {
       const clampedBpm = Math.max(2, Math.min(960, Math.round(newBpm)));
       // Optimistic update - show new BPM immediately (works even at position 0)
       setBpm(clampedBpm);
       setInputValue(String(clampedBpm));
-      // Send tempo change + request fresh region data
-      send(
-        commands.join(
-          commands.setTempo(clampedBpm),
-          commands.regions(),
-          commands.markers()
-        )
-      );
+      // Send tempo change (WebSocket push will update regions/markers automatically)
+      sendCommand(tempo.set(clampedBpm));
     },
-    [send, setBpm]
+    [sendCommand, setBpm]
   );
 
   const handleInputChange = useCallback(
@@ -112,25 +106,25 @@ export function TapTempoButton({
       if (e.key === 'Enter') {
         const newBpm = parseInt(inputValue, 10);
         if (!isNaN(newBpm)) {
-          setTempo(newBpm);
+          applyTempo(newBpm);
         }
         setShowDialog(false);
       } else if (e.key === 'Escape') {
         setShowDialog(false);
       }
     },
-    [inputValue, setTempo]
+    [inputValue, applyTempo]
   );
 
   const handleIncrement = useCallback(() => {
     const currentBpm = parseInt(inputValue, 10) || (bpm !== null ? Math.round(bpm) : 120);
-    setTempo(currentBpm + 1);
-  }, [inputValue, bpm, setTempo]);
+    applyTempo(currentBpm + 1);
+  }, [inputValue, bpm, applyTempo]);
 
   const handleDecrement = useCallback(() => {
     const currentBpm = parseInt(inputValue, 10) || (bpm !== null ? Math.round(bpm) : 120);
-    setTempo(currentBpm - 1);
-  }, [inputValue, bpm, setTempo]);
+    applyTempo(currentBpm - 1);
+  }, [inputValue, bpm, applyTempo]);
 
   const handleOverlayClick = useCallback(
     (e: React.MouseEvent) => {
@@ -138,12 +132,12 @@ export function TapTempoButton({
         // Clicking outside the dialog - apply value and close
         const newBpm = parseInt(inputValue, 10);
         if (!isNaN(newBpm)) {
-          setTempo(newBpm);
+          applyTempo(newBpm);
         }
         setShowDialog(false);
       }
     },
-    [inputValue, setTempo]
+    [inputValue, applyTempo]
   );
 
   const sizeClasses = {

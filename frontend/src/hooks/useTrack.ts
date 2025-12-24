@@ -14,7 +14,8 @@ import {
   hasFx,
   getRecordMonitorState,
 } from '../core/types';
-import * as commands from '../core/CommandBuilder';
+import { track as trackCmd } from '../core/WebSocketCommands';
+import type { WSCommand } from '../core/WebSocketCommands';
 import { volumeToDbString, volumeToFader, faderToVolume } from '../utils/volume';
 import { panToString } from '../utils/pan';
 import { reaperColorToHex, getContrastColor } from '../utils/color';
@@ -39,16 +40,14 @@ export interface UseTrackReturn {
   color: string | null;
   textColor: 'black' | 'white';
 
-  // Command builders (return command strings)
-  toggleMute: () => string;
-  toggleSolo: () => string;
-  toggleRecordArm: () => string;
-  toggleSelect: () => string;
-  cycleRecordMonitor: () => string;
-  setVolume: (linearVolume: number) => string;
-  setVolumeRelative: (dbChange: number) => string;
-  setFaderPosition: (position: number) => string;
-  setPan: (pan: number) => string;
+  // Command builders (return WSCommand objects)
+  toggleMute: () => WSCommand;
+  toggleSolo: () => WSCommand;
+  toggleRecordArm: () => WSCommand;
+  cycleRecordMonitor: () => WSCommand;
+  setVolume: (linearVolume: number) => WSCommand;
+  setFaderPosition: (position: number) => WSCommand;
+  setPan: (pan: number) => WSCommand;
 }
 
 /**
@@ -95,75 +94,42 @@ export function useTrack(trackIndex: number): UseTrackReturn {
     };
   }, [track]);
 
-  // Command builders
+  // Command builders - return WSCommand objects for use with sendCommand
   const toggleMute = useCallback(
-    () => commands.join(commands.setMute(trackIndex), commands.track(trackIndex)),
+    () => trackCmd.setMute(trackIndex), // No value = toggle
     [trackIndex]
   );
 
   const toggleSolo = useCallback(
-    () => commands.join(commands.setSolo(trackIndex), commands.track(trackIndex)),
+    () => trackCmd.setSolo(trackIndex), // No value = toggle
     [trackIndex]
   );
 
   const toggleRecordArm = useCallback(
-    () =>
-      commands.join(commands.setRecordArm(trackIndex), commands.track(trackIndex)),
-    [trackIndex]
-  );
-
-  const toggleSelect = useCallback(
-    () =>
-      commands.join(commands.setSelection(trackIndex), commands.track(trackIndex)),
+    () => trackCmd.setRecArm(trackIndex), // No value = toggle
     [trackIndex]
   );
 
   const cycleRecordMonitor = useCallback(
-    () =>
-      commands.join(
-        commands.setRecordMonitor(trackIndex),
-        commands.track(trackIndex)
-      ),
+    () => trackCmd.setRecMon(trackIndex), // No value = cycle
     [trackIndex]
   );
 
   const setVolume = useCallback(
-    (linearVolume: number) =>
-      commands.join(
-        commands.setVolume(trackIndex, linearVolume),
-        commands.track(trackIndex)
-      ),
-    [trackIndex]
-  );
-
-  const setVolumeRelative = useCallback(
-    (dbChange: number) => {
-      const prefix = dbChange >= 0 ? '+' : '';
-      return commands.join(
-        commands.setVolume(trackIndex, `${prefix}${dbChange}`),
-        commands.track(trackIndex)
-      );
-    },
+    (linearVolume: number) => trackCmd.setVolume(trackIndex, linearVolume),
     [trackIndex]
   );
 
   const setFaderPosition = useCallback(
     (position: number) => {
       const linearVolume = faderToVolume(position);
-      return commands.join(
-        commands.setVolume(trackIndex, linearVolume),
-        commands.track(trackIndex)
-      );
+      return trackCmd.setVolume(trackIndex, linearVolume);
     },
     [trackIndex]
   );
 
   const setPan = useCallback(
-    (pan: number) =>
-      commands.join(
-        commands.setPan(trackIndex, pan),
-        commands.track(trackIndex)
-      ),
+    (pan: number) => trackCmd.setPan(trackIndex, pan),
     [trackIndex]
   );
 
@@ -174,10 +140,8 @@ export function useTrack(trackIndex: number): UseTrackReturn {
     toggleMute,
     toggleSolo,
     toggleRecordArm,
-    toggleSelect,
     cycleRecordMonitor,
     setVolume,
-    setVolumeRelative,
     setFaderPosition,
     setPan,
   };

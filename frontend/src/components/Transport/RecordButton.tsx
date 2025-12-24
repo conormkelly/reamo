@@ -12,11 +12,11 @@ export interface RecordButtonProps {
 }
 
 export function RecordButton({ className = '' }: RecordButtonProps): ReactElement {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
   const { isRecording, record } = useTransport();
 
   const handleClick = () => {
-    send(record());
+    sendCommand(record());
   };
 
   return (

@@ -7,7 +7,7 @@ import { useState, useRef, useCallback, type ReactElement, type ReactNode } from
 import { Gauge, Undo2, Redo2, Save, MapPinPlus, Minus, Plus, SkipBack, SkipForward, X } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
-import * as commands from '../../core/CommandBuilder';
+import { action, metronome, timeSelection } from '../../core/WebSocketCommands';
 
 // Hold duration threshold in ms
 const HOLD_THRESHOLD = 300;
@@ -55,11 +55,15 @@ export function ActionButton({
   size = 'md',
   disabled = false,
 }: ActionButtonProps): ReactElement {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
 
   const handleClick = () => {
     if (!disabled) {
-      send(commands.action(actionId));
+      if (typeof actionId === 'string') {
+        sendCommand(action.executeByName(actionId));
+      } else {
+        sendCommand(action.execute(actionId));
+      }
     }
   };
 
@@ -118,7 +122,7 @@ export function MetronomeButton({
   className = '',
   size = 'md',
 }: MetronomeButtonProps): ReactElement {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
   const isMetronome = useReaperStore((state) => state.isMetronome);
   const isCountInRecord = useReaperStore((state) => state.isCountInRecord);
   const isCountInPlayback = useReaperStore((state) => state.isCountInPlayback);
@@ -143,9 +147,9 @@ export function MetronomeButton({
     }
     // If it wasn't a hold, toggle metronome
     if (!wasHoldRef.current && !showDialog) {
-      send(commands.toggleMetronome());
+      sendCommand(metronome.toggle());
     }
-  }, [send, showDialog]);
+  }, [sendCommand, showDialog]);
 
   const handlePointerCancel = useCallback(() => {
     if (holdTimerRef.current) {
@@ -155,20 +159,20 @@ export function MetronomeButton({
   }, []);
 
   const handleVolumeUp = useCallback(() => {
-    send(commands.action(SWS_METRO_VOL_UP));
-  }, [send]);
+    sendCommand(action.executeByName(SWS_METRO_VOL_UP));
+  }, [sendCommand]);
 
   const handleVolumeDown = useCallback(() => {
-    send(commands.action(SWS_METRO_VOL_DOWN));
-  }, [send]);
+    sendCommand(action.executeByName(SWS_METRO_VOL_DOWN));
+  }, [sendCommand]);
 
   const handleToggleCountInRecord = useCallback(() => {
-    send(commands.action(SWS_COUNT_IN_RECORD));
-  }, [send]);
+    sendCommand(action.executeByName(SWS_COUNT_IN_RECORD));
+  }, [sendCommand]);
 
   const handleToggleCountInPlayback = useCallback(() => {
-    send(commands.action(SWS_COUNT_IN_PLAYBACK));
-  }, [send]);
+    sendCommand(action.executeByName(SWS_COUNT_IN_PLAYBACK));
+  }, [sendCommand]);
 
   const handleOverlayClick = useCallback(
     (e: React.MouseEvent) => {
@@ -426,13 +430,13 @@ export function ClearSelectionButton({
   className = '',
   size = 'md',
 }: ClearSelectionButtonProps): ReactElement {
-  const { send } = useReaper();
-  const setTimeSelection = useReaperStore((state) => state.setTimeSelection);
+  const { sendCommand } = useReaper();
+  const setStoredTimeSelection = useReaperStore((state) => state.setTimeSelection);
 
   const handleClick = useCallback(() => {
-    send(commands.action(40020));
-    setTimeSelection(null);
-  }, [send, setTimeSelection]);
+    sendCommand(timeSelection.clear());
+    setStoredTimeSelection(null);
+  }, [sendCommand, setStoredTimeSelection]);
 
   const sizeClasses = {
     sm: 'px-2 py-1 text-sm',

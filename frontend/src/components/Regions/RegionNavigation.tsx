@@ -6,7 +6,7 @@
 import type { ReactElement } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
-import * as commands from '../../core/CommandBuilder';
+import { action } from '../../core/WebSocketCommands';
 
 export interface RegionNavigationProps {
   className?: string;
@@ -21,14 +21,14 @@ export function RegionNavigation({
   showLabels = true,
   size = 'md',
 }: RegionNavigationProps): ReactElement {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
 
   const handlePrevRegion = () => {
-    send(commands.action('_SWS_SELPREVREG'));
+    sendCommand(action.executeByName('_SWS_SELPREVREG'));
   };
 
   const handleNextRegion = () => {
-    send(commands.action('_SWS_SELNEXTREG'));
+    sendCommand(action.executeByName('_SWS_SELNEXTREG'));
   };
 
   const sizeClasses = {

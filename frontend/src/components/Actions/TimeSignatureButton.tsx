@@ -8,7 +8,7 @@ import { useState, useCallback, type ReactElement } from 'react';
 import { Minus, Plus } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useTimeSignature } from '../../hooks';
-import * as commands from '../../core/CommandBuilder';
+import { extstate } from '../../core/WebSocketCommands';
 
 // Common time signature presets
 const TIME_SIG_PRESETS = [
@@ -34,7 +34,7 @@ export function TimeSignatureButton({
   className = '',
   size = 'md',
 }: TimeSignatureButtonProps): ReactElement {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
   const { beatsPerBar: storeBeatsPerBar, denominator: storeDenominator } = useTimeSignature();
 
   const [showDialog, setShowDialog] = useState(false);
@@ -51,13 +51,13 @@ export function TimeSignatureButton({
   const handleSetTimeSignature = useCallback(
     (num: number, denom: number) => {
       // Send via ExtState to Lua script
-      send(commands.setExtState('Reamo', 'timesig_numerator', String(num)));
-      send(commands.setExtState('Reamo', 'timesig_denominator', String(denom)));
-      send(commands.setExtState('Reamo', 'timesig_processed', ''));
-      send(commands.setExtState('Reamo', 'timesig_action', 'set')); // Action LAST
+      sendCommand(extstate.set('Reamo', 'timesig_numerator', String(num)));
+      sendCommand(extstate.set('Reamo', 'timesig_denominator', String(denom)));
+      sendCommand(extstate.set('Reamo', 'timesig_processed', ''));
+      sendCommand(extstate.set('Reamo', 'timesig_action', 'set')); // Action LAST
       setShowDialog(false);
     },
-    [send]
+    [sendCommand]
   );
 
   const handleNumeratorUp = useCallback(() => {

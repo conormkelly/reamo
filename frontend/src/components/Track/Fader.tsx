@@ -24,7 +24,7 @@ export function Fader({
   height = 150,
   resetVolume = UNITY_GAIN_VOLUME,
 }: FaderProps): ReactElement {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
   const { faderPosition, volumeDb, setFaderPosition, setVolume } = useTrack(trackIndex);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -42,8 +42,8 @@ export function Fader({
 
   // Handle double-tap to reset to unity - use setVolume directly to avoid fader curve round-trip
   const handleDoubleTap = useCallback(() => {
-    send(setVolume(resetVolume));
-  }, [send, setVolume, resetVolume]);
+    sendCommand(setVolume(resetVolume));
+  }, [sendCommand, setVolume, resetVolume]);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent | React.TouchEvent) => {
@@ -73,7 +73,7 @@ export function Fader({
         const rect = containerRef.current.getBoundingClientRect();
         const y = clientY - rect.top;
         const position = 1 - Math.max(0, Math.min(1, y / rect.height));
-        send(setFaderPosition(position));
+        sendCommand(setFaderPosition(position));
       };
 
       // Handle initial click position
@@ -102,7 +102,7 @@ export function Fader({
       // Store cleanup function for unmount
       cleanupRef.current = handleUp;
     },
-    [send, setFaderPosition, handleDoubleTap]
+    [sendCommand, setFaderPosition, handleDoubleTap]
   );
 
   const handleHeight = Math.max(0, Math.min(height, faderPosition * height));

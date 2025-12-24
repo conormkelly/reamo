@@ -7,14 +7,14 @@ import { useState, useCallback, type ReactElement } from 'react';
 import { Save, X, Loader2, AlertCircle, Undo2, Redo2 } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
-import * as commands from '../../core/CommandBuilder';
+import { extstate } from '../../core/WebSocketCommands';
 
 // Lua script action ID (user needs to assign this after loading the script)
 // For now we'll use a command name approach
 const SCRIPT_SECTION = 'Reamo';
 
 export function RegionEditActionBar(): ReactElement | null {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
   const hasPendingChanges = useReaperStore((s) => s.hasPendingChanges);
   const pendingChanges = useReaperStore((s) => s.pendingChanges);
   const regions = useReaperStore((s) => s.regions);
@@ -84,14 +84,11 @@ export function RegionEditActionBar(): ReactElement | null {
       }
 
       // Write ExtState values (always use ripple mode)
-      const setExtStateCmds = commands.join(
-        commands.setExtState(SCRIPT_SECTION, 'action', 'batch'),
-        commands.setExtState(SCRIPT_SECTION, 'batch_data', batchData),
-        commands.setExtState(SCRIPT_SECTION, 'mode', 'ripple'),
-        commands.setExtState(SCRIPT_SECTION, 'processed', ''),
-        commands.setExtState(SCRIPT_SECTION, 'error', '')
-      );
-      send(setExtStateCmds);
+      sendCommand(extstate.set(SCRIPT_SECTION, 'action', 'batch'));
+      sendCommand(extstate.set(SCRIPT_SECTION, 'batch_data', batchData));
+      sendCommand(extstate.set(SCRIPT_SECTION, 'mode', 'ripple'));
+      sendCommand(extstate.set(SCRIPT_SECTION, 'processed', ''));
+      sendCommand(extstate.set(SCRIPT_SECTION, 'error', ''));
 
       // Trigger the Lua script by name
       // The script needs to be run manually or via an action
@@ -99,38 +96,23 @@ export function RegionEditActionBar(): ReactElement | null {
       // User should run the script: Actions > Run script > Reamo_RegionEdit.lua
       setPollingForProcessed(true);
 
-      // Poll for processed flag
+      // Poll for processed flag - with WebSocket, just wait and assume success
       let attempts = 0;
-      const maxAttempts = 50; // 5 seconds max
-      const pollInterval = 100;
 
       const poll = async () => {
         attempts++;
 
-        // Check for processed flag
-        send(commands.getExtState(SCRIPT_SECTION, 'processed'));
-
         // Wait a bit for response
-        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+        await new Promise((resolve) => setTimeout(resolve, 100));
 
-        // For now, we'll just wait a bit and assume it worked
-        // In a real implementation, we'd parse the response
+        // After a short delay, assume success (WebSocket will push updates)
         if (attempts >= 3) {
-          // Assume success after a short delay
           setPollingForProcessed(false);
           commitChanges();
-
-          // Refresh regions by forcing a new poll
-          send(commands.regions());
           return;
         }
 
-        if (attempts < maxAttempts) {
-          poll();
-        } else {
-          setPollingForProcessed(false);
-          setCommitError('Timeout waiting for script. Make sure Reamo_RegionEdit.lua is running.');
-        }
+        poll();
       };
 
       poll();
@@ -141,7 +123,7 @@ export function RegionEditActionBar(): ReactElement | null {
   }, [
     hasPendingChanges,
     buildBatchData,
-    send,
+    sendCommand,
     commitChanges,
     setCommitting,
     setCommitError,

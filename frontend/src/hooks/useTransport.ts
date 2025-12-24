@@ -6,7 +6,8 @@
 import { useCallback } from 'react';
 import { useReaperStore } from '../store';
 import type { PlayState } from '../core/types';
-import * as commands from '../core/CommandBuilder';
+import { transport, repeat, marker } from '../core/WebSocketCommands';
+import type { WSCommand } from '../core/WebSocketCommands';
 
 export interface UseTransportReturn {
   // State
@@ -20,21 +21,20 @@ export interface UseTransportReturn {
   positionBeats: string;
   isRepeat: boolean;
 
-  // Actions (requires send function from useReaperConnection)
-  play: () => string;
-  pause: () => string;
-  stop: () => string;
-  record: () => string;
-  toggleRepeat: () => string;
-  seekTo: (seconds: number) => string;
-  seekToString: (position: string) => string;
-  prevMarker: () => string;
-  nextMarker: () => string;
+  // Actions - return WSCommand objects for use with sendCommand
+  play: () => WSCommand;
+  pause: () => WSCommand;
+  stop: () => WSCommand;
+  record: () => WSCommand;
+  toggleRepeat: () => WSCommand;
+  seekTo: (seconds: number) => WSCommand;
+  prevMarker: () => WSCommand;
+  nextMarker: () => WSCommand;
 }
 
 /**
  * Hook for transport state and controls
- * Returns command strings - use with useReaperConnection's send() function
+ * Returns WSCommand objects - use with useReaperConnection's sendCommand()
  */
 export function useTransport(): UseTransportReturn {
   // State selectors
@@ -50,22 +50,18 @@ export function useTransport(): UseTransportReturn {
   const isStopped = playState === 0;
   const isRecording = playState === 5 || playState === 6;
 
-  // Command builders
-  const play = useCallback(() => commands.play(), []);
-  const pause = useCallback(() => commands.pause(), []);
-  const stop = useCallback(() => commands.stop(), []);
-  const record = useCallback(() => commands.record(), []);
-  const toggleRepeat = useCallback(() => commands.toggleRepeat(), []);
+  // Command builders - return WSCommand objects
+  const play = useCallback(() => transport.play(), []);
+  const pause = useCallback(() => transport.pause(), []);
+  const stop = useCallback(() => transport.stop(), []);
+  const record = useCallback(() => transport.record(), []);
+  const toggleRepeat = useCallback(() => repeat.toggle(), []);
   const seekTo = useCallback(
-    (seconds: number) => commands.setPosition(seconds),
+    (seconds: number) => transport.seek(seconds),
     []
   );
-  const seekToString = useCallback(
-    (position: string) => commands.setPositionString(position),
-    []
-  );
-  const prevMarker = useCallback(() => commands.prevMarker(), []);
-  const nextMarker = useCallback(() => commands.nextMarker(), []);
+  const prevMarker = useCallback(() => marker.prev(), []);
+  const nextMarker = useCallback(() => marker.next(), []);
 
   return {
     playState,
@@ -83,7 +79,6 @@ export function useTransport(): UseTransportReturn {
     record,
     toggleRepeat,
     seekTo,
-    seekToString,
     prevMarker,
     nextMarker,
   };

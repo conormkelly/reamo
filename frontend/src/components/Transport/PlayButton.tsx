@@ -12,11 +12,11 @@ export interface PlayButtonProps {
 }
 
 export function PlayButton({ className = '' }: PlayButtonProps): ReactElement {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
   const { isPlaying, play } = useTransport();
 
   const handleClick = () => {
-    send(play());
+    sendCommand(play());
   };
 
   return (

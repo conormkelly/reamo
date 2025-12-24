@@ -8,7 +8,7 @@ import { SkipBack, Play, Pause, Repeat, Square, Circle, RefreshCw } from 'lucide
 import { useReaper } from '../ReaperProvider';
 import { useTransport } from '../../hooks/useTransport';
 import { useReaperStore } from '../../store';
-import * as commands from '../../core/CommandBuilder';
+import { transport, action } from '../../core/WebSocketCommands';
 
 // Hold duration threshold in ms
 const HOLD_THRESHOLD = 300;
@@ -65,8 +65,8 @@ function TransportButton({
  * Order: Skip to Start | Play | Pause | Loop | Stop | Record
  */
 export function TransportBar({ className = '' }: TransportBarProps): ReactElement {
-  const { send } = useReaper();
-  const { isPlaying, isPaused, isStopped, isRecording, play, pause, stop, record } = useTransport();
+  const { sendCommand } = useReaper();
+  const { isPlaying, isPaused, isStopped, isRecording, play, pause, stop, record, toggleRepeat } = useTransport();
   const isRepeat = useReaperStore((state) => state.isRepeat);
   const isAutoPunch = useReaperStore((state) => state.isAutoPunch);
 
@@ -74,11 +74,11 @@ export function TransportBar({ className = '' }: TransportBarProps): ReactElemen
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wasHoldRef = useRef(false);
 
-  const handleSkipToStart = () => send(commands.action(40042));
-  const handlePlay = () => send(play());
-  const handlePause = () => send(pause());
-  const handleRepeat = () => send(commands.toggleRepeat());
-  const handleStop = () => send(stop());
+  const handleSkipToStart = () => sendCommand(transport.goStart());
+  const handlePlay = () => sendCommand(play());
+  const handlePause = () => sendCommand(pause());
+  const handleRepeat = () => sendCommand(toggleRepeat());
+  const handleStop = () => sendCommand(stop());
 
   // Record button long-press handlers
   const handleRecordPointerDown = useCallback(() => {
@@ -87,12 +87,12 @@ export function TransportBar({ className = '' }: TransportBarProps): ReactElemen
       wasHoldRef.current = true;
       // Toggle between normal and auto-punch mode
       if (isAutoPunch) {
-        send(commands.action(40252)); // Set record mode to normal
+        sendCommand(action.execute(40252)); // Set record mode to normal
       } else {
-        send(commands.action(40076)); // Set record mode to time selection auto-punch
+        sendCommand(action.execute(40076)); // Set record mode to time selection auto-punch
       }
     }, HOLD_THRESHOLD);
-  }, [send, isAutoPunch]);
+  }, [sendCommand, isAutoPunch]);
 
   const handleRecordPointerUp = useCallback(() => {
     if (holdTimerRef.current) {
@@ -101,9 +101,9 @@ export function TransportBar({ className = '' }: TransportBarProps): ReactElemen
     }
     // If it wasn't a hold, toggle record
     if (!wasHoldRef.current) {
-      send(record());
+      sendCommand(record());
     }
-  }, [send, record]);
+  }, [sendCommand, record]);
 
   const handleRecordPointerCancel = useCallback(() => {
     if (holdTimerRef.current) {

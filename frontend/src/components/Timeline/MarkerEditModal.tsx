@@ -18,7 +18,7 @@ import {
 } from '../../utils';
 import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
-import * as commands from '../../core/CommandBuilder';
+import { extstate } from '../../core/WebSocketCommands';
 
 export interface MarkerEditModalProps {
   marker: Marker;
@@ -109,7 +109,7 @@ export function MarkerEditModal({
   onDelete,
   onReorderAll,
 }: MarkerEditModalProps): ReactElement {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
   const markerScriptInstalled = useReaperStore((s) => s.markerScriptInstalled);
   const markers = useReaperStore((s) => s.markers);
 
@@ -188,17 +188,14 @@ export function MarkerEditModal({
       const reaperColor = colorValue === null ? 0 : hexToReaperColor(colorValue);
 
       // Set marker_action LAST to avoid race condition (Lua polls for action)
-      send(commands.setExtState('Reamo', 'marker_id', String(marker.id)));
-      send(commands.setExtState('Reamo', 'marker_name', nameValue));
-      send(commands.setExtState('Reamo', 'marker_color', String(reaperColor)));
-      send(commands.setExtState('Reamo', 'marker_processed', ''));
-      send(commands.setExtState('Reamo', 'marker_action', 'edit'));
+      sendCommand(extstate.set('Reamo', 'marker_id', String(marker.id)));
+      sendCommand(extstate.set('Reamo', 'marker_name', nameValue));
+      sendCommand(extstate.set('Reamo', 'marker_color', String(reaperColor)));
+      sendCommand(extstate.set('Reamo', 'marker_processed', ''));
+      sendCommand(extstate.set('Reamo', 'marker_action', 'edit'));
 
-      // Wait a bit for the script to process
+      // Wait a bit for the script to process (WebSocket will push updated markers)
       await new Promise(resolve => setTimeout(resolve, 500));
-
-      // Refresh markers
-      send(commands.markers());
 
       onClose();
     } catch (err) {
@@ -206,7 +203,7 @@ export function MarkerEditModal({
     } finally {
       setIsSaving(false);
     }
-  }, [canEditNameColor, hasNameColorChanges, marker.id, nameValue, colorValue, send, onClose]);
+  }, [canEditNameColor, hasNameColorChanges, marker.id, nameValue, colorValue, sendCommand, onClose]);
 
   const handleDelete = useCallback(() => {
     onDelete(marker.position);

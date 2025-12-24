@@ -5,7 +5,7 @@
 
 import type { ReactElement, ReactNode } from 'react';
 import { useReaper } from '../ReaperProvider';
-import * as commands from '../../core/CommandBuilder';
+import { action } from '../../core/WebSocketCommands';
 
 export interface ToggleButtonProps {
   /** REAPER action command ID */
@@ -49,11 +49,15 @@ export function ToggleButton({
   activeColor = 'green',
   disabled = false,
 }: ToggleButtonProps): ReactElement {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
 
   const handleClick = () => {
     if (!disabled) {
-      send(commands.action(actionId));
+      if (typeof actionId === 'string') {
+        sendCommand(action.executeByName(actionId));
+      } else {
+        sendCommand(action.execute(actionId));
+      }
     }
   };
 

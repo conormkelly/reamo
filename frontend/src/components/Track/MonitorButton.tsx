@@ -17,11 +17,11 @@ export function MonitorButton({
   trackIndex,
   className = '',
 }: MonitorButtonProps): ReactElement {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
   const { recordMonitorState, cycleRecordMonitor } = useTrack(trackIndex);
 
   const handleClick = () => {
-    send(cycleRecordMonitor());
+    sendCommand(cycleRecordMonitor());
   };
 
   const stateStyles = {

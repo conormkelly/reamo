@@ -7,9 +7,9 @@ import { useState, useRef, useCallback, useMemo, type ReactElement } from 'react
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
 import { useTransport, useTimeSignature, useBarOffset } from '../../hooks';
-import * as commands from '../../core/CommandBuilder';
+import { transport, timeSelection as timeSelCmd, action, marker as markerCmd } from '../../core/WebSocketCommands';
 import type { Region, Marker } from '../../core/types';
-import { MarkerEditModal, getMarkerMoveAction } from './MarkerEditModal';
+import { MarkerEditModal } from './MarkerEditModal';
 import { usePlayheadDrag, useMarkerDrag, useRegionDrag } from './hooks';
 import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
 import { TimelineMarkerLines, TimelineMarkerPills } from './TimelineMarkers';
@@ -28,8 +28,8 @@ export interface TimelineProps {
 const HOLD_THRESHOLD = 300;
 
 export function Timeline({ className = '', height = 120, isSyncing = false }: TimelineProps): ReactElement {
-  const { send } = useReaper();
-  const { positionSeconds, seekTo } = useTransport();
+  const { sendCommand } = useReaper();
+  const { positionSeconds } = useTransport();
   const regions = useReaperStore((state) => state.regions);
   const markers = useReaperStore((state) => state.markers);
   const bpm = useReaperStore((state) => state.bpm);
@@ -162,8 +162,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   // Playhead position and drag hook (must be before handlePointerDown which uses isDraggingPlayhead)
   const playheadPercent = timeToPercent(positionSeconds);
   const handlePlayheadSeek = useCallback(
-    (newTime: number) => send(seekTo(newTime)),
-    [send, seekTo]
+    (newTime: number) => sendCommand(transport.seek(newTime)),
+    [sendCommand]
   );
   const {
     isDragging: isDraggingPlayhead,
@@ -261,17 +261,10 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     [baseTimelineStart, renderDuration]
   );
 
-  // Set time selection in REAPER (5 commands: move to start, set start, move to end, set end, return to start)
+  // Set time selection in REAPER via WebSocket
   const setTimeSelection = useCallback(
     (startSeconds: number, endSeconds: number) => {
-      const cmds = commands.join(
-        commands.setPosition(startSeconds),
-        commands.action(40625), // Set time selection start
-        commands.setPosition(endSeconds),
-        commands.action(40626), // Set time selection end
-        commands.setPosition(startSeconds) // Return cursor to start
-      );
-      send(cmds);
+      sendCommand(timeSelCmd.set(startSeconds, endSeconds));
       // Store locally in beats (so it stays aligned when tempo changes)
       if (bpm) {
         setStoredTimeSelection({
@@ -280,15 +273,15 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         });
       }
     },
-    [send, setStoredTimeSelection, bpm]
+    [sendCommand, setStoredTimeSelection, bpm]
   );
 
   // Navigate to position
   const navigateTo = useCallback(
     (time: number) => {
-      send(seekTo(time));
+      sendCommand(transport.seek(time));
     },
-    [send, seekTo]
+    [sendCommand]
   );
 
   // Find region at time
@@ -469,15 +462,9 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   // Marker drag hook
   const handleMarkerMoveFromDrag = useCallback(
     (markerId: number, newPositionSeconds: number) => {
-      const actionId = getMarkerMoveAction(markerId);
-      if (actionId) {
-        send(commands.join(
-          commands.setPosition(newPositionSeconds),
-          commands.action(actionId)
-        ));
-      }
+      sendCommand(markerCmd.update(markerId, { position: newPositionSeconds }));
     },
-    [send]
+    [sendCommand]
   );
   // Get marker selection action from store
   const setSelectedMarkerId = useReaperStore((state) => state.setSelectedMarkerId);
@@ -513,31 +500,21 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   // Marker edit modal callbacks (also used by MarkerEditModal)
   const handleMarkerMove = useCallback(
     (markerId: number, newPositionSeconds: number) => {
-      const actionId = getMarkerMoveAction(markerId);
-      if (actionId) {
-        send(commands.join(
-          commands.setPosition(newPositionSeconds),
-          commands.action(actionId)
-        ));
-      }
+      sendCommand(markerCmd.update(markerId, { position: newPositionSeconds }));
     },
-    [send]
+    [sendCommand]
   );
 
   const handleMarkerDelete = useCallback(
-    (markerPositionSeconds: number) => {
-      // Seek to marker position, then delete marker near cursor
-      send(commands.join(
-        commands.setPosition(markerPositionSeconds),
-        commands.action(40613) // Delete marker near cursor
-      ));
+    (markerId: number) => {
+      sendCommand(markerCmd.delete(markerId));
     },
-    [send]
+    [sendCommand]
   );
 
   const handleReorderAllMarkers = useCallback(() => {
-    send(commands.action(40898)); // Renumber all markers in timeline order
-  }, [send]);
+    sendCommand(action.execute(40898)); // Renumber all markers in timeline order
+  }, [sendCommand]);
 
   // Calculate selection preview bounds
   const selectionPreview = useMemo(() => {

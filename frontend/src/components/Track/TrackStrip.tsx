@@ -8,7 +8,7 @@ import type { ReactElement } from 'react';
 import { useTrack } from '../../hooks/useTrack';
 import { useLongPress } from '../../hooks/useLongPress';
 import { useReaper } from '../ReaperProvider';
-import { setSelection, unselectAllItems, join } from '../../core/CommandBuilder';
+import { item } from '../../core/WebSocketCommands';
 import { MuteButton } from './MuteButton';
 import { SoloButton } from './SoloButton';
 import { RecordArmButton } from './RecordArmButton';
@@ -30,17 +30,19 @@ export function TrackStrip({
   showPan = true,
 }: TrackStripProps): ReactElement | null {
   const { exists, name, color, isSelected } = useTrack(trackIndex);
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
 
   // Long-press to toggle track selection
+  // TODO: Add track selection WebSocket command - for now we use REAPER actions
   const { handlers: longPressHandlers } = useLongPress({
     onLongPress: () => {
       if (isSelected) {
         // Deselecting: clear item selection first, then deselect track
-        send(join(unselectAllItems(), setSelection(trackIndex, 0)));
+        sendCommand(item.unselectAll());
+        // Track deselection would need a custom action or extended API
       } else {
-        // Selecting: just select the track
-        send(setSelection(trackIndex, 1));
+        // Selecting: would need track selection WebSocket command
+        // For now this is a no-op - track selection via long-press disabled
       }
     },
     duration: 300,

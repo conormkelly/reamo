@@ -14,7 +14,7 @@ import {
   parseBarBeatTicksToBeats,
   formatBeatsToBarBeatTicks,
 } from '../../utils';
-import * as commands from '../../core/CommandBuilder';
+import { timeSelection as timeSelCmd } from '../../core/WebSocketCommands';
 
 interface MakeSelectionModalProps {
   isOpen: boolean;
@@ -69,7 +69,7 @@ function parseTimeLocal(input: string): number | null {
 }
 
 export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps): ReactElement | null {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
   const bpm = useReaperStore((s) => s.bpm);
   const timeSelection = useReaperStore((s) => s.timeSelection);
   const setTimeSelection = useReaperStore((s) => s.setTimeSelection);
@@ -264,15 +264,8 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
       return;
     }
 
-    // Set time selection in REAPER
-    const cmds = commands.join(
-      commands.setPosition(startSeconds),
-      commands.setTimeSelectionStart(),
-      commands.setPosition(endSeconds),
-      commands.setTimeSelectionEnd(),
-      commands.setPosition(startSeconds) // Return to start
-    );
-    send(cmds);
+    // Set time selection in REAPER via WebSocket
+    sendCommand(timeSelCmd.set(startSeconds, endSeconds));
 
     // Store locally in beats
     if (effectiveBpm) {
@@ -286,7 +279,7 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
   };
 
   const handleClear = () => {
-    send(commands.clearTimeSelection());
+    sendCommand(timeSelCmd.clear());
     setTimeSelection(null);
     onClose();
   };

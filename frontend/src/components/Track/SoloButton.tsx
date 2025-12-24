@@ -15,11 +15,11 @@ export function SoloButton({
   trackIndex,
   className = '',
 }: SoloButtonProps): ReactElement {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
   const { isSoloed, toggleSolo } = useTrack(trackIndex);
 
   const handleClick = () => {
-    send(toggleSolo());
+    sendCommand(toggleSolo());
   };
 
   return (

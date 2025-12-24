@@ -34,7 +34,7 @@ export function PanKnob({
   className = '',
   width = 80,
 }: PanKnobProps): ReactElement {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
   const { pan, panDisplay, setPan } = useTrack(trackIndex);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -42,8 +42,8 @@ export function PanKnob({
 
   // Handle double-tap to center pan
   const handleDoubleTap = useCallback(() => {
-    send(setPan(CENTER_PAN));
-  }, [send, setPan]);
+    sendCommand(setPan(CENTER_PAN));
+  }, [sendCommand, setPan]);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent | React.TouchEvent) => {
@@ -75,7 +75,7 @@ export function PanKnob({
         // Convert to -1 to 1 range
         const position = (x / rect.width) * 2 - 1;
         const clampedPosition = Math.max(-1, Math.min(1, position));
-        send(setPan(clampedPosition));
+        sendCommand(setPan(clampedPosition));
       };
 
       // Handle initial click position
@@ -100,7 +100,7 @@ export function PanKnob({
       document.addEventListener('touchmove', handleMove, { passive: false });
       document.addEventListener('touchend', handleUp);
     },
-    [send, setPan, handleDoubleTap]
+    [sendCommand, setPan, handleDoubleTap]
   );
 
   // Calculate indicator position (0-100%)

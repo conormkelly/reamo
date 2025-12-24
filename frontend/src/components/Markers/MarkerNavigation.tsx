@@ -6,7 +6,7 @@
 import type { ReactElement } from 'react';
 import { SkipBack, SkipForward } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
-import * as commands from '../../core/CommandBuilder';
+import { marker } from '../../core/WebSocketCommands';
 
 export interface MarkerNavigationProps {
   className?: string;
@@ -21,14 +21,14 @@ export function MarkerNavigation({
   showLabels = true,
   size = 'md',
 }: MarkerNavigationProps): ReactElement {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
 
   const handlePrev = () => {
-    send(commands.prevMarker());
+    sendCommand(marker.prev());
   };
 
   const handleNext = () => {
-    send(commands.nextMarker());
+    sendCommand(marker.next());
   };
 
   const sizeClasses = {

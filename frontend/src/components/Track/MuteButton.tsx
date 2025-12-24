@@ -15,11 +15,11 @@ export function MuteButton({
   trackIndex,
   className = '',
 }: MuteButtonProps): ReactElement {
-  const { send } = useReaper();
+  const { sendCommand } = useReaper();
   const { isMuted, toggleMute } = useTrack(trackIndex);
 
   const handleClick = () => {
-    send(toggleMute());
+    sendCommand(toggleMute());
   };
 
   return (

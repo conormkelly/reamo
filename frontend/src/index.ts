@@ -28,20 +28,10 @@ export {
   hasFx,
   getRecordMonitorState,
   isSendMuted,
-  // Parser
-  parseResponse,
-  simpleUnescape,
-  extractTransport,
-  extractTrackCount,
-  extractTracks,
-  extractMarkers,
-  extractRegions,
-  // Connection
-  ReaperConnection,
-  getConnection,
-  resetConnection,
-  type ReaperConnectionOptions,
-  // Commands
+  // WebSocket connection
+  WebSocketConnection,
+  type WebSocketConnectionOptions,
+  // Commands (WebSocket-based)
   commands,
 } from './core';
 
