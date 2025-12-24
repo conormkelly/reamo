@@ -105,265 +105,40 @@ The goal is **idea capture, not production**. Get the song down while you're in 
 
 ### Tech Stack
 
-- **React 19** + **TypeScript 5.9**
-- **Vite 7** with single-file output for REAPER compatibility
+- **Zig** native REAPER extension (WebSocket server)
+- **React 19** + **TypeScript 5.9** frontend
+- **Vite 7** with single-file output
 - **Zustand** for state management
 - **Tailwind CSS 4** for styling
-- **Lucide React** for icons
 
-### Development
+### Quick Start
 
 ```bash
-# Install dependencies
+cd frontend
 npm install
-
-# Development server (hot reload)
-npm run dev
-
-# Production build (outputs single HTML file)
-npm run build
-
-# Build and deploy to REAPER www folder
-npm run deploy
+npm run dev          # Dev server with hot reload
 ```
 
-The production build creates a single `dist/index.html` file with all assets inlined, making it compatible with REAPER's built-in HTTP server.
+### Build & Test
 
-### Architecture Overview
-
-```txt
-User Interaction -> UI Component -> useReaper().send(command)
-                                         |
-                            ReaperConnection queues command
-                                         |
-                            HTTP GET /_/[commands]
-                                         |
-                            REAPER HTTP Server
-                                         |
-                            Tab-delimited response
-                                         |
-                            ResponseParser -> ParsedResponse[]
-                                         |
-                            Zustand store update
-                                         |
-                            Components re-render
+```bash
+make all             # Run tests, build extension + frontend
+make test            # Run all test suites
+make extension       # Build Zig extension (installs to REAPER)
+make frontend        # Build frontend (outputs reamo.html)
 ```
 
-### Project Structure
+### Architecture
 
-```txt
-src/
-├── core/                        # REAPER communication layer
-│   ├── ReaperConnection.ts      # HTTP polling client with backoff
-│   ├── CommandBuilder.ts        # Type-safe REAPER command construction
-│   ├── ResponseParser.ts        # Tab-delimited response parsing
-│   └── types.ts                 # Protocol types & constants
-│
-├── store/                       # Zustand state management
-│   ├── index.ts                 # Combined store with response handler
-│   └── slices/
-│       ├── connectionSlice.ts   # Connection status & errors
-│       ├── transportSlice.ts    # Playback, position, time selection
-│       ├── tracksSlice.ts       # Track state by index
-│       ├── markersSlice.ts      # Marker list
-│       ├── regionsSlice.ts      # Region list
-│       └── regionEditSlice.ts   # Region editing state with undo/redo
-│
-├── components/                  # React UI components
-│   ├── ReaperProvider.tsx       # Connection context provider
-│   ├── ConnectionStatus.tsx     # Connection indicator
-│   ├── TakeSwitcher.tsx         # Take switching controls
-│   ├── Transport/               # TransportBar, TimeDisplay, RecordingActionsBar
-│   ├── Track/                   # TrackStrip, Fader, PanKnob, LevelMeter
-│   ├── Regions/                 # RegionNavigation, RegionDisplay
-│   ├── Timeline/                # Timeline, RegionInfoBar, modals, drag hooks
-│   ├── Markers/                 # MarkerInfoBar with inline editing
-│   └── Actions/                 # ActionButton, TapTempoButton, etc.
-│
-├── hooks/                       # Custom React hooks
-│   ├── useReaperConnection.ts   # Connection lifecycle management
-│   ├── useTransport.ts          # Transport state & commands
-│   ├── useTracks.ts             # All tracks access
-│   ├── useTrack.ts              # Single track state & controls
-│   ├── useCurrentMarker.ts      # Auto-advancing current marker tracking
-│   ├── useTimeSelectionSync.ts  # Time selection sync with REAPER
-│   ├── useRegionEditScriptDetection.ts  # Lua script detection
-│   ├── useMarkerEditScriptDetection.ts  # Lua script detection
-│   ├── useDoubleTap.ts          # Double-tap gesture detection
-│   └── useLongPress.ts          # Long-press gesture detection
-│
-├── utils/                       # Utility functions
-│   ├── volume.ts                # dB/linear/fader conversions
-│   ├── pan.ts                   # Pan value formatting
-│   ├── color.ts                 # REAPER color conversion
-│   └── time.ts                  # Time/beat formatting utilities
-│
-├── App.tsx                      # Main app component
-├── main.tsx                     # React entry point
-└── index.ts                     # Library exports
-```
+The app uses a **WebSocket-based architecture**:
 
----
+1. **Zig extension** runs inside REAPER, polls state at ~30ms, broadcasts JSON events
+2. **React frontend** receives events, sends commands back over WebSocket
+3. **Zustand store** manages state, components subscribe to slices
 
-## API Reference
+See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed architecture, API conventions, and gotchas.
 
-### Core Layer
-
-#### ReaperConnection
-
-HTTP polling client that communicates with REAPER's built-in web server.
-
-```typescript
-import { ReaperConnection } from './core/ReaperConnection';
-
-const connection = new ReaperConnection({
-  baseUrl: '',  // Same origin as REAPER server
-  onResponse: (responses) => { /* handle parsed responses */ },
-  onConnectionChange: (connected, errorCount) => { /* update UI */ }
-});
-
-// One-time command (queued for next poll cycle)
-connection.send('SET/POS/10.5');
-
-// Recurring poll (sent every interval)
-connection.poll('TRANSPORT;BEATPOS', 30);  // Every 30ms
-
-connection.start();
-```
-
-#### CommandBuilder
-
-Type-safe functions for constructing REAPER HTTP commands.
-
-```typescript
-import * as commands from './core/CommandBuilder';
-
-// GET commands
-commands.transport()              // 'TRANSPORT'
-commands.track(0)                 // 'TRACK/0'
-commands.markers()                // 'MARKER_LIST'
-
-// SET commands
-commands.setVolume(1, 0.5)        // 'SET/TRACK/1/VOL/0.5'
-commands.setPan(1, -0.5)          // 'SET/TRACK/1/PAN/-0.5'
-commands.setPosition(10.5)        // 'SET/POS/10.5'
-commands.setTempo(120)            // 'SET/TEMPO/120'
-
-// Action commands (REAPER action IDs)
-commands.play()                   // '1007'
-commands.stop()                   // '40667'
-commands.record()                 // '1013'
-commands.toggleMetronome()        // '40364'
-commands.nextMarker()             // '40173'
-```
-
-### Hooks
-
-#### useTransport
-
-```typescript
-const {
-  playState, isPlaying, isPaused, isStopped, isRecording,
-  positionSeconds, positionString, positionBeats,
-  isRepeat, bpm, timeSignature,
-  play, pause, stop, record, toggleRepeat, seekTo, prevMarker, nextMarker
-} = useTransport();
-```
-
-#### useTrack
-
-```typescript
-const {
-  track, exists, name, volumeDb, faderPosition,
-  pan, panDisplay, isMuted, isSoloed, isRecordArmed,
-  isSelected, color, textColor,
-  toggleMute, toggleSolo, toggleRecordArm, setVolume, setPan
-} = useTrack(trackIndex);
-```
-
-#### useTracks
-
-```typescript
-const {
-  trackCount, tracks, getTrack, masterTrack, userTracks, selectedTracks
-} = useTracks();
-```
-
-### Components
-
-```tsx
-// Wrap your app
-<ReaperProvider autoStart={true}>
-  <App />
-</ReaperProvider>
-
-// Transport
-<TransportBar />
-<TimeDisplay format="time" />
-<PlayButton /> <StopButton /> <RecordButton />
-
-// Tracks
-<TrackStrip trackIndex={1} />
-<Fader trackIndex={1} />
-<PanKnob trackIndex={1} />
-<LevelMeter trackIndex={1} />
-
-// Timeline (supports view and edit modes)
-<Timeline height={120} />
-<RegionEditActionBar />  // Undo/redo, pending changes indicator
-
-// Regions
-<RegionNavigation />
-<RegionDisplay />
-
-// Actions
-<TapTempoButton />
-<MetronomeButton />
-<TakeSwitcher />
-```
-
----
-
-## REAPER HTTP API Reference
-
-### Endpoint Format
-
-```txt
-GET /_/[command1];[command2];[command3]
-```
-
-### Common Commands
-
-| Command | Description |
-|---------|-------------|
-| `TRANSPORT` | Get playback state, position |
-| `BEATPOS` | Get beat position, BPM, time signature |
-| `NTRACK` | Get track count |
-| `TRACK/n` | Get track n state (0 = master) |
-| `MARKER_LIST` | Get all markers |
-| `REGION_LIST` | Get all regions |
-| `SET/POS/n` | Seek to n seconds |
-| `SET/TRACK/n/VOL/v` | Set track volume (linear) |
-| `SET/TRACK/n/PAN/p` | Set track pan (-1 to 1) |
-| `SET/TEMPO/bpm` | Set tempo |
-| `[action_id]` | Trigger REAPER action |
-
-### Common Action IDs
-
-| ID | Action |
-|----|--------|
-| 1007 | Play |
-| 1008 | Pause |
-| 1013 | Record |
-| 40667 | Stop |
-| 40364 | Toggle Metronome |
-| 1068 | Toggle Repeat |
-| 40076 | Toggle Auto-Punch |
-| 40172 | Previous Marker |
-| 40173 | Next Marker |
-| 40029 | Undo |
-| 40030 | Redo |
-| 40026 | Save Project |
+See [extension/API.md](extension/API.md) for the complete WebSocket API reference.
 
 ---
 

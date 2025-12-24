@@ -180,6 +180,81 @@ const TrackFlags = {
 };
 ```
 
+## Testing Conventions
+
+### Philosophy
+
+- **Behavior-driven**: Tests describe user actions and expected outcomes
+- **Use fixtures**: `songStructure()`, not inline region arrays
+- **Use actions**: `actions.move([0], 5)`, not `store.moveRegion(...)`
+- **Find by name**: `findRegion('Intro')`, not `displayRegions[0]`
+- **Test outcomes**: "section moves to position 5", not "pendingChanges[0].newStart === 5"
+
+### Avoid
+
+- Don't test internal implementation details
+- Don't assert on intermediate state (unless specifically testing state machine)
+- Don't write brittle tests that break on refactoring
+- Don't duplicate coverage (behavior tests cover what unit tests cover)
+
+### Lessons Learned
+
+1. **Zustand state is synchronous** - Always call `useReaperStore.getState()` fresh after mutations, don't cache the result.
+
+2. **Display indices ≠ region indices** - Regions are sorted by start time for display. Use `_pendingKey` to map back to original indices.
+
+3. **The ripple logic is complex** - "Remove then insert" behavior means moving a region forward causes the region behind it to fill the gap.
+
+4. **Tests should use `findRegion(name)`** - Not `displayRegions[0]` because order changes after moves.
+
+5. **Long-press needs async** - Use `vi.useFakeTimers()` and `vi.advanceTimersByTime()` for testing hold gestures.
+
+6. **Pointer events in JSDOM are limited** - Full gesture testing requires mocking `getBoundingClientRect()`. State integration tests are more reliable. Use Playwright for real gesture testing.
+
+## Planned Features
+
+### Mixer Lock Mode
+
+Add a lock/unlock toggle icon beside the "Filter tracks" bar. When locked:
+- Disables all fader and button input
+- Prevents accidental changes while scrolling on mobile
+- Visual indicator (lock icon, maybe dimmed controls)
+
+### Track Collapse/Hide
+
+Add an eye icon or accordion button to hide/collapse tracks in the mixer view. Options:
+- Eye icon: show/hide individual tracks
+- Accordion: collapse all to just names, expand on tap
+- Could tie into track folder hierarchy
+
+### Undo Strategy for Continuous Controls
+
+**Problem**: Fader moves generate many small changes. How do we handle undo?
+
+**Options**:
+
+1. **Server-managed undo blocks** (preferred - keeps client dumb)
+   - Server detects "gesture start" (first value change after idle)
+   - Server opens undo block, buffers changes
+   - Server detects "gesture end" (no changes for N ms)
+   - Server closes undo block with final value
+   - Cancel = server reverts to value at gesture start
+
+2. **Client-managed undo blocks**
+   - Client sends `undo/begin` on mousedown/touchstart
+   - Client sends `undo/end` on mouseup/touchend
+   - More network overhead, client needs to track state
+   - Cancel would need client to remember original value
+
+3. **No undo for continuous controls**
+   - Simplest, but poor UX for accidental changes
+
+**Recommendation**: Start with server-managed. Extension tracks "last idle value" per control, auto-creates undo block on first change, commits after 500ms idle.
+
+### Remove Legacy Takes Section
+
+The current Takes section below the mixer will be removed. Being replaced with item-based takes approach (see separate takes design doc).
+
 ## Outstanding Work
 
 ### 1. Meter Smoothing (Optional Polish)
