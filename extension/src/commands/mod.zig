@@ -13,6 +13,7 @@ const time_sel_cmds = @import("time_sel.zig");
 const repeat_cmds = @import("repeat.zig");
 const track_cmds = @import("tracks.zig");
 const tempo_cmds = @import("tempo.zig");
+const timesig_cmds = @import("timesig.zig");
 const metronome_cmds = @import("metronome.zig");
 const extstate_cmds = @import("extstate.zig");
 const undo_cmds = @import("undo.zig");
@@ -65,6 +66,7 @@ pub const registry = transport_cmds.handlers ++
     repeat_cmds.handlers ++
     track_cmds.handlers ++
     tempo_cmds.handlers ++
+    timesig_cmds.handlers ++
     metronome_cmds.handlers ++
     extstate_cmds.handlers ++
     undo_cmds.handlers ++
@@ -203,6 +205,8 @@ test "registry contains expected commands" {
         // Tempo
         "tempo/set",
         "tempo/tap",
+        // Time signature
+        "timesig/set",
         // Metronome
         "metronome/toggle",
         // ExtState
@@ -276,6 +280,7 @@ test {
     _ = repeat_cmds;
     _ = track_cmds;
     _ = tempo_cmds;
+    _ = timesig_cmds;
     _ = metronome_cmds;
     _ = extstate_cmds;
     _ = undo_cmds;

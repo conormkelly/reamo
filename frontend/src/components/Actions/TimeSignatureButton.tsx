@@ -1,14 +1,13 @@
 /**
  * Time Signature Button Component
  * Displays current time signature and allows changing it via modal
- * Requires Reamo_TimeSig.lua script for setting time signature
  */
 
 import { useState, useCallback, type ReactElement } from 'react';
 import { Minus, Plus } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useTimeSignature } from '../../hooks';
-import { extstate } from '../../core/WebSocketCommands';
+import { timesig } from '../../core/WebSocketCommands';
 
 // Common time signature presets
 const TIME_SIG_PRESETS = [
@@ -28,7 +27,6 @@ export interface TimeSignatureButtonProps {
 /**
  * Button that displays time signature and opens modal to change it
  * - Tap: opens time signature editor
- * - Requires Reamo_TimeSig.lua script to be running
  */
 export function TimeSignatureButton({
   className = '',
@@ -50,11 +48,7 @@ export function TimeSignatureButton({
 
   const handleSetTimeSignature = useCallback(
     (num: number, denom: number) => {
-      // Send via ExtState to Lua script
-      sendCommand(extstate.set('Reamo', 'timesig_numerator', String(num)));
-      sendCommand(extstate.set('Reamo', 'timesig_denominator', String(denom)));
-      sendCommand(extstate.set('Reamo', 'timesig_processed', ''));
-      sendCommand(extstate.set('Reamo', 'timesig_action', 'set')); // Action LAST
+      sendCommand(timesig.set(num, denom));
       setShowDialog(false);
     },
     [sendCommand]

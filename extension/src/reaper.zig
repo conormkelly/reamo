@@ -98,6 +98,9 @@ pub const Api = struct {
     projectconfig_var_getoffs: ?*const fn ([*:0]const u8, ?*c_int) callconv(.c) c_int = null,
     projectconfig_var_addr: ?*const fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque = null,
 
+    // UI refresh
+    updateTimeline_fn: ?*const fn () callconv(.c) void = null,
+
     // Load API from REAPER plugin info
     pub fn load(info: *PluginInfo) ?Api {
         const showConsoleMsg = getFunc(info, "ShowConsoleMsg", fn ([*:0]const u8) callconv(.c) void) orelse return null;
@@ -163,6 +166,8 @@ pub const Api = struct {
             // Project config variables
             .projectconfig_var_getoffs = getFunc(info, "projectconfig_var_getoffs", fn ([*:0]const u8, ?*c_int) callconv(.c) c_int),
             .projectconfig_var_addr = getFunc(info, "projectconfig_var_addr", fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque),
+            // UI refresh
+            .updateTimeline_fn = getFunc(info, "UpdateTimeline", fn () callconv(.c) void),
         };
     }
 
@@ -799,6 +804,84 @@ pub const Api = struct {
     /// Set metronome volume in dB (-60 to +12)
     pub fn setMetronomeVolumeDb(self: *const Api, db: f64) bool {
         return self.setMetronomeVolume(dbToLinear(db));
+    }
+
+    // Time signature methods (using project config variables like REAPER's Project Settings dialog)
+
+    /// Get project time signature numerator (beats per measure, e.g., 6 for 6/8)
+    pub fn getTimeSignatureNumerator(self: *const Api) c_int {
+        const getoffs = self.projectconfig_var_getoffs orelse return 4;
+        const getaddr = self.projectconfig_var_addr orelse return 4;
+
+        var sz: c_int = 0;
+        const offs = getoffs("projmeaslen", &sz);
+        if (offs < 0) return 4;
+        if (sz != 4) return 4; // sizeof(c_int)
+
+        const ptr = getaddr(null, offs) orelse return 4;
+        const val_ptr: *c_int = @ptrCast(@alignCast(ptr));
+        return val_ptr.*;
+    }
+
+    /// Get project time signature denominator (beat note value, e.g., 8 for 6/8)
+    pub fn getTimeSignatureDenominator(self: *const Api) c_int {
+        const getoffs = self.projectconfig_var_getoffs orelse return 4;
+        const getaddr = self.projectconfig_var_addr orelse return 4;
+
+        var sz: c_int = 0;
+        const offs = getoffs("projtsdenom", &sz);
+        if (offs < 0) return 4;
+        if (sz != 4) return 4; // sizeof(c_int)
+
+        const ptr = getaddr(null, offs) orelse return 4;
+        const val_ptr: *c_int = @ptrCast(@alignCast(ptr));
+        return val_ptr.*;
+    }
+
+    /// Set project time signature (fixed project-level, no tempo markers)
+    pub fn setTimeSignature(self: *const Api, numerator: c_int, denominator: c_int) bool {
+        const getoffs = self.projectconfig_var_getoffs orelse return false;
+        const getaddr = self.projectconfig_var_addr orelse return false;
+
+        // Capture current state BEFORE changing time signature
+        const current_bpm = self.timeSignature().bpm;
+        const old_denom = self.getTimeSignatureDenominator();
+
+        // Set numerator (projmeaslen = beats per measure)
+        var sz_num: c_int = 0;
+        const offs_num = getoffs("projmeaslen", &sz_num);
+        if (offs_num < 0 or sz_num != 4) return false;
+
+        const ptr_num = getaddr(null, offs_num) orelse return false;
+        const num_ptr: *c_int = @ptrCast(@alignCast(ptr_num));
+        num_ptr.* = numerator;
+
+        // Set denominator (projtsdenom = beat note value)
+        var sz_denom: c_int = 0;
+        const offs_denom = getoffs("projtsdenom", &sz_denom);
+        if (offs_denom < 0 or sz_denom != 4) return false;
+
+        const ptr_denom = getaddr(null, offs_denom) orelse return false;
+        const denom_ptr: *c_int = @ptrCast(@alignCast(ptr_denom));
+        denom_ptr.* = denominator;
+
+        // Normalize BPM to quarter notes before setting
+        // REAPER's BPM is in denominator-note units (e.g., eighths for 6/8)
+        // Convert to quarter-note BPM which is the standard reference
+        const old_denom_f: f64 = @floatFromInt(old_denom);
+        const quarter_note_bpm = current_bpm * (4.0 / old_denom_f);
+
+        self.setTempo(quarter_note_bpm);
+
+        // Refresh timeline to show changes
+        self.updateTimeline();
+
+        return true;
+    }
+
+    /// Redraw the arrange view and ruler
+    pub fn updateTimeline(self: *const Api) void {
+        if (self.updateTimeline_fn) |f| f();
     }
 };
 

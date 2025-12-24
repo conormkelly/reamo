@@ -695,6 +695,23 @@ Tap tempo. Call repeatedly to set tempo from tap intervals.
 
 ---
 
+## Time Signature Commands
+
+### `timesig/set`
+
+Set project time signature. Uses REAPER's project settings (no tempo marker created).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `numerator` | int | Yes | Beats per measure (1-32) |
+| `denominator` | int | Yes | Beat note value (2, 4, 8, or 16) |
+
+```json
+{"type": "command", "command": "timesig/set", "numerator": 6, "denominator": 8}
+```
+
+---
+
 ## Metronome Commands
 
 ### `metronome/toggle`
