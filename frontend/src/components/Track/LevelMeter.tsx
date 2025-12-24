@@ -1,10 +1,13 @@
 /**
  * Level Meter Component
  * Displays real-time audio level for a track
+ * Tap clip indicator to clear
  */
 
 import type { ReactElement } from 'react';
 import { useTrack } from '../../hooks/useTrack';
+import { useReaper } from '../ReaperProvider';
+import { meter } from '../../core/WebSocketCommands';
 import { volumeToDb, clampDb } from '../../utils/volume';
 
 export interface LevelMeterProps {
@@ -32,6 +35,7 @@ export function LevelMeter({
   orientation = 'vertical',
 }: LevelMeterProps): ReactElement {
   const { track } = useTrack(trackIndex);
+  const { sendCommand } = useReaper();
 
   // Get meter values (WebSocket sends linear amplitude: 1.0 = 0dB)
   const peakDb = track ? volumeToDb(track.lastMeterPeak) : -Infinity;
@@ -90,12 +94,14 @@ export function LevelMeter({
         />
       )}
 
-      {/* Clip indicator - uses sticky flag from extension (cleared via meter/clearClip) */}
+      {/* Clip indicator - tap to clear */}
       {track?.clipped && (
         <div
-          className={`absolute bg-red-500 animate-pulse ${
+          className={`absolute bg-red-500 animate-pulse cursor-pointer ${
             isVertical ? 'top-0 left-0 right-0 h-2' : 'right-0 top-0 bottom-0 w-2'
           }`}
+          onClick={() => sendCommand(meter.clearClip(trackIndex))}
+          title="Tap to clear clip"
         />
       )}
     </div>
