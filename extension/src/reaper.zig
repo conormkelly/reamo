@@ -61,6 +61,7 @@ pub const Api = struct {
     // Tracks
     countTracks: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
     getTrack: ?*const fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque = null,
+    getMasterTrack: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque = null,
     getTrackName: ?*const fn (?*anyopaque, [*]u8, c_int) callconv(.c) bool = null,
     getMediaTrackInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8) callconv(.c) f64 = null,
     setMediaTrackInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8, f64) callconv(.c) bool = null,
@@ -139,6 +140,7 @@ pub const Api = struct {
             // Tracks
             .countTracks = getFunc(info, "CountTracks", fn (?*anyopaque) callconv(.c) c_int),
             .getTrack = getFunc(info, "GetTrack", fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque),
+            .getMasterTrack = getFunc(info, "GetMasterTrack", fn (?*anyopaque) callconv(.c) ?*anyopaque),
             .getTrackName = getFunc(info, "GetTrackName", fn (?*anyopaque, [*]u8, c_int) callconv(.c) bool),
             .getMediaTrackInfo_Value = getFunc(info, "GetMediaTrackInfo_Value", fn (?*anyopaque, [*:0]const u8) callconv(.c) f64),
             .setMediaTrackInfo_Value = getFunc(info, "SetMediaTrackInfo_Value", fn (?*anyopaque, [*:0]const u8, f64) callconv(.c) bool),
@@ -530,6 +532,22 @@ pub const Api = struct {
         return f(null, idx);
     }
 
+    /// Get the master track
+    pub fn masterTrack(self: *const Api) ?*anyopaque {
+        const f = self.getMasterTrack orelse return null;
+        return f(null);
+    }
+
+    /// Get track by unified index: 0 = master, 1+ = user tracks
+    /// This matches REAPER's HTTP API convention where track 0 is master
+    pub fn getTrackByUnifiedIdx(self: *const Api, idx: c_int) ?*anyopaque {
+        if (idx == 0) {
+            return self.masterTrack();
+        } else {
+            return self.getTrackByIdx(idx - 1);
+        }
+    }
+
     pub fn getTrackNameStr(self: *const Api, track: *anyopaque, buf: []u8) []const u8 {
         const f = self.getTrackName orelse return "";
         if (f(track, buf.ptr, @intCast(buf.len))) {
@@ -617,9 +635,16 @@ pub const Api = struct {
     }
 
     // Track color: returns native OS color (0 = default/no custom color)
+    // REAPER uses bit 24 (0x01000000) as an "enabled" flag - if not set, track uses theme default
     pub fn getTrackColor(self: *const Api, track: *anyopaque) c_int {
         const f = self.getMediaTrackInfo_Value orelse return 0;
-        return safeFloatToInt(c_int, f(track, "I_CUSTOMCOLOR"), 0);
+        const raw = safeFloatToInt(c_int, f(track, "I_CUSTOMCOLOR"), 0);
+        // Check if custom color is enabled (bit 24)
+        const CUSTOM_COLOR_FLAG: c_int = 0x01000000;
+        if ((raw & CUSTOM_COLOR_FLAG) == 0) {
+            return 0; // No custom color - uses theme default
+        }
+        return raw;
     }
 
     // Item methods

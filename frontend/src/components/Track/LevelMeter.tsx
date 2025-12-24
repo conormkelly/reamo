@@ -5,7 +5,7 @@
 
 import type { ReactElement } from 'react';
 import { useTrack } from '../../hooks/useTrack';
-import { meterToDb, clampDb } from '../../utils/volume';
+import { volumeToDb, clampDb } from '../../utils/volume';
 
 export interface LevelMeterProps {
   trackIndex: number;
@@ -33,9 +33,9 @@ export function LevelMeter({
 }: LevelMeterProps): ReactElement {
   const { track } = useTrack(trackIndex);
 
-  // Get meter values (REAPER sends dB * 10 as integers)
-  const peakDb = track ? meterToDb(track.lastMeterPeak) : -Infinity;
-  const posDb = track ? meterToDb(track.lastMeterPos) : -Infinity;
+  // Get meter values (WebSocket sends linear amplitude: 1.0 = 0dB)
+  const peakDb = track ? volumeToDb(track.lastMeterPeak) : -Infinity;
+  const posDb = track ? volumeToDb(track.lastMeterPos) : -Infinity;
 
   // Calculate percentages
   const dbRange = maxDb - minDb;

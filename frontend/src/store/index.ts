@@ -205,6 +205,19 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
           hwOutCount: 0,
         };
       }
+
+      // Process meter data - update track objects with peak levels
+      // WebSocket sends linear amplitude (1.0 = 0dB), use max of L/R for mono display
+      if (p.meters && p.meters.length > 0) {
+        for (const m of p.meters) {
+          if (tracks[m.trackIdx]) {
+            const peak = Math.max(m.peakL, m.peakR);
+            tracks[m.trackIdx].lastMeterPeak = peak;
+            tracks[m.trackIdx].lastMeterPos = peak;
+          }
+        }
+      }
+
       set({ tracks, trackCount: p.tracks.length });
     } else if (isMarkersEvent(message)) {
       const p = message.payload as MarkersEventPayload;

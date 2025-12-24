@@ -5,8 +5,8 @@ const protocol = @import("protocol.zig");
 // Maximum tracks to poll (keeps buffer sizes bounded)
 pub const MAX_TRACKS: usize = 128;
 
-// Maximum armed tracks to meter (keeps polling bounded)
-pub const MAX_METERED_TRACKS: usize = 16;
+// Maximum tracks to meter (match MAX_TRACKS for full mixer metering)
+pub const MAX_METERED_TRACKS: usize = MAX_TRACKS;
 
 // Maximum track name length
 pub const MAX_NAME_LEN: usize = 128;
@@ -64,18 +64,21 @@ pub const State = struct {
     }
 
     // Poll current state from REAPER
+    // Uses unified indexing: idx 0 = master, idx 1+ = user tracks
     pub fn poll(api: *const reaper.Api) State {
         var state = State{};
-        const track_count: usize = @intCast(@max(0, api.trackCount()));
-        state.count = @min(track_count, MAX_TRACKS);
+        const user_track_count: usize = @intCast(@max(0, api.trackCount()));
+        // Total count = master (1) + user tracks
+        state.count = @min(user_track_count + 1, MAX_TRACKS);
 
         for (0..state.count) |i| {
             const idx: c_int = @intCast(i);
-            if (api.getTrackByIdx(idx)) |track| {
+            // Use unified indexing: 0 = master, 1+ = user tracks
+            if (api.getTrackByUnifiedIdx(idx)) |track| {
                 var t = &state.tracks[i];
                 t.idx = idx;
 
-                // Get track name
+                // Get track name (master track returns "MASTER" from REAPER)
                 var name_buf: [MAX_NAME_LEN]u8 = undefined;
                 const name = api.getTrackNameStr(track, &name_buf);
                 const name_copy_len = @min(name.len, MAX_NAME_LEN);
@@ -148,40 +151,38 @@ pub const State = struct {
     }
 };
 
-// Input meter for a single track
-pub const InputMeter = struct {
+// Track meter data (post-fader output levels)
+pub const TrackMeter = struct {
     track_idx: c_int = 0,
-    peak_l: f64 = 0.0, // 0.0-1.0+ (1.0 = 0dB)
+    peak_l: f64 = 0.0, // 0.0-1.0+ (1.0 = 0dB), linear amplitude
     peak_r: f64 = 0.0, // 0.0-1.0+
-    clipped: bool = false, // Sticky flag: true if peak ever exceeded 1.0
+    clipped: bool = false, // Sticky flag: true if peak ever exceeded 0dB
 };
 
-// Metering state for armed+monitoring tracks
+// Metering state for all tracks (post-fader output levels for mixer display)
 pub const MeteringState = struct {
-    meters: [MAX_METERED_TRACKS]InputMeter = undefined,
+    meters: [MAX_METERED_TRACKS]TrackMeter = undefined,
     count: usize = 0,
 
-    /// Poll input meters for armed+monitoring tracks only
-    /// NOTE: Currently runs at ~30ms with track state. May separate to
+    /// Poll post-fader output meters for all tracks
+    /// Uses unified indexing: 0 = master, 1+ = user tracks
+    /// NOTE: Runs at ~30ms with track state. May separate to
     /// higher frequency (10-15ms) if UI smoothness requires it.
     pub fn poll(api: *const reaper.Api) MeteringState {
         var state = MeteringState{};
-        const track_count: usize = @intCast(@max(0, api.trackCount()));
+        const user_track_count: usize = @intCast(@max(0, api.trackCount()));
+        // Total count = master (1) + user tracks
+        const total_count = @min(user_track_count + 1, MAX_METERED_TRACKS);
 
-        for (0..track_count) |i| {
-            if (state.count >= MAX_METERED_TRACKS) break;
-
+        for (0..total_count) |i| {
             const idx: c_int = @intCast(i);
-            const track = api.getTrackByIdx(idx) orelse continue;
-
-            // Only meter tracks that are: record armed AND input monitoring enabled
-            if (!api.getTrackRecArm(track)) continue;
-            if (api.getTrackRecMon(track) == 0) continue;
+            // Use unified indexing: 0 = master, 1+ = user tracks
+            const track = api.getTrackByUnifiedIdx(idx) orelse continue;
 
             const peak_l = api.getTrackPeakInfo(track, 0);
             const peak_r = api.getTrackPeakInfo(track, 1);
 
-            // Use peak hold for clip detection (returns dB×0.01, so >0 means above 0dB = clipping)
+            // Use peak hold for clip detection (returns dB, so >0 means above 0dB = clipping)
             // The hold is persistent until cleared via meter/clearClip command
             const hold_l = api.getTrackPeakHoldDB(track, 0, false);
             const hold_r = api.getTrackPeakHoldDB(track, 1, false);

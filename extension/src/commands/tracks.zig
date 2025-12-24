@@ -16,9 +16,10 @@ pub const handlers = [_]mod.Entry{
 };
 
 // Helper to get track by index from command
+// Uses unified indexing: 0 = master, 1+ = user tracks
 fn getTrackFromCmd(api: *const reaper.Api, cmd: protocol.CommandMessage) ?*anyopaque {
     const track_idx = cmd.getInt("trackIdx") orelse return null;
-    return api.getTrackByIdx(track_idx);
+    return api.getTrackByUnifiedIdx(track_idx);
 }
 
 // Set track volume (0..inf, 1.0 = 0dB)
