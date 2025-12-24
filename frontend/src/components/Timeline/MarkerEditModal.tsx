@@ -32,34 +32,6 @@ export interface MarkerEditModalProps {
   onReorderAll: () => void;
 }
 
-// Action IDs for moving markers 1-10 to edit cursor
-const MARKER_MOVE_ACTIONS: Record<number, number> = {
-  1: 40657,
-  2: 40658,
-  3: 40659,
-  4: 40660,
-  5: 40661,
-  6: 40662,
-  7: 40663,
-  8: 40664,
-  9: 40665,
-  10: 40656,
-};
-
-/**
- * Check if a marker can be moved (only markers 1-10)
- */
-export function isMarkerMoveable(markerId: number): boolean {
-  return markerId >= 1 && markerId <= 10;
-}
-
-/**
- * Get the action ID for moving a specific marker
- */
-export function getMarkerMoveAction(markerId: number): number | null {
-  return MARKER_MOVE_ACTIONS[markerId] ?? null;
-}
-
 /**
  * Parse time string (MM:SS.ms or SS.ms) to seconds
  */
@@ -121,7 +93,6 @@ export function MarkerEditModal({
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  const canMove = isMarkerMoveable(marker.id);
   const canEditNameColor = markerScriptInstalled;
 
   // Get existing colors from project markers
@@ -151,8 +122,6 @@ export function MarkerEditModal({
   }, [marker, bpm, barOffset, beatsPerBar, denominator]);
 
   const handleMove = useCallback(() => {
-    if (!canMove) return;
-
     let newPositionSeconds: number | null = null;
 
     if (editMode === 'time') {
@@ -174,7 +143,7 @@ export function MarkerEditModal({
 
     onMove(marker.id, newPositionSeconds);
     onClose();
-  }, [canMove, editMode, timeValue, beatsValue, bpm, barOffset, beatsPerBar, denominator, marker.id, onMove, onClose]);
+  }, [editMode, timeValue, beatsValue, bpm, barOffset, beatsPerBar, denominator, marker.id, onMove, onClose]);
 
   const handleSaveNameColor = useCallback(async () => {
     if (!canEditNameColor || !hasNameColorChanges) return;
@@ -390,7 +359,6 @@ export function MarkerEditModal({
                     ? 'bg-blue-600 text-white'
                     : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                 }`}
-                disabled={!canMove}
               >
                 Time
               </button>
@@ -401,52 +369,35 @@ export function MarkerEditModal({
                     ? 'bg-blue-600 text-white'
                     : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                 }`}
-                disabled={!canMove}
               >
                 Bar.Beat
               </button>
             </div>
 
             {/* Input Field */}
-            {canMove ? (
-              <input
-                type="text"
-                value={editMode === 'time' ? timeValue : beatsValue}
-                onChange={(e) =>
-                  editMode === 'time'
-                    ? setTimeValue(e.target.value)
-                    : setBeatsValue(e.target.value)
-                }
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleMove();
-                }}
-                className="w-full px-3 py-2 bg-gray-900 border border-gray-600 rounded text-white text-sm focus:outline-none focus:border-blue-500"
-                placeholder={editMode === 'time' ? 'MM:SS.ms' : 'Bar.Beat'}
-              />
-            ) : (
-              <div className="px-3 py-2 bg-gray-900/50 border border-gray-700 rounded text-gray-500 text-sm">
-                {editMode === 'time' ? timeValue : beatsValue}
-              </div>
-            )}
+            <input
+              type="text"
+              value={editMode === 'time' ? timeValue : beatsValue}
+              onChange={(e) =>
+                editMode === 'time'
+                  ? setTimeValue(e.target.value)
+                  : setBeatsValue(e.target.value)
+              }
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleMove();
+              }}
+              className="w-full px-3 py-2 bg-gray-900 border border-gray-600 rounded text-white text-sm focus:outline-none focus:border-blue-500"
+              placeholder={editMode === 'time' ? 'MM:SS.ms' : 'Bar.Beat'}
+            />
 
-            {/* Error or disabled message */}
+            {/* Error message */}
             {error && <p className="text-red-400 text-xs">{error}</p>}
-            {!canMove && (
-              <p className="text-amber-400 text-xs">
-                Only markers 1-10 can be moved. Use Reorder to renumber.
-              </p>
-            )}
           </div>
 
           {/* Move Button */}
           <button
             onClick={handleMove}
-            disabled={!canMove}
-            className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded font-medium transition-colors ${
-              canMove
-                ? 'bg-blue-600 hover:bg-blue-500 text-white'
-                : 'bg-gray-700 text-gray-500 cursor-not-allowed'
-            }`}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded font-medium transition-colors bg-blue-600 hover:bg-blue-500 text-white"
           >
             <Move size={16} />
             Move to Position

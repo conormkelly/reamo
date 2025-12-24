@@ -6,7 +6,6 @@
 import { useState, useCallback, useRef, type RefObject } from 'react';
 import type { Marker } from '../../../core/types';
 import { snapToGrid } from '../../../utils';
-import { isMarkerMoveable, getMarkerMoveAction } from '../MarkerEditModal';
 
 /** Long-press threshold for marker edit modal (ms) */
 const MARKER_HOLD_THRESHOLD = 500;
@@ -68,14 +67,9 @@ export function useMarkerDrag({
       e.stopPropagation();
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
 
-      const canMove = isMarkerMoveable(marker.id);
-
       setDraggedMarker(marker);
       setDragStartY(e.clientY);
-
-      if (canMove) {
-        setPreviewPercent(timeToPercent(marker.position));
-      }
+      setPreviewPercent(timeToPercent(marker.position));
 
       // Start long-press timer for edit modal
       holdTimerRef.current = setTimeout(() => {
@@ -95,8 +89,6 @@ export function useMarkerDrag({
     (e: React.PointerEvent) => {
       if (!draggedMarker || !containerRef.current) return;
 
-      const canMove = isMarkerMoveable(draggedMarker.id);
-
       // If moved significantly, we're dragging (cancel long-press timer)
       const rect = containerRef.current.getBoundingClientRect();
       const markerX = rect.left + (timeToPercent(draggedMarker.position) / 100) * rect.width;
@@ -105,12 +97,10 @@ export function useMarkerDrag({
       if (movedSignificantly && holdTimerRef.current) {
         clearTimeout(holdTimerRef.current);
         holdTimerRef.current = null;
-        if (canMove) {
-          setIsDragging(true);
-        }
+        setIsDragging(true);
       }
 
-      if (!isDragging || !canMove) return;
+      if (!isDragging) return;
 
       const deltaY = dragStartY !== null ? Math.abs(e.clientY - dragStartY) : 0;
       const isOutsideVertically =
@@ -155,15 +145,13 @@ export function useMarkerDrag({
 
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
 
-      const canMove = isMarkerMoveable(draggedMarker.id);
-
       // If not dragging and long-press timer was still pending, this is a tap - select the marker
       if (!isDragging && longPressWasPending && onSelect) {
         onSelect(draggedMarker.id);
       }
 
-      // If we were dragging and marker is moveable, commit the move
-      if (isDragging && canMove && previewPercent !== null) {
+      // If we were dragging, commit the move
+      if (isDragging && previewPercent !== null) {
         const rect = containerRef.current.getBoundingClientRect();
         const deltaY = dragStartY !== null ? Math.abs(e.clientY - dragStartY) : 0;
         const isOutsideVertically =
@@ -173,10 +161,7 @@ export function useMarkerDrag({
         // Only commit if not cancelled
         if (!isOutsideVertically && deltaY <= VERTICAL_CANCEL_THRESHOLD) {
           const newTime = timelineStart + (previewPercent / 100) * duration;
-          const actionId = getMarkerMoveAction(draggedMarker.id);
-          if (actionId) {
-            onMove(draggedMarker.id, newTime);
-          }
+          onMove(draggedMarker.id, newTime);
         }
       }
 

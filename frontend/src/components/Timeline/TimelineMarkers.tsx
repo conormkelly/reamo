@@ -5,7 +5,6 @@
 
 import type { ReactElement } from 'react';
 import type { Marker } from '../../core/types';
-import { isMarkerMoveable } from './MarkerEditModal';
 import { reaperColorToHex, formatTime } from '../../utils';
 
 export interface TimelineMarkersProps {
@@ -34,13 +33,11 @@ export interface TimelineMarkerPillsProps extends TimelineMarkersProps {
  * Get the outline color for a marker
  * - Uses marker's custom color if available
  * - Falls back to red (#dc2626) for markers without custom color
- * - Gray (#6b7280) for non-moveable markers (11+) or in regions mode
+ * - Gray (#6b7280) in regions mode (markers disabled)
  */
 function getMarkerColor(marker: Marker, timelineMode: 'navigate' | 'regions'): string {
-  const isMoveable = isMarkerMoveable(marker.id);
-
-  // In regions mode or non-moveable markers: gray
-  if (timelineMode === 'regions' || !isMoveable) {
+  // In regions mode: gray (markers are disabled)
+  if (timelineMode === 'regions') {
     return '#6b7280'; // gray-500
   }
 
@@ -100,7 +97,6 @@ export function TimelineMarkerPills({
   return (
     <>
       {markers.map((marker) => {
-        const canMove = isMarkerMoveable(marker.id) && timelineMode !== 'regions';
         const isBeingDragged = draggedMarker?.id === marker.id;
         const outlineColor = getMarkerColor(marker, timelineMode);
         const isDisabled = timelineMode === 'regions';
@@ -108,21 +104,18 @@ export function TimelineMarkerPills({
         // Build descriptive label for screen readers
         const positionStr = formatTime(marker.position);
         const nameStr = marker.name ? `: ${marker.name}` : '';
-        const stateStr = !canMove ? ' (not moveable)' : '';
-        const ariaLabel = `Marker ${marker.id}${nameStr} at ${positionStr}${stateStr}`;
+        const ariaLabel = `Marker ${marker.id}${nameStr} at ${positionStr}`;
 
         return (
           <div
             key={`marker-pill-${marker.id}`}
             role="button"
             aria-label={ariaLabel}
-            aria-disabled={!canMove}
+            aria-disabled={isDisabled}
             className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center touch-none select-none transition-opacity bg-gray-800 ${
               isDisabled
                 ? 'pointer-events-none opacity-40'
-                : canMove
-                  ? 'cursor-grab active:cursor-grabbing'
-                  : 'cursor-not-allowed'
+                : 'cursor-grab active:cursor-grabbing'
             } ${isBeingDragged && isDraggingMarker ? 'opacity-50' : ''}`}
             style={{
               left: `calc(${renderTimeToPercent(marker.position)}% + 1px)`,
