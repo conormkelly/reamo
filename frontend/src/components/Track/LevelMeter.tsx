@@ -6,6 +6,7 @@
 
 import type { ReactElement } from 'react';
 import { useTrack } from '../../hooks/useTrack';
+import { usePeakHold } from '../../hooks/usePeakHold';
 import { useReaper } from '../ReaperProvider';
 import { meter } from '../../core/WebSocketCommands';
 import { volumeToDb, clampDb } from '../../utils/volume';
@@ -21,6 +22,8 @@ export interface LevelMeterProps {
   maxDb?: number;
   /** Show peak hold indicator */
   showPeak?: boolean;
+  /** How long to hold peak indicator in ms (default: 1000) */
+  peakHoldMs?: number;
   /** Orientation */
   orientation?: 'vertical' | 'horizontal';
 }
@@ -32,6 +35,7 @@ export function LevelMeter({
   minDb = -60,
   maxDb = 6,
   showPeak = true,
+  peakHoldMs = 1000,
   orientation = 'vertical',
 }: LevelMeterProps): ReactElement {
   const { track } = useTrack(trackIndex);
@@ -41,9 +45,12 @@ export function LevelMeter({
   const peakDb = track ? volumeToDb(track.lastMeterPeak) : -Infinity;
   const posDb = track ? volumeToDb(track.lastMeterPos) : -Infinity;
 
+  // Apply peak hold - keeps the peak indicator visible for peakHoldMs after signal drops
+  const heldPeakDb = usePeakHold(peakDb, peakHoldMs);
+
   // Calculate percentages
   const dbRange = maxDb - minDb;
-  const peakPercent = Math.max(0, Math.min(100, ((clampDb(peakDb, minDb, maxDb) - minDb) / dbRange) * 100));
+  const peakPercent = Math.max(0, Math.min(100, ((clampDb(heldPeakDb, minDb, maxDb) - minDb) / dbRange) * 100));
   const posPercent = Math.max(0, Math.min(100, ((clampDb(posDb, minDb, maxDb) - minDb) / dbRange) * 100));
 
   // Determine color based on level
