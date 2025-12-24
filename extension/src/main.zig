@@ -125,6 +125,40 @@ fn processTimerCallback() callconv(.c) void {
         commands.dispatch(api, command.client_id, command.data, shared_state);
     }
 
+    // Send initial state snapshot to newly connected clients
+    var snapshot_clients: [16]usize = undefined;
+    const snapshot_count = shared_state.popClientsNeedingSnapshot(&snapshot_clients);
+    if (snapshot_count > 0) {
+        // Get current state for all domains
+        const trans = transport.State.poll(api);
+        const mark = markers.State.poll(api);
+        const trks = tracks.State.poll(api);
+
+        // Send to each new client
+        for (snapshot_clients[0..snapshot_count]) |client_id| {
+            // Transport
+            var buf1: [512]u8 = undefined;
+            if (trans.toJson(&buf1)) |json| {
+                shared_state.sendToClient(client_id, json);
+            }
+            // Markers
+            var buf2: [8192]u8 = undefined;
+            if (mark.markersToJson(&buf2)) |json| {
+                shared_state.sendToClient(client_id, json);
+            }
+            // Regions
+            var buf3: [8192]u8 = undefined;
+            if (mark.regionsToJson(&buf3)) |json| {
+                shared_state.sendToClient(client_id, json);
+            }
+            // Tracks (without metering for initial snapshot)
+            var buf4: [16384]u8 = undefined;
+            if (trks.toJson(&buf4, null)) |json| {
+                shared_state.sendToClient(client_id, json);
+            }
+        }
+    }
+
     // Poll transport state and broadcast changes
     const current_transport = transport.State.poll(api);
     if (!current_transport.eql(g_last_transport)) {

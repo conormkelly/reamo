@@ -150,11 +150,16 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
 
     if (isTransportEvent(message)) {
       const p = message.payload as TransportEventPayload;
+      // REAPER's BPM is in denominator beats per minute (e.g., eighths for 6/8)
+      // Normalize to quarter-note BPM for consistent display
+      // For 4/4: bpm * (4/4) = no change
+      // For 6/8: bpm * (4/8) = bpm * 0.5 (180 eighth-note BPM → 90 quarter-note BPM)
+      const normalizedBpm = p.bpm * (4 / p.timeSignature.denominator);
       set({
         playState: p.playState,
         positionSeconds: p.position,
         positionBeats: p.positionBeats,
-        bpm: p.bpm,
+        bpm: normalizedBpm,
         timeSignatureNumerator: p.timeSignature.numerator,
         timeSignatureDenominator: p.timeSignature.denominator,
         isRepeat: p.repeat,
@@ -164,8 +169,8 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
         // TODO: Simplify - store seconds directly, convert in UI if needed
         timeSelection: p.timeSelection.start !== p.timeSelection.end
           ? {
-              startBeats: p.timeSelection.start * (p.bpm / 60),
-              endBeats: p.timeSelection.end * (p.bpm / 60),
+              startBeats: p.timeSelection.start * (normalizedBpm / 60),
+              endBeats: p.timeSelection.end * (normalizedBpm / 60),
             }
           : null,
       });

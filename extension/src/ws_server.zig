@@ -76,6 +76,9 @@ pub const SharedState = struct {
     clients: std.AutoArrayHashMap(usize, *websocket.Conn),
     next_client_id: usize = 1,
 
+    // Clients that need initial state snapshot (set by WS thread after hello, consumed by main thread)
+    clients_needing_snapshot: std.AutoArrayHashMap(usize, void),
+
     // Session token for authentication (hex string)
     session_token: [TOKEN_HEX_LENGTH]u8 = undefined,
     token_set: bool = false,
@@ -84,6 +87,7 @@ pub const SharedState = struct {
         return .{
             .allocator = allocator,
             .clients = std.AutoArrayHashMap(usize, *websocket.Conn).init(allocator),
+            .clients_needing_snapshot = std.AutoArrayHashMap(usize, void).init(allocator),
         };
     }
 
@@ -118,6 +122,30 @@ pub const SharedState = struct {
             cmd.deinit();
         }
         self.clients.deinit();
+        self.clients_needing_snapshot.deinit();
+    }
+
+    // Called by WebSocket thread after successful hello to request initial snapshot
+    pub fn markNeedsSnapshot(self: *SharedState, client_id: usize) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        self.clients_needing_snapshot.put(client_id, {}) catch {};
+    }
+
+    // Called by main thread to get and clear clients needing snapshots
+    // Returns client IDs in a static buffer (caller should process immediately)
+    pub fn popClientsNeedingSnapshot(self: *SharedState, out_buf: []usize) usize {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        var count: usize = 0;
+        for (self.clients_needing_snapshot.keys()) |client_id| {
+            if (count >= out_buf.len) break;
+            out_buf[count] = client_id;
+            count += 1;
+        }
+        self.clients_needing_snapshot.clearRetainingCapacity();
+        return count;
     }
 
     // Called by WebSocket thread to register a new client
@@ -268,6 +296,9 @@ pub const Client = struct {
                 var buf: [128]u8 = undefined;
                 const response = protocol.buildHelloResponse(&buf);
                 try self.conn.writeText(response);
+
+                // Request initial state snapshot from main thread
+                self.state.markNeedsSnapshot(self.id);
                 return;
             },
             .command => {

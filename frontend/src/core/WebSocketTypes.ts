@@ -201,6 +201,26 @@ export interface WebSocketConnectionStatus {
 // Command Helpers
 // =============================================================================
 
+/** Generate a UUID - fallback for non-secure contexts (HTTP on iOS Safari) */
+function generateUUID(): string {
+  // crypto.randomUUID() requires HTTPS on Safari/iOS
+  // Fall back to manual generation for HTTP contexts
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    try {
+      return crypto.randomUUID();
+    } catch {
+      // Falls through to manual generation
+    }
+  }
+  // Manual UUID v4 generation using crypto.getRandomValues (works on HTTP)
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; // Version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // Variant 1
+  const hex = [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 /** Create a command message */
 export function createCommand(
   command: string,
@@ -210,7 +230,7 @@ export function createCommand(
   return {
     type: 'command',
     command,
-    id: id ?? crypto.randomUUID(),
+    id: id ?? generateUUID(),
     ...params,
   };
 }

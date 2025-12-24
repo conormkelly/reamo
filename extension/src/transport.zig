@@ -32,9 +32,13 @@ pub const State = struct {
         if (!floatEql(self.metronome_volume, other.metronome_volume)) return false;
         if (!floatEql(self.project_length, other.project_length)) return false;
 
-        // Position changes frequently during playback - only check when stopped
+        // Position changes: check cursor when stopped, play_position when playing
         if (self.play_state == 0) {
+            // Stopped: check cursor position
             if (!floatEql(self.cursor_position, other.cursor_position)) return false;
+        } else {
+            // Playing/recording: check play position (updates ~30x/sec during playback)
+            if (!floatEql(self.play_position, other.play_position)) return false;
         }
         return true;
     }
@@ -160,10 +164,17 @@ test "State.eql detects significant bpm changes" {
     try std.testing.expect(!a.eql(b));
 }
 
+test "State.eql checks play_position during playback" {
+    const a = State{ .play_state = 1, .play_position = 0.0 };
+    const b = State{ .play_state = 1, .play_position = 5.0 };
+    try std.testing.expect(!a.eql(b)); // Different play positions = not equal
+}
+
 test "State.eql ignores cursor during playback" {
-    const a = State{ .play_state = 1, .cursor_position = 0.0 };
-    const b = State{ .play_state = 1, .cursor_position = 5.0 };
-    try std.testing.expect(a.eql(b));
+    // Cursor changes don't matter when playing - only play_position does
+    const a = State{ .play_state = 1, .cursor_position = 0.0, .play_position = 10.0 };
+    const b = State{ .play_state = 1, .cursor_position = 5.0, .play_position = 10.0 };
+    try std.testing.expect(a.eql(b)); // Same play_position = equal despite cursor diff
 }
 
 test "State.eql checks cursor when stopped" {

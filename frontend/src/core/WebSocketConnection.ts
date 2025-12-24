@@ -121,7 +121,6 @@ export class WebSocketConnection {
   /** Send a command and optionally wait for response */
   send(command: string, params?: Record<string, unknown>): void {
     if (this.state !== 'connected' || !this.ws) {
-      console.warn('[WS] Cannot send - not connected');
       return;
     }
     const msg = createCommand(command, params);
