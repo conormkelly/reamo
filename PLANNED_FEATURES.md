@@ -70,3 +70,34 @@ Double-tap region or zoom to time selection. Single track view with detailed ite
 - No detailed MIDI editing
 
 Just: **"See what I recorded, tidy it up, make quick keep/trash decisions, move on."**
+
+---
+
+## Lua Script Deprecation
+
+The original architecture used Lua scripts polling ExtState for operations that couldn't be done from the extension. Now that the Zig extension has matured, several scripts are redundant.
+
+### Current Scripts
+
+| Script | Purpose | Status |
+|--------|---------|--------|
+| `Reamo_MarkerEdit.lua` | Marker rename/recolor | **REDUNDANT** - `marker/update` command exists |
+| `Reamo_RegionEdit.lua` | Region batch ops (resize, ripple, move) | In use - need `region/batch` command |
+| `Reamo_TimeSig.lua` | Time signature changes | **DEAD CODE** - `timesig/set` already native |
+
+### Migration Plan
+
+**Phase 1: TimeSig + Markers (Trivial)**
+- Delete `Reamo_TimeSig.lua` - frontend already uses native `timesig/set`
+- Update frontend to use native `marker/update` command
+- Remove ExtState bridge calls from `MarkerEditModal.tsx` and `MarkerInfoBar.tsx`
+- Delete `Reamo_MarkerEdit.lua`
+- Remove `markerScriptInstalled` check from UI
+
+**Phase 2: Regions (Medium)**
+- Add `region/batch` command to extension accepting JSON array of operations
+- Each op: `{op: "update"|"create"|"delete", id?, start?, end?, name?, color?}`
+- Handle color=0 reset case (delete/recreate)
+- Wrap entire batch in undo block
+- Update frontend `RegionEditActionBar.tsx` to use native command
+- Delete `Reamo_RegionEdit.lua`
