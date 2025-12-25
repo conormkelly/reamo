@@ -18,7 +18,7 @@ import {
 } from '../../utils';
 import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
-import { extstate } from '../../core/WebSocketCommands';
+import { marker as markerCmd } from '../../core/WebSocketCommands';
 
 export interface MarkerEditModalProps {
   marker: Marker;
@@ -82,7 +82,6 @@ export function MarkerEditModal({
   onReorderAll,
 }: MarkerEditModalProps): ReactElement {
   const { sendCommand } = useReaper();
-  const markerScriptInstalled = useReaperStore((s) => s.markerScriptInstalled);
   const markers = useReaperStore((s) => s.markers);
 
   const [editMode, setEditMode] = useState<'time' | 'beats'>('time');
@@ -92,8 +91,6 @@ export function MarkerEditModal({
   const [colorValue, setColorValue] = useState<string | null>(null); // null = default (no color)
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-
-  const canEditNameColor = markerScriptInstalled;
 
   // Get existing colors from project markers
   const existingColors = [...new Set(
@@ -145,34 +142,22 @@ export function MarkerEditModal({
     onClose();
   }, [editMode, timeValue, beatsValue, bpm, barOffset, beatsPerBar, denominator, marker.id, onMove, onClose]);
 
-  const handleSaveNameColor = useCallback(async () => {
-    if (!canEditNameColor || !hasNameColorChanges) return;
+  const handleSaveNameColor = useCallback(() => {
+    if (!hasNameColorChanges) return;
 
     setIsSaving(true);
     setError(null);
 
-    try {
-      // Write to EXTSTATE for the Lua script to pick up
-      // colorValue null = default (send 0), otherwise convert hex to REAPER color
-      const reaperColor = colorValue === null ? 0 : hexToReaperColor(colorValue);
+    // colorValue null = default (send 0), otherwise convert hex to REAPER color
+    const reaperColor = colorValue === null ? 0 : hexToReaperColor(colorValue);
 
-      // Set marker_action LAST to avoid race condition (Lua polls for action)
-      sendCommand(extstate.set('Reamo', 'marker_id', String(marker.id)));
-      sendCommand(extstate.set('Reamo', 'marker_name', nameValue));
-      sendCommand(extstate.set('Reamo', 'marker_color', String(reaperColor)));
-      sendCommand(extstate.set('Reamo', 'marker_processed', ''));
-      sendCommand(extstate.set('Reamo', 'marker_action', 'edit'));
+    // Use native marker/update command
+    sendCommand(markerCmd.update(marker.id, { name: nameValue, color: reaperColor }));
 
-      // Wait a bit for the script to process (WebSocket will push updated markers)
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      onClose();
-    } catch (err) {
-      setError('Failed to save changes');
-    } finally {
-      setIsSaving(false);
-    }
-  }, [canEditNameColor, hasNameColorChanges, marker.id, nameValue, colorValue, sendCommand, onClose]);
+    // WebSocket will push updated markers, close immediately
+    setIsSaving(false);
+    onClose();
+  }, [hasNameColorChanges, marker.id, nameValue, colorValue, sendCommand, onClose]);
 
   const handleDelete = useCallback(() => {
     onDelete(marker.id);
@@ -223,27 +208,20 @@ export function MarkerEditModal({
 
         {/* Content */}
         <div className="p-4 space-y-4">
-          {/* Name Input (editable if script installed, label if not) */}
+          {/* Name Input */}
           <div className="space-y-2">
             <label className="text-sm text-gray-400">Name</label>
-            {canEditNameColor ? (
-              <input
-                type="text"
-                value={nameValue}
-                onChange={(e) => setNameValue(e.target.value)}
-                className="w-full px-3 py-2 bg-gray-900 border border-gray-600 rounded text-white text-sm focus:outline-none focus:border-blue-500"
-                placeholder="Marker name"
-              />
-            ) : (
-              <p className="px-3 py-2 bg-gray-900/50 border border-gray-700 rounded text-gray-400 text-sm">
-                {marker.name || <span className="italic text-gray-500">No name</span>}
-              </p>
-            )}
+            <input
+              type="text"
+              value={nameValue}
+              onChange={(e) => setNameValue(e.target.value)}
+              className="w-full px-3 py-2 bg-gray-900 border border-gray-600 rounded text-white text-sm focus:outline-none focus:border-blue-500"
+              placeholder="Marker name"
+            />
           </div>
 
-          {/* Color Picker (only if script installed) */}
-          {canEditNameColor && (
-            <div className="space-y-2">
+          {/* Color Picker */}
+          <div className="space-y-2">
               <label className="text-sm text-gray-400">Color</label>
 
               {/* Default + Project colors row */}
@@ -321,11 +299,10 @@ export function MarkerEditModal({
                   placeholder="Default"
                 />
               </div>
-            </div>
-          )}
+          </div>
 
-          {/* Save Name/Color Button (only if changes and script installed) */}
-          {canEditNameColor && hasNameColorChanges && (
+          {/* Save Name/Color Button (only if changes) */}
+          {hasNameColorChanges && (
             <button
               onClick={handleSaveNameColor}
               disabled={isSaving}
@@ -334,13 +311,6 @@ export function MarkerEditModal({
               <Save size={16} />
               {isSaving ? 'Saving...' : 'Save Name & Color'}
             </button>
-          )}
-
-          {/* Script not installed message */}
-          {!markerScriptInstalled && (
-            <p className="text-xs text-amber-400/80">
-              Install Reamo_MarkerEdit.lua to edit name and color.
-            </p>
           )}
 
           {/* Divider */}

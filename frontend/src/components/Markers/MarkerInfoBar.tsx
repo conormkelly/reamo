@@ -1,7 +1,7 @@
 /**
  * Marker Info Bar Component
  * Shows marker info in Navigate mode: ID, name, color, timestamp
- * Supports inline editing when Lua script is installed
+ * Supports inline editing of name and color
  * Auto-advances to show the most recently passed marker during playback
  */
 
@@ -10,7 +10,7 @@ import { RotateCcw } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
 import { useCurrentMarker, useTimeFormatters } from '../../hooks';
-import { extstate } from '../../core/WebSocketCommands';
+import { marker as markerCmd } from '../../core/WebSocketCommands';
 import { reaperColorToHex, hexToReaperColor } from '../../utils';
 
 // Default marker color in REAPER (shown when color = 0)
@@ -35,7 +35,6 @@ interface MarkerInfoBarProps {
 export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElement | null {
   const { sendCommand } = useReaper();
   const timelineMode = useReaperStore((s) => s.timelineMode);
-  const markerScriptInstalled = useReaperStore((s) => s.markerScriptInstalled);
   const markers = useReaperStore((s) => s.markers);
 
   const { currentMarker, setLocked } = useCurrentMarker();
@@ -100,31 +99,20 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
     }
   }, [isEditingName, showColorPicker, setLocked]);
 
-  // Debounced save function
+  // Save marker name/color using native command
   const saveMarkerEdit = useCallback(
-    async (name: string, color: number) => {
+    (name: string, color: number) => {
       if (!currentMarker) return;
 
       setIsSaving(true);
-
-      // Write to EXTSTATE for Lua script to process
-      // Set marker_action LAST to avoid race condition (Lua polls for action)
-      sendCommand(extstate.set('Reamo', 'marker_id', String(currentMarker.id)));
-      sendCommand(extstate.set('Reamo', 'marker_name', name));
-      sendCommand(extstate.set('Reamo', 'marker_color', String(color)));
-      sendCommand(extstate.set('Reamo', 'marker_processed', ''));
-      sendCommand(extstate.set('Reamo', 'marker_action', 'edit'));
-
-      // Wait for script to process (WebSocket will push updated markers)
-      await new Promise((resolve) => setTimeout(resolve, 300));
-
+      sendCommand(markerCmd.update(currentMarker.id, { name, color }));
       setIsSaving(false);
     },
     [currentMarker, sendCommand]
   );
 
   const handleNameClick = () => {
-    if (!markerScriptInstalled || !currentMarker) return;
+    if (!currentMarker) return;
     setNameValue(currentMarker.name);
     setIsEditingName(true);
   };
@@ -166,7 +154,7 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
   };
 
   const handleColorClick = () => {
-    if (!markerScriptInstalled || !currentMarker) return;
+    if (!currentMarker) return;
     setShowColorPicker(true);
   };
 
@@ -220,17 +208,8 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
                 ) : (
                   <button
                     onClick={handleNameClick}
-                    disabled={!markerScriptInstalled}
-                    className={`text-white font-mono text-xs px-1.5 py-0.5 rounded transition-colors truncate min-w-0 ${
-                      markerScriptInstalled
-                        ? 'hover:bg-gray-700 cursor-pointer'
-                        : 'cursor-default'
-                    }`}
-                    title={
-                      markerScriptInstalled
-                        ? 'Click to edit name'
-                        : 'Install Reamo_MarkerEdit.lua to edit'
-                    }
+                    className="text-white font-mono text-xs px-1.5 py-0.5 rounded transition-colors truncate min-w-0 hover:bg-gray-700 cursor-pointer"
+                    title="Click to edit name"
                   >
                     {currentMarker.name || '(unnamed)'}
                   </button>
@@ -250,18 +229,9 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
                 <span className="text-gray-400 text-xs">Color:</span>
                 <button
                   onClick={handleColorClick}
-                  disabled={!markerScriptInstalled}
-                  className={`w-6 h-6 rounded border-2 transition-colors ${
-                    markerScriptInstalled
-                      ? 'border-gray-600 hover:border-gray-400 cursor-pointer'
-                      : 'border-gray-700 cursor-default'
-                  }`}
+                  className="w-6 h-6 rounded border-2 transition-colors border-gray-600 hover:border-gray-400 cursor-pointer"
                   style={{ backgroundColor: currentColor }}
-                  title={
-                    markerScriptInstalled
-                      ? 'Click to change color'
-                      : 'Install Reamo_MarkerEdit.lua to edit'
-                  }
+                  title="Click to change color"
                 />
                 {showColorPicker && (
                   <div

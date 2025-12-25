@@ -543,6 +543,12 @@ pub const Api = struct {
         return f(null, false, pos, 0, name, -1, color);
     }
 
+    /// Add marker with a specific ID (for delete/recreate workflows)
+    pub fn addMarkerWithId(self: *const Api, pos: f64, name: [*:0]const u8, color: c_int, wanted_id: c_int) c_int {
+        const f = self.addProjectMarker2 orelse return -1;
+        return f(null, false, pos, 0, name, wanted_id, color);
+    }
+
     pub fn addRegion(self: *const Api, start: f64, end: f64, name: [*:0]const u8, color: c_int) c_int {
         const f = self.addProjectMarker2 orelse return -1;
         return f(null, true, start, end, name, -1, color);

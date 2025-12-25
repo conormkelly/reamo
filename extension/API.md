@@ -279,17 +279,23 @@ Create a new marker.
 
 ### `marker/update`
 
-Update an existing marker.
+Update an existing marker. Uses PATCH semantics - omitted fields preserve current values.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `id` | int | Yes | Marker ID |
-| `position` | float | No | New position in seconds |
-| `name` | string | No | New name |
-| `color` | int | No | New color |
+| `position` | float | No | New position in seconds (preserves current if omitted) |
+| `name` | string | No | New name (preserves current if omitted or empty) |
+| `color` | int | No | New color: omit to preserve, `0` to reset to default red |
+
+**Color behavior:**
+- Omitted → preserve current color
+- `0` → reset to REAPER's default marker color (red)
+- Non-zero → set to that color value
 
 ```json
 {"type": "command", "command": "marker/update", "id": 1, "name": "Chorus"}
+{"type": "command", "command": "marker/update", "id": 1, "color": 0}
 ```
 
 ### `marker/delete`

@@ -81,18 +81,18 @@ The original architecture used Lua scripts polling ExtState for operations that 
 
 | Script | Purpose | Status |
 |--------|---------|--------|
-| `Reamo_MarkerEdit.lua` | Marker rename/recolor | **REDUNDANT** - `marker/update` command exists |
+| `Reamo_MarkerEdit.lua` | Marker rename/recolor | **DELETED** - using native `marker/update` |
 | `Reamo_RegionEdit.lua` | Region batch ops (resize, ripple, move) | In use - need `region/batch` command |
-| `Reamo_TimeSig.lua` | Time signature changes | **DEAD CODE** - `timesig/set` already native |
+| `Reamo_TimeSig.lua` | Time signature changes | **DELETED** - using native `timesig/set` |
 
 ### Migration Plan
 
-**Phase 1: TimeSig + Markers (Trivial)**
-- Delete `Reamo_TimeSig.lua` - frontend already uses native `timesig/set`
-- Update frontend to use native `marker/update` command
-- Remove ExtState bridge calls from `MarkerEditModal.tsx` and `MarkerInfoBar.tsx`
-- Delete `Reamo_MarkerEdit.lua`
-- Remove `markerScriptInstalled` check from UI
+**Phase 1: TimeSig + Markers** ✅ COMPLETE
+- ~~Delete `Reamo_TimeSig.lua`~~ - done
+- ~~Update frontend to use native `marker/update` command~~ - done
+- ~~Remove ExtState bridge calls from `MarkerEditModal.tsx` and `MarkerInfoBar.tsx`~~ - done
+- ~~Delete `Reamo_MarkerEdit.lua`~~ - done
+- ~~Remove `markerScriptInstalled` check from UI~~ - done
 
 **Phase 2: Regions (Medium)**
 - Add `region/batch` command to extension accepting JSON array of operations
