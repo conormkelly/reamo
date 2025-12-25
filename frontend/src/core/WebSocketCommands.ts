@@ -344,3 +344,22 @@ export const extstate = {
     params: { extname, key, value },
   }),
 };
+
+// =============================================================================
+// Gesture Commands (for undo coalescing of continuous controls)
+// =============================================================================
+
+export type GestureControlType = 'volume' | 'pan';
+
+export const gesture = {
+  /** Call when starting to drag a fader/knob */
+  start: (controlType: GestureControlType, trackIdx: number): WSCommand => ({
+    command: 'gesture/start',
+    params: { controlType, trackIdx },
+  }),
+  /** Call when releasing a fader/knob - triggers undo point creation */
+  end: (controlType: GestureControlType, trackIdx: number): WSCommand => ({
+    command: 'gesture/end',
+    params: { controlType, trackIdx },
+  }),
+};

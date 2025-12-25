@@ -6,6 +6,7 @@ const items = @import("items.zig");
 const tracks = @import("tracks.zig");
 const commands = @import("commands/mod.zig");
 const ws_server = @import("ws_server.zig");
+const gesture_state = @import("gesture_state.zig");
 
 // Configuration
 const DEFAULT_PORT: u16 = 9224;
@@ -15,6 +16,7 @@ const MAX_PORT_ATTEMPTS: u8 = 10;
 var g_api: ?reaper.Api = null;
 var g_allocator: std.mem.Allocator = undefined;
 var g_shared_state: ?*ws_server.SharedState = null;
+var g_gesture_state: ?*gesture_state.GestureState = null;
 var g_server: ?ws_server.Server = null;
 var g_port: u16 = 0;
 var g_last_transport: transport.State = .{};
@@ -101,6 +103,14 @@ fn initTimerCallback() callconv(.c) void {
     state.* = ws_server.SharedState.init(g_allocator);
     g_shared_state = state;
 
+    // Create gesture state for undo coalescing
+    const gestures = g_allocator.create(gesture_state.GestureState) catch {
+        api.logSimple("Reamo: Failed to allocate gesture state");
+        return;
+    };
+    gestures.* = gesture_state.GestureState.init(g_allocator);
+    g_gesture_state = gestures;
+
     // Sync initial HTML mtime to shared state
     state.setHtmlMtime(g_html_mtime);
 
@@ -151,7 +161,31 @@ fn processTimerCallback() callconv(.c) void {
     while (shared_state.popCommand()) |cmd| {
         var command = cmd;
         defer command.deinit();
-        commands.dispatch(api, command.client_id, command.data, shared_state);
+        commands.dispatch(api, command.client_id, command.data, shared_state, g_gesture_state);
+    }
+
+    // Clean up gestures for disconnected clients
+    if (g_gesture_state) |gestures| {
+        var disconnected_buf: [16]usize = undefined;
+        const disconnected_count = shared_state.popDisconnectedClients(&disconnected_buf);
+        for (disconnected_buf[0..disconnected_count]) |client_id| {
+            var flush_buf: [16]gesture_state.ControlId = undefined;
+            const flush_count = gestures.removeClientFromAll(client_id, &flush_buf);
+            if (flush_count > 0) {
+                api.log("Reamo: Client {d} disconnected, flushing {d} gestures", .{ client_id, flush_count });
+                api.csurfFlushUndo(true);
+            }
+        }
+    }
+
+    // Check for gesture timeouts (safety net for missed gesture/end commands)
+    if (g_gesture_state) |gestures| {
+        var timeout_buf: [16]gesture_state.ControlId = undefined;
+        const timeout_count = gestures.checkTimeouts(&timeout_buf);
+        if (timeout_count > 0) {
+            api.log("Reamo: Flushing {d} timed-out gestures", .{timeout_count});
+            api.csurfFlushUndo(true);
+        }
     }
 
     // Send initial state snapshot to newly connected clients
@@ -284,6 +318,14 @@ fn shutdown() void {
     }
     logFile("server stopped");
 
+    if (g_gesture_state) |gestures| {
+        logFile("cleaning up gesture state");
+        gestures.deinit();
+        g_allocator.destroy(gestures);
+        g_gesture_state = null;
+    }
+    logFile("gesture state cleaned up");
+
     if (g_shared_state) |state| {
         logFile("cleaning up shared state");
         state.deinit();
@@ -336,4 +378,5 @@ test {
     _ = @import("tracks.zig");
     _ = @import("commands/mod.zig");
     _ = @import("ws_server.zig");
+    _ = @import("gesture_state.zig");
 }

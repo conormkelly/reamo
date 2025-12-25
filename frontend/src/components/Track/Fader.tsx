@@ -7,6 +7,7 @@ import { useState, useCallback, useRef, useEffect, type ReactElement } from 'rea
 import { useReaper } from '../ReaperProvider';
 import { useTrack } from '../../hooks/useTrack';
 import { useReaperStore } from '../../store';
+import { gesture } from '../../core/WebSocketCommands';
 
 /** Linear volume for unity gain (0dB) - exactly 1.0 */
 const UNITY_GAIN_VOLUME = 1.0;
@@ -66,6 +67,9 @@ export function Fader({
       e.preventDefault();
       setIsDragging(true);
 
+      // Signal gesture start for undo coalescing
+      sendCommand(gesture.start('volume', trackIndex));
+
       const getY = (event: MouseEvent | TouchEvent): number => {
         if ('touches' in event) {
           return event.touches[0].clientY;
@@ -92,6 +96,8 @@ export function Fader({
 
       const handleUp = () => {
         setIsDragging(false);
+        // Signal gesture end - triggers undo point creation
+        sendCommand(gesture.end('volume', trackIndex));
         document.removeEventListener('mousemove', handleMove);
         document.removeEventListener('mouseup', handleUp);
         document.removeEventListener('touchmove', handleMove);
@@ -107,7 +113,7 @@ export function Fader({
       // Store cleanup function for unmount
       cleanupRef.current = handleUp;
     },
-    [sendCommand, setFaderPosition, handleDoubleTap, mixerLocked]
+    [sendCommand, setFaderPosition, handleDoubleTap, mixerLocked, trackIndex]
   );
 
   const handleHeight = Math.max(0, Math.min(height, faderPosition * height));

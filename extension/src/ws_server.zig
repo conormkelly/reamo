@@ -79,6 +79,9 @@ pub const SharedState = struct {
     // Clients that need initial state snapshot (set by WS thread after hello, consumed by main thread)
     clients_needing_snapshot: std.AutoArrayHashMap(usize, void),
 
+    // Clients that have disconnected (set by WS thread, consumed by main thread for gesture cleanup)
+    disconnected_clients: std.AutoArrayHashMap(usize, void),
+
     // Session token for authentication (hex string)
     session_token: [TOKEN_HEX_LENGTH]u8 = undefined,
     token_set: bool = false,
@@ -91,6 +94,7 @@ pub const SharedState = struct {
             .allocator = allocator,
             .clients = std.AutoArrayHashMap(usize, *websocket.Conn).init(allocator),
             .clients_needing_snapshot = std.AutoArrayHashMap(usize, void).init(allocator),
+            .disconnected_clients = std.AutoArrayHashMap(usize, void).init(allocator),
         };
     }
 
@@ -140,6 +144,7 @@ pub const SharedState = struct {
         }
         self.clients.deinit();
         self.clients_needing_snapshot.deinit();
+        self.disconnected_clients.deinit();
     }
 
     // Called by WebSocket thread after successful hello to request initial snapshot
@@ -182,7 +187,25 @@ pub const SharedState = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
         _ = self.clients.swapRemove(id);
+        // Track disconnected client for gesture cleanup by main thread
+        self.disconnected_clients.put(id, {}) catch {};
         std.log.info("CLIENT REMOVE id={d} total={d}", .{ id, self.clients.count() });
+    }
+
+    // Called by main thread to get and clear disconnected clients
+    // Used for cleaning up active gestures when clients disconnect
+    pub fn popDisconnectedClients(self: *SharedState, out_buf: []usize) usize {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        var count: usize = 0;
+        for (self.disconnected_clients.keys()) |client_id| {
+            if (count >= out_buf.len) break;
+            out_buf[count] = client_id;
+            count += 1;
+        }
+        self.disconnected_clients.clearRetainingCapacity();
+        return count;
     }
 
     // Called by WebSocket thread to queue a command for main thread

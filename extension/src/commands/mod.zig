@@ -2,6 +2,7 @@ const std = @import("std");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const ws_server = @import("../ws_server.zig");
+const gesture_state = @import("../gesture_state.zig");
 
 // Import domain-specific command modules
 const transport_cmds = @import("transport.zig");
@@ -18,6 +19,7 @@ const metronome_cmds = @import("metronome.zig");
 const extstate_cmds = @import("extstate.zig");
 const undo_cmds = @import("undo.zig");
 const action_cmds = @import("actions.zig");
+const gesture_cmds = @import("gesture.zig");
 
 // Command handler function type
 pub const Handler = *const fn (*const reaper.Api, protocol.CommandMessage, *ResponseWriter) void;
@@ -28,11 +30,16 @@ pub const Entry = struct {
     handler: Handler,
 };
 
+// Re-export GestureState for convenience
+pub const GestureState = gesture_state.GestureState;
+pub const ControlId = gesture_state.ControlId;
+
 // Response writer for sending responses to the requesting client only
 pub const ResponseWriter = struct {
     client_id: usize,
     cmd_id: ?[]const u8,
     shared_state: *ws_server.SharedState,
+    gestures: ?*GestureState,
 
     pub fn success(self: *ResponseWriter, payload: ?[]const u8) void {
         if (self.cmd_id == null) return; // No response expected if no id provided
@@ -70,10 +77,11 @@ pub const registry = transport_cmds.handlers ++
     metronome_cmds.handlers ++
     extstate_cmds.handlers ++
     undo_cmds.handlers ++
-    action_cmds.handlers;
+    action_cmds.handlers ++
+    gesture_cmds.handlers;
 
 // Dispatch a command message to the appropriate handler
-pub fn dispatch(api: *const reaper.Api, client_id: usize, data: []const u8, shared_state: *ws_server.SharedState) void {
+pub fn dispatch(api: *const reaper.Api, client_id: usize, data: []const u8, shared_state: *ws_server.SharedState, gestures: ?*GestureState) void {
     const msg_type = protocol.MessageType.parse(data);
 
     switch (msg_type) {
@@ -87,6 +95,7 @@ pub fn dispatch(api: *const reaper.Api, client_id: usize, data: []const u8, shar
                 .client_id = client_id,
                 .cmd_id = cmd.getId(),
                 .shared_state = shared_state,
+                .gestures = gestures,
             };
 
             for (registry) |entry| {
@@ -221,6 +230,9 @@ test "registry contains expected commands" {
         // Actions
         "action/getState",
         "action/execute",
+        // Gestures
+        "gesture/start",
+        "gesture/end",
     };
 
     for (expected) |name| {
@@ -285,4 +297,5 @@ test {
     _ = extstate_cmds;
     _ = undo_cmds;
     _ = action_cmds;
+    _ = gesture_cmds;
 }

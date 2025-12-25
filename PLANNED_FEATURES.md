@@ -1,11 +1,5 @@
 # Planned Features
 
-### Undo Strategy for Continuous Controls
-
-**Problem**: Fader moves generate many small changes. How do we handle undo?
-
-**Recommendation**: Server-managed undo blocks. Extension tracks "last idle value" per control, auto-creates undo block on first change, commits after 500ms idle.
-
 ## Items Mode
 
 ### Rationale

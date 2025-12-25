@@ -2,6 +2,7 @@ const std = @import("std");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
+const gesture_state = @import("../gesture_state.zig");
 
 // Track command handlers
 pub const handlers = [_]mod.Entry{
@@ -24,8 +25,13 @@ fn getTrackFromCmd(api: *const reaper.Api, cmd: protocol.CommandMessage) ?*anyop
 }
 
 // Set track volume (0..inf, 1.0 = 0dB)
+// Uses CSurf API for undo coalescing - multiple rapid changes become one undo point
 fn handleSetVolume(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track = getTrackFromCmd(api, cmd) orelse {
+    const track_idx = cmd.getInt("trackIdx") orelse {
+        response.err("NOT_FOUND", "trackIdx is required");
+        return;
+    };
+    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
         response.err("NOT_FOUND", "Track not found");
         return;
     };
@@ -35,14 +41,26 @@ fn handleSetVolume(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
     };
     // Clamp to valid range
     const clamped = @max(0.0, volume);
-    if (api.setTrackVolume(track, clamped)) {
-        api.log("Reamo: Set track volume to {d:.3}", .{clamped});
+
+    // Use CSurf API for undo coalescing (allowGang=true to respect track grouping)
+    _ = api.csurfSetVolume(track, clamped, true);
+
+    // Record activity for gesture timeout tracking
+    if (response.gestures) |gestures| {
+        gestures.recordActivity(gesture_state.ControlId.volume(track_idx));
     }
+
+    api.log("Reamo: Set track volume to {d:.3}", .{clamped});
 }
 
 // Set track pan (-1.0..1.0)
+// Uses CSurf API for undo coalescing - multiple rapid changes become one undo point
 fn handleSetPan(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track = getTrackFromCmd(api, cmd) orelse {
+    const track_idx = cmd.getInt("trackIdx") orelse {
+        response.err("NOT_FOUND", "trackIdx is required");
+        return;
+    };
+    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
         response.err("NOT_FOUND", "Track not found");
         return;
     };
@@ -52,9 +70,16 @@ fn handleSetPan(api: *const reaper.Api, cmd: protocol.CommandMessage, response: 
     };
     // Clamp to valid range
     const clamped = @max(-1.0, @min(1.0, pan));
-    if (api.setTrackPan(track, clamped)) {
-        api.log("Reamo: Set track pan to {d:.2}", .{clamped});
+
+    // Use CSurf API for undo coalescing (allowGang=true to respect track grouping)
+    _ = api.csurfSetPan(track, clamped, true);
+
+    // Record activity for gesture timeout tracking
+    if (response.gestures) |gestures| {
+        gestures.recordActivity(gesture_state.ControlId.pan(track_idx));
     }
+
+    api.log("Reamo: Set track pan to {d:.2}", .{clamped});
 }
 
 // Set track mute (toggle if no value provided)

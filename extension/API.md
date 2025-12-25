@@ -568,11 +568,11 @@ Tracks are identified by index (0-based).
 
 ### `track/setVolume`
 
-Set track volume.
+Set track volume. Uses CSurf API for automatic undo coalescing - wrap with `gesture/start` and `gesture/end` for proper undo behavior during fader drags.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index (0-based) |
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
 | `volume` | float | Yes | Volume (0.0 to ∞, 1.0 = 0dB) |
 
 ```json
@@ -581,11 +581,11 @@ Set track volume.
 
 ### `track/setPan`
 
-Set track pan.
+Set track pan. Uses CSurf API for automatic undo coalescing - wrap with `gesture/start` and `gesture/end` for proper undo behavior during knob drags.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index |
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
 | `pan` | float | Yes | Pan (-1.0 to 1.0, 0 = center) |
 
 ```json
@@ -859,6 +859,51 @@ End an undo block.
 
 ```json
 {"type": "command", "command": "undo/end", "description": "Batch edit"}
+```
+
+---
+
+## Gesture Commands
+
+Gestures enable undo coalescing for continuous controls (faders, knobs). When a user drags a fader, multiple rapid value changes should result in a single undo point rather than one per change.
+
+**How it works:**
+
+1. Client sends `gesture/start` when user begins dragging
+2. Client sends value changes (`track/setVolume`, `track/setPan`)
+3. Client sends `gesture/end` when user releases
+4. Server creates a single undo point for the entire gesture
+
+**Safety nets:**
+
+- If client disconnects during gesture, server flushes undo automatically
+- If `gesture/end` is missed, a 500ms timeout flushes the gesture
+- Multiple clients can gesture the same control (reference counted)
+
+### `gesture/start`
+
+Begin a gesture on a continuous control.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `controlType` | string | Yes | `"volume"` or `"pan"` |
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+
+```json
+{"type": "command", "command": "gesture/start", "controlType": "volume", "trackIdx": 1}
+```
+
+### `gesture/end`
+
+End a gesture on a continuous control. Triggers undo point creation.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `controlType` | string | Yes | `"volume"` or `"pan"` |
+| `trackIdx` | int | Yes | Track index |
+
+```json
+{"type": "command", "command": "gesture/end", "controlType": "volume", "trackIdx": 1}
 ```
 
 ---

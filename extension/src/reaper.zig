@@ -91,6 +91,13 @@ pub const Api = struct {
     undo_EndBlock2: ?*const fn (?*anyopaque, [*:0]const u8, c_int) callconv(.c) void = null,
     undo_OnStateChange: ?*const fn ([*:0]const u8) callconv(.c) void = null,
 
+    // Control Surface API (for undo-coalesced continuous control changes)
+    csurf_OnVolumeChange: ?*const fn (?*anyopaque, f64, bool) callconv(.c) f64 = null,
+    csurf_OnVolumeChangeEx: ?*const fn (?*anyopaque, f64, bool, bool) callconv(.c) f64 = null,
+    csurf_OnPanChange: ?*const fn (?*anyopaque, f64, bool) callconv(.c) f64 = null,
+    csurf_OnPanChangeEx: ?*const fn (?*anyopaque, f64, bool, bool) callconv(.c) f64 = null,
+    csurf_FlushUndo: ?*const fn (bool) callconv(.c) void = null,
+
     // Metering
     track_GetPeakInfo: ?*const fn (?*anyopaque, c_int) callconv(.c) f64 = null,
     track_GetPeakHoldDB: ?*const fn (?*anyopaque, c_int, bool) callconv(.c) f64 = null,
@@ -165,6 +172,12 @@ pub const Api = struct {
             .undo_BeginBlock2 = getFunc(info, "Undo_BeginBlock2", fn (?*anyopaque) callconv(.c) void),
             .undo_EndBlock2 = getFunc(info, "Undo_EndBlock2", fn (?*anyopaque, [*:0]const u8, c_int) callconv(.c) void),
             .undo_OnStateChange = getFunc(info, "Undo_OnStateChange", fn ([*:0]const u8) callconv(.c) void),
+            // Control Surface API
+            .csurf_OnVolumeChange = getFunc(info, "CSurf_OnVolumeChange", fn (?*anyopaque, f64, bool) callconv(.c) f64),
+            .csurf_OnVolumeChangeEx = getFunc(info, "CSurf_OnVolumeChangeEx", fn (?*anyopaque, f64, bool, bool) callconv(.c) f64),
+            .csurf_OnPanChange = getFunc(info, "CSurf_OnPanChange", fn (?*anyopaque, f64, bool) callconv(.c) f64),
+            .csurf_OnPanChangeEx = getFunc(info, "CSurf_OnPanChangeEx", fn (?*anyopaque, f64, bool, bool) callconv(.c) f64),
+            .csurf_FlushUndo = getFunc(info, "CSurf_FlushUndo", fn (bool) callconv(.c) void),
             // Metering
             .track_GetPeakInfo = getFunc(info, "Track_GetPeakInfo", fn (?*anyopaque, c_int) callconv(.c) f64),
             .track_GetPeakHoldDB = getFunc(info, "Track_GetPeakHoldDB", fn (?*anyopaque, c_int, bool) callconv(.c) f64),
@@ -381,6 +394,38 @@ pub const Api = struct {
     pub fn undoAddPoint(self: *const Api, description: [*:0]const u8) void {
         const f = self.undo_OnStateChange orelse return;
         f(description);
+    }
+
+    // Control Surface: set track volume (undo-coalesced, use with csurfFlushUndo)
+    // Returns the new volume value. Use allowGang=true to respect track grouping.
+    pub fn csurfSetVolume(self: *const Api, track: *anyopaque, vol: f64, allowGang: bool) f64 {
+        if (self.csurf_OnVolumeChangeEx) |f| {
+            return f(track, vol, false, allowGang);
+        } else if (self.csurf_OnVolumeChange) |f| {
+            return f(track, vol, false);
+        }
+        // Fallback to direct set (creates immediate undo point)
+        _ = self.setTrackVolume(track, vol);
+        return vol;
+    }
+
+    // Control Surface: set track pan (undo-coalesced, use with csurfFlushUndo)
+    // Returns the new pan value. Use allowGang=true to respect track grouping.
+    pub fn csurfSetPan(self: *const Api, track: *anyopaque, pan: f64, allowGang: bool) f64 {
+        if (self.csurf_OnPanChangeEx) |f| {
+            return f(track, pan, false, allowGang);
+        } else if (self.csurf_OnPanChange) |f| {
+            return f(track, pan, false);
+        }
+        // Fallback to direct set (creates immediate undo point)
+        _ = self.setTrackPan(track, pan);
+        return pan;
+    }
+
+    // Control Surface: flush pending undo (creates single undo point for all CSurf changes)
+    pub fn csurfFlushUndo(self: *const Api, force: bool) void {
+        const f = self.csurf_FlushUndo orelse return;
+        f(force);
     }
 
     // Time conversion: beats (quarter notes from project start) to seconds
