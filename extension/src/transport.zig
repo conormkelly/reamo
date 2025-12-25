@@ -108,7 +108,9 @@ pub const State = struct {
         const display_bar = self.position_bar + self.bar_offset;
         const beat_int: u32 = @intFromFloat(@max(1.0, @trunc(self.position_beat)));
         // Round ticks to match REAPER's display (add 0.5 before truncating)
-        const ticks: u32 = @intFromFloat(@mod(self.position_beat, 1.0) * 100.0 + 0.5);
+        // Clamp to 99 max - REAPER itself clamps ticks (e.g., 1.2.100 becomes 1.2.99)
+        const raw_ticks: u32 = @intFromFloat(@mod(self.position_beat, 1.0) * 100.0 + 0.5);
+        const ticks: u32 = @min(99, raw_ticks);
 
         // Truncate time values to 3 decimal places to match REAPER's display
         const position = truncateMs(self.currentPosition());

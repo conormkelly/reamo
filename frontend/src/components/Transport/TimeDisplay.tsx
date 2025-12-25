@@ -61,9 +61,9 @@ export function TimeDisplay({
             {format === 'beats' && <span ref={beatsRef}>1.1.00</span>}
             {format === 'both' && (
               <>
-                <span ref={timeRef}>0:00.000</span>
+                <span ref={beatsRef}>1.1.00</span>
                 <span className="text-gray-500 mx-2">|</span>
-                <span ref={beatsRef} className="text-gray-400">1.1.00</span>
+                <span ref={timeRef} className="text-gray-400">0:00.000</span>
               </>
             )}
           </>
