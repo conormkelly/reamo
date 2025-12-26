@@ -196,8 +196,9 @@ pub const State = struct {
 
             w.writeAll("{\"guid\":\"") catch return null;
             w.writeAll(item.getGUID()) catch return null;
+            // Output unified trackIdx (0 = master, 1+ = user tracks)
             w.print("\",\"trackIdx\":{d},\"itemIdx\":{d},\"position\":{d:.3},\"length\":{d:.3},", .{
-                item.track_idx, item.item_idx, item.position, item.length,
+                item.track_idx + 1, item.item_idx, item.position, item.length,
             }) catch return null;
             w.print("\"color\":{d},\"locked\":{},\"selected\":{},\"activeTakeIdx\":{d},\"notes\":\"", .{
                 item.color, item.locked, item.selected, item.active_take_idx,
@@ -326,8 +327,9 @@ test "State items JSON output" {
     var buf: [2048]u8 = undefined;
     const json = state.itemsToJson(&buf).?;
 
+    // trackIdx is unified: internal track_idx 0 becomes trackIdx 1 (0 = master, 1+ = user tracks)
     try std.testing.expectEqualStrings(
-        "{\"type\":\"event\",\"event\":\"items\",\"payload\":{\"items\":[{\"guid\":\"{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}\",\"trackIdx\":0,\"itemIdx\":0,\"position\":10.000,\"length\":5.000,\"color\":16711680,\"locked\":false,\"selected\":false,\"activeTakeIdx\":0,\"notes\":\"\",\"takes\":[{\"guid\":\"{11111111-2222-3333-4444-555555555555}\",\"name\":\"Main\",\"isActive\":true,\"isMIDI\":false}]}]}}",
+        "{\"type\":\"event\",\"event\":\"items\",\"payload\":{\"items\":[{\"guid\":\"{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}\",\"trackIdx\":1,\"itemIdx\":0,\"position\":10.000,\"length\":5.000,\"color\":16711680,\"locked\":false,\"selected\":false,\"activeTakeIdx\":0,\"notes\":\"\",\"takes\":[{\"guid\":\"{11111111-2222-3333-4444-555555555555}\",\"name\":\"Main\",\"isActive\":true,\"isMIDI\":false}]}]}}",
         json,
     );
 }

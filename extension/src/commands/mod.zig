@@ -228,6 +228,7 @@ test "registry contains expected commands" {
         "item/goto",
         "item/selectInTimeSel",
         "item/unselectAll",
+        "item/getPeaks",
         // Takes
         "take/delete",
         "take/cropToActive",

@@ -84,7 +84,13 @@ pub const Api = struct {
     takeIsMIDI: ?*const fn (?*anyopaque) callconv(.c) bool = null,
     getMediaItemTake_Source: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque = null,
     getMediaSourceNumChannels: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
+    getMediaSourceParent: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque = null,
     getMediaItemTake_Peaks: ?*const fn (?*anyopaque, f64, f64, c_int, c_int, c_int, [*]f64) callconv(.c) c_int = null,
+
+    // AudioAccessor - for reading raw audio samples from takes
+    createTakeAudioAccessor: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque = null,
+    destroyAudioAccessor: ?*const fn (?*anyopaque) callconv(.c) void = null,
+    getAudioAccessorSamples: ?*const fn (?*anyopaque, c_int, c_int, f64, c_int, [*]f64) callconv(.c) c_int = null,
 
     // ExtState (global and project-specific)
     getExtState: ?*const fn ([*:0]const u8, [*:0]const u8) callconv(.c) ?[*:0]const u8 = null,
@@ -180,7 +186,12 @@ pub const Api = struct {
             .takeIsMIDI = getFunc(info, "TakeIsMIDI", fn (?*anyopaque) callconv(.c) bool),
             .getMediaItemTake_Source = getFunc(info, "GetMediaItemTake_Source", fn (?*anyopaque) callconv(.c) ?*anyopaque),
             .getMediaSourceNumChannels = getFunc(info, "GetMediaSourceNumChannels", fn (?*anyopaque) callconv(.c) c_int),
+            .getMediaSourceParent = getFunc(info, "GetMediaSourceParent", fn (?*anyopaque) callconv(.c) ?*anyopaque),
             .getMediaItemTake_Peaks = getFunc(info, "GetMediaItemTake_Peaks", fn (?*anyopaque, f64, f64, c_int, c_int, c_int, [*]f64) callconv(.c) c_int),
+            // AudioAccessor
+            .createTakeAudioAccessor = getFunc(info, "CreateTakeAudioAccessor", fn (?*anyopaque) callconv(.c) ?*anyopaque),
+            .destroyAudioAccessor = getFunc(info, "DestroyAudioAccessor", fn (?*anyopaque) callconv(.c) void),
+            .getAudioAccessorSamples = getFunc(info, "GetAudioAccessorSamples", fn (?*anyopaque, c_int, c_int, f64, c_int, [*]f64) callconv(.c) c_int),
             // ExtState
             .getExtState = getFunc(info, "GetExtState", fn ([*:0]const u8, [*:0]const u8) callconv(.c) ?[*:0]const u8),
             .getProjExtState = getFunc(info, "GetProjExtState", fn (?*anyopaque, [*:0]const u8, [*:0]const u8, [*]u8, c_int) callconv(.c) c_int),
@@ -934,6 +945,17 @@ pub const Api = struct {
         return f(source);
     }
 
+    /// Get the root (PCM) source by traversing parent chain
+    /// Returns the deepest parent, or the original source if no parent
+    pub fn getRootSource(self: *const Api, source: *anyopaque) *anyopaque {
+        const f = self.getMediaSourceParent orelse return source;
+        var current = source;
+        while (f(current)) |parent| {
+            current = parent;
+        }
+        return current;
+    }
+
     /// Get waveform peaks for a take
     /// peakrate: peaks per second (e.g., item_duration/desired_peaks)
     /// starttime/numchannels: usually 0 and source channel count
@@ -944,6 +966,33 @@ pub const Api = struct {
         const f = self.getMediaItemTake_Peaks orelse return 0;
         const want_extra: c_int = 0; // We don't need extra info (source location)
         return f(take, peakrate, starttime, numchannels, numsamplesperchannel, want_extra, buf.ptr);
+    }
+
+    // AudioAccessor methods - for reading raw audio samples
+
+    /// Create an audio accessor for a take. Must be destroyed with destroyTakeAccessor.
+    /// Returns null if the API is unavailable or take is invalid.
+    pub fn makeTakeAccessor(self: *const Api, take: *anyopaque) ?*anyopaque {
+        const f = self.createTakeAudioAccessor orelse return null;
+        return f(take);
+    }
+
+    /// Destroy an audio accessor created with makeTakeAccessor.
+    pub fn destroyTakeAccessor(self: *const Api, accessor: *anyopaque) void {
+        const f = self.destroyAudioAccessor orelse return;
+        f(accessor);
+    }
+
+    /// Get audio samples from an accessor.
+    /// samplerate: sample rate to read at (e.g., 44100)
+    /// numchannels: number of channels to read
+    /// starttime_sec: start time in seconds (source-relative)
+    /// numsamplesperchannel: number of samples to read per channel
+    /// buf: buffer for interleaved samples (needs numchannels * numsamplesperchannel floats)
+    /// Returns: 0=no audio, 1=audio, -1=error
+    pub fn readAccessorSamples(self: *const Api, accessor: *anyopaque, samplerate: c_int, numchannels: c_int, starttime_sec: f64, numsamplesperchannel: c_int, buf: []f64) c_int {
+        const f = self.getAudioAccessorSamples orelse return -1;
+        return f(accessor, samplerate, numchannels, starttime_sec, numsamplesperchannel, buf.ptr);
     }
 
     // Metering methods

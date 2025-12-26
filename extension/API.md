@@ -528,6 +528,58 @@ Deselect all items.
 {"type": "command", "command": "item/unselectAll"}
 ```
 
+### `item/getPeaks`
+
+Get waveform peak data for an item's active take. Use for waveform visualization.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (unified: 0 = master, 1+ = user tracks) |
+| `itemIdx` | int | Yes | Item index within track (0-based) |
+| `width` | int | No | Number of peaks to return (default: 400, max: 2000) |
+
+```json
+{"type": "command", "command": "item/getPeaks", "trackIdx": 1, "itemIdx": 0, "width": 800, "id": "1"}
+```
+
+**Response:**
+
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": {
+    "itemGUID": "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}",
+    "takeGUID": "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}",
+    "length": 5.0,
+    "startOffset": 0.0,
+    "playrate": 1.0,
+    "channels": 2,
+    "peaks": [
+      {"l": [-0.5, 0.6], "r": [-0.4, 0.5]},
+      {"l": [-0.7, 0.8], "r": [-0.6, 0.7]}
+    ]
+  }
+}
+```
+
+**Peak format:**
+- Stereo: `{"l": [min, max], "r": [min, max]}`
+- Mono: `[min, max]`
+- Values normalized to -1.0 to 1.0
+
+**Errors:**
+- `NOT_FOUND` - Item not found at trackIdx/itemIdx
+- `NO_TAKE` - Item has no active take
+- `MIDI_ITEM` - Item contains MIDI, not audio
+- `EMPTY_ITEM` - Item has zero length
+- `INVALID_WIDTH` - Width out of range (1-2000)
+- `ACCESSOR_ERROR` - Failed to create audio accessor
+- `SERIALIZE_ERROR` - Failed to serialize peaks
+
+**Cache key:** Frontend should cache using `{itemGUID, takeGUID, length, startOffset, playrate}`. Re-fetch when any of these change in the `items` event.
+
 ---
 
 ## Take Commands
@@ -1111,17 +1163,17 @@ High-frequency event broadcast every ~30ms during playback, containing position-
 
 ### `items` Event
 
-Only includes items overlapping the current time selection (if any).
+Broadcasts all items in the project. Frontend filters by time selection as needed.
 
 ```json
 {
   "type": "event",
   "event": "items",
   "payload": {
-    "timeSelection": {"start": 0.000, "end": 60.000},
     "items": [
       {
-        "trackIdx": 0,
+        "guid": "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}",
+        "trackIdx": 1,
         "itemIdx": 0,
         "position": 10.000,
         "length": 5.000,
@@ -1131,14 +1183,32 @@ Only includes items overlapping the current time selection (if any).
         "activeTakeIdx": 0,
         "notes": "",
         "takes": [
-          {"name": "Take 1", "isActive": true},
-          {"name": "Take 2", "isActive": false}
+          {
+            "guid": "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}",
+            "name": "Take 1",
+            "isActive": true,
+            "isMIDI": false
+          },
+          {
+            "guid": "{YYYYYYYY-YYYY-YYYY-YYYY-YYYYYYYYYYYY}",
+            "name": "Take 2",
+            "isActive": false,
+            "isMIDI": false
+          }
         ]
       }
     ]
   }
 }
 ```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `items[].guid` | string | Stable item identifier (REAPER GUID) |
+| `items[].trackIdx` | int | Track index (unified: 0 = master, 1+ = user tracks) |
+| `items[].itemIdx` | int | Item index within track (0-based) |
+| `items[].takes[].guid` | string | Stable take identifier for cache keying |
+| `items[].takes[].isMIDI` | bool | If true, skip peaks request (MIDI items have no audio waveform) |
 
 ### `project` Event
 

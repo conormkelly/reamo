@@ -197,6 +197,37 @@ Without this check, you get garbage theme colors (e.g., 0x00C04000 orange-red) i
 
 Convert linear to dB: `dB = 20 * log10(linear)`
 
+### Audio Peaks / Waveform Data
+
+**GetMediaSourceNumChannels is unreliable** — returns 1 for stereo files in many cases. This is a known REAPER bug. Do NOT rely on it for mono/stereo detection.
+
+**Workaround:** Use `AudioAccessor` to read actual audio samples, then detect mono vs stereo by comparing L/R channel data:
+
+```zig
+// Always request stereo from AudioAccessor
+const num_channels: usize = 2;
+
+// After reading peaks, detect actual channel count
+const detected_channels: usize = blk: {
+    const epsilon = 0.0001;
+    for (0..num_peaks) |i| {
+        if (@abs(peak_max[i * 2] - peak_max[i * 2 + 1]) > epsilon or
+            @abs(peak_min[i * 2] - peak_min[i * 2 + 1]) > epsilon) {
+            break :blk 2; // Different L/R = true stereo
+        }
+    }
+    break :blk 1; // All L/R identical = mono (or dual mono)
+};
+```
+
+**GetMediaItemTake_Peaks** also has issues — returns all zeros for some source types. We use `AudioAccessor` (`CreateTakeAudioAccessor` / `GetAudioAccessorSamples`) instead, which reads actual audio samples reliably.
+
+**AudioAccessor approach:**
+1. `CreateTakeAudioAccessor(take)` - create accessor
+2. `GetAudioAccessorSamples(accessor, samplerate, numchannels, starttime, numsamplespersec, samplebuffer)` - read raw samples
+3. Compute min/max peaks from sample windows
+4. `DestroyAudioAccessor(accessor)` - cleanup
+
 ### Track Selection
 
 To get/set track selection:

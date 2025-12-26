@@ -1056,34 +1056,41 @@ TOKEN=$(curl -s "http://localhost:8099/_/GET/EXTSTATE/Reamo/SessionToken")
 
 ## Implementation Checklist
 
-### Phase 1: Backend Foundation
-- [ ] Add GetMediaItemTake_Peaks binding to reaper.zig
-- [ ] Add TakeIsMIDI binding
-- [ ] Add GetMediaItemTake_Source binding
-- [ ] Add GetMediaSourceNumChannels binding
-- [ ] Add GetSetMediaItemTakeInfo_String binding (for take GUID)
-- [ ] Add wrapper methods for new APIs
-- [ ] Add GUIDs to Item and Take structs in items.zig
-- [ ] Add isMIDI field to Take struct
-- [ ] Remove time_sel_start/time_sel_end from items.State struct (transport.zig has its own)
-- [ ] Update items.State.poll() to fetch GUIDs and isMIDI
-- [ ] Remove time selection filter from items.State.poll() (send ALL items)
-- [ ] Update itemsToJson() to remove timeSelection, add GUIDs and isMIDI
-- [ ] Add items to initial snapshot in main.zig
-- [ ] Build and test with websocat - verify items event format
+### Phase 1: Backend Foundation ✅ COMPLETE
+- [x] Add TakeIsMIDI binding
+- [x] Add GetMediaItemTake_Source binding
+- [x] Add GetMediaSourceNumChannels binding (note: unreliable, see Phase 2)
+- [x] Add GetSetMediaItemTakeInfo_String binding (for take GUID)
+- [x] Add AudioAccessor bindings (CreateTakeAudioAccessor, GetAudioAccessorSamples, DestroyAudioAccessor)
+- [x] Add wrapper methods for new APIs
+- [x] Add GUIDs to Item and Take structs in items.zig
+- [x] Add isMIDI field to Take struct
+- [x] Update items.State.poll() to fetch GUIDs and isMIDI
+- [x] Remove time selection filter from items.State.poll() (send ALL items)
+- [x] Update itemsToJson() to remove timeSelection, add GUIDs and isMIDI
+- [x] Add items to initial snapshot in main.zig
+- [x] Build and test with websocat - verify items event format
 
-### Phase 2: Peaks Command
-- [ ] Implement handleItemGetPeaks in commands/items.zig
-- [ ] Implement serializePeaksResponse helper
-- [ ] Add channel count detection (mono vs stereo)
-- [ ] Add to handlers array
-- [ ] Test with websocat (mono and stereo items)
-- [ ] Handle edge cases (MIDI, empty, missing source, no channels)
+### Phase 2: Peaks Command ✅ COMPLETE
+- [x] Implement handleItemGetPeaks in commands/items.zig
+- [x] Implement serializePeaksResponseFromArrays helper
+- [x] Add channel count detection (mono vs stereo via L/R comparison)
+- [x] Add to handlers array
+- [x] Test with websocat (mono and stereo items)
+- [x] Handle edge cases (MIDI, empty, accessor errors)
 
-### Phase 3: Documentation
-- [ ] Update API.md with item/getPeaks command
-- [ ] Update items event documentation with GUIDs
-- [ ] Document cache key strategy
+**Implementation Notes:**
+- `GetMediaItemTake_Peaks` was NOT used — it returns all zeros for some source types
+- `GetMediaSourceNumChannels` is unreliable (returns 1 for stereo files - REAPER bug)
+- Instead, we use `AudioAccessor` to read actual audio samples at low sample rate (4410Hz)
+- Mono vs stereo detection: compare L/R peaks — if identical, report as mono
+- See DEVELOPMENT.md "Audio Peaks / Waveform Data" section for details
+
+### Phase 3: Documentation ✅ COMPLETE
+- [x] Update API.md with item/getPeaks command
+- [x] Update items event documentation with GUIDs and isMIDI
+- [x] Document cache key strategy (in API.md item/getPeaks section)
+- [x] Document REAPER API bugs in DEVELOPMENT.md
 
 ### Phase 4: Frontend (Separate Feature)
 - [ ] Items slice in Zustand store
