@@ -1,6 +1,7 @@
 const std = @import("std");
 const reaper = @import("reaper.zig");
 const transport = @import("transport.zig");
+const project = @import("project.zig");
 const markers = @import("markers.zig");
 const items = @import("items.zig");
 const tracks = @import("tracks.zig");
@@ -20,6 +21,7 @@ var g_gesture_state: ?*gesture_state.GestureState = null;
 var g_server: ?ws_server.Server = null;
 var g_port: u16 = 0;
 var g_last_transport: transport.State = .{};
+var g_last_project: project.State = .{};
 var g_last_markers: markers.State = .{};
 var g_last_items: items.State = .{};
 var g_last_tracks: tracks.State = .{};
@@ -138,6 +140,7 @@ fn initTimerCallback() callconv(.c) void {
 
     // Initialize state caches
     g_last_transport = transport.State.poll(api);
+    g_last_project = project.State.poll(api);
     g_last_markers = markers.State.poll(api);
     g_last_items = items.State.poll(api);
     g_last_tracks = tracks.State.poll(api);
@@ -194,6 +197,7 @@ fn processTimerCallback() callconv(.c) void {
     if (snapshot_count > 0) {
         // Get current state for all domains
         const trans = transport.State.poll(api);
+        const proj = project.State.poll(api);
         const mark = markers.State.poll(api);
         const trks = tracks.State.poll(api);
 
@@ -202,6 +206,11 @@ fn processTimerCallback() callconv(.c) void {
             // Transport
             var buf1: [512]u8 = undefined;
             if (trans.toJson(&buf1)) |json| {
+                shared_state.sendToClient(client_id, json);
+            }
+            // Project (undo/redo state)
+            var buf_proj: [512]u8 = undefined;
+            if (proj.toJson(&buf_proj)) |json| {
                 shared_state.sendToClient(client_id, json);
             }
             // Markers
@@ -230,6 +239,16 @@ fn processTimerCallback() callconv(.c) void {
             shared_state.broadcast(json);
         }
         g_last_transport = current_transport;
+    }
+
+    // Poll project state (undo/redo) and broadcast changes
+    const current_project = project.State.poll(api);
+    if (!current_project.eql(&g_last_project)) {
+        var buf: [512]u8 = undefined;
+        if (current_project.toJson(&buf)) |json| {
+            shared_state.broadcast(json);
+        }
+        g_last_project = current_project;
     }
 
     // Poll markers/regions and broadcast changes
@@ -373,6 +392,7 @@ export fn ReaperPluginEntry(hInstance: ?*anyopaque, rec: ?*reaper.PluginInfo) ca
 test {
     _ = @import("protocol.zig");
     _ = @import("transport.zig");
+    _ = @import("project.zig");
     _ = @import("markers.zig");
     _ = @import("items.zig");
     _ = @import("tracks.zig");

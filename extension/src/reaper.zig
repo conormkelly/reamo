@@ -90,6 +90,13 @@ pub const Api = struct {
     undo_BeginBlock2: ?*const fn (?*anyopaque) callconv(.c) void = null,
     undo_EndBlock2: ?*const fn (?*anyopaque, [*:0]const u8, c_int) callconv(.c) void = null,
     undo_OnStateChange: ?*const fn ([*:0]const u8) callconv(.c) void = null,
+    undo_CanUndo2: ?*const fn (?*anyopaque) callconv(.c) ?[*:0]const u8 = null,
+    undo_CanRedo2: ?*const fn (?*anyopaque) callconv(.c) ?[*:0]const u8 = null,
+    undo_DoUndo2: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
+    undo_DoRedo2: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
+
+    // Project state
+    getProjectStateChangeCount: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
 
     // Control Surface API (for undo-coalesced continuous control changes)
     csurf_OnVolumeChange: ?*const fn (?*anyopaque, f64, bool) callconv(.c) f64 = null,
@@ -172,6 +179,12 @@ pub const Api = struct {
             .undo_BeginBlock2 = getFunc(info, "Undo_BeginBlock2", fn (?*anyopaque) callconv(.c) void),
             .undo_EndBlock2 = getFunc(info, "Undo_EndBlock2", fn (?*anyopaque, [*:0]const u8, c_int) callconv(.c) void),
             .undo_OnStateChange = getFunc(info, "Undo_OnStateChange", fn ([*:0]const u8) callconv(.c) void),
+            .undo_CanUndo2 = getFunc(info, "Undo_CanUndo2", fn (?*anyopaque) callconv(.c) ?[*:0]const u8),
+            .undo_CanRedo2 = getFunc(info, "Undo_CanRedo2", fn (?*anyopaque) callconv(.c) ?[*:0]const u8),
+            .undo_DoUndo2 = getFunc(info, "Undo_DoUndo2", fn (?*anyopaque) callconv(.c) c_int),
+            .undo_DoRedo2 = getFunc(info, "Undo_DoRedo2", fn (?*anyopaque) callconv(.c) c_int),
+            // Project state
+            .getProjectStateChangeCount = getFunc(info, "GetProjectStateChangeCount", fn (?*anyopaque) callconv(.c) c_int),
             // Control Surface API
             .csurf_OnVolumeChange = getFunc(info, "CSurf_OnVolumeChange", fn (?*anyopaque, f64, bool) callconv(.c) f64),
             .csurf_OnVolumeChangeEx = getFunc(info, "CSurf_OnVolumeChangeEx", fn (?*anyopaque, f64, bool, bool) callconv(.c) f64),
@@ -394,6 +407,38 @@ pub const Api = struct {
     pub fn undoAddPoint(self: *const Api, description: [*:0]const u8) void {
         const f = self.undo_OnStateChange orelse return;
         f(description);
+    }
+
+    // Undo: get description of next undo action (or null if nothing to undo)
+    pub fn canUndo(self: *const Api) ?[]const u8 {
+        const f = self.undo_CanUndo2 orelse return null;
+        const ptr = f(null) orelse return null;
+        return std.mem.sliceTo(ptr, 0);
+    }
+
+    // Undo: get description of next redo action (or null if nothing to redo)
+    pub fn canRedo(self: *const Api) ?[]const u8 {
+        const f = self.undo_CanRedo2 orelse return null;
+        const ptr = f(null) orelse return null;
+        return std.mem.sliceTo(ptr, 0);
+    }
+
+    // Undo: perform undo, returns true on success
+    pub fn doUndo(self: *const Api) bool {
+        const f = self.undo_DoUndo2 orelse return false;
+        return f(null) != 0;
+    }
+
+    // Undo: perform redo, returns true on success
+    pub fn doRedo(self: *const Api) bool {
+        const f = self.undo_DoRedo2 orelse return false;
+        return f(null) != 0;
+    }
+
+    // Project: get state change counter (increments on any project change)
+    pub fn projectStateChangeCount(self: *const Api) c_int {
+        const f = self.getProjectStateChangeCount orelse return 0;
+        return f(null);
     }
 
     // Control Surface: set track volume (undo-coalesced, use with csurfFlushUndo)

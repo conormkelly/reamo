@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import { createConnectionSlice, type ConnectionSlice } from './slices/connectionSlice';
 import { createTransportSlice, type TransportSlice } from './slices/transportSlice';
+import { createProjectSlice, type ProjectSlice } from './slices/projectSlice';
 import { createTracksSlice, type TracksSlice } from './slices/tracksSlice';
 import { createRegionsSlice, type RegionsSlice } from './slices/regionsSlice';
 import { createMarkersSlice, type MarkersSlice } from './slices/markersSlice';
@@ -15,6 +16,7 @@ import { ActionCommands, SWSCommands } from '../core/types';
 import type {
   ServerMessage,
   TransportEventPayload,
+  ProjectEventPayload,
   TracksEventPayload,
   MarkersEventPayload,
   RegionsEventPayload,
@@ -22,6 +24,7 @@ import type {
 import {
   isEventMessage,
   isTransportEvent,
+  isProjectEvent,
   isTracksEvent,
   isMarkersEvent,
   isRegionsEvent,
@@ -29,7 +32,7 @@ import {
 import { transportEngine } from '../core/TransportAnimationEngine';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & {
+export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & {
   // Response handler action (legacy HTTP)
   handleResponses: (responses: ParsedResponse[]) => void;
   // WebSocket message handler
@@ -41,6 +44,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   // Spread all slices
   ...createConnectionSlice(set, get, store),
   ...createTransportSlice(set, get, store),
+  ...createProjectSlice(set, get, store),
   ...createTracksSlice(set, get, store),
   ...createRegionsSlice(set, get, store),
   ...createMarkersSlice(set, get, store),
@@ -171,6 +175,9 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
           : null,
         barOffset: p.barOffset ?? 0,
       });
+    } else if (isProjectEvent(message)) {
+      const p = message.payload as ProjectEventPayload;
+      get().setReaperUndoState(p.canUndo, p.canRedo);
     } else if (isTracksEvent(message)) {
       const p = message.payload as TracksEventPayload;
       // Convert WSTrack format to Track format
@@ -248,6 +255,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
 // Re-export slice types
 export type { ConnectionSlice } from './slices/connectionSlice';
 export type { TransportSlice } from './slices/transportSlice';
+export type { ProjectSlice } from './slices/projectSlice';
 export type { TracksSlice } from './slices/tracksSlice';
 export type { RegionsSlice } from './slices/regionsSlice';
 export type { MarkersSlice } from './slices/markersSlice';

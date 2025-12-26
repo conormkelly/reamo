@@ -53,10 +53,11 @@ export interface EventMessage {
   payload?: EventPayload; // Optional for events like 'reload' that have no payload
 }
 
-export type EventType = 'transport' | 'tracks' | 'markers' | 'regions' | 'items' | 'reload';
+export type EventType = 'transport' | 'project' | 'tracks' | 'markers' | 'regions' | 'items' | 'reload';
 
 export type EventPayload =
   | TransportEventPayload
+  | ProjectEventPayload
   | TracksEventPayload
   | MarkersEventPayload
   | RegionsEventPayload
@@ -94,6 +95,16 @@ export interface TransportEventPayload {
   };
   projectLength: number; // seconds
   barOffset: number; // bar offset (e.g., -4 means time 0 = bar 1, display starts at bar -4)
+}
+
+// =============================================================================
+// Project Event (undo/redo state)
+// =============================================================================
+
+export interface ProjectEventPayload {
+  canUndo: string | null; // Description of next undo action, or null
+  canRedo: string | null; // Description of next redo action, or null
+  stateChangeCount: number; // Counter for change detection
 }
 
 // =============================================================================
@@ -277,6 +288,12 @@ export function isTransportEvent(
   msg: EventMessage
 ): msg is EventMessage & { payload: TransportEventPayload } {
   return msg.event === 'transport';
+}
+
+export function isProjectEvent(
+  msg: EventMessage
+): msg is EventMessage & { payload: ProjectEventPayload } {
+  return msg.event === 'project';
 }
 
 export function isTracksEvent(

@@ -867,6 +867,38 @@ End an undo block.
 {"type": "command", "command": "undo/end", "description": "Batch edit"}
 ```
 
+### `undo/do`
+
+Execute undo (revert last action). **Returns data.**
+
+```json
+{"type": "command", "command": "undo/do", "id": "1"}
+```
+
+Response:
+
+```json
+{"type": "response", "id": "1", "success": true, "payload": {"action": "Changed marker"}}
+```
+
+Returns the description of what was undone. If nothing to undo, returns `{"action": null}`.
+
+### `redo/do`
+
+Execute redo (re-apply last undone action). **Returns data.**
+
+```json
+{"type": "command", "command": "redo/do", "id": "1"}
+```
+
+Response:
+
+```json
+{"type": "response", "id": "1", "success": true, "payload": {"action": "Changed marker"}}
+```
+
+Returns the description of what was redone. If nothing to redo, returns `{"action": null}`.
+
 ---
 
 ## Gesture Commands
@@ -1109,6 +1141,28 @@ Only includes items overlapping the current time selection (if any).
   }
 }
 ```
+
+### `project` Event
+
+Broadcast when undo/redo availability changes (on connect and when `GetProjectStateChangeCount()` changes).
+
+```json
+{
+  "type": "event",
+  "event": "project",
+  "payload": {
+    "canUndo": "Changed marker",
+    "canRedo": null,
+    "stateChangeCount": 42
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `canUndo` | string\|null | Description of next undo action, or null if nothing to undo |
+| `canRedo` | string\|null | Description of next redo action, or null if nothing to redo |
+| `stateChangeCount` | int | Project state change counter (for detecting changes) |
 
 ---
 

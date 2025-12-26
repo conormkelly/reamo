@@ -32,6 +32,7 @@ import {
   MakeSelectionModal,
   MarkerInfoBar,
 } from './components';
+import { ToastContainer, useToast } from './components/Toast';
 import { useTracks } from './hooks';
 import { useReaperStore } from './store';
 
@@ -102,6 +103,7 @@ function AppContent() {
   const [mixerCollapsed, setMixerCollapsed] = useState(false);
   const [timelineCollapsed, setTimelineCollapsed] = useState(false);
   const timelineMode = useReaperStore((s) => s.timelineMode);
+  const { toasts, showUndo, showRedo, dismissToast } = useToast();
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-4">
@@ -124,8 +126,8 @@ function AppContent() {
       <section className="mb-6">
         <TransportBar className="mb-3" />
         <div className="flex flex-wrap items-center justify-center gap-2">
-          <UndoButton />
-          <RedoButton />
+          <UndoButton onUndo={showUndo} />
+          <RedoButton onRedo={showRedo} />
           <SaveButton />
         </div>
       </section>
@@ -225,6 +227,9 @@ function AppContent() {
         isOpen={showMakeSelectionModal}
         onClose={() => setShowMakeSelectionModal(false)}
       />
+
+      {/* Toast notifications for undo/redo feedback */}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }

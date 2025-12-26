@@ -330,6 +330,17 @@ export const undo = {
     command: 'undo/end',
     params: { description },
   }),
+  /** Perform undo - returns { success: true, action: "description" } */
+  do: (): WSCommand => ({ command: 'undo/do' }),
+};
+
+// =============================================================================
+// Redo Commands
+// =============================================================================
+
+export const redo = {
+  /** Perform redo - returns { success: true, action: "description" } */
+  do: (): WSCommand => ({ command: 'redo/do' }),
 };
 
 // =============================================================================

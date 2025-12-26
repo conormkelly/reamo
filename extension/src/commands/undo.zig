@@ -8,6 +8,8 @@ pub const handlers = [_]mod.Entry{
     .{ .name = "undo/add", .handler = handleAdd },
     .{ .name = "undo/begin", .handler = handleBegin },
     .{ .name = "undo/end", .handler = handleEnd },
+    .{ .name = "undo/do", .handler = handleUndo },
+    .{ .name = "redo/do", .handler = handleRedo },
 };
 
 // Add a simple undo point with description
@@ -51,4 +53,46 @@ fn handleEnd(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
     api.undoEndBlock(desc_z);
     api.log("Reamo: Undo block ended: {s}", .{description});
     response.success(null);
+}
+
+// Perform undo
+fn handleUndo(api: *const reaper.Api, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    // Get the description of what will be undone BEFORE doing it
+    const action_desc = api.canUndo();
+
+    if (action_desc == null) {
+        response.err("NOTHING_TO_UNDO", "No undo action available");
+        return;
+    }
+
+    if (!api.doUndo()) {
+        response.err("UNDO_FAILED", "Undo operation failed");
+        return;
+    }
+
+    api.log("Reamo: Undo performed: {s}", .{action_desc.?});
+
+    // Return success with the action that was undone
+    response.successWithAction(action_desc.?);
+}
+
+// Perform redo
+fn handleRedo(api: *const reaper.Api, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    // Get the description of what will be redone BEFORE doing it
+    const action_desc = api.canRedo();
+
+    if (action_desc == null) {
+        response.err("NOTHING_TO_REDO", "No redo action available");
+        return;
+    }
+
+    if (!api.doRedo()) {
+        response.err("REDO_FAILED", "Redo operation failed");
+        return;
+    }
+
+    api.log("Reamo: Redo performed: {s}", .{action_desc.?});
+
+    // Return success with the action that was redone
+    response.successWithAction(action_desc.?);
 }

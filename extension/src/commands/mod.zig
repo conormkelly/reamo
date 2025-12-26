@@ -53,6 +53,46 @@ pub const ResponseWriter = struct {
         self.shared_state.sendToClient(self.client_id, json);
     }
 
+    /// Success response with an action string (for undo/redo commands)
+    pub fn successWithAction(self: *ResponseWriter, action: []const u8) void {
+        if (self.cmd_id == null) return;
+
+        // Escape the action string for JSON
+        var escaped: [512]u8 = undefined;
+        var escaped_len: usize = 0;
+        for (action) |c| {
+            if (escaped_len + 2 > escaped.len) break;
+            switch (c) {
+                '"' => {
+                    escaped[escaped_len] = '\\';
+                    escaped[escaped_len + 1] = '"';
+                    escaped_len += 2;
+                },
+                '\\' => {
+                    escaped[escaped_len] = '\\';
+                    escaped[escaped_len + 1] = '\\';
+                    escaped_len += 2;
+                },
+                '\n' => {
+                    escaped[escaped_len] = '\\';
+                    escaped[escaped_len + 1] = 'n';
+                    escaped_len += 2;
+                },
+                else => {
+                    if (c >= 0x20) {
+                        escaped[escaped_len] = c;
+                        escaped_len += 1;
+                    }
+                },
+            }
+        }
+
+        var buf: [768]u8 = undefined;
+        const json = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"action\":\"{s}\"}}", .{ self.cmd_id.?, escaped[0..escaped_len] }) catch return;
+
+        self.shared_state.sendToClient(self.client_id, json);
+    }
+
     pub fn err(self: *ResponseWriter, code: []const u8, message: []const u8) void {
         if (self.cmd_id == null) return;
 
@@ -228,6 +268,8 @@ test "registry contains expected commands" {
         "undo/add",
         "undo/begin",
         "undo/end",
+        "undo/do",
+        "redo/do",
         // Actions
         "action/getState",
         "action/execute",
