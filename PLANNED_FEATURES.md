@@ -47,6 +47,10 @@ Double-tap region or zoom to time selection. Single track view with detailed ite
 - No visual stacking of takes (unlike REAPER's arrange view)
 - ItemInfoBar for selected item: take switching, actions
 
+**Architecture decision:** Backend sends ALL items (no server-side filtering). Frontend filters by time selection as needed. This enables LOD overview (colored bars showing "stuff here") and avoids round-trips when switching views. Time selection is obtained from the transport event, not the items event.
+
+> See [ITEMS_MODE_FEATURE.md](ITEMS_MODE_FEATURE.md) for detailed implementation spec.
+
 ### Supported Item Actions
 
 | Action | Purpose | REAPER API |
