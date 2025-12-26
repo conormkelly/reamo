@@ -13,9 +13,12 @@ async function setupTestFixtures(page: Page) {
     timeout: 10000,
   })
 
-  // Inject test data
+  // Inject test data - enable test mode first to prevent WebSocket from overwriting fixtures
   await page.evaluate(() => {
     const store = (window as any).__REAPER_STORE__
+
+    // Enable test mode to prevent WebSocket messages from overwriting fixtures
+    store.getState()._setTestMode(true)
 
     store.setState({
       // Test tracks: Master + 2 user tracks

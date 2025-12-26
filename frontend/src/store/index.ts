@@ -37,10 +37,17 @@ export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & Trac
   handleResponses: (responses: ParsedResponse[]) => void;
   // WebSocket message handler
   handleWebSocketMessage: (message: ServerMessage) => void;
+  // Test mode - when enabled, skips WebSocket message processing to allow fixtures to persist
+  _testMode: boolean;
+  _setTestMode: (enabled: boolean) => void;
 };
 
 // Create the combined store
 export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
+  // Test mode - prevents WebSocket from overwriting fixtures in E2E tests
+  _testMode: false,
+  _setTestMode: (enabled: boolean) => set({ _testMode: enabled }),
+
   // Spread all slices
   ...createConnectionSlice(set, get, store),
   ...createTransportSlice(set, get, store),
@@ -136,6 +143,8 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
 
   // Handle WebSocket messages
   handleWebSocketMessage: (message: ServerMessage) => {
+    // Skip processing in test mode to preserve fixtures
+    if (get()._testMode) return;
     if (!isEventMessage(message)) return;
 
     if (isTransportEvent(message)) {
