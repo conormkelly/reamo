@@ -416,3 +416,158 @@ case 'project':
 - Shows action description
 - Auto-dismiss after 2.5s
 - Queue multiple toasts if rapid undo/redo
+
+---
+
+## Tempo Marker Support
+
+### The Problem
+
+The current implementation uses `GetProjectTimeSignature2()` to fetch BPM and time signature, which **only returns project-level defaults**. This ignores tempo markers entirely.
+
+```zig
+// Current (BROKEN for tempo markers):
+api.getProjectTimeSignature2(null, &bpm, &num, &denom);
+// Returns: project default tempo (e.g., 120 BPM, 4/4)
+// Ignores: any tempo markers in the project
+```
+
+### Correct API
+
+`TimeMap_GetTimeSigAtTime()` returns **both** BPM and time signature at any position, fully respecting the tempo map including linear ramps:
+
+```c
+void TimeMap_GetTimeSigAtTime(
+    ReaProject* proj,           // NULL for active project
+    double time,                // position in seconds
+    int* timesig_numOut,        // beats per measure (e.g., 4)
+    int* timesig_denomOut,      // note value per beat (e.g., 4)
+    double* tempoOut            // BPM at this position
+);
+```
+
+**Key findings:**
+- Single call returns both tempo AND time signature (no need for `TimeMap2_GetDividedBpmAtTime`)
+- Handles tempo ramps (linear interpolation) automatically
+- Works even with zero tempo markers (returns project defaults)
+- At exact marker boundary, returns NEW values (post-marker)
+
+### Gotchas
+
+**Zero time sig values mean "inherit":** When a tempo marker only changes BPM (not time sig), the API returns 0 for timesig_num/denom. Always handle this:
+
+```zig
+if (timesig_num == 0) timesig_num = 4;  // Default to 4/4
+if (timesig_denom == 0) timesig_denom = 4;
+```
+
+**`positionBeats` already works:** Our `TimeMap2_timeToBeats()` call already respects tempo markers - no changes needed there.
+
+### Performance Optimization (Optional)
+
+For projects with sparse tempo changes, cache the next change time to reduce API calls:
+
+```c
+static double s_nextChangeTime = -1;
+// Only re-query if we've crossed a marker boundary
+if (s_nextChangeTime < 0 || currentPos >= s_nextChangeTime) {
+    TimeMap_GetTimeSigAtTime(NULL, currentPos, ...);
+    s_nextChangeTime = TimeMap2_GetNextChangeTime(NULL, currentPos);
+}
+```
+
+For tempo ramps, per-frame queries are still needed during interpolation.
+
+### Implementation Checklist
+
+**Extension (`transport.zig`):**
+- [ ] Add REAPER API binding for `TimeMap_GetTimeSigAtTime`
+- [ ] Replace `getProjectTimeSignature2()` with `TimeMap_GetTimeSigAtTime()`
+- [ ] Pass current play position (or edit cursor when stopped)
+- [ ] Handle zero timesig values (default to 4/4)
+
+**Frontend:**
+- [ ] No changes required - transport event structure unchanged
+
+**Testing:**
+- [ ] Create test project with multiple tempo markers
+- [ ] Verify BPM updates when cursor crosses tempo marker during playback
+- [ ] Verify time signature updates when crossing time sig marker
+- [ ] Test tempo ramps (linear interpolation between markers)
+- [ ] Test project with no tempo markers (should use defaults)
+
+### Future: Tempo Map Visualization
+
+For displaying the full tempo map in UI:
+
+| Function | Purpose |
+|----------|---------|
+| `CountTempoTimeSigMarkers(proj)` | Count markers |
+| `GetTempoTimeSigMarker(proj, idx, ...)` | Read marker details |
+| `FindTempoTimeSigMarker(proj, time)` | Find marker at position |
+| `TimeMap2_GetNextChangeTime(proj, time)` | Find next tempo change (-1 if none)
+
+---
+
+## Transport Event Refactoring
+
+### The Problem
+
+The transport event currently broadcasts many fields on every ~30ms poll, including project-level settings that rarely change. This is wasteful and conflates unrelated data.
+
+### Current Transport Event Fields
+
+| Field | Update Frequency | Position-Dependent |
+|-------|-----------------|-------------------|
+| `playState` | On state change | ❌ |
+| `position` | Every frame | ✅ |
+| `positionBeats` | Every frame | ✅ |
+| `cursorPosition` | On cursor move | ❌ |
+| `bpm` | At tempo markers | ✅ (see Tempo Marker Support) |
+| `timeSignature` | At time sig markers | ✅ |
+| `timeSelection` | On selection change | ❌ |
+| `repeat` | Rarely | ❌ |
+| `metronome` | Rarely | ❌ |
+| `projectLength` | On project change | ❌ |
+| `barOffset` | On project settings change | ❌ |
+
+### Proposed Split
+
+**Keep in `transport` (high-frequency, position-dependent):**
+- `playState`, `position`, `positionBeats`, `cursorPosition`
+- `bpm`, `timeSignature` (must stay - position-dependent with tempo markers)
+- `timeSelection`
+
+**Move to `project` event (low-frequency, project-level):**
+- `projectLength`
+- `repeat`
+- `metronome`
+- `barOffset`
+
+### Benefits
+
+1. **Reduced bandwidth**: Project-level settings only broadcast when changed, not every 30ms
+2. **Cleaner semantics**: Transport = playback state, Project = project settings
+3. **Better change detection**: Can detect metronome toggle vs play position change separately
+
+### Implementation Checklist
+
+**Extension:**
+- [ ] Add `projectLength`, `repeat`, `metronome`, `barOffset` to `project.zig` State
+- [ ] Poll these values in project state (only broadcast on change)
+- [ ] Remove from `transport.zig`
+- [ ] Update change detection to include new fields
+
+**Frontend (`WebSocketTypes.ts`):**
+- [ ] Move fields from `TransportEventPayload` to `ProjectEventPayload`
+- [ ] Update store handlers
+- [ ] Update components that read these values
+
+**Compatibility:**
+- [ ] Consider versioning or deprecation period if external clients depend on transport event structure
+
+### Migration Notes
+
+This is a **breaking change** to the WebSocket event structure. Options:
+1. **Big bang**: Change both extension and frontend together
+2. **Graceful**: Send fields in both events temporarily, remove from transport after frontend updated
