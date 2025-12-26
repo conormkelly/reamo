@@ -139,12 +139,15 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     for (const marker of markers) {
       if (marker.position > end) end = marker.position;
     }
+    // Include playhead position to ensure it's always visible
+    // (fixes race condition on initial load when regions/markers haven't synced yet)
+    if (positionSeconds > end) end = positionSeconds;
 
     // Add some padding at the end
     end = Math.max(end * 1.05, 10);
 
     return { baseTimelineStart: start, baseDuration: end - start };
-  }, [displayRegions, markers]);
+  }, [displayRegions, markers, positionSeconds]);
 
   // Use base bounds for hook calculations (stable positioning)
   const timelineStart = baseTimelineStart;
@@ -573,7 +576,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
             className={`absolute top-0 bottom-0 border-l-2 border-r-2 pointer-events-none ${
               timelineMode === 'regions'
                 ? 'bg-gray-500/5 border-gray-700 opacity-50'
-                : 'bg-yellow-500/20 border-yellow-400'
+                : 'bg-white/15 border-white/60'
             }`}
             style={{
               left: `${renderTimeToPercent(timeSelectionSeconds.start)}%`,
@@ -721,7 +724,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         {timeSelectionSeconds && (
           <div
             className={`absolute top-0 h-1/2 ${
-              timelineMode === 'regions' ? 'bg-gray-600 opacity-40' : 'bg-yellow-400'
+              timelineMode === 'regions' ? 'bg-gray-600 opacity-40' : 'bg-white/70'
             }`}
             style={{
               left: `${renderTimeToPercent(timeSelectionSeconds.start)}%`,

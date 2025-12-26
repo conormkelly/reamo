@@ -9,6 +9,7 @@
 
 import { useRef, useLayoutEffect, type ReactElement } from 'react';
 import type { Marker } from '../../core/types';
+import { transportEngine } from '../../core/TransportAnimationEngine';
 import { formatBeats, formatTime, reaperColorToHex } from '../../utils';
 import { useTransportAnimation } from '../../hooks';
 
@@ -91,10 +92,18 @@ export function TimelinePlayhead({
   const renderTimeToPercentRef = useRef(renderTimeToPercent);
   useLayoutEffect(() => {
     renderTimeToPercentRef.current = renderTimeToPercent;
+    // When bounds change (renderTimeToPercent recreated), recalculate position.
+    // This fixes the race condition where animation callback fires before React
+    // state updates, causing playhead to be positioned with stale bounds.
+    if (containerRef.current) {
+      const state = transportEngine.getState();
+      const percent = renderTimeToPercent(state.position);
+      containerRef.current.style.left = `${percent}%`;
+    }
   }, [renderTimeToPercent]);
 
   // Subscribe to 60fps animation updates
-  // This is the ONLY place we set left position - not in JSX style prop
+  // This is the ONLY place we set left position during playback - not in JSX style prop
   // to avoid React and animation callback fighting each other
   useTransportAnimation((state) => {
     if (containerRef.current) {
@@ -105,17 +114,23 @@ export function TimelinePlayhead({
 
   if (isSyncing) return null;
 
+  // REAPER's playhead color
+  const playheadColor = '#337066';
+
   return (
     <div
       ref={containerRef}
       className={`absolute top-0 bottom-0 ${isDraggingPlayhead ? 'opacity-50' : ''}`}
     >
       {/* Playhead line - above markers (z-10), below region labels (z-20) */}
-      <div className={`absolute top-0 bottom-0 left-0 w-0.5 pointer-events-none z-10 ${
-        timelineMode === 'regions' ? 'bg-gray-500 opacity-40' : 'bg-white'
-      }`} />
+      <div
+        className={`absolute top-0 bottom-0 left-0 w-0.5 pointer-events-none z-10 ${
+          timelineMode === 'regions' ? 'opacity-40' : ''
+        }`}
+        style={{ backgroundColor: timelineMode === 'regions' ? '#6b7280' : playheadColor }}
+      />
 
-      {/* Grab handle - T-shape at top, above everything */}
+      {/* Grab handle - inverted triangle at top, above everything */}
       <div
         className={`absolute -top-0.5 -left-[11px] w-6 h-6 z-30 ${
           timelineMode === 'regions'
@@ -128,10 +143,17 @@ export function TimelinePlayhead({
         onPointerUp={timelineMode === 'regions' ? undefined : handlePlayheadPointerUp}
         onPointerCancel={timelineMode === 'regions' ? undefined : handlePlayheadPointerUp}
       >
-        {/* Visible T-bar */}
-        <div className={`absolute top-0.5 left-1/2 -translate-x-1/2 w-4 h-1.5 rounded-sm shadow-md ${
-          timelineMode === 'regions' ? 'bg-gray-500' : 'bg-white'
-        }`} />
+        {/* Inverted triangle (pointing down) */}
+        <div
+          className="absolute top-0 left-1/2 -translate-x-1/2"
+          style={{
+            width: 0,
+            height: 0,
+            borderLeft: '12px solid transparent',
+            borderRight: '12px solid transparent',
+            borderTop: `16px solid ${timelineMode === 'regions' ? '#6b7280' : playheadColor}`,
+          }}
+        />
       </div>
     </div>
   );
@@ -156,20 +178,33 @@ export function PlayheadDragPreview({
   const timeStr = formatTime(seconds, { precision: 1 });
   const beatsStr = bpm ? formatBeats(seconds, bpm, barOffset, beatsPerBar, denominator) : '';
 
+  // REAPER's playhead color
+  const playheadColor = '#337066';
+
   return (
     <div
       className="absolute top-0 bottom-0 pointer-events-none"
       style={{ left: `${playheadPreviewPercent}%` }}
     >
       {/* Preview line - same z as main playhead line */}
-      <div className="absolute top-0 bottom-0 left-0 w-0.5 bg-white z-10" />
-      {/* Preview T-bar with highlight - above everything */}
+      <div className="absolute top-0 bottom-0 left-0 w-0.5 z-10" style={{ backgroundColor: playheadColor }} />
+      {/* Preview inverted triangle with highlight - above everything */}
       <div className="absolute top-0 -left-[11px] w-6 h-6 z-40">
-        <div className="absolute top-0.5 left-1/2 -translate-x-1/2 w-4 h-1.5 bg-white rounded-sm shadow-lg ring-2 ring-blue-400" />
+        <div
+          className="absolute top-0 left-1/2 -translate-x-1/2"
+          style={{
+            width: 0,
+            height: 0,
+            borderLeft: '12px solid transparent',
+            borderRight: '12px solid transparent',
+            borderTop: `16px solid ${playheadColor}`,
+            filter: 'drop-shadow(0 0 4px rgba(51, 112, 102, 0.9))',
+          }}
+        />
       </div>
       {/* Position pill showing time and beats - at bottom so finger doesn't obscure */}
       <div className="absolute bottom-1 -translate-x-1/2 z-40">
-        <div className="bg-gray-900 border border-blue-400 rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg">
+        <div className="bg-gray-900 border rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg" style={{ borderColor: playheadColor }}>
           {beatsStr ? `${timeStr} | ${beatsStr}` : timeStr}
         </div>
       </div>

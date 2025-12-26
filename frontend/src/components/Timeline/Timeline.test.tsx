@@ -22,6 +22,7 @@ import {
   selectedIndices,
   findRegion,
 } from '../../test/store'
+import { useReaperStore } from '../../store'
 import {
   findRegionElement,
   isVisuallySelected,
@@ -43,6 +44,19 @@ vi.mock('../ReaperProvider', () => ({
     stop: vi.fn(),
     connection: null,
   }),
+}))
+
+// Mock TransportAnimationEngine - needed to control playhead position in tests
+// The callback is invoked immediately upon subscription with current position
+let mockAnimationPosition = 0
+vi.mock('../../core/TransportAnimationEngine', () => ({
+  transportEngine: {
+    subscribe: (callback: (state: { position: number; positionBeats: string }) => void) => {
+      callback({ position: mockAnimationPosition, positionBeats: '1.1.00' })
+      return () => {}
+    },
+    getState: () => ({ position: mockAnimationPosition, positionBeats: '1.1.00' }),
+  },
 }))
 
 // Mock getBoundingClientRect globally
@@ -387,5 +401,60 @@ describe('Region create behavior', () => {
     expect(findRegion('Verse')?.end).toBe(15)
     // Chorus should be shifted
     expect(findRegion('Chorus')?.start).toBe(25)
+  })
+})
+
+// ============================================================================
+// Tests: Playhead Visibility
+// ============================================================================
+
+describe('Playhead visibility on initial load', () => {
+  beforeEach(() => {
+    Element.prototype.getBoundingClientRect = vi.fn(() => mockRect)
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+    mockAnimationPosition = 0
+  })
+
+  it('playhead is visible when position is beyond empty timeline bounds', () => {
+    // Bug: When regions/markers are empty, timeline defaults to 10s duration.
+    // If playhead is at 50s, it calculates as 500% and goes off-screen.
+    //
+    // Setup: Empty store (no regions), transport position at 50s
+    setupStore([])
+    mockAnimationPosition = 50
+    useReaperStore.setState({ positionSeconds: 50 })
+
+    const { container } = render(<Timeline height={120} />)
+
+    // Find the playhead container (it's the element with absolute positioning
+    // that gets its left style set by the animation callback)
+    const playheadContainer = container.querySelector('.absolute.top-0.bottom-0') as HTMLElement
+
+    expect(playheadContainer).not.toBeNull()
+
+    // The playhead's left position should be within visible range [0%, 100%]
+    // With the bug, this would be 500% (50s / 10s * 100)
+    const leftPercent = parseFloat(playheadContainer.style.left)
+    expect(leftPercent).toBeLessThanOrEqual(100)
+    expect(leftPercent).toBeGreaterThanOrEqual(0)
+  })
+
+  it('playhead is visible at position 0 with empty timeline', () => {
+    // Sanity check: position 0 should always work
+    setupStore([])
+    mockAnimationPosition = 0
+    useReaperStore.setState({ positionSeconds: 0 })
+
+    const { container } = render(<Timeline height={120} />)
+
+    const playheadContainer = container.querySelector('.absolute.top-0.bottom-0') as HTMLElement
+    expect(playheadContainer).not.toBeNull()
+
+    const leftPercent = parseFloat(playheadContainer.style.left)
+    expect(leftPercent).toBe(0)
   })
 })
