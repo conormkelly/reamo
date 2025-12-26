@@ -9,7 +9,7 @@
 
 import { useRef, useLayoutEffect, type ReactElement } from 'react';
 import type { Marker } from '../../core/types';
-import { formatBeats, formatTime } from '../../utils';
+import { formatBeats, formatTime, reaperColorToHex } from '../../utils';
 import { useTransportAnimation } from '../../hooks';
 
 export interface TimelinePlayheadProps {
@@ -197,16 +197,19 @@ export function MarkerDragPreview({
   const timeStr = formatTime(seconds, { precision: 1 });
   const beatsStr = bpm ? formatBeats(seconds, bpm, barOffset, beatsPerBar, denominator) : '';
 
+  // Use marker's custom color or default red
+  const markerColor = draggedMarker.color ? reaperColorToHex(draggedMarker.color) ?? '#dc2626' : '#dc2626';
+
   return (
     <div
       className="absolute top-0 bottom-0 pointer-events-none"
       style={{ left: `${markerDragPreviewPercent}%` }}
     >
       {/* Preview line */}
-      <div className="absolute top-0 bottom-0 left-0 w-0.5 bg-red-400 z-10" />
+      <div className="absolute top-0 bottom-0 left-0 w-0.5 z-10" style={{ backgroundColor: markerColor }} />
       {/* Position pill showing time and beats */}
       <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 z-40">
-        <div className="bg-gray-900 border border-red-400 rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg">
+        <div className="bg-gray-900 rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg" style={{ borderColor: markerColor, borderWidth: 1 }}>
           {beatsStr ? `${timeStr} | ${beatsStr}` : timeStr}
         </div>
       </div>
