@@ -87,6 +87,18 @@ export interface TransportEventPayload {
     start: number;
     end: number;
   };
+  // Note: repeat, metronome, projectLength, barOffset moved to ProjectEventPayload
+}
+
+// =============================================================================
+// Project Event (undo/redo state + project-level settings)
+// =============================================================================
+
+export interface ProjectEventPayload {
+  canUndo: string | null; // Description of next undo action, or null
+  canRedo: string | null; // Description of next redo action, or null
+  stateChangeCount: number; // Counter for change detection
+  // Project-level settings (moved from transport for efficiency)
   repeat: boolean;
   metronome: {
     enabled: boolean;
@@ -95,16 +107,6 @@ export interface TransportEventPayload {
   };
   projectLength: number; // seconds
   barOffset: number; // bar offset (e.g., -4 means time 0 = bar 1, display starts at bar -4)
-}
-
-// =============================================================================
-// Project Event (undo/redo state)
-// =============================================================================
-
-export interface ProjectEventPayload {
-  canUndo: string | null; // Description of next undo action, or null
-  canRedo: string | null; // Description of next redo action, or null
-  stateChangeCount: number; // Counter for change detection
 }
 
 // =============================================================================

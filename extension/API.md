@@ -1004,6 +1004,8 @@ Events are sent to all connected clients when state changes. Polling occurs ~30m
 
 ### `transport` Event
 
+High-frequency event broadcast every ~30ms during playback, containing position-dependent data.
+
 ```json
 {
   "type": "event",
@@ -1015,10 +1017,7 @@ Events are sent to all connected clients when state changes. Polling occurs ~30m
     "cursorPosition": 30.500,
     "bpm": 120.00,
     "timeSignature": {"numerator": 4, "denominator": 4},
-    "timeSelection": {"start": 0.000, "end": 60.000},
-    "repeat": false,
-    "metronome": {"enabled": true, "volume": 0.5000, "volumeDb": -6.02},
-    "projectLength": 180.500
+    "timeSelection": {"start": 0.000, "end": 60.000}
   }
 }
 ```
@@ -1032,9 +1031,8 @@ Events are sent to all connected clients when state changes. Polling occurs ~30m
 | `bpm` | float | Current tempo |
 | `timeSignature` | object | Current time signature |
 | `timeSelection` | object | Start/end of time selection (0,0 if none) |
-| `repeat` | bool | Repeat/loop mode enabled |
-| `metronome` | object | Metronome state and volume |
-| `projectLength` | float | Project length in seconds (based on last item/region end) |
+
+**Note:** Project-level settings (`repeat`, `metronome`, `projectLength`, `barOffset`) are in the `project` event.
 
 ### `tracks` Event
 
@@ -1144,7 +1142,7 @@ Only includes items overlapping the current time selection (if any).
 
 ### `project` Event
 
-Broadcast when undo/redo availability changes (on connect and when `GetProjectStateChangeCount()` changes).
+Low-frequency event broadcast when project state changes. Contains undo/redo availability and project-level settings.
 
 ```json
 {
@@ -1153,7 +1151,11 @@ Broadcast when undo/redo availability changes (on connect and when `GetProjectSt
   "payload": {
     "canUndo": "Changed marker",
     "canRedo": null,
-    "stateChangeCount": 42
+    "stateChangeCount": 42,
+    "repeat": false,
+    "metronome": {"enabled": true, "volume": 0.5000, "volumeDb": -6.02},
+    "projectLength": 180.500,
+    "barOffset": -4
   }
 }
 ```
@@ -1163,6 +1165,10 @@ Broadcast when undo/redo availability changes (on connect and when `GetProjectSt
 | `canUndo` | string\|null | Description of next undo action, or null if nothing to undo |
 | `canRedo` | string\|null | Description of next redo action, or null if nothing to redo |
 | `stateChangeCount` | int | Project state change counter (for detecting changes) |
+| `repeat` | bool | Repeat/loop mode enabled |
+| `metronome` | object | Metronome state and volume |
+| `projectLength` | float | Project length in seconds (based on last item/region end) |
+| `barOffset` | int | Bar offset (e.g., -4 means time 0 = bar 1, display starts at bar -4) |
 
 ---
 

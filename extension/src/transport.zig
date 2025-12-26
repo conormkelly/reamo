@@ -2,6 +2,7 @@ const std = @import("std");
 const reaper = @import("reaper.zig");
 
 // Transport state snapshot
+// Note: project_length, repeat, metronome, bar_offset moved to project.zig (low-frequency project-level settings)
 pub const State = struct {
     play_state: c_int = 0,
     play_position: f64 = 0,
@@ -11,14 +12,11 @@ pub const State = struct {
     time_sig_denom: c_int = 4,
     time_sel_start: f64 = 0,
     time_sel_end: f64 = 0,
-    repeat: bool = false,
-    metronome_enabled: bool = false,
-    metronome_volume: f64 = 1.0, // Linear amplitude (0.0-4.0)
-    project_length: f64 = 0, // Project length in seconds
-    bar_offset: c_int = 0, // Project bar offset (e.g., -4 means time 0 = bar 1, display starts at -4)
     // Position in bar.beat format (for display)
     position_bar: c_int = 1,
     position_beat: f64 = 1.0, // Beat within bar (1-based, fractional = ticks)
+    // bar_offset needed here for positionBeats display calculation
+    bar_offset: c_int = 0,
 
     // Comparison with tolerance for change detection
     pub fn eql(self: State, other: State) bool {
@@ -28,10 +26,6 @@ pub const State = struct {
         if (self.time_sig_denom != other.time_sig_denom) return false;
         if (!floatEql(self.time_sel_start, other.time_sel_start)) return false;
         if (!floatEql(self.time_sel_end, other.time_sel_end)) return false;
-        if (self.repeat != other.repeat) return false;
-        if (self.metronome_enabled != other.metronome_enabled) return false;
-        if (!floatEql(self.metronome_volume, other.metronome_volume)) return false;
-        if (!floatEql(self.project_length, other.project_length)) return false;
         if (self.bar_offset != other.bar_offset) return false;
 
         // Position changes: check cursor when stopped, play_position when playing
@@ -84,11 +78,7 @@ pub const State = struct {
             .time_sig_denom = api.getTimeSignatureDenominator(),
             .time_sel_start = sel.start,
             .time_sel_end = sel.end,
-            .repeat = api.getRepeat(),
-            .metronome_enabled = api.isMetronomeEnabled(),
-            .metronome_volume = api.getMetronomeVolume(),
-            .project_length = api.projectLength(),
-            .bar_offset = api.getBarOffset(),
+            .bar_offset = api.getBarOffset(), // Needed for positionBeats display
             .position_bar = beats_info.measures,
             .position_beat = beats_info.beats_in_measure + 1.0, // Convert 0-based to 1-based
         };
@@ -101,8 +91,6 @@ pub const State = struct {
 
     // Build JSON event for this state
     pub fn toJson(self: State, buf: []u8) ?[]const u8 {
-        const metro_vol_db = reaper.Api.linearToDb(self.metronome_volume);
-
         // Format bar.beat.ticks (e.g., "12.3.45" or "-4.1.00")
         // Apply bar_offset to get display bar number (REAPER's bar 1 at time 0 + offset)
         var display_bar = self.position_bar + self.bar_offset;
@@ -128,10 +116,9 @@ pub const State = struct {
         // Time selection uses full precision (15 decimals) to match REAPER's HTTP API
         const position = truncateMs(self.currentPosition());
         const cursor_position = truncateMs(self.cursor_position);
-        const project_length = truncateMs(self.project_length);
 
         const result = std.fmt.bufPrint(buf,
-            \\{{"type":"event","event":"transport","payload":{{"playState":{d},"position":{d:.3},"positionBeats":"{d}.{d}.{d:0>2}","cursorPosition":{d:.3},"bpm":{d:.2},"timeSignature":{{"numerator":{d},"denominator":{d}}},"timeSelection":{{"start":{d:.15},"end":{d:.15}}},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"projectLength":{d:.3},"barOffset":{d}}}}}
+            \\{{"type":"event","event":"transport","payload":{{"playState":{d},"position":{d:.3},"positionBeats":"{d}.{d}.{d:0>2}","cursorPosition":{d:.3},"bpm":{d:.2},"timeSignature":{{"numerator":{d},"denominator":{d}}},"timeSelection":{{"start":{d:.15},"end":{d:.15}}}}}}}
         , .{
             self.play_state,
             position,
@@ -144,12 +131,6 @@ pub const State = struct {
             self.time_sig_denom,
             self.time_sel_start,
             self.time_sel_end,
-            if (self.repeat) "true" else "false",
-            if (self.metronome_enabled) "true" else "false",
-            self.metronome_volume,
-            metro_vol_db,
-            project_length,
-            self.bar_offset,
         }) catch return null;
 
         return result;
@@ -233,10 +214,6 @@ test "State.toJson" {
         .time_sig_denom = 4,
         .time_sel_start = 0,
         .time_sel_end = 30.0,
-        .repeat = true,
-        .metronome_enabled = true,
-        .metronome_volume = 0.5,
-        .project_length = 180.5,
         .bar_offset = -4,
         .position_bar = 12,
         .position_beat = 3.45, // Beat 3, 45% through
@@ -251,30 +228,8 @@ test "State.toJson" {
     // Bar 12 + offset -4 = display bar 8
     try std.testing.expect(std.mem.indexOf(u8, json, "\"positionBeats\":\"8.3.45\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"bpm\":120") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json, "\"repeat\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"denominator\":4") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json, "\"metronome\":{\"enabled\":true") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json, "\"volume\":0.5") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json, "\"projectLength\":180.5") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json, "\"barOffset\":-4") != null);
-}
-
-test "State.eql detects repeat changes" {
-    const a = State{ .repeat = false };
-    const b = State{ .repeat = true };
-    try std.testing.expect(!a.eql(b));
-}
-
-test "State.eql detects metronome changes" {
-    const a = State{ .metronome_enabled = false };
-    const b = State{ .metronome_enabled = true };
-    try std.testing.expect(!a.eql(b));
-}
-
-test "State.eql detects metronome volume changes" {
-    const a = State{ .metronome_volume = 1.0 };
-    const b = State{ .metronome_volume = 0.5 };
-    try std.testing.expect(!a.eql(b));
+    // Note: repeat, metronome, projectLength, barOffset now in project event
 }
 
 test "PlayState helpers" {

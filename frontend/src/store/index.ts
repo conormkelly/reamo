@@ -147,6 +147,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
       const normalizedBpm = p.bpm * (4 / p.timeSignature.denominator);
 
       // Feed transport animation engine for client-side interpolation
+      // barOffset comes from project event now, use current state
       transportEngine.onServerUpdate({
         position: p.position,
         positionBeats: p.positionBeats,
@@ -154,7 +155,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
         playState: p.playState,
         timeSignatureNumerator: p.timeSignature.numerator,
         timeSignatureDenominator: p.timeSignature.denominator,
-        barOffset: p.barOffset ?? 0,
+        barOffset: get().barOffset,
       });
 
       set({
@@ -164,20 +165,23 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
         bpm: normalizedBpm,
         timeSignatureNumerator: p.timeSignature.numerator,
         timeSignatureDenominator: p.timeSignature.denominator,
-        isRepeat: p.repeat,
-        isMetronome: p.metronome.enabled,
-        metronomeVolume: p.metronome.volume,
         timeSelection: p.timeSelection.start !== p.timeSelection.end
           ? {
               startSeconds: p.timeSelection.start,
               endSeconds: p.timeSelection.end,
             }
           : null,
-        barOffset: p.barOffset ?? 0,
       });
     } else if (isProjectEvent(message)) {
       const p = message.payload as ProjectEventPayload;
       get().setReaperUndoState(p.canUndo, p.canRedo);
+      // Project-level settings (moved from transport event)
+      set({
+        isRepeat: p.repeat,
+        isMetronome: p.metronome.enabled,
+        metronomeVolume: p.metronome.volume,
+        barOffset: p.barOffset,
+      });
     } else if (isTracksEvent(message)) {
       const p = message.payload as TracksEventPayload;
       // Convert WSTrack format to Track format

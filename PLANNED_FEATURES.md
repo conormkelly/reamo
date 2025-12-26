@@ -509,65 +509,23 @@ For displaying the full tempo map in UI:
 
 ---
 
-## Transport Event Refactoring
+## Transport Event Refactoring ✅ COMPLETE
 
-### The Problem
+Moved project-level settings from `transport` event to `project` event for cleaner separation and reduced bandwidth.
 
-The transport event currently broadcasts many fields on every ~30ms poll, including project-level settings that rarely change. This is wasteful and conflates unrelated data.
-
-### Current Transport Event Fields
-
-| Field | Update Frequency | Position-Dependent |
-|-------|-----------------|-------------------|
-| `playState` | On state change | ❌ |
-| `position` | Every frame | ✅ |
-| `positionBeats` | Every frame | ✅ |
-| `cursorPosition` | On cursor move | ❌ |
-| `bpm` | At tempo markers | ✅ (see Tempo Marker Support) |
-| `timeSignature` | At time sig markers | ✅ |
-| `timeSelection` | On selection change | ❌ |
-| `repeat` | Rarely | ❌ |
-| `metronome` | Rarely | ❌ |
-| `projectLength` | On project change | ❌ |
-| `barOffset` | On project settings change | ❌ |
-
-### Proposed Split
-
-**Keep in `transport` (high-frequency, position-dependent):**
-- `playState`, `position`, `positionBeats`, `cursorPosition`
-- `bpm`, `timeSignature` (must stay - position-dependent with tempo markers)
-- `timeSelection`
-
-**Move to `project` event (low-frequency, project-level):**
-- `projectLength`
-- `repeat`
-- `metronome`
-- `barOffset`
-
-### Benefits
-
-1. **Reduced bandwidth**: Project-level settings only broadcast when changed, not every 30ms
-2. **Cleaner semantics**: Transport = playback state, Project = project settings
-3. **Better change detection**: Can detect metronome toggle vs play position change separately
-
-### Implementation Checklist
+### Changes Made
 
 **Extension:**
-- [ ] Add `projectLength`, `repeat`, `metronome`, `barOffset` to `project.zig` State
-- [ ] Poll these values in project state (only broadcast on change)
-- [ ] Remove from `transport.zig`
-- [ ] Update change detection to include new fields
+- [x] Added `projectLength`, `repeat`, `metronome`, `barOffset` to `project.zig` State
+- [x] Poll these values in project state (only broadcast on change)
+- [x] Removed from `transport.zig`
+- [x] Updated change detection to include new fields
 
-**Frontend (`WebSocketTypes.ts`):**
-- [ ] Move fields from `TransportEventPayload` to `ProjectEventPayload`
-- [ ] Update store handlers
-- [ ] Update components that read these values
+**Frontend:**
+- [x] Moved fields from `TransportEventPayload` to `ProjectEventPayload` in `WebSocketTypes.ts`
+- [x] Updated `store/index.ts` to handle new project event fields
+- [x] Components unchanged - state still lives in transportSlice
 
-**Compatibility:**
-- [ ] Consider versioning or deprecation period if external clients depend on transport event structure
-
-### Migration Notes
-
-This is a **breaking change** to the WebSocket event structure. Options:
-1. **Big bang**: Change both extension and frontend together
-2. **Graceful**: Send fields in both events temporarily, remove from transport after frontend updated
+**Result:**
+- `transport` event: High-frequency (~30ms) position-dependent data only
+- `project` event: Low-frequency project settings + undo/redo state
