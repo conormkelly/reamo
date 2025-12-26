@@ -177,6 +177,7 @@ test "registry contains expected commands" {
         "region/update",
         "region/delete",
         "region/goto",
+        "region/batch",
         // Items
         "item/setActiveTake",
         "item/move",

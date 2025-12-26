@@ -116,9 +116,6 @@ local function install()
     -- Define source files (in the extracted ZIP folder)
     local sourceFiles = {
         html = scriptDir .. "/reamo.html",
-        regionEdit = scriptDir .. "/Reamo_RegionEdit.lua",
-        markerEdit = scriptDir .. "/Reamo_MarkerEdit.lua",
-        timeSig = scriptDir .. "/Reamo_TimeSig.lua",
         startup = scriptDir .. "/Reamo_Startup.lua",
     }
 
@@ -186,15 +183,6 @@ Proceed with installation?]],
     local errors = {}
 
     local ok, err = copyFile(sourceFiles.html, destPaths.wwwRoot .. "/reamo.html")
-    if not ok then table.insert(errors, err) end
-
-    ok, err = copyFile(sourceFiles.regionEdit, destPaths.scriptsReamo .. "/Reamo_RegionEdit.lua")
-    if not ok then table.insert(errors, err) end
-
-    ok, err = copyFile(sourceFiles.markerEdit, destPaths.scriptsReamo .. "/Reamo_MarkerEdit.lua")
-    if not ok then table.insert(errors, err) end
-
-    ok, err = copyFile(sourceFiles.timeSig, destPaths.scriptsReamo .. "/Reamo_TimeSig.lua")
     if not ok then table.insert(errors, err) end
 
     ok, err = copyFile(sourceFiles.startup, destPaths.scriptsReamo .. "/Reamo_Startup.lua")

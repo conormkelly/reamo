@@ -32,8 +32,6 @@ export function setupStore(regions: Region[], mode: TimelineMode = 'regions') {
     dragCurrentTime: null,
     insertionPoint: null,
     resizeEdgePosition: null,
-    luaScriptInstalled: true,
-    luaScriptChecked: true,
     isCommitting: false,
     commitError: null,
   })

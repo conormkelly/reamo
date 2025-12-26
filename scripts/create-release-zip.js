@@ -29,9 +29,6 @@ const FILES = [
   { src: 'installer/Reamo_Startup.lua', dest: 'Reamo_Startup.lua' },
   { src: 'installer/README.txt', dest: 'README.txt' },
   { src: 'reamo.html', dest: 'reamo.html' },
-  { src: 'scripts/Reamo_RegionEdit.lua', dest: 'Reamo_RegionEdit.lua' },
-  { src: 'scripts/Reamo_MarkerEdit.lua', dest: 'Reamo_MarkerEdit.lua' },
-  { src: 'scripts/Reamo_TimeSig.lua', dest: 'Reamo_TimeSig.lua' },
 ];
 
 function main() {

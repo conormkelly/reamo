@@ -61,14 +61,12 @@ local function uninstall()
     local paths = {
         html = resourcePath .. "/reaper_www_root/reamo.html",
         scriptsDir = resourcePath .. "/Scripts/Reamo",
-        regionEdit = resourcePath .. "/Scripts/Reamo/Reamo_RegionEdit.lua",
-        markerEdit = resourcePath .. "/Scripts/Reamo/Reamo_MarkerEdit.lua",
         startup = resourcePath .. "/Scripts/Reamo/Reamo_Startup.lua",
         startupLua = resourcePath .. "/Scripts/__startup.lua",
     }
 
     -- Check if Reamo is installed
-    local installed = fileExists(paths.html) or fileExists(paths.regionEdit)
+    local installed = fileExists(paths.html) or fileExists(paths.startup)
 
     if not installed then
         reaper.MB("Reamo does not appear to be installed.", SCRIPT_NAME, 0)
@@ -91,7 +89,7 @@ local function uninstall()
     local removed = {}
     local failed = {}
 
-    local filesToRemove = {paths.html, paths.regionEdit, paths.markerEdit, paths.startup}
+    local filesToRemove = {paths.html, paths.startup}
 
     for _, path in ipairs(filesToRemove) do
         if fileExists(path) then

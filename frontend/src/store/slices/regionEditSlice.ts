@@ -36,8 +36,6 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
   dragCurrentTime: null,
   insertionPoint: null,
   resizeEdgePosition: null,
-  luaScriptInstalled: true, // WebSocket extension handles region editing directly
-  luaScriptChecked: true,
   isCommitting: false,
   commitError: null,
   historyStack: [],
@@ -345,10 +343,6 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
   canRedo: () => get().redoStack.length > 0,
 
   clearHistory: () => set({ historyStack: [], redoStack: [] }),
-
-  // Lua detection
-  setLuaScriptInstalled: (installed) => set({ luaScriptInstalled: installed }),
-  setLuaScriptChecked: (checked) => set({ luaScriptChecked: checked }),
 
   // Helpers
   hasPendingChanges: () => Object.keys(get().pendingChanges).length > 0,

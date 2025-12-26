@@ -14,8 +14,6 @@ const TIMELINE_MODE_KEY = 'reamo-timeline-mode';
 export function TimelineModeToggle(): ReactElement {
   const timelineMode = useReaperStore((s) => s.timelineMode);
   const setTimelineMode = useReaperStore((s) => s.setTimelineMode);
-  const luaScriptInstalled = useReaperStore((s) => s.luaScriptInstalled);
-  const luaScriptChecked = useReaperStore((s) => s.luaScriptChecked);
   // Subscribe to pendingChanges directly so component re-renders when it changes
   const pendingChanges = useReaperStore((s) => s.pendingChanges);
   const hasPending = Object.keys(pendingChanges).length > 0;
@@ -25,14 +23,9 @@ export function TimelineModeToggle(): ReactElement {
     const savedTimelineMode = localStorage.getItem(TIMELINE_MODE_KEY) as TimelineMode | null;
 
     if (savedTimelineMode && (savedTimelineMode === 'navigate' || savedTimelineMode === 'regions')) {
-      // Only restore regions mode if script is installed
-      if (savedTimelineMode === 'regions' && !luaScriptInstalled) {
-        setTimelineMode('navigate');
-      } else {
-        setTimelineMode(savedTimelineMode);
-      }
+      setTimelineMode(savedTimelineMode);
     }
-  }, [luaScriptInstalled, setTimelineMode]);
+  }, [setTimelineMode]);
 
   // Persist mode changes to localStorage
   useEffect(() => {
@@ -40,18 +33,12 @@ export function TimelineModeToggle(): ReactElement {
   }, [timelineMode]);
 
   const handleTimelineModeChange = (mode: TimelineMode) => {
-    // Don't allow switching to regions mode if script not installed
-    if (mode === 'regions' && !luaScriptInstalled) {
-      return;
-    }
     // Don't allow switching modes if there are pending changes
     if (hasPending) {
       return;
     }
     setTimelineMode(mode);
   };
-
-  const regionsDisabled = !luaScriptInstalled && luaScriptChecked;
 
   return (
     <div className="flex items-center gap-3">
@@ -72,31 +59,18 @@ export function TimelineModeToggle(): ReactElement {
         </button>
         <button
           onClick={() => handleTimelineModeChange('regions')}
-          disabled={regionsDisabled || hasPending}
+          disabled={hasPending}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${
             timelineMode === 'regions'
               ? 'bg-purple-600 text-white'
-              : regionsDisabled
-                ? 'bg-gray-800 text-gray-500 cursor-not-allowed'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
           } ${hasPending ? 'cursor-not-allowed opacity-50' : ''}`}
-          title={
-            regionsDisabled
-              ? 'Region editing requires Lua script installation'
-              : 'Regions mode: Edit region positions (ripple edit)'
-          }
+          title="Regions mode: Edit region positions (ripple edit)"
         >
           <Layers size={14} />
           <span className="hidden sm:inline">Regions</span>
         </button>
       </div>
-
-      {/* Script not installed warning */}
-      {regionsDisabled && (
-        <span className="text-xs text-amber-400" title="Install Reamo_RegionEdit.lua to enable region editing">
-          Script required
-        </span>
-      )}
     </div>
   );
 }

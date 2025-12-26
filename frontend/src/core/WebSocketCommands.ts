@@ -105,6 +105,16 @@ export const marker = {
 // Region Commands
 // =============================================================================
 
+/** Single operation in a region batch */
+export interface RegionBatchOp {
+  op: 'update' | 'delete' | 'create';
+  id?: number; // Required for update/delete
+  start?: number;
+  end?: number;
+  name?: string;
+  color?: number;
+}
+
 export const region = {
   add: (
     start: number,
@@ -129,6 +139,11 @@ export const region = {
   goto: (id: number): WSCommand => ({
     command: 'region/goto',
     params: { id },
+  }),
+  /** Batch multiple region operations in a single undo block */
+  batch: (ops: RegionBatchOp[]): WSCommand => ({
+    command: 'region/batch',
+    params: { ops },
   }),
 };
 

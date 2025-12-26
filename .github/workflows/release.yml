@@ -43,11 +43,8 @@ jobs:
           cp installer/Reamo_Startup.lua "$RELEASE_DIR/"
           cp installer/README.txt "$RELEASE_DIR/"
 
-          # Copy app and scripts
+          # Copy app
           cp reamo.html "$RELEASE_DIR/"
-          cp scripts/Reamo_RegionEdit.lua "$RELEASE_DIR/"
-          cp scripts/Reamo_MarkerEdit.lua "$RELEASE_DIR/"
-          cp scripts/Reamo_TimeSig.lua "$RELEASE_DIR/"
 
           # Create ZIP
           zip -r "Reamo-v${VERSION}.zip" "$RELEASE_DIR"

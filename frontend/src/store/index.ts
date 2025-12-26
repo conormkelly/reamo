@@ -124,16 +124,6 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
           break;
         }
 
-        case 'EXTSTATE': {
-          const extState = response.data;
-          // Check for Reamo region script installation flag
-          if (extState.section === 'Reamo' && extState.key === 'script_installed') {
-            get().setLuaScriptInstalled(extState.value === '1');
-            get().setLuaScriptChecked(true);
-          }
-          break;
-        }
-
         default:
           break;
       }

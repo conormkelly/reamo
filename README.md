@@ -38,18 +38,7 @@ If the automatic installer doesn't work:
    - **Windows**: `%APPDATA%\REAPER\reaper_www_root\`
    - **Linux**: `~/.config/REAPER/reaper_www_root/`
 
-2. Copy the Lua scripts to REAPER's Scripts folder:
-   - Copy `Reamo_RegionEdit.lua` and `Reamo_MarkerEdit.lua` to `Scripts/Reamo/`
-
-3. For auto-start, add to `Scripts/__startup.lua`:
-
-   ```lua
-   -- REAMO_AUTOSTART_BEGIN
-   pcall(dofile, reaper.GetResourcePath() .. "/Scripts/Reamo/Reamo_Startup.lua")
-   -- REAMO_AUTOSTART_END
-   ```
-
-4. Enable REAPER's web server (see below)
+2. Enable REAPER's web server (see below)
 
 </details>
 

@@ -3,18 +3,14 @@
  * Shows Save/Cancel buttons when there are pending region changes
  */
 
-import { useState, useCallback, type ReactElement } from 'react';
+import { useCallback, type ReactElement } from 'react';
 import { Save, X, Loader2, AlertCircle, Undo2, Redo2 } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
-import { extstate } from '../../core/WebSocketCommands';
-
-// Lua script action ID (user needs to assign this after loading the script)
-// For now we'll use a command name approach
-const SCRIPT_SECTION = 'Reamo';
+import { region, type RegionBatchOp } from '../../core/WebSocketCommands';
 
 export function RegionEditActionBar(): ReactElement | null {
-  const { sendCommand } = useReaper();
+  const { connection } = useReaper();
   const hasPendingChanges = useReaperStore((s) => s.hasPendingChanges);
   const pendingChanges = useReaperStore((s) => s.pendingChanges);
   const regions = useReaperStore((s) => s.regions);
@@ -30,22 +26,23 @@ export function RegionEditActionBar(): ReactElement | null {
   const redo = useReaperStore((s) => s.redo);
   const isDragging = useReaperStore((s) => s.dragType !== 'none');
 
-  const [pollingForProcessed, setPollingForProcessed] = useState(false);
-
-  // Build the batch data string from pending changes
-  const buildBatchData = useCallback(() => {
-    const operations: string[] = [];
+  // Build the batch ops array from pending changes
+  const buildBatchOps = useCallback((): RegionBatchOp[] => {
+    const ops: RegionBatchOp[] = [];
 
     for (const [keyStr, change] of Object.entries(pendingChanges)) {
       const key = parseInt(keyStr, 10);
 
       if (change.isDeleted) {
-        // delete|markrgnidx
-        operations.push(`delete|${change.originalIdx}`);
+        ops.push({ op: 'delete', id: change.originalIdx });
       } else if (change.isNew) {
-        // create|start|end|name|color
-        const color = change.color ?? 0;
-        operations.push(`create|${change.newStart}|${change.newEnd}|${change.name}|${color}`);
+        ops.push({
+          op: 'create',
+          start: change.newStart,
+          end: change.newEnd,
+          name: change.name,
+          color: change.color ?? 0,
+        });
       } else {
         // Check what changed
         const originalRegion = regions[key];
@@ -57,16 +54,19 @@ export function RegionEditActionBar(): ReactElement | null {
         const colorChanged = change.color !== undefined && change.color !== originalRegion.color;
 
         if (startChanged || endChanged || nameChanged || colorChanged) {
-          // update|markrgnidx|newStart|newEnd|name|color
-          // Use current values for unchanged properties
-          const name = change.name;
-          const color = change.color ?? originalRegion.color ?? 0;
-          operations.push(`update|${change.originalIdx}|${change.newStart}|${change.newEnd}|${name}|${color}`);
+          ops.push({
+            op: 'update',
+            id: change.originalIdx,
+            start: change.newStart,
+            end: change.newEnd,
+            name: change.name,
+            color: change.color ?? originalRegion.color ?? 0,
+          });
         }
       }
     }
 
-    return operations.join(';');
+    return ops;
   }, [pendingChanges, regions]);
 
   // Handle save
@@ -77,53 +77,35 @@ export function RegionEditActionBar(): ReactElement | null {
     setCommitError(null);
 
     try {
-      const batchData = buildBatchData();
-      if (!batchData) {
+      const ops = buildBatchOps();
+      if (ops.length === 0) {
         commitChanges();
         return;
       }
 
-      // Write ExtState values (always use ripple mode)
-      sendCommand(extstate.set(SCRIPT_SECTION, 'action', 'batch'));
-      sendCommand(extstate.set(SCRIPT_SECTION, 'batch_data', batchData));
-      sendCommand(extstate.set(SCRIPT_SECTION, 'mode', 'ripple'));
-      sendCommand(extstate.set(SCRIPT_SECTION, 'processed', ''));
-      sendCommand(extstate.set(SCRIPT_SECTION, 'error', ''));
+      // Send batch command and wait for response
+      const cmd = region.batch(ops);
+      if (!connection) {
+        throw new Error('Not connected to REAPER');
+      }
+      const response = await connection.sendAsync(cmd.command, cmd.params);
 
-      // Trigger the Lua script by name
-      // The script needs to be run manually or via an action
-      // For now, we'll poll for the processed flag
-      // User should run the script: Actions > Run script > Reamo_RegionEdit.lua
-      setPollingForProcessed(true);
+      // Check for warnings in response
+      const resp = response as { applied?: number; skipped?: number; warnings?: string[] } | undefined;
+      if (resp?.skipped && resp.skipped > 0 && resp.warnings?.length) {
+        console.warn('Region batch warnings:', resp.warnings);
+      }
 
-      // Poll for processed flag - with WebSocket, just wait and assume success
-      let attempts = 0;
-
-      const poll = async () => {
-        attempts++;
-
-        // Wait a bit for response
-        await new Promise((resolve) => setTimeout(resolve, 100));
-
-        // After a short delay, assume success (WebSocket will push updates)
-        if (attempts >= 3) {
-          setPollingForProcessed(false);
-          commitChanges();
-          return;
-        }
-
-        poll();
-      };
-
-      poll();
+      // Success - commit local changes
+      commitChanges();
     } catch (err) {
       setCommitting(false);
       setCommitError(err instanceof Error ? err.message : 'Unknown error');
     }
   }, [
     hasPendingChanges,
-    buildBatchData,
-    sendCommand,
+    buildBatchOps,
+    connection,
     commitChanges,
     setCommitting,
     setCommitError,
@@ -192,7 +174,7 @@ export function RegionEditActionBar(): ReactElement | null {
           disabled={isCommitting}
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-green-600 hover:bg-green-500 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {isCommitting || pollingForProcessed ? (
+          {isCommitting ? (
             <Loader2 size={14} className="animate-spin" />
           ) : (
             <Save size={14} />

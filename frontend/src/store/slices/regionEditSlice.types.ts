@@ -83,10 +83,6 @@ export interface RegionEditSlice {
   // Resize edge preview position (for position pill during resize)
   resizeEdgePosition: number | null;
 
-  // Lua script detection
-  luaScriptInstalled: boolean;
-  luaScriptChecked: boolean;
-
   // Commit state
   isCommitting: boolean;
   commitError: string | null;
@@ -132,10 +128,6 @@ export interface RegionEditSlice {
   canRedo: () => boolean;
   clearHistory: () => void;
   pushToHistory: () => void;
-
-  // Lua detection
-  setLuaScriptInstalled: (installed: boolean) => void;
-  setLuaScriptChecked: (checked: boolean) => void;
 
   // Helpers
   hasPendingChanges: () => boolean;

@@ -554,6 +554,12 @@ pub const Api = struct {
         return f(null, true, start, end, name, -1, color);
     }
 
+    /// Add region with a specific ID (for delete/recreate workflows like color reset)
+    pub fn addRegionWithId(self: *const Api, start: f64, end: f64, name: [*:0]const u8, color: c_int, wanted_id: c_int) c_int {
+        const f = self.addProjectMarker2 orelse return -1;
+        return f(null, true, start, end, name, wanted_id, color);
+    }
+
     pub fn updateMarker(self: *const Api, id: c_int, pos: f64, name: [*:0]const u8, color: c_int) bool {
         const f = self.setProjectMarker4 orelse return false;
         return f(null, id, false, pos, 0, name, color, 0);
