@@ -228,6 +228,12 @@ fn processTimerCallback() callconv(.c) void {
             if (trks.toJson(&buf4, null)) |json| {
                 shared_state.sendToClient(client_id, json);
             }
+            // Items
+            var buf5: [32768]u8 = undefined;
+            const itms = items.State.poll(api);
+            if (itms.itemsToJson(&buf5)) |json| {
+                shared_state.sendToClient(client_id, json);
+            }
         }
     }
 

@@ -6,12 +6,20 @@ const protocol = @import("protocol.zig");
 pub const MAX_ITEMS = 512;
 pub const MAX_TAKES_PER_ITEM = 8;
 pub const MAX_NAME_LEN = 128;
+pub const GUID_LEN = 38; // {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}
 
 // Take data
 pub const Take = struct {
+    guid: [GUID_LEN]u8 = undefined,
+    guid_len: usize = 0,
     name: [MAX_NAME_LEN]u8 = undefined,
     name_len: usize = 0,
     is_active: bool = false,
+    is_midi: bool = false,
+
+    pub fn getGUID(self: *const Take) []const u8 {
+        return self.guid[0..self.guid_len];
+    }
 
     pub fn getName(self: *const Take) []const u8 {
         return self.name[0..self.name_len];
@@ -19,6 +27,9 @@ pub const Take = struct {
 
     pub fn eql(self: *const Take, other: *const Take) bool {
         if (self.is_active != other.is_active) return false;
+        if (self.is_midi != other.is_midi) return false;
+        if (self.guid_len != other.guid_len) return false;
+        if (!std.mem.eql(u8, self.getGUID(), other.getGUID())) return false;
         if (self.name_len != other.name_len) return false;
         return std.mem.eql(u8, self.getName(), other.getName());
     }
@@ -27,6 +38,8 @@ pub const Take = struct {
 // Item data - matches frontend types.ts Item interface
 pub const Item = struct {
     // Identity
+    guid: [GUID_LEN]u8 = undefined,
+    guid_len: usize = 0,
     track_idx: c_int = 0,
     item_idx: c_int = 0, // index within track
 
@@ -48,11 +61,17 @@ pub const Item = struct {
     takes: [MAX_TAKES_PER_ITEM]Take = undefined,
     take_count: usize = 0,
 
+    pub fn getGUID(self: *const Item) []const u8 {
+        return self.guid[0..self.guid_len];
+    }
+
     pub fn getNotes(self: *const Item) []const u8 {
         return self.notes[0..self.notes_len];
     }
 
     pub fn eql(self: *const Item, other: *const Item) bool {
+        if (self.guid_len != other.guid_len) return false;
+        if (!std.mem.eql(u8, self.getGUID(), other.getGUID())) return false;
         if (self.track_idx != other.track_idx) return false;
         if (self.item_idx != other.item_idx) return false;
         if (@abs(self.position - other.position) > 0.001) return false;
@@ -77,20 +96,10 @@ pub const State = struct {
     items: [MAX_ITEMS]Item = undefined,
     item_count: usize = 0,
 
-    // Time selection bounds (for filtering)
-    time_sel_start: f64 = 0,
-    time_sel_end: f64 = 0,
-
     // Poll current state from REAPER
-    // Only returns items that overlap with time selection (if any)
+    // Returns ALL items in the project (frontend filters by time selection as needed)
     pub fn poll(api: *const reaper.Api) State {
         var state = State{};
-
-        // Get time selection
-        const ts = api.timeSelection();
-        state.time_sel_start = ts.start;
-        state.time_sel_end = ts.end;
-        const has_time_sel = ts.end > ts.start;
 
         // Enumerate all tracks
         const track_count = api.trackCount();
@@ -106,21 +115,19 @@ pub const State = struct {
 
                 const item_ptr = api.getItemByIdx(track, item_idx) orelse continue;
 
-                const pos = api.getItemPosition(item_ptr);
-                const len = api.getItemLength(item_ptr);
-                const item_end = pos + len;
-
-                // Filter by time selection if present
-                if (has_time_sel) {
-                    // Skip items that don't overlap time selection
-                    if (item_end < ts.start or pos > ts.end) continue;
-                }
-
                 var item = &state.items[state.item_count];
+
+                // Get item GUID
+                var guid_buf: [64]u8 = undefined;
+                const item_guid = api.getItemGUID(item_ptr, &guid_buf);
+                const guid_copy_len = @min(item_guid.len, item.guid.len);
+                @memcpy(item.guid[0..guid_copy_len], item_guid[0..guid_copy_len]);
+                item.guid_len = guid_copy_len;
+
                 item.track_idx = track_idx;
                 item.item_idx = item_idx;
-                item.position = pos;
-                item.length = len;
+                item.position = api.getItemPosition(item_ptr);
+                item.length = api.getItemLength(item_ptr);
                 item.color = api.getItemColor(item_ptr);
                 item.locked = api.getItemLocked(item_ptr);
                 item.selected = api.getItemSelected(item_ptr);
@@ -141,11 +148,19 @@ pub const State = struct {
                     const take_ptr = api.getTakeByIdx(item_ptr, @intCast(take_idx)) orelse continue;
                     var take = &item.takes[take_idx];
 
+                    // Get take GUID
+                    var take_guid_buf: [64]u8 = undefined;
+                    const take_guid = api.getTakeGUID(take_ptr, &take_guid_buf);
+                    const take_guid_copy_len = @min(take_guid.len, take.guid.len);
+                    @memcpy(take.guid[0..take_guid_copy_len], take_guid[0..take_guid_copy_len]);
+                    take.guid_len = take_guid_copy_len;
+
                     const take_name = api.getTakeNameStr(take_ptr);
                     const name_copy_len = @min(take_name.len, take.name.len);
                     @memcpy(take.name[0..name_copy_len], take_name[0..name_copy_len]);
                     take.name_len = name_copy_len;
                     take.is_active = (take_idx == @as(usize, @intCast(item.active_take_idx)));
+                    take.is_midi = api.isTakeMIDI(take_ptr);
                 }
 
                 state.item_count += 1;
@@ -173,18 +188,19 @@ pub const State = struct {
         var w = stream.writer();
 
         w.writeAll("{\"type\":\"event\",\"event\":\"items\",\"payload\":{") catch return null;
-        w.print("\"timeSelection\":{{\"start\":{d:.3},\"end\":{d:.3}}},", .{ self.time_sel_start, self.time_sel_end }) catch return null;
         w.writeAll("\"items\":[") catch return null;
 
         for (0..self.item_count) |i| {
             if (i > 0) w.writeByte(',') catch return null;
             const item = &self.items[i];
 
-            w.print("{{\"trackIdx\":{d},\"itemIdx\":{d},\"position\":{d:.3},\"length\":{d:.3},", .{
-                item.track_idx, item.item_idx, item.position, item.length
+            w.writeAll("{\"guid\":\"") catch return null;
+            w.writeAll(item.getGUID()) catch return null;
+            w.print("\",\"trackIdx\":{d},\"itemIdx\":{d},\"position\":{d:.3},\"length\":{d:.3},", .{
+                item.track_idx, item.item_idx, item.position, item.length,
             }) catch return null;
             w.print("\"color\":{d},\"locked\":{},\"selected\":{},\"activeTakeIdx\":{d},\"notes\":\"", .{
-                item.color, item.locked, item.selected, item.active_take_idx
+                item.color, item.locked, item.selected, item.active_take_idx,
             }) catch return null;
             protocol.writeJsonString(w, item.getNotes()) catch return null;
             w.writeAll("\",\"takes\":[") catch return null;
@@ -192,9 +208,11 @@ pub const State = struct {
             for (0..item.take_count) |t| {
                 if (t > 0) w.writeByte(',') catch return null;
                 const take = &item.takes[t];
-                w.writeAll("{\"name\":\"") catch return null;
+                w.writeAll("{\"guid\":\"") catch return null;
+                w.writeAll(take.getGUID()) catch return null;
+                w.writeAll("\",\"name\":\"") catch return null;
                 protocol.writeJsonString(w, take.getName()) catch return null;
-                w.print("\",\"isActive\":{}}}", .{take.is_active}) catch return null;
+                w.print("\",\"isActive\":{},\"isMIDI\":{}}}", .{ take.is_active, take.is_midi }) catch return null;
             }
 
             w.writeAll("]}") catch return null;
@@ -207,11 +225,17 @@ pub const State = struct {
 
 // Tests
 test "Take equality" {
-    var t1 = Take{ .is_active = true };
+    const test_guid = "{12345678-1234-1234-1234-123456789ABC}";
+
+    var t1 = Take{ .is_active = true, .is_midi = false };
+    t1.guid[0..test_guid.len].* = test_guid.*;
+    t1.guid_len = test_guid.len;
     t1.name[0..4].* = "take".*;
     t1.name_len = 4;
 
-    var t2 = Take{ .is_active = true };
+    var t2 = Take{ .is_active = true, .is_midi = false };
+    t2.guid[0..test_guid.len].* = test_guid.*;
+    t2.guid_len = test_guid.len;
     t2.name[0..4].* = "take".*;
     t2.name_len = 4;
 
@@ -219,9 +243,17 @@ test "Take equality" {
 
     t2.is_active = false;
     try std.testing.expect(!t1.eql(&t2));
+
+    // Reset and test isMIDI difference
+    t2.is_active = true;
+    t2.is_midi = true;
+    try std.testing.expect(!t1.eql(&t2));
 }
 
 test "Item equality" {
+    const item_guid = "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}";
+    const take_guid = "{11111111-2222-3333-4444-555555555555}";
+
     var item1 = Item{
         .track_idx = 0,
         .item_idx = 0,
@@ -231,7 +263,11 @@ test "Item equality" {
         .locked = false,
         .active_take_idx = 0,
     };
+    item1.guid[0..item_guid.len].* = item_guid.*;
+    item1.guid_len = item_guid.len;
     item1.take_count = 1;
+    item1.takes[0].guid[0..take_guid.len].* = take_guid.*;
+    item1.takes[0].guid_len = take_guid.len;
     item1.takes[0].name[0..6].* = "Take 1".*;
     item1.takes[0].name_len = 6;
     item1.takes[0].is_active = true;
@@ -245,7 +281,11 @@ test "Item equality" {
         .locked = false,
         .active_take_idx = 0,
     };
+    item2.guid[0..item_guid.len].* = item_guid.*;
+    item2.guid_len = item_guid.len;
     item2.take_count = 1;
+    item2.takes[0].guid[0..take_guid.len].* = take_guid.*;
+    item2.takes[0].guid_len = take_guid.len;
     item2.takes[0].name[0..6].* = "Take 1".*;
     item2.takes[0].name_len = 6;
     item2.takes[0].is_active = true;
@@ -257,9 +297,10 @@ test "Item equality" {
 }
 
 test "State items JSON output" {
+    const item_guid = "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}";
+    const take_guid = "{11111111-2222-3333-4444-555555555555}";
+
     var state = State{};
-    state.time_sel_start = 5.0;
-    state.time_sel_end = 20.0;
 
     // Add test item
     state.items[0] = .{
@@ -271,22 +312,29 @@ test "State items JSON output" {
         .locked = false,
         .active_take_idx = 0,
     };
+    state.items[0].guid[0..item_guid.len].* = item_guid.*;
+    state.items[0].guid_len = item_guid.len;
     state.items[0].take_count = 1;
+    state.items[0].takes[0].guid[0..take_guid.len].* = take_guid.*;
+    state.items[0].takes[0].guid_len = take_guid.len;
     state.items[0].takes[0].name[0..4].* = "Main".*;
     state.items[0].takes[0].name_len = 4;
     state.items[0].takes[0].is_active = true;
+    state.items[0].takes[0].is_midi = false;
     state.item_count = 1;
 
     var buf: [2048]u8 = undefined;
     const json = state.itemsToJson(&buf).?;
 
     try std.testing.expectEqualStrings(
-        "{\"type\":\"event\",\"event\":\"items\",\"payload\":{\"timeSelection\":{\"start\":5.000,\"end\":20.000},\"items\":[{\"trackIdx\":0,\"itemIdx\":0,\"position\":10.000,\"length\":5.000,\"color\":16711680,\"locked\":false,\"selected\":false,\"activeTakeIdx\":0,\"notes\":\"\",\"takes\":[{\"name\":\"Main\",\"isActive\":true}]}]}}",
+        "{\"type\":\"event\",\"event\":\"items\",\"payload\":{\"items\":[{\"guid\":\"{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}\",\"trackIdx\":0,\"itemIdx\":0,\"position\":10.000,\"length\":5.000,\"color\":16711680,\"locked\":false,\"selected\":false,\"activeTakeIdx\":0,\"notes\":\"\",\"takes\":[{\"guid\":\"{11111111-2222-3333-4444-555555555555}\",\"name\":\"Main\",\"isActive\":true,\"isMIDI\":false}]}]}}",
         json,
     );
 }
 
 test "items changed detection" {
+    const item_guid = "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}";
+
     var state1 = State{};
     state1.items[0] = .{
         .track_idx = 0,
@@ -297,6 +345,8 @@ test "items changed detection" {
         .locked = false,
         .active_take_idx = 0,
     };
+    state1.items[0].guid[0..item_guid.len].* = item_guid.*;
+    state1.items[0].guid_len = item_guid.len;
     state1.item_count = 1;
 
     var state2 = State{};
@@ -309,6 +359,8 @@ test "items changed detection" {
         .locked = false,
         .active_take_idx = 0,
     };
+    state2.items[0].guid[0..item_guid.len].* = item_guid.*;
+    state2.items[0].guid_len = item_guid.len;
     state2.item_count = 1;
 
     try std.testing.expect(!state1.itemsChanged(&state2));

@@ -80,6 +80,11 @@ pub const Api = struct {
     getActiveTake: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque = null,
     getTakeName: ?*const fn (?*anyopaque) callconv(.c) ?[*:0]const u8 = null,
     getSetMediaItemTakeInfo_String: ?*const fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool = null,
+    getSetMediaItemTakeInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8, f64, bool) callconv(.c) f64 = null,
+    takeIsMIDI: ?*const fn (?*anyopaque) callconv(.c) bool = null,
+    getMediaItemTake_Source: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque = null,
+    getMediaSourceNumChannels: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
+    getMediaItemTake_Peaks: ?*const fn (?*anyopaque, f64, f64, c_int, c_int, c_int, [*]f64) callconv(.c) c_int = null,
 
     // ExtState (global and project-specific)
     getExtState: ?*const fn ([*:0]const u8, [*:0]const u8) callconv(.c) ?[*:0]const u8 = null,
@@ -171,6 +176,11 @@ pub const Api = struct {
             .getActiveTake = getFunc(info, "GetActiveTake", fn (?*anyopaque) callconv(.c) ?*anyopaque),
             .getTakeName = getFunc(info, "GetTakeName", fn (?*anyopaque) callconv(.c) ?[*:0]const u8),
             .getSetMediaItemTakeInfo_String = getFunc(info, "GetSetMediaItemTakeInfo_String", fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool),
+            .getSetMediaItemTakeInfo_Value = getFunc(info, "GetSetMediaItemTakeInfo_Value", fn (?*anyopaque, [*:0]const u8, f64, bool) callconv(.c) f64),
+            .takeIsMIDI = getFunc(info, "TakeIsMIDI", fn (?*anyopaque) callconv(.c) bool),
+            .getMediaItemTake_Source = getFunc(info, "GetMediaItemTake_Source", fn (?*anyopaque) callconv(.c) ?*anyopaque),
+            .getMediaSourceNumChannels = getFunc(info, "GetMediaSourceNumChannels", fn (?*anyopaque) callconv(.c) c_int),
+            .getMediaItemTake_Peaks = getFunc(info, "GetMediaItemTake_Peaks", fn (?*anyopaque, f64, f64, c_int, c_int, c_int, [*]f64) callconv(.c) c_int),
             // ExtState
             .getExtState = getFunc(info, "GetExtState", fn ([*:0]const u8, [*:0]const u8) callconv(.c) ?[*:0]const u8),
             .getProjExtState = getFunc(info, "GetProjExtState", fn (?*anyopaque, [*:0]const u8, [*:0]const u8, [*]u8, c_int) callconv(.c) c_int),
@@ -872,6 +882,68 @@ pub const Api = struct {
         const f = self.getTakeName orelse return "";
         const ptr = f(take) orelse return "";
         return std.mem.sliceTo(ptr, 0);
+    }
+
+    /// Get item GUID as string (38 char format: {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX})
+    pub fn getItemGUID(self: *const Api, item: *anyopaque, buf: []u8) []const u8 {
+        const f = self.getSetMediaItemInfo_String orelse return "";
+        if (buf.len < 40) return ""; // Need at least 38 chars + null
+        if (f(item, "GUID", buf.ptr, false)) {
+            return std.mem.sliceTo(buf, 0);
+        }
+        return "";
+    }
+
+    /// Get take GUID as string (38 char format: {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX})
+    pub fn getTakeGUID(self: *const Api, take: *anyopaque, buf: []u8) []const u8 {
+        const f = self.getSetMediaItemTakeInfo_String orelse return "";
+        if (buf.len < 40) return ""; // Need at least 38 chars + null
+        if (f(take, "GUID", buf.ptr, false)) {
+            return std.mem.sliceTo(buf, 0);
+        }
+        return "";
+    }
+
+    /// Get take start offset in seconds (D_STARTOFFS)
+    pub fn getTakeStartOffset(self: *const Api, take: *anyopaque) f64 {
+        const f = self.getSetMediaItemTakeInfo_Value orelse return 0;
+        return f(take, "D_STARTOFFS", 0, false); // set_val=false for get
+    }
+
+    /// Get take playback rate (D_PLAYRATE, 1.0 = normal)
+    pub fn getTakePlayrate(self: *const Api, take: *anyopaque) f64 {
+        const f = self.getSetMediaItemTakeInfo_Value orelse return 1.0;
+        return f(take, "D_PLAYRATE", 0, false); // set_val=false for get
+    }
+
+    /// Check if take is MIDI (as opposed to audio)
+    pub fn isTakeMIDI(self: *const Api, take: *anyopaque) bool {
+        const f = self.takeIsMIDI orelse return false;
+        return f(take);
+    }
+
+    /// Get the PCM source for a take (needed for channel count and peaks)
+    pub fn getTakeSource(self: *const Api, take: *anyopaque) ?*anyopaque {
+        const f = self.getMediaItemTake_Source orelse return null;
+        return f(take);
+    }
+
+    /// Get number of channels in a media source (1=mono, 2=stereo, etc.)
+    pub fn getMediaSourceChannels(self: *const Api, source: *anyopaque) c_int {
+        const f = self.getMediaSourceNumChannels orelse return 0;
+        return f(source);
+    }
+
+    /// Get waveform peaks for a take
+    /// peakrate: peaks per second (e.g., item_duration/desired_peaks)
+    /// starttime/numchannels: usually 0 and source channel count
+    /// numsamplesperchannel: number of peak samples to get
+    /// buf: buffer for peak data (needs numchannels * numsamplesperchannel * 2 floats for min+max)
+    /// Returns: sample_count in low 20 bits, mode in bits 20-23 (0=not yet ready, use previous)
+    pub fn getMediaItemTakePeaks(self: *const Api, take: *anyopaque, peakrate: f64, starttime: f64, numchannels: c_int, numsamplesperchannel: c_int, buf: []f64) c_int {
+        const f = self.getMediaItemTake_Peaks orelse return 0;
+        const want_extra: c_int = 0; // We don't need extra info (source location)
+        return f(take, peakrate, starttime, numchannels, numsamplesperchannel, want_extra, buf.ptr);
     }
 
     // Metering methods
