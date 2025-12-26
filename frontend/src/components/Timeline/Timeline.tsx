@@ -8,7 +8,7 @@ import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
 import { useTransport, useTimeSignature, useBarOffset } from '../../hooks';
 import { transport, timeSelection as timeSelCmd, action, marker as markerCmd } from '../../core/WebSocketCommands';
-import type { Region, Marker } from '../../core/types';
+import type { Marker } from '../../core/types';
 import { MarkerEditModal } from './MarkerEditModal';
 import { usePlayheadDrag, useMarkerDrag, useRegionDrag } from './hooks';
 import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
@@ -25,8 +25,8 @@ export interface TimelineProps {
   isSyncing?: boolean;
 }
 
-// Hold duration threshold in ms
-const HOLD_THRESHOLD = 300;
+// Vertical distance to cancel gesture (drag off timeline)
+const VERTICAL_CANCEL_THRESHOLD = 50;
 
 export function Timeline({ className = '', height = 120, isSyncing = false }: TimelineProps): ReactElement {
   const { sendCommand } = useReaper();
@@ -116,10 +116,10 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   }, [regionDragIndex, regionDragType, baseDisplayRegions]);
 
   // Gesture state (navigate mode)
-  const [isHolding, setIsHolding] = useState(false);
+  // Simplified: tap = seek, horizontal drag = select, vertical drag off = cancel
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [dragEnd, setDragEnd] = useState<number | null>(null);
-  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isCancelled, setIsCancelled] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Marker edit modal state
@@ -287,19 +287,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     [sendCommand]
   );
 
-  // Find region at time
-  const findRegionAt = useCallback(
-    (time: number): Region | null => {
-      for (const region of regions) {
-        if (time >= region.start && time < region.end) {
-          return region;
-        }
-      }
-      return null;
-    },
-    [regions]
-  );
-
   // Find nearest snap target (region edge, marker, or playhead)
   const findNearestBoundary = useCallback(
     (time: number): number => {
@@ -324,16 +311,11 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         return;
       }
 
-      // Navigate mode (existing behavior)
+      // Navigate mode - simplified gesture handling
       const time = positionToTime(e.clientX);
       setDragStart(time);
       setDragEnd(time);
-      setIsHolding(false);
-
-      // Start hold timer
-      holdTimerRef.current = setTimeout(() => {
-        setIsHolding(true);
-      }, HOLD_THRESHOLD);
+      setIsCancelled(false);
 
       // Capture pointer for drag events
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -351,19 +333,21 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       }
 
       // Navigate mode
-      if (dragStart === null) return;
+      if (dragStart === null || !containerRef.current) return;
 
       const time = positionToTime(e.clientX);
       setDragEnd(time);
 
-      // If moved significantly, we're definitely dragging
-      if (Math.abs(time - dragStart) > 0.1) {
-        // Clear hold timer - we're dragging
-        if (holdTimerRef.current) {
-          clearTimeout(holdTimerRef.current);
-          holdTimerRef.current = null;
-        }
-        setIsHolding(true); // Treat drag as selection mode
+      // Check if dragged off timeline (vertical cancel)
+      const rect = containerRef.current.getBoundingClientRect();
+      const isOutsideVertically =
+        e.clientY < rect.top - VERTICAL_CANCEL_THRESHOLD ||
+        e.clientY > rect.bottom + VERTICAL_CANCEL_THRESHOLD;
+
+      if (isOutsideVertically) {
+        setIsCancelled(true);
+      } else {
+        setIsCancelled(false);
       }
     },
     [dragStart, positionToTime, timelineMode, handleRegionPointerMove]
@@ -372,12 +356,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   // Handle touch/mouse end
   const handlePointerUp = useCallback(
     (e: React.PointerEvent) => {
-      // Clear hold timer (navigate mode)
-      if (holdTimerRef.current) {
-        clearTimeout(holdTimerRef.current);
-        holdTimerRef.current = null;
-      }
-
       // Region editing mode - delegate to hook
       if (timelineMode === 'regions') {
         handleRegionPointerUp(e);
@@ -388,10 +366,19 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       if (dragStart === null) return;
 
       const endTime = positionToTime(e.clientX);
-      const wasDragging = Math.abs(endTime - dragStart) > 0.1;
+      const wasDraggingHorizontally = Math.abs(endTime - dragStart) > 0.1;
 
-      if (isHolding || wasDragging) {
-        // Selection mode: set time selection
+      // Check final cancel state
+      const rect = containerRef.current?.getBoundingClientRect();
+      const isOutsideVertically = rect && (
+        e.clientY < rect.top - VERTICAL_CANCEL_THRESHOLD ||
+        e.clientY > rect.bottom + VERTICAL_CANCEL_THRESHOLD
+      );
+
+      if (isCancelled || isOutsideVertically) {
+        // Cancelled - do nothing
+      } else if (wasDraggingHorizontally) {
+        // Horizontal drag = create time selection
         let selStart = Math.min(dragStart, endTime);
         let selEnd = Math.max(dragStart, endTime);
 
@@ -399,40 +386,25 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         selStart = findNearestBoundary(selStart);
         selEnd = findNearestBoundary(selEnd);
 
-        // If just a hold (no drag), select the region under the pointer
-        if (!wasDragging) {
-          const region = findRegionAt(dragStart);
-          if (region) {
-            selStart = region.start;
-            selEnd = region.end;
-          }
-        }
-
         setTimeSelection(selStart, selEnd);
       } else {
-        // Tap: navigate to position
-        const region = findRegionAt(dragStart);
-        if (region) {
-          navigateTo(region.start);
-        } else {
-          navigateTo(findNearestBoundary(dragStart));
-        }
+        // Tap (no horizontal movement) = navigate to nearest boundary
+        navigateTo(findNearestBoundary(dragStart));
       }
 
       // Reset state
       setDragStart(null);
       setDragEnd(null);
-      setIsHolding(false);
+      setIsCancelled(false);
 
       // Release pointer capture
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
     },
     [
       dragStart,
-      isHolding,
+      isCancelled,
       positionToTime,
       findNearestBoundary,
-      findRegionAt,
       setTimeSelection,
       navigateTo,
       timelineMode,
@@ -500,7 +472,9 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   // Calculate selection preview bounds
   const selectionPreview = useMemo(() => {
     if (dragStart === null || dragEnd === null) return null;
-    if (!isHolding && Math.abs(dragEnd - dragStart) <= 0.1) return null;
+    // Don't show if cancelled or no horizontal movement
+    if (isCancelled) return null;
+    if (Math.abs(dragEnd - dragStart) <= 0.1) return null;
 
     let start = Math.min(dragStart, dragEnd);
     let end = Math.max(dragStart, dragEnd);
@@ -510,7 +484,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     end = findNearestBoundary(end);
 
     return { start, end };
-  }, [dragStart, dragEnd, isHolding, findNearestBoundary]);
+  }, [dragStart, dragEnd, isCancelled, findNearestBoundary]);
 
   return (
     <div className={`${className}`}>
