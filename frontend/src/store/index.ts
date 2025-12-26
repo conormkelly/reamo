@@ -163,12 +163,10 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
         isRepeat: p.repeat,
         isMetronome: p.metronome.enabled,
         metronomeVolume: p.metronome.volume,
-        // Convert time selection from seconds to beats for compatibility
-        // TODO: Simplify - store seconds directly, convert in UI if needed
         timeSelection: p.timeSelection.start !== p.timeSelection.end
           ? {
-              startBeats: p.timeSelection.start * (normalizedBpm / 60),
-              endBeats: p.timeSelection.end * (normalizedBpm / 60),
+              startSeconds: p.timeSelection.start,
+              endSeconds: p.timeSelection.end,
             }
           : null,
         barOffset: p.barOffset ?? 0,

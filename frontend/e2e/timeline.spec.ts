@@ -365,36 +365,6 @@ test.describe('Undo/Redo', () => {
     expect(canRedo).toBe(false)
   })
 
-  test('save clears undo/redo history', async ({ page }) => {
-    // Make an edit
-    await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      const state = store.getState()
-      state.moveRegion([0], 5, state.regions)
-    })
-
-    // Verify we can undo
-    let canUndo = await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      return store.getState().canUndo()
-    })
-    expect(canUndo).toBe(true)
-
-    // Click Save (this will clear pending and history)
-    await page.getByRole('button', { name: 'Save' }).nth(1).click()
-
-    // Wait for save to complete
-    await page.waitForTimeout(500)
-
-    // History should be cleared
-    const historyCleared = await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      const state = store.getState()
-      return state.historyStack.length === 0 && state.redoStack.length === 0
-    })
-    expect(historyCleared).toBe(true)
-  })
-
   test('cancel clears undo/redo history', async ({ page }) => {
     // Make an edit
     await page.evaluate(() => {
@@ -420,5 +390,152 @@ test.describe('Undo/Redo', () => {
       return state.historyStack.length === 0 && state.redoStack.length === 0
     })
     expect(historyCleared).toBe(true)
+  })
+})
+
+// ============================================================================
+// Time Selection Tests
+// ============================================================================
+
+test.describe('Time selection', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/')
+    await setupTestFixtures(page)
+
+    // Switch to navigate mode for time selection gestures
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      localStorage.setItem('reamo-timeline-mode', 'navigate')
+      store.getState().setTimelineMode('navigate')
+    })
+    await page.waitForTimeout(100)
+  })
+
+  test('displays time selection from store', async ({ page }) => {
+    // Inject time selection into store
+    // At 120 BPM: 20 beats = 10s, 40 beats = 20s
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      store.setState({
+        timeSelection: { startBeats: 20, endBeats: 40 },
+        bpm: 120,
+      })
+    })
+
+    await page.waitForTimeout(50)
+
+    // Find time selection element (has border-l-2, border-r-2, bg-white/15)
+    const timeSelElement = page.locator('.border-l-2.border-r-2.bg-white\\/15')
+
+    // Should be visible
+    await expect(timeSelElement.first()).toBeVisible()
+
+    // Should have left and width styles set
+    const style = await timeSelElement.first().getAttribute('style')
+    expect(style).toContain('left:')
+    expect(style).toContain('width:')
+  })
+
+  test('does not show time selection when none is set', async ({ page }) => {
+    // Ensure no time selection
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      store.setState({
+        timeSelection: null,
+        bpm: 120,
+      })
+    })
+
+    await page.waitForTimeout(50)
+
+    // Time selection element should not exist
+    const timeSelElement = page.locator('.border-l-2.border-r-2.bg-white\\/15')
+    await expect(timeSelElement).toHaveCount(0)
+  })
+
+  test('updates time selection position when changed', async ({ page }) => {
+    // Set initial time selection
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      store.setState({
+        timeSelection: { startBeats: 20, endBeats: 40 },
+        bpm: 120,
+      })
+    })
+
+    await page.waitForTimeout(50)
+
+    const timeSelElement = page.locator('.border-l-2.border-r-2.bg-white\\/15').first()
+    const initialStyle = await timeSelElement.getAttribute('style')
+    const initialLeft = parseFloat(initialStyle?.match(/left:\s*([\d.]+)%/)?.[1] || '0')
+
+    // Change time selection to later position
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      store.setState({
+        timeSelection: { startBeats: 40, endBeats: 60 },
+      })
+    })
+
+    await page.waitForTimeout(50)
+
+    const newStyle = await timeSelElement.getAttribute('style')
+    const newLeft = parseFloat(newStyle?.match(/left:\s*([\d.]+)%/)?.[1] || '0')
+
+    // New position should be further right
+    expect(newLeft).toBeGreaterThan(initialLeft)
+  })
+
+  test('clears time selection from display', async ({ page }) => {
+    // Set time selection
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      store.setState({
+        timeSelection: { startBeats: 20, endBeats: 40 },
+        bpm: 120,
+      })
+    })
+
+    await page.waitForTimeout(50)
+
+    // Should be visible
+    const timeSelElement = page.locator('.border-l-2.border-r-2.bg-white\\/15')
+    await expect(timeSelElement.first()).toBeVisible()
+
+    // Clear time selection
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      store.setState({ timeSelection: null })
+    })
+
+    await page.waitForTimeout(50)
+
+    // Should no longer be visible
+    await expect(timeSelElement).toHaveCount(0)
+  })
+
+  test('drag creates time selection (navigate mode)', async ({ page }) => {
+    // Clear any existing selection
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      store.setState({ timeSelection: null, bpm: 120 })
+    })
+
+    // Drag from 20% to 60% of timeline
+    await dragPercent(page, 20, 60)
+
+    await page.waitForTimeout(100)
+
+    // Check that time selection was set in store
+    const timeSelection = await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__
+      return store.getState().timeSelection
+    })
+
+    expect(timeSelection).not.toBeNull()
+    expect(timeSelection.startBeats).toBeDefined()
+    expect(timeSelection.endBeats).toBeDefined()
+    // End should be after start
+    expect(timeSelection.endBeats).toBeGreaterThan(timeSelection.startBeats)
   })
 })

@@ -14,7 +14,7 @@ import { usePlayheadDrag, useMarkerDrag, useRegionDrag } from './hooks';
 import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
 import { TimelineMarkerLines, TimelineMarkerPills } from './TimelineMarkers';
 import { TimelinePlayhead, PlayheadDragPreview, MarkerDragPreview } from './TimelinePlayhead';
-import { secondsToBeats, beatsToSeconds, formatBeats, formatDelta } from '../../utils';
+import { formatBeats, formatDelta } from '../../utils';
 import { findNearestSnapTarget } from './snapUtils';
 
 export interface TimelineProps {
@@ -65,16 +65,13 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   const insertionPoint = useReaperStore((state) => state.insertionPoint);
   const resizeEdgePosition = useReaperStore((state) => state.resizeEdgePosition);
 
-  // Convert stored beat-based selection to seconds for display
   // Filter out invalid 0-width selections
   const timeSelectionSeconds = useMemo(() => {
-    if (!storedTimeSelection || !bpm) return null;
-    const start = beatsToSeconds(storedTimeSelection.startBeats, bpm);
-    const end = beatsToSeconds(storedTimeSelection.endBeats, bpm);
+    if (!storedTimeSelection) return null;
     // Don't show selections with negligible width (less than 0.01 seconds)
-    if (Math.abs(end - start) < 0.01) return null;
-    return { start, end };
-  }, [storedTimeSelection, bpm]);
+    if (Math.abs(storedTimeSelection.endSeconds - storedTimeSelection.startSeconds) < 0.01) return null;
+    return { start: storedTimeSelection.startSeconds, end: storedTimeSelection.endSeconds };
+  }, [storedTimeSelection]);
 
   // Base display regions (with pending changes but WITHOUT drag preview) - used for snap calculations
   const baseDisplayRegions = useMemo(() => {
@@ -268,15 +265,13 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   const setTimeSelection = useCallback(
     (startSeconds: number, endSeconds: number) => {
       sendCommand(timeSelCmd.set(startSeconds, endSeconds));
-      // Store locally in beats (so it stays aligned when tempo changes)
-      if (bpm) {
-        setStoredTimeSelection({
-          startBeats: secondsToBeats(startSeconds, bpm),
-          endBeats: secondsToBeats(endSeconds, bpm),
-        });
-      }
+      // Store locally (server updates will overwrite every ~30ms anyway)
+      setStoredTimeSelection({
+        startSeconds,
+        endSeconds,
+      });
     },
-    [sendCommand, setStoredTimeSelection, bpm]
+    [sendCommand, setStoredTimeSelection]
   );
 
   // Navigate to position

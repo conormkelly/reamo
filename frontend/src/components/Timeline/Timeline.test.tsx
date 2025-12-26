@@ -482,3 +482,200 @@ describe('Playhead visibility', () => {
     expect(parseFloat(playheadContainer.style.left)).toBe(0)
   })
 })
+
+// ============================================================================
+// Tests: Time Selection Display
+// ============================================================================
+
+// Helper to find time selection elements (they have border-l-2 border-r-2 and specific backgrounds)
+function findTimeSelectionElement(container: Element): HTMLElement | null {
+  // The time selection div has these classes and pointer-events-none
+  // In navigate mode: bg-white/15 border-white/60
+  // In regions mode: bg-gray-500/5 border-gray-700 opacity-50
+  // It's rendered with inline left/width styles
+  const candidates = container.querySelectorAll('.border-l-2.border-r-2.pointer-events-none')
+  for (const el of candidates) {
+    const htmlEl = el as HTMLElement
+    // Time selection has both left and width set (selection preview also matches but has different bg)
+    // Time selection uses bg-white/15 or bg-gray-500/5, selection preview uses bg-blue-500/30
+    if (htmlEl.style.left && htmlEl.style.width && !htmlEl.classList.contains('bg-blue-500/30')) {
+      return htmlEl
+    }
+  }
+  return null
+}
+
+describe('Time selection display', () => {
+  beforeEach(() => {
+    setupStore(songStructure())
+    Element.prototype.getBoundingClientRect = vi.fn(() => mockRect)
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
+  it('does not render time selection when none is set', () => {
+    useReaperStore.setState({ timeSelection: null, bpm: 120 })
+
+    const { container } = render(<Timeline height={120} />)
+
+    const timeSelEl = findTimeSelectionElement(container)
+    expect(timeSelEl).toBeNull()
+  })
+
+  it('renders time selection even when bpm is null', () => {
+    // Time selection is stored in seconds, so BPM is not needed for display
+    useReaperStore.setState({
+      timeSelection: { startSeconds: 10, endSeconds: 20 },
+      bpm: null,
+    })
+
+    const { container } = render(<Timeline height={120} />)
+
+    const timeSelEl = findTimeSelectionElement(container)
+    expect(timeSelEl).not.toBeNull()
+  })
+
+  it('renders time selection at correct position', () => {
+    // Selection from 10s to 20s
+    // With regions from 0-30s, timeline is ~31.5s (30 * 1.05)
+    // 10s/31.5s ≈ 31.7%, 20s/31.5s ≈ 63.5%
+    useReaperStore.setState({
+      timeSelection: { startSeconds: 10, endSeconds: 20 },
+      bpm: 120,
+    })
+
+    const { container } = render(<Timeline height={120} />)
+
+    const timeSelEl = findTimeSelectionElement(container)
+    expect(timeSelEl).not.toBeNull()
+
+    const left = parseFloat(timeSelEl!.style.left)
+    const width = parseFloat(timeSelEl!.style.width)
+
+    // Selection should start around 31-32% and be about 31-32% wide
+    expect(left).toBeGreaterThan(25)
+    expect(left).toBeLessThan(40)
+    expect(width).toBeGreaterThan(25)
+    expect(width).toBeLessThan(40)
+  })
+
+  it('renders time selection starting at time 0', () => {
+    // Selection from 0 to 8 seconds
+    useReaperStore.setState({
+      timeSelection: { startSeconds: 0, endSeconds: 8 },
+      bpm: 120,
+    })
+
+    const { container } = render(<Timeline height={120} />)
+
+    const timeSelEl = findTimeSelectionElement(container)
+    expect(timeSelEl).not.toBeNull()
+
+    const left = parseFloat(timeSelEl!.style.left)
+    // Selection should start at 0%
+    expect(left).toBe(0)
+  })
+
+  it('does not render time selection with negligible width (< 0.01s)', () => {
+    // Selection with less than 0.01 second width should be filtered out
+    useReaperStore.setState({
+      timeSelection: { startSeconds: 10, endSeconds: 10.005 },
+      bpm: 120,
+    })
+
+    const { container } = render(<Timeline height={120} />)
+
+    const timeSelEl = findTimeSelectionElement(container)
+    expect(timeSelEl).toBeNull()
+  })
+
+  it('renders time selection just above negligible threshold', () => {
+    // Selection with just above 0.01 second width should render
+    useReaperStore.setState({
+      timeSelection: { startSeconds: 10, endSeconds: 10.015 },
+      bpm: 120,
+    })
+
+    const { container } = render(<Timeline height={120} />)
+
+    const timeSelEl = findTimeSelectionElement(container)
+    expect(timeSelEl).not.toBeNull()
+  })
+
+  it('updates time selection position when store changes', () => {
+    useReaperStore.setState({
+      timeSelection: { startSeconds: 10, endSeconds: 20 },
+      bpm: 120,
+    })
+
+    const { container, rerender } = render(<Timeline height={120} />)
+
+    const timeSelEl1 = findTimeSelectionElement(container)
+    expect(timeSelEl1).not.toBeNull()
+    const initialLeft = parseFloat(timeSelEl1!.style.left)
+
+    // Change time selection
+    act(() => {
+      useReaperStore.setState({
+        timeSelection: { startSeconds: 20, endSeconds: 30 },
+      })
+    })
+
+    rerender(<Timeline height={120} />)
+
+    const timeSelEl2 = findTimeSelectionElement(container)
+    expect(timeSelEl2).not.toBeNull()
+    const newLeft = parseFloat(timeSelEl2!.style.left)
+
+    // New selection should be further right
+    expect(newLeft).toBeGreaterThan(initialLeft)
+  })
+
+  it('clears time selection when set to null', () => {
+    useReaperStore.setState({
+      timeSelection: { startSeconds: 10, endSeconds: 20 },
+      bpm: 120,
+    })
+
+    const { container, rerender } = render(<Timeline height={120} />)
+
+    expect(findTimeSelectionElement(container)).not.toBeNull()
+
+    // Clear time selection
+    act(() => {
+      useReaperStore.setState({ timeSelection: null })
+    })
+
+    rerender(<Timeline height={120} />)
+
+    expect(findTimeSelectionElement(container)).toBeNull()
+  })
+
+  it('time selection position is stable when BPM changes', () => {
+    // Since we now store seconds directly, BPM changes should NOT affect position
+    useReaperStore.setState({
+      timeSelection: { startSeconds: 10, endSeconds: 20 },
+      bpm: 120,
+    })
+
+    const { container, rerender } = render(<Timeline height={120} />)
+    const timeSelEl1 = findTimeSelectionElement(container)
+    const leftAt120 = parseFloat(timeSelEl1!.style.left)
+
+    // Change BPM to 60
+    act(() => {
+      useReaperStore.setState({ bpm: 60 })
+    })
+
+    rerender(<Timeline height={120} />)
+
+    const timeSelEl2 = findTimeSelectionElement(container)
+    const leftAt60 = parseFloat(timeSelEl2!.style.left)
+
+    // Position should remain the same since we store seconds
+    expect(leftAt60).toBeCloseTo(leftAt120, 1)
+  })
+})

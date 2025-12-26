@@ -97,18 +97,17 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
 
       // Pre-populate with current time selection if exists
       if (timeSelection) {
-        const startSeconds = beatsToSeconds(timeSelection.startBeats, effectiveBpm);
-        const endSeconds = beatsToSeconds(timeSelection.endBeats, effectiveBpm);
-
         if (mode === 'beats') {
-          // Convert quarter-note beats to denominator beats, barOffset handled by utility
-          const startDenomBeats = timeSelection.startBeats * (denominator / 4);
-          const endDenomBeats = timeSelection.endBeats * (denominator / 4);
+          // Convert seconds to quarter-note beats, then to denominator beats
+          const startQuarterBeats = secondsToBeats(timeSelection.startSeconds, effectiveBpm);
+          const endQuarterBeats = secondsToBeats(timeSelection.endSeconds, effectiveBpm);
+          const startDenomBeats = startQuarterBeats * (denominator / 4);
+          const endDenomBeats = endQuarterBeats * (denominator / 4);
           setStartValue(formatBeatsToBarBeatTicks(startDenomBeats, beatsPerBar, true, capturedBarOffsetRef.current));
           setEndValue(formatBeatsToBarBeatTicks(endDenomBeats, beatsPerBar, true, capturedBarOffsetRef.current));
         } else {
-          setStartValue(formatTimeLocal(startSeconds));
-          setEndValue(formatTimeLocal(endSeconds));
+          setStartValue(formatTimeLocal(timeSelection.startSeconds));
+          setEndValue(formatTimeLocal(timeSelection.endSeconds));
         }
       } else {
         // Default to bar 1 to bar 2
@@ -267,13 +266,11 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
     // Set time selection in REAPER via WebSocket
     sendCommand(timeSelCmd.set(startSeconds, endSeconds));
 
-    // Store locally in beats
-    if (effectiveBpm) {
-      setTimeSelection({
-        startBeats: secondsToBeats(startSeconds, effectiveBpm),
-        endBeats: secondsToBeats(endSeconds, effectiveBpm),
-      });
-    }
+    // Store locally in seconds
+    setTimeSelection({
+      startSeconds,
+      endSeconds,
+    });
 
     onClose();
   };
