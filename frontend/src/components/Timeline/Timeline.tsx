@@ -15,6 +15,7 @@ import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
 import { TimelineMarkerLines, TimelineMarkerPills } from './TimelineMarkers';
 import { TimelinePlayhead, PlayheadDragPreview, MarkerDragPreview } from './TimelinePlayhead';
 import { secondsToBeats, beatsToSeconds, formatBeats, formatDelta } from '../../utils';
+import { findNearestSnapTarget } from './snapUtils';
 
 export interface TimelineProps {
   className?: string;
@@ -296,38 +297,16 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     [regions]
   );
 
-  // Find nearest boundary (region edge or marker) to a time
+  // Find nearest snap target (region edge, marker, or playhead)
   const findNearestBoundary = useCallback(
     (time: number): number => {
-      let nearest = time;
-      let minDist = Infinity;
-
-      // Check region boundaries
-      for (const region of regions) {
-        const startDist = Math.abs(region.start - time);
-        const endDist = Math.abs(region.end - time);
-        if (startDist < minDist) {
-          minDist = startDist;
-          nearest = region.start;
-        }
-        if (endDist < minDist) {
-          minDist = endDist;
-          nearest = region.end;
-        }
-      }
-
-      // Check markers
-      for (const marker of markers) {
-        const dist = Math.abs(marker.position - time);
-        if (dist < minDist) {
-          minDist = dist;
-          nearest = marker.position;
-        }
-      }
-
-      return nearest;
+      return findNearestSnapTarget(time, {
+        regions,
+        markers,
+        playheadPosition: positionSeconds,
+      });
     },
-    [regions, markers]
+    [regions, markers, positionSeconds]
   );
 
   // Handle touch/mouse start
