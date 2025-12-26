@@ -4,6 +4,7 @@
  */
 
 import { useState, useCallback, type RefObject } from 'react';
+import { snapToGrid } from '../../../utils';
 
 /** Vertical distance to cancel playhead drag (pixels) */
 const VERTICAL_CANCEL_THRESHOLD = 50;
@@ -17,6 +18,10 @@ export interface UsePlayheadDragOptions {
   timelineStart: number;
   /** Timeline duration in seconds */
   duration: number;
+  /** BPM for grid snapping (null disables snapping) */
+  bpm: number | null;
+  /** Convert time to percentage position */
+  timeToPercent: (time: number) => number;
   /** Callback when drag completes successfully */
   onSeek: (seconds: number) => void;
 }
@@ -26,6 +31,8 @@ export interface UsePlayheadDragResult {
   isDragging: boolean;
   /** Preview position as percentage (null when not dragging) */
   previewPercent: number | null;
+  /** Preview time in seconds (null when not dragging) - use this for display to avoid precision loss */
+  previewTime: number | null;
   /** Handler for pointer down on playhead */
   handlePointerDown: (e: React.PointerEvent) => void;
   /** Handler for pointer move during drag */
@@ -39,22 +46,29 @@ export function usePlayheadDrag({
   playheadPercent,
   timelineStart,
   duration,
+  bpm,
+  timeToPercent,
   onSeek,
 }: UsePlayheadDragOptions): UsePlayheadDragResult {
   const [isDragging, setIsDragging] = useState(false);
   const [dragStartY, setDragStartY] = useState<number | null>(null);
   const [previewPercent, setPreviewPercent] = useState<number | null>(null);
+  const [previewTime, setPreviewTime] = useState<number | null>(null);
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
       e.stopPropagation();
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
 
+      // Calculate current time from percent for initial preview
+      const currentTime = timelineStart + (playheadPercent / 100) * duration;
+
       setIsDragging(true);
       setDragStartY(e.clientY);
       setPreviewPercent(playheadPercent);
+      setPreviewTime(currentTime);
     },
-    [playheadPercent]
+    [playheadPercent, timelineStart, duration]
   );
 
   const handlePointerMove = useCallback(
@@ -69,15 +83,24 @@ export function usePlayheadDrag({
 
       if (isOutsideVertically || deltaY > VERTICAL_CANCEL_THRESHOLD) {
         // Show cancel state - preview snaps back to current playhead
+        const currentTime = timelineStart + (playheadPercent / 100) * duration;
         setPreviewPercent(playheadPercent);
+        setPreviewTime(currentTime);
         return;
       }
 
-      // Update preview position
-      const percent = ((e.clientX - rect.left) / rect.width) * 100;
-      setPreviewPercent(Math.max(0, Math.min(100, percent)));
+      // Calculate time from drag position
+      const rawPercent = ((e.clientX - rect.left) / rect.width) * 100;
+      const rawTime = timelineStart + (rawPercent / 100) * duration;
+
+      // Snap to grid (bar boundaries) if we have BPM
+      const snappedTime = bpm ? snapToGrid(rawTime, bpm, 4) : rawTime;
+      const snappedPercent = timeToPercent(snappedTime);
+
+      setPreviewPercent(Math.max(0, Math.min(100, snappedPercent)));
+      setPreviewTime(snappedTime);
     },
-    [isDragging, dragStartY, playheadPercent, containerRef]
+    [isDragging, dragStartY, playheadPercent, containerRef, timelineStart, duration, bpm, timeToPercent]
   );
 
   const handlePointerUp = useCallback(
@@ -96,23 +119,24 @@ export function usePlayheadDrag({
       if (
         !isOutsideVertically &&
         deltaY <= VERTICAL_CANCEL_THRESHOLD &&
-        previewPercent !== null
+        previewTime !== null
       ) {
-        const newTime = timelineStart + (previewPercent / 100) * duration;
-        onSeek(newTime);
+        onSeek(previewTime);
       }
 
       // Reset state
       setIsDragging(false);
       setDragStartY(null);
       setPreviewPercent(null);
+      setPreviewTime(null);
     },
-    [isDragging, dragStartY, previewPercent, timelineStart, duration, onSeek, containerRef]
+    [isDragging, dragStartY, previewTime, onSeek, containerRef]
   );
 
   return {
     isDragging,
     previewPercent,
+    previewTime,
     handlePointerDown,
     handlePointerMove,
     handlePointerUp,

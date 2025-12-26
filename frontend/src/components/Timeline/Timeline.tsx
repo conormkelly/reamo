@@ -169,6 +169,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   const {
     isDragging: isDraggingPlayhead,
     previewPercent: playheadPreviewPercent,
+    previewTime: playheadPreviewTime,
     handlePointerDown: handlePlayheadPointerDown,
     handlePointerMove: handlePlayheadPointerMove,
     handlePointerUp: handlePlayheadPointerUp,
@@ -177,6 +178,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     playheadPercent,
     timelineStart,
     duration,
+    bpm,
+    timeToPercent,
     onSeek: handlePlayheadSeek,
   });
 
@@ -654,9 +657,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         {/* Preview playhead during drag */}
         <PlayheadDragPreview
           playheadPreviewPercent={playheadPreviewPercent}
+          playheadPreviewTime={playheadPreviewTime}
           isDraggingPlayhead={isDraggingPlayhead}
-          timelineStart={timelineStart}
-          duration={duration}
           bpm={bpm}
           barOffset={barOffset}
           beatsPerBar={beatsPerBar}

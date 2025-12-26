@@ -35,12 +35,10 @@ export interface TimelinePlayheadProps {
 export interface PlayheadPreviewProps {
   /** Preview position as percentage */
   playheadPreviewPercent: number | null;
+  /** Preview time in seconds (use this for display to avoid precision loss) */
+  playheadPreviewTime: number | null;
   /** Whether playhead is being dragged */
   isDraggingPlayhead: boolean;
-  /** Timeline start in seconds */
-  timelineStart: number;
-  /** Timeline duration in seconds */
-  duration: number;
   /** BPM for beat display */
   bpm: number | null;
   /** Bar offset for beat formatting */
@@ -164,19 +162,18 @@ export function TimelinePlayhead({
  */
 export function PlayheadDragPreview({
   playheadPreviewPercent,
+  playheadPreviewTime,
   isDraggingPlayhead,
-  timelineStart,
-  duration,
   bpm,
   barOffset,
   beatsPerBar = 4,
   denominator = 4,
 }: PlayheadPreviewProps): ReactElement | null {
-  if (!isDraggingPlayhead || playheadPreviewPercent === null) return null;
+  if (!isDraggingPlayhead || playheadPreviewPercent === null || playheadPreviewTime === null) return null;
 
-  const seconds = timelineStart + (playheadPreviewPercent / 100) * duration;
-  const timeStr = formatTime(seconds, { precision: 1 });
-  const beatsStr = bpm ? formatBeats(seconds, bpm, barOffset, beatsPerBar, denominator) : '';
+  // Use 2 decimal places for preview - beats are the accurate display
+  const timeStr = formatTime(playheadPreviewTime, { precision: 2 });
+  const beatsStr = bpm ? formatBeats(playheadPreviewTime, bpm, barOffset, beatsPerBar, denominator) : '';
 
   // REAPER's playhead color
   const playheadColor = '#337066';
@@ -205,7 +202,7 @@ export function PlayheadDragPreview({
       {/* Position pill showing time and beats - at bottom so finger doesn't obscure */}
       <div className="absolute bottom-1 -translate-x-1/2 z-40">
         <div className="bg-gray-900 border rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg" style={{ borderColor: playheadColor }}>
-          {beatsStr ? `${timeStr} | ${beatsStr}` : timeStr}
+          {beatsStr ? `${beatsStr} | ${timeStr}` : timeStr}
         </div>
       </div>
     </div>
@@ -229,7 +226,7 @@ export function MarkerDragPreview({
   if (!isDraggingMarker || !draggedMarker || markerDragPreviewPercent === null) return null;
 
   const seconds = timelineStart + (markerDragPreviewPercent / 100) * duration;
-  const timeStr = formatTime(seconds, { precision: 1 });
+  const timeStr = formatTime(seconds, { precision: 3 });
   const beatsStr = bpm ? formatBeats(seconds, bpm, barOffset, beatsPerBar, denominator) : '';
 
   // Use marker's custom color or default red
@@ -245,7 +242,7 @@ export function MarkerDragPreview({
       {/* Position pill showing time and beats */}
       <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 z-40">
         <div className="bg-gray-900 rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg" style={{ borderColor: markerColor, borderWidth: 1 }}>
-          {beatsStr ? `${timeStr} | ${beatsStr}` : timeStr}
+          {beatsStr ? `${beatsStr} | ${timeStr}` : timeStr}
         </div>
       </div>
     </div>
