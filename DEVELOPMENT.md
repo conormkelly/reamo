@@ -568,3 +568,16 @@ Then check REAPER's console (Actions → Show console).
 6. **Pre-fader metering doesn't exist** - Track_GetPeakInfo is always post-fader
 
 7. **Zig `@intFromFloat` panics on NaN/Inf** - always use `safeFloatToInt()` for REAPER API values
+
+8. **Floating-point precision loss when extracting beat.ticks** - When converting a float like `6.7565` to beat=6, ticks=76, don't divide then modulo. The division `676/100.0 = 6.76` looks correct, but `@mod(6.76, 1.0)` returns `0.7599999998` due to IEEE 754 representation, giving ticks=75 instead of 76. Scale to integer first:
+   ```zig
+   // BAD: "6.6.75" displayed instead of "6.6.76"
+   const rounded = @round(val * 100.0) / 100.0;  // 6.76 (looks fine)
+   const frac = @mod(rounded, 1.0);              // 0.7599999998 (precision loss!)
+   const ticks = @intFromFloat(frac * 100.0);    // 75 (wrong!)
+
+   // GOOD: integer arithmetic preserves exact values
+   const scaled: u32 = @intFromFloat(@round(val * 100.0));  // 676
+   const whole = scaled / 100;  // 6 (exact)
+   const frac = scaled % 100;   // 76 (exact)
+   ```

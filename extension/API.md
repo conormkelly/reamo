@@ -1149,3 +1149,9 @@ Common error codes:
 - `NOT_FOUND` - Referenced item/marker/region doesn't exist
 - `INVALID_RANGE` - End before start
 - `QUEUE_FULL` - Command queue overflow (slow down!)
+
+## Implementation Notes
+
+### Position Precision
+
+REAPER's HTTP API uses 15 decimal places for time positions (e.g., `17.332999999999998`). The WebSocket extension matches this precision for marker/region positions and time selection to avoid beat calculation errors at boundaries. Display values (position, cursorPosition, projectLength) use 3 decimal places to match REAPER's UI.
