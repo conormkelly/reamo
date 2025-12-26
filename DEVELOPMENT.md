@@ -338,6 +338,23 @@ function SmoothPosition() {
 
 **When to use:** Any UI element that displays transport position during playback and needs smooth visual updates.
 
+**Timing Race Condition:** The animation engine notifies subscribers synchronously, but React state updates are batched. If your callback uses derived values from React state (like `renderTimeToPercent` which depends on timeline bounds), the callback may see stale values on the first notification.
+
+**Fix pattern:** When derived values change, recalculate position in a `useLayoutEffect`:
+
+```tsx
+useLayoutEffect(() => {
+  renderTimeToPercentRef.current = renderTimeToPercent;
+  // Recalculate with updated bounds
+  if (containerRef.current) {
+    const state = transportEngine.getState();
+    containerRef.current.style.left = `${renderTimeToPercent(state.position)}%`;
+  }
+}, [renderTimeToPercent]);
+```
+
+This ensures position is recalculated when bounds change, not just when the animation engine notifies.
+
 ## Testing Conventions
 
 ### Philosophy
@@ -370,6 +387,10 @@ function SmoothPosition() {
 6. **Pointer events in JSDOM are limited** - Full gesture testing requires mocking `getBoundingClientRect()`. State integration tests are more reliable. Use Playwright for real gesture testing.
 
 7. **Hooks with timeouts need refs for current values** - If a timeout callback needs the "current" value (not the stale closure value), store it in a ref that's updated on each render. See `usePeakHold` for the pattern.
+
+8. **"Works at 0, breaks at non-zero" is a diagnostic pattern** - Often indicates calculations using stale/default values. Test with non-zero initial state to catch this.
+
+9. **Test initial load with non-zero positions** - Animation/interpolation systems may work during playback but fail on initial load when state hasn't synced yet. The playhead visibility tests in `Timeline.test.tsx` demonstrate this pattern.
 
 ## Extension Robustness
 

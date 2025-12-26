@@ -408,7 +408,7 @@ describe('Region create behavior', () => {
 // Tests: Playhead Visibility
 // ============================================================================
 
-describe('Playhead visibility on initial load', () => {
+describe('Playhead visibility', () => {
   beforeEach(() => {
     Element.prototype.getBoundingClientRect = vi.fn(() => mockRect)
   })
@@ -419,32 +419,31 @@ describe('Playhead visibility on initial load', () => {
     mockAnimationPosition = 0
   })
 
-  it('playhead is visible when position is beyond empty timeline bounds', () => {
-    // Bug: When regions/markers are empty, timeline defaults to 10s duration.
-    // If playhead is at 50s, it calculates as 500% and goes off-screen.
-    //
-    // Setup: Empty store (no regions), transport position at 50s
+  // Timeline bounds calculation (in Timeline.tsx useMemo) must include positionSeconds.
+  // Otherwise, an empty timeline defaults to 10s duration, and a playhead at 50s
+  // would calculate as 500% left position (off-screen to the right).
+  it('timeline bounds extend to include playhead position', () => {
     setupStore([])
     mockAnimationPosition = 50
     useReaperStore.setState({ positionSeconds: 50 })
 
     const { container } = render(<Timeline height={120} />)
 
-    // Find the playhead container (it's the element with absolute positioning
-    // that gets its left style set by the animation callback)
     const playheadContainer = container.querySelector('.absolute.top-0.bottom-0') as HTMLElement
-
     expect(playheadContainer).not.toBeNull()
 
-    // The playhead's left position should be within visible range [0%, 100%]
-    // With the bug, this would be 500% (50s / 10s * 100)
+    // With positionSeconds=50 included in bounds, duration becomes ~52.5s (50 * 1.05)
+    // So position 50s = ~95%, not 500%
     const leftPercent = parseFloat(playheadContainer.style.left)
     expect(leftPercent).toBeLessThanOrEqual(100)
-    expect(leftPercent).toBeGreaterThanOrEqual(0)
+    expect(leftPercent).toBeGreaterThan(90) // Should be ~95%
   })
 
-  it('playhead is visible at position 0 with empty timeline', () => {
-    // Sanity check: position 0 should always work
+  // The animation engine notifies subscribers synchronously, but React state updates
+  // are batched. This means the animation callback can fire before renderTimeToPercent
+  // has updated bounds. TimelinePlayhead must recalculate position in useLayoutEffect
+  // when renderTimeToPercent changes, not just rely on the animation callback.
+  it('playhead recalculates position when bounds change after render', () => {
     setupStore([])
     mockAnimationPosition = 0
     useReaperStore.setState({ positionSeconds: 0 })
@@ -454,7 +453,32 @@ describe('Playhead visibility on initial load', () => {
     const playheadContainer = container.querySelector('.absolute.top-0.bottom-0') as HTMLElement
     expect(playheadContainer).not.toBeNull()
 
-    const leftPercent = parseFloat(playheadContainer.style.left)
-    expect(leftPercent).toBe(0)
+    // Initial position should be 0%
+    expect(parseFloat(playheadContainer.style.left)).toBe(0)
+
+    // Simulate transport event: animation engine has new position, React state updates
+    // The animation callback already fired on initial render with position=0.
+    // Now state changes - the useLayoutEffect must recalculate with new bounds.
+    act(() => {
+      mockAnimationPosition = 50
+      useReaperStore.setState({ positionSeconds: 50 })
+    })
+
+    // Without the useLayoutEffect recalculation, playhead would stay at 0%
+    const updatedPercent = parseFloat(playheadContainer.style.left)
+    expect(updatedPercent).toBeLessThanOrEqual(100)
+    expect(updatedPercent).toBeGreaterThan(90) // Should be ~95%
+  })
+
+  it('playhead at position 0 with empty timeline', () => {
+    setupStore([])
+    mockAnimationPosition = 0
+    useReaperStore.setState({ positionSeconds: 0 })
+
+    const { container } = render(<Timeline height={120} />)
+
+    const playheadContainer = container.querySelector('.absolute.top-0.bottom-0') as HTMLElement
+    expect(playheadContainer).not.toBeNull()
+    expect(parseFloat(playheadContainer.style.left)).toBe(0)
   })
 })
