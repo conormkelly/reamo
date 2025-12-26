@@ -268,3 +268,151 @@ For single-user DAW where conflicts are rare, Option 1 is sufficient.
 ### Why Not OT/CRDTs?
 
 Full Operational Transformation or CRDTs add 15-500KB of library code and complexity. The core insight from CRDT research applies without the overhead: **stable IDs eliminate index-shifting problems entirely**. Once every entity has an immutable ID and all operations reference that ID, no transformation is needed.
+
+---
+
+## Project Undo/Redo State
+
+### The Problem
+
+The current undo/redo buttons (under the time display) work but provide no feedback. Users don't know:
+- Whether undo/redo is available before pressing
+- What action was undone/redone after pressing
+
+### Research: Full History Enumeration is Impossible
+
+**Investigated approaches:**
+
+| Approach | Finding |
+|----------|---------|
+| Native REAPER API | Only exposes next undo/redo description via `Undo_CanUndo2`/`Undo_CanRedo2`. No enumeration. |
+| SWS Extension | Maintains **parallel** undo stacks (zoom history, cursor positions) - does NOT access REAPER's main undo stack. |
+| RPP-UNDO files | Only written when project is saved. Not real-time, not programmatically accessible during session. |
+| ReaScript enumeration | No `EnumUndoHistory()` or similar function exists. |
+| Memory inspection | Undocumented, version-dependent, unsafe. |
+
+**Conclusion:** REAPER's "Undo History" window (View → Undo History) uses internal data structures not exposed to extensions. A full history modal is not feasible without REAPER API changes.
+
+### Available API
+
+| Function | Returns |
+|----------|---------|
+| `Undo_CanUndo2(proj)` | Description of next undo action, or `NULL` if nothing to undo |
+| `Undo_CanRedo2(proj)` | Description of next redo action, or `NULL` if nothing to redo |
+| `Undo_DoUndo2(proj)` | Performs undo, returns nonzero on success |
+| `Undo_DoRedo2(proj)` | Performs redo, returns nonzero on success |
+| `GetProjectStateChangeCount(proj)` | Counter that increments on any project change (for detecting when to re-poll undo state) |
+
+### Feasible UX Improvements
+
+Given API limitations, we can still significantly improve the undo/redo experience:
+
+**1. Button Enable/Disable State**
+- Disable undo button when `Undo_CanUndo2` returns `NULL`
+- Disable redo button when `Undo_CanRedo2` returns `NULL`
+- Visual feedback that there's nothing to undo/redo
+
+**2. Toast/Banner After Action**
+When user presses undo/redo, show a brief toast displaying what happened:
+
+```txt
+┌───────────────────────────────┐
+│  ↩ Add region at 30.0s       │
+└───────────────────────────────┘
+```
+
+or
+
+```txt
+┌───────────────────────────────┐
+│  ↪ Delete marker 'Bridge'    │
+└───────────────────────────────┘
+```
+
+The icon indicates undo (↩) vs redo (↪) - no need for "Undid/Redid" text.
+
+Toast auto-dismisses after 2-3 seconds.
+
+**3. Tooltip on Hover (Desktop)**
+Show next action description on button hover: "Undo: Add region at 30.0s"
+
+### Why Not Track Our Own History?
+
+Maintaining a parallel history stack was considered and rejected:
+
+| Issue | Problem |
+|-------|---------|
+| Incomplete coverage | Only captures Reamo actions, misses direct REAPER edits |
+| Sync complexity | Must detect external changes, handle undo count mismatches |
+| "Jump to state" | Would require calling `Undo_DoUndo2` repeatedly, hoping counts align |
+| State divergence | If user undoes in REAPER directly, our stack becomes stale |
+
+The complexity isn't worth it for marginal benefit. Better to embrace the API limitation.
+
+### Implementation
+
+#### Extension: Project State Event
+
+Add a **separate** `project` event (NOT in transport - undo state is project metadata, not playback state):
+
+```json
+{
+  "type": "event",
+  "event": "project",
+  "payload": {
+    "canUndo": "Add region at 30.0s",
+    "canRedo": null,
+    "stateChangeCount": 42
+  }
+}
+```
+
+**When to send:**
+- On initial WebSocket connection
+- When `GetProjectStateChangeCount()` changes (poll in run loop, ~30ms interval)
+- After executing `undo/do` or `redo/do` commands
+
+#### Extension: Zig API Bindings
+
+Add to `extension/src/reaper.zig`:
+```zig
+undo_CanUndo2: ?*const fn (?*anyopaque) callconv(.c) ?[*:0]const u8 = null,
+undo_CanRedo2: ?*const fn (?*anyopaque) callconv(.c) ?[*:0]const u8 = null,
+undo_DoUndo2: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
+undo_DoRedo2: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
+getProjectStateChangeCount: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
+```
+
+#### Extension: Commands
+
+| Command | Action | Response |
+|---------|--------|----------|
+| `undo/do` | Calls `Undo_DoUndo2`, broadcasts new project state | `{ "success": true, "action": "Add region" }` |
+| `redo/do` | Calls `Undo_DoRedo2`, broadcasts new project state | `{ "success": true, "action": "Delete marker" }` |
+
+#### Frontend: Store
+
+```typescript
+// In store
+canUndo: string | null;
+canRedo: string | null;
+
+// Handle project event
+case 'project':
+  set({
+    canUndo: payload.canUndo ?? null,
+    canRedo: payload.canRedo ?? null,
+  });
+```
+
+#### Frontend: UI Components
+
+**Undo/Redo buttons** (existing, in time display area):
+- Add `disabled` state based on `canUndo`/`canRedo`
+- On click: send command, show toast with result
+
+**Toast component** (new):
+- Positioned bottom-center or top-center
+- Shows action description
+- Auto-dismiss after 2.5s
+- Queue multiple toasts if rapid undo/redo
