@@ -417,7 +417,7 @@ test.describe('Time selection', () => {
     await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__
       store.setState({
-        timeSelection: { startBeats: 20, endBeats: 40 },
+        timeSelection: { startSeconds: 10, endSeconds: 20 },
         bpm: 120,
       })
     })
@@ -454,11 +454,11 @@ test.describe('Time selection', () => {
   })
 
   test('updates time selection position when changed', async ({ page }) => {
-    // Set initial time selection
+    // Set initial time selection (10s-20s)
     await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__
       store.setState({
-        timeSelection: { startBeats: 20, endBeats: 40 },
+        timeSelection: { startSeconds: 10, endSeconds: 20 },
         bpm: 120,
       })
     })
@@ -469,11 +469,11 @@ test.describe('Time selection', () => {
     const initialStyle = await timeSelElement.getAttribute('style')
     const initialLeft = parseFloat(initialStyle?.match(/left:\s*([\d.]+)%/)?.[1] || '0')
 
-    // Change time selection to later position
+    // Change time selection to later position (20s-30s)
     await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__
       store.setState({
-        timeSelection: { startBeats: 40, endBeats: 60 },
+        timeSelection: { startSeconds: 20, endSeconds: 30 },
       })
     })
 
@@ -491,7 +491,7 @@ test.describe('Time selection', () => {
     await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__
       store.setState({
-        timeSelection: { startBeats: 20, endBeats: 40 },
+        timeSelection: { startSeconds: 10, endSeconds: 20 },
         bpm: 120,
       })
     })
@@ -533,9 +533,9 @@ test.describe('Time selection', () => {
     })
 
     expect(timeSelection).not.toBeNull()
-    expect(timeSelection.startBeats).toBeDefined()
-    expect(timeSelection.endBeats).toBeDefined()
+    expect(timeSelection.startSeconds).toBeDefined()
+    expect(timeSelection.endSeconds).toBeDefined()
     // End should be after start
-    expect(timeSelection.endBeats).toBeGreaterThan(timeSelection.startBeats)
+    expect(timeSelection.endSeconds).toBeGreaterThan(timeSelection.startSeconds)
   })
 })
