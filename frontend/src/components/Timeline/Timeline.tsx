@@ -114,9 +114,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     return region ? ((region as { _pendingKey?: number })._pendingKey ?? regionDragIndex) : null;
   }, [regionDragIndex, regionDragType, baseDisplayRegions]);
 
-  // Region edit modal state (TODO: implement RegionEditModal)
-  const [_editingRegion, setEditingRegion] = useState<{ region: Region; index: number } | null>(null);
-
   // Gesture state (navigate mode)
   const [isHolding, setIsHolding] = useState(false);
   const [dragStart, setDragStart] = useState<number | null>(null);
@@ -224,7 +221,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     cancelDrag,
     resizeRegion,
     moveRegion,
-    onEditRegion: (region, index) => setEditingRegion({ region, index }),
   });
 
   // Calculate render-specific timeline bounds
