@@ -105,22 +105,33 @@ pub const State = struct {
 
         // Format bar.beat.ticks (e.g., "12.3.45" or "-4.1.00")
         // Apply bar_offset to get display bar number (REAPER's bar 1 at time 0 + offset)
-        const display_bar = self.position_bar + self.bar_offset;
-        const beat_int: u32 = @intFromFloat(@max(1.0, @trunc(self.position_beat)));
-        // Round ticks to match REAPER's display (add 0.5 before truncating)
-        // Clamp to 99 max - REAPER itself clamps ticks (e.g., 1.2.100 becomes 1.2.99)
-        const raw_ticks: u32 = @intFromFloat(@mod(self.position_beat, 1.0) * 100.0 + 0.5);
-        const ticks: u32 = @min(99, raw_ticks);
+        var display_bar = self.position_bar + self.bar_offset;
 
-        // Truncate time values to 3 decimal places to match REAPER's display
+        // Round position_beat to nearest tick to match REAPER's display behavior
+        // This handles cases like 4.999 → 5.00 (REAPER rounds for display)
+        // Work with scaled integer to avoid floating-point precision issues:
+        // e.g., 6.76 as float can become 0.7599999998 after mod, giving ticks=75 not 76
+        const scaled_beat: u32 = @intFromFloat(@round(self.position_beat * 100.0));
+
+        // Extract beat and ticks using integer arithmetic (no precision loss)
+        var beat_int: u32 = @max(1, scaled_beat / 100);
+        const ticks: u32 = scaled_beat % 100;
+
+        // Handle beat overflow (e.g., beat 7 in 6/8 time → bar + 1, beat 1)
+        const beats_per_bar = safeTimeSigNum(self.time_sig_num);
+        if (beat_int > beats_per_bar) {
+            beat_int = 1;
+            display_bar += 1;
+        }
+
+        // Truncate display values to 3 decimal places to match REAPER's display
+        // Time selection uses full precision (15 decimals) to match REAPER's HTTP API
         const position = truncateMs(self.currentPosition());
         const cursor_position = truncateMs(self.cursor_position);
-        const time_sel_start = truncateMs(self.time_sel_start);
-        const time_sel_end = truncateMs(self.time_sel_end);
         const project_length = truncateMs(self.project_length);
 
         const result = std.fmt.bufPrint(buf,
-            \\{{"type":"event","event":"transport","payload":{{"playState":{d},"position":{d:.3},"positionBeats":"{d}.{d}.{d:0>2}","cursorPosition":{d:.3},"bpm":{d:.2},"timeSignature":{{"numerator":{d},"denominator":{d}}},"timeSelection":{{"start":{d:.3},"end":{d:.3}}},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"projectLength":{d:.3},"barOffset":{d}}}}}
+            \\{{"type":"event","event":"transport","payload":{{"playState":{d},"position":{d:.3},"positionBeats":"{d}.{d}.{d:0>2}","cursorPosition":{d:.3},"bpm":{d:.2},"timeSignature":{{"numerator":{d},"denominator":{d}}},"timeSelection":{{"start":{d:.15},"end":{d:.15}}},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"projectLength":{d:.3},"barOffset":{d}}}}}
         , .{
             self.play_state,
             position,
@@ -131,8 +142,8 @@ pub const State = struct {
             self.bpm,
             safeTimeSigNum(self.time_sig_num),
             self.time_sig_denom,
-            time_sel_start,
-            time_sel_end,
+            self.time_sel_start,
+            self.time_sel_end,
             if (self.repeat) "true" else "false",
             if (self.metronome_enabled) "true" else "false",
             self.metronome_volume,
@@ -288,4 +299,90 @@ test "safeTimeSigNum handles edge cases" {
     try std.testing.expectEqual(@as(u32, 4), State.safeTimeSigNum(std.math.nan(f64)));
     try std.testing.expectEqual(@as(u32, 4), State.safeTimeSigNum(std.math.inf(f64)));
     try std.testing.expectEqual(@as(u32, 4), State.safeTimeSigNum(-std.math.inf(f64)));
+}
+
+test "beat rounding matches REAPER display" {
+    // When position_beat is 4.999 (beat 4, 99.9% through), it should round to 5.00
+    // This matches REAPER's display behavior
+    const state = State{
+        .play_state = 1,
+        .play_position = 17.333,
+        .cursor_position = 17.333,
+        .bpm = 90.0,
+        .time_sig_num = 6, // 6/8 time
+        .time_sig_denom = 8,
+        .bar_offset = -4,
+        .position_bar = 8, // Bar 8 in REAPER (display: 8 + (-4) = 4)
+        .position_beat = 4.999, // Almost beat 5 - should round up
+    };
+
+    var buf: [512]u8 = undefined;
+    const json = state.toJson(&buf).?;
+
+    // Should show "4.5.00" not "4.4.99"
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"positionBeats\":\"4.5.00\"") != null);
+}
+
+test "beat overflow carries to next bar" {
+    // When rounded beat would overflow the time signature (e.g., beat 5 in 4/4)
+    const state = State{
+        .play_state = 1,
+        .play_position = 10.0,
+        .cursor_position = 10.0,
+        .bpm = 120.0,
+        .time_sig_num = 4, // 4/4 time
+        .time_sig_denom = 4,
+        .bar_offset = 0,
+        .position_bar = 5, // Bar 5
+        .position_beat = 4.995, // Rounds to 5.00, which overflows to bar 6 beat 1
+    };
+
+    var buf: [512]u8 = undefined;
+    const json = state.toJson(&buf).?;
+
+    // Beat 5 in 4/4 time should become bar 6, beat 1
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"positionBeats\":\"6.1.00\"") != null);
+}
+
+test "fractional ticks preserved when not near boundary" {
+    // Normal case: 3.45 should display as 3.45
+    const state = State{
+        .play_state = 1,
+        .play_position = 5.0,
+        .cursor_position = 5.0,
+        .bpm = 120.0,
+        .time_sig_num = 4,
+        .time_sig_denom = 4,
+        .bar_offset = 0,
+        .position_bar = 2,
+        .position_beat = 3.45,
+    };
+
+    var buf: [512]u8 = undefined;
+    const json = state.toJson(&buf).?;
+
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"positionBeats\":\"2.3.45\"") != null);
+}
+
+test "ticks round correctly at 0.7565" {
+    // Regression test for exact user scenario:
+    // REAPER beats_in_measure = 5.756500000009879, we add 1.0 → 6.7565
+    // Should display as 6.6.76, not 6.6.75
+    const state = State{
+        .play_state = 2,
+        .play_position = 21.918833,
+        .cursor_position = 21.918833,
+        .bpm = 180.0,
+        .time_sig_num = 6,
+        .time_sig_denom = 8,
+        .bar_offset = -5,
+        .position_bar = 11, // 11 + (-5) = 6
+        .position_beat = 6.756500000009879, // beats_in_measure + 1.0
+    };
+
+    var buf: [512]u8 = undefined;
+    const json = state.toJson(&buf).?;
+
+    // Must show 6.6.76 not 6.6.75
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"positionBeats\":\"6.6.76\"") != null);
 }

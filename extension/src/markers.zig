@@ -126,7 +126,7 @@ pub const State = struct {
         for (0..self.marker_count) |i| {
             if (i > 0) w.writeByte(',') catch return null;
             const m = &self.markers[i];
-            w.print("{{\"id\":{d},\"position\":{d:.3},\"name\":\"", .{ m.id, m.position }) catch return null;
+            w.print("{{\"id\":{d},\"position\":{d:.15},\"name\":\"", .{ m.id, m.position }) catch return null;
             protocol.writeJsonString(w, m.getName()) catch return null;
             w.print("\",\"color\":{d}}}", .{m.color}) catch return null;
         }
@@ -145,7 +145,7 @@ pub const State = struct {
         for (0..self.region_count) |i| {
             if (i > 0) w.writeByte(',') catch return null;
             const r = &self.regions[i];
-            w.print("{{\"id\":{d},\"start\":{d:.3},\"end\":{d:.3},\"name\":\"", .{ r.id, r.start, r.end }) catch return null;
+            w.print("{{\"id\":{d},\"start\":{d:.15},\"end\":{d:.15},\"name\":\"", .{ r.id, r.start, r.end }) catch return null;
             protocol.writeJsonString(w, r.getName()) catch return null;
             w.print("\",\"color\":{d}}}", .{r.color}) catch return null;
         }
@@ -199,7 +199,7 @@ test "State markers JSON output" {
     const json = state.markersToJson(&buf).?;
 
     try std.testing.expectEqualStrings(
-        "{\"type\":\"event\",\"event\":\"markers\",\"payload\":{\"markers\":[{\"id\":1,\"position\":10.500,\"name\":\"Verse\",\"color\":16711680}]}}",
+        "{\"type\":\"event\",\"event\":\"markers\",\"payload\":{\"markers\":[{\"id\":1,\"position\":10.500000000000000,\"name\":\"Verse\",\"color\":16711680}]}}",
         json,
     );
 }
@@ -217,7 +217,7 @@ test "State regions JSON output" {
     const json = state.regionsToJson(&buf).?;
 
     try std.testing.expectEqualStrings(
-        "{\"type\":\"event\",\"event\":\"regions\",\"payload\":{\"regions\":[{\"id\":2,\"start\":0.000,\"end\":30.000,\"name\":\"Intro\",\"color\":255}]}}",
+        "{\"type\":\"event\",\"event\":\"regions\",\"payload\":{\"regions\":[{\"id\":2,\"start\":0.000000000000000,\"end\":30.000000000000000,\"name\":\"Intro\",\"color\":255}]}}",
         json,
     );
 }
@@ -235,4 +235,37 @@ test "markers changed detection" {
 
     state2.markers[0].position = 15.0;
     try std.testing.expect(state1.markersChanged(&state2));
+}
+
+test "marker position preserves sub-millisecond precision" {
+    // Regression test: Position 17.333333... must not be truncated to 17.333
+    // because that causes beat display errors (4.4.99 instead of 4.5.00)
+    // at 90 BPM in 6/8 time.
+    var state = State{};
+    state.markers[0] = .{ .id = 1, .position = 17.333333333333329, .color = 0 };
+    state.markers[0].name[0..2].* = "m1".*;
+    state.markers[0].name_len = 2;
+    state.marker_count = 1;
+
+    var buf: [1024]u8 = undefined;
+    const json = state.markersToJson(&buf).?;
+
+    // Position should preserve enough precision to distinguish 17.333333... from 17.333
+    // The JSON should contain "17.333333" (6 decimal places minimum)
+    try std.testing.expect(std.mem.indexOf(u8, json, "17.333333") != null);
+}
+
+test "region position preserves sub-millisecond precision" {
+    // Same precision requirement for regions
+    var state = State{};
+    state.regions[0] = .{ .id = 1, .start = 0.0, .end = 17.333333333333329, .color = 0 };
+    state.regions[0].name[0..4].* = "Test".*;
+    state.regions[0].name_len = 4;
+    state.region_count = 1;
+
+    var buf: [1024]u8 = undefined;
+    const json = state.regionsToJson(&buf).?;
+
+    // End position should preserve precision
+    try std.testing.expect(std.mem.indexOf(u8, json, "17.333333") != null);
 }

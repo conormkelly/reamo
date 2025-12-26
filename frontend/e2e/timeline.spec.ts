@@ -42,8 +42,9 @@ async function setupTestFixtures(page: Page) {
       ],
       markers: [],
 
-      // Set position outside all regions so auto-select doesn't interfere with tests
-      positionSeconds: 50,
+      // Set position just past regions so auto-select doesn't interfere with tests
+      // Note: Timeline duration includes playhead, so 31s → ~32.5s timeline
+      positionSeconds: 31,
 
       // Reset edit state
       selectedRegionIndices: [],
