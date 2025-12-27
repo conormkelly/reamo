@@ -12,11 +12,14 @@ import { useReaperStore } from '../../store';
 export interface MonitorButtonProps {
   trackIndex: number;
   className?: string;
+  /** Whether parent track is selected (affects background) */
+  isSelected?: boolean;
 }
 
 export function MonitorButton({
   trackIndex,
   className = '',
+  isSelected = false,
 }: MonitorButtonProps): ReactElement {
   const { sendCommand } = useReaper();
   const { recordMonitorState, cycleRecordMonitor } = useTrack(trackIndex);
@@ -27,8 +30,13 @@ export function MonitorButton({
     sendCommand(cycleRecordMonitor());
   };
 
+  // Buttons always darker than track background for contrast
+  const offStyle = isSelected
+    ? 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+    : 'bg-gray-900 text-gray-300 hover:bg-gray-800';
+
   const stateStyles = {
-    off: 'bg-gray-700 text-gray-300 hover:bg-gray-600',
+    off: offStyle,
     on: 'bg-gray-200 text-gray-900',
     auto: 'bg-red-900 text-red-200',
   };

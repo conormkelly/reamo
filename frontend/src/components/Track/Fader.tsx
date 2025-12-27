@@ -18,6 +18,8 @@ export interface FaderProps {
   height?: number;
   /** Linear volume to reset to on double-tap (default: 1.0 = unity/0dB) */
   resetVolume?: number;
+  /** Whether parent track is selected (affects background brightness) */
+  isSelected?: boolean;
 }
 
 export function Fader({
@@ -25,6 +27,7 @@ export function Fader({
   className = '',
   height = 150,
   resetVolume = UNITY_GAIN_VOLUME,
+  isSelected = false,
 }: FaderProps): ReactElement {
   const { sendCommand } = useReaper();
   const { faderPosition, volumeDb, setFaderPosition, setVolume } = useTrack(trackIndex);
@@ -122,9 +125,11 @@ export function Fader({
     <div className={`flex flex-col items-center gap-1 ${className}`}>
       <div
         ref={containerRef}
-        className={`relative w-8 bg-gray-800 rounded select-none ${
-          mixerLocked ? 'cursor-not-allowed opacity-50' : 'cursor-ns-resize'
-        } ${isDragging ? 'ring-2 ring-blue-400' : ''}`}
+        className={`relative w-8 rounded select-none ${
+          isSelected ? 'bg-gray-500' : 'bg-gray-700'
+        } ${mixerLocked ? 'cursor-not-allowed opacity-50' : 'cursor-ns-resize'} ${
+          isDragging ? 'ring-2 ring-blue-400' : ''
+        }`}
         style={{ height }}
         onMouseDown={handleMouseDown}
         onTouchStart={handleMouseDown}

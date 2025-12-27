@@ -1,7 +1,9 @@
 /**
  * Track Selection E2E Tests
  *
- * Tests long-press gesture on track name to toggle selection.
+ * Tests tap/long-press gestures on track name for selection.
+ * - Tap: toggle selection
+ * - Long-press: exclusive select
  */
 
 import { test, expect, Page } from '@playwright/test'
@@ -86,28 +88,26 @@ test.describe('Track Selection', () => {
     await page.waitForSelector('text=DRUMS')
   })
 
-  test('selected track shows blue border', async ({ page }) => {
-    // BASS track (index 2) should have blue border since it's selected
-    // Use the track strip container (has specific class pattern)
-    const bassStrip = page.locator('.bg-gray-900.rounded-lg.border').filter({ hasText: 'BASS' }).first()
+  test('selected track shows brighter background', async ({ page }) => {
+    // BASS track (index 2) should have brighter background since it's selected
+    const bassStrip = page.locator('.rounded-lg.border').filter({ hasText: 'BASS' }).first()
 
-    // Check for blue box-shadow (selection indicator)
-    await expect(bassStrip).toHaveCSS('box-shadow', /rgba\(59, 130, 246/)
+    // Check for brighter background color (#374151 = rgb(55, 65, 81))
+    await expect(bassStrip).toHaveCSS('background-color', 'rgb(55, 65, 81)')
   })
 
-  test('unselected track shows gray border', async ({ page }) => {
-    // DRUMS track (index 1) should have gray border since it's not selected
-    const drumsStrip = page.locator('.bg-gray-900.rounded-lg.border').filter({ hasText: 'DRUMS' }).first()
+  test('unselected track shows darker background', async ({ page }) => {
+    // DRUMS track (index 1) should have darker background since it's not selected
+    const drumsStrip = page.locator('.rounded-lg.border').filter({ hasText: 'DRUMS' }).first()
 
-    // Check for no blue box-shadow (none or different color)
-    const boxShadow = await drumsStrip.evaluate((el) => getComputedStyle(el).boxShadow)
-    expect(boxShadow).toBe('none')
+    // Check for darker background color (#1f2937 = rgb(31, 41, 55))
+    await expect(drumsStrip).toHaveCSS('background-color', 'rgb(31, 41, 55)')
   })
 
-  test('track name has cursor-pointer for long-press interaction', async ({ page }) => {
+  test('track name has cursor-pointer for tap interaction', async ({ page }) => {
     // Verify the track name element has cursor-pointer class (indicates it's interactive)
     const drumsName = page
-      .locator('.bg-gray-900.rounded-lg.border')
+      .locator('.rounded-lg.border')
       .filter({ hasText: 'DRUMS' })
       .first()
       .locator('.cursor-pointer')
@@ -115,5 +115,42 @@ test.describe('Track Selection', () => {
 
     await expect(drumsName).toBeVisible()
     await expect(drumsName).toHaveText('DRUMS')
+  })
+
+  test('master track has squared top and rounded bottom', async ({ page }) => {
+    // Master track should have squared top corners, subtle bottom radius
+    const masterStrip = page.locator('.rounded-b-md.border').filter({ hasText: 'Master' }).first()
+
+    // Tailwind rounded-b-md: top corners 0, bottom corners 6px
+    await expect(masterStrip).toHaveCSS('border-top-left-radius', '0px')
+    await expect(masterStrip).toHaveCSS('border-top-right-radius', '0px')
+    await expect(masterStrip).toHaveCSS('border-bottom-left-radius', '6px')
+    await expect(masterStrip).toHaveCSS('border-bottom-right-radius', '6px')
+  })
+
+  test('non-master tracks have full border radius', async ({ page }) => {
+    // Non-master tracks should have rounded corners
+    const drumsStrip = page.locator('.rounded-lg.border').filter({ hasText: 'DRUMS' }).first()
+
+    // Tailwind's rounded-lg is 0.5rem = 8px
+    await expect(drumsStrip).toBeVisible()
+  })
+
+  test('unselected track shows colored top border', async ({ page }) => {
+    // DRUMS track is unselected but should still show the colored top border
+    const drumsStrip = page.locator('.rounded-lg.border').filter({ hasText: 'DRUMS' }).first()
+
+    // Default gray color: #6b7280 = rgb(107, 114, 128)
+    await expect(drumsStrip).toHaveCSS('border-top-color', 'rgb(107, 114, 128)')
+    await expect(drumsStrip).toHaveCSS('border-top-width', '5px')
+  })
+
+  test('selected track shows colored top border', async ({ page }) => {
+    // BASS track is selected and should show the colored top border
+    const bassStrip = page.locator('.rounded-lg.border').filter({ hasText: 'BASS' }).first()
+
+    // Default gray color: #6b7280 = rgb(107, 114, 128)
+    await expect(bassStrip).toHaveCSS('border-top-color', 'rgb(107, 114, 128)')
+    await expect(bassStrip).toHaveCSS('border-top-width', '5px')
   })
 })

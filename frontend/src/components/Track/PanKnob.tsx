@@ -16,6 +16,8 @@ export interface PanKnobProps {
   className?: string;
   /** Width of the pan slider */
   width?: number;
+  /** Whether parent track is selected (affects background brightness) */
+  isSelected?: boolean;
 }
 
 /**
@@ -34,6 +36,7 @@ export function PanKnob({
   trackIndex,
   className = '',
   width = 80,
+  isSelected = false,
 }: PanKnobProps): ReactElement {
   const { sendCommand } = useReaper();
   const { pan, panDisplay, setPan } = useTrack(trackIndex);
@@ -115,9 +118,11 @@ export function PanKnob({
     <div className={`flex flex-col items-center gap-1 ${className}`}>
       <div
         ref={containerRef}
-        className={`relative h-4 bg-gray-800 rounded select-none ${
-          mixerLocked ? 'cursor-not-allowed opacity-50' : 'cursor-ew-resize'
-        } ${isDragging ? 'ring-2 ring-blue-400' : ''}`}
+        className={`relative h-4 rounded select-none ${
+          isSelected ? 'bg-gray-500' : 'bg-gray-700'
+        } ${mixerLocked ? 'cursor-not-allowed opacity-50' : 'cursor-ew-resize'} ${
+          isDragging ? 'ring-2 ring-blue-400' : ''
+        }`}
         style={{ width }}
         onMouseDown={handleMouseDown}
         onTouchStart={handleMouseDown}
@@ -128,7 +133,9 @@ export function PanKnob({
 
         {/* Pan indicator */}
         <div
-          className="absolute top-0.5 bottom-0.5 w-2 bg-blue-500 rounded transition-all duration-75"
+          className={`absolute top-0.5 bottom-0.5 w-2 rounded transition-all duration-75 ${
+            isSelected ? 'bg-blue-400' : 'bg-blue-500'
+          }`}
           style={{ left: `calc(${indicatorPosition}% - 4px)` }}
         />
       </div>

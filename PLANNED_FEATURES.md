@@ -288,10 +288,6 @@ if (server.clientCount() == 0) return; // Early exit, no work to do
 - [x] Clears all track selections in one tap (including master track)
 
 **Track Name Tap Gestures:**
-- [ ] Single tap on track name: Toggle that track's selection (add/remove from selection)
-- [ ] Long press on track name: Exclusive select (deselect all others, select only this one)
-
-**Implementation Notes:**
-- Use REAPER's `SetTrackSelected(track, selected)` API
-- For exclusive select: iterate all tracks, deselect all, then select the target
-- Consider haptic feedback on long press (if supported)
+- [x] Single tap on track name: Toggle that track's selection (add/remove from selection)
+- [x] Long press on track name: Exclusive select (deselect all others, select only this one)
+- [x] Selected tracks have brighter background instead of blue glow (matches REAPER)
