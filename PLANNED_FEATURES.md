@@ -75,6 +75,18 @@ Double-tap region or zoom to time selection. Single track view with detailed ite
 
 Just: **"See what I recorded, tidy it up, make quick keep/trash decisions, move on."**
 
+### Navigate Mode: Item Density Overlay Enhancements
+
+The Navigate mode shows merged item blocks as a visual indicator of "where stuff is". Planned enhancements:
+
+**Track filtering (uses REAPER's track selection):**
+- [x] No tracks selected: All items aggregated, default color
+- [x] 1 track selected: Show only that track's items with track color (nothing if no items)
+- [x] 2+ tracks selected: Show merged blocks for selected tracks only, default color
+
+**Visual refinements:**
+- [ ] Consider subtle waveform silhouette inside blocks (lower priority)
+
 ---
 
 ## ID-Keyed Pending State (Architectural Fix)

@@ -16,8 +16,8 @@ export interface RegionEditSharedState {
   timeSignatureDenominator: number;
 }
 
-/** Timeline mode: navigate (existing behavior) or regions (editing) */
-export type TimelineMode = 'navigate' | 'regions';
+/** Timeline mode: navigate (existing behavior), regions (editing), or items (waveform view) */
+export type TimelineMode = 'navigate' | 'regions' | 'items';
 
 /** Drag operation type */
 export type DragType = 'none' | 'resize-start' | 'resize-end' | 'move';

@@ -5,13 +5,14 @@
 
 import type { ReactElement } from 'react';
 import type { Marker } from '../../core/types';
+import type { TimelineMode } from '../../store';
 import { reaperColorToHex, formatTime } from '../../utils';
 
 export interface TimelineMarkersProps {
   /** Markers to display */
   markers: Marker[];
   /** Current timeline mode */
-  timelineMode: 'navigate' | 'regions';
+  timelineMode: TimelineMode;
   /** Convert time to percentage position */
   renderTimeToPercent: (time: number) => number;
 }
@@ -35,7 +36,7 @@ export interface TimelineMarkerPillsProps extends TimelineMarkersProps {
  * - Falls back to red (#dc2626) for markers without custom color
  * - Gray (#6b7280) in regions mode (markers disabled)
  */
-function getMarkerColor(marker: Marker, timelineMode: 'navigate' | 'regions'): string {
+function getMarkerColor(marker: Marker, timelineMode: TimelineMode): string {
   // In regions mode: gray (markers are disabled)
   if (timelineMode === 'regions') {
     return '#6b7280'; // gray-500

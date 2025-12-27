@@ -31,6 +31,7 @@ import {
   AddRegionModal,
   MakeSelectionModal,
   MarkerInfoBar,
+  ItemsTimeline,
 } from './components';
 import { ToastContainer, useToast } from './components/Toast';
 import { useTracks } from './hooks';
@@ -103,7 +104,25 @@ function AppContent() {
   const [mixerCollapsed, setMixerCollapsed] = useState(false);
   const [timelineCollapsed, setTimelineCollapsed] = useState(false);
   const timelineMode = useReaperStore((s) => s.timelineMode);
+  const regions = useReaperStore((s) => s.regions);
+  const timeSelection = useReaperStore((s) => s.timeSelection);
   const { toasts, showUndo, showRedo, dismissToast } = useToast();
+
+  // Compute timeline bounds for Items mode
+  const itemsTimelineBounds = useMemo(() => {
+    // Use time selection if available
+    if (timeSelection && timeSelection.endSeconds > timeSelection.startSeconds) {
+      return { start: timeSelection.startSeconds, end: timeSelection.endSeconds };
+    }
+    // Fall back to region bounds
+    if (regions.length > 0) {
+      const start = Math.min(...regions.map((r) => r.start));
+      const end = Math.max(...regions.map((r) => r.end));
+      return { start, end };
+    }
+    // Default to 0-60 seconds
+    return { start: 0, end: 60 };
+  }, [timeSelection, regions]);
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-4">
@@ -149,14 +168,24 @@ function AppContent() {
         </div>
         {!timelineCollapsed && (
           <>
-            <Timeline height={80} />
-            <RegionInfoBar
-              className="mt-2"
-              onAddRegion={timelineMode === 'regions' ? () => setShowAddRegionModal(true) : undefined}
-            />
-            <div className="mt-2">
-              <RegionEditActionBar />
-            </div>
+            {timelineMode === 'items' ? (
+              <ItemsTimeline
+                timelineStart={itemsTimelineBounds.start}
+                timelineEnd={itemsTimelineBounds.end}
+                height={120}
+              />
+            ) : (
+              <>
+                <Timeline height={80} />
+                <RegionInfoBar
+                  className="mt-2"
+                  onAddRegion={timelineMode === 'regions' ? () => setShowAddRegionModal(true) : undefined}
+                />
+                <div className="mt-2">
+                  <RegionEditActionBar />
+                </div>
+              </>
+            )}
           </>
         )}
       </section>

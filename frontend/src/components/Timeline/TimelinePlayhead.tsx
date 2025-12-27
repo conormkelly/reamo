@@ -9,6 +9,7 @@
 
 import { useRef, useLayoutEffect, type ReactElement } from 'react';
 import type { Marker } from '../../core/types';
+import type { TimelineMode } from '../../store';
 import { transportEngine } from '../../core/TransportAnimationEngine';
 import { formatBeats, formatTime, reaperColorToHex } from '../../utils';
 import { useTransportAnimation } from '../../hooks';
@@ -17,7 +18,7 @@ export interface TimelinePlayheadProps {
   /** Current playhead position in seconds (used for initial render and when stopped) */
   positionSeconds: number;
   /** Current timeline mode */
-  timelineMode: 'navigate' | 'regions';
+  timelineMode: TimelineMode;
   /** Whether syncing is in progress */
   isSyncing: boolean;
   /** Whether playhead is being dragged */

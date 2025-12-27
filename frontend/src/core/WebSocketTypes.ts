@@ -176,10 +176,13 @@ export interface RegionsEventPayload {
 
 export interface WSTake {
   name: string;
+  guid: string; // Stable identifier for caching
   isActive: boolean;
+  isMIDI: boolean; // If true, skip peaks request
 }
 
 export interface WSItem {
+  guid: string; // Stable identifier for caching
   trackIdx: number;
   itemIdx: number;
   position: number; // seconds
@@ -193,12 +196,32 @@ export interface WSItem {
 }
 
 export interface ItemsEventPayload {
-  timeSelection: {
-    start: number;
-    end: number;
-  };
   items: WSItem[];
+  // Note: timeSelection is in TransportEventPayload, not here
 }
+
+// =============================================================================
+// Peaks Response (from item/getPeaks command)
+// =============================================================================
+
+export interface PeaksResponsePayload {
+  itemGUID: string;
+  takeGUID: string;
+  length: number; // Item length in seconds
+  startOffset: number; // Take start offset (D_STARTOFFS)
+  playrate: number; // Take playrate (D_PLAYRATE)
+  channels: 1 | 2; // Mono or stereo
+  peaks: StereoPeak[] | MonoPeak[];
+}
+
+// Stereo peak format: {l: [min, max], r: [min, max]}
+export interface StereoPeak {
+  l: [number, number];
+  r: [number, number];
+}
+
+// Mono peak format: [min, max]
+export type MonoPeak = [number, number];
 
 // =============================================================================
 // Connection State

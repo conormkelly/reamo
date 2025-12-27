@@ -1,15 +1,18 @@
 /**
  * Timeline Mode Toggle Component
- * Switches between Navigate/Markers mode and Regions editing mode
+ * Switches between Navigate, Regions, and Items modes
  */
 
 import { useEffect, type ReactElement } from 'react';
-import { Navigation, Layers } from 'lucide-react';
+import { Navigation, Layers, AudioLines } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import type { TimelineMode } from '../../store';
 
 // LocalStorage key
 const TIMELINE_MODE_KEY = 'reamo-timeline-mode';
+
+// Valid timeline modes for persistence
+const VALID_MODES: TimelineMode[] = ['navigate', 'regions', 'items'];
 
 export function TimelineModeToggle(): ReactElement {
   const timelineMode = useReaperStore((s) => s.timelineMode);
@@ -22,7 +25,7 @@ export function TimelineModeToggle(): ReactElement {
   useEffect(() => {
     const savedTimelineMode = localStorage.getItem(TIMELINE_MODE_KEY) as TimelineMode | null;
 
-    if (savedTimelineMode && (savedTimelineMode === 'navigate' || savedTimelineMode === 'regions')) {
+    if (savedTimelineMode && VALID_MODES.includes(savedTimelineMode)) {
       setTimelineMode(savedTimelineMode);
     }
   }, [setTimelineMode]);
@@ -56,6 +59,19 @@ export function TimelineModeToggle(): ReactElement {
         >
           <Navigation size={14} />
           <span className="hidden sm:inline">Navigate</span>
+        </button>
+        <button
+          onClick={() => handleTimelineModeChange('items')}
+          disabled={hasPending}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${
+            timelineMode === 'items'
+              ? 'bg-green-600 text-white'
+              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+          } ${hasPending ? 'cursor-not-allowed opacity-50' : ''}`}
+          title="Items mode: View waveforms and manage takes"
+        >
+          <AudioLines size={14} />
+          <span className="hidden sm:inline">Items</span>
         </button>
         <button
           onClick={() => handleTimelineModeChange('regions')}

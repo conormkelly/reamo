@@ -12,6 +12,7 @@ import type { Marker } from '../../core/types';
 import { MarkerEditModal } from './MarkerEditModal';
 import { usePlayheadDrag, useMarkerDrag, useRegionDrag } from './hooks';
 import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
+import { ItemsDensityOverlay } from './ItemDensityBlobs';
 import { TimelineMarkerLines, TimelineMarkerPills } from './TimelineMarkers';
 import { TimelinePlayhead, PlayheadDragPreview, MarkerDragPreview } from './TimelinePlayhead';
 import { formatBeats, formatDelta } from '../../utils';
@@ -33,6 +34,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   const { positionSeconds } = useTransport();
   const regions = useReaperStore((state) => state.regions);
   const markers = useReaperStore((state) => state.markers);
+  const items = useReaperStore((state) => state.items);
+  const tracks = useReaperStore((state) => state.tracks);
   const bpm = useReaperStore((state) => state.bpm);
   const storedTimeSelection = useReaperStore((state) => state.timeSelection);
   const setStoredTimeSelection = useReaperStore((state) => state.setTimeSelection);
@@ -516,6 +519,17 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           hasPendingChanges={hasPendingChanges}
           renderTimeToPercent={renderTimeToPercent}
         />
+
+        {/* Items density overlay - shows where items are in navigate mode */}
+        {timelineMode === 'navigate' && items.length > 0 && (
+          <ItemsDensityOverlay
+            items={items}
+            timelineStart={timelineStart}
+            timelineEnd={timelineStart + duration}
+            height={height}
+            tracks={tracks}
+          />
+        )}
 
         {/* Stored Time Selection */}
         {timeSelectionSeconds && (

@@ -237,6 +237,15 @@ export const item = {
   }),
   selectInTimeSel: (): WSCommand => ({ command: 'item/selectInTimeSel' }),
   unselectAll: (): WSCommand => ({ command: 'item/unselectAll' }),
+  /** Get waveform peak data for an item's active take */
+  getPeaks: (
+    trackIdx: number,
+    itemIdx: number,
+    width?: number
+  ): WSCommand => ({
+    command: 'item/getPeaks',
+    params: { trackIdx, itemIdx, width },
+  }),
 };
 
 // =============================================================================

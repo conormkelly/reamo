@@ -11,6 +11,7 @@ import { createTracksSlice, type TracksSlice } from './slices/tracksSlice';
 import { createRegionsSlice, type RegionsSlice } from './slices/regionsSlice';
 import { createMarkersSlice, type MarkersSlice } from './slices/markersSlice';
 import { createRegionEditSlice, type RegionEditSlice } from './slices/regionEditSlice';
+import { createItemsSlice, type ItemsSlice } from './slices/itemsSlice';
 import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
 import { ActionCommands, SWSCommands } from '../core/types';
 import type {
@@ -20,6 +21,7 @@ import type {
   TracksEventPayload,
   MarkersEventPayload,
   RegionsEventPayload,
+  ItemsEventPayload,
 } from '../core/WebSocketTypes';
 import {
   isEventMessage,
@@ -28,11 +30,12 @@ import {
   isTracksEvent,
   isMarkersEvent,
   isRegionsEvent,
+  isItemsEvent,
 } from '../core/WebSocketTypes';
 import { transportEngine } from '../core/TransportAnimationEngine';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & {
+export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & {
   // Response handler action (legacy HTTP)
   handleResponses: (responses: ParsedResponse[]) => void;
   // WebSocket message handler
@@ -56,6 +59,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   ...createRegionsSlice(set, get, store),
   ...createMarkersSlice(set, get, store),
   ...createRegionEditSlice(set, get, store),
+  ...createItemsSlice(set, get, store),
 
   // Handle incoming responses from REAPER
   handleResponses: (responses: ParsedResponse[]) => {
@@ -257,6 +261,9 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
         color: r.color || undefined,
       }));
       get().setRegions(regions);
+    } else if (isItemsEvent(message)) {
+      const p = message.payload as ItemsEventPayload;
+      get().setItems(p.items);
     } else if (message.event === 'reload') {
       // Hot reload - extension detected file change
       console.log('[Store] Reload event received, refreshing page...');
@@ -273,6 +280,8 @@ export type { TracksSlice } from './slices/tracksSlice';
 export type { RegionsSlice } from './slices/regionsSlice';
 export type { MarkersSlice } from './slices/markersSlice';
 export type { RegionEditSlice, TimelineMode, DragType, PendingRegionChange } from './slices/regionEditSlice';
+export type { ItemsSlice } from './slices/itemsSlice';
+export { makeItemKey, parseItemKey } from './slices/itemsSlice';
 
 // Expose store on window for E2E tests (development only)
 if (import.meta.env.DEV) {

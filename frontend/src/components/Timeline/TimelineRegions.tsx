@@ -5,7 +5,7 @@
 
 import type { ReactElement } from 'react';
 import type { Region } from '../../core/types';
-import type { DragType, PendingRegionChange } from '../../store';
+import type { DragType, PendingRegionChange, TimelineMode } from '../../store';
 import { reaperColorToRgba } from '../../utils';
 
 // Default region color in REAPER (shown when color = 0) - #688585 as RGB
@@ -15,7 +15,7 @@ export interface TimelineRegionsProps {
   /** Regions to display (with pending changes applied) */
   displayRegions: Region[];
   /** Current timeline mode */
-  timelineMode: 'navigate' | 'regions';
+  timelineMode: TimelineMode;
   /** Set of selected region pending keys */
   selectedPendingKeys: Set<number>;
   /** Pending changes by region index */
