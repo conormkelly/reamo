@@ -13,6 +13,7 @@ import { MuteButton } from './MuteButton';
 import { SoloButton } from './SoloButton';
 import { RecordArmButton } from './RecordArmButton';
 import { MonitorButton } from './MonitorButton';
+import { MasterMonoButton } from './MasterMonoButton';
 import { Fader } from './Fader';
 import { PanKnob } from './PanKnob';
 
@@ -94,8 +95,15 @@ export function TrackStrip({
         <SoloButton trackIndex={trackIndex} isSelected={isSelected} />
       </div>
 
+      {/* Master: mono/stereo toggle, centered below M/S */}
+      {isMaster && (
+        <div className="flex justify-center">
+          <MasterMonoButton isSelected={isSelected} />
+        </div>
+      )}
+
       {/* Record controls (not on master) */}
-      {trackIndex !== 0 && (
+      {!isMaster && (
         <div className="flex gap-1">
           <RecordArmButton trackIndex={trackIndex} isSelected={isSelected} />
           <MonitorButton trackIndex={trackIndex} isSelected={isSelected} />

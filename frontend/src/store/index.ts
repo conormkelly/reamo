@@ -193,6 +193,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
         isRepeat: p.repeat,
         isMetronome: p.metronome.enabled,
         metronomeVolume: p.metronome.volume,
+        masterStereo: p.master.stereoEnabled,
         barOffset: p.barOffset,
       });
     } else if (isTracksEvent(message)) {

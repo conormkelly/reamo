@@ -105,6 +105,9 @@ export interface ProjectEventPayload {
     volume: number; // linear 0-4
     volumeDb: number; // dB
   };
+  master: {
+    stereoEnabled: boolean; // true = stereo, false = mono (L+R summed)
+  };
   projectLength: number; // seconds
   barOffset: number; // bar offset (e.g., -4 means time 0 = bar 1, display starts at bar -4)
 }

@@ -729,6 +729,28 @@ Clear the clip indicator for a track's input meter.
 
 ---
 
+## Master Commands
+
+### `master/toggleMono`
+
+Toggle master track between mono (L+R summed) and stereo output.
+
+```json
+{"type": "command", "command": "master/toggleMono", "id": "1"}
+```
+
+Response:
+
+```json
+{"type": "response", "id": "1", "success": true, "payload": {"stereoEnabled": true}}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `stereoEnabled` | bool | `true` = stereo, `false` = mono (L+R summed) |
+
+---
+
 ## Tempo Commands
 
 ### `tempo/set`
@@ -1224,6 +1246,7 @@ Low-frequency event broadcast when project state changes. Contains undo/redo ava
     "stateChangeCount": 42,
     "repeat": false,
     "metronome": {"enabled": true, "volume": 0.5000, "volumeDb": -6.02},
+    "master": {"stereoEnabled": true},
     "projectLength": 180.500,
     "barOffset": -4
   }
@@ -1237,6 +1260,8 @@ Low-frequency event broadcast when project state changes. Contains undo/redo ava
 | `stateChangeCount` | int | Project state change counter (for detecting changes) |
 | `repeat` | bool | Repeat/loop mode enabled |
 | `metronome` | object | Metronome state and volume |
+| `master` | object | Master track settings |
+| `master.stereoEnabled` | bool | `true` = stereo, `false` = mono (L+R summed) |
 | `projectLength` | float | Project length in seconds (based on last item/region end) |
 | `barOffset` | int | Bar offset (e.g., -4 means time 0 = bar 1, display starts at bar -4) |
 

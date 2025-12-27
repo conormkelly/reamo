@@ -25,6 +25,7 @@ export interface TransportSlice {
   isCountInRecord: boolean;
   isCountInPlayback: boolean;
   metronomeVolume: number;
+  masterStereo: boolean; // Master track stereo mode (false = mono)
   bpm: number | null;
   fullBeatPosition: number;
   timeSignatureNumerator: number;
@@ -43,6 +44,7 @@ export interface TransportSlice {
   setCountInRecord: (enabled: boolean) => void;
   setCountInPlayback: (enabled: boolean) => void;
   setMetronomeVolume: (volume: number) => void;
+  setMasterStereo: (stereo: boolean) => void;
   setBpm: (bpm: number | null) => void;
   setTimeSelection: (selection: TimeSelection | null) => void;
 }
@@ -59,6 +61,7 @@ export const createTransportSlice: StateCreator<TransportSlice> = (set, get) => 
   isCountInRecord: false,
   isCountInPlayback: false,
   metronomeVolume: 0.25, // Default ~-12dB
+  masterStereo: true, // Default is stereo
   bpm: null,
   fullBeatPosition: 0,
   timeSignatureNumerator: 4,
@@ -109,6 +112,7 @@ export const createTransportSlice: StateCreator<TransportSlice> = (set, get) => 
   setCountInRecord: (isCountInRecord) => set({ isCountInRecord }),
   setCountInPlayback: (isCountInPlayback) => set({ isCountInPlayback }),
   setMetronomeVolume: (metronomeVolume) => set({ metronomeVolume }),
+  setMasterStereo: (masterStereo) => set({ masterStereo }),
   setBpm: (bpm) => set({ bpm }),
   setTimeSelection: (timeSelection) => set({ timeSelection }),
 });

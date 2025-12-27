@@ -19,6 +19,7 @@ pub const State = struct {
     metronome_enabled: bool = false,
     metronome_volume: f64 = 1.0, // Linear amplitude (0.0-4.0)
     bar_offset: c_int = 0, // Project bar offset (e.g., -4 means time 0 = bar 1, display starts at -4)
+    master_stereo: bool = true, // Master track stereo mode (false = mono L+R summed)
 
     // Get undo string (returns null if none)
     pub fn canUndo(self: *const State) ?[]const u8 {
@@ -40,6 +41,7 @@ pub const State = struct {
         if (@abs(self.metronome_volume - other.metronome_volume) > 0.001) return false;
         if (@abs(self.project_length - other.project_length) > 0.001) return false;
         if (self.bar_offset != other.bar_offset) return false;
+        if (self.master_stereo != other.master_stereo) return false;
         return true;
     }
 
@@ -50,6 +52,9 @@ pub const State = struct {
 
     // Poll current state from REAPER
     pub fn poll(api: *const reaper.Api) State {
+        // Master mono toggle: action 40917, state 1 = mono, 0 = stereo
+        const master_mono_state = api.getCommandState(40917);
+
         var state = State{
             .state_change_count = api.projectStateChangeCount(),
             .project_length = api.projectLength(),
@@ -57,6 +62,7 @@ pub const State = struct {
             .metronome_enabled = api.isMetronomeEnabled(),
             .metronome_volume = api.getMetronomeVolume(),
             .bar_offset = api.getBarOffset(),
+            .master_stereo = master_mono_state != 1, // 1 = mono, so stereo = not mono
         };
 
         // Copy undo description if available
@@ -101,23 +107,24 @@ pub const State = struct {
             "null";
 
         // Format: canUndo/canRedo are either "string" or null
-        // Now includes project-level settings: repeat, metronome, projectLength, barOffset
+        // Now includes project-level settings: repeat, metronome, master, projectLength, barOffset
+        const master_stereo_str = if (self.master_stereo) "true" else "false";
         const result = if (undo_desc != null and redo_desc != null)
             std.fmt.bufPrint(buf,
-                \\{{"type":"event","event":"project","payload":{{"canUndo":"{s}","canRedo":"{s}","stateChangeCount":{d},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"projectLength":{d:.3},"barOffset":{d}}}}}
-            , .{ undo_str, redo_str, self.state_change_count, if (self.repeat) "true" else "false", if (self.metronome_enabled) "true" else "false", self.metronome_volume, metro_vol_db, project_length, self.bar_offset })
+                \\{{"type":"event","event":"project","payload":{{"canUndo":"{s}","canRedo":"{s}","stateChangeCount":{d},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"master":{{"stereoEnabled":{s}}},"projectLength":{d:.3},"barOffset":{d}}}}}
+            , .{ undo_str, redo_str, self.state_change_count, if (self.repeat) "true" else "false", if (self.metronome_enabled) "true" else "false", self.metronome_volume, metro_vol_db, master_stereo_str, project_length, self.bar_offset })
         else if (undo_desc != null)
             std.fmt.bufPrint(buf,
-                \\{{"type":"event","event":"project","payload":{{"canUndo":"{s}","canRedo":null,"stateChangeCount":{d},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"projectLength":{d:.3},"barOffset":{d}}}}}
-            , .{ undo_str, self.state_change_count, if (self.repeat) "true" else "false", if (self.metronome_enabled) "true" else "false", self.metronome_volume, metro_vol_db, project_length, self.bar_offset })
+                \\{{"type":"event","event":"project","payload":{{"canUndo":"{s}","canRedo":null,"stateChangeCount":{d},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"master":{{"stereoEnabled":{s}}},"projectLength":{d:.3},"barOffset":{d}}}}}
+            , .{ undo_str, self.state_change_count, if (self.repeat) "true" else "false", if (self.metronome_enabled) "true" else "false", self.metronome_volume, metro_vol_db, master_stereo_str, project_length, self.bar_offset })
         else if (redo_desc != null)
             std.fmt.bufPrint(buf,
-                \\{{"type":"event","event":"project","payload":{{"canUndo":null,"canRedo":"{s}","stateChangeCount":{d},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"projectLength":{d:.3},"barOffset":{d}}}}}
-            , .{ redo_str, self.state_change_count, if (self.repeat) "true" else "false", if (self.metronome_enabled) "true" else "false", self.metronome_volume, metro_vol_db, project_length, self.bar_offset })
+                \\{{"type":"event","event":"project","payload":{{"canUndo":null,"canRedo":"{s}","stateChangeCount":{d},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"master":{{"stereoEnabled":{s}}},"projectLength":{d:.3},"barOffset":{d}}}}}
+            , .{ redo_str, self.state_change_count, if (self.repeat) "true" else "false", if (self.metronome_enabled) "true" else "false", self.metronome_volume, metro_vol_db, master_stereo_str, project_length, self.bar_offset })
         else
             std.fmt.bufPrint(buf,
-                \\{{"type":"event","event":"project","payload":{{"canUndo":null,"canRedo":null,"stateChangeCount":{d},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"projectLength":{d:.3},"barOffset":{d}}}}}
-            , .{ self.state_change_count, if (self.repeat) "true" else "false", if (self.metronome_enabled) "true" else "false", self.metronome_volume, metro_vol_db, project_length, self.bar_offset });
+                \\{{"type":"event","event":"project","payload":{{"canUndo":null,"canRedo":null,"stateChangeCount":{d},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"master":{{"stereoEnabled":{s}}},"projectLength":{d:.3},"barOffset":{d}}}}}
+            , .{ self.state_change_count, if (self.repeat) "true" else "false", if (self.metronome_enabled) "true" else "false", self.metronome_volume, metro_vol_db, master_stereo_str, project_length, self.bar_offset });
 
         return result catch null;
     }
