@@ -147,7 +147,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     if (positionSeconds > end) end = positionSeconds;
 
     // Add 5% padding at the end
-    end = Math.max(end * 1.025, 10);
+    end = Math.max(end * 1.015, 10);
 
     return { baseTimelineStart: start, baseDuration: end - start };
   }, [displayRegions, markers, items, positionSeconds]);
