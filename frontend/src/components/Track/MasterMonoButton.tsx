@@ -5,7 +5,7 @@
  */
 
 import { useCallback, type ReactElement } from 'react';
-import { Circle, Unlink2 } from 'lucide-react';
+import { CircleSmall, Unlink2 } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
 import { master } from '../../core/WebSocketCommands';
@@ -43,7 +43,7 @@ export function MasterMonoButton({
       className={`px-2 py-1 rounded text-sm font-medium transition-colors ${activeClass} ${className}`}
     >
       {isMono ? (
-        <Circle size={14} className="inline-block" />
+        <CircleSmall size={14} className="inline-block" />
       ) : (
         <Unlink2 size={14} className="inline-block" />
       )}
