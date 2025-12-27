@@ -137,15 +137,20 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     for (const marker of markers) {
       if (marker.position > end) end = marker.position;
     }
+    // Include items - they may extend beyond regions
+    for (const item of items) {
+      const itemEnd = item.position + item.length;
+      if (itemEnd > end) end = itemEnd;
+    }
     // Include playhead position to ensure it's always visible
     // (fixes race condition on initial load when regions/markers haven't synced yet)
     if (positionSeconds > end) end = positionSeconds;
 
-    // Add some padding at the end
-    end = Math.max(end * 1.05, 10);
+    // Add 5% padding at the end
+    end = Math.max(end * 1.025, 10);
 
     return { baseTimelineStart: start, baseDuration: end - start };
-  }, [displayRegions, markers, positionSeconds]);
+  }, [displayRegions, markers, items, positionSeconds]);
 
   // Use base bounds for hook calculations (stable positioning)
   const timelineStart = baseTimelineStart;
