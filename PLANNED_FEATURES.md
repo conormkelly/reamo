@@ -250,3 +250,48 @@ For displaying the full tempo map in UI:
 | `GetTempoTimeSigMarker(proj, idx, ...)` | Read marker details |
 | `FindTempoTimeSigMarker(proj, time)` | Find marker at position |
 | `TimeMap2_GetNextChangeTime(proj, time)` | Find next tempo change (-1 if none)
+
+---
+
+## Extension Performance Optimizations
+
+### Idle When No Clients Connected
+
+**The Problem:**
+The extension currently polls REAPER state every 30ms regardless of whether any WebSocket clients are connected. This wastes CPU cycles when the frontend isn't running.
+
+**Solution:**
+Skip the polling loop when `clientCount == 0`. Only resume polling when a client connects.
+
+**Implementation:**
+```zig
+// In the 30ms timer callback:
+if (server.clientCount() == 0) return; // Early exit, no work to do
+
+// ... existing polling logic ...
+```
+
+**Considerations:**
+- First client connection may see a slight delay as state is gathered
+- Could optionally do a single immediate poll on client connect to minimize latency
+- Track `wasIdle` state to log when transitioning between idle/active
+
+---
+
+## Mixer Enhancements
+
+### Track Selection Improvements
+
+**Deselect All Button:**
+- [ ] Add "Deselect All" button beside the lock icon in mixer header
+- [ ] Only visible when at least one track is selected
+- [ ] Clears all track selections in one tap
+
+**Track Name Tap Gestures:**
+- [ ] Single tap on track name: Toggle that track's selection (add/remove from selection)
+- [ ] Long press on track name: Exclusive select (deselect all others, select only this one)
+
+**Implementation Notes:**
+- Use REAPER's `SetTrackSelected(track, selected)` API
+- For exclusive select: iterate all tracks, deselect all, then select the target
+- Consider haptic feedback on long press (if supported)
