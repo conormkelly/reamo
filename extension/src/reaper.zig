@@ -109,11 +109,18 @@ pub const Api = struct {
     // Project state
     getProjectStateChangeCount: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
 
+    // Master track state (reliable for master mute/solo)
+    getMasterMuteSoloFlags: ?*const fn () callconv(.c) c_int = null,
+
     // Control Surface API (for undo-coalesced continuous control changes)
     csurf_OnVolumeChange: ?*const fn (?*anyopaque, f64, bool) callconv(.c) f64 = null,
     csurf_OnVolumeChangeEx: ?*const fn (?*anyopaque, f64, bool, bool) callconv(.c) f64 = null,
     csurf_OnPanChange: ?*const fn (?*anyopaque, f64, bool) callconv(.c) f64 = null,
     csurf_OnPanChangeEx: ?*const fn (?*anyopaque, f64, bool, bool) callconv(.c) f64 = null,
+    csurf_OnMuteChange: ?*const fn (?*anyopaque, c_int) callconv(.c) bool = null,
+    csurf_OnMuteChangeEx: ?*const fn (?*anyopaque, c_int, bool) callconv(.c) bool = null,
+    csurf_OnSoloChange: ?*const fn (?*anyopaque, c_int) callconv(.c) bool = null,
+    csurf_OnSoloChangeEx: ?*const fn (?*anyopaque, c_int, bool) callconv(.c) bool = null,
     csurf_FlushUndo: ?*const fn (bool) callconv(.c) void = null,
 
     // Metering
@@ -206,11 +213,17 @@ pub const Api = struct {
             .undo_DoRedo2 = getFunc(info, "Undo_DoRedo2", fn (?*anyopaque) callconv(.c) c_int),
             // Project state
             .getProjectStateChangeCount = getFunc(info, "GetProjectStateChangeCount", fn (?*anyopaque) callconv(.c) c_int),
+            // Master track state
+            .getMasterMuteSoloFlags = getFunc(info, "GetMasterMuteSoloFlags", fn () callconv(.c) c_int),
             // Control Surface API
             .csurf_OnVolumeChange = getFunc(info, "CSurf_OnVolumeChange", fn (?*anyopaque, f64, bool) callconv(.c) f64),
             .csurf_OnVolumeChangeEx = getFunc(info, "CSurf_OnVolumeChangeEx", fn (?*anyopaque, f64, bool, bool) callconv(.c) f64),
             .csurf_OnPanChange = getFunc(info, "CSurf_OnPanChange", fn (?*anyopaque, f64, bool) callconv(.c) f64),
             .csurf_OnPanChangeEx = getFunc(info, "CSurf_OnPanChangeEx", fn (?*anyopaque, f64, bool, bool) callconv(.c) f64),
+            .csurf_OnMuteChange = getFunc(info, "CSurf_OnMuteChange", fn (?*anyopaque, c_int) callconv(.c) bool),
+            .csurf_OnMuteChangeEx = getFunc(info, "CSurf_OnMuteChangeEx", fn (?*anyopaque, c_int, bool) callconv(.c) bool),
+            .csurf_OnSoloChange = getFunc(info, "CSurf_OnSoloChange", fn (?*anyopaque, c_int) callconv(.c) bool),
+            .csurf_OnSoloChangeEx = getFunc(info, "CSurf_OnSoloChangeEx", fn (?*anyopaque, c_int, bool) callconv(.c) bool),
             .csurf_FlushUndo = getFunc(info, "CSurf_FlushUndo", fn (bool) callconv(.c) void),
             // Metering
             .track_GetPeakInfo = getFunc(info, "Track_GetPeakInfo", fn (?*anyopaque, c_int) callconv(.c) f64),
@@ -494,6 +507,33 @@ pub const Api = struct {
         f(force);
     }
 
+    // Control Surface: set track mute
+    // Returns true on success. Use allowGang=true to respect track grouping.
+    // This properly handles master track mute unlike SetMediaTrackInfo_Value.
+    pub fn csurfSetMute(self: *const Api, track: *anyopaque, mute: bool, allowGang: bool) bool {
+        const mute_val: c_int = if (mute) 1 else 0;
+        if (self.csurf_OnMuteChangeEx) |f| {
+            return f(track, mute_val, allowGang);
+        } else if (self.csurf_OnMuteChange) |f| {
+            return f(track, mute_val);
+        }
+        // Fallback to direct set
+        return self.setTrackMute(track, mute);
+    }
+
+    // Control Surface: set track solo
+    // Returns true on success. Use allowGang=true to respect track grouping.
+    // This properly handles master track solo unlike SetMediaTrackInfo_Value.
+    pub fn csurfSetSolo(self: *const Api, track: *anyopaque, solo: c_int, allowGang: bool) bool {
+        if (self.csurf_OnSoloChangeEx) |f| {
+            return f(track, solo, allowGang);
+        } else if (self.csurf_OnSoloChange) |f| {
+            return f(track, solo);
+        }
+        // Fallback to direct set
+        return self.setTrackSolo(track, solo);
+    }
+
     // Time conversion: beats (quarter notes from project start) to seconds
     pub fn beatsToTime(self: *const Api, beats: f64) f64 {
         const f = self.timeMap2_beatsToTime orelse return 0;
@@ -702,6 +742,23 @@ pub const Api = struct {
     pub fn setTrackPan(self: *const Api, track: *anyopaque, pan: f64) bool {
         const f = self.setMediaTrackInfo_Value orelse return false;
         return f(track, "D_PAN", pan);
+    }
+
+    // Master mute/solo flags (reliable for master track)
+    // Returns: &1=mute, &2=solo
+    pub fn getMasterMuteFlags(self: *const Api) c_int {
+        const f = self.getMasterMuteSoloFlags orelse return 0;
+        return f();
+    }
+
+    /// Check if master track is muted (reliable - uses GetMasterMuteSoloFlags)
+    pub fn isMasterMuted(self: *const Api) bool {
+        return (self.getMasterMuteFlags() & 1) != 0;
+    }
+
+    /// Check if master track is soloed (reliable - uses GetMasterMuteSoloFlags)
+    pub fn isMasterSoloed(self: *const Api) bool {
+        return (self.getMasterMuteFlags() & 2) != 0;
     }
 
     // Mute: true/false

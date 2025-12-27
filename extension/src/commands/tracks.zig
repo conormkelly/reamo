@@ -84,27 +84,46 @@ fn handleSetPan(api: *const reaper.Api, cmd: protocol.CommandMessage, response: 
 }
 
 // Set track mute (toggle if no value provided)
+// Uses CSurf API for proper master track support
 fn handleSetMute(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track = getTrackFromCmd(api, cmd) orelse {
+    const track_idx = cmd.getInt("trackIdx") orelse {
+        response.err("NOT_FOUND", "trackIdx is required");
+        return;
+    };
+    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
         response.err("NOT_FOUND", "Track not found");
         return;
     };
     // Toggle if no explicit value
-    const mute = if (cmd.getInt("mute")) |v| v != 0 else !api.getTrackMute(track);
-    if (api.setTrackMute(track, mute)) {
+    // For master track (idx=0), use GetMasterMuteSoloFlags for reliable state
+    const current_mute = if (track_idx == 0) api.isMasterMuted() else api.getTrackMute(track);
+    const mute = if (cmd.getInt("mute")) |v| v != 0 else !current_mute;
+    // Use CSurf API - properly handles master track unlike SetMediaTrackInfo_Value
+    if (api.csurfSetMute(track, mute, true)) {
         api.log("Reamo: Set track mute to {}", .{mute});
     }
 }
 
 // Set track solo (0=off, 1=solo, 2=solo in place, etc.)
+// Uses CSurf API for proper master track support
 fn handleSetSolo(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track = getTrackFromCmd(api, cmd) orelse {
+    const track_idx = cmd.getInt("trackIdx") orelse {
+        response.err("NOT_FOUND", "trackIdx is required");
+        return;
+    };
+    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
         response.err("NOT_FOUND", "Track not found");
         return;
     };
     // Toggle between 0 and 1 if no explicit value
-    const solo = if (cmd.getInt("solo")) |v| v else if (api.getTrackSolo(track) > 0) @as(c_int, 0) else @as(c_int, 1);
-    if (api.setTrackSolo(track, solo)) {
+    // For master track (idx=0), use GetMasterMuteSoloFlags for reliable state
+    const current_solo = if (track_idx == 0)
+        (if (api.isMasterSoloed()) @as(c_int, 1) else @as(c_int, 0))
+    else
+        api.getTrackSolo(track);
+    const solo = if (cmd.getInt("solo")) |v| v else if (current_solo > 0) @as(c_int, 0) else @as(c_int, 1);
+    // Use CSurf API - properly handles master track unlike SetMediaTrackInfo_Value
+    if (api.csurfSetSolo(track, solo, true)) {
         api.log("Reamo: Set track solo to {d}", .{solo});
     }
 }

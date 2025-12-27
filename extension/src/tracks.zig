@@ -90,8 +90,15 @@ pub const State = struct {
                 t.color = api.getTrackColor(track);
                 t.volume = api.getTrackVolume(track);
                 t.pan = api.getTrackPan(track);
-                t.mute = api.getTrackMute(track);
-                t.solo = api.getTrackSolo(track);
+                // For master track (idx=0), use GetMasterMuteSoloFlags which is more reliable
+                // than GetMediaTrackInfo_Value with B_MUTE/I_SOLO
+                if (idx == 0) {
+                    t.mute = api.isMasterMuted();
+                    t.solo = if (api.isMasterSoloed()) 1 else 0;
+                } else {
+                    t.mute = api.getTrackMute(track);
+                    t.solo = api.getTrackSolo(track);
+                }
                 t.rec_arm = api.getTrackRecArm(track);
                 t.rec_mon = api.getTrackRecMon(track);
                 t.fx_enabled = api.getTrackFxEnabled(track);

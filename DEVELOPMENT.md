@@ -189,6 +189,27 @@ Without this check, you get garbage theme colors (e.g., 0x00C04000 orange-red) i
 
 **Cross-platform note**: Use `ColorToNative()`/`ColorFromNative()` for RGB conversion. Windows uses RGB order, macOS uses BGR in the lower 24 bits.
 
+### Master Track Mute/Solo
+
+`GetMediaTrackInfo_Value(track, "B_MUTE")` and `I_SOLO` are **unreliable for the master track**. They often return stale or incorrect values.
+
+**For reading:** Use `GetMasterMuteSoloFlags()` which returns a bitmask:
+- `&1` = master muted
+- `&2` = master soloed
+
+**For writing:** Use the CSurf API (`CSurf_OnMuteChange`, `CSurf_OnSoloChange`) instead of `SetMediaTrackInfo_Value`. These also enable gang mute/solo support (respects track grouping when `allowGang=true`).
+
+```zig
+// Reading master mute/solo (reliable)
+const flags = api.getMasterMuteFlags();
+const is_muted = (flags & 1) != 0;
+const is_soloed = (flags & 2) != 0;
+
+// Writing mute/solo (works for all tracks including master)
+api.csurfSetMute(track, mute, true);  // allowGang=true
+api.csurfSetSolo(track, solo, true);
+```
+
 ### Metering
 
 - `Track_GetPeakInfo(track, channel)` → **post-fader linear amplitude** (1.0 = 0dB)
