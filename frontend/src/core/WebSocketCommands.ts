@@ -184,6 +184,9 @@ export const track = {
     command: 'track/setSelected',
     params: { trackIdx, selected },
   }),
+  unselectAll: (): WSCommand => ({
+    command: 'track/unselectAll',
+  }),
 };
 
 // =============================================================================

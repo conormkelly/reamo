@@ -282,10 +282,10 @@ if (server.clientCount() == 0) return; // Early exit, no work to do
 
 ### Track Selection Improvements
 
-**Deselect All Button:**
-- [ ] Add "Deselect All" button beside the lock icon in mixer header
-- [ ] Only visible when at least one track is selected
-- [ ] Clears all track selections in one tap
+**Unselect All Button:**
+- [x] Add "Unselect All" button beside the lock icon in mixer header
+- [x] Only visible when at least one track is selected
+- [x] Clears all track selections in one tap (including master track)
 
 **Track Name Tap Gestures:**
 - [ ] Single tap on track name: Toggle that track's selection (add/remove from selection)

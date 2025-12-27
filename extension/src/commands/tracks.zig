@@ -14,6 +14,7 @@ pub const handlers = [_]mod.Entry{
     .{ .name = "track/setRecMon", .handler = handleSetRecMon },
     .{ .name = "track/setFxEnabled", .handler = handleSetFxEnabled },
     .{ .name = "track/setSelected", .handler = handleSetSelected },
+    .{ .name = "track/unselectAll", .handler = handleDeselectAll },
     .{ .name = "meter/clearClip", .handler = handleClearClip },
 };
 
@@ -158,6 +159,28 @@ fn handleSetSelected(api: *const reaper.Api, cmd: protocol.CommandMessage, respo
     if (api.setTrackSelected(track, selected)) {
         api.log("Reamo: Set track selected to {}", .{selected});
     }
+}
+
+// Unselect all tracks (including master)
+fn handleDeselectAll(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    _ = cmd;
+    _ = response;
+
+    // Unselect master track
+    if (api.masterTrack()) |master| {
+        _ = api.setTrackSelected(master, false);
+    }
+
+    // Unselect all user tracks
+    const count = api.trackCount();
+    var i: c_int = 0;
+    while (i < count) : (i += 1) {
+        if (api.getTrackByIdx(i)) |track| {
+            _ = api.setTrackSelected(track, false);
+        }
+    }
+
+    api.log("Reamo: Unselected all tracks", .{});
 }
 
 // Clear clip indicator for a track's input meter

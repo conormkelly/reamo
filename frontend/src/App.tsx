@@ -4,7 +4,7 @@
  */
 
 import { useState, useMemo } from 'react';
-import { RectangleHorizontal, Lock, Unlock, ChevronDown, ChevronRight } from 'lucide-react';
+import { RectangleHorizontal, Lock, Unlock, ChevronDown, ChevronRight, XCircle } from 'lucide-react';
 import './index.css';
 import {
   ReaperProvider,
@@ -36,6 +36,8 @@ import {
 import { ToastContainer, useToast } from './components/Toast';
 import { useTracks } from './hooks';
 import { useReaperStore } from './store';
+import { useReaper } from './components';
+import { track as trackCmd } from './core/WebSocketCommands';
 
 function TrackList({ filter }: { filter: string }) {
   const { userTracks } = useTracks();
@@ -93,6 +95,24 @@ function MixerLockButton() {
       title={mixerLocked ? 'Unlock mixer controls' : 'Lock mixer controls'}
     >
       {mixerLocked ? <Lock size={18} /> : <Unlock size={18} />}
+    </button>
+  );
+}
+
+function UnselectAllTracksButton() {
+  const { sendCommand } = useReaper();
+  const { selectedTracks } = useTracks();
+
+  // Only show when tracks are selected
+  if (selectedTracks.length === 0) return null;
+
+  return (
+    <button
+      onClick={() => sendCommand(trackCmd.unselectAll())}
+      className="p-2 rounded transition-colors bg-gray-700 text-gray-300 hover:bg-gray-600"
+      title="Deselect all tracks"
+    >
+      <XCircle size={18} />
     </button>
   );
 }
@@ -234,6 +254,7 @@ function AppContent() {
                 placeholder="Filter tracks..."
               />
               <MixerLockButton />
+              <UnselectAllTracksButton />
             </div>
             <TrackList filter={trackFilter} />
           </>
