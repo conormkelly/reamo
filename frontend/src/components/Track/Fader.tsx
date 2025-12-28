@@ -133,6 +133,7 @@ export function Fader({
         style={{ height }}
         onMouseDown={handleMouseDown}
         onTouchStart={handleMouseDown}
+        title="Volume - double-tap to reset to 0dB"
       >
         {/* Fader track */}
         <div

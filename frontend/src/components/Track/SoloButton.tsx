@@ -36,6 +36,7 @@ export function SoloButton({
   return (
     <button
       onClick={handleClick}
+      title={isSoloed ? 'Unsolo Track' : 'Solo Track'}
       className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
         mixerLocked ? 'opacity-50 cursor-not-allowed' : ''
       } ${isSoloed ? 'bg-yellow-500 text-black' : inactiveBg} ${className}`}

@@ -3,10 +3,11 @@
  * Horizontal pan control with drag support and double-tap to center
  */
 
-import { useState, useCallback, useRef, type ReactElement } from 'react';
+import { useState, useCallback, useRef, useEffect, type ReactElement } from 'react';
 import { useReaper } from '../ReaperProvider';
 import { useTrack } from '../../hooks/useTrack';
 import { useReaperStore } from '../../store';
+import { gesture } from '../../core/WebSocketCommands';
 
 /** Center pan position */
 const CENTER_PAN = 0;
@@ -44,6 +45,16 @@ export function PanKnob({
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const lastTapRef = useRef<number>(0);
+  const cleanupRef = useRef<(() => void) | null>(null);
+
+  // Cleanup event listeners on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (cleanupRef.current) {
+        cleanupRef.current();
+      }
+    };
+  }, []);
 
   // Handle double-tap to center pan
   const handleDoubleTap = useCallback(() => {
@@ -68,6 +79,9 @@ export function PanKnob({
 
       e.preventDefault();
       setIsDragging(true);
+
+      // Signal gesture start for undo coalescing
+      sendCommand(gesture.start('pan', trackIndex));
 
       const getX = (event: MouseEvent | TouchEvent): number => {
         if ('touches' in event) {
@@ -97,18 +111,24 @@ export function PanKnob({
 
       const handleUp = () => {
         setIsDragging(false);
+        // Signal gesture end - triggers undo point creation
+        sendCommand(gesture.end('pan', trackIndex));
         document.removeEventListener('mousemove', handleMove);
         document.removeEventListener('mouseup', handleUp);
         document.removeEventListener('touchmove', handleMove);
         document.removeEventListener('touchend', handleUp);
+        cleanupRef.current = null;
       };
 
       document.addEventListener('mousemove', handleMove);
       document.addEventListener('mouseup', handleUp);
       document.addEventListener('touchmove', handleMove, { passive: false });
       document.addEventListener('touchend', handleUp);
+
+      // Store cleanup function for unmount
+      cleanupRef.current = handleUp;
     },
-    [sendCommand, setPan, handleDoubleTap, mixerLocked]
+    [sendCommand, setPan, handleDoubleTap, mixerLocked, trackIndex]
   );
 
   // Calculate indicator position (0-100%)
