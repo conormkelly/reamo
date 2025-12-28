@@ -6,7 +6,6 @@
 - [ID-Keyed Pending State](#id-keyed-pending-state-architectural-fix) — Fix index-based state corruption
 - [Tempo Marker Support](#tempo-marker-support) — Respect tempo map during playback
 - [Extension Performance Optimizations](#extension-performance-optimizations) — Idle when no clients
-- [Mixer Enhancements](#mixer-enhancements) — Track selection, CSurf API migration
 
 ---
 
@@ -87,12 +86,7 @@ Just: **"See what I recorded, tidy it up, make quick keep/trash decisions, move 
 
 ### Navigate Mode: Item Density Overlay Enhancements
 
-The Navigate mode shows merged item blocks as a visual indicator of "where stuff is". Planned enhancements:
-
-**Track filtering (uses REAPER's track selection):**
-- [x] No tracks selected: All items aggregated, default color
-- [x] 1 track selected: Show only that track's items with track color (nothing if no items)
-- [x] 2+ tracks selected: Show merged blocks for selected tracks only, default color
+The Navigate mode shows merged item blocks as a visual indicator of "where stuff is".
 
 **Visual refinements:**
 - [ ] Consider subtle waveform silhouette inside blocks (lower priority)
@@ -285,36 +279,3 @@ if (server.clientCount() == 0) return; // Early exit, no work to do
 - First client connection may see a slight delay as state is gathered
 - Could optionally do a single immediate poll on client connect to minimize latency
 - Track `wasIdle` state to log when transitioning between idle/active
-
----
-
-## Mixer Enhancements
-
-### Track Selection Improvements
-
-**Unselect All Button:**
-- [x] Add "Unselect All" button beside the lock icon in mixer header
-- [x] Only visible when at least one track is selected
-- [x] Clears all track selections in one tap (including master track)
-
-**Track Name Tap Gestures:**
-- [x] Single tap on track name: Toggle that track's selection (add/remove from selection)
-- [x] Long press on track name: Exclusive select (deselect all others, select only this one)
-- [x] Selected tracks have brighter background instead of blue glow (matches REAPER)
-
-### CSurf API Migration
-
-The CSurf (Control Surface) APIs provide better behavior than direct SetMediaTrackInfo_Value calls:
-- **Undo coalescing**: Rapid changes become single undo points
-- **Gang support**: Respects track grouping for linked controls
-- **Master track reliability**: Works correctly for master track (unlike B_MUTE/I_SOLO)
-
-**Already using CSurf:**
-- [x] Volume (`CSurf_OnVolumeChange`)
-- [x] Pan (`CSurf_OnPanChange`)
-- [x] Mute (`CSurf_OnMuteChange` / `CSurf_OnMuteChangeEx`)
-- [x] Solo (`CSurf_OnSoloChange` / `CSurf_OnSoloChangeEx`)
-
-**TODO - Migrate to CSurf:**
-- [x] Record arm (`CSurf_OnRecArmChange` / `CSurf_OnRecArmChangeEx`) - enables gang arm
-- [x] Record monitoring (`CSurf_OnInputMonitorChange` / `CSurf_OnInputMonitorChangeEx`) - enables gang monitor
