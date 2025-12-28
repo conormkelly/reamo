@@ -121,6 +121,10 @@ pub const Api = struct {
     csurf_OnMuteChangeEx: ?*const fn (?*anyopaque, c_int, bool) callconv(.c) bool = null,
     csurf_OnSoloChange: ?*const fn (?*anyopaque, c_int) callconv(.c) bool = null,
     csurf_OnSoloChangeEx: ?*const fn (?*anyopaque, c_int, bool) callconv(.c) bool = null,
+    csurf_OnRecArmChange: ?*const fn (?*anyopaque, c_int) callconv(.c) bool = null,
+    csurf_OnRecArmChangeEx: ?*const fn (?*anyopaque, c_int, bool) callconv(.c) bool = null,
+    csurf_OnInputMonitorChange: ?*const fn (?*anyopaque, c_int) callconv(.c) c_int = null,
+    csurf_OnInputMonitorChangeEx: ?*const fn (?*anyopaque, c_int, bool) callconv(.c) c_int = null,
     csurf_FlushUndo: ?*const fn (bool) callconv(.c) void = null,
 
     // Metering
@@ -224,6 +228,10 @@ pub const Api = struct {
             .csurf_OnMuteChangeEx = getFunc(info, "CSurf_OnMuteChangeEx", fn (?*anyopaque, c_int, bool) callconv(.c) bool),
             .csurf_OnSoloChange = getFunc(info, "CSurf_OnSoloChange", fn (?*anyopaque, c_int) callconv(.c) bool),
             .csurf_OnSoloChangeEx = getFunc(info, "CSurf_OnSoloChangeEx", fn (?*anyopaque, c_int, bool) callconv(.c) bool),
+            .csurf_OnRecArmChange = getFunc(info, "CSurf_OnRecArmChange", fn (?*anyopaque, c_int) callconv(.c) bool),
+            .csurf_OnRecArmChangeEx = getFunc(info, "CSurf_OnRecArmChangeEx", fn (?*anyopaque, c_int, bool) callconv(.c) bool),
+            .csurf_OnInputMonitorChange = getFunc(info, "CSurf_OnInputMonitorChange", fn (?*anyopaque, c_int) callconv(.c) c_int),
+            .csurf_OnInputMonitorChangeEx = getFunc(info, "CSurf_OnInputMonitorChangeEx", fn (?*anyopaque, c_int, bool) callconv(.c) c_int),
             .csurf_FlushUndo = getFunc(info, "CSurf_FlushUndo", fn (bool) callconv(.c) void),
             // Metering
             .track_GetPeakInfo = getFunc(info, "Track_GetPeakInfo", fn (?*anyopaque, c_int) callconv(.c) f64),
@@ -532,6 +540,35 @@ pub const Api = struct {
         }
         // Fallback to direct set
         return self.setTrackSolo(track, solo);
+    }
+
+    // Control Surface: set track record arm
+    // Returns true on success. Use allowGang=true to respect track grouping.
+    pub fn csurfSetRecArm(self: *const Api, track: *anyopaque, arm: bool, allowGang: bool) bool {
+        const arm_val: c_int = if (arm) 1 else 0;
+        if (self.csurf_OnRecArmChangeEx) |f| {
+            return f(track, arm_val, allowGang);
+        } else if (self.csurf_OnRecArmChange) |f| {
+            return f(track, arm_val);
+        }
+        // Fallback to direct set
+        return self.setTrackRecArm(track, arm);
+    }
+
+    // Control Surface: set track input monitor
+    // Returns the new monitor value. Use allowGang=true to respect track grouping.
+    // monitor: 0=off, 1=on, 2=auto (not when playing)
+    pub fn csurfSetRecMon(self: *const Api, track: *anyopaque, mon: c_int, allowGang: bool) c_int {
+        if (self.csurf_OnInputMonitorChangeEx) |f| {
+            return f(track, mon, allowGang);
+        } else if (self.csurf_OnInputMonitorChange) |f| {
+            return f(track, mon);
+        }
+        // Fallback to direct set
+        if (self.setTrackRecMon(track, mon)) {
+            return mon;
+        }
+        return -1; // Error indicator
     }
 
     // Time conversion: beats (quarter notes from project start) to seconds

@@ -129,18 +129,21 @@ fn handleSetSolo(api: *const reaper.Api, cmd: protocol.CommandMessage, response:
 }
 
 // Set track record arm (toggle if no value provided)
+// Uses CSurf API for gang support (respects track grouping when allowGang=true)
 fn handleSetRecArm(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const track = getTrackFromCmd(api, cmd) orelse {
         response.err("NOT_FOUND", "Track not found");
         return;
     };
     const arm = if (cmd.getInt("arm")) |v| v != 0 else !api.getTrackRecArm(track);
-    if (api.setTrackRecArm(track, arm)) {
+    // Use CSurf API for gang support
+    if (api.csurfSetRecArm(track, arm, true)) {
         api.log("Reamo: Set track rec arm to {}", .{arm});
     }
 }
 
 // Set track record monitoring (0=off, 1=normal, 2=not when playing)
+// Uses CSurf API for gang support (respects track grouping when allowGang=true)
 fn handleSetRecMon(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const track = getTrackFromCmd(api, cmd) orelse {
         response.err("NOT_FOUND", "Track not found");
@@ -151,8 +154,10 @@ fn handleSetRecMon(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
         const current = api.getTrackRecMon(track);
         break :blk @mod(current + 1, 3);
     };
-    if (api.setTrackRecMon(track, mon)) {
-        api.log("Reamo: Set track rec mon to {d}", .{mon});
+    // Use CSurf API for gang support
+    const result = api.csurfSetRecMon(track, mon, true);
+    if (result >= 0) {
+        api.log("Reamo: Set track rec mon to {d}", .{result});
     }
 }
 
