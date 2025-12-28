@@ -25,17 +25,35 @@ This fits REAPER's ethos of customizability — REAPER calls these "toolbars" an
 - Power user with scripts: One-tap to run favorite ReaScripts
 - Vocalist: Quick access to punch-in, cycle toggle, metronome
 
+### UI Placement
+
+The Toolbar appears as a **collapsible section** (chevron accordion, like Timeline and Mixer) in the app layout:
+
+```
+1. Header (Metronome, Tap, TimeSignature, ConnectionStatus)
+2. TimeDisplay
+3. Transport section (TransportBar + Undo/Redo/Save)
+4. RecordingActionsBar (conditional - only during recording)
+5. Toolbar (collapsible) ← HERE
+6. Timeline (collapsible)
+7. Mixer (collapsible)
+8. Footer
+```
+
 ### UI Concept
 
 ```txt
 ┌─────────────────────────────────────────────────────────────┐
-│ Toolbar                                          [Edit] [+] │
+│ ▼ Toolbar                                        [Edit] [+] │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │   ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐    │
 │   │guitar│  │piano│  │ ◀  │  │ ▶  │  │link │  │file │    │
 │   │Clean│  │Keys │  │Prev │  │Next │  │Glue │  │Notes│    │
 │   └─────┘  └─────┘  └─────┘  └─────┘  └─────┘  └─────┘    │
+│                                                             │
+│   Toggle buttons show active state (e.g., highlighted       │
+│   background when FX bypass is ON)                          │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -56,8 +74,11 @@ This fits REAPER's ethos of customizability — REAPER calls these "toolbars" an
 │         │ ◀  ▶  ⬆  ⬇  ➕  ➖  ✓  ✕  ⚡  💾 │   │
 │         │ ...more icons (scrollable)...         │   │
 │         └───────────────────────────────────────┘   │
+│  Icon Color:    [■ #000000] [picker]                │
 │                                                     │
-│  Color: [●red] [●grn] [●blu] [●ylw] [●pur] [○none] │
+│  Text Color:    [■ #FFFFFF] [picker]                │
+│                                                     │
+│  Background:    [■ #374151] [picker]                │
 │                                                     │
 │  Type:  ○ REAPER Action  ● MIDI CC  ○ MIDI PC      │
 │                                                     │
@@ -72,6 +93,8 @@ This fits REAPER's ethos of customizability — REAPER calls these "toolbars" an
 └─────────────────────────────────────────────────────┘
 ```
 
+**Color inputs:** System color picker + hex code input (same pattern as marker/region edit modals).
+
 ---
 
 ### Action Types
@@ -80,8 +103,10 @@ This fits REAPER's ethos of customizability — REAPER calls these "toolbars" an
 // Common fields for all toolbar actions
 interface ToolbarActionBase {
   label: string;
-  icon?: string;         // Lucide icon name, e.g., "guitar", "play", "mic" (optional)
-  color?: string;        // Tailwind color, e.g., "red", "green", "blue" (optional)
+  icon?: string;            // Lucide icon name, e.g., "guitar", "play", "mic" (optional)
+  iconColor?: string;       // Hex color, default "#000000" (black)
+  textColor?: string;       // Hex color, default "#FFFFFF" (white)
+  backgroundColor?: string; // Hex color, default "#374151" (gray-700)
 }
 
 type ToolbarAction =
@@ -107,9 +132,10 @@ type ToolbarAction =
 ```
 
 **Rendering logic:**
-- If `icon` is set → show icon (with optional label below)
+- If `icon` is set → show icon (with optional label below), apply `iconColor`
 - If no `icon` → show label only (larger text)
-- If `color` is set → apply as background/border color
+- Apply `textColor` to label, `backgroundColor` to button
+- For toggle actions: modify background/border when active (see Toggle State section)
 
 ---
 
@@ -214,6 +240,121 @@ StuffMIDIMessage(0, 0xC0 | 0, 5, 0);
 
 ---
 
+### Toggle State Subscription
+
+Some REAPER actions are **toggles** (e.g., "Toggle FX bypass", "Toggle metronome") with on/off state. The backend provides a subscription-based system to track these states in real-time.
+
+#### REAPER API
+
+```c
+int GetToggleCommandState(int command_id);
+// Returns: -1 = not a toggle, 0 = off, 1 = on
+```
+
+This is a cheap call (~microseconds), safe to poll at 30ms.
+
+#### Architecture
+
+The backend maintains a **reference-counted subscription cache**:
+
+1. Frontend extracts REAPER action commandIds from toolbar config
+2. Frontend subscribes to those commandIds on connect
+3. Backend tracks union of all client subscriptions
+4. Backend polls subscribed commandIds each tick (~30ms), detects changes
+5. Backend broadcasts sparse updates (only changed states) to all clients
+6. On disconnect, client's subscriptions are cleaned up (ref count decremented)
+
+**Key principles:**
+- **Snapshot on subscribe**: Immediately send current state for all subscribed IDs (critical for trust)
+- **Sparse delta updates**: Only send commandIds that changed, not all subscribed states
+- **Auto-detect toggles**: Backend calls `GetToggleCommandState` — if `-1`, it's not a toggle
+- **Backend is toolbar-agnostic**: It just tracks toggle states for whoever asks
+
+#### Protocol
+
+**Subscribe (snapshot response):**
+```json
+→ {"type": "command", "command": "actionToggleState/subscribe", "commandIds": [40001, 40078, 40230], "id": "1"}
+← {"type": "response", "id": "1", "success": true, "states": {"40001": 1, "40078": 0, "40230": -1}}
+```
+
+The response includes `-1` for non-toggle actions so the client knows not to display toggle UI for those.
+
+**Unsubscribe:**
+```json
+→ {"type": "command", "command": "actionToggleState/unsubscribe", "commandIds": [40001], "id": "2"}
+← {"type": "response", "id": "2", "success": true}
+```
+
+**State change events (broadcast):**
+```json
+← {"type": "event", "event": "actionToggleState", "changes": {"40001": 0}}
+```
+
+#### Data Structures (Extension)
+
+```zig
+const MAX_COMMAND_IDS = 256;  // Per-client limit
+const MAX_CLIENTS = 16;
+
+const ToggleSubscriptions = struct {
+    // For each commandId: reference count (number of subscribed clients)
+    ref_counts: std.AutoHashMap(u32, u8),
+
+    // For each commandId: previous state for change detection
+    prev_states: std.AutoHashMap(u32, i8),  // -1, 0, or 1
+
+    // Per-client subscription sets (for cleanup on disconnect)
+    client_subscriptions: [MAX_CLIENTS]std.AutoHashMap(u32, void),
+};
+```
+
+**Polling loop:**
+```zig
+fn pollToggleStates(self: *ToggleSubscriptions) void {
+    var changes = std.AutoHashMap(u32, i8).init(allocator);
+    defer changes.deinit();
+
+    // Only poll commandIds with subscribers
+    var iter = self.ref_counts.keyIterator();
+    while (iter.next()) |cmd| {
+        const new_state = reaper.getToggleCommandState(cmd.*);
+        const prev = self.prev_states.get(cmd.*) orelse -2;
+        if (new_state != prev) {
+            self.prev_states.put(cmd.*, new_state);
+            changes.put(cmd.*, new_state);
+        }
+    }
+
+    // Broadcast changes to all clients
+    if (changes.count() > 0) {
+        self.broadcastChanges(changes);
+    }
+}
+```
+
+#### Frontend Data Flow
+
+```
+Toolbar config (localStorage)
+    → extract REAPER action commandIds
+    → send actionToggleState/subscribe on connect
+                                    ↓
+                    Zustand store ← actionToggleState events
+                          ↓
+                    toggleStates: Map<commandId, -1 | 0 | 1>
+                          ↓
+                    Toolbar buttons read from store
+                    (highlight active toggles, ignore -1 values)
+```
+
+#### Limits
+
+- **256 commandIds per client** — generous for any realistic toolbar, prevents resource exhaustion
+- **16 concurrent clients** — matches existing WebSocket limits
+
+---
+
 ### Storage
 
 **MVP: Browser localStorage**
@@ -248,28 +389,45 @@ Could support: global defaults (localStorage) + project overrides (EXTSTATE).
 
 #### Extension
 
+**MIDI commands:**
 - [ ] Add `midi/cc` command handler
 - [ ] Add `midi/pc` command handler
 - [ ] Import `StuffMIDIMessage` from REAPER API
 - [ ] Validate CC/PC values (0-127), channel (0-15)
 
+**Toggle state subscription:**
+- [ ] Import `GetToggleCommandState` from REAPER API
+- [ ] Add `ToggleSubscriptions` struct with ref-counted tracking
+- [ ] Add `actionToggleState/subscribe` command handler (returns snapshot)
+- [ ] Add `actionToggleState/unsubscribe` command handler
+- [ ] Poll subscribed commandIds in timer callback
+- [ ] Broadcast `actionToggleState` events on state changes
+- [ ] Clean up subscriptions on client disconnect
+- [ ] Enforce 256 commandIds per client limit
+
 #### Frontend
 
 **Components:**
-- [ ] `Toolbar` — horizontal scrollable button bar
-- [ ] `ToolbarButton` — individual action button
-- [ ] `ToolbarEditor` — modal for add/edit
+- [ ] `Toolbar` — collapsible section with horizontal scrollable button bar
+- [ ] `ToolbarButton` — individual action button with toggle state support
+- [ ] `ToolbarEditor` — modal for add/edit with color pickers
 - [ ] `IconPicker` — searchable Lucide icon grid (see [Icons](#icons) section)
+- [ ] `ColorPickerInput` — hex input + system color picker (reuse from marker/region modals)
 
 **State:**
 - [ ] Load actions from localStorage on mount
 - [ ] Save actions to localStorage on change
 - [ ] Edit mode toggle
 - [ ] Drag-to-reorder (nice-to-have)
+- [ ] `toggleStates: Map<number, -1 | 0 | 1>` in Zustand store
+- [ ] Subscribe to toggle states on connect (extract commandIds from toolbar config)
+- [ ] Handle `actionToggleState` events to update store
 
 **Commands:**
 - [ ] Wire up action execution (already have `action/execute`)
 - [ ] Wire up MIDI CC/PC commands (new)
+- [ ] Wire up `actionToggleState/subscribe` on toolbar load
+- [ ] Wire up `actionToggleState/unsubscribe` on toolbar change (removed actions)
 
 ---
 
@@ -295,18 +453,34 @@ Could support: global defaults (localStorage) + project overrides (EXTSTATE).
 **Color-coded presets (label-only, no icons):**
 ```json
 [
-  {"type": "midi_pc", "program": 0, "channel": 0, "label": "Clean", "color": "green"},
-  {"type": "midi_pc", "program": 1, "channel": 0, "label": "Crunch", "color": "yellow"},
-  {"type": "midi_pc", "program": 2, "channel": 0, "label": "Lead", "color": "red"}
+  {"type": "midi_pc", "program": 0, "channel": 0, "label": "Clean", "backgroundColor": "#22c55e"},
+  {"type": "midi_pc", "program": 1, "channel": 0, "label": "Crunch", "backgroundColor": "#eab308"},
+  {"type": "midi_pc", "program": 2, "channel": 0, "label": "Lead", "backgroundColor": "#ef4444"}
 ]
 ```
 
-**Common recording shortcuts:**
+**Toggle actions (auto-detected, UI reflects on/off state):**
 ```json
 [
   {"type": "reaper_action", "commandId": 1013, "label": "Cycle", "icon": "repeat"},
-  {"type": "reaper_action", "commandId": 40364, "label": "Click", "icon": "drum", "color": "blue"},
-  {"type": "reaper_action", "commandId": 40172, "label": "Marker", "icon": "map-pin"}
+  {"type": "reaper_action", "commandId": 40364, "label": "Click", "icon": "drum"},
+  {"type": "reaper_action", "commandId": 96, "label": "T10 Bypass", "icon": "power"}
+]
+```
+*These are toggle actions — the UI will show active/inactive state based on `actionToggleState` events.*
+
+**Custom styled button:**
+```json
+[
+  {
+    "type": "reaper_action",
+    "commandId": 40172,
+    "label": "Marker",
+    "icon": "map-pin",
+    "iconColor": "#fbbf24",
+    "textColor": "#fbbf24",
+    "backgroundColor": "#1f2937"
+  }
 ]
 ```
 
