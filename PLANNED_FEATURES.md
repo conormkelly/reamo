@@ -271,3 +271,301 @@ if (server.clientCount() == 0) return; // Early exit, no work to do
 - First client connection may see a slight delay as state is gathered
 - Could optionally do a single immediate poll on client connect to minimize latency
 - Track `wasIdle` state to log when transitioning between idle/active
+
+## Project Notes Support
+
+Project notes are useful for session-level metadata: "Client: Acme Records", "Reference tempo: 128 BPM before we slowed it down", "TODO: re-record verse 2 vocals", etc. Currently requires going to the computer (`File > Project Notes...`). Should be accessible from the WebUI.
+
+---
+
+### REAPER API
+
+```c
+void GetSetProjectNotes(
+    ReaProject* proj,      // NULL for active project
+    bool set,              // false = get, true = set
+    char* notesNeedBig,    // buffer for notes
+    int notesNeedBig_sz    // buffer size
+);
+```
+
+**Key characteristics:**
+
+- Returns `void` — no way to query required size
+- No documented max length (practically unbounded, stored as text in RPP)
+- Notes may contain newlines (`\n`, `\r\n`, or `\r` depending on platform/history)
+- Empty project notes = empty string (not null)
+
+---
+
+### Buffer Strategy
+
+Since the API doesn't report truncation, use iterative resizing. The heuristic: if `strlen(result) >= bufferSize - 1`, the content was likely truncated.
+
+```zig
+fn getProjectNotes(allocator: Allocator) ![:0]u8 {
+    var size: usize = 4096; // Start reasonable
+
+    while (size <= 1024 * 1024) { // Cap at 1MB
+        const buf = try allocator.allocSentinel(u8, size - 1, 0);
+        errdefer allocator.free(buf);
+
+        @memset(buf, 0);
+        api.GetSetProjectNotes(null, false, buf.ptr, @intCast(size));
+
+        const len = std.mem.indexOfScalar(u8, buf, 0) orelse size - 1;
+
+        // If we didn't fill the buffer, we got everything
+        if (len < size - 1) {
+            // Optionally shrink to actual size
+            if (allocator.resize(buf, len + 1)) |resized| {
+                return resized[0..len :0];
+            }
+            return buf[0..len :0];
+        }
+
+        // Likely truncated — double and retry
+        allocator.free(buf);
+        size *= 2;
+    }
+
+    return error.NotesTooLarge;
+}
+
+fn setProjectNotes(notes: [:0]const u8) void {
+    // Cast away const - REAPER doesn't modify when set=true, but signature isn't const
+    const ptr: [*]u8 = @constCast(notes.ptr);
+    api.GetSetProjectNotes(null, true, ptr, @intCast(notes.len + 1));
+}
+```
+
+---
+
+### Protocol Design
+
+**Decision: On-demand, not polled.**
+
+Unlike transport (continuous) or regions (polled for external changes), project notes:
+
+- Change infrequently
+- Can be large
+- Don't need real-time sync
+
+Use request/response pattern instead of continuous polling.
+
+#### Messages
+
+**Client → Server: Request notes**
+
+```json
+{
+  "type": "getProjectNotes"
+}
+```
+
+**Server → Client: Notes response**
+
+```json
+{
+  "type": "projectNotes",
+  "notes": "Session notes here...\nLine 2\nLine 3"
+}
+```
+
+**Client → Server: Set notes**
+
+```json
+{
+  "type": "setProjectNotes",
+  "notes": "Updated notes content"
+}
+```
+
+**Server → Client: Confirmation**
+
+```json
+{
+  "type": "projectNotesSet",
+  "success": true
+}
+```
+
+Optionally, after successful set, server can echo back the saved notes (re-fetched from REAPER) to confirm round-trip integrity.
+
+---
+
+### UI Concept
+
+**Access:** Button in transport bar or settings/menu area: `[📝]` or `[Notes]`
+
+**Modal/Panel:**
+
+```txt
+┌─────────────────────────────────────────────────────┐
+│ Project Notes                              [×]      │
+├─────────────────────────────────────────────────────┤
+│ ┌─────────────────────────────────────────────────┐ │
+│ │ Client: Acme Records                            │ │
+│ │ Session date: 2024-01-15                        │ │
+│ │                                                 │ │
+│ │ TODO:                                           │ │
+│ │ - Re-record verse 2 vocals                      │ │
+│ │ - Fix timing on bridge guitar                   │ │
+│ │                                                 │ │
+│ │                                                 │ │
+│ └─────────────────────────────────────────────────┘ │
+├─────────────────────────────────────────────────────┤
+│                           [Cancel]  [Save]          │
+└─────────────────────────────────────────────────────┘
+```
+
+**Behavior:**
+
+- Opens modal or slide-out panel
+- Fetches current notes on open (shows loading state)
+- Textarea for editing (auto-resize or fixed with scroll)
+- Cancel = discard local changes, close
+- Save = send to server, wait for confirmation, close
+- Dirty indicator if local changes exist (prompt to confirm before closing)
+
+---
+
+### Implementation Checklist
+
+#### Extension
+
+- [ ] Add REAPER API import: `GetSetProjectNotes`
+- [ ] Implement get function with iterative buffer resize strategy
+- [ ] Implement set function
+- [ ] Add WebSocket message handler for `getProjectNotes` request
+- [ ] Add WebSocket message handler for `setProjectNotes` request
+- [ ] Send `projectNotes` response with fetched content
+- [ ] Send `projectNotesSet` confirmation after successful write
+
+#### Shared Types
+
+```typescript
+// Server → Client
+interface ProjectNotesEvent {
+  type: 'projectNotes';
+  notes: string;
+}
+
+interface ProjectNotesSetEvent {
+  type: 'projectNotesSet';
+  success: boolean;
+  error?: string;
+}
+
+// Client → Server
+interface GetProjectNotesRequest {
+  type: 'getProjectNotes';
+}
+
+interface SetProjectNotesRequest {
+  type: 'setProjectNotes';
+  notes: string;
+}
+```
+
+#### Frontend State
+
+**Required state fields:**
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `serverNotes` | `string \| null` | Last value fetched from server (`null` = never fetched) |
+| `localNotes` | `string \| null` | Current editor content (`null` = editor closed) |
+| `isLoading` | `boolean` | Fetch request in progress |
+| `isSaving` | `boolean` | Save request in progress |
+| `error` | `string \| null` | Last error message |
+
+**Derived state:**
+
+| Selector | Logic | Purpose |
+|----------|-------|---------|
+| `isDirty` | `localNotes !== null && localNotes !== serverNotes` | Unsaved changes exist |
+
+#### Frontend Functionality
+
+**Required behaviors:**
+
+- Send `getProjectNotes` request and track loading state
+- Receive `projectNotes` message, store server value, initialize local editor if open
+- Track local edits in state (separate from server value)
+- Send `setProjectNotes` request with local content, track saving state
+- Receive `projectNotesSet` confirmation, sync local/server state, clear saving
+- Discard local changes (reset editor to server value or close)
+- Handle and display errors
+
+#### UI Components
+
+- [ ] Trigger button/icon in toolbar or menu
+- [ ] Modal or panel container with open/close handling
+- [ ] Textarea with controlled state binding
+- [ ] Loading indicator during fetch
+- [ ] Saving indicator during save (disable inputs)
+- [ ] Dirty state indicator
+- [ ] Confirmation prompt when closing with unsaved changes
+- [ ] Error display
+
+#### WebSocket Integration
+
+- [ ] Handle outgoing `getProjectNotes` request
+- [ ] Handle outgoing `setProjectNotes` request
+- [ ] Handle incoming `projectNotes` message
+- [ ] Handle incoming `projectNotesSet` message
+
+---
+
+### Gotchas & Edge Cases
+
+#### Newline Normalization
+
+REAPER may store `\r\n` (Windows) or `\r` (old Mac). Normalize to `\n` on receive for consistent textarea behavior:
+
+```typescript
+// On receive
+const normalized = notes.replace(/\r\n?/g, '\n');
+```
+
+REAPER is tolerant of mixed newlines, so conversion on save is optional.
+
+#### Empty vs Null
+
+| State | Meaning | UI |
+|-------|---------|-----|
+| `serverNotes === null` | Never fetched | Show loading or fetch prompt |
+| `serverNotes === ""` | Fetched, project has no notes | Show empty textarea |
+| `localNotes === null` | Editor not open | N/A |
+| `localNotes === ""` | User cleared all content | Empty textarea, dirty if server had content |
+
+#### Large Notes
+
+If someone pastes a very large amount of text:
+
+- **Frontend:** Consider warning if content exceeds ~100KB before save
+- **Extension:** Cap at 1MB, return error if exceeded
+- **WebSocket:** Large messages may need consideration depending on server config
+
+#### Concurrent Edits
+
+If notes are open in WebUI and someone edits directly in REAPER:
+
+**Simple approach (acceptable for single-user DAW):** Last-write-wins.
+
+**Better UX:** Track the server value when editor was opened. On save, compare current server value — if changed, warn user:
+
+> "Notes were modified elsewhere. Overwrite?"
+
+Options: Overwrite / Discard my changes / Cancel
+
+---
+
+### Future Enhancements
+
+- **Markdown preview:** Toggle between edit mode and rendered view
+- **Auto-save draft:** LocalStorage backup of unsaved changes (survives browser refresh)
+- **Timestamps:** Display "Last modified: 2 hours ago" if REAPER exposes this (it doesn't natively, but could track in extension)
+- **Search:** Ctrl+F / Cmd+F within notes (browser native may suffice for textarea)
+- **Character/word count:** Footer showing content length
