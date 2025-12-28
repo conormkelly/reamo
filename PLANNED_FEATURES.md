@@ -68,7 +68,6 @@ Double-tap region or zoom to time selection. Single track view with detailed ite
 | Delete take | Remove bad take | `Main_OnCommand(40129, 0)` |
 | Crop to active | "This is the keeper" | `Main_OnCommand(40131, 0)` |
 | Move item | Nudge position | `SetMediaItemInfo_Value(item, "D_POSITION", pos)` |
-| Trim item | Adjust boundaries | Modify `D_POSITION` + `D_LENGTH` + take offsets |
 | Set color | Visual organization | `SetMediaItemInfo_Value(item, "I_CUSTOMCOLOR", color)` |
 | Lock | Protect from accidents | `SetMediaItemInfo_Value(item, "C_LOCK", 1)` |
 | Add notes | "Good energy", etc. | `GetSetMediaItemInfo_String(item, "P_NOTES", ...)` |
@@ -83,13 +82,6 @@ Double-tap region or zoom to time selection. Single track view with detailed ite
 - No detailed MIDI editing
 
 Just: **"See what I recorded, tidy it up, make quick keep/trash decisions, move on."**
-
-### Navigate Mode: Item Density Overlay Enhancements
-
-The Navigate mode shows merged item blocks as a visual indicator of "where stuff is".
-
-**Visual refinements:**
-- [ ] Consider subtle waveform silhouette inside blocks (lower priority)
 
 ---
 
