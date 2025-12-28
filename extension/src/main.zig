@@ -8,6 +8,7 @@ const tracks = @import("tracks.zig");
 const commands = @import("commands/mod.zig");
 const ws_server = @import("ws_server.zig");
 const gesture_state = @import("gesture_state.zig");
+const toggle_subscriptions = @import("toggle_subscriptions.zig");
 
 // Configuration
 const DEFAULT_PORT: u16 = 9224;
@@ -18,6 +19,7 @@ var g_api: ?reaper.Api = null;
 var g_allocator: std.mem.Allocator = undefined;
 var g_shared_state: ?*ws_server.SharedState = null;
 var g_gesture_state: ?*gesture_state.GestureState = null;
+var g_toggle_subs: ?*toggle_subscriptions.ToggleSubscriptions = null;
 var g_server: ?ws_server.Server = null;
 var g_port: u16 = 0;
 var g_last_transport: transport.State = .{};
@@ -113,6 +115,16 @@ fn initTimerCallback() callconv(.c) void {
     gestures.* = gesture_state.GestureState.init(g_allocator);
     g_gesture_state = gestures;
 
+    // Create toggle subscriptions state
+    const toggles = g_allocator.create(toggle_subscriptions.ToggleSubscriptions) catch {
+        api.logSimple("Reamo: Failed to allocate toggle subscriptions state");
+        return;
+    };
+    toggles.* = toggle_subscriptions.ToggleSubscriptions.init(g_allocator);
+    g_toggle_subs = toggles;
+    // Set the global reference in the command handler module
+    commands.toggle_state_cmds.g_toggle_subs = toggles;
+
     // Sync initial HTML mtime to shared state
     state.setHtmlMtime(g_html_mtime);
 
@@ -167,16 +179,23 @@ fn processTimerCallback() callconv(.c) void {
         commands.dispatch(api, command.client_id, command.data, shared_state, g_gesture_state);
     }
 
-    // Clean up gestures for disconnected clients
-    if (g_gesture_state) |gestures| {
-        var disconnected_buf: [16]usize = undefined;
-        const disconnected_count = shared_state.popDisconnectedClients(&disconnected_buf);
+    // Clean up gestures and toggle subscriptions for disconnected clients
+    var disconnected_buf: [16]usize = undefined;
+    const disconnected_count = shared_state.popDisconnectedClients(&disconnected_buf);
+    if (disconnected_count > 0) {
         for (disconnected_buf[0..disconnected_count]) |client_id| {
-            var flush_buf: [16]gesture_state.ControlId = undefined;
-            const flush_count = gestures.removeClientFromAll(client_id, &flush_buf);
-            if (flush_count > 0) {
-                api.log("Reamo: Client {d} disconnected, flushing {d} gestures", .{ client_id, flush_count });
-                api.csurfFlushUndo(true);
+            // Clean up gestures
+            if (g_gesture_state) |gestures| {
+                var flush_buf: [16]gesture_state.ControlId = undefined;
+                const flush_count = gestures.removeClientFromAll(client_id, &flush_buf);
+                if (flush_count > 0) {
+                    api.log("Reamo: Client {d} disconnected, flushing {d} gestures", .{ client_id, flush_count });
+                    api.csurfFlushUndo(true);
+                }
+            }
+            // Clean up toggle subscriptions
+            if (g_toggle_subs) |toggles| {
+                toggles.removeClient(client_id);
             }
         }
     }
@@ -302,6 +321,21 @@ fn processTimerCallback() callconv(.c) void {
     g_last_tracks = current_tracks;
     g_last_metering = current_metering;
 
+    // Poll toggle state subscriptions and broadcast changes
+    if (g_toggle_subs) |toggles| {
+        if (toggles.hasSubscriptions()) {
+            var changes = toggles.poll(api);
+            defer changes.deinit();
+
+            if (changes.count() > 0) {
+                var buf: [2048]u8 = undefined;
+                if (toggle_subscriptions.ToggleSubscriptions.changesToJson(&changes, &buf)) |json| {
+                    shared_state.broadcast(json);
+                }
+            }
+        }
+    }
+
     // Check for HTML file changes (hot reload) - every ~2 seconds
     g_file_check_counter += 1;
     if (g_file_check_counter >= FILE_CHECK_INTERVAL) {
@@ -350,6 +384,15 @@ fn shutdown() void {
         g_gesture_state = null;
     }
     logFile("gesture state cleaned up");
+
+    if (g_toggle_subs) |toggles| {
+        logFile("cleaning up toggle subscriptions");
+        commands.toggle_state_cmds.g_toggle_subs = null;
+        toggles.deinit();
+        g_allocator.destroy(toggles);
+        g_toggle_subs = null;
+    }
+    logFile("toggle subscriptions cleaned up");
 
     if (g_shared_state) |state| {
         logFile("cleaning up shared state");
@@ -405,4 +448,5 @@ test {
     _ = @import("commands/mod.zig");
     _ = @import("ws_server.zig");
     _ = @import("gesture_state.zig");
+    _ = @import("toggle_subscriptions.zig");
 }

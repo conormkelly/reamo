@@ -396,14 +396,14 @@ Could support: global defaults (localStorage) + project overrides (EXTSTATE).
 - [ ] Validate CC/PC values (0-127), channel (0-15)
 
 **Toggle state subscription:**
-- [ ] Import `GetToggleCommandState` from REAPER API
-- [ ] Add `ToggleSubscriptions` struct with ref-counted tracking
-- [ ] Add `actionToggleState/subscribe` command handler (returns snapshot)
-- [ ] Add `actionToggleState/unsubscribe` command handler
-- [ ] Poll subscribed commandIds in timer callback
-- [ ] Broadcast `actionToggleState` events on state changes
-- [ ] Clean up subscriptions on client disconnect
-- [ ] Enforce 256 commandIds per client limit
+- [x] Import `GetToggleCommandState` from REAPER API
+- [x] Add `ToggleSubscriptions` struct with ref-counted tracking
+- [x] Add `actionToggleState/subscribe` command handler (returns snapshot)
+- [x] Add `actionToggleState/unsubscribe` command handler
+- [x] Poll subscribed commandIds in timer callback
+- [x] Broadcast `actionToggleState` events on state changes
+- [x] Clean up subscriptions on client disconnect
+- [x] Enforce 256 commandIds per client limit
 
 #### Frontend
 

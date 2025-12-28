@@ -21,6 +21,7 @@ const extstate_cmds = @import("extstate.zig");
 const undo_cmds = @import("undo.zig");
 const action_cmds = @import("actions.zig");
 const gesture_cmds = @import("gesture.zig");
+pub const toggle_state_cmds = @import("toggle_state.zig");
 
 // Command handler function type
 pub const Handler = *const fn (*const reaper.Api, protocol.CommandMessage, *ResponseWriter) void;
@@ -120,7 +121,8 @@ pub const registry = transport_cmds.handlers ++
     extstate_cmds.handlers ++
     undo_cmds.handlers ++
     action_cmds.handlers ++
-    gesture_cmds.handlers;
+    gesture_cmds.handlers ++
+    toggle_state_cmds.handlers;
 
 // Dispatch a command message to the appropriate handler
 pub fn dispatch(api: *const reaper.Api, client_id: usize, data: []const u8, shared_state: *ws_server.SharedState, gestures: ?*GestureState) void {
@@ -281,6 +283,9 @@ test "registry contains expected commands" {
         // Gestures
         "gesture/start",
         "gesture/end",
+        // Toggle state subscriptions
+        "actionToggleState/subscribe",
+        "actionToggleState/unsubscribe",
     };
 
     for (expected) |name| {
@@ -347,4 +352,5 @@ test {
     _ = undo_cmds;
     _ = action_cmds;
     _ = gesture_cmds;
+    _ = toggle_state_cmds;
 }
