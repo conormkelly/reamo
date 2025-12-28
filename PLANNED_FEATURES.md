@@ -1,5 +1,15 @@
 # Planned Features
 
+## Table of Contents
+
+- [Items Mode](#items-mode) — View/manage recorded takes without leaving the instrument
+- [ID-Keyed Pending State](#id-keyed-pending-state-architectural-fix) — Fix index-based state corruption
+- [Tempo Marker Support](#tempo-marker-support) — Respect tempo map during playback
+- [Extension Performance Optimizations](#extension-performance-optimizations) — Idle when no clients
+- [Mixer Enhancements](#mixer-enhancements) — Track selection, CSurf API migration
+
+---
+
 ## Items Mode
 
 ### Rationale

@@ -2,6 +2,24 @@
 
 This document captures implementation details, API quirks, and outstanding work for the Reamo REAPER web controller.
 
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Architecture Overview](#architecture-overview)
+- [Data Flow](#data-flow)
+- [Conventions](#conventions)
+- [REAPER API Critical Knowledge](#reaper-api-critical-knowledge) — Track indexing, colors, master track quirks, metering
+- [Frontend Conventions](#frontend-conventions) — Volume/color conversion, UI patterns, gestures, animation
+- [Testing Conventions](#testing-conventions)
+- [Extension Robustness](#extension-robustness)
+- [Protocol & Versioning](#protocol--versioning)
+- [Extension Configuration](#extension-configuration)
+- [Build & Test](#build--test)
+- [Debugging](#debugging) — [WebSocket Testing](#websocket-testing)
+- [Common Pitfalls](#common-pitfalls)
+
+---
+
 ## Quick Start
 
 ```bash
@@ -359,6 +377,22 @@ The project uses `lucide-react` for icons. Import individually:
 ```typescript
 import { Lock, Unlock, Circle, Headphones } from 'lucide-react';
 ```
+
+### Tap/Long-Press Gestures
+
+The `useLongPress` hook handles both tap and long-press with proper touch/mouse separation:
+
+```tsx
+const { handlers } = useLongPress({
+  onTap: () => toggleSelection(),
+  onLongPress: () => exclusiveSelect(),
+  duration: 400,
+});
+
+return <div {...handlers}>Tap or hold me</div>;
+```
+
+**Key implementation detail:** Touch devices fire both touch events AND synthesized mouse events. The hook tracks `isTouchRef` to ignore the synthetic mouse events that follow touch events, preventing double-triggers. After a touch interaction ends, there's a 300ms window where mouse events are blocked.
 
 ### Transport Animation (60fps Interpolation)
 

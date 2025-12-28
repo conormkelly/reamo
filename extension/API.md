@@ -2,6 +2,39 @@
 
 WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224` (ports 9224-9233 tried on startup).
 
+## Table of Contents
+
+**Protocol**
+- [Protocol Overview](#protocol-overview) — Connection flow, message format, hello handshake
+
+**Commands**
+- [Transport](#transport-commands) — play, stop, pause, record, seek
+- [Time Selection](#time-selection-commands) — set, setByBars, goStart, goEnd, clear
+- [Repeat](#repeat-commands) — set, toggle
+- [Marker](#marker-commands) — add, update, delete, goto, prev, next
+- [Region](#region-commands) — add, update, delete, goto
+- [Item](#item-commands) — setActiveTake, move, setColor, delete, getPeaks
+- [Take](#take-commands) — deleteCurrent, cropToActive
+- [Track](#track-commands) — setVolume, setPan, setMute, setSolo, setRecArm, setRecMon
+- [Master](#master-commands) — toggleMono
+- [Tempo](#tempo-commands) — set, tap
+- [Time Signature](#time-signature-commands) — set
+- [Metronome](#metronome-commands) — toggle, getVolume, setVolume
+- [ExtState](#extstate-commands) — get, set, projGet, projSet
+- [Undo](#undo-commands) — add, begin, end, do, redo
+- [Gesture](#gesture-commands) — start, end
+- [Action](#action-commands) — getToggleState, execute, executeByName
+
+**Events**
+- [Events (Broadcast)](#events-broadcast) — transport, tracks, markers, regions, items, project
+
+**Reference**
+- [Limits](#limits)
+- [Error Responses](#error-responses)
+- [Implementation Notes](#implementation-notes)
+
+---
+
 ## Protocol Overview
 
 ### Connection Flow
