@@ -2,10 +2,562 @@
 
 ## Table of Contents
 
+- [Custom Quick Actions](#custom-quick-actions) — User-configurable buttons for actions & MIDI
+- [FX Preset Switching](#fx-preset-switching) — Navigate REAPER-saved presets from tablet
+- [View Switcher](#view-switcher) — Switch between Edit, Transport, and Mixer views
 - [Items Mode](#items-mode) — View/manage recorded takes without leaving the instrument
 - [ID-Keyed Pending State](#id-keyed-pending-state-architectural-fix) — Fix index-based state corruption
 - [Tempo Marker Support](#tempo-marker-support) — Respect tempo map during playback
 - [Extension Performance Optimizations](#extension-performance-optimizations) — Idle when no clients
+
+---
+
+## Custom Quick Actions
+
+### Rationale
+
+Power users want to trigger custom workflows from their tablet: ReaScripts, SWS actions, MIDI-learnable plugin controls. Rather than building a full OSC/MIDI control surface, we provide a **user-configurable button bar** where each button can trigger a REAPER action or send MIDI.
+
+This fits REAPER's ethos of customizability. Users already create custom actions, assign shortcuts, and write scripts — we just give them a way to trigger these from the tablet.
+
+**Key use cases:**
+- Guitarist with Arturia Pigments: Configure MIDI CC 20/21 for preset prev/next (plugin's MIDI learn)
+- Power user with scripts: One-tap to run favorite ReaScripts
+- Vocalist: Quick access to punch-in, cycle toggle, metronome
+
+### UI Concept
+
+```txt
+┌─────────────────────────────────────────────────────────────┐
+│ Quick Actions                                    [Edit] [+] │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│   ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐    │
+│   │ 🎸  │  │ 🎹  │  │ ◀   │  │ ▶   │  │ 🔄  │  │ 📝  │    │
+│   │Clean│  │Keys │  │Prev │  │Next │  │Glue │  │Notes│    │
+│   └─────┘  └─────┘  └─────┘  └─────┘  └─────┘  └─────┘    │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Edit mode:** Long-press or tap [Edit] to enter edit mode. Buttons become draggable/deletable. Tap [+] to add new action.
+
+**Add/Edit modal:**
+```txt
+┌─────────────────────────────────────────────────────┐
+│ Add Quick Action                            [×]     │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│  Label: [Prev Preset    ]                           │
+│                                                     │
+│  Icon:  [◀] [▶] [⏺] [🎸] [🎹] [🔄] [📝] [⚡]      │
+│                                                     │
+│  Type:  ○ REAPER Action  ● MIDI CC  ○ MIDI PC      │
+│                                                     │
+│  ┌─────────────────────────────────────────────┐   │
+│  │ CC Number:  [20 ]                           │   │
+│  │ Value:      [127]                           │   │
+│  │ Channel:    [1  ]                           │   │
+│  └─────────────────────────────────────────────┘   │
+│                                                     │
+├─────────────────────────────────────────────────────┤
+│                           [Cancel]  [Save]          │
+└─────────────────────────────────────────────────────┘
+```
+
+---
+
+### Action Types
+
+```typescript
+type QuickAction =
+  | {
+      type: 'reaper_action';
+      commandId: number;
+      label: string;
+      icon: string;
+    }
+  | {
+      type: 'reaper_action_name';
+      name: string;        // e.g., "_SWS_SAVESEL" or "_RS12345..."
+      label: string;
+      icon: string;
+    }
+  | {
+      type: 'midi_cc';
+      cc: number;          // 0-127
+      value: number;       // 0-127
+      channel: number;     // 0-15 (displayed as 1-16)
+      label: string;
+      icon: string;
+    }
+  | {
+      type: 'midi_pc';
+      program: number;     // 0-127
+      channel: number;     // 0-15
+      label: string;
+      icon: string;
+    };
+```
+
+---
+
+### REAPER API
+
+**Action execution** (already implemented):
+```c
+Main_OnCommand(commandId, 0);                    // By numeric ID
+int cmd = NamedCommandLookup("_SWS_SAVESEL");    // Lookup named command
+Main_OnCommand(cmd, 0);                          // Execute
+```
+
+**MIDI injection** (new):
+```c
+// StuffMIDIMessage injects MIDI into REAPER's virtual keyboard
+// Mode 0 = sends to armed/monitored tracks
+void StuffMIDIMessage(int mode, int msg1, int msg2, int msg3);
+
+// CC example: CC 20, value 127, channel 1
+StuffMIDIMessage(0, 0xB0 | 0, 20, 127);
+
+// Program Change example: Program 5, channel 1
+StuffMIDIMessage(0, 0xC0 | 0, 5, 0);
+```
+
+**Important:** MIDI reaches plugins only on tracks that are:
+- Record-armed, OR
+- Input monitoring enabled
+
+---
+
+### Protocol
+
+**Client → Server:**
+```json
+{"type": "command", "command": "midi/cc", "cc": 20, "value": 127, "channel": 0, "id": "1"}
+{"type": "command", "command": "midi/pc", "program": 5, "channel": 0, "id": "1"}
+```
+
+**Server → Client:**
+```json
+{"type": "response", "id": "1", "success": true}
+```
+
+---
+
+### Storage
+
+**MVP: Browser localStorage**
+
+```typescript
+const STORAGE_KEY = 'reamo_quick_actions';
+
+// Load
+const actions: QuickAction[] = JSON.parse(
+  localStorage.getItem(STORAGE_KEY) || '[]'
+);
+
+// Save
+localStorage.setItem(STORAGE_KEY, JSON.stringify(actions));
+```
+
+**Pros:** Persists across sessions, no backend changes needed.
+**Cons:** Per-device (won't sync between iPad and phone).
+
+**Future: Project EXTSTATE**
+
+Store in project for project-specific action sets:
+```json
+{"type": "command", "command": "extstate/projSet", "extname": "Reamo", "key": "quickActions", "value": "[...]"}
+```
+
+Could support: global defaults (localStorage) + project overrides (EXTSTATE).
+
+---
+
+### Implementation Checklist
+
+#### Extension
+
+- [ ] Add `midi/cc` command handler
+- [ ] Add `midi/pc` command handler
+- [ ] Import `StuffMIDIMessage` from REAPER API
+- [ ] Validate CC/PC values (0-127), channel (0-15)
+
+#### Frontend
+
+**Components:**
+- [ ] `QuickActionsBar` — horizontal scrollable button bar
+- [ ] `QuickActionButton` — individual action button
+- [ ] `QuickActionEditor` — modal for add/edit
+- [ ] Icon picker component
+
+**State:**
+- [ ] Load actions from localStorage on mount
+- [ ] Save actions to localStorage on change
+- [ ] Edit mode toggle
+- [ ] Drag-to-reorder (nice-to-have)
+
+**Commands:**
+- [ ] Wire up action execution (already have `action/execute`)
+- [ ] Wire up MIDI CC/PC commands (new)
+
+---
+
+### Example Configurations
+
+**Guitarist controlling Arturia Pigments via MIDI learn:**
+```json
+[
+  {"type": "midi_cc", "cc": 20, "value": 127, "channel": 0, "label": "Prev", "icon": "◀"},
+  {"type": "midi_cc", "cc": 21, "value": 127, "channel": 0, "label": "Next", "icon": "▶"}
+]
+```
+
+**Power user with SWS actions:**
+```json
+[
+  {"type": "reaper_action_name", "name": "_SWS_SAVESEL", "label": "Save", "icon": "💾"},
+  {"type": "reaper_action_name", "name": "_SWS_RESTORESEL", "label": "Restore", "icon": "↩"},
+  {"type": "reaper_action", "commandId": 40020, "label": "Glue", "icon": "🔗"}
+]
+```
+
+**Common recording shortcuts:**
+```json
+[
+  {"type": "reaper_action", "commandId": 1013, "label": "Cycle", "icon": "🔁"},
+  {"type": "reaper_action", "commandId": 40364, "label": "Click", "icon": "🥁"},
+  {"type": "reaper_action", "commandId": 40172, "label": "Marker", "icon": "📍"}
+]
+```
+
+---
+
+### Future Enhancements
+
+- **Action search:** Type to search REAPER's action list by name
+- **Import/export:** Share action sets as JSON
+- **Project sync:** Store in project EXTSTATE for project-specific setups
+- **Conditional visibility:** Show different actions based on transport state
+- **Folders/pages:** Group actions into swipeable pages for larger collections
+
+---
+
+## FX Preset Switching
+
+### Rationale
+
+Guitarists and keyboard players want to switch between tones/patches without walking to the computer. While most modern plugins (Neural DSP, Kontakt, etc.) use internal preset browsers that bypass REAPER's API, **REAPER's own preset system works universally**.
+
+**The workflow:**
+1. User dials in a tone in their plugin
+2. User saves it as a REAPER preset (click "+" in FX header)
+3. REAPER stores complete plugin state in `.rpl` file
+4. Reamo can browse and switch these presets
+
+This trades factory preset discovery for universal compatibility. For guitarists with 20-50 curated tones, this is actually preferred — they don't need 500 factory presets, just their saved tones.
+
+**For plugins with internal browsers:** Use [Custom Quick Actions](#custom-quick-actions) with MIDI CC to control preset switching via the plugin's MIDI learn feature.
+
+---
+
+### REAPER API
+
+```c
+// Get current preset index and count
+int TrackFX_GetPresetIndex(MediaTrack* track, int fx, int* numberOfPresetsOut);
+// Returns: current index (0-based), or -1 on error
+// numberOfPresetsOut: total preset count (factory + user)
+
+// Set preset by index
+bool TrackFX_SetPresetByIndex(MediaTrack* track, int fx, int presetIndex);
+// Special values: -1 = default user preset, -2 = factory defaults
+
+// Get current preset name
+bool TrackFX_GetPreset(MediaTrack* track, int fx, char* presetname, int presetname_sz);
+// Returns: true if parameters match loaded preset exactly
+
+// Navigate presets relatively
+bool TrackFX_NavigatePresets(MediaTrack* track, int fx, int presetmove);
+// presetmove: +1 = next, -1 = previous
+```
+
+**Key limitation:** No API to enumerate preset names. Can only get count and current name. Must iterate (slow) to build full list.
+
+---
+
+### State Changes
+
+Extend tracks event with FX info:
+
+```json
+{
+  "type": "event",
+  "event": "tracks",
+  "payload": {
+    "tracks": [{
+      "idx": 1,
+      "name": "Guitar",
+      "fx": [{
+        "name": "Neural DSP Archetype Gojira",
+        "presetName": "My Clean Tone",
+        "presetIndex": 3,
+        "presetCount": 12,
+        "modified": false
+      }]
+    }]
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `fx[].name` | string | Plugin name |
+| `fx[].presetName` | string | Current preset name |
+| `fx[].presetIndex` | int | Current preset index (0-based) |
+| `fx[].presetCount` | int | Total preset count |
+| `fx[].modified` | bool | Parameters changed since preset load |
+
+---
+
+### Protocol
+
+**Navigate presets:**
+```json
+{"type": "command", "command": "fx/presetNext", "trackIdx": 1, "fxIdx": 0, "id": "1"}
+{"type": "command", "command": "fx/presetPrev", "trackIdx": 1, "fxIdx": 0, "id": "1"}
+{"type": "command", "command": "fx/presetSet", "trackIdx": 1, "fxIdx": 0, "presetIdx": 5, "id": "1"}
+```
+
+---
+
+### UI Concept
+
+**Minimal (MVP):** Add to track long-press menu or dedicated FX panel.
+
+```txt
+┌─────────────────────────────────────────────────────┐
+│ Guitar                                    [FX ▼]    │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│              Neural DSP Archetype Gojira            │
+│                                                     │
+│    ┌──────┐    "My Clean Tone"      ┌──────┐       │
+│    │  ◀   │        3 of 12          │  ▶   │       │
+│    │ PREV │                         │ NEXT │       │
+│    └──────┘                         └──────┘       │
+│                                                     │
+│               [Modified ●]                          │
+└─────────────────────────────────────────────────────┘
+```
+
+**FX selector dropdown** when track has multiple plugins. Shows first FX by default.
+
+---
+
+### Implementation Checklist
+
+#### Extension
+
+**Prerequisites:**
+- [ ] Add `TrackFX_GetCount` to get FX count per track
+- [ ] Add `TrackFX_GetFXName` to get plugin names
+- [ ] Add `TrackFX_GetPresetIndex` for preset state
+- [ ] Add `TrackFX_GetPreset` for preset name + modified flag
+
+**State polling:**
+- [ ] Add `fx` array to track state
+- [ ] Poll FX state on track change (not every 30ms — too expensive)
+- [ ] Consider `CSURF_EXT_TRACKFX_PRESET_CHANGED` for notifications
+
+**Commands:**
+- [ ] Add `fx/presetNext` handler using `TrackFX_NavigatePresets(+1)`
+- [ ] Add `fx/presetPrev` handler using `TrackFX_NavigatePresets(-1)`
+- [ ] Add `fx/presetSet` handler using `TrackFX_SetPresetByIndex`
+
+#### Frontend
+
+- [ ] Add FX state to Track type
+- [ ] Create FX preset UI component
+- [ ] Integrate with track selection or dedicated panel
+- [ ] Handle "no presets" case (show guidance to save REAPER presets)
+
+---
+
+### Gotchas
+
+**Plugins with internal browsers:** Will show 0 or very few presets. Detect and show:
+> "This plugin manages presets internally. Save your favorite sounds as REAPER presets to control them from Reamo, or use Quick Actions with MIDI CC."
+
+**Undo points:** Each `TrackFX_SetPreset` creates an undo point. Consider debouncing for rapid clicking.
+
+**Performance:** Don't poll FX state every 30ms. Poll on:
+- Track selection change
+- `CSURF_EXT_TRACKFX_PRESET_CHANGED` notification
+- Manual refresh
+
+---
+
+## View Switcher
+
+### Rationale
+
+Different contexts call for different interfaces. When recording a verse, you want full timeline visibility with regions and markers. When performing or running down a song with the band, you want big transport controls visible from across the room. When mixing, you want as many faders on screen as possible.
+
+Rather than forcing users to mount multiple devices (though that's still supported via WebSocket), a simple view switcher lets one device adapt to the current workflow.
+
+**Key insight:** This is frontend-only. No protocol changes, no extension work. Just reorganizing existing components.
+
+---
+
+### Views
+
+| View | Purpose | Components |
+|------|---------|------------|
+| **Edit** (default) | Songwriting workflow | Timeline + regions + markers + mixer + transport |
+| **Transport** | Performer/big display | Large play/stop/record, BPM, bar.beat counter, minimal else |
+| **Mixer** | Mixing focus | Full-width faders, more tracks visible, compact transport |
+
+---
+
+### UI Concept
+
+**Access:** Hamburger menu or bottom nav bar.
+
+```txt
+┌─────────────────────────────────────────────────────┐
+│ ☰ Reamo                              [Edit ▼]       │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│  (current view content)                             │
+│                                                     │
+└─────────────────────────────────────────────────────┘
+```
+
+**Dropdown options:**
+- Edit View (timeline + mixer)
+- Transport View (big controls)
+- Mixer View (faders focus)
+
+---
+
+### Transport View
+
+Large touch targets for stage/studio use. Visible from 10+ feet away.
+
+```txt
+┌─────────────────────────────────────────────────────┐
+│                                                     │
+│                    ♩ = 120 BPM                      │
+│                                                     │
+│                    17 . 3 . 2                       │
+│                  (bar.beat.sub)                     │
+│                                                     │
+│     ┌───────┐    ┌───────┐    ┌───────┐           │
+│     │       │    │       │    │       │           │
+│     │  ⏮️   │    │  ⏯️   │    │  ⏹️   │           │
+│     │       │    │       │    │       │           │
+│     └───────┘    └───────┘    └───────┘           │
+│                                                     │
+│                   ┌───────┐                         │
+│                   │  ⏺️   │                         │
+│                   │RECORD │                         │
+│                   └───────┘                         │
+│                                                     │
+│  [Cycle: OFF]  [Click: ON]  [Punch: OFF]           │
+└─────────────────────────────────────────────────────┘
+```
+
+**Key elements:**
+- Huge play/pause button (primary action)
+- Big bar.beat display
+- BPM display (tap to change)
+- Record button with visual feedback
+- Status indicators for cycle, click, punch
+
+---
+
+### Mixer View
+
+Maximize fader real estate. More tracks, less timeline.
+
+```txt
+┌─────────────────────────────────────────────────────┐
+│ ▶ 17.3.2    120 BPM    [⏺]           [Edit ▼]      │
+├────┬────┬────┬────┬────┬────┬────┬────┬────┬────┤
+│ Drm│ Bas│ Gtr│ Vox│ Syn│ Pad│ FX │ Bus│ ... │    │
+│ ▓▓▓│ ▓░░│ ▓▓░│ ▓░░│ ░░░│ ▓▓▓│ ▓▓░│ ▓▓▓│     │    │
+│ ║  │ ║  │ ║  │ ║  │ ║  │ ║  │ ║  │ ║  │     │    │
+│ ║▓▓│ ║▓░│ ║▓▓│ ║▓░│ ║░░│ ║▓▓│ ║▓▓│ ║▓▓│     │    │
+│ ║▓▓│ ║░░│ ║▓░│ ║▓░│ ║░░│ ║▓▓│ ║▓░│ ║▓▓│     │    │
+│ M S│ M S│ M S│ M S│ M S│ M S│ M S│ M S│     │    │
+└────┴────┴────┴────┴────┴────┴────┴────┴────┴────┘
+```
+
+**Key elements:**
+- Compact transport strip at top
+- Horizontal scrolling for many tracks
+- Taller faders (more precision)
+- No timeline/regions (use Edit view for that)
+
+---
+
+### Storage
+
+```typescript
+const VIEW_STORAGE_KEY = 'reamo_current_view';
+
+type View = 'edit' | 'transport' | 'mixer';
+
+// Load on startup
+const savedView = localStorage.getItem(VIEW_STORAGE_KEY) as View || 'edit';
+
+// Save on change
+localStorage.setItem(VIEW_STORAGE_KEY, currentView);
+```
+
+Per-device storage is appropriate here — each mounted device can have its own preferred view.
+
+---
+
+### Implementation Checklist
+
+#### State
+
+- [ ] Add `currentView: View` to app state (Zustand or context)
+- [ ] Load saved view from localStorage on mount
+- [ ] Save view to localStorage on change
+
+#### Components
+
+- [ ] `ViewSwitcher` — dropdown/menu for view selection
+- [ ] `TransportView` — new component with big controls
+- [ ] `MixerView` — new component (or existing mixer in expanded mode)
+- [ ] Conditional rendering in `App.tsx` based on `currentView`
+
+#### Transport View specifics
+
+- [ ] Large bar.beat display with prominent font
+- [ ] Big touch-friendly transport buttons
+- [ ] BPM display (reuse existing tap-tempo logic)
+- [ ] Toggle indicators for cycle, click, punch modes
+
+#### Mixer View specifics
+
+- [ ] Compact transport strip
+- [ ] Horizontal scroll for tracks
+- [ ] Taller faders
+- [ ] Hide timeline/region components
+
+---
+
+### Future Enhancements
+
+- **Custom views:** Let users pick which components appear in each view
+- **Gesture switching:** Swipe left/right to change views
+- **Auto-switch:** Automatically switch to Transport when recording starts
+- **Per-project view:** Store preferred view in project EXTSTATE
 
 ---
 
