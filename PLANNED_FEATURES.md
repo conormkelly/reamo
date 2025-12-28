@@ -1,24 +1,24 @@
 # Planned Features
 
-## Table of Contents
+## Table of Contents (Priority Order)
 
-- [Custom Quick Actions](#custom-quick-actions) — User-configurable buttons for actions & MIDI
-- [FX Preset Switching](#fx-preset-switching) — Navigate REAPER-saved presets from tablet
-- [View Switcher](#view-switcher) — Switch between Edit, Transport, and Mixer views
-- [Items Mode](#items-mode) — View/manage recorded takes without leaving the instrument
-- [ID-Keyed Pending State](#id-keyed-pending-state-architectural-fix) — Fix index-based state corruption
-- [Tempo Marker Support](#tempo-marker-support) — Respect tempo map during playback
-- [Extension Performance Optimizations](#extension-performance-optimizations) — Idle when no clients
+1. [Toolbar](#toolbar) — User-configurable buttons for actions & MIDI *(killer feature)*
+2. [View Switcher](#view-switcher) — Switch between Edit, Transport, and Mixer views *(quick win, frontend-only)*
+3. [ID-Keyed Pending State](#id-keyed-pending-state-architectural-fix) — Fix index-based state corruption *(stability)*
+4. [Items Mode](#items-mode) — View/manage recorded takes without leaving the instrument
+5. [Tempo Marker Support](#tempo-marker-support) — Respect tempo map during playback *(easy fix)*
+6. [FX Preset Switching](#fx-preset-switching) — Navigate REAPER-saved presets from tablet
+7. [Extension Performance Optimizations](#extension-performance-optimizations) — Idle when no clients
 
 ---
 
-## Custom Quick Actions
+## Toolbar
 
 ### Rationale
 
-Power users want to trigger custom workflows from their tablet: ReaScripts, SWS actions, MIDI-learnable plugin controls. Rather than building a full OSC/MIDI control surface, we provide a **user-configurable button bar** where each button can trigger a REAPER action or send MIDI.
+Power users want to trigger custom workflows from their tablet: ReaScripts, SWS actions, MIDI-learnable plugin controls. Rather than building a full OSC/MIDI control surface, we provide a **user-configurable toolbar** where each button can trigger a REAPER action or send MIDI.
 
-This fits REAPER's ethos of customizability. Users already create custom actions, assign shortcuts, and write scripts — we just give them a way to trigger these from the tablet.
+This fits REAPER's ethos of customizability — REAPER calls these "toolbars" and users already create custom actions, assign shortcuts, and write scripts. We just give them a way to trigger these from the tablet.
 
 **Key use cases:**
 - Guitarist with Arturia Pigments: Configure MIDI CC 20/21 for preset prev/next (plugin's MIDI learn)
@@ -29,28 +29,35 @@ This fits REAPER's ethos of customizability. Users already create custom actions
 
 ```txt
 ┌─────────────────────────────────────────────────────────────┐
-│ Quick Actions                                    [Edit] [+] │
+│ Toolbar                                          [Edit] [+] │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │   ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐    │
-│   │ 🎸  │  │ 🎹  │  │ ◀   │  │ ▶   │  │ 🔄  │  │ 📝  │    │
+│   │guitar│  │piano│  │ ◀  │  │ ▶  │  │link │  │file │    │
 │   │Clean│  │Keys │  │Prev │  │Next │  │Glue │  │Notes│    │
 │   └─────┘  └─────┘  └─────┘  └─────┘  └─────┘  └─────┘    │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Edit mode:** Long-press or tap [Edit] to enter edit mode. Buttons become draggable/deletable. Tap [+] to add new action.
+**Edit mode:** Long-press or tap [Edit] to enter edit mode. Buttons become draggable/deletable. Tap [+] to add new button.
 
 **Add/Edit modal:**
 ```txt
 ┌─────────────────────────────────────────────────────┐
-│ Add Quick Action                            [×]     │
+│ Add Toolbar Button                          [×]     │
 ├─────────────────────────────────────────────────────┤
 │                                                     │
 │  Label: [Prev Preset    ]                           │
 │                                                     │
-│  Icon:  [◀] [▶] [⏺] [🎸] [🎹] [🔄] [📝] [⚡]      │
+│  Icon:  [Search icons...              ]  [Clear]    │
+│         ┌───────────────────────────────────────┐   │
+│         │ ▶  ⏸  ⏹  ⏺  🔁  🎸  🎹  🎤  🥁  🔊 │   │
+│         │ ◀  ▶  ⬆  ⬇  ➕  ➖  ✓  ✕  ⚡  💾 │   │
+│         │ ...more icons (scrollable)...         │   │
+│         └───────────────────────────────────────┘   │
+│                                                     │
+│  Color: [●red] [●grn] [●blu] [●ylw] [●pur] [○none] │
 │                                                     │
 │  Type:  ○ REAPER Action  ● MIDI CC  ○ MIDI PC      │
 │                                                     │
@@ -70,35 +77,97 @@ This fits REAPER's ethos of customizability. Users already create custom actions
 ### Action Types
 
 ```typescript
-type QuickAction =
-  | {
+// Common fields for all toolbar actions
+interface ToolbarActionBase {
+  label: string;
+  icon?: string;         // Lucide icon name, e.g., "guitar", "play", "mic" (optional)
+  color?: string;        // Tailwind color, e.g., "red", "green", "blue" (optional)
+}
+
+type ToolbarAction =
+  | ToolbarActionBase & {
       type: 'reaper_action';
       commandId: number;
-      label: string;
-      icon: string;
     }
-  | {
+  | ToolbarActionBase & {
       type: 'reaper_action_name';
       name: string;        // e.g., "_SWS_SAVESEL" or "_RS12345..."
-      label: string;
-      icon: string;
     }
-  | {
+  | ToolbarActionBase & {
       type: 'midi_cc';
       cc: number;          // 0-127
       value: number;       // 0-127
       channel: number;     // 0-15 (displayed as 1-16)
-      label: string;
-      icon: string;
     }
-  | {
+  | ToolbarActionBase & {
       type: 'midi_pc';
       program: number;     // 0-127
       channel: number;     // 0-15
-      label: string;
-      icon: string;
     };
 ```
+
+**Rendering logic:**
+- If `icon` is set → show icon (with optional label below)
+- If no `icon` → show label only (larger text)
+- If `color` is set → apply as background/border color
+
+---
+
+### Icons
+
+Icons use **Lucide React** with dynamic imports for code-splitting. The `lucide-react/dynamic` export provides:
+
+| Export | Purpose |
+|--------|---------|
+| `iconNames` | Array of 1909 icon names (~30KB, strings only) |
+| `DynamicIcon` | Component that lazy-loads icons by name |
+
+**Icon picker implementation:**
+
+```tsx
+import { iconNames, DynamicIcon } from 'lucide-react/dynamic';
+
+function IconPicker({ value, onChange }: { value: string; onChange: (name: string) => void }) {
+  const [search, setSearch] = useState('');
+
+  const filtered = iconNames.filter(name =>
+    name.includes(search.toLowerCase())
+  );
+
+  return (
+    <div>
+      <input
+        placeholder="Search icons..."
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+      />
+      <div className="grid grid-cols-8 gap-1 max-h-48 overflow-y-auto">
+        {filtered.slice(0, 50).map(name => (
+          <button
+            key={name}
+            onClick={() => onChange(name)}
+            className={name === value ? 'ring-2 ring-blue-500' : ''}
+          >
+            <DynamicIcon name={name} size={20} />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+**Rendering saved icons:**
+
+```tsx
+<DynamicIcon name={action.icon} size={24} />
+```
+
+**Audio-related icons available:** `guitar`, `piano`, `drum`, `mic`, `mic-2`, `headphones`, `speaker`, `volume`, `volume-2`, `play`, `pause`, `square` (stop), `circle` (record), `repeat`, `music`, `music-2`, `audio-lines`, `audio-waveform`, etc.
+
+**Bundle impact:**
+- `iconNames` array: ~30KB (just strings, loaded once)
+- Each icon: ~1-2KB (loaded on-demand when rendered)
 
 ---
 
@@ -150,10 +219,10 @@ StuffMIDIMessage(0, 0xC0 | 0, 5, 0);
 **MVP: Browser localStorage**
 
 ```typescript
-const STORAGE_KEY = 'reamo_quick_actions';
+const STORAGE_KEY = 'reamo_toolbar';
 
 // Load
-const actions: QuickAction[] = JSON.parse(
+const actions: ToolbarAction[] = JSON.parse(
   localStorage.getItem(STORAGE_KEY) || '[]'
 );
 
@@ -187,10 +256,10 @@ Could support: global defaults (localStorage) + project overrides (EXTSTATE).
 #### Frontend
 
 **Components:**
-- [ ] `QuickActionsBar` — horizontal scrollable button bar
-- [ ] `QuickActionButton` — individual action button
-- [ ] `QuickActionEditor` — modal for add/edit
-- [ ] Icon picker component
+- [ ] `Toolbar` — horizontal scrollable button bar
+- [ ] `ToolbarButton` — individual action button
+- [ ] `ToolbarEditor` — modal for add/edit
+- [ ] `IconPicker` — searchable Lucide icon grid (see [Icons](#icons) section)
 
 **State:**
 - [ ] Load actions from localStorage on mount
@@ -209,26 +278,35 @@ Could support: global defaults (localStorage) + project overrides (EXTSTATE).
 **Guitarist controlling Arturia Pigments via MIDI learn:**
 ```json
 [
-  {"type": "midi_cc", "cc": 20, "value": 127, "channel": 0, "label": "Prev", "icon": "◀"},
-  {"type": "midi_cc", "cc": 21, "value": 127, "channel": 0, "label": "Next", "icon": "▶"}
+  {"type": "midi_cc", "cc": 20, "value": 127, "channel": 0, "label": "Prev", "icon": "chevron-left"},
+  {"type": "midi_cc", "cc": 21, "value": 127, "channel": 0, "label": "Next", "icon": "chevron-right"}
 ]
 ```
 
 **Power user with SWS actions:**
 ```json
 [
-  {"type": "reaper_action_name", "name": "_SWS_SAVESEL", "label": "Save", "icon": "💾"},
-  {"type": "reaper_action_name", "name": "_SWS_RESTORESEL", "label": "Restore", "icon": "↩"},
-  {"type": "reaper_action", "commandId": 40020, "label": "Glue", "icon": "🔗"}
+  {"type": "reaper_action_name", "name": "_SWS_SAVESEL", "label": "Save", "icon": "save"},
+  {"type": "reaper_action_name", "name": "_SWS_RESTORESEL", "label": "Restore", "icon": "undo"},
+  {"type": "reaper_action", "commandId": 40020, "label": "Glue", "icon": "link"}
+]
+```
+
+**Color-coded presets (label-only, no icons):**
+```json
+[
+  {"type": "midi_pc", "program": 0, "channel": 0, "label": "Clean", "color": "green"},
+  {"type": "midi_pc", "program": 1, "channel": 0, "label": "Crunch", "color": "yellow"},
+  {"type": "midi_pc", "program": 2, "channel": 0, "label": "Lead", "color": "red"}
 ]
 ```
 
 **Common recording shortcuts:**
 ```json
 [
-  {"type": "reaper_action", "commandId": 1013, "label": "Cycle", "icon": "🔁"},
-  {"type": "reaper_action", "commandId": 40364, "label": "Click", "icon": "🥁"},
-  {"type": "reaper_action", "commandId": 40172, "label": "Marker", "icon": "📍"}
+  {"type": "reaper_action", "commandId": 1013, "label": "Cycle", "icon": "repeat"},
+  {"type": "reaper_action", "commandId": 40364, "label": "Click", "icon": "drum", "color": "blue"},
+  {"type": "reaper_action", "commandId": 40172, "label": "Marker", "icon": "map-pin"}
 ]
 ```
 
@@ -258,7 +336,7 @@ Guitarists and keyboard players want to switch between tones/patches without wal
 
 This trades factory preset discovery for universal compatibility. For guitarists with 20-50 curated tones, this is actually preferred — they don't need 500 factory presets, just their saved tones.
 
-**For plugins with internal browsers:** Use [Custom Quick Actions](#custom-quick-actions) with MIDI CC to control preset switching via the plugin's MIDI learn feature.
+**For plugins with internal browsers:** Use the [Toolbar](#toolbar) with MIDI CC to control preset switching via the plugin's MIDI learn feature.
 
 ---
 
