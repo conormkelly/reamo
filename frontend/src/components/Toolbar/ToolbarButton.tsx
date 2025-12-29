@@ -5,7 +5,7 @@
 import { useCallback } from 'react';
 import { Pencil, icons, type LucideIcon } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
-import { action as actionCmd } from '../../core/WebSocketCommands';
+import { action as actionCmd, midi as midiCmd } from '../../core/WebSocketCommands';
 import type { ToolbarAction, ToggleState } from '../../store/slices/toolbarSlice';
 
 interface ToolbarButtonProps {
@@ -54,18 +54,13 @@ export function ToolbarButton({
         sendCommand(actionCmd.executeByName(action.name));
         break;
       case 'midi_cc':
-        // TODO: Implement when backend MIDI commands are ready
-        console.log('MIDI CC not yet implemented:', action);
+        sendCommand(midiCmd.cc(action.cc, action.value, action.channel));
         break;
       case 'midi_pc':
-        // TODO: Implement when backend MIDI commands are ready
-        console.log('MIDI PC not yet implemented:', action);
+        sendCommand(midiCmd.pc(action.program, action.channel));
         break;
     }
   }, [action, editMode, onEdit, sendCommand]);
-
-  // Debug: log toggle state
-  console.log(`[ToolbarButton] ${action.label} toggleState:`, toggleState);
 
   // Compute colors - use user's colors, indicator dot shows toggle state
   const backgroundColor = action.backgroundColor || DEFAULT_BG_COLOR;

@@ -5,8 +5,12 @@
 
 import type { StateCreator } from 'zustand';
 
-// Storage key for localStorage persistence
+// Storage keys for localStorage persistence
 export const TOOLBAR_STORAGE_KEY = 'reamo-toolbar-config';
+export const TOOLBAR_SETTINGS_KEY = 'reamo-toolbar-settings';
+
+// Toolbar alignment options
+export type ToolbarAlign = 'left' | 'center' | 'right';
 
 // Common fields for all toolbar actions
 export interface ToolbarActionBase {
@@ -48,6 +52,7 @@ export interface ToolbarSlice {
   toggleStates: Map<number, ToggleState>;
   toolbarCollapsed: boolean;
   toolbarEditMode: boolean;
+  toolbarAlign: ToolbarAlign;
 
   // Actions
   setToolbarActions: (actions: ToolbarAction[]) => void;
@@ -64,6 +69,7 @@ export interface ToolbarSlice {
   // UI state
   setToolbarCollapsed: (collapsed: boolean) => void;
   setToolbarEditMode: (editMode: boolean) => void;
+  setToolbarAlign: (align: ToolbarAlign) => void;
 
   // Persistence
   loadToolbarFromStorage: () => void;
@@ -79,6 +85,7 @@ export const createToolbarSlice: StateCreator<ToolbarSlice> = (set, get) => ({
   toggleStates: new Map(),
   toolbarCollapsed: false,
   toolbarEditMode: false,
+  toolbarAlign: 'left' as ToolbarAlign,
 
   // Actions
   setToolbarActions: (actions) => {
@@ -145,14 +152,32 @@ export const createToolbarSlice: StateCreator<ToolbarSlice> = (set, get) => ({
   // UI state
   setToolbarCollapsed: (collapsed) => set({ toolbarCollapsed: collapsed }),
   setToolbarEditMode: (editMode) => set({ toolbarEditMode: editMode }),
+  setToolbarAlign: (align) => {
+    set({ toolbarAlign: align });
+    // Persist settings separately from actions
+    try {
+      localStorage.setItem(TOOLBAR_SETTINGS_KEY, JSON.stringify({ align }));
+    } catch (e) {
+      console.error('Failed to save toolbar settings:', e);
+    }
+  },
 
   // Persistence
   loadToolbarFromStorage: () => {
     try {
+      // Load actions
       const saved = localStorage.getItem(TOOLBAR_STORAGE_KEY);
       if (saved) {
         const actions = JSON.parse(saved) as ToolbarAction[];
         set({ toolbarActions: actions });
+      }
+      // Load settings
+      const settings = localStorage.getItem(TOOLBAR_SETTINGS_KEY);
+      if (settings) {
+        const parsed = JSON.parse(settings) as { align?: ToolbarAlign };
+        if (parsed.align) {
+          set({ toolbarAlign: parsed.align });
+        }
       }
     } catch (e) {
       console.error('Failed to load toolbar config:', e);

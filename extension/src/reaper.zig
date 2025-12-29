@@ -141,6 +141,9 @@ pub const Api = struct {
     // Resource path
     getResourcePath: ?*const fn () callconv(.c) [*:0]const u8 = null,
 
+    // MIDI injection (Virtual MIDI Keyboard)
+    stuffMIDIMessage: ?*const fn (c_int, c_int, c_int, c_int) callconv(.c) void = null,
+
     // Load API from REAPER plugin info
     pub fn load(info: *PluginInfo) ?Api {
         const showConsoleMsg = getFunc(info, "ShowConsoleMsg", fn ([*:0]const u8) callconv(.c) void) orelse return null;
@@ -243,6 +246,8 @@ pub const Api = struct {
             .updateTimeline_fn = getFunc(info, "UpdateTimeline", fn () callconv(.c) void),
             // Resource path
             .getResourcePath = getFunc(info, "GetResourcePath", fn () callconv(.c) [*:0]const u8),
+            // MIDI injection
+            .stuffMIDIMessage = getFunc(info, "StuffMIDIMessage", fn (c_int, c_int, c_int, c_int) callconv(.c) void),
         };
     }
 
@@ -1265,6 +1270,25 @@ pub const Api = struct {
     /// Redraw the arrange view and ruler
     pub fn updateTimeline(self: *const Api) void {
         if (self.updateTimeline_fn) |f| f();
+    }
+
+    // MIDI injection methods (Virtual MIDI Keyboard)
+    // Mode 0 = send to record-armed/monitored tracks
+
+    /// Send MIDI Control Change message
+    /// channel: 0-15, cc: 0-127, value: 0-127
+    pub fn sendMidiCC(self: *const Api, channel: u8, cc: u8, value: u8) void {
+        const f = self.stuffMIDIMessage orelse return;
+        const status: c_int = 0xB0 | @as(c_int, channel & 0x0F);
+        f(0, status, @as(c_int, cc & 0x7F), @as(c_int, value & 0x7F));
+    }
+
+    /// Send MIDI Program Change message
+    /// channel: 0-15, program: 0-127
+    pub fn sendMidiPC(self: *const Api, channel: u8, program: u8) void {
+        const f = self.stuffMIDIMessage orelse return;
+        const status: c_int = 0xC0 | @as(c_int, channel & 0x0F);
+        f(0, status, @as(c_int, program & 0x7F), 0);
     }
 };
 

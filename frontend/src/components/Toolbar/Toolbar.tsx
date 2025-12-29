@@ -4,22 +4,24 @@
  */
 
 import { useEffect, useCallback, useState } from 'react';
-import { ChevronDown, ChevronRight, Plus, Pencil } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Pencil, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
 import { actionToggleState } from '../../core/WebSocketCommands';
 import { ToolbarButton } from './ToolbarButton';
 import { ToolbarEditor } from './ToolbarEditor';
-import type { ToolbarAction } from '../../store/slices/toolbarSlice';
+import type { ToolbarAction, ToolbarAlign } from '../../store/slices/toolbarSlice';
 
 export function Toolbar() {
   const {
     toolbarActions,
     toolbarCollapsed,
     toolbarEditMode,
+    toolbarAlign,
     toggleStates,
     setToolbarCollapsed,
     setToolbarEditMode,
+    setToolbarAlign,
     loadToolbarFromStorage,
     addToolbarAction,
     updateToolbarAction,
@@ -49,17 +51,12 @@ export function Toolbar() {
 
     // Subscribe to toggle states and get initial snapshot
     const cmd = actionToggleState.subscribe(commandIds);
-    console.log('[Toolbar] Subscribing to toggle states for:', commandIds);
     connection
       .sendAsync(cmd.command, cmd.params)
       .then((response: unknown) => {
-        console.log('[Toolbar] Toggle state subscription response:', response);
         const resp = response as { success?: boolean; payload?: { states?: Record<string, number> } };
         if (resp.success && resp.payload?.states) {
-          console.log('[Toolbar] Updating toggle states:', resp.payload.states);
           updateToggleStates(resp.payload.states);
-        } else {
-          console.warn('[Toolbar] No states in response:', resp);
         }
       })
       .catch((err) => {
@@ -141,35 +138,58 @@ export function Toolbar() {
               {toolbarEditMode ? 'Done' : 'Edit'}
             </button>
             {toolbarEditMode && (
-              <button
-                onClick={handleAddClick}
-                className="px-2 py-1 text-xs bg-green-600 hover:bg-green-500 text-white rounded transition-colors flex items-center gap-1"
-              >
-                <Plus size={12} />
-                Add
-              </button>
+              <>
+                {/* Alignment buttons */}
+                <div className="flex items-center border border-gray-600 rounded overflow-hidden">
+                  {(['left', 'center', 'right'] as ToolbarAlign[]).map((align) => {
+                    const Icon = align === 'left' ? AlignLeft : align === 'center' ? AlignCenter : AlignRight;
+                    return (
+                      <button
+                        key={align}
+                        onClick={() => setToolbarAlign(align)}
+                        className={`p-1.5 transition-colors ${
+                          toolbarAlign === align
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                        }`}
+                        title={`Align ${align}`}
+                      >
+                        <Icon size={14} />
+                      </button>
+                    );
+                  })}
+                </div>
+                <button
+                  onClick={handleAddClick}
+                  className="px-2 py-1 text-xs bg-green-600 hover:bg-green-500 text-white rounded transition-colors flex items-center gap-1"
+                >
+                  <Plus size={12} />
+                  Add
+                </button>
+              </>
             )}
           </div>
         )}
       </div>
 
       {!toolbarCollapsed && (
-        <div className="flex gap-2 overflow-x-auto pb-2">
-          {toolbarActions.map((action) => {
-            const ts = action.type === 'reaper_action'
-              ? toggleStates.get(action.commandId)
-              : undefined;
-            console.log(`[Toolbar] Rendering ${action.label}, commandId=${action.type === 'reaper_action' ? action.commandId : 'N/A'}, toggleState=${ts}, mapSize=${toggleStates.size}`);
-            return (
-              <ToolbarButton
-                key={action.id}
-                action={action}
-                toggleState={ts}
-                editMode={toolbarEditMode}
-                onEdit={() => handleEditClick(action)}
-              />
-            );
-          })}
+        <div className={`flex gap-2 overflow-x-auto pb-2 ${
+          toolbarAlign === 'center' ? 'justify-center' :
+          toolbarAlign === 'right' ? 'justify-end' : ''
+        }`}>
+          {toolbarActions.map((action) => (
+            <ToolbarButton
+              key={action.id}
+              action={action}
+              toggleState={
+                action.type === 'reaper_action'
+                  ? toggleStates.get(action.commandId)
+                  : undefined
+              }
+              editMode={toolbarEditMode}
+              onEdit={() => handleEditClick(action)}
+            />
+          ))}
           {toolbarActions.length === 0 && (
             <div className="text-gray-500 text-sm py-4 px-2">
               {toolbarEditMode

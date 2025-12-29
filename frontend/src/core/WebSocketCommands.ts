@@ -430,3 +430,20 @@ export const gesture = {
     params: { controlType, trackIdx },
   }),
 };
+
+// =============================================================================
+// MIDI Commands (Virtual MIDI Keyboard - sends to armed/monitored tracks)
+// =============================================================================
+
+export const midi = {
+  /** Send MIDI Control Change message */
+  cc: (cc: number, value: number, channel = 0): WSCommand => ({
+    command: 'midi/cc',
+    params: { cc, value, channel },
+  }),
+  /** Send MIDI Program Change message */
+  pc: (program: number, channel = 0): WSCommand => ({
+    command: 'midi/pc',
+    params: { program, channel },
+  }),
+};
