@@ -390,10 +390,10 @@ Could support: global defaults (localStorage) + project overrides (EXTSTATE).
 #### Extension
 
 **MIDI commands:**
-- [ ] Add `midi/cc` command handler
-- [ ] Add `midi/pc` command handler
-- [ ] Import `StuffMIDIMessage` from REAPER API
-- [ ] Validate CC/PC values (0-127), channel (0-15)
+- [x] Add `midi/cc` command handler
+- [x] Add `midi/pc` command handler
+- [x] Import `StuffMIDIMessage` from REAPER API
+- [x] Validate CC/PC values (0-127), channel (0-15)
 
 **Toggle state subscription:**
 - [x] Import `GetToggleCommandState` from REAPER API
@@ -412,20 +412,20 @@ Could support: global defaults (localStorage) + project overrides (EXTSTATE).
 - [x] `ToolbarButton` — individual action button with toggle state support
 - [x] `ToolbarEditor` — modal for add/edit with color pickers
 - [x] `IconPicker` — searchable Lucide icon grid (see [Icons](#icons) section)
-- [x] `ColorPickerInput` — hex input + system color picker
+- [x] `ColorPickerInput` — color swatch (click to pick, hold to reset)
 
 **State:**
 - [x] Load actions from localStorage on mount
 - [x] Save actions to localStorage on change
 - [x] Edit mode toggle
-- [ ] Drag-to-reorder (nice-to-have)
+- [x] Drag-to-reorder
 - [x] `toggleStates: Map<number, -1 | 0 | 1>` in Zustand store
 - [x] Subscribe to toggle states on connect (extract commandIds from toolbar config)
 - [x] Handle `actionToggleState` events to update store
 
 **Commands:**
 - [x] Wire up action execution (already have `action/execute`)
-- [ ] Wire up MIDI CC/PC commands (backend not yet implemented)
+- [x] Wire up MIDI CC/PC commands (dual-send to VKB + Control for learn & control)
 - [x] Wire up `actionToggleState/subscribe` on toolbar load
 - [x] Wire up `actionToggleState/unsubscribe` on toolbar change (removed actions)
 

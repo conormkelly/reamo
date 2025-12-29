@@ -69,6 +69,7 @@ If the automatic installer doesn't work:
 - **Tempo Control** - Display BPM, tap tempo, set exact tempo
 - **Auto-Punch Mode** - Time selection recording with visual indicators
 - **Take Switching** - A/B compare takes without leaving your instrument
+- **Toolbar** - User-configurable buttons for REAPER actions, SWS/scripts, and MIDI CC/PC with customizable icons and colors
 - **Touch-Optimized** - Gesture support for mobile/tablet control surfaces, responsive layout for iPhone and iPad
 
 ## Why Reamo?

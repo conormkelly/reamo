@@ -24,6 +24,7 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 - [Undo](#undo-commands) — add, begin, end, do, redo
 - [Gesture](#gesture-commands) — start, end
 - [Action](#action-commands) — getToggleState, execute, executeByName
+- [MIDI](#midi-commands) — cc, pc
 
 **Events**
 - [Events (Broadcast)](#events-broadcast) — transport, tracks, markers, regions, items, project
@@ -1102,6 +1103,39 @@ Execute a REAPER action by named command identifier. Useful for SWS, ReaPack, or
 ```
 
 Returns `NOT_FOUND` error if the named command doesn't exist.
+
+---
+
+## MIDI Commands
+
+Inject MIDI messages into REAPER. Messages are dual-sent to both VKB (Virtual MIDI Keyboard) and Control paths, so the same button works for both MIDI Learn and parameter control.
+
+### `midi/cc`
+
+Send MIDI Control Change message.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `cc` | int | Yes | - | CC number (0-127) |
+| `value` | int | Yes | - | CC value (0-127) |
+| `channel` | int | No | 0 | MIDI channel (0-15) |
+
+```json
+{"type": "command", "command": "midi/cc", "cc": 20, "value": 127, "channel": 9}
+```
+
+### `midi/pc`
+
+Send MIDI Program Change message.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `program` | int | Yes | - | Program number (0-127) |
+| `channel` | int | No | 0 | MIDI channel (0-15) |
+
+```json
+{"type": "command", "command": "midi/pc", "program": 5, "channel": 0}
+```
 
 ---
 

@@ -432,7 +432,7 @@ export const gesture = {
 };
 
 // =============================================================================
-// MIDI Commands (Virtual MIDI Keyboard - sends to armed/monitored tracks)
+// MIDI Commands (dual-sends to VKB + Control paths for learn & control)
 // =============================================================================
 
 export const midi = {

@@ -9,7 +9,7 @@ pub const handlers = [_]mod.Entry{
     .{ .name = "midi/pc", .handler = handlePC },
 };
 
-/// Send MIDI Control Change to record-armed/monitored tracks
+/// Send MIDI Control Change (dual-sends to VKB + Control paths)
 /// Params: cc (0-127), value (0-127), channel (0-15, default 0)
 fn handleCC(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const cc = cmd.getInt("cc") orelse {
@@ -42,7 +42,7 @@ fn handleCC(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod
     response.success(null);
 }
 
-/// Send MIDI Program Change to record-armed/monitored tracks
+/// Send MIDI Program Change (dual-sends to VKB + Control paths)
 /// Params: program (0-127), channel (0-15, default 0)
 fn handlePC(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const program = cmd.getInt("program") orelse {

@@ -1,9 +1,9 @@
 /**
- * ColorPickerInput - Compact color picker with system picker + hex input
+ * ColorPickerInput - Compact color swatch with hold-to-reset
+ * Click to open system color picker, hold 500ms to reset to default
  */
 
-import { useCallback } from 'react';
-import { RotateCcw } from 'lucide-react';
+import { useRef, useCallback } from 'react';
 
 interface ColorPickerInputProps {
   label: string;
@@ -12,64 +12,74 @@ interface ColorPickerInputProps {
   defaultValue: string;
 }
 
+const HOLD_DURATION = 500; // ms to hold for reset
+
 export function ColorPickerInput({
   label,
   value,
   onChange,
   defaultValue,
 }: ColorPickerInputProps) {
-  const handleHexChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      let val = e.target.value;
-      // Allow empty or partial hex values during typing
-      if (val === '') {
-        onChange(defaultValue);
-        return;
-      }
-      // Add # if missing
-      if (!val.startsWith('#')) {
-        val = '#' + val;
-      }
-      // Validate hex format (allow partial for typing)
-      if (/^#[0-9a-fA-F]{0,6}$/.test(val)) {
-        onChange(val);
-      }
-    },
-    [onChange, defaultValue]
-  );
-
-  const handleReset = useCallback(() => {
-    onChange(defaultValue);
-  }, [onChange, defaultValue]);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const holdTimer = useRef<number | null>(null);
+  const didReset = useRef(false);
 
   const isDefault = value === defaultValue;
+
+  const handleMouseDown = useCallback(() => {
+    didReset.current = false;
+    holdTimer.current = window.setTimeout(() => {
+      if (!isDefault) {
+        onChange(defaultValue);
+        didReset.current = true;
+      }
+    }, HOLD_DURATION);
+  }, [isDefault, onChange, defaultValue]);
+
+  const handleMouseUp = useCallback(() => {
+    if (holdTimer.current) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+    // Only open picker if we didn't just reset
+    if (!didReset.current) {
+      inputRef.current?.click();
+    }
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    if (holdTimer.current) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+  }, []);
 
   return (
     <div>
       <label className="block text-xs text-gray-400 mb-1">{label}</label>
-      <div className="flex gap-1">
+      <div
+        onMouseDown={handleMouseDown}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
+        onTouchStart={handleMouseDown}
+        onTouchEnd={handleMouseUp}
+        className="relative w-10 h-10 rounded border-2 border-gray-600 cursor-pointer hover:border-gray-400 transition-colors"
+        style={{ backgroundColor: value }}
+        title={isDefault ? value : `${value} (hold to reset)`}
+      >
+        {/* Non-default indicator dot */}
+        {!isDefault && (
+          <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full border border-gray-800" />
+        )}
+        {/* Hidden color input */}
         <input
+          ref={inputRef}
           type="color"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-8 h-8 rounded border border-gray-600 cursor-pointer bg-gray-900"
+          className="absolute inset-0 opacity-0 cursor-pointer"
+          tabIndex={-1}
         />
-        <input
-          type="text"
-          value={value}
-          onChange={handleHexChange}
-          className="flex-1 px-2 py-1 bg-gray-900 border border-gray-600 rounded text-white text-xs font-mono w-20"
-          placeholder={defaultValue}
-        />
-        {!isDefault && (
-          <button
-            onClick={handleReset}
-            className="p-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
-            title="Reset to default"
-          >
-            <RotateCcw size={14} className="text-gray-400" />
-          </button>
-        )}
       </div>
     </div>
   );

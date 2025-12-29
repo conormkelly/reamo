@@ -3,10 +3,19 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, Trash2 } from 'lucide-react';
+import { X, Trash2, icons, type LucideIcon } from 'lucide-react';
 import { IconPicker } from './IconPicker';
 import { ColorPickerInput } from './ColorPickerInput';
 import type { ToolbarAction } from '../../store/slices/toolbarSlice';
+
+// Get icon component by name (kebab-case to PascalCase)
+function getIconComponent(name: string): LucideIcon | null {
+  const pascalName = name
+    .split('-')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('');
+  return (icons as Record<string, LucideIcon>)[pascalName] || null;
+}
 
 interface ToolbarEditorProps {
   action: ToolbarAction | null;
@@ -49,9 +58,10 @@ export function ToolbarEditor({
   const [cc, setCc] = useState('');
   const [ccValue, setCcValue] = useState('127');
   const [program, setProgram] = useState('');
-  const [channel, setChannel] = useState('0');
+  const [channel, setChannel] = useState('1'); // Display as 1-16, convert to 0-15 on save
 
   const [showIconPicker, setShowIconPicker] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   // Initialize form from existing action
   useEffect(() => {
@@ -73,11 +83,11 @@ export function ToolbarEditor({
         case 'midi_cc':
           setCc(String(action.cc));
           setCcValue(String(action.value));
-          setChannel(String(action.channel));
+          setChannel(String(action.channel + 1)); // Convert 0-15 to 1-16 for display
           break;
         case 'midi_pc':
           setProgram(String(action.program));
-          setChannel(String(action.channel));
+          setChannel(String(action.channel + 1)); // Convert 0-15 to 1-16 for display
           break;
       }
     }
@@ -130,7 +140,7 @@ export function ToolbarEditor({
           type: 'midi_cc',
           cc: parseInt(cc, 10),
           value: parseInt(ccValue, 10) || 127,
-          channel: parseInt(channel, 10) || 0,
+          channel: (parseInt(channel, 10) || 1) - 1, // Convert 1-16 to 0-15
         };
         break;
       case 'midi_pc':
@@ -139,7 +149,7 @@ export function ToolbarEditor({
           ...base,
           type: 'midi_pc',
           program: parseInt(program, 10),
-          channel: parseInt(channel, 10) || 0,
+          channel: (parseInt(channel, 10) || 1) - 1, // Convert 1-16 to 0-15
         };
         break;
     }
@@ -162,11 +172,22 @@ export function ToolbarEditor({
     onSave,
   ]);
 
-  const handleDelete = useCallback(() => {
-    if (action && window.confirm('Delete this toolbar button?')) {
+  const handleDeleteClick = useCallback(() => {
+    if (!action) return;
+    if (confirmingDelete) {
       onDelete(action.id);
+    } else {
+      setConfirmingDelete(true);
+      // Auto-reset after 3 seconds
+      setTimeout(() => setConfirmingDelete(false), 3000);
     }
-  }, [action, onDelete]);
+  }, [action, confirmingDelete, onDelete]);
+
+  // Validation helpers
+  const isValidMidiValue = (val: string, min = 0, max = 127) => {
+    const num = parseInt(val, 10);
+    return !isNaN(num) && num >= min && num <= max;
+  };
 
   const isValid = (() => {
     if (!label.trim()) return false;
@@ -176,9 +197,13 @@ export function ToolbarEditor({
       case 'reaper_action_name':
         return !!actionName.trim();
       case 'midi_cc':
-        return !!cc && !isNaN(parseInt(cc, 10));
+        return (
+          isValidMidiValue(cc) &&
+          isValidMidiValue(ccValue) &&
+          isValidMidiValue(channel, 1, 16)
+        );
       case 'midi_pc':
-        return !!program && !isNaN(parseInt(program, 10));
+        return isValidMidiValue(program) && isValidMidiValue(channel, 1, 16);
     }
   })();
 
@@ -225,9 +250,19 @@ export function ToolbarEditor({
             <div className="flex gap-2">
               <button
                 onClick={() => setShowIconPicker(true)}
-                className="flex-1 px-3 py-2 bg-gray-900 border border-gray-600 rounded text-left text-gray-300 hover:border-gray-500"
+                className="flex-1 px-3 py-2 bg-gray-900 border border-gray-600 rounded text-left text-gray-300 hover:border-gray-500 flex items-center gap-2"
               >
-                {icon || 'Select icon...'}
+                {icon ? (
+                  <>
+                    {(() => {
+                      const IconComponent = getIconComponent(icon);
+                      return IconComponent ? <IconComponent size={18} /> : null;
+                    })()}
+                    <span className="font-mono text-sm">{icon}</span>
+                  </>
+                ) : (
+                  'Select icon...'
+                )}
               </button>
               {icon && (
                 <button
@@ -356,18 +391,15 @@ export function ToolbarEditor({
                     <label className="block text-sm text-gray-400 mb-1">Channel</label>
                     <input
                       type="number"
-                      min="0"
-                      max="15"
+                      min="1"
+                      max="16"
                       value={channel}
                       onChange={(e) => setChannel(e.target.value)}
                       className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white"
-                      placeholder="0-15"
+                      placeholder="1-16"
                     />
                   </div>
                 </div>
-                <p className="text-xs text-gray-500">
-                  Send to record-armed/monitored tracks
-                </p>
               </div>
             )}
 
@@ -390,18 +422,15 @@ export function ToolbarEditor({
                     <label className="block text-sm text-gray-400 mb-1">Channel</label>
                     <input
                       type="number"
-                      min="0"
-                      max="15"
+                      min="1"
+                      max="16"
                       value={channel}
                       onChange={(e) => setChannel(e.target.value)}
                       className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white"
-                      placeholder="0-15"
+                      placeholder="1-16"
                     />
                   </div>
                 </div>
-                <p className="text-xs text-gray-500">
-                  Program change for preset switching
-                </p>
               </div>
             )}
           </div>
@@ -412,11 +441,15 @@ export function ToolbarEditor({
           <div>
             {!isNew && (
               <button
-                onClick={handleDelete}
-                className="px-3 py-2 text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded transition-colors flex items-center gap-1"
+                onClick={handleDeleteClick}
+                className={`px-3 py-2 rounded transition-colors flex items-center gap-1 ${
+                  confirmingDelete
+                    ? 'bg-red-600 text-white hover:bg-red-500'
+                    : 'text-red-400 hover:text-red-300 hover:bg-red-900/20'
+                }`}
               >
                 <Trash2 size={16} />
-                Delete
+                {confirmingDelete ? 'Confirm?' : 'Delete'}
               </button>
             )}
           </div>

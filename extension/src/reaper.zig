@@ -1272,23 +1272,31 @@ pub const Api = struct {
         if (self.updateTimeline_fn) |f| f();
     }
 
-    // MIDI injection methods (Virtual MIDI Keyboard)
-    // Mode 0 = send to record-armed/monitored tracks
+    // MIDI injection methods
+    // Dual-sends to both VKB (mode 0) and Control (mode 1) paths:
+    // - Mode 0 (VKB): Routes to record-armed/monitored tracks for actual parameter control
+    // - Mode 1 (Control): Routes to MIDI Learn dialogs and control surfaces
+    // This allows the same button press to work for both learning AND controlling.
 
-    /// Send MIDI Control Change message
+    /// Send MIDI Control Change message (dual-send to VKB + Control paths)
     /// channel: 0-15, cc: 0-127, value: 0-127
     pub fn sendMidiCC(self: *const Api, channel: u8, cc: u8, value: u8) void {
         const f = self.stuffMIDIMessage orelse return;
         const status: c_int = 0xB0 | @as(c_int, channel & 0x0F);
-        f(0, status, @as(c_int, cc & 0x7F), @as(c_int, value & 0x7F));
+        const cc_val: c_int = @as(c_int, cc & 0x7F);
+        const val: c_int = @as(c_int, value & 0x7F);
+        f(0, status, cc_val, val); // VKB - for actual parameter control
+        f(1, status, cc_val, val); // Control - for MIDI Learn
     }
 
-    /// Send MIDI Program Change message
+    /// Send MIDI Program Change message (dual-send to VKB + Control paths)
     /// channel: 0-15, program: 0-127
     pub fn sendMidiPC(self: *const Api, channel: u8, program: u8) void {
         const f = self.stuffMIDIMessage orelse return;
         const status: c_int = 0xC0 | @as(c_int, channel & 0x0F);
-        f(0, status, @as(c_int, program & 0x7F), 0);
+        const prog: c_int = @as(c_int, program & 0x7F);
+        f(0, status, prog, 0); // VKB - for actual parameter control
+        f(1, status, prog, 0); // Control - for MIDI Learn
     }
 };
 

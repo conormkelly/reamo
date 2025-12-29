@@ -13,6 +13,12 @@ interface ToolbarButtonProps {
   toggleState?: ToggleState;
   editMode: boolean;
   onEdit: () => void;
+  // Drag and drop (edit mode only)
+  index?: number;
+  onDragStart?: (index: number) => void;
+  onDragOver?: (index: number) => void;
+  onDragEnd?: () => void;
+  isDragTarget?: boolean;
 }
 
 // Default colors
@@ -36,6 +42,11 @@ export function ToolbarButton({
   toggleState,
   editMode,
   onEdit,
+  index,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+  isDragTarget,
 }: ToolbarButtonProps) {
   const { sendCommand } = useReaper();
 
@@ -70,15 +81,45 @@ export function ToolbarButton({
   // Get icon component
   const IconComponent = action.icon ? getIconComponent(action.icon) : null;
 
+  const handleDragStart = useCallback(
+    (e: React.DragEvent) => {
+      if (!editMode || index === undefined || !onDragStart) return;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(index));
+      onDragStart(index);
+    },
+    [editMode, index, onDragStart]
+  );
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent) => {
+      if (!editMode || index === undefined || !onDragOver) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      onDragOver(index);
+    },
+    [editMode, index, onDragOver]
+  );
+
+  const handleDragEnd = useCallback(() => {
+    onDragEnd?.();
+  }, [onDragEnd]);
+
   return (
     <button
       onClick={handleClick}
+      draggable={editMode}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
       className={`
         relative flex flex-col items-center justify-center
         min-w-[60px] h-[60px] px-3 py-2
-        rounded-lg transition-all
-        ${editMode ? 'ring-2 ring-blue-400 ring-opacity-50' : ''}
-        hover:brightness-110 active:brightness-90
+        rounded-lg transition-all duration-100
+        ${editMode ? 'ring-2 ring-blue-400 ring-opacity-50 cursor-grab active:cursor-grabbing' : ''}
+        ${isDragTarget ? 'ring-2 ring-yellow-400 scale-105' : ''}
+        hover:brightness-110
+        active:scale-95 active:brightness-75
       `}
       style={{ backgroundColor }}
       title={action.label}

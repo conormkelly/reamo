@@ -26,12 +26,15 @@ export function Toolbar() {
     addToolbarAction,
     updateToolbarAction,
     removeToolbarAction,
+    reorderToolbarActions,
     updateToggleStates,
   } = useReaperStore();
 
   const { sendCommand, connection, connectionState } = useReaper();
   const [editingAction, setEditingAction] = useState<ToolbarAction | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
+  const [dragFromIndex, setDragFromIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   // Load toolbar config from localStorage on mount
   useEffect(() => {
@@ -88,6 +91,23 @@ export function Toolbar() {
     setEditingAction(action);
     setIsAddingNew(false);
   }, []);
+
+  // Drag and drop handlers
+  const handleDragStart = useCallback((index: number) => {
+    setDragFromIndex(index);
+  }, []);
+
+  const handleDragOver = useCallback((index: number) => {
+    setDragOverIndex(index);
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    if (dragFromIndex !== null && dragOverIndex !== null && dragFromIndex !== dragOverIndex) {
+      reorderToolbarActions(dragFromIndex, dragOverIndex);
+    }
+    setDragFromIndex(null);
+    setDragOverIndex(null);
+  }, [dragFromIndex, dragOverIndex, reorderToolbarActions]);
 
   const handleEditorClose = useCallback(() => {
     setEditingAction(null);
@@ -173,11 +193,11 @@ export function Toolbar() {
       </div>
 
       {!toolbarCollapsed && (
-        <div className={`flex gap-2 overflow-x-auto pb-2 ${
+        <div className={`flex gap-2 overflow-x-auto p-1 pb-2 ${
           toolbarAlign === 'center' ? 'justify-center' :
           toolbarAlign === 'right' ? 'justify-end' : ''
         }`}>
-          {toolbarActions.map((action) => (
+          {toolbarActions.map((action, index) => (
             <ToolbarButton
               key={action.id}
               action={action}
@@ -188,6 +208,11 @@ export function Toolbar() {
               }
               editMode={toolbarEditMode}
               onEdit={() => handleEditClick(action)}
+              index={index}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDragEnd={handleDragEnd}
+              isDragTarget={dragOverIndex === index && dragFromIndex !== index}
             />
           ))}
           {toolbarActions.length === 0 && (
