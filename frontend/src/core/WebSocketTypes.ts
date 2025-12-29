@@ -53,7 +53,7 @@ export interface EventMessage {
   payload?: EventPayload; // Optional for events like 'reload' that have no payload
 }
 
-export type EventType = 'transport' | 'project' | 'tracks' | 'markers' | 'regions' | 'items' | 'reload';
+export type EventType = 'transport' | 'project' | 'tracks' | 'markers' | 'regions' | 'items' | 'reload' | 'actionToggleState';
 
 export type EventPayload =
   | TransportEventPayload
@@ -61,7 +61,8 @@ export type EventPayload =
   | TracksEventPayload
   | MarkersEventPayload
   | RegionsEventPayload
-  | ItemsEventPayload;
+  | ItemsEventPayload
+  | ActionToggleStateEventPayload;
 
 /** Any message from server */
 export type ServerMessage = HelloResponse | ResponseMessage | EventMessage;
@@ -201,6 +202,15 @@ export interface WSItem {
 export interface ItemsEventPayload {
   items: WSItem[];
   // Note: timeSelection is in TransportEventPayload, not here
+}
+
+// =============================================================================
+// Action Toggle State Event
+// =============================================================================
+
+/** Toggle state changes broadcast (sparse delta) */
+export interface ActionToggleStateEventPayload {
+  changes: Record<string, number>; // commandId → state (-1, 0, or 1)
 }
 
 // =============================================================================
@@ -346,4 +356,10 @@ export function isItemsEvent(
   msg: EventMessage
 ): msg is EventMessage & { payload: ItemsEventPayload } {
   return msg.event === 'items';
+}
+
+export function isActionToggleStateEvent(
+  msg: EventMessage
+): msg is EventMessage & { payload: ActionToggleStateEventPayload } {
+  return msg.event === 'actionToggleState';
 }

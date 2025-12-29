@@ -32,6 +32,7 @@ import {
   MakeSelectionModal,
   MarkerInfoBar,
   ItemsTimeline,
+  Toolbar,
 } from './components';
 import { ToastContainer, useToast } from './components/Toast';
 import { useTracks } from './hooks';
@@ -173,6 +174,9 @@ function AppContent() {
 
       {/* Recording Quick Actions - visible during recording */}
       <RecordingActionsBar className="mb-6" />
+
+      {/* Toolbar - user-configurable action buttons */}
+      <Toolbar />
 
       {/* Timeline */}
       <section className="mb-4">

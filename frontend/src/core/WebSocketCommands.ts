@@ -338,6 +338,26 @@ export const action = {
 };
 
 // =============================================================================
+// Action Toggle State Subscription Commands
+// =============================================================================
+
+export const actionToggleState = {
+  /** Subscribe to toggle state changes for a list of action commandIds.
+   * Returns current state for all subscribed commandIds in the response.
+   * State values: -1 = not a toggle, 0 = off, 1 = on
+   */
+  subscribe: (commandIds: number[]): WSCommand => ({
+    command: 'actionToggleState/subscribe',
+    params: { commandIds },
+  }),
+  /** Unsubscribe from toggle state changes for a list of action commandIds. */
+  unsubscribe: (commandIds: number[]): WSCommand => ({
+    command: 'actionToggleState/unsubscribe',
+    params: { commandIds },
+  }),
+};
+
+// =============================================================================
 // Undo Commands
 // =============================================================================
 

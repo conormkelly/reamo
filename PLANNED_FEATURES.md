@@ -408,26 +408,26 @@ Could support: global defaults (localStorage) + project overrides (EXTSTATE).
 #### Frontend
 
 **Components:**
-- [ ] `Toolbar` — collapsible section with horizontal scrollable button bar
-- [ ] `ToolbarButton` — individual action button with toggle state support
-- [ ] `ToolbarEditor` — modal for add/edit with color pickers
-- [ ] `IconPicker` — searchable Lucide icon grid (see [Icons](#icons) section)
-- [ ] `ColorPickerInput` — hex input + system color picker (reuse from marker/region modals)
+- [x] `Toolbar` — collapsible section with horizontal scrollable button bar
+- [x] `ToolbarButton` — individual action button with toggle state support
+- [x] `ToolbarEditor` — modal for add/edit with color pickers
+- [x] `IconPicker` — searchable Lucide icon grid (see [Icons](#icons) section)
+- [x] `ColorPickerInput` — hex input + system color picker
 
 **State:**
-- [ ] Load actions from localStorage on mount
-- [ ] Save actions to localStorage on change
-- [ ] Edit mode toggle
+- [x] Load actions from localStorage on mount
+- [x] Save actions to localStorage on change
+- [x] Edit mode toggle
 - [ ] Drag-to-reorder (nice-to-have)
-- [ ] `toggleStates: Map<number, -1 | 0 | 1>` in Zustand store
-- [ ] Subscribe to toggle states on connect (extract commandIds from toolbar config)
-- [ ] Handle `actionToggleState` events to update store
+- [x] `toggleStates: Map<number, -1 | 0 | 1>` in Zustand store
+- [x] Subscribe to toggle states on connect (extract commandIds from toolbar config)
+- [x] Handle `actionToggleState` events to update store
 
 **Commands:**
-- [ ] Wire up action execution (already have `action/execute`)
-- [ ] Wire up MIDI CC/PC commands (new)
-- [ ] Wire up `actionToggleState/subscribe` on toolbar load
-- [ ] Wire up `actionToggleState/unsubscribe` on toolbar change (removed actions)
+- [x] Wire up action execution (already have `action/execute`)
+- [ ] Wire up MIDI CC/PC commands (backend not yet implemented)
+- [x] Wire up `actionToggleState/subscribe` on toolbar load
+- [x] Wire up `actionToggleState/unsubscribe` on toolbar change (removed actions)
 
 ---
 

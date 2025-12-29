@@ -7,3 +7,4 @@ export * from './Regions';
 export * from './Actions';
 export * from './Timeline';
 export * from './ItemsTimeline';
+export * from './Toolbar';
