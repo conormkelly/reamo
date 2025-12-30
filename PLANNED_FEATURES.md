@@ -3,11 +3,10 @@
 ## Table of Contents (Priority Order)
 
 1. [View Switcher](#view-switcher) — Switch between Edit, Transport, and Mixer views *(quick win, frontend-only)*
-2. ~~[ID-Keyed Pending State](#id-keyed-pending-state-architectural-fix)~~ — ✅ **COMPLETED** (Dec 2025)
-3. [Items Mode](#items-mode) — View/manage recorded takes without leaving the instrument
-4. [Tempo Marker Support](#tempo-marker-support) — Respect tempo map during playback *(easy fix)*
-5. [FX Preset Switching](#fx-preset-switching) — Navigate REAPER-saved presets from tablet
-6. [Extension Performance Optimizations](#extension-performance-optimizations) — Idle when no clients
+2. [Items Mode](#items-mode) — View/manage recorded takes without leaving the instrument
+3. [Tempo Marker Support](#tempo-marker-support) — Respect tempo map during playback *(easy fix)*
+4. [FX Preset Switching](#fx-preset-switching) — Navigate REAPER-saved presets from tablet
+5. [Extension Performance Optimizations](#extension-performance-optimizations) — Idle when no clients
 
 ---
 
@@ -401,18 +400,6 @@ Double-tap region or zoom to time selection. Single track view with detailed ite
 - No detailed MIDI editing
 
 Just: **"See what I recorded, tidy it up, make quick keep/trash decisions, move on."**
-
----
-
-## ID-Keyed Pending State (Architectural Fix) ✅ COMPLETED
-
-**Completed December 2025.**
-
-All pending changes are now keyed by stable region ID (`region.id` = REAPER's `markrgnidx`), not array index. This prevents state corruption when the server pushes updates that change array ordering.
-
-**Files changed:** `regionEditSlice.types.ts`, `regionEditSlice.ts`, `rippleOperations.ts`, `dragPreview.ts`, `Timeline.tsx`, `TimelineRegions.tsx`, `useRegionDrag.ts`, `RegionInfoBar.tsx`, `DeleteRegionModal.tsx`, plus test files.
-
-**Verified by:** 292 passing tests including specific tests for "server update during pending edit" scenarios
 
 ---
 
