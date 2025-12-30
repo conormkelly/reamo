@@ -56,11 +56,11 @@ async function setupWithTimeSignature(
         bpm: null,
 
         // Reset edit state
-        selectedRegionIndices: [0],
+        selectedRegionIds: [0],
         pendingChanges: {},
         nextNewRegionKey: -1,
         dragType: 'none',
-        dragRegionIndex: null,
+        dragRegionId: null,
         dragStartX: null,
         dragStartTime: null,
         dragCurrentTime: null,

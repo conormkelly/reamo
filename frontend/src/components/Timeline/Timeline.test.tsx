@@ -19,7 +19,7 @@ import {
   actions,
   hasPendingChanges,
   isSelected,
-  selectedIndices,
+  selectedIds,
   findRegion,
 } from '../../test/store'
 import { useReaperStore } from '../../store'
@@ -254,7 +254,7 @@ describe('Region selection behavior', () => {
       actions.addToSelection(2)
     })
 
-    expect(selectedIndices()).toEqual([0, 2])
+    expect(selectedIds()).toEqual([0, 2])
   })
 
   it('clears selection', () => {
@@ -264,7 +264,7 @@ describe('Region selection behavior', () => {
       actions.clearSelection()
     })
 
-    expect(selectedIndices()).toEqual([])
+    expect(selectedIds()).toEqual([])
   })
 })
 

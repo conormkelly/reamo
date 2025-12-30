@@ -46,7 +46,7 @@ type EditingField = 'name' | 'start' | 'end' | 'length' | 'color' | null;
 
 export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProps): ReactElement | null {
   const timelineMode = useReaperStore((s) => s.timelineMode);
-  const selectedRegionIndices = useReaperStore((s) => s.selectedRegionIndices);
+  const selectedRegionIds = useReaperStore((s) => s.selectedRegionIds);
   const regions = useReaperStore((s) => s.regions);
   const getDisplayRegions = useReaperStore((s) => s.getDisplayRegions);
   const resizeRegion = useReaperStore((s) => s.resizeRegion);
@@ -109,10 +109,11 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
 
   // Get display regions (with pending changes)
   const displayRegions = getDisplayRegions(regions);
-  const selectedIndex = selectedRegionIndices.length === 1 ? selectedRegionIndices[0] : null;
-  const region: Region | undefined = selectedIndex !== null ? displayRegions[selectedIndex] : undefined;
-  // Get the pending key for the selected region (may differ from array index for new regions)
-  const pendingKey = region ? (region as { _pendingKey?: number })._pendingKey ?? selectedIndex : selectedIndex;
+  // Find the selected region by ID (stable across server updates)
+  const selectedId = selectedRegionIds.length === 1 ? selectedRegionIds[0] : null;
+  const region: Region | undefined = selectedId !== null
+    ? displayRegions.find(r => r.id === selectedId)
+    : undefined;
 
   // Get unique colors from all regions for the picker
   const existingColors = new Set<string>();
@@ -126,7 +127,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
   const currentColor = region ? reaperColorToHexWithFallback(region.color, DEFAULT_REGION_COLOR) : DEFAULT_REGION_COLOR;
 
   const handleFieldClick = (field: EditingField) => {
-    if (!region || selectedIndex === null) return;
+    if (!region) return;
 
     if (field === 'color') {
       setShowColorPicker(true);
@@ -152,30 +153,30 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
   const isDefaultColor = !region?.color || region.color === 0;
 
   const handleColorSelect = (hex: string) => {
-    if (pendingKey === null) return;
+    if (!region) return;
     const reaperColor = hexToReaperColor(hex);
-    updateRegionMeta(pendingKey, { color: reaperColor }, regions);
+    updateRegionMeta(region.id, { color: reaperColor }, regions);
     setShowColorPicker(false);
     setEditingField(null);
   };
 
   const handleColorReset = () => {
-    if (pendingKey === null) return;
+    if (!region) return;
     // Send 0 to reset to REAPER's default region color
-    updateRegionMeta(pendingKey, { color: 0 }, regions);
+    updateRegionMeta(region.id, { color: 0 }, regions);
     setShowColorPicker(false);
     setEditingField(null);
   };
 
   const handleConfirm = () => {
-    if (!region || pendingKey === null || !editingField) {
+    if (!region || !editingField) {
       setEditingField(null);
       return;
     }
 
     if (editingField === 'name') {
       if (editValue.trim()) {
-        updateRegionMeta(pendingKey, { name: editValue.trim() }, regions);
+        updateRegionMeta(region.id, { name: editValue.trim() }, regions);
       }
     } else if (bpm) {
       let newSeconds: number | null = null;
@@ -183,18 +184,18 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
       if (editingField === 'start') {
         newSeconds = parseBarBeat(editValue);
         if (newSeconds !== null && newSeconds >= 0 && newSeconds < region.end) {
-          resizeRegion(pendingKey, 'start', newSeconds, regions, bpm);
+          resizeRegion(region.id, 'start', newSeconds, regions, bpm);
         }
       } else if (editingField === 'end') {
         newSeconds = parseBarBeat(editValue);
         if (newSeconds !== null && newSeconds > region.start) {
-          resizeRegion(pendingKey, 'end', newSeconds, regions, bpm);
+          resizeRegion(region.id, 'end', newSeconds, regions, bpm);
         }
       } else if (editingField === 'length') {
         const newDuration = parseDuration(editValue);
         if (newDuration !== null && newDuration > 0) {
           const newEnd = region.start + newDuration;
-          resizeRegion(pendingKey, 'end', newEnd, regions, bpm);
+          resizeRegion(region.id, 'end', newEnd, regions, bpm);
         }
       }
     }
@@ -238,17 +239,10 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
 
     createRegion(start, end, region.name, bpm, region.color, regions);
 
-    // Find and select the new region in display regions
-    // The new region will be at the end (highest start time), so find its index
+    // Select the new region by its ID (the newRegionKey IS the ID for new regions)
     // We need to do this after state updates, so use setTimeout
     setTimeout(() => {
-      const updatedDisplayRegions = getDisplayRegions(regions);
-      const newRegionIndex = updatedDisplayRegions.findIndex(
-        (r) => (r as { _pendingKey?: number })._pendingKey === newRegionKey
-      );
-      if (newRegionIndex !== -1) {
-        selectRegion(newRegionIndex);
-      }
+      selectRegion(newRegionKey);
     }, 0);
   };
 
@@ -481,7 +475,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
       </div>
 
       {/* Delete Region button - only show when a region is selected */}
-      {region && pendingKey !== null && (
+      {region && (
         <button
           onClick={() => setShowDeleteModal(true)}
           className="flex items-center gap-1.5 px-3 py-2 h-10 bg-red-600/80 hover:bg-red-500 text-white text-sm font-medium rounded-lg transition-colors flex-shrink-0"
@@ -518,7 +512,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
         isOpen={showDeleteModal}
         onClose={() => setShowDeleteModal(false)}
         region={region ?? null}
-        regionIndex={pendingKey}
+        regionId={region?.id ?? null}
       />
     </div>
   );

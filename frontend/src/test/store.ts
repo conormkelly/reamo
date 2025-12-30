@@ -22,11 +22,11 @@ export function setupStore(regions: Region[], mode: TimelineMode = 'regions') {
 
     // Region edit slice - reset to defaults
     timelineMode: mode,
-    selectedRegionIndices: [],
+    selectedRegionIds: [],
     pendingChanges: {},
     nextNewRegionKey: -1,
     dragType: 'none',
-    dragRegionIndex: null,
+    dragRegionId: null,
     dragStartX: null,
     dragStartTime: null,
     dragCurrentTime: null,
@@ -95,17 +95,17 @@ export function hasPendingChanges(): boolean {
 }
 
 /**
- * Check if a region is selected (by index)
+ * Check if a region is selected (by ID)
  */
-export function isSelected(index: number): boolean {
-  return store().isRegionSelected(index)
+export function isSelected(id: number): boolean {
+  return store().isRegionSelected(id)
 }
 
 /**
- * Get selected region indices
+ * Get selected region IDs
  */
-export function selectedIndices(): number[] {
-  return store().selectedRegionIndices
+export function selectedIds(): number[] {
+  return store().selectedRegionIds
 }
 
 /**
@@ -120,28 +120,28 @@ export function mode(): TimelineMode {
 // ============================================================================
 
 export const actions = {
-  /** Select a region by index */
-  select: (index: number) => store().selectRegion(index),
+  /** Select a region by ID */
+  select: (id: number) => store().selectRegion(id),
 
-  /** Add region to selection */
-  addToSelection: (index: number) => store().addToSelection(index),
+  /** Add region to selection by ID */
+  addToSelection: (id: number) => store().addToSelection(id),
 
-  /** Deselect a region */
-  deselect: (index: number) => store().deselectRegion(index),
+  /** Deselect a region by ID */
+  deselect: (id: number) => store().deselectRegion(id),
 
   /** Clear all selection */
   clearSelection: () => store().clearSelection(),
 
   /** Move region(s) by delta seconds */
-  move: (indices: number[], deltaSeconds: number) => {
+  move: (ids: number[], deltaSeconds: number) => {
     const state = store()
-    state.moveRegion(indices, deltaSeconds, state.regions)
+    state.moveRegion(ids, deltaSeconds, state.regions)
   },
 
-  /** Resize region edge */
-  resize: (index: number, edge: 'start' | 'end', newTime: number, bpm: number = 120) => {
+  /** Resize region edge by ID */
+  resize: (id: number, edge: 'start' | 'end', newTime: number, bpm: number = 120) => {
     const state = store()
-    state.resizeRegion(index, edge, newTime, state.regions, bpm)
+    state.resizeRegion(id, edge, newTime, state.regions, bpm)
   },
 
   /** Create a new region */
@@ -150,10 +150,10 @@ export const actions = {
     state.createRegion(start, end, name, bpm, color, state.regions)
   },
 
-  /** Delete a region with mode */
-  delete: (index: number, mode: 'leave-gap' | 'extend-previous' | 'ripple-back' = 'ripple-back') => {
+  /** Delete a region by ID with mode */
+  delete: (id: number, mode: 'leave-gap' | 'extend-previous' | 'ripple-back' = 'ripple-back') => {
     const state = store()
-    state.deleteRegionWithMode(index, mode, state.regions)
+    state.deleteRegionWithMode(id, mode, state.regions)
   },
 
   /** Commit pending changes */

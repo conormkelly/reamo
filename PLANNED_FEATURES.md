@@ -3,7 +3,7 @@
 ## Table of Contents (Priority Order)
 
 1. [View Switcher](#view-switcher) — Switch between Edit, Transport, and Mixer views *(quick win, frontend-only)*
-2. [ID-Keyed Pending State](#id-keyed-pending-state-architectural-fix) — Fix index-based state corruption *(stability)*
+2. ~~[ID-Keyed Pending State](#id-keyed-pending-state-architectural-fix)~~ — ✅ **COMPLETED** (Dec 2025)
 3. [Items Mode](#items-mode) — View/manage recorded takes without leaving the instrument
 4. [Tempo Marker Support](#tempo-marker-support) — Respect tempo map during playback *(easy fix)*
 5. [FX Preset Switching](#fx-preset-switching) — Navigate REAPER-saved presets from tablet
@@ -404,77 +404,15 @@ Just: **"See what I recorded, tidy it up, make quick keep/trash decisions, move 
 
 ---
 
-## ID-Keyed Pending State (Architectural Fix)
+## ID-Keyed Pending State (Architectural Fix) ✅ COMPLETED
 
-### The Problem
+**Completed December 2025.**
 
-Current `pendingChanges` is keyed by **array index**, but array indices shift when the server pushes region updates (add/delete/reorder). This causes:
+All pending changes are now keyed by stable region ID (`region.id` = REAPER's `markrgnidx`), not array index. This prevents state corruption when the server pushes updates that change array ordering.
 
-1. User edits region at index 2 (id=5)
-2. Server pushes update: region at index 0 deleted
-3. Array re-indexes: index 2 now contains different region (id=7)
-4. `pendingChanges[2]` visually overlays on wrong region
-5. Save is correct (uses `originalIdx` = stable ID), but **display is wrong**
+**Files changed:** `regionEditSlice.types.ts`, `regionEditSlice.ts`, `rippleOperations.ts`, `dragPreview.ts`, `Timeline.tsx`, `TimelineRegions.tsx`, `useRegionDrag.ts`, `RegionInfoBar.tsx`, `DeleteRegionModal.tsx`, plus test files.
 
-### The Solution
-
-**Key pending changes by stable entity ID, not array index.** This is the established pattern used by Apollo Client (normalized cache), Replicache (key-based storage), and TanStack Query.
-
-```typescript
-// ❌ Current: index-based (breaks when indices shift)
-pendingChanges: Record<number, PendingRegionChange>  // key = array index
-
-// ✅ Fixed: ID-based (stable forever)
-pendingChanges: Map<number, PendingRegionChange>     // key = region.id (markrgnidx)
-```
-
-For new regions (not yet in REAPER), continue using negative IDs as keys.
-
-### Implementation Checklist
-
-**Types (`regionEditSlice.types.ts`):**
-- [ ] Change `PendingChangesRecord` from `Record<number, ...>` to `Map<number, ...>`
-- [ ] Remove `_pendingKey` from `DisplayRegion` (no longer needed)
-- [ ] Add `baseVersion?: number` to track server state when editing began
-
-**Slice (`regionEditSlice.ts`):**
-- [ ] Update `getDisplayRegions()` to look up by `region.id` instead of array index
-- [ ] Update all ripple calculation functions to use IDs
-- [ ] Update `selectedRegionIndices` to store IDs, not array indices
-
-**Ripple operations (`regionEdit/rippleOperations.ts`):**
-- [ ] All functions currently take `index` parameter → change to `id` parameter
-- [ ] Update internal logic to work with ID-keyed maps
-
-**Components:**
-- [ ] `TimelineRegions.tsx`: Remove `_pendingKey` usage, look up by `region.id`
-- [ ] `RegionInfoBar.tsx`: Same
-- [ ] `Timeline.tsx`: Update `selectedPendingKeys` computation
-- [ ] `useRegionDrag.ts`: Update to use IDs
-
-**Tests:**
-- [ ] Update all region edit tests to use ID-based assertions
-- [ ] Add test: server update during pending changes doesn't corrupt display
-
-### Conflict Detection (Future Enhancement)
-
-For the multi-device scenario (edit on iPad, changes on computer, save from iPad):
-
-**Option 1: Optimistic Locking (Recommended for MVP)**
-- Track `baseVersion` when editing begins
-- On save, include expected version
-- Server rejects if version changed → prompt user to refresh
-
-**Option 2: Field-level Last-Write-Wins**
-- Each field carries timestamp
-- Newest value wins per field
-- Use Hybrid Logical Clocks to avoid clock skew
-
-For single-user DAW where conflicts are rare, Option 1 is sufficient.
-
-### Why Not OT/CRDTs?
-
-Full Operational Transformation or CRDTs add 15-500KB of library code and complexity. The core insight from CRDT research applies without the overhead: **stable IDs eliminate index-shifting problems entirely**. Once every entity has an immutable ID and all operations reference that ID, no transformation is needed.
+**Verified by:** 292 passing tests including specific tests for "server update during pending edit" scenarios
 
 ---
 

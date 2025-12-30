@@ -16,14 +16,14 @@ interface DeleteRegionModalProps {
   isOpen: boolean;
   onClose: () => void;
   region: Region | null;
-  regionIndex: number | null;
+  regionId: number | null;
 }
 
 export function DeleteRegionModal({
   isOpen,
   onClose,
   region,
-  regionIndex,
+  regionId,
 }: DeleteRegionModalProps): ReactElement | null {
   const deleteRegionWithMode = useReaperStore((s) => s.deleteRegionWithMode);
   const regions = useReaperStore((s) => s.regions);
@@ -68,9 +68,9 @@ export function DeleteRegionModal({
   };
 
   const handleDelete = () => {
-    if (regionIndex === null) return;
+    if (regionId === null) return;
 
-    deleteRegionWithMode(regionIndex, deleteMode, regions);
+    deleteRegionWithMode(regionId, deleteMode, regions);
     onClose();
   };
 

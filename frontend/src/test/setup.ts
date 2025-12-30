@@ -18,9 +18,9 @@ afterEach(() => {
 beforeEach(() => {
   useReaperStore.setState({
     pendingChanges: {},
-    selectedRegionIndices: [],
+    selectedRegionIds: [],
     dragType: 'none',
-    dragRegionIndex: null,
+    dragRegionId: null,
     dragStartX: null,
     dragStartTime: null,
     dragCurrentTime: null,

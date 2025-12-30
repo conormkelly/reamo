@@ -17,7 +17,7 @@ import {
   regionOrder,
   hasPendingChanges,
   isSelected,
-  selectedIndices,
+  selectedIds,
   actions,
 } from '../../test/store'
 
@@ -176,7 +176,7 @@ describe('Selecting Sections', () => {
       actions.select(0)
       actions.addToSelection(2)
 
-      expect(selectedIndices()).toEqual([0, 2])
+      expect(selectedIds()).toEqual([0, 2])
     })
 
     it('allows moving multiple together', () => {
@@ -194,7 +194,7 @@ describe('Selecting Sections', () => {
       actions.select(0)
       actions.clearSelection()
 
-      expect(selectedIndices()).toEqual([])
+      expect(selectedIds()).toEqual([])
     })
   })
 })
@@ -303,7 +303,7 @@ describe('Edge Cases', () => {
       actions.select(0)
       actions.setMode('navigate')
 
-      expect(selectedIndices()).toEqual([])
+      expect(selectedIds()).toEqual([])
     })
   })
 })

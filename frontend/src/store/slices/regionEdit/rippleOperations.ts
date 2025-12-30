@@ -3,6 +3,9 @@
  *
  * These functions calculate how regions should shift when edits are made.
  * All functions are pure - they take current state and return new pending changes.
+ *
+ * KEY DESIGN: All pending changes are keyed by REGION ID (not array index).
+ * This ensures stability when server pushes updates that change array ordering.
  */
 
 import type { Region } from '../../../core/types';
@@ -34,11 +37,17 @@ export function getMinRegionLength(bpm: number | null, beatsPerBar = 4, denomina
   return (60 / bpm) * quarterNoteBeats;
 }
 
+/** Helper to find a region by ID */
+function findRegionById(regions: Region[], id: number): Region | undefined {
+  if (id < 0) return undefined; // Negative IDs are new regions
+  return regions.find((r) => r.id === id);
+}
+
 /**
  * Parameters for resize ripple calculation
  */
 export interface ResizeRippleParams {
-  index: number;
+  id: number;  // Region ID (not array index)
   edge: 'start' | 'end';
   newTime: number;
   regions: Region[];
@@ -53,10 +62,10 @@ export interface ResizeRippleParams {
  * Returns the updated pending changes
  */
 export function calculateResizeRipple(params: ResizeRippleParams): PendingChangesRecord {
-  const { index, edge, newTime, regions, bpm, beatsPerBar = 4, denominator = 4, pendingChanges } = params;
+  const { id, edge, newTime, regions, bpm, beatsPerBar = 4, denominator = 4, pendingChanges } = params;
   const minLength = getMinRegionLength(bpm, beatsPerBar, denominator);
   const changes = { ...pendingChanges };
-  const existing = changes[index];
+  const existing = changes[id];
 
   // Handle new regions (negative keys) - they only exist in pendingChanges
   let regionStart: number;
@@ -65,7 +74,7 @@ export function calculateResizeRipple(params: ResizeRippleParams): PendingChange
   let regionColor: number | undefined;
   let regionId: number;
 
-  if (index < 0) {
+  if (id < 0) {
     if (!existing) return changes; // New region must exist in pending changes
     regionStart = existing.newStart;
     regionEnd = existing.newEnd;
@@ -73,7 +82,7 @@ export function calculateResizeRipple(params: ResizeRippleParams): PendingChange
     regionColor = existing.color;
     regionId = existing.originalIdx;
   } else {
-    const region = regions[index];
+    const region = findRegionById(regions, id);
     if (!region) return changes;
     regionStart = existing?.newStart ?? region.start;
     regionEnd = existing?.newEnd ?? region.end;
@@ -103,11 +112,10 @@ export function calculateResizeRipple(params: ResizeRippleParams): PendingChange
     // RIPPLE: When extending start backwards, trim overlapped regions
     if (newStart < originalStart) {
       // Trim existing regions
-      for (let i = 0; i < regions.length; i++) {
-        if (i === index) continue;
+      for (const otherRegion of regions) {
+        if (otherRegion.id === id) continue;
 
-        const otherRegion = regions[i];
-        const otherExisting = changes[i];
+        const otherExisting = changes[otherRegion.id];
 
         // Skip deleted regions - don't resurrect them
         if (otherExisting?.isDeleted) continue;
@@ -118,7 +126,7 @@ export function calculateResizeRipple(params: ResizeRippleParams): PendingChange
         // If this region ends after the new start and starts before the new start,
         // it's being overlapped - trim its end to the new start
         if (otherEnd > newStart && otherStart < newStart) {
-          changes[i] = {
+          changes[otherRegion.id] = {
             originalIdx: otherRegion.id,
             originalStart: otherRegion.start,
             originalEnd: otherRegion.end,
@@ -133,7 +141,7 @@ export function calculateResizeRipple(params: ResizeRippleParams): PendingChange
       // Trim new pending regions (negative keys)
       for (const keyStr of Object.keys(changes)) {
         const key = parseInt(keyStr, 10);
-        if (key >= 0 || key === index) continue;
+        if (key >= 0 || key === id) continue;
         const pending = changes[key];
         if (!pending || pending.isDeleted || !pending.isNew) continue;
 
@@ -156,11 +164,11 @@ export function calculateResizeRipple(params: ResizeRippleParams): PendingChange
   }
 
   // For new regions, preserve isNew flag
-  const isNew = index < 0;
-  changes[index] = {
+  const isNew = id < 0;
+  changes[id] = {
     originalIdx: regionId,
-    originalStart: isNew ? existing!.originalStart : regions[index].start,
-    originalEnd: isNew ? existing!.originalEnd : regions[index].end,
+    originalStart: isNew ? existing!.originalStart : findRegionById(regions, id)!.start,
+    originalEnd: isNew ? existing!.originalEnd : findRegionById(regions, id)!.end,
     newStart,
     newEnd,
     name: regionName,
@@ -174,11 +182,10 @@ export function calculateResizeRipple(params: ResizeRippleParams): PendingChange
 
     if (Math.abs(delta) > EPSILON) {
       // Shift existing regions
-      for (let i = 0; i < regions.length; i++) {
-        if (i === index) continue;
+      for (const otherRegion of regions) {
+        if (otherRegion.id === id) continue;
 
-        const otherRegion = regions[i];
-        const otherExisting = changes[i];
+        const otherExisting = changes[otherRegion.id];
 
         // Skip deleted regions - don't resurrect them
         if (otherExisting?.isDeleted) continue;
@@ -188,7 +195,7 @@ export function calculateResizeRipple(params: ResizeRippleParams): PendingChange
 
         // Only affect regions that start at or after the original end
         if (otherStart >= originalEnd) {
-          changes[i] = {
+          changes[otherRegion.id] = {
             originalIdx: otherRegion.id,
             originalStart: otherRegion.start,
             originalEnd: otherRegion.end,
@@ -203,7 +210,7 @@ export function calculateResizeRipple(params: ResizeRippleParams): PendingChange
       // Shift new pending regions (negative keys)
       for (const keyStr of Object.keys(changes)) {
         const key = parseInt(keyStr, 10);
-        if (key >= 0 || key === index) continue;
+        if (key >= 0 || key === id) continue;
         const pending = changes[key];
         if (!pending || pending.isDeleted || !pending.isNew) continue;
 
@@ -226,7 +233,7 @@ export function calculateResizeRipple(params: ResizeRippleParams): PendingChange
  * Parameters for move ripple calculation
  */
 export interface MoveRippleParams {
-  indices: number[];
+  ids: number[];  // Region IDs (not array indices)
   deltaTime: number;
   regions: Region[];
   pendingChanges: PendingChangesRecord;
@@ -241,23 +248,23 @@ export interface MoveRippleParams {
  * Returns the updated pending changes
  */
 export function calculateMoveRipple(params: MoveRippleParams): PendingChangesRecord {
-  const { indices, deltaTime, regions, pendingChanges } = params;
+  const { ids, deltaTime, regions, pendingChanges } = params;
   const changes = { ...pendingChanges };
 
   // First, calculate new positions for moved regions
   const movedRegions: Array<{
-    index: number;
+    id: number;
     newStart: number;
     newEnd: number;
     duration: number;
     oldStart: number;
   }> = [];
 
-  for (const index of indices) {
-    const existing = changes[index];
+  for (const id of ids) {
+    const existing = changes[id];
 
     // Handle new regions (negative keys) - they only exist in pendingChanges
-    if (index < 0) {
+    if (id < 0) {
       if (!existing || !existing.isNew) continue;
 
       const currentStart = existing.newStart;
@@ -267,16 +274,16 @@ export function calculateMoveRipple(params: MoveRippleParams): PendingChangesRec
       const newStart = Math.max(0, currentStart + deltaTime);
       const newEnd = newStart + duration;
 
-      movedRegions.push({ index, newStart, newEnd, duration, oldStart: currentStart });
+      movedRegions.push({ id, newStart, newEnd, duration, oldStart: currentStart });
 
-      changes[index] = {
+      changes[id] = {
         ...existing,
         newStart,
         newEnd,
       };
     } else {
       // Handle existing regions from REAPER
-      const region = regions[index];
+      const region = findRegionById(regions, id);
       if (!region) continue;
 
       const currentStart = existing?.newStart ?? region.start;
@@ -286,9 +293,9 @@ export function calculateMoveRipple(params: MoveRippleParams): PendingChangesRec
       const newStart = Math.max(0, currentStart + deltaTime);
       const newEnd = newStart + duration;
 
-      movedRegions.push({ index, newStart, newEnd, duration, oldStart: currentStart });
+      movedRegions.push({ id, newStart, newEnd, duration, oldStart: currentStart });
 
-      changes[index] = {
+      changes[id] = {
         originalIdx: region.id,
         originalStart: region.start,
         originalEnd: region.end,
@@ -305,14 +312,13 @@ export function calculateMoveRipple(params: MoveRippleParams): PendingChangesRec
     const dragFrom = movedRegions[0].oldStart;
     const dragTo = movedRegions[0].newStart;
     const duration = movedRegions[0].duration;
-    const movedIndices = new Set(indices);
+    const movedIdSet = new Set(ids);
 
     // Process existing regions
-    for (let i = 0; i < regions.length; i++) {
-      if (movedIndices.has(i)) continue;
+    for (const region of regions) {
+      if (movedIdSet.has(region.id)) continue;
 
-      const region = regions[i];
-      const existing = changes[i];
+      const existing = changes[region.id];
       if (existing?.isDeleted) continue;
 
       const P = existing?.newStart ?? region.start;
@@ -321,7 +327,7 @@ export function calculateMoveRipple(params: MoveRippleParams): PendingChangesRec
       const netShift = calculateNetShift(P, dragFrom, dragTo, duration);
 
       if (Math.abs(netShift) > EPSILON) {
-        changes[i] = {
+        changes[region.id] = {
           originalIdx: region.id,
           originalStart: region.start,
           originalEnd: region.end,
@@ -336,7 +342,7 @@ export function calculateMoveRipple(params: MoveRippleParams): PendingChangesRec
     // Process new pending regions (negative keys)
     for (const keyStr of Object.keys(changes)) {
       const key = parseInt(keyStr, 10);
-      if (key >= 0 || movedIndices.has(key)) continue;
+      if (key >= 0 || movedIdSet.has(key)) continue;
       const pending = changes[key];
       if (!pending || pending.isDeleted || !pending.isNew) continue;
 
@@ -425,9 +431,8 @@ export function calculateCreateRipple(params: CreateRippleParams): CreateRippleR
   const newRegionDuration = end - start;
 
   // RIPPLE LOGIC: Apply trim and shift like resizing end edge
-  for (let i = 0; i < regions.length; i++) {
-    const region = regions[i];
-    const existing = changes[i];
+  for (const region of regions) {
+    const existing = changes[region.id];
 
     // Skip deleted regions
     if (existing?.isDeleted) continue;
@@ -437,7 +442,7 @@ export function calculateCreateRipple(params: CreateRippleParams): CreateRippleR
 
     // If this region contains the insertion point, trim its end
     if (regionStart < start - EPSILON && regionEnd > start + EPSILON) {
-      changes[i] = {
+      changes[region.id] = {
         originalIdx: region.id,
         originalStart: region.start,
         originalEnd: region.end,
@@ -449,7 +454,7 @@ export function calculateCreateRipple(params: CreateRippleParams): CreateRippleR
     }
     // If this region starts at or after the insertion point, shift it right
     else if (regionStart >= start - EPSILON) {
-      changes[i] = {
+      changes[region.id] = {
         originalIdx: region.id,
         originalStart: region.start,
         originalEnd: region.end,
@@ -482,7 +487,7 @@ export function calculateCreateRipple(params: CreateRippleParams): CreateRippleR
  * Parameters for delete region ripple calculation
  */
 export interface DeleteRippleParams {
-  index: number;
+  id: number;  // Region ID (not array index)
   mode: DeleteMode;
   regions: Region[];
   pendingChanges: PendingChangesRecord;
@@ -493,11 +498,11 @@ export interface DeleteRippleParams {
  * Returns the updated pending changes
  */
 export function calculateDeleteRipple(params: DeleteRippleParams): PendingChangesRecord {
-  const { index, mode, regions, pendingChanges } = params;
+  const { id, mode, regions, pendingChanges } = params;
   const changes = { ...pendingChanges };
 
   // Handle new regions (negative keys) - they only exist in pendingChanges
-  const isNewRegion = index < 0;
+  const isNewRegion = id < 0;
   let regionStart: number;
   let regionEnd: number;
   let regionName: string;
@@ -505,17 +510,17 @@ export function calculateDeleteRipple(params: DeleteRippleParams): PendingChange
   let regionId: number;
 
   if (isNewRegion) {
-    const pendingRegion = changes[index];
+    const pendingRegion = changes[id];
     if (!pendingRegion || !pendingRegion.isNew) return changes;
     regionStart = pendingRegion.newStart;
     regionEnd = pendingRegion.newEnd;
     regionName = pendingRegion.name;
     regionColor = pendingRegion.color;
-    regionId = index;
+    regionId = id;
   } else {
-    const region = regions[index];
+    const region = findRegionById(regions, id);
     if (!region) return changes;
-    const existing = changes[index];
+    const existing = changes[id];
     regionStart = existing?.newStart ?? region.start;
     regionEnd = existing?.newEnd ?? region.end;
     regionName = existing?.name ?? region.name;
@@ -527,12 +532,13 @@ export function calculateDeleteRipple(params: DeleteRippleParams): PendingChange
 
   // For new regions, remove from pendingChanges; for existing, mark as deleted
   if (isNewRegion) {
-    delete changes[index];
+    delete changes[id];
   } else {
-    changes[index] = {
+    const region = findRegionById(regions, id)!;
+    changes[id] = {
       originalIdx: regionId,
-      originalStart: regions[index].start,
-      originalEnd: regions[index].end,
+      originalStart: region.start,
+      originalEnd: region.end,
       newStart: regionStart,
       newEnd: regionEnd,
       name: regionName,
@@ -542,9 +548,9 @@ export function calculateDeleteRipple(params: DeleteRippleParams): PendingChange
   }
 
   if (mode === 'extend-previous') {
-    applyExtendPreviousRipple(changes, regions, index, regionStart, regionEnd);
+    applyExtendPreviousRipple(changes, regions, id, regionStart, regionEnd);
   } else if (mode === 'ripple-back') {
-    applyRippleBackDelete(changes, regions, index, regionEnd, deletedDuration);
+    applyRippleBackDelete(changes, regions, id, regionEnd, deletedDuration);
   }
   // mode === 'leave-gap' - no additional changes needed
 
@@ -557,7 +563,7 @@ export function calculateDeleteRipple(params: DeleteRippleParams): PendingChange
 function applyExtendPreviousRipple(
   changes: PendingChangesRecord,
   regions: Region[],
-  deletedIndex: number,
+  deletedId: number,
   regionStart: number,
   regionEnd: number
 ): void {
@@ -565,21 +571,21 @@ function applyExtendPreviousRipple(
   let bestPrevEnd = -Infinity;
 
   // Check existing regions
-  for (let i = 0; i < regions.length; i++) {
-    if (i === deletedIndex) continue;
-    const existing = changes[i];
+  for (const region of regions) {
+    if (region.id === deletedId) continue;
+    const existing = changes[region.id];
     if (existing?.isDeleted) continue;
-    const rEnd = existing?.newEnd ?? regions[i].end;
+    const rEnd = existing?.newEnd ?? region.end;
     if (rEnd <= regionStart && rEnd > bestPrevEnd) {
       bestPrevEnd = rEnd;
-      bestPrevKey = i;
+      bestPrevKey = region.id;
     }
   }
 
   // Check new pending regions (negative keys)
   for (const keyStr of Object.keys(changes)) {
     const key = parseInt(keyStr, 10);
-    if (key >= 0 || key === deletedIndex) continue;
+    if (key >= 0 || key === deletedId) continue;
     const pending = changes[key];
     if (!pending || pending.isDeleted || !pending.isNew) continue;
     if (pending.newEnd <= regionStart && pending.newEnd > bestPrevEnd) {
@@ -598,7 +604,7 @@ function applyExtendPreviousRipple(
         newEnd: regionEnd,
       };
     } else {
-      const prevRegion = regions[bestPrevKey];
+      const prevRegion = findRegionById(regions, bestPrevKey)!;
       const prevExisting = changes[bestPrevKey];
       changes[bestPrevKey] = {
         originalIdx: prevRegion.id,
@@ -619,21 +625,20 @@ function applyExtendPreviousRipple(
 function applyRippleBackDelete(
   changes: PendingChangesRecord,
   regions: Region[],
-  deletedIndex: number,
+  deletedId: number,
   regionEnd: number,
   deletedDuration: number
 ): void {
   // Check existing regions
-  for (let i = 0; i < regions.length; i++) {
-    if (i === deletedIndex) continue;
-    const otherRegion = regions[i];
-    const existing = changes[i];
+  for (const otherRegion of regions) {
+    if (otherRegion.id === deletedId) continue;
+    const existing = changes[otherRegion.id];
     if (existing?.isDeleted) continue;
     const otherStart = existing?.newStart ?? otherRegion.start;
     const otherEnd = existing?.newEnd ?? otherRegion.end;
 
     if (otherStart >= regionEnd) {
-      changes[i] = {
+      changes[otherRegion.id] = {
         originalIdx: otherRegion.id,
         originalStart: otherRegion.start,
         originalEnd: otherRegion.end,
@@ -648,7 +653,7 @@ function applyRippleBackDelete(
   // Check new pending regions (negative keys)
   for (const keyStr of Object.keys(changes)) {
     const key = parseInt(keyStr, 10);
-    if (key >= 0 || key === deletedIndex) continue;
+    if (key >= 0 || key === deletedId) continue;
     const pending = changes[key];
     if (!pending || pending.isDeleted || !pending.isNew) continue;
 

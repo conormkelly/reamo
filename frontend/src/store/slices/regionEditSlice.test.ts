@@ -25,11 +25,11 @@ describe('regionEditSlice', () => {
     useReaperStore.setState({
       regions: createTestRegions(),
       timelineMode: 'regions',
-      selectedRegionIndices: [],
+      selectedRegionIds: [],
       pendingChanges: {},
       nextNewRegionKey: -1,
       dragType: 'none',
-      dragRegionIndex: null,
+      dragRegionId: null,
       dragStartX: null,
       dragStartTime: null,
       dragCurrentTime: null,
@@ -288,11 +288,11 @@ describe('regionEditSlice', () => {
       expect(displayRegions.find(r => r.name === 'Bridge')?.end).toBe(40)
       expect(displayRegions.find(r => r.name === 'Outro')?.start).toBe(40)
 
-      // Get the pending key for Bridge (should be -1)
-      const bridgePendingKey = (displayRegions.find(r => r.name === 'Bridge') as any)?._pendingKey
+      // Get the ID for Bridge (should be -1 since it's a new region)
+      const bridgeId = displayRegions.find(r => r.name === 'Bridge')?.id
 
       // Extend Bridge's end from 40 to 45
-      useReaperStore.getState().resizeRegion(bridgePendingKey, 'end', 45, regions, 120)
+      useReaperStore.getState().resizeRegion(bridgeId!, 'end', 45, regions, 120)
 
       displayRegions = useReaperStore.getState().getDisplayRegions(regions)
 
@@ -307,6 +307,7 @@ describe('regionEditSlice', () => {
 
   describe('selection state', () => {
     it('selects and deselects regions', () => {
+      // Regions have IDs 0, 1, 2 matching their indices in createTestRegions
       useReaperStore.getState().selectRegion(0)
       expect(useReaperStore.getState().isRegionSelected(0)).toBe(true)
       expect(useReaperStore.getState().isRegionSelected(1)).toBe(false)
@@ -316,12 +317,13 @@ describe('regionEditSlice', () => {
     })
 
     it('clears selection', () => {
+      // Regions have IDs 0, 1, 2 matching their indices in createTestRegions
       useReaperStore.getState().selectRegion(0)
       useReaperStore.getState().addToSelection(1)
-      expect(useReaperStore.getState().selectedRegionIndices).toEqual([0, 1])
+      expect(useReaperStore.getState().selectedRegionIds).toEqual([0, 1])
 
       useReaperStore.getState().clearSelection()
-      expect(useReaperStore.getState().selectedRegionIndices).toEqual([])
+      expect(useReaperStore.getState().selectedRegionIds).toEqual([])
     })
   })
 
@@ -421,6 +423,7 @@ describe('regionEditSlice', () => {
       it('preserves selection after undo', () => {
         const regions = useReaperStore.getState().regions
 
+        // Region with id=0 is the first one
         useReaperStore.getState().selectRegion(0)
         useReaperStore.getState().resizeRegion(0, 'end', 15, regions, 120)
 
@@ -428,7 +431,7 @@ describe('regionEditSlice', () => {
         useReaperStore.getState().undo()
 
         // Original selection was [0] before the resize
-        expect(useReaperStore.getState().selectedRegionIndices).toEqual([0])
+        expect(useReaperStore.getState().selectedRegionIds).toEqual([0])
       })
     })
 
@@ -620,6 +623,105 @@ describe('regionEditSlice', () => {
         // Should only have 50 items in history (oldest evicted)
         expect(useReaperStore.getState().historyStack.length).toBe(50)
       })
+    })
+  })
+
+  describe('server update during pending edit (ID-KEY FIX VERIFIED)', () => {
+    /**
+     * These tests verify the ID-based keying fix.
+     *
+     * The fix: pendingChanges is now keyed by REGION ID, not array index.
+     * When the server pushes a region update that changes array indices,
+     * pending changes are still correctly applied to the right regions.
+     */
+    it('applies pending changes to correct region after server removes a region', () => {
+      // Setup: 4 regions with explicit IDs
+      const initialRegions: Region[] = [
+        { id: 1, name: 'Region1', start: 0, end: 10 },
+        { id: 2, name: 'Region2', start: 10, end: 20 },
+        { id: 5, name: 'TargetRegion', start: 20, end: 30 },  // index 2
+        { id: 7, name: 'Region4', start: 30, end: 40 },       // index 3
+      ]
+      useReaperStore.setState({
+        regions: initialRegions,
+        pendingChanges: {},
+        timelineMode: 'regions',
+      })
+
+      // User edits region with id=5 - moves it forward by 2 seconds
+      useReaperStore.getState().moveRegion([5], 2, initialRegions)
+
+      // Verify pending change is keyed by region ID (5), not array index (2)
+      const pending = useReaperStore.getState().pendingChanges
+      expect(pending[5]).toBeDefined()  // Keyed by region ID!
+      expect(pending[5].originalIdx).toBe(5)
+      expect(pending[5].newStart).toBe(22)
+
+      // Simulate server update: region id=1 was deleted in REAPER
+      // This is what happens when someone deletes a region in REAPER directly
+      const updatedRegions: Region[] = [
+        { id: 2, name: 'Region2', start: 10, end: 20 },       // now index 0
+        { id: 5, name: 'TargetRegion', start: 20, end: 30 },  // now index 1 (was 2!)
+        { id: 7, name: 'Region4', start: 30, end: 40 },       // now index 2 (was 3!)
+      ]
+      useReaperStore.getState().setRegions(updatedRegions)
+
+      // Get display regions - now correctly looks up by region.id
+      const displayRegions = useReaperStore.getState().getDisplayRegions(updatedRegions)
+
+      // CORRECT BEHAVIOR: TargetRegion (id=5) should show pending position 22
+      const targetRegion = displayRegions.find(r => r.id === 5)
+      expect(targetRegion?.start).toBe(22)
+
+      // CORRECT BEHAVIOR: Region4 (id=7) should have its pending ripple correctly applied
+      // The ripple logic uses "remove then insert" - region 7 shifts back to fill the gap
+      // left by region 5, and since the insert point (22) is after region 7's new position (20),
+      // region 7 stays at 20. The key point is: region 7 should NOT have the pending change
+      // that was meant for region 5 (which would incorrectly put it at 22).
+      const region4 = displayRegions.find(r => r.id === 7)
+      expect(region4?.start).toBe(20)
+    })
+
+    it('applies pending changes to correct region after server adds a region', () => {
+      // Setup: 3 regions
+      const initialRegions: Region[] = [
+        { id: 1, name: 'Region1', start: 0, end: 10 },
+        { id: 2, name: 'TargetRegion', start: 10, end: 20 },  // index 1
+        { id: 3, name: 'Region3', start: 20, end: 30 },       // index 2
+      ]
+      useReaperStore.setState({
+        regions: initialRegions,
+        pendingChanges: {},
+        timelineMode: 'regions',
+      })
+
+      // User edits region with id=2 - resizes end to 25
+      useReaperStore.getState().resizeRegion(2, 'end', 25, initialRegions, 120)
+
+      // Verify pending change is keyed by region ID (2), not array index (1)
+      const pending = useReaperStore.getState().pendingChanges
+      expect(pending[2]).toBeDefined()  // Keyed by region ID!
+      expect(pending[2].originalIdx).toBe(2)
+      expect(pending[2].newEnd).toBe(25)
+
+      // Simulate server update: a new region was added at the beginning
+      const updatedRegions: Region[] = [
+        { id: 99, name: 'NewRegion', start: 0, end: 5 },      // NEW - now index 0
+        { id: 1, name: 'Region1', start: 5, end: 10 },        // now index 1 (was 0!)
+        { id: 2, name: 'TargetRegion', start: 10, end: 20 },  // now index 2 (was 1!)
+        { id: 3, name: 'Region3', start: 20, end: 30 },       // now index 3 (was 2!)
+      ]
+      useReaperStore.getState().setRegions(updatedRegions)
+
+      const displayRegions = useReaperStore.getState().getDisplayRegions(updatedRegions)
+
+      // CORRECT BEHAVIOR: TargetRegion (id=2) should show pending end of 25
+      const targetRegion = displayRegions.find(r => r.id === 2)
+      expect(targetRegion?.end).toBe(25)
+
+      // CORRECT BEHAVIOR: Region1 (id=1, now at index 1) should NOT have our pending change
+      const region1 = displayRegions.find(r => r.id === 1)
+      expect(region1?.end).toBe(10)  // Should be unchanged
     })
   })
 })

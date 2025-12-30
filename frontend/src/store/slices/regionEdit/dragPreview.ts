@@ -3,6 +3,8 @@
  *
  * Calculates the live preview of regions during drag operations,
  * showing ripple effects in real-time.
+ *
+ * KEY DESIGN: Uses region IDs (not array indices) for stability.
  */
 
 import type { Region } from '../../../core/types';
@@ -17,7 +19,7 @@ const EPSILON = 0.001;
  */
 export interface DragPreviewState {
   dragType: DragType;
-  dragRegionIndex: number | null;
+  dragRegionId: number | null;  // Region ID (not array index)
   dragStartTime: number | null;
   dragCurrentTime: number | null;
   bpm?: number | null;
@@ -43,10 +45,10 @@ export function calculateDragPreview(
   displayRegions: DisplayRegion[],
   state: DragPreviewState
 ): DragPreviewResult {
-  const { dragType, dragRegionIndex, dragStartTime, dragCurrentTime, bpm } = state;
+  const { dragType, dragRegionId, dragStartTime, dragCurrentTime, bpm } = state;
 
   // If not dragging, return regions as-is
-  if (dragType === 'none' || dragRegionIndex === null || dragStartTime === null || dragCurrentTime === null) {
+  if (dragType === 'none' || dragRegionId === null || dragStartTime === null || dragCurrentTime === null) {
     return {
       regions: displayRegions,
       insertionPoint: null,
@@ -64,8 +66,8 @@ export function calculateDragPreview(
   }
 
   // Create a mutable copy for preview calculations
-  const previewRegions = displayRegions.map((r, idx) => ({ ...r, _originalIdx: idx }));
-  const draggedRegion = previewRegions[dragRegionIndex];
+  const previewRegions = displayRegions.map((r) => ({ ...r }));
+  const draggedRegion = previewRegions.find((r) => r.id === dragRegionId);
 
   if (!draggedRegion) {
     return {
@@ -76,11 +78,11 @@ export function calculateDragPreview(
   }
 
   if (dragType === 'resize-start') {
-    return calculateResizeStartPreview(previewRegions, draggedRegion, dragRegionIndex, dragCurrentTime, bpm);
+    return calculateResizeStartPreview(previewRegions, draggedRegion, dragCurrentTime, bpm);
   } else if (dragType === 'resize-end') {
-    return calculateResizeEndPreview(previewRegions, draggedRegion, dragRegionIndex, dragCurrentTime, bpm);
+    return calculateResizeEndPreview(previewRegions, draggedRegion, dragCurrentTime, bpm);
   } else if (dragType === 'move') {
-    return calculateMovePreview(previewRegions, draggedRegion, dragRegionIndex, delta);
+    return calculateMovePreview(previewRegions, draggedRegion, delta);
   }
 
   return {
@@ -96,7 +98,6 @@ export function calculateDragPreview(
 function calculateResizeStartPreview(
   previewRegions: Region[],
   draggedRegion: Region,
-  dragRegionIndex: number,
   dragCurrentTime: number,
   bpm: number | null | undefined
 ): DragPreviewResult {
@@ -107,18 +108,23 @@ function calculateResizeStartPreview(
 
   const minLength = 0.5;
   const originalStart = draggedRegion.start;
+  const draggedId = draggedRegion.id;
 
   if (draggedRegion.end - newStart >= minLength) {
-    previewRegions[dragRegionIndex] = {
-      ...draggedRegion,
-      start: newStart,
-    };
+    // Update the dragged region
+    const draggedIdx = previewRegions.findIndex((r) => r.id === draggedId);
+    if (draggedIdx !== -1) {
+      previewRegions[draggedIdx] = {
+        ...draggedRegion,
+        start: newStart,
+      };
+    }
 
     // RIPPLE: When extending start backwards, trim overlapped regions
     if (newStart < originalStart) {
       for (let i = 0; i < previewRegions.length; i++) {
-        if (i === dragRegionIndex) continue;
         const region = previewRegions[i];
+        if (region.id === draggedId) continue;
         if (region.end > newStart && region.start < newStart) {
           previewRegions[i] = {
             ...region,
@@ -148,7 +154,6 @@ function calculateResizeStartPreview(
 function calculateResizeEndPreview(
   previewRegions: Region[],
   draggedRegion: Region,
-  dragRegionIndex: number,
   dragCurrentTime: number,
   bpm: number | null | undefined
 ): DragPreviewResult {
@@ -159,19 +164,24 @@ function calculateResizeEndPreview(
 
   const minLength = 0.5;
   const originalEnd = draggedRegion.end;
+  const draggedId = draggedRegion.id;
 
   if (newEnd - draggedRegion.start >= minLength) {
-    previewRegions[dragRegionIndex] = {
-      ...draggedRegion,
-      end: newEnd,
-    };
+    // Update the dragged region
+    const draggedIdx = previewRegions.findIndex((r) => r.id === draggedId);
+    if (draggedIdx !== -1) {
+      previewRegions[draggedIdx] = {
+        ...draggedRegion,
+        end: newEnd,
+      };
+    }
 
     // RIPPLE: Shift subsequent regions when extending/shrinking end
     const resizeDelta = newEnd - originalEnd;
 
     for (let i = 0; i < previewRegions.length; i++) {
-      if (i === dragRegionIndex) continue;
       const region = previewRegions[i];
+      if (region.id === draggedId) continue;
       if (region.start >= originalEnd - EPSILON) {
         previewRegions[i] = {
           ...region,
@@ -201,19 +211,19 @@ function calculateResizeEndPreview(
 function calculateMovePreview(
   previewRegions: Region[],
   draggedRegion: Region,
-  dragRegionIndex: number,
   delta: number
 ): DragPreviewResult {
   const duration = draggedRegion.end - draggedRegion.start;
   const dragFrom = draggedRegion.start;
   const dragTo = Math.max(0, draggedRegion.start + delta);
   const newEnd = dragTo + duration;
+  const draggedId = draggedRegion.id;
 
   // Build the preview with proper ripple shifts
   const finalRegions: Region[] = [];
 
-  for (let i = 0; i < previewRegions.length; i++) {
-    if (i === dragRegionIndex) {
+  for (const region of previewRegions) {
+    if (region.id === draggedId) {
       // Add the dragged region at its new position
       finalRegions.push({
         ...draggedRegion,
@@ -221,7 +231,6 @@ function calculateMovePreview(
         end: newEnd,
       });
     } else {
-      const region = previewRegions[i];
       const P = region.start;
 
       // Calculate net shift using "remove then insert" logic

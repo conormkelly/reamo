@@ -42,11 +42,18 @@ export interface PendingRegionChange {
 
 /** Extended region type with pending metadata for display */
 export type DisplayRegion = Region & {
-  _pendingKey: number;
   _isNew?: boolean;
 };
 
-/** Record of pending changes keyed by region index */
+/**
+ * Record of pending changes keyed by REGION ID (not array index).
+ *
+ * - For existing regions: key = region.id (REAPER's markrgnidx, always positive)
+ * - For new regions: key = negative number from nextNewRegionKey counter
+ *
+ * This ensures pending changes track correctly even when the server pushes
+ * updates that change array indices (e.g., region added/deleted in REAPER).
+ */
 export type PendingChangesRecord = Record<number, PendingRegionChange>;
 
 /**
@@ -56,23 +63,23 @@ export type PendingChangesRecord = Record<number, PendingRegionChange>;
 export interface RegionEditHistorySnapshot {
   pendingChanges: PendingChangesRecord;
   nextNewRegionKey: number;
-  selectedRegionIndices: number[];
+  selectedRegionIds: number[];
 }
 
 export interface RegionEditSlice {
   // Mode state
   timelineMode: TimelineMode;
 
-  // Selection state (indices into the regions array)
-  selectedRegionIndices: number[];
+  // Selection state (region IDs, not array indices)
+  selectedRegionIds: number[];
 
-  // Pending changes (keyed by original index, or negative for new regions)
+  // Pending changes (keyed by region ID, or negative for new regions)
   pendingChanges: PendingChangesRecord;
   nextNewRegionKey: number; // Counter for new region keys (negative)
 
   // Drag state
   dragType: DragType;
-  dragRegionIndex: number | null;
+  dragRegionId: number | null;
   dragStartX: number | null;
   dragStartTime: number | null;
   dragCurrentTime: number | null;
@@ -94,23 +101,23 @@ export interface RegionEditSlice {
   // Mode actions
   setTimelineMode: (mode: TimelineMode) => void;
 
-  // Selection actions
-  selectRegion: (index: number) => void;
-  addToSelection: (index: number) => void;
-  deselectRegion: (index: number) => void;
+  // Selection actions (all use region ID, not array index)
+  selectRegion: (id: number) => void;
+  addToSelection: (id: number) => void;
+  deselectRegion: (id: number) => void;
   clearSelection: () => void;
-  isRegionSelected: (index: number) => boolean;
+  isRegionSelected: (id: number) => boolean;
 
-  // Edit actions (modify pending state only)
-  resizeRegion: (index: number, edge: 'start' | 'end', newTime: number, regions: Region[], bpm: number | null) => void;
-  moveRegion: (indices: number[], deltaTime: number, regions: Region[]) => void;
+  // Edit actions (all use region ID, not array index)
+  resizeRegion: (id: number, edge: 'start' | 'end', newTime: number, regions: Region[], bpm: number | null) => void;
+  moveRegion: (ids: number[], deltaTime: number, regions: Region[]) => void;
   createRegion: (start: number, end: number, name: string, bpm: number | null, color: number | undefined, regions: Region[]) => void;
-  deleteRegion: (index: number, regions: Region[]) => void;
-  deleteRegionWithMode: (index: number, mode: DeleteMode, regions: Region[]) => void;
-  updateRegionMeta: (index: number, updates: { name?: string; color?: number }, regions: Region[]) => void;
+  deleteRegion: (id: number, regions: Region[]) => void;
+  deleteRegionWithMode: (id: number, mode: DeleteMode, regions: Region[]) => void;
+  updateRegionMeta: (id: number, updates: { name?: string; color?: number }, regions: Region[]) => void;
 
-  // Drag actions
-  startDrag: (type: DragType, index: number, x: number, time: number) => void;
+  // Drag actions (use region ID)
+  startDrag: (type: DragType, id: number, x: number, time: number) => void;
   updateDrag: (x: number, time: number) => void;
   endDrag: () => void;
   cancelDrag: () => void;
@@ -132,6 +139,6 @@ export interface RegionEditSlice {
   // Helpers
   hasPendingChanges: () => boolean;
   getDisplayRegions: (regions: Region[]) => DisplayRegion[];
-  getPendingChange: (index: number) => PendingRegionChange | undefined;
+  getPendingChange: (id: number) => PendingRegionChange | undefined;
   getDragPreviewRegions: (regions: Region[]) => Region[];
 }

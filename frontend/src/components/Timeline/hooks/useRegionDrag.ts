@@ -5,6 +5,9 @@
  * Vertical-cancel: When the user drags their finger/pointer too far up or down
  * from the start position, the drag is cancelled and the region returns to its
  * original position. This matches the behavior of usePlayheadDrag and useMarkerDrag.
+ *
+ * KEY DESIGN: All region references use region.id (REAPER's markrgnidx),
+ * NOT array indices. This ensures stability when server pushes updates.
  */
 
 import { useState, useRef, useCallback, useEffect, type RefObject } from 'react';
@@ -34,8 +37,8 @@ export interface UseRegionDragOptions {
   displayRegions: Region[];
   /** Base display regions (original positions, used for snap calculations) */
   baseDisplayRegions: Region[];
-  /** Currently selected region indices */
-  selectedRegionIndices: number[];
+  /** Currently selected region IDs */
+  selectedRegionIds: number[];
   /** Original regions from REAPER */
   regions: Region[];
   /** Convert time to percentage */
@@ -45,24 +48,24 @@ export interface UseRegionDragOptions {
 
   // Store state
   regionDragType: DragType;
-  regionDragIndex: number | null;
+  regionDragId: number | null;
   dragStartTime: number | null;
   dragCurrentTime: number | null;
 
-  // Store actions
-  isRegionSelected: (index: number) => boolean;
-  selectRegion: (index: number) => void;
-  deselectRegion: (index: number) => void;
+  // Store actions (all use region ID, not array index)
+  isRegionSelected: (id: number) => boolean;
+  selectRegion: (id: number) => void;
+  deselectRegion: (id: number) => void;
   clearSelection: () => void;
-  startDrag: (type: DragType, index: number, x: number, time: number) => void;
+  startDrag: (type: DragType, id: number, x: number, time: number) => void;
   updateDrag: (x: number, time: number) => void;
   endDrag: () => void;
   cancelDrag: () => void;
-  resizeRegion: (index: number, edge: 'start' | 'end', newTime: number, regions: Region[], bpm: number | null) => void;
-  moveRegion: (indices: number[], delta: number, regions: Region[]) => void;
+  resizeRegion: (id: number, edge: 'start' | 'end', newTime: number, regions: Region[], bpm: number | null) => void;
+  moveRegion: (ids: number[], delta: number, regions: Region[]) => void;
 
   // Callbacks
-  onEditRegion?: (region: Region, index: number) => void;
+  onEditRegion?: (region: Region) => void;
 }
 
 export interface UseRegionDragResult {
@@ -74,10 +77,10 @@ export interface UseRegionDragResult {
   handlePointerUp: (e: React.PointerEvent) => void;
   /** Whether the current drag is cancelled (pointer moved too far vertically) */
   isCancelled: boolean;
-  /** Find region index at a given clientX position */
-  findRegionIndexAtPosition: (clientX: number) => number | null;
+  /** Find region at a given clientX position, returns region or null */
+  findRegionAtPosition: (clientX: number) => Region | null;
   /** Determine drag type based on click position within a region */
-  detectDragType: (clientX: number, regionIndex: number) => DragType;
+  detectDragType: (clientX: number, region: Region) => DragType;
 }
 
 export function useRegionDrag({
@@ -87,12 +90,12 @@ export function useRegionDrag({
   bpm,
   displayRegions,
   baseDisplayRegions,
-  selectedRegionIndices,
+  selectedRegionIds,
   regions,
   timeToPercent,
   positionToTime,
   regionDragType,
-  regionDragIndex,
+  regionDragId,
   dragStartTime,
   dragCurrentTime,
   isRegionSelected,
@@ -126,16 +129,15 @@ export function useRegionDrag({
     };
   }, []);
 
-  // Find region index at position
-  const findRegionIndexAtPosition = useCallback(
-    (clientX: number): number | null => {
+  // Find region at position (returns the region itself, not an index)
+  const findRegionAtPosition = useCallback(
+    (clientX: number): Region | null => {
       if (!containerRef.current) return null;
       const time = positionToTime(clientX);
 
-      for (let i = 0; i < displayRegions.length; i++) {
-        const region = displayRegions[i];
+      for (const region of displayRegions) {
         if (time >= region.start && time < region.end) {
-          return i;
+          return region;
         }
       }
       return null;
@@ -145,12 +147,10 @@ export function useRegionDrag({
 
   // Determine drag type based on click position
   const detectDragType = useCallback(
-    (clientX: number, regionIndex: number): DragType => {
+    (clientX: number, region: Region): DragType => {
       if (!containerRef.current) return 'move';
 
       const rect = containerRef.current.getBoundingClientRect();
-      const region = displayRegions[regionIndex];
-      if (!region) return 'move';
 
       const startPercent = timeToPercent(region.start);
       const endPercent = timeToPercent(region.end);
@@ -166,7 +166,7 @@ export function useRegionDrag({
       }
       return 'move';
     },
-    [displayRegions, timeToPercent, containerRef]
+    [timeToPercent, containerRef]
   );
 
   // Check if pointer is outside vertical cancel threshold
@@ -188,21 +188,21 @@ export function useRegionDrag({
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
       const time = positionToTime(e.clientX);
-      const regionIndex = findRegionIndexAtPosition(e.clientX);
+      const region = findRegionAtPosition(e.clientX);
 
-      if (regionIndex !== null) {
-        const wasSelected = isRegionSelected(regionIndex);
-        const dragType = detectDragType(e.clientX, regionIndex);
+      if (region !== null) {
+        const regionId = region.id;
+        const wasSelected = isRegionSelected(regionId);
+        const dragType = detectDragType(e.clientX, region);
 
         // Track selection state at tap start for toggle behavior in pointerUp
         wasSelectedOnTapStartRef.current = wasSelected;
 
         // If already selected and tapped again, start long-press timer for edit modal
-        if (wasSelected && selectedRegionIndices.length === 1) {
+        if (wasSelected && selectedRegionIds.length === 1) {
           holdTimerRef.current = setTimeout(() => {
-            const region = displayRegions[regionIndex];
-            if (region && onEditRegion) {
-              onEditRegion(region, regionIndex);
+            if (onEditRegion) {
+              onEditRegion(region);
             }
             // Cancel any drag
             cancelDrag();
@@ -211,14 +211,14 @@ export function useRegionDrag({
           }, REGION_HOLD_THRESHOLD);
         }
 
-        // Start drag operation
-        startDrag(dragType, regionIndex, e.clientX, time);
+        // Start drag operation with region ID
+        startDrag(dragType, regionId, e.clientX, time);
         setDragStartY(e.clientY);
         setIsCancelled(false);
 
         // Select the region if not already selected
         if (!wasSelected) {
-          selectRegion(regionIndex);
+          selectRegion(regionId);
         }
       } else {
         // Tapped on empty area - clear selection
@@ -230,11 +230,10 @@ export function useRegionDrag({
     },
     [
       positionToTime,
-      findRegionIndexAtPosition,
+      findRegionAtPosition,
       isRegionSelected,
       detectDragType,
-      selectedRegionIndices,
-      displayRegions,
+      selectedRegionIds,
       startDrag,
       selectRegion,
       clearSelection,
@@ -247,7 +246,7 @@ export function useRegionDrag({
     (e: React.PointerEvent) => {
       const time = positionToTime(e.clientX);
 
-      if (regionDragType === 'none' || regionDragIndex === null) return;
+      if (regionDragType === 'none' || regionDragId === null) return;
 
       // Clear long-press timer if we moved
       if (holdTimerRef.current) {
@@ -267,12 +266,12 @@ export function useRegionDrag({
 
       // For move operations, snap to valid insertion points only
       if (regionDragType === 'move' && dragStartTime !== null) {
-        const indicesToMove = selectedRegionIndices.length > 0
-          ? selectedRegionIndices
-          : [regionDragIndex];
+        const idsToMove = selectedRegionIds.length > 0
+          ? selectedRegionIds
+          : [regionDragId];
 
         // Use baseDisplayRegions (positions BEFORE the drag), not displayRegions (preview)
-        const primaryRegion = baseDisplayRegions[regionDragIndex];
+        const primaryRegion = baseDisplayRegions.find(r => r.id === regionDragId);
         if (primaryRegion) {
           // Calculate where the region's start would be after the move
           const delta = time - dragStartTime;
@@ -286,8 +285,8 @@ export function useRegionDrag({
           snapPoints.push(primaryRegion.start);
 
           let lastEnd = 0;
-          baseDisplayRegions.forEach((region, index) => {
-            if (!indicesToMove.includes(index)) {
+          baseDisplayRegions.forEach((region) => {
+            if (!idsToMove.includes(region.id)) {
               if (region.start < primaryRegion.start) {
                 // Regions BEFORE: their starts are valid as-is
                 snapPoints.push(region.start);
@@ -334,11 +333,11 @@ export function useRegionDrag({
     [
       positionToTime,
       regionDragType,
-      regionDragIndex,
+      regionDragId,
       dragStartTime,
       isVerticalCancelActive,
       updateDrag,
-      selectedRegionIndices,
+      selectedRegionIds,
       baseDisplayRegions,
       bpm,
     ]
@@ -352,7 +351,7 @@ export function useRegionDrag({
         holdTimerRef.current = null;
       }
 
-      if (regionDragType !== 'none' && regionDragIndex !== null && dragStartTime !== null && dragCurrentTime !== null) {
+      if (regionDragType !== 'none' && regionDragId !== null && dragStartTime !== null && dragCurrentTime !== null) {
         const delta = dragCurrentTime - dragStartTime;
         const wasDragging = Math.abs(delta) > 0.05; // More than 50ms movement
 
@@ -367,36 +366,25 @@ export function useRegionDrag({
         }
 
         if (wasDragging) {
-          // Get the region from baseDisplayRegions (original positions)
-          const region = baseDisplayRegions[regionDragIndex];
-          if (region) {
-            // Convert display index to region index via _pendingKey
-            const regionIndex = (region as { _pendingKey?: number })._pendingKey ?? regionDragIndex;
+          // regionDragId IS the region ID we need
+          if (regionDragType === 'resize-start') {
+            resizeRegion(regionDragId, 'start', dragCurrentTime, regions, bpm);
+          } else if (regionDragType === 'resize-end') {
+            resizeRegion(regionDragId, 'end', dragCurrentTime, regions, bpm);
+          } else if (regionDragType === 'move') {
+            // selectedRegionIds ARE the IDs we need
+            const idsToMove = selectedRegionIds.length > 0
+              ? selectedRegionIds
+              : [regionDragId];
 
-            if (regionDragType === 'resize-start') {
-              resizeRegion(regionIndex, 'start', dragCurrentTime, regions, bpm);
-            } else if (regionDragType === 'resize-end') {
-              resizeRegion(regionIndex, 'end', dragCurrentTime, regions, bpm);
-            } else if (regionDragType === 'move') {
-              // Convert display indices to region indices
-              const displayIndicesToMove = selectedRegionIndices.length > 0
-                ? selectedRegionIndices
-                : [regionDragIndex];
-
-              const regionIndicesToMove = displayIndicesToMove.map(displayIdx => {
-                const r = baseDisplayRegions[displayIdx] as { _pendingKey?: number };
-                return r._pendingKey ?? displayIdx;
-              });
-
-              // Move region(s) - selection is cleared since display indices may change after reordering
-              moveRegion(regionIndicesToMove, delta, regions);
-              clearSelection();
-            }
+            // Move region(s) - selection is cleared since display order may change after reordering
+            moveRegion(idsToMove, delta, regions);
+            clearSelection();
           }
         } else {
           // Was just a tap - toggle selection only if it was already selected before tap started
           if (wasSelectedOnTapStartRef.current) {
-            deselectRegion(regionDragIndex);
+            deselectRegion(regionDragId);
           }
         }
       }
@@ -408,12 +396,11 @@ export function useRegionDrag({
     },
     [
       regionDragType,
-      regionDragIndex,
+      regionDragId,
       dragStartTime,
       dragCurrentTime,
       isCancelled,
-      baseDisplayRegions,
-      selectedRegionIndices,
+      selectedRegionIds,
       regions,
       bpm,
       resizeRegion,
@@ -429,7 +416,7 @@ export function useRegionDrag({
     handlePointerMove,
     handlePointerUp,
     isCancelled,
-    findRegionIndexAtPosition,
+    findRegionAtPosition,
     detectDragType,
   };
 }

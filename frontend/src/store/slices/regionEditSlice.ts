@@ -2,6 +2,10 @@
  * Region Edit state slice
  * Manages region editing mode, selection, and pending changes
  * Always uses ripple edit behavior (regions shift to accommodate changes)
+ *
+ * KEY DESIGN: All region references use region.id (REAPER's markrgnidx),
+ * NOT array indices. This ensures stability when server pushes updates
+ * that change array ordering.
  */
 
 import type { StateCreator } from 'zustand';
@@ -23,14 +27,21 @@ import {
 /** Combined store type for proper typing of get() - includes shared state from other slices */
 type RegionEditStore = RegionEditSharedState & RegionEditSlice;
 
+/** Helper to find a region by ID (works for both positive IDs from REAPER and negative IDs for new regions) */
+function findRegionById(regions: Region[], id: number): Region | undefined {
+  // Negative IDs are new regions that don't exist in the regions array
+  if (id < 0) return undefined;
+  return regions.find((r) => r.id === id);
+}
+
 export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], RegionEditSlice> = (set, get) => ({
   // Initial state
   timelineMode: 'navigate',
-  selectedRegionIndices: [],
+  selectedRegionIds: [],
   pendingChanges: {},
   nextNewRegionKey: -1,
   dragType: 'none',
-  dragRegionIndex: null,
+  dragRegionId: null,
   dragStartX: null,
   dragStartTime: null,
   dragCurrentTime: null,
@@ -49,48 +60,48 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
     }
 
     // When entering regions mode, auto-select the region at current playhead position
-    let autoSelectedIndex: number[] = [];
+    let autoSelectedIds: number[] = [];
     if (mode === 'regions') {
       const { positionSeconds, regions } = get();
 
       // Find region containing the playhead (start <= position < end)
-      const regionIndex = regions.findIndex(
+      const region = regions.find(
         (r) => r.start <= positionSeconds && positionSeconds < r.end
       );
-      if (regionIndex !== -1) {
-        autoSelectedIndex = [regionIndex];
+      if (region) {
+        autoSelectedIds = [region.id];
       }
     }
 
-    set({ timelineMode: mode, selectedRegionIndices: autoSelectedIndex });
+    set({ timelineMode: mode, selectedRegionIds: autoSelectedIds });
   },
 
-  // Selection actions
-  selectRegion: (index) => set({ selectedRegionIndices: [index] }),
+  // Selection actions (all use region ID)
+  selectRegion: (id) => set({ selectedRegionIds: [id] }),
 
-  addToSelection: (index) => {
-    const current = get().selectedRegionIndices;
-    if (!current.includes(index)) {
-      set({ selectedRegionIndices: [...current, index].sort((a, b) => a - b) });
+  addToSelection: (id) => {
+    const current = get().selectedRegionIds;
+    if (!current.includes(id)) {
+      set({ selectedRegionIds: [...current, id].sort((a, b) => a - b) });
     }
   },
 
-  deselectRegion: (index) => {
-    const current = get().selectedRegionIndices;
-    set({ selectedRegionIndices: current.filter((i) => i !== index) });
+  deselectRegion: (id) => {
+    const current = get().selectedRegionIds;
+    set({ selectedRegionIds: current.filter((i) => i !== id) });
   },
 
-  clearSelection: () => set({ selectedRegionIndices: [] }),
+  clearSelection: () => set({ selectedRegionIds: [] }),
 
-  isRegionSelected: (index) => get().selectedRegionIndices.includes(index),
+  isRegionSelected: (id) => get().selectedRegionIds.includes(id),
 
-  // Edit actions (always ripple mode)
-  resizeRegion: (index, edge, newTime, regions, bpm) => {
+  // Edit actions (all use region ID, always ripple mode)
+  resizeRegion: (id, edge, newTime, regions, bpm) => {
     get().pushToHistory();
     const { timeSignatureNumerator, timeSignatureDenominator } = get();
 
     const changes = calculateResizeRipple({
-      index,
+      id,
       edge,
       newTime,
       regions,
@@ -102,10 +113,10 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
     set({ pendingChanges: changes });
   },
 
-  moveRegion: (indices, deltaTime, regions) => {
+  moveRegion: (ids, deltaTime, regions) => {
     get().pushToHistory();
     const changes = calculateMoveRipple({
-      indices,
+      ids,
       deltaTime,
       regions,
       pendingChanges: get().pendingChanges,
@@ -135,15 +146,31 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
     });
   },
 
-  deleteRegion: (index, regions) => {
-    const region = regions[index];
+  deleteRegion: (id, regions) => {
+    // For new regions (negative ID), they only exist in pendingChanges
+    if (id < 0) {
+      const existing = get().pendingChanges[id];
+      if (!existing) return;
+
+      get().pushToHistory();
+      const changes = { ...get().pendingChanges };
+      delete changes[id]; // Just remove from pendingChanges
+      set({
+        pendingChanges: changes,
+        selectedRegionIds: get().selectedRegionIds.filter((i) => i !== id),
+      });
+      return;
+    }
+
+    // For existing regions, find by ID
+    const region = findRegionById(regions, id);
     if (!region) return;
 
     get().pushToHistory();
     set({
       pendingChanges: {
         ...get().pendingChanges,
-        [index]: {
+        [id]: {
           originalIdx: region.id,
           originalStart: region.start,
           originalEnd: region.end,
@@ -154,42 +181,42 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
           isDeleted: true,
         },
       },
-      selectedRegionIndices: get().selectedRegionIndices.filter((i) => i !== index),
+      selectedRegionIds: get().selectedRegionIds.filter((i) => i !== id),
     });
   },
 
-  deleteRegionWithMode: (index, mode, regions) => {
+  deleteRegionWithMode: (id, mode, regions) => {
     get().pushToHistory();
     const changes = calculateDeleteRipple({
-      index,
+      id,
       mode,
       regions,
       pendingChanges: get().pendingChanges,
     });
     set({
       pendingChanges: changes,
-      selectedRegionIndices: get().selectedRegionIndices.filter((i) => i !== index),
+      selectedRegionIds: get().selectedRegionIds.filter((i) => i !== id),
     });
   },
 
-  updateRegionMeta: (index, updates, regions) => {
+  updateRegionMeta: (id, updates, regions) => {
     get().pushToHistory();
     const changes = { ...get().pendingChanges };
-    const existing = changes[index];
+    const existing = changes[id];
 
     // Handle new regions (negative keys) - they only exist in pendingChanges
-    if (index < 0) {
+    if (id < 0) {
       if (!existing) return;
-      changes[index] = {
+      changes[id] = {
         ...existing,
         name: updates.name ?? existing.name,
         color: updates.color ?? existing.color,
       };
     } else {
-      const region = regions[index];
+      const region = findRegionById(regions, id);
       if (!region) return;
 
-      changes[index] = {
+      changes[id] = {
         originalIdx: region.id,
         originalStart: region.start,
         originalEnd: region.end,
@@ -203,11 +230,11 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
     set({ pendingChanges: changes });
   },
 
-  // Drag actions
-  startDrag: (type, index, x, time) =>
+  // Drag actions (use region ID)
+  startDrag: (type, id, x, time) =>
     set({
       dragType: type,
-      dragRegionIndex: index,
+      dragRegionId: id,
       dragStartX: x,
       dragStartTime: time,
       dragCurrentTime: time,
@@ -218,7 +245,7 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
   endDrag: () =>
     set({
       dragType: 'none',
-      dragRegionIndex: null,
+      dragRegionId: null,
       dragStartX: null,
       dragStartTime: null,
       dragCurrentTime: null,
@@ -229,7 +256,7 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
   cancelDrag: () =>
     set({
       dragType: 'none',
-      dragRegionIndex: null,
+      dragRegionId: null,
       dragStartX: null,
       dragStartTime: null,
       dragCurrentTime: null,
@@ -242,7 +269,7 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
     set({
       pendingChanges: {},
       nextNewRegionKey: -1,
-      selectedRegionIndices: [],
+      selectedRegionIds: [],
       isCommitting: false,
       commitError: null,
       historyStack: [],
@@ -254,7 +281,7 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
     set({
       pendingChanges: {},
       nextNewRegionKey: -1,
-      selectedRegionIndices: [],
+      selectedRegionIds: [],
       isCommitting: false,
       commitError: null,
       historyStack: [],
@@ -266,14 +293,14 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
 
   // Undo/redo actions
   pushToHistory: () => {
-    const { pendingChanges, nextNewRegionKey, selectedRegionIndices, historyStack } = get();
+    const { pendingChanges, nextNewRegionKey, selectedRegionIds, historyStack } = get();
     const maxHistorySize = 50;
 
     // Create snapshot of current state
     const snapshot = {
       pendingChanges: { ...pendingChanges },
       nextNewRegionKey,
-      selectedRegionIndices: [...selectedRegionIndices],
+      selectedRegionIds: [...selectedRegionIds],
     };
 
     // Add to history stack, respecting max size
@@ -289,7 +316,7 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
   },
 
   undo: () => {
-    const { historyStack, pendingChanges, nextNewRegionKey, selectedRegionIndices, redoStack } = get();
+    const { historyStack, pendingChanges, nextNewRegionKey, selectedRegionIds, redoStack } = get();
 
     if (historyStack.length === 0) return;
 
@@ -297,7 +324,7 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
     const currentSnapshot = {
       pendingChanges: { ...pendingChanges },
       nextNewRegionKey,
-      selectedRegionIndices: [...selectedRegionIndices],
+      selectedRegionIds: [...selectedRegionIds],
     };
 
     // Pop last state from history stack
@@ -307,14 +334,14 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
     set({
       pendingChanges: previousState.pendingChanges,
       nextNewRegionKey: previousState.nextNewRegionKey,
-      selectedRegionIndices: previousState.selectedRegionIndices,
+      selectedRegionIds: previousState.selectedRegionIds,
       historyStack: newHistoryStack,
       redoStack: [...redoStack, currentSnapshot],
     });
   },
 
   redo: () => {
-    const { redoStack, pendingChanges, nextNewRegionKey, selectedRegionIndices, historyStack } = get();
+    const { redoStack, pendingChanges, nextNewRegionKey, selectedRegionIds, historyStack } = get();
 
     if (redoStack.length === 0) return;
 
@@ -322,7 +349,7 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
     const currentSnapshot = {
       pendingChanges: { ...pendingChanges },
       nextNewRegionKey,
-      selectedRegionIndices: [...selectedRegionIndices],
+      selectedRegionIds: [...selectedRegionIds],
     };
 
     // Pop from redo stack
@@ -332,7 +359,7 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
     set({
       pendingChanges: nextState.pendingChanges,
       nextNewRegionKey: nextState.nextNewRegionKey,
-      selectedRegionIndices: nextState.selectedRegionIndices,
+      selectedRegionIds: nextState.selectedRegionIds,
       historyStack: [...historyStack, currentSnapshot],
       redoStack: newRedoStack,
     });
@@ -349,29 +376,26 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
 
   getDisplayRegions: (regions) => {
     const pending = get().pendingChanges;
-    // DisplayRegion type is imported from regionEditSlice.types
-    type LocalDisplayRegion = Region & { _pendingKey: number; _isNew?: boolean };
+    type LocalDisplayRegion = Region & { _isNew?: boolean };
     const result: LocalDisplayRegion[] = [];
 
-    // Add modified existing regions
-    for (let i = 0; i < regions.length; i++) {
-      const change = pending[i];
+    // Add existing regions, applying pending changes by region ID
+    for (const region of regions) {
+      const change = pending[region.id];  // Look up by region.id, not array index!
       if (change) {
         if (!change.isDeleted) {
           result.push({
             name: change.name,
-            id: regions[i].id,
+            id: region.id,
             start: change.newStart,
             end: change.newEnd,
             color: change.color,
-            _pendingKey: i,
           });
         }
+        // If deleted, don't add to result
       } else {
-        result.push({
-          ...regions[i],
-          _pendingKey: i,
-        });
+        // No pending change - show original
+        result.push({ ...region });
       }
     }
 
@@ -387,7 +411,6 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
             start: change.newStart,
             end: change.newEnd,
             color: change.color,
-            _pendingKey: numKey,
             _isNew: true,
           });
         }
@@ -397,18 +420,18 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
     return result.sort((a, b) => a.start - b.start);
   },
 
-  getPendingChange: (index) => get().pendingChanges[index],
+  getPendingChange: (id) => get().pendingChanges[id],
 
   // Get preview regions during drag operation (shows live preview with ripple effects)
   getDragPreviewRegions: (regions) => {
     const state = get();
-    const { dragType, dragRegionIndex, dragStartTime, dragCurrentTime } = state;
+    const { dragType, dragRegionId, dragStartTime, dragCurrentTime } = state;
 
     // First get display regions (with pending changes applied)
     const displayRegions = state.getDisplayRegions(regions);
 
     // If not dragging, return display regions as-is
-    if (dragType === 'none' || dragRegionIndex === null || dragStartTime === null || dragCurrentTime === null) {
+    if (dragType === 'none' || dragRegionId === null || dragStartTime === null || dragCurrentTime === null) {
       set({ insertionPoint: null });
       return displayRegions;
     }
@@ -422,7 +445,7 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
     // Use the extracted drag preview calculation
     const result = calculateDragPreview(displayRegions, {
       dragType,
-      dragRegionIndex,
+      dragRegionId,
       dragStartTime,
       dragCurrentTime,
       bpm: get().bpm,

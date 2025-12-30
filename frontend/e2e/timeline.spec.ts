@@ -47,11 +47,11 @@ async function setupTestFixtures(page: Page) {
       positionSeconds: 31,
 
       // Reset edit state
-      selectedRegionIndices: [],
+      selectedRegionIds: [],
       pendingChanges: {},
       nextNewRegionKey: -1,
       dragType: 'none',
-      dragRegionIndex: null,
+      dragRegionId: null,
       dragStartX: null,
       dragStartTime: null,
       dragCurrentTime: null,
@@ -128,7 +128,7 @@ test.describe('Timeline gestures', () => {
     // Verify store state
     const selected = await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__
-      return store.getState().selectedRegionIndices
+      return store.getState().selectedRegionIds
     })
 
     expect(selected).toEqual([0])
@@ -141,17 +141,17 @@ test.describe('Timeline gestures', () => {
     // Verify Intro selected
     let selected = await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__
-      return store.getState().selectedRegionIndices
+      return store.getState().selectedRegionIds
     })
     expect(selected).toEqual([0])
 
     // Select Verse (47% - middle of Verse region 31.7-63.5%)
     await clickAtPercent(page, 47)
 
-    // Verify Verse selected (index 1)
+    // Verify Verse selected (ID 1)
     selected = await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__
-      return store.getState().selectedRegionIndices
+      return store.getState().selectedRegionIds
     })
     expect(selected).toEqual([1])
   })
@@ -163,7 +163,7 @@ test.describe('Timeline gestures', () => {
     // Verify selected
     let selected = await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__
-      return store.getState().selectedRegionIndices
+      return store.getState().selectedRegionIds
     })
     expect(selected).toEqual([0])
 
@@ -173,7 +173,7 @@ test.describe('Timeline gestures', () => {
     // Selection should be cleared
     selected = await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__
-      return store.getState().selectedRegionIndices
+      return store.getState().selectedRegionIds
     })
     expect(selected).toEqual([])
   })

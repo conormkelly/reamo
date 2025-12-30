@@ -46,7 +46,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
 
   // Region editing state
   const timelineMode = useReaperStore((state) => state.timelineMode);
-  const selectedRegionIndices = useReaperStore((state) => state.selectedRegionIndices);
+  const selectedRegionIds = useReaperStore((state) => state.selectedRegionIds);
   const pendingChanges = useReaperStore((state) => state.pendingChanges);
   const hasPendingChanges = useReaperStore((state) => state.hasPendingChanges);
   const selectRegion = useReaperStore((state) => state.selectRegion);
@@ -62,7 +62,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   const endDrag = useReaperStore((state) => state.endDrag);
   const cancelDrag = useReaperStore((state) => state.cancelDrag);
   const regionDragType = useReaperStore((state) => state.dragType);
-  const regionDragIndex = useReaperStore((state) => state.dragRegionIndex);
+  const regionDragId = useReaperStore((state) => state.dragRegionId);
   const dragCurrentTime = useReaperStore((state) => state.dragCurrentTime);
   const dragStartTime = useReaperStore((state) => state.dragStartTime);
   const insertionPoint = useReaperStore((state) => state.insertionPoint);
@@ -96,24 +96,14 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     return regions;
   }, [timelineMode, regions, baseDisplayRegions, getDragPreviewRegions, regionDragType, dragCurrentTime]);
 
-  // Compute selected _pendingKey values from baseDisplayRegions
-  // This is needed because during a drag, displayRegions is reordered but selectedRegionIndices
-  // still contains the original display indices. We need to track selection by _pendingKey.
-  const selectedPendingKeys = useMemo(() => {
-    return new Set(
-      selectedRegionIndices.map(idx => {
-        const region = baseDisplayRegions[idx];
-        return region ? ((region as { _pendingKey?: number })._pendingKey ?? idx) : idx;
-      })
-    );
-  }, [selectedRegionIndices, baseDisplayRegions]);
+  // Selected region IDs as a Set for efficient lookup
+  // Now that we use ID-based keying, selectedRegionIds ARE the IDs we need
+  const selectedRegionIdSet = useMemo(() => {
+    return new Set(selectedRegionIds);
+  }, [selectedRegionIds]);
 
-  // Get the _pendingKey of the region being dragged (from baseDisplayRegions, not preview)
-  const draggedPendingKey = useMemo(() => {
-    if (regionDragIndex === null || regionDragType === 'none') return null;
-    const region = baseDisplayRegions[regionDragIndex];
-    return region ? ((region as { _pendingKey?: number })._pendingKey ?? regionDragIndex) : null;
-  }, [regionDragIndex, regionDragType, baseDisplayRegions]);
+  // The ID of the region being dragged (already an ID, not an index)
+  const draggedRegionId = regionDragId;
 
   // Gesture state (navigate mode)
   // Simplified: tap = seek, horizontal drag = select, vertical drag off = cancel
@@ -212,12 +202,12 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     bpm,
     displayRegions,
     baseDisplayRegions,
-    selectedRegionIndices,
+    selectedRegionIds,
     regions,
     timeToPercent,
     positionToTime,
     regionDragType,
-    regionDragIndex,
+    regionDragId,
     dragStartTime,
     dragCurrentTime,
     isRegionSelected,
@@ -496,9 +486,9 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         <TimelineRegionLabels
           displayRegions={displayRegions}
           timelineMode={timelineMode}
-          selectedPendingKeys={selectedPendingKeys}
+          selectedRegionIds={selectedRegionIdSet}
           pendingChanges={pendingChanges}
-          draggedPendingKey={draggedPendingKey}
+          draggedRegionId={draggedRegionId}
           regionDragType={regionDragType}
           renderTimeToPercent={renderTimeToPercent}
         />
@@ -517,9 +507,9 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         <TimelineRegionBlocks
           displayRegions={displayRegions}
           timelineMode={timelineMode}
-          selectedPendingKeys={selectedPendingKeys}
+          selectedRegionIds={selectedRegionIdSet}
           pendingChanges={pendingChanges}
-          draggedPendingKey={draggedPendingKey}
+          draggedRegionId={draggedRegionId}
           regionDragType={regionDragType}
           hasPendingChanges={hasPendingChanges}
           renderTimeToPercent={renderTimeToPercent}
@@ -591,9 +581,9 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         )}
 
         {/* Resize Edge Position Indicator - hidden when drag is cancelled */}
-        {resizeEdgePosition !== null && (regionDragType === 'resize-start' || regionDragType === 'resize-end') && regionDragIndex !== null && !isRegionDragCancelled && (
+        {resizeEdgePosition !== null && (regionDragType === 'resize-start' || regionDragType === 'resize-end') && regionDragId !== null && !isRegionDragCancelled && (
           (() => {
-            const originalRegion = regions[regionDragIndex];
+            const originalRegion = regions.find(r => r.id === regionDragId);
             const originalEdge = regionDragType === 'resize-start' ? originalRegion?.start : originalRegion?.end;
             const delta = originalEdge !== undefined ? resizeEdgePosition - originalEdge : 0;
             const showDelta = Math.abs(delta) > 0.01 && bpm;

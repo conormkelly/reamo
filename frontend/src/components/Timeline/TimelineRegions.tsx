@@ -1,6 +1,9 @@
 /**
  * TimelineRegions Component
  * Renders region blocks in the timeline (both top bar labels and main blocks)
+ *
+ * KEY DESIGN: All region references use region.id (REAPER's markrgnidx),
+ * NOT array indices. This ensures stability when server pushes updates.
  */
 
 import type { ReactElement } from 'react';
@@ -16,12 +19,12 @@ export interface TimelineRegionsProps {
   displayRegions: Region[];
   /** Current timeline mode */
   timelineMode: TimelineMode;
-  /** Set of selected region pending keys */
-  selectedPendingKeys: Set<number>;
-  /** Pending changes by region index */
+  /** Set of selected region IDs */
+  selectedRegionIds: Set<number>;
+  /** Pending changes by region ID */
   pendingChanges: Record<number, PendingRegionChange>;
-  /** Pending key of region being dragged */
-  draggedPendingKey: number | null;
+  /** ID of region being dragged */
+  draggedRegionId: number | null;
   /** Current drag type */
   regionDragType: DragType;
   /** Whether there are any pending changes */
@@ -36,22 +39,21 @@ export interface TimelineRegionsProps {
 export function TimelineRegionLabels({
   displayRegions,
   timelineMode,
-  selectedPendingKeys,
+  selectedRegionIds,
   pendingChanges,
-  draggedPendingKey,
+  draggedRegionId,
   regionDragType,
   renderTimeToPercent,
 }: Omit<TimelineRegionsProps, 'hasPendingChanges'>): ReactElement {
   return (
     <>
-      {displayRegions.map((region, idx) => {
-        // Use _pendingKey from display region metadata for selection/pending lookup
-        // This is stable across drag preview reordering
-        const pendingKey = (region as { _pendingKey?: number })._pendingKey ?? idx;
-        const isSelected = timelineMode === 'regions' && selectedPendingKeys.has(pendingKey);
+      {displayRegions.map((region) => {
+        // Use region.id for all lookups - stable across server updates
+        const regionId = region.id;
+        const isSelected = timelineMode === 'regions' && selectedRegionIds.has(regionId);
         const isNewRegion = (region as { _isNew?: boolean })._isNew === true;
-        const hasPending = pendingChanges[pendingKey] !== undefined;
-        const isBeingDragged = draggedPendingKey === pendingKey && regionDragType !== 'none';
+        const hasPending = pendingChanges[regionId] !== undefined;
+        const isBeingDragged = draggedRegionId === regionId && regionDragType !== 'none';
         // New regions get white outline, modified existing get orange
         const pendingRingClass = isNewRegion ? 'ring-1 ring-inset ring-white' : hasPending ? 'ring-1 ring-inset ring-amber-400' : '';
 
@@ -92,24 +94,23 @@ export function TimelineRegionLabels({
 export function TimelineRegionBlocks({
   displayRegions,
   timelineMode,
-  selectedPendingKeys,
+  selectedRegionIds,
   pendingChanges,
-  draggedPendingKey,
+  draggedRegionId,
   regionDragType,
   hasPendingChanges,
   renderTimeToPercent,
 }: TimelineRegionsProps): ReactElement {
   return (
     <>
-      {displayRegions.map((region, idx) => {
-        // Use _pendingKey from display region metadata for selection/pending lookup
-        // This is stable across drag preview reordering
-        const pendingKey = (region as { _pendingKey?: number })._pendingKey ?? idx;
-        const isSelected = timelineMode === 'regions' && selectedPendingKeys.has(pendingKey);
+      {displayRegions.map((region) => {
+        // Use region.id for all lookups - stable across server updates
+        const regionId = region.id;
+        const isSelected = timelineMode === 'regions' && selectedRegionIds.has(regionId);
         const isNewRegion = (region as { _isNew?: boolean })._isNew === true;
-        const hasPending = pendingChanges[pendingKey] !== undefined;
-        const isSingleSelection = isSelected && selectedPendingKeys.size === 1;
-        const isBeingDragged = draggedPendingKey === pendingKey && regionDragType !== 'none';
+        const hasPending = pendingChanges[regionId] !== undefined;
+        const isSingleSelection = isSelected && selectedRegionIds.size === 1;
+        const isBeingDragged = draggedRegionId === regionId && regionDragType !== 'none';
         // New regions get white outline, modified existing get orange
         const pendingRingClass = isNewRegion ? 'ring-1 ring-inset ring-white' : hasPending ? 'ring-1 ring-inset ring-amber-400' : '';
 
