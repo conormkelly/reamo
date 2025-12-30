@@ -2,11 +2,86 @@
 
 ## Table of Contents (Priority Order)
 
-1. [View Switcher](#view-switcher) — Switch between Edit, Transport, and Mixer views *(quick win, frontend-only)*
-2. [Items Mode](#items-mode) — View/manage recorded takes without leaving the instrument
-3. [Tempo Marker Support](#tempo-marker-support) — Respect tempo map during playback *(easy fix)*
-4. [FX Preset Switching](#fx-preset-switching) — Navigate REAPER-saved presets from tablet
-5. [Extension Performance Optimizations](#extension-performance-optimizations) — Idle when no clients
+1. [Public Release](#public-release) — Cross-platform builds and GitHub distribution
+2. [View Switcher](#view-switcher) — Switch between Edit, Transport, and Mixer views *(quick win, frontend-only)*
+3. [Items Mode](#items-mode) — View/manage recorded takes without leaving the instrument
+4. [Tempo Marker Support](#tempo-marker-support) — Respect tempo map during playback *(easy fix)*
+5. [FX Preset Switching](#fx-preset-switching) — Navigate REAPER-saved presets from tablet
+6. [Extension Performance Optimizations](#extension-performance-optimizations) — Idle when no clients
+
+---
+
+## Public Release
+
+### Cross-Platform Builds
+
+Zig cross-compilation verified working from macOS:
+
+| Target | Command | Output |
+|--------|---------|--------|
+| macOS ARM | `zig build` | `libreaper_reamo.dylib` (arm64) |
+| macOS x64 | `zig build -Dtarget=x86_64-macos` | `libreaper_reamo.dylib` (x86_64) |
+| Windows x64 | `zig build -Dtarget=x86_64-windows-gnu` | `reaper_reamo.dll` |
+| Linux x64 | `zig build -Dtarget=x86_64-linux-gnu` | `libreaper_reamo.so` |
+
+**Note:** Windows DLL outputs to `zig-out/bin/`, not `zig-out/lib/`.
+
+---
+
+### GitHub Release Artifacts
+
+```
+Reamo-v0.1.0-macOS-arm64.zip
+Reamo-v0.1.0-macOS-x64.zip
+Reamo-v0.1.0-Windows-x64.zip
+Reamo-v0.1.0-Linux-x64.zip
+```
+
+Each ZIP contains:
+- `reaper_reamo.dylib` (or `.dll`/`.so`)
+- `reamo.html`
+- `README.txt` (quick install steps)
+
+---
+
+### Installation Paths
+
+| OS | UserPlugins (extension) | www folder (frontend) |
+|----|-------------------------|----------------------|
+| macOS | `~/Library/Application Support/REAPER/UserPlugins/` | `~/Library/Application Support/REAPER/reaper_www_root/` |
+| Windows | `%APPDATA%\REAPER\UserPlugins\` | `%APPDATA%\REAPER\reaper_www_root\` |
+| Linux | `~/.config/REAPER/UserPlugins/` | `~/.config/REAPER/reaper_www_root/` |
+
+---
+
+### Release Checklist
+
+#### Phase 1: Beta (GitHub Releases)
+
+- [ ] Build all 4 platform binaries
+- [ ] Create ZIP archives with extension + frontend + README.txt
+- [ ] Update main README.md with download table
+- [ ] Create GitHub Release (mark as Pre-release)
+- [ ] Post to r/Reaper for testers
+
+#### Phase 2: Stable (after testing)
+
+- [ ] Confirm Windows/Linux work from community testers
+- [ ] Remove Pre-release tag
+- [ ] Consider ReaPack integration for one-click install
+
+---
+
+### Future: ReaPack Integration
+
+ReaPack is REAPER's package manager. Users add a repo URL → one-click install/update.
+
+**Requirements:**
+- Host `index.xml` on GitHub Pages or in repo
+- Point to release ZIPs per platform
+- Maintain version metadata
+
+**Skip for v0.1** — manual install is fine for 2 files. Add ReaPack for v0.2+ when stable.
 
 ---
 
