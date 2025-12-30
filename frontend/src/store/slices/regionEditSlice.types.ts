@@ -115,6 +115,8 @@ export interface RegionEditSlice {
   deleteRegion: (id: number, regions: Region[]) => void;
   deleteRegionWithMode: (id: number, mode: DeleteMode, regions: Region[]) => void;
   updateRegionMeta: (id: number, updates: { name?: string; color?: number }, regions: Region[]) => void;
+  /** Update region bounds directly (no snapping, no ripple) - for precise info bar edits */
+  updateRegionBounds: (id: number, updates: { start?: number; end?: number }, regions: Region[]) => void;
 
   // Drag actions (use region ID)
   startDrag: (type: DragType, id: number, x: number, time: number) => void;

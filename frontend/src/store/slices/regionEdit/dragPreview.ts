@@ -23,6 +23,7 @@ export interface DragPreviewState {
   dragStartTime: number | null;
   dragCurrentTime: number | null;
   bpm?: number | null;
+  denominator?: number;  // Time signature denominator for proper beat snapping
 }
 
 /**
@@ -45,7 +46,7 @@ export function calculateDragPreview(
   displayRegions: DisplayRegion[],
   state: DragPreviewState
 ): DragPreviewResult {
-  const { dragType, dragRegionId, dragStartTime, dragCurrentTime, bpm } = state;
+  const { dragType, dragRegionId, dragStartTime, dragCurrentTime, bpm, denominator = 4 } = state;
 
   // If not dragging, return regions as-is
   if (dragType === 'none' || dragRegionId === null || dragStartTime === null || dragCurrentTime === null) {
@@ -78,9 +79,9 @@ export function calculateDragPreview(
   }
 
   if (dragType === 'resize-start') {
-    return calculateResizeStartPreview(previewRegions, draggedRegion, dragCurrentTime, bpm);
+    return calculateResizeStartPreview(previewRegions, draggedRegion, dragCurrentTime, bpm, denominator);
   } else if (dragType === 'resize-end') {
-    return calculateResizeEndPreview(previewRegions, draggedRegion, dragCurrentTime, bpm);
+    return calculateResizeEndPreview(previewRegions, draggedRegion, dragCurrentTime, bpm, denominator);
   } else if (dragType === 'move') {
     return calculateMovePreview(previewRegions, draggedRegion, delta);
   }
@@ -99,11 +100,12 @@ function calculateResizeStartPreview(
   previewRegions: Region[],
   draggedRegion: Region,
   dragCurrentTime: number,
-  bpm: number | null | undefined
+  bpm: number | null | undefined,
+  denominator: number
 ): DragPreviewResult {
   let newStart = Math.max(0, dragCurrentTime);
   if (bpm && bpm > 0) {
-    newStart = snapToBeats(newStart, bpm);
+    newStart = snapToBeats(newStart, bpm, denominator);
   }
 
   const minLength = 0.5;
@@ -155,11 +157,12 @@ function calculateResizeEndPreview(
   previewRegions: Region[],
   draggedRegion: Region,
   dragCurrentTime: number,
-  bpm: number | null | undefined
+  bpm: number | null | undefined,
+  denominator: number
 ): DragPreviewResult {
   let newEnd = dragCurrentTime;
   if (bpm && bpm > 0) {
-    newEnd = snapToBeats(newEnd, bpm);
+    newEnd = snapToBeats(newEnd, bpm, denominator);
   }
 
   const minLength = 0.5;

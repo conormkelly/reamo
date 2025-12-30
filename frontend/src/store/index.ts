@@ -23,6 +23,7 @@ import type {
   MarkersEventPayload,
   RegionsEventPayload,
   ItemsEventPayload,
+  TempoMapEventPayload,
 } from '../core/WebSocketTypes';
 import {
   isEventMessage,
@@ -33,6 +34,7 @@ import {
   isRegionsEvent,
   isItemsEvent,
   isActionToggleStateEvent,
+  isTempoMapEvent,
 } from '../core/WebSocketTypes';
 import { transportEngine } from '../core/TransportAnimationEngine';
 
@@ -156,18 +158,15 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
 
     if (isTransportEvent(message)) {
       const p = message.payload as TransportEventPayload;
-      // REAPER's BPM is in denominator beats per minute (e.g., eighths for 6/8)
-      // Normalize to quarter-note BPM for consistent display
-      // For 4/4: bpm * (4/4) = no change
-      // For 6/8: bpm * (4/8) = bpm * 0.5 (180 eighth-note BPM → 90 quarter-note BPM)
-      const normalizedBpm = p.bpm * (4 / p.timeSignature.denominator);
+      // REAPER's TimeMap_GetTimeSigAtTime returns BPM in quarter notes
+      // (what's displayed in REAPER's toolbar), regardless of time signature
 
       // Feed transport animation engine for client-side interpolation
       // barOffset comes from project event now, use current state
       transportEngine.onServerUpdate({
         position: p.position,
         positionBeats: p.positionBeats,
-        bpm: normalizedBpm,
+        bpm: p.bpm,
         playState: p.playState,
         timeSignatureNumerator: p.timeSignature.numerator,
         timeSignatureDenominator: p.timeSignature.denominator,
@@ -178,7 +177,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
         playState: p.playState,
         positionSeconds: p.position,
         positionBeats: p.positionBeats,
-        bpm: normalizedBpm,
+        bpm: p.bpm,
         timeSignatureNumerator: p.timeSignature.numerator,
         timeSignatureDenominator: p.timeSignature.denominator,
         timeSelection: p.timeSelection.start !== p.timeSelection.end
@@ -251,6 +250,8 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
       const markers: Marker[] = p.markers.map((m) => ({
         id: m.id,
         position: m.position,
+        positionBeats: m.positionBeats,
+        positionBars: m.positionBars,
         name: m.name,
         color: m.color || undefined,
       }));
@@ -261,6 +262,11 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
         id: r.id,
         start: r.start,
         end: r.end,
+        startBeats: r.startBeats,
+        endBeats: r.endBeats,
+        startBars: r.startBars,
+        endBars: r.endBars,
+        lengthBars: r.lengthBars,
         name: r.name,
         color: r.color || undefined,
       }));
@@ -272,6 +278,9 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
       // Note: changes is at root level, not in payload (backend sends it directly)
       const msg = message as unknown as { changes: Record<string, number> };
       get().updateToggleStates(msg.changes);
+    } else if (isTempoMapEvent(message)) {
+      const p = message.payload as TempoMapEventPayload;
+      get().setTempoMarkers(p.markers);
     } else if (message.event === 'reload') {
       // Hot reload - extension detected file change
       console.log('[Store] Reload event received, refreshing page...');

@@ -6,14 +6,11 @@
 import { useState, useEffect, useRef, type ReactElement } from 'react';
 import { X, RotateCcw } from 'lucide-react';
 import { useReaperStore } from '../../store';
-import { useBarOffset, useTimeSignature } from '../../hooks';
+import { useReaper } from '../ReaperProvider';
+import { tempo as tempoCmd } from '../../core/WebSocketCommands';
 import {
   hexToReaperColor,
   reaperColorToHexWithFallback,
-  beatsToSeconds,
-  secondsToBeats,
-  parseBarBeatTicksToBeats,
-  formatBeatsToBarBeatTicks,
 } from '../../utils';
 
 // Default region color in REAPER (shown when color = 0)
@@ -25,14 +22,12 @@ interface AddRegionModalProps {
 }
 
 export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactElement | null {
+  const { sendCommandAsync } = useReaper();
   const createRegion = useReaperStore((s) => s.createRegion);
   const regions = useReaperStore((s) => s.regions);
   const pendingChanges = useReaperStore((s) => s.pendingChanges);
   const getDisplayRegions = useReaperStore((s) => s.getDisplayRegions);
   const bpm = useReaperStore((s) => s.bpm);
-
-  const barOffset = useBarOffset();
-  const { beatsPerBar, denominator } = useTimeSignature();
 
   const [name, setName] = useState('New Region');
   const [selectedColor, setSelectedColor] = useState<string | null>(null); // null = REAPER default (gray)
@@ -75,16 +70,22 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
         defaultStartSeconds = lastEnd;
       }
 
-      // Calculate start position from defaultStartSeconds (with bar offset for projects not starting at bar 1)
-      if (bpm && bpm > 0) {
-        // Convert seconds to quarter notes, then to denominator beats
-        const quarterNotes = secondsToBeats(defaultStartSeconds, bpm);
-        const denomBeats = quarterNotes * (denominator / 4);
-        // formatBeatsToBarBeatTicks now handles bar offset internally
-        setStartBar(formatBeatsToBarBeatTicks(denomBeats, beatsPerBar, false, barOffset));
-      } else {
-        setStartBar('1');
-      }
+      // Use server's timeToBeats for accurate bar string (handles tempo changes)
+      sendCommandAsync(tempoCmd.timeToBeats(defaultStartSeconds))
+        .then((response) => {
+          const resp = response as { payload?: { bars?: string } } | undefined;
+          if (resp?.payload?.bars) {
+            // Strip trailing .00 ticks for cleaner display
+            setStartBar(resp.payload.bars.replace(/\.00$/, ''));
+          } else {
+            setStartBar('1');
+          }
+        })
+        .catch(() => {
+          // Fallback to bar 1 on error
+          setStartBar('1');
+        });
+
       setName('');
       // Default to REAPER's default color (null = gray)
       setSelectedColor(null);
@@ -92,7 +93,7 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
       setError(null);
     }
     wasOpenRef.current = isOpen;
-  }, [isOpen, bpm, barOffset, beatsPerBar, denominator, regions, pendingChanges, getDisplayRegions]);
+  }, [isOpen, regions, pendingChanges, getDisplayRegions, sendCommandAsync]);
 
   // Close on escape key
   useEffect(() => {
@@ -115,16 +116,16 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
     }
   };
 
-  const handleCreate = () => {
-    const effectiveBpm = bpm && bpm > 0 ? bpm : 120;
-
-    // Parse start position (bar.beat.ticks format) - returns denominator beats
-    // barOffset is handled by the utility - no manual adjustment needed
-    const startDenomBeats = parseBarBeatTicksToBeats(startBar, beatsPerBar, barOffset);
-    if (startDenomBeats === null) {
+  const handleCreate = async () => {
+    // Parse start position (bar.beat.ticks format)
+    const startParts = startBar.split('.');
+    const startBarNum = parseInt(startParts[0], 10);
+    if (isNaN(startBarNum)) {
       setError('Start must be a valid position (e.g., 69 or 69.2.40)');
       return;
     }
+    const startBeat = startParts.length >= 2 ? parseInt(startParts[1], 10) : 1;
+    const startTicks = startParts.length >= 3 ? parseInt(startParts[2], 10) : 0;
 
     const lengthBarsNum = parseInt(lengthBars, 10);
     if (isNaN(lengthBarsNum) || lengthBarsNum < 1) {
@@ -132,22 +133,37 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
       return;
     }
 
-    // Calculate start and end in seconds
-    // barOffset already handled by parseBarBeatTicksToBeats, convert denominator beats to quarter notes
-    const startQuarterNotes = startDenomBeats * (4 / denominator);
-    const start = beatsToSeconds(startQuarterNotes, effectiveBpm);
-    // Length in bars (denominator beats), convert to quarter notes for duration
-    const lengthDenomBeats = lengthBarsNum * beatsPerBar;
-    const lengthQuarterNotes = lengthDenomBeats * (4 / denominator);
-    const end = start + beatsToSeconds(lengthQuarterNotes, effectiveBpm);
+    try {
+      // Use server's tempo/barsToTime for accurate start time (handles tempo changes)
+      const startResponse = await sendCommandAsync(tempoCmd.barsToTime(startBarNum, startBeat, startTicks));
+      const startResp = startResponse as { payload?: { time?: number } } | undefined;
+      if (startResp?.payload?.time === undefined) {
+        setError('Failed to calculate start time');
+        return;
+      }
+      const start = startResp.payload.time;
 
-    // null = REAPER default (pass undefined to let REAPER assign default color)
-    const color = selectedColor ? hexToReaperColor(selectedColor) : undefined;
+      // Calculate end position: add duration bars to start position
+      // End bar = start bar + duration bars, beat and ticks stay same
+      const endBarNum = startBarNum + lengthBarsNum;
+      const endResponse = await sendCommandAsync(tempoCmd.barsToTime(endBarNum, startBeat, startTicks));
+      const endResp = endResponse as { payload?: { time?: number } } | undefined;
+      if (endResp?.payload?.time === undefined) {
+        setError('Failed to calculate end time');
+        return;
+      }
+      const end = endResp.payload.time;
 
-    // Create the region (as pending change, with ripple logic)
-    createRegion(start, end, name.trim(), bpm, color, regions);
+      // null = REAPER default (pass undefined to let REAPER assign default color)
+      const color = selectedColor ? hexToReaperColor(selectedColor) : undefined;
 
-    onClose();
+      // Create the region (as pending change, with ripple logic)
+      createRegion(start, end, name.trim(), bpm, color, regions);
+
+      onClose();
+    } catch {
+      setError('Failed to calculate position');
+    }
   };
 
   if (!isOpen) return null;

@@ -230,6 +230,50 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
     set({ pendingChanges: changes });
   },
 
+  // Update region bounds directly (no snapping, no ripple) - for precise info bar edits
+  updateRegionBounds: (id, updates, regions) => {
+    get().pushToHistory();
+    const changes = { ...get().pendingChanges };
+    const existing = changes[id];
+
+    // Handle new regions (negative keys) - they only exist in pendingChanges
+    if (id < 0) {
+      if (!existing) return;
+      const newStart = updates.start ?? existing.newStart;
+      const newEnd = updates.end ?? existing.newEnd;
+      // Validate bounds
+      if (newStart >= newEnd || newStart < 0) return;
+      changes[id] = {
+        ...existing,
+        newStart,
+        newEnd,
+      };
+    } else {
+      const region = findRegionById(regions, id);
+      if (!region) return;
+
+      const currentStart = existing?.newStart ?? region.start;
+      const currentEnd = existing?.newEnd ?? region.end;
+      const newStart = updates.start ?? currentStart;
+      const newEnd = updates.end ?? currentEnd;
+
+      // Validate bounds
+      if (newStart >= newEnd || newStart < 0) return;
+
+      changes[id] = {
+        originalIdx: region.id,
+        originalStart: region.start,
+        originalEnd: region.end,
+        newStart,
+        newEnd,
+        name: existing?.name ?? region.name,
+        color: existing?.color ?? region.color,
+      };
+    }
+
+    set({ pendingChanges: changes });
+  },
+
   // Drag actions (use region ID)
   startDrag: (type, id, x, time) =>
     set({
@@ -449,6 +493,7 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
       dragStartTime,
       dragCurrentTime,
       bpm: get().bpm,
+      denominator: get().timeSignatureDenominator,
     });
 
     set({

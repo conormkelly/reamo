@@ -320,11 +320,11 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
 
               <div className="w-px h-4 bg-gray-600 flex-shrink-0" />
 
-              {/* Position */}
+              {/* Position - use server bar string if available */}
               <div className="flex items-center gap-1.5">
                 <span className="text-gray-400 text-xs">At:</span>
                 <span className="text-blue-300 font-mono text-xs">
-                  {formatPosition(currentMarker.position)}
+                  {currentMarker.positionBars ?? formatPosition(currentMarker.position)}
                 </span>
               </div>
             </div>

@@ -10,6 +10,9 @@ pub const MAX_REGIONS = 256;
 pub const Marker = struct {
     id: c_int,
     position: f64,
+    position_beats: f64 = 0,
+    position_bar: c_int = 1,
+    position_beat_in_bar: f64 = 0, // 0-indexed beat within bar
     name: [128]u8 = undefined,
     name_len: usize = 0,
     color: c_int,
@@ -32,6 +35,13 @@ pub const Region = struct {
     id: c_int,
     start: f64,
     end: f64,
+    start_beats: f64 = 0,
+    end_beats: f64 = 0,
+    start_bar: c_int = 1,
+    start_beat_in_bar: f64 = 0, // 0-indexed beat within bar
+    end_bar: c_int = 1,
+    end_beat_in_bar: f64 = 0, // 0-indexed beat within bar
+    start_beats_per_bar: c_int = 4, // Time sig numerator at start (for length borrowing)
     name: [128]u8 = undefined,
     name_len: usize = 0,
     color: c_int,
@@ -56,10 +66,12 @@ pub const State = struct {
     marker_count: usize = 0,
     regions: [MAX_REGIONS]Region = undefined,
     region_count: usize = 0,
+    bar_offset: c_int = 0, // For bar string formatting
 
     // Poll current state from REAPER
     pub fn poll(api: *const reaper.Api) State {
         var state = State{};
+        state.bar_offset = api.getBarOffset();
 
         var idx: c_int = 0;
         while (api.enumMarker(idx)) |info| : (idx += 1) {
@@ -70,6 +82,22 @@ pub const State = struct {
                     region.start = info.pos;
                     region.end = info.end;
                     region.color = info.color;
+
+                    // Compute beat positions
+                    const start_beats = api.timeToBeats(info.pos);
+                    region.start_beats = start_beats.beats;
+                    region.start_bar = start_beats.measures;
+                    region.start_beat_in_bar = start_beats.beats_in_measure;
+
+                    const end_beats = api.timeToBeats(info.end);
+                    region.end_beats = end_beats.beats;
+                    region.end_bar = end_beats.measures;
+                    region.end_beat_in_bar = end_beats.beats_in_measure;
+
+                    // Get time sig at start for length borrowing calculation
+                    // When borrowing beats, we use the time signature of the bar we're borrowing FROM
+                    const start_timesig = api.getTempoAtPosition(info.pos);
+                    region.start_beats_per_bar = start_timesig.timesig_num;
 
                     const copy_len = @min(info.name.len, region.name.len);
                     @memcpy(region.name[0..copy_len], info.name[0..copy_len]);
@@ -83,6 +111,12 @@ pub const State = struct {
                     marker.id = info.id;
                     marker.position = info.pos;
                     marker.color = info.color;
+
+                    // Compute beat position
+                    const beats_info = api.timeToBeats(info.pos);
+                    marker.position_beats = beats_info.beats;
+                    marker.position_bar = beats_info.measures;
+                    marker.position_beat_in_bar = beats_info.beats_in_measure;
 
                     const copy_len = @min(info.name.len, marker.name.len);
                     @memcpy(marker.name[0..copy_len], info.name[0..copy_len]);
@@ -116,6 +150,56 @@ pub const State = struct {
         return false;
     }
 
+    // Format bar.beat.ticks string (e.g., "5.2.50")
+    // bar: measure number from timeToBeats (before offset applied)
+    // beat_in_bar: 0-indexed beat within measure (from timeToBeats)
+    // bar_offset: project bar offset to apply
+    fn formatBars(w: anytype, bar: c_int, beat_in_bar: f64, bar_offset: c_int) !void {
+        const display_bar = bar + bar_offset;
+        // Convert 0-indexed to 1-indexed and extract ticks
+        // Use integer arithmetic to avoid floating-point precision issues
+        const scaled: u32 = @intFromFloat(@round((beat_in_bar + 1.0) * 100.0));
+        const beat_int: u32 = @max(1, scaled / 100);
+        const ticks: u32 = scaled % 100;
+        try w.print("{d}.{d}.{d:0>2}", .{ display_bar, beat_int, ticks });
+    }
+
+    // Format length as bar.beat.ticks string (e.g., "10.1.50")
+    // Computes the difference between end and start positions with borrowing.
+    // Uses time sig numerator at START position for beat borrowing (you borrow from the start bar).
+    fn formatLengthBars(
+        w: anytype,
+        start_bar: c_int,
+        start_beat_in_bar: f64,
+        end_bar: c_int,
+        end_beat_in_bar: f64,
+        start_beats_per_bar: c_int,
+    ) !void {
+        // Convert beat_in_bar (0-indexed with fraction) to scaled integers (ticks = fraction * 100)
+        // start_beat_in_bar=0.0 means beat 1.00, start_beat_in_bar=1.5 means beat 2.50
+        const start_scaled: i32 = @intFromFloat(@round(start_beat_in_bar * 100.0));
+        const end_scaled: i32 = @intFromFloat(@round(end_beat_in_bar * 100.0));
+
+        var bar_diff: i32 = end_bar - start_bar;
+        var beat_diff: i32 = end_scaled - start_scaled;
+
+        // Handle borrowing: if beat_diff is negative, borrow from bars
+        // Use time signature at START - when borrowing a bar, you're taking beats from the start position's bar
+        if (beat_diff < 0) {
+            bar_diff -= 1;
+            // Add one full bar worth of beats (in scaled units: beats_per_bar * 100)
+            beat_diff += start_beats_per_bar * 100;
+        }
+
+        // Extract beat and ticks from the scaled difference
+        // beat_diff is now the total scaled difference (whole beats * 100 + ticks)
+        const beat_int: u32 = @intCast(@divFloor(beat_diff, 100));
+        const ticks: u32 = @intCast(@mod(beat_diff, 100));
+
+        // Display as bar.beat.ticks (NOT 1-indexed for lengths - 0 beats = "0.0.00")
+        try w.print("{d}.{d}.{d:0>2}", .{ bar_diff, beat_int, ticks });
+    }
+
     // Generate JSON for markers event
     pub fn markersToJson(self: *const State, buf: []u8) ?[]const u8 {
         var stream = std.io.fixedBufferStream(buf);
@@ -126,7 +210,13 @@ pub const State = struct {
         for (0..self.marker_count) |i| {
             if (i > 0) w.writeByte(',') catch return null;
             const m = &self.markers[i];
-            w.print("{{\"id\":{d},\"position\":{d:.15},\"name\":\"", .{ m.id, m.position }) catch return null;
+            w.print("{{\"id\":{d},\"position\":{d:.15},\"positionBeats\":{d:.6},\"positionBars\":\"", .{
+                m.id,
+                m.position,
+                m.position_beats,
+            }) catch return null;
+            formatBars(w, m.position_bar, m.position_beat_in_bar, self.bar_offset) catch return null;
+            w.writeAll("\",\"name\":\"") catch return null;
             protocol.writeJsonString(w, m.getName()) catch return null;
             w.print("\",\"color\":{d}}}", .{m.color}) catch return null;
         }
@@ -145,7 +235,19 @@ pub const State = struct {
         for (0..self.region_count) |i| {
             if (i > 0) w.writeByte(',') catch return null;
             const r = &self.regions[i];
-            w.print("{{\"id\":{d},\"start\":{d:.15},\"end\":{d:.15},\"name\":\"", .{ r.id, r.start, r.end }) catch return null;
+            w.print("{{\"id\":{d},\"start\":{d:.15},\"end\":{d:.15},\"startBeats\":{d:.6},\"endBeats\":{d:.6},\"startBars\":\"", .{
+                r.id,
+                r.start,
+                r.end,
+                r.start_beats,
+                r.end_beats,
+            }) catch return null;
+            formatBars(w, r.start_bar, r.start_beat_in_bar, self.bar_offset) catch return null;
+            w.writeAll("\",\"endBars\":\"") catch return null;
+            formatBars(w, r.end_bar, r.end_beat_in_bar, self.bar_offset) catch return null;
+            w.writeAll("\",\"lengthBars\":\"") catch return null;
+            formatLengthBars(w, r.start_bar, r.start_beat_in_bar, r.end_bar, r.end_beat_in_bar, r.start_beats_per_bar) catch return null;
+            w.writeAll("\",\"name\":\"") catch return null;
             protocol.writeJsonString(w, r.getName()) catch return null;
             w.print("\",\"color\":{d}}}", .{r.color}) catch return null;
         }
@@ -188,9 +290,17 @@ test "Region equality" {
 
 test "State markers JSON output" {
     var state = State{};
+    state.bar_offset = 0;
 
-    // Add test marker
-    state.markers[0] = .{ .id = 1, .position = 10.5, .color = 16711680 };
+    // Add test marker at bar 3, beat 2 (0-indexed: 1.0), 50 ticks
+    state.markers[0] = .{
+        .id = 1,
+        .position = 10.5,
+        .position_beats = 21.5,
+        .position_bar = 3,
+        .position_beat_in_bar = 1.5, // 0-indexed, so beat 2 + 50 ticks
+        .color = 16711680,
+    };
     state.markers[0].name[0..5].* = "Verse".*;
     state.markers[0].name_len = 5;
     state.marker_count = 1;
@@ -198,17 +308,32 @@ test "State markers JSON output" {
     var buf: [1024]u8 = undefined;
     const json = state.markersToJson(&buf).?;
 
-    try std.testing.expectEqualStrings(
-        "{\"type\":\"event\",\"event\":\"markers\",\"payload\":{\"markers\":[{\"id\":1,\"position\":10.500000000000000,\"name\":\"Verse\",\"color\":16711680}]}}",
-        json,
-    );
+    // Check for expected fields
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"id\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"position\":10.5") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"positionBeats\":21.5") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"positionBars\":\"3.2.50\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"name\":\"Verse\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"color\":16711680") != null);
 }
 
 test "State regions JSON output" {
     var state = State{};
+    state.bar_offset = -4; // Test with negative offset (common in REAPER)
 
-    // Add test region
-    state.regions[0] = .{ .id = 2, .start = 0.0, .end = 30.0, .color = 255 };
+    // Add test region from bar 1 to bar 9 (display: -3 to 5 with offset -4)
+    state.regions[0] = .{
+        .id = 2,
+        .start = 0.0,
+        .end = 30.0,
+        .start_beats = 0.0,
+        .end_beats = 60.0,
+        .start_bar = 1,
+        .start_beat_in_bar = 0.0, // Beat 1 (0-indexed)
+        .end_bar = 9,
+        .end_beat_in_bar = 0.0, // Beat 1 (0-indexed)
+        .color = 255,
+    };
     state.regions[0].name[0..5].* = "Intro".*;
     state.regions[0].name_len = 5;
     state.region_count = 1;
@@ -216,10 +341,18 @@ test "State regions JSON output" {
     var buf: [1024]u8 = undefined;
     const json = state.regionsToJson(&buf).?;
 
-    try std.testing.expectEqualStrings(
-        "{\"type\":\"event\",\"event\":\"regions\",\"payload\":{\"regions\":[{\"id\":2,\"start\":0.000000000000000,\"end\":30.000000000000000,\"name\":\"Intro\",\"color\":255}]}}",
-        json,
-    );
+    // Check for expected fields
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"id\":2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"start\":0.0") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"end\":30.0") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"startBeats\":0.0") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"endBeats\":60.0") != null);
+    // Bar 1 + offset -4 = display bar -3
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"startBars\":\"-3.1.00\"") != null);
+    // Bar 9 + offset -4 = display bar 5
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"endBars\":\"5.1.00\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"name\":\"Intro\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"color\":255") != null);
 }
 
 test "markers changed detection" {

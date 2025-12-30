@@ -43,6 +43,9 @@ pub const Api = struct {
 
     // Tempo
     setCurrentBPM: ?*const fn (?*anyopaque, f64, bool) callconv(.c) void = null,
+    timeMap_GetTimeSigAtTime: ?*const fn (?*anyopaque, f64, *c_int, *c_int, *f64) callconv(.c) void = null,
+    countTempoTimeSigMarkers: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
+    getTempoTimeSigMarker: ?*const fn (?*anyopaque, c_int, ?*f64, ?*c_int, ?*f64, ?*f64, ?*c_int, ?*c_int, ?*bool) callconv(.c) bool = null,
 
     // Project info
     getProjectLength: ?*const fn (?*anyopaque) callconv(.c) f64 = null,
@@ -166,6 +169,9 @@ pub const Api = struct {
             .timeMap2_timeToBeats = getFunc(info, "TimeMap2_timeToBeats", fn (?*anyopaque, f64, ?*c_int, ?*c_int, ?*f64, ?*c_int) callconv(.c) f64),
             // Tempo
             .setCurrentBPM = getFunc(info, "SetCurrentBPM", fn (?*anyopaque, f64, bool) callconv(.c) void),
+            .timeMap_GetTimeSigAtTime = getFunc(info, "TimeMap_GetTimeSigAtTime", fn (?*anyopaque, f64, *c_int, *c_int, *f64) callconv(.c) void),
+            .countTempoTimeSigMarkers = getFunc(info, "CountTempoTimeSigMarkers", fn (?*anyopaque) callconv(.c) c_int),
+            .getTempoTimeSigMarker = getFunc(info, "GetTempoTimeSigMarker", fn (?*anyopaque, c_int, ?*f64, ?*c_int, ?*f64, ?*f64, ?*c_int, ?*c_int, ?*bool) callconv(.c) bool),
             // Project info
             .getProjectLength = getFunc(info, "GetProjectLength", fn (?*anyopaque) callconv(.c) f64),
             // Command state
@@ -377,6 +383,65 @@ pub const Api = struct {
         // Clamp to REAPER's valid range (2-960 BPM)
         const clamped = @max(2.0, @min(960.0, bpm));
         f(null, clamped, true); // true = add undo point
+    }
+
+    // Position-aware tempo info
+    pub const TempoAtPosition = struct {
+        bpm: f64,
+        timesig_num: c_int,
+        timesig_denom: c_int,
+    };
+
+    /// Get tempo and time signature at a specific position (handles tempo markers)
+    /// This is position-aware unlike timeSignature() which returns project defaults
+    pub fn getTempoAtPosition(self: *const Api, time: f64) TempoAtPosition {
+        var num: c_int = 4;
+        var denom: c_int = 4;
+        var bpm: f64 = 120;
+        if (self.timeMap_GetTimeSigAtTime) |f| {
+            f(null, time, &num, &denom, &bpm);
+        }
+        return .{ .bpm = bpm, .timesig_num = num, .timesig_denom = denom };
+    }
+
+    /// Count tempo/time signature markers in the project (0 = fixed tempo)
+    pub fn tempoMarkerCount(self: *const Api) c_int {
+        const f = self.countTempoTimeSigMarkers orelse return 0;
+        return f(null);
+    }
+
+    /// Tempo marker data
+    pub const TempoMarker = struct {
+        position: f64, // Time position in seconds
+        bpm: f64,
+        timesig_num: c_int,
+        timesig_denom: c_int,
+        linear_tempo: bool, // True = linear tempo transition to next marker
+    };
+
+    /// Get tempo/time signature marker by index
+    /// Returns null if index out of range or function unavailable
+    pub fn getTempoMarker(self: *const Api, idx: c_int) ?TempoMarker {
+        const f = self.getTempoTimeSigMarker orelse return null;
+        var position: f64 = 0;
+        var bpm: f64 = 120;
+        var timesig_num: c_int = 4;
+        var timesig_denom: c_int = 4;
+        var linear: bool = false;
+        // Unused outputs
+        var measure_pos: c_int = 0;
+        var beat_pos: f64 = 0;
+
+        const ok = f(null, idx, &position, &measure_pos, &beat_pos, &bpm, &timesig_num, &timesig_denom, &linear);
+        if (!ok) return null;
+
+        return .{
+            .position = position,
+            .bpm = bpm,
+            .timesig_num = timesig_num,
+            .timesig_denom = timesig_denom,
+            .linear_tempo = linear,
+        };
     }
 
     // Project length in seconds (based on last item/region end)

@@ -57,19 +57,33 @@ export function TimelineRegionLabels({
         // New regions get white outline, modified existing get orange
         const pendingRingClass = isNewRegion ? 'ring-1 ring-inset ring-white' : hasPending ? 'ring-1 ring-inset ring-amber-400' : '';
 
+        // Get region color for stem borders
+        const regionColor = region.color ? reaperColorToRgba(region.color, 1) ?? DEFAULT_REGION_COLOR_RGB : DEFAULT_REGION_COLOR_RGB;
+        // Don't draw right border if another region starts at this region's end (REAPER only shows the new region's left edge)
+        const hasAdjacentRegion = displayRegions.some(r => r.id !== region.id && Math.abs(r.start - region.end) < 0.001);
+        // Don't draw right border in label area if another region overlaps (its start is before our end)
+        // This prevents stems cutting through other region labels
+        const hasOverlappingRegion = displayRegions.some(r => r.id !== region.id && r.start < region.end && r.end > region.end);
+        const hideRightBorder = hasAdjacentRegion || hasOverlappingRegion;
+
         return (
           <div
             key={`region-label-${region.id}`}
-            className={`absolute top-0 bottom-0 border-l border-r flex flex-col ${
+            className={`absolute top-0 bottom-0 border-l flex flex-col ${
+              hideRightBorder ? '' : 'border-r'
+            } ${
               isBeingDragged
                 ? 'border-purple-400 z-20 bg-gray-900'
                 : isSelected
                   ? 'border-purple-400 z-10'
-                  : 'border-gray-600'
+                  : ''
             } ${pendingRingClass}`}
             style={{
               left: `${renderTimeToPercent(region.start)}%`,
               width: `${renderTimeToPercent(region.end) - renderTimeToPercent(region.start)}%`,
+              // Color stems with region color (overridden by selection/drag classes)
+              borderLeftColor: isBeingDragged || isSelected ? undefined : regionColor,
+              borderRightColor: isBeingDragged || isSelected ? undefined : hideRightBorder ? 'transparent' : regionColor,
             }}
           >
             {/* Color bar - 5px */}
@@ -114,19 +128,29 @@ export function TimelineRegionBlocks({
         // New regions get white outline, modified existing get orange
         const pendingRingClass = isNewRegion ? 'ring-1 ring-inset ring-white' : hasPending ? 'ring-1 ring-inset ring-amber-400' : '';
 
+        // Get region color for stem borders
+        const regionColor = region.color ? reaperColorToRgba(region.color, 1) ?? DEFAULT_REGION_COLOR_RGB : DEFAULT_REGION_COLOR_RGB;
+        // Don't draw right border if another region starts at this region's end (REAPER only shows the new region's left edge)
+        const hasAdjacentRegion = displayRegions.some(r => r.id !== region.id && Math.abs(r.start - region.end) < 0.001);
+
         return (
           <div
             key={`region-${region.id}`}
-            className={`absolute top-0 bottom-0 border-l border-r ${
+            className={`absolute top-0 bottom-0 border-l ${
+              hasAdjacentRegion ? '' : 'border-r'
+            } ${
               isBeingDragged
                 ? 'border-purple-400 bg-purple-500/50 z-20'
                 : isSelected
                   ? 'border-purple-400 bg-purple-500/30 z-10'
-                  : 'border-gray-600 bg-gray-700/50'
+                  : 'bg-gray-700/50'
             } ${pendingRingClass}`}
             style={{
               left: `${renderTimeToPercent(region.start)}%`,
               width: `${renderTimeToPercent(region.end) - renderTimeToPercent(region.start)}%`,
+              // Color stems with region color (overridden by selection/drag classes)
+              borderLeftColor: isBeingDragged || isSelected ? undefined : regionColor,
+              borderRightColor: isBeingDragged || isSelected ? undefined : hasAdjacentRegion ? 'transparent' : regionColor,
             }}
           >
             {/* Edge handles - only show for single selection when no pending changes */}

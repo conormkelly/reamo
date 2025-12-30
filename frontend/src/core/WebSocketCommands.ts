@@ -272,6 +272,26 @@ export const tempo = {
     params: { bpm },
   }),
   tap: (): WSCommand => ({ command: 'tempo/tap' }),
+  /** Snap time to beat grid (tempo-aware) */
+  snap: (time: number, subdivision = 1): WSCommand => ({
+    command: 'tempo/snap',
+    params: { time, subdivision },
+  }),
+  /** Get bar duration at a specific position */
+  getBarDuration: (time: number): WSCommand => ({
+    command: 'tempo/getBarDuration',
+    params: { time },
+  }),
+  /** Convert time to beats with bar string */
+  timeToBeats: (time: number): WSCommand => ({
+    command: 'tempo/timeToBeats',
+    params: { time },
+  }),
+  /** Convert bar.beat.ticks to time in seconds (tempo-aware) */
+  barsToTime: (bar: number, beat = 1, ticks = 0): WSCommand => ({
+    command: 'tempo/barsToTime',
+    params: { bar, beat, ticks },
+  }),
 };
 
 // =============================================================================

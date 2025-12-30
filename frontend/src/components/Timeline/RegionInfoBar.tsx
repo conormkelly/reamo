@@ -9,9 +9,72 @@ import { useState, useRef, useEffect, type ReactElement } from 'react';
 import { Plus, Trash2, CopyPlus, RotateCcw } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useTimeFormatters } from '../../hooks';
-import { hexToReaperColor, reaperColorToHexWithFallback, secondsToBeats } from '../../utils';
+import { hexToReaperColor, reaperColorToHexWithFallback } from '../../utils';
 import type { Region } from '../../core/types';
 import { DeleteRegionModal } from './DeleteRegionModal';
+import { useReaper } from '../ReaperProvider';
+import { tempo as tempoCmd } from '../../core/WebSocketCommands';
+
+/**
+ * Parse a bar.beat.ticks string (e.g., "13.1.00") into components
+ */
+function parseBarsString(bars: string): { bar: number; beat: number; ticks: number } | null {
+  const parts = bars.split('.');
+  if (parts.length < 2) return null;
+  const bar = parseInt(parts[0], 10);
+  const beat = parseInt(parts[1], 10);
+  const ticks = parts.length >= 3 ? parseInt(parts[2], 10) : 0;
+  if (isNaN(bar) || isNaN(beat) || isNaN(ticks)) return null;
+  return { bar, beat, ticks };
+}
+
+/**
+ * Parse a duration string (e.g., "10", "10.1", "10.1.50") into bar/beat/ticks
+ * For duration, bars start at 0 (not 1-indexed like positions)
+ */
+function parseDurationBars(input: string): { bar: number; beat: number; ticks: number } | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  const parts = trimmed.split('.');
+  const bar = parseInt(parts[0], 10);
+  if (isNaN(bar)) return null;
+
+  // Default beat and ticks to 0 for durations
+  const beat = parts.length >= 2 ? parseInt(parts[1], 10) : 0;
+  const ticks = parts.length >= 3 ? parseInt(parts[2], 10) : 0;
+
+  if (isNaN(beat) || isNaN(ticks)) return null;
+  return { bar, beat, ticks };
+}
+
+/**
+ * Add duration to a position (with carry for beats/ticks)
+ * Returns the new position bar.beat.ticks
+ */
+function addDurationToPosition(
+  pos: { bar: number; beat: number; ticks: number },
+  dur: { bar: number; beat: number; ticks: number },
+  beatsPerBar: number
+): { bar: number; beat: number; ticks: number } {
+  let ticks = pos.ticks + dur.ticks;
+  let beat = pos.beat + dur.beat;
+  let bar = pos.bar + dur.bar;
+
+  // Carry ticks -> beat
+  if (ticks >= 100) {
+    beat += Math.floor(ticks / 100);
+    ticks = ticks % 100;
+  }
+
+  // Carry beat -> bar (beat is 1-indexed in positions, so > beatsPerBar means carry)
+  while (beat > beatsPerBar) {
+    beat -= beatsPerBar;
+    bar += 1;
+  }
+
+  return { bar, beat, ticks };
+}
 
 // Default region color in REAPER (shown when color = 0)
 const DEFAULT_REGION_COLOR = '#688585';
@@ -21,35 +84,16 @@ interface RegionInfoBarProps {
   onAddRegion?: () => void;
 }
 
-/**
- * Format duration as editable string (just the number of bars)
- * UI-specific format for the editable duration field
- * @param denominator - Time signature denominator (default: 4)
- */
-function formatDurationEditable(seconds: number, bpm: number, beatsPerBar: number = 4, denominator: number = 4): string {
-  // BPM is in quarter notes, convert to denominator beats
-  const quarterNoteBeats = secondsToBeats(seconds, bpm);
-  const denominatorBeats = quarterNoteBeats * (denominator / 4);
-  const totalBeats = Math.round(denominatorBeats * 4) / 4;
-  const bars = Math.floor(totalBeats / beatsPerBar);
-  const beats = Math.round(totalBeats % beatsPerBar);
-  if (bars > 0 && beats > 0) {
-    return `${bars}.${beats}`; // e.g., "8.2" for 8 bars 2 beats
-  } else if (bars > 0) {
-    return `${bars}`; // e.g., "8" for 8 bars
-  } else {
-    return `0.${beats}`; // e.g., "0.2" for 2 beats
-  }
-}
-
-type EditingField = 'name' | 'start' | 'end' | 'length' | 'color' | null;
+type EditingField = 'name' | 'start' | 'length' | 'color' | null;
 
 export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProps): ReactElement | null {
+  const { sendCommandAsync } = useReaper();
   const timelineMode = useReaperStore((s) => s.timelineMode);
   const selectedRegionIds = useReaperStore((s) => s.selectedRegionIds);
   const regions = useReaperStore((s) => s.regions);
+  const pendingChanges = useReaperStore((s) => s.pendingChanges);
   const getDisplayRegions = useReaperStore((s) => s.getDisplayRegions);
-  const resizeRegion = useReaperStore((s) => s.resizeRegion);
+  const updateRegionBounds = useReaperStore((s) => s.updateRegionBounds);
   const updateRegionMeta = useReaperStore((s) => s.updateRegionMeta);
   const createRegion = useReaperStore((s) => s.createRegion);
   const selectRegion = useReaperStore((s) => s.selectRegion);
@@ -62,13 +106,22 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
     parseDuration,
     bpm,
     beatsPerBar,
-    denominator,
   } = useTimeFormatters();
 
   const [editingField, setEditingField] = useState<EditingField>(null);
   const [editValue, setEditValue] = useState('');
+  // Store region data at edit start to avoid issues when selection changes during edit
+  const editingRegionDataRef = useRef<{
+    id: number;
+    start: number;
+    end: number;
+    startBars?: string;
+    name: string;
+  } | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  // Cache of bar strings fetched for pending regions (keyed by "id:start:end")
+  const [pendingBarStrings, setPendingBarStrings] = useState<Record<string, { startBars: string; endBars: string; lengthBars: string }>>({});
   const inputRef = useRef<HTMLInputElement>(null);
   const colorPickerRef = useRef<HTMLDivElement>(null);
 
@@ -86,6 +139,80 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
       inputRef.current.select();
     }
   }, [editingField]);
+
+  // Fetch bar strings for pending regions (they don't have server bar strings)
+  // This ensures accurate display regardless of playhead position
+  useEffect(() => {
+    const pendingIds = Object.keys(pendingChanges).map(k => parseInt(k, 10));
+    if (pendingIds.length === 0) {
+      // Clear cache when no pending changes
+      if (Object.keys(pendingBarStrings).length > 0) {
+        setPendingBarStrings({});
+      }
+      return;
+    }
+
+    // Fetch bar strings for each pending change
+    pendingIds.forEach(async (id) => {
+      const change = pendingChanges[id];
+      if (!change || change.isDeleted) return;
+
+      const cacheKey = `${id}:${change.newStart}:${change.newEnd}`;
+      if (pendingBarStrings[cacheKey]) return; // Already fetched
+
+      try {
+        // Fetch start, end, and calculate length bar strings
+        const [startResp, endResp] = await Promise.all([
+          sendCommandAsync(tempoCmd.timeToBeats(change.newStart)),
+          sendCommandAsync(tempoCmd.timeToBeats(change.newEnd)),
+        ]);
+
+        const startData = startResp as { payload?: { bars?: string } } | undefined;
+        const endData = endResp as { payload?: { bars?: string } } | undefined;
+
+        if (startData?.payload?.bars && endData?.payload?.bars) {
+          // Extract to local variables for TypeScript narrowing
+          const startBars = startData.payload.bars;
+          const endBars = endData.payload.bars;
+
+          // Parse start and end to calculate length
+          const startParsed = parseBarsString(startBars);
+          const endParsed = parseBarsString(endBars);
+
+          let lengthBars = '';
+          if (startParsed && endParsed) {
+            // Calculate length as bar.beat.ticks difference
+            let barDiff = endParsed.bar - startParsed.bar;
+            let beatDiff = endParsed.beat - startParsed.beat;
+            let ticksDiff = endParsed.ticks - startParsed.ticks;
+
+            // Handle borrows
+            if (ticksDiff < 0) {
+              beatDiff -= 1;
+              ticksDiff += 100;
+            }
+            if (beatDiff < 0) {
+              barDiff -= 1;
+              beatDiff += beatsPerBar; // This is approximate, but better than playhead BPM
+            }
+
+            lengthBars = `${barDiff}.${beatDiff}.${ticksDiff.toString().padStart(2, '0')}`;
+          }
+
+          setPendingBarStrings(prev => ({
+            ...prev,
+            [cacheKey]: {
+              startBars,
+              endBars,
+              lengthBars,
+            },
+          }));
+        }
+      } catch {
+        // Ignore errors, will fall back to local calculation
+      }
+    });
+  }, [pendingChanges, pendingBarStrings, sendCommandAsync, beatsPerBar]);
 
   // Close color picker when clicking outside
   useEffect(() => {
@@ -115,6 +242,19 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
     ? displayRegions.find(r => r.id === selectedId)
     : undefined;
 
+  // Check if selected region has pending changes (no server bar strings)
+  const pendingChange = selectedId !== null ? pendingChanges[selectedId] : null;
+  const hasPendingChanges = pendingChange !== null && pendingChange !== undefined;
+
+  // Get fetched bar strings for pending region (if available)
+  const pendingCacheKey = hasPendingChanges && region ? `${selectedId}:${region.start}:${region.end}` : null;
+  const fetchedPendingBars = pendingCacheKey ? pendingBarStrings[pendingCacheKey] : null;
+
+  // Display bar strings: prefer fetched pending bars, then server bars, then local calculation
+  const displayStartBars = fetchedPendingBars?.startBars ?? region?.startBars ?? (region ? formatBeats(region.start) : '');
+  const displayEndBars = fetchedPendingBars?.endBars ?? region?.endBars ?? (region ? formatBeats(region.end) : '');
+  const displayLengthBars = fetchedPendingBars?.lengthBars ?? region?.lengthBars ?? (region ? formatDuration(region.end - region.start) : '');
+
   // Get unique colors from all regions for the picker
   const existingColors = new Set<string>();
   displayRegions.forEach((r) => {
@@ -123,11 +263,21 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
     }
   });
 
-  const duration = region ? region.end - region.start : 0;
   const currentColor = region ? reaperColorToHexWithFallback(region.color, DEFAULT_REGION_COLOR) : DEFAULT_REGION_COLOR;
 
   const handleFieldClick = (field: EditingField) => {
     if (!region) return;
+
+    // Capture region data at edit start to use in handleConfirm
+    // This prevents issues when selection changes during edit
+    // Use display bar strings which include fetched pending bar strings
+    editingRegionDataRef.current = {
+      id: region.id,
+      start: region.start,
+      end: region.end,
+      startBars: displayStartBars || undefined,
+      name: region.name,
+    };
 
     if (field === 'color') {
       setShowColorPicker(true);
@@ -135,17 +285,17 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
       return;
     }
 
-    if (!bpm && (field === 'start' || field === 'end' || field === 'length')) return;
+    if (!bpm && (field === 'start' || field === 'length')) return;
 
     setEditingField(field);
     if (field === 'name') {
       setEditValue(region.name);
     } else if (field === 'start') {
-      setEditValue(formatBeats(region.start));
-    } else if (field === 'end') {
-      setEditValue(formatBeats(region.end));
+      // Use display bar string (fetched pending or server), stripping trailing .00 ticks for easier editing
+      setEditValue(displayStartBars.replace(/\.00$/, ''));
     } else if (field === 'length') {
-      setEditValue(formatDurationEditable(duration, bpm!, beatsPerBar, denominator));
+      // Use display bar string (fetched pending or server), stripping trailing .00 ticks for easier editing
+      setEditValue(displayLengthBars.replace(/\.00$/, ''));
     }
   };
 
@@ -153,61 +303,107 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
   const isDefaultColor = !region?.color || region.color === 0;
 
   const handleColorSelect = (hex: string) => {
-    if (!region) return;
+    // Use captured region ID to ensure we update the right region
+    const editRegion = editingRegionDataRef.current;
+    if (!editRegion) return;
     const reaperColor = hexToReaperColor(hex);
-    updateRegionMeta(region.id, { color: reaperColor }, regions);
+    updateRegionMeta(editRegion.id, { color: reaperColor }, regions);
     setShowColorPicker(false);
     setEditingField(null);
+    editingRegionDataRef.current = null;
   };
 
   const handleColorReset = () => {
-    if (!region) return;
+    // Use captured region ID to ensure we update the right region
+    const editRegion = editingRegionDataRef.current;
+    if (!editRegion) return;
     // Send 0 to reset to REAPER's default region color
-    updateRegionMeta(region.id, { color: 0 }, regions);
+    updateRegionMeta(editRegion.id, { color: 0 }, regions);
     setShowColorPicker(false);
     setEditingField(null);
+    editingRegionDataRef.current = null;
   };
 
-  const handleConfirm = () => {
-    if (!region || !editingField) {
+  const handleConfirm = async () => {
+    // Use the captured region data from when editing started
+    // This prevents applying changes to wrong region if selection changed
+    const editRegion = editingRegionDataRef.current;
+    if (!editRegion || !editingField) {
       setEditingField(null);
+      setEditValue('');
+      editingRegionDataRef.current = null;
       return;
     }
 
     if (editingField === 'name') {
       if (editValue.trim()) {
-        updateRegionMeta(region.id, { name: editValue.trim() }, regions);
+        updateRegionMeta(editRegion.id, { name: editValue.trim() }, regions);
       }
     } else if (bpm) {
-      let newSeconds: number | null = null;
-
       if (editingField === 'start') {
-        newSeconds = parseBarBeat(editValue);
-        if (newSeconds !== null && newSeconds >= 0 && newSeconds < region.end) {
-          resizeRegion(region.id, 'start', newSeconds, regions, bpm);
-        }
-      } else if (editingField === 'end') {
-        newSeconds = parseBarBeat(editValue);
-        if (newSeconds !== null && newSeconds > region.start) {
-          resizeRegion(region.id, 'end', newSeconds, regions, bpm);
+        // Parse bar.beat.ticks and convert to time via server (no ripple, no snapping)
+        const parsed = parseBarsString(editValue) ?? parseBarsString(editValue + '.1'); // Handle "13" -> "13.1"
+        if (parsed) {
+          try {
+            const response = await sendCommandAsync(tempoCmd.barsToTime(parsed.bar, parsed.beat, parsed.ticks));
+            const resp = response as { payload?: { time?: number } } | undefined;
+            if (resp?.payload?.time !== undefined && resp.payload.time >= 0 && resp.payload.time < editRegion.end) {
+              updateRegionBounds(editRegion.id, { start: resp.payload.time }, regions);
+            }
+          } catch {
+            // Fall back to local parsing
+            const newSeconds = parseBarBeat(editValue);
+            if (newSeconds !== null && newSeconds >= 0 && newSeconds < editRegion.end) {
+              updateRegionBounds(editRegion.id, { start: newSeconds }, regions);
+            }
+          }
         }
       } else if (editingField === 'length') {
-        const newDuration = parseDuration(editValue);
-        if (newDuration !== null && newDuration > 0) {
-          const newEnd = region.start + newDuration;
-          resizeRegion(region.id, 'end', newEnd, regions, bpm);
+        // Parse duration as bar.beat.ticks (no ripple, no snapping)
+        const durParsed = parseDurationBars(editValue);
+        // Parse start position from server's startBars (captured at edit start)
+        const startParsed = editRegion.startBars ? parseBarsString(editRegion.startBars) : null;
+
+        if (durParsed && startParsed) {
+          // Add duration to start position to get new end position
+          const newEnd = addDurationToPosition(startParsed, durParsed, beatsPerBar);
+
+          try {
+            // Convert new end bar.beat.ticks to time via server
+            const response = await sendCommandAsync(tempoCmd.barsToTime(newEnd.bar, newEnd.beat, newEnd.ticks));
+            const resp = response as { payload?: { time?: number } } | undefined;
+            if (resp?.payload?.time !== undefined && resp.payload.time > editRegion.start) {
+              updateRegionBounds(editRegion.id, { end: resp.payload.time }, regions);
+            }
+          } catch {
+            // Fall back to local parsing
+            const newDuration = parseDuration(editValue);
+            if (newDuration !== null && newDuration > 0) {
+              const newEndTime = editRegion.start + newDuration;
+              updateRegionBounds(editRegion.id, { end: newEndTime }, regions);
+            }
+          }
+        } else {
+          // Fall back to local parsing if we don't have startBars
+          const newDuration = parseDuration(editValue);
+          if (newDuration !== null && newDuration > 0) {
+            const newEndTime = editRegion.start + newDuration;
+            updateRegionBounds(editRegion.id, { end: newEndTime }, regions);
+          }
         }
       }
     }
 
     setEditingField(null);
     setEditValue('');
+    editingRegionDataRef.current = null;
   };
 
   const handleCancel = () => {
     setEditingField(null);
     setEditValue('');
     setShowColorPicker(false);
+    editingRegionDataRef.current = null;
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -431,21 +627,22 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
 
             {/* Line 2: Start, End */}
             <div className="flex items-center gap-3">
-              {/* Start position */}
+              {/* Start position - use fetched pending bar string, or server bar string, or local calc */}
               {renderField(
                 'start',
                 'Start',
-                formatBeats(region.start)
+                displayStartBars
               )}
 
               <div className="w-px h-4 bg-gray-600 flex-shrink-0" />
 
-              {/* End position */}
-              {renderField(
-                'end',
-                'End',
-                formatBeats(region.end)
-              )}
+              {/* End position - display only (derived from start + length) */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-gray-400 text-xs">End:</span>
+                <span className="text-gray-300 font-mono text-xs px-1.5 py-0.5">
+                  {displayEndBars}
+                </span>
+              </div>
 
               {/* Length - inline on larger screens */}
               <div className="hidden sm:flex items-center gap-3">
@@ -453,7 +650,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
                 {renderField(
                   'length',
                   'Length',
-                  formatDuration(duration),
+                  displayLengthBars,
                   'text-purple-300 font-medium'
                 )}
               </div>
@@ -464,7 +661,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
               {renderField(
                 'length',
                 'Length',
-                formatDuration(duration),
+                displayLengthBars,
                 'text-purple-300 font-medium'
               )}
             </div>

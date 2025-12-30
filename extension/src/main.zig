@@ -5,6 +5,7 @@ const project = @import("project.zig");
 const markers = @import("markers.zig");
 const items = @import("items.zig");
 const tracks = @import("tracks.zig");
+const tempomap = @import("tempomap.zig");
 const commands = @import("commands/mod.zig");
 const ws_server = @import("ws_server.zig");
 const gesture_state = @import("gesture_state.zig");
@@ -28,6 +29,7 @@ var g_last_markers: markers.State = .{};
 var g_last_items: items.State = .{};
 var g_last_tracks: tracks.State = .{};
 var g_last_metering: tracks.MeteringState = .{};
+var g_last_tempomap: tempomap.State = .{};
 var g_initialized: bool = false;
 
 // Hot reload detection
@@ -156,6 +158,7 @@ fn initTimerCallback() callconv(.c) void {
     g_last_markers = markers.State.poll(api);
     g_last_items = items.State.poll(api);
     g_last_tracks = tracks.State.poll(api);
+    g_last_tempomap = tempomap.State.poll(api);
 
     api.log("Reamo: WebSocket server started on port {d}", .{g_port});
     logFile("WebSocket server started");
@@ -219,6 +222,7 @@ fn processTimerCallback() callconv(.c) void {
         const proj = project.State.poll(api);
         const mark = markers.State.poll(api);
         const trks = tracks.State.poll(api);
+        const tmap = tempomap.State.poll(api);
 
         // Send to each new client
         for (snapshot_clients[0..snapshot_count]) |client_id| {
@@ -251,6 +255,11 @@ fn processTimerCallback() callconv(.c) void {
             var buf5: [32768]u8 = undefined;
             const itms = items.State.poll(api);
             if (itms.itemsToJson(&buf5)) |json| {
+                shared_state.sendToClient(client_id, json);
+            }
+            // Tempo map
+            var buf6: [4096]u8 = undefined;
+            if (tmap.toJson(&buf6)) |json| {
                 shared_state.sendToClient(client_id, json);
             }
         }
@@ -301,6 +310,16 @@ fn processTimerCallback() callconv(.c) void {
         }
     }
     g_last_items = current_items;
+
+    // Poll tempo map and broadcast changes
+    const current_tempomap = tempomap.State.poll(api);
+    if (current_tempomap.changed(&g_last_tempomap)) {
+        var buf: [4096]u8 = undefined;
+        if (current_tempomap.toJson(&buf)) |json| {
+            shared_state.broadcast(json);
+        }
+    }
+    g_last_tempomap = current_tempomap;
 
     // Poll tracks and metering, broadcast changes
     const current_tracks = tracks.State.poll(api);

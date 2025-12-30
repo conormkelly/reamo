@@ -7,12 +7,14 @@
  * to avoid React re-render overhead.
  */
 
-import { useRef, useLayoutEffect, type ReactElement } from 'react';
+import { useRef, useLayoutEffect, useState, useEffect, type ReactElement } from 'react';
 import type { Marker } from '../../core/types';
 import type { TimelineMode } from '../../store';
 import { transportEngine } from '../../core/TransportAnimationEngine';
 import { formatBeats, formatTime, reaperColorToHex } from '../../utils';
 import { useTransportAnimation } from '../../hooks';
+import { useReaper } from '../ReaperProvider';
+import { tempo as tempoCmd } from '../../core/WebSocketCommands';
 
 export interface TimelinePlayheadProps {
   /** Current playhead position in seconds (used for initial render and when stopped) */
@@ -57,17 +59,15 @@ export interface MarkerDragPreviewProps {
   isDraggingMarker: boolean;
   /** Preview position as percentage */
   markerDragPreviewPercent: number | null;
-  /** Timeline start in seconds */
-  timelineStart: number;
-  /** Timeline duration in seconds */
-  duration: number;
-  /** BPM for beat display */
+  /** Preview position in seconds (for server bar string lookup) */
+  markerDragPreviewTime: number | null;
+  /** BPM for beat display (fallback when server string unavailable) */
   bpm: number | null;
-  /** Bar offset for beat formatting */
+  /** Bar offset for beat formatting (fallback) */
   barOffset: number;
-  /** Beats per bar from time signature */
+  /** Beats per bar from time signature (fallback) */
   beatsPerBar?: number;
-  /** Time signature denominator */
+  /** Time signature denominator (fallback) */
   denominator?: number;
 }
 
@@ -160,6 +160,7 @@ export function TimelinePlayhead({
 
 /**
  * Preview playhead shown during drag
+ * Fetches tempo-aware bar string from server for accurate display
  */
 export function PlayheadDragPreview({
   playheadPreviewPercent,
@@ -170,11 +171,51 @@ export function PlayheadDragPreview({
   beatsPerBar = 4,
   denominator = 4,
 }: PlayheadPreviewProps): ReactElement | null {
+  const { sendCommandAsync } = useReaper();
+  const [serverBars, setServerBars] = useState<string | null>(null);
+  const lastRequestedTime = useRef<number | null>(null);
+
+  // Fetch tempo-aware bar string from server when preview time changes
+  useEffect(() => {
+    if (playheadPreviewTime === null || !isDraggingPlayhead) {
+      setServerBars(null);
+      return;
+    }
+
+    // Debounce: don't re-request if time hasn't changed significantly (< 0.01s)
+    if (lastRequestedTime.current !== null &&
+        Math.abs(playheadPreviewTime - lastRequestedTime.current) < 0.01) {
+      return;
+    }
+    lastRequestedTime.current = playheadPreviewTime;
+
+    // Request tempo-aware bar string from server
+    sendCommandAsync(tempoCmd.timeToBeats(playheadPreviewTime))
+      .then((response) => {
+        const resp = response as { payload?: { bars?: string } } | undefined;
+        if (resp?.payload?.bars) {
+          setServerBars(resp.payload.bars);
+        }
+      })
+      .catch(() => {
+        // Ignore errors, fall back to local calculation
+      });
+  }, [playheadPreviewTime, isDraggingPlayhead, sendCommandAsync]);
+
+  // Reset server bars when drag ends
+  useEffect(() => {
+    if (!isDraggingPlayhead) {
+      setServerBars(null);
+      lastRequestedTime.current = null;
+    }
+  }, [isDraggingPlayhead]);
+
   if (!isDraggingPlayhead || playheadPreviewPercent === null || playheadPreviewTime === null) return null;
 
-  // Use 2 decimal places for preview - beats are the accurate display
+  // Use 3 decimal places for drag preview
   const timeStr = formatTime(playheadPreviewTime, { precision: 2 });
-  const beatsStr = bpm ? formatBeats(playheadPreviewTime, bpm, barOffset, beatsPerBar, denominator) : '';
+  // Use server bar string if available, fall back to local calculation
+  const beatsStr = serverBars ?? (bpm ? formatBeats(playheadPreviewTime, bpm, barOffset, beatsPerBar, denominator) : '');
 
   // REAPER's playhead color
   const playheadColor = '#337066';
@@ -212,23 +253,69 @@ export function PlayheadDragPreview({
 
 /**
  * Preview marker shown during marker drag
+ * Fetches tempo-aware bar string from server for accurate display
  */
 export function MarkerDragPreview({
   draggedMarker,
   isDraggingMarker,
   markerDragPreviewPercent,
-  timelineStart,
-  duration,
+  markerDragPreviewTime,
   bpm,
   barOffset,
   beatsPerBar = 4,
   denominator = 4,
 }: MarkerDragPreviewProps): ReactElement | null {
-  if (!isDraggingMarker || !draggedMarker || markerDragPreviewPercent === null) return null;
+  const { sendCommandAsync } = useReaper();
+  const [serverBars, setServerBars] = useState<string | null>(null);
+  const lastRequestedTime = useRef<number | null>(null);
 
-  const seconds = timelineStart + (markerDragPreviewPercent / 100) * duration;
-  const timeStr = formatTime(seconds, { precision: 3 });
-  const beatsStr = bpm ? formatBeats(seconds, bpm, barOffset, beatsPerBar, denominator) : '';
+  // Fetch tempo-aware bar string from server when preview time changes
+  useEffect(() => {
+    if (markerDragPreviewTime === null || !isDraggingMarker) {
+      setServerBars(null);
+      return;
+    }
+
+    // Debounce: don't re-request if time hasn't changed significantly (< 0.01s)
+    if (lastRequestedTime.current !== null &&
+        Math.abs(markerDragPreviewTime - lastRequestedTime.current) < 0.01) {
+      return;
+    }
+    lastRequestedTime.current = markerDragPreviewTime;
+
+    // Request tempo-aware bar string from server
+    sendCommandAsync(tempoCmd.timeToBeats(markerDragPreviewTime))
+      .then((response) => {
+        // sendAsync resolves with full ResponseMessage, payload contains the bars
+        const resp = response as { payload?: { bars?: string } } | undefined;
+        if (resp?.payload?.bars) {
+          setServerBars(resp.payload.bars);
+        }
+      })
+      .catch(() => {
+        // Ignore errors, fall back to local calculation
+      });
+  }, [markerDragPreviewTime, isDraggingMarker, sendCommandAsync]);
+
+  // Reset server bars when drag ends
+  useEffect(() => {
+    if (!isDraggingMarker) {
+      setServerBars(null);
+      lastRequestedTime.current = null;
+    }
+  }, [isDraggingMarker]);
+
+  if (!isDraggingMarker || !draggedMarker || markerDragPreviewPercent === null || markerDragPreviewTime === null) {
+    return null;
+  }
+
+  const timeStr = formatTime(markerDragPreviewTime, { precision: 3 });
+  // Use server bar string if available, or marker's original positionBars if at original position
+  // Fall back to local calculation only as last resort
+  const isAtOriginalPosition = Math.abs(markerDragPreviewTime - draggedMarker.position) < 0.01;
+  const beatsStr = serverBars
+    ?? (isAtOriginalPosition ? draggedMarker.positionBars : null)
+    ?? (bpm ? formatBeats(markerDragPreviewTime, bpm, barOffset, beatsPerBar, denominator) : '');
 
   // Use marker's custom color or default red
   const markerColor = draggedMarker.color ? reaperColorToHex(draggedMarker.color) ?? '#dc2626' : '#dc2626';

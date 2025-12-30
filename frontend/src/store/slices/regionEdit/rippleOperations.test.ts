@@ -3,7 +3,79 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { getMinRegionLength } from './rippleOperations';
+import { getMinRegionLength, snapToBeats } from './rippleOperations';
+
+describe('snapToBeats', () => {
+  describe('4/4 time signature (quarter note = beat)', () => {
+    const denominator = 4;
+    const bpm = 120;
+
+    it('snaps to quarter note grid', () => {
+      // At 120 BPM, quarter notes are at 0, 0.5, 1.0, 1.5, 2.0...
+      expect(snapToBeats(0.45, bpm, denominator)).toBeCloseTo(0.5, 2);
+      expect(snapToBeats(0.6, bpm, denominator)).toBeCloseTo(0.5, 2);
+      expect(snapToBeats(0.8, bpm, denominator)).toBeCloseTo(1.0, 2);
+    });
+
+    it('handles exact beat positions', () => {
+      expect(snapToBeats(0.5, bpm, denominator)).toBeCloseTo(0.5, 2);
+      expect(snapToBeats(1.0, bpm, denominator)).toBeCloseTo(1.0, 2);
+    });
+  });
+
+  describe('6/8 time signature (eighth note = beat)', () => {
+    const denominator = 8;
+    const bpm = 90; // quarter-note BPM
+
+    it('snaps to eighth note grid (not quarter notes)', () => {
+      // At 90 BPM (quarter), eighth notes are at:
+      // 0, 0.333, 0.667, 1.0, 1.333, 1.667, 2.0...
+      // (180 eighths per minute = 0.333s per eighth)
+      const eighthNoteDuration = 60 / (bpm * 2); // 0.333s
+
+      // 0.3s should snap to 0.333s (first eighth), not 0.0s (quarter)
+      expect(snapToBeats(0.3, bpm, denominator)).toBeCloseTo(eighthNoteDuration, 2);
+
+      // 0.5s should snap to 0.333s or 0.667s - it's exactly between so either is valid
+      const snapped = snapToBeats(0.5, bpm, denominator);
+      expect([0.333, 0.667].some(v => Math.abs(snapped - v) < 0.01)).toBe(true);
+    });
+
+    it('snaps differently than 4/4 at same position', () => {
+      // This is the key behavioral change: same time snaps to different grid
+      // In 4/4 at 90 BPM: quarter notes at 0, 0.667, 1.333...
+      // In 6/8 at 90 BPM: eighth notes at 0, 0.333, 0.667, 1.0...
+
+      // 0.4s in 4/4 snaps to 0.667 (nearest quarter)
+      const snap4_4 = snapToBeats(0.4, bpm, 4);
+      // 0.4s in 6/8 snaps to 0.333 (nearest eighth)
+      const snap6_8 = snapToBeats(0.4, bpm, 8);
+
+      expect(snap4_4).toBeCloseTo(0.667, 2);
+      expect(snap6_8).toBeCloseTo(0.333, 2);
+    });
+  });
+
+  describe('2/2 time signature (half note = beat)', () => {
+    const denominator = 2;
+    const bpm = 120; // quarter-note BPM
+
+    it('snaps to half note grid (every 2 quarters)', () => {
+      // At 120 BPM, half notes are at 0, 1.0, 2.0, 3.0...
+      expect(snapToBeats(0.4, bpm, denominator)).toBeCloseTo(0, 2);
+      expect(snapToBeats(0.6, bpm, denominator)).toBeCloseTo(1.0, 2);
+      expect(snapToBeats(1.3, bpm, denominator)).toBeCloseTo(1.0, 2);
+    });
+  });
+
+  describe('default denominator', () => {
+    it('defaults to quarter notes when denominator not specified', () => {
+      const bpm = 120;
+      // Should behave like denominator=4
+      expect(snapToBeats(0.45, bpm)).toBeCloseTo(0.5, 2);
+    });
+  });
+});
 
 describe('getMinRegionLength', () => {
   describe('returns default when no BPM', () => {

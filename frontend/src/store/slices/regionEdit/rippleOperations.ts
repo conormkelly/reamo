@@ -15,8 +15,12 @@ import { snapToGrid } from '../../../utils';
 /** Floating point comparison epsilon */
 const EPSILON = 0.001;
 
-/** Snap to quarter note grid */
-export const snapToBeats = (seconds: number, bpm: number) => snapToGrid(seconds, bpm, 1);
+/**
+ * Snap to beat grid based on time signature denominator
+ * @param denominator - Time signature denominator (4 = quarter, 8 = eighth, 2 = half). Default: 4
+ */
+export const snapToBeats = (seconds: number, bpm: number, denominator: number = 4) =>
+  snapToGrid(seconds, bpm, denominator / 4);
 
 /**
  * Calculate minimum region length (1 bar) from BPM and time signature
@@ -95,10 +99,10 @@ export function calculateResizeRipple(params: ResizeRippleParams): PendingChange
   let newEnd = regionEnd;
   const originalEnd = regionEnd;
 
-  // Snap to beat grid
+  // Snap to beat grid (using time signature denominator for proper snap points)
   let snappedTime = newTime;
   if (bpm && bpm > 0) {
-    snappedTime = snapToBeats(newTime, bpm);
+    snappedTime = snapToBeats(newTime, bpm, denominator);
   }
 
   if (edge === 'start') {

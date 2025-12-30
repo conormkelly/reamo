@@ -38,6 +38,8 @@ export interface UseMarkerDragResult {
   draggedMarker: Marker | null;
   /** Preview position as percentage (null when not dragging) */
   previewPercent: number | null;
+  /** Preview position as time in seconds (null when not dragging) */
+  previewTime: number | null;
   /** Handler for pointer down on a marker */
   handlePointerDown: (e: React.PointerEvent, marker: Marker) => void;
   /** Handler for pointer move during drag */
@@ -60,6 +62,7 @@ export function useMarkerDrag({
   const [draggedMarker, setDraggedMarker] = useState<Marker | null>(null);
   const [dragStartY, setDragStartY] = useState<number | null>(null);
   const [previewPercent, setPreviewPercent] = useState<number | null>(null);
+  const [previewTime, setPreviewTime] = useState<number | null>(null);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handlePointerDown = useCallback(
@@ -70,6 +73,7 @@ export function useMarkerDrag({
       setDraggedMarker(marker);
       setDragStartY(e.clientY);
       setPreviewPercent(timeToPercent(marker.position));
+      setPreviewTime(marker.position);
 
       // Start long-press timer for edit modal
       holdTimerRef.current = setTimeout(() => {
@@ -80,6 +84,7 @@ export function useMarkerDrag({
         setDraggedMarker(null);
         setDragStartY(null);
         setPreviewPercent(null);
+        setPreviewTime(null);
       }, MARKER_HOLD_THRESHOLD);
     },
     [timeToPercent, onEdit]
@@ -118,10 +123,12 @@ export function useMarkerDrag({
       const rawTime = timelineStart + (rawPercent / 100) * duration;
 
       // Snap to grid (bar boundaries) if we have BPM
+      // Note: This uses a single BPM - for tempo-aware snapping, use tempo/snap command
       const snappedTime = bpm ? snapToGrid(rawTime, bpm, 4) : rawTime;
       const snappedPercent = timeToPercent(snappedTime);
 
       setPreviewPercent(Math.max(0, Math.min(100, snappedPercent)));
+      setPreviewTime(snappedTime);
     },
     [draggedMarker, isDragging, dragStartY, timeToPercent, containerRef, timelineStart, duration, bpm]
   );
@@ -139,6 +146,7 @@ export function useMarkerDrag({
         setDraggedMarker(null);
         setDragStartY(null);
         setPreviewPercent(null);
+        setPreviewTime(null);
         setIsDragging(false);
         return;
       }
@@ -170,6 +178,7 @@ export function useMarkerDrag({
       setDraggedMarker(null);
       setDragStartY(null);
       setPreviewPercent(null);
+      setPreviewTime(null);
     },
     [draggedMarker, isDragging, dragStartY, previewPercent, timelineStart, duration, containerRef, onMove, onSelect]
   );
@@ -178,6 +187,7 @@ export function useMarkerDrag({
     isDragging,
     draggedMarker,
     previewPercent,
+    previewTime,
     handlePointerDown,
     handlePointerMove,
     handlePointerUp,

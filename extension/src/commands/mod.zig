@@ -262,6 +262,10 @@ test "registry contains expected commands" {
         // Tempo
         "tempo/set",
         "tempo/tap",
+        "tempo/snap",
+        "tempo/getBarDuration",
+        "tempo/timeToBeats",
+        "tempo/barsToTime",
         // Time signature
         "timesig/set",
         // Metronome

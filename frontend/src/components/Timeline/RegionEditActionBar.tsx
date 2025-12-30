@@ -44,8 +44,8 @@ export function RegionEditActionBar(): ReactElement | null {
           color: change.color ?? 0,
         });
       } else {
-        // Check what changed
-        const originalRegion = regions[key];
+        // Check what changed - look up by region ID, not array index
+        const originalRegion = regions.find(r => r.id === key);
         if (!originalRegion) continue;
 
         const startChanged = Math.abs(change.newStart - change.originalStart) > 0.001;

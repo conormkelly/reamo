@@ -16,6 +16,7 @@ import { ItemsDensityOverlay } from './ItemDensityBlobs';
 import { TimelineMarkerLines, TimelineMarkerPills } from './TimelineMarkers';
 import { TimelinePlayhead, PlayheadDragPreview, MarkerDragPreview } from './TimelinePlayhead';
 import { formatBeats, formatDelta } from '../../utils';
+import { timeToBarBeat, formatBarBeat } from '../../core/tempoUtils';
 import { findNearestSnapTarget } from './snapUtils';
 
 export interface TimelineProps {
@@ -37,6 +38,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   const items = useReaperStore((state) => state.items);
   const tracks = useReaperStore((state) => state.tracks);
   const bpm = useReaperStore((state) => state.bpm);
+  const tempoMarkers = useReaperStore((state) => state.tempoMarkers);
   const storedTimeSelection = useReaperStore((state) => state.timeSelection);
   const setStoredTimeSelection = useReaperStore((state) => state.setTimeSelection);
 
@@ -200,6 +202,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     timelineStart,
     duration,
     bpm,
+    denominator,
     displayRegions,
     baseDisplayRegions,
     selectedRegionIds,
@@ -429,6 +432,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     isDragging: isDraggingMarker,
     draggedMarker,
     previewPercent: markerDragPreviewPercent,
+    previewTime: markerDragPreviewTime,
     handlePointerDown: handleMarkerPointerDown,
     handlePointerMove: handleMarkerPointerMove,
     handlePointerUp: handleMarkerPointerUp,
@@ -571,10 +575,14 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
             <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-t-[8px] border-l-transparent border-r-transparent border-t-green-400" />
             {/* Bottom arrow indicator */}
             <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-b-[8px] border-l-transparent border-r-transparent border-b-green-400" />
-            {/* Position pill showing bar position at bottom */}
+            {/* Position pill showing bar position at bottom - uses tempo map for accuracy */}
             <div className="absolute bottom-1 -translate-x-1/2 z-40">
               <div className="bg-gray-900 border border-green-400 rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg">
-                {bpm ? formatBeats(insertionPoint, bpm, barOffset, beatsPerBar, denominator) : `${insertionPoint.toFixed(1)}s`}
+                {tempoMarkers.length > 0
+                  ? formatBarBeat(timeToBarBeat(insertionPoint, tempoMarkers, barOffset))
+                  : bpm
+                    ? formatBeats(insertionPoint, bpm, barOffset, beatsPerBar, denominator)
+                    : `${insertionPoint.toFixed(1)}s`}
               </div>
             </div>
           </div>
@@ -609,10 +617,14 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
                     </div>
                   </div>
                 )}
-                {/* Position pill showing bar position at bottom */}
+                {/* Position pill showing bar position at bottom - uses tempo map for accuracy */}
                 <div className="absolute bottom-1 -translate-x-1/2 z-40">
                   <div className="bg-gray-900 border border-green-400 rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg">
-                    {bpm ? formatBeats(resizeEdgePosition, bpm, barOffset, beatsPerBar, denominator) : `${resizeEdgePosition.toFixed(1)}s`}
+                    {tempoMarkers.length > 0
+                      ? formatBarBeat(timeToBarBeat(resizeEdgePosition, tempoMarkers, barOffset))
+                      : bpm
+                        ? formatBeats(resizeEdgePosition, bpm, barOffset, beatsPerBar, denominator)
+                        : `${resizeEdgePosition.toFixed(1)}s`}
                   </div>
                 </div>
               </div>
@@ -648,8 +660,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           draggedMarker={draggedMarker}
           isDraggingMarker={isDraggingMarker}
           markerDragPreviewPercent={markerDragPreviewPercent}
-          timelineStart={timelineStart}
-          duration={duration}
+          markerDragPreviewTime={markerDragPreviewTime}
           bpm={bpm}
           barOffset={barOffset}
           beatsPerBar={beatsPerBar}

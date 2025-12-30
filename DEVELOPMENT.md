@@ -630,6 +630,28 @@ echo '{"type":"command","command":"track/setVolume","trackIdx":1,"volume":0.5,"i
   websocat ws://localhost:9224
 ```
 
+**Multi-command testing (hello + command + wait for response):**
+
+The shell environment may not handle subshells `(...)` directly. Wrap in `/bin/bash -c '...'` and use escaped quotes for JSON:
+
+```bash
+# Pattern: hello handshake, then command, then wait for response
+/bin/bash -c 'TOKEN="your-token-here"
+(echo "{\"type\":\"hello\",\"clientVersion\":\"1.0.0\",\"protocolVersion\":1,\"token\":\"$TOKEN\"}"
+ echo "{\"type\":\"command\",\"command\":\"tempo/snap\",\"time\":15.7,\"id\":\"1\"}"
+ sleep 0.3) | /opt/homebrew/bin/websocat ws://localhost:9224 2>&1'
+
+# Filter for specific event types
+/bin/bash -c 'TOKEN="..."
+(echo "{\"type\":\"hello\",...}"
+ sleep 0.3) | websocat ws://localhost:9224 2>&1 | grep -m1 "\"event\":\"transport\""'
+```
+
+**Key escaping rules inside `/bin/bash -c '...'`:**
+- Use `\"` for JSON quotes (not single quotes, since outer command uses them)
+- Variables like `$TOKEN` expand normally
+- Newlines between `echo` statements are fine
+
 ### Enable Debug Logging
 
 In `extension/src/reaper.zig`:

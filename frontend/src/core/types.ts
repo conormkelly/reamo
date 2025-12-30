@@ -114,6 +114,8 @@ export interface Marker {
   name: string;
   id: number;
   position: number; // seconds
+  positionBeats?: number; // position in beats (tempo-aware)
+  positionBars?: string; // "bar.beat.ticks" format
   color?: number;
 }
 
@@ -123,6 +125,11 @@ export interface Region {
   id: number;
   start: number; // seconds
   end: number; // seconds
+  startBeats?: number; // start position in beats (tempo-aware)
+  endBeats?: number; // end position in beats (tempo-aware)
+  startBars?: string; // "bar.beat.ticks" format
+  endBars?: string; // "bar.beat.ticks" format
+  lengthBars?: string; // "bar.beat.ticks" format (tempo-aware duration)
   color?: number;
 }
 

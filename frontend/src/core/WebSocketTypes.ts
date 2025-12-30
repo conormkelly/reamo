@@ -53,7 +53,7 @@ export interface EventMessage {
   payload?: EventPayload; // Optional for events like 'reload' that have no payload
 }
 
-export type EventType = 'transport' | 'project' | 'tracks' | 'markers' | 'regions' | 'items' | 'reload' | 'actionToggleState';
+export type EventType = 'transport' | 'project' | 'tracks' | 'markers' | 'regions' | 'items' | 'reload' | 'actionToggleState' | 'tempoMap';
 
 export type EventPayload =
   | TransportEventPayload
@@ -62,7 +62,8 @@ export type EventPayload =
   | MarkersEventPayload
   | RegionsEventPayload
   | ItemsEventPayload
-  | ActionToggleStateEventPayload;
+  | ActionToggleStateEventPayload
+  | TempoMapEventPayload;
 
 /** Any message from server */
 export type ServerMessage = HelloResponse | ResponseMessage | EventMessage;
@@ -150,6 +151,8 @@ export interface TracksEventPayload {
 export interface WSMarker {
   id: number;
   position: number; // seconds
+  positionBeats: number; // position in beats (tempo-aware)
+  positionBars: string; // "bar.beat.ticks" format
   name: string;
   color: number; // Native OS color, 0 = default
 }
@@ -166,6 +169,11 @@ export interface WSRegion {
   id: number;
   start: number; // seconds
   end: number; // seconds
+  startBeats: number; // start position in beats (tempo-aware)
+  endBeats: number; // end position in beats (tempo-aware)
+  startBars: string; // "bar.beat.ticks" format
+  endBars: string; // "bar.beat.ticks" format
+  lengthBars: string; // "bar.beat.ticks" format (tempo-aware duration)
   name: string;
   color: number; // Native OS color, 0 = default
 }
@@ -211,6 +219,24 @@ export interface ItemsEventPayload {
 /** Toggle state changes broadcast (sparse delta) */
 export interface ActionToggleStateEventPayload {
   changes: Record<string, number>; // commandId → state (-1, 0, or 1)
+}
+
+// =============================================================================
+// Tempo Map Event
+// =============================================================================
+
+/** Individual tempo marker */
+export interface WSTempoMarker {
+  position: number; // seconds
+  bpm: number;
+  timesigNum: number;
+  timesigDenom: number;
+  linear: boolean; // linear tempo ramp to next marker
+}
+
+/** Tempo map broadcast */
+export interface TempoMapEventPayload {
+  markers: WSTempoMarker[];
 }
 
 // =============================================================================
@@ -362,4 +388,10 @@ export function isActionToggleStateEvent(
   msg: EventMessage
 ): msg is EventMessage & { payload: ActionToggleStateEventPayload } {
   return msg.event === 'actionToggleState';
+}
+
+export function isTempoMapEvent(
+  msg: EventMessage
+): msg is EventMessage & { payload: TempoMapEventPayload } {
+  return msg.event === 'tempoMap';
 }

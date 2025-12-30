@@ -33,6 +33,8 @@ export interface UseRegionDragOptions {
   duration: number;
   /** Current BPM (for snapping) */
   bpm: number | null;
+  /** Time signature denominator (4 = quarter, 8 = eighth). Default: 4 */
+  denominator?: number;
   /** Display regions (with pending changes, used for rendering) */
   displayRegions: Region[];
   /** Base display regions (original positions, used for snap calculations) */
@@ -88,6 +90,7 @@ export function useRegionDrag({
   timelineStart: _timelineStart,
   duration: _duration,
   bpm,
+  denominator = 4,
   displayRegions,
   baseDisplayRegions,
   selectedRegionIds,
@@ -326,8 +329,8 @@ export function useRegionDrag({
         }
       }
 
-      // For resize operations, snap to bar boundaries (4 beats)
-      const snappedTime = bpm ? snapToGrid(time, bpm, 4) : time;
+      // For resize operations, snap to beat grid based on time signature denominator
+      const snappedTime = bpm ? snapToGrid(time, bpm, denominator / 4) : time;
       updateDrag(e.clientX, snappedTime);
     },
     [
@@ -340,6 +343,7 @@ export function useRegionDrag({
       selectedRegionIds,
       baseDisplayRegions,
       bpm,
+      denominator,
     ]
   );
 

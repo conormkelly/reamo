@@ -123,11 +123,11 @@ describe('Store timeSelection handling', () => {
       expect(state.timeSelection?.endSeconds).toBeCloseTo(20, 1);
     });
 
-    it('normalizes BPM for non-quarter-note denominators', () => {
+    it('passes BPM through unchanged for non-quarter-note denominators', () => {
       const store = useReaperStore.getState();
 
-      // In 6/8 at 180 eighth-note BPM (= 90 quarter-note BPM)
-      // The store normalizes BPM to quarter-note
+      // REAPER's TimeMap_GetTimeSigAtTime always returns quarter-note BPM
+      // In 6/8 at 90 BPM, REAPER sends 90 (not 180 eighth-notes)
       const message: ServerMessage = {
         type: 'event',
         event: 'transport',
@@ -136,7 +136,7 @@ describe('Store timeSelection handling', () => {
           position: 0,
           positionBeats: '1.1.00',
           cursorPosition: 0,
-          bpm: 180, // Eighth-note BPM
+          bpm: 90, // Quarter-note BPM (REAPER always sends quarter-note BPM)
           timeSignature: { numerator: 6, denominator: 8 },
           timeSelection: { start: 4, end: 8 },
           repeat: false,
@@ -149,7 +149,7 @@ describe('Store timeSelection handling', () => {
       store.handleWebSocketMessage(message);
 
       const state = useReaperStore.getState();
-      // BPM should be normalized: 180 * (4/8) = 90
+      // BPM passes through unchanged (REAPER's TimeMap_GetTimeSigAtTime returns quarter-note BPM)
       expect(state.bpm).toBeCloseTo(90, 0);
       // Time selection stored in seconds directly
       expect(state.timeSelection?.startSeconds).toBeCloseTo(4, 1);

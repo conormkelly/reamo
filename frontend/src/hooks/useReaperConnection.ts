@@ -35,8 +35,10 @@ export interface UseReaperConnectionReturn {
   retry: () => void;
   /** Send a command (raw) */
   send: (command: string, params?: Record<string, unknown>) => void;
-  /** Send a WSCommand object */
+  /** Send a WSCommand object (fire-and-forget) */
   sendCommand: (cmd: WSCommand) => void;
+  /** Send a WSCommand object and wait for response */
+  sendCommandAsync: (cmd: WSCommand) => Promise<unknown>;
   /** The underlying connection instance */
   connection: WebSocketConnection | null;
 }
@@ -147,11 +149,19 @@ export function useReaperConnection(
     []
   );
 
-  // Send WSCommand object
+  // Send WSCommand object (fire-and-forget)
   const sendCommand = useCallback((cmd: WSCommand) => {
     if (connectionRef.current) {
       connectionRef.current.send(cmd.command, cmd.params);
     }
+  }, []);
+
+  // Send WSCommand object and wait for response
+  const sendCommandAsync = useCallback((cmd: WSCommand): Promise<unknown> => {
+    if (connectionRef.current) {
+      return connectionRef.current.sendAsync(cmd.command, cmd.params);
+    }
+    return Promise.reject(new Error('Not connected'));
   }, []);
 
   // Auto-start if enabled
@@ -171,6 +181,7 @@ export function useReaperConnection(
     retry,
     send,
     sendCommand,
+    sendCommandAsync,
     connection: connectionRef.current,
   };
 }

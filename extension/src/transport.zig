@@ -17,6 +17,8 @@ pub const State = struct {
     position_beat: f64 = 1.0, // Beat within bar (1-based, fractional = ticks)
     // bar_offset needed here for positionBeats display calculation
     bar_offset: c_int = 0,
+    // Number of tempo/time sig markers (0 = fixed tempo project)
+    tempo_marker_count: c_int = 0,
 
     // Comparison with tolerance for change detection
     pub fn eql(self: State, other: State) bool {
@@ -27,6 +29,7 @@ pub const State = struct {
         if (!floatEql(self.time_sel_start, other.time_sel_start)) return false;
         if (!floatEql(self.time_sel_end, other.time_sel_end)) return false;
         if (self.bar_offset != other.bar_offset) return false;
+        if (self.tempo_marker_count != other.tempo_marker_count) return false;
 
         // Position changes: check cursor when stopped, play_position when playing
         if (self.play_state == 0) {
@@ -59,28 +62,31 @@ pub const State = struct {
 
     // Poll current state from REAPER
     pub fn poll(api: *const reaper.Api) State {
-        const ts = api.timeSignature();
         const sel = api.timeSelection();
         const play_state = api.playState();
         const play_pos = api.playPosition();
         const cursor_pos = api.cursorPosition();
 
-        // Get current position for bar.beat display
+        // Get current position for bar.beat display and position-aware tempo
         const current_pos = if (play_state & 1 != 0) play_pos else cursor_pos;
         const beats_info = api.timeToBeats(current_pos);
+
+        // Use position-aware tempo (handles tempo markers, unlike timeSignature())
+        const tempo = api.getTempoAtPosition(current_pos);
 
         return .{
             .play_state = play_state,
             .play_position = play_pos,
             .cursor_position = cursor_pos,
-            .bpm = ts.bpm,
-            .time_sig_num = ts.num,
-            .time_sig_denom = api.getTimeSignatureDenominator(),
+            .bpm = tempo.bpm,
+            .time_sig_num = @floatFromInt(tempo.timesig_num),
+            .time_sig_denom = tempo.timesig_denom,
             .time_sel_start = sel.start,
             .time_sel_end = sel.end,
             .bar_offset = api.getBarOffset(), // Needed for positionBeats display
             .position_bar = beats_info.measures,
             .position_beat = beats_info.beats_in_measure + 1.0, // Convert 0-based to 1-based
+            .tempo_marker_count = api.tempoMarkerCount(),
         };
     }
 
@@ -118,7 +124,7 @@ pub const State = struct {
         const cursor_position = truncateMs(self.cursor_position);
 
         const result = std.fmt.bufPrint(buf,
-            \\{{"type":"event","event":"transport","payload":{{"playState":{d},"position":{d:.3},"positionBeats":"{d}.{d}.{d:0>2}","cursorPosition":{d:.3},"bpm":{d:.2},"timeSignature":{{"numerator":{d},"denominator":{d}}},"timeSelection":{{"start":{d:.15},"end":{d:.15}}}}}}}
+            \\{{"type":"event","event":"transport","payload":{{"playState":{d},"position":{d:.3},"positionBeats":"{d}.{d}.{d:0>2}","cursorPosition":{d:.3},"bpm":{d:.2},"timeSignature":{{"numerator":{d},"denominator":{d}}},"timeSelection":{{"start":{d:.15},"end":{d:.15}}},"tempoMarkerCount":{d}}}}}
         , .{
             self.play_state,
             position,
@@ -131,6 +137,7 @@ pub const State = struct {
             self.time_sig_denom,
             self.time_sel_start,
             self.time_sel_end,
+            self.tempo_marker_count,
         }) catch return null;
 
         return result;
