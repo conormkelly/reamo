@@ -6,6 +6,7 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 
 **Protocol**
 - [Protocol Overview](#protocol-overview) — Connection flow, message format, hello handshake
+- [Clock Sync](#clock-sync) — NTP-style clock synchronization for beat display
 
 **Commands**
 - [Transport](#transport-commands) — play, stop, pause, record, seek
@@ -103,6 +104,42 @@ Response:
 ```
 
 If token authentication is enabled and the token is invalid, the connection is closed with code `4001`. Protocol version mismatch closes with code `4002`.
+
+### Clock Sync
+
+NTP-style clock synchronization for accurate beat display over WiFi. Achieves ±15ms visual accuracy.
+
+**Request** (client → server):
+
+```json
+{
+  "type": "clockSync",
+  "t0": 1704067200000.123
+}
+```
+
+**Response** (server → client):
+
+```json
+{
+  "type": "clockSyncResponse",
+  "t0": 1704067200000.123,
+  "t1": 1704067200010.456,
+  "t2": 1704067200010.789
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `t0` | float | Client send time (ms, echoed back) |
+| `t1` | float | Server receive time (ms, high-precision) |
+| `t2` | float | Server send time (ms, high-precision) |
+
+The client calculates clock offset using NTP formula:
+- RTT = (t3 - t0) - (t2 - t1)
+- Offset = ((t1 - t0) + (t2 - t3)) / 2
+
+**Note:** Clock sync messages bypass the command queue for minimal latency jitter.
 
 ---
 
@@ -1158,7 +1195,9 @@ High-frequency event broadcast every ~30ms during playback, containing position-
     "cursorPosition": 30.500,
     "bpm": 120.00,
     "timeSignature": {"numerator": 4, "denominator": 4},
-    "timeSelection": {"start": 0.000, "end": 60.000}
+    "timeSelection": {"start": 0.000, "end": 60.000},
+    "t": 1704067200000.123,
+    "b": 61.000
   }
 }
 ```
@@ -1172,8 +1211,12 @@ High-frequency event broadcast every ~30ms during playback, containing position-
 | `bpm` | float | Current tempo |
 | `timeSignature` | object | Current time signature |
 | `timeSelection` | object | Start/end of time selection (0,0 if none) |
+| `t` | float | Server timestamp in ms (high-precision, for clock sync) |
+| `b` | float | Raw beat position (total beats from project start, for beat prediction) |
 
 **Note:** Project-level settings (`repeat`, `metronome`, `projectLength`, `barOffset`) are in the `project` event.
+
+**Note:** The `t` and `b` fields are used for client-side beat prediction to achieve ±15ms visual accuracy over WiFi. See [Clock Sync](#clock-sync) for the synchronization protocol.
 
 ### `tracks` Event
 

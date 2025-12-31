@@ -159,6 +159,11 @@ pub fn dispatch(api: *const reaper.Api, client_id: usize, data: []const u8, shar
             // They should not reach the dispatch function
             api.log("Reamo: Unexpected hello message in dispatch", .{});
         },
+        .clockSync => {
+            // Clock sync messages are handled directly by ws_server.zig (bypass queue)
+            // They should not reach the dispatch function
+            api.log("Reamo: Unexpected clockSync message in dispatch", .{});
+        },
         .unknown => {
             api.log("Reamo: Unknown message type", .{});
         },

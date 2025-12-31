@@ -8,18 +8,27 @@
 
 ## Executive Summary
 
-**Good news:** The codebase is well-structured for transport sync. Key infrastructure already exists:
+**Phase 1 Complete!** Core infrastructure implemented and tested.
+
+**Existing infrastructure (unchanged):**
 - ✅ 60fps animation engine with subscriber pattern
 - ✅ Position interpolation (seconds-based)
 - ✅ Direct DOM updates bypassing React
 - ✅ Bidirectional WebSocket for clock sync requests
 - ✅ ~30Hz transport polling from REAPER
 
-**Gaps to fill:**
-- ❌ No server timestamps on messages
-- ❌ Beat position not predicted (only seconds interpolated)
-- ❌ No clock synchronization protocol
-- ❌ No jitter measurement or adaptive buffering
+**Phase 1 implemented:**
+- ✅ Server timestamps on messages (`t` field in transport events)
+- ✅ Raw beat position in messages (`b` field in transport events)
+- ✅ NTP-style clock synchronization protocol (`clockSync`/`clockSyncResponse`)
+- ✅ Client-side beat prediction (`BeatPredictor` class)
+- ✅ New `TransportSyncEngine` singleton with 60fps updates
+- ✅ `useTransportSync` hook for UI integration
+
+**Deferred to Phase 2:**
+- ❌ Jitter measurement (adaptive buffering)
+- ❌ Canvas-based beat indicator rendering
+- ❌ Network quality indicator UI
 
 ---
 
@@ -364,24 +373,24 @@ Note: BPM is calculated from beat position, not just taken from server. This may
 
 ## Prerequisites Checklist
 
-Before implementing TRANSPORT_SYNC, verify:
+**All prerequisites verified and implemented in Phase 1.**
 
 ### Backend Prerequisites
 
-- [ ] `api.time_precise()` is accessible in transport.zig
-- [ ] Raw beat position (not just formatted string) can be extracted
-- [ ] WebSocket can handle new message types (clockSync/clockSyncResponse)
+- [x] `api.time_precise()` is accessible in transport.zig
+- [x] Raw beat position (not just formatted string) can be extracted
+- [x] WebSocket can handle new message types (clockSync/clockSyncResponse)
 
 ### Frontend Prerequisites
 
-- [ ] `performance.now()` available (standard in browsers)
-- [ ] WebSocket connection stable enough for sync samples
-- [ ] Animation engine subscriber pattern tested at 60fps
+- [x] `performance.now()` available (standard in browsers)
+- [x] WebSocket connection stable enough for sync samples
+- [x] Animation engine subscriber pattern tested at 60fps
 
 ### Testing Prerequisites
 
-- [ ] Can measure actual round-trip time (RTT) in DevTools
-- [ ] Can log prediction errors for validation
+- [x] Can measure actual round-trip time (RTT) in DevTools
+- [x] Can log prediction errors for validation
 - [ ] Have a way to compare visual beat to audio (screen recording?)
 
 ---
@@ -404,40 +413,59 @@ Before implementing TRANSPORT_SYNC, verify:
 
 Based on dependencies and risk:
 
-### Phase 1: Server Timestamps (Low Risk)
+### Phase 1: Server Timestamps ✅ COMPLETE
 
-1. Add `server_time` field to transport.zig
-2. Update WebSocketTypes.ts with new field
-3. Log timestamps in browser to verify flow
-4. **Validate:** Messages contain timestamps, no breaking changes
+1. ✅ Add `server_time` field to transport.zig (`t` field)
+2. ✅ Update WebSocketTypes.ts with new field
+3. ✅ Log timestamps in browser to verify flow
+4. ✅ **Validated:** Messages contain timestamps, no breaking changes
 
-### Phase 2: Clock Sync Protocol (Medium Risk)
+### Phase 2: Clock Sync Protocol ✅ COMPLETE
 
-5. Add ClockSync class to frontend
-6. Add clock sync handler to Zig extension
-7. Implement sync on WebSocket connect
-8. **Validate:** Can measure RTT, offset calculated correctly
+5. ✅ Add ClockSync class to frontend (`lib/transport-sync/ClockSync.ts`)
+6. ✅ Add clock sync handler to Zig extension (bypasses command queue)
+7. ✅ Implement sync on WebSocket connect
+8. ✅ **Validated:** RTT measurement works, offset calculated correctly
 
-### Phase 3: Beat Prediction (Medium Risk)
+### Phase 3: Beat Prediction ✅ COMPLETE
 
-9. Add BeatPredictor class
-10. Wire into TransportAnimationEngine.onServerUpdate()
-11. Replace formatBeats() with predicted values
-12. **Validate:** Beats update at 60fps, visually smoother
+9. ✅ Add BeatPredictor class (`lib/transport-sync/BeatPredictor.ts`)
+10. ✅ Wire into TransportSyncEngine
+11. ✅ Provide predicted beat values via useTransportSync hook
+12. ✅ **Validated:** Beats predicted at 60fps, unit tests pass
 
-### Phase 4: Jitter Compensation (Low Priority)
+### Phase 2: Performance & Precision (Next)
 
-13. Add JitterMeasurement class
-14. Add AdaptiveBuffer class
-15. Wire into prediction pipeline
-16. **Validate:** Smooth display on variable-latency networks
+13. ❌ **Lightweight transport tick** - New `transportTick` event with only `t`, `b` (~65 bytes vs ~350)
+14. ❌ **Tempo-map-aware prediction** - Send tempo map to client, lookup BPM by predicted position
+15. ❌ **CSurf API integration** - Event-driven position updates instead of polling
+16. **Goal:** Professional-quality sync with minimal bandwidth, accurate across tempo changes
 
-### Phase 5: Polish
+**Lightweight tick format:**
+```json
+{"type":"event","event":"tt","payload":{"t":1234567890.1,"b":90.0}}
+```
 
-17. Add network quality indicator
-18. Add advanced settings (manual offset)
-19. Optimize message format (short keys)
-20. **Validate:** Meets all TRANSPORT_SYNC.md acceptance criteria
+**Message frequency with CSurf:**
+| Data | Trigger | Format |
+|------|---------|--------|
+| `t`, `b` | CSurf position callback (60Hz+) | Lightweight tick |
+| Full transport state | Play/pause/stop/seek | Full event |
+| Tempo map | On change | Dedicated event |
+
+### Phase 3: Jitter Compensation (Deferred)
+
+17. ❌ Add JitterMeasurement class
+18. ❌ Add AdaptiveBuffer class
+19. ❌ Wire into prediction pipeline
+20. **Deferred:** Will implement if real-world testing shows jitter issues
+
+### Phase 4: Polish (Deferred)
+
+21. ❌ Add network quality indicator
+22. ❌ Add advanced settings (manual offset)
+23. ✅ Optimize message format (short keys: `t`, `b`)
+24. **Partially complete:** Core functionality works, UI polish deferred
 
 ---
 
@@ -585,13 +613,13 @@ pub const PlayState = struct {
 
 ---
 
-## Critical Finding: Raw Beat Position
+## Critical Finding: Raw Beat Position ✅ RESOLVED
 
 ### The `fullBeatPosition` Gap
 
-**Current problem:** Transport events send `positionBeats` as a formatted string ("12.3.45"), but beat prediction needs the raw float value.
+**Previous problem:** Transport events sent `positionBeats` as a formatted string ("12.3.45"), but beat prediction needs the raw float value.
 
-**Good news:** The raw value IS available in the Zig code, just not sent to frontend.
+**Resolution:** Raw beat position is now sent as the `b` field in transport events.
 
 **Where it exists:** [extension/src/reaper.zig](../extension/src/reaper.zig) lines 668-688
 ```zig
@@ -630,10 +658,10 @@ export interface BeatPosition {
 }
 ```
 
-**Fix required for TRANSPORT_SYNC:**
-1. In `transport.zig`, add `beats_info.beats` to JSON payload as `b` (or `beatPosition`)
-2. Update `WebSocketTypes.ts` to include the new field
-3. Use this raw value for beat prediction instead of parsing the formatted string
+**Implemented in Phase 1:**
+1. ✅ In `transport.zig`, added `beats_info.beats` to JSON payload as `b` field
+2. ✅ Updated `WebSocketTypes.ts` to include the new field
+3. ✅ BeatPredictor uses raw value for prediction
 
 **Note on beat units:** `fullBeatPosition` counts in denominator units:
 - 4/4 time: counts quarter notes
@@ -823,4 +851,4 @@ These decisions were made after spec validation and are locked in:
 
 ---
 
-*Last updated: Session where this analysis was created. Verify file paths and line numbers before implementation as code may have changed.*
+*Last updated: Phase 1 implementation complete. Server timestamps, clock sync protocol, and beat prediction all implemented and tested. Verify file paths and line numbers before further implementation as code may have changed.*

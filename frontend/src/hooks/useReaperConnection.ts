@@ -8,6 +8,7 @@ import { WebSocketConnection } from '../core/WebSocketConnection';
 import type { ConnectionState } from '../core/WebSocketTypes';
 import type { WSCommand } from '../core/WebSocketCommands';
 import { useReaperStore } from '../store';
+import { transportSyncEngine } from '../core/TransportSyncEngine';
 
 export interface UseReaperConnectionOptions {
   /** WebSocket port (default: 9224) */
@@ -97,6 +98,11 @@ export function useReaperConnection(
         } else if (state === 'connected') {
           setErrorCountRef.current(0);
           setGaveUp(false); // Reset gave-up state on successful connect
+          // Wire up transport sync engine for clock sync
+          transportSyncEngine.setSendRaw((msg) => connection.sendRaw(msg));
+        } else if (state === 'disconnected') {
+          // Clear transport sync engine send function
+          transportSyncEngine.clearSendRaw();
         }
       },
       onMessage: (msg) => handleWebSocketMessageRef.current(msg),

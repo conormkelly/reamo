@@ -35,8 +35,10 @@ import {
   isItemsEvent,
   isActionToggleStateEvent,
   isTempoMapEvent,
+  isClockSyncResponse,
 } from '../core/WebSocketTypes';
 import { transportEngine } from '../core/TransportAnimationEngine';
+import { transportSyncEngine } from '../core/TransportSyncEngine';
 
 // Combined store type
 export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & {
@@ -154,6 +156,13 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   handleWebSocketMessage: (message: ServerMessage) => {
     // Skip processing in test mode to preserve fixtures
     if (get()._testMode) return;
+
+    // Handle clock sync responses (for transport sync)
+    if (isClockSyncResponse(message)) {
+      transportSyncEngine.onClockSyncResponse(message);
+      return;
+    }
+
     if (!isEventMessage(message)) return;
 
     if (isTransportEvent(message)) {
@@ -172,6 +181,9 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
         timeSignatureDenominator: p.timeSignature.denominator,
         barOffset: get().barOffset,
       });
+
+      // Feed transport sync engine for clock-synchronized beat display
+      transportSyncEngine.onTransportEvent(p);
 
       set({
         playState: p.playState,

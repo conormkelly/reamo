@@ -11,3 +11,12 @@ export { useTimeFormatters, type UseTimeFormattersReturn } from './useTimeFormat
 export { useTransportAnimation, getTransportAnimationState } from './useTransportAnimation';
 export { usePeaksFetch, type UsePeaksFetchResult } from './usePeaksFetch';
 export { useUIPreferences, type UIPreferences } from './useUIPreferences';
+export {
+  useTransportSync,
+  getTransportSyncState,
+  isTransportSynced,
+  getTransportSyncMetrics,
+  resyncTransport,
+  type TransportSyncState,
+  type TransportSyncSubscriber,
+} from './useTransportSync';

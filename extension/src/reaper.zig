@@ -144,6 +144,9 @@ pub const Api = struct {
     // Resource path
     getResourcePath: ?*const fn () callconv(.c) [*:0]const u8 = null,
 
+    // High-precision timing (for transport sync)
+    time_precise: ?*const fn () callconv(.c) f64 = null,
+
     // MIDI injection (Virtual MIDI Keyboard)
     stuffMIDIMessage: ?*const fn (c_int, c_int, c_int, c_int) callconv(.c) void = null,
 
@@ -252,6 +255,8 @@ pub const Api = struct {
             .updateTimeline_fn = getFunc(info, "UpdateTimeline", fn () callconv(.c) void),
             // Resource path
             .getResourcePath = getFunc(info, "GetResourcePath", fn () callconv(.c) [*:0]const u8),
+            // High-precision timing
+            .time_precise = getFunc(info, "time_precise", fn () callconv(.c) f64),
             // MIDI injection
             .stuffMIDIMessage = getFunc(info, "StuffMIDIMessage", fn (c_int, c_int, c_int, c_int) callconv(.c) void),
         };
@@ -330,6 +335,16 @@ pub const Api = struct {
 
     pub fn cursorPosition(self: *const Api) f64 {
         return if (self.getCursorPosition) |f| f() else 0;
+    }
+
+    /// High-precision time in seconds (for transport sync timestamps)
+    pub fn timePrecise(self: *const Api) f64 {
+        return if (self.time_precise) |f| f() else 0;
+    }
+
+    /// High-precision time in milliseconds (for transport sync)
+    pub fn timePreciseMs(self: *const Api) f64 {
+        return self.timePrecise() * 1000.0;
     }
 
     pub fn timeSignature(self: *const Api) struct { bpm: f64, num: f64 } {

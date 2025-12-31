@@ -159,6 +159,14 @@ export class WebSocketConnection {
     this.ws.send(JSON.stringify(msg));
   }
 
+  /** Send a raw message string (for clock sync and other low-level messages) */
+  sendRaw(message: string): void {
+    if (this.state !== 'connected' || !this.ws) {
+      return;
+    }
+    this.ws.send(message);
+  }
+
   /** Send a command and wait for response */
   sendAsync(
     command: string,

@@ -8,7 +8,7 @@
 // =============================================================================
 
 /** Base message types */
-export type MessageType = 'hello' | 'command' | 'response' | 'event';
+export type MessageType = 'hello' | 'command' | 'response' | 'event' | 'clockSync' | 'clockSyncResponse';
 
 /** Hello handshake (client → server) */
 export interface HelloMessage {
@@ -32,6 +32,20 @@ export interface CommandMessage {
   command: string;
   id?: string;
   [key: string]: unknown; // Additional parameters
+}
+
+/** Clock sync request (client → server) */
+export interface ClockSyncMessage {
+  type: 'clockSync';
+  t0: number; // Client send time in ms
+}
+
+/** Clock sync response (server → client) */
+export interface ClockSyncResponse {
+  type: 'clockSyncResponse';
+  t0: number; // Echoed client send time
+  t1: number; // Server receive time in ms
+  t2: number; // Server send time in ms
 }
 
 /** Response message (server → client) */
@@ -66,7 +80,7 @@ export type EventPayload =
   | TempoMapEventPayload;
 
 /** Any message from server */
-export type ServerMessage = HelloResponse | ResponseMessage | EventMessage;
+export type ServerMessage = HelloResponse | ResponseMessage | EventMessage | ClockSyncResponse;
 
 // =============================================================================
 // Transport Event
@@ -89,6 +103,9 @@ export interface TransportEventPayload {
     start: number;
     end: number;
   };
+  // Transport sync fields (Phase 1)
+  t?: number; // Server timestamp in ms (high-precision)
+  b?: number; // Raw beat position (total beats from project start)
   // Note: repeat, metronome, projectLength, barOffset moved to ProjectEventPayload
 }
 
@@ -333,6 +350,14 @@ export function isHelloResponse(msg: unknown): msg is HelloResponse {
     msg !== null &&
     (msg as HelloResponse).type === 'hello' &&
     'extensionVersion' in msg
+  );
+}
+
+export function isClockSyncResponse(msg: unknown): msg is ClockSyncResponse {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as ClockSyncResponse).type === 'clockSyncResponse'
   );
 }
 

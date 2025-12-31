@@ -63,6 +63,9 @@ const CommandRingBuffer = struct {
     };
 };
 
+// Function pointer type for high-precision timing (thread-safe read-only)
+pub const TimePreciseFn = *const fn () callconv(.c) f64;
+
 // Shared state between WebSocket thread and main thread
 pub const SharedState = struct {
     mutex: Thread.Mutex = .{},
@@ -88,6 +91,9 @@ pub const SharedState = struct {
 
     // HTML file mtime for hot reload (set by main thread, read by WS thread for hello response)
     html_mtime: i128 = 0,
+
+    // High-precision timing function for clock sync (thread-safe, no mutex needed)
+    time_precise_fn: ?TimePreciseFn = null,
 
     pub fn init(allocator: Allocator) SharedState {
         return .{
@@ -127,6 +133,20 @@ pub const SharedState = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
         self.html_mtime = mtime;
+    }
+
+    // Set the time_precise function pointer (called by main thread on startup)
+    // No mutex needed - set once at startup before any clock sync requests
+    pub fn setTimePreciseFn(self: *SharedState, func: TimePreciseFn) void {
+        self.time_precise_fn = func;
+    }
+
+    // Get high-precision time in milliseconds (thread-safe, for clock sync)
+    pub fn timePreciseMs(self: *SharedState) f64 {
+        if (self.time_precise_fn) |f| {
+            return f() * 1000.0;
+        }
+        return 0;
     }
 
     // Get the HTML mtime (called by WS thread for hello response)
@@ -325,6 +345,31 @@ pub const Client = struct {
                 // Request initial state snapshot from main thread
                 self.state.markNeedsSnapshot(self.id);
                 return;
+            },
+            .clockSync => {
+                // CLOCK SYNC BYPASS: Handle immediately for timing accuracy
+                // Record t1 (receive time) as early as possible
+                const t1 = self.state.timePreciseMs();
+
+                // Require authentication
+                if (!self.authenticated and self.state.token_set) {
+                    try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"NOT_AUTHENTICATED\",\"message\":\"Send hello message first\"}}");
+                    return;
+                }
+
+                // Extract t0 (client send time) from message
+                const t0 = protocol.jsonGetFloat(data, "t0") orelse {
+                    try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"MISSING_T0\",\"message\":\"t0 is required for clock sync\"}}");
+                    return;
+                };
+
+                // Record t2 (send time) just before sending response
+                const t2 = self.state.timePreciseMs();
+
+                // Send response directly (no queue)
+                var buf: [256]u8 = undefined;
+                const response = std.fmt.bufPrint(&buf, "{{\"type\":\"clockSyncResponse\",\"t0\":{d:.3},\"t1\":{d:.3},\"t2\":{d:.3}}}", .{ t0, t1, t2 }) catch return;
+                try self.conn.writeText(response);
             },
             .command => {
                 // Require authentication for commands

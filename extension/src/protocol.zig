@@ -8,12 +8,14 @@ pub const EXTENSION_VERSION = "0.6.0";
 pub const MessageType = enum {
     command,
     hello,
+    clockSync,
     unknown,
 
     pub fn parse(data: []const u8) MessageType {
         if (jsonGetString(data, "type")) |t| {
             if (std.mem.eql(u8, t, "command")) return .command;
             if (std.mem.eql(u8, t, "hello")) return .hello;
+            if (std.mem.eql(u8, t, "clockSync")) return .clockSync;
         }
         return .unknown;
     }
@@ -378,6 +380,11 @@ test "writeJsonString handles empty string" {
 test "MessageType.parse recognizes hello" {
     const hello_data = "{\"type\":\"hello\",\"clientVersion\":\"1.0.0\"}";
     try std.testing.expectEqual(MessageType.hello, MessageType.parse(hello_data));
+}
+
+test "MessageType.parse recognizes clockSync" {
+    const sync_data = "{\"type\":\"clockSync\",\"t0\":1704067200000.123}";
+    try std.testing.expectEqual(MessageType.clockSync, MessageType.parse(sync_data));
 }
 
 test "HelloMessage.parse extracts fields" {

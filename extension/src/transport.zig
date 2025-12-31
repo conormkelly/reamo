@@ -19,6 +19,9 @@ pub const State = struct {
     bar_offset: c_int = 0,
     // Number of tempo/time sig markers (0 = fixed tempo project)
     tempo_marker_count: c_int = 0,
+    // Transport sync fields (for client-side beat prediction)
+    server_time_ms: f64 = 0, // High-precision timestamp in ms
+    full_beat_position: f64 = 0, // Raw beat position (total beats from project start)
 
     // Comparison with tolerance for change detection
     pub fn eql(self: State, other: State) bool {
@@ -62,6 +65,9 @@ pub const State = struct {
 
     // Poll current state from REAPER
     pub fn poll(api: *const reaper.Api) State {
+        // Capture server timestamp first (most accurate timing)
+        const server_time_ms = api.timePreciseMs();
+
         const sel = api.timeSelection();
         const play_state = api.playState();
         const play_pos = api.playPosition();
@@ -87,6 +93,9 @@ pub const State = struct {
             .position_bar = beats_info.measures,
             .position_beat = beats_info.beats_in_measure + 1.0, // Convert 0-based to 1-based
             .tempo_marker_count = api.tempoMarkerCount(),
+            // Transport sync fields
+            .server_time_ms = server_time_ms,
+            .full_beat_position = beats_info.beats,
         };
     }
 
@@ -124,8 +133,10 @@ pub const State = struct {
         const cursor_position = truncateMs(self.cursor_position);
 
         const result = std.fmt.bufPrint(buf,
-            \\{{"type":"event","event":"transport","payload":{{"playState":{d},"position":{d:.3},"positionBeats":"{d}.{d}.{d:0>2}","cursorPosition":{d:.3},"bpm":{d:.2},"timeSignature":{{"numerator":{d},"denominator":{d}}},"timeSelection":{{"start":{d:.15},"end":{d:.15}}},"tempoMarkerCount":{d}}}}}
+            \\{{"type":"event","event":"transport","payload":{{"t":{d:.3},"b":{d:.6},"playState":{d},"position":{d:.3},"positionBeats":"{d}.{d}.{d:0>2}","cursorPosition":{d:.3},"bpm":{d:.2},"timeSignature":{{"numerator":{d},"denominator":{d}}},"timeSelection":{{"start":{d:.15},"end":{d:.15}}},"tempoMarkerCount":{d}}}}}
         , .{
+            self.server_time_ms,
+            self.full_beat_position,
             self.play_state,
             position,
             display_bar,

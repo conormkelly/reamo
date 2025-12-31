@@ -130,6 +130,11 @@ fn initTimerCallback() callconv(.c) void {
     // Sync initial HTML mtime to shared state
     state.setHtmlMtime(g_html_mtime);
 
+    // Set time_precise function for clock sync (thread-safe read-only call)
+    if (api.time_precise) |time_fn| {
+        state.setTimePreciseFn(time_fn);
+    }
+
     // Generate session token and store in EXTSTATE
     var token_bytes: [16]u8 = undefined;
     std.crypto.random.bytes(&token_bytes);
