@@ -83,7 +83,10 @@ export type EventPayload =
 /** Lightweight transport tick event (position updates during playback) */
 export interface TransportTickEventPayload {
   t: number; // Server timestamp in ms
-  b: number; // Beat position
+  b: number; // Beat position (quarter notes from project start)
+  bpm: number; // Quarter-note BPM (for prediction math)
+  ts: [number, number]; // Time signature [numerator, denominator]
+  bbt: string; // Pre-computed bar.beat.ticks (e.g., "12.3.48")
 }
 
 /** Any message from server */
@@ -252,6 +255,7 @@ export interface ActionToggleStateEventPayload {
 /** Individual tempo marker */
 export interface WSTempoMarker {
   position: number; // seconds
+  positionBeats: number; // beat position (total beats from project start)
   bpm: number;
   timesigNum: number;
   timesigDenom: number;

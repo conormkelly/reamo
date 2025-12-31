@@ -34,7 +34,7 @@ describe('timeToBarBeat', () => {
 
   describe('with single tempo marker', () => {
     const markers: WSTempoMarker[] = [
-      { position: 0, bpm: 90, timesigNum: 6, timesigDenom: 8, linear: false }
+      { position: 0, positionBeats: 0, bpm: 90, timesigNum: 6, timesigDenom: 8, linear: false }
     ];
 
     it('handles 6/8 time signature correctly', () => {
@@ -58,8 +58,8 @@ describe('timeToBarBeat', () => {
   describe('with tempo change mid-project', () => {
     // Real-world example: 6/8@90 for first 50s, then 4/4@95
     const markers: WSTempoMarker[] = [
-      { position: 0, bpm: 90, timesigNum: 6, timesigDenom: 8, linear: false },
-      { position: 50, bpm: 95, timesigNum: 4, timesigDenom: 4, linear: false }
+      { position: 0, positionBeats: 0, bpm: 90, timesigNum: 6, timesigDenom: 8, linear: false },
+      { position: 50, positionBeats: 75, bpm: 95, timesigNum: 4, timesigDenom: 4, linear: false }
     ];
 
     it('calculates position in first tempo segment', () => {
@@ -108,7 +108,7 @@ describe('barBeatToTime', () => {
 
   describe('with single tempo marker', () => {
     const markers: WSTempoMarker[] = [
-      { position: 0, bpm: 90, timesigNum: 6, timesigDenom: 8, linear: false }
+      { position: 0, positionBeats: 0, bpm: 90, timesigNum: 6, timesigDenom: 8, linear: false }
     ];
 
     it('converts bar 2 correctly in 6/8', () => {
@@ -120,7 +120,7 @@ describe('barBeatToTime', () => {
 
   describe('round-trip consistency', () => {
     const markers: WSTempoMarker[] = [
-      { position: 0, bpm: 90, timesigNum: 6, timesigDenom: 8, linear: false }
+      { position: 0, positionBeats: 0, bpm: 90, timesigNum: 6, timesigDenom: 8, linear: false }
     ];
 
     it('timeToBarBeat -> barBeatToTime returns original time', () => {

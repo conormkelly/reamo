@@ -428,6 +428,7 @@ pub const Api = struct {
     /// Tempo marker data
     pub const TempoMarker = struct {
         position: f64, // Time position in seconds
+        position_beats: f64, // Beat position (total beats from project start)
         bpm: f64,
         timesig_num: c_int,
         timesig_denom: c_int,
@@ -443,15 +444,19 @@ pub const Api = struct {
         var timesig_num: c_int = 4;
         var timesig_denom: c_int = 4;
         var linear: bool = false;
-        // Unused outputs
+        // Unused outputs from GetTempoTimeSigMarker
         var measure_pos: c_int = 0;
         var beat_pos: f64 = 0;
 
         const ok = f(null, idx, &position, &measure_pos, &beat_pos, &bpm, &timesig_num, &timesig_denom, &linear);
         if (!ok) return null;
 
+        // Get full beat position using timeToBeats
+        const beats_info = self.timeToBeats(position);
+
         return .{
             .position = position,
+            .position_beats = beats_info.beats,
             .bpm = bpm,
             .timesig_num = timesig_num,
             .timesig_denom = timesig_denom,

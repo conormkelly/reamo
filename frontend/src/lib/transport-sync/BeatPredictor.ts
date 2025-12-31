@@ -3,10 +3,20 @@
  *
  * Extrapolates beat position from tempo and handles transport state changes.
  * Phase 1: Basic prediction without adaptive jitter buffer.
+ * Phase 2: Tempo-map-aware prediction for variable-tempo projects.
  */
 
 import type { TimeProvider, TimeSignature } from './types';
 import { defaultTimeProvider } from './types';
+
+/** Tempo marker for tempo-map-aware prediction */
+export interface TempoMarker {
+  positionBeats: number; // Beat position where this tempo starts
+  bpm: number;
+  timesigNum: number;
+  timesigDenom: number;
+  linear: boolean; // Linear tempo ramp to next marker
+}
 
 /** Server state from last transport update */
 export interface ServerState {
@@ -31,6 +41,7 @@ export class BeatPredictor {
   private predictionDisabledUntil = 0;
   private displayPosition = 0;
   private isSeek = false;
+  private tempoMarkers: TempoMarker[] = [];
 
   // Configuration
   private readonly blendFactor = 0.15; // 15% blend per frame (default for good networks)
@@ -87,16 +98,73 @@ export class BeatPredictor {
   }
 
   /**
-   * Process lightweight tick update (position + timestamp only).
-   * Uses cached tempo, playState, and timeSignature from last full update.
+   * Process lightweight tick update with server-provided BPM and time signature.
+   * Enhanced format: server sends instantaneous BPM (handles tempo ramps).
    */
-  onTickUpdate(position: number, serverTimestamp: number): void {
+  onTickUpdate(
+    position: number,
+    serverTimestamp: number,
+    bpm: number,
+    ts: [number, number]
+  ): void {
     if (!this.lastServerState) return;
 
-    // Update position and timestamps, keep everything else cached
+    // Update position, timestamps, and use server-provided tempo/time sig
+    // Server computes interpolated BPM during tempo ramps, so we use it directly
     this.lastServerState.position = position;
     this.lastServerState.serverTimestamp = serverTimestamp;
     this.lastServerState.localReceiveTime = this.clockSync.getSyncedTime();
+    this.lastServerState.tempo = bpm;
+    this.lastServerState.timeSignature = { numerator: ts[0], denominator: ts[1] };
+  }
+
+  /**
+   * Update tempo markers for tempo-map-aware prediction.
+   * Call this when tempo map event is received.
+   */
+  setTempoMarkers(markers: TempoMarker[]): void {
+    this.tempoMarkers = markers;
+  }
+
+  /**
+   * Look up BPM for a given beat position using tempo map.
+   * Falls back to cached tempo if no tempo map or position before first marker.
+   */
+  private getTempoAtBeat(beatPosition: number): number {
+    // No tempo map - use cached tempo from transport
+    if (this.tempoMarkers.length === 0) {
+      return this.lastServerState?.tempo ?? 120;
+    }
+
+    // Find the tempo marker that applies to this position
+    // Markers are sorted by positionBeats, find the last one <= beatPosition
+    let activeMarker: TempoMarker | null = null;
+    let nextMarker: TempoMarker | null = null;
+
+    for (let i = 0; i < this.tempoMarkers.length; i++) {
+      const marker = this.tempoMarkers[i];
+      if (marker.positionBeats <= beatPosition) {
+        activeMarker = marker;
+        nextMarker = this.tempoMarkers[i + 1] ?? null;
+      } else {
+        break;
+      }
+    }
+
+    // No marker found (before first marker) - use first marker's tempo or fallback
+    if (!activeMarker) {
+      return this.tempoMarkers[0]?.bpm ?? this.lastServerState?.tempo ?? 120;
+    }
+
+    // Linear tempo ramp to next marker
+    if (activeMarker.linear && nextMarker) {
+      const progress =
+        (beatPosition - activeMarker.positionBeats) /
+        (nextMarker.positionBeats - activeMarker.positionBeats);
+      return activeMarker.bpm + (nextMarker.bpm - activeMarker.bpm) * progress;
+    }
+
+    return activeMarker.bpm;
   }
 
   /**
@@ -145,6 +213,7 @@ export class BeatPredictor {
 
   /**
    * Get raw predicted position (without blending).
+   * Uses tempo-map-aware prediction when tempo markers are available.
    */
   getPredictedPosition(): number {
     if (!this.lastServerState) return 0;
@@ -162,8 +231,9 @@ export class BeatPredictor {
     // Clamp elapsed time to prevent runaway prediction (2 seconds max)
     const clampedElapsed = Math.min(elapsed, 2.0);
 
-    // Predict position from tempo
-    const beatsPerSecond = this.lastServerState.tempo / 60;
+    // Use tempo-map-aware BPM lookup (falls back to cached tempo if no map)
+    const currentBpm = this.getTempoAtBeat(this.lastServerState.position);
+    const beatsPerSecond = currentBpm / 60;
     const predicted = this.lastServerState.position + clampedElapsed * beatsPerSecond;
 
     return predicted;

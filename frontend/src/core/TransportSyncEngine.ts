@@ -10,8 +10,8 @@
  * - 60fps animation loop with requestAnimationFrame
  */
 
-import { ClockSync, BeatPredictor, type ClockSyncMetrics, type TimeSignature } from '../lib/transport-sync';
-import type { TransportEventPayload, ClockSyncResponse } from './WebSocketTypes';
+import { ClockSync, BeatPredictor, type ClockSyncMetrics, type TimeSignature, type TempoMarker } from '../lib/transport-sync';
+import type { TransportEventPayload, ClockSyncResponse, WSTempoMarker } from './WebSocketTypes';
 
 /** State provided to subscribers on each animation frame */
 export interface TransportSyncState {
@@ -123,12 +123,43 @@ export class TransportSyncEngine {
   }
 
   /**
-   * Handle lightweight tick event (position + timestamp only).
-   * Call this when receiving a 'tt' event during playback.
+   * Handle lightweight tick event with enhanced format.
+   * Includes BPM, time signature, and pre-computed bar.beat.ticks.
    */
-  onTickEvent(t: number, b: number): void {
+  onTickEvent(
+    t: number,
+    b: number,
+    bpm: number,
+    ts: [number, number],
+    bbt: string
+  ): void {
     if (!this.clockSync.isSynced()) return;
-    this.beatPredictor.onTickUpdate(b, t);
+    this.beatPredictor.onTickUpdate(b, t, bpm, ts);
+    this.lastBbt = bbt;
+  }
+
+  /** Last bar.beat.ticks string from server (for display) */
+  private lastBbt = '1.1.00';
+
+  /** Get pre-computed bar.beat.ticks from server */
+  getBarBeatTicks(): string {
+    return this.lastBbt;
+  }
+
+  /**
+   * Update tempo map for tempo-map-aware prediction.
+   * Call this when receiving a tempoMap event.
+   */
+  setTempoMarkers(markers: WSTempoMarker[]): void {
+    // Convert WSTempoMarker to internal TempoMarker format
+    const internalMarkers: TempoMarker[] = markers.map((m) => ({
+      positionBeats: m.positionBeats,
+      bpm: m.bpm,
+      timesigNum: m.timesigNum,
+      timesigDenom: m.timesigDenom,
+      linear: m.linear,
+    }));
+    this.beatPredictor.setTempoMarkers(internalMarkers);
   }
 
   /**

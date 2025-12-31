@@ -6,5 +6,5 @@
  */
 
 export { ClockSync, type SendSyncRequest } from './ClockSync';
-export { BeatPredictor, type ServerState, type ClockSyncInterface } from './BeatPredictor';
+export { BeatPredictor, type ServerState, type ClockSyncInterface, type TempoMarker } from './BeatPredictor';
 export * from './types';

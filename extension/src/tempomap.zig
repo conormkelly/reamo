@@ -53,8 +53,9 @@ pub const State = struct {
             if (i > 0) writer.writeAll(",") catch return null;
 
             const m = self.markers[i];
-            writer.print("{{\"position\":{d:.15},\"bpm\":{d:.2},\"timesigNum\":{d},\"timesigDenom\":{d},\"linear\":{s}}}", .{
+            writer.print("{{\"position\":{d:.15},\"positionBeats\":{d:.6},\"bpm\":{d:.2},\"timesigNum\":{d},\"timesigDenom\":{d},\"linear\":{s}}}", .{
                 m.position,
+                m.position_beats,
                 m.bpm,
                 m.timesig_num,
                 m.timesig_denom,

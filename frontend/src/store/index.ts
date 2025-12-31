@@ -202,9 +202,9 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
           : null,
       });
     } else if (isTransportTickEvent(message)) {
-      // Lightweight tick event - just position update during playback
+      // Enhanced tick event - position + BPM + time sig + bar.beat.ticks
       const p = message.payload as TransportTickEventPayload;
-      transportSyncEngine.onTickEvent(p.t, p.b);
+      transportSyncEngine.onTickEvent(p.t, p.b, p.bpm, p.ts, p.bbt);
     } else if (isProjectEvent(message)) {
       const p = message.payload as ProjectEventPayload;
       get().setReaperUndoState(p.canUndo, p.canRedo);
@@ -299,6 +299,8 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
     } else if (isTempoMapEvent(message)) {
       const p = message.payload as TempoMapEventPayload;
       get().setTempoMarkers(p.markers);
+      // Forward to transport sync engine for tempo-map-aware prediction
+      transportSyncEngine.setTempoMarkers(p.markers);
     } else if (message.event === 'reload') {
       // Hot reload - extension detected file change
       console.log('[Store] Reload event received, refreshing page...');

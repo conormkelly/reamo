@@ -161,14 +161,34 @@ pub const State = struct {
         return result;
     }
 
-    // Build lightweight tick JSON (position-only, ~65 bytes vs ~350 for full)
+    // Build lightweight tick JSON (~120 bytes vs ~350 for full)
     // Used during playback when only position has changed
+    // Enhanced format includes BPM and time sig for tempo-map-aware prediction
     pub fn toTickJson(self: State, buf: []u8) ?[]const u8 {
+        // Calculate bar.beat.ticks (same logic as toJson)
+        var display_bar = self.position_bar + self.bar_offset;
+        const scaled_beat: u32 = @intFromFloat(@round(self.position_beat * 100.0));
+        var beat_int: u32 = @max(1, scaled_beat / 100);
+        const ticks: u32 = scaled_beat % 100;
+
+        // Handle beat overflow (e.g., beat 5 in 4/4 time → bar + 1, beat 1)
+        const beats_per_bar = safeTimeSigNum(self.time_sig_num);
+        if (beat_int > beats_per_bar) {
+            beat_int = 1;
+            display_bar += 1;
+        }
+
         const result = std.fmt.bufPrint(buf,
-            \\{{"type":"event","event":"tt","payload":{{"t":{d:.3},"b":{d:.6}}}}}
+            \\{{"type":"event","event":"tt","payload":{{"t":{d:.3},"b":{d:.6},"bpm":{d:.2},"ts":[{d},{d}],"bbt":"{d}.{d}.{d:0>2}"}}}}
         , .{
             self.server_time_ms,
             self.full_beat_position,
+            self.bpm,
+            safeTimeSigNum(self.time_sig_num),
+            self.time_sig_denom,
+            display_bar,
+            beat_int,
+            ticks,
         }) catch return null;
 
         return result;
@@ -398,27 +418,35 @@ test "stateOnlyEql detects state changes" {
     try std.testing.expect(!c.stateOnlyEql(d)); // Different BPM
 }
 
-test "toTickJson produces minimal format" {
+test "toTickJson produces enhanced tick format" {
     const state = State{
         .server_time_ms = 1234567890.123,
         .full_beat_position = 45.678,
         .play_state = 1,
-        .bpm = 120.0,
+        .bpm = 127.5,
+        .time_sig_num = 6,
+        .time_sig_denom = 8,
+        .position_bar = 16,
+        .position_beat = 3.48,
+        .bar_offset = -4,
     };
 
-    var buf: [128]u8 = undefined;
+    var buf: [256]u8 = undefined;
     const json = state.toTickJson(&buf).?;
 
-    // Verify minimal format
+    // Verify enhanced tick format fields
     try std.testing.expect(std.mem.indexOf(u8, json, "\"event\":\"tt\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"t\":1234567890.123") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"b\":45.678") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"bpm\":127.5") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"ts\":[6,8]") != null);
+    // Bar 16 + offset -4 = 12, beat 3, ticks 48
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"bbt\":\"12.3.48\"") != null);
 
     // Should NOT contain full transport fields
     try std.testing.expect(std.mem.indexOf(u8, json, "playState") == null);
-    try std.testing.expect(std.mem.indexOf(u8, json, "bpm") == null);
-    try std.testing.expect(std.mem.indexOf(u8, json, "position") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "timeSelection") == null);
 
-    // Verify it's compact (less than 80 bytes)
-    try std.testing.expect(json.len < 80);
+    // Verify it's reasonably compact (~120 bytes)
+    try std.testing.expect(json.len < 150);
 }

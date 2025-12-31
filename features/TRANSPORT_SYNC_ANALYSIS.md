@@ -436,17 +436,25 @@ Based on dependencies and risk:
 
 ### Phase 2: Performance & Precision (In Progress)
 
-13. ✅ **Lightweight transport tick** - `tt` event with only `t`, `b` (~65 bytes vs ~350)
+13. ✅ **Lightweight transport tick** - `tt` event with `t`, `b`, `bpm`, `ts`, `bbt` (~120 bytes vs ~350)
     - Backend: `stateOnlyEql()`, `toTickJson()` in transport.zig
     - Frontend: `onTickEvent()` in TransportSyncEngine, `onTickUpdate()` in BeatPredictor
-14. ❌ **Tempo-map-aware prediction** - Send tempo map to client, lookup BPM by predicted position
+14. ✅ **Tempo-map-aware prediction** - Server sends instantaneous BPM in each tick
+    - Backend: `TimeMap_GetTimeSigAtTime` returns raw quarter-note BPM (verified in 6/8 project)
+    - Frontend: Uses server-provided BPM directly (handles tempo ramps correctly)
+    - `getTempoAtBeat()` still available as fallback for edge cases
 15. ❌ **CSurf API integration** - Event-driven position updates instead of polling
 16. **Goal:** Professional-quality sync with minimal bandwidth, accurate across tempo changes
 
-**Lightweight tick format:**
+**Enhanced tick format (verified working):**
 ```json
-{"type":"event","event":"tt","payload":{"t":1234567890.1,"b":90.0}}
+{"type":"event","event":"tt","payload":{"t":1767206735939.808,"b":82.08,"bpm":90.00,"ts":[6,8],"bbt":"9.5.08"}}
 ```
+- `t`: Server timestamp (ms)
+- `b`: Beat position (quarter notes from project start)
+- `bpm`: Instantaneous quarter-note BPM from `TimeMap_GetTimeSigAtTime`
+- `ts`: Time signature `[numerator, denominator]`
+- `bbt`: Server-computed bar.beat.ticks (includes bar offset)
 
 **Message frequency with CSurf:**
 | Data | Trigger | Format |
@@ -560,12 +568,35 @@ pub fn poll(api: *const reaper.Api) State {
 
 **TempoMarker structure includes:**
 - `position: f64` — time position in seconds
+- `position_beats: f64` — beat position (total beats from project start)
 - `bpm: f64` — tempo at this marker
 - `timesig_num: c_int` — time signature numerator
 - `timesig_denom: c_int` — time signature denominator
 - `linear_tempo: bool` — true = linear ramp to next marker
 
 **Implication for sync:** When tempo map changes (detected via hash), prediction should briefly disable or re-anchor to server state. The `tempoMap` event is already broadcast when changes occur.
+
+#### Key Research Findings (from REAPER_TEMPO_SYNC.md)
+
+1. **Linear tempo ramps are TIME-linear, not beat-linear**
+   - REAPER interpolates BPM linearly against wall-clock time
+   - Current client-side interpolation by beat progress has ~0.2ms error (acceptable for ±15ms target)
+   - Server now sends instantaneous BPM, making this a non-issue
+
+2. **`fullbeats` are always quarter notes** regardless of time signature
+   - In 6/8 at 90 BPM: REAPER counts 90 quarter notes per minute
+   - Changing time signature doesn't affect beat accumulation rate
+   - Prediction math is time-signature-independent
+
+3. **API returns raw quarter-note BPM**
+   - `TimeMap_GetTimeSigAtTime` returns 90 in 6/8 project (not 180)
+   - No "undivide" logic needed for our use case
+   - `TimeMap2_GetDividedBpmAtTime` would need undividing (we don't use it)
+
+4. **Time signature role:**
+   - Beat prediction: NOT needed (all quarter notes)
+   - bar.beat.ticks display: Needed (server computes)
+   - Beat indicator animation: Needed (sent in `ts` field)
 
 ---
 
@@ -850,7 +881,8 @@ These decisions were made after spec validation and are locked in:
 - `features/TRANSPORT_SYNC.md` — Full implementation spec
 - `research/VISUAL_LATENCY.md` — Background research
 - `research/JITTER_COMPENSATION.md` — Algorithm research
+- `research/REAPER_TEMPO_SYNC.md` — Tempo API research and equations
 
 ---
 
-*Last updated: Phase 1 implementation complete. Server timestamps, clock sync protocol, and beat prediction all implemented and tested. Verify file paths and line numbers before further implementation as code may have changed.*
+*Last updated: Phase 2 enhanced tick format complete. Server now sends BPM, time signature, and bar.beat.ticks in each tick event. Foundation verified correct before CSurf API integration.*
