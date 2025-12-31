@@ -42,42 +42,82 @@ Current web interface is one-size-fits-all. Musicians either get too much or too
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Note on phone layouts:** Six tabs may be tight on phones. Consider icon-only tabs or collapsing Actions/Notes into a "More" menu on small screens.
+**Note on phone layouts:** Seven tabs will be tight on phones. Consider icon-only tabs, scrollable tab bar, or collapsing less-used views into a "More" menu on small screens.
 
 ### Key Principles
 
-1. **Persistent transport bar** — Always visible at the very bottom. Play/stop/record accessible from ANY view.
+1. **Persistent transport bar** — Visible by default at the very bottom. Play/stop/record accessible from ANY view. Can be hidden via Full Screen Mode.
 
-2. **Tab bar above transport** — Five purpose-built views. Tap to switch. No hamburger menus for core navigation.
+2. **Tab bar above transport** — Seven purpose-built views. Tap to switch. No hamburger menus for core navigation.
 
 3. **Active view fills remaining space** — Each view optimized for its workflow.
 
 4. **Header is optional/minimal** — Project name, settings gear. Can be hidden in "Stage Mode" for maximum view space.
 
+5. **Full Screen Mode** — Double-tap to hide tab bar and transport. Enables dedicated-device workflows (phone as clock, iPad as mixer).
+
 ---
 
-## The Six Views
+## The Seven Views
 
 | View | Tab Label | Purpose | Primary Users |
 |------|-----------|---------|---------------|
-| **Timeline** | Timeline | Visual arrangement with regions, markers, playhead | Everyone (default) |
+| **Studio** | Studio | All-in-one: transport + mixer + regions (current default layout) | Solo musicians, debugging |
+| **Timeline** | Timeline | Visual arrangement with regions, markers, playhead | Everyone |
 | **Mixer** | Mixer | Faders, meters, track control | Mixing engineers, tracking |
 | **Clock** | Clock | Big transport, BPM, bar.beat | Performers, drummers |
 | **Cues** | Cues | Region list, playlist mode | Live performers, arrangers |
 | **Actions** | Actions | Quick action buttons | Power users, custom workflows |
 | **Notes** | Notes | Project notes, session metadata | Producers, film scorers |
 
-**Why Timeline is the default:**
+**Default view debate:**
 
-The research says: *"Remote apps don't show what matters. Users want to see their actual timeline and arrangement, not just controller layouts."*
+Two strong candidates:
 
-This is Reamo's visual differentiator. When you open the app, you see your song — regions, markers, where you are in the arrangement. Not just faders. Other remotes are glorified control surfaces. Reamo shows you your project.
+- **Studio** — The "radically simple" choice. Everything a solo musician needs without tab-switching. Research says: *"Users prefer simple hardware to complex apps... Reamo's default view should be radically simple."* This is it.
+
+- **Timeline** — The visual differentiator. Research says: *"Remote apps don't show what matters. Users want to see their actual timeline and arrangement."* This shows your song structure.
+
+**Recommendation:** Default to **Studio** for new users (matches "radically simple" goal). Power users who want focused views will discover the tab bar. Timeline becomes the go-to for anyone who wants arrangement visibility without mixer clutter.
 
 ---
 
 ## View Details
 
-### Timeline View (Default)
+### Studio View (Default)
+
+The all-in-one view. This is the current Reamo layout — transport, mixer, and regions in one screen. Optimized for full-screen iPad from day one.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│     Intro    │  Verse 1   │  Chorus   │  Verse 2  │    │  ← Regions
+├─────────────────────────────────────────────────────────┤
+│ Drm │ Bas │ Gtr │ Vox │ Syn │ Pad │ FX  │ Bus │  ◄  ▶  │
+│ ▓▓▓ │ ▓░░ │ ▓▓░ │ ▓░░ │ ░░░ │ ▓▓▓ │ ▓▓░ │ ▓▓▓ │        │
+│ ║   │ ║   │ ║   │ ║   │ ║   │ ║   │ ║   │ ║   │        │  ← Mixer
+│ ║▓▓ │ ║▓░ │ ║▓▓ │ ║▓░ │ ║░░ │ ║▓▓ │ ║▓▓ │ ║▓▓ │        │
+│ M S │ M S │ M S │ M S │ M S │ M S │ M S │ M S │        │
+├─────────────────────────────────────────────────────────┤
+│  ◄◄  │  ▶  │  ⏹  │  ⏺  │    17.3.2    │  120 BPM     │  ← Transport
+├─────────────────────────────────────────────────────────┤
+│[Studio]│Timeline│ Mixer │ Clock │ Cues │ Actions│Notes │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Why this is the default:**
+- Solo musicians get everything they need in one view
+- No learning curve — works immediately
+- Debugging is trivial — all controls accessible
+- Research: *"radically simple, with complexity available but not required"*
+
+**Who uses this:**
+- Singer-songwriters with iPad mounted at instrument
+- Home studio musicians who just want to play
+- Developers testing the extension
+
+---
+
+### Timeline View
 
 The visual differentiator. Shows your actual arrangement.
 
@@ -267,7 +307,7 @@ Project notes with read/edit capability. See Project Notes section in PLANNED_FE
 
 ## Persistent Transport Bar
 
-Always visible. Never hidden. This is the "beat a $15 keypad" differentiator.
+Always visible by default. This is the "beat a $15 keypad" differentiator. Can be hidden via Full Screen Mode for dedicated-device setups.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -294,48 +334,197 @@ Always visible. Never hidden. This is the "beat a $15 keypad" differentiator.
 ## Tab Bar
 
 ```
-┌───────────────────────────────────────────────────────────────────┐
-│ Timeline │  Mixer  │  Clock  │  Cues  │  Actions  │  Notes       │
-└───────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Studio │ Timeline │  Mixer  │  Clock  │  Cues  │  Actions  │  Notes     │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
-- Equal-width tabs (6 tabs = ~16.7% each)
+- Equal-width tabs (7 tabs = ~14.3% each)
 - Active tab highlighted
 - Tap to switch (instant, no animation delay)
 - Swipe left/right as secondary navigation (optional enhancement)
 
-**Touch targets:** Each tab is full height of bar (~44-54pt) × ~16.7% width
+**Touch targets:** Each tab is full height of bar (~44-54pt) × ~14.3% width
 
 **Phone adaptation:** On narrow screens, consider:
-- Icon-only tabs (🎬 🎚️ ⏱️ 📋 ⚡ 📝)
+- Icon-only tabs (🏠 🎬 🎚️ ⏱️ 📋 ⚡ 📝)
 - Scrollable tab bar
 - Collapse Actions + Notes into "More" menu
 
 ---
 
-## State Management
+## Frontend Architecture
 
-### Frontend State
+### Why Not React Router
 
-```typescript
-type ViewId = 'timeline' | 'mixer' | 'clock' | 'cues' | 'actions' | 'notes';
+For a tablet control surface app, react-router is overkill:
+- No URL changes needed (tablet stays on one "page")
+- No browser back/forward needed
+- No deep linking needed
+- Simpler debugging (just check `currentView` state)
+- One less dependency
 
-interface ViewState {
-  currentView: ViewId;
-  previousView: ViewId | null;  // For "back" gesture if needed
-}
+**Approach:** State-based routing + feature folders.
 
-// Persist to localStorage
-const VIEW_STORAGE_KEY = 'reamo_current_view';
+### Folder Structure
+
+```
+src/
+├── App.tsx                    # Root, holds currentView state
+├── components/                # Shared UI components
+│   ├── PersistentTransport.tsx
+│   ├── TabBar.tsx
+│   ├── Fader.tsx
+│   ├── MeterBar.tsx
+│   └── ...
+├── views/                     # One folder per view
+│   ├── studio/
+│   │   ├── StudioView.tsx     # Main component
+│   │   ├── index.ts           # Re-export
+│   │   └── ...                # View-specific components
+│   ├── timeline/
+│   │   ├── TimelineView.tsx
+│   │   └── index.ts
+│   ├── mixer/
+│   │   ├── MixerView.tsx
+│   │   └── index.ts
+│   ├── clock/
+│   ├── cues/
+│   ├── actions/
+│   └── notes/
+├── hooks/                     # Shared hooks
+│   ├── useWebSocket.ts
+│   ├── useTransport.ts
+│   └── useTracks.ts
+├── types/                     # Shared types
+│   └── index.ts
+└── viewRegistry.ts            # Maps view IDs to components
 ```
 
-### Per-Device Memory
+**Why feature folders:**
+- Each view is isolated — easy to find all related code
+- Adding a view = add folder + register in viewRegistry
+- Claude can easily navigate: "look in `views/mixer/`"
+- Deleting a view is clean — remove folder + registry entry
+
+### View Registry Pattern
+
+```typescript
+// viewRegistry.ts
+import { StudioView } from './views/studio';
+import { TimelineView } from './views/timeline';
+import { MixerView } from './views/mixer';
+import { ClockView } from './views/clock';
+import { CuesView } from './views/cues';
+import { ActionsView } from './views/actions';
+import { NotesView } from './views/notes';
+
+export const views = {
+  studio: StudioView,
+  timeline: TimelineView,
+  mixer: MixerView,
+  clock: ClockView,
+  cues: CuesView,
+  actions: ActionsView,
+  notes: NotesView,
+} as const;
+
+export type ViewId = keyof typeof views;
+```
+
+### App Root
+
+```typescript
+// App.tsx
+import { useState, useEffect } from 'react';
+import { views, ViewId } from './viewRegistry';
+import { TabBar } from './components/TabBar';
+import { PersistentTransport } from './components/PersistentTransport';
+import { useReamoConnection } from './hooks/useReamoConnection';
+
+const VIEW_STORAGE_KEY = 'reamo_current_view';
+
+export function App() {
+  const [currentView, setCurrentView] = useState<ViewId>(() => {
+    return (localStorage.getItem(VIEW_STORAGE_KEY) as ViewId) || 'studio';
+  });
+  const [isFullScreen, setIsFullScreen] = useState(false);
+
+  // Shared state from WebSocket
+  const { tracks, transport, regions, sendCommand } = useReamoConnection();
+
+  useEffect(() => {
+    localStorage.setItem(VIEW_STORAGE_KEY, currentView);
+  }, [currentView]);
+
+  const ViewComponent = views[currentView];
+
+  return (
+    <div className="app">
+      <main className="view-container">
+        <ViewComponent
+          tracks={tracks}
+          transport={transport}
+          regions={regions}
+          sendCommand={sendCommand}
+        />
+      </main>
+
+      {!isFullScreen && (
+        <>
+          <TabBar currentView={currentView} onViewChange={setCurrentView} />
+          <PersistentTransport transport={transport} sendCommand={sendCommand} />
+        </>
+      )}
+    </div>
+  );
+}
+```
+
+### Shared State Pattern
+
+WebSocket connection and global state (tracks, transport, regions) live at App level or in a context. Views receive data as props and emit commands — keeping them stateless/presentational where possible.
+
+```typescript
+// Views are pure functions of state
+interface ViewProps {
+  tracks: Track[];
+  transport: TransportState;
+  regions: Region[];
+  sendCommand: (cmd: Command) => void;
+}
+
+// Example view
+export function MixerView({ tracks, sendCommand }: ViewProps) {
+  return (
+    <div className="mixer-view">
+      {tracks.map(track => (
+        <ChannelStrip
+          key={track.idx}
+          track={track}
+          onVolumeChange={(vol) => sendCommand({
+            command: 'track/setVolume',
+            trackIdx: track.idx,
+            volume: vol
+          })}
+        />
+      ))}
+    </div>
+  );
+}
+```
+
+This makes views easy to test and debug — they're just UI that renders state.
+
+---
+
+## Per-Device Memory
 
 Each device remembers its last view. A tablet mounted as mixer stays on Mixer. A phone used for transport stays on Clock.
 
 ```typescript
-// On mount — Timeline is default
-const savedView = localStorage.getItem(VIEW_STORAGE_KEY) as ViewId || 'timeline';
+// On mount — Studio is default
+const savedView = localStorage.getItem(VIEW_STORAGE_KEY) as ViewId || 'studio';
 
 // On view change
 localStorage.setItem(VIEW_STORAGE_KEY, newView);
@@ -369,13 +558,22 @@ Per research recommendations:
 
 ### Phase 2: View Components
 
+- [ ] Wrap existing layout as StudioView (default, no changes needed)
+- [ ] Create TimelineView with arrangement visualization
 - [ ] Refactor existing mixer into MixerView component
 - [ ] Create ClockView with large transport buttons
 - [ ] Create placeholder CuesView (links to Cue List feature)
 - [ ] Create placeholder ActionsView (links to Quick Actions feature)
 - [ ] Create placeholder NotesView (links to Project Notes feature)
 
-### Phase 3: Polish
+### Phase 3: Full Screen Mode
+
+- [ ] Implement double-tap to toggle full screen per view
+- [ ] Add swipe-up-from-bottom to exit full screen
+- [ ] Store full screen preference per-view in localStorage
+- [ ] Add visual indicator showing full screen state
+
+### Phase 4: Polish
 
 - [ ] Add swipe gesture for view switching
 - [ ] Implement time display format cycling
@@ -387,14 +585,71 @@ Per research recommendations:
 
 ## What About "Edit View"?
 
-The previous spec had an "Edit" view combining timeline + regions + markers + mixer. This was removed because:
+The previous spec had an "Edit" view combining timeline + regions + markers + mixer. This evolved into **Studio view** — keeping the all-in-one layout as an option rather than removing it entirely.
 
-1. **Research doesn't validate it** — Users want purpose-built views, not "everything at once"
-2. **Mixer view already shows regions** — The timeline/region display exists in current app
-3. **Cues view handles navigation** — Quick section jumping is there
-4. **Simpler is better** — Five focused views > three overloaded views
+The research tension resolved:
+- *"Users want to see their actual timeline"* → Timeline view exists
+- *"Radically simple, complexity available but not required"* → Studio view is the simple default
+- *"Purpose-built views"* → Focused views exist for power users
 
-If users want timeline + mixer together, the Mixer view can optionally show a compact region bar above the faders (future enhancement).
+Studio view IS the "everything at once" view, but positioned as the simple default rather than a power-user feature. New users get everything working immediately; power users discover focused views via the tab bar.
+
+---
+
+## Full Screen Mode
+
+Each view can go full screen, hiding both the tab bar and persistent transport. This enables dedicated-device workflows without redundancy.
+
+### Use Cases
+
+- **Phone as clock:** Mount phone with big time display only, control transport from iPad
+- **Tablet as mixer:** Full fader real estate, no wasted space on transport you control elsewhere
+- **Multi-device setup:** Each device shows one focused view with maximum screen usage
+
+### UX
+
+**Toggle:** Double-tap anywhere in view area, or long-press on the current tab.
+
+**Exit:** Swipe up from bottom edge, or double-tap again.
+
+**Visual indicator:** Small dot or subtle badge on tab when full screen is active (visible when exiting).
+
+### Layout in Full Screen
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                                                         │
+│                                                         │
+│                                                         │
+│                    ACTIVE VIEW AREA                     │
+│                    (maximum space)                      │
+│                                                         │
+│                                                         │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+No tab bar. No transport bar. Just the view.
+
+### State Persistence
+
+Full screen preference is stored per-view in localStorage:
+
+```typescript
+interface ViewState {
+  currentView: ViewId;
+  previousView: ViewId | null;
+  fullScreenViews: Set<ViewId>;  // Which views are in full screen mode
+}
+
+const FULLSCREEN_STORAGE_KEY = 'reamo_fullscreen_views';
+```
+
+When switching to a view that was previously full-screened, it opens in full screen again. The preference "sticks" per-device.
+
+### Clock View Special Case
+
+Clock view is the prime candidate for full screen — the transport controls are already in the view, making the persistent bar redundant. Consider auto-suggesting full screen on first Clock view access.
 
 ---
 

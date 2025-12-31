@@ -2,7 +2,7 @@
 
 ## Table of Contents (Priority Order)
 
-1. [View Switcher](#view-switcher) — Tab bar + persistent transport with 6 views, Timeline default *(see [full spec](features/VIEW_SWITCHER_FEATURE.md))*
+1. [View Switcher](#view-switcher) — Tab bar + persistent transport with 7 views, Studio default *(see [full spec](features/VIEW_SWITCHER_FEATURE.md))*
 2. [Items Mode](#items-mode) — View/manage recorded takes without leaving the instrument
 3. [Track Management](#track-management) — Rename, create, duplicate, delete tracks *(see [full spec](features/TRACK_MANAGEMENT_FEATURE.md))*
 4. [Cue List](#cue-list) — Setlist/playlist mode with SWS import *(see [full spec](features/CUE_LIST_FEATURE.md))*
@@ -255,23 +255,25 @@ Core navigation architecture for Reamo. Tab bar with persistent transport.
 ┌─────────────────────────────────────────────────────────┐
 │                   ACTIVE VIEW AREA                      │
 ├─────────────────────────────────────────────────────────┤
-│ Timeline│ Mixer │ Clock │ Cues │ Actions │ Notes       │ ← Tab bar
+│Studio│Timeline│ Mixer │ Clock │ Cues │ Actions │ Notes │ ← Tab bar
 ├─────────────────────────────────────────────────────────┤
 │  ◄◄  │  ▶/❚❚  │  ⏹  │  ⏺  │    17.3.2    │  120 BPM  │ ← Persistent transport
 └─────────────────────────────────────────────────────────┘
 ```
 
 **Key principles:**
-- Persistent transport bar at bottom of ALL views (play/stop/record always accessible)
-- Tab bar above transport (6 purpose-built views, no hamburger menus)
-- Timeline as default — the visual differentiator (see your arrangement, not just faders)
+- Persistent transport bar at bottom of ALL views (can hide via Full Screen Mode)
+- Tab bar above transport (7 purpose-built views, no hamburger menus)
+- Studio as default — the "radically simple" all-in-one view
 - Per-device view memory via localStorage
+- Full Screen Mode — double-tap to hide tab bar + transport for dedicated-device setups
 
-**The six views:**
+**The seven views:**
 
 | View | Purpose |
 |------|---------|
-| **Timeline** | Visual arrangement with regions, markers, playhead (default) |
+| **Studio** | All-in-one: transport + mixer + regions (default, current layout) |
+| **Timeline** | Visual arrangement with regions, markers, playhead |
 | **Mixer** | Faders, meters, track control |
 | **Clock** | Big transport, BPM, bar.beat (80-100pt buttons) |
 | **Cues** | Region list, playlist mode |
