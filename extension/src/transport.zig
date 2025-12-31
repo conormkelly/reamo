@@ -23,16 +23,9 @@ pub const State = struct {
     server_time_ms: f64 = 0, // High-precision timestamp in ms
     full_beat_position: f64 = 0, // Raw beat position (total beats from project start)
 
-    // Comparison with tolerance for change detection
+    // Comparison with tolerance for change detection (includes position)
     pub fn eql(self: State, other: State) bool {
-        if (self.play_state != other.play_state) return false;
-        if (!floatEql(self.bpm, other.bpm)) return false;
-        if (self.time_sig_num != other.time_sig_num) return false;
-        if (self.time_sig_denom != other.time_sig_denom) return false;
-        if (!floatEql(self.time_sel_start, other.time_sel_start)) return false;
-        if (!floatEql(self.time_sel_end, other.time_sel_end)) return false;
-        if (self.bar_offset != other.bar_offset) return false;
-        if (self.tempo_marker_count != other.tempo_marker_count) return false;
+        if (!self.stateOnlyEql(other)) return false;
 
         // Position changes: check cursor when stopped, play_position when playing
         if (self.play_state == 0) {
@@ -42,6 +35,20 @@ pub const State = struct {
             // Playing/recording: check play position (updates ~30x/sec during playback)
             if (!floatEql(self.play_position, other.play_position)) return false;
         }
+        return true;
+    }
+
+    // Compare non-position fields only (for detecting state changes vs position-only changes)
+    // Used to decide: full transport event vs lightweight tick
+    pub fn stateOnlyEql(self: State, other: State) bool {
+        if (self.play_state != other.play_state) return false;
+        if (!floatEql(self.bpm, other.bpm)) return false;
+        if (self.time_sig_num != other.time_sig_num) return false;
+        if (self.time_sig_denom != other.time_sig_denom) return false;
+        if (!floatEql(self.time_sel_start, other.time_sel_start)) return false;
+        if (!floatEql(self.time_sel_end, other.time_sel_end)) return false;
+        if (self.bar_offset != other.bar_offset) return false;
+        if (self.tempo_marker_count != other.tempo_marker_count) return false;
         return true;
     }
 
@@ -149,6 +156,19 @@ pub const State = struct {
             self.time_sel_start,
             self.time_sel_end,
             self.tempo_marker_count,
+        }) catch return null;
+
+        return result;
+    }
+
+    // Build lightweight tick JSON (position-only, ~65 bytes vs ~350 for full)
+    // Used during playback when only position has changed
+    pub fn toTickJson(self: State, buf: []u8) ?[]const u8 {
+        const result = std.fmt.bufPrint(buf,
+            \\{{"type":"event","event":"tt","payload":{{"t":{d:.3},"b":{d:.6}}}}}
+        , .{
+            self.server_time_ms,
+            self.full_beat_position,
         }) catch return null;
 
         return result;
@@ -358,4 +378,47 @@ test "ticks round correctly at 0.7565" {
 
     // Must show 6.6.76 not 6.6.75
     try std.testing.expect(std.mem.indexOf(u8, json, "\"positionBeats\":\"6.6.76\"") != null);
+}
+
+test "stateOnlyEql ignores position changes" {
+    // Same state, different position - should be equal
+    const a = State{ .play_state = 1, .play_position = 0.0, .bpm = 120.0 };
+    const b = State{ .play_state = 1, .play_position = 10.0, .bpm = 120.0 };
+    try std.testing.expect(a.stateOnlyEql(b)); // Position ignored
+    try std.testing.expect(!a.eql(b)); // But full eql sees the difference
+}
+
+test "stateOnlyEql detects state changes" {
+    const a = State{ .play_state = 1, .bpm = 120.0 };
+    const b = State{ .play_state = 0, .bpm = 120.0 };
+    try std.testing.expect(!a.stateOnlyEql(b)); // Different play state
+
+    const c = State{ .play_state = 1, .bpm = 120.0 };
+    const d = State{ .play_state = 1, .bpm = 130.0 };
+    try std.testing.expect(!c.stateOnlyEql(d)); // Different BPM
+}
+
+test "toTickJson produces minimal format" {
+    const state = State{
+        .server_time_ms = 1234567890.123,
+        .full_beat_position = 45.678,
+        .play_state = 1,
+        .bpm = 120.0,
+    };
+
+    var buf: [128]u8 = undefined;
+    const json = state.toTickJson(&buf).?;
+
+    // Verify minimal format
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"event\":\"tt\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"t\":1234567890.123") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"b\":45.678") != null);
+
+    // Should NOT contain full transport fields
+    try std.testing.expect(std.mem.indexOf(u8, json, "playState") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "bpm") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "position") == null);
+
+    // Verify it's compact (less than 80 bytes)
+    try std.testing.expect(json.len < 80);
 }

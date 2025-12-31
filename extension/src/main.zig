@@ -271,11 +271,31 @@ fn processTimerCallback() callconv(.c) void {
     }
 
     // Poll transport state and broadcast changes
+    // Use lightweight tick when only position changed during playback
     const current_transport = transport.State.poll(api);
     if (!current_transport.eql(g_last_transport)) {
-        var buf: [512]u8 = undefined;
-        if (current_transport.toJson(&buf)) |json| {
-            shared_state.broadcast(json);
+        const state_changed = !current_transport.stateOnlyEql(g_last_transport);
+        const is_playing = transport.PlayState.isPlaying(current_transport.play_state);
+
+        if (state_changed) {
+            // State changed (play/pause, BPM, time sig, etc.) - send full transport
+            var buf: [512]u8 = undefined;
+            if (current_transport.toJson(&buf)) |json| {
+                shared_state.broadcast(json);
+            }
+        } else if (is_playing) {
+            // Only position changed during playback - send lightweight tick
+            var buf: [128]u8 = undefined;
+            if (current_transport.toTickJson(&buf)) |json| {
+                shared_state.broadcast(json);
+            }
+        } else {
+            // Stopped and only position changed (cursor moved) - send full transport
+            // This is infrequent so full context is fine
+            var buf: [512]u8 = undefined;
+            if (current_transport.toJson(&buf)) |json| {
+                shared_state.broadcast(json);
+            }
         }
         g_last_transport = current_transport;
     }
