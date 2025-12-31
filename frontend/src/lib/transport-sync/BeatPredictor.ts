@@ -87,6 +87,19 @@ export class BeatPredictor {
   }
 
   /**
+   * Process lightweight tick update (position + timestamp only).
+   * Uses cached tempo, playState, and timeSignature from last full update.
+   */
+  onTickUpdate(position: number, serverTimestamp: number): void {
+    if (!this.lastServerState) return;
+
+    // Update position and timestamps, keep everything else cached
+    this.lastServerState.position = position;
+    this.lastServerState.serverTimestamp = serverTimestamp;
+    this.lastServerState.localReceiveTime = this.clockSync.getSyncedTime();
+  }
+
+  /**
    * Detect if this update represents a state change (play/stop/seek/tempo change).
    */
   private detectStateChange(

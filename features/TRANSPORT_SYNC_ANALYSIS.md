@@ -434,9 +434,11 @@ Based on dependencies and risk:
 11. ✅ Provide predicted beat values via useTransportSync hook
 12. ✅ **Validated:** Beats predicted at 60fps, unit tests pass
 
-### Phase 2: Performance & Precision (Next)
+### Phase 2: Performance & Precision (In Progress)
 
-13. ❌ **Lightweight transport tick** - New `transportTick` event with only `t`, `b` (~65 bytes vs ~350)
+13. ✅ **Lightweight transport tick** - `tt` event with only `t`, `b` (~65 bytes vs ~350)
+    - Backend: `stateOnlyEql()`, `toTickJson()` in transport.zig
+    - Frontend: `onTickEvent()` in TransportSyncEngine, `onTickUpdate()` in BeatPredictor
 14. ❌ **Tempo-map-aware prediction** - Send tempo map to client, lookup BPM by predicted position
 15. ❌ **CSurf API integration** - Event-driven position updates instead of polling
 16. **Goal:** Professional-quality sync with minimal bandwidth, accurate across tempo changes

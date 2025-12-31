@@ -67,10 +67,11 @@ export interface EventMessage {
   payload?: EventPayload; // Optional for events like 'reload' that have no payload
 }
 
-export type EventType = 'transport' | 'project' | 'tracks' | 'markers' | 'regions' | 'items' | 'reload' | 'actionToggleState' | 'tempoMap';
+export type EventType = 'transport' | 'tt' | 'project' | 'tracks' | 'markers' | 'regions' | 'items' | 'reload' | 'actionToggleState' | 'tempoMap';
 
 export type EventPayload =
   | TransportEventPayload
+  | TransportTickEventPayload
   | ProjectEventPayload
   | TracksEventPayload
   | MarkersEventPayload
@@ -78,6 +79,12 @@ export type EventPayload =
   | ItemsEventPayload
   | ActionToggleStateEventPayload
   | TempoMapEventPayload;
+
+/** Lightweight transport tick event (position updates during playback) */
+export interface TransportTickEventPayload {
+  t: number; // Server timestamp in ms
+  b: number; // Beat position
+}
 
 /** Any message from server */
 export type ServerMessage = HelloResponse | ResponseMessage | EventMessage | ClockSyncResponse;
@@ -377,6 +384,12 @@ export function isTransportEvent(
   msg: EventMessage
 ): msg is EventMessage & { payload: TransportEventPayload } {
   return msg.event === 'transport';
+}
+
+export function isTransportTickEvent(
+  msg: EventMessage
+): msg is EventMessage & { payload: TransportTickEventPayload } {
+  return msg.event === 'tt';
 }
 
 export function isProjectEvent(

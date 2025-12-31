@@ -18,6 +18,7 @@ import { ActionCommands, SWSCommands } from '../core/types';
 import type {
   ServerMessage,
   TransportEventPayload,
+  TransportTickEventPayload,
   ProjectEventPayload,
   TracksEventPayload,
   MarkersEventPayload,
@@ -28,6 +29,7 @@ import type {
 import {
   isEventMessage,
   isTransportEvent,
+  isTransportTickEvent,
   isProjectEvent,
   isTracksEvent,
   isMarkersEvent,
@@ -199,6 +201,10 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
             }
           : null,
       });
+    } else if (isTransportTickEvent(message)) {
+      // Lightweight tick event - just position update during playback
+      const p = message.payload as TransportTickEventPayload;
+      transportSyncEngine.onTickEvent(p.t, p.b);
     } else if (isProjectEvent(message)) {
       const p = message.payload as ProjectEventPayload;
       get().setReaperUndoState(p.canUndo, p.canRedo);

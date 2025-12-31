@@ -123,6 +123,15 @@ export class TransportSyncEngine {
   }
 
   /**
+   * Handle lightweight tick event (position + timestamp only).
+   * Call this when receiving a 'tt' event during playback.
+   */
+  onTickEvent(t: number, b: number): void {
+    if (!this.clockSync.isSynced()) return;
+    this.beatPredictor.onTickUpdate(b, t);
+  }
+
+  /**
    * Animation frame callback
    */
   private tick = (): void => {
