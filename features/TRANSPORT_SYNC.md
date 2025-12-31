@@ -2,7 +2,9 @@
 
 ## Overview
 
-This specification defines a complete system for synchronizing visual transport display (beat indicators, playhead position, BPM pulse) with audio playback over WiFi. The target is **±20ms visual accuracy** — below the human perception threshold — so a musician looking at their phone sees beat indicators pulse in sync with what they hear from REAPER.
+This specification defines a complete system for synchronizing visual transport display (beat indicators, playhead position, BPM pulse) with audio playback over WiFi. The target is **±15ms visual accuracy** — comfortably below the 20ms human perception threshold — so a musician looking at their phone sees beat indicators pulse in sync with what they hear from REAPER.
+
+> **Note:** 20ms is the detection threshold for trained musicians; targeting 15ms provides margin for jitter spikes.
 
 **Problem:** WebSocket transport state arrives 50-200ms+ after the audio plays. On variable WiFi, this delay fluctuates (jitter), causing the visual beat indicator to stutter and drift from the audio.
 
@@ -22,6 +24,37 @@ These decisions are research-backed and final. Do not revisit.
 | **Sync method** | NTP-style clock sync + client-side prediction | Research-backed, achieves ±10-25ms on good WiFi |
 | **Jitter handling** | Hybrid: smooth blending + lightweight jitter buffer | Pure buffering adds latency; pure blending shows jitter; hybrid gets both benefits |
 | **Rendering** | `requestAnimationFrame` + Canvas | Bypass React reconciliation for 60fps updates independent of network rate |
+
+### Known Limitations
+
+**Tempo Automation / Ramps**
+
+The prediction algorithm assumes constant tempo between server updates. This breaks down during tempo ramps (gradual tempo changes). When REAPER plays through a tempo automation envelope:
+
+- Prediction continues at the old tempo until the next server message arrives
+- This causes visible desync during the ramp, corrected on next update
+- **Mitigation**: Detect tempo change > 0.1 BPM between updates → switch to "high-frequency sync mode" (disable prediction, show raw server values with blending only)
+
+```typescript
+// In BeatPredictor.onServerUpdate()
+const tempoChanging = Math.abs(newTempo - this.lastServerState.tempo) > 0.1;
+
+if (tempoChanging) {
+  // Switch to high-frequency mode: disable prediction, rely on blending
+  this.highFrequencyMode = true;
+  this.highFrequencyModeUntil = performance.now() + 500; // 500ms after tempo stabilizes
+}
+
+// In getPredictedPosition()
+if (this.highFrequencyMode) {
+  // Return server position directly (smoothed by display blending)
+  return this.lastServerState.position;
+}
+```
+
+**Time Signature Changes**
+
+Similar to tempo: position prediction assumes constant time signature. For meter changes mid-playback, the same high-frequency mode applies.
 
 ### Why Competitors Don't Solve This
 
@@ -283,9 +316,14 @@ export class ClockSync {
 
   /**
    * Get current time synchronized to server clock.
+   *
+   * NTP convention: offset = (server - client), so:
+   * - Positive offset means server is ahead → add to local time
+   * - Negative offset means server is behind → subtract from local time
+   * Using + offset is correct: syncedTime = performance.now() + offset
    */
   getSyncedTime(): number {
-    return performance.now() - this.offset;
+    return performance.now() + this.offset;
   }
 
   /**
@@ -398,7 +436,7 @@ export class JitterMeasurement {
    * @returns Target delay in ms
    */
   getTargetDelay(quantile = 0.95): number {
-    if (this.histogram.size === 0) return 30;  // Default before data
+    if (this.histogram.size === 0) return 40;  // Default before data (safe for mobile)
 
     const sorted = [...this.histogram.entries()].sort((a, b) => a[0] - b[0]);
     const total = sorted.reduce((sum, [_, w]) => sum + w, 0);
@@ -435,8 +473,8 @@ Dynamically sizes the jitter buffer based on network conditions.
 import { JitterMeasurement } from './JitterMeasurement';
 
 export class AdaptiveBuffer {
-  public targetDelayMs = 30;        // Current target
-  private readonly minDelayMs = 20; // Floor: browser rAF is ~16.7ms
+  public targetDelayMs = 40;        // Current target
+  private readonly minDelayMs = 35; // Floor: iOS Low-Power Mode = 30fps (33ms frames)
   private readonly maxDelayMs = 150; // Ceiling: beyond feels "laggy"
   private readonly adaptationRate = 0.1;  // Slow down rate
 
@@ -610,15 +648,26 @@ export class BeatPredictor {
     }
 
     // Seek detection: position jump > expected from elapsed time
+    // Two thresholds:
+    // - SEEK_SNAP_THRESHOLD (1.0 beats): Large jump = user-initiated seek → snap immediately
+    // - DRIFT_SNAP_THRESHOLD (0.25 beats): Small jump = prediction drift → blend smoothly
+    const SEEK_SNAP_THRESHOLD = 1.0;   // User scrubbed/clicked timeline
+    const DRIFT_SNAP_THRESHOLD = 0.25; // Accumulated prediction error
+
     if (prev.isPlaying) {
       const elapsed = (this.clockSync.getSyncedTime() - prev.localReceiveTime) / 1000;
       const expectedPosition = prev.position + elapsed * (prev.tempo / 60);
       const positionDelta = Math.abs(newPosition - expectedPosition);
 
-      // More than 0.25 beats unexpected = seek
-      if (positionDelta > 0.25) {
+      if (positionDelta > SEEK_SNAP_THRESHOLD) {
+        // Large jump: user-initiated seek - snap immediately
         this.isSeek = true;
         return true;
+      } else if (positionDelta > DRIFT_SNAP_THRESHOLD) {
+        // Small jump: prediction drift - correct via blending, not state change
+        // Don't trigger state change, let exponential blending handle it
+        this.isSeek = false;
+        return false;
       }
     }
 
@@ -1302,7 +1351,7 @@ sudo tc qdisc del dev lo root
 
 | Metric | Target | How to Measure |
 |--------|--------|----------------|
-| Visual accuracy | ±20ms | Compare canvas beat flash to audio callback timestamp |
+| Visual accuracy | ±15ms | Compare canvas beat flash to audio callback timestamp |
 | Jitter visibility | None perceptible | User study: "Did you see stuttering?" |
 | 8-hour drift | <50ms | Automated test with simulated clock drift at 100ppm |
 | Recovery time | <3s | Time from network restore to stable display |
@@ -1317,7 +1366,7 @@ sudo tc qdisc del dev lo root
 All users get automatic configuration with no setup required:
 
 - Clock sync on connect (8 samples)
-- Adaptive jitter buffer (20-150ms range)
+- Adaptive jitter buffer (35-150ms range)
 - Automatic drift detection and resync
 - Graceful degradation on poor networks
 
@@ -1347,8 +1396,81 @@ These parameters are hardcoded and not user-configurable:
 - Jitter histogram forget factor (0.983)
 - Clock sync sample count (8)
 - Slew rate (0.5ms/s)
-- Buffer floor/ceiling (20-150ms)
+- Buffer floor/ceiling (35-150ms)
 - Prediction disable duration formula
+
+---
+
+## Mobile Browser Edge Cases
+
+Mobile browsers have unique constraints that affect timing accuracy:
+
+### iOS Specific
+
+| Issue | Impact | Mitigation |
+|-------|--------|------------|
+| **Low-Power Mode** | Throttles to 30fps (33ms frames) | Buffer floor at 35ms handles this |
+| **Background tab** | `setTimeout` throttled to 1000ms | Disable prediction when `document.hidden` |
+| **Screen lock** | WebSocket may disconnect | Full resync on `visibilitychange` |
+| **Safari audio policy** | Requires user gesture for audio | N/A for visual-only sync |
+
+### Android Specific
+
+| Issue | Impact | Mitigation |
+|-------|--------|------------|
+| **Doze Mode** | Network access restricted | WebSocket disconnects; reconnect on wake |
+| **Battery Saver** | Variable throttling | Same as iOS Low-Power Mode |
+| **Chrome tab freezing** | JS execution paused | Resync on `visibilitychange` |
+
+### Detection and Handling
+
+```typescript
+// Detect reduced frame rate (Low-Power Mode, Battery Saver)
+let lastFrameTime = performance.now();
+let slowFrameCount = 0;
+
+function checkFrameRate(now: number) {
+  const delta = now - lastFrameTime;
+  lastFrameTime = now;
+
+  if (delta > 25) {  // Slower than 40fps
+    slowFrameCount++;
+    if (slowFrameCount > 10) {
+      // Likely in power-saving mode - increase buffer floor
+      adaptiveBuffer.setMinDelay(50);
+    }
+  } else {
+    slowFrameCount = Math.max(0, slowFrameCount - 1);
+    if (slowFrameCount === 0) {
+      adaptiveBuffer.setMinDelay(35);  // Restore normal floor
+    }
+  }
+}
+```
+
+### Page Lifecycle Events
+
+```typescript
+// Handle all visibility/lifecycle events
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    // Full resync - clocks may have drifted significantly
+    clockSync.performSync();
+    networkState.onReconnected();
+  } else {
+    // Disable prediction to prevent runaway
+    beatPredictor.disable();
+  }
+});
+
+// iOS-specific: detect when returning from background
+window.addEventListener('focus', () => {
+  // Additional resync opportunity
+  if (document.visibilityState === 'visible') {
+    clockSync.performSync();
+  }
+});
+```
 
 ---
 
@@ -1372,7 +1494,7 @@ Minimum viable sync for typical home WiFi:
 Handle network variability:
 
 7. Implement `JitterMeasurement` (relative delay histogram)
-8. Implement `AdaptiveBuffer` (20-150ms range)
+8. Implement `AdaptiveBuffer` (35-150ms range)
 9. Add transport state change handling (100ms+ disable)
 10. Implement `NetworkState` (OPTIMAL/DEGRADED/RECONNECTING)
 11. Add network quality indicator to UI
@@ -1413,7 +1535,7 @@ These are the minimum acceptable performance levels:
 
 | Metric | Target | Measurement Method |
 |--------|--------|-------------------|
-| Visual sync accuracy | ±20ms | Automated: compare predicted vs actual position over 1000 samples |
+| Visual sync accuracy | ±15ms | Automated: compare predicted vs actual position over 1000 samples |
 | Jitter visibility | None at 60fps | User study: 5 users, "did you see stuttering?" |
 | Clock drift (8hr session) | <50ms accumulated | Automated: log offset delta over 8hr test run |
 | Network hiccup recovery | <3 seconds | Automated: inject 2s dropout, measure time to stable display |
@@ -1452,7 +1574,7 @@ const p50 = percentile(errors, 0.50);
 const p95 = percentile(errors, 0.95);
 const p99 = percentile(errors, 0.99);
 
-// Targets: p50 < 10ms, p95 < 20ms, p99 < 50ms
+// Targets: p50 < 8ms, p95 < 15ms, p99 < 30ms
 ```
 
 **2. Jitter Test (Visual)**
@@ -1530,4 +1652,12 @@ Key insight: Professional systems never rely on a single strategy. The hybrid ap
 
 ## Changelog
 
+- **v1.1** — Validation corrections:
+  - Fixed sign error in `getSyncedTime()`: `performance.now() + offset` (not minus)
+  - Tightened perception target from ±20ms to ±15ms (20ms is AT threshold, not below)
+  - Increased buffer floor from 20ms to 35ms for iOS Low-Power Mode (30fps = 33ms frames)
+  - Added "Known Limitations" section documenting tempo automation/ramps
+  - Added "Mobile Browser Edge Cases" section (iOS/Android specifics)
+  - Implemented dual-threshold snap logic: SEEK_SNAP (1.0 beats) vs DRIFT_SNAP (0.25 beats)
+  - Updated validation targets: p50 < 8ms, p95 < 15ms, p99 < 30ms
 - **v1.0** — Initial specification based on research sessions
