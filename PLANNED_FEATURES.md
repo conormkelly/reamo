@@ -2,7 +2,7 @@
 
 ## Table of Contents (Priority Order)
 
-1. [View Switcher](#view-switcher) — Bottom tab navigation with Edit, Transport, Mixer views
+1. [View Switcher](#view-switcher) — Tab bar + persistent transport with 6 views, Timeline default *(see [full spec](features/VIEW_SWITCHER_FEATURE.md))*
 2. [Items Mode](#items-mode) — View/manage recorded takes without leaving the instrument
 3. [Track Management](#track-management) — Rename, create, duplicate, delete tracks *(see [full spec](features/TRACK_MANAGEMENT_FEATURE.md))*
 4. [Cue List](#cue-list) — Setlist/playlist mode with SWS import *(see [full spec](features/CUE_LIST_FEATURE.md))*
@@ -246,163 +246,39 @@ Extend tracks event with FX info:
 
 ## View Switcher
 
-### Rationale
+> **Full specification:** [features/VIEW_SWITCHER_FEATURE.md](features/VIEW_SWITCHER_FEATURE.md)
 
-Different contexts call for different interfaces. When recording a verse, you want full timeline visibility with regions and markers. When performing or running down a song with the band, you want big transport controls visible from across the room. When mixing, you want as many faders on screen as possible.
+Core navigation architecture for Reamo. Tab bar with persistent transport.
 
-Rather than forcing users to mount multiple devices (though that's still supported via WebSocket), a simple view switcher lets one device adapt to the current workflow.
-
-**Key insight:** This is frontend-only. No protocol changes, no extension work. Just reorganizing existing components.
-
----
-
-### Views
-
-| View | Purpose | Components |
-|------|---------|------------|
-| **Edit** (default) | Songwriting workflow | Timeline + regions + markers + mixer + transport |
-| **Transport** | Performer/big display | Large play/stop/record, BPM, bar.beat counter, minimal else |
-| **Mixer** | Mixing focus | Full-width faders, more tracks visible, compact transport |
-
----
-
-### UI Concept
-
-**Access:** Hamburger menu or bottom nav bar.
-
-```txt
-┌─────────────────────────────────────────────────────┐
-│ ☰ Reamo                              [Edit ▼]       │
-├─────────────────────────────────────────────────────┤
-│                                                     │
-│  (current view content)                             │
-│                                                     │
-└─────────────────────────────────────────────────────┘
+**Layout:**
+```
+┌─────────────────────────────────────────────────────────┐
+│                   ACTIVE VIEW AREA                      │
+├─────────────────────────────────────────────────────────┤
+│ Timeline│ Mixer │ Clock │ Cues │ Actions │ Notes       │ ← Tab bar
+├─────────────────────────────────────────────────────────┤
+│  ◄◄  │  ▶/❚❚  │  ⏹  │  ⏺  │    17.3.2    │  120 BPM  │ ← Persistent transport
+└─────────────────────────────────────────────────────────┘
 ```
 
-**Dropdown options:**
-- Edit View (timeline + mixer)
-- Transport View (big controls)
-- Mixer View (faders focus)
+**Key principles:**
+- Persistent transport bar at bottom of ALL views (play/stop/record always accessible)
+- Tab bar above transport (6 purpose-built views, no hamburger menus)
+- Timeline as default — the visual differentiator (see your arrangement, not just faders)
+- Per-device view memory via localStorage
 
----
+**The six views:**
 
-### Transport View
+| View | Purpose |
+|------|---------|
+| **Timeline** | Visual arrangement with regions, markers, playhead (default) |
+| **Mixer** | Faders, meters, track control |
+| **Clock** | Big transport, BPM, bar.beat (80-100pt buttons) |
+| **Cues** | Region list, playlist mode |
+| **Actions** | User-configurable quick action buttons |
+| **Notes** | Project notes, session metadata |
 
-Large touch targets for stage/studio use. Visible from 10+ feet away.
-
-```txt
-┌─────────────────────────────────────────────────────┐
-│                                                     │
-│                    ♩ = 120 BPM                      │
-│                                                     │
-│                    17 . 3 . 2                       │
-│                  (bar.beat.sub)                     │
-│                                                     │
-│     ┌───────┐    ┌───────┐    ┌───────┐           │
-│     │       │    │       │    │       │           │
-│     │  ⏮️   │    │  ⏯️   │    │  ⏹️   │           │
-│     │       │    │       │    │       │           │
-│     └───────┘    └───────┘    └───────┘           │
-│                                                     │
-│                   ┌───────┐                         │
-│                   │  ⏺️   │                         │
-│                   │RECORD │                         │
-│                   └───────┘                         │
-│                                                     │
-│  [Cycle: OFF]  [Click: ON]  [Punch: OFF]           │
-└─────────────────────────────────────────────────────┘
-```
-
-**Key elements:**
-- Huge play/pause button (primary action)
-- Big bar.beat display
-- BPM display (tap to change)
-- Record button with visual feedback
-- Status indicators for cycle, click, punch
-
----
-
-### Mixer View
-
-Maximize fader real estate. More tracks, less timeline.
-
-```txt
-┌─────────────────────────────────────────────────────┐
-│ ▶ 17.3.2    120 BPM    [⏺]           [Edit ▼]      │
-├────┬────┬────┬────┬────┬────┬────┬────┬────┬────┤
-│ Drm│ Bas│ Gtr│ Vox│ Syn│ Pad│ FX │ Bus│ ... │    │
-│ ▓▓▓│ ▓░░│ ▓▓░│ ▓░░│ ░░░│ ▓▓▓│ ▓▓░│ ▓▓▓│     │    │
-│ ║  │ ║  │ ║  │ ║  │ ║  │ ║  │ ║  │ ║  │     │    │
-│ ║▓▓│ ║▓░│ ║▓▓│ ║▓░│ ║░░│ ║▓▓│ ║▓▓│ ║▓▓│     │    │
-│ ║▓▓│ ║░░│ ║▓░│ ║▓░│ ║░░│ ║▓▓│ ║▓░│ ║▓▓│     │    │
-│ M S│ M S│ M S│ M S│ M S│ M S│ M S│ M S│     │    │
-└────┴────┴────┴────┴────┴────┴────┴────┴────┴────┘
-```
-
-**Key elements:**
-- Compact transport strip at top
-- Horizontal scrolling for many tracks
-- Taller faders (more precision)
-- No timeline/regions (use Edit view for that)
-
----
-
-### Storage
-
-```typescript
-const VIEW_STORAGE_KEY = 'reamo_current_view';
-
-type View = 'edit' | 'transport' | 'mixer';
-
-// Load on startup
-const savedView = localStorage.getItem(VIEW_STORAGE_KEY) as View || 'edit';
-
-// Save on change
-localStorage.setItem(VIEW_STORAGE_KEY, currentView);
-```
-
-Per-device storage is appropriate here — each mounted device can have its own preferred view.
-
----
-
-### Implementation Checklist
-
-#### State
-
-- [ ] Add `currentView: View` to app state (Zustand or context)
-- [ ] Load saved view from localStorage on mount
-- [ ] Save view to localStorage on change
-
-#### Components
-
-- [ ] `ViewSwitcher` — dropdown/menu for view selection
-- [ ] `TransportView` — new component with big controls
-- [ ] `MixerView` — new component (or existing mixer in expanded mode)
-- [ ] Conditional rendering in `App.tsx` based on `currentView`
-
-#### Transport View specifics
-
-- [ ] Large bar.beat display with prominent font
-- [ ] Big touch-friendly transport buttons
-- [ ] BPM display (reuse existing tap-tempo logic)
-- [ ] Toggle indicators for cycle, click, punch modes
-
-#### Mixer View specifics
-
-- [ ] Compact transport strip
-- [ ] Horizontal scroll for tracks
-- [ ] Taller faders
-- [ ] Hide timeline/region components
-
----
-
-### Future Enhancements
-
-- **Custom views:** Let users pick which components appear in each view
-- **Gesture switching:** Swipe left/right to change views
-- **Auto-switch:** Automatically switch to Transport when recording starts
-- **Per-project view:** Store preferred view in project EXTSTATE
+**Implementation:** Frontend-only. No protocol changes.
 
 ---
 
