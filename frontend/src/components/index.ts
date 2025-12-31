@@ -1,5 +1,8 @@
 export { ReaperProvider, useReaper, type ReaperProviderProps } from './ReaperProvider';
-export { ConnectionStatus, type ConnectionStatusProps } from './ConnectionStatus';
+export { ConnectionStatus, ConnectionBanner, type ConnectionStatusProps, type ConnectionBannerProps } from './ConnectionStatus';
+export { TabBar, type TabBarProps } from './TabBar';
+export { PersistentTransport, type PersistentTransportProps } from './PersistentTransport';
+export { SettingsMenu, type SettingsMenuProps } from './SettingsMenu';
 export * from './Transport';
 export * from './Track';
 export * from './Markers';

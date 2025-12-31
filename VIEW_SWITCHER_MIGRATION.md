@@ -10,15 +10,18 @@
 
 ## Current State Analysis
 
-**Last updated:** 2024-12-31
+**Last updated:** 2024-12-31 (Phase 1-3 COMPLETE)
 
-### Entry Point Flow
+### Entry Point Flow (After Migration)
 
 ```
 main.tsx
   └── App.tsx
         └── ReaperProvider (WebSocket context)
-              └── AppContent (THE ENTIRE UI)
+              └── AppContent
+                    ├── views[currentView] (StudioView, TimelineView, etc.)
+                    ├── TabBar
+                    └── PersistentTransport (hidden in Studio view)
 ```
 
 ### Key Files
@@ -280,30 +283,30 @@ Add double-tap to toggle full screen per view.
 
 ## File Change Checklist
 
-### New Files to Create
+### New Files Created
 
-- [ ] `frontend/src/views/studio/StudioView.tsx`
-- [ ] `frontend/src/views/studio/index.ts`
-- [ ] `frontend/src/views/timeline/TimelineView.tsx`
-- [ ] `frontend/src/views/timeline/index.ts`
-- [ ] `frontend/src/views/mixer/MixerView.tsx`
-- [ ] `frontend/src/views/mixer/index.ts`
-- [ ] `frontend/src/views/clock/ClockView.tsx`
-- [ ] `frontend/src/views/clock/index.ts`
-- [ ] `frontend/src/views/cues/CuesView.tsx`
-- [ ] `frontend/src/views/cues/index.ts`
-- [ ] `frontend/src/views/actions/ActionsView.tsx`
-- [ ] `frontend/src/views/actions/index.ts`
-- [ ] `frontend/src/views/notes/NotesView.tsx`
-- [ ] `frontend/src/views/notes/index.ts`
-- [ ] `frontend/src/viewRegistry.ts`
-- [ ] `frontend/src/components/TabBar.tsx`
-- [ ] `frontend/src/components/PersistentTransport.tsx`
+- [x] `frontend/src/views/studio/StudioView.tsx` - Full copy of AppContent with helpers
+- [x] `frontend/src/views/studio/index.ts`
+- [x] `frontend/src/views/timeline/TimelineView.tsx` - Placeholder
+- [x] `frontend/src/views/timeline/index.ts`
+- [x] `frontend/src/views/mixer/MixerView.tsx` - Placeholder
+- [x] `frontend/src/views/mixer/index.ts`
+- [x] `frontend/src/views/clock/ClockView.tsx` - Placeholder
+- [x] `frontend/src/views/clock/index.ts`
+- [x] `frontend/src/views/cues/CuesView.tsx` - Placeholder
+- [x] `frontend/src/views/cues/index.ts`
+- [x] `frontend/src/views/actions/ActionsView.tsx` - Placeholder
+- [x] `frontend/src/views/actions/index.ts`
+- [x] `frontend/src/views/notes/NotesView.tsx` - Placeholder
+- [x] `frontend/src/views/notes/index.ts`
+- [x] `frontend/src/viewRegistry.ts` - View ID type, views map, metadata
+- [x] `frontend/src/components/TabBar.tsx` - 7-tab navigation
+- [x] `frontend/src/components/PersistentTransport.tsx` - Compact transport with 60fps time
 
-### Files to Modify
+### Files Modified
 
-- [ ] `frontend/src/App.tsx` - remove AppContent, add view switching
-- [ ] `frontend/src/components/index.ts` - export new components
+- [x] `frontend/src/App.tsx` - Simplified to view switching shell (~50 lines)
+- [x] `frontend/src/components/index.ts` - Added TabBar, PersistentTransport exports
 
 ### Files to Keep (No Changes Needed)
 
@@ -316,11 +319,35 @@ Add double-tap to toggle full screen per view.
 
 ## Current Progress
 
-**Status:** Phase 0 - COMPLETE ✅
+**Status:** Phase 1-3 COMPLETE + Settings Menu ✅
 
-**Next step:** Phase 1 - Create view folder structure and viewRegistry.ts
+### Completed:
+- ✅ Phase 0: Planning & Analysis
+- ✅ Phase 1: View infrastructure (folders, registry, placeholders)
+- ✅ Phase 2: Extract StudioView (copy of AppContent)
+- ✅ Phase 3: View switching (TabBar, PersistentTransport, App.tsx rewrite)
+- ✅ Phase 3.5: Settings menu for UI preferences
 
-**Ready to start:** Yes - all analysis done, architecture understood, plan documented
+### Build Status:
+```
+npm run build → SUCCESS (904.70 kB gzipped: 249.53 kB)
+```
+
+### Key Implementation Details:
+- `PersistentTransport` uses 60fps animation engine for smooth time display
+- `TabBar` shows all 7 views with active state highlighting
+- View selection persists to localStorage
+- **Settings menu** (hamburger, top-right) with toggles for:
+  - Tab bar visibility (show/hide)
+  - Persistent transport visibility (show/hide)
+  - Transport position (left/right handedness)
+- All UI preferences persist to localStorage via `useUIPreferences` hook
+
+### New Files (Phase 3.5):
+- `frontend/src/hooks/useUIPreferences.ts` - localStorage-backed preferences
+- `frontend/src/components/SettingsMenu.tsx` - hamburger menu with toggles
+
+**Next step:** Phase 4 - Implement individual views (MixerView, ClockView, etc.)
 
 ---
 
@@ -328,7 +355,8 @@ Add double-tap to toggle full screen per view.
 
 1. **Read this document first** when resuming work
 2. The spec is at `features/VIEW_SWITCHER_FEATURE.md`
-3. Current app works - don't break it during migration
-4. StudioView should be a copy-paste of AppContent initially
-5. Test after each phase before proceeding
+3. **BUILD WORKS** - don't break it
+4. StudioView is an exact copy of the original AppContent
+5. Other views are placeholders - implement one at a time
 6. Update this document after every change
+7. Run `npm run build` after each phase to verify
