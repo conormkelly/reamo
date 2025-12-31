@@ -3,9 +3,9 @@
 ## Table of Contents (Priority Order)
 
 1. [Public Release](#public-release) — Cross-platform builds and GitHub distribution
-2. [View Switcher](#view-switcher) — Switch between Edit, Transport, and Mixer views *(quick win, frontend-only)*
-3. [Items Mode](#items-mode) — View/manage recorded takes without leaving the instrument
-4. [Tempo Marker Support](#tempo-marker-support) — Respect tempo map during playback *(easy fix)*
+2. [View Switcher](#view-switcher) — Bottom tab navigation with Edit, Clock, Cues, Mixer views
+3. [Cue List](#cue-list) — Setlist/playlist mode with SWS import *(see [full spec](features/CUE_LIST_FEATURE.md))*
+4. [Items Mode](#items-mode) — View/manage recorded takes without leaving the instrument
 5. [FX Preset Switching](#fx-preset-switching) — Navigate REAPER-saved presets from tablet
 6. [Extension Performance Optimizations](#extension-performance-optimizations) — Idle when no clients
 
@@ -402,6 +402,22 @@ Per-device storage is appropriate here — each mounted device can have its own 
 
 ---
 
+## Cue List
+
+> **Full specification:** [features/CUE_LIST_FEATURE.md](features/CUE_LIST_FEATURE.md)
+
+Vertical list view of regions for quick tap-to-jump navigation, plus playlist mode with loop counts for arrangement sketching and live performance.
+
+**Key capabilities:**
+- Navigation mode: Tap region → jump to position
+- Playlist mode: Define sequence with loop counts, auto-advance on region end
+- SWS import: Read-only import of existing SWS Region Playlists from .RPP files
+- Arrangement sketching: "What would Verse x4, Chorus x2 sound like?" without duplicating regions
+
+**Implementation:** Requires extension work for playlist playback engine (boundary detection, seeking). Frontend-only for basic navigation mode.
+
+---
+
 ## Items Mode
 
 ### Rationale
@@ -478,118 +494,210 @@ Just: **"See what I recorded, tidy it up, make quick keep/trash decisions, move 
 
 ---
 
-## Tempo Marker Support
+## Extension Performance Optimizations
 
-### The Problem
+### Context: 30Hz Polling is Fine
 
-The current implementation uses `GetProjectTimeSignature2()` to fetch BPM and time signature, which **only returns project-level defaults**. This ignores tempo markers entirely.
+REAPER's timer callback system runs at ~30Hz on the main UI thread—this is the **designed operating point** for the CSurf (Control Surface) system. Most REAPER API getter calls (`GetTrack()`, `GetPlayState()`, `GetMediaTrackInfo_Value()`) are lightweight pointer lookups designed for control surfaces polling at this rate.
 
-```zig
-// Current (BROKEN for tempo markers):
-api.getProjectTimeSignature2(null, &bpm, &num, &denom);
-// Returns: project default tempo (e.g., 120 BPM, 4/4)
-// Ignores: any tempo markers in the project
-```
+**Key insight**: Main-thread polling has no direct interaction with audio rendering. The audio thread has hard deadlines of 1.4-11.6ms (depending on buffer size), while extensions run on the UI thread with ~16ms soft deadlines. Extension overhead does not cause audio glitches unless callbacks exceed ~10ms.
 
-### Correct API
-
-`TimeMap_GetTimeSigAtTime()` returns **both** BPM and time signature at any position, fully respecting the tempo map including linear ramps:
-
-```c
-void TimeMap_GetTimeSigAtTime(
-    ReaProject* proj,           // NULL for active project
-    double time,                // position in seconds
-    int* timesig_numOut,        // beats per measure (e.g., 4)
-    int* timesig_denomOut,      // note value per beat (e.g., 4)
-    double* tempoOut            // BPM at this position
-);
-```
-
-**Key findings:**
-- Single call returns both tempo AND time signature (no need for `TimeMap2_GetDividedBpmAtTime`)
-- Handles tempo ramps (linear interpolation) automatically
-- Works even with zero tempo markers (returns project defaults)
-- At exact marker boundary, returns NEW values (post-marker)
-
-### Gotchas
-
-**Zero time sig values mean "inherit":** When a tempo marker only changes BPM (not time sig), the API returns 0 for timesig_num/denom. Always handle this:
-
-```zig
-if (timesig_num == 0) timesig_num = 4;  // Default to 4/4
-if (timesig_denom == 0) timesig_denom = 4;
-```
-
-**`positionBeats` already works:** Our `TimeMap2_timeToBeats()` call already respects tempo markers - no changes needed there.
-
-### Performance Optimization (Optional)
-
-For projects with sparse tempo changes, cache the next change time to reduce API calls:
-
-```c
-static double s_nextChangeTime = -1;
-// Only re-query if we've crossed a marker boundary
-if (s_nextChangeTime < 0 || currentPos >= s_nextChangeTime) {
-    TimeMap_GetTimeSigAtTime(NULL, currentPos, ...);
-    s_nextChangeTime = TimeMap2_GetNextChangeTime(NULL, currentPos);
-}
-```
-
-For tempo ramps, per-frame queries are still needed during interpolation.
-
-### Implementation Checklist
-
-**Extension (`transport.zig`):**
-- [ ] Add REAPER API binding for `TimeMap_GetTimeSigAtTime`
-- [ ] Replace `getProjectTimeSignature2()` with `TimeMap_GetTimeSigAtTime()`
-- [ ] Pass current play position (or edit cursor when stopped)
-- [ ] Handle zero timesig values (default to 4/4)
-
-**Frontend:**
-- [ ] No changes required - transport event structure unchanged
-
-**Testing:**
-- [ ] Create test project with multiple tempo markers
-- [ ] Verify BPM updates when cursor crosses tempo marker during playback
-- [ ] Verify time signature updates when crossing time sig marker
-- [ ] Test tempo ramps (linear interpolation between markers)
-- [ ] Test project with no tempo markers (should use defaults)
-
-### Future: Tempo Map Visualization
-
-For displaying the full tempo map in UI:
-
-| Function | Purpose |
-|----------|---------|
-| `CountTempoTimeSigMarkers(proj)` | Count markers |
-| `GetTempoTimeSigMarker(proj, idx, ...)` | Read marker details |
-| `FindTempoTimeSigMarker(proj, time)` | Find marker at position |
-| `TimeMap2_GetNextChangeTime(proj, time)` | Find next tempo change (-1 if none)
+Testing by extension developers showed 100 concurrent `defer()` scripts—each executing at 30Hz—produced no measurable performance impact.
 
 ---
 
-## Extension Performance Optimizations
+### Current Implementation Strengths
 
-### Idle When No Clients Connected
+The extension already follows real-time best practices:
 
-**The Problem:**
-The extension currently polls REAPER state every 30ms regardless of whether any WebSocket clients are connected. This wastes CPU cycles when the frontend isn't running.
+| Pattern | Status | Location |
+|---------|--------|----------|
+| Fixed-size stack buffers | ✅ | All state modules use `[N]T` arrays |
+| Change detection before broadcast | ✅ | `eql()` comparisons in each state module |
+| `GetProjectStateChangeCount` | ✅ | `project.zig:59` |
+| Async WebSocket (separate thread) | ✅ | `ws_server.zig` with mutex-protected queue |
+| Zero allocations per callback | ✅ | All buffers pre-allocated |
 
-**Solution:**
-Skip the polling loop when `clientCount == 0`. Only resume polling when a client connects.
+**Target metrics** (based on professional audio software):
 
-**Implementation:**
+| Metric | Target | Current (estimated) |
+|--------|--------|---------------------|
+| Average callback duration | < 1ms | Likely < 0.5ms |
+| Worst-case callback | < 10ms | Unknown (needs profiling) |
+| Baseline CPU | < 0.5% | Unknown |
+| Memory allocations/callback | 0 | 0 ✅ |
+
+---
+
+### Phase 1: Idle When No Clients (Trivial)
+
+**Priority: Low** — Valid optimization but minimal real-world impact.
+
+Skip all polling when no WebSocket clients are connected:
+
 ```zig
-// In the 30ms timer callback:
-if (server.clientCount() == 0) return; // Early exit, no work to do
-
-// ... existing polling logic ...
+// In processTimerCallback, after command processing:
+if (shared_state.clientCount() == 0) return;
 ```
 
-**Considerations:**
-- First client connection may see a slight delay as state is gathered
-- Could optionally do a single immediate poll on client connect to minimize latency
-- Track `wasIdle` state to log when transitioning between idle/active
+**Trade-offs:**
+- First client sees ~30ms delay to first update
+- Could add immediate poll on connect if latency matters
+- Saves CPU when frontend isn't running (user at computer, not using tablet)
+
+**Verdict**: 1-line change, worth doing, but not urgent.
+
+---
+
+### Phase 2: Tiered Polling Rates (Moderate)
+
+**Priority: Medium** — Easy wins with measurable impact.
+
+Not all state needs 30Hz updates. Professional audio software uses tiered rates:
+
+| Data Type | Current Rate | Optimal Rate | Rationale |
+|-----------|--------------|--------------|-----------|
+| Meters | 30Hz | 30-60Hz | Smooth animation required |
+| Transport position | 30Hz | 30Hz | Playhead smoothness |
+| Transport state | 30Hz | 10Hz or event | Changes feel instant at 100ms |
+| Tracks (vol/pan/mute) | 30Hz | 30Hz | Fader responsiveness |
+| Markers/Regions | 30Hz | 5Hz | Rarely change during playback |
+| Items | 30Hz | 5Hz | Rarely change during playback |
+| Project (undo/redo) | 30Hz | 5Hz | User doesn't need instant undo label |
+| Tempo map | 30Hz | 1Hz or event | Almost never changes |
+
+**Implementation**: Use frame counters:
+
+```zig
+var g_frame_counter: u32 = 0;
+
+fn processTimerCallback() {
+    g_frame_counter +%= 1;
+
+    // Every frame (30Hz)
+    pollTransport();
+    pollTracks();
+    pollMetering();
+
+    // Every 6th frame (~5Hz)
+    if (g_frame_counter % 6 == 0) {
+        pollMarkers();
+        pollItems();
+        pollProject();
+    }
+
+    // Every 30th frame (~1Hz)
+    if (g_frame_counter % 30 == 0) {
+        pollTempoMap();
+    }
+}
+```
+
+**Adaptive idle detection**: When `GetPlayState()` returns stopped and no recent changes, extend poll interval to 100ms. Resume 30Hz when transport starts or user interaction occurs. The mvMeter2 plugin documented **50% CPU reduction** from this single optimization.
+
+---
+
+### Phase 3: CSurf Hybrid Architecture (Significant)
+
+**Priority: Low** — Large refactor, but offers 50%+ CPU reduction.
+
+REAPER's CSurf (Control Surface) interface provides **push notifications** for most track-level state changes, eliminating redundant polling:
+
+| CSurf Callback | Replaces Polling For |
+|----------------|---------------------|
+| `SetPlayState(play, pause, rec)` | Transport state |
+| `SetSurfaceVolume(track, vol)` | Track volume |
+| `SetSurfacePan(track, pan)` | Track pan |
+| `SetSurfaceMute(track, mute)` | Track mute |
+| `SetSurfaceSolo(track, solo)` | Track solo |
+| `SetTrackListChange()` | Track add/remove/reorder |
+| `Extended(CSURF_EXT_SETPROJECTMARKERCHANGE)` | Marker/region changes |
+| `Extended(CSURF_EXT_SETBPMANDPLAYRATE)` | Tempo/BPM changes |
+| `Extended(CSURF_EXT_SETFXENABLED)` | FX bypass state |
+
+**CSurf gaps** (still require polling):
+- Media item changes (add/delete/move/resize)
+- Cursor position
+- Time selection
+- Envelope edits
+- Meter values (always polled)
+- Zoom/scroll
+
+**The SWS Pattern**: Callbacks set dirty flags; `Run()` processes in batches:
+
+```cpp
+// Callback (called by REAPER when state changes)
+void SetSurfaceVolume(MediaTrack* track, double volume) {
+    m_tracksDirty = true;  // Flag for Run() to process
+}
+
+// Run() called at 30Hz
+void Run() {
+    if (m_tracksDirty) {
+        m_tracksDirty = false;
+        BroadcastTrackState();
+    }
+    // Poll for state CSurf doesn't notify...
+    PollItems();
+    PollCursor();
+}
+```
+
+**Implementation requirements**:
+1. Implement `IReaperControlSurface` interface in Zig (or C wrapper)
+2. Register via `plugin_register("csurf_inst", &surface)`
+3. Convert polling to dirty-flag pattern
+4. Maintain polling for CSurf gaps
+
+**Why this is low priority**: The current 30Hz polling is within REAPER's designed parameters. CSurf hybrid is a significant refactor for gains that may not be perceptible to users. Worth considering if profiling shows actual CPU concerns.
+
+---
+
+### Profiling Strategy
+
+Before optimizing, measure actual impact:
+
+1. **Baseline comparison**: Measure REAPER CPU with extension disabled vs enabled
+2. **Per-callback timing**: Add `std.time.Timer` instrumentation to `processTimerCallback`
+3. **Callback jitter**: Record actual intervals between callbacks (should be ~33ms ± 5ms)
+
+```zig
+var timer = try std.time.Timer.start();
+// ... callback work ...
+const elapsed_ns = timer.read();
+if (elapsed_ns > 1_000_000) { // > 1ms
+    log("Slow callback: {}ms", elapsed_ns / 1_000_000);
+}
+```
+
+**Tracy integration** (optional): Real-time profiling with callstack support. Requires adding TracyClient.cpp to build.
+
+---
+
+### API Calls to Avoid in Polling Loops
+
+These are expensive and should only be called on-demand:
+
+| Function | Why Expensive | Alternative |
+|----------|---------------|-------------|
+| `GetTrackStateChunk()` | Serializes entire track to XML | Don't use for polling |
+| `AudioAccessor` functions | Buffer operations, main-thread-only | Call only for `item/getPeaks` |
+| `CalcMediaSrcLoudness()` | Full render-based analysis | Never in polling loop |
+| `EnumTrackMIDIProgramNames()` | String enumeration | Cache on demand |
+
+---
+
+### Summary: Recommended Approach
+
+1. **Now**: Do nothing. Current implementation is solid and within REAPER's design parameters.
+
+2. **If profiling shows concerns**: Implement Phase 2 (tiered polling). Easy wins, measurable impact.
+
+3. **If Phase 2 insufficient**: Implement Phase 1 (idle when no clients). Trivial change.
+
+4. **Future consideration**: Phase 3 (CSurf hybrid) only if the extension needs to scale to larger projects or lower-power devices.
+
+The SWS Extension—the gold standard for REAPER extension performance—uses the CSurf hybrid pattern and is described by users as having "no noticeable CPU impact." That's the north star, but our current polling-only approach is likely already invisible to users
 
 ## Project Notes Support
 
