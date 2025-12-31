@@ -7,10 +7,22 @@
  * Architecture:
  * - ClockSync: NTP-style offset calculation from periodic sync requests
  * - BeatPredictor: Extrapolates beat position from tempo and synced time
+ * - AdaptiveBuffer: Dynamic jitter buffer sizing
+ * - NetworkState: Connection quality tracking
  * - 60fps animation loop with requestAnimationFrame
  */
 
-import { ClockSync, BeatPredictor, type ClockSyncMetrics, type TimeSignature, type TempoMarker } from '../lib/transport-sync';
+import {
+  ClockSync,
+  BeatPredictor,
+  AdaptiveBuffer,
+  NetworkState,
+  type ClockSyncMetrics,
+  type TimeSignature,
+  type TempoMarker,
+  type NetworkQuality,
+  type NetworkStatus,
+} from '../lib/transport-sync';
 import type { TransportEventPayload, ClockSyncResponse, WSTempoMarker } from './WebSocketTypes';
 
 /** State provided to subscribers on each animation frame */
@@ -40,10 +52,15 @@ export type TransportSyncSubscriber = (state: TransportSyncState) => void;
 export class TransportSyncEngine {
   private clockSync: ClockSync;
   private beatPredictor: BeatPredictor;
+  private adaptiveBuffer: AdaptiveBuffer;
+  private networkState: NetworkState;
   private subscribers = new Set<TransportSyncSubscriber>();
   private rafId: number | null = null;
   private isPlaying = false;
   private sendRaw: ((msg: string) => void) | null = null;
+
+  // Callbacks for network status changes
+  private onNetworkStatusChange?: (status: NetworkStatus) => void;
 
   // Cached state to avoid allocations
   private cachedState: TransportSyncState = {
@@ -67,6 +84,10 @@ export class TransportSyncEngine {
     });
 
     this.beatPredictor = new BeatPredictor(this.clockSync);
+    this.adaptiveBuffer = new AdaptiveBuffer();
+    this.networkState = new NetworkState({
+      onStatusChange: (status) => this.onNetworkStatusChange?.(status),
+    });
   }
 
   /**
@@ -97,6 +118,16 @@ export class TransportSyncEngine {
    * Call this when receiving a transport event.
    */
   onTransportEvent(payload: TransportEventPayload): void {
+    const nowPlaying = payload.playState === 1 || payload.playState === 5;
+
+    // Update jitter measurement and network state
+    if (payload.t !== undefined) {
+      const arrivalTime = performance.now();
+      const clockOffset = this.clockSync.isSynced() ? this.clockSync.getOffset() : 0;
+      this.adaptiveBuffer.onPacketReceived(arrivalTime, payload.t, clockOffset);
+      this.networkState.onMessage(nowPlaying);
+    }
+
     // Only use sync if we have the new fields and clock is synced
     if (payload.t !== undefined && payload.b !== undefined && this.clockSync.isSynced()) {
       this.beatPredictor.onServerUpdate(
@@ -115,7 +146,6 @@ export class TransportSyncEngine {
     }
 
     // Track play state for animation loop
-    const nowPlaying = payload.playState === 1 || payload.playState === 5;
     const wasPlaying = this.isPlaying;
     this.isPlaying = nowPlaying;
 
@@ -143,6 +173,12 @@ export class TransportSyncEngine {
   ): void {
     // Always update server-computed bar.beat.ticks (doesn't need clock sync)
     this.lastBbt = bbt;
+
+    // Update jitter measurement and network state
+    const arrivalTime = performance.now();
+    const clockOffset = this.clockSync.isSynced() ? this.clockSync.getOffset() : 0;
+    this.adaptiveBuffer.onPacketReceived(arrivalTime, t, clockOffset);
+    this.networkState.onMessage(this.isPlaying);
 
     // Beat predictor needs clock sync for accurate prediction
     if (!this.clockSync.isSynced()) return;
@@ -184,6 +220,9 @@ export class TransportSyncEngine {
 
     // Tick clock sync for slewing
     this.clockSync.tick();
+
+    // Tick network state for timeout detection
+    this.networkState.tick();
 
     this.notifySubscribers();
 
@@ -253,10 +292,57 @@ export class TransportSyncEngine {
   }
 
   /**
+   * Get extended metrics including jitter and network quality
+   */
+  getExtendedMetrics(): {
+    clock: ClockSyncMetrics;
+    network: {
+      status: NetworkStatus;
+      quality: NetworkQuality;
+      jitter: number;
+      targetDelay: number;
+    };
+  } {
+    const bufferMetrics = this.adaptiveBuffer.getMetrics();
+    const networkMetrics = this.networkState.getMetrics();
+    return {
+      clock: this.clockSync.getMetrics(),
+      network: {
+        status: networkMetrics.status,
+        quality: bufferMetrics.quality,
+        jitter: bufferMetrics.jitter,
+        targetDelay: bufferMetrics.targetDelay,
+      },
+    };
+  }
+
+  /**
+   * Get current network quality
+   */
+  getNetworkQuality(): NetworkQuality {
+    return this.adaptiveBuffer.getNetworkQuality();
+  }
+
+  /**
+   * Get current network status
+   */
+  getNetworkStatus(): NetworkStatus {
+    return this.networkState.status;
+  }
+
+  /**
+   * Set callback for network status changes
+   */
+  setOnNetworkStatusChange(callback: ((status: NetworkStatus) => void) | undefined): void {
+    this.onNetworkStatusChange = callback;
+  }
+
+  /**
    * Force clock resync
    */
   resync(): void {
     this.clockSync.invalidate();
+    this.clockSync.startSync();
   }
 
   /**
@@ -264,6 +350,14 @@ export class TransportSyncEngine {
    */
   needsResync(): boolean {
     return this.clockSync.needsResync();
+  }
+
+  /**
+   * Notify that connection was re-established (reset network state)
+   */
+  onReconnected(): void {
+    this.networkState.onReconnected();
+    this.adaptiveBuffer.reset();
   }
 
   /**

@@ -1,26 +1,85 @@
 /**
  * Connection Status Components
- * - ConnectionDot: Minimal green dot when connected
+ * - ConnectionDot: Minimal green dot when connected, color reflects network quality
  * - ConnectionBanner: Full-width banner when disconnected/error
  */
 
 import { useState, useEffect, type ReactElement } from 'react';
 import { Wifi, WifiOff, RefreshCw } from 'lucide-react';
 import { useReaper } from './ReaperProvider';
+import { transportSyncEngine } from '../core/TransportSyncEngine';
+import type { NetworkQuality } from '../lib/transport-sync';
 
 // Grace period before showing banner on initial connection
 const INITIAL_CONNECT_GRACE_MS = 250;
 
+// Network quality colors
+const QUALITY_COLORS: Record<NetworkQuality, string> = {
+  excellent: 'bg-green-500',
+  good: 'bg-green-400',
+  moderate: 'bg-yellow-500',
+  poor: 'bg-orange-500',
+};
+
+const QUALITY_TITLES: Record<NetworkQuality, string> = {
+  excellent: 'Connected - Excellent',
+  good: 'Connected - Good',
+  moderate: 'Connected - Moderate latency',
+  poor: 'Connected - Poor network',
+};
+
 export interface ConnectionStatusProps {
   className?: string;
+  /** Called when user long-presses the dot */
+  onLongPress?: () => void;
 }
 
 /**
  * Minimal connection indicator - just a dot
- * Green when connected, yellow/orange alternating when reconnecting
+ * Color reflects network quality when connected:
+ * - Green (bright): excellent
+ * - Green: good
+ * - Yellow: moderate
+ * - Orange: poor
  */
-export function ConnectionStatus({ className = '' }: ConnectionStatusProps): ReactElement | null {
+export function ConnectionStatus({ className = '', onLongPress }: ConnectionStatusProps): ReactElement | null {
   const { connected, errorCount, gaveUp } = useReaper();
+  const [networkQuality, setNetworkQuality] = useState<NetworkQuality>('excellent');
+
+  // Poll network quality when connected
+  useEffect(() => {
+    if (!connected) return;
+
+    const updateQuality = () => {
+      setNetworkQuality(transportSyncEngine.getNetworkQuality());
+    };
+
+    // Initial update
+    updateQuality();
+
+    // Poll every 500ms (network quality doesn't change that fast)
+    const interval = setInterval(updateQuality, 500);
+    return () => clearInterval(interval);
+  }, [connected]);
+
+  // Long press handling
+  const [pressTimer, setPressTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+
+  const handlePointerDown = () => {
+    if (onLongPress) {
+      const timer = setTimeout(() => {
+        onLongPress();
+      }, 500);
+      setPressTimer(timer);
+    }
+  };
+
+  const handlePointerUp = () => {
+    if (pressTimer) {
+      clearTimeout(pressTimer);
+      setPressTimer(null);
+    }
+  };
 
   const isReconnecting = !connected && errorCount > 0 && !gaveUp;
 
@@ -30,11 +89,18 @@ export function ConnectionStatus({ className = '' }: ConnectionStatusProps): Rea
   }
 
   return (
-    <div className={`flex items-center ${className}`} title={connected ? 'Connected' : 'Reconnecting...'}>
+    <div
+      className={`flex items-center cursor-pointer select-none ${className}`}
+      title={connected ? QUALITY_TITLES[networkQuality] : 'Reconnecting...'}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onPointerLeave={handlePointerUp}
+    >
       <div
         className={`w-2.5 h-2.5 rounded-full ${
           connected
-            ? 'bg-green-500'
+            ? QUALITY_COLORS[networkQuality]
             : 'animate-connection-pulse'
         }`}
         style={!connected ? {

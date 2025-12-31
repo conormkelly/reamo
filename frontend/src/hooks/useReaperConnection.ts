@@ -179,6 +179,20 @@ export function useReaperConnection(
     }
   }, [autoStart, start]);
 
+  // Handle visibility change (sleep/wake) - resync clock when page becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && connectionRef.current) {
+        // Resync clock after wake - clocks may have drifted significantly
+        transportSyncEngine.resync();
+        transportSyncEngine.onReconnected();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
   return {
     connected,
     connectionState: connectionStateRef.current,
