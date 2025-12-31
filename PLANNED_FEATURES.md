@@ -2,12 +2,16 @@
 
 ## Table of Contents (Priority Order)
 
-1. [Public Release](#public-release) — Cross-platform builds and GitHub distribution
-2. [View Switcher](#view-switcher) — Bottom tab navigation with Edit, Clock, Cues, Mixer views
-3. [Cue List](#cue-list) — Setlist/playlist mode with SWS import *(see [full spec](features/CUE_LIST_FEATURE.md))*
-4. [Items Mode](#items-mode) — View/manage recorded takes without leaving the instrument
+1. [View Switcher](#view-switcher) — Bottom tab navigation with Edit, Transport, Mixer views
+2. [Items Mode](#items-mode) — View/manage recorded takes without leaving the instrument
+3. [Track Management](#track-management) — Rename, create, duplicate, delete tracks *(see [full spec](features/TRACK_MANAGEMENT_FEATURE.md))*
+4. [Cue List](#cue-list) — Setlist/playlist mode with SWS import *(see [full spec](features/CUE_LIST_FEATURE.md))*
 5. [FX Preset Switching](#fx-preset-switching) — Navigate REAPER-saved presets from tablet
-6. [Extension Performance Optimizations](#extension-performance-optimizations) — Idle when no clients
+6. [Send Control](#send-control) — Adjust send levels to aux/cue buses *(see [full spec](features/SEND_CONTROL_FEATURE.md))*
+7. [Project Notes](#project-notes-support) — Session metadata accessible from tablet
+8. [Minor Enhancements](#minor-enhancements) — isDirty flag, SMPTE timecode
+9. [Public Release](#public-release) — Cross-platform builds and GitHub distribution
+10. [Extension Performance Optimizations](#extension-performance-optimizations) — Idle when no clients (low priority)
 
 ---
 
@@ -491,6 +495,41 @@ Double-tap region or zoom to time selection. Single track view with detailed ite
 - No detailed MIDI editing
 
 Just: **"See what I recorded, tidy it up, make quick keep/trash decisions, move on."**
+
+---
+
+## Track Management
+
+> **Full specification:** [features/TRACK_MANAGEMENT_FEATURE.md](features/TRACK_MANAGEMENT_FEATURE.md)
+
+Extend track control beyond mixer operations to full track lifecycle management.
+
+**Key capabilities:**
+- Rename tracks (inline or via context menu)
+- Create new tracks (with optional name, insert position)
+- Duplicate tracks (copies settings, FX, items)
+- Delete tracks (with confirmation for non-empty)
+- Folder-aware display (indentation, collapse/expand)
+
+**Implementation:** Requires extension work for new commands. Frontend adds context menu and folder depth calculation for display.
+
+---
+
+## Send Control
+
+> **Full specification:** [features/SEND_CONTROL_FEATURE.md](features/SEND_CONTROL_FEATURE.md)
+
+Expose track send levels for aux/cue bus control. Targets the 5-10% of users with DAW-based cue systems who need to adjust headphone mixes remotely.
+
+**Key capabilities:**
+- View sends per track (destination name, level, mute state)
+- Adjust send level via fader
+- Mute/unmute individual sends
+- Per-track expandable panel UI (long-press track → slide-up panel)
+
+**Out of scope:** Hardware output routing (never adjusted mid-session), creating/deleting sends (setup-time operation), MIDI routing.
+
+**Implementation:** Extend tracks event with sends array. Add `send/setVolume` and `send/setMute` commands. Frontend adds SendPanel component.
 
 ---
 
@@ -996,3 +1035,52 @@ Options: Overwrite / Discard my changes / Cancel
 - **Timestamps:** Display "Last modified: 2 hours ago" if REAPER exposes this (it doesn't natively, but could track in extension)
 - **Search:** Ctrl+F / Cmd+F within notes (browser native may suffice for textarea)
 - **Character/word count:** Footer showing content length
+
+---
+
+## Minor Enhancements
+
+Small additions that don't warrant full feature specs.
+
+---
+
+### Project Dirty Flag
+
+Track whether project has unsaved changes to provide visual feedback on save button.
+
+**REAPER API:**
+```c
+int IsProjectDirty(ReaProject* proj);  // Returns 1 if unsaved changes, 0 otherwise
+```
+
+**State change:** Add `isDirty: boolean` to project event payload.
+
+**Frontend:** Show indicator on save button (dot, asterisk, or color change) when `isDirty` is true.
+
+---
+
+### SMPTE Timecode Display
+
+Allow time display to cycle between formats for different workflows.
+
+**Display modes:**
+
+| Mode | Format | Use Case |
+|------|--------|----------|
+| Time | `0:32.451` | General |
+| Bars.Beats | `17.3.2` | Music production |
+| SMPTE | `00:00:32:13` | Film scoring |
+
+**REAPER API:**
+```c
+double TimeMap_curFrameRate(ReaProject* proj, bool* dropFrame);
+// Returns frame rate (23.976, 24, 25, 29.97, 30, etc.)
+// dropFrame out-param indicates drop-frame timecode
+```
+
+**State change:** Add `frameRate: number` and `dropFrame: boolean` to project event.
+
+**Frontend:**
+- Store `timeDisplayMode` in localStorage
+- Tap time display to cycle modes
+- Convert seconds to SMPTE: `frames = floor(seconds * frameRate)`, then split into HH:MM:SS:FF
