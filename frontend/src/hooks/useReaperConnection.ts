@@ -100,6 +100,8 @@ export function useReaperConnection(
           setGaveUp(false); // Reset gave-up state on successful connect
           // Wire up transport sync engine for clock sync
           transportSyncEngine.setSendRaw((msg) => connection.sendRaw(msg));
+          // Trigger initial clock sync
+          transportSyncEngine.resync();
         } else if (state === 'disconnected') {
           // Clear transport sync engine send function
           transportSyncEngine.clearSendRaw();

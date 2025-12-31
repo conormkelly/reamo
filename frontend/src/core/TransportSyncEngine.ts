@@ -31,6 +31,8 @@ export interface TransportSyncState {
   timeSignature: TimeSignature;
   /** Whether clock is synchronized */
   isSynced: boolean;
+  /** Server-computed bar.beat.ticks display string (e.g., "12.3.48") */
+  barBeatTicks: string;
 }
 
 export type TransportSyncSubscriber = (state: TransportSyncState) => void;
@@ -53,6 +55,7 @@ export class TransportSyncEngine {
     isRecording: false,
     timeSignature: { numerator: 4, denominator: 4 },
     isSynced: false,
+    barBeatTicks: '1.1.00',
   };
 
   constructor() {
@@ -106,6 +109,11 @@ export class TransportSyncEngine {
       );
     }
 
+    // Update bar.beat.ticks from full transport event (used when stopped or no tick events)
+    if (payload.positionBeats) {
+      this.lastBbt = payload.positionBeats;
+    }
+
     // Track play state for animation loop
     const nowPlaying = payload.playState === 1 || payload.playState === 5;
     const wasPlaying = this.isPlaying;
@@ -133,9 +141,12 @@ export class TransportSyncEngine {
     ts: [number, number],
     bbt: string
   ): void {
+    // Always update server-computed bar.beat.ticks (doesn't need clock sync)
+    this.lastBbt = bbt;
+
+    // Beat predictor needs clock sync for accurate prediction
     if (!this.clockSync.isSynced()) return;
     this.beatPredictor.onTickUpdate(b, t, bpm, ts);
-    this.lastBbt = bbt;
   }
 
   /** Last bar.beat.ticks string from server (for display) */
@@ -204,6 +215,7 @@ export class TransportSyncEngine {
     this.cachedState.isRecording = state.isRecording;
     this.cachedState.timeSignature = state.timeSignature;
     this.cachedState.isSynced = this.clockSync.isSynced();
+    this.cachedState.barBeatTicks = this.lastBbt;
 
     this.subscribers.forEach(fn => fn(this.cachedState));
   }

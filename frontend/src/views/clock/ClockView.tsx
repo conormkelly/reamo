@@ -7,7 +7,7 @@
 import { useRef, useCallback, type ReactElement } from 'react';
 import { Play, Pause, Square, Circle, SkipBack, RefreshCw } from 'lucide-react';
 import { useReaper } from '../../components/ReaperProvider';
-import { useTransport, useTransportAnimation } from '../../hooks';
+import { useTransport, useTransportAnimation, useTransportSync } from '../../hooks';
 import { useReaperStore } from '../../store';
 import { transport, action } from '../../core/WebSocketCommands';
 import { formatTime } from '../../utils';
@@ -66,13 +66,17 @@ export function ClockView(): ReactElement {
   const timeRef = useRef<HTMLSpanElement>(null);
   const beatsRef = useRef<HTMLSpanElement>(null);
 
-  // Subscribe to 60fps animation updates
+  // Subscribe to 60fps animation updates for time display (seconds)
   useTransportAnimation((state) => {
     if (timeRef.current) {
       timeRef.current.textContent = formatTime(state.position, { precision: 1, showSign: false });
     }
+  }, []);
+
+  // Subscribe to transport sync for bar.beat.ticks (server-computed, clock-synchronized)
+  useTransportSync((state) => {
     if (beatsRef.current) {
-      beatsRef.current.textContent = state.positionBeats;
+      beatsRef.current.textContent = state.barBeatTicks;
     }
   }, []);
 

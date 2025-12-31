@@ -443,7 +443,11 @@ Based on dependencies and risk:
     - Backend: `TimeMap_GetTimeSigAtTime` returns raw quarter-note BPM (verified in 6/8 project)
     - Frontend: Uses server-provided BPM directly (handles tempo ramps correctly)
     - `getTempoAtBeat()` still available as fallback for edge cases
-15. ❌ **CSurf API integration** - Event-driven position updates instead of polling
+15. ⏭️ **CSurf API integration** - EVALUATED, NOT NEEDED
+    - Research: `research/ZIG_IREAPERCONTROLSURFACE.md`
+    - Finding: CSurf `Run()` and `register("timer")` share same ~30Hz UI loop
+    - Only benefit: Instant `SetPlayState()` callbacks (saves up to 33ms on play/pause)
+    - Decision: Current timer + client interpolation achieves ±15ms goal without C++ shim complexity
 16. **Goal:** Professional-quality sync with minimal bandwidth, accurate across tempo changes
 
 **Enhanced tick format (verified working):**
