@@ -66,16 +66,13 @@ They get away with it because users typically look at the DAW screen, not the co
 
 ## Message Protocol
 
+> **Clean Break:** This is a new protocol format with no backwards compatibility. The project is pre-release; no existing clients to support.
+
 ### Transport Broadcast Message
 
 The Zig extension broadcasts transport state at ~30Hz. Add server timestamp to every message.
 
-**Current format (before):**
-```json
-{"playState":1,"position":24.5,"bpm":120.0,"recording":false}
-```
-
-**New format (after):**
+**New format:**
 ```json
 {"t":1704067200123.456,"b":24.5,"bpm":120.0,"p":1,"r":0,"ts_n":4,"ts_d":4}
 ```
@@ -96,12 +93,14 @@ The Zig extension broadcasts transport state at ~30Hz. Add server timestamp to e
 
 New message type for clock synchronization.
 
+> **Implementation Note:** Clock sync **bypasses the command queue** and is handled directly in `ws_server.zig` when the message arrives. This ensures `t1` (receive time) is recorded at actual message arrival, not when dequeued. The command queue adds 0-33ms variable latency that would defeat clock sync accuracy.
+
 **Client request:**
 ```json
 {"type":"clockSync","t0":1704067200000.123}
 ```
 
-**Server response:**
+**Server response (sent immediately, no queue):**
 ```json
 {"type":"clockSyncResponse","t0":1704067200000.123,"t1":1704067200005.456,"t2":1704067200005.789}
 ```
@@ -1328,7 +1327,31 @@ describe('BeatPredictor', () => {
 });
 ```
 
-### Network Simulation (tc/netem)
+### Network Simulation
+
+#### macOS (Primary Development Platform)
+
+**Option 1: Network Link Conditioner** (Recommended)
+- Part of Xcode Additional Tools (download from Apple Developer)
+- GUI-based, easy to toggle profiles
+- Simulates latency, bandwidth limits, packet loss
+
+**Option 2: dnctl + pfctl** (Command line)
+```bash
+# Create a dummynet pipe with 100ms delay and 10% packet loss
+sudo dnctl pipe 1 config delay 100ms plr 0.1
+
+# Apply to loopback traffic
+echo "dummynet in proto tcp from any to any pipe 1" | sudo pfctl -f -
+
+# Enable packet filter
+sudo pfctl -e
+
+# Remove (disable pf)
+sudo pfctl -d
+```
+
+#### Linux (CI/Docker)
 
 ```bash
 # Good WiFi simulation
@@ -1346,6 +1369,23 @@ sudo tc qdisc add dev lo root netem delay 2000ms
 # Remove simulation
 sudo tc qdisc del dev lo root
 ```
+
+### Testing Requirements
+
+All sync classes must be designed for testability:
+
+| Principle | Implementation |
+|-----------|----------------|
+| **Dependency injection** | Classes accept interfaces, not concrete types. `ClockSync` takes a `sendRequest` callback, not a WebSocket. |
+| **No side effects in constructor** | Initialization via explicit method or first use |
+| **Deterministic time** | Tests inject fake `performance.now()` via parameter or wrapper |
+| **Isolated units** | Each class testable without network, DOM, or React |
+
+**Required test coverage:**
+- `ClockSync`: NTP calculation, min-RTT selection, slew vs step, drift detection
+- `JitterMeasurement`: histogram updates, quantile calculation, forgetting
+- `AdaptiveBuffer`: buffer sizing, underrun handling, quality assessment
+- `BeatPredictor`: tempo extrapolation, seek detection, dual-threshold snap
 
 ### Acceptance Criteria
 
@@ -1652,6 +1692,12 @@ Key insight: Professional systems never rely on a single strategy. The hybrid ap
 
 ## Changelog
 
+- **v1.2** — Implementation decisions:
+  - Clock sync **bypasses command queue** — handled directly in `ws_server.zig` for timing accuracy
+  - Clean break on message format — no backwards compatibility (pre-release project)
+  - Added macOS network simulation (Network Link Conditioner, dnctl+pfctl)
+  - Added testing requirements (dependency injection, deterministic time, isolated units)
+  - Updated `TRANSPORT_SYNC_ANALYSIS.md` with full implementation decisions
 - **v1.1** — Validation corrections:
   - Fixed sign error in `getSyncedTime()`: `performance.now() + offset` (not minus)
   - Tightened perception target from ±20ms to ±15ms (20ms is AT threshold, not below)

@@ -642,140 +642,102 @@ export interface BeatPosition {
 
 ---
 
-## Clock Sync Command Handler ✅ ANSWERED
+## Clock Sync Handler — BYPASS COMMAND QUEUE ✅ DECIDED
 
-### Command Routing Architecture
+### Why Bypass the Command Queue
 
-The extension has a well-structured command routing system:
+The normal command flow adds variable latency (0-33ms depending on timer cycle position):
 
 ```
-WebSocket Message
+Normal Command Path (DON'T USE FOR CLOCK SYNC):
+WebSocket Message → SharedState.pushCommand() → Ring buffer queue
+                  → Timer callback (~30Hz) → commands/mod.zig dispatch
+                  → Handler → response
+```
+
+For NTP-style sync, `t1` must be recorded **at message arrival**, not "when dequeued". Using the queue adds 0-33ms of jitter to timestamp measurements, defeating the purpose.
+
+### Clock Sync Path (BYPASS QUEUE)
+
+```
+Clock Sync Message
        ↓
 ws_server.zig: Client.clientMessage() [line 288-346]
        ↓
-SharedState.pushCommand() → Ring buffer queue
+INTERCEPT HERE: Check for "clock/sync" command
        ↓
-main.zig: processTimerCallback() [line 178-182]
+Record t1 = time_precise() IMMEDIATELY
        ↓
-commands/mod.zig: dispatch() [line 130-166]
+Build response with t0, t1, t2
        ↓
-Registry lookup → Handler function
-       ↓
-response.success() or response.err()
+Send response directly (bypass queue)
 ```
 
-### Command Registry
+### Implementation Location
 
-**File:** [extension/src/commands/mod.zig](../extension/src/commands/mod.zig) lines 109-127
+**File:** [extension/src/ws_server.zig](../extension/src/ws_server.zig)
 
-```zig
-pub const registry = transport_cmds.handlers ++
-    marker_cmds.handlers ++
-    region_cmds.handlers ++
-    // ... other modules ...
-    midi_cmds.handlers;
-```
-
-Each module exports a `handlers` array:
+In `Client.clientMessage()`, add clock sync interception **before** `pushCommand()`:
 
 ```zig
-pub const Entry = struct {
-    name: []const u8,        // e.g., "tempo/set"
-    handler: Handler,        // function pointer
-};
+fn clientMessage(self: *Client, data: []const u8) void {
+    // Parse message
+    const parsed = protocol.parseMessage(data) orelse return;
 
-pub const Handler = *const fn (*const reaper.Api, protocol.CommandMessage, *ResponseWriter) void;
-```
+    // CLOCK SYNC BYPASS: Handle immediately for timing accuracy
+    if (parsed.isCommand("clock/sync")) {
+        self.handleClockSync(parsed);
+        return;  // Don't queue
+    }
 
-### How to Add Clock Sync Handler
+    // Normal path: queue for timer callback
+    self.shared_state.pushCommand(parsed);
+}
 
-**Step 1:** Create new file `extension/src/commands/clock.zig`:
+fn handleClockSync(self: *Client, msg: protocol.Message) void {
+    const t1 = reaper.time_precise() * 1000.0;  // Receive time in ms
 
-```zig
-const std = @import("std");
-const mod = @import("mod.zig");
-const reaper = @import("../reaper.zig");
-const protocol = @import("../protocol.zig");
-
-pub const handlers = [_]mod.Entry{
-    .{ .name = "clock/sync", .handler = handleSync },
-};
-
-fn handleSync(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    // Get t0 from client (echoed back)
-    const t0 = cmd.getFloat("t0") orelse {
-        response.err("MISSING_T0", "t0 is required");
+    const t0 = msg.getFloat("t0") orelse {
+        self.sendError("MISSING_T0", "t0 is required");
         return;
     };
 
-    // Record server receive time
-    const t1 = api.time_precise() * 1000.0;  // Convert to ms
-
-    // Build response with t0, t1, t2
-    // t2 will be captured just before sending
-    const t2 = api.time_precise() * 1000.0;
+    const t2 = reaper.time_precise() * 1000.0;  // Send time in ms
 
     var buf: [256]u8 = undefined;
-    const payload = std.fmt.bufPrint(&buf,
-        "{{\"t0\":{d:.3},\"t1\":{d:.3},\"t2\":{d:.3}}}",
+    const response = std.fmt.bufPrint(&buf,
+        "{{\"type\":\"clockSyncResponse\",\"t0\":{d:.3},\"t1\":{d:.3},\"t2\":{d:.3}}}",
         .{ t0, t1, t2 }
     ) catch return;
 
-    response.success(payload);
+    self.send(response);
 }
 ```
 
-**Step 2:** Register in `commands/mod.zig`:
+### Protocol
 
-```zig
-const clock_cmds = @import("clock.zig");
-
-pub const registry = transport_cmds.handlers ++
-    // ... existing modules ...
-    clock_cmds.handlers;  // Add this line
-```
-
-**Step 3:** Client sends:
-
+**Client sends:**
 ```json
-{"type":"command","command":"clock/sync","id":"sync-1","t0":1704067200000.123}
+{"type":"clockSync","t0":1704067200000.123}
 ```
 
-**Step 4:** Server responds:
-
+**Server responds (immediately, no queue):**
 ```json
-{"type":"response","id":"sync-1","success":true,"payload":{"t0":1704067200000.123,"t1":1704067200005.456,"t2":1704067200005.789}}
+{"type":"clockSyncResponse","t0":1704067200000.123,"t1":1704067200005.456,"t2":1704067200005.789}
 ```
 
-### Response Writer Pattern
+Note: Uses dedicated message type `clockSync`/`clockSyncResponse`, not the command/response pattern. This makes interception cleaner and avoids command registry overhead.
 
-**File:** [extension/src/commands/mod.zig](../extension/src/commands/mod.zig) lines 40-107
+### Threading Consideration
 
-```zig
-pub const ResponseWriter = struct {
-    client_id: usize,
-    cmd_id: ?[]const u8,
-    shared_state: *ws_server.SharedState,
+`time_precise()` is thread-safe (just reads a clock). The WebSocket runs in a separate thread from the REAPER timer callback, but this is fine — we're not calling REAPER APIs that modify state.
 
-    pub fn success(self: *ResponseWriter, payload: ?[]const u8) void {
-        // Sends: {"type":"response","id":"<cmd_id>","success":true,"payload":{...}}
-    }
-
-    pub fn err(self: *ResponseWriter, code: []const u8, message: []const u8) void {
-        // Sends error response
-    }
-};
-```
-
-### Key Files for Command Implementation
+### Key Files
 
 | File | Purpose |
 |------|---------|
-| `extension/src/ws_server.zig` | WebSocket server, message reception (line 288-346) |
-| `extension/src/protocol.zig` | Message parsing (CommandMessage at line 38-66) |
-| `extension/src/commands/mod.zig` | Dispatcher + registry (line 109-166) |
-| `extension/src/commands/tempo.zig` | Example command implementation |
-| `extension/src/main.zig` | Main loop, calls dispatch (line 178-182) |
+| `extension/src/ws_server.zig` | WebSocket server — add clock sync interception here |
+| `extension/src/reaper.zig` | `time_precise()` wrapper |
 
 ---
 
@@ -788,10 +750,53 @@ pub const ResponseWriter = struct {
 | Time signature changes | ✅ | `tempomap.State` tracks changes via hash |
 | Recording latency | ✅ | Same `playPosition()` API, no special handling |
 | Multiple clients | ⚠️ | Architecturally OK, needs testing |
-| Clock sync handler | ✅ | Use command registry pattern in `commands/clock.zig` |
+| Clock sync handler | ✅ | **BYPASS queue** — handle directly in `ws_server.zig` for timing accuracy |
 | Raw beat position | ✅ | Available as `beats_info.beats`, needs to be added to transport event |
 
 **Implementation can now begin. No remaining unknowns.**
+
+---
+
+## Implementation Decisions (Final)
+
+These decisions were made after spec validation and are locked in:
+
+### Backend (Zig)
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| **Clock sync path** | Bypass command queue | t1/t2 timestamps need actual receive/send time, not "when dequeued". Queue adds 0-33ms jitter. |
+| **Message format** | Clean break, new format only | No backwards compatibility needed — not shipped yet |
+| **Transport message keys** | Short keys (`t`, `b`, `p`, `r`, `ts_n`, `ts_d`) | 18% size reduction, cleaner protocol |
+| **Stability priority** | Mission critical | Crashing REAPER risks livelihoods. Defensive coding, thorough testing. |
+
+### Frontend (TypeScript)
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| **Module location** | New `lib/transport-sync/` | Clean separation, unit testable in isolation, doesn't pollute existing code |
+| **Rendering** | Canvas from the start | Spec recommends it for 60fps independent of React. Avoids later refactor. |
+| **State exposure** | New `useTransportSync()` hook | Components opt-in to synced values. Can integrate with Redux later if needed. |
+| **Existing code** | Keep as fallback initially | `TransportAnimationEngine` remains functional until new system proven |
+
+### Testing Strategy
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| **Unit tests** | From day 1, all sync classes | `ClockSync`, `JitterMeasurement`, `AdaptiveBuffer`, `BeatPredictor` — all testable in isolation |
+| **Dependency injection** | Required | Classes accept interfaces, not concrete implementations. Enables mocking. |
+| **Network simulation** | Network Link Conditioner / dnctl+pfctl | macOS native tools, good enough for latency/jitter testing |
+| **Automated validation** | Prediction error percentiles | p50 < 8ms, p95 < 15ms, p99 < 30ms — logged and verified |
+
+### Code Quality
+
+| Principle | Enforcement |
+|-----------|-------------|
+| **Modular classes** | Each class has single responsibility, injectable dependencies |
+| **No side effects in constructors** | Initialization via explicit `init()` or first use |
+| **Immutable configuration** | Config passed at construction, not mutated |
+| **Explicit error handling** | No silent failures, errors propagate or log |
+| **Memory safety (Zig)** | No allocations in hot paths, bounded buffers |
 
 ---
 
