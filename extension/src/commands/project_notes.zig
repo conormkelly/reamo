@@ -151,5 +151,5 @@ pub fn formatChangedEvent(hash: u64, buf: []u8) ?[]const u8 {
     var hash_buf: [16]u8 = undefined;
     const hash_hex = project_notes.hashToHex(hash, &hash_buf);
 
-    return std.fmt.bufPrint(buf, "{{\"type\":\"event\",\"event\":\"projectNotesChanged\",\"hash\":\"{s}\"}}", .{hash_hex}) catch null;
+    return std.fmt.bufPrint(buf, "{{\"type\":\"event\",\"event\":\"projectNotesChanged\",\"payload\":{{\"hash\":\"{s}\"}}}}", .{hash_hex}) catch null;
 }

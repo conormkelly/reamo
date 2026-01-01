@@ -1061,7 +1061,9 @@ Broadcast to subscribed clients when notes are modified externally (polled at ~1
 {
   "type": "event",
   "event": "projectNotesChanged",
-  "hash": "newHashValue"
+  "payload": {
+    "hash": "newHashValue"
+  }
 }
 ```
 
