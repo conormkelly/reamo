@@ -15,6 +15,7 @@ import { formatTime } from '../../utils';
 // Hold duration for record button mode toggle
 const HOLD_THRESHOLD = 300;
 
+
 interface BigTransportButtonProps {
   onClick: () => void;
   isActive?: boolean;
@@ -134,11 +135,13 @@ export function ClockView(): ReactElement {
       className="h-full w-full bg-black text-white flex flex-col items-center justify-center p-2 select-none overflow-hidden"
       style={{ containerType: 'size' }}
     >
-      {/* Bar.Beat Display - scales with container height */}
+      {/* Bar.Beat Display - scales with container, capped by width for long bar numbers
+          Formula: text_width ≈ 6 × font_size for 10-char monospace string
+          To fit 10 chars: font_size ≤ container_width / 6 ≈ 16cqw */}
       <div
         className="text-center font-mono font-bold tracking-tight"
         style={{
-          fontSize: 'clamp(2.5rem, 25cqh, 12rem)',
+          fontSize: 'clamp(2.5rem, min(25cqh, 16cqw), 12rem)',
           lineHeight: 1.1,
           marginBottom: 'clamp(0.25rem, 1cqh, 1.5rem)',
         }}
@@ -146,7 +149,7 @@ export function ClockView(): ReactElement {
         <span ref={beatsRef}>1.1.00</span>
       </div>
 
-      {/* Time Display */}
+      {/* Time Display - precision: 1 (deciseconds) prevents visual stutter from rapid changes */}
       <div
         className="text-center font-mono text-gray-300"
         style={{

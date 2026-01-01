@@ -321,6 +321,93 @@ test.describe('ClockView content', () => {
   })
 })
 
+test.describe('ClockView text overflow', () => {
+  // These tests verify that bar.beat text content doesn't overflow for various lengths
+  // The bug: fixed font sizing caused truncation at screen edges for large/negative bar numbers
+
+  /**
+   * Helper to check if text content fits within container bounds
+   * This is what was MISSING from the original checkNoOverflow - it only checked buttons!
+   */
+  async function checkTextFitsInContainer(page: Page) {
+    const container = getClockContainer(page)
+    const containerBox = await container.boundingBox()
+    if (!containerBox) throw new Error('Container not found')
+
+    const beatsDisplay = getBeatsDisplay(page)
+    const beatsBox = await beatsDisplay.boundingBox()
+    if (!beatsBox) throw new Error('Beats display not found')
+
+    // Text should fit within container with some padding
+    // Left edge should be >= 0
+    expect(beatsBox.x, 'Text left edge should be within container').toBeGreaterThanOrEqual(0)
+    // Right edge should be <= container width
+    expect(
+      beatsBox.x + beatsBox.width,
+      'Text right edge should be within container'
+    ).toBeLessThanOrEqual(containerBox.width + 1) // +1 for rounding
+  }
+
+  /**
+   * Helper to set bar.beat content directly (simulates REAPER sending various positions)
+   */
+  async function setBeatsContent(page: Page, content: string) {
+    await page.evaluate((text) => {
+      const el = document.querySelector('.font-mono.font-bold.tracking-tight span')
+      if (el) el.textContent = text
+    }, content)
+    // Give layout time to recalculate
+    await page.waitForTimeout(50)
+  }
+
+  // Test cases for various bar.beat content lengths
+  const testCases = [
+    { name: 'short (bar 1)', content: '1.1.00' },
+    { name: 'medium (bar 10)', content: '10.4.50' },
+    { name: 'long (bar 100)', content: '100.4.99' },
+    { name: 'very long (bar 999)', content: '999.4.99' },
+    { name: 'negative bar', content: '-4.1.00' },
+    { name: 'long negative bar', content: '-99.4.50' },
+    { name: 'very long negative bar', content: '-999.4.99' },
+  ]
+
+  test.describe('Mobile Portrait (narrowest)', () => {
+    test.use({ viewport: viewports.mobilePortrait })
+
+    for (const { name, content } of testCases) {
+      test(`bar.beat text fits: ${name}`, async ({ page }) => {
+        await navigateToClockView(page)
+        await setBeatsContent(page, content)
+        await checkTextFitsInContainer(page)
+      })
+    }
+  })
+
+  test.describe('Tablet Portrait', () => {
+    test.use({ viewport: viewports.tabletPortrait })
+
+    for (const { name, content } of testCases) {
+      test(`bar.beat text fits: ${name}`, async ({ page }) => {
+        await navigateToClockView(page)
+        await setBeatsContent(page, content)
+        await checkTextFitsInContainer(page)
+      })
+    }
+  })
+
+  test.describe('Narrow device (iPhone SE)', () => {
+    test.use({ viewport: { width: 320, height: 568 } })
+
+    for (const { name, content } of testCases) {
+      test(`bar.beat text fits: ${name}`, async ({ page }) => {
+        await navigateToClockView(page)
+        await setBeatsContent(page, content)
+        await checkTextFitsInContainer(page)
+      })
+    }
+  })
+})
+
 test.describe('ClockView responsiveness', () => {
   test('adapts when viewport changes', async ({ page }) => {
     // Start in portrait
