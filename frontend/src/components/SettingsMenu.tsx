@@ -5,6 +5,8 @@
 
 import { useState, useRef, useEffect, type ReactElement } from 'react';
 import { Menu, X, Eye, EyeOff, ArrowLeftRight } from 'lucide-react';
+import type { ViewId } from '../viewRegistry';
+import { ReorderSectionsModal } from './Studio';
 
 export interface SettingsMenuProps {
   showTabBar: boolean;
@@ -13,6 +15,9 @@ export interface SettingsMenuProps {
   onToggleTabBar: () => void;
   onTogglePersistentTransport: () => void;
   onToggleTransportPosition: () => void;
+  currentView: ViewId;
+  showRecordingActions: boolean;
+  onToggleRecordingActions: () => void;
   className?: string;
 }
 
@@ -23,9 +28,13 @@ export function SettingsMenu({
   onToggleTabBar,
   onTogglePersistentTransport,
   onToggleTransportPosition,
+  currentView,
+  showRecordingActions,
+  onToggleRecordingActions,
   className = '',
 }: SettingsMenuProps): ReactElement {
   const [isOpen, setIsOpen] = useState(false);
+  const [showReorderModal, setShowReorderModal] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Close menu when clicking outside
@@ -55,9 +64,9 @@ export function SettingsMenu({
 
       {/* Dropdown menu */}
       {isOpen && (
-        <div className="absolute top-full mt-2 left-0 w-56 bg-gray-800 rounded-lg shadow-xl border border-gray-700 py-2 z-50">
+        <div data-testid="settings-dropdown" className="absolute top-full mt-2 left-0 w-56 bg-gray-800 rounded-lg shadow-xl border border-gray-700 py-2 z-50">
           <div className="px-3 py-1.5 text-xs text-gray-400 uppercase tracking-wide">
-            Display
+            Global
           </div>
 
           {/* Tab Bar toggle */}
@@ -88,12 +97,6 @@ export function SettingsMenu({
             </span>
           </button>
 
-          <div className="my-2 border-t border-gray-700" />
-
-          <div className="px-3 py-1.5 text-xs text-gray-400 uppercase tracking-wide">
-            Layout
-          </div>
-
           {/* Transport Position toggle */}
           <button
             onClick={() => {
@@ -107,8 +110,53 @@ export function SettingsMenu({
               {transportPosition === 'left' ? 'Left' : 'Right'}
             </span>
           </button>
+
+          {/* Studio section - only shown in Studio view */}
+          {currentView === 'studio' && (
+            <>
+              <div className="my-2 border-t border-gray-700" />
+
+              <div className="px-3 py-1.5 text-xs text-gray-400 uppercase tracking-wide">
+                Studio
+              </div>
+
+              {/* Reorder Sections button */}
+              <button
+                onClick={() => {
+                  setShowReorderModal(true);
+                  setIsOpen(false);
+                }}
+                className="w-full px-3 py-2 flex items-center justify-between hover:bg-gray-700/50 transition-colors"
+              >
+                <span className="text-sm">Reorder Sections</span>
+                <span className="flex items-center gap-1.5 text-xs text-blue-400">
+                  <ArrowLeftRight size={14} />
+                </span>
+              </button>
+
+              {/* Recording Actions toggle */}
+              <button
+                onClick={() => {
+                  onToggleRecordingActions();
+                }}
+                className="w-full px-3 py-2 flex items-center justify-between hover:bg-gray-700/50 transition-colors"
+              >
+                <span className="text-sm">Rec Quick Actions</span>
+                <span className={`flex items-center gap-1.5 text-xs ${showRecordingActions ? 'text-green-400' : 'text-gray-500'}`}>
+                  {showRecordingActions ? <Eye size={14} /> : <EyeOff size={14} />}
+                  {showRecordingActions ? 'Visible' : 'Hidden'}
+                </span>
+              </button>
+            </>
+          )}
         </div>
       )}
+
+      {/* Reorder Sections Modal */}
+      <ReorderSectionsModal
+        isOpen={showReorderModal}
+        onClose={() => setShowReorderModal(false)}
+      />
     </div>
   );
 }

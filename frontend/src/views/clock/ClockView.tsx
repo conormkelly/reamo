@@ -132,6 +132,7 @@ export function ClockView(): ReactElement {
 
   return (
     <div
+      data-view="clock"
       className="h-full w-full bg-black text-white flex flex-col items-center justify-center p-2 select-none overflow-hidden"
       style={{ containerType: 'size' }}
     >

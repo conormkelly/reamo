@@ -500,6 +500,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
 
       <div
         ref={containerRef}
+        data-testid="timeline-canvas"
         className="relative bg-gray-800 overflow-hidden touch-none select-none"
         style={{ height }}
         onPointerDown={handlePointerDown}

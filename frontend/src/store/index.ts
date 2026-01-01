@@ -13,6 +13,7 @@ import { createMarkersSlice, type MarkersSlice } from './slices/markersSlice';
 import { createRegionEditSlice, type RegionEditSlice } from './slices/regionEditSlice';
 import { createItemsSlice, type ItemsSlice } from './slices/itemsSlice';
 import { createToolbarSlice, type ToolbarSlice } from './slices/toolbarSlice';
+import { createStudioLayoutSlice, type StudioLayoutState } from './slices/studioLayoutSlice';
 import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
 import { ActionCommands, SWSCommands } from '../core/types';
 import type {
@@ -43,7 +44,7 @@ import { transportEngine } from '../core/TransportAnimationEngine';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & {
+export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & StudioLayoutState & {
   // Response handler action (legacy HTTP)
   handleResponses: (responses: ParsedResponse[]) => void;
   // WebSocket message handler
@@ -69,6 +70,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   ...createRegionEditSlice(set, get, store),
   ...createItemsSlice(set, get, store),
   ...createToolbarSlice(set, get, store),
+  ...createStudioLayoutSlice(set, get, store),
 
   // Handle incoming responses from REAPER
   handleResponses: (responses: ParsedResponse[]) => {
@@ -321,6 +323,7 @@ export type { ItemsSlice } from './slices/itemsSlice';
 export { makeItemKey, parseItemKey } from './slices/itemsSlice';
 export type { ToolbarSlice, ToolbarAction, ToolbarActionBase, ToggleState } from './slices/toolbarSlice';
 export { TOOLBAR_STORAGE_KEY } from './slices/toolbarSlice';
+export type { StudioLayoutState, SectionId, SectionConfig } from './slices/studioLayoutSlice';
 
 // Expose store on window for E2E tests (development only)
 if (import.meta.env.DEV) {

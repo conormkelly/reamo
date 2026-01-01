@@ -330,30 +330,54 @@ const mixerLocked = useReaperStore((s) => s.mixerLocked);
 const [mixerCollapsed, setMixerCollapsed] = useState(false);
 ```
 
-### Collapsible Sections
+### Collapsible Sections (Studio View)
 
-Pattern for accordion-style collapsible sections (see Timeline, Mixer):
+Studio view uses a unified collapsible sections pattern with state managed in Zustand. All sections (Project, Toolbar, Timeline, Mixer) are wrapped in `<CollapsibleSection>` components.
 
-```tsx
-import { ChevronDown, ChevronRight } from 'lucide-react';
+**State Management:**
+```typescript
+// Zustand store (studioLayoutSlice)
+interface SectionConfig {
+  collapsed: boolean;
+  order: number;
+}
 
-const [collapsed, setCollapsed] = useState(false);
-
-<section>
-  <div className="flex items-center gap-1 mb-2">
-    <button
-      onClick={() => setCollapsed(!collapsed)}
-      className="flex items-center gap-1 text-sm font-medium text-gray-400 hover:text-gray-300"
-    >
-      {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-      <h3>Section Name</h3>
-    </button>
-  </div>
-  {!collapsed && (
-    <>{/* Section content */}</>
-  )}
-</section>
+sections: {
+  project: SectionConfig;
+  toolbar: SectionConfig;
+  timeline: SectionConfig;
+  mixer: SectionConfig;
+};
 ```
+
+**Component Pattern:**
+```tsx
+import { CollapsibleSection } from './components/Studio';
+
+// In StudioView
+const { sections, toggleSection } = useReaperStore();
+
+<CollapsibleSection
+  id="timeline"
+  title="Timeline"
+  collapsed={sections.timeline.collapsed}
+  onToggle={() => toggleSection('timeline')}
+  headerControls={<TimelineHeaderControls />}
+>
+  <TimelineSection />
+</CollapsibleSection>
+```
+
+**Mobile Defaults:**
+- On first load with viewport ≤768px, only Timeline section is expanded
+- Other sections (Project, Toolbar, Mixer) default to collapsed
+- Desktop: all sections expanded by default
+- State persisted to localStorage per device
+
+**Reordering:**
+- Sections can be reordered via Settings → Studio → Reorder Sections
+- Modal with drag-and-drop (desktop) and touch support (mobile)
+- Order persisted to localStorage
 
 ### Disabling Interactive Controls
 

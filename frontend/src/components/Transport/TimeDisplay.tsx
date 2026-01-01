@@ -48,7 +48,7 @@ export function TimeDisplay({
   const stateLabel = PlayStateLabel[playState];
 
   return (
-    <div className={`font-mono ${className}`}>
+    <div data-testid="time-display" className={`font-mono ${className}`}>
       {showState && (
         <div className="text-xs uppercase text-gray-400 mb-1">{stateLabel}</div>
       )}

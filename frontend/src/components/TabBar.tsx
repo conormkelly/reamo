@@ -12,7 +12,7 @@ export interface TabBarProps {
   className?: string;
 }
 
-const VIEW_ORDER: ViewId[] = ['studio', 'timeline', 'mixer', 'clock', 'cues', 'actions', 'notes'];
+const VIEW_ORDER: ViewId[] = ['studio', 'mixer', 'clock', 'cues', 'actions', 'notes'];
 
 export function TabBar({ currentView, onViewChange, className = '' }: TabBarProps): ReactElement {
   return (
