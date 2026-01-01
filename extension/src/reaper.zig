@@ -153,6 +153,7 @@ pub const Api = struct {
     // Project notes
     getSetProjectNotes: ?*const fn (?*anyopaque, bool, [*]u8, c_int) callconv(.c) void = null,
     markProjectDirty: ?*const fn (?*anyopaque) callconv(.c) void = null,
+    isProjectDirty: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
 
     // Load API from REAPER plugin info
     pub fn load(info: *PluginInfo) ?Api {
@@ -266,6 +267,7 @@ pub const Api = struct {
             // Project notes
             .getSetProjectNotes = getFunc(info, "GetSetProjectNotes", fn (?*anyopaque, bool, [*]u8, c_int) callconv(.c) void),
             .markProjectDirty = getFunc(info, "MarkProjectDirty", fn (?*anyopaque) callconv(.c) void),
+            .isProjectDirty = getFunc(info, "IsProjectDirty", fn (?*anyopaque) callconv(.c) c_int),
         };
     }
 
@@ -762,6 +764,14 @@ pub const Api = struct {
     pub fn markDirty(self: *const Api) void {
         const f = self.markProjectDirty orelse return;
         f(null);
+    }
+
+    // Project: check if project needs saving
+    // Returns true if project is dirty (has unsaved changes)
+    // Note: Returns false if "undo/prompt to save" is disabled in REAPER preferences
+    pub fn isDirty(self: *const Api) bool {
+        const f = self.isProjectDirty orelse return false;
+        return f(null) != 0;
     }
 
     pub fn registerTimer(self: *const Api, callback: *const fn () callconv(.c) void) void {

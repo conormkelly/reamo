@@ -12,11 +12,15 @@ export interface ProjectSlice {
   reaperCanUndo: string | null; // Description of next undo action, or null
   reaperCanRedo: string | null; // Description of next redo action, or null
 
+  // Project dirty state - true when project has unsaved changes
+  isProjectDirty: boolean;
+
   // Tempo map - for bar-aware time calculations
   tempoMarkers: WSTempoMarker[];
 
   // Actions
   setReaperUndoState: (canUndo: string | null, canRedo: string | null) => void;
+  setProjectDirty: (isDirty: boolean) => void;
   setTempoMarkers: (markers: WSTempoMarker[]) => void;
 }
 
@@ -24,9 +28,11 @@ export const createProjectSlice: StateCreator<ProjectSlice> = (set) => ({
   // Initial state
   reaperCanUndo: null,
   reaperCanRedo: null,
+  isProjectDirty: false,
   tempoMarkers: [],
 
   // Actions
   setReaperUndoState: (canUndo, canRedo) => set({ reaperCanUndo: canUndo, reaperCanRedo: canRedo }),
+  setProjectDirty: (isDirty) => set({ isProjectDirty: isDirty }),
   setTempoMarkers: (markers) => set({ tempoMarkers: markers }),
 });

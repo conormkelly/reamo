@@ -214,6 +214,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
     } else if (isProjectEvent(message)) {
       const p = message.payload as ProjectEventPayload;
       get().setReaperUndoState(p.canUndo, p.canRedo);
+      get().setProjectDirty(p.isDirty);
       // Project-level settings (moved from transport event)
       set({
         isRepeat: p.repeat,

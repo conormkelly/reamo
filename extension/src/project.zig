@@ -20,6 +20,7 @@ pub const State = struct {
     metronome_volume: f64 = 1.0, // Linear amplitude (0.0-4.0)
     bar_offset: c_int = 0, // Project bar offset (e.g., -4 means time 0 = bar 1, display starts at -4)
     master_stereo: bool = true, // Master track stereo mode (false = mono L+R summed)
+    is_dirty: bool = false, // Project has unsaved changes
 
     // Get undo string (returns null if none)
     pub fn canUndo(self: *const State) ?[]const u8 {
@@ -42,6 +43,7 @@ pub const State = struct {
         if (@abs(self.project_length - other.project_length) > 0.001) return false;
         if (self.bar_offset != other.bar_offset) return false;
         if (self.master_stereo != other.master_stereo) return false;
+        if (self.is_dirty != other.is_dirty) return false;
         return true;
     }
 
@@ -63,6 +65,7 @@ pub const State = struct {
             .metronome_volume = api.getMetronomeVolume(),
             .bar_offset = api.getBarOffset(),
             .master_stereo = master_mono_state != 1, // 1 = mono, so stereo = not mono
+            .is_dirty = api.isDirty(),
         };
 
         // Copy undo description if available
@@ -107,24 +110,25 @@ pub const State = struct {
             "null";
 
         // Format: canUndo/canRedo are either "string" or null
-        // Now includes project-level settings: repeat, metronome, master, projectLength, barOffset
+        // Now includes project-level settings: repeat, metronome, master, projectLength, barOffset, isDirty
         const master_stereo_str = if (self.master_stereo) "true" else "false";
+        const is_dirty_str = if (self.is_dirty) "true" else "false";
         const result = if (undo_desc != null and redo_desc != null)
             std.fmt.bufPrint(buf,
-                \\{{"type":"event","event":"project","payload":{{"canUndo":"{s}","canRedo":"{s}","stateChangeCount":{d},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"master":{{"stereoEnabled":{s}}},"projectLength":{d:.3},"barOffset":{d}}}}}
-            , .{ undo_str, redo_str, self.state_change_count, if (self.repeat) "true" else "false", if (self.metronome_enabled) "true" else "false", self.metronome_volume, metro_vol_db, master_stereo_str, project_length, self.bar_offset })
+                \\{{"type":"event","event":"project","payload":{{"canUndo":"{s}","canRedo":"{s}","stateChangeCount":{d},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"master":{{"stereoEnabled":{s}}},"projectLength":{d:.3},"barOffset":{d},"isDirty":{s}}}}}
+            , .{ undo_str, redo_str, self.state_change_count, if (self.repeat) "true" else "false", if (self.metronome_enabled) "true" else "false", self.metronome_volume, metro_vol_db, master_stereo_str, project_length, self.bar_offset, is_dirty_str })
         else if (undo_desc != null)
             std.fmt.bufPrint(buf,
-                \\{{"type":"event","event":"project","payload":{{"canUndo":"{s}","canRedo":null,"stateChangeCount":{d},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"master":{{"stereoEnabled":{s}}},"projectLength":{d:.3},"barOffset":{d}}}}}
-            , .{ undo_str, self.state_change_count, if (self.repeat) "true" else "false", if (self.metronome_enabled) "true" else "false", self.metronome_volume, metro_vol_db, master_stereo_str, project_length, self.bar_offset })
+                \\{{"type":"event","event":"project","payload":{{"canUndo":"{s}","canRedo":null,"stateChangeCount":{d},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"master":{{"stereoEnabled":{s}}},"projectLength":{d:.3},"barOffset":{d},"isDirty":{s}}}}}
+            , .{ undo_str, self.state_change_count, if (self.repeat) "true" else "false", if (self.metronome_enabled) "true" else "false", self.metronome_volume, metro_vol_db, master_stereo_str, project_length, self.bar_offset, is_dirty_str })
         else if (redo_desc != null)
             std.fmt.bufPrint(buf,
-                \\{{"type":"event","event":"project","payload":{{"canUndo":null,"canRedo":"{s}","stateChangeCount":{d},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"master":{{"stereoEnabled":{s}}},"projectLength":{d:.3},"barOffset":{d}}}}}
-            , .{ redo_str, self.state_change_count, if (self.repeat) "true" else "false", if (self.metronome_enabled) "true" else "false", self.metronome_volume, metro_vol_db, master_stereo_str, project_length, self.bar_offset })
+                \\{{"type":"event","event":"project","payload":{{"canUndo":null,"canRedo":"{s}","stateChangeCount":{d},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"master":{{"stereoEnabled":{s}}},"projectLength":{d:.3},"barOffset":{d},"isDirty":{s}}}}}
+            , .{ redo_str, self.state_change_count, if (self.repeat) "true" else "false", if (self.metronome_enabled) "true" else "false", self.metronome_volume, metro_vol_db, master_stereo_str, project_length, self.bar_offset, is_dirty_str })
         else
             std.fmt.bufPrint(buf,
-                \\{{"type":"event","event":"project","payload":{{"canUndo":null,"canRedo":null,"stateChangeCount":{d},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"master":{{"stereoEnabled":{s}}},"projectLength":{d:.3},"barOffset":{d}}}}}
-            , .{ self.state_change_count, if (self.repeat) "true" else "false", if (self.metronome_enabled) "true" else "false", self.metronome_volume, metro_vol_db, master_stereo_str, project_length, self.bar_offset });
+                \\{{"type":"event","event":"project","payload":{{"canUndo":null,"canRedo":null,"stateChangeCount":{d},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"master":{{"stereoEnabled":{s}}},"projectLength":{d:.3},"barOffset":{d},"isDirty":{s}}}}}
+            , .{ self.state_change_count, if (self.repeat) "true" else "false", if (self.metronome_enabled) "true" else "false", self.metronome_volume, metro_vol_db, master_stereo_str, project_length, self.bar_offset, is_dirty_str });
 
         return result catch null;
     }
@@ -193,6 +197,11 @@ test "State.eql compares all fields" {
     const f = State{ .metronome_enabled = true };
     const g = State{ .metronome_enabled = false };
     try std.testing.expect(!f.eql(&g));
+
+    // Test is_dirty affects equality
+    const h = State{ .is_dirty = true };
+    const i = State{ .is_dirty = false };
+    try std.testing.expect(!h.eql(&i));
 }
 
 test "State.toJson with both undo and redo" {
@@ -203,6 +212,7 @@ test "State.toJson with both undo and redo" {
         .metronome_volume = 0.5,
         .project_length = 180.5,
         .bar_offset = -4,
+        .is_dirty = true,
     };
     const undo_desc = "Add region";
     const redo_desc = "Delete marker";
@@ -223,6 +233,7 @@ test "State.toJson with both undo and redo" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"volume\":0.5") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"projectLength\":180.5") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"barOffset\":-4") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"isDirty\":true") != null);
 }
 
 test "State.toJson with only undo" {
@@ -243,6 +254,7 @@ test "State.toJson with only undo" {
 test "State.toJson with neither" {
     const state = State{
         .state_change_count = 0,
+        .is_dirty = false,
     };
 
     var buf: [1024]u8 = undefined;
@@ -250,6 +262,7 @@ test "State.toJson with neither" {
 
     try std.testing.expect(std.mem.indexOf(u8, json, "\"canUndo\":null") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"canRedo\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"isDirty\":false") != null);
 }
 
 test "escapeJson handles special characters" {
