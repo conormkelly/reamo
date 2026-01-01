@@ -64,6 +64,8 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
   const { isPlaying, isPaused, isStopped, isRecording, play, pause, stop, record } = useTransport();
   const isAutoPunch = useReaperStore((state) => state.isAutoPunch);
   const bpm = useReaperStore((state) => state.bpm);
+  const timeSignatureNumerator = useReaperStore((state) => state.timeSignatureNumerator);
+  const timeSignatureDenominator = useReaperStore((state) => state.timeSignatureDenominator);
 
   // Refs for direct DOM updates at 60fps
   const timeRef = useRef<HTMLSpanElement>(null);
@@ -72,7 +74,7 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
   // Subscribe to 60fps animation updates
   useTransportAnimation((state) => {
     if (timeRef.current) {
-      timeRef.current.textContent = formatTime(state.position, { precision: 1, showSign: false });
+      timeRef.current.textContent = formatTime(state.position, { precision: 0, showSign: false });
     }
     if (beatsRef.current) {
       beatsRef.current.textContent = state.positionBeats;
@@ -186,9 +188,11 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
           <span ref={beatsRef} className="text-white">1.1.00</span>
         </div>
         <div className="text-xs text-gray-400">
-          <span ref={timeRef}>0:00.0</span>
+          <span ref={timeRef}>0:00</span>
           <span className="mx-1.5">|</span>
-          <span>{Math.round(bpm ?? 120)} BPM</span>
+          <span>{Math.round(bpm ?? 120)}</span>
+          <span className="mx-1">|</span>
+          <span>{timeSignatureNumerator}/{timeSignatureDenominator}</span>
         </div>
       </div>
     </div>

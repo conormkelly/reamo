@@ -62,6 +62,8 @@ export function ClockView(): ReactElement {
   const { isPlaying, isPaused, isStopped, isRecording, play, pause, stop, record } = useTransport();
   const isAutoPunch = useReaperStore((state) => state.isAutoPunch);
   const bpm = useReaperStore((state) => state.bpm);
+  const timeSignatureNumerator = useReaperStore((state) => state.timeSignatureNumerator);
+  const timeSignatureDenominator = useReaperStore((state) => state.timeSignatureDenominator);
 
   // Refs for direct DOM updates at 60fps
   const timeRef = useRef<HTMLSpanElement>(null);
@@ -162,7 +164,7 @@ export function ClockView(): ReactElement {
         <span ref={timeRef}>0:00.0</span>
       </div>
 
-      {/* BPM Display */}
+      {/* BPM + Time Signature Display */}
       <div
         className="text-center font-bold text-gray-400"
         style={{
@@ -171,7 +173,9 @@ export function ClockView(): ReactElement {
           marginBottom: 'clamp(0.5rem, 3cqh, 2.5rem)',
         }}
       >
-        {Math.round(bpm ?? 120)} <span style={{ fontSize: '0.75em' }}>BPM</span>
+        {Math.round(bpm ?? 120)} <span style={{ fontSize: '0.6em', verticalAlign: 'middle' }}>BPM</span>
+        <span className="text-gray-500 mx-2">|</span>
+        {timeSignatureNumerator}/{timeSignatureDenominator}
       </div>
 
       {/* Transport Controls - horizontally centered, dynamic sizing */}

@@ -24,8 +24,8 @@ export function beatsToSeconds(beats: number, bpm: number): number {
 // ============ FORMATTING ============
 
 export interface FormatTimeOptions {
-  /** Decimal precision: 1 (deciseconds), 2 (centiseconds), or 3 (milliseconds). Default: 2 */
-  precision?: 1 | 2 | 3;
+  /** Decimal precision: 0 (seconds), 1 (deciseconds), 2 (centiseconds), or 3 (milliseconds). Default: 2 */
+  precision?: 0 | 1 | 2 | 3;
   /** Show +/- sign for negative times. Default: false */
   showSign?: boolean;
 }
@@ -37,6 +37,7 @@ export interface FormatTimeOptions {
  * @example formatTime(83.333333) => "1:23.33"
  * @example formatTime(83.333333, { precision: 3 }) => "1:23.333"
  * @example formatTime(83.333333, { precision: 1 }) => "1:23.3"
+ * @example formatTime(83.333333, { precision: 0 }) => "1:23"
  * @example formatTime(-5.5, { showSign: true }) => "-0:05.50"
  */
 export function formatTime(seconds: number, options?: FormatTimeOptions): string {
@@ -48,7 +49,11 @@ export function formatTime(seconds: number, options?: FormatTimeOptions): string
 
   const mins = Math.floor(absSeconds / 60);
 
-  if (precision === 3) {
+  if (precision === 0) {
+    // Whole seconds (e.g., "1:23") - compact display
+    const secs = Math.round(absSeconds % 60);
+    return `${sign}${mins}:${secs.toString().padStart(2, '0')}`;
+  } else if (precision === 3) {
     // Millisecond precision (e.g., "1:23.456")
     // Use Math.round to handle floating point errors (e.g., 17.485 becomes 17.4849999... in JS)
     const secs = Math.floor(absSeconds % 60);
