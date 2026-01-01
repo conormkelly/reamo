@@ -32,6 +32,9 @@ export class ClockSync {
   private lastResyncTime = 0;
   private lastFrameTime = 0;
 
+  // Manual offset adjustment (user-configurable, ±50ms range)
+  private manualOffset = 0;
+
   // Pending sync state (for callback mode)
   private pendingSyncT0: number | null = null;
   private syncInProgress = false;
@@ -147,14 +150,30 @@ export class ClockSync {
    * Get synced time (local time + offset).
    */
   getSyncedTime(): number {
-    return this.timeProvider.now() + this.offset;
+    return this.timeProvider.now() + this.offset + this.manualOffset;
   }
 
   /**
-   * Get current offset in milliseconds.
+   * Get current offset in milliseconds (not including manual offset).
    */
   getOffset(): number {
     return this.offset;
+  }
+
+  /**
+   * Set manual offset adjustment (±50ms range).
+   * Positive = visual display runs later (use if audio sounds before visual)
+   * Negative = visual display runs earlier (use if visual appears before audio)
+   */
+  setManualOffset(ms: number): void {
+    this.manualOffset = Math.max(-50, Math.min(50, ms));
+  }
+
+  /**
+   * Get current manual offset in milliseconds.
+   */
+  getManualOffset(): number {
+    return this.manualOffset;
   }
 
   /**

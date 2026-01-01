@@ -1,5 +1,6 @@
 export { ReaperProvider, useReaper, type ReaperProviderProps } from './ReaperProvider';
 export { ConnectionStatus, ConnectionBanner, type ConnectionStatusProps, type ConnectionBannerProps } from './ConnectionStatus';
+export { NetworkStatsModal, type NetworkStatsModalProps } from './NetworkStatsModal';
 export { TabBar, type TabBarProps } from './TabBar';
 export { PersistentTransport, type PersistentTransportProps } from './PersistentTransport';
 export { SettingsMenu, type SettingsMenuProps } from './SettingsMenu';

@@ -1,37 +1,37 @@
 /**
  * Connection Status Components
- * - ConnectionDot: Minimal green dot when connected, color reflects network quality
+ * - ConnectionStatus: Minimal dot that reflects network quality
+ *   Long-press opens NetworkStatsModal with real-time metrics
  * - ConnectionBanner: Full-width banner when disconnected/error
  */
 
-import { useState, useEffect, type ReactElement } from 'react';
+import { useState, useEffect, useCallback, type ReactElement } from 'react';
 import { Wifi, WifiOff, RefreshCw } from 'lucide-react';
 import { useReaper } from './ReaperProvider';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
+import { NetworkStatsModal } from './NetworkStatsModal';
 import type { NetworkQuality } from '../lib/transport-sync';
 
 // Grace period before showing banner on initial connection
 const INITIAL_CONNECT_GRACE_MS = 250;
 
-// Network quality colors
+// Network quality colors - moderate is still green because sync works fine on typical WiFi
 const QUALITY_COLORS: Record<NetworkQuality, string> = {
   excellent: 'bg-green-500',
   good: 'bg-green-400',
-  moderate: 'bg-yellow-500',
-  poor: 'bg-orange-500',
+  moderate: 'bg-green-300',  // Normal WiFi conditions - sync still meets ±15ms target
+  poor: 'bg-yellow-500',     // May notice sync issues
 };
 
 const QUALITY_TITLES: Record<NetworkQuality, string> = {
   excellent: 'Connected - Excellent',
   good: 'Connected - Good',
-  moderate: 'Connected - Moderate latency',
-  poor: 'Connected - Poor network',
+  moderate: 'Connected',  // Don't alarm users - this is normal for WiFi
+  poor: 'Connected - High latency',
 };
 
 export interface ConnectionStatusProps {
   className?: string;
-  /** Called when user long-presses the dot */
-  onLongPress?: () => void;
 }
 
 /**
@@ -39,12 +39,16 @@ export interface ConnectionStatusProps {
  * Color reflects network quality when connected:
  * - Green (bright): excellent
  * - Green: good
- * - Yellow: moderate
- * - Orange: poor
+ * - Green (light): moderate (normal WiFi - sync still works)
+ * - Yellow: poor (may notice sync issues)
+ *
+ * Long-press to open Network Stats modal with real-time metrics
  */
-export function ConnectionStatus({ className = '', onLongPress }: ConnectionStatusProps): ReactElement | null {
+export function ConnectionStatus({ className = '' }: ConnectionStatusProps): ReactElement | null {
   const { connected, errorCount, gaveUp } = useReaper();
   const [networkQuality, setNetworkQuality] = useState<NetworkQuality>('excellent');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [pressTimer, setPressTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
 
   // Poll network quality when connected
   useEffect(() => {
@@ -62,24 +66,25 @@ export function ConnectionStatus({ className = '', onLongPress }: ConnectionStat
     return () => clearInterval(interval);
   }, [connected]);
 
-  // Long press handling
-  const [pressTimer, setPressTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+  // Long press handling - opens stats modal
+  const handlePointerDown = useCallback(() => {
+    const timer = setTimeout(() => {
+      setIsModalOpen(true);
+      setPressTimer(null);
+    }, 500);
+    setPressTimer(timer);
+  }, []);
 
-  const handlePointerDown = () => {
-    if (onLongPress) {
-      const timer = setTimeout(() => {
-        onLongPress();
-      }, 500);
-      setPressTimer(timer);
-    }
-  };
-
-  const handlePointerUp = () => {
+  const handlePointerUp = useCallback(() => {
     if (pressTimer) {
       clearTimeout(pressTimer);
       setPressTimer(null);
     }
-  };
+  }, [pressTimer]);
+
+  const handleCloseModal = useCallback(() => {
+    setIsModalOpen(false);
+  }, []);
 
   const isReconnecting = !connected && errorCount > 0 && !gaveUp;
 
@@ -89,31 +94,36 @@ export function ConnectionStatus({ className = '', onLongPress }: ConnectionStat
   }
 
   return (
-    <div
-      className={`flex items-center cursor-pointer select-none ${className}`}
-      title={connected ? QUALITY_TITLES[networkQuality] : 'Reconnecting...'}
-      onPointerDown={handlePointerDown}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerUp}
-      onPointerLeave={handlePointerUp}
-    >
+    <>
       <div
-        className={`w-2.5 h-2.5 rounded-full ${
-          connected
-            ? QUALITY_COLORS[networkQuality]
-            : 'animate-connection-pulse'
-        }`}
-        style={!connected ? {
-          animation: 'connection-pulse 1s ease-in-out infinite',
-        } : undefined}
-      />
-      <style>{`
-        @keyframes connection-pulse {
-          0%, 100% { background-color: #eab308; }
-          50% { background-color: #f97316; }
-        }
-      `}</style>
-    </div>
+        className={`flex items-center cursor-pointer select-none ${className}`}
+        title={connected ? `${QUALITY_TITLES[networkQuality]} (hold for stats)` : 'Reconnecting...'}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onPointerLeave={handlePointerUp}
+      >
+        <div
+          className={`w-2.5 h-2.5 rounded-full ${
+            connected
+              ? QUALITY_COLORS[networkQuality]
+              : 'animate-connection-pulse'
+          }`}
+          style={!connected ? {
+            animation: 'connection-pulse 1s ease-in-out infinite',
+          } : undefined}
+        />
+        <style>{`
+          @keyframes connection-pulse {
+            0%, 100% { background-color: #eab308; }
+            50% { background-color: #f97316; }
+          }
+        `}</style>
+      </div>
+
+      {/* Network stats modal */}
+      <NetworkStatsModal isOpen={isModalOpen} onClose={handleCloseModal} />
+    </>
   );
 }
 

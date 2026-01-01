@@ -58,7 +58,15 @@ export interface TimeProvider {
   now(): number;
 }
 
-/** Default time provider using performance.now() */
+/**
+ * Default time provider using Date.now() (Unix epoch time in ms).
+ *
+ * IMPORTANT: We use Date.now() instead of performance.now() because:
+ * - The server uses Unix epoch time (REAPER's time_precise() * 1000)
+ * - NTP-style clock sync requires both sides to share the same time base
+ * - performance.now() uses an arbitrary origin (page load time)
+ * - Date.now() uses Unix epoch, matching the server
+ */
 export const defaultTimeProvider: TimeProvider = {
-  now: () => performance.now(),
+  now: () => Date.now(),
 };

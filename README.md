@@ -71,6 +71,22 @@ If the automatic installer doesn't work:
 - **Take Switching** - A/B compare takes without leaving your instrument
 - **Toolbar** - User-configurable buttons for REAPER actions, SWS/scripts, and MIDI CC/PC with customizable icons and colors
 - **Touch-Optimized** - Gesture support for mobile/tablet control surfaces, responsive layout for iPhone and iPad
+- **Network Stats** - Real-time sync diagnostics with manual offset adjustment for fine-tuning visual sync
+
+### Network Stats (Advanced)
+
+Long-press the connection status dot (top-right) to access real-time sync diagnostics:
+
+| Stat | What it means | Healthy range |
+|------|--------------|---------------|
+| **RTT** | Round-trip time to REAPER | < 50ms (local: < 1ms) |
+| **Jitter** | Network variability | < 30ms |
+| **Buffer** | Adaptive delay to absorb spikes | 35-50ms |
+| **Offset** | Clock difference from server | Should stabilize after sync |
+
+**Manual Offset** (±50ms): Fine-tune if beat indicators feel early or late compared to audio. Positive values delay the visual display; negative values advance it. This setting persists across sessions.
+
+**Resync**: Force immediate clock synchronization if sync quality degrades.
 
 ## Why Reamo?
 

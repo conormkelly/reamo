@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-**Phases 1-3 Complete!** Production-grade transport sync implemented and tested.
+**Phases 1-4 Complete!** Production-grade transport sync with advanced settings UI.
 
 **Existing infrastructure (unchanged):**
 - ✅ 60fps animation engine with subscriber pattern
@@ -39,9 +39,11 @@
 - ✅ Reconnection state management (`onReconnected()` resets network state)
 - ✅ Network quality colors in connection status dot (green/yellow/orange)
 
-**Phase 4 — Polish (Partial):**
+**Phase 4 — Polish (Complete):**
 - ✅ Metrics collection (`getExtendedMetrics()` provides RTT, jitter, buffer target, network status)
-- ❌ Advanced settings panel (manual offset, latency/smoothness slider)
+- ✅ Advanced settings panel (NetworkStatsModal with long-press activation)
+- ✅ Manual offset adjustment (±50ms slider with localStorage persistence)
+- ✅ Force resync button for immediate clock synchronization
 - ❌ Canvas-based beat indicator rendering (using DOM with refs currently — works fine)
 - ⏳ Performance validation (<2% CPU target — needs profiling)
 
@@ -513,13 +515,18 @@ Based on dependencies and risk:
     - AdaptiveBuffer: 17 tests
     - NetworkState: 15 tests
 
-### Phase 4: Polish (Partial)
+### Phase 4: Polish (Complete)
 
 24. ✅ Optimize message format (short keys: `t`, `b`, `bpm`, `ts`, `bbt`)
 25. ✅ Metrics collection (`getExtendedMetrics()`)
-26. ❌ Add advanced settings panel (manual offset, latency/smoothness slider)
+26. ✅ Add advanced settings panel (NetworkStatsModal)
+    - Long-press ConnectionStatus dot to open
+    - Real-time display: RTT, jitter, buffer, offset, status, quality
+    - Manual offset slider (±50ms) with localStorage persistence
+    - Force resync button
+    - Clock sync uses `Date.now()` (Unix epoch) to match server time
 27. ⏳ Performance validation (<2% CPU target — needs profiling)
-28. **Status:** Core functionality production-ready, optional UI polish remains
+28. **Status:** Feature-complete. Only performance profiling remains.
 
 ---
 
@@ -934,7 +941,8 @@ These decisions were made after spec validation and are locked in:
 - `frontend/src/core/TransportAnimationEngine.ts` — Legacy 60fps interpolation (still available)
 
 ### Frontend — Components & Hooks (Modified)
-- `frontend/src/components/ConnectionStatus.tsx` — Network quality colors in dot
+- `frontend/src/components/ConnectionStatus.tsx` — Network quality colors + long-press handler
+- `frontend/src/components/NetworkStatsModal.tsx` — Advanced sync settings UI (NEW)
 - `frontend/src/hooks/useReaperConnection.ts` — Visibility change handler for sleep/wake
 - `frontend/src/hooks/useTransportSync.ts` — Hook for synced transport state
 - `frontend/src/store/index.ts` — Message routing (handles clockSyncResponse, tt events)
@@ -948,4 +956,4 @@ These decisions were made after spec validation and are locked in:
 
 ---
 
-*Last updated: Phases 1-3 complete. Production jitter compensation implemented (JitterMeasurement, AdaptiveBuffer, NetworkState). 72 unit tests passing. Network quality indicator in UI. Sleep/wake recovery via visibility change handler. Only Phase 4 polish items remain (advanced settings panel, performance profiling).*
+*Last updated: Phases 1-4 complete. NetworkStatsModal added with real-time sync metrics, manual offset adjustment (±50ms), and force resync. Clock sync fixed to use `Date.now()` instead of `performance.now()` for Unix epoch compatibility. 72 unit tests passing. Only performance profiling remains.*

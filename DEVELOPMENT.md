@@ -441,6 +441,61 @@ useLayoutEffect(() => {
 
 This ensures position is recalculated when bounds change, not just when the animation engine notifies.
 
+### Clock Synchronization (NTP-Style)
+
+For beat-accurate visual display over WiFi, the app uses NTP-style clock synchronization. This achieves ±15ms visual accuracy — below the 20ms human perception threshold.
+
+**Architecture:**
+
+```
+┌─────────────────────┐     ┌──────────────────────┐
+│  TransportSyncEngine│     │  lib/transport-sync/ │
+│  (Singleton)        │     │                      │
+│                     │     │  ClockSync           │
+│  60fps animation    │◄───►│  BeatPredictor       │
+│  Subscriber pattern │     │  AdaptiveBuffer      │
+│  Network monitoring │     │  NetworkState        │
+└─────────────────────┘     └──────────────────────┘
+```
+
+**Key classes:**
+
+| Class | Purpose |
+|-------|---------|
+| `ClockSync` | NTP-style offset calculation from server timestamps |
+| `BeatPredictor` | Extrapolates beat position from tempo and synced time |
+| `AdaptiveBuffer` | Dynamic jitter buffer (35-150ms) based on network quality |
+| `NetworkState` | Connection quality tracking (OPTIMAL/GOOD/MODERATE/POOR/DEGRADED) |
+
+**Time base:** Both client and server use Unix epoch time (`Date.now()` on client, `time_precise() * 1000` on server). This is critical — using `performance.now()` would cause trillion-millisecond offset errors since it measures from page load.
+
+**Clock sync flow:**
+
+1. Client sends `clockSync` request with `t0` (client send time)
+2. Server responds immediately (bypasses command queue) with `t0`, `t1` (receive), `t2` (send)
+3. Client calculates: `RTT = (t3 - t0) - (t2 - t1)`, `offset = ((t1 - t0) + (t2 - t3)) / 2`
+4. Offset is slewed gradually (0.5ms/s) to avoid jarring jumps
+5. Resync every 5 minutes or when drift exceeds 50ms
+
+**Network Stats Modal:**
+
+Long-press the connection status dot to access real-time sync metrics:
+
+| Metric | Meaning |
+|--------|---------|
+| RTT | Round-trip time to server (< 1ms on localhost) |
+| Jitter | Network variability — how much RTT fluctuates |
+| Buffer | Adaptive delay to absorb jitter spikes |
+| Offset | Clock difference between client and server |
+| Manual Offset | User adjustment ±50ms for perceived sync issues |
+
+**Key files:**
+
+- `frontend/src/core/TransportSyncEngine.ts` — Singleton wiring all sync logic
+- `frontend/src/lib/transport-sync/` — Modular sync classes with 72 unit tests
+- `frontend/src/components/NetworkStatsModal.tsx` — Advanced sync settings UI
+- `extension/src/ws_server.zig` — Clock sync bypass handler (line ~290)
+
 ## Testing Conventions
 
 ### Philosophy

@@ -11,6 +11,7 @@ import {
   isHelloResponse,
   isEventMessage,
   isResponseMessage,
+  isClockSyncResponse,
 } from './WebSocketTypes';
 
 export interface WebSocketConnectionOptions {
@@ -283,8 +284,8 @@ export class WebSocketConnection {
       }
     }
 
-    // Dispatch to callback
-    if (isEventMessage(msg) || isResponseMessage(msg)) {
+    // Dispatch to callback (events, responses, and clock sync)
+    if (isEventMessage(msg) || isResponseMessage(msg) || isClockSyncResponse(msg)) {
       this.options.onMessage?.(msg as ServerMessage);
     }
   }

@@ -88,6 +88,9 @@ export class TransportSyncEngine {
     this.networkState = new NetworkState({
       onStatusChange: (status) => this.onNetworkStatusChange?.(status),
     });
+
+    // Load saved manual offset from localStorage
+    this.loadManualOffset();
   }
 
   /**
@@ -343,6 +346,43 @@ export class TransportSyncEngine {
   resync(): void {
     this.clockSync.invalidate();
     this.clockSync.startSync();
+  }
+
+  /**
+   * Set manual offset adjustment (±50ms range).
+   * Persists to localStorage.
+   */
+  setManualOffset(ms: number): void {
+    this.clockSync.setManualOffset(ms);
+    try {
+      localStorage.setItem('reamo:manualOffset', String(ms));
+    } catch {
+      // localStorage may be unavailable
+    }
+  }
+
+  /**
+   * Get current manual offset in milliseconds.
+   */
+  getManualOffset(): number {
+    return this.clockSync.getManualOffset();
+  }
+
+  /**
+   * Load manual offset from localStorage (call on init).
+   */
+  private loadManualOffset(): void {
+    try {
+      const saved = localStorage.getItem('reamo:manualOffset');
+      if (saved !== null) {
+        const ms = parseFloat(saved);
+        if (!isNaN(ms)) {
+          this.clockSync.setManualOffset(ms);
+        }
+      }
+    } catch {
+      // localStorage may be unavailable
+    }
   }
 
   /**
