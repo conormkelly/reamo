@@ -169,9 +169,12 @@ export function ConnectionBanner({ className = '' }: ConnectionBannerProps): Rea
   }
 
   return (
-    <div className={`flex items-center justify-center gap-3 px-4 py-2 ${
-      gaveUp ? 'bg-red-900/90' : 'bg-yellow-900/90'
-    } ${className}`}>
+    <div
+      data-testid="connection-banner"
+      className={`flex items-center justify-center gap-3 px-4 py-2 ${
+        gaveUp ? 'bg-red-900/90' : 'bg-yellow-900/90'
+      } ${className}`}
+    >
       {gaveUp ? (
         <WifiOff size={16} className="text-red-400" />
       ) : (

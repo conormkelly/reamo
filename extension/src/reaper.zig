@@ -150,6 +150,10 @@ pub const Api = struct {
     // MIDI injection (Virtual MIDI Keyboard)
     stuffMIDIMessage: ?*const fn (c_int, c_int, c_int, c_int) callconv(.c) void = null,
 
+    // Project notes
+    getSetProjectNotes: ?*const fn (?*anyopaque, bool, [*]u8, c_int) callconv(.c) void = null,
+    markProjectDirty: ?*const fn (?*anyopaque) callconv(.c) void = null,
+
     // Load API from REAPER plugin info
     pub fn load(info: *PluginInfo) ?Api {
         const showConsoleMsg = getFunc(info, "ShowConsoleMsg", fn ([*:0]const u8) callconv(.c) void) orelse return null;
@@ -259,6 +263,9 @@ pub const Api = struct {
             .time_precise = getFunc(info, "time_precise", fn () callconv(.c) f64),
             // MIDI injection
             .stuffMIDIMessage = getFunc(info, "StuffMIDIMessage", fn (c_int, c_int, c_int, c_int) callconv(.c) void),
+            // Project notes
+            .getSetProjectNotes = getFunc(info, "GetSetProjectNotes", fn (?*anyopaque, bool, [*]u8, c_int) callconv(.c) void),
+            .markProjectDirty = getFunc(info, "MarkProjectDirty", fn (?*anyopaque) callconv(.c) void),
         };
     }
 
@@ -713,6 +720,48 @@ pub const Api = struct {
 
     pub fn setCursorPos(self: *const Api, pos: f64) void {
         if (self.setEditCurPos) |f| f(pos, true, true);
+    }
+
+    // Project Notes: get project notes into buffer
+    // Returns slice of notes content, or null if API not available
+    // Uses iterative resizing strategy since API doesn't report truncation
+    pub fn getProjectNotes(self: *const Api, buf: []u8) ?[]const u8 {
+        const f = self.getSetProjectNotes orelse return null;
+        if (buf.len == 0) return null;
+
+        // Clear buffer first
+        @memset(buf, 0);
+
+        // Call API - set=false means get
+        f(null, false, buf.ptr, @intCast(buf.len));
+
+        // Find actual length (null terminator)
+        const len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
+        return buf[0..len];
+    }
+
+    // Project Notes: set project notes
+    // Notes outside undo system - always marks project dirty after
+    pub fn setProjectNotes(self: *const Api, notes: []const u8) void {
+        const f = self.getSetProjectNotes orelse return;
+
+        // Need null-terminated buffer for API
+        var buf: [65536]u8 = undefined; // 64KB max
+        const copy_len = @min(notes.len, buf.len - 1);
+        @memcpy(buf[0..copy_len], notes[0..copy_len]);
+        buf[copy_len] = 0;
+
+        // Call API - set=true means set
+        f(null, true, &buf, @intCast(copy_len + 1));
+
+        // Always mark dirty since notes are outside undo system
+        self.markDirty();
+    }
+
+    // Project: mark project as needing save
+    pub fn markDirty(self: *const Api) void {
+        const f = self.markProjectDirty orelse return;
+        f(null);
     }
 
     pub fn registerTimer(self: *const Api, callback: *const fn () callconv(.c) void) void {

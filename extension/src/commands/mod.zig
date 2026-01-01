@@ -23,6 +23,7 @@ const action_cmds = @import("actions.zig");
 const gesture_cmds = @import("gesture.zig");
 pub const toggle_state_cmds = @import("toggle_state.zig");
 const midi_cmds = @import("midi.zig");
+pub const project_notes_cmds = @import("project_notes.zig");
 
 // Command handler function type
 pub const Handler = *const fn (*const reaper.Api, protocol.CommandMessage, *ResponseWriter) void;
@@ -124,7 +125,8 @@ pub const registry = transport_cmds.handlers ++
     action_cmds.handlers ++
     gesture_cmds.handlers ++
     toggle_state_cmds.handlers ++
-    midi_cmds.handlers;
+    midi_cmds.handlers ++
+    project_notes_cmds.handlers;
 
 // Dispatch a command message to the appropriate handler
 pub fn dispatch(api: *const reaper.Api, client_id: usize, data: []const u8, shared_state: *ws_server.SharedState, gestures: ?*GestureState) void {
@@ -300,6 +302,11 @@ test "registry contains expected commands" {
         // MIDI
         "midi/cc",
         "midi/pc",
+        // Project Notes
+        "projectNotes/subscribe",
+        "projectNotes/unsubscribe",
+        "projectNotes/get",
+        "projectNotes/set",
     };
 
     for (expected) |name| {
@@ -368,4 +375,5 @@ test {
     _ = gesture_cmds;
     _ = toggle_state_cmds;
     _ = midi_cmds;
+    _ = project_notes_cmds;
 }

@@ -14,6 +14,7 @@ import { createRegionEditSlice, type RegionEditSlice } from './slices/regionEdit
 import { createItemsSlice, type ItemsSlice } from './slices/itemsSlice';
 import { createToolbarSlice, type ToolbarSlice } from './slices/toolbarSlice';
 import { createStudioLayoutSlice, type StudioLayoutState } from './slices/studioLayoutSlice';
+import { createNotesSlice, type NotesSlice } from './slices/notesSlice';
 import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
 import { ActionCommands, SWSCommands } from '../core/types';
 import type {
@@ -38,13 +39,15 @@ import {
   isItemsEvent,
   isActionToggleStateEvent,
   isTempoMapEvent,
+  isProjectNotesChangedEvent,
   isClockSyncResponse,
+  type ProjectNotesChangedEventPayload,
 } from '../core/WebSocketTypes';
 import { transportEngine } from '../core/TransportAnimationEngine';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & StudioLayoutState & {
+export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & StudioLayoutState & NotesSlice & {
   // Response handler action (legacy HTTP)
   handleResponses: (responses: ParsedResponse[]) => void;
   // WebSocket message handler
@@ -71,6 +74,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   ...createItemsSlice(set, get, store),
   ...createToolbarSlice(set, get, store),
   ...createStudioLayoutSlice(set, get, store),
+  ...createNotesSlice(set, get, store),
 
   // Handle incoming responses from REAPER
   handleResponses: (responses: ParsedResponse[]) => {
@@ -303,6 +307,9 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
       get().setTempoMarkers(p.markers);
       // Forward to transport sync engine for tempo-map-aware prediction
       transportSyncEngine.setTempoMarkers(p.markers);
+    } else if (isProjectNotesChangedEvent(message)) {
+      const p = message.payload as ProjectNotesChangedEventPayload;
+      get().handleExternalChange(p.hash);
     } else if (message.event === 'reload') {
       // Hot reload - extension detected file change
       console.log('[Store] Reload event received, refreshing page...');
@@ -324,6 +331,8 @@ export { makeItemKey, parseItemKey } from './slices/itemsSlice';
 export type { ToolbarSlice, ToolbarAction, ToolbarActionBase, ToggleState } from './slices/toolbarSlice';
 export { TOOLBAR_STORAGE_KEY } from './slices/toolbarSlice';
 export type { StudioLayoutState, SectionId, SectionConfig } from './slices/studioLayoutSlice';
+export type { NotesSlice } from './slices/notesSlice';
+export { getNotesIsDirty, getNotesIsOverLimit, getNotesCanSave } from './slices/notesSlice';
 
 // Expose store on window for E2E tests (development only)
 if (import.meta.env.DEV) {

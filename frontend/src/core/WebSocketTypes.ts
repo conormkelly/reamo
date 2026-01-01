@@ -67,7 +67,7 @@ export interface EventMessage {
   payload?: EventPayload; // Optional for events like 'reload' that have no payload
 }
 
-export type EventType = 'transport' | 'tt' | 'project' | 'tracks' | 'markers' | 'regions' | 'items' | 'reload' | 'actionToggleState' | 'tempoMap';
+export type EventType = 'transport' | 'tt' | 'project' | 'tracks' | 'markers' | 'regions' | 'items' | 'reload' | 'actionToggleState' | 'tempoMap' | 'projectNotesChanged';
 
 export type EventPayload =
   | TransportEventPayload
@@ -78,7 +78,8 @@ export type EventPayload =
   | RegionsEventPayload
   | ItemsEventPayload
   | ActionToggleStateEventPayload
-  | TempoMapEventPayload;
+  | TempoMapEventPayload
+  | ProjectNotesChangedEventPayload;
 
 /** Lightweight transport tick event (position updates during playback) */
 export interface TransportTickEventPayload {
@@ -267,6 +268,11 @@ export interface TempoMapEventPayload {
   markers: WSTempoMarker[];
 }
 
+/** Project notes changed event (broadcast to subscribers when notes change externally) */
+export interface ProjectNotesChangedEventPayload {
+  hash: string; // New hash of notes content (hex string)
+}
+
 // =============================================================================
 // Peaks Response (from item/getPeaks command)
 // =============================================================================
@@ -436,4 +442,10 @@ export function isTempoMapEvent(
   msg: EventMessage
 ): msg is EventMessage & { payload: TempoMapEventPayload } {
   return msg.event === 'tempoMap';
+}
+
+export function isProjectNotesChangedEvent(
+  msg: EventMessage
+): msg is EventMessage & { payload: ProjectNotesChangedEventPayload } {
+  return msg.event === 'projectNotesChanged';
 }

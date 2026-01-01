@@ -89,14 +89,23 @@ export function useReaperConnection(
       token,
       onStateChange: (state, error) => {
         connectionStateRef.current = state;
-        setConnectedRef.current(state === 'connected');
+
+        // In test mode, don't update connection state (allows E2E tests to control it)
+        if (!useReaperStore.getState()._testMode) {
+          setConnectedRef.current(state === 'connected');
+        }
+
         if (state === 'error') {
           // Increment error count - get current value from store
           const currentCount = useReaperStore.getState().errorCount;
-          setErrorCountRef.current(currentCount + 1);
+          if (!useReaperStore.getState()._testMode) {
+            setErrorCountRef.current(currentCount + 1);
+          }
           console.error('[useReaperConnection] Error:', error);
         } else if (state === 'connected') {
-          setErrorCountRef.current(0);
+          if (!useReaperStore.getState()._testMode) {
+            setErrorCountRef.current(0);
+          }
           setGaveUp(false); // Reset gave-up state on successful connect
           // Wire up transport sync engine for clock sync
           transportSyncEngine.setSendRaw((msg) => connection.sendRaw(msg));

@@ -10,6 +10,7 @@ const commands = @import("commands/mod.zig");
 const ws_server = @import("ws_server.zig");
 const gesture_state = @import("gesture_state.zig");
 const toggle_subscriptions = @import("toggle_subscriptions.zig");
+const project_notes = @import("project_notes.zig");
 
 // Configuration
 const DEFAULT_PORT: u16 = 9224;
@@ -21,6 +22,7 @@ var g_allocator: std.mem.Allocator = undefined;
 var g_shared_state: ?*ws_server.SharedState = null;
 var g_gesture_state: ?*gesture_state.GestureState = null;
 var g_toggle_subs: ?*toggle_subscriptions.ToggleSubscriptions = null;
+var g_notes_subs: ?*project_notes.NotesSubscriptions = null;
 var g_server: ?ws_server.Server = null;
 var g_port: u16 = 0;
 var g_last_transport: transport.State = .{};
@@ -38,6 +40,14 @@ var g_html_path: ?[]const u8 = null;
 var g_html_mtime: i128 = 0;
 var g_file_check_counter: u32 = 0;
 const FILE_CHECK_INTERVAL: u32 = 60; // Check every ~2 seconds (60 * 33ms)
+
+// Tiered polling frame counter
+// HIGH TIER (30Hz): Transport, Tracks, Metering - every frame
+// MEDIUM TIER (5Hz): Markers, Regions, Items, Project - every 6th frame
+// LOW TIER (1Hz): Tempomap, Project Notes - every 30th frame
+var g_frame_counter: u32 = 0;
+const MEDIUM_TIER_INTERVAL: u32 = 6; // 30Hz / 6 = 5Hz
+const LOW_TIER_INTERVAL: u32 = 30; // 30Hz / 30 = 1Hz
 
 // Debug logging (can be disabled in release)
 var g_log_file: ?std.fs.File = null;
@@ -127,6 +137,16 @@ fn initTimerCallback() callconv(.c) void {
     // Set the global reference in the command handler module
     commands.toggle_state_cmds.g_toggle_subs = toggles;
 
+    // Create project notes subscriptions state
+    const notes_subs = g_allocator.create(project_notes.NotesSubscriptions) catch {
+        api.logSimple("Reamo: Failed to allocate notes subscriptions state");
+        return;
+    };
+    notes_subs.* = project_notes.NotesSubscriptions.init(g_allocator);
+    g_notes_subs = notes_subs;
+    // Set the global reference in the command handler module
+    commands.project_notes_cmds.g_notes_subs = notes_subs;
+
     // Sync initial HTML mtime to shared state
     state.setHtmlMtime(g_html_mtime);
 
@@ -205,6 +225,10 @@ fn processTimerCallback() callconv(.c) void {
             if (g_toggle_subs) |toggles| {
                 toggles.removeClient(client_id);
             }
+            // Clean up notes subscriptions
+            if (g_notes_subs) |notes| {
+                notes.removeClient(client_id);
+            }
         }
     }
 
@@ -270,6 +294,14 @@ fn processTimerCallback() callconv(.c) void {
         }
     }
 
+    // Increment frame counter for tiered polling
+    g_frame_counter +%= 1;
+
+    // ========================================================================
+    // HIGH TIER (30Hz) - Transport, Tracks, Metering
+    // These need real-time responsiveness for playhead and fader movements
+    // ========================================================================
+
     // Poll transport state and broadcast changes
     // Use lightweight tick when only position changed during playback
     const current_transport = transport.State.poll(api);
@@ -300,53 +332,7 @@ fn processTimerCallback() callconv(.c) void {
         g_last_transport = current_transport;
     }
 
-    // Poll project state (undo/redo) and broadcast changes
-    const current_project = project.State.poll(api);
-    if (!current_project.eql(&g_last_project)) {
-        var buf: [512]u8 = undefined;
-        if (current_project.toJson(&buf)) |json| {
-            shared_state.broadcast(json);
-        }
-        g_last_project = current_project;
-    }
-
-    // Poll markers/regions and broadcast changes
-    const current_markers = markers.State.poll(api);
-    if (current_markers.markersChanged(&g_last_markers)) {
-        var buf: [8192]u8 = undefined; // Larger buffer for many markers
-        if (current_markers.markersToJson(&buf)) |json| {
-            shared_state.broadcast(json);
-        }
-    }
-    if (current_markers.regionsChanged(&g_last_markers)) {
-        var buf: [8192]u8 = undefined;
-        if (current_markers.regionsToJson(&buf)) |json| {
-            shared_state.broadcast(json);
-        }
-    }
-    g_last_markers = current_markers;
-
-    // Poll items and broadcast changes
-    const current_items = items.State.poll(api);
-    if (current_items.itemsChanged(&g_last_items)) {
-        var buf: [32768]u8 = undefined; // Large buffer for many items with takes
-        if (current_items.itemsToJson(&buf)) |json| {
-            shared_state.broadcast(json);
-        }
-    }
-    g_last_items = current_items;
-
-    // Poll tempo map and broadcast changes
-    const current_tempomap = tempomap.State.poll(api);
-    if (current_tempomap.changed(&g_last_tempomap)) {
-        var buf: [4096]u8 = undefined;
-        if (current_tempomap.toJson(&buf)) |json| {
-            shared_state.broadcast(json);
-        }
-    }
-    g_last_tempomap = current_tempomap;
-
-    // Poll tracks and metering, broadcast changes
+    // Poll tracks and metering, broadcast changes (HIGH TIER - needs smooth fader/meter updates)
     const current_tracks = tracks.State.poll(api);
     const current_metering = tracks.MeteringState.poll(api);
 
@@ -365,7 +351,7 @@ fn processTimerCallback() callconv(.c) void {
     g_last_tracks = current_tracks;
     g_last_metering = current_metering;
 
-    // Poll toggle state subscriptions and broadcast changes
+    // Poll toggle state subscriptions and broadcast changes (HIGH TIER - but only when subscribed)
     if (g_toggle_subs) |toggles| {
         if (toggles.hasSubscriptions()) {
             var changes = toggles.poll(api);
@@ -380,7 +366,78 @@ fn processTimerCallback() callconv(.c) void {
         }
     }
 
-    // Check for HTML file changes (hot reload) - every ~2 seconds
+    // ========================================================================
+    // MEDIUM TIER (5Hz) - Project state, Markers, Regions, Items
+    // These change less frequently and don't need instant feedback
+    // ========================================================================
+    if (g_frame_counter % MEDIUM_TIER_INTERVAL == 0) {
+        // Poll project state (undo/redo) and broadcast changes
+        const current_project = project.State.poll(api);
+        if (!current_project.eql(&g_last_project)) {
+            var buf: [512]u8 = undefined;
+            if (current_project.toJson(&buf)) |json| {
+                shared_state.broadcast(json);
+            }
+            g_last_project = current_project;
+        }
+
+        // Poll markers/regions and broadcast changes
+        const current_markers = markers.State.poll(api);
+        if (current_markers.markersChanged(&g_last_markers)) {
+            var buf: [8192]u8 = undefined;
+            if (current_markers.markersToJson(&buf)) |json| {
+                shared_state.broadcast(json);
+            }
+        }
+        if (current_markers.regionsChanged(&g_last_markers)) {
+            var buf: [8192]u8 = undefined;
+            if (current_markers.regionsToJson(&buf)) |json| {
+                shared_state.broadcast(json);
+            }
+        }
+        g_last_markers = current_markers;
+
+        // Poll items and broadcast changes
+        const current_items = items.State.poll(api);
+        if (current_items.itemsChanged(&g_last_items)) {
+            var buf: [32768]u8 = undefined;
+            if (current_items.itemsToJson(&buf)) |json| {
+                shared_state.broadcast(json);
+            }
+        }
+        g_last_items = current_items;
+    }
+
+    // ========================================================================
+    // LOW TIER (1Hz) - Tempomap, Project Notes (Phase 2)
+    // These rarely change during normal operation
+    // ========================================================================
+    if (g_frame_counter % LOW_TIER_INTERVAL == 0) {
+        // Poll tempo map and broadcast changes
+        const current_tempomap = tempomap.State.poll(api);
+        if (current_tempomap.changed(&g_last_tempomap)) {
+            var buf: [4096]u8 = undefined;
+            if (current_tempomap.toJson(&buf)) |json| {
+                shared_state.broadcast(json);
+            }
+        }
+        g_last_tempomap = current_tempomap;
+
+        // Poll project notes and broadcast changes (only if subscribers)
+        if (g_notes_subs) |notes_subs| {
+            if (notes_subs.poll(api)) |change| {
+                // Notes changed externally - broadcast to all subscribers
+                var buf: [256]u8 = undefined;
+                if (commands.project_notes_cmds.formatChangedEvent(change.hash, &buf)) |json| {
+                    shared_state.broadcast(json);
+                }
+            }
+        }
+    }
+
+    // ========================================================================
+    // INFREQUENT - HTML hot reload check (~2 seconds)
+    // ========================================================================
     g_file_check_counter += 1;
     if (g_file_check_counter >= FILE_CHECK_INTERVAL) {
         g_file_check_counter = 0;
@@ -390,9 +447,7 @@ fn processTimerCallback() callconv(.c) void {
                 if (stat.mtime != g_html_mtime) {
                     std.debug.print("[Reamo] HTML changed: mtime {} -> {}\n", .{ g_html_mtime, stat.mtime });
                     g_html_mtime = stat.mtime;
-                    // Update shared state so new clients get the current mtime
                     shared_state.setHtmlMtime(stat.mtime);
-                    // Broadcast reload event to all clients
                     shared_state.broadcast("{\"type\":\"event\",\"event\":\"reload\"}");
                     std.debug.print("[Reamo] Broadcast reload event\n", .{});
                 }
@@ -437,6 +492,15 @@ fn shutdown() void {
         g_toggle_subs = null;
     }
     logFile("toggle subscriptions cleaned up");
+
+    if (g_notes_subs) |notes| {
+        logFile("cleaning up notes subscriptions");
+        commands.project_notes_cmds.g_notes_subs = null;
+        notes.deinit();
+        g_allocator.destroy(notes);
+        g_notes_subs = null;
+    }
+    logFile("notes subscriptions cleaned up");
 
     if (g_shared_state) |state| {
         logFile("cleaning up shared state");

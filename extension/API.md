@@ -22,6 +22,7 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 - [Time Signature](#time-signature-commands) — set
 - [Metronome](#metronome-commands) — toggle, getVolume, setVolume
 - [ExtState](#extstate-commands) — get, set, projGet, projSet
+- [Project Notes](#project-notes-commands) — subscribe, unsubscribe, get, set
 - [Undo](#undo-commands) — add, begin, end, do, redo
 - [Gesture](#gesture-commands) — start, end
 - [Action](#action-commands) — getToggleState, execute, executeByName
@@ -975,6 +976,96 @@ Set a project-specific extended state value.
 ```json
 {"type": "command", "command": "extstate/projSet", "extname": "MyApp", "key": "projectSetting", "value": "data"}
 ```
+
+---
+
+## Project Notes Commands
+
+Read and write REAPER project notes (session metadata). Notes are stored in the project file and are separate from REAPER's undo system.
+
+### `projectNotes/subscribe`
+
+Subscribe to project notes updates. Returns current notes and starts receiving `projectNotesChanged` events when notes are modified externally (e.g., in REAPER's Project Notes window). **Returns data.**
+
+```json
+{"type": "command", "command": "projectNotes/subscribe", "id": "1"}
+```
+
+Response:
+
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": {
+    "notes": "Session notes content here...",
+    "hash": "7c81ba9ee693c1de"
+  }
+}
+```
+
+The `hash` is a hex-encoded 64-bit hash of the notes content, used for change detection.
+
+### `projectNotes/unsubscribe`
+
+Unsubscribe from project notes updates.
+
+```json
+{"type": "command", "command": "projectNotes/unsubscribe"}
+```
+
+### `projectNotes/get`
+
+Get current project notes without subscribing. **Returns data.**
+
+```json
+{"type": "command", "command": "projectNotes/get", "id": "1"}
+```
+
+Response: Same as subscribe.
+
+### `projectNotes/set`
+
+Set project notes. Returns the saved notes and new hash. **Returns data.**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `notes` | string | Yes | Notes content (max 64KB) |
+
+```json
+{"type": "command", "command": "projectNotes/set", "notes": "Updated notes content", "id": "1"}
+```
+
+Response:
+
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": {
+    "notes": "Updated notes content",
+    "hash": "cf9ffd3db2b5bfee"
+  }
+}
+```
+
+**Note:** Setting notes marks the project as dirty (unsaved). Notes are outside REAPER's undo system.
+
+### `projectNotesChanged` Event
+
+Broadcast to subscribed clients when notes are modified externally (polled at ~1Hz).
+
+```json
+{
+  "type": "event",
+  "event": "projectNotesChanged",
+  "hash": "newHashValue"
+}
+```
+
+Clients should compare the hash to their last known hash to detect changes.
 
 ---
 

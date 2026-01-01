@@ -467,3 +467,29 @@ export const midi = {
     params: { program, channel },
   }),
 };
+
+// =============================================================================
+// Project Notes Commands
+// =============================================================================
+
+export const projectNotes = {
+  /** Subscribe to project notes updates.
+   * Returns current notes and hash in the response.
+   */
+  subscribe: (): WSCommand => ({
+    command: 'projectNotes/subscribe',
+  }),
+  /** Unsubscribe from project notes updates. */
+  unsubscribe: (): WSCommand => ({
+    command: 'projectNotes/unsubscribe',
+  }),
+  /** Get current project notes without subscribing. */
+  get: (): WSCommand => ({
+    command: 'projectNotes/get',
+  }),
+  /** Set project notes. Returns the saved notes and new hash. */
+  set: (notes: string): WSCommand => ({
+    command: 'projectNotes/set',
+    params: { notes },
+  }),
+};

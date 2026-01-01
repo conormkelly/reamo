@@ -316,6 +316,22 @@ const TrackFlags = {
 };
 ```
 
+### Connection Hook Pattern
+
+**Always use `useReaper()` in components** to access the WebSocket connection. Never call `useReaperConnection()` directly — it creates a new WebSocket connection each time.
+
+```typescript
+// CORRECT - uses shared connection from context
+import { useReaper } from '../../components/ReaperProvider';
+const { connected, sendCommand, sendCommandAsync } = useReaper();
+
+// WRONG - creates a duplicate WebSocket connection!
+import { useReaperConnection } from '../../hooks/useReaperConnection';
+const { connectionState, sendCommand } = useReaperConnection(); // Don't do this!
+```
+
+`useReaperConnection()` is only called once in `ReaperProvider` at the app root. All other components access the connection via `useReaper()` context.
+
 ### UI State: Store vs Local
 
 **Use Zustand store** for UI state shared across components (like `mixerLocked`):
@@ -556,6 +572,16 @@ Long-press the connection status dot to access real-time sync metrics:
 8. **"Works at 0, breaks at non-zero" is a diagnostic pattern** - Often indicates calculations using stale/default values. Test with non-zero initial state to catch this.
 
 9. **Test initial load with non-zero positions** - Animation/interpolation systems may work during playback but fail on initial load when state hasn't synced yet. The playhead visibility tests in `Timeline.test.tsx` demonstrate this pattern.
+
+10. **Use `_testMode` for E2E connection state control** - Enable test mode early in E2E tests to prevent the real WebSocket from overwriting store state:
+    ```typescript
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+      store.getState()._setTestMode(true);  // Enable FIRST
+      store.setState({ connected: true, ... }); // Then set state
+    });
+    ```
+    Test mode prevents both WebSocket messages AND connection state changes from updating the store, allowing deterministic E2E tests regardless of whether REAPER is running.
 
 ## Extension Robustness
 

@@ -56,9 +56,14 @@ pub const CommandMessage = struct {
         return jsonGetFloat(self.raw, key);
     }
 
-    // Get a string parameter from the message
+    // Get a string parameter from the message (raw, no unescaping)
     pub fn getString(self: CommandMessage, key: []const u8) ?[]const u8 {
         return jsonGetString(self.raw, key);
+    }
+
+    // Get a string parameter with JSON unescaping (for content that may contain \n, \t, etc.)
+    pub fn getStringUnescaped(self: CommandMessage, key: []const u8, out_buf: []u8) ?[]const u8 {
+        return jsonGetStringUnescaped(self.raw, key, out_buf);
     }
 
     // Get an integer parameter from the message
@@ -84,10 +89,114 @@ pub fn jsonGetString(data: []const u8, key: []const u8) ?[]const u8 {
     // Find opening quote
     const quote1 = std.mem.indexOfPos(u8, data, colon + 1, "\"") orelse return null;
 
-    // Find closing quote
-    const quote2 = std.mem.indexOfPos(u8, data, quote1 + 1, "\"") orelse return null;
+    // Find closing quote (handling escaped quotes)
+    var i = quote1 + 1;
+    while (i < data.len) : (i += 1) {
+        if (data[i] == '"') break;
+        if (data[i] == '\\' and i + 1 < data.len) i += 1; // Skip escaped char
+    }
+    if (i >= data.len) return null;
 
-    return data[quote1 + 1 .. quote2];
+    return data[quote1 + 1 .. i];
+}
+
+/// Get a JSON string value and unescape it into the provided buffer.
+/// Handles \n, \r, \t, \\, \", and \uXXXX escape sequences.
+pub fn jsonGetStringUnescaped(data: []const u8, key: []const u8, out_buf: []u8) ?[]const u8 {
+    // Build search pattern: "key"
+    var pattern_buf: [64]u8 = undefined;
+    const pattern = std.fmt.bufPrint(&pattern_buf, "\"{s}\"", .{key}) catch return null;
+
+    const key_start = std.mem.indexOf(u8, data, pattern) orelse return null;
+    const after_key = key_start + pattern.len;
+
+    // Find the colon
+    const colon = std.mem.indexOfPos(u8, data, after_key, ":") orelse return null;
+
+    // Find opening quote
+    const quote1 = std.mem.indexOfPos(u8, data, colon + 1, "\"") orelse return null;
+
+    // Parse and unescape the string content
+    var out_idx: usize = 0;
+    var i = quote1 + 1;
+    while (i < data.len and out_idx < out_buf.len) {
+        const c = data[i];
+        if (c == '"') break; // End of string
+
+        if (c == '\\' and i + 1 < data.len) {
+            // Escape sequence
+            const next = data[i + 1];
+            switch (next) {
+                'n' => {
+                    out_buf[out_idx] = '\n';
+                    out_idx += 1;
+                    i += 2;
+                },
+                'r' => {
+                    out_buf[out_idx] = '\r';
+                    out_idx += 1;
+                    i += 2;
+                },
+                't' => {
+                    out_buf[out_idx] = '\t';
+                    out_idx += 1;
+                    i += 2;
+                },
+                '\\' => {
+                    out_buf[out_idx] = '\\';
+                    out_idx += 1;
+                    i += 2;
+                },
+                '"' => {
+                    out_buf[out_idx] = '"';
+                    out_idx += 1;
+                    i += 2;
+                },
+                '/' => {
+                    out_buf[out_idx] = '/';
+                    out_idx += 1;
+                    i += 2;
+                },
+                'u' => {
+                    // \uXXXX - for now just skip (output space for non-ASCII)
+                    if (i + 5 < data.len) {
+                        // Parse hex digits
+                        const hex = data[i + 2 .. i + 6];
+                        const codepoint = std.fmt.parseInt(u16, hex, 16) catch {
+                            out_buf[out_idx] = '?';
+                            out_idx += 1;
+                            i += 6;
+                            continue;
+                        };
+                        if (codepoint < 128) {
+                            out_buf[out_idx] = @intCast(codepoint);
+                            out_idx += 1;
+                        } else {
+                            // Non-ASCII, output replacement char
+                            out_buf[out_idx] = '?';
+                            out_idx += 1;
+                        }
+                        i += 6;
+                    } else {
+                        i += 2;
+                    }
+                },
+                else => {
+                    // Unknown escape, just output the character after backslash
+                    out_buf[out_idx] = next;
+                    out_idx += 1;
+                    i += 2;
+                },
+            }
+        } else {
+            // Regular character
+            out_buf[out_idx] = c;
+            out_idx += 1;
+            i += 1;
+        }
+    }
+
+    return out_buf[0..out_idx];
 }
 
 pub fn jsonGetFloat(data: []const u8, key: []const u8) ?f64 {
@@ -402,4 +511,44 @@ test "buildHelloResponse" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"extensionVersion\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"protocolVersion\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"htmlMtime\":1735000000") != null);
+}
+
+test "jsonGetStringUnescaped handles newlines" {
+    const data = "{\"notes\":\"line1\\nline2\\nline3\"}";
+    var buf: [256]u8 = undefined;
+    const result = jsonGetStringUnescaped(data, "notes", &buf);
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("line1\nline2\nline3", result.?);
+}
+
+test "jsonGetStringUnescaped handles tabs and carriage returns" {
+    const data = "{\"text\":\"col1\\tcol2\\r\\nrow2\"}";
+    var buf: [256]u8 = undefined;
+    const result = jsonGetStringUnescaped(data, "text", &buf);
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("col1\tcol2\r\nrow2", result.?);
+}
+
+test "jsonGetStringUnescaped handles escaped quotes and backslashes" {
+    const data = "{\"path\":\"C:\\\\Users\\\\test\\\"quoted\\\"\"}";
+    var buf: [256]u8 = undefined;
+    const result = jsonGetStringUnescaped(data, "path", &buf);
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("C:\\Users\\test\"quoted\"", result.?);
+}
+
+test "jsonGetStringUnescaped handles plain text" {
+    const data = "{\"simple\":\"hello world\"}";
+    var buf: [256]u8 = undefined;
+    const result = jsonGetStringUnescaped(data, "simple", &buf);
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("hello world", result.?);
+}
+
+test "jsonGetString handles escaped quotes in string" {
+    const data = "{\"text\":\"say \\\"hello\\\"\"}";
+    const result = jsonGetString(data, "text");
+    try std.testing.expect(result != null);
+    // Raw result includes the escape sequences
+    try std.testing.expectEqualStrings("say \\\"hello\\\"", result.?);
 }
