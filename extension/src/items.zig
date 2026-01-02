@@ -1,6 +1,7 @@
 const std = @import("std");
 const reaper = @import("reaper.zig");
 const protocol = @import("protocol.zig");
+const ApiInterface = reaper.api.ApiInterface;
 
 // Maximum items/takes we track
 pub const MAX_ITEMS = 512;
@@ -96,9 +97,10 @@ pub const State = struct {
     items: [MAX_ITEMS]Item = undefined,
     item_count: usize = 0,
 
-    // Poll current state from REAPER
-    // Returns ALL items in the project (frontend filters by time selection as needed)
-    pub fn poll(api: *const reaper.Api) State {
+    /// Poll current state from REAPER using abstract interface.
+    /// Enables unit testing without REAPER running.
+    /// Returns ALL items in the project (frontend filters by time selection as needed)
+    pub fn poll(api: ApiInterface) State {
         var state = State{};
 
         // Enumerate all tracks
@@ -369,4 +371,70 @@ test "items changed detection" {
 
     state2.items[0].locked = true;
     try std.testing.expect(state1.itemsChanged(&state2));
+}
+
+// =============================================================================
+// MockApi-based tests (Phase 8.4)
+// =============================================================================
+
+const MockApi = reaper.mock.MockApi;
+
+test "poll with MockApi returns empty state for no tracks" {
+    var mock = MockApi{
+        .track_count = 0,
+    };
+
+    const state = State.poll(mock.interface());
+
+    try std.testing.expectEqual(@as(usize, 0), state.item_count);
+}
+
+test "poll with MockApi returns items from tracks" {
+    var mock = MockApi{
+        .track_count = 1, // 1 user track
+    };
+    // Set up track 0 (first user track) with one item
+    // Note: getTrackByIdx(0) returns track 0, not track 1
+    mock.tracks[0].item_count = 1;
+    mock.tracks[0].items[0] = .{
+        .position = 5.0,
+        .length = 2.5,
+        .color = 16711680,
+        .locked = true,
+        .selected = false,
+        .active_take_idx = 0,
+        .take_count = 1,
+    };
+    mock.tracks[0].items[0].setNotes("Test note");
+    mock.tracks[0].items[0].takes[0].setName("Audio Take");
+    mock.tracks[0].items[0].takes[0].is_midi = false;
+
+    const state = State.poll(mock.interface());
+
+    try std.testing.expectEqual(@as(usize, 1), state.item_count);
+    try std.testing.expect(@abs(state.items[0].position - 5.0) < 0.001);
+    try std.testing.expect(@abs(state.items[0].length - 2.5) < 0.001);
+    try std.testing.expectEqual(@as(c_int, 16711680), state.items[0].color);
+    try std.testing.expect(state.items[0].locked);
+    try std.testing.expectEqual(@as(usize, 1), state.items[0].take_count);
+    try std.testing.expectEqualStrings("Audio Take", state.items[0].takes[0].getName());
+}
+
+test "poll tracks API calls correctly" {
+    var mock = MockApi{
+        .track_count = 1,
+    };
+    mock.tracks[0].item_count = 1;
+    mock.tracks[0].items[0] = .{
+        .position = 0.0,
+        .length = 1.0,
+        .take_count = 1,
+    };
+
+    _ = State.poll(mock.interface());
+
+    // Verify key API calls were made
+    try std.testing.expect(mock.getCallCount(.trackCount) >= 1);
+    try std.testing.expect(mock.getCallCount(.getTrackByIdx) >= 1);
+    try std.testing.expect(mock.getCallCount(.trackItemCount) >= 1);
 }

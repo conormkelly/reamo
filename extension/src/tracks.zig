@@ -1,6 +1,7 @@
 const std = @import("std");
 const reaper = @import("reaper.zig");
 const protocol = @import("protocol.zig");
+const ApiInterface = reaper.api.ApiInterface;
 
 // Maximum tracks to poll (keeps buffer sizes bounded)
 pub const MAX_TRACKS: usize = 128;
@@ -69,9 +70,10 @@ pub const State = struct {
         return true;
     }
 
-    // Poll current state from REAPER
-    // Uses unified indexing: idx 0 = master, idx 1+ = user tracks
-    pub fn poll(api: *const reaper.Api) State {
+    /// Poll current state from REAPER using abstract interface.
+    /// Enables unit testing without REAPER running.
+    /// Uses unified indexing: idx 0 = master, idx 1+ = user tracks
+    pub fn poll(api: ApiInterface) State {
         var state = State{};
         const user_track_count: usize = @intCast(@max(0, api.trackCount()));
         // Total count = master (1) + user tracks
@@ -336,5 +338,147 @@ test "State.toJson outputs null for corrupt solo/recMon" {
     // Other fields should still be present
     try std.testing.expect(std.mem.indexOf(u8, json, "\"mute\":false") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"fxEnabled\":true") != null);
+}
+
+// =============================================================================
+// MockApi-based tests (Phase 8.3)
+// =============================================================================
+
+const MockApi = reaper.mock.MockApi;
+
+test "poll with MockApi returns configured values" {
+    var mock = MockApi{
+        .track_count = 2, // 2 user tracks + master = 3 total
+    };
+    // Master track (idx 0)
+    mock.tracks[0].setName("MASTER");
+    mock.tracks[0].volume = 1.0;
+    mock.tracks[0].mute = false;
+    mock.master_muted = false;
+    mock.master_soloed = false;
+
+    // Track 1 (idx 1)
+    mock.tracks[1].setName("Drums");
+    mock.tracks[1].volume = 0.8;
+    mock.tracks[1].pan = -0.5;
+    mock.tracks[1].mute = true;
+    mock.tracks[1].solo = 1;
+    mock.tracks[1].color = 16711680; // Red
+
+    // Track 2 (idx 2)
+    mock.tracks[2].setName("Bass");
+    mock.tracks[2].volume = 0.6;
+    mock.tracks[2].rec_arm = true;
+    mock.tracks[2].rec_mon = 1;
+
+    const state = State.poll(mock.interface());
+
+    try std.testing.expectEqual(@as(usize, 3), state.count);
+
+    // Master track assertions
+    try std.testing.expectEqual(@as(c_int, 0), state.tracks[0].idx);
+    try std.testing.expectEqualStrings("MASTER", state.tracks[0].getName());
+
+    // Track 1 assertions
+    try std.testing.expectEqual(@as(c_int, 1), state.tracks[1].idx);
+    try std.testing.expectEqualStrings("Drums", state.tracks[1].getName());
+    try std.testing.expect(@abs(state.tracks[1].volume - 0.8) < 0.001);
+    try std.testing.expect(@abs(state.tracks[1].pan - (-0.5)) < 0.001);
+    try std.testing.expect(state.tracks[1].mute);
+    try std.testing.expectEqual(@as(?c_int, 1), state.tracks[1].solo);
+    try std.testing.expectEqual(@as(c_int, 16711680), state.tracks[1].color);
+
+    // Track 2 assertions
+    try std.testing.expectEqual(@as(c_int, 2), state.tracks[2].idx);
+    try std.testing.expectEqualStrings("Bass", state.tracks[2].getName());
+    try std.testing.expect(state.tracks[2].rec_arm);
+    try std.testing.expectEqual(@as(?c_int, 1), state.tracks[2].rec_mon);
+}
+
+test "poll handles solo error gracefully" {
+    var mock = MockApi{
+        .inject_solo_error = true,
+        .track_count = 1, // 1 user track + master = 2 total
+    };
+    mock.tracks[0].setName("MASTER");
+    mock.tracks[1].setName("Track 1");
+
+    const state = State.poll(mock.interface());
+
+    try std.testing.expectEqual(@as(usize, 2), state.count);
+    // Master uses isMasterSoloed, not getTrackSolo, so solo should be set
+    try std.testing.expectEqual(@as(?c_int, 0), state.tracks[0].solo);
+    // Regular track's solo should be null due to injected error
+    try std.testing.expect(state.tracks[1].solo == null);
+}
+
+test "poll handles recmon error gracefully" {
+    var mock = MockApi{
+        .inject_recmon_error = true,
+        .track_count = 1,
+    };
+    mock.tracks[1].setName("Track 1");
+    mock.tracks[1].rec_arm = true;
+
+    const state = State.poll(mock.interface());
+
+    try std.testing.expectEqual(@as(usize, 2), state.count);
+    // rec_mon should be null due to injected error
+    try std.testing.expect(state.tracks[1].rec_mon == null);
+    // Other fields should still work
+    try std.testing.expect(state.tracks[1].rec_arm);
+}
+
+test "poll handles master track mute/solo specially" {
+    var mock = MockApi{
+        .track_count = 0, // Just master track
+        .master_muted = true,
+        .master_soloed = true,
+    };
+    mock.tracks[0].setName("MASTER");
+
+    const state = State.poll(mock.interface());
+
+    try std.testing.expectEqual(@as(usize, 1), state.count);
+    try std.testing.expect(state.tracks[0].mute);
+    try std.testing.expectEqual(@as(?c_int, 1), state.tracks[0].solo);
+}
+
+test "poll tracks API calls correctly" {
+    var mock = MockApi{
+        .track_count = 1,
+    };
+    _ = State.poll(mock.interface());
+
+    // Verify key API calls were made
+    try std.testing.expect(mock.getCallCount(.trackCount) >= 1);
+    try std.testing.expect(mock.getCallCount(.getTrackByUnifiedIdx) >= 1);
+    try std.testing.expect(mock.getCallCount(.getTrackNameStr) >= 1);
+    try std.testing.expect(mock.getCallCount(.getTrackVolume) >= 1);
+    try std.testing.expect(mock.getCallCount(.getTrackMute) >= 1);
+    try std.testing.expect(mock.getCallCount(.isMasterMuted) >= 1);
+}
+
+test "poll respects MAX_TRACKS limit" {
+    var mock = MockApi{
+        .track_count = 200, // More than MAX_TRACKS (128)
+    };
+
+    const state = State.poll(mock.interface());
+
+    // Should cap at MAX_TRACKS (128) = 127 user tracks + 1 master
+    try std.testing.expectEqual(MAX_TRACKS, state.count);
+}
+
+test "poll with empty project returns only master" {
+    var mock = MockApi{
+        .track_count = 0,
+    };
+    mock.tracks[0].setName("MASTER");
+
+    const state = State.poll(mock.interface());
+
+    try std.testing.expectEqual(@as(usize, 1), state.count);
+    try std.testing.expectEqual(@as(c_int, 0), state.tracks[0].idx);
 }
 

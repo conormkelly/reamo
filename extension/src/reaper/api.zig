@@ -82,6 +82,13 @@ pub const ApiInterface = struct {
         // =========================================================================
         getCommandState: *const fn (*anyopaque, c_int) c_int,
         isMetronomeEnabled: *const fn (*anyopaque) bool,
+        getMetronomeVolume: *const fn (*anyopaque) f64,
+
+        // =========================================================================
+        // Undo/Redo
+        // =========================================================================
+        canUndo: *const fn (*anyopaque) ?[]const u8,
+        canRedo: *const fn (*anyopaque) ?[]const u8,
 
         // =========================================================================
         // Tracks
@@ -246,6 +253,19 @@ pub const ApiInterface = struct {
 
     pub inline fn isMetronomeEnabled(self: ApiInterface) bool {
         return self.vtable.isMetronomeEnabled(self.ptr);
+    }
+
+    pub inline fn getMetronomeVolume(self: ApiInterface) f64 {
+        return self.vtable.getMetronomeVolume(self.ptr);
+    }
+
+    // Undo/Redo
+    pub inline fn canUndo(self: ApiInterface) ?[]const u8 {
+        return self.vtable.canUndo(self.ptr);
+    }
+
+    pub inline fn canRedo(self: ApiInterface) ?[]const u8 {
+        return self.vtable.canRedo(self.ptr);
     }
 
     // Tracks
@@ -572,6 +592,26 @@ pub const RealApi = struct {
             fn f(ctx: *anyopaque) bool {
                 const self: *RealApi = @ptrCast(@alignCast(ctx));
                 return self.inner.isMetronomeEnabled();
+            }
+        }.f,
+        .getMetronomeVolume = struct {
+            fn f(ctx: *anyopaque) f64 {
+                const self: *RealApi = @ptrCast(@alignCast(ctx));
+                return self.inner.getMetronomeVolume();
+            }
+        }.f,
+
+        // Undo/Redo
+        .canUndo = struct {
+            fn f(ctx: *anyopaque) ?[]const u8 {
+                const self: *RealApi = @ptrCast(@alignCast(ctx));
+                return self.inner.canUndo();
+            }
+        }.f,
+        .canRedo = struct {
+            fn f(ctx: *anyopaque) ?[]const u8 {
+                const self: *RealApi = @ptrCast(@alignCast(ctx));
+                return self.inner.canRedo();
             }
         }.f,
 

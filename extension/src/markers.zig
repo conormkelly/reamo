@@ -1,6 +1,7 @@
 const std = @import("std");
 const reaper = @import("reaper.zig");
 const protocol = @import("protocol.zig");
+const ApiInterface = reaper.api.ApiInterface;
 
 // Maximum markers/regions we track (matches frontend reasonable limits)
 pub const MAX_MARKERS = 256;
@@ -68,8 +69,9 @@ pub const State = struct {
     region_count: usize = 0,
     bar_offset: c_int = 0, // For bar string formatting
 
-    // Poll current state from REAPER
-    pub fn poll(api: *const reaper.Api) State {
+    /// Poll current state from REAPER using abstract interface.
+    /// Enables unit testing without REAPER running.
+    pub fn poll(api: ApiInterface) State {
         var state = State{};
         state.bar_offset = api.getBarOffset();
 
@@ -401,4 +403,91 @@ test "region position preserves sub-millisecond precision" {
 
     // End position should preserve precision
     try std.testing.expect(std.mem.indexOf(u8, json, "17.333333") != null);
+}
+
+// =============================================================================
+// MockApi-based tests (Phase 8.4)
+// =============================================================================
+
+const MockApi = reaper.mock.MockApi;
+
+test "poll with MockApi returns markers and regions" {
+    var mock = MockApi{
+        .bar_offset = -4,
+        .marker_count = 1,
+        .region_count = 1,
+    };
+    // Set up a marker
+    mock.markers[0] = .{
+        .idx = 0,
+        .id = 1,
+        .pos = 10.5,
+        .end = 0.0,
+        .is_region = false,
+        .name = "Verse",
+        .color = 16711680,
+    };
+
+    // Set up a region
+    mock.markers[1] = .{
+        .idx = 1,
+        .id = 2,
+        .pos = 0.0,
+        .end = 30.0,
+        .is_region = true,
+        .name = "Intro",
+        .color = 255,
+    };
+
+    const state = State.poll(mock.interface());
+
+    try std.testing.expectEqual(@as(c_int, -4), state.bar_offset);
+    try std.testing.expectEqual(@as(usize, 1), state.marker_count);
+    try std.testing.expectEqual(@as(usize, 1), state.region_count);
+
+    // Verify marker
+    try std.testing.expectEqual(@as(c_int, 1), state.markers[0].id);
+    try std.testing.expect(@abs(state.markers[0].position - 10.5) < 0.001);
+    try std.testing.expectEqualStrings("Verse", state.markers[0].getName());
+
+    // Verify region
+    try std.testing.expectEqual(@as(c_int, 2), state.regions[0].id);
+    try std.testing.expect(@abs(state.regions[0].start - 0.0) < 0.001);
+    try std.testing.expect(@abs(state.regions[0].end - 30.0) < 0.001);
+    try std.testing.expectEqualStrings("Intro", state.regions[0].getName());
+}
+
+test "poll with MockApi returns empty state when no markers" {
+    var mock = MockApi{
+        .marker_count = 0,
+        .region_count = 0,
+    };
+
+    const state = State.poll(mock.interface());
+
+    try std.testing.expectEqual(@as(usize, 0), state.marker_count);
+    try std.testing.expectEqual(@as(usize, 0), state.region_count);
+}
+
+test "poll tracks API calls correctly" {
+    var mock = MockApi{
+        .marker_count = 1,
+        .region_count = 0,
+    };
+    mock.markers[0] = .{
+        .idx = 0,
+        .id = 1,
+        .pos = 5.0,
+        .end = 0.0,
+        .is_region = false,
+        .name = "Test",
+        .color = 0,
+    };
+
+    _ = State.poll(mock.interface());
+
+    // Verify key API calls were made
+    try std.testing.expect(mock.getCallCount(.getBarOffset) >= 1);
+    try std.testing.expect(mock.getCallCount(.enumMarker) >= 1);
+    try std.testing.expect(mock.getCallCount(.timeToBeats) >= 1);
 }

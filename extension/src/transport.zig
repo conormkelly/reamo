@@ -106,13 +106,6 @@ pub const State = struct {
         return if (self.play_state & 1 != 0) self.play_position else self.cursor_position;
     }
 
-    /// Poll current state from REAPER (legacy wrapper for backward compatibility)
-    /// Use poll() with ApiInterface for new code.
-    pub fn pollLegacy(api: *const reaper.Api) State {
-        var real = reaper.api.RealApi{ .inner = api };
-        return poll(real.interface());
-    }
-
     /// Poll current state from REAPER using abstract interface.
     /// Enables unit testing without REAPER running.
     pub fn poll(api: ApiInterface) State {

@@ -847,16 +847,16 @@ Already using `std.debug.FullPanic` in logging.zig - compatible with Zig 0.15.
 
 Phase 8 is complete when:
 
-1. [ ] `reaper/raw.zig` contains C function pointers (moved from reaper.zig)
-2. [ ] `reaper/api.zig` defines ApiInterface for ALL poll-used methods (upfront)
-3. [ ] `reaper/api.zig` contains RealApi wrapping raw.Api
-4. [ ] `reaper/mock.zig` supports error injection (NaN, null, errors) with index-as-pointer
-5. [ ] `reaper.zig` re-exports with namespaced access
-6. [ ] `transport.zig` poll() uses ApiInterface with 5+ new tests
-7. [ ] `tracks.zig` poll() uses ApiInterface with 5+ new tests
-8. [ ] All ~140 existing tests still pass
-9. [ ] New tests cover NaN/Inf/null error paths
-10. [ ] `zig build test` runs in <5 seconds
+1. [x] `reaper/raw.zig` contains C function pointers (moved from reaper.zig)
+2. [x] `reaper/api.zig` defines ApiInterface for ALL poll-used methods (upfront)
+3. [x] `reaper/api.zig` contains RealApi wrapping raw.Api
+4. [x] `reaper/mock.zig` supports error injection (NaN, null, errors) with index-as-pointer
+5. [x] `reaper.zig` re-exports with namespaced access
+6. [x] `transport.zig` poll() uses ApiInterface with 5+ new tests
+7. [x] `tracks.zig` poll() uses ApiInterface with 5+ new tests
+8. [x] All ~140 existing tests still pass (309/309 tests pass)
+9. [x] New tests cover NaN/Inf/null error paths
+10. [x] `zig build test` runs in <5 seconds (~5ms)
 
 ---
 
@@ -1248,5 +1248,5 @@ pub const StateSnapshot = struct {
 ---
 
 *Created: 2026-01-02*
-*Updated: 2026-01-02 - Added architecture decisions from research*
+*Updated: 2026-01-02 - Phase 8 complete: all state modules migrated, main.zig uses ApiInterface*
 *For: EXTENSION_RESILIENCE_PLAN.md Phase 8*

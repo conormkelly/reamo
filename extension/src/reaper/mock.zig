@@ -81,8 +81,17 @@ pub const MockApi = struct {
     // Command state
     // =========================================================================
     metronome_enabled: bool = false,
+    metronome_volume: f64 = 1.0,
     command_states: [16]CommandStateEntry = [_]CommandStateEntry{.{}} ** 16,
     command_state_count: usize = 0,
+
+    // =========================================================================
+    // Undo/Redo (fixed buffers for testing)
+    // =========================================================================
+    undo_desc: [128]u8 = [_]u8{0} ** 128,
+    undo_desc_len: usize = 0,
+    redo_desc: [128]u8 = [_]u8{0} ** 128,
+    redo_desc_len: usize = 0,
 
     // =========================================================================
     // Tracks (fixed array for testing)
@@ -167,6 +176,9 @@ pub const MockApi = struct {
         isDirty,
         getCommandState,
         isMetronomeEnabled,
+        getMetronomeVolume,
+        canUndo,
+        canRedo,
         trackCount,
         getTrackByIdx,
         getTrackByUnifiedIdx,
@@ -324,6 +336,20 @@ pub const MockApi = struct {
             self.command_states[self.command_state_count] = .{ .cmd = cmd, .state = state };
             self.command_state_count += 1;
         }
+    }
+
+    /// Set undo description for testing.
+    pub fn setUndoDesc(self: *MockApi, desc: []const u8) void {
+        const len = @min(desc.len, self.undo_desc.len);
+        @memcpy(self.undo_desc[0..len], desc[0..len]);
+        self.undo_desc_len = len;
+    }
+
+    /// Set redo description for testing.
+    pub fn setRedoDesc(self: *MockApi, desc: []const u8) void {
+        const len = @min(desc.len, self.redo_desc.len);
+        @memcpy(self.redo_desc[0..len], desc[0..len]);
+        self.redo_desc_len = len;
     }
 
     // =========================================================================
@@ -582,6 +608,31 @@ pub const MockApi = struct {
                 const self: *MockApi = @ptrCast(@alignCast(ctx));
                 self.recordCall(.isMetronomeEnabled);
                 return self.metronome_enabled;
+            }
+        }.f,
+        .getMetronomeVolume = struct {
+            fn f(ctx: *anyopaque) f64 {
+                const self: *MockApi = @ptrCast(@alignCast(ctx));
+                self.recordCall(.getMetronomeVolume);
+                return self.metronome_volume;
+            }
+        }.f,
+
+        // Undo/Redo
+        .canUndo = struct {
+            fn f(ctx: *anyopaque) ?[]const u8 {
+                const self: *MockApi = @ptrCast(@alignCast(ctx));
+                self.recordCall(.canUndo);
+                if (self.undo_desc_len == 0) return null;
+                return self.undo_desc[0..self.undo_desc_len];
+            }
+        }.f,
+        .canRedo = struct {
+            fn f(ctx: *anyopaque) ?[]const u8 {
+                const self: *MockApi = @ptrCast(@alignCast(ctx));
+                self.recordCall(.canRedo);
+                if (self.redo_desc_len == 0) return null;
+                return self.redo_desc[0..self.redo_desc_len];
             }
         }.f,
 

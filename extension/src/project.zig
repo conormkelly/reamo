@@ -1,6 +1,7 @@
 const std = @import("std");
 const reaper = @import("reaper.zig");
 const protocol = @import("protocol.zig");
+const ApiInterface = reaper.api.ApiInterface;
 
 // Project state snapshot
 // Contains: undo/redo state + project-level settings (moved from transport for efficiency)
@@ -53,8 +54,9 @@ pub const State = struct {
         return @trunc(val * 1000.0) / 1000.0;
     }
 
-    // Poll current state from REAPER
-    pub fn poll(api: *const reaper.Api) State {
+    /// Poll current state from REAPER using abstract interface.
+    /// Enables unit testing without REAPER running.
+    pub fn poll(api: ApiInterface) State {
         // Master mono toggle: action 40917, state 1 = mono, 0 = stereo
         const master_mono_state = api.getCommandState(40917);
 
@@ -234,4 +236,88 @@ test "State.toJson escapes special characters in undo/redo" {
 
     // Verify quotes are escaped
     try std.testing.expect(std.mem.indexOf(u8, json, "Edit \\\"item\\\" notes") != null);
+}
+
+// =============================================================================
+// MockApi-based tests (Phase 8.4)
+// =============================================================================
+
+const MockApi = reaper.mock.MockApi;
+
+test "poll with MockApi returns configured values" {
+    var mock = MockApi{
+        .project_state_change_count = 42,
+        .project_length = 180.5,
+        .repeat_enabled = true,
+        .metronome_enabled = true,
+        .metronome_volume = 0.5,
+        .bar_offset = -4,
+        .project_dirty = true,
+    };
+    // Set master mono state (command 40917): 0 = stereo, 1 = mono
+    mock.setCommandState(40917, 0); // stereo
+
+    const state = State.poll(mock.interface());
+
+    try std.testing.expectEqual(@as(c_int, 42), state.state_change_count);
+    try std.testing.expect(@abs(state.project_length - 180.5) < 0.001);
+    try std.testing.expect(state.repeat);
+    try std.testing.expect(state.metronome_enabled);
+    try std.testing.expect(@abs(state.metronome_volume - 0.5) < 0.001);
+    try std.testing.expectEqual(@as(c_int, -4), state.bar_offset);
+    try std.testing.expect(state.master_stereo);
+    try std.testing.expect(state.is_dirty);
+}
+
+test "poll with MockApi returns undo/redo descriptions" {
+    var mock = MockApi{
+        .project_state_change_count = 10,
+    };
+    mock.setUndoDesc("Add marker");
+    mock.setRedoDesc("Delete region");
+
+    const state = State.poll(mock.interface());
+
+    try std.testing.expectEqualStrings("Add marker", state.canUndo().?);
+    try std.testing.expectEqualStrings("Delete region", state.canRedo().?);
+}
+
+test "poll with MockApi handles no undo/redo" {
+    var mock = MockApi{
+        .project_state_change_count = 0,
+    };
+    // Don't set any undo/redo descriptions
+
+    const state = State.poll(mock.interface());
+
+    try std.testing.expect(state.canUndo() == null);
+    try std.testing.expect(state.canRedo() == null);
+}
+
+test "poll with MockApi detects master mono mode" {
+    var mock = MockApi{};
+    // Set master mono state (command 40917): 1 = mono
+    mock.setCommandState(40917, 1);
+
+    const state = State.poll(mock.interface());
+
+    // master_stereo should be false when mono is enabled
+    try std.testing.expect(!state.master_stereo);
+}
+
+test "poll tracks API calls correctly" {
+    var mock = MockApi{};
+    _ = State.poll(mock.interface());
+
+    // Verify key API calls were made
+    try std.testing.expect(mock.getCallCount(.projectStateChangeCount) >= 1);
+    try std.testing.expect(mock.getCallCount(.projectLength) >= 1);
+    try std.testing.expect(mock.getCallCount(.getRepeat) >= 1);
+    try std.testing.expect(mock.getCallCount(.isMetronomeEnabled) >= 1);
+    try std.testing.expect(mock.getCallCount(.getMetronomeVolume) >= 1);
+    try std.testing.expect(mock.getCallCount(.getBarOffset) >= 1);
+    try std.testing.expect(mock.getCallCount(.isDirty) >= 1);
+    try std.testing.expect(mock.getCallCount(.getCommandState) >= 1);
+    try std.testing.expect(mock.getCallCount(.canUndo) >= 1);
+    try std.testing.expect(mock.getCallCount(.canRedo) >= 1);
 }
