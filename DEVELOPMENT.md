@@ -966,3 +966,32 @@ Then check REAPER's console (Actions → Show console).
    ```
 
 12. **FFI validation happens in RealBackend, not raw.zig** - `raw.zig` returns exactly what REAPER's C API returns (e.g., `f64`). All NaN/Inf validation happens in `RealBackend` via `ffi.safeFloatToInt()`. Methods returning `FFIError!T` require `catch` handling in callers — use `catch null` for nullable fields to propagate corrupt data as JSON nulls.
+
+13. **Use CSurf APIs for continuous controls (faders/knobs)** - For controls users drag continuously (volume, pan, send levels), use CSurf APIs (`CSurf_OnVolumeChange`, `CSurf_OnPanChange`, `CSurf_OnSendVolumeChange`) instead of `SetMediaTrackInfo_Value`. CSurf APIs provide:
+    - Automatic undo coalescing (one undo point per gesture, not per value change)
+    - Gang control support (`allowGang=true` respects track grouping)
+    - Proper master track handling
+
+    For toggles (mute, solo), CSurf is optional but recommended for consistency.
+
+14. **Gesture tracking requires both backend and frontend coordination** - For proper undo coalescing:
+    - **Backend**: Handler calls `gestures.recordActivity(ControlId)` on each value change
+    - **Frontend**: Sends `gesture/start` before drag, `gesture/end` after release
+    - **Safety nets**: 500ms timeout auto-flushes abandoned gestures; client disconnect cleans up
+
+    When adding new continuous controls, update:
+    1. `gesture_state.zig` - Add to `ControlType` enum and constructor
+    2. `commands/gesture.zig` - Add parsing in `parseControlId()`
+    3. Command handler - Call `gestures.recordActivity()`
+    4. `API.md` - Document the new controlType
+
+15. **Compound control IDs need sub_idx** - Controls like sends require both track index AND send index. The `ControlId` struct has `sub_idx` for this:
+    ```zig
+    // Track volume: only needs track_idx
+    ControlId.volume(track_idx)
+
+    // Send volume: needs track_idx AND send_idx
+    ControlId.sendVolume(track_idx, send_idx)
+    ```
+
+16. **Not all controls have CSurf equivalents** - Some controls lack CSurf APIs. For send mute, use `SetTrackSendInfo_Value(track, 0, idx, "B_MUTE", value)` since there's no `CSurf_OnSendMuteChange`. Always check `docs/reaper_plugin_functions.h` for available CSurf functions before assuming one doesn't exist — e.g., `CSurf_OnFXChange` exists for FX chain enable and we do use it.

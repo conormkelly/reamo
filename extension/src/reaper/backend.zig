@@ -154,6 +154,16 @@ pub fn validateBackend(comptime T: type) void {
         "trackFxNavigatePresets",
         "trackFxSetPresetByIndex",
 
+        // Track Sends
+        "trackSendCount",
+        "trackSendGetVolume",
+        "trackSendGetMute",
+        "trackSendGetMode",
+        "trackSendGetDestName",
+        "trackSendSetVolume",
+        "trackSendToggleMute",
+        "trackSendSetMute",
+
         // ExtState
         "getExtStateValue",
         "setExtStateValue",

@@ -26,6 +26,7 @@ const toggle_state = @import("toggle_state.zig");
 const midi = @import("midi.zig");
 const project_notes = @import("project_notes.zig");
 const fx = @import("fx.zig");
+const send = @import("send.zig");
 
 /// Comptime tuple of (command_name, handler_fn) pairs.
 /// Used by dispatch() with inline for to call handlers with anytype.
@@ -160,4 +161,8 @@ pub const all = .{
     .{ "fx/presetNext", fx.handlePresetNext },
     .{ "fx/presetPrev", fx.handlePresetPrev },
     .{ "fx/presetSet", fx.handlePresetSet },
+
+    // Sends
+    .{ "send/setVolume", send.handleSetVolume },
+    .{ "send/setMute", send.handleSetMute },
 };

@@ -8,10 +8,13 @@ pub const GESTURE_TIMEOUT_NS: i128 = 500 * std.time.ns_per_ms;
 pub const ControlId = struct {
     control_type: ControlType,
     track_idx: c_int,
+    /// Secondary index for controls that need it (e.g., send_idx for send_volume)
+    sub_idx: c_int = 0,
 
     pub const ControlType = enum {
         volume,
         pan,
+        send_volume,
     };
 
     pub fn volume(track_idx: c_int) ControlId {
@@ -20,6 +23,10 @@ pub const ControlId = struct {
 
     pub fn pan(track_idx: c_int) ControlId {
         return .{ .control_type = .pan, .track_idx = track_idx };
+    }
+
+    pub fn sendVolume(track_idx: c_int, send_idx: c_int) ControlId {
+        return .{ .control_type = .send_volume, .track_idx = track_idx, .sub_idx = send_idx };
     }
 };
 

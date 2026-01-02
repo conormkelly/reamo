@@ -21,12 +21,15 @@ fn parseControlId(cmd: protocol.CommandMessage) ?gesture_state.ControlId {
         return gesture_state.ControlId.volume(track_idx);
     } else if (std.mem.eql(u8, control_type_str, "pan")) {
         return gesture_state.ControlId.pan(track_idx);
+    } else if (std.mem.eql(u8, control_type_str, "send")) {
+        const send_idx = cmd.getInt("sendIdx") orelse return null;
+        return gesture_state.ControlId.sendVolume(track_idx, send_idx);
     }
     return null;
 }
 
 /// Handle gesture/start - called when a client begins dragging a fader
-/// Params: { controlType: "volume"|"pan", trackIdx: number }
+/// Params: { controlType: "volume"|"pan"|"send", trackIdx: number, sendIdx?: number }
 pub fn handleStart(_: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const gestures = response.gestures orelse {
         logging.warn("gesture/start called but GestureState not available", .{});
@@ -35,7 +38,7 @@ pub fn handleStart(_: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     };
 
     const control = parseControlId(cmd) orelse {
-        response.err("INVALID_PARAMS", "Required: controlType ('volume'|'pan') and trackIdx");
+        response.err("INVALID_PARAMS", "Required: controlType ('volume'|'pan'|'send'), trackIdx, and sendIdx for 'send'");
         return;
     };
 
@@ -51,7 +54,7 @@ pub fn handleStart(_: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
 }
 
 /// Handle gesture/end - called when a client finishes dragging a fader
-/// Params: { controlType: "volume"|"pan", trackIdx: number }
+/// Params: { controlType: "volume"|"pan"|"send", trackIdx: number, sendIdx?: number }
 /// If this is the last client gesturing on the control, flushes the undo
 pub fn handleEnd(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const gestures = response.gestures orelse {
@@ -61,7 +64,7 @@ pub fn handleEnd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     };
 
     const control = parseControlId(cmd) orelse {
-        response.err("INVALID_PARAMS", "Required: controlType ('volume'|'pan') and trackIdx");
+        response.err("INVALID_PARAMS", "Required: controlType ('volume'|'pan'|'send'), trackIdx, and sendIdx for 'send'");
         return;
     };
 

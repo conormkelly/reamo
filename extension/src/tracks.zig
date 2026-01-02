@@ -11,11 +11,17 @@ pub const MAX_METERED_TRACKS: usize = MAX_TRACKS;
 // Maximum FX per track (covers extreme cases; most tracks have 1-10 FX)
 pub const MAX_FX_PER_TRACK: usize = 64;
 
+// Maximum sends per track (typical: 0-4, extreme: 10+)
+pub const MAX_SENDS_PER_TRACK: usize = 16;
+
 // Maximum track name length
 pub const MAX_NAME_LEN: usize = 128;
 
 // Maximum FX/preset name length
 pub const MAX_FX_NAME_LEN: usize = 128;
+
+// Maximum send destination name length
+pub const MAX_SEND_NAME_LEN: usize = 128;
 
 /// Single FX slot state (preset info for one FX instance)
 pub const FxSlot = struct {
@@ -47,6 +53,28 @@ pub const FxSlot = struct {
     }
 };
 
+/// Single send slot state
+pub const SendSlot = struct {
+    dest_name: [MAX_SEND_NAME_LEN]u8 = undefined,
+    dest_name_len: usize = 0,
+    volume: f64 = 1.0, // Linear, 1.0 = 0dB
+    muted: bool = false,
+    mode: c_int = 0, // 0=post-fader, 1=pre-FX, 3=post-FX
+
+    pub fn getDestName(self: *const SendSlot) []const u8 {
+        return self.dest_name[0..self.dest_name_len];
+    }
+
+    pub fn eql(self: SendSlot, other: SendSlot) bool {
+        if (self.dest_name_len != other.dest_name_len) return false;
+        if (!std.mem.eql(u8, self.dest_name[0..self.dest_name_len], other.dest_name[0..other.dest_name_len])) return false;
+        if (@abs(self.volume - other.volume) > 0.001) return false;
+        if (self.muted != other.muted) return false;
+        if (self.mode != other.mode) return false;
+        return true;
+    }
+};
+
 // Single track state
 pub const Track = struct {
     idx: c_int = 0,
@@ -68,6 +96,9 @@ pub const Track = struct {
     // FX chain state (polled at 5Hz, merged into track events)
     fx: [MAX_FX_PER_TRACK]FxSlot = undefined,
     fx_count: usize = 0,
+    // Send state (polled at 5Hz, merged into track events)
+    sends: [MAX_SENDS_PER_TRACK]SendSlot = undefined,
+    send_count: usize = 0,
 
     pub fn getName(self: *const Track) []const u8 {
         return self.name[0..self.name_len];
@@ -90,6 +121,11 @@ pub const Track = struct {
         if (self.fx_count != other.fx_count) return false;
         for (0..self.fx_count) |i| {
             if (!self.fx[i].eql(other.fx[i])) return false;
+        }
+        // Compare sends
+        if (self.send_count != other.send_count) return false;
+        for (0..self.send_count) |i| {
+            if (!self.sends[i].eql(other.sends[i])) return false;
         }
         return true;
     }
@@ -224,6 +260,21 @@ pub const State = struct {
                     fx.preset_index,
                     fx.preset_count,
                     if (fx.modified) "true" else "false",
+                }) catch return null;
+            }
+            writer.writeAll("]") catch return null;
+
+            // Serialize sends
+            writer.writeAll(",\"sends\":[") catch return null;
+            for (0..t.send_count) |send_i| {
+                if (send_i > 0) writer.writeByte(',') catch return null;
+                const send = &t.sends[send_i];
+                writer.print("{{\"idx\":{d},\"destName\":\"", .{send_i}) catch return null;
+                protocol.writeJsonString(writer, send.getDestName()) catch return null;
+                writer.print("\",\"volume\":{d:.6},\"muted\":{s},\"mode\":{d}}}", .{
+                    send.volume,
+                    if (send.muted) "true" else "false",
+                    send.mode,
                 }) catch return null;
             }
             writer.writeAll("]}") catch return null;

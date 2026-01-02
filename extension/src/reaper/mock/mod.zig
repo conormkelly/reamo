@@ -344,6 +344,18 @@ pub const MockBackend = struct {
     pub const trackFxSetPresetByIndex = tracks.TracksMethods.trackFxSetPresetByIndex;
 
     // =========================================================================
+    // Track Sends (delegated)
+    // =========================================================================
+    pub const trackSendCount = tracks.TracksMethods.trackSendCount;
+    pub const trackSendGetVolume = tracks.TracksMethods.trackSendGetVolume;
+    pub const trackSendGetMute = tracks.TracksMethods.trackSendGetMute;
+    pub const trackSendGetMode = tracks.TracksMethods.trackSendGetMode;
+    pub const trackSendGetDestName = tracks.TracksMethods.trackSendGetDestName;
+    pub const trackSendSetVolume = tracks.TracksMethods.trackSendSetVolume;
+    pub const trackSendToggleMute = tracks.TracksMethods.trackSendToggleMute;
+    pub const trackSendSetMute = tracks.TracksMethods.trackSendSetMute;
+
+    // =========================================================================
     // Marker methods (delegated)
     // =========================================================================
     pub const markerCount = markers.MarkersMethods.markerCount;

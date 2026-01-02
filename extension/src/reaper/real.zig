@@ -372,6 +372,42 @@ pub const RealBackend = struct {
     }
 
     // =========================================================================
+    // Track Sends
+    // =========================================================================
+
+    pub fn trackSendCount(self: *const RealBackend, track: *anyopaque) c_int {
+        return self.inner.trackSendCount(track);
+    }
+
+    pub fn trackSendGetVolume(self: *const RealBackend, track: *anyopaque, send_idx: c_int) f64 {
+        return self.inner.trackSendGetVolume(track, send_idx);
+    }
+
+    pub fn trackSendGetMute(self: *const RealBackend, track: *anyopaque, send_idx: c_int) bool {
+        return self.inner.trackSendGetMute(track, send_idx);
+    }
+
+    pub fn trackSendGetMode(self: *const RealBackend, track: *anyopaque, send_idx: c_int) c_int {
+        return self.inner.trackSendGetMode(track, send_idx);
+    }
+
+    pub fn trackSendGetDestName(self: *const RealBackend, track: *anyopaque, send_idx: c_int, buf: []u8) []const u8 {
+        return self.inner.trackSendGetDestName(track, send_idx, buf);
+    }
+
+    pub fn trackSendSetVolume(self: *const RealBackend, track: *anyopaque, send_idx: c_int, volume: f64) f64 {
+        return self.inner.trackSendSetVolume(track, send_idx, volume);
+    }
+
+    pub fn trackSendToggleMute(self: *const RealBackend, track: *anyopaque, send_idx: c_int) bool {
+        return self.inner.trackSendToggleMute(track, send_idx);
+    }
+
+    pub fn trackSendSetMute(self: *const RealBackend, track: *anyopaque, send_idx: c_int, muted: bool) bool {
+        return self.inner.trackSendSetMute(track, send_idx, muted);
+    }
+
+    // =========================================================================
     // Items
     // =========================================================================
 

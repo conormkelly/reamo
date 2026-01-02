@@ -409,7 +409,15 @@ Expose track send levels for aux/cue bus control. Targets the 5-10% of users wit
 
 **Out of scope:** Hardware output routing (never adjusted mid-session), creating/deleting sends (setup-time operation), MIDI routing.
 
-**Implementation:** Extend tracks event with sends array. Add `send/setVolume` and `send/setMute` commands. Frontend adds SendPanel component.
+**Backend: DONE**
+- [x] Send data polling at 5Hz (destination name, volume, mute state, mode)
+- [x] `send/setVolume` command (uses CSurf_OnSendVolumeChange for undo coalescing)
+- [x] `send/setMute` command
+- [x] Sends included in tracks event payload
+
+**Frontend: PENDING**
+- [ ] SendPanel component (slide-up panel UI)
+- [ ] Integration with track long-press gesture
 
 ---
 
@@ -924,18 +932,16 @@ Small additions that don't warrant full feature specs.
 
 ---
 
-### Project Dirty Flag
+### Project Dirty Flag ✅ COMPLETE
 
 Track whether project has unsaved changes to provide visual feedback on save button.
 
-**REAPER API:**
-```c
-int IsProjectDirty(ReaProject* proj);  // Returns 1 if unsaved changes, 0 otherwise
-```
+**Backend: DONE**
+- [x] Added `IsProjectDirty` to REAPER API bindings
+- [x] Added `isDirty` field to project event payload
 
-**State change:** Add `isDirty: boolean` to project event payload.
-
-**Frontend:** Show indicator on save button (dot, asterisk, or color change) when `isDirty` is true.
+**Frontend: DONE**
+- [x] Show indicator on save button when `isDirty` is true
 
 ---
 

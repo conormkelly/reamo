@@ -13,6 +13,7 @@ pub const MAX_TRACKS = 32;
 pub const MAX_ITEMS_PER_TRACK = 16;
 pub const MAX_TAKES_PER_ITEM = 4;
 pub const MAX_FX_PER_TRACK = 64;
+pub const MAX_SENDS_PER_TRACK = 16;
 pub const MAX_MARKERS = 64;
 pub const MAX_CALLS = 256;
 
@@ -179,6 +180,15 @@ pub const Method = enum {
     trackFxGetPreset,
     trackFxNavigatePresets,
     trackFxSetPresetByIndex,
+    // Track Sends
+    trackSendCount,
+    trackSendGetVolume,
+    trackSendGetMute,
+    trackSendGetMode,
+    trackSendGetDestName,
+    trackSendSetVolume,
+    trackSendToggleMute,
+    trackSendSetMute,
 };
 
 pub const MockTrack = struct {
@@ -203,6 +213,10 @@ pub const MockTrack = struct {
     // FX for this track
     fx_count: c_int = 0,
     fx: [MAX_FX_PER_TRACK]MockFx = [_]MockFx{.{}} ** MAX_FX_PER_TRACK,
+
+    // Sends for this track
+    send_count: c_int = 0,
+    sends: [MAX_SENDS_PER_TRACK]MockSend = [_]MockSend{.{}} ** MAX_SENDS_PER_TRACK,
 
     pub fn setName(self: *MockTrack, name: []const u8) void {
         const len = @min(name.len, self.name.len);
@@ -321,6 +335,25 @@ pub const MockFx = struct {
 
     pub fn getPresetName(self: *const MockFx) []const u8 {
         return self.preset_name[0..self.preset_name_len];
+    }
+};
+
+/// Mock send slot for testing send control.
+pub const MockSend = struct {
+    dest_name: [128]u8 = [_]u8{0} ** 128,
+    dest_name_len: usize = 0,
+    volume: f64 = 1.0, // Linear, 1.0 = 0dB
+    muted: bool = false,
+    mode: c_int = 0, // 0=post-fader, 1=pre-FX, 3=post-FX
+
+    pub fn setDestName(self: *MockSend, name: []const u8) void {
+        const len = @min(name.len, self.dest_name.len);
+        @memcpy(self.dest_name[0..len], name[0..len]);
+        self.dest_name_len = len;
+    }
+
+    pub fn getDestName(self: *const MockSend) []const u8 {
+        return self.dest_name[0..self.dest_name_len];
     }
 };
 

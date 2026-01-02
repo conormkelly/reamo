@@ -332,11 +332,13 @@ fn processTimerCallback() callconv(.c) void {
     // Poll tracks and metering, broadcast changes (HIGH TIER - needs smooth fader/meter updates)
     var current_tracks = tracks.State.poll(&backend);
 
-    // Preserve FX data which is polled at MEDIUM_TIER rate (5Hz), not every frame
-    // FX data is updated in g_last_tracks by MEDIUM_TIER polling, so copy it forward
+    // Preserve FX and Send data which is polled at MEDIUM_TIER rate (5Hz), not every frame
+    // FX/Send data is updated in g_last_tracks by MEDIUM_TIER polling, so copy it forward
     for (0..@min(current_tracks.count, g_last_tracks.count)) |i| {
         current_tracks.tracks[i].fx = g_last_tracks.tracks[i].fx;
         current_tracks.tracks[i].fx_count = g_last_tracks.tracks[i].fx_count;
+        current_tracks.tracks[i].sends = g_last_tracks.tracks[i].sends;
+        current_tracks.tracks[i].send_count = g_last_tracks.tracks[i].send_count;
     }
     const current_metering = tracks.MeteringState.poll(api);
 
@@ -445,6 +447,28 @@ fn processTimerCallback() callconv(.c) void {
                     @memcpy(fx.preset_name[0..preset_len], preset_info.name[0..preset_len]);
                     fx.preset_name_len = preset_len;
                     fx.modified = !preset_info.matches_preset;
+                }
+
+                // Get send count - skip send API calls if no sends
+                const send_count_raw = backend.trackSendCount(track);
+                const send_count: usize = @intCast(@max(0, @min(send_count_raw, @as(c_int, @intCast(tracks.MAX_SENDS_PER_TRACK)))));
+                t.send_count = send_count;
+
+                for (0..send_count) |send_i| {
+                    const send_idx: c_int = @intCast(send_i);
+                    var send = &t.sends[send_i];
+
+                    // Get destination name
+                    var name_buf: [tracks.MAX_SEND_NAME_LEN]u8 = undefined;
+                    const dest_name = backend.trackSendGetDestName(track, send_idx, &name_buf);
+                    const name_len = @min(dest_name.len, tracks.MAX_SEND_NAME_LEN);
+                    @memcpy(send.dest_name[0..name_len], dest_name[0..name_len]);
+                    send.dest_name_len = name_len;
+
+                    // Get send volume, mute, mode
+                    send.volume = backend.trackSendGetVolume(track, send_idx);
+                    send.muted = backend.trackSendGetMute(track, send_idx);
+                    send.mode = backend.trackSendGetMode(track, send_idx);
                 }
             }
         }

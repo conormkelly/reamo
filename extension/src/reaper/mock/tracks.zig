@@ -579,4 +579,91 @@ pub const TracksMethods = struct {
         fx.params_match_preset = true; // Preset was just loaded
         return true;
     }
+
+    // =========================================================================
+    // Track Sends
+    // =========================================================================
+
+    pub fn trackSendCount(self: anytype, track: *anyopaque) c_int {
+        self.recordCall(.trackSendCount);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 0;
+        return self.tracks[idx].send_count;
+    }
+
+    pub fn trackSendGetVolume(self: anytype, track: *anyopaque, send_idx: c_int) f64 {
+        self.recordCall(.trackSendGetVolume);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 1.0;
+        if (send_idx < 0 or send_idx >= self.tracks[idx].send_count) return 1.0;
+        const send_usize: usize = @intCast(send_idx);
+        if (send_usize >= state.MAX_SENDS_PER_TRACK) return 1.0;
+        return self.tracks[idx].sends[send_usize].volume;
+    }
+
+    pub fn trackSendGetMute(self: anytype, track: *anyopaque, send_idx: c_int) bool {
+        self.recordCall(.trackSendGetMute);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        if (send_idx < 0 or send_idx >= self.tracks[idx].send_count) return false;
+        const send_usize: usize = @intCast(send_idx);
+        if (send_usize >= state.MAX_SENDS_PER_TRACK) return false;
+        return self.tracks[idx].sends[send_usize].muted;
+    }
+
+    pub fn trackSendGetMode(self: anytype, track: *anyopaque, send_idx: c_int) c_int {
+        self.recordCall(.trackSendGetMode);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 0;
+        if (send_idx < 0 or send_idx >= self.tracks[idx].send_count) return 0;
+        const send_usize: usize = @intCast(send_idx);
+        if (send_usize >= state.MAX_SENDS_PER_TRACK) return 0;
+        return self.tracks[idx].sends[send_usize].mode;
+    }
+
+    pub fn trackSendGetDestName(self: anytype, track: *anyopaque, send_idx: c_int, buf: []u8) []const u8 {
+        self.recordCall(.trackSendGetDestName);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return "";
+        if (send_idx < 0 or send_idx >= self.tracks[idx].send_count) return "";
+        const send_usize: usize = @intCast(send_idx);
+        if (send_usize >= state.MAX_SENDS_PER_TRACK) return "";
+        const dest_name = self.tracks[idx].sends[send_usize].getDestName();
+        const len = @min(dest_name.len, buf.len);
+        @memcpy(buf[0..len], dest_name[0..len]);
+        return buf[0..len];
+    }
+
+    pub fn trackSendSetVolume(self: anytype, track: *anyopaque, send_idx: c_int, volume: f64) f64 {
+        self.recordCall(.trackSendSetVolume);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return volume;
+        if (send_idx < 0 or send_idx >= self.tracks[idx].send_count) return volume;
+        const send_usize: usize = @intCast(send_idx);
+        if (send_usize >= state.MAX_SENDS_PER_TRACK) return volume;
+        self.tracks[idx].sends[send_usize].volume = volume;
+        return volume;
+    }
+
+    pub fn trackSendToggleMute(self: anytype, track: *anyopaque, send_idx: c_int) bool {
+        self.recordCall(.trackSendToggleMute);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        if (send_idx < 0 or send_idx >= self.tracks[idx].send_count) return false;
+        const send_usize: usize = @intCast(send_idx);
+        if (send_usize >= state.MAX_SENDS_PER_TRACK) return false;
+        self.tracks[idx].sends[send_usize].muted = !self.tracks[idx].sends[send_usize].muted;
+        return true;
+    }
+
+    pub fn trackSendSetMute(self: anytype, track: *anyopaque, send_idx: c_int, muted: bool) bool {
+        self.recordCall(.trackSendSetMute);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        if (send_idx < 0 or send_idx >= self.tracks[idx].send_count) return false;
+        const send_usize: usize = @intCast(send_idx);
+        if (send_usize >= state.MAX_SENDS_PER_TRACK) return false;
+        self.tracks[idx].sends[send_usize].muted = muted;
+        return true;
+    }
 };

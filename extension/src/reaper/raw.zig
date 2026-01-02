@@ -181,6 +181,14 @@ pub const Api = struct {
     trackFX_NavigatePresets: ?*const fn (?*anyopaque, c_int, c_int) callconv(.c) bool = null,
     trackFX_SetPresetByIndex: ?*const fn (?*anyopaque, c_int, c_int) callconv(.c) bool = null,
 
+    // Track Sends
+    getTrackNumSends: ?*const fn (?*anyopaque, c_int) callconv(.c) c_int = null,
+    getTrackSendInfo_Value: ?*const fn (?*anyopaque, c_int, c_int, [*:0]const u8) callconv(.c) f64 = null,
+    setTrackSendInfo_Value: ?*const fn (?*anyopaque, c_int, c_int, [*:0]const u8, f64) callconv(.c) bool = null,
+    getTrackSendName: ?*const fn (?*anyopaque, c_int, [*]u8, c_int) callconv(.c) bool = null,
+    csurf_OnSendVolumeChange: ?*const fn (?*anyopaque, c_int, f64, bool) callconv(.c) f64 = null,
+    toggleTrackSendUIMute: ?*const fn (?*anyopaque, c_int) callconv(.c) bool = null,
+
     // Load API from REAPER plugin info
     pub fn load(info: *PluginInfo) ?Api {
         const showConsoleMsg = getFunc(info, "ShowConsoleMsg", fn ([*:0]const u8) callconv(.c) void) orelse return null;
@@ -304,6 +312,13 @@ pub const Api = struct {
             .trackFX_GetPreset = getFunc(info, "TrackFX_GetPreset", fn (?*anyopaque, c_int, [*]u8, c_int) callconv(.c) bool),
             .trackFX_NavigatePresets = getFunc(info, "TrackFX_NavigatePresets", fn (?*anyopaque, c_int, c_int) callconv(.c) bool),
             .trackFX_SetPresetByIndex = getFunc(info, "TrackFX_SetPresetByIndex", fn (?*anyopaque, c_int, c_int) callconv(.c) bool),
+            // Track Sends
+            .getTrackNumSends = getFunc(info, "GetTrackNumSends", fn (?*anyopaque, c_int) callconv(.c) c_int),
+            .getTrackSendInfo_Value = getFunc(info, "GetTrackSendInfo_Value", fn (?*anyopaque, c_int, c_int, [*:0]const u8) callconv(.c) f64),
+            .setTrackSendInfo_Value = getFunc(info, "SetTrackSendInfo_Value", fn (?*anyopaque, c_int, c_int, [*:0]const u8, f64) callconv(.c) bool),
+            .getTrackSendName = getFunc(info, "GetTrackSendName", fn (?*anyopaque, c_int, [*]u8, c_int) callconv(.c) bool),
+            .csurf_OnSendVolumeChange = getFunc(info, "CSurf_OnSendVolumeChange", fn (?*anyopaque, c_int, f64, bool) callconv(.c) f64),
+            .toggleTrackSendUIMute = getFunc(info, "ToggleTrackSendUIMute", fn (?*anyopaque, c_int) callconv(.c) bool),
         };
     }
 
@@ -1069,6 +1084,61 @@ pub const Api = struct {
     pub fn trackFxSetPresetByIndex(self: *const Api, track: *anyopaque, fx_idx: c_int, preset_idx: c_int) bool {
         const f = self.trackFX_SetPresetByIndex orelse return false;
         return f(track, fx_idx, preset_idx);
+    }
+
+    // Track Send methods
+
+    /// Get number of sends for a track. category: 0 = track sends
+    pub fn trackSendCount(self: *const Api, track: *anyopaque) c_int {
+        const f = self.getTrackNumSends orelse return 0;
+        return f(track, 0); // category 0 = sends to other tracks
+    }
+
+    /// Get send volume (linear, 1.0 = 0dB)
+    pub fn trackSendGetVolume(self: *const Api, track: *anyopaque, send_idx: c_int) f64 {
+        const f = self.getTrackSendInfo_Value orelse return 1.0;
+        return f(track, 0, send_idx, "D_VOL");
+    }
+
+    /// Get send mute state (true = muted)
+    pub fn trackSendGetMute(self: *const Api, track: *anyopaque, send_idx: c_int) bool {
+        const f = self.getTrackSendInfo_Value orelse return false;
+        return f(track, 0, send_idx, "B_MUTE") != 0;
+    }
+
+    /// Get send mode (0=post-fader, 1=pre-FX, 3=post-FX)
+    pub fn trackSendGetMode(self: *const Api, track: *anyopaque, send_idx: c_int) c_int {
+        const f = self.getTrackSendInfo_Value orelse return 0;
+        const val = f(track, 0, send_idx, "I_SENDMODE");
+        return @intFromFloat(val);
+    }
+
+    /// Get send destination name into buffer
+    pub fn trackSendGetDestName(self: *const Api, track: *anyopaque, send_idx: c_int, buf: []u8) []const u8 {
+        const f = self.getTrackSendName orelse return "";
+        if (buf.len == 0) return "";
+        const success = f(track, send_idx, buf.ptr, @intCast(buf.len));
+        if (!success) return "";
+        const len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
+        return buf[0..len];
+    }
+
+    /// Set send volume using CSurf (with undo coalescing)
+    pub fn trackSendSetVolume(self: *const Api, track: *anyopaque, send_idx: c_int, volume: f64) f64 {
+        const f = self.csurf_OnSendVolumeChange orelse return volume;
+        return f(track, send_idx, volume, false); // absolute, not relative
+    }
+
+    /// Toggle send mute state
+    pub fn trackSendToggleMute(self: *const Api, track: *anyopaque, send_idx: c_int) bool {
+        const f = self.toggleTrackSendUIMute orelse return false;
+        return f(track, send_idx);
+    }
+
+    /// Set send mute state directly (when toggle isn't appropriate)
+    pub fn trackSendSetMute(self: *const Api, track: *anyopaque, send_idx: c_int, muted: bool) bool {
+        const f = self.setTrackSendInfo_Value orelse return false;
+        return f(track, 0, send_idx, "B_MUTE", if (muted) 1.0 else 0.0);
     }
 
     // Item methods

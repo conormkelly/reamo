@@ -28,6 +28,7 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 - [Action](#action-commands) — getToggleState, execute, executeByName
 - [MIDI](#midi-commands) — cc, pc
 - [FX](#fx-commands) — presetNext, presetPrev, presetSet
+- [Send](#send-commands) — setVolume, setMute
 
 **Events**
 - [Events (Broadcast)](#events-broadcast) — transport, tracks, markers, regions, items, project
@@ -1147,7 +1148,7 @@ Gestures enable undo coalescing for continuous controls (faders, knobs). When a 
 **How it works:**
 
 1. Client sends `gesture/start` when user begins dragging
-2. Client sends value changes (`track/setVolume`, `track/setPan`)
+2. Client sends value changes (`track/setVolume`, `track/setPan`, `send/setVolume`)
 3. Client sends `gesture/end` when user releases
 4. Server creates a single undo point for the entire gesture
 
@@ -1163,11 +1164,13 @@ Begin a gesture on a continuous control.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `controlType` | string | Yes | `"volume"` or `"pan"` |
+| `controlType` | string | Yes | `"volume"`, `"pan"`, or `"send"` |
 | `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `sendIdx` | int | For send | Send index (required when `controlType` is `"send"`) |
 
 ```json
 {"type": "command", "command": "gesture/start", "controlType": "volume", "trackIdx": 1}
+{"type": "command", "command": "gesture/start", "controlType": "send", "trackIdx": 1, "sendIdx": 0}
 ```
 
 ### `gesture/end`
@@ -1176,11 +1179,13 @@ End a gesture on a continuous control. Triggers undo point creation.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `controlType` | string | Yes | `"volume"` or `"pan"` |
+| `controlType` | string | Yes | `"volume"`, `"pan"`, or `"send"` |
 | `trackIdx` | int | Yes | Track index |
+| `sendIdx` | int | For send | Send index (required when `controlType` is `"send"`) |
 
 ```json
 {"type": "command", "command": "gesture/end", "controlType": "volume", "trackIdx": 1}
+{"type": "command", "command": "gesture/end", "controlType": "send", "trackIdx": 1, "sendIdx": 0}
 ```
 
 ---
@@ -1318,6 +1323,40 @@ Jump to a specific preset by index.
 
 ---
 
+## Send Commands
+
+Control track send levels and mute states. Send state is included in the `tracks` event — see [tracks event](#tracks-event) for the `sends[]` array format.
+
+### `send/setVolume`
+
+Set the volume level for a track send. Uses CSurf API for automatic undo coalescing - wrap with `gesture/start` and `gesture/end` (controlType `"send"`) for proper undo behavior during fader drags.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `sendIdx` | int | Yes | Send index within track (0-based) |
+| `volume` | float | Yes | Volume level (linear, 1.0 = 0dB) |
+
+```json
+{"type": "command", "command": "send/setVolume", "trackIdx": 1, "sendIdx": 0, "volume": 0.5}
+```
+
+### `send/setMute`
+
+Set the mute state for a track send.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `sendIdx` | int | Yes | Send index within track (0-based) |
+| `muted` | int | Yes | Mute state (0 = unmuted, 1 = muted) |
+
+```json
+{"type": "command", "command": "send/setMute", "trackIdx": 1, "sendIdx": 0, "muted": 1}
+```
+
+---
+
 ## Events (Broadcast)
 
 Events are sent to all connected clients when state changes. Polling occurs ~30ms.
@@ -1388,6 +1427,15 @@ High-frequency event broadcast every ~30ms during playback, containing position-
             "presetCount": 12,
             "modified": false
           }
+        ],
+        "sends": [
+          {
+            "idx": 0,
+            "destName": "Reverb Bus",
+            "volume": 0.5,
+            "muted": false,
+            "mode": 0
+          }
         ]
       }
     ],
@@ -1417,13 +1465,19 @@ High-frequency event broadcast every ~30ms during playback, containing position-
 | `tracks[].fx[].presetIndex` | int | Current preset index (-1 if none) |
 | `tracks[].fx[].presetCount` | int | Total number of presets |
 | `tracks[].fx[].modified` | bool | `true` if params don't match preset |
+| `tracks[].sends` | array | Sends (polled at 5Hz, empty if no sends) |
+| `tracks[].sends[].idx` | int | Send index |
+| `tracks[].sends[].destName` | string | Destination track name |
+| `tracks[].sends[].volume` | float | Volume (linear, 1.0 = 0dB) |
+| `tracks[].sends[].muted` | bool | Mute state |
+| `tracks[].sends[].mode` | int | Send mode (0=post-fader, 1=pre-FX, 3=post-FX) |
 | `meters[].trackIdx` | int | Track index |
 | `meters[].peakL/R` | float | Peak level (0.0-1.0+, 1.0 = 0dB) |
 | `meters[].clipped` | bool | Clip indicator (sticky until cleared) |
 
 **Note:** Meters only included for tracks that are record-armed AND input-monitoring.
 
-**Note:** FX data is polled at 5Hz (for efficiency) but included in the 30Hz track events. Max 64 FX per track.
+**Note:** FX and sends are polled at 5Hz (for efficiency) but included in the 30Hz track events. Max 64 FX per track, max 16 sends per track.
 
 ### `markers` Event
 
@@ -1587,6 +1641,7 @@ function secondsToSMPTE(seconds, frameRate, dropFrame) {
 |----------|-----|
 | Tracks polled | 128 |
 | FX per track | 64 |
+| Sends per track | 16 |
 | Metered tracks | 16 |
 | Markers | 256 |
 | Regions | 256 |
