@@ -1,6 +1,7 @@
 const std = @import("std");
 const reaper = @import("reaper.zig");
 const ffi = @import("ffi.zig");
+const ApiInterface = reaper.api.ApiInterface;
 
 // Transport state snapshot
 // Note: project_length, repeat, metronome, bar_offset moved to project.zig (low-frequency project-level settings)
@@ -105,8 +106,16 @@ pub const State = struct {
         return if (self.play_state & 1 != 0) self.play_position else self.cursor_position;
     }
 
-    // Poll current state from REAPER
-    pub fn poll(api: *const reaper.Api) State {
+    /// Poll current state from REAPER (legacy wrapper for backward compatibility)
+    /// Use poll() with ApiInterface for new code.
+    pub fn pollLegacy(api: *const reaper.Api) State {
+        var real = reaper.api.RealApi{ .inner = api };
+        return poll(real.interface());
+    }
+
+    /// Poll current state from REAPER using abstract interface.
+    /// Enables unit testing without REAPER running.
+    pub fn poll(api: ApiInterface) State {
         // Capture server timestamp first (most accurate timing)
         const server_time_ms = api.timePreciseMs();
 
@@ -604,4 +613,124 @@ test "normalizeBeats returns null for NaN" {
 test "normalizeBeats returns null for invalid beats_per_bar" {
     const result = State.normalizeBeats(0, 2.0, 0);
     try std.testing.expect(result == null);
+}
+
+// =============================================================================
+// MockApi-based tests (Phase 8.2)
+// =============================================================================
+
+const MockApi = reaper.mock.MockApi;
+
+test "poll with MockApi returns configured values" {
+    var mock = MockApi{
+        .play_state = 1,
+        .play_position = 5.5,
+        .cursor_position = 2.0,
+        .bpm = 140.0,
+        .timesig_num = 6,
+        .timesig_denom = 8,
+        .time_sel_start = 1.0,
+        .time_sel_end = 10.0,
+        .bar_offset = -4,
+        .tempo_marker_count = 2,
+        .server_time_s = 123.456,
+    };
+    const state = State.poll(mock.interface());
+
+    try std.testing.expectEqual(@as(c_int, 1), state.play_state);
+    try std.testing.expectEqual(@as(f64, 5.5), state.play_position);
+    try std.testing.expectEqual(@as(f64, 2.0), state.cursor_position);
+    try std.testing.expectApproxEqAbs(@as(f64, 140.0), state.bpm, 0.01);
+    try std.testing.expectEqual(@as(c_int, 8), state.time_sig_denom);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), state.time_sel_start, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f64, 10.0), state.time_sel_end, 0.001);
+    try std.testing.expectEqual(@as(c_int, -4), state.bar_offset);
+    try std.testing.expectEqual(@as(c_int, 2), state.tempo_marker_count);
+    try std.testing.expectApproxEqAbs(@as(f64, 123456.0), state.server_time_ms, 0.1);
+}
+
+test "poll handles NaN position gracefully" {
+    var mock = MockApi{
+        .inject_nan_position = true,
+        .play_state = 1,
+        .cursor_position = 5.0, // Cursor is valid, but play position is NaN
+    };
+    const state = State.poll(mock.interface());
+
+    // Play state should still be captured
+    try std.testing.expectEqual(@as(c_int, 1), state.play_state);
+    // Cursor position is valid
+    try std.testing.expectEqual(@as(f64, 5.0), state.cursor_position);
+    // Play position is NaN - we still store it (NaN comparison will fail in eql)
+    try std.testing.expect(std.math.isNan(state.play_position));
+}
+
+test "poll handles NaN beats gracefully" {
+    var mock = MockApi{
+        .inject_nan_beats = true,
+        .play_state = 1,
+        .play_position = 10.0,
+    };
+    const state = State.poll(mock.interface());
+
+    // full_beat_position should be null when NaN
+    try std.testing.expect(state.full_beat_position == null);
+    // position_beat should be null when beats_in_measure is NaN
+    try std.testing.expect(state.position_beat == null);
+}
+
+test "poll calculates bar.beat from time" {
+    var mock = MockApi{
+        .play_state = 1,
+        .play_position = 2.0, // 2 seconds
+        .bpm = 120.0, // 2 beats per second = 4 beats in 2 seconds
+        .timesig_num = 4, // 4/4 time = 4 beats per bar
+        .timesig_denom = 4,
+    };
+    const state = State.poll(mock.interface());
+
+    // At 120 BPM, 2 seconds = 4 beats = 1 full bar
+    // MockApi returns bar 2 (1-based), beat 0 (0-based in beats_in_measure)
+    try std.testing.expectEqual(@as(c_int, 2), state.position_bar);
+    // After normalization, beat should be 1.0 (1-based display)
+    try std.testing.expect(state.position_beat != null);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), state.position_beat.?, 0.01);
+}
+
+test "poll tracks API calls correctly" {
+    var mock = MockApi{};
+    _ = State.poll(mock.interface());
+
+    // Verify key API calls were made
+    try std.testing.expect(mock.getCallCount(.playState) >= 1);
+    try std.testing.expect(mock.getCallCount(.playPosition) >= 1);
+    try std.testing.expect(mock.getCallCount(.cursorPosition) >= 1);
+    try std.testing.expect(mock.getCallCount(.timeToBeats) >= 1);
+    try std.testing.expect(mock.getCallCount(.timeSelection) >= 1);
+    try std.testing.expect(mock.getCallCount(.getTempoAtPosition) >= 1);
+    try std.testing.expect(mock.getCallCount(.tempoMarkerCount) >= 1);
+}
+
+test "poll uses play_position when playing" {
+    var mock = MockApi{
+        .play_state = 1, // Playing
+        .play_position = 10.0,
+        .cursor_position = 5.0,
+    };
+    const state = State.poll(mock.interface());
+
+    // currentPosition should return play_position when playing
+    try std.testing.expectEqual(@as(f64, 10.0), state.currentPosition());
+}
+
+test "poll uses cursor_position when stopped" {
+    var mock = MockApi{
+        .play_state = 0, // Stopped
+        .play_position = 10.0,
+        .cursor_position = 5.0,
+    };
+    const state = State.poll(mock.interface());
+
+    // currentPosition should return cursor_position when stopped
+    try std.testing.expectEqual(@as(f64, 5.0), state.currentPosition());
 }

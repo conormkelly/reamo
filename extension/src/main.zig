@@ -173,7 +173,7 @@ fn initTimerCallback() callconv(.c) void {
     api.setExtStateStr("Reamo", "WebSocketPort", port_str);
 
     // Initialize state caches
-    g_last_transport = transport.State.poll(api);
+    g_last_transport = transport.State.pollLegacy(api);
     g_last_project = project.State.poll(api);
     g_last_markers = markers.State.poll(api);
     g_last_items = items.State.poll(api);
@@ -241,7 +241,7 @@ fn processTimerCallback() callconv(.c) void {
     const snapshot_count = shared_state.popClientsNeedingSnapshot(&snapshot_clients);
     if (snapshot_count > 0) {
         // Get current state for all domains
-        const trans = transport.State.poll(api);
+        const trans = transport.State.pollLegacy(api);
         const proj = project.State.poll(api);
         const mark = markers.State.poll(api);
         const trks = tracks.State.poll(api);
@@ -298,7 +298,7 @@ fn processTimerCallback() callconv(.c) void {
 
     // Poll transport state and broadcast changes
     // Use lightweight tick when only position changed during playback
-    const current_transport = transport.State.poll(api);
+    const current_transport = transport.State.pollLegacy(api);
     if (!current_transport.eql(g_last_transport)) {
         const state_changed = !current_transport.stateOnlyEql(g_last_transport);
         const is_playing = transport.PlayState.isPlaying(current_transport.play_state);

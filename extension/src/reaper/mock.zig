@@ -81,7 +81,7 @@ pub const MockApi = struct {
     // Command state
     // =========================================================================
     metronome_enabled: bool = false,
-    command_states: [16]struct { cmd: c_int = 0, state: c_int = -1 } = [_]struct { cmd: c_int = 0, state: c_int = -1 }{.{}} ** 16,
+    command_states: [16]CommandStateEntry = [_]CommandStateEntry{.{}} ** 16,
     command_state_count: usize = 0,
 
     // =========================================================================
@@ -102,21 +102,7 @@ pub const MockApi = struct {
     // =========================================================================
     // ExtState (fixed array for testing)
     // =========================================================================
-    ext_states: [16]struct {
-        section: [64]u8 = undefined,
-        section_len: usize = 0,
-        key: [64]u8 = undefined,
-        key_len: usize = 0,
-        value: [256]u8 = undefined,
-        value_len: usize = 0,
-    } = [_]struct {
-        section: [64]u8 = undefined,
-        section_len: usize = 0,
-        key: [64]u8 = undefined,
-        key_len: usize = 0,
-        value: [256]u8 = undefined,
-        value_len: usize = 0,
-    }{.{}} ** 16,
+    ext_states: [16]ExtStateEntry = [_]ExtStateEntry{.{}} ** 16,
     ext_state_count: usize = 0,
 
     // =========================================================================
@@ -141,6 +127,17 @@ pub const MockApi = struct {
     pub const MAX_TAKES_PER_ITEM = 4;
     pub const MAX_MARKERS = 64;
     pub const MAX_CALLS = 256;
+
+    pub const CommandStateEntry = struct { cmd: c_int = 0, state: c_int = -1 };
+
+    pub const ExtStateEntry = struct {
+        section: [64]u8 = undefined,
+        section_len: usize = 0,
+        key: [64]u8 = undefined,
+        key_len: usize = 0,
+        value: [256]u8 = undefined,
+        value_len: usize = 0,
+    };
 
     pub const CallEntry = struct {
         method: Method,
