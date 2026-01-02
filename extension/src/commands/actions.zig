@@ -2,6 +2,7 @@ const std = @import("std");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
+const logging = @import("../logging.zig");
 
 // Action command handlers
 pub const handlers = [_]mod.Entry{
@@ -31,7 +32,7 @@ fn handleExecuteCommand(api: *const reaper.Api, cmd: protocol.CommandMessage, re
     };
 
     api.runCommand(command_id);
-    api.log("Reamo: Executed command {d}", .{command_id});
+    logging.debug("Executed command {d}", .{command_id});
     response.success(null);
 }
 
@@ -49,6 +50,6 @@ fn handleExecuteByName(api: *const reaper.Api, cmd: protocol.CommandMessage, res
     }
 
     api.runCommand(command_id);
-    api.log("Reamo: Executed named command {s}", .{name});
+    logging.debug("Executed named command {s}", .{name});
     response.success(null);
 }

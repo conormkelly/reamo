@@ -2,6 +2,7 @@ const std = @import("std");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
+const logging = @import("../logging.zig");
 
 // Item command handlers
 pub const handlers = [_]mod.Entry{
@@ -43,13 +44,13 @@ fn handleItemSetActiveTake(api: *const reaper.Api, cmd: protocol.CommandMessage,
     // Bounds check: verify take index is valid
     const num_takes = api.itemTakeCount(item_info.item);
     if (take_idx < 0 or take_idx >= num_takes) {
-        api.log("Reamo: Invalid take index {d} (item has {d} takes)", .{ take_idx, num_takes });
+        logging.warn("Invalid take index {d} (item has {d} takes)", .{ take_idx, num_takes });
         response.err("INVALID_TAKE_INDEX", "Take index out of range");
         return;
     }
 
     if (api.setItemActiveTake(item_info.item, take_idx)) {
-        api.log("Reamo: Set active take to {d}", .{take_idx});
+        logging.debug("Set active take to {d}", .{take_idx});
     }
 }
 
@@ -64,7 +65,7 @@ fn handleItemMove(api: *const reaper.Api, cmd: protocol.CommandMessage, response
     };
 
     if (api.setItemPosition(item_info.item, position)) {
-        api.log("Reamo: Moved item to {d:.2}", .{position});
+        logging.debug("Moved item to {d:.2}", .{position});
     }
 }
 
@@ -79,7 +80,7 @@ fn handleItemColor(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
     };
 
     if (api.setItemColor(item_info.item, color)) {
-        api.log("Reamo: Set item color to {d}", .{color});
+        logging.debug("Set item color to {d}", .{color});
     }
 }
 
@@ -93,7 +94,7 @@ fn handleItemLock(api: *const reaper.Api, cmd: protocol.CommandMessage, response
     const locked = if (cmd.getInt("locked")) |v| v != 0 else !api.getItemLocked(item_info.item);
 
     if (api.setItemLocked(item_info.item, locked)) {
-        api.log("Reamo: Set item locked to {}", .{locked});
+        logging.debug("Set item locked to {}", .{locked});
     }
 }
 
@@ -105,7 +106,7 @@ fn handleItemNotes(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
     const notes = cmd.getString("notes") orelse "";
 
     if (api.setItemNotes(item_info.item, notes)) {
-        api.log("Reamo: Updated item notes", .{});
+        logging.debug("Updated item notes", .{});
     }
 }
 
@@ -117,7 +118,7 @@ fn handleItemDelete(api: *const reaper.Api, cmd: protocol.CommandMessage, respon
 
     api.undoBeginBlock();
     if (api.deleteItem(item_info.track, item_info.item)) {
-        api.log("Reamo: Deleted item", .{});
+        logging.debug("Deleted item", .{});
     }
     api.undoEndBlock("Reamo: Delete item");
 }
@@ -143,20 +144,20 @@ fn handleItemSelect(api: *const reaper.Api, cmd: protocol.CommandMessage, respon
 
     // Select the specified item
     if (api.setItemSelected(item_info.item, true)) {
-        api.log("Reamo: Selected item", .{});
+        logging.debug("Selected item", .{});
     }
 }
 
 // Select all items within time selection (on selected tracks)
 fn handleSelectInTimeSel(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.SELECT_ALL_ITEMS_IN_TIME_SEL);
-    api.log("Reamo: Selected items in time selection", .{});
+    logging.debug("Selected items in time selection", .{});
 }
 
 // Deselect all items
 fn handleUnselectAll(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.UNSELECT_ALL_ITEMS);
-    api.log("Reamo: Unselected all items", .{});
+    logging.debug("Unselected all items", .{});
 }
 
 // Maximum peaks per request (enforced limit)
@@ -217,7 +218,7 @@ fn handleItemGetPeaks(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
     const total_samples: usize = @intFromFloat(length * @as(f64, PEAK_SAMPLE_RATE));
     const samples_per_peak = @max(total_samples / num_peaks, 1);
 
-    api.log("Reamo: getPeaks - length={d:.2}s, total_samples={d}, samples_per_peak={d}", .{
+    logging.debug("getPeaks - length={d:.2}s, total_samples={d}, samples_per_peak={d}", .{
         length, total_samples, samples_per_peak,
     });
 
@@ -248,7 +249,7 @@ fn handleItemGetPeaks(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
         );
 
         if (rv < 0) {
-            api.log("Reamo: getPeaks - readAccessorSamples error at {d}s", .{start_time});
+            logging.warn("getPeaks - readAccessorSamples error at {d}s", .{start_time});
             break;
         }
         if (rv == 0) {
@@ -300,7 +301,7 @@ fn handleItemGetPeaks(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
         break :blk 1; // All L/R identical = mono (or dual mono)
     };
 
-    api.log("Reamo: getPeaks - computed {d} peaks, detected_ch={d}, max[0]={d:.4}, min[0]={d:.4}", .{
+    logging.debug("getPeaks - computed {d} peaks, detected_ch={d}, max[0]={d:.4}, min[0]={d:.4}", .{
         num_peaks, detected_channels, peak_max[0], peak_min[0],
     });
 

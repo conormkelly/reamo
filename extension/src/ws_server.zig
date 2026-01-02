@@ -1,6 +1,7 @@
 const std = @import("std");
 const websocket = @import("websocket");
 const protocol = @import("protocol.zig");
+const logging = @import("logging.zig");
 
 const Allocator = std.mem.Allocator;
 const Thread = std.Thread;
@@ -175,8 +176,8 @@ pub const SharedState = struct {
     pub fn markNeedsSnapshot(self: *SharedState, client_id: usize) void {
         self.mutex.lock();
         defer self.mutex.unlock();
-        self.clients_needing_snapshot.put(client_id, {}) catch |err| {
-            std.log.warn("markNeedsSnapshot failed for client {d}: {} - client won't receive initial state", .{ client_id, err });
+        self.clients_needing_snapshot.put(client_id, {}) catch |e| {
+            logging.warn("markNeedsSnapshot failed for client {d}: {} - client won't receive initial state", .{ client_id, e });
         };
     }
 
@@ -204,11 +205,11 @@ pub const SharedState = struct {
 
         const id = self.next_client_id;
         self.next_client_id += 1;
-        self.clients.put(id, conn) catch |err| {
-            std.log.err("CLIENT ADD FAILED id={d}: {}", .{ id, err });
+        self.clients.put(id, conn) catch |e| {
+            logging.err("CLIENT ADD FAILED id={d}: {}", .{ id, e });
             return null;
         };
-        std.log.info("CLIENT ADD id={d} total={d}", .{ id, self.clients.count() });
+        logging.info("CLIENT ADD id={d} total={d}", .{ id, self.clients.count() });
         return id;
     }
 
@@ -218,10 +219,10 @@ pub const SharedState = struct {
         defer self.mutex.unlock();
         _ = self.clients.swapRemove(id);
         // Track disconnected client for gesture cleanup by main thread
-        self.disconnected_clients.put(id, {}) catch |err| {
-            std.log.warn("Failed to track disconnected client {d}: {} - gesture cleanup may be incomplete", .{ id, err });
+        self.disconnected_clients.put(id, {}) catch |e| {
+            logging.warn("Failed to track disconnected client {d}: {} - gesture cleanup may be incomplete", .{ id, e });
         };
-        std.log.info("CLIENT REMOVE id={d} total={d}", .{ id, self.clients.count() });
+        logging.info("CLIENT REMOVE id={d} total={d}", .{ id, self.clients.count() });
     }
 
     // Called by main thread to get and clear disconnected clients

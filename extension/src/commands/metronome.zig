@@ -2,6 +2,7 @@ const std = @import("std");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
+const logging = @import("../logging.zig");
 
 // Metronome command handlers
 pub const handlers = [_]mod.Entry{
@@ -43,7 +44,7 @@ fn handleSetVolume(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
     }
 
     if (api.setMetronomeVolume(linear)) {
-        api.log("Reamo: Set metronome volume to {d:.3}", .{linear});
+        logging.debug("Set metronome volume to {d:.3}", .{linear});
         response.success(null);
     } else {
         response.err("FAILED", "Could not set metronome volume");

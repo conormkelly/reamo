@@ -2,6 +2,7 @@ const std = @import("std");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
+const logging = @import("../logging.zig");
 
 // Take command handlers
 pub const handlers = [_]mod.Entry{
@@ -16,7 +17,7 @@ fn handleTakeDelete(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.
     api.undoBeginBlock();
     api.runCommand(reaper.Command.DELETE_ACTIVE_TAKE);
     api.undoEndBlock("Reamo: Delete active take");
-    api.log("Reamo: Deleted active take", .{});
+    logging.debug("Deleted active take", .{});
 }
 
 fn handleTakeCropToActive(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
@@ -24,17 +25,17 @@ fn handleTakeCropToActive(api: *const reaper.Api, _: protocol.CommandMessage, _:
     api.undoBeginBlock();
     api.runCommand(reaper.Command.CROP_TO_ACTIVE_TAKE);
     api.undoEndBlock("Reamo: Crop to active take");
-    api.log("Reamo: Cropped to active take", .{});
+    logging.debug("Cropped to active take", .{});
 }
 
 // Activate next take in selected items
 fn handleTakeNext(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.NEXT_TAKE);
-    api.log("Reamo: Activated next take", .{});
+    logging.debug("Activated next take", .{});
 }
 
 // Activate previous take in selected items
 fn handleTakePrev(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.PREV_TAKE);
-    api.log("Reamo: Activated previous take", .{});
+    logging.debug("Activated previous take", .{});
 }

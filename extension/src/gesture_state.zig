@@ -1,4 +1,5 @@
 const std = @import("std");
+const logging = @import("logging.zig");
 
 /// Timeout for gesture inactivity (500ms)
 pub const GESTURE_TIMEOUT_NS: i128 = 500 * std.time.ns_per_ms;
@@ -75,16 +76,16 @@ pub const GestureState = struct {
         const now = std.time.nanoTimestamp();
         self.last_any_activity_ns = now;
 
-        const entry = self.gestures.getOrPut(control) catch |err| {
-            std.log.warn("beginGesture failed for client {d}: {} - gesture coalescing may not work", .{ client_id, err });
+        const entry = self.gestures.getOrPut(control) catch |e| {
+            logging.warn("beginGesture failed for client {d}: {} - gesture coalescing may not work", .{ client_id, e });
             return false;
         };
 
         if (!entry.found_existing) {
             entry.value_ptr.* = ActiveGesture.init(self.allocator);
         }
-        entry.value_ptr.clients.put(client_id, {}) catch |err| {
-            std.log.warn("beginGesture client tracking failed for client {d}: {}", .{ client_id, err });
+        entry.value_ptr.clients.put(client_id, {}) catch |e| {
+            logging.warn("beginGesture client tracking failed for client {d}: {}", .{ client_id, e });
         };
         entry.value_ptr.last_change_ns = now;
 
@@ -126,8 +127,8 @@ pub const GestureState = struct {
         while (it.next()) |entry| {
             _ = entry.value_ptr.clients.remove(client_id);
             if (entry.value_ptr.clients.count() == 0) {
-                to_remove.append(self.allocator, entry.key_ptr.*) catch |err| {
-                    std.log.warn("removeClientFromAll cleanup failed: {} - stale gesture may remain", .{err});
+                to_remove.append(self.allocator, entry.key_ptr.*) catch |e| {
+                    logging.warn("removeClientFromAll cleanup failed: {} - stale gesture may remain", .{e});
                 };
             }
         }
@@ -163,8 +164,8 @@ pub const GestureState = struct {
         while (it.next()) |entry| {
             const control_idle = (now - entry.value_ptr.last_change_ns) > GESTURE_TIMEOUT_NS;
             if (control_idle) {
-                to_remove.append(self.allocator, entry.key_ptr.*) catch |err| {
-                    std.log.warn("checkTimeouts cleanup failed: {} - stale gesture may remain", .{err});
+                to_remove.append(self.allocator, entry.key_ptr.*) catch |e| {
+                    logging.warn("checkTimeouts cleanup failed: {} - stale gesture may remain", .{e});
                 };
             }
         }

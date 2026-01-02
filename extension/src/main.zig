@@ -12,6 +12,10 @@ const gesture_state = @import("gesture_state.zig");
 const toggle_subscriptions = @import("toggle_subscriptions.zig");
 const project_notes = @import("project_notes.zig");
 const errors = @import("errors.zig");
+const logging = @import("logging.zig");
+
+// Use custom panic handler that flushes log ring buffer before aborting
+pub const panic = logging.panic;
 
 // Configuration
 const DEFAULT_PORT: u16 = 9224;
@@ -53,35 +57,6 @@ var g_frame_counter: u32 = 0;
 const MEDIUM_TIER_INTERVAL: u32 = 6; // 30Hz / 6 = 5Hz
 const LOW_TIER_INTERVAL: u32 = 30; // 30Hz / 30 = 1Hz
 
-// Debug logging (can be disabled in release)
-var g_log_file: ?std.fs.File = null;
-
-fn logFile(msg: []const u8) void {
-    if (g_log_file) |f| {
-        const ts = std.time.timestamp();
-        var buf: [64]u8 = undefined;
-        const ts_str = std.fmt.bufPrint(&buf, "[{d}] ", .{ts}) catch return;
-        _ = f.write(ts_str) catch {};
-        _ = f.write(msg) catch {};
-        _ = f.write("\n") catch {};
-    }
-}
-
-fn initLogFile() void {
-    g_log_file = std.fs.cwd().createFile("/tmp/reamo-extension.log", .{ .truncate = false }) catch null;
-    if (g_log_file) |f| {
-        f.seekFromEnd(0) catch {};
-        logFile("=== Reamo Extension Started ===");
-    }
-}
-
-fn closeLogFile() void {
-    if (g_log_file) |f| {
-        logFile("=== Reamo Extension Ended ===");
-        f.close();
-        g_log_file = null;
-    }
-}
 
 /// Broadcast an error event to all clients with rate limiting
 /// Only broadcasts if enough time has passed since the last broadcast of this error type
@@ -104,35 +79,36 @@ fn initTimerCallback() callconv(.c) void {
     g_initialized = true;
 
     const api = &(g_api orelse return);
-    api.logSimple("Reamo: Deferred initialization starting...");
+    logging.info("Deferred initialization starting...", .{});
 
     g_allocator = std.heap.page_allocator;
 
-    initLogFile();
-    logFile("initTimerCallback() started");
+    // Initialize logging with REAPER's resource path
+    logging.init(api.resourcePath());
+    logging.info("initTimerCallback() started", .{});
 
     // Initialize hot reload file path
     if (api.resourcePath()) |res_path| {
-        std.debug.print("[Reamo] Resource path: {s}\n", .{res_path});
+        logging.debug("Resource path: {s}", .{res_path});
         const written = std.fmt.bufPrint(&g_html_path_buf, "{s}/reaper_www_root/reamo.html", .{res_path}) catch null;
         if (written) |path| {
             g_html_path = path;
-            std.debug.print("[Reamo] Watching: {s}\n", .{path});
+            logging.debug("Watching: {s}", .{path});
             // Get initial mtime
             if (std.fs.cwd().statFile(path)) |stat| {
                 g_html_mtime = stat.mtime;
-                std.debug.print("[Reamo] Initial mtime: {}\n", .{stat.mtime});
+                logging.debug("Initial mtime: {}", .{stat.mtime});
             } else |err| {
-                std.debug.print("[Reamo] Could not stat file: {s}\n", .{@errorName(err)});
+                logging.warn("Could not stat file: {s}", .{@errorName(err)});
             }
         }
     } else {
-        std.debug.print("[Reamo] Could not get resource path\n", .{});
+        logging.warn("Could not get resource path", .{});
     }
 
     // Create shared state
     const state = g_allocator.create(ws_server.SharedState) catch {
-        api.logSimple("Reamo: Failed to allocate shared state");
+        logging.err("Failed to allocate shared state", .{});
         return;
     };
     state.* = ws_server.SharedState.init(g_allocator);
@@ -140,7 +116,7 @@ fn initTimerCallback() callconv(.c) void {
 
     // Create gesture state for undo coalescing
     const gestures = g_allocator.create(gesture_state.GestureState) catch {
-        api.logSimple("Reamo: Failed to allocate gesture state");
+        logging.err("Failed to allocate gesture state", .{});
         return;
     };
     gestures.* = gesture_state.GestureState.init(g_allocator);
@@ -148,7 +124,7 @@ fn initTimerCallback() callconv(.c) void {
 
     // Create toggle subscriptions state
     const toggles = g_allocator.create(toggle_subscriptions.ToggleSubscriptions) catch {
-        api.logSimple("Reamo: Failed to allocate toggle subscriptions state");
+        logging.err("Failed to allocate toggle subscriptions state", .{});
         return;
     };
     toggles.* = toggle_subscriptions.ToggleSubscriptions.init(g_allocator);
@@ -158,7 +134,7 @@ fn initTimerCallback() callconv(.c) void {
 
     // Create project notes subscriptions state
     const notes_subs = g_allocator.create(project_notes.NotesSubscriptions) catch {
-        api.logSimple("Reamo: Failed to allocate notes subscriptions state");
+        logging.err("Failed to allocate notes subscriptions state", .{});
         return;
     };
     notes_subs.* = project_notes.NotesSubscriptions.init(g_allocator);
@@ -180,11 +156,11 @@ fn initTimerCallback() callconv(.c) void {
     const token_hex = std.fmt.bytesToHex(token_bytes, .lower);
     state.setToken(&token_hex);
     api.setExtStateStr("Reamo", "SessionToken", &token_hex);
-    api.log("Reamo: Session token generated", .{});
+    logging.info("Session token generated", .{});
 
     // Start WebSocket server
     const result = ws_server.startWithPortRetry(g_allocator, state, DEFAULT_PORT, MAX_PORT_ATTEMPTS) catch {
-        api.logSimple("Reamo: Could not bind to ports 9224-9233");
+        logging.err("Could not bind to ports 9224-9233", .{});
         return;
     };
 
@@ -204,14 +180,13 @@ fn initTimerCallback() callconv(.c) void {
     g_last_tracks = tracks.State.poll(api);
     g_last_tempomap = tempomap.State.poll(api);
 
-    api.log("Reamo: WebSocket server started on port {d}", .{g_port});
-    logFile("WebSocket server started");
+    logging.info("WebSocket server started on port {d}", .{g_port});
 
     // Switch to processing timer
     api.unregisterTimer(&initTimerCallback);
     api.registerTimer(&processTimerCallback);
 
-    logFile("initTimerCallback() complete");
+    logging.info("initTimerCallback() complete", .{});
 }
 
 // Main processing timer - runs every ~30ms
@@ -236,7 +211,7 @@ fn processTimerCallback() callconv(.c) void {
                 var flush_buf: [16]gesture_state.ControlId = undefined;
                 const flush_count = gestures.removeClientFromAll(client_id, &flush_buf);
                 if (flush_count > 0) {
-                    api.log("Reamo: Client {d} disconnected, flushing {d} gestures", .{ client_id, flush_count });
+                    logging.info("Client {d} disconnected, flushing {d} gestures", .{ client_id, flush_count });
                     api.csurfFlushUndo(true);
                 }
             }
@@ -256,7 +231,7 @@ fn processTimerCallback() callconv(.c) void {
         var timeout_buf: [16]gesture_state.ControlId = undefined;
         const timeout_count = gestures.checkTimeouts(&timeout_buf);
         if (timeout_count > 0) {
-            api.log("Reamo: Flushing {d} timed-out gestures", .{timeout_count});
+            logging.info("Flushing {d} timed-out gestures", .{timeout_count});
             api.csurfFlushUndo(true);
         }
     }
@@ -464,14 +439,14 @@ fn processTimerCallback() callconv(.c) void {
         if (g_html_path) |path| {
             if (std.fs.cwd().statFile(path)) |stat| {
                 if (stat.mtime != g_html_mtime) {
-                    std.debug.print("[Reamo] HTML changed: mtime {} -> {}\n", .{ g_html_mtime, stat.mtime });
+                    logging.debug("HTML changed: mtime {} -> {}", .{ g_html_mtime, stat.mtime });
                     g_html_mtime = stat.mtime;
                     shared_state.setHtmlMtime(stat.mtime);
                     shared_state.broadcast("{\"type\":\"event\",\"event\":\"reload\"}");
-                    std.debug.print("[Reamo] Broadcast reload event\n", .{});
+                    logging.debug("Broadcast reload event", .{});
                 }
             } else |err| {
-                std.debug.print("[Reamo] Stat failed: {s}\n", .{@errorName(err)});
+                logging.warn("Stat failed: {s}", .{@errorName(err)});
             }
         }
     }
@@ -479,61 +454,57 @@ fn processTimerCallback() callconv(.c) void {
 
 // Shutdown - called when REAPER unloads the extension
 fn shutdown() void {
-    logFile("shutdown() called");
+    logging.info("shutdown() called", .{});
 
     if (g_api) |*api| {
-        api.logSimple("Reamo: Shutting down...");
         api.unregisterTimer(&processTimerCallback);
     }
-    logFile("timer unregistered");
+    logging.info("timer unregistered", .{});
 
     if (g_server) |*server| {
-        logFile("stopping server");
+        logging.info("stopping server", .{});
         server.stop();
         server.deinit();
         g_server = null;
     }
-    logFile("server stopped");
+    logging.info("server stopped", .{});
 
     if (g_gesture_state) |gestures| {
-        logFile("cleaning up gesture state");
+        logging.info("cleaning up gesture state", .{});
         gestures.deinit();
         g_allocator.destroy(gestures);
         g_gesture_state = null;
     }
-    logFile("gesture state cleaned up");
+    logging.info("gesture state cleaned up", .{});
 
     if (g_toggle_subs) |toggles| {
-        logFile("cleaning up toggle subscriptions");
+        logging.info("cleaning up toggle subscriptions", .{});
         commands.toggle_state_cmds.g_toggle_subs = null;
         toggles.deinit();
         g_allocator.destroy(toggles);
         g_toggle_subs = null;
     }
-    logFile("toggle subscriptions cleaned up");
+    logging.info("toggle subscriptions cleaned up", .{});
 
     if (g_notes_subs) |notes| {
-        logFile("cleaning up notes subscriptions");
+        logging.info("cleaning up notes subscriptions", .{});
         commands.project_notes_cmds.g_notes_subs = null;
         notes.deinit();
         g_allocator.destroy(notes);
         g_notes_subs = null;
     }
-    logFile("notes subscriptions cleaned up");
+    logging.info("notes subscriptions cleaned up", .{});
 
     if (g_shared_state) |state| {
-        logFile("cleaning up shared state");
+        logging.info("cleaning up shared state", .{});
         state.deinit();
         g_allocator.destroy(state);
         g_shared_state = null;
     }
-    logFile("shared state cleaned up");
+    logging.info("shared state cleaned up", .{});
 
-    if (g_api) |*api| {
-        api.logSimple("Reamo: Shutdown complete");
-    }
-    logFile("shutdown() complete");
-    closeLogFile();
+    logging.info("shutdown() complete", .{});
+    logging.deinit();
 }
 
 // Main entry point - called by REAPER
@@ -559,8 +530,6 @@ export fn ReaperPluginEntry(hInstance: ?*anyopaque, rec: ?*reaper.PluginInfo) ca
     // Register deferred initialization timer
     g_api.?.registerTimer(&initTimerCallback);
 
-    g_api.?.logSimple("Reamo: Extension loaded successfully!");
-
     return 1;
 }
 
@@ -568,6 +537,7 @@ export fn ReaperPluginEntry(hInstance: ?*anyopaque, rec: ?*reaper.PluginInfo) ca
 test {
     _ = @import("errors.zig");
     _ = @import("ffi.zig");
+    _ = @import("logging.zig");
     _ = @import("protocol.zig");
     _ = @import("transport.zig");
     _ = @import("project.zig");

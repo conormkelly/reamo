@@ -2,6 +2,7 @@ const std = @import("std");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
+const logging = @import("../logging.zig");
 
 // Transport command handlers
 pub const handlers = [_]mod.Entry{
@@ -74,5 +75,5 @@ fn handleSeekBeats(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
     // Convert bar.beat to time using REAPER's native conversion
     const time = api.barBeatToTime(bar, beat);
     api.setCursorPos(time);
-    api.log("Reamo: Seek to bar {d}.{d:.1} ({d:.3}s)", .{ bar, beat, time });
+    logging.info("Seek to bar {d}.{d:.1} ({d:.3}s)", .{ bar, beat, time });
 }

@@ -2,6 +2,7 @@ const std = @import("std");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
+const logging = @import("../logging.zig");
 
 // Time selection command handlers
 pub const handlers = [_]mod.Entry{
@@ -31,7 +32,7 @@ fn handleSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
     }
 
     api.setTimeSelection(start, end);
-    api.log("Reamo: Set time selection {d:.2} - {d:.2}", .{ start, end });
+    logging.debug("Set time selection {d:.2} - {d:.2}", .{ start, end });
 }
 
 // Set time selection by bar (with optional beat precision)
@@ -60,7 +61,7 @@ fn handleSetBars(api: *const reaper.Api, cmd: protocol.CommandMessage, response:
     }
 
     api.setTimeSelection(start_time, end_time);
-    api.log("Reamo: Set time selection bar {d}.{d:.1} - bar {d}.{d:.1}", .{ start_bar, start_beat, end_bar, end_beat });
+    logging.debug("Set time selection bar {d}.{d:.1} - bar {d}.{d:.1}", .{ start_bar, start_beat, end_bar, end_beat });
 }
 
 // Clear time selection (uses REAPER's built-in command)

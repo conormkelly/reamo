@@ -2,6 +2,7 @@ const std = @import("std");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
+const logging = @import("../logging.zig");
 
 // Marker command handlers
 pub const handlers = [_]mod.Entry{
@@ -27,7 +28,7 @@ fn handleMarkerAdd(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
     const id = api.addMarker(pos, name, color);
     api.undoEndBlock("Reamo: Add marker");
     if (id >= 0) {
-        api.log("Reamo: Added marker {d} at {d:.2}", .{ id, pos });
+        logging.debug("Added marker {d} at {d:.2}", .{ id, pos });
     }
 }
 
@@ -83,10 +84,10 @@ fn handleMarkerUpdate(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
     if (reset_to_default) {
         _ = api.deleteMarker(id);
         _ = api.addMarkerWithId(pos, name, 0, id);
-        api.log("Reamo: Reset marker {d} to default color", .{id});
+        logging.debug("Reset marker {d} to default color", .{id});
     } else {
         if (api.updateMarker(id, pos, name, color)) {
-            api.log("Reamo: Updated marker {d}", .{id});
+            logging.debug("Updated marker {d}", .{id});
         }
     }
 
@@ -100,7 +101,7 @@ fn handleMarkerDelete(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
     };
     api.undoBeginBlock();
     if (api.deleteMarker(id)) {
-        api.log("Reamo: Deleted marker {d}", .{id});
+        logging.debug("Deleted marker {d}", .{id});
     }
     api.undoEndBlock("Reamo: Delete marker");
 }

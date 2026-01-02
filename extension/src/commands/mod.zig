@@ -4,6 +4,7 @@ const protocol = @import("../protocol.zig");
 const ws_server = @import("../ws_server.zig");
 const gesture_state = @import("../gesture_state.zig");
 const errors = @import("../errors.zig");
+const logging = @import("../logging.zig");
 
 // Import domain-specific command modules
 const transport_cmds = @import("transport.zig");
@@ -162,7 +163,7 @@ pub fn dispatch(api: *const reaper.Api, client_id: usize, data: []const u8, shar
     switch (msg_type) {
         .command => {
             const cmd = protocol.CommandMessage.parse(data) orelse {
-                api.log("Reamo: Failed to parse command", .{});
+                logging.warn("Failed to parse command", .{});
                 return;
             };
 
@@ -180,21 +181,21 @@ pub fn dispatch(api: *const reaper.Api, client_id: usize, data: []const u8, shar
                 }
             }
 
-            api.log("Reamo: Unknown command: {s}", .{cmd.command});
+            logging.warn("Unknown command: {s}", .{cmd.command});
             response.err("UNKNOWN_COMMAND", "Command not found");
         },
         .hello => {
             // Hello messages are handled directly by ws_server.zig
             // They should not reach the dispatch function
-            api.log("Reamo: Unexpected hello message in dispatch", .{});
+            logging.warn("Unexpected hello message in dispatch", .{});
         },
         .clockSync => {
             // Clock sync messages are handled directly by ws_server.zig (bypass queue)
             // They should not reach the dispatch function
-            api.log("Reamo: Unexpected clockSync message in dispatch", .{});
+            logging.warn("Unexpected clockSync message in dispatch", .{});
         },
         .unknown => {
-            api.log("Reamo: Unknown message type", .{});
+            logging.warn("Unknown message type", .{});
         },
     }
 }

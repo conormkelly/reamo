@@ -2,6 +2,7 @@ const std = @import("std");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
+const logging = @import("../logging.zig");
 
 // Region command handlers
 pub const handlers = [_]mod.Entry{
@@ -30,7 +31,7 @@ fn handleRegionAdd(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
     const id = api.addRegion(start, end, name, color);
     api.undoEndBlock("Reamo: Add region");
     if (id >= 0) {
-        api.log("Reamo: Added region {d} from {d:.2} to {d:.2}", .{ id, start, end });
+        logging.debug("Added region {d} from {d:.2} to {d:.2}", .{ id, start, end });
     }
 }
 
@@ -48,7 +49,7 @@ fn handleRegionUpdate(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
 
     api.undoBeginBlock();
     if (api.updateRegion(id, start, end, name, color)) {
-        api.log("Reamo: Updated region {d}", .{id});
+        logging.debug("Updated region {d}", .{id});
     }
     api.undoEndBlock("Reamo: Update region");
 }
@@ -60,7 +61,7 @@ fn handleRegionDelete(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
     };
     api.undoBeginBlock();
     if (api.deleteRegion(id)) {
-        api.log("Reamo: Deleted region {d}", .{id});
+        logging.debug("Deleted region {d}", .{id});
     }
     api.undoEndBlock("Reamo: Delete region");
 }
@@ -155,7 +156,7 @@ fn handleRegionBatch(api: *const reaper.Api, cmd: protocol.CommandMessage, respo
     };
 
     response.success(resp);
-    api.log("Reamo: Batch region edit - applied {d}, skipped {d}", .{ applied, skipped });
+    logging.debug("Batch region edit - applied {d}, skipped {d}", .{ applied, skipped });
 }
 
 const OpResult = union(enum) {

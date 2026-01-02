@@ -3,6 +3,7 @@ const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const gesture_state = @import("../gesture_state.zig");
+const logging = @import("../logging.zig");
 
 /// Gesture command handlers for undo coalescing
 /// These manage the lifecycle of continuous control gestures (fader drags, etc.)
@@ -26,9 +27,9 @@ fn parseControlId(cmd: protocol.CommandMessage) ?gesture_state.ControlId {
 
 /// Handle gesture/start - called when a client begins dragging a fader
 /// Params: { controlType: "volume"|"pan", trackIdx: number }
-fn handleStart(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+fn handleStart(_: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const gestures = response.gestures orelse {
-        api.log("Reamo: gesture/start called but GestureState not available", .{});
+        logging.warn("gesture/start called but GestureState not available", .{});
         response.err("INTERNAL_ERROR", "Gesture tracking not initialized");
         return;
     };
@@ -39,7 +40,7 @@ fn handleStart(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *
     };
 
     const is_new = gestures.beginGesture(control, response.client_id);
-    api.log("Reamo: GESTURE START {s} track {d} (new={}, client={})", .{
+    logging.debug("GESTURE START {s} track {d} (new={}, client={})", .{
         @tagName(control.control_type),
         control.track_idx,
         is_new,
@@ -54,7 +55,7 @@ fn handleStart(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *
 /// If this is the last client gesturing on the control, flushes the undo
 fn handleEnd(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const gestures = response.gestures orelse {
-        api.log("Reamo: gesture/end called but GestureState not available", .{});
+        logging.warn("gesture/end called but GestureState not available", .{});
         response.err("INTERNAL_ERROR", "Gesture tracking not initialized");
         return;
     };
@@ -65,7 +66,7 @@ fn handleEnd(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
     };
 
     const should_flush = gestures.endGesture(control, response.client_id);
-    api.log("Reamo: GESTURE END {s} track {d} (flush={}, client={})", .{
+    logging.debug("GESTURE END {s} track {d} (flush={}, client={})", .{
         @tagName(control.control_type),
         control.track_idx,
         should_flush,
@@ -73,7 +74,7 @@ fn handleEnd(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
     });
 
     if (should_flush) {
-        api.log("Reamo: Calling CSurf_FlushUndo(true)", .{});
+        logging.debug("Calling CSurf_FlushUndo(true)", .{});
         api.csurfFlushUndo(true);
     }
 

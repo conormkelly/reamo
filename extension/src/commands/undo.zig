@@ -2,6 +2,7 @@ const std = @import("std");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
+const logging = @import("../logging.zig");
 
 // Undo command handlers
 pub const handlers = [_]mod.Entry{
@@ -26,14 +27,14 @@ fn handleAdd(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
     const desc_z: [*:0]const u8 = @ptrCast(&desc_buf);
 
     api.undoAddPoint(desc_z);
-    api.log("Reamo: Added undo point: {s}", .{description});
+    logging.info("Added undo point: {s}", .{description});
     response.success(null);
 }
 
 // Begin an undo block (for grouping multiple operations)
 fn handleBegin(api: *const reaper.Api, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     api.undoBeginBlock();
-    api.log("Reamo: Undo block started", .{});
+    logging.info("Undo block started", .{});
     response.success(null);
 }
 
@@ -51,7 +52,7 @@ fn handleEnd(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
     const desc_z: [*:0]const u8 = @ptrCast(&desc_buf);
 
     api.undoEndBlock(desc_z);
-    api.log("Reamo: Undo block ended: {s}", .{description});
+    logging.info("Undo block ended: {s}", .{description});
     response.success(null);
 }
 
@@ -70,7 +71,7 @@ fn handleUndo(api: *const reaper.Api, _: protocol.CommandMessage, response: *mod
         return;
     }
 
-    api.log("Reamo: Undo performed: {s}", .{action_desc.?});
+    logging.info("Undo performed: {s}", .{action_desc.?});
 
     // Return success with the action that was undone
     response.successWithAction(action_desc.?);
@@ -91,7 +92,7 @@ fn handleRedo(api: *const reaper.Api, _: protocol.CommandMessage, response: *mod
         return;
     }
 
-    api.log("Reamo: Redo performed: {s}", .{action_desc.?});
+    logging.info("Redo performed: {s}", .{action_desc.?});
 
     // Return success with the action that was redone
     response.successWithAction(action_desc.?);

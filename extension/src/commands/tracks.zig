@@ -3,6 +3,7 @@ const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const gesture_state = @import("../gesture_state.zig");
+const logging = @import("../logging.zig");
 
 // Track command handlers
 pub const handlers = [_]mod.Entry{
@@ -51,7 +52,7 @@ fn handleSetVolume(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
         gestures.recordActivity(gesture_state.ControlId.volume(track_idx));
     }
 
-    api.log("Reamo: Set track volume to {d:.3}", .{clamped});
+    logging.debug("Set track volume to {d:.3}", .{clamped});
 }
 
 // Set track pan (-1.0..1.0)
@@ -80,7 +81,7 @@ fn handleSetPan(api: *const reaper.Api, cmd: protocol.CommandMessage, response: 
         gestures.recordActivity(gesture_state.ControlId.pan(track_idx));
     }
 
-    api.log("Reamo: Set track pan to {d:.2}", .{clamped});
+    logging.debug("Set track pan to {d:.2}", .{clamped});
 }
 
 // Set track mute (toggle if no value provided)
@@ -100,7 +101,7 @@ fn handleSetMute(api: *const reaper.Api, cmd: protocol.CommandMessage, response:
     const mute = if (cmd.getInt("mute")) |v| v != 0 else !current_mute;
     // Use CSurf API - properly handles master track unlike SetMediaTrackInfo_Value
     if (api.csurfSetMute(track, mute, true)) {
-        api.log("Reamo: Set track mute to {}", .{mute});
+        logging.debug("Set track mute to {}", .{mute});
     }
 }
 
@@ -127,7 +128,7 @@ fn handleSetSolo(api: *const reaper.Api, cmd: protocol.CommandMessage, response:
     const solo = if (cmd.getInt("solo")) |v| v else if (current_solo > 0) @as(c_int, 0) else @as(c_int, 1);
     // Use CSurf API - properly handles master track unlike SetMediaTrackInfo_Value
     if (api.csurfSetSolo(track, solo, true)) {
-        api.log("Reamo: Set track solo to {d}", .{solo});
+        logging.debug("Set track solo to {d}", .{solo});
     }
 }
 
@@ -141,7 +142,7 @@ fn handleSetRecArm(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
     const arm = if (cmd.getInt("arm")) |v| v != 0 else !api.getTrackRecArm(track);
     // Use CSurf API for gang support
     if (api.csurfSetRecArm(track, arm, true)) {
-        api.log("Reamo: Set track rec arm to {}", .{arm});
+        logging.debug("Set track rec arm to {}", .{arm});
     }
 }
 
@@ -163,7 +164,7 @@ fn handleSetRecMon(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
     // Use CSurf API for gang support
     const result = api.csurfSetRecMon(track, mon, true);
     if (result >= 0) {
-        api.log("Reamo: Set track rec mon to {d}", .{result});
+        logging.debug("Set track rec mon to {d}", .{result});
     }
 }
 
@@ -175,7 +176,7 @@ fn handleSetFxEnabled(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
     };
     const enabled = if (cmd.getInt("enabled")) |v| v != 0 else !api.getTrackFxEnabled(track);
     if (api.setTrackFxEnabled(track, enabled)) {
-        api.log("Reamo: Set track FX enabled to {}", .{enabled});
+        logging.debug("Set track FX enabled to {}", .{enabled});
     }
 }
 
@@ -187,7 +188,7 @@ fn handleSetSelected(api: *const reaper.Api, cmd: protocol.CommandMessage, respo
     };
     const selected = if (cmd.getInt("selected")) |v| v != 0 else !api.getTrackSelected(track);
     if (api.setTrackSelected(track, selected)) {
-        api.log("Reamo: Set track selected to {}", .{selected});
+        logging.debug("Set track selected to {}", .{selected});
     }
 }
 
@@ -210,7 +211,7 @@ fn handleDeselectAll(api: *const reaper.Api, cmd: protocol.CommandMessage, respo
         }
     }
 
-    api.log("Reamo: Unselected all tracks", .{});
+    logging.debug("Unselected all tracks", .{});
 }
 
 // Clear clip indicator for a track's input meter
@@ -222,6 +223,6 @@ fn handleClearClip(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
     // Clear REAPER's internal peak hold for both channels
     // Next metering poll will see hold is now clear (no clipping)
     api.clearTrackPeakHold(track);
-    api.log("Reamo: Cleared clip indicator for track", .{});
+    logging.debug("Cleared clip indicator for track", .{});
     response.success(null);
 }

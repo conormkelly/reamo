@@ -2,6 +2,7 @@ const std = @import("std");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
+const logging = @import("../logging.zig");
 
 // ExtState command handlers
 pub const handlers = [_]mod.Entry{
@@ -89,7 +90,7 @@ fn handleSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
     const value_z: [*:0]const u8 = @ptrCast(&value_buf);
 
     api.setExtStateValue(section_z, key_z, value_z, persist);
-    api.log("Reamo: Set extstate {s}/{s} (persist={any})", .{ section, key, persist });
+    logging.debug("Set extstate {s}/{s} (persist={any})", .{ section, key, persist });
     response.success(null);
 }
 
@@ -151,7 +152,7 @@ fn handleProjSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response:
     const value_z: [*:0]const u8 = @ptrCast(&value_buf);
 
     api.setProjExtStateValue(extname_z, key_z, value_z);
-    api.log("Reamo: Set proj extstate {s}/{s}", .{ extname, key });
+    logging.debug("Set proj extstate {s}/{s}", .{ extname, key });
     response.success(null);
 }
 

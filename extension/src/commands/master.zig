@@ -2,6 +2,7 @@ const std = @import("std");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
+const logging = @import("../logging.zig");
 
 // Master track command handlers
 pub const handlers = [_]mod.Entry{
@@ -25,6 +26,6 @@ fn handleToggleMono(api: *const reaper.Api, _: protocol.CommandMessage, response
         return;
     };
 
-    api.log("Reamo: Toggled master mono, stereoEnabled={s}", .{if (stereo_enabled) "true" else "false"});
+    logging.debug("Toggled master mono, stereoEnabled={s}", .{if (stereo_enabled) "true" else "false"});
     response.success(json);
 }

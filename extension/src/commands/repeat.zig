@@ -2,6 +2,7 @@ const std = @import("std");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
+const logging = @import("../logging.zig");
 
 // Repeat command handlers
 pub const handlers = [_]mod.Entry{
@@ -17,7 +18,7 @@ fn handleSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
     };
 
     api.setRepeat(enabled != 0);
-    api.log("Reamo: Set repeat to {}", .{enabled != 0});
+    logging.debug("Set repeat to {}", .{enabled != 0});
 }
 
 // Toggle repeat state (uses REAPER's built-in command)

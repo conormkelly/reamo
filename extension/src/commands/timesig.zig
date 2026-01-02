@@ -2,6 +2,7 @@ const std = @import("std");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
+const logging = @import("../logging.zig");
 
 // Time signature command handlers
 pub const handlers = [_]mod.Entry{
@@ -41,7 +42,7 @@ fn handleSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
     api.undoEndBlock("Reamo: Adjust time signature");
 
     if (success) {
-        api.log("Reamo: Set time signature to {d}/{d}", .{ numerator, denominator });
+        logging.debug("Set time signature to {d}/{d}", .{ numerator, denominator });
         response.success(null);
     } else {
         response.err("FAILED", "Failed to set time signature");
