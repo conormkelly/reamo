@@ -2,12 +2,12 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 // ============================================================================
-// Custom Panic Handler
+// Custom Panic Handler (Zig 0.15 API)
 // ============================================================================
 
-/// Custom panic handler that flushes the ring buffer before aborting.
+/// Custom panic implementation that flushes the ring buffer before aborting.
 /// This ensures we have context about what led to the crash.
-pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
+fn panicImpl(msg: []const u8, ret_addr: ?usize) noreturn {
     // Log the panic message
     log(.err, "PANIC: {s}", .{msg});
 
@@ -15,8 +15,11 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_
     flushRingBuffer();
 
     // Call default panic behavior (prints stack trace and aborts)
-    std.builtin.default_panic(msg, error_return_trace, ret_addr);
+    std.debug.defaultPanic(msg, ret_addr);
 }
+
+/// Export panic handler namespace for Zig 0.15
+pub const panic = std.debug.FullPanic(panicImpl);
 
 /// Log levels for runtime configuration
 pub const Level = enum(u8) {
@@ -170,20 +173,20 @@ fn rotateIfNeeded() void {
 
         if (i == MAX_ROTATIONS) {
             // Delete oldest
-            const len = std.fmt.bufPrint(&old_path, "{s}.{d}", .{ path, i }) catch continue;
-            std.fs.deleteFileAbsolute(old_path[0..len]) catch {};
+            const old_slice = std.fmt.bufPrint(&old_path, "{s}.{d}", .{ path, i }) catch continue;
+            std.fs.deleteFileAbsolute(old_slice) catch {};
         } else {
             // Rename .N to .N+1
-            const old_len = std.fmt.bufPrint(&old_path, "{s}.{d}", .{ path, i }) catch continue;
-            const new_len = std.fmt.bufPrint(&new_path, "{s}.{d}", .{ path, i + 1 }) catch continue;
-            std.fs.renameAbsolute(old_path[0..old_len], new_path[0..new_len]) catch {};
+            const old_slice = std.fmt.bufPrint(&old_path, "{s}.{d}", .{ path, i }) catch continue;
+            const new_slice = std.fmt.bufPrint(&new_path, "{s}.{d}", .{ path, i + 1 }) catch continue;
+            std.fs.renameAbsolute(old_slice, new_slice) catch {};
         }
     }
 
     // Rename current .log to .1
     var first_rotation: [520]u8 = undefined;
-    const first_len = std.fmt.bufPrint(&first_rotation, "{s}.1", .{path}) catch return;
-    std.fs.renameAbsolute(path, first_rotation[0..first_len]) catch {};
+    const first_slice = std.fmt.bufPrint(&first_rotation, "{s}.1", .{path}) catch return;
+    std.fs.renameAbsolute(path, first_slice) catch {};
 }
 
 /// Shutdown the logger (called on extension unload)
@@ -246,7 +249,7 @@ pub fn log(level: Level, comptime fmt: []const u8, args: anytype) void {
 
     // Also write to stderr in debug builds
     if (builtin.mode == .Debug) {
-        std.io.getStdErr().write(line) catch {};
+        std.debug.print("{s}", .{line});
     }
 }
 
