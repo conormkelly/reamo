@@ -382,7 +382,7 @@ Each file needs:
 
 ## Progress Tracking
 
-### Current Phase: 4 (JSON Safety)
+### Current Phase: 5 (Allocation Failure Handling)
 
 ### Completed
 
@@ -418,10 +418,19 @@ Each file needs:
 - [x] main.zig: Added broadcastRateLimitedError() helper function
 - [x] main.zig: Added errors.zig and ffi.zig to test imports
 
+**Phase 4: JSON Safety** ✓
+- [x] Audited all JSON output locations across codebase
+- [x] extstate.zig: Created formatValueResponse() helper using protocol.writeJsonString()
+- [x] extstate.zig: Added 8 comprehensive tests for escaping edge cases
+- [x] project.zig: Refactored toJson() to use stream + protocol.writeJsonString()
+- [x] project.zig: Removed custom escapeJson() function (was stripping non-ASCII)
+- [x] project.zig: Added test for special characters in undo/redo descriptions
+- [x] commands/project_notes.zig: Replaced inline escaping with protocol.writeJsonString()
+- [x] Verified: tracks.zig, markers.zig, items.zig already use protocol.writeJsonString()
+- [x] All modules now use centralized protocol.writeJsonString() for consistency
+
 ### In Progress
-- [ ] Phase 4.1: Audit all JSON output locations
-- [ ] Phase 4.2: Ensure protocol.writeJsonString() used for all user strings
-- [ ] Phase 4.3: Test with ExtState values containing special characters
+- [ ] Phase 5.1: Audit all allocation sites (grep for catch {} and catch return)
 
 ### Blocked
 - None
@@ -455,4 +464,4 @@ The assistant should:
 ---
 
 *Last updated: 2026-01-02*
-*Current phase: 4 (JSON Safety)*
+*Current phase: 5 (Allocation Failure Handling)*

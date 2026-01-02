@@ -1,5 +1,6 @@
 const std = @import("std");
 const reaper = @import("reaper.zig");
+const protocol = @import("protocol.zig");
 
 // Project state snapshot
 // Contains: undo/redo state + project-level settings (moved from transport for efficiency)
@@ -88,97 +89,52 @@ pub const State = struct {
     }
 
     // Build JSON event for this state
+    // Uses protocol.writeJsonString() for consistent escaping across all modules
     pub fn toJson(self: *const State, buf: []u8) ?[]const u8 {
         const metro_vol_db = reaper.Api.linearToDb(self.metronome_volume);
         const project_length = truncateMs(self.project_length);
 
-        // Escape JSON strings
-        var undo_escaped: [512]u8 = undefined;
-        var redo_escaped: [512]u8 = undefined;
+        var stream = std.io.fixedBufferStream(buf);
+        const writer = stream.writer();
 
-        const undo_desc = self.canUndo();
-        const redo_desc = self.canRedo();
+        writer.writeAll("{\"type\":\"event\",\"event\":\"project\",\"payload\":{\"canUndo\":") catch return null;
 
-        const undo_str = if (undo_desc) |desc|
-            escapeJson(desc, &undo_escaped) orelse "null"
-        else
-            "null";
+        // Write canUndo - either escaped string or null
+        if (self.canUndo()) |desc| {
+            writer.writeByte('"') catch return null;
+            protocol.writeJsonString(writer, desc) catch return null;
+            writer.writeByte('"') catch return null;
+        } else {
+            writer.writeAll("null") catch return null;
+        }
 
-        const redo_str = if (redo_desc) |desc|
-            escapeJson(desc, &redo_escaped) orelse "null"
-        else
-            "null";
+        writer.writeAll(",\"canRedo\":") catch return null;
 
-        // Format: canUndo/canRedo are either "string" or null
-        // Now includes project-level settings: repeat, metronome, master, projectLength, barOffset, isDirty
-        const master_stereo_str = if (self.master_stereo) "true" else "false";
-        const is_dirty_str = if (self.is_dirty) "true" else "false";
-        const result = if (undo_desc != null and redo_desc != null)
-            std.fmt.bufPrint(buf,
-                \\{{"type":"event","event":"project","payload":{{"canUndo":"{s}","canRedo":"{s}","stateChangeCount":{d},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"master":{{"stereoEnabled":{s}}},"projectLength":{d:.3},"barOffset":{d},"isDirty":{s}}}}}
-            , .{ undo_str, redo_str, self.state_change_count, if (self.repeat) "true" else "false", if (self.metronome_enabled) "true" else "false", self.metronome_volume, metro_vol_db, master_stereo_str, project_length, self.bar_offset, is_dirty_str })
-        else if (undo_desc != null)
-            std.fmt.bufPrint(buf,
-                \\{{"type":"event","event":"project","payload":{{"canUndo":"{s}","canRedo":null,"stateChangeCount":{d},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"master":{{"stereoEnabled":{s}}},"projectLength":{d:.3},"barOffset":{d},"isDirty":{s}}}}}
-            , .{ undo_str, self.state_change_count, if (self.repeat) "true" else "false", if (self.metronome_enabled) "true" else "false", self.metronome_volume, metro_vol_db, master_stereo_str, project_length, self.bar_offset, is_dirty_str })
-        else if (redo_desc != null)
-            std.fmt.bufPrint(buf,
-                \\{{"type":"event","event":"project","payload":{{"canUndo":null,"canRedo":"{s}","stateChangeCount":{d},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"master":{{"stereoEnabled":{s}}},"projectLength":{d:.3},"barOffset":{d},"isDirty":{s}}}}}
-            , .{ redo_str, self.state_change_count, if (self.repeat) "true" else "false", if (self.metronome_enabled) "true" else "false", self.metronome_volume, metro_vol_db, master_stereo_str, project_length, self.bar_offset, is_dirty_str })
-        else
-            std.fmt.bufPrint(buf,
-                \\{{"type":"event","event":"project","payload":{{"canUndo":null,"canRedo":null,"stateChangeCount":{d},"repeat":{s},"metronome":{{"enabled":{s},"volume":{d:.4},"volumeDb":{d:.2}}},"master":{{"stereoEnabled":{s}}},"projectLength":{d:.3},"barOffset":{d},"isDirty":{s}}}}}
-            , .{ self.state_change_count, if (self.repeat) "true" else "false", if (self.metronome_enabled) "true" else "false", self.metronome_volume, metro_vol_db, master_stereo_str, project_length, self.bar_offset, is_dirty_str });
+        // Write canRedo - either escaped string or null
+        if (self.canRedo()) |desc| {
+            writer.writeByte('"') catch return null;
+            protocol.writeJsonString(writer, desc) catch return null;
+            writer.writeByte('"') catch return null;
+        } else {
+            writer.writeAll("null") catch return null;
+        }
 
-        return result catch null;
+        // Write remaining fields
+        writer.print(",\"stateChangeCount\":{d},\"repeat\":{s},\"metronome\":{{\"enabled\":{s},\"volume\":{d:.4},\"volumeDb\":{d:.2}}},\"master\":{{\"stereoEnabled\":{s}}},\"projectLength\":{d:.3},\"barOffset\":{d},\"isDirty\":{s}}}}}", .{
+            self.state_change_count,
+            if (self.repeat) "true" else "false",
+            if (self.metronome_enabled) "true" else "false",
+            self.metronome_volume,
+            metro_vol_db,
+            if (self.master_stereo) "true" else "false",
+            project_length,
+            self.bar_offset,
+            if (self.is_dirty) "true" else "false",
+        }) catch return null;
+
+        return stream.getWritten();
     }
 };
-
-// Escape a string for JSON (handles quotes, backslashes, control chars)
-// Also strips non-ASCII bytes to ensure valid UTF-8 output
-fn escapeJson(input: []const u8, buf: []u8) ?[]const u8 {
-    var i: usize = 0;
-    for (input) |c| {
-        if (i + 2 > buf.len) return null; // Need room for escape + char
-        switch (c) {
-            '"' => {
-                buf[i] = '\\';
-                buf[i + 1] = '"';
-                i += 2;
-            },
-            '\\' => {
-                buf[i] = '\\';
-                buf[i + 1] = '\\';
-                i += 2;
-            },
-            '\n' => {
-                buf[i] = '\\';
-                buf[i + 1] = 'n';
-                i += 2;
-            },
-            '\r' => {
-                buf[i] = '\\';
-                buf[i + 1] = 'r';
-                i += 2;
-            },
-            '\t' => {
-                buf[i] = '\\';
-                buf[i + 1] = 't';
-                i += 2;
-            },
-            else => {
-                // Skip control characters and non-ASCII bytes
-                // (non-ASCII may be invalid UTF-8 from legacy REAPER strings)
-                if (c < 0x20 or c >= 0x80) {
-                    continue;
-                }
-                buf[i] = c;
-                i += 1;
-            },
-        }
-    }
-    return buf[0..i];
-}
 
 // Tests
 test "State.eql compares all fields" {
@@ -265,18 +221,17 @@ test "State.toJson with neither" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"isDirty\":false") != null);
 }
 
-test "escapeJson handles special characters" {
-    var buf: [64]u8 = undefined;
+test "State.toJson escapes special characters in undo/redo" {
+    var state = State{
+        .state_change_count = 1,
+    };
+    const undo_desc = "Edit \"item\" notes";
+    @memcpy(state.undo_buf[0..undo_desc.len], undo_desc);
+    state.undo_len = undo_desc.len;
 
-    // Quotes
-    const result1 = escapeJson("say \"hello\"", &buf).?;
-    try std.testing.expectEqualStrings("say \\\"hello\\\"", result1);
+    var buf: [1024]u8 = undefined;
+    const json = state.toJson(&buf).?;
 
-    // Backslash
-    const result2 = escapeJson("path\\file", &buf).?;
-    try std.testing.expectEqualStrings("path\\\\file", result2);
-
-    // Newline
-    const result3 = escapeJson("line1\nline2", &buf).?;
-    try std.testing.expectEqualStrings("line1\\nline2", result3);
+    // Verify quotes are escaped
+    try std.testing.expect(std.mem.indexOf(u8, json, "Edit \\\"item\\\" notes") != null);
 }

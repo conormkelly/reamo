@@ -11,6 +11,24 @@ pub const handlers = [_]mod.Entry{
     .{ .name = "extstate/projSet", .handler = handleProjSet },
 };
 
+/// Build JSON response for ExtState value with proper escaping.
+/// Returns the JSON payload slice, or null if buffer too small.
+/// Format: {"value":"escaped_value"} or {"value":null}
+pub fn formatValueResponse(value: ?[]const u8, buf: []u8) ?[]const u8 {
+    var stream = std.io.fixedBufferStream(buf);
+    const writer = stream.writer();
+
+    if (value) |v| {
+        writer.writeAll("{\"value\":\"") catch return null;
+        protocol.writeJsonString(writer, v) catch return null;
+        writer.writeAll("\"}") catch return null;
+    } else {
+        writer.writeAll("{\"value\":null}") catch return null;
+    }
+
+    return stream.getWritten();
+}
+
 // Get global extended state value
 fn handleGet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const section = cmd.getString("section") orelse {
@@ -28,17 +46,14 @@ fn handleGet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
     const section_z = mod.toNullTerminated(&section_buf, section);
     const key_z = mod.toNullTerminated(&key_buf, key);
 
-    if (api.getExtStateValue(section_z, key_z)) |value| {
-        // Build JSON response with escaped value
-        var payload_buf: [1024]u8 = undefined;
-        const payload = std.fmt.bufPrint(&payload_buf, "{{\"value\":\"{s}\"}}", .{value}) catch {
-            response.err("VALUE_TOO_LONG", "Value exceeds buffer size");
-            return;
-        };
+    const value = api.getExtStateValue(section_z, key_z);
+
+    // Buffer: 2x max value (1024) for worst-case escaping + JSON overhead
+    var payload_buf: [2200]u8 = undefined;
+    if (formatValueResponse(value, &payload_buf)) |payload| {
         response.success(payload);
     } else {
-        // Return null value if not found
-        response.success("{\"value\":null}");
+        response.err("VALUE_TOO_LONG", "Value exceeds buffer size");
     }
 }
 
@@ -96,16 +111,14 @@ fn handleProjGet(api: *const reaper.Api, cmd: protocol.CommandMessage, response:
     const key_z = mod.toNullTerminated(&key_buf, key);
 
     var value_buf: [16384]u8 = undefined;
-    if (api.getProjExtStateValue(extname_z, key_z, &value_buf)) |value| {
-        // Build JSON response
-        var payload_buf: [16500]u8 = undefined;
-        const payload = std.fmt.bufPrint(&payload_buf, "{{\"value\":\"{s}\"}}", .{value}) catch {
-            response.err("VALUE_TOO_LONG", "Value exceeds buffer size");
-            return;
-        };
+    const value = api.getProjExtStateValue(extname_z, key_z, &value_buf);
+
+    // Buffer: 2x max value (16384) for worst-case escaping + JSON overhead
+    var payload_buf: [33000]u8 = undefined;
+    if (formatValueResponse(value, &payload_buf)) |payload| {
         response.success(payload);
     } else {
-        response.success("{\"value\":null}");
+        response.err("VALUE_TOO_LONG", "Value exceeds buffer size");
     }
 }
 
@@ -140,4 +153,56 @@ fn handleProjSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response:
     api.setProjExtStateValue(extname_z, key_z, value_z);
     api.log("Reamo: Set proj extstate {s}/{s}", .{ extname, key });
     response.success(null);
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+test "formatValueResponse with simple value" {
+    var buf: [64]u8 = undefined;
+    const result = formatValueResponse("hello", &buf).?;
+    try std.testing.expectEqualStrings("{\"value\":\"hello\"}", result);
+}
+
+test "formatValueResponse with null value" {
+    var buf: [64]u8 = undefined;
+    const result = formatValueResponse(null, &buf).?;
+    try std.testing.expectEqualStrings("{\"value\":null}", result);
+}
+
+test "formatValueResponse escapes quotes" {
+    var buf: [64]u8 = undefined;
+    const result = formatValueResponse("say \"hello\"", &buf).?;
+    try std.testing.expectEqualStrings("{\"value\":\"say \\\"hello\\\"\"}", result);
+}
+
+test "formatValueResponse escapes backslashes" {
+    var buf: [64]u8 = undefined;
+    const result = formatValueResponse("path\\to\\file", &buf).?;
+    try std.testing.expectEqualStrings("{\"value\":\"path\\\\to\\\\file\"}", result);
+}
+
+test "formatValueResponse escapes newlines and tabs" {
+    var buf: [64]u8 = undefined;
+    const result = formatValueResponse("line1\nline2\ttab", &buf).?;
+    try std.testing.expectEqualStrings("{\"value\":\"line1\\nline2\\ttab\"}", result);
+}
+
+test "formatValueResponse escapes control characters" {
+    var buf: [64]u8 = undefined;
+    const result = formatValueResponse("before\x01after", &buf).?;
+    try std.testing.expectEqualStrings("{\"value\":\"before\\u0001after\"}", result);
+}
+
+test "formatValueResponse handles empty string" {
+    var buf: [64]u8 = undefined;
+    const result = formatValueResponse("", &buf).?;
+    try std.testing.expectEqualStrings("{\"value\":\"\"}", result);
+}
+
+test "formatValueResponse returns null on buffer overflow" {
+    var buf: [10]u8 = undefined; // Too small
+    const result = formatValueResponse("this is a long value", &buf);
+    try std.testing.expect(result == null);
 }

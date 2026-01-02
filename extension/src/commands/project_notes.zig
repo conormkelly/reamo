@@ -103,40 +103,27 @@ fn handleSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
 }
 
 /// Helper to send notes response with proper JSON escaping
+/// Uses protocol.writeJsonString() for consistent escaping across all modules
 fn sendNotesResponse(response: *mod.ResponseWriter, notes: []const u8, hash: u64) void {
     // Format hash as hex
     var hash_buf: [16]u8 = undefined;
     const hash_hex = project_notes.hashToHex(hash, &hash_buf);
 
-    // We need to JSON-escape the notes content
-    // Use a large buffer for escaped content
+    // Use a large buffer for escaped content (2x for worst-case escaping + overhead)
     var payload_buf: [project_notes.MAX_NOTES_SIZE * 2 + 100]u8 = undefined;
     var stream = std.io.fixedBufferStream(&payload_buf);
-    var writer = stream.writer();
+    const writer = stream.writer();
 
     writer.writeAll("{\"notes\":\"") catch {
         response.err("JSON_ERROR", "Failed to format response");
         return;
     };
 
-    // Write JSON-escaped notes
-    for (notes) |c| {
-        switch (c) {
-            '"' => writer.writeAll("\\\"") catch {},
-            '\\' => writer.writeAll("\\\\") catch {},
-            '\n' => writer.writeAll("\\n") catch {},
-            '\r' => writer.writeAll("\\r") catch {},
-            '\t' => writer.writeAll("\\t") catch {},
-            else => {
-                if (c < 0x20) {
-                    // Control character - use \u escape
-                    writer.print("\\u{x:0>4}", .{c}) catch {};
-                } else {
-                    writer.writeByte(c) catch {};
-                }
-            },
-        }
-    }
+    // Use centralized escaping function
+    protocol.writeJsonString(writer, notes) catch {
+        response.err("JSON_ERROR", "Failed to escape notes content");
+        return;
+    };
 
     writer.print("\",\"hash\":\"{s}\"}}", .{hash_hex}) catch {
         response.err("JSON_ERROR", "Failed to format response");
