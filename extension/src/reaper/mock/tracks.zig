@@ -100,8 +100,9 @@ pub const TracksMethods = struct {
         return self.tracks[idx].selected;
     }
 
-    pub fn getTrackColor(self: anytype, track: *anyopaque) c_int {
+    pub fn getTrackColor(self: anytype, track: *anyopaque) ffi.FFIError!c_int {
         self.recordCall(.getTrackColor);
+        if (self.inject_track_color_error) return ffi.FFIError.FloatIsNaN;
         const idx = state.decodeTrackPtr(track);
         if (idx >= state.MAX_TRACKS) return 0;
         return self.tracks[idx].color;
@@ -258,32 +259,36 @@ pub const TracksMethods = struct {
         return self.tracks[info.track_idx].items[info.item_idx].length;
     }
 
-    pub fn getItemColor(self: anytype, item: *anyopaque) c_int {
+    pub fn getItemColor(self: anytype, item: *anyopaque) ffi.FFIError!c_int {
         self.recordCall(.getItemColor);
+        if (self.inject_item_color_error) return ffi.FFIError.FloatIsNaN;
         const info = state.decodeItemPtr(item);
         if (info.track_idx >= state.MAX_TRACKS) return 0;
         if (info.item_idx >= state.MAX_ITEMS_PER_TRACK) return 0;
         return self.tracks[info.track_idx].items[info.item_idx].color;
     }
 
-    pub fn getItemLocked(self: anytype, item: *anyopaque) bool {
+    pub fn getItemLocked(self: anytype, item: *anyopaque) ffi.FFIError!bool {
         self.recordCall(.getItemLocked);
+        if (self.inject_item_locked_error) return ffi.FFIError.FloatIsNaN;
         const info = state.decodeItemPtr(item);
         if (info.track_idx >= state.MAX_TRACKS) return false;
         if (info.item_idx >= state.MAX_ITEMS_PER_TRACK) return false;
         return self.tracks[info.track_idx].items[info.item_idx].locked;
     }
 
-    pub fn getItemSelected(self: anytype, item: *anyopaque) bool {
+    pub fn getItemSelected(self: anytype, item: *anyopaque) ffi.FFIError!bool {
         self.recordCall(.getItemSelected);
+        if (self.inject_item_selected_error) return ffi.FFIError.FloatIsNaN;
         const info = state.decodeItemPtr(item);
         if (info.track_idx >= state.MAX_TRACKS) return false;
         if (info.item_idx >= state.MAX_ITEMS_PER_TRACK) return false;
         return self.tracks[info.track_idx].items[info.item_idx].selected;
     }
 
-    pub fn getItemActiveTakeIdx(self: anytype, item: *anyopaque) c_int {
+    pub fn getItemActiveTakeIdx(self: anytype, item: *anyopaque) ffi.FFIError!c_int {
         self.recordCall(.getItemActiveTakeIdx);
+        if (self.inject_item_active_take_error) return ffi.FFIError.FloatIsNaN;
         const info = state.decodeItemPtr(item);
         if (info.track_idx >= state.MAX_TRACKS) return 0;
         if (info.item_idx >= state.MAX_ITEMS_PER_TRACK) return 0;

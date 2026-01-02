@@ -47,11 +47,11 @@ pub const Item = struct {
     position: f64 = 0,
     length: f64 = 0,
 
-    // Properties
-    color: c_int = 0,
-    locked: bool = false,
-    selected: bool = false,
-    active_take_idx: c_int = 0,
+    // Properties (nullable = corrupt data from REAPER)
+    color: ?c_int = 0,
+    locked: ?bool = false,
+    selected: ?bool = false,
+    active_take_idx: ?c_int = 0,
 
     // Notes (truncated to fit)
     notes: [1024]u8 = undefined,
@@ -129,10 +129,11 @@ pub const State = struct {
                 item.item_idx = item_idx;
                 item.position = api.getItemPosition(item_ptr);
                 item.length = api.getItemLength(item_ptr);
-                item.color = api.getItemColor(item_ptr);
-                item.locked = api.getItemLocked(item_ptr);
-                item.selected = api.getItemSelected(item_ptr);
-                item.active_take_idx = api.getItemActiveTakeIdx(item_ptr);
+                // These return error on NaN/Inf - propagate as null to client
+                item.color = api.getItemColor(item_ptr) catch null;
+                item.locked = api.getItemLocked(item_ptr) catch null;
+                item.selected = api.getItemSelected(item_ptr) catch null;
+                item.active_take_idx = api.getItemActiveTakeIdx(item_ptr) catch null;
 
                 // Get notes
                 var notes_buf: [1024]u8 = undefined;
@@ -160,7 +161,10 @@ pub const State = struct {
                     const name_copy_len = @min(take_name.len, take.name.len);
                     @memcpy(take.name[0..name_copy_len], take_name[0..name_copy_len]);
                     take.name_len = name_copy_len;
-                    take.is_active = (take_idx == @as(usize, @intCast(item.active_take_idx)));
+                    take.is_active = if (item.active_take_idx) |ati|
+                        take_idx == @as(usize, @intCast(ati))
+                    else
+                        false;
                     take.is_midi = api.isTakeMIDI(take_ptr);
                 }
 
@@ -201,9 +205,36 @@ pub const State = struct {
             w.print("\",\"trackIdx\":{d},\"itemIdx\":{d},\"position\":{d:.3},\"length\":{d:.3},", .{
                 item.track_idx + 1, item.item_idx, item.position, item.length,
             }) catch return null;
-            w.print("\"color\":{d},\"locked\":{},\"selected\":{},\"activeTakeIdx\":{d},\"notes\":\"", .{
-                item.color, item.locked, item.selected, item.active_take_idx,
-            }) catch return null;
+            // Write nullable fields
+            w.writeAll("\"color\":") catch return null;
+            if (item.color) |c| {
+                w.print("{d}", .{c}) catch return null;
+            } else {
+                w.writeAll("null") catch return null;
+            }
+
+            w.writeAll(",\"locked\":") catch return null;
+            if (item.locked) |l| {
+                w.writeAll(if (l) "true" else "false") catch return null;
+            } else {
+                w.writeAll("null") catch return null;
+            }
+
+            w.writeAll(",\"selected\":") catch return null;
+            if (item.selected) |s| {
+                w.writeAll(if (s) "true" else "false") catch return null;
+            } else {
+                w.writeAll("null") catch return null;
+            }
+
+            w.writeAll(",\"activeTakeIdx\":") catch return null;
+            if (item.active_take_idx) |idx| {
+                w.print("{d}", .{idx}) catch return null;
+            } else {
+                w.writeAll("null") catch return null;
+            }
+
+            w.writeAll(",\"notes\":\"") catch return null;
             protocol.writeJsonString(w, item.getNotes()) catch return null;
             w.writeAll("\",\"takes\":[") catch return null;
 
@@ -413,8 +444,8 @@ test "poll with MockBackend returns items from tracks" {
     try std.testing.expectEqual(@as(usize, 1), state.item_count);
     try std.testing.expect(@abs(state.items[0].position - 5.0) < 0.001);
     try std.testing.expect(@abs(state.items[0].length - 2.5) < 0.001);
-    try std.testing.expectEqual(@as(c_int, 16711680), state.items[0].color);
-    try std.testing.expect(state.items[0].locked);
+    try std.testing.expectEqual(@as(?c_int, 16711680), state.items[0].color);
+    try std.testing.expect(state.items[0].locked.?);
     try std.testing.expectEqual(@as(usize, 1), state.items[0].take_count);
     try std.testing.expectEqualStrings("Audio Take", state.items[0].takes[0].getName());
 }

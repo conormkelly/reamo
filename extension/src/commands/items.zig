@@ -91,7 +91,13 @@ pub fn handleItemLock(api: anytype, cmd: protocol.CommandMessage, response: *mod
     };
 
     // Toggle lock state if no explicit value provided
-    const locked = if (cmd.getInt("locked")) |v| v != 0 else !api.getItemLocked(item_info.item);
+    const locked = if (cmd.getInt("locked")) |v| v != 0 else blk: {
+        const current = api.getItemLocked(item_info.item) catch {
+            response.err("CORRUPT_DATA", "Cannot read item lock state");
+            return;
+        };
+        break :blk !current;
+    };
 
     if (api.setItemLocked(item_info.item, locked)) {
         logging.debug("Set item locked to {}", .{locked});

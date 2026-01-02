@@ -144,6 +144,11 @@ pub const MockBackend = struct {
     inject_nan_beats: bool = false,
     inject_solo_error: bool = false,
     inject_recmon_error: bool = false,
+    inject_track_color_error: bool = false,
+    inject_item_color_error: bool = false,
+    inject_item_locked_error: bool = false,
+    inject_item_selected_error: bool = false,
+    inject_item_active_take_error: bool = false,
 
     // =========================================================================
     // Call tracking (fixed-size, no allocation)

@@ -2,7 +2,6 @@
 /// This module contains the C function pointers loaded at runtime from REAPER.
 /// For the abstract interface used by state modules, see api.zig.
 const std = @import("std");
-const ffi = @import("../ffi.zig");
 const types = @import("types.zig");
 
 // Re-export types for convenience
@@ -295,16 +294,6 @@ pub const Api = struct {
     fn getFunc(info: *PluginInfo, name: [*:0]const u8, comptime T: type) ?*const T {
         const ptr = info.GetFunc(name) orelse return null;
         return @ptrCast(@alignCast(ptr));
-    }
-
-    // Safe float to int conversion - handles NaN/Inf from corrupt data
-    fn safeFloatToInt(comptime T: type, val: f64, default: T) T {
-        if (std.math.isNan(val) or std.math.isInf(val)) return default;
-        // Clamp to representable range for the target type
-        const min_val: f64 = @floatFromInt(std.math.minInt(T));
-        const max_val: f64 = @floatFromInt(std.math.maxInt(T));
-        const clamped = @max(min_val, @min(max_val, val));
-        return @intFromFloat(clamped);
     }
 
     // Safe wrapper methods
@@ -938,10 +927,10 @@ pub const Api = struct {
     }
 
     // Solo: 0=not soloed, 1=soloed, 2=soloed in place, etc.
-    // Returns error if REAPER returns NaN/Inf (can happen with stale pointers)
-    pub fn getTrackSolo(self: *const Api, track: *anyopaque) ffi.FFIError!c_int {
+    // Returns raw f64 from REAPER - validation happens in RealBackend
+    pub fn getTrackSolo(self: *const Api, track: *anyopaque) f64 {
         const f = self.getMediaTrackInfo_Value orelse return 0;
-        return ffi.safeFloatToInt(c_int, f(track, "I_SOLO"));
+        return f(track, "I_SOLO");
     }
 
     pub fn setTrackSolo(self: *const Api, track: *anyopaque, solo: c_int) bool {
@@ -961,10 +950,10 @@ pub const Api = struct {
     }
 
     // Record monitoring: 0=off, 1=normal, 2=not when playing
-    // Returns error if REAPER returns NaN/Inf (can happen with stale pointers)
-    pub fn getTrackRecMon(self: *const Api, track: *anyopaque) ffi.FFIError!c_int {
+    // Returns raw f64 from REAPER - validation happens in RealBackend
+    pub fn getTrackRecMon(self: *const Api, track: *anyopaque) f64 {
         const f = self.getMediaTrackInfo_Value orelse return 0;
-        return ffi.safeFloatToInt(c_int, f(track, "I_RECMON"));
+        return f(track, "I_RECMON");
     }
 
     pub fn setTrackRecMon(self: *const Api, track: *anyopaque, mon: c_int) bool {
@@ -994,17 +983,10 @@ pub const Api = struct {
         return f(track, "I_SELECTED", if (selected) 1.0 else 0.0);
     }
 
-    // Track color: returns native OS color (0 = default/no custom color)
-    // REAPER uses bit 24 (0x01000000) as an "enabled" flag - if not set, track uses theme default
-    pub fn getTrackColor(self: *const Api, track: *anyopaque) c_int {
+    // Track color: returns raw f64 from REAPER - validation and flag check in RealBackend
+    pub fn getTrackColor(self: *const Api, track: *anyopaque) f64 {
         const f = self.getMediaTrackInfo_Value orelse return 0;
-        const raw = safeFloatToInt(c_int, f(track, "I_CUSTOMCOLOR"), 0);
-        // Check if custom color is enabled (bit 24)
-        const CUSTOM_COLOR_FLAG: c_int = 0x01000000;
-        if ((raw & CUSTOM_COLOR_FLAG) == 0) {
-            return 0; // No custom color - uses theme default
-        }
-        return raw;
+        return f(track, "I_CUSTOMCOLOR");
     }
 
     // Item methods
@@ -1029,19 +1011,22 @@ pub const Api = struct {
         return f(item, "D_LENGTH");
     }
 
-    pub fn getItemColor(self: *const Api, item: *anyopaque) c_int {
+    // Returns raw f64 from REAPER - validation in RealBackend
+    pub fn getItemColor(self: *const Api, item: *anyopaque) f64 {
         const f = self.getMediaItemInfo_Value orelse return 0;
-        return safeFloatToInt(c_int, f(item, "I_CUSTOMCOLOR"), 0);
+        return f(item, "I_CUSTOMCOLOR");
     }
 
-    pub fn getItemLocked(self: *const Api, item: *anyopaque) bool {
-        const f = self.getMediaItemInfo_Value orelse return false;
-        return safeFloatToInt(c_int, f(item, "C_LOCK"), 0) != 0;
+    // Returns raw f64 from REAPER - validation in RealBackend
+    pub fn getItemLocked(self: *const Api, item: *anyopaque) f64 {
+        const f = self.getMediaItemInfo_Value orelse return 0;
+        return f(item, "C_LOCK");
     }
 
-    pub fn getItemSelected(self: *const Api, item: *anyopaque) bool {
-        const f = self.getMediaItemInfo_Value orelse return false;
-        return safeFloatToInt(c_int, f(item, "B_UISEL"), 0) != 0;
+    // Returns raw f64 from REAPER - validation in RealBackend
+    pub fn getItemSelected(self: *const Api, item: *anyopaque) f64 {
+        const f = self.getMediaItemInfo_Value orelse return 0;
+        return f(item, "B_UISEL");
     }
 
     pub fn setItemSelected(self: *const Api, item: *anyopaque, selected: bool) bool {
@@ -1049,9 +1034,10 @@ pub const Api = struct {
         return f(item, "B_UISEL", if (selected) 1.0 else 0.0);
     }
 
-    pub fn getItemActiveTakeIdx(self: *const Api, item: *anyopaque) c_int {
+    // Returns raw f64 from REAPER - validation in RealBackend
+    pub fn getItemActiveTakeIdx(self: *const Api, item: *anyopaque) f64 {
         const f = self.getMediaItemInfo_Value orelse return 0;
-        return safeFloatToInt(c_int, f(item, "I_CURTAKE"), 0);
+        return f(item, "I_CURTAKE");
     }
 
     pub fn setItemPosition(self: *const Api, item: *anyopaque, pos: f64) bool {

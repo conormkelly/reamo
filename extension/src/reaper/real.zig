@@ -240,7 +240,7 @@ pub const RealBackend = struct {
     }
 
     pub fn getTrackSolo(self: *const RealBackend, track: *anyopaque) ffi.FFIError!c_int {
-        return self.inner.getTrackSolo(track);
+        return ffi.safeFloatToInt(c_int, self.inner.getTrackSolo(track));
     }
 
     pub fn getTrackRecArm(self: *const RealBackend, track: *anyopaque) bool {
@@ -248,7 +248,7 @@ pub const RealBackend = struct {
     }
 
     pub fn getTrackRecMon(self: *const RealBackend, track: *anyopaque) ffi.FFIError!c_int {
-        return self.inner.getTrackRecMon(track);
+        return ffi.safeFloatToInt(c_int, self.inner.getTrackRecMon(track));
     }
 
     pub fn getTrackFxEnabled(self: *const RealBackend, track: *anyopaque) bool {
@@ -259,8 +259,14 @@ pub const RealBackend = struct {
         return self.inner.getTrackSelected(track);
     }
 
-    pub fn getTrackColor(self: *const RealBackend, track: *anyopaque) c_int {
-        return self.inner.getTrackColor(track);
+    pub fn getTrackColor(self: *const RealBackend, track: *anyopaque) ffi.FFIError!c_int {
+        const color_val = try ffi.safeFloatToInt(c_int, self.inner.getTrackColor(track));
+        // REAPER uses bit 24 (0x01000000) as an "enabled" flag - if not set, track uses theme default
+        const CUSTOM_COLOR_FLAG: c_int = 0x01000000;
+        if ((color_val & CUSTOM_COLOR_FLAG) == 0) {
+            return 0; // No custom color - uses theme default
+        }
+        return color_val;
     }
 
     pub fn isMasterMuted(self: *const RealBackend) bool {
@@ -353,20 +359,22 @@ pub const RealBackend = struct {
         return self.inner.getItemLength(item);
     }
 
-    pub fn getItemColor(self: *const RealBackend, item: *anyopaque) c_int {
-        return self.inner.getItemColor(item);
+    pub fn getItemColor(self: *const RealBackend, item: *anyopaque) ffi.FFIError!c_int {
+        return ffi.safeFloatToInt(c_int, self.inner.getItemColor(item));
     }
 
-    pub fn getItemLocked(self: *const RealBackend, item: *anyopaque) bool {
-        return self.inner.getItemLocked(item);
+    pub fn getItemLocked(self: *const RealBackend, item: *anyopaque) ffi.FFIError!bool {
+        const val = try ffi.safeFloatToInt(c_int, self.inner.getItemLocked(item));
+        return val != 0;
     }
 
-    pub fn getItemSelected(self: *const RealBackend, item: *anyopaque) bool {
-        return self.inner.getItemSelected(item);
+    pub fn getItemSelected(self: *const RealBackend, item: *anyopaque) ffi.FFIError!bool {
+        const val = try ffi.safeFloatToInt(c_int, self.inner.getItemSelected(item));
+        return val != 0;
     }
 
-    pub fn getItemActiveTakeIdx(self: *const RealBackend, item: *anyopaque) c_int {
-        return self.inner.getItemActiveTakeIdx(item);
+    pub fn getItemActiveTakeIdx(self: *const RealBackend, item: *anyopaque) ffi.FFIError!c_int {
+        return ffi.safeFloatToInt(c_int, self.inner.getItemActiveTakeIdx(item));
     }
 
     pub fn getItemNotes(self: *const RealBackend, item: *anyopaque, buf: []u8) []const u8 {

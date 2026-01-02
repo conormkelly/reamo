@@ -16,7 +16,7 @@ pub const Track = struct {
     idx: c_int = 0,
     name: [MAX_NAME_LEN]u8 = undefined,
     name_len: usize = 0,
-    color: c_int = 0, // Native OS color (0 = default)
+    color: ?c_int = 0, // Native OS color (0 = default, null = corrupt data)
     volume: f64 = 1.0, // 0..inf (1.0 = 0dB)
     pan: f64 = 0.0, // -1.0..1.0
     mute: bool = false,
@@ -92,7 +92,8 @@ pub const State = struct {
                 @memcpy(t.name[0..name_copy_len], name[0..name_copy_len]);
                 t.name_len = name_copy_len;
 
-                t.color = api.getTrackColor(track);
+                // getTrackColor returns error on NaN/Inf - propagate as null to client
+                t.color = api.getTrackColor(track) catch null;
                 t.volume = api.getTrackVolume(track);
                 t.pan = api.getTrackPan(track);
                 // For master track (idx=0), use GetMasterMuteSoloFlags which is more reliable
@@ -128,8 +129,16 @@ pub const State = struct {
             const t = &self.tracks[i];
             writer.print("{{\"idx\":{d},\"name\":\"", .{t.idx}) catch return null;
             protocol.writeJsonString(writer, t.getName()) catch return null;
-            writer.print("\",\"color\":{d},\"volume\":{d:.4},\"pan\":{d:.3},\"mute\":{s},\"solo\":", .{
-                t.color,
+            writer.writeAll("\",\"color\":") catch return null;
+
+            // color - null if corrupt
+            if (t.color) |c| {
+                writer.print("{d}", .{c}) catch return null;
+            } else {
+                writer.writeAll("null") catch return null;
+            }
+
+            writer.print(",\"volume\":{d:.4},\"pan\":{d:.3},\"mute\":{s},\"solo\":", .{
                 t.volume,
                 t.pan,
                 if (t.mute) "true" else "false",
