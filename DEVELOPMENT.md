@@ -41,12 +41,28 @@ reaper_www_root/
 ├── extension/           # Zig REAPER extension (WebSocket server)
 │   └── src/
 │       ├── main.zig           # Entry point, timer loop, state broadcasting
-│       ├── reaper.zig         # REAPER C API bindings and helpers
-│       ├── tracks.zig         # Track state polling and JSON serialization
+│       ├── reaper.zig         # Re-exports: RealBackend, MockBackend, raw types
+│       ├── reaper/            # REAPER API abstraction layer
+│       │   ├── raw.zig        # C function pointers (~80 raw functions)
+│       │   ├── types.zig      # Shared types (BeatsInfo, MarkerInfo, etc.)
+│       │   ├── backend.zig    # validateBackend() comptime check
+│       │   ├── real.zig       # RealBackend - production wrapper around raw.Api
+│       │   └── mock/          # MockBackend for testing
+│       │       ├── mod.zig    # MockBackend struct composition
+│       │       ├── state.zig  # MockTrack, MockItem, encoding helpers
+│       │       ├── transport.zig  # Transport mock methods
+│       │       ├── tracks.zig     # Track/item mock methods
+│       │       ├── markers.zig    # Marker/region mock methods
+│       │       └── project.zig    # Project/undo/extstate mock methods
+│       ├── transport.zig      # Transport state polling (poll(api: anytype))
+│       ├── tracks.zig         # Track state & metering (poll(api: anytype))
+│       ├── items.zig          # Item/take state polling
+│       ├── markers.zig        # Marker/region state polling
 │       ├── ws_server.zig      # WebSocket server and client management
 │       ├── protocol.zig       # JSON parsing for commands
-│       └── commands/          # Command handlers
-│           ├── mod.zig        # Command registry
+│       └── commands/          # Command handlers (~70 handlers)
+│           ├── mod.zig        # dispatch() with inline for
+│           ├── registry.zig   # Comptime tuple of all handlers
 │           ├── tracks.zig     # track/setVolume, track/setMute, etc.
 │           ├── transport.zig  # transport/play, transport/stop, etc.
 │           └── ...
@@ -98,6 +114,91 @@ reaper_www_root/
 3. Timer callback (main thread) processes queue
 4. Execute REAPER API calls
 5. Push response/updates to clients
+
+### Testability Architecture (Comptime Generics)
+
+The extension uses **comptime duck typing via `anytype`** to enable mock injection for unit testing while maintaining zero runtime overhead.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    State Modules                        │
+│   transport.zig, tracks.zig, markers.zig, etc.         │
+│         fn poll(api: anytype) State                     │
+└──────────────────────────┬──────────────────────────────┘
+                           │ duck typing via anytype
+          ┌────────────────┴────────────────┐
+          ▼                                 ▼
+  ┌──────────────────┐            ┌───────────────────┐
+  │   RealBackend    │            │   MockBackend     │
+  │  (production)    │            │  (tests)          │
+  │  used by main.zig│            │  field-based mock │
+  └────────┬─────────┘            └───────────────────┘
+           │
+           ▼
+  ┌──────────────────┐
+  │     raw.Api      │
+  │ C function ptrs  │
+  └──────────────────┘
+```
+
+**Key files:**
+
+| File | Purpose |
+|------|---------|
+| `reaper/backend.zig` | `validateBackend(T)` — comptime validates ~100 required methods |
+| `reaper/real.zig` | `RealBackend` — thin wrapper around `raw.Api`, used in production |
+| `reaper/mock/mod.zig` | `MockBackend` — field-based state for tests, no REAPER needed |
+| `commands/registry.zig` | Comptime tuple of all ~70 command handlers |
+| `commands/mod.zig` | `dispatch()` using `inline for` over registry |
+
+**Why `anytype`?**
+
+- Function pointers cannot use generics — the signature is fixed at compile time
+- `anytype` with a single `validateBackend()` check is cleaner than full generics
+- Duck typing works for both `*RealBackend` and `*MockBackend`
+- Zero runtime overhead — all dispatch is resolved at compile time
+
+**Command dispatch pattern:**
+
+```zig
+// registry.zig — comptime tuple of handlers
+pub const all = .{
+    .{ "transport/play", transport.handlePlay },
+    .{ "transport/stop", transport.handleStop },
+    // ... ~70 entries
+};
+
+// mod.zig — dispatch with inline for (unrolls at comptime)
+pub fn dispatch(api: anytype, client_id: usize, data: []const u8, ...) void {
+    inline for (comptime_registry.all) |entry| {
+        if (std.mem.eql(u8, cmd.command, entry[0])) {
+            entry[1](api, cmd, &response);
+            return;
+        }
+    }
+}
+```
+
+**Handler signature:**
+
+```zig
+// All handlers accept anytype for mock injection
+pub fn handlePlay(api: anytype, cmd: CommandMessage, response: *ResponseWriter) void {
+    api.runCommand(Command.PLAY);
+    response.success(null);
+}
+```
+
+**Testing with MockBackend:**
+
+```zig
+test "transport/play runs correct command" {
+    var mock = MockBackend{};
+    var response = TestResponseWriter{};
+    transport.handlePlay(&mock, .{}, &response);
+    try testing.expectEqual(Command.PLAY, mock.last_command);
+}
+```
 
 ### Library Choice
 
@@ -797,7 +898,13 @@ Then check REAPER's console (Actions → Show console).
 
 7. **Zig `@intFromFloat` panics on NaN/Inf** - always use `safeFloatToInt()` for REAPER API values
 
-8. **Floating-point precision loss when extracting beat.ticks** - When converting a float like `6.7565` to beat=6, ticks=76, don't divide then modulo. The division `676/100.0 = 6.76` looks correct, but `@mod(6.76, 1.0)` returns `0.7599999998` due to IEEE 754 representation, giving ticks=75 instead of 76. Scale to integer first:
+8. **`anytype` cannot be used in function pointers** - Zig function pointer types must have concrete signatures. Use comptime tuples with `inline for` dispatch instead (see Testability Architecture section).
+
+9. **New command handlers must be added to registry.zig** - Creating a handler function isn't enough. Add it to `commands/registry.zig`'s `all` tuple for dispatch to find it.
+
+10. **New backend methods need both RealBackend and MockBackend** - If a handler needs a new REAPER API method, add it to both `reaper/real.zig` and `reaper/mock/mod.zig` (or the appropriate mock subdomain file). The `validateBackend()` check will catch missing methods at compile time.
+
+11. **Floating-point precision loss when extracting beat.ticks** - When converting a float like `6.7565` to beat=6, ticks=76, don't divide then modulo. The division `676/100.0 = 6.76` looks correct, but `@mod(6.76, 1.0)` returns `0.7599999998` due to IEEE 754 representation, giving ticks=75 instead of 76. Scale to integer first:
    ```zig
    // BAD: "6.6.75" displayed instead of "6.6.76"
    const rounded = @round(val * 100.0) / 100.0;  // 6.76 (looks fine)
