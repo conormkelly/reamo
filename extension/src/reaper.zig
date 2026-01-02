@@ -1,7 +1,8 @@
 const std = @import("std");
+const ffi = @import("ffi.zig");
 
 // Debug logging - set to false for release builds
-pub const DEBUG_LOGGING = false;
+pub const DEBUG_LOGGING = true;
 
 // REAPER plugin API version
 pub const PLUGIN_VERSION: c_int = 0x20E;
@@ -959,9 +960,10 @@ pub const Api = struct {
     }
 
     // Solo: 0=not soloed, 1=soloed, 2=soloed in place, etc.
-    pub fn getTrackSolo(self: *const Api, track: *anyopaque) c_int {
+    // Returns error if REAPER returns NaN/Inf (can happen with stale pointers)
+    pub fn getTrackSolo(self: *const Api, track: *anyopaque) ffi.FFIError!c_int {
         const f = self.getMediaTrackInfo_Value orelse return 0;
-        return @intFromFloat(f(track, "I_SOLO"));
+        return ffi.safeFloatToInt(c_int, f(track, "I_SOLO"));
     }
 
     pub fn setTrackSolo(self: *const Api, track: *anyopaque, solo: c_int) bool {
@@ -981,9 +983,10 @@ pub const Api = struct {
     }
 
     // Record monitoring: 0=off, 1=normal, 2=not when playing
-    pub fn getTrackRecMon(self: *const Api, track: *anyopaque) c_int {
+    // Returns error if REAPER returns NaN/Inf (can happen with stale pointers)
+    pub fn getTrackRecMon(self: *const Api, track: *anyopaque) ffi.FFIError!c_int {
         const f = self.getMediaTrackInfo_Value orelse return 0;
-        return @intFromFloat(f(track, "I_RECMON"));
+        return ffi.safeFloatToInt(c_int, f(track, "I_RECMON"));
     }
 
     pub fn setTrackRecMon(self: *const Api, track: *anyopaque, mon: c_int) bool {

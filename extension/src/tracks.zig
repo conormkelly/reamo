@@ -97,10 +97,14 @@ pub const State = struct {
                     t.solo = if (api.isMasterSoloed()) 1 else 0;
                 } else {
                     t.mute = api.getTrackMute(track);
-                    t.solo = api.getTrackSolo(track);
+                    // getTrackSolo returns error on NaN/Inf - use 0 as fallback
+                    // TODO(Phase 2): Make solo nullable and propagate error to client
+                    t.solo = api.getTrackSolo(track) catch 0;
                 }
                 t.rec_arm = api.getTrackRecArm(track);
-                t.rec_mon = api.getTrackRecMon(track);
+                // getTrackRecMon returns error on NaN/Inf - use 0 as fallback
+                // TODO(Phase 2): Make rec_mon nullable and propagate error to client
+                t.rec_mon = api.getTrackRecMon(track) catch 0;
                 t.fx_enabled = api.getTrackFxEnabled(track);
                 t.selected = api.getTrackSelected(track);
             }

@@ -120,7 +120,10 @@ fn handleSetSolo(api: *const reaper.Api, cmd: protocol.CommandMessage, response:
     const current_solo = if (track_idx == 0)
         (if (api.isMasterSoloed()) @as(c_int, 1) else @as(c_int, 0))
     else
-        api.getTrackSolo(track);
+        api.getTrackSolo(track) catch {
+            response.err("INVALID_STATE", "Track returned invalid solo state");
+            return;
+        };
     const solo = if (cmd.getInt("solo")) |v| v else if (current_solo > 0) @as(c_int, 0) else @as(c_int, 1);
     // Use CSurf API - properly handles master track unlike SetMediaTrackInfo_Value
     if (api.csurfSetSolo(track, solo, true)) {
@@ -151,7 +154,10 @@ fn handleSetRecMon(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
     };
     // Cycle through 0,1,2 if no explicit value
     const mon = if (cmd.getInt("mon")) |v| v else blk: {
-        const current = api.getTrackRecMon(track);
+        const current = api.getTrackRecMon(track) catch {
+            response.err("INVALID_STATE", "Track returned invalid rec mon state");
+            return;
+        };
         break :blk @mod(current + 1, 3);
     };
     // Use CSurf API for gang support
