@@ -1,7 +1,6 @@
 const std = @import("std");
 const reaper = @import("reaper.zig");
 const protocol = @import("protocol.zig");
-const ApiInterface = reaper.api.ApiInterface;
 
 // Maximum tracks to poll (keeps buffer sizes bounded)
 pub const MAX_TRACKS: usize = 128;
@@ -70,10 +69,10 @@ pub const State = struct {
         return true;
     }
 
-    /// Poll current state from REAPER using abstract interface.
-    /// Enables unit testing without REAPER running.
+    /// Poll current state from REAPER.
+    /// Accepts any backend type (RealBackend, MockBackend, or test doubles).
     /// Uses unified indexing: idx 0 = master, idx 1+ = user tracks
-    pub fn poll(api: ApiInterface) State {
+    pub fn poll(api: anytype) State {
         var state = State{};
         const user_track_count: usize = @intCast(@max(0, api.trackCount()));
         // Total count = master (1) + user tracks
@@ -205,7 +204,7 @@ pub const MeteringState = struct {
     /// Uses unified indexing: 0 = master, 1+ = user tracks
     /// NOTE: Runs at ~30ms with track state. May separate to
     /// higher frequency (10-15ms) if UI smoothness requires it.
-    pub fn poll(api: *const reaper.Api) MeteringState {
+    pub fn poll(api: anytype) MeteringState {
         var state = MeteringState{};
         const user_track_count: usize = @intCast(@max(0, api.trackCount()));
         // Total count = master (1) + user tracks
@@ -341,13 +340,13 @@ test "State.toJson outputs null for corrupt solo/recMon" {
 }
 
 // =============================================================================
-// MockApi-based tests (Phase 8.3)
+// MockBackend-based tests
 // =============================================================================
 
-const MockApi = reaper.mock.MockApi;
+const MockBackend = reaper.MockBackend;
 
-test "poll with MockApi returns configured values" {
-    var mock = MockApi{
+test "poll with MockBackend returns configured values" {
+    var mock = MockBackend{
         .track_count = 2, // 2 user tracks + master = 3 total
     };
     // Master track (idx 0)
@@ -371,7 +370,7 @@ test "poll with MockApi returns configured values" {
     mock.tracks[2].rec_arm = true;
     mock.tracks[2].rec_mon = 1;
 
-    const state = State.poll(mock.interface());
+    const state = State.poll(&mock);
 
     try std.testing.expectEqual(@as(usize, 3), state.count);
 
@@ -396,14 +395,14 @@ test "poll with MockApi returns configured values" {
 }
 
 test "poll handles solo error gracefully" {
-    var mock = MockApi{
+    var mock = MockBackend{
         .inject_solo_error = true,
         .track_count = 1, // 1 user track + master = 2 total
     };
     mock.tracks[0].setName("MASTER");
     mock.tracks[1].setName("Track 1");
 
-    const state = State.poll(mock.interface());
+    const state = State.poll(&mock);
 
     try std.testing.expectEqual(@as(usize, 2), state.count);
     // Master uses isMasterSoloed, not getTrackSolo, so solo should be set
@@ -413,14 +412,14 @@ test "poll handles solo error gracefully" {
 }
 
 test "poll handles recmon error gracefully" {
-    var mock = MockApi{
+    var mock = MockBackend{
         .inject_recmon_error = true,
         .track_count = 1,
     };
     mock.tracks[1].setName("Track 1");
     mock.tracks[1].rec_arm = true;
 
-    const state = State.poll(mock.interface());
+    const state = State.poll(&mock);
 
     try std.testing.expectEqual(@as(usize, 2), state.count);
     // rec_mon should be null due to injected error
@@ -430,14 +429,14 @@ test "poll handles recmon error gracefully" {
 }
 
 test "poll handles master track mute/solo specially" {
-    var mock = MockApi{
+    var mock = MockBackend{
         .track_count = 0, // Just master track
         .master_muted = true,
         .master_soloed = true,
     };
     mock.tracks[0].setName("MASTER");
 
-    const state = State.poll(mock.interface());
+    const state = State.poll(&mock);
 
     try std.testing.expectEqual(@as(usize, 1), state.count);
     try std.testing.expect(state.tracks[0].mute);
@@ -445,10 +444,10 @@ test "poll handles master track mute/solo specially" {
 }
 
 test "poll tracks API calls correctly" {
-    var mock = MockApi{
+    var mock = MockBackend{
         .track_count = 1,
     };
-    _ = State.poll(mock.interface());
+    _ = State.poll(&mock);
 
     // Verify key API calls were made
     try std.testing.expect(mock.getCallCount(.trackCount) >= 1);
@@ -460,23 +459,23 @@ test "poll tracks API calls correctly" {
 }
 
 test "poll respects MAX_TRACKS limit" {
-    var mock = MockApi{
+    var mock = MockBackend{
         .track_count = 200, // More than MAX_TRACKS (128)
     };
 
-    const state = State.poll(mock.interface());
+    const state = State.poll(&mock);
 
     // Should cap at MAX_TRACKS (128) = 127 user tracks + 1 master
     try std.testing.expectEqual(MAX_TRACKS, state.count);
 }
 
 test "poll with empty project returns only master" {
-    var mock = MockApi{
+    var mock = MockBackend{
         .track_count = 0,
     };
     mock.tracks[0].setName("MASTER");
 
-    const state = State.poll(mock.interface());
+    const state = State.poll(&mock);
 
     try std.testing.expectEqual(@as(usize, 1), state.count);
     try std.testing.expectEqual(@as(c_int, 0), state.tracks[0].idx);

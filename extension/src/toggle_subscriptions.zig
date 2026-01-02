@@ -81,7 +81,7 @@ pub const ToggleSubscriptions = struct {
     /// Returns the current states for all subscribed commandIds.
     pub fn subscribe(
         self: *ToggleSubscriptions,
-        api: *const reaper.Api,
+        api: anytype,
         client_id: usize,
         command_ids: []const u32,
     ) !std.AutoHashMap(u32, i8) {
@@ -180,7 +180,7 @@ pub const ToggleSubscriptions = struct {
 
     /// Poll all subscribed commandIds and return changes.
     /// Returns a map of commandId -> new_state for any states that changed.
-    pub fn poll(self: *ToggleSubscriptions, api: *const reaper.Api) std.AutoHashMap(u32, i8) {
+    pub fn poll(self: *ToggleSubscriptions, api: anytype) std.AutoHashMap(u32, i8) {
         var changes = std.AutoHashMap(u32, i8).init(self.allocator);
 
         var iter = self.ref_counts.keyIterator();

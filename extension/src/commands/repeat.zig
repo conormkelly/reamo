@@ -10,8 +10,8 @@ pub const handlers = [_]mod.Entry{
     .{ .name = "repeat/toggle", .handler = handleToggle },
 };
 
-// Set repeat state explicitly
-fn handleSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+/// Set repeat state explicitly
+pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const enabled = cmd.getInt("enabled") orelse {
         response.err("MISSING_ENABLED", "enabled (0 or 1) is required");
         return;
@@ -21,7 +21,7 @@ fn handleSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
     logging.debug("Set repeat to {}", .{enabled != 0});
 }
 
-// Toggle repeat state (uses REAPER's built-in command)
-fn handleToggle(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+/// Toggle repeat state (uses REAPER's built-in command)
+pub fn handleToggle(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.TOGGLE_REPEAT);
 }

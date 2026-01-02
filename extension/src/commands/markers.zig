@@ -14,7 +14,7 @@ pub const handlers = [_]mod.Entry{
     .{ .name = "marker/next", .handler = handleMarkerNext },
 };
 
-fn handleMarkerAdd(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleMarkerAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const pos = mod.validatePosition(cmd.getFloat("position")) orelse {
         response.err("INVALID_POSITION", "Position must be a non-negative number");
         return;
@@ -32,7 +32,7 @@ fn handleMarkerAdd(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
     }
 }
 
-fn handleMarkerUpdate(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleMarkerUpdate(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const id = cmd.getInt("id") orelse {
         response.err("MISSING_ID", "Marker id is required");
         return;
@@ -94,7 +94,7 @@ fn handleMarkerUpdate(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
     api.undoEndBlock("Reamo: Update marker");
 }
 
-fn handleMarkerDelete(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleMarkerDelete(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const id = cmd.getInt("id") orelse {
         response.err("MISSING_ID", "Marker id is required");
         return;
@@ -106,7 +106,7 @@ fn handleMarkerDelete(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
     api.undoEndBlock("Reamo: Delete marker");
 }
 
-fn handleMarkerGoto(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleMarkerGoto(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const id = cmd.getInt("id") orelse {
         response.err("MISSING_ID", "Marker id is required");
         return;
@@ -124,12 +124,12 @@ fn handleMarkerGoto(api: *const reaper.Api, cmd: protocol.CommandMessage, respon
     response.err("NOT_FOUND", "Marker not found");
 }
 
-// Go to previous marker (uses REAPER's built-in command)
-fn handleMarkerPrev(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+/// Go to previous marker (uses REAPER's built-in command)
+pub fn handleMarkerPrev(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.GO_TO_PREV_MARKER);
 }
 
-// Go to next marker (uses REAPER's built-in command)
-fn handleMarkerNext(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+/// Go to next marker (uses REAPER's built-in command)
+pub fn handleMarkerNext(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.GO_TO_NEXT_MARKER);
 }

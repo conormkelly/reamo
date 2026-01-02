@@ -17,7 +17,7 @@ pub var g_notes_subs: ?*project_notes.NotesSubscriptions = null;
 
 /// Subscribe to project notes updates.
 /// Returns current notes and hash.
-fn handleSubscribe(api: *const reaper.Api, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleSubscribe(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const subs = g_notes_subs orelse {
         response.err("NOT_INITIALIZED", "Notes subscriptions not initialized");
         return;
@@ -39,7 +39,7 @@ fn handleSubscribe(api: *const reaper.Api, _: protocol.CommandMessage, response:
 }
 
 /// Unsubscribe from project notes updates.
-fn handleUnsubscribe(_: *const reaper.Api, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleUnsubscribe(_: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const subs = g_notes_subs orelse {
         response.err("NOT_INITIALIZED", "Notes subscriptions not initialized");
         return;
@@ -50,7 +50,7 @@ fn handleUnsubscribe(_: *const reaper.Api, _: protocol.CommandMessage, response:
 }
 
 /// Get current project notes (without subscribing).
-fn handleGet(api: *const reaper.Api, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleGet(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     // Get notes directly from REAPER
     var buf: [project_notes.MAX_NOTES_SIZE]u8 = undefined;
     const notes = api.getProjectNotes(&buf) orelse {
@@ -64,7 +64,7 @@ fn handleGet(api: *const reaper.Api, _: protocol.CommandMessage, response: *mod.
 }
 
 /// Set project notes.
-fn handleSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     // Use unescaped version to properly handle \n, \t, etc. from JSON
     var unescape_buf: [project_notes.MAX_NOTES_SIZE]u8 = undefined;
     const notes_input = cmd.getStringUnescaped("notes", &unescape_buf) orelse {

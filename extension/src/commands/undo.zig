@@ -14,7 +14,7 @@ pub const handlers = [_]mod.Entry{
 };
 
 // Add a simple undo point with description
-fn handleAdd(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const description = cmd.getString("description") orelse {
         response.err("MISSING_DESCRIPTION", "description is required");
         return;
@@ -32,14 +32,14 @@ fn handleAdd(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
 }
 
 // Begin an undo block (for grouping multiple operations)
-fn handleBegin(api: *const reaper.Api, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleBegin(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     api.undoBeginBlock();
     logging.info("Undo block started", .{});
     response.success(null);
 }
 
 // End an undo block with description
-fn handleEnd(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleEnd(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const description = cmd.getString("description") orelse {
         response.err("MISSING_DESCRIPTION", "description is required");
         return;
@@ -57,7 +57,7 @@ fn handleEnd(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
 }
 
 // Perform undo
-fn handleUndo(api: *const reaper.Api, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleUndo(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     // Get the description of what will be undone BEFORE doing it
     const action_desc = api.canUndo();
 
@@ -78,7 +78,7 @@ fn handleUndo(api: *const reaper.Api, _: protocol.CommandMessage, response: *mod
 }
 
 // Perform redo
-fn handleRedo(api: *const reaper.Api, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleRedo(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     // Get the description of what will be redone BEFORE doing it
     const action_desc = api.canRedo();
 

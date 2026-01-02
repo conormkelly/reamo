@@ -1,6 +1,5 @@
 const std = @import("std");
 const reaper = @import("reaper.zig");
-const ApiInterface = reaper.api.ApiInterface;
 
 /// Maximum number of tempo markers to track
 const MAX_MARKERS: usize = 64;
@@ -12,9 +11,9 @@ pub const State = struct {
     // For change detection, we track a simple hash of positions + BPMs
     hash: u64 = 0,
 
-    /// Poll current tempo markers from REAPER using abstract interface.
-    /// Enables unit testing without REAPER running.
-    pub fn poll(api: ApiInterface) State {
+    /// Poll current tempo markers from REAPER.
+    /// Accepts any backend type (RealBackend, MockBackend, or test doubles).
+    pub fn poll(api: anytype) State {
         var state = State{};
         state.count = api.tempoMarkerCount();
 
@@ -98,13 +97,13 @@ test "State.changed detects hash change" {
 }
 
 // =============================================================================
-// MockApi-based tests (Phase 8.4)
+// MockBackend-based tests
 // =============================================================================
 
-const MockApi = reaper.mock.MockApi;
+const MockBackend = reaper.MockBackend;
 
-test "poll with MockApi returns tempo markers" {
-    var mock = MockApi{
+test "poll with MockBackend returns tempo markers" {
+    var mock = MockBackend{
         .tempo_marker_count = 2,
     };
     mock.tempo_markers[0] = .{
@@ -124,7 +123,7 @@ test "poll with MockApi returns tempo markers" {
         .linear_tempo = true,
     };
 
-    const state = State.poll(mock.interface());
+    const state = State.poll(&mock);
 
     try std.testing.expectEqual(@as(c_int, 2), state.count);
     try std.testing.expect(@abs(state.markers[0].bpm - 120.0) < 0.01);
@@ -133,18 +132,18 @@ test "poll with MockApi returns tempo markers" {
     try std.testing.expectEqual(@as(c_int, 3), state.markers[1].timesig_num);
 }
 
-test "poll with MockApi returns empty state for no markers" {
-    var mock = MockApi{
+test "poll with MockBackend returns empty state for no markers" {
+    var mock = MockBackend{
         .tempo_marker_count = 0,
     };
 
-    const state = State.poll(mock.interface());
+    const state = State.poll(&mock);
 
     try std.testing.expectEqual(@as(c_int, 0), state.count);
 }
 
 test "poll tracks API calls correctly" {
-    var mock = MockApi{
+    var mock = MockBackend{
         .tempo_marker_count = 1,
     };
     mock.tempo_markers[0] = .{
@@ -156,7 +155,7 @@ test "poll tracks API calls correctly" {
         .linear_tempo = false,
     };
 
-    _ = State.poll(mock.interface());
+    _ = State.poll(&mock);
 
     // Verify key API calls were made
     try std.testing.expect(mock.getCallCount(.tempoMarkerCount) >= 1);

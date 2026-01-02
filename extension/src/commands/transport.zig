@@ -18,27 +18,27 @@ pub const handlers = [_]mod.Entry{
     .{ .name = "transport/seekBeats", .handler = handleSeekBeats },
 };
 
-fn handlePlay(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+pub fn handlePlay(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.PLAY);
 }
 
-fn handleStop(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+pub fn handleStop(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.STOP);
 }
 
-fn handlePause(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+pub fn handlePause(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.PAUSE);
 }
 
-fn handleRecord(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+pub fn handleRecord(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.RECORD);
 }
 
-fn handlePlayPause(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+pub fn handlePlayPause(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.PLAY_PAUSE);
 }
 
-fn handleSeek(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleSeek(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const pos = mod.validatePosition(cmd.getFloat("position")) orelse {
         response.err("INVALID_POSITION", "Position must be a non-negative number");
         return;
@@ -46,24 +46,24 @@ fn handleSeek(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *m
     api.setCursorPos(pos);
 }
 
-// Stop and DELETE all recorded media - use with caution!
-fn handleStopAndDelete(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+/// Stop and DELETE all recorded media - use with caution!
+pub fn handleStopAndDelete(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.STOP_AND_DELETE);
 }
 
-// Go to project start
-fn handleGoStart(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+/// Go to project start
+pub fn handleGoStart(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.GO_TO_PROJECT_START);
 }
 
-// Go to project end
-fn handleGoEnd(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+/// Go to project end
+pub fn handleGoEnd(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.GO_TO_PROJECT_END);
 }
 
-// Seek by bar.beat position
-// Supports flexible input: {bar} at minimum, optionally beat
-fn handleSeekBeats(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+/// Seek by bar.beat position
+/// Supports flexible input: {bar} at minimum, optionally beat
+pub fn handleSeekBeats(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const bar = cmd.getInt("bar") orelse {
         response.err("MISSING_BAR", "bar is required");
         return;

@@ -15,8 +15,8 @@ pub const handlers = [_]mod.Entry{
     .{ .name = "timeSelection/setEndAtCursor", .handler = handleSetEnd },
 };
 
-// Set time selection by seconds
-fn handleSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+/// Set time selection by seconds
+pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const start = mod.validatePosition(cmd.getFloat("start")) orelse {
         response.err("INVALID_START", "Start must be a non-negative number");
         return;
@@ -35,9 +35,9 @@ fn handleSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
     logging.debug("Set time selection {d:.2} - {d:.2}", .{ start, end });
 }
 
-// Set time selection by bar (with optional beat precision)
-// Supports flexible input: {startBar, endBar} at minimum, optionally startBeat, endBeat
-fn handleSetBars(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+/// Set time selection by bar (with optional beat precision)
+/// Supports flexible input: {startBar, endBar} at minimum, optionally startBeat, endBeat
+pub fn handleSetBars(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const start_bar = cmd.getInt("startBar") orelse {
         response.err("MISSING_START_BAR", "startBar is required");
         return;
@@ -64,27 +64,27 @@ fn handleSetBars(api: *const reaper.Api, cmd: protocol.CommandMessage, response:
     logging.debug("Set time selection bar {d}.{d:.1} - bar {d}.{d:.1}", .{ start_bar, start_beat, end_bar, end_beat });
 }
 
-// Clear time selection (uses REAPER's built-in command)
-fn handleClear(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+/// Clear time selection (uses REAPER's built-in command)
+pub fn handleClear(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.TIME_SEL_CLEAR);
 }
 
-// Go to start of time selection
-fn handleGoStart(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+/// Go to start of time selection
+pub fn handleGoStart(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.TIME_SEL_GO_START);
 }
 
-// Go to end of time selection
-fn handleGoEnd(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+/// Go to end of time selection
+pub fn handleGoEnd(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.TIME_SEL_GO_END);
 }
 
-// Set time selection start at current cursor position
-fn handleSetStart(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+/// Set time selection start at current cursor position
+pub fn handleSetStart(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.TIME_SEL_SET_START);
 }
 
-// Set time selection end at current cursor position
-fn handleSetEnd(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+/// Set time selection end at current cursor position
+pub fn handleSetEnd(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.TIME_SEL_SET_END);
 }

@@ -31,7 +31,7 @@ pub fn formatValueResponse(value: ?[]const u8, buf: []u8) ?[]const u8 {
 }
 
 // Get global extended state value
-fn handleGet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleGet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const section = cmd.getString("section") orelse {
         response.err("MISSING_SECTION", "section is required");
         return;
@@ -59,7 +59,7 @@ fn handleGet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
 }
 
 // Set global extended state value
-fn handleSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const section = cmd.getString("section") orelse {
         response.err("MISSING_SECTION", "section is required");
         return;
@@ -95,7 +95,7 @@ fn handleSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
 }
 
 // Get project-specific extended state value
-fn handleProjGet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleProjGet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const extname = cmd.getString("extname") orelse {
         response.err("MISSING_EXTNAME", "extname is required");
         return;
@@ -124,7 +124,7 @@ fn handleProjGet(api: *const reaper.Api, cmd: protocol.CommandMessage, response:
 }
 
 // Set project-specific extended state value
-fn handleProjSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleProjSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const extname = cmd.getString("extname") orelse {
         response.err("MISSING_EXTNAME", "extname is required");
         return;

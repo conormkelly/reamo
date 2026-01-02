@@ -19,9 +19,9 @@ pub const handlers = [_]mod.Entry{
     .{ .name = "item/getPeaks", .handler = handleItemGetPeaks },
 };
 
-// Helper to get item by track and item index from command
-// Uses unified indexing: 0 = master, 1+ = user tracks
-fn getItemFromCmd(api: *const reaper.Api, cmd: protocol.CommandMessage) ?struct { track: *anyopaque, item: *anyopaque } {
+/// Helper to get item by track and item index from command
+/// Uses unified indexing: 0 = master, 1+ = user tracks
+fn getItemFromCmd(api: anytype, cmd: protocol.CommandMessage) ?struct { track: *anyopaque, item: *anyopaque } {
     const track_idx = cmd.getInt("trackIdx") orelse return null;
     const item_idx = cmd.getInt("itemIdx") orelse return null;
 
@@ -31,7 +31,7 @@ fn getItemFromCmd(api: *const reaper.Api, cmd: protocol.CommandMessage) ?struct 
     return .{ .track = track, .item = item };
 }
 
-fn handleItemSetActiveTake(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleItemSetActiveTake(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const item_info = getItemFromCmd(api, cmd) orelse {
         response.err("NOT_FOUND", "Item not found");
         return;
@@ -54,7 +54,7 @@ fn handleItemSetActiveTake(api: *const reaper.Api, cmd: protocol.CommandMessage,
     }
 }
 
-fn handleItemMove(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleItemMove(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const item_info = getItemFromCmd(api, cmd) orelse {
         response.err("NOT_FOUND", "Item not found");
         return;
@@ -69,7 +69,7 @@ fn handleItemMove(api: *const reaper.Api, cmd: protocol.CommandMessage, response
     }
 }
 
-fn handleItemColor(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleItemColor(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const item_info = getItemFromCmd(api, cmd) orelse {
         response.err("NOT_FOUND", "Item not found");
         return;
@@ -84,7 +84,7 @@ fn handleItemColor(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
     }
 }
 
-fn handleItemLock(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleItemLock(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const item_info = getItemFromCmd(api, cmd) orelse {
         response.err("NOT_FOUND", "Item not found");
         return;
@@ -98,7 +98,7 @@ fn handleItemLock(api: *const reaper.Api, cmd: protocol.CommandMessage, response
     }
 }
 
-fn handleItemNotes(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleItemNotes(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const item_info = getItemFromCmd(api, cmd) orelse {
         response.err("NOT_FOUND", "Item not found");
         return;
@@ -110,7 +110,7 @@ fn handleItemNotes(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
     }
 }
 
-fn handleItemDelete(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleItemDelete(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const item_info = getItemFromCmd(api, cmd) orelse {
         response.err("NOT_FOUND", "Item not found");
         return;
@@ -123,7 +123,7 @@ fn handleItemDelete(api: *const reaper.Api, cmd: protocol.CommandMessage, respon
     api.undoEndBlock("Reamo: Delete item");
 }
 
-fn handleItemGoto(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleItemGoto(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const item_info = getItemFromCmd(api, cmd) orelse {
         response.err("NOT_FOUND", "Item not found");
         return;
@@ -132,8 +132,8 @@ fn handleItemGoto(api: *const reaper.Api, cmd: protocol.CommandMessage, response
     api.setCursorPos(position);
 }
 
-// Select a single item (deselects all others first)
-fn handleItemSelect(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+/// Select a single item (deselects all others first)
+pub fn handleItemSelect(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const item_info = getItemFromCmd(api, cmd) orelse {
         response.err("NOT_FOUND", "Item not found");
         return;
@@ -148,14 +148,14 @@ fn handleItemSelect(api: *const reaper.Api, cmd: protocol.CommandMessage, respon
     }
 }
 
-// Select all items within time selection (on selected tracks)
-fn handleSelectInTimeSel(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+/// Select all items within time selection (on selected tracks)
+pub fn handleSelectInTimeSel(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.SELECT_ALL_ITEMS_IN_TIME_SEL);
     logging.debug("Selected items in time selection", .{});
 }
 
-// Deselect all items
-fn handleUnselectAll(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+/// Deselect all items
+pub fn handleUnselectAll(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.UNSELECT_ALL_ITEMS);
     logging.debug("Unselected all items", .{});
 }
@@ -167,8 +167,8 @@ const PEAK_SAMPLE_RATE: c_int = 4410;
 // Max samples we can read at once (stack buffer limit)
 const MAX_SAMPLE_BUF = 65536;
 
-// Get waveform peak data for an item's active take using AudioAccessor
-fn handleItemGetPeaks(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+/// Get waveform peak data for an item's active take using AudioAccessor
+pub fn handleItemGetPeaks(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     // 1. Get item from trackIdx, itemIdx
     const item_info = getItemFromCmd(api, cmd) orelse {
         response.err("NOT_FOUND", "Item not found");

@@ -27,14 +27,17 @@ pub const toggle_state_cmds = @import("toggle_state.zig");
 const midi_cmds = @import("midi.zig");
 pub const project_notes_cmds = @import("project_notes.zig");
 
-// Command handler function type
-pub const Handler = *const fn (*const reaper.Api, protocol.CommandMessage, *ResponseWriter) void;
-
-// Command registry entry
+// Command registry entry (used only for legacy test registry - dispatch uses comptime registry)
 pub const Entry = struct {
     name: []const u8,
-    handler: Handler,
+    handler: *const anyopaque, // Type-erased; actual dispatch uses comptime registry
 };
+
+// Legacy type alias for backwards compatibility with handler arrays
+pub const Handler = *const anyopaque;
+
+// Comptime tuple registry for anytype dispatch
+const comptime_registry = @import("registry.zig");
 
 // Re-export GestureState for convenience
 pub const GestureState = gesture_state.GestureState;
@@ -156,8 +159,10 @@ pub const registry = transport_cmds.handlers ++
     midi_cmds.handlers ++
     project_notes_cmds.handlers;
 
-// Dispatch a command message to the appropriate handler
-pub fn dispatch(api: *const reaper.Api, client_id: usize, data: []const u8, shared_state: *ws_server.SharedState, gestures: ?*GestureState) void {
+/// Dispatch a command message to the appropriate handler.
+/// Accepts any backend type (RealBackend, MockBackend) via anytype.
+/// Uses inline for to unroll the comptime registry at compile time.
+pub fn dispatch(api: anytype, client_id: usize, data: []const u8, shared_state: *ws_server.SharedState, gestures: ?*GestureState) void {
     const msg_type = protocol.MessageType.parse(data);
 
     switch (msg_type) {
@@ -174,9 +179,11 @@ pub fn dispatch(api: *const reaper.Api, client_id: usize, data: []const u8, shar
                 .gestures = gestures,
             };
 
-            for (registry) |entry| {
-                if (std.mem.eql(u8, cmd.command, entry.name)) {
-                    entry.handler(api, cmd, &response);
+            // Use inline for to unroll the comptime tuple registry.
+            // Each handler is called directly with the concrete api type.
+            inline for (comptime_registry.all) |entry| {
+                if (std.mem.eql(u8, cmd.command, entry[0])) {
+                    entry[1](api, cmd, &response);
                     return;
                 }
             }

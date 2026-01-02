@@ -21,14 +21,14 @@ pub const handlers = [_]mod.Entry{
 
 // Helper to get track by index from command
 // Uses unified indexing: 0 = master, 1+ = user tracks
-fn getTrackFromCmd(api: *const reaper.Api, cmd: protocol.CommandMessage) ?*anyopaque {
+pub fn getTrackFromCmd(api: anytype, cmd: protocol.CommandMessage) ?*anyopaque {
     const track_idx = cmd.getInt("trackIdx") orelse return null;
     return api.getTrackByUnifiedIdx(track_idx);
 }
 
 // Set track volume (0..inf, 1.0 = 0dB)
 // Uses CSurf API for undo coalescing - multiple rapid changes become one undo point
-fn handleSetVolume(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const track_idx = cmd.getInt("trackIdx") orelse {
         response.err("NOT_FOUND", "trackIdx is required");
         return;
@@ -57,7 +57,7 @@ fn handleSetVolume(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
 
 // Set track pan (-1.0..1.0)
 // Uses CSurf API for undo coalescing - multiple rapid changes become one undo point
-fn handleSetPan(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const track_idx = cmd.getInt("trackIdx") orelse {
         response.err("NOT_FOUND", "trackIdx is required");
         return;
@@ -86,7 +86,7 @@ fn handleSetPan(api: *const reaper.Api, cmd: protocol.CommandMessage, response: 
 
 // Set track mute (toggle if no value provided)
 // Uses CSurf API for proper master track support
-fn handleSetMute(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const track_idx = cmd.getInt("trackIdx") orelse {
         response.err("NOT_FOUND", "trackIdx is required");
         return;
@@ -107,7 +107,7 @@ fn handleSetMute(api: *const reaper.Api, cmd: protocol.CommandMessage, response:
 
 // Set track solo (0=off, 1=solo, 2=solo in place, etc.)
 // Uses CSurf API for proper master track support
-fn handleSetSolo(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleSetSolo(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const track_idx = cmd.getInt("trackIdx") orelse {
         response.err("NOT_FOUND", "trackIdx is required");
         return;
@@ -134,7 +134,7 @@ fn handleSetSolo(api: *const reaper.Api, cmd: protocol.CommandMessage, response:
 
 // Set track record arm (toggle if no value provided)
 // Uses CSurf API for gang support (respects track grouping when allowGang=true)
-fn handleSetRecArm(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleSetRecArm(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const track = getTrackFromCmd(api, cmd) orelse {
         response.err("NOT_FOUND", "Track not found");
         return;
@@ -148,7 +148,7 @@ fn handleSetRecArm(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
 
 // Set track record monitoring (0=off, 1=normal, 2=not when playing)
 // Uses CSurf API for gang support (respects track grouping when allowGang=true)
-fn handleSetRecMon(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleSetRecMon(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const track = getTrackFromCmd(api, cmd) orelse {
         response.err("NOT_FOUND", "Track not found");
         return;
@@ -169,7 +169,7 @@ fn handleSetRecMon(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
 }
 
 // Set track FX enabled (toggle if no value provided)
-fn handleSetFxEnabled(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleSetFxEnabled(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const track = getTrackFromCmd(api, cmd) orelse {
         response.err("NOT_FOUND", "Track not found");
         return;
@@ -181,7 +181,7 @@ fn handleSetFxEnabled(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
 }
 
 // Set track selected (toggle if no value provided)
-fn handleSetSelected(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleSetSelected(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const track = getTrackFromCmd(api, cmd) orelse {
         response.err("NOT_FOUND", "Track not found");
         return;
@@ -193,7 +193,7 @@ fn handleSetSelected(api: *const reaper.Api, cmd: protocol.CommandMessage, respo
 }
 
 // Unselect all tracks (including master)
-fn handleDeselectAll(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleDeselectAll(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     _ = cmd;
     _ = response;
 
@@ -215,7 +215,7 @@ fn handleDeselectAll(api: *const reaper.Api, cmd: protocol.CommandMessage, respo
 }
 
 // Clear clip indicator for a track's input meter
-fn handleClearClip(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleClearClip(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const track = getTrackFromCmd(api, cmd) orelse {
         response.err("NOT_FOUND", "Track not found");
         return;

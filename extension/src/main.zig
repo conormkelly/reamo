@@ -171,15 +171,14 @@ fn initTimerCallback() callconv(.c) void {
     const port_str = std.fmt.bufPrint(&port_buf, "{d}", .{g_port}) catch "9224";
     api.setExtStateStr("Reamo", "WebSocketPort", port_str);
 
-    // Initialize state caches using ApiInterface
-    var real_api = reaper.RealApi{ .inner = api };
-    const iface = real_api.interface();
-    g_last_transport = transport.State.poll(iface);
-    g_last_project = project.State.poll(iface);
-    g_last_markers = markers.State.poll(iface);
-    g_last_items = items.State.poll(iface);
-    g_last_tracks = tracks.State.poll(iface);
-    g_last_tempomap = tempomap.State.poll(iface);
+    // Initialize state caches using RealBackend
+    var backend = reaper.RealBackend{ .inner = api };
+    g_last_transport = transport.State.poll(&backend);
+    g_last_project = project.State.poll(&backend);
+    g_last_markers = markers.State.poll(&backend);
+    g_last_items = items.State.poll(&backend);
+    g_last_tracks = tracks.State.poll(&backend);
+    g_last_tempomap = tempomap.State.poll(&backend);
 
     logging.info("WebSocket server started on port {d}", .{g_port});
 
@@ -195,15 +194,14 @@ fn processTimerCallback() callconv(.c) void {
     const api = &(g_api orelse return);
     const shared_state = g_shared_state orelse return;
 
-    // Create ApiInterface for state polling
-    var real_api = reaper.RealApi{ .inner = api };
-    const iface = real_api.interface();
+    // Create backend for state polling
+    var backend = reaper.RealBackend{ .inner = api };
 
     // Process pending commands from WebSocket clients
     while (shared_state.popCommand()) |cmd| {
         var command = cmd;
         defer command.deinit();
-        commands.dispatch(api, command.client_id, command.data, shared_state, g_gesture_state);
+        commands.dispatch(&backend, command.client_id, command.data, shared_state, g_gesture_state);
     }
 
     // Clean up gestures and toggle subscriptions for disconnected clients
@@ -246,11 +244,11 @@ fn processTimerCallback() callconv(.c) void {
     const snapshot_count = shared_state.popClientsNeedingSnapshot(&snapshot_clients);
     if (snapshot_count > 0) {
         // Get current state for all domains
-        const trans = transport.State.poll(iface);
-        const proj = project.State.poll(iface);
-        const mark = markers.State.poll(iface);
-        const trks = tracks.State.poll(iface);
-        const tmap = tempomap.State.poll(iface);
+        const trans = transport.State.poll(&backend);
+        const proj = project.State.poll(&backend);
+        const mark = markers.State.poll(&backend);
+        const trks = tracks.State.poll(&backend);
+        const tmap = tempomap.State.poll(&backend);
 
         // Send to each new client
         for (snapshot_clients[0..snapshot_count]) |client_id| {
@@ -281,7 +279,7 @@ fn processTimerCallback() callconv(.c) void {
             }
             // Items
             var buf5: [32768]u8 = undefined;
-            const itms = items.State.poll(iface);
+            const itms = items.State.poll(&backend);
             if (itms.itemsToJson(&buf5)) |json| {
                 shared_state.sendToClient(client_id, json);
             }
@@ -303,7 +301,7 @@ fn processTimerCallback() callconv(.c) void {
 
     // Poll transport state and broadcast changes
     // Use lightweight tick when only position changed during playback
-    const current_transport = transport.State.poll(iface);
+    const current_transport = transport.State.poll(&backend);
     if (!current_transport.eql(g_last_transport)) {
         const state_changed = !current_transport.stateOnlyEql(g_last_transport);
         const is_playing = transport.PlayState.isPlaying(current_transport.play_state);
@@ -332,7 +330,7 @@ fn processTimerCallback() callconv(.c) void {
     }
 
     // Poll tracks and metering, broadcast changes (HIGH TIER - needs smooth fader/meter updates)
-    const current_tracks = tracks.State.poll(iface);
+    const current_tracks = tracks.State.poll(&backend);
     const current_metering = tracks.MeteringState.poll(api);
 
     // Broadcast if tracks changed OR if we have active metering
@@ -371,7 +369,7 @@ fn processTimerCallback() callconv(.c) void {
     // ========================================================================
     if (g_frame_counter % MEDIUM_TIER_INTERVAL == 0) {
         // Poll project state (undo/redo) and broadcast changes
-        const current_project = project.State.poll(iface);
+        const current_project = project.State.poll(&backend);
         if (!current_project.eql(&g_last_project)) {
             var buf: [512]u8 = undefined;
             if (current_project.toJson(&buf)) |json| {
@@ -381,7 +379,7 @@ fn processTimerCallback() callconv(.c) void {
         }
 
         // Poll markers/regions and broadcast changes
-        const current_markers = markers.State.poll(iface);
+        const current_markers = markers.State.poll(&backend);
         if (current_markers.markersChanged(&g_last_markers)) {
             var buf: [8192]u8 = undefined;
             if (current_markers.markersToJson(&buf)) |json| {
@@ -397,7 +395,7 @@ fn processTimerCallback() callconv(.c) void {
         g_last_markers = current_markers;
 
         // Poll items and broadcast changes
-        const current_items = items.State.poll(iface);
+        const current_items = items.State.poll(&backend);
         if (current_items.itemsChanged(&g_last_items)) {
             var buf: [32768]u8 = undefined;
             if (current_items.itemsToJson(&buf)) |json| {
@@ -413,7 +411,7 @@ fn processTimerCallback() callconv(.c) void {
     // ========================================================================
     if (g_frame_counter % LOW_TIER_INTERVAL == 0) {
         // Poll tempo map and broadcast changes
-        const current_tempomap = tempomap.State.poll(iface);
+        const current_tempomap = tempomap.State.poll(&backend);
         if (current_tempomap.changed(&g_last_tempomap)) {
             var buf: [4096]u8 = undefined;
             if (current_tempomap.toJson(&buf)) |json| {

@@ -15,7 +15,7 @@ pub const handlers = [_]mod.Entry{
 };
 
 // Set tempo (BPM)
-fn handleSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const bpm = cmd.getFloat("bpm") orelse {
         response.err("MISSING_BPM", "bpm is required");
         return;
@@ -32,14 +32,14 @@ fn handleSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
 }
 
 // Tap tempo (uses REAPER's built-in command)
-fn handleTap(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+pub fn handleTap(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.TAP_TEMPO);
 }
 
 // Snap time to beat grid (tempo-aware)
 // Request: { "time": 15.7, "subdivision": 1 }
 // Response: { "snappedTime": 16.0, "snappedBeats": 32.0 }
-fn handleSnap(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleSnap(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const time = cmd.getFloat("time") orelse {
         response.err("MISSING_TIME", "time is required");
         return;
@@ -71,7 +71,7 @@ fn handleSnap(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *m
 // Get bar duration at a specific position (for minimum region length, etc.)
 // Request: { "time": 10.5 }
 // Response: { "duration": 2.0, "durationBeats": 4.0, "bpm": 120.0, "timesigNum": 4, "timesigDenom": 4 }
-fn handleGetBarDuration(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleGetBarDuration(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const time = cmd.getFloat("time") orelse 0.0;
 
     // Get tempo at position
@@ -97,7 +97,7 @@ fn handleGetBarDuration(api: *const reaper.Api, cmd: protocol.CommandMessage, re
 // Convert time to beats with formatted bar string
 // Request: { "time": 16.0 }
 // Response: { "beats": 32.0, "bars": "9.1.00" }
-fn handleTimeToBeats(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleTimeToBeats(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const time = cmd.getFloat("time") orelse {
         response.err("MISSING_TIME", "time is required");
         return;
@@ -130,7 +130,7 @@ fn handleTimeToBeats(api: *const reaper.Api, cmd: protocol.CommandMessage, respo
 // IMPORTANT: User input uses "denominator beats" (e.g., beat 2 in 6/8 = second eighth note)
 // but REAPER's TimeMap2_beatsToTime expects quarter notes as tpos.
 // We must convert: qn_offset = (beat - 1) * (4.0 / denominator)
-fn handleBarsToTime(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleBarsToTime(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const bar = cmd.getInt("bar") orelse {
         response.err("MISSING_BAR", "bar is required");
         return;

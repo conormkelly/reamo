@@ -12,12 +12,12 @@ pub const handlers = [_]mod.Entry{
 };
 
 // Toggle metronome (uses REAPER's built-in command)
-fn handleToggle(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+pub fn handleToggle(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.METRONOME_TOGGLE);
 }
 
 // Get metronome volume (returns both linear and dB)
-fn handleGetVolume(api: *const reaper.Api, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleGetVolume(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const linear = api.getMetronomeVolume();
     const db = reaper.Api.linearToDb(linear);
 
@@ -30,7 +30,7 @@ fn handleGetVolume(api: *const reaper.Api, _: protocol.CommandMessage, response:
 }
 
 // Set metronome volume (accepts volumeDb or volume)
-fn handleSetVolume(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     // Accept either volumeDb (preferred) or volume (linear)
     var linear: f64 = undefined;
 

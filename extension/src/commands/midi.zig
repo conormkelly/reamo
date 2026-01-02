@@ -11,7 +11,7 @@ pub const handlers = [_]mod.Entry{
 
 /// Send MIDI Control Change (dual-sends to VKB + Control paths)
 /// Params: cc (0-127), value (0-127), channel (0-15, default 0)
-fn handleCC(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleCC(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const cc = cmd.getInt("cc") orelse {
         response.err("MISSING_CC", "cc (0-127) is required");
         return;
@@ -44,7 +44,7 @@ fn handleCC(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod
 
 /// Send MIDI Program Change (dual-sends to VKB + Control paths)
 /// Params: program (0-127), channel (0-15, default 0)
-fn handlePC(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handlePC(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const program = cmd.getInt("program") orelse {
         response.err("MISSING_PROGRAM", "program (0-127) is required");
         return;

@@ -1,7 +1,6 @@
 const std = @import("std");
 const reaper = @import("reaper.zig");
 const protocol = @import("protocol.zig");
-const ApiInterface = reaper.api.ApiInterface;
 
 // Maximum items/takes we track
 pub const MAX_ITEMS = 512;
@@ -97,10 +96,10 @@ pub const State = struct {
     items: [MAX_ITEMS]Item = undefined,
     item_count: usize = 0,
 
-    /// Poll current state from REAPER using abstract interface.
-    /// Enables unit testing without REAPER running.
+    /// Poll current state from REAPER.
+    /// Accepts any backend type (RealBackend, MockBackend, or test doubles).
     /// Returns ALL items in the project (frontend filters by time selection as needed)
-    pub fn poll(api: ApiInterface) State {
+    pub fn poll(api: anytype) State {
         var state = State{};
 
         // Enumerate all tracks
@@ -374,23 +373,23 @@ test "items changed detection" {
 }
 
 // =============================================================================
-// MockApi-based tests (Phase 8.4)
+// MockBackend-based tests
 // =============================================================================
 
-const MockApi = reaper.mock.MockApi;
+const MockBackend = reaper.MockBackend;
 
-test "poll with MockApi returns empty state for no tracks" {
-    var mock = MockApi{
+test "poll with MockBackend returns empty state for no tracks" {
+    var mock = MockBackend{
         .track_count = 0,
     };
 
-    const state = State.poll(mock.interface());
+    const state = State.poll(&mock);
 
     try std.testing.expectEqual(@as(usize, 0), state.item_count);
 }
 
-test "poll with MockApi returns items from tracks" {
-    var mock = MockApi{
+test "poll with MockBackend returns items from tracks" {
+    var mock = MockBackend{
         .track_count = 1, // 1 user track
     };
     // Set up track 0 (first user track) with one item
@@ -409,7 +408,7 @@ test "poll with MockApi returns items from tracks" {
     mock.tracks[0].items[0].takes[0].setName("Audio Take");
     mock.tracks[0].items[0].takes[0].is_midi = false;
 
-    const state = State.poll(mock.interface());
+    const state = State.poll(&mock);
 
     try std.testing.expectEqual(@as(usize, 1), state.item_count);
     try std.testing.expect(@abs(state.items[0].position - 5.0) < 0.001);
@@ -421,7 +420,7 @@ test "poll with MockApi returns items from tracks" {
 }
 
 test "poll tracks API calls correctly" {
-    var mock = MockApi{
+    var mock = MockBackend{
         .track_count = 1,
     };
     mock.tracks[0].item_count = 1;
@@ -431,7 +430,7 @@ test "poll tracks API calls correctly" {
         .take_count = 1,
     };
 
-    _ = State.poll(mock.interface());
+    _ = State.poll(&mock);
 
     // Verify key API calls were made
     try std.testing.expect(mock.getCallCount(.trackCount) >= 1);

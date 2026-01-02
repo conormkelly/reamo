@@ -15,7 +15,7 @@ pub var g_toggle_subs: ?*toggle_subscriptions.ToggleSubscriptions = null;
 
 /// Subscribe to toggle states for a list of commandIds.
 /// Returns current state for all subscribed commandIds.
-fn handleSubscribe(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleSubscribe(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const subs = g_toggle_subs orelse {
         response.err("NOT_INITIALIZED", "Toggle subscriptions not initialized");
         return;
@@ -62,7 +62,7 @@ fn handleSubscribe(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
 }
 
 /// Unsubscribe from toggle states for a list of commandIds.
-fn handleUnsubscribe(_: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleUnsubscribe(_: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const subs = g_toggle_subs orelse {
         response.err("NOT_INITIALIZED", "Toggle subscriptions not initialized");
         return;

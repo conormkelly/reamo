@@ -12,7 +12,7 @@ pub const handlers = [_]mod.Entry{
     .{ .name = "take/prev", .handler = handleTakePrev },
 };
 
-fn handleTakeDelete(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+pub fn handleTakeDelete(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     // Operates on selected items - uses REAPER's built-in command
     api.undoBeginBlock();
     api.runCommand(reaper.Command.DELETE_ACTIVE_TAKE);
@@ -20,7 +20,7 @@ fn handleTakeDelete(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.
     logging.debug("Deleted active take", .{});
 }
 
-fn handleTakeCropToActive(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+pub fn handleTakeCropToActive(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     // Operates on selected items - uses REAPER's built-in command
     api.undoBeginBlock();
     api.runCommand(reaper.Command.CROP_TO_ACTIVE_TAKE);
@@ -28,14 +28,14 @@ fn handleTakeCropToActive(api: *const reaper.Api, _: protocol.CommandMessage, _:
     logging.debug("Cropped to active take", .{});
 }
 
-// Activate next take in selected items
-fn handleTakeNext(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+/// Activate next take in selected items
+pub fn handleTakeNext(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.NEXT_TAKE);
     logging.debug("Activated next take", .{});
 }
 
-// Activate previous take in selected items
-fn handleTakePrev(api: *const reaper.Api, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
+/// Activate previous take in selected items
+pub fn handleTakePrev(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.PREV_TAKE);
     logging.debug("Activated previous take", .{});
 }

@@ -27,7 +27,7 @@ fn parseControlId(cmd: protocol.CommandMessage) ?gesture_state.ControlId {
 
 /// Handle gesture/start - called when a client begins dragging a fader
 /// Params: { controlType: "volume"|"pan", trackIdx: number }
-fn handleStart(_: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleStart(_: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const gestures = response.gestures orelse {
         logging.warn("gesture/start called but GestureState not available", .{});
         response.err("INTERNAL_ERROR", "Gesture tracking not initialized");
@@ -53,7 +53,7 @@ fn handleStart(_: *const reaper.Api, cmd: protocol.CommandMessage, response: *mo
 /// Handle gesture/end - called when a client finishes dragging a fader
 /// Params: { controlType: "volume"|"pan", trackIdx: number }
 /// If this is the last client gesturing on the control, flushes the undo
-fn handleEnd(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleEnd(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const gestures = response.gestures orelse {
         logging.warn("gesture/end called but GestureState not available", .{});
         response.err("INTERNAL_ERROR", "Gesture tracking not initialized");

@@ -13,7 +13,7 @@ pub const handlers = [_]mod.Entry{
 const MASTER_MONO_ACTION: c_int = 40917;
 
 // Toggle master track mono/stereo mode
-fn handleToggleMono(api: *const reaper.Api, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleToggleMono(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     api.runCommand(MASTER_MONO_ACTION);
 
     // Return the new state (1 = mono, 0 = stereo)

@@ -66,7 +66,7 @@ pub const NotesSubscriptions = struct {
 
     /// Poll for notes changes. Returns new hash if changed, null otherwise.
     /// Only polls REAPER if there are subscribers.
-    pub fn poll(self: *NotesSubscriptions, api: *const reaper.Api) ?NotesChange {
+    pub fn poll(self: *NotesSubscriptions, api: anytype) ?NotesChange {
         if (!self.hasSubscribers()) return null;
 
         // Get current notes
@@ -96,7 +96,7 @@ pub const NotesSubscriptions = struct {
     }
 
     /// Get current notes and hash (for subscribe response)
-    pub fn getCurrentNotes(self: *NotesSubscriptions, api: *const reaper.Api) ?NotesSnapshot {
+    pub fn getCurrentNotes(self: *NotesSubscriptions, api: anytype) ?NotesSnapshot {
         var buf: [MAX_NOTES_SIZE]u8 = undefined;
         const notes = api.getProjectNotes(&buf) orelse return null;
 

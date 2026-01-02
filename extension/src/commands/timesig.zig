@@ -10,7 +10,7 @@ pub const handlers = [_]mod.Entry{
 };
 
 // Set time signature (numerator/denominator)
-fn handleSet(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const numerator = cmd.getInt("numerator") orelse {
         response.err("MISSING_NUMERATOR", "numerator is required");
         return;

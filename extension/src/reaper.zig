@@ -1,67 +1,71 @@
 /// REAPER API abstraction layer.
 ///
-/// This module provides both the raw REAPER C API bindings and an abstract
-/// interface for testability.
+/// This module provides both the raw REAPER C API bindings and backend
+/// implementations for testability via comptime generics.
 ///
 /// ## Quick Start
 ///
 /// Production code:
 /// ```zig
 /// const reaper = @import("reaper.zig");
-/// var real = reaper.RealApi{ .inner = &raw_api };
-/// const api = real.interface();
+/// var backend = reaper.RealBackend{ .inner = &raw_api };
+/// const state = transport.poll(&backend);
 /// ```
 ///
 /// Test code:
 /// ```zig
 /// const reaper = @import("reaper.zig");
-/// var mock = reaper.mock.MockApi{
+/// var mock = reaper.MockBackend{
 ///     .play_state = 1,
 ///     .bpm = 140.0,
 /// };
-/// const api = mock.interface();
+/// const state = transport.poll(&mock);
 /// ```
 ///
 /// ## Module Structure
 ///
 /// - `raw`: C function pointers and runtime loading (raw.zig)
-/// - `api`: Abstract interface + RealApi wrapper (api.zig)
-/// - `mock`: MockApi for testing (mock.zig)
+/// - `real`: RealBackend production wrapper (real.zig)
+/// - `mock`: MockBackend for testing (mock/mod.zig)
 /// - `types`: Shared type definitions (types.zig)
-///
-/// ## Backward Compatibility
-///
-/// For existing code, the following are re-exported at the top level:
-/// - `Api` (from raw.zig)
-/// - `PluginInfo` (from raw.zig)
-/// - `Command` (from raw.zig)
-/// - All shared types (BeatsInfo, MarkerInfo, etc.)
+/// - `backend`: Backend interface validation (backend.zig)
 
 // =============================================================================
-// Submodule namespaced access (preferred for new code)
+// Submodule namespaced access
 // =============================================================================
 
 pub const raw = @import("reaper/raw.zig");
-pub const api = @import("reaper/api.zig");
-pub const mock = @import("reaper/mock.zig");
+pub const real = @import("reaper/real.zig");
+pub const mock = @import("reaper/mock/mod.zig");
 pub const types = @import("reaper/types.zig");
+pub const backend = @import("reaper/backend.zig");
 
 // =============================================================================
-// Re-exports for backward compatibility (existing code continues to work)
+// Backend exports
 // =============================================================================
 
+/// Production backend - thin wrapper around raw REAPER API.
+pub const RealBackend = real.RealBackend;
+
+/// Test backend - field-based mock with call tracking.
+pub const MockBackend = mock.MockBackend;
+
+/// Comptime validation that a type implements all backend methods.
+pub const validateBackend = backend.validateBackend;
+
+// =============================================================================
 // Core types from raw.zig
+// =============================================================================
 pub const Api = raw.Api;
 pub const PluginInfo = raw.PluginInfo;
 pub const Command = raw.Command;
 pub const PLUGIN_VERSION = raw.PLUGIN_VERSION;
 pub const DEBUG_LOGGING = raw.DEBUG_LOGGING;
 
-// Interface types from api.zig
-pub const ApiInterface = api.ApiInterface;
-pub const RealApi = api.RealApi;
+// =============================================================================
+// Shared type exports
+// =============================================================================
 
-// Shared types (from types.zig via api.zig)
 pub const BeatsInfo = types.BeatsInfo;
 pub const TempoAtPosition = types.TempoAtPosition;
 pub const TempoMarker = types.TempoMarker;
@@ -77,19 +81,23 @@ pub const MarkerCount = types.MarkerCount;
 test {
     // Ensure all submodules compile
     _ = raw;
-    _ = api;
+    _ = real;
     _ = mock;
     _ = types;
+    _ = backend;
 }
 
-test "backward compatibility - Api type accessible" {
-    // This ensures existing code like `const api: *const reaper.Api` still works
-    const T = Api;
+test "RealBackend type accessible" {
+    const T = RealBackend;
     _ = T;
 }
 
-test "backward compatibility - Command constants accessible" {
-    // This ensures existing code like `reaper.Command.PLAY` still works
+test "MockBackend type accessible" {
+    const T = MockBackend;
+    _ = T;
+}
+
+test "Command constants accessible" {
     const play_cmd = Command.PLAY;
     try @import("std").testing.expectEqual(@as(c_int, 1007), play_cmd);
 }

@@ -13,7 +13,7 @@ pub const handlers = [_]mod.Entry{
     .{ .name = "region/batch", .handler = handleRegionBatch },
 };
 
-fn handleRegionAdd(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleRegionAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const start = cmd.getFloat("start") orelse {
         response.err("MISSING_START", "Region start is required");
         return;
@@ -35,7 +35,7 @@ fn handleRegionAdd(api: *const reaper.Api, cmd: protocol.CommandMessage, respons
     }
 }
 
-fn handleRegionUpdate(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleRegionUpdate(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const id = cmd.getInt("id") orelse {
         response.err("MISSING_ID", "Region id is required");
         return;
@@ -54,7 +54,7 @@ fn handleRegionUpdate(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
     api.undoEndBlock("Reamo: Update region");
 }
 
-fn handleRegionDelete(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleRegionDelete(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const id = cmd.getInt("id") orelse {
         response.err("MISSING_ID", "Region id is required");
         return;
@@ -66,7 +66,7 @@ fn handleRegionDelete(api: *const reaper.Api, cmd: protocol.CommandMessage, resp
     api.undoEndBlock("Reamo: Delete region");
 }
 
-fn handleRegionGoto(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleRegionGoto(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const id = cmd.getInt("id") orelse {
         response.err("MISSING_ID", "Region id is required");
         return;
@@ -90,7 +90,7 @@ fn handleRegionGoto(api: *const reaper.Api, cmd: protocol.CommandMessage, respon
 
 /// Handle batch region operations (create, update, delete)
 /// Wraps all ops in a single undo block
-fn handleRegionBatch(api: *const reaper.Api, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleRegionBatch(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     // Find the ops array in raw JSON
     const ops_start = std.mem.indexOf(u8, cmd.raw, "\"ops\"") orelse {
         response.err("MISSING_OPS", "ops array is required");
@@ -165,7 +165,7 @@ const OpResult = union(enum) {
 };
 
 /// Process a single operation from the batch
-fn processOp(api: *const reaper.Api, op_json: []const u8) OpResult {
+fn processOp(api: anytype, op_json: []const u8) OpResult {
     const op_type = protocol.jsonGetString(op_json, "op") orelse {
         return .{ .skipped = "missing op type" };
     };
@@ -182,7 +182,7 @@ fn processOp(api: *const reaper.Api, op_json: []const u8) OpResult {
 }
 
 /// Process an update operation
-fn processUpdate(api: *const reaper.Api, op_json: []const u8) OpResult {
+fn processUpdate(api: anytype, op_json: []const u8) OpResult {
     const id = protocol.jsonGetInt(op_json, "id") orelse {
         return .{ .skipped = "update missing id" };
     };
@@ -241,7 +241,7 @@ fn processUpdate(api: *const reaper.Api, op_json: []const u8) OpResult {
 }
 
 /// Process a delete operation
-fn processDelete(api: *const reaper.Api, op_json: []const u8) OpResult {
+fn processDelete(api: anytype, op_json: []const u8) OpResult {
     const id = protocol.jsonGetInt(op_json, "id") orelse {
         return .{ .skipped = "delete missing id" };
     };
@@ -254,7 +254,7 @@ fn processDelete(api: *const reaper.Api, op_json: []const u8) OpResult {
 }
 
 /// Process a create operation
-fn processCreate(api: *const reaper.Api, op_json: []const u8) OpResult {
+fn processCreate(api: anytype, op_json: []const u8) OpResult {
     const start = protocol.jsonGetFloat(op_json, "start") orelse {
         return .{ .skipped = "create missing start" };
     };
