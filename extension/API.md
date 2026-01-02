@@ -1451,7 +1451,10 @@ Low-frequency event broadcast when project state changes. Contains undo/redo ava
     "metronome": {"enabled": true, "volume": 0.5000, "volumeDb": -6.02},
     "master": {"stereoEnabled": true},
     "projectLength": 180.500,
-    "barOffset": -4
+    "barOffset": -4,
+    "isDirty": false,
+    "frameRate": 29.97,
+    "dropFrame": true
   }
 }
 ```
@@ -1467,6 +1470,46 @@ Low-frequency event broadcast when project state changes. Contains undo/redo ava
 | `master.stereoEnabled` | bool | `true` = stereo, `false` = mono (L+R summed) |
 | `projectLength` | float | Project length in seconds (based on last item/region end) |
 | `barOffset` | int | Bar offset (e.g., -4 means time 0 = bar 1, display starts at bar -4) |
+| `isDirty` | bool | Project has unsaved changes |
+| `frameRate` | float | Project frame rate for SMPTE timecode (e.g., 23.976, 24, 25, 29.97, 30) |
+| `dropFrame` | bool | `true` if using drop-frame timecode (29.97fps or 59.94fps) |
+
+#### SMPTE Timecode Conversion
+
+To display SMPTE timecode (HH:MM:SS:FF) from seconds:
+
+```javascript
+function secondsToSMPTE(seconds, frameRate, dropFrame) {
+  const totalFrames = Math.floor(seconds * frameRate);
+
+  if (dropFrame && (frameRate > 29 && frameRate < 30)) {
+    // Drop-frame: skip frames 0,1 every minute except every 10th minute
+    // This keeps timecode in sync with wall-clock time for 29.97fps
+    const D = Math.floor(totalFrames / 17982);  // 10-minute chunks
+    const M = totalFrames % 17982;
+    const additionalFrames = 18 * D + 2 * Math.floor((M - 2) / 1798);
+    const adjustedFrames = totalFrames + (M > 1 ? additionalFrames : 18 * D);
+
+    const ff = adjustedFrames % 30;
+    const ss = Math.floor(adjustedFrames / 30) % 60;
+    const mm = Math.floor(adjustedFrames / 1800) % 60;
+    const hh = Math.floor(adjustedFrames / 108000);
+
+    return `${hh.toString().padStart(2,'0')}:${mm.toString().padStart(2,'0')}:${ss.toString().padStart(2,'0')};${ff.toString().padStart(2,'0')}`;
+  }
+
+  // Non-drop-frame
+  const roundedRate = Math.round(frameRate);
+  const ff = totalFrames % roundedRate;
+  const ss = Math.floor(totalFrames / roundedRate) % 60;
+  const mm = Math.floor(totalFrames / (roundedRate * 60)) % 60;
+  const hh = Math.floor(totalFrames / (roundedRate * 3600));
+
+  return `${hh.toString().padStart(2,'0')}:${mm.toString().padStart(2,'0')}:${ss.toString().padStart(2,'0')}:${ff.toString().padStart(2,'0')}`;
+}
+```
+
+**Note:** Drop-frame timecode uses semicolons (`;`) as the frame separator, while non-drop-frame uses colons (`:`).
 
 ---
 

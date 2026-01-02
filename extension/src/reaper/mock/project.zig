@@ -1,6 +1,7 @@
 /// Mock project, undo, and extstate methods.
 const std = @import("std");
 const state = @import("state.zig");
+const types = @import("../types.zig");
 
 /// Project method implementations for MockBackend.
 /// Called via @fieldParentPtr from the main MockBackend struct.
@@ -27,6 +28,11 @@ pub const ProjectMethods = struct {
     pub fn markDirty(self: anytype) void {
         self.recordCall(.markDirty);
         self.project_dirty = true;
+    }
+
+    pub fn getFrameRate(self: anytype) types.FrameRateInfo {
+        self.recordCall(.getFrameRate);
+        return .{ .frame_rate = self.frame_rate, .drop_frame = self.drop_frame };
     }
 
     // =========================================================================

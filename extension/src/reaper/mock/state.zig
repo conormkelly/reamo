@@ -71,6 +71,7 @@ pub const Method = enum {
     projectStateChangeCount,
     isDirty,
     markDirty,
+    getFrameRate,
     getCommandState,
     isMetronomeEnabled,
     getMetronomeVolume,

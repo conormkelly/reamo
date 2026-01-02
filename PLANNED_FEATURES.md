@@ -949,16 +949,16 @@ Allow time display to cycle between formats for different workflows.
 | Bars.Beats | `17.3.2` | Music production |
 | SMPTE | `00:00:32:13` | Film scoring |
 
-**REAPER API:**
-```c
-double TimeMap_curFrameRate(ReaProject* proj, bool* dropFrame);
-// Returns frame rate (23.976, 24, 25, 29.97, 30, etc.)
-// dropFrame out-param indicates drop-frame timecode
-```
+**Backend: DONE**
 
-**State change:** Add `frameRate: number` and `dropFrame: boolean` to project event.
+- [x] Added `TimeMap_curFrameRate` to REAPER API bindings
+- [x] Added `FrameRateInfo` type with `frame_rate: f64` and `drop_frame: bool`
+- [x] Added `getFrameRate()` to `RealBackend` and `MockBackend`
+- [x] Added `frameRate` and `dropFrame` fields to project event
+- [x] Updated API.md with field documentation and SMPTE conversion code
 
-**Frontend:**
-- Store `timeDisplayMode` in localStorage
-- Tap time display to cycle modes
-- Convert seconds to SMPTE: `frames = floor(seconds * frameRate)`, then split into HH:MM:SS:FF
+**Frontend (TODO):**
+- [ ] Store `timeDisplayMode` in localStorage
+- [ ] Tap time display to cycle modes (Time → Bars.Beats → SMPTE → Time)
+- [ ] Convert seconds to SMPTE using `secondsToSMPTE()` helper (see API.md)
+- [ ] Use semicolon separator for drop-frame timecode (29.97fps/59.94fps)

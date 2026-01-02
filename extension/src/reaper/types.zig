@@ -56,3 +56,9 @@ pub const MarkerCount = struct {
     markers: c_int,
     regions: c_int,
 };
+
+/// Frame rate / timecode info
+pub const FrameRateInfo = struct {
+    frame_rate: f64, // Frame rate (e.g., 29.97, 24, 25, 30)
+    drop_frame: bool, // True for drop-frame timecode (29.97/59.94)
+};

@@ -151,6 +151,10 @@ pub const RealBackend = struct {
         self.inner.markDirty();
     }
 
+    pub fn getFrameRate(self: *const RealBackend) types.FrameRateInfo {
+        return self.inner.getFrameRate();
+    }
+
     // =========================================================================
     // Command state
     // =========================================================================

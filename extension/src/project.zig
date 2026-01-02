@@ -22,6 +22,8 @@ pub const State = struct {
     bar_offset: c_int = 0, // Project bar offset (e.g., -4 means time 0 = bar 1, display starts at -4)
     master_stereo: bool = true, // Master track stereo mode (false = mono L+R summed)
     is_dirty: bool = false, // Project has unsaved changes
+    frame_rate: f64 = 30.0, // Project frame rate (e.g., 29.97, 24, 25)
+    drop_frame: bool = false, // True for drop-frame timecode (29.97/59.94)
 
     // Get undo string (returns null if none)
     pub fn canUndo(self: *const State) ?[]const u8 {
@@ -45,6 +47,8 @@ pub const State = struct {
         if (self.bar_offset != other.bar_offset) return false;
         if (self.master_stereo != other.master_stereo) return false;
         if (self.is_dirty != other.is_dirty) return false;
+        if (@abs(self.frame_rate - other.frame_rate) > 0.001) return false;
+        if (self.drop_frame != other.drop_frame) return false;
         return true;
     }
 
@@ -58,6 +62,7 @@ pub const State = struct {
     pub fn poll(api: anytype) State {
         // Master mono toggle: action 40917, state 1 = mono, 0 = stereo
         const master_mono_state = api.getCommandState(40917);
+        const frame_info = api.getFrameRate();
 
         var state = State{
             .state_change_count = api.projectStateChangeCount(),
@@ -68,6 +73,8 @@ pub const State = struct {
             .bar_offset = api.getBarOffset(),
             .master_stereo = master_mono_state != 1, // 1 = mono, so stereo = not mono
             .is_dirty = api.isDirty(),
+            .frame_rate = frame_info.frame_rate,
+            .drop_frame = frame_info.drop_frame,
         };
 
         // Copy undo description if available
@@ -121,7 +128,7 @@ pub const State = struct {
         }
 
         // Write remaining fields
-        writer.print(",\"stateChangeCount\":{d},\"repeat\":{s},\"metronome\":{{\"enabled\":{s},\"volume\":{d:.4},\"volumeDb\":{d:.2}}},\"master\":{{\"stereoEnabled\":{s}}},\"projectLength\":{d:.3},\"barOffset\":{d},\"isDirty\":{s}}}}}", .{
+        writer.print(",\"stateChangeCount\":{d},\"repeat\":{s},\"metronome\":{{\"enabled\":{s},\"volume\":{d:.4},\"volumeDb\":{d:.2}}},\"master\":{{\"stereoEnabled\":{s}}},\"projectLength\":{d:.3},\"barOffset\":{d},\"isDirty\":{s},\"frameRate\":{d:.4},\"dropFrame\":{s}}}}}", .{
             self.state_change_count,
             if (self.repeat) "true" else "false",
             if (self.metronome_enabled) "true" else "false",
@@ -131,6 +138,8 @@ pub const State = struct {
             project_length,
             self.bar_offset,
             if (self.is_dirty) "true" else "false",
+            self.frame_rate,
+            if (self.drop_frame) "true" else "false",
         }) catch return null;
 
         return stream.getWritten();
@@ -170,6 +179,8 @@ test "State.toJson with both undo and redo" {
         .project_length = 180.5,
         .bar_offset = -4,
         .is_dirty = true,
+        .frame_rate = 29.97,
+        .drop_frame = true,
     };
     const undo_desc = "Add region";
     const redo_desc = "Delete marker";
@@ -191,6 +202,8 @@ test "State.toJson with both undo and redo" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"projectLength\":180.5") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"barOffset\":-4") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"isDirty\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"frameRate\":29.97") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"dropFrame\":true") != null);
 }
 
 test "State.toJson with only undo" {
@@ -252,6 +265,8 @@ test "poll with MockBackend returns configured values" {
         .metronome_volume = 0.5,
         .bar_offset = -4,
         .project_dirty = true,
+        .frame_rate = 29.97,
+        .drop_frame = true,
     };
     // Set master mono state (command 40917): 0 = stereo, 1 = mono
     mock.setCommandState(40917, 0); // stereo
@@ -266,6 +281,8 @@ test "poll with MockBackend returns configured values" {
     try std.testing.expectEqual(@as(c_int, -4), state.bar_offset);
     try std.testing.expect(state.master_stereo);
     try std.testing.expect(state.is_dirty);
+    try std.testing.expect(@abs(state.frame_rate - 29.97) < 0.001);
+    try std.testing.expect(state.drop_frame);
 }
 
 test "poll with MockBackend returns undo/redo descriptions" {
@@ -316,6 +333,7 @@ test "poll tracks API calls correctly" {
     try std.testing.expect(mock.getCallCount(.getMetronomeVolume) >= 1);
     try std.testing.expect(mock.getCallCount(.getBarOffset) >= 1);
     try std.testing.expect(mock.getCallCount(.isDirty) >= 1);
+    try std.testing.expect(mock.getCallCount(.getFrameRate) >= 1);
     try std.testing.expect(mock.getCallCount(.getCommandState) >= 1);
     try std.testing.expect(mock.getCallCount(.canUndo) >= 1);
     try std.testing.expect(mock.getCallCount(.canRedo) >= 1);

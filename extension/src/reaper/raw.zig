@@ -168,6 +168,9 @@ pub const Api = struct {
     markProjectDirty: ?*const fn (?*anyopaque) callconv(.c) void = null,
     isProjectDirty: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
 
+    // Frame rate / timecode
+    timeMapCurFrameRate: ?*const fn (?*anyopaque, *bool) callconv(.c) f64 = null,
+
     // Load API from REAPER plugin info
     pub fn load(info: *PluginInfo) ?Api {
         const showConsoleMsg = getFunc(info, "ShowConsoleMsg", fn ([*:0]const u8) callconv(.c) void) orelse return null;
@@ -281,6 +284,8 @@ pub const Api = struct {
             .getSetProjectNotes = getFunc(info, "GetSetProjectNotes", fn (?*anyopaque, bool, [*]u8, c_int) callconv(.c) void),
             .markProjectDirty = getFunc(info, "MarkProjectDirty", fn (?*anyopaque) callconv(.c) void),
             .isProjectDirty = getFunc(info, "IsProjectDirty", fn (?*anyopaque) callconv(.c) c_int),
+            // Frame rate / timecode
+            .timeMapCurFrameRate = getFunc(info, "TimeMap_curFrameRate", fn (?*anyopaque, *bool) callconv(.c) f64),
         };
     }
 
@@ -750,6 +755,15 @@ pub const Api = struct {
     pub fn isDirty(self: *const Api) bool {
         const f = self.isProjectDirty orelse return false;
         return f(null) != 0;
+    }
+
+    /// Frame rate: returns project frame rate and drop-frame flag
+    /// Returns: struct with frame_rate (e.g., 29.97, 24, 25) and drop_frame boolean
+    pub fn getFrameRate(self: *const Api) types.FrameRateInfo {
+        var drop_frame: bool = false;
+        const f = self.timeMapCurFrameRate orelse return .{ .frame_rate = 0, .drop_frame = false };
+        const rate = f(null, &drop_frame);
+        return .{ .frame_rate = rate, .drop_frame = drop_frame };
     }
 
     pub fn registerTimer(self: *const Api, callback: *const fn () callconv(.c) void) void {

@@ -85,6 +85,8 @@ pub const MockBackend = struct {
     project_dirty: bool = false,
     project_notes: [1024]u8 = [_]u8{0} ** 1024,
     project_notes_len: usize = 0,
+    frame_rate: f64 = 30.0,
+    drop_frame: bool = false,
 
     // =========================================================================
     // Command state
@@ -366,6 +368,7 @@ pub const MockBackend = struct {
     pub const setProjExtStateValue = project.ProjectMethods.setProjExtStateValue;
     pub const getProjectNotes = project.ProjectMethods.getProjectNotes;
     // Note: setProjectNotes is a test helper defined above, not delegated
+    pub const getFrameRate = project.ProjectMethods.getFrameRate;
     pub const namedCommandLookup = project.ProjectMethods.namedCommandLookup;
     pub const sendMidiCC = project.ProjectMethods.sendMidiCC;
     pub const sendMidiPC = project.ProjectMethods.sendMidiPC;

@@ -51,6 +51,7 @@ pub fn validateBackend(comptime T: type) void {
         "projectStateChangeCount",
         "isDirty",
         "markDirty",
+        "getFrameRate",
 
         // Command state
         "getCommandState",
