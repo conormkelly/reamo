@@ -142,6 +142,7 @@ pub const Api = struct {
     csurf_OnRecArmChangeEx: ?*const fn (?*anyopaque, c_int, bool) callconv(.c) bool = null,
     csurf_OnInputMonitorChange: ?*const fn (?*anyopaque, c_int) callconv(.c) c_int = null,
     csurf_OnInputMonitorChangeEx: ?*const fn (?*anyopaque, c_int, bool) callconv(.c) c_int = null,
+    csurf_OnFXChange: ?*const fn (?*anyopaque, c_int) callconv(.c) bool = null,
     csurf_FlushUndo: ?*const fn (bool) callconv(.c) void = null,
 
     // Metering
@@ -274,6 +275,7 @@ pub const Api = struct {
             .csurf_OnRecArmChangeEx = getFunc(info, "CSurf_OnRecArmChangeEx", fn (?*anyopaque, c_int, bool) callconv(.c) bool),
             .csurf_OnInputMonitorChange = getFunc(info, "CSurf_OnInputMonitorChange", fn (?*anyopaque, c_int) callconv(.c) c_int),
             .csurf_OnInputMonitorChangeEx = getFunc(info, "CSurf_OnInputMonitorChangeEx", fn (?*anyopaque, c_int, bool) callconv(.c) c_int),
+            .csurf_OnFXChange = getFunc(info, "CSurf_OnFXChange", fn (?*anyopaque, c_int) callconv(.c) bool),
             .csurf_FlushUndo = getFunc(info, "CSurf_FlushUndo", fn (bool) callconv(.c) void),
             // Metering
             .track_GetPeakInfo = getFunc(info, "Track_GetPeakInfo", fn (?*anyopaque, c_int) callconv(.c) f64),
@@ -998,8 +1000,8 @@ pub const Api = struct {
     }
 
     pub fn setTrackFxEnabled(self: *const Api, track: *anyopaque, enabled: bool) bool {
-        const f = self.setMediaTrackInfo_Value orelse return false;
-        return f(track, "I_FXEN", if (enabled) 1.0 else 0.0);
+        const f = self.csurf_OnFXChange orelse return false;
+        return f(track, if (enabled) 1 else 0);
     }
 
     // Track selection: true/false
