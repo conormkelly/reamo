@@ -92,8 +92,9 @@ pub const SharedState = struct {
     // HTML file mtime for hot reload (set by main thread, read by WS thread for hello response)
     html_mtime: i128 = 0,
 
-    // High-precision timing function for clock sync (thread-safe, no mutex needed)
-    time_precise_fn: ?TimePreciseFn = null,
+    // High-precision timing function for clock sync
+    // Stored as usize for atomic access (main thread writes, WS thread reads)
+    time_precise_fn_ptr: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
 
     pub fn init(allocator: Allocator) SharedState {
         return .{
@@ -136,15 +137,18 @@ pub const SharedState = struct {
     }
 
     // Set the time_precise function pointer (called by main thread on startup)
-    // No mutex needed - set once at startup before any clock sync requests
+    // Uses atomic release to ensure visibility to WebSocket thread
     pub fn setTimePreciseFn(self: *SharedState, func: TimePreciseFn) void {
-        self.time_precise_fn = func;
+        self.time_precise_fn_ptr.store(@intFromPtr(func), .release);
     }
 
     // Get high-precision time in milliseconds (thread-safe, for clock sync)
+    // Uses atomic acquire to synchronize with main thread's release
     pub fn timePreciseMs(self: *SharedState) f64 {
-        if (self.time_precise_fn) |f| {
-            return f() * 1000.0;
+        const ptr_val = self.time_precise_fn_ptr.load(.acquire);
+        if (ptr_val != 0) {
+            const func: TimePreciseFn = @ptrFromInt(ptr_val);
+            return func() * 1000.0;
         }
         return 0;
     }

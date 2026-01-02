@@ -382,7 +382,7 @@ Each file needs:
 
 ## Progress Tracking
 
-### Current Phase: 6 (Thread Safety)
+### Current Phase: 7 (Logging Infrastructure)
 
 ### Completed
 
@@ -443,8 +443,16 @@ Each file needs:
 - [x] toggle_subscriptions.zig: poll() logs warning on prev_states/changes.put failure
 - [x] Acceptable silent failures documented: writeText, close, log file writes
 
+**Phase 6: Thread Safety** ✓
+- [x] ws_server.zig: time_precise_fn now uses std.atomic.Value(usize)
+- [x] ws_server.zig: setTimePreciseFn() uses .release ordering on store
+- [x] ws_server.zig: timePreciseMs() uses .acquire ordering on load
+- [x] Eliminates data race between main thread (writer) and WS thread (reader)
+- [x] DEVELOPMENT.md: Documented make dev/dev-notests workflow
+- [x] DEVELOPMENT.md: Documented why hot reload is dangerous for native extensions
+
 ### In Progress
-- [ ] Phase 6.1: Atomic for time_precise_fn pointer
+- [ ] Phase 7.1: Create logging.zig module
 
 ### Blocked
 - None
@@ -478,4 +486,4 @@ The assistant should:
 ---
 
 *Last updated: 2026-01-02*
-*Current phase: 6 (Thread Safety)*
+*Current phase: 7 (Logging Infrastructure)*

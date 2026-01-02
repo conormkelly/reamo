@@ -704,11 +704,26 @@ make frontend         # Build frontend (copies to reamo.html)
 make extension        # Build extension (installs to REAPER UserPlugins)
 
 # Development
-make dev              # Run frontend dev server with hot reload
 make install          # Install frontend npm dependencies
+
+# Extension development cycle (tests → kill REAPER → build → relaunch)
+make dev              # Full cycle with tests
+make dev-notests      # Quick cycle without tests (for rapid iteration)
 ```
 
-**Note**: After extension changes, restart REAPER to load the new plugin.
+### Extension Development Workflow
+
+**⚠️ Hot reload is NOT supported for native extensions.** When REAPER loads a `.dylib`, macOS memory-maps the file. Overwriting it while REAPER is running creates a "Frankenstein binary" (part old code, part new) causing impossible-to-debug crashes.
+
+**The only safe workflow is: rebuild → restart REAPER → test.**
+
+Use `make dev` to automate this cycle:
+1. Runs all tests (extension + frontend)
+2. Kills REAPER
+3. Builds and installs extension
+4. Relaunches REAPER with stdout attached for debugging
+
+For rapid iteration after tests pass, use `make dev-notests`.
 
 ## Debugging
 
