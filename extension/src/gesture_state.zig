@@ -75,12 +75,17 @@ pub const GestureState = struct {
         const now = std.time.nanoTimestamp();
         self.last_any_activity_ns = now;
 
-        const entry = self.gestures.getOrPut(control) catch return false;
+        const entry = self.gestures.getOrPut(control) catch |err| {
+            std.log.warn("beginGesture failed for client {d}: {} - gesture coalescing may not work", .{ client_id, err });
+            return false;
+        };
 
         if (!entry.found_existing) {
             entry.value_ptr.* = ActiveGesture.init(self.allocator);
         }
-        entry.value_ptr.clients.put(client_id, {}) catch {};
+        entry.value_ptr.clients.put(client_id, {}) catch |err| {
+            std.log.warn("beginGesture client tracking failed for client {d}: {}", .{ client_id, err });
+        };
         entry.value_ptr.last_change_ns = now;
 
         return !entry.found_existing;
@@ -121,7 +126,9 @@ pub const GestureState = struct {
         while (it.next()) |entry| {
             _ = entry.value_ptr.clients.remove(client_id);
             if (entry.value_ptr.clients.count() == 0) {
-                to_remove.append(self.allocator, entry.key_ptr.*) catch {};
+                to_remove.append(self.allocator, entry.key_ptr.*) catch |err| {
+                    std.log.warn("removeClientFromAll cleanup failed: {} - stale gesture may remain", .{err});
+                };
             }
         }
 
@@ -156,7 +163,9 @@ pub const GestureState = struct {
         while (it.next()) |entry| {
             const control_idle = (now - entry.value_ptr.last_change_ns) > GESTURE_TIMEOUT_NS;
             if (control_idle) {
-                to_remove.append(self.allocator, entry.key_ptr.*) catch {};
+                to_remove.append(self.allocator, entry.key_ptr.*) catch |err| {
+                    std.log.warn("checkTimeouts cleanup failed: {} - stale gesture may remain", .{err});
+                };
             }
         }
 

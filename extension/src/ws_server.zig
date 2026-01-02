@@ -171,7 +171,9 @@ pub const SharedState = struct {
     pub fn markNeedsSnapshot(self: *SharedState, client_id: usize) void {
         self.mutex.lock();
         defer self.mutex.unlock();
-        self.clients_needing_snapshot.put(client_id, {}) catch {};
+        self.clients_needing_snapshot.put(client_id, {}) catch |err| {
+            std.log.warn("markNeedsSnapshot failed for client {d}: {} - client won't receive initial state", .{ client_id, err });
+        };
     }
 
     // Called by main thread to get and clear clients needing snapshots
@@ -191,13 +193,17 @@ pub const SharedState = struct {
     }
 
     // Called by WebSocket thread to register a new client
-    pub fn addClient(self: *SharedState, conn: *websocket.Conn) usize {
+    // Returns null if allocation fails (OOM) - caller should close connection
+    pub fn addClient(self: *SharedState, conn: *websocket.Conn) ?usize {
         self.mutex.lock();
         defer self.mutex.unlock();
 
         const id = self.next_client_id;
         self.next_client_id += 1;
-        self.clients.put(id, conn) catch {};
+        self.clients.put(id, conn) catch |err| {
+            std.log.err("CLIENT ADD FAILED id={d}: {}", .{ id, err });
+            return null;
+        };
         std.log.info("CLIENT ADD id={d} total={d}", .{ id, self.clients.count() });
         return id;
     }
@@ -208,7 +214,9 @@ pub const SharedState = struct {
         defer self.mutex.unlock();
         _ = self.clients.swapRemove(id);
         // Track disconnected client for gesture cleanup by main thread
-        self.disconnected_clients.put(id, {}) catch {};
+        self.disconnected_clients.put(id, {}) catch |err| {
+            std.log.warn("Failed to track disconnected client {d}: {} - gesture cleanup may be incomplete", .{ id, err });
+        };
         std.log.info("CLIENT REMOVE id={d} total={d}", .{ id, self.clients.count() });
     }
 
@@ -295,7 +303,11 @@ pub const Client = struct {
 
     pub fn init(_: *const websocket.Handshake, conn: *websocket.Conn, state: *SharedState) !Client {
         // Register connection (not Client pointer) with shared state
-        const id = state.addClient(conn);
+        // If allocation fails, return error to reject the connection
+        const id = state.addClient(conn) orelse {
+            conn.close(.{ .code = 4500, .reason = "Server at capacity" }) catch {};
+            return error.OutOfMemory;
+        };
 
         return .{
             .id = id,

@@ -382,7 +382,7 @@ Each file needs:
 
 ## Progress Tracking
 
-### Current Phase: 5 (Allocation Failure Handling)
+### Current Phase: 6 (Thread Safety)
 
 ### Completed
 
@@ -429,8 +429,22 @@ Each file needs:
 - [x] Verified: tracks.zig, markers.zig, items.zig already use protocol.writeJsonString()
 - [x] All modules now use centralized protocol.writeJsonString() for consistency
 
+**Phase 5: Allocation Failure Handling** ✓
+- [x] Audited all `catch {}` and `catch return` patterns (15 instances found)
+- [x] Categorized by severity: 3 critical, 5 high, 3 medium, 4 low (acceptable)
+- [x] ws_server.zig: addClient() now returns ?usize (null on OOM)
+- [x] ws_server.zig: Client.init rejects connection with code 4500 on allocation failure
+- [x] ws_server.zig: markNeedsSnapshot() logs warning on failure
+- [x] ws_server.zig: removeClient() logs warning on disconnected_clients.put failure
+- [x] gesture_state.zig: beginGesture() logs warning on getOrPut/clients.put failure
+- [x] gesture_state.zig: removeClientFromAll() logs warning on to_remove.append failure
+- [x] gesture_state.zig: checkTimeouts() logs warning on to_remove.append failure
+- [x] toggle_subscriptions.zig: unsubscribe() logs warning on ref_counts.put failure
+- [x] toggle_subscriptions.zig: poll() logs warning on prev_states/changes.put failure
+- [x] Acceptable silent failures documented: writeText, close, log file writes
+
 ### In Progress
-- [ ] Phase 5.1: Audit all allocation sites (grep for catch {} and catch return)
+- [ ] Phase 6.1: Atomic for time_precise_fn pointer
 
 ### Blocked
 - None
@@ -464,4 +478,4 @@ The assistant should:
 ---
 
 *Last updated: 2026-01-02*
-*Current phase: 5 (Allocation Failure Handling)*
+*Current phase: 6 (Thread Safety)*

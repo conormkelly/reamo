@@ -142,7 +142,9 @@ pub const ToggleSubscriptions = struct {
                     _ = self.ref_counts.remove(cmd_id);
                     _ = self.prev_states.remove(cmd_id);
                 } else {
-                    self.ref_counts.put(cmd_id, count - 1) catch {};
+                    self.ref_counts.put(cmd_id, count - 1) catch |err| {
+                        std.log.warn("toggle unsubscribe ref_count update failed for cmd {d}: {}", .{ cmd_id, err });
+                    };
                 }
             }
         }
@@ -187,8 +189,12 @@ pub const ToggleSubscriptions = struct {
             const prev = self.prev_states.get(cmd_id) orelse -2;
 
             if (new_state != prev) {
-                self.prev_states.put(cmd_id, new_state) catch {};
-                changes.put(cmd_id, new_state) catch {};
+                self.prev_states.put(cmd_id, new_state) catch |err| {
+                    std.log.warn("toggle poll prev_states update failed for cmd {d}: {}", .{ cmd_id, err });
+                };
+                changes.put(cmd_id, new_state) catch |err| {
+                    std.log.warn("toggle poll changes update failed for cmd {d}: {}", .{ cmd_id, err });
+                };
             }
         }
 
