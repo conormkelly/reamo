@@ -131,17 +131,65 @@ The extension uses **comptime duck typing via `anytype`** to enable mock injecti
   ┌──────────────────┐            ┌───────────────────┐
   │   RealBackend    │            │   MockBackend     │
   │  (production)    │            │  (tests)          │
-  │  used by main.zig│            │  field-based mock │
+  │  FFI validation  │            │  injectable errs  │
   └────────┬─────────┘            └───────────────────┘
            │
            ▼
   ┌──────────────────┐
   │     raw.Api      │
-  │ C function ptrs  │
+  │ Pure C bindings  │
+  │ Returns raw f64  │
   └──────────────────┘
 ```
 
-**Key files:**
+### FFI Validation Layer
+
+**Principle: `raw.zig` returns exactly what REAPER's C API returns.** All validation and type conversion happens in `RealBackend`.
+
+This separation ensures:
+1. **raw.zig stays simple** — direct passthrough to C, no error handling
+2. **Validation is testable** — MockBackend can inject errors to test caller handling
+3. **Single source of truth** — all NaN/Inf checks happen in one place
+
+**Example — getTrackSolo:**
+```zig
+// raw.zig — pure binding, returns what REAPER returns
+pub fn getTrackSolo(self: *const Api, track: *anyopaque) f64 {
+    const f = self.getMediaTrackInfo_Value orelse return 0;
+    return f(track, "I_SOLO");
+}
+
+// real.zig — adds validation
+pub fn getTrackSolo(self: *const RealBackend, track: *anyopaque) ffi.FFIError!c_int {
+    return ffi.safeFloatToInt(c_int, self.inner.getTrackSolo(track));
+}
+
+// mock/tracks.zig — injectable errors for testing
+pub fn getTrackSolo(self: *const Tracks, track: *anyopaque) ffi.FFIError!c_int {
+    if (self.inject_track_solo_error) return ffi.FFIError.NaN;
+    // ... normal mock behavior
+}
+```
+
+**Caller pattern — graceful degradation with nullable fields:**
+```zig
+// tracks.zig — uses catch null to propagate corrupt data
+t.color = api.getTrackColor(track) catch null;  // ?c_int
+t.solo = api.getTrackSolo(track) catch 0;       // FFIError!c_int → default
+
+// items.zig — same pattern
+item.selected = api.getItemSelected(item_ptr) catch null;  // ?bool
+```
+
+**JSON serialization** handles null values automatically — clients see `"color": null` for corrupt data instead of garbage values or crashes.
+
+**FFI validation files:**
+- `src/reaper/raw.zig` — Pure C bindings, returns `f64` from REAPER
+- `src/reaper/real.zig` — `RealBackend` with `ffi.safeFloatToInt()` validation
+- `src/reaper/mock/tracks.zig` — `inject_*_error` fields for testing error paths
+- `src/ffi.zig` — `safeFloatToInt()` and `FFIError` definitions
+
+**Testability key files:**
 
 | File | Purpose |
 |------|---------|
@@ -916,3 +964,5 @@ Then check REAPER's console (Actions → Show console).
    const whole = scaled / 100;  // 6 (exact)
    const frac = scaled % 100;   // 76 (exact)
    ```
+
+12. **FFI validation happens in RealBackend, not raw.zig** - `raw.zig` returns exactly what REAPER's C API returns (e.g., `f64`). All NaN/Inf validation happens in `RealBackend` via `ffi.safeFloatToInt()`. Methods returning `FFIError!T` require `catch` handling in callers — use `catch null` for nullable fields to propagate corrupt data as JSON nulls.
