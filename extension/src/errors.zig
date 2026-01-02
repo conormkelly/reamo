@@ -212,6 +212,124 @@ pub const Severity = enum {
 };
 
 // =============================================================================
+// Error Event for Client Broadcasting
+// =============================================================================
+//
+// Format:
+// {
+//   "type": "event",
+//   "event": "error",
+//   "payload": {
+//     "code": 3001,
+//     "severity": "warning",
+//     "title": "Track unavailable",
+//     "detail": "Track 5 returned corrupt data",
+//     "transient": true
+//   }
+// }
+// =============================================================================
+
+/// Error event for broadcasting to clients
+pub const ErrorEvent = struct {
+    code: ErrorCode,
+    detail: ?[]const u8 = null,
+
+    /// Build JSON error event
+    /// Returns slice of written bytes, or null on buffer overflow
+    pub fn toJson(self: ErrorEvent, buf: []u8) ?[]const u8 {
+        var stream = std.io.fixedBufferStream(buf);
+        const writer = stream.writer();
+
+        const code_val = @intFromEnum(self.code);
+        const sev = self.code.severity().toString();
+        const title = self.code.title();
+        const transient = self.code.isTransient();
+
+        writer.print("{{\"type\":\"event\",\"event\":\"error\",\"payload\":{{\"code\":{d},\"severity\":\"{s}\",\"title\":\"{s}\",", .{
+            code_val,
+            sev,
+            title,
+        }) catch return null;
+
+        // Optional detail field
+        if (self.detail) |d| {
+            writer.writeAll("\"detail\":\"") catch return null;
+            // Escape JSON string (simple escaping for common cases)
+            for (d) |c| {
+                switch (c) {
+                    '"' => writer.writeAll("\\\"") catch return null,
+                    '\\' => writer.writeAll("\\\\") catch return null,
+                    '\n' => writer.writeAll("\\n") catch return null,
+                    '\r' => writer.writeAll("\\r") catch return null,
+                    '\t' => writer.writeAll("\\t") catch return null,
+                    else => {
+                        if (c >= 0x20) {
+                            writer.writeByte(c) catch return null;
+                        }
+                    },
+                }
+            }
+            writer.writeAll("\",") catch return null;
+        }
+
+        writer.print("\"transient\":{s}}}}}", .{if (transient) "true" else "false"}) catch return null;
+
+        return stream.getWritten();
+    }
+
+    /// Create error event from Zig error
+    pub fn fromError(err: anyerror, detail: ?[]const u8) ErrorEvent {
+        return .{
+            .code = ErrorCode.fromError(err),
+            .detail = detail,
+        };
+    }
+};
+
+// =============================================================================
+// Error Rate Limiter
+// =============================================================================
+//
+// Prevents flooding clients with repeated error events.
+// Limits to max 1 error per ErrorCode per second.
+// =============================================================================
+
+/// Rate limiter for error broadcasts
+/// Prevents flooding clients with repeated errors
+pub const ErrorRateLimiter = struct {
+    /// Last broadcast timestamp (in seconds) for each error code
+    /// Uses array indexed by error code value for O(1) lookup
+    last_broadcast: [MAX_ERROR_CODES]i64 = [_]i64{0} ** MAX_ERROR_CODES,
+
+    /// Minimum interval between broadcasts of same error type (in seconds)
+    const MIN_INTERVAL_SECS: i64 = 1;
+    /// Maximum error codes we track (covers our 1xxx-5xxx range)
+    const MAX_ERROR_CODES: usize = 6000;
+
+    /// Check if we should broadcast this error (rate limiting)
+    /// Returns true if enough time has passed since last broadcast
+    pub fn shouldBroadcast(self: *ErrorRateLimiter, code: ErrorCode, current_time_secs: i64) bool {
+        const idx = @intFromEnum(code);
+        if (idx >= MAX_ERROR_CODES) return false;
+
+        const last = self.last_broadcast[idx];
+        if (current_time_secs - last >= MIN_INTERVAL_SECS) {
+            self.last_broadcast[idx] = current_time_secs;
+            return true;
+        }
+        return false;
+    }
+
+    /// Record that an error was broadcast (if you want to separate check and record)
+    pub fn recordBroadcast(self: *ErrorRateLimiter, code: ErrorCode, current_time_secs: i64) void {
+        const idx = @intFromEnum(code);
+        if (idx < MAX_ERROR_CODES) {
+            self.last_broadcast[idx] = current_time_secs;
+        }
+    }
+};
+
+// =============================================================================
 // Tests
 // =============================================================================
 
@@ -257,4 +375,93 @@ test "Severity.toString returns valid strings" {
     try std.testing.expectEqualStrings("info", Severity.info.toString());
     try std.testing.expectEqualStrings("warning", Severity.warning.toString());
     try std.testing.expectEqualStrings("error", Severity.@"error".toString());
+}
+
+test "ErrorEvent.toJson builds valid JSON" {
+    const event = ErrorEvent{
+        .code = .track_unavailable,
+        .detail = "Track 5 returned corrupt data",
+    };
+
+    var buf: [512]u8 = undefined;
+    const json = event.toJson(&buf).?;
+
+    // Verify structure
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"event\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"event\":\"error\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"code\":3001") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"severity\":\"warning\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"title\":\"Track unavailable\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"detail\":\"Track 5 returned corrupt data\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"transient\":false") != null);
+}
+
+test "ErrorEvent.toJson without detail" {
+    const event = ErrorEvent{
+        .code = .poll_timeout,
+        .detail = null,
+    };
+
+    var buf: [256]u8 = undefined;
+    const json = event.toJson(&buf).?;
+
+    // Should have code, severity, title, transient but no detail
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"code\":1001") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"transient\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"detail\"") == null);
+}
+
+test "ErrorEvent.toJson escapes special characters in detail" {
+    const event = ErrorEvent{
+        .code = .internal_error,
+        .detail = "Error with \"quotes\" and \\backslash",
+    };
+
+    var buf: [512]u8 = undefined;
+    const json = event.toJson(&buf).?;
+
+    // Verify escaping
+    try std.testing.expect(std.mem.indexOf(u8, json, "\\\"quotes\\\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\\\\backslash") != null);
+}
+
+test "ErrorEvent.fromError creates correct event" {
+    const event = ErrorEvent.fromError(error.FloatIsNaN, "Some detail");
+
+    try std.testing.expectEqual(ErrorCode.float_nan, event.code);
+    try std.testing.expectEqualStrings("Some detail", event.detail.?);
+}
+
+test "ErrorRateLimiter allows first broadcast" {
+    var limiter = ErrorRateLimiter{};
+    // First broadcast should always be allowed
+    try std.testing.expect(limiter.shouldBroadcast(.track_unavailable, 1000));
+}
+
+test "ErrorRateLimiter blocks rapid broadcasts of same code" {
+    var limiter = ErrorRateLimiter{};
+    // First should succeed
+    try std.testing.expect(limiter.shouldBroadcast(.track_unavailable, 1000));
+    // Same code within 1 second should be blocked
+    try std.testing.expect(!limiter.shouldBroadcast(.track_unavailable, 1000));
+}
+
+test "ErrorRateLimiter allows broadcast after interval" {
+    var limiter = ErrorRateLimiter{};
+    // First at time 1000
+    try std.testing.expect(limiter.shouldBroadcast(.track_unavailable, 1000));
+    // Blocked at 1000
+    try std.testing.expect(!limiter.shouldBroadcast(.track_unavailable, 1000));
+    // Allowed at 1001 (1 second later)
+    try std.testing.expect(limiter.shouldBroadcast(.track_unavailable, 1001));
+}
+
+test "ErrorRateLimiter tracks different codes independently" {
+    var limiter = ErrorRateLimiter{};
+    // First code
+    try std.testing.expect(limiter.shouldBroadcast(.track_unavailable, 1000));
+    // Different code should not be blocked
+    try std.testing.expect(limiter.shouldBroadcast(.float_nan, 1000));
+    // Original code still blocked
+    try std.testing.expect(!limiter.shouldBroadcast(.track_unavailable, 1000));
 }

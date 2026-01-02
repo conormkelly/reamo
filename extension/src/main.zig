@@ -11,6 +11,7 @@ const ws_server = @import("ws_server.zig");
 const gesture_state = @import("gesture_state.zig");
 const toggle_subscriptions = @import("toggle_subscriptions.zig");
 const project_notes = @import("project_notes.zig");
+const errors = @import("errors.zig");
 
 // Configuration
 const DEFAULT_PORT: u16 = 9224;
@@ -33,6 +34,9 @@ var g_last_tracks: tracks.State = .{};
 var g_last_metering: tracks.MeteringState = .{};
 var g_last_tempomap: tempomap.State = .{};
 var g_initialized: bool = false;
+
+// Error rate limiting for broadcast errors
+var g_error_limiter: errors.ErrorRateLimiter = .{};
 
 // Hot reload detection
 var g_html_path_buf: [512]u8 = undefined;
@@ -76,6 +80,21 @@ fn closeLogFile() void {
         logFile("=== Reamo Extension Ended ===");
         f.close();
         g_log_file = null;
+    }
+}
+
+/// Broadcast an error event to all clients with rate limiting
+/// Only broadcasts if enough time has passed since the last broadcast of this error type
+fn broadcastRateLimitedError(code: errors.ErrorCode, detail: ?[]const u8) void {
+    const shared_state = g_shared_state orelse return;
+    const current_time = std.time.timestamp();
+
+    if (g_error_limiter.shouldBroadcast(code, current_time)) {
+        const event = errors.ErrorEvent{ .code = code, .detail = detail };
+        var buf: [512]u8 = undefined;
+        if (event.toJson(&buf)) |json| {
+            shared_state.broadcast(json);
+        }
     }
 }
 
@@ -547,6 +566,8 @@ export fn ReaperPluginEntry(hInstance: ?*anyopaque, rec: ?*reaper.PluginInfo) ca
 
 // Re-export tests from modules
 test {
+    _ = @import("errors.zig");
+    _ = @import("ffi.zig");
     _ = @import("protocol.zig");
     _ = @import("transport.zig");
     _ = @import("project.zig");

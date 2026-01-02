@@ -382,7 +382,7 @@ Each file needs:
 
 ## Progress Tracking
 
-### Current Phase: 3 (Error Propagation to Clients)
+### Current Phase: 4 (JSON Safety)
 
 ### Completed
 
@@ -408,10 +408,20 @@ Each file needs:
 - [x] tracks.zig: toJson() outputs explicit null for corrupt solo/rec_mon
 - [x] tracks.zig: Added tests for null case (corrupt state)
 
+**Phase 3: Error Propagation to Clients** ✓
+- [x] errors.zig: Added ErrorEvent struct with toJson() for error event protocol
+- [x] errors.zig: Added ErrorRateLimiter for max 1 error per type per second
+- [x] errors.zig: Added comprehensive tests for ErrorEvent and ErrorRateLimiter
+- [x] commands/mod.zig: Added warn() method for non-fatal warnings
+- [x] commands/mod.zig: Added broadcastError() and broadcastErrorFromErr() methods
+- [x] main.zig: Added errors import and g_error_limiter global
+- [x] main.zig: Added broadcastRateLimitedError() helper function
+- [x] main.zig: Added errors.zig and ffi.zig to test imports
+
 ### In Progress
-- [ ] Phase 3.1: Define error event protocol
-- [ ] Phase 3.2: Update ResponseWriter with warn() and sendError()
-- [ ] Phase 3.3: Update main.zig poll loop for error aggregation
+- [ ] Phase 4.1: Audit all JSON output locations
+- [ ] Phase 4.2: Ensure protocol.writeJsonString() used for all user strings
+- [ ] Phase 4.3: Test with ExtState values containing special characters
 
 ### Blocked
 - None
@@ -445,4 +455,4 @@ The assistant should:
 ---
 
 *Last updated: 2026-01-02*
-*Current phase: 3 (Error Propagation to Clients)*
+*Current phase: 4 (JSON Safety)*

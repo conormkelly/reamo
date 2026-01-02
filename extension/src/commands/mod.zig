@@ -3,6 +3,7 @@ const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const ws_server = @import("../ws_server.zig");
 const gesture_state = @import("../gesture_state.zig");
+const errors = @import("../errors.zig");
 
 // Import domain-specific command modules
 const transport_cmds = @import("transport.zig");
@@ -104,6 +105,32 @@ pub const ResponseWriter = struct {
         const json = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":false,\"error\":{{\"code\":\"{s}\",\"message\":\"{s}\"}}}}", .{ self.cmd_id.?, code, message }) catch return;
 
         self.shared_state.sendToClient(self.client_id, json);
+    }
+
+    /// Send a non-fatal warning to the client
+    /// The command still succeeds, but the client is informed of an issue
+    /// Format: {"type":"response","id":"...","success":true,"warning":{"code":"...","message":"..."}}
+    pub fn warn(self: *ResponseWriter, code: []const u8, message: []const u8) void {
+        if (self.cmd_id == null) return;
+
+        var buf: [512]u8 = undefined;
+        const json = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"warning\":{{\"code\":\"{s}\",\"message\":\"{s}\"}}}}", .{ self.cmd_id.?, code, message }) catch return;
+
+        self.shared_state.sendToClient(self.client_id, json);
+    }
+
+    /// Broadcast an error event to ALL connected clients
+    /// Used for system-level errors that affect all clients (not per-command errors)
+    pub fn broadcastError(self: *ResponseWriter, event: errors.ErrorEvent) void {
+        var buf: [512]u8 = undefined;
+        if (event.toJson(&buf)) |json| {
+            self.shared_state.broadcast(json);
+        }
+    }
+
+    /// Broadcast an error event from a Zig error to ALL connected clients
+    pub fn broadcastErrorFromErr(self: *ResponseWriter, zig_err: anyerror, detail: ?[]const u8) void {
+        self.broadcastError(errors.ErrorEvent.fromError(zig_err, detail));
     }
 };
 
