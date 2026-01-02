@@ -20,9 +20,13 @@ pub const Track = struct {
     volume: f64 = 1.0, // 0..inf (1.0 = 0dB)
     pan: f64 = 0.0, // -1.0..1.0
     mute: bool = false,
-    solo: c_int = 0, // 0=off, 1=solo, 2=solo in place, etc.
+    // Solo state: 0=off, 1=solo, 2=solo in place, etc.
+    // Null if REAPER returned corrupt data (NaN/Inf from stale pointer)
+    solo: ?c_int = 0,
     rec_arm: bool = false,
-    rec_mon: c_int = 0, // 0=off, 1=normal, 2=not when playing
+    // Record monitoring: 0=off, 1=normal, 2=not when playing
+    // Null if REAPER returned corrupt data
+    rec_mon: ?c_int = 0,
     fx_enabled: bool = true,
     selected: bool = false,
 
@@ -97,14 +101,12 @@ pub const State = struct {
                     t.solo = if (api.isMasterSoloed()) 1 else 0;
                 } else {
                     t.mute = api.getTrackMute(track);
-                    // getTrackSolo returns error on NaN/Inf - use 0 as fallback
-                    // TODO(Phase 2): Make solo nullable and propagate error to client
-                    t.solo = api.getTrackSolo(track) catch 0;
+                    // getTrackSolo returns error on NaN/Inf - propagate as null to client
+                    t.solo = api.getTrackSolo(track) catch null;
                 }
                 t.rec_arm = api.getTrackRecArm(track);
-                // getTrackRecMon returns error on NaN/Inf - use 0 as fallback
-                // TODO(Phase 2): Make rec_mon nullable and propagate error to client
-                t.rec_mon = api.getTrackRecMon(track) catch 0;
+                // getTrackRecMon returns error on NaN/Inf - propagate as null to client
+                t.rec_mon = api.getTrackRecMon(track) catch null;
                 t.fx_enabled = api.getTrackFxEnabled(track);
                 t.selected = api.getTrackSelected(track);
             }
@@ -125,14 +127,32 @@ pub const State = struct {
             const t = &self.tracks[i];
             writer.print("{{\"idx\":{d},\"name\":\"", .{t.idx}) catch return null;
             protocol.writeJsonString(writer, t.getName()) catch return null;
-            writer.print("\",\"color\":{d},\"volume\":{d:.4},\"pan\":{d:.3},\"mute\":{s},\"solo\":{d},\"recArm\":{s},\"recMon\":{d},\"fxEnabled\":{s},\"selected\":{s}}}", .{
+            writer.print("\",\"color\":{d},\"volume\":{d:.4},\"pan\":{d:.3},\"mute\":{s},\"solo\":", .{
                 t.color,
                 t.volume,
                 t.pan,
                 if (t.mute) "true" else "false",
-                t.solo,
+            }) catch return null;
+
+            // solo - null if corrupt
+            if (t.solo) |s| {
+                writer.print("{d}", .{s}) catch return null;
+            } else {
+                writer.writeAll("null") catch return null;
+            }
+
+            writer.print(",\"recArm\":{s},\"recMon\":", .{
                 if (t.rec_arm) "true" else "false",
-                t.rec_mon,
+            }) catch return null;
+
+            // rec_mon - null if corrupt
+            if (t.rec_mon) |rm| {
+                writer.print("{d}", .{rm}) catch return null;
+            } else {
+                writer.writeAll("null") catch return null;
+            }
+
+            writer.print(",\"fxEnabled\":{s},\"selected\":{s}}}", .{
                 if (t.fx_enabled) "true" else "false",
                 if (t.selected) "true" else "false",
             }) catch return null;
@@ -289,5 +309,32 @@ test "State.toJson with metering" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"peakL\":0.75") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"peakR\":0.68") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"clipped\":false") != null);
+}
+
+test "State.toJson outputs null for corrupt solo/recMon" {
+    // When solo or rec_mon is null (corrupt from REAPER),
+    // the JSON should contain explicit null values, not fake data
+    var state = State{};
+    state.count = 1;
+    state.tracks[0] = .{
+        .idx = 0,
+        .volume = 1.0,
+        .pan = 0.0,
+        .mute = false,
+        .solo = null, // Corrupt!
+        .rec_arm = false,
+        .rec_mon = null, // Corrupt!
+        .fx_enabled = true,
+    };
+
+    var buf: [2048]u8 = undefined;
+    const json = state.toJson(&buf, null).?;
+
+    // Verify null values are output
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"solo\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"recMon\":null") != null);
+    // Other fields should still be present
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"mute\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"fxEnabled\":true") != null);
 }
 

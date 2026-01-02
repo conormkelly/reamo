@@ -1,5 +1,6 @@
 const std = @import("std");
 const reaper = @import("reaper.zig");
+const ffi = @import("ffi.zig");
 
 // Transport state snapshot
 // Note: project_length, repeat, metronome, bar_offset moved to project.zig (low-frequency project-level settings)
@@ -14,14 +15,16 @@ pub const State = struct {
     time_sel_end: f64 = 0,
     // Position in bar.beat format (for display)
     position_bar: c_int = 1,
-    position_beat: f64 = 1.0, // Beat within bar (1-based, fractional = ticks)
+    // Beat within bar (1-based, fractional = ticks). Null if REAPER returned corrupt data.
+    position_beat: ?f64 = 1.0,
     // bar_offset needed here for positionBeats display calculation
     bar_offset: c_int = 0,
     // Number of tempo/time sig markers (0 = fixed tempo project)
     tempo_marker_count: c_int = 0,
     // Transport sync fields (for client-side beat prediction)
     server_time_ms: f64 = 0, // High-precision timestamp in ms
-    full_beat_position: f64 = 0, // Raw beat position (total beats from project start)
+    // Raw beat position (total beats from project start). Null if corrupt.
+    full_beat_position: ?f64 = 0,
 
     // Comparison with tolerance for change detection (includes position)
     pub fn eql(self: State, other: State) bool {
@@ -87,6 +90,18 @@ pub const State = struct {
         // Use position-aware tempo (handles tempo markers, unlike timeSignature())
         const tempo = api.getTempoAtPosition(current_pos);
 
+        // Validate beat data from REAPER - can be NaN/Inf with corrupt projects or stale pointers
+        // If corrupt, set to null rather than fake data (per resilience principles)
+        const position_beat: ?f64 = if (ffi.isFinite(beats_info.beats_in_measure))
+            beats_info.beats_in_measure + 1.0 // Convert 0-based to 1-based
+        else
+            null;
+
+        const full_beat_position: ?f64 = if (ffi.isFinite(beats_info.beats))
+            beats_info.beats
+        else
+            null;
+
         return .{
             .play_state = play_state,
             .play_position = play_pos,
@@ -98,11 +113,11 @@ pub const State = struct {
             .time_sel_end = sel.end,
             .bar_offset = api.getBarOffset(), // Needed for positionBeats display
             .position_bar = beats_info.measures,
-            .position_beat = beats_info.beats_in_measure + 1.0, // Convert 0-based to 1-based
+            .position_beat = position_beat,
             .tempo_marker_count = api.tempoMarkerCount(),
             // Transport sync fields
             .server_time_ms = server_time_ms,
-            .full_beat_position = beats_info.beats,
+            .full_beat_position = full_beat_position,
         };
     }
 
@@ -113,42 +128,49 @@ pub const State = struct {
 
     // Build JSON event for this state
     pub fn toJson(self: State, buf: []u8) ?[]const u8 {
-        // Format bar.beat.ticks (e.g., "12.3.45" or "-4.1.00")
-        // Apply bar_offset to get display bar number (REAPER's bar 1 at time 0 + offset)
-        var display_bar = self.position_bar + self.bar_offset;
-
-        // Round position_beat to nearest tick to match REAPER's display behavior
-        // This handles cases like 4.999 → 5.00 (REAPER rounds for display)
-        // Work with scaled integer to avoid floating-point precision issues:
-        // e.g., 6.76 as float can become 0.7599999998 after mod, giving ticks=75 not 76
-        const scaled_beat: u32 = @intFromFloat(@round(self.position_beat * 100.0));
-
-        // Extract beat and ticks using integer arithmetic (no precision loss)
-        var beat_int: u32 = @max(1, scaled_beat / 100);
-        const ticks: u32 = scaled_beat % 100;
-
-        // Handle beat overflow (e.g., beat 7 in 6/8 time → bar + 1, beat 1)
-        const beats_per_bar = safeTimeSigNum(self.time_sig_num);
-        if (beat_int > beats_per_bar) {
-            beat_int = 1;
-            display_bar += 1;
-        }
+        var stream = std.io.fixedBufferStream(buf);
+        const writer = stream.writer();
 
         // Truncate display values to 3 decimal places to match REAPER's display
-        // Time selection uses full precision (15 decimals) to match REAPER's HTTP API
         const position = truncateMs(self.currentPosition());
         const cursor_position = truncateMs(self.cursor_position);
 
-        const result = std.fmt.bufPrint(buf,
-            \\{{"type":"event","event":"transport","payload":{{"t":{d:.3},"b":{d:.6},"playState":{d},"position":{d:.3},"positionBeats":"{d}.{d}.{d:0>2}","cursorPosition":{d:.3},"bpm":{d:.2},"timeSignature":{{"numerator":{d},"denominator":{d}}},"timeSelection":{{"start":{d:.15},"end":{d:.15}}},"tempoMarkerCount":{d}}}}}
-        , .{
-            self.server_time_ms,
-            self.full_beat_position,
-            self.play_state,
-            position,
-            display_bar,
-            beat_int,
-            ticks,
+        // Start building JSON - use regular strings with escape sequences
+        writer.print("{{\"type\":\"event\",\"event\":\"transport\",\"payload\":{{\"t\":{d:.3},", .{self.server_time_ms}) catch return null;
+
+        // full_beat_position - null if corrupt
+        if (self.full_beat_position) |b| {
+            writer.print("\"b\":{d:.6},", .{b}) catch return null;
+        } else {
+            writer.writeAll("\"b\":null,") catch return null;
+        }
+
+        writer.print("\"playState\":{d},\"position\":{d:.3},", .{ self.play_state, position }) catch return null;
+
+        // positionBeats - null if corrupt, otherwise format as "bar.beat.ticks"
+        if (self.position_beat) |pos_beat| {
+            // Format bar.beat.ticks (e.g., "12.3.45" or "-4.1.00")
+            var display_bar = self.position_bar + self.bar_offset;
+
+            // Round position_beat to nearest tick to match REAPER's display behavior
+            const scaled_beat: u32 = @intFromFloat(@round(pos_beat * 100.0));
+            var beat_int: u32 = @max(1, scaled_beat / 100);
+            const ticks: u32 = scaled_beat % 100;
+
+            // Handle beat overflow (e.g., beat 7 in 6/8 time → bar + 1, beat 1)
+            const beats_per_bar = safeTimeSigNum(self.time_sig_num);
+            if (beat_int > beats_per_bar) {
+                beat_int = 1;
+                display_bar += 1;
+            }
+
+            writer.print("\"positionBeats\":\"{d}.{d}.{d:0>2}\",", .{ display_bar, beat_int, ticks }) catch return null;
+        } else {
+            writer.writeAll("\"positionBeats\":null,") catch return null;
+        }
+
+        // Remaining fields
+        writer.print("\"cursorPosition\":{d:.3},\"bpm\":{d:.2},\"timeSignature\":{{\"numerator\":{d},\"denominator\":{d}}},\"timeSelection\":{{\"start\":{d:.15},\"end\":{d:.15}}},\"tempoMarkerCount\":{d}}}}}", .{
             cursor_position,
             self.bpm,
             safeTimeSigNum(self.time_sig_num),
@@ -158,40 +180,47 @@ pub const State = struct {
             self.tempo_marker_count,
         }) catch return null;
 
-        return result;
+        return stream.getWritten();
     }
 
     // Build lightweight tick JSON (~120 bytes vs ~350 for full)
     // Used during playback when only position has changed
     // Enhanced format includes BPM and time sig for tempo-map-aware prediction
     pub fn toTickJson(self: State, buf: []u8) ?[]const u8 {
-        // Calculate bar.beat.ticks (same logic as toJson)
-        var display_bar = self.position_bar + self.bar_offset;
-        const scaled_beat: u32 = @intFromFloat(@round(self.position_beat * 100.0));
-        var beat_int: u32 = @max(1, scaled_beat / 100);
-        const ticks: u32 = scaled_beat % 100;
+        var stream = std.io.fixedBufferStream(buf);
+        const writer = stream.writer();
 
-        // Handle beat overflow (e.g., beat 5 in 4/4 time → bar + 1, beat 1)
-        const beats_per_bar = safeTimeSigNum(self.time_sig_num);
-        if (beat_int > beats_per_bar) {
-            beat_int = 1;
-            display_bar += 1;
+        writer.print("{{\"type\":\"event\",\"event\":\"tt\",\"payload\":{{\"t\":{d:.3},", .{self.server_time_ms}) catch return null;
+
+        // full_beat_position - null if corrupt
+        if (self.full_beat_position) |b| {
+            writer.print("\"b\":{d:.6},", .{b}) catch return null;
+        } else {
+            writer.writeAll("\"b\":null,") catch return null;
         }
 
-        const result = std.fmt.bufPrint(buf,
-            \\{{"type":"event","event":"tt","payload":{{"t":{d:.3},"b":{d:.6},"bpm":{d:.2},"ts":[{d},{d}],"bbt":"{d}.{d}.{d:0>2}"}}}}
-        , .{
-            self.server_time_ms,
-            self.full_beat_position,
-            self.bpm,
-            safeTimeSigNum(self.time_sig_num),
-            self.time_sig_denom,
-            display_bar,
-            beat_int,
-            ticks,
-        }) catch return null;
+        writer.print("\"bpm\":{d:.2},\"ts\":[{d},{d}],", .{ self.bpm, safeTimeSigNum(self.time_sig_num), self.time_sig_denom }) catch return null;
 
-        return result;
+        // bbt (bar.beat.ticks) - null if corrupt
+        if (self.position_beat) |pos_beat| {
+            var display_bar = self.position_bar + self.bar_offset;
+            const scaled_beat: u32 = @intFromFloat(@round(pos_beat * 100.0));
+            var beat_int: u32 = @max(1, scaled_beat / 100);
+            const ticks: u32 = scaled_beat % 100;
+
+            // Handle beat overflow (e.g., beat 5 in 4/4 time → bar + 1, beat 1)
+            const beats_per_bar = safeTimeSigNum(self.time_sig_num);
+            if (beat_int > beats_per_bar) {
+                beat_int = 1;
+                display_bar += 1;
+            }
+
+            writer.print("\"bbt\":\"{d}.{d}.{d:0>2}\"}}}}", .{ display_bar, beat_int, ticks }) catch return null;
+        } else {
+            writer.writeAll("\"bbt\":null}}}}") catch return null;
+        }
+
+        return stream.getWritten();
     }
 };
 
@@ -449,4 +478,55 @@ test "toTickJson produces enhanced tick format" {
 
     // Verify it's reasonably compact (~120 bytes)
     try std.testing.expect(json.len < 150);
+}
+
+test "toJson outputs null for corrupt beat data" {
+    // When position_beat or full_beat_position is null (corrupt from REAPER),
+    // the JSON should contain explicit null values, not fake data
+    const state = State{
+        .play_state = 1,
+        .play_position = 10.5,
+        .cursor_position = 5.0,
+        .bpm = 120.0,
+        .time_sig_num = 4,
+        .time_sig_denom = 4,
+        .bar_offset = 0,
+        .position_bar = 5,
+        .position_beat = null, // Corrupt!
+        .full_beat_position = null, // Corrupt!
+    };
+
+    var buf: [512]u8 = undefined;
+    const json = state.toJson(&buf).?;
+
+    // Verify null values are output
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"positionBeats\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"b\":null") != null);
+    // Other fields should still be present
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"playState\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"bpm\":120") != null);
+}
+
+test "toTickJson outputs null for corrupt beat data" {
+    const state = State{
+        .server_time_ms = 1234567890.123,
+        .full_beat_position = null, // Corrupt!
+        .play_state = 1,
+        .bpm = 120.0,
+        .time_sig_num = 4,
+        .time_sig_denom = 4,
+        .position_bar = 5,
+        .position_beat = null, // Corrupt!
+        .bar_offset = 0,
+    };
+
+    var buf: [256]u8 = undefined;
+    const json = state.toTickJson(&buf).?;
+
+    // Verify null values are output
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"b\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"bbt\":null") != null);
+    // Other fields should still be present
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"bpm\":120") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"ts\":[4,4]") != null);
 }

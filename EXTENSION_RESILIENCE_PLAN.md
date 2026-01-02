@@ -382,7 +382,7 @@ Each file needs:
 
 ## Progress Tracking
 
-### Current Phase: 2 (State Module Resilience)
+### Current Phase: 3 (Error Propagation to Clients)
 
 ### Completed
 
@@ -398,9 +398,20 @@ Each file needs:
 - [x] Update `tracks.zig` - poll() catches errors with TODO for Phase 2 nullability
 - [x] Update `commands/tracks.zig` - returns error response on invalid state
 
+**Phase 2: State Module Resilience** ✓
+- [x] transport.zig: Made position_beat and full_beat_position nullable (?f64)
+- [x] transport.zig: poll() validates beats from REAPER using ffi.isFinite()
+- [x] transport.zig: toJson() and toTickJson() output explicit null for corrupt beat data
+- [x] transport.zig: Added tests for null case (corrupt beat data)
+- [x] tracks.zig: Made solo and rec_mon nullable (?c_int)
+- [x] tracks.zig: poll() propagates errors as null instead of fallback 0
+- [x] tracks.zig: toJson() outputs explicit null for corrupt solo/rec_mon
+- [x] tracks.zig: Added tests for null case (corrupt state)
+
 ### In Progress
-- [ ] Phase 2.2: Update transport.zig - validate position_beat at poll time
-- [ ] Phase 2.3: Update tracks.zig - make solo/rec_mon nullable, propagate errors
+- [ ] Phase 3.1: Define error event protocol
+- [ ] Phase 3.2: Update ResponseWriter with warn() and sendError()
+- [ ] Phase 3.3: Update main.zig poll loop for error aggregation
 
 ### Blocked
 - None
@@ -434,4 +445,4 @@ The assistant should:
 ---
 
 *Last updated: 2026-01-02*
-*Current phase: 0 (Planning)*
+*Current phase: 3 (Error Propagation to Clients)*
