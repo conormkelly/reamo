@@ -67,6 +67,38 @@ pub const State = struct {
         return @intFromFloat(clamped);
     }
 
+    // Normalized beat position result
+    const NormalizedBeat = struct {
+        bar: c_int,
+        beat: f64, // 0-indexed, normalized to [0, beats_per_bar)
+    };
+
+    // Normalize REAPER's beats_in_measure into valid range [0, beats_per_bar)
+    // REAPER returns negative beats_in_measure during pre-roll (before project start)
+    // using ceiling-style division. We normalize to get displayable bar.beat values.
+    // Returns null if input is NaN/Inf or beats_per_bar is invalid.
+    fn normalizeBeats(measures: c_int, beats_in_measure: f64, beats_per_bar: c_int) ?NormalizedBeat {
+        if (!ffi.isFinite(beats_in_measure)) return null;
+        if (beats_per_bar <= 0) return null;
+
+        var bar = measures;
+        var beat = beats_in_measure;
+        const bpb: f64 = @floatFromInt(beats_per_bar);
+
+        // Normalize negative beats_in_measure into [0, bpb)
+        while (beat < 0.0) {
+            bar -= 1;
+            beat += bpb;
+        }
+        // Also handle overflow (beat >= beats_per_bar)
+        while (beat >= bpb) {
+            bar += 1;
+            beat -= bpb;
+        }
+
+        return .{ .bar = bar, .beat = beat };
+    }
+
     // Get current position based on play state
     pub fn currentPosition(self: State) f64 {
         // If playing (bit 0 set), use play position, otherwise cursor
@@ -90,13 +122,22 @@ pub const State = struct {
         // Use position-aware tempo (handles tempo markers, unlike timeSignature())
         const tempo = api.getTempoAtPosition(current_pos);
 
-        // Validate beat data from REAPER - can be NaN/Inf with corrupt projects or stale pointers
-        // If corrupt, set to null rather than fake data (per resilience principles)
-        const position_beat: ?f64 = if (ffi.isFinite(beats_info.beats_in_measure))
-            beats_info.beats_in_measure + 1.0 // Convert 0-based to 1-based
-        else
-            null;
+        // Normalize beat data from REAPER
+        // REAPER returns negative beats_in_measure during pre-roll (before project start)
+        // We normalize to get valid bar.beat values for display
+        const normalized = normalizeBeats(
+            beats_info.measures,
+            beats_info.beats_in_measure,
+            tempo.timesig_num,
+        );
 
+        // Convert normalized 0-indexed beat to 1-indexed for display
+        // If normalization failed (NaN/Inf input), position_beat is null
+        const position_bar: c_int = if (normalized) |n| n.bar else beats_info.measures;
+        const position_beat: ?f64 = if (normalized) |n| n.beat + 1.0 else null;
+
+        // full_beat_position can be negative (before project start) - that's valid for sync purposes
+        // but must be finite
         const full_beat_position: ?f64 = if (ffi.isFinite(beats_info.beats))
             beats_info.beats
         else
@@ -112,7 +153,7 @@ pub const State = struct {
             .time_sel_start = sel.start,
             .time_sel_end = sel.end,
             .bar_offset = api.getBarOffset(), // Needed for positionBeats display
-            .position_bar = beats_info.measures,
+            .position_bar = position_bar,
             .position_beat = position_beat,
             .tempo_marker_count = api.tempoMarkerCount(),
             // Transport sync fields
@@ -153,11 +194,12 @@ pub const State = struct {
             var display_bar = self.position_bar + self.bar_offset;
 
             // Round position_beat to nearest tick to match REAPER's display behavior
+            // Safe: poll() normalizes pos_beat to [1.0, beats_per_bar + 1.0)
             const scaled_beat: u32 = @intFromFloat(@round(pos_beat * 100.0));
             var beat_int: u32 = @max(1, scaled_beat / 100);
             const ticks: u32 = scaled_beat % 100;
 
-            // Handle beat overflow (e.g., beat 7 in 6/8 time → bar + 1, beat 1)
+            // Handle beat overflow from rounding (e.g., 4.995 rounds to 5.00 in 4/4)
             const beats_per_bar = safeTimeSigNum(self.time_sig_num);
             if (beat_int > beats_per_bar) {
                 beat_int = 1;
@@ -204,11 +246,12 @@ pub const State = struct {
         // bbt (bar.beat.ticks) - null if corrupt
         if (self.position_beat) |pos_beat| {
             var display_bar = self.position_bar + self.bar_offset;
+            // Safe: poll() normalizes pos_beat to [1.0, beats_per_bar + 1.0)
             const scaled_beat: u32 = @intFromFloat(@round(pos_beat * 100.0));
             var beat_int: u32 = @max(1, scaled_beat / 100);
             const ticks: u32 = scaled_beat % 100;
 
-            // Handle beat overflow (e.g., beat 5 in 4/4 time → bar + 1, beat 1)
+            // Handle beat overflow from rounding (e.g., 4.995 rounds to 5.00 in 4/4)
             const beats_per_bar = safeTimeSigNum(self.time_sig_num);
             if (beat_int > beats_per_bar) {
                 beat_int = 1;
@@ -529,4 +572,36 @@ test "toTickJson outputs null for corrupt beat data" {
     // Other fields should still be present
     try std.testing.expect(std.mem.indexOf(u8, json, "\"bpm\":120") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"ts\":[4,4]") != null);
+}
+
+test "normalizeBeats handles negative beats_in_measure (pre-roll)" {
+    // REAPER returns measures=-1, beats_in_measure=-4.49 for pre-roll
+    // In 6/8 time, this should normalize to bar=-2, beat=1.51
+    const result = State.normalizeBeats(-1, -4.49, 6).?;
+    try std.testing.expectEqual(@as(c_int, -2), result.bar);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.51), result.beat, 0.001);
+}
+
+test "normalizeBeats handles positive values unchanged" {
+    // Normal case: bar 5, beat 2.5 in 4/4 time
+    const result = State.normalizeBeats(5, 2.5, 4).?;
+    try std.testing.expectEqual(@as(c_int, 5), result.bar);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.5), result.beat, 0.001);
+}
+
+test "normalizeBeats handles beat overflow" {
+    // Beat 5.0 in 4/4 time should become bar+1, beat 1.0
+    const result = State.normalizeBeats(3, 5.0, 4).?;
+    try std.testing.expectEqual(@as(c_int, 4), result.bar);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), result.beat, 0.001);
+}
+
+test "normalizeBeats returns null for NaN" {
+    const result = State.normalizeBeats(0, std.math.nan(f64), 4);
+    try std.testing.expect(result == null);
+}
+
+test "normalizeBeats returns null for invalid beats_per_bar" {
+    const result = State.normalizeBeats(0, 2.0, 0);
+    try std.testing.expect(result == null);
 }

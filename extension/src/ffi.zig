@@ -201,7 +201,8 @@ test "requireOpaquePtr succeeds with valid pointer" {
     var x: i32 = 42;
     const ptr: ?*anyopaque = @ptrCast(&x);
     const result = try requireOpaquePtr(ptr);
-    try std.testing.expect(result != null);
+    // If we got here, requireOpaquePtr succeeded (returned non-null pointer)
+    try std.testing.expect(@intFromPtr(result) != 0);
 }
 
 test "requireOpaquePtr fails with null" {
