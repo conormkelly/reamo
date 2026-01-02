@@ -12,6 +12,7 @@ const types = @import("../types.zig");
 pub const MAX_TRACKS = 32;
 pub const MAX_ITEMS_PER_TRACK = 16;
 pub const MAX_TAKES_PER_ITEM = 4;
+pub const MAX_FX_PER_TRACK = 64;
 pub const MAX_MARKERS = 64;
 pub const MAX_CALLS = 256;
 
@@ -171,6 +172,13 @@ pub const Method = enum {
     sendMidiPC,
     // UI
     updateTimeline,
+    // Track FX
+    trackFxCount,
+    trackFxGetName,
+    trackFxGetPresetIndex,
+    trackFxGetPreset,
+    trackFxNavigatePresets,
+    trackFxSetPresetByIndex,
 };
 
 pub const MockTrack = struct {
@@ -191,6 +199,10 @@ pub const MockTrack = struct {
     // Items for this track
     item_count: c_int = 0,
     items: [MAX_ITEMS_PER_TRACK]MockItem = [_]MockItem{.{}} ** MAX_ITEMS_PER_TRACK,
+
+    // FX for this track
+    fx_count: c_int = 0,
+    fx: [MAX_FX_PER_TRACK]MockFx = [_]MockFx{.{}} ** MAX_FX_PER_TRACK,
 
     pub fn setName(self: *MockTrack, name: []const u8) void {
         const len = @min(name.len, self.name.len);
@@ -278,6 +290,37 @@ pub const MockMarkerInfo = struct {
             .name = self.name[0..self.name_len],
             .color = self.color,
         };
+    }
+};
+
+/// Mock FX slot for testing preset switching.
+pub const MockFx = struct {
+    name: [128]u8 = [_]u8{0} ** 128,
+    name_len: usize = 0,
+    preset_name: [128]u8 = [_]u8{0} ** 128,
+    preset_name_len: usize = 0,
+    preset_index: c_int = -1, // -1 = no preset selected
+    preset_count: c_int = 0,
+    params_match_preset: bool = true, // True if params exactly match loaded preset
+
+    pub fn setName(self: *MockFx, fx_name: []const u8) void {
+        const len = @min(fx_name.len, self.name.len);
+        @memcpy(self.name[0..len], fx_name[0..len]);
+        self.name_len = len;
+    }
+
+    pub fn getName(self: *const MockFx) []const u8 {
+        return self.name[0..self.name_len];
+    }
+
+    pub fn setPresetName(self: *MockFx, preset: []const u8) void {
+        const len = @min(preset.len, self.preset_name.len);
+        @memcpy(self.preset_name[0..len], preset[0..len]);
+        self.preset_name_len = len;
+    }
+
+    pub fn getPresetName(self: *const MockFx) []const u8 {
+        return self.preset_name[0..self.preset_name_len];
     }
 };
 

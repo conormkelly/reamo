@@ -344,6 +344,34 @@ pub const RealBackend = struct {
     }
 
     // =========================================================================
+    // Track FX
+    // =========================================================================
+
+    pub fn trackFxCount(self: *const RealBackend, track: *anyopaque) c_int {
+        return self.inner.trackFxCount(track);
+    }
+
+    pub fn trackFxGetName(self: *const RealBackend, track: *anyopaque, fx_idx: c_int, buf: []u8) []const u8 {
+        return self.inner.trackFxGetName(track, fx_idx, buf);
+    }
+
+    pub fn trackFxGetPresetIndex(self: *const RealBackend, track: *anyopaque, fx_idx: c_int, preset_count: *c_int) c_int {
+        return self.inner.trackFxGetPresetIndex(track, fx_idx, preset_count);
+    }
+
+    pub fn trackFxGetPreset(self: *const RealBackend, track: *anyopaque, fx_idx: c_int, buf: []u8) types.FxPresetInfo {
+        return self.inner.trackFxGetPreset(track, fx_idx, buf);
+    }
+
+    pub fn trackFxNavigatePresets(self: *const RealBackend, track: *anyopaque, fx_idx: c_int, presetmove: c_int) bool {
+        return self.inner.trackFxNavigatePresets(track, fx_idx, presetmove);
+    }
+
+    pub fn trackFxSetPresetByIndex(self: *const RealBackend, track: *anyopaque, fx_idx: c_int, preset_idx: c_int) bool {
+        return self.inner.trackFxSetPresetByIndex(track, fx_idx, preset_idx);
+    }
+
+    // =========================================================================
     // Items
     // =========================================================================
 

@@ -1,6 +1,7 @@
 /// Mock track, item, and take methods.
 const std = @import("std");
 const state = @import("state.zig");
+const types = @import("../types.zig");
 const ffi = @import("../../ffi.zig");
 
 /// Track, item, and take method implementations for MockBackend.
@@ -484,5 +485,98 @@ pub const TracksMethods = struct {
         if (idx >= state.MAX_TRACKS) return 0.0;
         if (channel == 0) return self.tracks[idx].peak_left;
         return self.tracks[idx].peak_right;
+    }
+
+    // =========================================================================
+    // Track FX
+    // =========================================================================
+
+    pub fn trackFxCount(self: anytype, track: *anyopaque) c_int {
+        self.recordCall(.trackFxCount);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 0;
+        return self.tracks[idx].fx_count;
+    }
+
+    pub fn trackFxGetName(self: anytype, track: *anyopaque, fx_idx: c_int, buf: []u8) []const u8 {
+        self.recordCall(.trackFxGetName);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return "";
+        if (fx_idx < 0 or fx_idx >= self.tracks[idx].fx_count) return "";
+        const fx_usize: usize = @intCast(fx_idx);
+        if (fx_usize >= state.MAX_FX_PER_TRACK) return "";
+        const name = self.tracks[idx].fx[fx_usize].getName();
+        const len = @min(name.len, buf.len);
+        @memcpy(buf[0..len], name[0..len]);
+        return buf[0..len];
+    }
+
+    pub fn trackFxGetPresetIndex(self: anytype, track: *anyopaque, fx_idx: c_int, preset_count: *c_int) c_int {
+        self.recordCall(.trackFxGetPresetIndex);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) {
+            preset_count.* = 0;
+            return -1;
+        }
+        if (fx_idx < 0 or fx_idx >= self.tracks[idx].fx_count) {
+            preset_count.* = 0;
+            return -1;
+        }
+        const fx_usize: usize = @intCast(fx_idx);
+        if (fx_usize >= state.MAX_FX_PER_TRACK) {
+            preset_count.* = 0;
+            return -1;
+        }
+        preset_count.* = self.tracks[idx].fx[fx_usize].preset_count;
+        return self.tracks[idx].fx[fx_usize].preset_index;
+    }
+
+    pub fn trackFxGetPreset(self: anytype, track: *anyopaque, fx_idx: c_int, buf: []u8) types.FxPresetInfo {
+        self.recordCall(.trackFxGetPreset);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return .{ .name = "", .matches_preset = false };
+        if (fx_idx < 0 or fx_idx >= self.tracks[idx].fx_count) return .{ .name = "", .matches_preset = false };
+        const fx_usize: usize = @intCast(fx_idx);
+        if (fx_usize >= state.MAX_FX_PER_TRACK) return .{ .name = "", .matches_preset = false };
+        const preset_name = self.tracks[idx].fx[fx_usize].getPresetName();
+        const len = @min(preset_name.len, buf.len);
+        @memcpy(buf[0..len], preset_name[0..len]);
+        return .{
+            .name = buf[0..len],
+            .matches_preset = self.tracks[idx].fx[fx_usize].params_match_preset,
+        };
+    }
+
+    pub fn trackFxNavigatePresets(self: anytype, track: *anyopaque, fx_idx: c_int, presetmove: c_int) bool {
+        self.recordCall(.trackFxNavigatePresets);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        if (fx_idx < 0 or fx_idx >= self.tracks[idx].fx_count) return false;
+        const fx_usize: usize = @intCast(fx_idx);
+        if (fx_usize >= state.MAX_FX_PER_TRACK) return false;
+        const fx = &self.tracks[idx].fx[fx_usize];
+        if (fx.preset_count == 0) return false;
+        // Navigate: wrap around
+        var new_idx = fx.preset_index + presetmove;
+        if (new_idx < 0) new_idx = fx.preset_count - 1;
+        if (new_idx >= fx.preset_count) new_idx = 0;
+        fx.preset_index = new_idx;
+        fx.params_match_preset = true; // Preset was just loaded
+        return true;
+    }
+
+    pub fn trackFxSetPresetByIndex(self: anytype, track: *anyopaque, fx_idx: c_int, preset_idx: c_int) bool {
+        self.recordCall(.trackFxSetPresetByIndex);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        if (fx_idx < 0 or fx_idx >= self.tracks[idx].fx_count) return false;
+        const fx_usize: usize = @intCast(fx_idx);
+        if (fx_usize >= state.MAX_FX_PER_TRACK) return false;
+        const fx = &self.tracks[idx].fx[fx_usize];
+        // Special indices: -1 = default user, -2 = factory
+        if (preset_idx < -2 or (preset_idx >= 0 and preset_idx >= fx.preset_count)) return false;
+        fx.preset_index = preset_idx;
+        fx.params_match_preset = true; // Preset was just loaded
+        return true;
     }
 };

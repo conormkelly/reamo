@@ -25,6 +25,7 @@ const gesture = @import("gesture.zig");
 const toggle_state = @import("toggle_state.zig");
 const midi = @import("midi.zig");
 const project_notes = @import("project_notes.zig");
+const fx = @import("fx.zig");
 
 /// Comptime tuple of (command_name, handler_fn) pairs.
 /// Used by dispatch() with inline for to call handlers with anytype.
@@ -154,4 +155,9 @@ pub const all = .{
     .{ "projectNotes/unsubscribe", project_notes.handleUnsubscribe },
     .{ "projectNotes/get", project_notes.handleGet },
     .{ "projectNotes/set", project_notes.handleSet },
+
+    // FX Presets
+    .{ "fx/presetNext", fx.handlePresetNext },
+    .{ "fx/presetPrev", fx.handlePresetPrev },
+    .{ "fx/presetSet", fx.handlePresetSet },
 };

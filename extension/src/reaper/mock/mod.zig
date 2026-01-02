@@ -29,12 +29,14 @@ const project = @import("project.zig");
 pub const MockTrack = state.MockTrack;
 pub const MockItem = state.MockItem;
 pub const MockTake = state.MockTake;
+pub const MockFx = state.MockFx;
 pub const MockMarkerInfo = state.MockMarkerInfo;
 pub const Method = state.Method;
 pub const CallEntry = state.CallEntry;
 pub const MAX_TRACKS = state.MAX_TRACKS;
 pub const MAX_ITEMS_PER_TRACK = state.MAX_ITEMS_PER_TRACK;
 pub const MAX_TAKES_PER_ITEM = state.MAX_TAKES_PER_ITEM;
+pub const MAX_FX_PER_TRACK = state.MAX_FX_PER_TRACK;
 pub const MAX_MARKERS = state.MAX_MARKERS;
 pub const MAX_CALLS = state.MAX_CALLS;
 
@@ -330,6 +332,16 @@ pub const MockBackend = struct {
     // Metering (delegated)
     // =========================================================================
     pub const getTrackPeakInfo = tracks.TracksMethods.getTrackPeakInfo;
+
+    // =========================================================================
+    // Track FX (delegated)
+    // =========================================================================
+    pub const trackFxCount = tracks.TracksMethods.trackFxCount;
+    pub const trackFxGetName = tracks.TracksMethods.trackFxGetName;
+    pub const trackFxGetPresetIndex = tracks.TracksMethods.trackFxGetPresetIndex;
+    pub const trackFxGetPreset = tracks.TracksMethods.trackFxGetPreset;
+    pub const trackFxNavigatePresets = tracks.TracksMethods.trackFxNavigatePresets;
+    pub const trackFxSetPresetByIndex = tracks.TracksMethods.trackFxSetPresetByIndex;
 
     // =========================================================================
     // Marker methods (delegated)

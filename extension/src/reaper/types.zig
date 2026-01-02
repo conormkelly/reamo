@@ -62,3 +62,9 @@ pub const FrameRateInfo = struct {
     frame_rate: f64, // Frame rate (e.g., 29.97, 24, 25, 30)
     drop_frame: bool, // True for drop-frame timecode (29.97/59.94)
 };
+
+/// FX preset info returned by TrackFX_GetPreset
+pub const FxPresetInfo = struct {
+    name: []const u8, // Preset name (may be empty if no preset loaded)
+    matches_preset: bool, // True if current params exactly match loaded preset
+};

@@ -12,6 +12,7 @@ pub const TimeSelection = types.TimeSelection;
 pub const TimeSignature = types.TimeSignature;
 pub const MarkerInfo = types.MarkerInfo;
 pub const MarkerCount = types.MarkerCount;
+pub const FxPresetInfo = types.FxPresetInfo;
 
 // Debug logging - set to false for release builds
 pub const DEBUG_LOGGING = true;
@@ -171,6 +172,14 @@ pub const Api = struct {
     // Frame rate / timecode
     timeMapCurFrameRate: ?*const fn (?*anyopaque, *bool) callconv(.c) f64 = null,
 
+    // Track FX
+    trackFX_GetCount: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
+    trackFX_GetFXName: ?*const fn (?*anyopaque, c_int, [*]u8, c_int) callconv(.c) bool = null,
+    trackFX_GetPresetIndex: ?*const fn (?*anyopaque, c_int, *c_int) callconv(.c) c_int = null,
+    trackFX_GetPreset: ?*const fn (?*anyopaque, c_int, [*]u8, c_int) callconv(.c) bool = null,
+    trackFX_NavigatePresets: ?*const fn (?*anyopaque, c_int, c_int) callconv(.c) bool = null,
+    trackFX_SetPresetByIndex: ?*const fn (?*anyopaque, c_int, c_int) callconv(.c) bool = null,
+
     // Load API from REAPER plugin info
     pub fn load(info: *PluginInfo) ?Api {
         const showConsoleMsg = getFunc(info, "ShowConsoleMsg", fn ([*:0]const u8) callconv(.c) void) orelse return null;
@@ -286,6 +295,13 @@ pub const Api = struct {
             .isProjectDirty = getFunc(info, "IsProjectDirty", fn (?*anyopaque) callconv(.c) c_int),
             // Frame rate / timecode
             .timeMapCurFrameRate = getFunc(info, "TimeMap_curFrameRate", fn (?*anyopaque, *bool) callconv(.c) f64),
+            // Track FX
+            .trackFX_GetCount = getFunc(info, "TrackFX_GetCount", fn (?*anyopaque) callconv(.c) c_int),
+            .trackFX_GetFXName = getFunc(info, "TrackFX_GetFXName", fn (?*anyopaque, c_int, [*]u8, c_int) callconv(.c) bool),
+            .trackFX_GetPresetIndex = getFunc(info, "TrackFX_GetPresetIndex", fn (?*anyopaque, c_int, *c_int) callconv(.c) c_int),
+            .trackFX_GetPreset = getFunc(info, "TrackFX_GetPreset", fn (?*anyopaque, c_int, [*]u8, c_int) callconv(.c) bool),
+            .trackFX_NavigatePresets = getFunc(info, "TrackFX_NavigatePresets", fn (?*anyopaque, c_int, c_int) callconv(.c) bool),
+            .trackFX_SetPresetByIndex = getFunc(info, "TrackFX_SetPresetByIndex", fn (?*anyopaque, c_int, c_int) callconv(.c) bool),
         };
     }
 
@@ -1001,6 +1017,56 @@ pub const Api = struct {
     pub fn getTrackColor(self: *const Api, track: *anyopaque) f64 {
         const f = self.getMediaTrackInfo_Value orelse return 0;
         return f(track, "I_CUSTOMCOLOR");
+    }
+
+    // Track FX methods
+
+    /// Get number of FX on a track
+    pub fn trackFxCount(self: *const Api, track: *anyopaque) c_int {
+        const f = self.trackFX_GetCount orelse return 0;
+        return f(track);
+    }
+
+    /// Get FX name into buffer, returns slice of populated bytes
+    pub fn trackFxGetName(self: *const Api, track: *anyopaque, fx_idx: c_int, buf: []u8) []const u8 {
+        const f = self.trackFX_GetFXName orelse return "";
+        if (buf.len == 0) return "";
+        const success = f(track, fx_idx, buf.ptr, @intCast(buf.len));
+        if (!success) return "";
+        // Find null terminator
+        const len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
+        return buf[0..len];
+    }
+
+    /// Get preset index and count. Returns -1 on error.
+    pub fn trackFxGetPresetIndex(self: *const Api, track: *anyopaque, fx_idx: c_int, preset_count: *c_int) c_int {
+        const f = self.trackFX_GetPresetIndex orelse {
+            preset_count.* = 0;
+            return -1;
+        };
+        return f(track, fx_idx, preset_count);
+    }
+
+    /// Get preset name into buffer. Returns true if params match preset (NOT modified).
+    pub fn trackFxGetPreset(self: *const Api, track: *anyopaque, fx_idx: c_int, buf: []u8) FxPresetInfo {
+        const f = self.trackFX_GetPreset orelse return .{ .name = "", .matches_preset = false };
+        if (buf.len == 0) return .{ .name = "", .matches_preset = false };
+        const matches = f(track, fx_idx, buf.ptr, @intCast(buf.len));
+        // Find null terminator
+        const len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
+        return .{ .name = buf[0..len], .matches_preset = matches };
+    }
+
+    /// Navigate to next/prev preset. presetmove: +1=next, -1=prev
+    pub fn trackFxNavigatePresets(self: *const Api, track: *anyopaque, fx_idx: c_int, presetmove: c_int) bool {
+        const f = self.trackFX_NavigatePresets orelse return false;
+        return f(track, fx_idx, presetmove);
+    }
+
+    /// Set preset by index. -1=default user, -2=factory
+    pub fn trackFxSetPresetByIndex(self: *const Api, track: *anyopaque, fx_idx: c_int, preset_idx: c_int) bool {
+        const f = self.trackFX_SetPresetByIndex orelse return false;
+        return f(track, fx_idx, preset_idx);
     }
 
     // Item methods

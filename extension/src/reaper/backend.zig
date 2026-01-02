@@ -146,6 +146,14 @@ pub fn validateBackend(comptime T: type) void {
         // Metering
         "getTrackPeakInfo",
 
+        // Track FX
+        "trackFxCount",
+        "trackFxGetName",
+        "trackFxGetPresetIndex",
+        "trackFxGetPreset",
+        "trackFxNavigatePresets",
+        "trackFxSetPresetByIndex",
+
         // ExtState
         "getExtStateValue",
         "setExtStateValue",

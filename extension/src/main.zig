@@ -403,6 +403,44 @@ fn processTimerCallback() callconv(.c) void {
             }
         }
         g_last_items = current_items;
+
+        // Poll FX state for all tracks and update g_last_tracks
+        // (FX data is merged into 30Hz track events, not broadcast separately)
+        for (0..g_last_tracks.count) |i| {
+            const track_idx: c_int = @intCast(i);
+            if (backend.getTrackByUnifiedIdx(track_idx)) |track| {
+                var t = &g_last_tracks.tracks[i];
+                // Get FX count - skip FX API calls if no FX
+                const fx_count_raw = backend.trackFxCount(track);
+                const fx_count: usize = @intCast(@max(0, @min(fx_count_raw, @as(c_int, @intCast(tracks.MAX_FX_PER_TRACK)))));
+                t.fx_count = fx_count;
+
+                for (0..fx_count) |fx_i| {
+                    const fx_idx: c_int = @intCast(fx_i);
+                    var fx = &t.fx[fx_i];
+
+                    // Get FX name
+                    var name_buf: [tracks.MAX_FX_NAME_LEN]u8 = undefined;
+                    const name = backend.trackFxGetName(track, fx_idx, &name_buf);
+                    const name_len = @min(name.len, tracks.MAX_FX_NAME_LEN);
+                    @memcpy(fx.name[0..name_len], name[0..name_len]);
+                    fx.name_len = name_len;
+
+                    // Get preset index and count
+                    var preset_count: c_int = 0;
+                    fx.preset_index = backend.trackFxGetPresetIndex(track, fx_idx, &preset_count);
+                    fx.preset_count = preset_count;
+
+                    // Get preset name and modified state
+                    var preset_buf: [tracks.MAX_FX_NAME_LEN]u8 = undefined;
+                    const preset_info = backend.trackFxGetPreset(track, fx_idx, &preset_buf);
+                    const preset_len = @min(preset_info.name.len, tracks.MAX_FX_NAME_LEN);
+                    @memcpy(fx.preset_name[0..preset_len], preset_info.name[0..preset_len]);
+                    fx.preset_name_len = preset_len;
+                    fx.modified = !preset_info.matches_preset;
+                }
+            }
+        }
     }
 
     // ========================================================================

@@ -27,6 +27,7 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 - [Gesture](#gesture-commands) — start, end
 - [Action](#action-commands) — getToggleState, execute, executeByName
 - [MIDI](#midi-commands) — cc, pc
+- [FX](#fx-commands) — presetNext, presetPrev, presetSet
 
 **Events**
 - [Events (Broadcast)](#events-broadcast) — transport, tracks, markers, regions, items, project
@@ -1269,6 +1270,54 @@ Send MIDI Program Change message.
 
 ---
 
+## FX Commands
+
+Control track FX presets. FX state is included in the `tracks` event — see [tracks event](#tracks-event) for the `fx[]` array format.
+
+### `fx/presetNext`
+
+Navigate to the next preset for a track FX.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `fxIdx` | int | Yes | FX index within track (0-based) |
+
+```json
+{"type": "command", "command": "fx/presetNext", "trackIdx": 1, "fxIdx": 0}
+```
+
+### `fx/presetPrev`
+
+Navigate to the previous preset for a track FX.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `fxIdx` | int | Yes | FX index within track (0-based) |
+
+```json
+{"type": "command", "command": "fx/presetPrev", "trackIdx": 1, "fxIdx": 0}
+```
+
+### `fx/presetSet`
+
+Jump to a specific preset by index.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `fxIdx` | int | Yes | FX index within track (0-based) |
+| `presetIdx` | int | Yes | Preset index (-1 = default user, -2 = factory, 0+ = preset index) |
+
+```json
+{"type": "command", "command": "fx/presetSet", "trackIdx": 1, "fxIdx": 0, "presetIdx": 5}
+```
+
+**Note:** Each preset change creates a REAPER undo point. Consider debouncing rapid clicks in the frontend.
+
+---
+
 ## Events (Broadcast)
 
 Events are sent to all connected clients when state changes. Polling occurs ~30ms.
@@ -1329,7 +1378,17 @@ High-frequency event broadcast every ~30ms during playback, containing position-
         "solo": 0,
         "recArm": true,
         "recMon": 1,
-        "fxEnabled": true
+        "fxEnabled": true,
+        "selected": false,
+        "fx": [
+          {
+            "name": "ReaEQ",
+            "presetName": "My EQ",
+            "presetIndex": 3,
+            "presetCount": 12,
+            "modified": false
+          }
+        ]
       }
     ],
     "meters": [
@@ -1341,7 +1400,7 @@ High-frequency event broadcast every ~30ms during playback, containing position-
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `tracks[].idx` | int | Track index (0-based) |
+| `tracks[].idx` | int | Track index (0=master, 1+=user tracks) |
 | `tracks[].name` | string | Track name |
 | `tracks[].color` | int | Track color (native OS format, 0=default) |
 | `tracks[].volume` | float | Volume (1.0 = 0dB) |
@@ -1350,12 +1409,21 @@ High-frequency event broadcast every ~30ms during playback, containing position-
 | `tracks[].solo` | int | Solo state (0=off, 1=solo, 2=solo in place) |
 | `tracks[].recArm` | bool | Record armed |
 | `tracks[].recMon` | int | Record monitoring (0=off, 1=on, 2=not when playing) |
-| `tracks[].fxEnabled` | bool | FX enabled |
+| `tracks[].fxEnabled` | bool | FX chain enabled |
+| `tracks[].selected` | bool | Track is selected |
+| `tracks[].fx` | array | FX chain (polled at 5Hz, empty if no FX) |
+| `tracks[].fx[].name` | string | Plugin name |
+| `tracks[].fx[].presetName` | string | Current preset name |
+| `tracks[].fx[].presetIndex` | int | Current preset index (-1 if none) |
+| `tracks[].fx[].presetCount` | int | Total number of presets |
+| `tracks[].fx[].modified` | bool | `true` if params don't match preset |
 | `meters[].trackIdx` | int | Track index |
 | `meters[].peakL/R` | float | Peak level (0.0-1.0+, 1.0 = 0dB) |
 | `meters[].clipped` | bool | Clip indicator (sticky until cleared) |
 
 **Note:** Meters only included for tracks that are record-armed AND input-monitoring.
+
+**Note:** FX data is polled at 5Hz (for efficiency) but included in the 30Hz track events. Max 64 FX per track.
 
 ### `markers` Event
 
@@ -1518,6 +1586,7 @@ function secondsToSMPTE(seconds, frameRate, dropFrame) {
 | Resource | Max |
 |----------|-----|
 | Tracks polled | 128 |
+| FX per track | 64 |
 | Metered tracks | 16 |
 | Markers | 256 |
 | Regions | 256 |

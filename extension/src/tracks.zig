@@ -8,8 +8,44 @@ pub const MAX_TRACKS: usize = 128;
 // Maximum tracks to meter (match MAX_TRACKS for full mixer metering)
 pub const MAX_METERED_TRACKS: usize = MAX_TRACKS;
 
+// Maximum FX per track (covers extreme cases; most tracks have 1-10 FX)
+pub const MAX_FX_PER_TRACK: usize = 64;
+
 // Maximum track name length
 pub const MAX_NAME_LEN: usize = 128;
+
+// Maximum FX/preset name length
+pub const MAX_FX_NAME_LEN: usize = 128;
+
+/// Single FX slot state (preset info for one FX instance)
+pub const FxSlot = struct {
+    name: [MAX_FX_NAME_LEN]u8 = undefined,
+    name_len: usize = 0,
+    preset_name: [MAX_FX_NAME_LEN]u8 = undefined,
+    preset_name_len: usize = 0,
+    preset_index: c_int = -1, // -1 = no preset selected
+    preset_count: c_int = 0,
+    modified: bool = false, // True if params DON'T match preset
+
+    pub fn getName(self: *const FxSlot) []const u8 {
+        return self.name[0..self.name_len];
+    }
+
+    pub fn getPresetName(self: *const FxSlot) []const u8 {
+        return self.preset_name[0..self.preset_name_len];
+    }
+
+    pub fn eql(self: FxSlot, other: FxSlot) bool {
+        if (self.name_len != other.name_len) return false;
+        if (!std.mem.eql(u8, self.name[0..self.name_len], other.name[0..other.name_len])) return false;
+        if (self.preset_name_len != other.preset_name_len) return false;
+        if (!std.mem.eql(u8, self.preset_name[0..self.preset_name_len], other.preset_name[0..other.preset_name_len])) return false;
+        if (self.preset_index != other.preset_index) return false;
+        if (self.preset_count != other.preset_count) return false;
+        if (self.modified != other.modified) return false;
+        return true;
+    }
+};
 
 // Single track state
 pub const Track = struct {
@@ -29,6 +65,9 @@ pub const Track = struct {
     rec_mon: ?c_int = 0,
     fx_enabled: bool = true,
     selected: bool = false,
+    // FX chain state (polled at 5Hz, merged into track events)
+    fx: [MAX_FX_PER_TRACK]FxSlot = undefined,
+    fx_count: usize = 0,
 
     pub fn getName(self: *const Track) []const u8 {
         return self.name[0..self.name_len];
@@ -47,6 +86,11 @@ pub const Track = struct {
         if (self.rec_mon != other.rec_mon) return false;
         if (self.fx_enabled != other.fx_enabled) return false;
         if (self.selected != other.selected) return false;
+        // Compare FX chain
+        if (self.fx_count != other.fx_count) return false;
+        for (0..self.fx_count) |i| {
+            if (!self.fx[i].eql(other.fx[i])) return false;
+        }
         return true;
     }
 
@@ -162,10 +206,27 @@ pub const State = struct {
                 writer.writeAll("null") catch return null;
             }
 
-            writer.print(",\"fxEnabled\":{s},\"selected\":{s}}}", .{
+            writer.print(",\"fxEnabled\":{s},\"selected\":{s}", .{
                 if (t.fx_enabled) "true" else "false",
                 if (t.selected) "true" else "false",
             }) catch return null;
+
+            // Serialize FX chain
+            writer.writeAll(",\"fx\":[") catch return null;
+            for (0..t.fx_count) |fx_i| {
+                if (fx_i > 0) writer.writeByte(',') catch return null;
+                const fx = &t.fx[fx_i];
+                writer.writeAll("{\"name\":\"") catch return null;
+                protocol.writeJsonString(writer, fx.getName()) catch return null;
+                writer.writeAll("\",\"presetName\":\"") catch return null;
+                protocol.writeJsonString(writer, fx.getPresetName()) catch return null;
+                writer.print("\",\"presetIndex\":{d},\"presetCount\":{d},\"modified\":{s}}}", .{
+                    fx.preset_index,
+                    fx.preset_count,
+                    if (fx.modified) "true" else "false",
+                }) catch return null;
+            }
+            writer.writeAll("]}") catch return null;
         }
 
         writer.writeAll("]") catch return null;

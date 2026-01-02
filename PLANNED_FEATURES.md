@@ -203,23 +203,25 @@ Extend tracks event with FX info:
 
 ### Implementation Checklist
 
-#### Extension
+#### Extension ✅ COMPLETE
 
 **Prerequisites:**
-- [ ] Add `TrackFX_GetCount` to get FX count per track
-- [ ] Add `TrackFX_GetFXName` to get plugin names
-- [ ] Add `TrackFX_GetPresetIndex` for preset state
-- [ ] Add `TrackFX_GetPreset` for preset name + modified flag
+- [x] Add `TrackFX_GetCount` to get FX count per track
+- [x] Add `TrackFX_GetFXName` to get plugin names
+- [x] Add `TrackFX_GetPresetIndex` for preset state
+- [x] Add `TrackFX_GetPreset` for preset name + modified flag
 
 **State polling:**
-- [ ] Add `fx` array to track state
-- [ ] Poll FX state on track change (not every 30ms — too expensive)
-- [ ] Consider `CSURF_EXT_TRACKFX_PRESET_CHANGED` for notifications
+- [x] Add `fx` array to track state
+- [x] Poll FX state at 5Hz (MEDIUM tier), merge into 30Hz track events
+- [x] Skip FX API calls for tracks with 0 FX (optimization)
 
 **Commands:**
-- [ ] Add `fx/presetNext` handler using `TrackFX_NavigatePresets(+1)`
-- [ ] Add `fx/presetPrev` handler using `TrackFX_NavigatePresets(-1)`
-- [ ] Add `fx/presetSet` handler using `TrackFX_SetPresetByIndex`
+- [x] Add `fx/presetNext` handler using `TrackFX_NavigatePresets(+1)`
+- [x] Add `fx/presetPrev` handler using `TrackFX_NavigatePresets(-1)`
+- [x] Add `fx/presetSet` handler using `TrackFX_SetPresetByIndex`
+
+**Limits:** 64 FX per track, 128 char name limit. See `extension/API.md` for protocol details.
 
 #### Frontend
 
