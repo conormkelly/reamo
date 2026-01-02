@@ -6,9 +6,9 @@
 2. [Items Mode](#items-mode) — View/manage recorded takes without leaving the instrument
 3. [Track Management](#track-management) — Rename, create, duplicate, delete tracks *(see [full spec](features/TRACK_MANAGEMENT_FEATURE.md))*
 4. [Cue List](#cue-list) — Setlist/playlist mode with SWS import *(see [full spec](features/CUE_LIST_FEATURE.md))*
-5. [FX Preset Switching](#fx-preset-switching) — Navigate REAPER-saved presets from tablet
-6. [Send Control](#send-control) — Adjust send levels to aux/cue buses *(see [full spec](features/SEND_CONTROL_FEATURE.md))*
-7. [Project Notes](#project-notes-support) — Session metadata accessible from tablet
+5. [FX Preset Switching](#fx-preset-switching) — Navigate REAPER-saved presets from tablet ✅
+6. [Send Control](#send-control) — Adjust send levels to aux/cue buses *(see [full spec](features/SEND_CONTROL_FEATURE.md))* ✅
+7. [Project Notes](#project-notes-support) — Session metadata accessible from tablet ✅
 8. [Minor Enhancements](#minor-enhancements) — isDirty flag, SMPTE timecode
 9. [Public Release](#public-release) — Cross-platform builds and GitHub distribution
 10. [Extension Performance Optimizations](#extension-performance-optimizations) — Idle when no clients (low priority)
@@ -626,9 +626,9 @@ These are expensive and should only be called on-demand:
 
 The SWS Extension—the gold standard for REAPER extension performance—uses the CSurf hybrid pattern and is described by users as having "no noticeable CPU impact." That's the north star, but our current polling-only approach is likely already invisible to users
 
-## Project Notes Support
+## Project Notes Support ✅ COMPLETE
 
-Project notes are useful for session-level metadata: "Client: Acme Records", "Reference tempo: 128 BPM before we slowed it down", "TODO: re-record verse 2 vocals", etc. Currently requires going to the computer (`File > Project Notes...`). Should be accessible from the WebUI.
+Project notes are useful for session-level metadata: "Client: Acme Records", "Reference tempo: 128 BPM before we slowed it down", "TODO: re-record verse 2 vocals", etc. Accessible from the Notes view in the WebUI.
 
 ---
 
