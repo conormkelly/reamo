@@ -7,7 +7,7 @@ const MAX_MARKERS: usize = 64;
 /// Tempo map state - polls tempo markers from REAPER
 pub const State = struct {
     count: c_int = 0,
-    markers: [MAX_MARKERS]reaper.Api.TempoMarker = undefined,
+    markers: [MAX_MARKERS]reaper.TempoMarker = undefined,
     // For change detection, we track a simple hash of positions + BPMs
     hash: u64 = 0,
 

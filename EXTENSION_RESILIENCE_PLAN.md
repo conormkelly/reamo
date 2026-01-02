@@ -288,23 +288,34 @@ This causes impossible-to-debug issues: crashes in code you didn't touch, log ou
 
 **Goal**: Every module testable without REAPER
 
-### 8.1 Create Mock API
-- [ ] Create `extension/src/mock_api.zig`:
-  - Same interface as `reaper.Api`
-  - Configurable return values
-  - Can inject NaN/Inf/null
-  - Tracks API calls for assertions
+**Detailed Plan**: See [PHASE_8_TESTABILITY.md](PHASE_8_TESTABILITY.md) for full implementation guide including vtable pattern, mock API design, and migration strategy.
 
-### 8.2 Update State Modules for Testability
-- [ ] `poll()` takes API interface, not concrete type
-- [ ] OR: Compile-time switching between real and mock
+**Approach**: Vtable pattern (like std.mem.Allocator) with partial mocks and field-based state. Zero overhead since reaper.Api already uses runtime-loaded function pointers.
 
-### 8.3 Integration Test Harness
-- [ ] Create test that simulates full poll cycle
-- [ ] Inject corrupt data, verify no panic
-- [ ] Verify error events are generated
+### 8.1 Create API Interface Infrastructure
+- [ ] Create `extension/src/api_interface.zig` - abstract interface definition
+- [ ] Create `extension/src/real_api.zig` - wrapper for reaper.Api
+- [ ] Create `extension/src/mock_api.zig` - field-based mock with error injection
+- [ ] Add tests for mock API itself
 
-**Validation**: `zig build test` covers all state modules with mock
+### 8.2 Migrate State Modules
+- [ ] `transport.zig` - poll() accepts ApiInterface, add NaN/error tests
+- [ ] `tracks.zig` - poll() accepts ApiInterface, add solo/recmon error tests
+- [ ] `project.zig` - migrate to interface
+- [ ] `markers.zig` - migrate to interface
+- [ ] `items.zig` - migrate to interface
+- [ ] `tempomap.zig` - migrate to interface
+
+### 8.3 Update Entry Points
+- [ ] `main.zig` - processTimerCallback uses RealApi wrapper
+- [ ] Backward compat wrappers for transition period
+
+### 8.4 Integration Test Harness
+- [ ] Create test that simulates full poll cycle with mock
+- [ ] Inject NaN/Inf/null, verify graceful degradation
+- [ ] Verify error propagation to nullable fields
+
+**Validation**: `zig build test` covers all state modules with mock, runs in <5 seconds
 
 ---
 
