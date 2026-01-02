@@ -330,7 +330,14 @@ fn processTimerCallback() callconv(.c) void {
     }
 
     // Poll tracks and metering, broadcast changes (HIGH TIER - needs smooth fader/meter updates)
-    const current_tracks = tracks.State.poll(&backend);
+    var current_tracks = tracks.State.poll(&backend);
+
+    // Preserve FX data which is polled at MEDIUM_TIER rate (5Hz), not every frame
+    // FX data is updated in g_last_tracks by MEDIUM_TIER polling, so copy it forward
+    for (0..@min(current_tracks.count, g_last_tracks.count)) |i| {
+        current_tracks.tracks[i].fx = g_last_tracks.tracks[i].fx;
+        current_tracks.tracks[i].fx_count = g_last_tracks.tracks[i].fx_count;
+    }
     const current_metering = tracks.MeteringState.poll(api);
 
     // Broadcast if tracks changed OR if we have active metering
