@@ -16,7 +16,7 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 - [Region](#region-commands) — add, update, delete, goto
 - [Item](#item-commands) — setActiveTake, move, setColor, delete, getPeaks
 - [Take](#take-commands) — deleteCurrent, cropToActive
-- [Track](#track-commands) — setVolume, setPan, setMute, setSolo, setRecArm, setRecMon
+- [Track](#track-commands) — setVolume, setPan, setMute, setSolo, setRecArm, setRecMon, rename, create, duplicate, delete
 - [Master](#master-commands) — toggleMono
 - [Tempo](#tempo-commands) — set, tap
 - [Time Signature](#time-signature-commands) — set
@@ -801,6 +801,92 @@ Clear the clip indicator for a track's input meter.
 {"type": "command", "command": "meter/clearClip", "trackIdx": 0}
 ```
 
+### `track/rename`
+
+Rename a track. Master track (idx 0) cannot be renamed.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (1+ for user tracks) |
+| `name` | string | Yes | New track name |
+
+```json
+{"type": "command", "command": "track/rename", "trackIdx": 1, "name": "Guitar Clean"}
+```
+
+### `track/create`
+
+Create a new track. Returns the new track's index.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | string | No | Initial track name (empty = "Track N") |
+| `afterTrackIdx` | int | No | Insert after this track index (omit = append at end) |
+
+```json
+{"type": "command", "command": "track/create", "name": "New Guitar", "afterTrackIdx": 2, "id": "1"}
+```
+
+Response:
+
+```json
+{"type": "response", "id": "1", "success": true, "payload": {"trackIdx": 3}}
+```
+
+### `track/duplicate`
+
+Duplicate a track including FX chain, items, and routing. Master track (idx 0) cannot be duplicated. Returns the duplicated track's index.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index to duplicate (1+ for user tracks) |
+
+```json
+{"type": "command", "command": "track/duplicate", "trackIdx": 1, "id": "1"}
+```
+
+Response:
+
+```json
+{"type": "response", "id": "1", "success": true, "payload": {"trackIdx": 2}}
+```
+
+**Note:** Creates a single undo point "Duplicate track N".
+
+### `track/delete`
+
+Delete a track. Master track (idx 0) cannot be deleted.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index to delete (1+ for user tracks) |
+
+```json
+{"type": "command", "command": "track/delete", "trackIdx": 3}
+```
+
+**Note:** Deleting a folder track does not delete its children — they become orphaned/promoted to parent level.
+
+### `track/duplicateSelected`
+
+Duplicate all currently selected tracks. Uses REAPER's native action which handles full duplication including FX, items, envelopes, and routing.
+
+```json
+{"type": "command", "command": "track/duplicateSelected"}
+```
+
+**Note:** Duplicated tracks appear immediately after their source tracks.
+
+### `track/deleteSelected`
+
+Delete all currently selected tracks. Uses REAPER's native action with proper undo support.
+
+```json
+{"type": "command", "command": "track/deleteSelected"}
+```
+
+**Note:** Master track cannot be deleted even if selected.
+
 ---
 
 ## Master Commands
@@ -1419,6 +1505,7 @@ High-frequency event broadcast every ~30ms during playback, containing position-
         "recMon": 1,
         "fxEnabled": true,
         "selected": false,
+        "folderDepth": 0,
         "fx": [
           {
             "name": "ReaEQ",
@@ -1459,6 +1546,7 @@ High-frequency event broadcast every ~30ms during playback, containing position-
 | `tracks[].recMon` | int | Record monitoring (0=off, 1=on, 2=not when playing) |
 | `tracks[].fxEnabled` | bool | FX chain enabled |
 | `tracks[].selected` | bool | Track is selected |
+| `tracks[].folderDepth` | int | Folder hierarchy: 1=folder parent, 0=normal, -N=closes N folder levels |
 | `tracks[].fx` | array | FX chain (polled at 5Hz, empty if no FX) |
 | `tracks[].fx[].name` | string | Plugin name |
 | `tracks[].fx[].presetName` | string | Current preset name |

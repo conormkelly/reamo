@@ -314,6 +314,26 @@ pub const RealBackend = struct {
         return self.inner.setTrackSelected(track, selected);
     }
 
+    pub fn getSelectedTrackByIdx(self: *const RealBackend, sel_idx: c_int) ?*anyopaque {
+        return self.inner.getSelectedTrackByIdx(sel_idx);
+    }
+
+    pub fn setTrackName(self: *const RealBackend, track: *anyopaque, name: []const u8) bool {
+        return self.inner.setTrackName(track, name);
+    }
+
+    pub fn insertTrack(self: *const RealBackend, idx: c_int, want_defaults: bool) void {
+        self.inner.insertTrack(idx, want_defaults);
+    }
+
+    pub fn deleteTrackPtr(self: *const RealBackend, track: *anyopaque) void {
+        self.inner.deleteTrackPtr(track);
+    }
+
+    pub fn getTrackFolderDepth(self: *const RealBackend, track: *anyopaque) c_int {
+        return self.inner.getTrackFolderDepth(track);
+    }
+
     // CSurf methods for undo-coalesced changes
     pub fn csurfSetVolume(self: *const RealBackend, track: *anyopaque, vol: f64, allowGang: bool) f64 {
         return self.inner.csurfSetVolume(track, vol, allowGang);

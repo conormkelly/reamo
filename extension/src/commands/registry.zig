@@ -100,6 +100,12 @@ pub const all = .{
     .{ "track/setFxEnabled", tracks.handleSetFxEnabled },
     .{ "track/setSelected", tracks.handleSetSelected },
     .{ "track/unselectAll", tracks.handleDeselectAll },
+    .{ "track/rename", tracks.handleRename },
+    .{ "track/create", tracks.handleCreate },
+    .{ "track/duplicate", tracks.handleDuplicate },
+    .{ "track/duplicateSelected", tracks.handleDuplicateSelected },
+    .{ "track/delete", tracks.handleDelete },
+    .{ "track/deleteSelected", tracks.handleDeleteSelected },
     .{ "meter/clearClip", tracks.handleClearClip },
 
     // Tempo

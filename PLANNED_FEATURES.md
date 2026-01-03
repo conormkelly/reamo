@@ -381,6 +381,7 @@ Just: **"See what I recorded, tidy it up, make quick keep/trash decisions, move 
 ## Track Management
 
 > **Full specification:** [features/TRACK_MANAGEMENT_FEATURE.md](features/TRACK_MANAGEMENT_FEATURE.md)
+> **Backend plan:** [TRACK_MANAGEMENT_BACKEND_PLAN.md](TRACK_MANAGEMENT_BACKEND_PLAN.md)
 
 Extend track control beyond mixer operations to full track lifecycle management.
 
@@ -391,7 +392,21 @@ Extend track control beyond mixer operations to full track lifecycle management.
 - Delete tracks (with confirmation for non-empty)
 - Folder-aware display (indentation, collapse/expand)
 
-**Implementation:** Requires extension work for new commands. Frontend adds context menu and folder depth calculation for display.
+**Backend: DONE ✅**
+- [x] `track/rename` command (master track protected)
+- [x] `track/create` command with optional name and afterTrackIdx
+- [x] `track/duplicate` command (undo block + action 40062)
+- [x] `track/duplicateSelected` command (action 40062 on selection)
+- [x] `track/delete` command (master track protected)
+- [x] `track/deleteSelected` command (action 40005 on selection)
+- [x] `folderDepth` field in tracks event
+
+**Frontend: PENDING**
+- [ ] Track context menu (long-press trigger)
+- [ ] Rename modal or inline edit
+- [ ] New track button/FAB
+- [ ] Folder indentation in track list
+- [ ] Optional: folder collapse/expand toggle
 
 ---
 

@@ -184,6 +184,54 @@ pub const TracksMethods = struct {
         return true;
     }
 
+    pub fn getSelectedTrackByIdx(self: anytype, sel_idx: c_int) ?*anyopaque {
+        self.recordCall(.getSelectedTrackByIdx);
+        // Find the sel_idx'th selected track
+        var selected_count: c_int = 0;
+        for (0..state.MAX_TRACKS) |i| {
+            if (i > @as(usize, @intCast(self.track_count))) break;
+            if (self.tracks[i].selected) {
+                if (selected_count == sel_idx) {
+                    return state.encodeTrackPtr(@intCast(i));
+                }
+                selected_count += 1;
+            }
+        }
+        return null;
+    }
+
+    pub fn setTrackName(self: anytype, track: *anyopaque, name: []const u8) bool {
+        self.recordCall(.setTrackName);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        self.tracks[idx].setName(name);
+        return true;
+    }
+
+    pub fn insertTrack(self: anytype, idx: c_int, _: bool) void {
+        self.recordCall(.insertTrack);
+        // In mock, just bump track count if valid insertion point
+        if (idx >= 0 and idx <= self.track_count and self.track_count < state.MAX_TRACKS) {
+            self.track_count += 1;
+        }
+    }
+
+    pub fn deleteTrackPtr(self: anytype, track: *anyopaque) void {
+        self.recordCall(.deleteTrackPtr);
+        _ = track;
+        // In mock, just decrement track count
+        if (self.track_count > 0) {
+            self.track_count -= 1;
+        }
+    }
+
+    pub fn getTrackFolderDepth(self: anytype, track: *anyopaque) c_int {
+        self.recordCall(.getTrackFolderDepth);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 0;
+        return self.tracks[idx].folder_depth;
+    }
+
     // CSurf methods (mock just delegates to regular setters)
     pub fn csurfSetVolume(self: anytype, track: *anyopaque, vol: f64, _: bool) f64 {
         self.recordCall(.csurfSetVolume);

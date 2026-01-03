@@ -93,6 +93,7 @@ pub const Track = struct {
     rec_mon: ?c_int = 0,
     fx_enabled: bool = true,
     selected: bool = false,
+    folder_depth: c_int = 0, // 1=folder parent, 0=normal, -N=closes N folder levels
     // FX chain state (polled at 5Hz, merged into track events)
     fx: [MAX_FX_PER_TRACK]FxSlot = undefined,
     fx_count: usize = 0,
@@ -117,6 +118,7 @@ pub const Track = struct {
         if (self.rec_mon != other.rec_mon) return false;
         if (self.fx_enabled != other.fx_enabled) return false;
         if (self.selected != other.selected) return false;
+        if (self.folder_depth != other.folder_depth) return false;
         // Compare FX chain
         if (self.fx_count != other.fx_count) return false;
         for (0..self.fx_count) |i| {
@@ -191,6 +193,7 @@ pub const State = struct {
                 t.rec_mon = api.getTrackRecMon(track) catch null;
                 t.fx_enabled = api.getTrackFxEnabled(track);
                 t.selected = api.getTrackSelected(track);
+                t.folder_depth = api.getTrackFolderDepth(track);
             }
         }
         return state;
@@ -242,9 +245,10 @@ pub const State = struct {
                 writer.writeAll("null") catch return null;
             }
 
-            writer.print(",\"fxEnabled\":{s},\"selected\":{s}", .{
+            writer.print(",\"fxEnabled\":{s},\"selected\":{s},\"folderDepth\":{d}", .{
                 if (t.fx_enabled) "true" else "false",
                 if (t.selected) "true" else "false",
+                t.folder_depth,
             }) catch return null;
 
             // Serialize FX chain

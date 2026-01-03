@@ -79,9 +79,13 @@ pub const Api = struct {
     countTracks: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
     getTrack: ?*const fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque = null,
     getMasterTrack: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque = null,
+    getSelectedTrack: ?*const fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque = null,
     getTrackName: ?*const fn (?*anyopaque, [*]u8, c_int) callconv(.c) bool = null,
     getMediaTrackInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8) callconv(.c) f64 = null,
     setMediaTrackInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8, f64) callconv(.c) bool = null,
+    getSetMediaTrackInfo_String: ?*const fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool = null,
+    insertTrackAtIndex: ?*const fn (c_int, bool) callconv(.c) void = null,
+    deleteTrack: ?*const fn (?*anyopaque) callconv(.c) void = null,
 
     // Items
     countTrackMediaItems: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
@@ -228,9 +232,13 @@ pub const Api = struct {
             .countTracks = getFunc(info, "CountTracks", fn (?*anyopaque) callconv(.c) c_int),
             .getTrack = getFunc(info, "GetTrack", fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque),
             .getMasterTrack = getFunc(info, "GetMasterTrack", fn (?*anyopaque) callconv(.c) ?*anyopaque),
+            .getSelectedTrack = getFunc(info, "GetSelectedTrack", fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque),
             .getTrackName = getFunc(info, "GetTrackName", fn (?*anyopaque, [*]u8, c_int) callconv(.c) bool),
             .getMediaTrackInfo_Value = getFunc(info, "GetMediaTrackInfo_Value", fn (?*anyopaque, [*:0]const u8) callconv(.c) f64),
             .setMediaTrackInfo_Value = getFunc(info, "SetMediaTrackInfo_Value", fn (?*anyopaque, [*:0]const u8, f64) callconv(.c) bool),
+            .getSetMediaTrackInfo_String = getFunc(info, "GetSetMediaTrackInfo_String", fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool),
+            .insertTrackAtIndex = getFunc(info, "InsertTrackAtIndex", fn (c_int, bool) callconv(.c) void),
+            .deleteTrack = getFunc(info, "DeleteTrack", fn (?*anyopaque) callconv(.c) void),
             // Items
             .countTrackMediaItems = getFunc(info, "CountTrackMediaItems", fn (?*anyopaque) callconv(.c) c_int),
             .getTrackMediaItem = getFunc(info, "GetTrackMediaItem", fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque),
@@ -922,6 +930,44 @@ pub const Api = struct {
         return "";
     }
 
+    /// Get selected track by selection index (0 = first selected track)
+    pub fn getSelectedTrackByIdx(self: *const Api, sel_idx: c_int) ?*anyopaque {
+        const f = self.getSelectedTrack orelse return null;
+        return f(null, sel_idx);
+    }
+
+    /// Set track name using GetSetMediaTrackInfo_String with P_NAME
+    pub fn setTrackName(self: *const Api, track: *anyopaque, name: []const u8) bool {
+        const f = self.getSetMediaTrackInfo_String orelse return false;
+        var buf: [256]u8 = undefined;
+        const len = @min(name.len, buf.len - 1);
+        @memcpy(buf[0..len], name[0..len]);
+        buf[len] = 0;
+        return f(track, "P_NAME", &buf, true);
+    }
+
+    /// Insert a new track at the specified index
+    /// idx: position to insert at (0 = first track, trackCount() = append at end)
+    /// wantDefaults: true to apply default track settings from preferences
+    pub fn insertTrack(self: *const Api, idx: c_int, want_defaults: bool) void {
+        const f = self.insertTrackAtIndex orelse return;
+        f(idx, want_defaults);
+    }
+
+    /// Delete a track
+    pub fn deleteTrackPtr(self: *const Api, track: *anyopaque) void {
+        const f = self.deleteTrack orelse return;
+        f(track);
+    }
+
+    /// Get track folder depth (I_FOLDERDEPTH)
+    /// Returns: 1 = folder parent, 0 = normal, -N = closes N folder levels
+    pub fn getTrackFolderDepth(self: *const Api, track: *anyopaque) c_int {
+        const f = self.getMediaTrackInfo_Value orelse return 0;
+        const val = f(track, "I_FOLDERDEPTH");
+        return @intFromFloat(val);
+    }
+
     // Track control methods
     // Volume: 0..1..inf (0.5=-6dB, 1=0dB, 2=+6dB)
     pub fn getTrackVolume(self: *const Api, track: *anyopaque) f64 {
@@ -1605,4 +1651,9 @@ pub const Command = struct {
 
     // Tempo
     pub const TAP_TEMPO: c_int = 1134; // Tap tempo
+
+    // Tracks
+    pub const UNSELECT_ALL_TRACKS: c_int = 40297; // Track: Unselect all tracks
+    pub const DUPLICATE_TRACKS: c_int = 40062; // Track: Duplicate tracks
+    pub const DELETE_SELECTED_TRACKS: c_int = 40005; // Track: Remove tracks
 };
