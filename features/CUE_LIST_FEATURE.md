@@ -17,6 +17,7 @@ Record a verse and chorus once, then ask: "What would it sound like with 4 verse
 ### The Opportunity
 
 Reamo already has regions and markers on a timeline. A Cue List is just a different *presentation* — a vertical tappable list instead of horizontal timeline, optimized for:
+
 - Quick tap-to-jump navigation
 - Playlist mode with loop counts
 - Visibility from across the room
@@ -158,6 +159,7 @@ To extract: `region_index = region_id & 0x3FFFFFFF`
 5. User clicks "Import" → copy to Reamo's EXTSTATE format
 
 **Why read-only:**
+
 - No risk of corrupting SWS data
 - No conflicts with SWS undo integration
 - No memory vs disk sync issues
@@ -224,6 +226,7 @@ REAPER's `SetEditCurPos(..., true)` with `seekplay=true` provides near-gapless s
 ### Events (Server → Client)
 
 **Playlist state broadcast:**
+
 ```json
 {
   "type": "event",
@@ -245,6 +248,7 @@ REAPER's `SetEditCurPos(..., true)` with `seekplay=true` provides near-gapless s
 ```
 
 **SWS playlist detection:**
+
 ```json
 {
   "type": "event",
@@ -264,6 +268,7 @@ REAPER's `SetEditCurPos(..., true)` with `seekplay=true` provides near-gapless s
 ### Commands (Client → Server)
 
 **Playlist management:**
+
 ```json
 {"type": "command", "command": "playlist/create", "name": "New Setlist", "id": "1"}
 {"type": "command", "command": "playlist/delete", "playlistIdx": 0, "id": "2"}
@@ -271,6 +276,7 @@ REAPER's `SetEditCurPos(..., true)` with `seekplay=true` provides near-gapless s
 ```
 
 **Entry management:**
+
 ```json
 {"type": "command", "command": "playlist/addEntry", "playlistIdx": 0, "regionId": 3, "loopCount": 2, "id": "4"}
 {"type": "command", "command": "playlist/removeEntry", "playlistIdx": 0, "entryIdx": 1, "id": "5"}
@@ -279,6 +285,7 @@ REAPER's `SetEditCurPos(..., true)` with `seekplay=true` provides near-gapless s
 ```
 
 **Playback control:**
+
 ```json
 {"type": "command", "command": "playlist/play", "playlistIdx": 0, "id": "8"}
 {"type": "command", "command": "playlist/playFromEntry", "playlistIdx": 0, "entryIdx": 2, "id": "9"}
@@ -288,6 +295,7 @@ REAPER's `SetEditCurPos(..., true)` with `seekplay=true` provides near-gapless s
 ```
 
 **SWS import:**
+
 ```json
 {"type": "command", "command": "playlist/importSws", "swsPlaylistIdx": 0, "id": "13"}
 ```
@@ -345,6 +353,7 @@ function CueListView() {
 ### Edit Mode
 
 Toggle between:
+
 - **View mode:** Tap to jump, read-only display
 - **Edit mode:** Drag to reorder, tap loop count to change, swipe to delete
 
