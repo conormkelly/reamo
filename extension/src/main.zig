@@ -71,8 +71,11 @@ const FILE_CHECK_INTERVAL: u32 = 60; // Check every ~2 seconds (60 * 33ms)
 // MEDIUM TIER (5Hz): Markers, Regions, Items, Project - every 6th frame
 // LOW TIER (1Hz): Tempomap, Project Notes - every 30th frame
 var g_frame_counter: u32 = 0;
+var g_init_complete: bool = false; // Safety flag to prevent timer callback running before init
+var g_ws_started: bool = false; // Track if WebSocket server has been started
 const MEDIUM_TIER_INTERVAL: u32 = 6; // 30Hz / 6 = 5Hz
 const LOW_TIER_INTERVAL: u32 = 30; // 30Hz / 30 = 1Hz
+const WS_START_DELAY_FRAMES: u32 = 30; // Wait ~1 second before starting WebSocket server
 
 /// Broadcast an error event to all clients with rate limiting
 /// Only broadcasts if enough time has passed since the last broadcast of this error type
@@ -90,9 +93,25 @@ fn broadcastRateLimitedError(code: errors.ErrorCode, detail: ?[]const u8) void {
 }
 
 // Timer callback for deferred initialization
+// First call does initialization, then immediately switches to processing timer.
+// No warmup delays needed since pollInto() avoids large stack allocations.
 fn initTimerCallback() callconv(.c) void {
-    if (g_initialized) return;
-    g_initialized = true;
+    // First call: do initialization
+    if (!g_initialized) {
+        g_initialized = true;
+        doInitialization();
+        return;
+    }
+
+    // Initialization done - switch directly to processing timer
+    const api = &(g_api orelse return);
+    api.unregisterTimer(&initTimerCallback);
+    api.registerTimer(&processTimerCallback);
+    g_init_complete = true;
+    logging.info("Initialization complete, starting processing timer", .{});
+}
+
+fn doInitialization() void {
 
     const api = &(g_api orelse return);
     logging.info("Deferred initialization starting...", .{});
@@ -174,14 +193,10 @@ fn initTimerCallback() callconv(.c) void {
     api.setExtStateStr("Reamo", "SessionToken", &token_hex);
     logging.info("Session token generated", .{});
 
-    // Start WebSocket server
-    const result = ws_server.startWithPortRetry(g_allocator, state, DEFAULT_PORT, MAX_PORT_ATTEMPTS) catch {
-        logging.err("Could not bind to ports 9224-9233", .{});
-        return;
-    };
-
-    g_server = result.server;
-    g_port = result.port;
+    // WebSocket server will be started in processTimerCallback after startup completes
+    // This avoids stack overflow when REAPER shows modal dialogs during startup
+    g_server = null;
+    g_port = 0;
 
     // Store port in REAPER's extension state for discovery
     var port_buf: [8]u8 = undefined;
@@ -189,32 +204,126 @@ fn initTimerCallback() callconv(.c) void {
     api.setExtStateStr("Reamo", "WebSocketPort", port_str);
 
     // Initialize state caches using RealBackend
+    // Use pollInto to avoid large stack allocations during initialization
     var backend = reaper.RealBackend{ .inner = api };
-    g_last_transport = transport.State.poll(&backend);
-    g_last_project = project.State.poll(&backend);
-    g_last_markers = markers.State.poll(&backend);
-    g_last_items = items.State.poll(&backend);
-    g_last_tracks = tracks.State.poll(&backend);
-    g_last_tempomap = tempomap.State.poll(&backend);
+    g_last_transport = transport.State.poll(&backend); // Small, OK on stack
+    g_last_project = project.State.poll(&backend); // Small, OK on stack
+    g_last_markers.pollInto(&backend); // ~95KB - use pollInto
+    g_last_items.pollInto(&backend); // ~600KB - use pollInto
+    g_last_tracks.pollInto(&backend); // ~2.5MB - use pollInto
+    g_last_tempomap = tempomap.State.poll(&backend); // Small, OK on stack
 
     // Load playlist state from ProjExtState
     g_playlist_state.loadAll(&backend);
     g_last_playlist = g_playlist_state;
     logging.info("Loaded {d} playlists from project", .{g_playlist_state.playlist_count});
-
-    logging.info("WebSocket server started on port {d}", .{g_port});
-
-    // Switch to processing timer
-    api.unregisterTimer(&initTimerCallback);
-    api.registerTimer(&processTimerCallback);
-
-    logging.info("initTimerCallback() complete", .{});
+    logging.info("Initialization complete, waiting for warmup", .{});
 }
 
-// Main processing timer - runs every ~30ms
+// Static buffers to reduce stack usage in processTimerCallback
+// These are large and would overflow the stack when called from deep event loops
+const StaticBuffers = struct {
+    var snapshot_transport: [512]u8 = undefined;
+    var snapshot_project: [512]u8 = undefined;
+    var snapshot_markers: [8192]u8 = undefined;
+    var snapshot_regions: [8192]u8 = undefined;
+    var snapshot_tracks: [16384]u8 = undefined;
+    var snapshot_items: [32768]u8 = undefined;
+    var snapshot_tempo: [4096]u8 = undefined;
+    var snapshot_playlist: [8192]u8 = undefined;
+    var transport_buf: [512]u8 = undefined;
+    var transport_tick: [128]u8 = undefined;
+    var tracks_buf: [16384]u8 = undefined;
+    var toggles: [2048]u8 = undefined;
+    var playlist_buf: [8192]u8 = undefined;
+    var project_buf: [1024]u8 = undefined;
+    var markers_buf: [8192]u8 = undefined;
+    var regions_buf: [8192]u8 = undefined;
+    var items_buf: [32768]u8 = undefined;
+    var tempomap_buf: [4096]u8 = undefined;
+    var notes: [256]u8 = undefined;
+};
+
+// Compile-time size assertions to catch regressions
+// These structs are stored in static memory to avoid stack overflow
+// If any exceed the threshold, consider redesigning with smaller inline arrays
+comptime {
+    const MAX_STATE_SIZE = 4 * 1024 * 1024; // 4MB threshold warning
+    if (@sizeOf(tracks.State) > MAX_STATE_SIZE) {
+        @compileError("tracks.State exceeds 4MB - consider reducing MAX_TRACKS or MAX_FX_PER_TRACK");
+    }
+    if (@sizeOf(markers.State) > MAX_STATE_SIZE) {
+        @compileError("markers.State exceeds 4MB - consider reducing MAX_MARKERS or MAX_REGIONS");
+    }
+    if (@sizeOf(items.State) > MAX_STATE_SIZE) {
+        @compileError("items.State exceeds 4MB - consider reducing MAX_ITEMS");
+    }
+}
+
+// Static state storage for doProcessing() to avoid large stack allocations
+// Zig allocates ALL local variables at function entry, so we move large State
+// structs to static memory to prevent stack overflow in deep REAPER startup stacks
+const ProcessingState = struct {
+    // Snapshot states (used when sending initial state to new clients)
+    var snap_transport: transport.State = .{};
+    var snap_project: project.State = .{};
+    var snap_markers: markers.State = .{};
+    var snap_tracks: tracks.State = .{};
+    var snap_items: items.State = .{};
+    var snap_tempomap: tempomap.State = .{};
+
+    // Current poll states (used for change detection)
+    var cur_transport: transport.State = .{};
+    var cur_project: project.State = .{};
+    var cur_markers: markers.State = .{};
+    var cur_tracks: tracks.State = .{};
+    var cur_items: items.State = .{};
+    var cur_tempomap: tempomap.State = .{};
+    var cur_metering: tracks.MeteringState = .{};
+
+    // Small arrays that still add up
+    var disconnected_buf: [16]usize = undefined;
+    var flush_buf: [16]gesture_state.ControlId = undefined;
+    var timeout_buf: [16]gesture_state.ControlId = undefined;
+    var snapshot_clients: [16]usize = undefined;
+};
+
+// Main processing timer - calls doProcessing() directly.
+// No warmup delays needed since pollInto() avoids large stack allocations.
 fn processTimerCallback() callconv(.c) void {
+    doProcessing();
+}
+
+// The actual processing logic
+// IMPORTANT: This function uses ProcessingState and pollInto() to avoid stack overflow
+fn doProcessing() void {
+    // Safety check - don't run until init is complete
+    if (!g_init_complete) {
+        return;
+    }
+
     const api = &(g_api orelse return);
     const shared_state = g_shared_state orelse return;
+
+    // Deferred WebSocket server startup - wait a moment for REAPER UI to settle
+    if (!g_ws_started and g_frame_counter >= WS_START_DELAY_FRAMES) {
+        g_ws_started = true;
+        logging.info("Starting WebSocket server (deferred)...", .{});
+
+        const result = ws_server.startWithPortRetry(g_allocator, shared_state, DEFAULT_PORT, MAX_PORT_ATTEMPTS) catch {
+            logging.err("Could not bind to ports 9224-9233", .{});
+            return;
+        };
+        g_server = result.server;
+        g_port = result.port;
+
+        // Update port in REAPER's extension state
+        var port_buf: [8]u8 = undefined;
+        const port_str = std.fmt.bufPrint(&port_buf, "{d}", .{g_port}) catch "9224";
+        api.setExtStateStr("Reamo", "WebSocketPort", port_str);
+
+        logging.info("WebSocket server started on port {d}", .{g_port});
+    }
 
     // Create backend for state polling
     var backend = reaper.RealBackend{ .inner = api };
@@ -227,14 +336,13 @@ fn processTimerCallback() callconv(.c) void {
     }
 
     // Clean up gestures and toggle subscriptions for disconnected clients
-    var disconnected_buf: [16]usize = undefined;
-    const disconnected_count = shared_state.popDisconnectedClients(&disconnected_buf);
+    // Using ProcessingState.disconnected_buf to avoid stack allocation
+    const disconnected_count = shared_state.popDisconnectedClients(&ProcessingState.disconnected_buf);
     if (disconnected_count > 0) {
-        for (disconnected_buf[0..disconnected_count]) |client_id| {
+        for (ProcessingState.disconnected_buf[0..disconnected_count]) |client_id| {
             // Clean up gestures
             if (g_gesture_state) |gestures| {
-                var flush_buf: [16]gesture_state.ControlId = undefined;
-                const flush_count = gestures.removeClientFromAll(client_id, &flush_buf);
+                const flush_count = gestures.removeClientFromAll(client_id, &ProcessingState.flush_buf);
                 if (flush_count > 0) {
                     logging.info("Client {d} disconnected, flushing {d} gestures", .{ client_id, flush_count });
                     api.csurfFlushUndo(true);
@@ -253,8 +361,7 @@ fn processTimerCallback() callconv(.c) void {
 
     // Check for gesture timeouts (safety net for missed gesture/end commands)
     if (g_gesture_state) |gestures| {
-        var timeout_buf: [16]gesture_state.ControlId = undefined;
-        const timeout_count = gestures.checkTimeouts(&timeout_buf);
+        const timeout_count = gestures.checkTimeouts(&ProcessingState.timeout_buf);
         if (timeout_count > 0) {
             logging.info("Flushing {d} timed-out gestures", .{timeout_count});
             api.csurfFlushUndo(true);
@@ -262,57 +369,49 @@ fn processTimerCallback() callconv(.c) void {
     }
 
     // Send initial state snapshot to newly connected clients
-    var snapshot_clients: [16]usize = undefined;
-    const snapshot_count = shared_state.popClientsNeedingSnapshot(&snapshot_clients);
+    // Using ProcessingState for all state structs to avoid stack overflow
+    const snapshot_count = shared_state.popClientsNeedingSnapshot(&ProcessingState.snapshot_clients);
     if (snapshot_count > 0) {
-        // Get current state for all domains
-        const trans = transport.State.poll(&backend);
-        const proj = project.State.poll(&backend);
-        const mark = markers.State.poll(&backend);
-        const trks = tracks.State.poll(&backend);
-        const tmap = tempomap.State.poll(&backend);
+        // Get current state for all domains - use pollInto for large structs
+        ProcessingState.snap_transport = transport.State.poll(&backend); // Small
+        ProcessingState.snap_project = project.State.poll(&backend); // Small
+        ProcessingState.snap_markers.pollInto(&backend); // ~95KB
+        ProcessingState.snap_tracks.pollInto(&backend); // ~2.5MB
+        ProcessingState.snap_tempomap = tempomap.State.poll(&backend); // Small
+        ProcessingState.snap_items.pollInto(&backend); // ~600KB
 
         // Send to each new client
-        for (snapshot_clients[0..snapshot_count]) |client_id| {
+        for (ProcessingState.snapshot_clients[0..snapshot_count]) |client_id| {
             // Transport
-            var buf1: [512]u8 = undefined;
-            if (trans.toJson(&buf1)) |json| {
+            if (ProcessingState.snap_transport.toJson(&StaticBuffers.snapshot_transport)) |json| {
                 shared_state.sendToClient(client_id, json);
             }
             // Project (undo/redo state)
-            var buf_proj: [512]u8 = undefined;
-            if (proj.toJson(&buf_proj)) |json| {
+            if (ProcessingState.snap_project.toJson(&StaticBuffers.snapshot_project)) |json| {
                 shared_state.sendToClient(client_id, json);
             }
             // Markers
-            var buf2: [8192]u8 = undefined;
-            if (mark.markersToJson(&buf2)) |json| {
+            if (ProcessingState.snap_markers.markersToJson(&StaticBuffers.snapshot_markers)) |json| {
                 shared_state.sendToClient(client_id, json);
             }
             // Regions
-            var buf3: [8192]u8 = undefined;
-            if (mark.regionsToJson(&buf3)) |json| {
+            if (ProcessingState.snap_markers.regionsToJson(&StaticBuffers.snapshot_regions)) |json| {
                 shared_state.sendToClient(client_id, json);
             }
             // Tracks (without metering for initial snapshot)
-            var buf4: [16384]u8 = undefined;
-            if (trks.toJson(&buf4, null)) |json| {
+            if (ProcessingState.snap_tracks.toJson(&StaticBuffers.snapshot_tracks, null)) |json| {
                 shared_state.sendToClient(client_id, json);
             }
             // Items
-            var buf5: [32768]u8 = undefined;
-            const itms = items.State.poll(&backend);
-            if (itms.itemsToJson(&buf5)) |json| {
+            if (ProcessingState.snap_items.itemsToJson(&StaticBuffers.snapshot_items)) |json| {
                 shared_state.sendToClient(client_id, json);
             }
             // Tempo map
-            var buf6: [4096]u8 = undefined;
-            if (tmap.toJson(&buf6)) |json| {
+            if (ProcessingState.snap_tempomap.toJson(&StaticBuffers.snapshot_tempo)) |json| {
                 shared_state.sendToClient(client_id, json);
             }
             // Playlist (cue list)
-            var buf7: [8192]u8 = undefined;
-            if (g_playlist_state.toJson(&buf7, g_last_markers.regions[0..g_last_markers.region_count])) |json| {
+            if (g_playlist_state.toJson(&StaticBuffers.snapshot_playlist, g_last_markers.regions[0..g_last_markers.region_count])) |json| {
                 shared_state.sendToClient(client_id, json);
             }
         }
@@ -328,61 +427,60 @@ fn processTimerCallback() callconv(.c) void {
 
     // Poll transport state and broadcast changes
     // Use lightweight tick when only position changed during playback
-    const current_transport = transport.State.poll(&backend);
+    ProcessingState.cur_transport = transport.State.poll(&backend);
+    const current_transport = &ProcessingState.cur_transport;
+
     if (!current_transport.eql(g_last_transport)) {
         const state_changed = !current_transport.stateOnlyEql(g_last_transport);
         const is_playing = transport.PlayState.isPlaying(current_transport.play_state);
 
         if (state_changed) {
             // State changed (play/pause, BPM, time sig, etc.) - send full transport
-            var buf: [512]u8 = undefined;
-            if (current_transport.toJson(&buf)) |json| {
+            if (current_transport.toJson(&StaticBuffers.transport_buf)) |json| {
                 shared_state.broadcast(json);
             }
         } else if (is_playing) {
             // Only position changed during playback - send lightweight tick
-            var buf: [128]u8 = undefined;
-            if (current_transport.toTickJson(&buf)) |json| {
+            if (current_transport.toTickJson(&StaticBuffers.transport_tick)) |json| {
                 shared_state.broadcast(json);
             }
         } else {
             // Stopped and only position changed (cursor moved) - send full transport
             // This is infrequent so full context is fine
-            var buf: [512]u8 = undefined;
-            if (current_transport.toJson(&buf)) |json| {
+            if (current_transport.toJson(&StaticBuffers.transport_buf)) |json| {
                 shared_state.broadcast(json);
             }
         }
-        g_last_transport = current_transport;
+        g_last_transport = current_transport.*;
     }
 
     // Poll tracks and metering, broadcast changes (HIGH TIER - needs smooth fader/meter updates)
-    var current_tracks = tracks.State.poll(&backend);
+    // Use pollInto to avoid ~2.5MB stack allocation
+    ProcessingState.cur_tracks.pollInto(&backend);
 
     // Preserve FX and Send data which is polled at MEDIUM_TIER rate (5Hz), not every frame
     // FX/Send data is updated in g_last_tracks by MEDIUM_TIER polling, so copy it forward
-    for (0..@min(current_tracks.count, g_last_tracks.count)) |i| {
-        current_tracks.tracks[i].fx = g_last_tracks.tracks[i].fx;
-        current_tracks.tracks[i].fx_count = g_last_tracks.tracks[i].fx_count;
-        current_tracks.tracks[i].sends = g_last_tracks.tracks[i].sends;
-        current_tracks.tracks[i].send_count = g_last_tracks.tracks[i].send_count;
+    for (0..@min(ProcessingState.cur_tracks.count, g_last_tracks.count)) |i| {
+        ProcessingState.cur_tracks.tracks[i].fx = g_last_tracks.tracks[i].fx;
+        ProcessingState.cur_tracks.tracks[i].fx_count = g_last_tracks.tracks[i].fx_count;
+        ProcessingState.cur_tracks.tracks[i].sends = g_last_tracks.tracks[i].sends;
+        ProcessingState.cur_tracks.tracks[i].send_count = g_last_tracks.tracks[i].send_count;
     }
-    const current_metering = tracks.MeteringState.poll(api);
+    ProcessingState.cur_metering.pollInto(api);
 
     // Broadcast if tracks changed OR if we have active metering
     // (metering values change constantly so we always send when metering is active)
-    const tracks_changed = !current_tracks.eql(&g_last_tracks);
-    const has_metering = current_metering.hasData();
+    const tracks_changed = !ProcessingState.cur_tracks.eql(&g_last_tracks);
+    const has_metering = ProcessingState.cur_metering.hasData();
 
     if (tracks_changed or has_metering) {
-        var buf: [16384]u8 = undefined; // Large buffer for many tracks
-        const metering_ptr: ?*const tracks.MeteringState = if (has_metering) &current_metering else null;
-        if (current_tracks.toJson(&buf, metering_ptr)) |json| {
+        const metering_ptr: ?*const tracks.MeteringState = if (has_metering) &ProcessingState.cur_metering else null;
+        if (ProcessingState.cur_tracks.toJson(&StaticBuffers.tracks_buf, metering_ptr)) |json| {
             shared_state.broadcast(json);
         }
     }
-    g_last_tracks = current_tracks;
-    g_last_metering = current_metering;
+    g_last_tracks = ProcessingState.cur_tracks;
+    g_last_metering = ProcessingState.cur_metering;
 
     // Poll toggle state subscriptions and broadcast changes (HIGH TIER - but only when subscribed)
     if (g_toggle_subs) |toggles| {
@@ -391,8 +489,7 @@ fn processTimerCallback() callconv(.c) void {
             defer changes.deinit();
 
             if (changes.count() > 0) {
-                var buf: [2048]u8 = undefined;
-                if (toggle_subscriptions.ToggleSubscriptions.changesToJson(&changes, &buf)) |json| {
+                if (toggle_subscriptions.ToggleSubscriptions.changesToJson(&changes, &StaticBuffers.toggles)) |json| {
                     shared_state.broadcast(json);
                 }
             }
@@ -418,8 +515,7 @@ fn processTimerCallback() callconv(.c) void {
                 logging.debug("Paused playlist engine - transport paused externally", .{});
             }
             // Broadcast state change
-            var buf: [8192]u8 = undefined;
-            if (g_playlist_state.toJson(&buf, g_last_markers.regions[0..g_last_markers.region_count])) |json| {
+            if (g_playlist_state.toJson(&StaticBuffers.playlist_buf, g_last_markers.regions[0..g_last_markers.region_count])) |json| {
                 shared_state.broadcast(json);
             }
         }
@@ -543,8 +639,7 @@ fn processTimerCallback() callconv(.c) void {
                         },
                         .broadcast_state => {
                             // Immediate broadcast needed
-                            var buf: [8192]u8 = undefined;
-                            if (g_playlist_state.toJson(&buf, g_last_markers.regions[0..g_last_markers.region_count])) |json| {
+                            if (g_playlist_state.toJson(&StaticBuffers.playlist_buf, g_last_markers.regions[0..g_last_markers.region_count])) |json| {
                                 shared_state.broadcast(json);
                             }
                         },
@@ -595,8 +690,7 @@ fn processTimerCallback() callconv(.c) void {
                     }
 
                     // Broadcast state change
-                    var buf: [8192]u8 = undefined;
-                    if (g_playlist_state.toJson(&buf, g_last_markers.regions[0..g_last_markers.region_count])) |json| {
+                    if (g_playlist_state.toJson(&StaticBuffers.playlist_buf, g_last_markers.regions[0..g_last_markers.region_count])) |json| {
                         shared_state.broadcast(json);
                     }
                 }
@@ -607,15 +701,16 @@ fn processTimerCallback() callconv(.c) void {
     // ========================================================================
     // MEDIUM TIER (5Hz) - Project state, Markers, Regions, Items
     // These change less frequently and don't need instant feedback
+    // All State structs stored in ProcessingState to avoid stack overflow
     // ========================================================================
     if (g_frame_counter % MEDIUM_TIER_INTERVAL == 0) {
         // Poll project state (undo/redo) and broadcast changes
-        const current_project = project.State.poll(&backend);
+        ProcessingState.cur_project = project.State.poll(&backend);
 
         // Check for project identity change (tab switch or different file in same tab)
-        if (current_project.projectChanged(&g_last_project)) {
+        if (ProcessingState.cur_project.projectChanged(&g_last_project)) {
             logging.info("Project changed: {s}", .{
-                if (current_project.projectName().len > 0) current_project.projectName() else "(Unsaved)",
+                if (ProcessingState.cur_project.projectName().len > 0) ProcessingState.cur_project.projectName() else "(Unsaved)",
             });
 
             // Stop playlist engine if playing
@@ -632,52 +727,46 @@ fn processTimerCallback() callconv(.c) void {
 
             // Broadcast updated playlist state
             // Note: g_last_markers still has old project data, pass null - next tick will have accurate regions
-            var buf2: [8192]u8 = undefined;
-            if (g_playlist_state.toJson(&buf2, null)) |json| {
+            if (g_playlist_state.toJson(&StaticBuffers.playlist_buf, null)) |json| {
                 shared_state.broadcast(json);
             }
             g_last_playlist = g_playlist_state;
         }
 
-        if (!current_project.eql(&g_last_project)) {
-            var buf: [1024]u8 = undefined;
-            if (current_project.toJson(&buf)) |json| {
+        if (!ProcessingState.cur_project.eql(&g_last_project)) {
+            if (ProcessingState.cur_project.toJson(&StaticBuffers.project_buf)) |json| {
                 shared_state.broadcast(json);
             }
-            g_last_project = current_project;
+            g_last_project = ProcessingState.cur_project;
         }
 
-        // Poll markers/regions and broadcast changes
-        const current_markers = markers.State.poll(&backend);
-        if (current_markers.markersChanged(&g_last_markers)) {
-            var buf: [8192]u8 = undefined;
-            if (current_markers.markersToJson(&buf)) |json| {
+        // Poll markers/regions and broadcast changes - use pollInto for ~95KB struct
+        ProcessingState.cur_markers.pollInto(&backend);
+        if (ProcessingState.cur_markers.markersChanged(&g_last_markers)) {
+            if (ProcessingState.cur_markers.markersToJson(&StaticBuffers.markers_buf)) |json| {
                 shared_state.broadcast(json);
             }
         }
-        if (current_markers.regionsChanged(&g_last_markers)) {
-            var buf: [8192]u8 = undefined;
-            if (current_markers.regionsToJson(&buf)) |json| {
+        if (ProcessingState.cur_markers.regionsChanged(&g_last_markers)) {
+            if (ProcessingState.cur_markers.regionsToJson(&StaticBuffers.regions_buf)) |json| {
                 shared_state.broadcast(json);
             }
         }
-        g_last_markers = current_markers;
+        g_last_markers = ProcessingState.cur_markers;
 
-        // Poll items and broadcast changes
-        const current_items = items.State.poll(&backend);
-        if (current_items.itemsChanged(&g_last_items)) {
-            var buf: [32768]u8 = undefined;
-            if (current_items.itemsToJson(&buf)) |json| {
+        // Poll items and broadcast changes - use pollInto for ~600KB struct
+        ProcessingState.cur_items.pollInto(&backend);
+        if (ProcessingState.cur_items.itemsChanged(&g_last_items)) {
+            if (ProcessingState.cur_items.itemsToJson(&StaticBuffers.items_buf)) |json| {
                 shared_state.broadcast(json);
             }
         }
-        g_last_items = current_items;
+        g_last_items = ProcessingState.cur_items;
 
         // Playlist state change detection
         // (Playlist state is modified by commands, not polled from REAPER)
         if (!g_playlist_state.eql(&g_last_playlist)) {
-            var buf: [8192]u8 = undefined;
-            if (g_playlist_state.toJson(&buf, g_last_markers.regions[0..g_last_markers.region_count])) |json| {
+            if (g_playlist_state.toJson(&StaticBuffers.playlist_buf, g_last_markers.regions[0..g_last_markers.region_count])) |json| {
                 shared_state.broadcast(json);
             }
             g_last_playlist = g_playlist_state;
@@ -749,22 +838,20 @@ fn processTimerCallback() callconv(.c) void {
     // These rarely change during normal operation
     // ========================================================================
     if (g_frame_counter % LOW_TIER_INTERVAL == 0) {
-        // Poll tempo map and broadcast changes
-        const current_tempomap = tempomap.State.poll(&backend);
-        if (current_tempomap.changed(&g_last_tempomap)) {
-            var buf: [4096]u8 = undefined;
-            if (current_tempomap.toJson(&buf)) |json| {
+        // Poll tempo map and broadcast changes (stored in ProcessingState)
+        ProcessingState.cur_tempomap = tempomap.State.poll(&backend);
+        if (ProcessingState.cur_tempomap.changed(&g_last_tempomap)) {
+            if (ProcessingState.cur_tempomap.toJson(&StaticBuffers.tempomap_buf)) |json| {
                 shared_state.broadcast(json);
             }
         }
-        g_last_tempomap = current_tempomap;
+        g_last_tempomap = ProcessingState.cur_tempomap;
 
         // Poll project notes and broadcast changes (only if subscribers)
         if (g_notes_subs) |notes_subs| {
             if (notes_subs.poll(api)) |change| {
                 // Notes changed externally - broadcast to all subscribers
-                var buf: [256]u8 = undefined;
-                if (commands.project_notes_cmds.formatChangedEvent(change.hash, &buf)) |json| {
+                if (commands.project_notes_cmds.formatChangedEvent(change.hash, &StaticBuffers.notes)) |json| {
                     shared_state.broadcast(json);
                 }
             }

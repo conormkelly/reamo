@@ -68,17 +68,19 @@ pub const State = struct {
     region_count: usize = 0,
     bar_offset: c_int = 0, // For bar string formatting
 
-    /// Poll current state from REAPER.
+    /// Poll current state from REAPER into an existing State struct.
     /// Accepts any backend type (RealBackend, MockBackend, or test doubles).
-    pub fn poll(api: anytype) State {
-        var state = State{};
-        state.bar_offset = api.getBarOffset();
+    /// NOTE: Uses output pointer to avoid ~95KB stack allocation.
+    pub fn pollInto(self: *State, api: anytype) void {
+        self.marker_count = 0; // Reset
+        self.region_count = 0;
+        self.bar_offset = api.getBarOffset();
 
         var idx: c_int = 0;
         while (api.enumMarker(idx)) |info| : (idx += 1) {
             if (info.is_region) {
-                if (state.region_count < MAX_REGIONS) {
-                    var region = &state.regions[state.region_count];
+                if (self.region_count < MAX_REGIONS) {
+                    var region = &self.regions[self.region_count];
                     region.id = info.id;
                     region.start = info.pos;
                     region.end = info.end;
@@ -104,11 +106,11 @@ pub const State = struct {
                     @memcpy(region.name[0..copy_len], info.name[0..copy_len]);
                     region.name_len = copy_len;
 
-                    state.region_count += 1;
+                    self.region_count += 1;
                 }
             } else {
-                if (state.marker_count < MAX_MARKERS) {
-                    var marker = &state.markers[state.marker_count];
+                if (self.marker_count < MAX_MARKERS) {
+                    var marker = &self.markers[self.marker_count];
                     marker.id = info.id;
                     marker.position = info.pos;
                     marker.color = info.color;
@@ -123,11 +125,17 @@ pub const State = struct {
                     @memcpy(marker.name[0..copy_len], info.name[0..copy_len]);
                     marker.name_len = copy_len;
 
-                    state.marker_count += 1;
+                    self.marker_count += 1;
                 }
             }
         }
+    }
 
+    /// Convenience wrapper that returns State (for tests).
+    /// WARNING: Allocates ~95KB on stack - do NOT use in timer callbacks!
+    pub fn poll(api: anytype) State {
+        var state = State{};
+        state.pollInto(api);
         return state;
     }
 

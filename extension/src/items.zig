@@ -96,11 +96,12 @@ pub const State = struct {
     items: [MAX_ITEMS]Item = undefined,
     item_count: usize = 0,
 
-    /// Poll current state from REAPER.
+    /// Poll current state from REAPER into an existing State struct.
     /// Accepts any backend type (RealBackend, MockBackend, or test doubles).
     /// Returns ALL items in the project (frontend filters by time selection as needed)
-    pub fn poll(api: anytype) State {
-        var state = State{};
+    /// NOTE: Uses output pointer to avoid ~600KB stack allocation.
+    pub fn pollInto(self: *State, api: anytype) void {
+        self.item_count = 0; // Reset
 
         // Enumerate all tracks
         const track_count = api.trackCount();
@@ -112,11 +113,11 @@ pub const State = struct {
             const item_count = api.trackItemCount(track);
             var item_idx: c_int = 0;
             while (item_idx < item_count) : (item_idx += 1) {
-                if (state.item_count >= MAX_ITEMS) break;
+                if (self.item_count >= MAX_ITEMS) break;
 
                 const item_ptr = api.getItemByIdx(track, item_idx) orelse continue;
 
-                var item = &state.items[state.item_count];
+                var item = &self.items[self.item_count];
 
                 // Get item GUID
                 var guid_buf: [64]u8 = undefined;
@@ -168,12 +169,18 @@ pub const State = struct {
                     take.is_midi = api.isTakeMIDI(take_ptr);
                 }
 
-                state.item_count += 1;
+                self.item_count += 1;
             }
 
-            if (state.item_count >= MAX_ITEMS) break;
+            if (self.item_count >= MAX_ITEMS) break;
         }
+    }
 
+    /// Convenience wrapper that returns State (for tests).
+    /// WARNING: Allocates ~600KB on stack - do NOT use in timer callbacks!
+    pub fn poll(api: anytype) State {
+        var state = State{};
+        state.pollInto(api);
         return state;
     }
 

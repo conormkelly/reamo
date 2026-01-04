@@ -151,20 +151,21 @@ pub const State = struct {
         return true;
     }
 
-    /// Poll current state from REAPER.
+    /// Poll current state from REAPER into an existing State struct.
     /// Accepts any backend type (RealBackend, MockBackend, or test doubles).
     /// Uses unified indexing: idx 0 = master, idx 1+ = user tracks
-    pub fn poll(api: anytype) State {
-        var state = State{};
+    /// NOTE: Uses output pointer to avoid 2.5MB stack allocation.
+    pub fn pollInto(self: *State, api: anytype) void {
+        self.count = 0; // Reset
         const user_track_count: usize = @intCast(@max(0, api.trackCount()));
         // Total count = master (1) + user tracks
-        state.count = @min(user_track_count + 1, MAX_TRACKS);
+        self.count = @min(user_track_count + 1, MAX_TRACKS);
 
-        for (0..state.count) |i| {
+        for (0..self.count) |i| {
             const idx: c_int = @intCast(i);
             // Use unified indexing: 0 = master, 1+ = user tracks
             if (api.getTrackByUnifiedIdx(idx)) |track| {
-                var t = &state.tracks[i];
+                var t = &self.tracks[i];
                 t.idx = idx;
 
                 // Get track name (master track returns "MASTER" from REAPER)
@@ -194,8 +195,18 @@ pub const State = struct {
                 t.fx_enabled = api.getTrackFxEnabled(track);
                 t.selected = api.getTrackSelected(track);
                 t.folder_depth = api.getTrackFolderDepth(track);
+                // Reset FX and send counts (will be populated by FX polling in main.zig)
+                t.fx_count = 0;
+                t.send_count = 0;
             }
         }
+    }
+
+    /// Convenience wrapper that returns State (for tests and simple cases).
+    /// WARNING: Allocates ~2.5MB on stack - do NOT use in timer callbacks!
+    pub fn poll(api: anytype) State {
+        var state = State{};
+        state.pollInto(api);
         return state;
     }
 
@@ -325,12 +336,11 @@ pub const MeteringState = struct {
     meters: [MAX_METERED_TRACKS]TrackMeter = undefined,
     count: usize = 0,
 
-    /// Poll post-fader output meters for all tracks
+    /// Poll post-fader output meters into an existing MeteringState struct.
     /// Uses unified indexing: 0 = master, 1+ = user tracks
-    /// NOTE: Runs at ~30ms with track state. May separate to
-    /// higher frequency (10-15ms) if UI smoothness requires it.
-    pub fn poll(api: anytype) MeteringState {
-        var state = MeteringState{};
+    /// NOTE: Uses output pointer to avoid stack allocation in timer callbacks.
+    pub fn pollInto(self: *MeteringState, api: anytype) void {
+        self.count = 0; // Reset
         const user_track_count: usize = @intCast(@max(0, api.trackCount()));
         // Total count = master (1) + user tracks
         const total_count = @min(user_track_count + 1, MAX_METERED_TRACKS);
@@ -349,14 +359,21 @@ pub const MeteringState = struct {
             const hold_r = api.getTrackPeakHoldDB(track, 1, false);
             const clipped = hold_l > 0.0 or hold_r > 0.0;
 
-            state.meters[state.count] = .{
+            self.meters[self.count] = .{
                 .track_idx = idx,
                 .peak_l = peak_l,
                 .peak_r = peak_r,
                 .clipped = clipped,
             };
-            state.count += 1;
+            self.count += 1;
         }
+    }
+
+    /// Convenience wrapper that returns MeteringState (for tests).
+    /// WARNING: Allocates on stack - do NOT use in timer callbacks!
+    pub fn poll(api: anytype) MeteringState {
+        var state = MeteringState{};
+        state.pollInto(api);
         return state;
     }
 
