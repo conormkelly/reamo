@@ -493,3 +493,83 @@ export const projectNotes = {
     params: { notes },
   }),
 };
+
+// =============================================================================
+// Playlist Commands
+// =============================================================================
+
+export const playlist = {
+  /** Create a new playlist. Returns { playlistIdx } */
+  create: (name: string): WSCommand => ({
+    command: 'playlist/create',
+    params: { name },
+  }),
+  /** Delete a playlist. Stops playback if the deleted playlist is active. */
+  delete: (playlistIdx: number): WSCommand => ({
+    command: 'playlist/delete',
+    params: { playlistIdx },
+  }),
+  /** Rename a playlist. */
+  rename: (playlistIdx: number, name: string): WSCommand => ({
+    command: 'playlist/rename',
+    params: { playlistIdx, name },
+  }),
+  /** Add a region to a playlist. Returns { entryIdx } */
+  addEntry: (
+    playlistIdx: number,
+    regionId: number,
+    loopCount: number,
+    atIdx?: number
+  ): WSCommand => ({
+    command: 'playlist/addEntry',
+    params: { playlistIdx, regionId, loopCount, ...(atIdx !== undefined && { atIdx }) },
+  }),
+  /** Remove an entry from a playlist. */
+  removeEntry: (playlistIdx: number, entryIdx: number): WSCommand => ({
+    command: 'playlist/removeEntry',
+    params: { playlistIdx, entryIdx },
+  }),
+  /** Change an entry's loop count. -1=infinite, 0=skip, 1+=times to play */
+  setLoopCount: (
+    playlistIdx: number,
+    entryIdx: number,
+    loopCount: number
+  ): WSCommand => ({
+    command: 'playlist/setLoopCount',
+    params: { playlistIdx, entryIdx, loopCount },
+  }),
+  /** Move an entry to a new position within the playlist. */
+  reorderEntry: (
+    playlistIdx: number,
+    fromIdx: number,
+    toIdx: number
+  ): WSCommand => ({
+    command: 'playlist/reorderEntry',
+    params: { playlistIdx, fromIdx, toIdx },
+  }),
+  /** Start playlist playback from entry 0, or resume if paused. */
+  play: (playlistIdx: number): WSCommand => ({
+    command: 'playlist/play',
+    params: { playlistIdx },
+  }),
+  /** Start playlist playback from a specific entry. */
+  playFromEntry: (playlistIdx: number, entryIdx: number): WSCommand => ({
+    command: 'playlist/playFromEntry',
+    params: { playlistIdx, entryIdx },
+  }),
+  /** Pause playlist playback. Remembers current position for resume. */
+  pause: (): WSCommand => ({ command: 'playlist/pause' }),
+  /** Stop playlist playback and exit playlist mode entirely. */
+  stop: (): WSCommand => ({ command: 'playlist/stop' }),
+  /** Advance to the next entry immediately. */
+  next: (): WSCommand => ({ command: 'playlist/next' }),
+  /** Go to the previous entry. */
+  prev: (): WSCommand => ({ command: 'playlist/prev' }),
+  /** Set flag to advance to next entry after the current loop completes. */
+  advanceAfterLoop: (): WSCommand => ({ command: 'playlist/advanceAfterLoop' }),
+  /** Set whether transport stops after the final region's last loop completes. */
+  setStopAfterLast: (playlistIdx: number, stopAfterLast: boolean): WSCommand => ({
+    command: 'playlist/setStopAfterLast',
+    params: { playlistIdx, stopAfterLast: stopAfterLast ? 1 : 0 },
+  }),
+};

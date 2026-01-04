@@ -15,6 +15,7 @@ import { createItemsSlice, type ItemsSlice } from './slices/itemsSlice';
 import { createToolbarSlice, type ToolbarSlice } from './slices/toolbarSlice';
 import { createStudioLayoutSlice, type StudioLayoutState } from './slices/studioLayoutSlice';
 import { createNotesSlice, type NotesSlice } from './slices/notesSlice';
+import { createPlaylistSlice, type PlaylistSlice } from './slices/playlistSlice';
 import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
 import { ActionCommands, SWSCommands } from '../core/types';
 import type {
@@ -27,6 +28,7 @@ import type {
   RegionsEventPayload,
   ItemsEventPayload,
   TempoMapEventPayload,
+  PlaylistEventPayload,
 } from '../core/WebSocketTypes';
 import {
   isEventMessage,
@@ -40,6 +42,7 @@ import {
   isActionToggleStateEvent,
   isTempoMapEvent,
   isProjectNotesChangedEvent,
+  isPlaylistEvent,
   isClockSyncResponse,
   type ProjectNotesChangedEventPayload,
 } from '../core/WebSocketTypes';
@@ -47,7 +50,7 @@ import { transportEngine } from '../core/TransportAnimationEngine';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & StudioLayoutState & NotesSlice & {
+export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & StudioLayoutState & NotesSlice & PlaylistSlice & {
   // Response handler action (legacy HTTP)
   handleResponses: (responses: ParsedResponse[]) => void;
   // WebSocket message handler
@@ -75,6 +78,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   ...createToolbarSlice(set, get, store),
   ...createStudioLayoutSlice(set, get, store),
   ...createNotesSlice(set, get, store),
+  ...createPlaylistSlice(set, get, store),
 
   // Handle incoming responses from REAPER
   handleResponses: (responses: ParsedResponse[]) => {
@@ -311,6 +315,9 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
     } else if (isProjectNotesChangedEvent(message)) {
       const p = message.payload as ProjectNotesChangedEventPayload;
       get().handleExternalChange(p.hash);
+    } else if (isPlaylistEvent(message)) {
+      const p = message.payload as PlaylistEventPayload;
+      get().setPlaylistState(p);
     } else if (message.event === 'reload') {
       // Hot reload - extension detected file change
       console.log('[Store] Reload event received, refreshing page...');
@@ -334,6 +341,7 @@ export { TOOLBAR_STORAGE_KEY } from './slices/toolbarSlice';
 export type { StudioLayoutState, SectionId, SectionConfig } from './slices/studioLayoutSlice';
 export type { NotesSlice } from './slices/notesSlice';
 export { getNotesIsDirty, getNotesIsOverLimit, getNotesCanSave } from './slices/notesSlice';
+export type { PlaylistSlice } from './slices/playlistSlice';
 
 // Expose store on window for E2E tests (development only)
 if (import.meta.env.DEV) {

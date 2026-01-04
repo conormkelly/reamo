@@ -452,15 +452,15 @@ pub fn handlePlayFromEntry(api: anytype, cmd: protocol.CommandMessage, response:
 }
 
 /// Pause playlist playback (remembers position)
-pub fn handlePause(_: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handlePause(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const state = response.playlist orelse {
         response.err("INTERNAL", "Playlist state not initialized");
         return;
     };
 
     _ = state.engine.pause();
-    // Note: We don't stop REAPER transport - user may want to continue listening
-    // They can use transport/stop separately if needed
+    // Also pause the REAPER transport
+    api.runCommand(reaper.Command.PAUSE);
 
     response.success(null);
     logging.debug("Paused playlist", .{});
@@ -477,7 +477,8 @@ pub fn handleStop(api: anytype, _: protocol.CommandMessage, response: *mod.Respo
     // Clean up native looping state
     api.setRepeat(false);
     api.clearLoopPoints();
-    // Note: We don't stop REAPER transport - user controls that separately
+    // Also stop the REAPER transport
+    api.runCommand(reaper.Command.STOP);
 
     response.success(null);
     logging.debug("Stopped playlist", .{});

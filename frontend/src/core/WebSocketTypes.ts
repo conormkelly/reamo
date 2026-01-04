@@ -67,7 +67,7 @@ export interface EventMessage {
   payload?: EventPayload; // Optional for events like 'reload' that have no payload
 }
 
-export type EventType = 'transport' | 'tt' | 'project' | 'tracks' | 'markers' | 'regions' | 'items' | 'reload' | 'actionToggleState' | 'tempoMap' | 'projectNotesChanged';
+export type EventType = 'transport' | 'tt' | 'project' | 'tracks' | 'markers' | 'regions' | 'items' | 'reload' | 'actionToggleState' | 'tempoMap' | 'projectNotesChanged' | 'playlist';
 
 export type EventPayload =
   | TransportEventPayload
@@ -79,7 +79,8 @@ export type EventPayload =
   | ItemsEventPayload
   | ActionToggleStateEventPayload
   | TempoMapEventPayload
-  | ProjectNotesChangedEventPayload;
+  | ProjectNotesChangedEventPayload
+  | PlaylistEventPayload;
 
 /** Lightweight transport tick event (position updates during playback) */
 export interface TransportTickEventPayload {
@@ -275,6 +276,36 @@ export interface ProjectNotesChangedEventPayload {
 }
 
 // =============================================================================
+// Playlist Event
+// =============================================================================
+
+/** Single entry in a playlist */
+export interface WSPlaylistEntry {
+  regionId: number; // References region.id from regions event
+  loopCount: number; // -1 = infinite, 0 = skip, 1+ = times to play
+  deleted?: boolean; // true if referenced region was deleted (absent if valid)
+}
+
+/** A playlist containing ordered entries */
+export interface WSPlaylist {
+  name: string;
+  entries: WSPlaylistEntry[];
+  stopAfterLast: boolean; // Stop transport after final entry completes
+}
+
+/** Playlist state broadcast (5Hz) */
+export interface PlaylistEventPayload {
+  playlists: WSPlaylist[];
+  activePlaylistIndex: number | null; // Currently playing playlist (null if none)
+  currentEntryIndex: number | null; // Currently playing entry (null if none)
+  loopsRemaining: number | null; // Loops left on current entry (-1 if infinite)
+  currentLoopIteration: number | null; // Current loop number (1-indexed)
+  isPlaylistActive: boolean; // Playlist engine active (playing or paused)
+  isPaused: boolean; // Playlist paused (vs actively playing)
+  advanceAfterLoop: boolean; // Flag: will advance after current loop completes
+}
+
+// =============================================================================
 // Peaks Response (from item/getPeaks command)
 // =============================================================================
 
@@ -449,4 +480,10 @@ export function isProjectNotesChangedEvent(
   msg: EventMessage
 ): msg is EventMessage & { payload: ProjectNotesChangedEventPayload } {
   return msg.event === 'projectNotesChanged';
+}
+
+export function isPlaylistEvent(
+  msg: EventMessage
+): msg is EventMessage & { payload: PlaylistEventPayload } {
+  return msg.event === 'playlist';
 }

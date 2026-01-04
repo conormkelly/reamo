@@ -1982,9 +1982,9 @@ Broadcast when playlist state changes (polled at 5Hz). Includes all playlists an
       {
         "name": "Friday Gig",
         "entries": [
-          {"regionId": 1, "loopCount": 4, "valid": true},
-          {"regionId": 2, "loopCount": 2, "valid": true},
-          {"regionId": 99, "loopCount": 1, "valid": false}
+          {"regionId": 1, "loopCount": 4},
+          {"regionId": 2, "loopCount": 2},
+          {"regionId": 99, "loopCount": 1, "deleted": true}
         ],
         "stopAfterLast": true
       }
@@ -2007,7 +2007,7 @@ Broadcast when playlist state changes (polled at 5Hz). Includes all playlists an
 | `playlists[].entries` | array | Ordered entries in the playlist |
 | `playlists[].entries[].regionId` | int | Region ID (matches `id` in `regions` event) |
 | `playlists[].entries[].loopCount` | int | -1=infinite, 0=skip, N=times to play |
-| `playlists[].entries[].valid` | bool | `false` if region no longer exists |
+| `playlists[].entries[].deleted` | bool? | `true` if region no longer exists (absent if valid) |
 | `playlists[].stopAfterLast` | bool | Stop transport after final entry completes (default: true) |
 | `activePlaylistIndex` | int\|null | Currently playing playlist (null if none) |
 | `currentEntryIndex` | int\|null | Currently playing entry (null if none) |

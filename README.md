@@ -69,6 +69,7 @@ If the automatic installer doesn't work:
 - **Tempo Control** - Display BPM, tap tempo, set exact tempo
 - **Auto-Punch Mode** - Time selection recording with visual indicators
 - **Take Switching** - A/B compare takes without leaving your instrument
+- **Cue Lists** - Build playlists from regions for live performance or rehearsal. Set loop counts per region (including infinite loops), drag to reorder, and control playback with play/pause/stop/skip. Visual progress bar shows position within current region, with "advance after loop" to exit infinite loops gracefully
 - **Toolbar** - User-configurable buttons for REAPER actions, SWS/scripts, and MIDI CC/PC with customizable icons and colors
 - **Touch-Optimized** - Gesture support for mobile/tablet control surfaces, responsive layout for iPhone and iPad
 - **Network Stats** - Real-time sync diagnostics with manual offset adjustment for fine-tuning visual sync
