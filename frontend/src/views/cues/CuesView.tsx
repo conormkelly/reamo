@@ -621,8 +621,8 @@ function PlaylistEntryRow({
     if (entry.loopCount === -1) {
       loopProgress = `Loop ${currentLoopIteration}`;
     } else if (entry.loopCount > 1 && loopsRemaining !== null) {
-      // Show "Loop X of Y" using iteration count
-      loopProgress = `Loop ${currentLoopIteration} of ${entry.loopCount}`;
+      // Show "Loop X / Y" using iteration count
+      loopProgress = `Loop ${currentLoopIteration} / ${entry.loopCount}`;
     }
   }
 
