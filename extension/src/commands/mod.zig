@@ -108,6 +108,31 @@ pub const ResponseWriter = struct {
         self.shared_state.sendToClient(self.client_id, json);
     }
 
+    /// Success response for commands with large payloads (e.g., project notes).
+    /// Heap-allocates a 128KB buffer per call to avoid stack overflow and shared state issues.
+    /// Safe for timer callbacks since they run on main thread (not audio thread).
+    /// See DEVELOPMENT.md "Response Buffer Sizes" and research/ZIG_MEMORY_MANAGEMENT.md.
+    pub fn successLargePayload(self: *ResponseWriter, payload: []const u8) void {
+        if (self.cmd_id == null) return;
+
+        // Heap allocation per call - safe on main thread, avoids shared state between commands
+        // c_allocator is safe for timer callbacks (see ZIG_MEMORY_MANAGEMENT.md)
+        const allocator = std.heap.c_allocator;
+        const buf = allocator.alloc(u8, 131072) catch {
+            self.err("ALLOC_FAILED", "Failed to allocate response buffer");
+            return;
+        };
+        defer allocator.free(buf);
+
+        const json = std.fmt.bufPrint(buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"payload\":{s}}}", .{ self.cmd_id.?, payload }) catch {
+            // Payload too large even for this buffer - send error instead
+            self.err("RESPONSE_TOO_LARGE", "Response payload exceeds maximum size");
+            return;
+        };
+
+        self.shared_state.sendToClient(self.client_id, json);
+    }
+
     pub fn err(self: *ResponseWriter, code: []const u8, message: []const u8) void {
         if (self.cmd_id == null) return;
 

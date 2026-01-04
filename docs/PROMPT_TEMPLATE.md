@@ -78,3 +78,10 @@ make extension       # Build → REAPER UserPlugins (requires restart)
 curl -s "http://localhost:8099/_/GET/EXTSTATE/Reamo/SessionToken"  # Get token
 # Then use websocat or extension/test-client.html
 ```
+
+## Log File Locations
+
+| Log | Path | Purpose |
+|-----|------|---------|
+| Extension log | `~/Library/Application Support/REAPER/Logs/reamo.log` | Our extension's debug output |
+| macOS crash reports | `~/Library/Logs/DiagnosticReports/REAPER-*.ips` | Detailed crash analysis with stack traces |

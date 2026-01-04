@@ -130,7 +130,7 @@ fn sendNotesResponse(response: *mod.ResponseWriter, notes: []const u8, hash: u64
         return;
     };
 
-    response.success(stream.getWritten());
+    response.successLargePayload(stream.getWritten());
 }
 
 /// Format a projectNotesChanged event for broadcasting

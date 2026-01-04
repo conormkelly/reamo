@@ -815,6 +815,47 @@ const item = api.getMediaItem(proj, itemIndex) orelse {
 | Client sends garbage | Disconnect that client, others unaffected |
 | Out of memory | Return error to client, don't allocate |
 
+### Memory Management
+
+REAPER timer callbacks run on the **main/UI thread**, not the audio thread. This distinction is critical for memory allocation safety.
+
+| Callback Type | Thread | malloc/free Safe? | Large Stack Alloc Safe? |
+|---------------|--------|-------------------|-------------------------|
+| Timer (`plugin_register`) | Main/UI | ✅ Yes | ❌ No (nested calls) |
+| Audio Hook (`OnAudioBuffer`) | Audio RT | ❌ No | ❌ No |
+
+**Why stack allocation is dangerous in timer callbacks:**
+
+REAPER's startup sequence shows modal dialogs that create deeply nested call stacks (~45+ frames). Timer callbacks fire during these modal states, leaving limited stack space. Zig allocates ALL local variables at function entry, so a function declaring a 128KB buffer needs that space before any code runs. This caused crashes on Finder launch — see `DEBUG_REAPER_CRASH.md`.
+
+**Guidelines:**
+
+1. **Never stack-allocate large buffers** (>1KB) in timer callbacks or functions called from them
+2. **Use heap allocation** (`std.heap.c_allocator`) for large temporary buffers — it's safe on the main thread
+3. **Prefer per-call allocation** over shared static buffers to avoid reentrancy issues
+4. **Use `defer` for cleanup** to ensure buffers are freed on all return paths
+
+**Pattern for large temporary buffers:**
+
+```zig
+pub fn handleLargeResponse(self: *ResponseWriter, data: []const u8) void {
+    const allocator = std.heap.c_allocator;
+    const buf = allocator.alloc(u8, 131072) catch {
+        self.err("ALLOC_FAILED", "Failed to allocate buffer");
+        return;
+    };
+    defer allocator.free(buf);
+
+    // Use buf...
+    const result = std.fmt.bufPrint(buf, ...) catch return;
+    self.shared_state.sendToClient(self.client_id, result);
+}
+```
+
+**For large persistent state** (like `tracks.State` at ~2.5MB), use static storage via `ProcessingState` — these are allocated once at compile time, not per-call. See `main.zig` for the pattern.
+
+For detailed research on Zig memory patterns in REAPER plugins, see `research/ZIG_MEMORY_MANAGEMENT.md`.
+
 ## Protocol & Versioning
 
 ### Hello Handshake
@@ -1029,3 +1070,5 @@ Then check REAPER's console (Actions → Show console).
     ```
 
 16. **Not all controls have CSurf equivalents** - Some controls lack CSurf APIs. For send mute, use `SetTrackSendInfo_Value(track, 0, idx, "B_MUTE", value)` since there's no `CSurf_OnSendMuteChange`. Always check `docs/reaper_plugin_functions.h` for available CSurf functions before assuming one doesn't exist — e.g., `CSurf_OnFXChange` exists for FX chain enable and we do use it.
+
+17. **ResponseWriter buffer sizes** - `ResponseWriter.success()` uses a 512-byte buffer, which silently fails (via `catch return`) for large payloads. For commands returning user content (project notes, item peaks, etc.), use `successLargePayload()` which heap-allocates a 128KB buffer per call. This avoids both stack overflow and shared-state issues between concurrent commands. Heap allocation is safe for timer callbacks since they run on the main thread (see `research/ZIG_MEMORY_MANAGEMENT.md`). The silent failure in `success()` causes frontend timeouts with no error in logs — a subtle bug. Rule of thumb: if the response includes user-generated content that could exceed ~400 chars, use `successLargePayload()`.
