@@ -4,7 +4,7 @@
  */
 
 import { useState, useRef, useEffect, type ReactElement } from 'react';
-import { Menu, X, Eye, EyeOff, ArrowLeftRight } from 'lucide-react';
+import { Menu, X, Eye, EyeOff, ArrowLeftRight, ToggleLeft, ToggleRight } from 'lucide-react';
 import type { ViewId } from '../viewRegistry';
 import { ReorderSectionsModal } from './Studio';
 
@@ -173,8 +173,7 @@ export function SettingsMenu({
               >
                 <span className="text-sm">Auto-Collapse Others</span>
                 <span className={`flex items-center gap-1.5 text-xs ${actionsAutoCollapse ? 'text-green-400' : 'text-gray-500'}`}>
-                  {actionsAutoCollapse ? <Eye size={14} /> : <EyeOff size={14} />}
-                  {actionsAutoCollapse ? 'On' : 'Off'}
+                  {actionsAutoCollapse ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
                 </span>
               </button>
             </>

@@ -108,10 +108,12 @@ export function CuesView(): ReactElement {
   const handleCreatePlaylist = useCallback(() => {
     if (newPlaylistName.trim()) {
       sendCommand(playlistCmd.create(newPlaylistName.trim()));
+      // Auto-switch to the new playlist (it will be appended at the end)
+      setSelectedPlaylistIdx(playlists.length);
       setNewPlaylistName('');
       setShowCreateModal(false);
     }
-  }, [newPlaylistName, sendCommand]);
+  }, [newPlaylistName, sendCommand, playlists.length]);
 
   const handleRenamePlaylist = useCallback(() => {
     if (newPlaylistName.trim() && currentPlaylist) {
