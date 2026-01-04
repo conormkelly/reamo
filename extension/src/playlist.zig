@@ -351,12 +351,24 @@ pub const Engine = struct {
         // Check if we've transitioned into the next region (after proactive setup)
         if (self.next_loop_pending) {
             if (next_entry) |next_e| {
-                // Check if we're now IN the next region (works for both contiguous and non-contiguous)
-                // For contiguous R1→R2: position 12.0 is in [12, 16)
-                // For non-contiguous R3→R1: position 8.0 is in [8, 12) after seek
-                const in_next_region = current_pos >= next_e.region_start - BOUNDARY_EPSILON and
-                    current_pos < next_e.region_end + BOUNDARY_EPSILON;
-                if (in_next_region) {
+                // Check if next region is the same as current (duplicate entry in playlist)
+                const is_same_region = @abs(next_e.region_start - region_start) < BOUNDARY_EPSILON and
+                    @abs(next_e.region_end - region_end) < BOUNDARY_EPSILON;
+
+                const transitioned = if (is_same_region) blk: {
+                    // For same region: detect wrap-around (position went from near-end to near-start)
+                    // This happens when REAPER's native loop wraps back
+                    break :blk self.prev_pos > region_end - BOUNDARY_EPSILON and
+                        current_pos < region_start + BOUNDARY_EPSILON;
+                } else blk: {
+                    // For different region: check if we're now IN the next region
+                    // For contiguous R1→R2: position 12.0 is in [12, 16)
+                    // For non-contiguous R3→R1: position 8.0 is in [8, 12) after seek
+                    break :blk current_pos >= next_e.region_start - BOUNDARY_EPSILON and
+                        current_pos < next_e.region_end + BOUNDARY_EPSILON;
+                };
+
+                if (transitioned) {
                     // Complete the transition
                     self.next_loop_pending = false;
                     self.advance_after_loop = false;
@@ -841,6 +853,37 @@ test "Engine infinite loop with advance after" {
     // Should now trigger setup_native_loop
     const action2 = engine.tick(9.9, 10.0, 0.0, .{ .loop_count = 1, .region_start = 10.0, .region_end = 20.0 }, 2, bar_length);
     try std.testing.expectEqual(Action{ .setup_native_loop = .{ .region_start = 10.0, .region_end = 20.0 } }, action2);
+}
+
+test "Engine tick - duplicate region entries (same region twice in playlist)" {
+    var engine = Engine{};
+    _ = engine.play(0, 1); // Entry 0: 1 loop
+
+    const bar_length = 2.0;
+    // Both entries use the SAME region (0-10)
+    const same_region_next = NextEntryInfo{ .loop_count = 1, .region_start = 0.0, .region_end = 10.0 };
+
+    // Position 5: mid-playback of entry 0, approaching end triggers proactive setup
+    var action = engine.tick(5.0, 10.0, 0.0, same_region_next, 2, bar_length);
+    try std.testing.expectEqual(Action.none, action);
+    try std.testing.expectEqual(@as(usize, 0), engine.entry_idx);
+
+    // Position 9.9: near end, should trigger setup_native_loop
+    action = engine.tick(9.9, 10.0, 0.0, same_region_next, 2, bar_length);
+    try std.testing.expectEqual(Action{ .setup_native_loop = .{ .region_start = 0.0, .region_end = 10.0 } }, action);
+    try std.testing.expect(engine.next_loop_pending);
+    try std.testing.expectEqual(@as(usize, 0), engine.entry_idx); // Still on entry 0!
+
+    // Position 9.95: still near end, waiting for wrap-around - should NOT advance yet
+    action = engine.tick(9.95, 10.0, 0.0, same_region_next, 2, bar_length);
+    try std.testing.expectEqual(Action.none, action);
+    try std.testing.expectEqual(@as(usize, 0), engine.entry_idx); // Still on entry 0!
+
+    // Position 0.1: wrapped around to start, NOW we should advance to entry 1
+    action = engine.tick(0.1, 10.0, 0.0, same_region_next, 2, bar_length);
+    try std.testing.expectEqual(Action.broadcast_state, action);
+    try std.testing.expectEqual(@as(usize, 1), engine.entry_idx); // Now on entry 1!
+    try std.testing.expect(!engine.next_loop_pending);
 }
 
 test "State toJson" {
