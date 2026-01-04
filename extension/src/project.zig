@@ -14,6 +14,13 @@ pub const State = struct {
     undo_len: usize = 0,
     redo_len: usize = 0,
 
+    // Project identity (for project switch detection and frontend display)
+    project_pointer: ?*anyopaque = null, // ReaProject* (identifies tab, not file!)
+    project_path_buf: [512]u8 = undefined, // Full path to .rpp file
+    project_path_len: usize = 0,
+    project_name_buf: [128]u8 = undefined, // Filename only
+    project_name_len: usize = 0,
+
     // Project-level settings (low-frequency, moved from transport event)
     project_length: f64 = 0, // Project length in seconds
     repeat: bool = false,
@@ -37,8 +44,46 @@ pub const State = struct {
         return self.redo_buf[0..self.redo_len];
     }
 
+    // Get project name (empty string for unsaved projects)
+    pub fn projectName(self: *const State) []const u8 {
+        return self.project_name_buf[0..self.project_name_len];
+    }
+
+    // Get project path (empty string for unsaved projects)
+    pub fn projectPath(self: *const State) []const u8 {
+        return self.project_path_buf[0..self.project_path_len];
+    }
+
+    /// Check if project changed (for resetting playlist engine state).
+    ///
+    /// Handles these scenarios while REAPER is running:
+    /// - Tab switch: pointer differs → change
+    /// - Open file in same tab: state count decreases (resets on load) → change
+    /// - Save As: pointer same, count increases → NO change
+    /// - Normal editing: pointer same, count increases → NO change
+    ///
+    /// Note: REAPER restart is a non-issue - extension restarts too, so there's
+    /// no prior state to compare against. We start fresh.
+    ///
+    /// Parameters:
+    /// - self: the PREVIOUS state (what we had before)
+    /// - other: the CURRENT state (what we just polled)
+    pub fn projectChanged(self: *const State, other: *const State) bool {
+        // Different pointer = different tab
+        if (self.project_pointer != other.project_pointer) return true;
+
+        // Same pointer but state count decreased = project replaced in this tab
+        // (state count increases monotonically during editing, resets on project load)
+        if (other.state_change_count < self.state_change_count) return true;
+
+        return false;
+    }
+
     // Compare for change detection
     pub fn eql(self: *const State, other: *const State) bool {
+        // Project identity (pointer AND path for reliable switch detection)
+        if (self.project_pointer != other.project_pointer) return false;
+        if (!std.mem.eql(u8, self.projectPath(), other.projectPath())) return false;
         if (self.state_change_count != other.state_change_count) return false;
         if (self.repeat != other.repeat) return false;
         if (self.metronome_enabled != other.metronome_enabled) return false;
@@ -76,6 +121,16 @@ pub const State = struct {
             .frame_rate = frame_info.frame_rate,
             .drop_frame = frame_info.drop_frame,
         };
+
+        // Get project identity (pointer + path)
+        if (api.enumCurrentProject(&state.project_path_buf)) |info| {
+            state.project_pointer = info.project;
+            state.project_path_len = info.path.len;
+        }
+
+        // Get project name (filename only)
+        const name = api.getProjectName(state.project_pointer, &state.project_name_buf);
+        state.project_name_len = name.len;
 
         // Copy undo description if available
         if (api.canUndo()) |desc| {
@@ -122,6 +177,28 @@ pub const State = struct {
         if (self.canRedo()) |desc| {
             writer.writeByte('"') catch return null;
             protocol.writeJsonString(writer, desc) catch return null;
+            writer.writeByte('"') catch return null;
+        } else {
+            writer.writeAll("null") catch return null;
+        }
+
+        // Write project name (escaped, or null for unsaved)
+        writer.writeAll(",\"projectName\":") catch return null;
+        const name = self.projectName();
+        if (name.len > 0) {
+            writer.writeByte('"') catch return null;
+            protocol.writeJsonString(writer, name) catch return null;
+            writer.writeByte('"') catch return null;
+        } else {
+            writer.writeAll("null") catch return null;
+        }
+
+        // Write project path (escaped, or null for unsaved)
+        writer.writeAll(",\"projectPath\":") catch return null;
+        const path = self.projectPath();
+        if (path.len > 0) {
+            writer.writeByte('"') catch return null;
+            protocol.writeJsonString(writer, path) catch return null;
             writer.writeByte('"') catch return null;
         } else {
             writer.writeAll("null") catch return null;
@@ -337,4 +414,55 @@ test "poll tracks API calls correctly" {
     try std.testing.expect(mock.getCallCount(.getCommandState) >= 1);
     try std.testing.expect(mock.getCallCount(.canUndo) >= 1);
     try std.testing.expect(mock.getCallCount(.canRedo) >= 1);
+}
+
+// =============================================================================
+// projectChanged() tests
+// =============================================================================
+
+fn makeStateWithPointerAndCount(pointer: ?*anyopaque, state_count: c_int) State {
+    var state = State{ .state_change_count = state_count };
+    state.project_pointer = pointer;
+    return state;
+}
+
+test "projectChanged: tab switch (different pointer) → change" {
+    const ptr1: *anyopaque = @ptrFromInt(0x1000);
+    const ptr2: *anyopaque = @ptrFromInt(0x2000);
+    const prev = makeStateWithPointerAndCount(ptr1, 100);
+    const curr = makeStateWithPointerAndCount(ptr2, 50);
+
+    try std.testing.expect(prev.projectChanged(&curr));
+}
+
+test "projectChanged: open file in same tab (state count decreases) → change" {
+    const ptr: *anyopaque = @ptrFromInt(0x1000);
+    const prev = makeStateWithPointerAndCount(ptr, 100);
+    const curr = makeStateWithPointerAndCount(ptr, 5); // Reset to low value on load
+
+    try std.testing.expect(prev.projectChanged(&curr));
+}
+
+test "projectChanged: Save As (same pointer, state count increases) → NO change" {
+    const ptr: *anyopaque = @ptrFromInt(0x1000);
+    const prev = makeStateWithPointerAndCount(ptr, 100);
+    const curr = makeStateWithPointerAndCount(ptr, 101); // Increased
+
+    try std.testing.expect(!prev.projectChanged(&curr));
+}
+
+test "projectChanged: normal editing (same pointer, state count increases) → NO change" {
+    const ptr: *anyopaque = @ptrFromInt(0x1000);
+    const prev = makeStateWithPointerAndCount(ptr, 100);
+    const curr = makeStateWithPointerAndCount(ptr, 150);
+
+    try std.testing.expect(!prev.projectChanged(&curr));
+}
+
+test "projectChanged: undo (same pointer, state count same) → NO change" {
+    const ptr: *anyopaque = @ptrFromInt(0x1000);
+    const prev = makeStateWithPointerAndCount(ptr, 100);
+    const curr = makeStateWithPointerAndCount(ptr, 100);
+
+    try std.testing.expect(!prev.projectChanged(&curr));
 }

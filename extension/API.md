@@ -29,6 +29,8 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 - [MIDI](#midi-commands) — cc, pc
 - [FX](#fx-commands) — presetNext, presetPrev, presetSet
 - [Send](#send-commands) — setVolume, setMute
+- [Playlist](#playlist-commands) — create, delete, rename, addEntry, removeEntry, play, stop, next, prev
+- [Preferences](#preferences-commands) — getSeekSettings, setSeekSettings
 
 **Events**
 - [Events (Broadcast)](#events-broadcast) — transport, tracks, markers, regions, items, project
@@ -1443,6 +1445,246 @@ Set the mute state for a track send.
 
 ---
 
+## Playlist Commands
+
+Playlist (cue list) management for setlist/arrangement playback. Playlists contain ordered entries referencing regions with loop counts. The playlist engine monitors playback position and auto-advances at region boundaries using REAPER's native loop points for seamless looping.
+
+**Data persistence:** Playlists are stored in project EXTSTATE and persist with the project file.
+
+### `playlist/create`
+
+Create a new playlist. **Returns data.**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | string | Yes | Playlist name (max 128 chars) |
+
+```json
+{"type": "command", "command": "playlist/create", "name": "Friday Gig", "id": "1"}
+```
+
+Response:
+
+```json
+{"type": "response", "id": "1", "success": true, "payload": {"playlistIdx": 0}}
+```
+
+### `playlist/delete`
+
+Delete a playlist. Stops playback if the deleted playlist is active.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `playlistIdx` | int | Yes | Playlist index (0-based) |
+
+```json
+{"type": "command", "command": "playlist/delete", "playlistIdx": 0}
+```
+
+### `playlist/rename`
+
+Rename a playlist.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `playlistIdx` | int | Yes | Playlist index |
+| `name` | string | Yes | New name (max 128 chars) |
+
+```json
+{"type": "command", "command": "playlist/rename", "playlistIdx": 0, "name": "Saturday Gig"}
+```
+
+### `playlist/addEntry`
+
+Add a region to a playlist. **Returns data.**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `playlistIdx` | int | Yes | Playlist index |
+| `regionId` | int | Yes | Region ID (from `regions` event) |
+| `loopCount` | int | Yes | Loop count: -1=infinite, 0=skip, 1+=times to play |
+| `atIdx` | int | No | Insert position (default: end of playlist) |
+
+```json
+{"type": "command", "command": "playlist/addEntry", "playlistIdx": 0, "regionId": 1, "loopCount": 4, "id": "1"}
+```
+
+Response:
+
+```json
+{"type": "response", "id": "1", "success": true, "payload": {"entryIdx": 0}}
+```
+
+### `playlist/removeEntry`
+
+Remove an entry from a playlist.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `playlistIdx` | int | Yes | Playlist index |
+| `entryIdx` | int | Yes | Entry index within playlist (0-based) |
+
+```json
+{"type": "command", "command": "playlist/removeEntry", "playlistIdx": 0, "entryIdx": 2}
+```
+
+### `playlist/setLoopCount`
+
+Change an entry's loop count.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `playlistIdx` | int | Yes | Playlist index |
+| `entryIdx` | int | Yes | Entry index |
+| `loopCount` | int | Yes | New loop count (-1=infinite, 0=skip, 1+=times) |
+
+```json
+{"type": "command", "command": "playlist/setLoopCount", "playlistIdx": 0, "entryIdx": 1, "loopCount": 2}
+```
+
+### `playlist/reorderEntry`
+
+Move an entry to a new position within the playlist.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `playlistIdx` | int | Yes | Playlist index |
+| `fromIdx` | int | Yes | Current entry index |
+| `toIdx` | int | Yes | Target entry index |
+
+```json
+{"type": "command", "command": "playlist/reorderEntry", "playlistIdx": 0, "fromIdx": 0, "toIdx": 3}
+```
+
+### `playlist/play`
+
+Start playlist playback from entry 0, or resume if paused.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `playlistIdx` | int | Yes | Playlist index |
+
+```json
+{"type": "command", "command": "playlist/play", "playlistIdx": 0}
+```
+
+### `playlist/playFromEntry`
+
+Start playlist playback from a specific entry.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `playlistIdx` | int | Yes | Playlist index |
+| `entryIdx` | int | Yes | Entry index to start from |
+
+```json
+{"type": "command", "command": "playlist/playFromEntry", "playlistIdx": 0, "entryIdx": 2}
+```
+
+### `playlist/pause`
+
+Pause playlist playback. Remembers current position for resume.
+
+```json
+{"type": "command", "command": "playlist/pause"}
+```
+
+### `playlist/stop`
+
+Stop playlist playback and exit playlist mode entirely.
+
+```json
+{"type": "command", "command": "playlist/stop"}
+```
+
+### `playlist/next`
+
+Advance to the next entry immediately. No-op if playlist not active.
+
+```json
+{"type": "command", "command": "playlist/next"}
+```
+
+### `playlist/prev`
+
+Go to the previous entry. No-op if playlist not active.
+
+```json
+{"type": "command", "command": "playlist/prev"}
+```
+
+### `playlist/advanceAfterLoop`
+
+Set flag to advance to next entry after the current loop completes. Useful for exiting an infinite loop or cutting remaining loops short. Flag clears automatically after advance.
+
+```json
+{"type": "command", "command": "playlist/advanceAfterLoop"}
+```
+
+### `playlist/setStopAfterLast`
+
+Set whether transport stops after the final region's last loop completes. Per-playlist setting, persisted with the playlist.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `playlistIdx` | int | Yes | Playlist index |
+| `stopAfterLast` | int | Yes | 1 = stop after last, 0 = continue looping |
+
+```json
+{"type": "command", "command": "playlist/setStopAfterLast", "playlistIdx": 0, "stopAfterLast": 1}
+```
+
+---
+
+## Preferences Commands
+
+Read and write REAPER preference/configuration values. Currently focused on seek settings for playlist engine integration.
+
+### `preferences/getSeekSettings`
+
+Get current seek-related settings. **Returns data.**
+
+```json
+{"type": "command", "command": "preferences/getSeekSettings", "id": "1"}
+```
+
+Response:
+
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": {"enabled": true, "measures": 1, "mode": "measures"}
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `enabled` | bool | Smooth seek enabled (queue seeks to measure boundaries) |
+| `measures` | int | Number of measures to pre-buffer when smooth seeking |
+| `mode` | string | `"measures"` = play to end of N measures; `"marker"` = play to next marker/region |
+
+**Important:** The playlist engine requires `mode: "measures"` for correct non-contiguous region transitions. The `"marker"` mode causes premature seeks if markers exist inside regions.
+
+### `preferences/setSeekSettings`
+
+Set seek-related settings. All parameters are optional - only provided values are updated.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `enabled` | int | No | 0=disable, 1=enable smooth seek |
+| `measures` | int | No | Pre-buffer measures (1-8) |
+| `mode` | int | No | 0=measures, 1=marker |
+
+```json
+{"type": "command", "command": "preferences/setSeekSettings", "enabled": 1, "measures": 2, "mode": 0}
+```
+
+**Note:** These settings allow the UI to save/restore the user's original seek preferences when entering/exiting playlist mode, since the playlist engine may temporarily modify seek behavior for seamless looping.
+
+---
+
 ## Events (Broadcast)
 
 Events are sent to all connected clients when state changes. Polling occurs ~30ms.
@@ -1647,7 +1889,7 @@ Broadcasts all items in the project. Frontend filters by time selection as neede
 
 ### `project` Event
 
-Low-frequency event broadcast when project state changes. Contains undo/redo availability and project-level settings.
+Low-frequency event broadcast when project state changes. Contains project identity, undo/redo availability, and project-level settings.
 
 ```json
 {
@@ -1656,6 +1898,8 @@ Low-frequency event broadcast when project state changes. Contains undo/redo ava
   "payload": {
     "canUndo": "Changed marker",
     "canRedo": null,
+    "projectName": "MySong.rpp",
+    "projectPath": "/Users/musician/Projects/MySong.rpp",
     "stateChangeCount": 42,
     "repeat": false,
     "metronome": {"enabled": true, "volume": 0.5000, "volumeDb": -6.02},
@@ -1673,6 +1917,8 @@ Low-frequency event broadcast when project state changes. Contains undo/redo ava
 |-------|------|-------------|
 | `canUndo` | string\|null | Description of next undo action, or null if nothing to undo |
 | `canRedo` | string\|null | Description of next redo action, or null if nothing to redo |
+| `projectName` | string\|null | Project filename (e.g., "MySong.rpp"), or null if unsaved |
+| `projectPath` | string\|null | Full path to .rpp file, or null if unsaved |
 | `stateChangeCount` | int | Project state change counter (for detecting changes) |
 | `repeat` | bool | Repeat/loop mode enabled |
 | `metronome` | object | Metronome state and volume |
@@ -1683,6 +1929,8 @@ Low-frequency event broadcast when project state changes. Contains undo/redo ava
 | `isDirty` | bool | Project has unsaved changes |
 | `frameRate` | float | Project frame rate for SMPTE timecode (e.g., 23.976, 24, 25, 29.97, 30) |
 | `dropFrame` | bool | `true` if using drop-frame timecode (29.97fps or 59.94fps) |
+
+**Note:** When the project changes (user switches tabs or opens a different file), the playlist engine automatically stops and playlists are reloaded from the new project's saved state.
 
 #### SMPTE Timecode Conversion
 
@@ -1721,6 +1969,56 @@ function secondsToSMPTE(seconds, frameRate, dropFrame) {
 
 **Note:** Drop-frame timecode uses semicolons (`;`) as the frame separator, while non-drop-frame uses colons (`:`).
 
+### `playlist` Event
+
+Broadcast when playlist state changes (polled at 5Hz). Includes all playlists and engine state for late-joining clients.
+
+```json
+{
+  "type": "event",
+  "event": "playlist",
+  "payload": {
+    "playlists": [
+      {
+        "name": "Friday Gig",
+        "entries": [
+          {"regionId": 1, "loopCount": 4, "valid": true},
+          {"regionId": 2, "loopCount": 2, "valid": true},
+          {"regionId": 99, "loopCount": 1, "valid": false}
+        ],
+        "stopAfterLast": true
+      }
+    ],
+    "activePlaylistIndex": 0,
+    "currentEntryIndex": 1,
+    "loopsRemaining": 3,
+    "currentLoopIteration": 2,
+    "isPlaylistActive": true,
+    "isPaused": false,
+    "advanceAfterLoop": false
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `playlists` | array | All playlists in the project |
+| `playlists[].name` | string | Playlist name |
+| `playlists[].entries` | array | Ordered entries in the playlist |
+| `playlists[].entries[].regionId` | int | Region ID (matches `id` in `regions` event) |
+| `playlists[].entries[].loopCount` | int | -1=infinite, 0=skip, N=times to play |
+| `playlists[].entries[].valid` | bool | `false` if region no longer exists |
+| `playlists[].stopAfterLast` | bool | Stop transport after final entry completes (default: true) |
+| `activePlaylistIndex` | int\|null | Currently playing playlist (null if none) |
+| `currentEntryIndex` | int\|null | Currently playing entry (null if none) |
+| `loopsRemaining` | int\|null | Loops left on current entry (-1 if infinite) |
+| `currentLoopIteration` | int\|null | Current loop number (1-indexed) |
+| `isPlaylistActive` | bool | Playlist engine active (playing or paused) |
+| `isPaused` | bool | Playlist paused (vs actively playing) |
+| `advanceAfterLoop` | bool | Flag: will advance after current loop completes |
+
+**Note:** `valid: false` indicates the referenced region was deleted. Frontend should show a warning and allow removal of invalid entries.
+
 ---
 
 ## Limits
@@ -1740,6 +2038,9 @@ function secondsToSMPTE(seconds, frameRate, dropFrame) {
 | Item notes | 1024 chars |
 | ExtState global value | 1024 chars |
 | ExtState project value | 16384 chars |
+| Playlists | 16 |
+| Entries per playlist | 64 |
+| Playlist name | 128 chars |
 | Command queue | 256 pending |
 
 ---

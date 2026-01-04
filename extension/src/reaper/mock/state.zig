@@ -65,15 +65,28 @@ pub const Method = enum {
     timeSelection,
     setTimeSelection,
     clearTimeSelection,
+    // Loop points
+    getLoopPoints,
+    setLoopPoints,
+    clearLoopPoints,
     // Repeat
     getRepeat,
     setRepeat,
+    // Smooth seek
+    getSmoothSeekEnabled,
+    setSmoothSeekEnabled,
+    getSmoothSeekMeasures,
+    setSmoothSeekMeasures,
+    getSeekMode,
+    setSeekMode,
     // Project
     projectLength,
     projectStateChangeCount,
     isDirty,
     markDirty,
     getFrameRate,
+    enumCurrentProject,
+    getProjectName,
     getCommandState,
     isMetronomeEnabled,
     getMetronomeVolume,

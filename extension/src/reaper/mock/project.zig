@@ -2,6 +2,10 @@
 const std = @import("std");
 const state = @import("state.zig");
 const types = @import("../types.zig");
+const raw = @import("../raw.zig");
+
+/// Re-export ProjectInfo for use by MockBackend
+pub const ProjectInfo = raw.Api.ProjectInfo;
 
 /// Project method implementations for MockBackend.
 /// Called via @fieldParentPtr from the main MockBackend struct.
@@ -33,6 +37,28 @@ pub const ProjectMethods = struct {
     pub fn getFrameRate(self: anytype) types.FrameRateInfo {
         self.recordCall(.getFrameRate);
         return .{ .frame_rate = self.frame_rate, .drop_frame = self.drop_frame };
+    }
+
+    /// Get current project info (pointer + full path).
+    /// Returns the mock's configured project_pointer and project_path.
+    pub fn enumCurrentProject(self: anytype, path_buf: []u8) ?ProjectInfo {
+        self.recordCall(.enumCurrentProject);
+        const len = @min(self.project_path_len, path_buf.len);
+        @memcpy(path_buf[0..len], self.project_path[0..len]);
+        if (len < path_buf.len) path_buf[len] = 0;
+        return .{
+            .project = self.project_pointer,
+            .path = path_buf[0..len],
+        };
+    }
+
+    /// Get project name (filename only).
+    pub fn getProjectName(self: anytype, _: ?*anyopaque, name_buf: []u8) []const u8 {
+        self.recordCall(.getProjectName);
+        const len = @min(self.project_name_len, name_buf.len);
+        @memcpy(name_buf[0..len], self.project_name[0..len]);
+        if (len < name_buf.len) name_buf[len] = 0;
+        return name_buf[0..len];
     }
 
     // =========================================================================

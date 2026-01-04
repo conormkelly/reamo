@@ -24,6 +24,7 @@ const transport = @import("transport.zig");
 const tracks = @import("tracks.zig");
 const markers = @import("markers.zig");
 const project = @import("project.zig");
+const preferences = @import("preferences.zig");
 
 // Re-export state types for convenience
 pub const MockTrack = state.MockTrack;
@@ -75,9 +76,22 @@ pub const MockBackend = struct {
     time_sel_end: f64 = 0.0,
 
     // =========================================================================
+    // Loop points state (for native looping)
+    // =========================================================================
+    loop_start: f64 = 0.0,
+    loop_end: f64 = 0.0,
+
+    // =========================================================================
     // Repeat state
     // =========================================================================
     repeat_enabled: bool = false,
+
+    // =========================================================================
+    // Smooth seek state
+    // =========================================================================
+    smooth_seek_enabled: bool = false,
+    smooth_seek_measures: c_int = 1,
+    seek_mode: c_int = 0,
 
     // =========================================================================
     // Project state
@@ -89,6 +103,13 @@ pub const MockBackend = struct {
     project_notes_len: usize = 0,
     frame_rate: f64 = 30.0,
     drop_frame: bool = false,
+
+    // Project identity (for project switch detection)
+    project_pointer: ?*anyopaque = null, // Simulated ReaProject* pointer
+    project_path: [512]u8 = [_]u8{0} ** 512, // Full path to .rpp file
+    project_path_len: usize = 0,
+    project_name: [128]u8 = [_]u8{0} ** 128, // Filename only
+    project_name_len: usize = 0,
 
     // =========================================================================
     // Command state
@@ -230,6 +251,20 @@ pub const MockBackend = struct {
         self.project_notes_len = len;
     }
 
+    /// Set project identity for testing (simulates project switch).
+    /// pointer: simulated ReaProject* (use any unique value to represent a project tab)
+    /// path: full path to .rpp file (empty string for unsaved projects)
+    /// name: filename only (e.g. "MySong.rpp")
+    pub fn setProjectIdentity(self: *MockBackend, pointer: ?*anyopaque, path: []const u8, name: []const u8) void {
+        self.project_pointer = pointer;
+        const path_len = @min(path.len, self.project_path.len);
+        @memcpy(self.project_path[0..path_len], path[0..path_len]);
+        self.project_path_len = path_len;
+        const name_len = @min(name.len, self.project_name.len);
+        @memcpy(self.project_name[0..name_len], name[0..name_len]);
+        self.project_name_len = name_len;
+    }
+
     // =========================================================================
     // Transport methods (delegated)
     // =========================================================================
@@ -255,8 +290,17 @@ pub const MockBackend = struct {
     pub const timeSelection = transport.TransportMethods.timeSelection;
     pub const setTimeSelection = transport.TransportMethods.setTimeSelection;
     pub const clearTimeSelection = transport.TransportMethods.clearTimeSelection;
+    pub const getLoopPoints = transport.TransportMethods.getLoopPoints;
+    pub const setLoopPoints = transport.TransportMethods.setLoopPoints;
+    pub const clearLoopPoints = transport.TransportMethods.clearLoopPoints;
     pub const getRepeat = transport.TransportMethods.getRepeat;
     pub const setRepeat = transport.TransportMethods.setRepeat;
+    pub const getSmoothSeekEnabled = preferences.PreferencesMethods.getSmoothSeekEnabled;
+    pub const setSmoothSeekEnabled = preferences.PreferencesMethods.setSmoothSeekEnabled;
+    pub const getSmoothSeekMeasures = preferences.PreferencesMethods.getSmoothSeekMeasures;
+    pub const setSmoothSeekMeasures = preferences.PreferencesMethods.setSmoothSeekMeasures;
+    pub const getSeekMode = preferences.PreferencesMethods.getSeekMode;
+    pub const setSeekMode = preferences.PreferencesMethods.setSeekMode;
 
     // =========================================================================
     // Track methods (delegated)
@@ -398,6 +442,8 @@ pub const MockBackend = struct {
     pub const getProjectNotes = project.ProjectMethods.getProjectNotes;
     // Note: setProjectNotes is a test helper defined above, not delegated
     pub const getFrameRate = project.ProjectMethods.getFrameRate;
+    pub const enumCurrentProject = project.ProjectMethods.enumCurrentProject;
+    pub const getProjectName = project.ProjectMethods.getProjectName;
     pub const namedCommandLookup = project.ProjectMethods.namedCommandLookup;
     pub const sendMidiCC = project.ProjectMethods.sendMidiCC;
     pub const sendMidiPC = project.ProjectMethods.sendMidiPC;

@@ -42,9 +42,22 @@ pub fn validateBackend(comptime T: type) void {
         "setTimeSelection",
         "clearTimeSelection",
 
+        // Loop points (for native looping)
+        "getLoopPoints",
+        "setLoopPoints",
+        "clearLoopPoints",
+
         // Repeat
         "getRepeat",
         "setRepeat",
+
+        // Smooth seek config
+        "getSmoothSeekEnabled",
+        "setSmoothSeekEnabled",
+        "getSmoothSeekMeasures",
+        "setSmoothSeekMeasures",
+        "getSeekMode",
+        "setSeekMode",
 
         // Project info
         "projectLength",

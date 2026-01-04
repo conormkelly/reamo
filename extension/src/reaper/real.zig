@@ -120,6 +120,22 @@ pub const RealBackend = struct {
     }
 
     // =========================================================================
+    // Loop points (for native looping with repeat mode)
+    // =========================================================================
+
+    pub fn getLoopPoints(self: *const RealBackend) types.TimeSelection {
+        return self.inner.getLoopPoints();
+    }
+
+    pub fn setLoopPoints(self: *const RealBackend, start: f64, end: f64) void {
+        self.inner.setLoopPoints(start, end);
+    }
+
+    pub fn clearLoopPoints(self: *const RealBackend) void {
+        self.inner.clearLoopPoints();
+    }
+
+    // =========================================================================
     // Repeat
     // =========================================================================
 
@@ -129,6 +145,34 @@ pub const RealBackend = struct {
 
     pub fn setRepeat(self: *const RealBackend, enabled: bool) void {
         self.inner.setRepeat(enabled);
+    }
+
+    // =========================================================================
+    // Smooth seek config
+    // =========================================================================
+
+    pub fn getSmoothSeekEnabled(self: *const RealBackend) bool {
+        return self.inner.getSmoothSeekEnabled();
+    }
+
+    pub fn setSmoothSeekEnabled(self: *const RealBackend, enabled: bool) void {
+        self.inner.setSmoothSeekEnabled(enabled);
+    }
+
+    pub fn getSmoothSeekMeasures(self: *const RealBackend) c_int {
+        return self.inner.getSmoothSeekMeasures();
+    }
+
+    pub fn setSmoothSeekMeasures(self: *const RealBackend, measures: c_int) void {
+        self.inner.setSmoothSeekMeasures(measures);
+    }
+
+    pub fn getSeekMode(self: *const RealBackend) c_int {
+        return self.inner.getSeekMode();
+    }
+
+    pub fn setSeekMode(self: *const RealBackend, mode: c_int) void {
+        self.inner.setSeekMode(mode);
     }
 
     // =========================================================================
@@ -153,6 +197,17 @@ pub const RealBackend = struct {
 
     pub fn getFrameRate(self: *const RealBackend) types.FrameRateInfo {
         return self.inner.getFrameRate();
+    }
+
+    /// Get current project info (pointer + full path).
+    /// Note: project pointer identifies the TAB, not the file!
+    pub fn enumCurrentProject(self: *const RealBackend, path_buf: []u8) ?raw.Api.ProjectInfo {
+        return self.inner.enumCurrentProject(path_buf);
+    }
+
+    /// Get project name (filename only, e.g. "MySong.rpp").
+    pub fn getProjectName(self: *const RealBackend, project: ?*anyopaque, name_buf: []u8) []const u8 {
+        return self.inner.getProjectName(project, name_buf);
     }
 
     // =========================================================================

@@ -3,6 +3,7 @@ const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const ws_server = @import("../ws_server.zig");
 const gesture_state = @import("../gesture_state.zig");
+const playlist_mod = @import("../playlist.zig");
 const errors = @import("../errors.zig");
 const logging = @import("../logging.zig");
 
@@ -26,6 +27,7 @@ const gesture_cmds = @import("gesture.zig");
 pub const toggle_state_cmds = @import("toggle_state.zig");
 const midi_cmds = @import("midi.zig");
 pub const project_notes_cmds = @import("project_notes.zig");
+const preferences_cmds = @import("preferences.zig");
 
 // Command registry entry (used only for legacy test registry - dispatch uses comptime registry)
 pub const Entry = struct {
@@ -43,12 +45,16 @@ const comptime_registry = @import("registry.zig");
 pub const GestureState = gesture_state.GestureState;
 pub const ControlId = gesture_state.ControlId;
 
+// Re-export PlaylistState for convenience
+pub const PlaylistState = playlist_mod.State;
+
 // Response writer for sending responses to the requesting client only
 pub const ResponseWriter = struct {
     client_id: usize,
     cmd_id: ?[]const u8,
     shared_state: *ws_server.SharedState,
     gestures: ?*GestureState,
+    playlist: ?*PlaylistState = null,
 
     pub fn success(self: *ResponseWriter, payload: ?[]const u8) void {
         if (self.cmd_id == null) return; // No response expected if no id provided
@@ -157,12 +163,13 @@ pub const registry = transport_cmds.handlers ++
     gesture_cmds.handlers ++
     toggle_state_cmds.handlers ++
     midi_cmds.handlers ++
-    project_notes_cmds.handlers;
+    project_notes_cmds.handlers ++
+    preferences_cmds.handlers;
 
 /// Dispatch a command message to the appropriate handler.
 /// Accepts any backend type (RealBackend, MockBackend) via anytype.
 /// Uses inline for to unroll the comptime registry at compile time.
-pub fn dispatch(api: anytype, client_id: usize, data: []const u8, shared_state: *ws_server.SharedState, gestures: ?*GestureState) void {
+pub fn dispatch(api: anytype, client_id: usize, data: []const u8, shared_state: *ws_server.SharedState, gestures: ?*GestureState, playlist: ?*PlaylistState) void {
     const msg_type = protocol.MessageType.parse(data);
 
     switch (msg_type) {
@@ -177,6 +184,7 @@ pub fn dispatch(api: anytype, client_id: usize, data: []const u8, shared_state: 
                 .cmd_id = cmd.getId(),
                 .shared_state = shared_state,
                 .gestures = gestures,
+                .playlist = playlist,
             };
 
             // Use inline for to unroll the comptime tuple registry.

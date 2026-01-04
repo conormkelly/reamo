@@ -1,7 +1,7 @@
 # Cue List — Backend Implementation Plan
 
-**Status:** 🚧 READY FOR IMPLEMENTATION
-**Last Updated:** 2026-01-03
+**Status:** ✅ CORE BACKEND COMPLETE (Phases 0-9)
+**Last Updated:** 2026-01-04
 
 This is a living document tracking the Cue List backend implementation. The backend provides playlist persistence, playback engine, and optional SWS import.
 
@@ -255,32 +255,30 @@ void GetProjectPath(char* bufOut, int bufOut_sz);
 
 ## Implementation Phases
 
-### Phase 0: Verify Existing Bindings
-- [ ] Check raw.zig for `GetPlayPosition`, `GetPlayState` (likely exist)
-- [ ] Check raw.zig for `EnumProjectMarkers3` (used by regions, should exist)
-- [ ] Check raw.zig for `SetEditCurPos` or `SetEditCurPos2`
-- [ ] Document what's missing before adding new bindings
+### Phase 0: Verify Existing Bindings ✅
+- [x] Check raw.zig for `GetPlayPosition`, `GetPlayState` — **EXIST** (lines 204-205)
+- [x] Check raw.zig for `EnumProjectMarkers3` — **EXISTS** (line 227)
+- [x] Check raw.zig for `SetEditCurPos` — **EXISTS** (line 210), wrapped as `setCursorPos()` with moveview=true, seekplay=true
+- [x] Check raw.zig for `GetProjExtState`, `SetProjExtState` — **EXIST** (lines 267-268), wrapped as `getProjExtStateValue()`, `setProjExtStateValue()`
+- [x] Document what's missing: Only `GetProjectPath` (SWS import stretch goal)
 
 **Files:** `extension/src/reaper/raw.zig`
 
-### Phase 1: raw.zig — New Bindings
-- [ ] Add `SetEditCurPos2` function pointer + wrapper (if not exists)
-- [ ] Add `SetProjExtState` function pointer + wrapper
-- [ ] Add `GetProjExtState` function pointer + wrapper
-- [ ] Add `GetProjectPath` function pointer + wrapper (for SWS import, can defer)
-- [ ] Load all in `Api.load()`
-- [ ] **BUILD & TEST:** Verify ProjExtState read/write works
+### Phase 1: raw.zig — New Bindings ⏭️ SKIPPED
+All required bindings already exist. Only missing `GetProjectPath` for SWS import (stretch goal, can add later).
 
-**Files:** `extension/src/reaper/raw.zig`
+**Files:** N/A
 
-### Phase 2: Playlist Types
-- [ ] Create `extension/src/playlist.zig`
-- [ ] Define `PlaylistEntry` struct: `region_id: i32`, `loop_count: i32`
-- [ ] Define `Playlist` struct: `name: [128]u8`, `entries: [64]PlaylistEntry`, `entry_count: u8`
-- [ ] Define `PlaylistState` struct: `playlists: [16]Playlist`, `playlist_count: u8`, engine state fields
-- [ ] Add `eql()` methods for change detection
-- [ ] Add `toJson()` for serialization
-- [ ] Add `fromJson()` for deserialization (EXTSTATE loading)
+### Phase 2: Playlist Types ✅
+- [x] Create `extension/src/playlist.zig`
+- [x] Define `Entry` struct: `region_id: i32`, `loop_count: i32`
+- [x] Define `Playlist` struct: `name: [128]u8`, `entries: [64]Entry`, `entry_count: usize`
+- [x] Define `State` struct: `playlists: [16]Playlist`, `playlist_count: usize`, engine fields
+- [x] Define `Engine` struct: pure state machine for playback (returns `Action`, doesn't execute)
+- [x] Add `eql()` methods for change detection
+- [x] Add `toJson()` for JSON event serialization
+- [x] Add `serialize()`/`deserialize()` for pipe-delimited EXTSTATE format
+- [x] Unit tests for entries, reorder, serialize, engine play/pause/stop, tick
 
 **Files:** `extension/src/playlist.zig`
 
@@ -291,75 +289,201 @@ void GetProjectPath(char* bufOut, int bufOut_sz);
 | Entries per playlist | 64 | Covers long sets |
 | Playlist name | 128 chars | Matches track name |
 
-### Phase 3: Playlist Persistence (ProjExtState)
-- [ ] Implement `serializePlaylist(playlist) -> []u8` (pipe-delimited, no newlines)
-- [ ] Implement `deserializePlaylist(buf) -> Playlist`
-- [ ] Implement `savePlaylistToProjExtState(idx)`
-- [ ] Implement `loadPlaylistFromProjExtState(idx)`
-- [ ] Implement `loadAllPlaylists()` on extension init / project load
-- [ ] Add to RealBackend: `projExtStateSet`, `projExtStateGet`
-- [ ] Add to MockBackend with in-memory map
-- [ ] **BUILD & TEST:** Create playlist, save project, reload, verify persisted
+### Phase 3: Playlist Persistence (ProjExtState) ✅
+- [x] `Playlist.serialize()` / `Playlist.deserialize()` — pipe-delimited format (done in Phase 2)
+- [x] `State.savePlaylist(api, idx)` — saves single playlist
+- [x] `State.clearPlaylist(api, idx)` — clears playlist key
+- [x] `State.savePlaylistCount(api)` — saves count
+- [x] `State.saveAll(api)` — saves all playlists
+- [x] `State.loadAll(api)` — loads all playlists on project load
+- [x] RealBackend: `getProjExtStateValue`, `setProjExtStateValue` — already existed
+- [x] MockBackend: already supported
+- [ ] **DEFER:** Integration test (requires REAPER running)
 
-**Files:** `extension/src/playlist.zig`, `reaper/real.zig`, `reaper/mock/`
+**Files:** `extension/src/playlist.zig`
 
-### Phase 4: Playlist CRUD Commands
-- [ ] Create `commands/playlist.zig`
-- [ ] Implement `playlist/create` — add to state, save to ProjExtState
-- [ ] Implement `playlist/delete` — remove from state, clear ProjExtState key
-- [ ] Implement `playlist/rename` — update state, save to ProjExtState
-- [ ] Implement `playlist/addEntry` — validate regionId exists, add to entries
-- [ ] Implement `playlist/removeEntry` — remove from entries
-- [ ] Implement `playlist/setLoopCount` — update entry
-- [ ] Implement `playlist/reorderEntry` — move entry in array
-- [ ] Register all in `registry.zig`
-- [ ] **BUILD & TEST:** Create, modify, delete playlists via WebSocket
+### Phase 4: Playlist CRUD Commands ✅
+- [x] Create `commands/playlist.zig`
+- [x] Implement `playlist/create` — returns `{playlistIdx}`
+- [x] Implement `playlist/delete` — saves all (indices shift)
+- [x] Implement `playlist/rename` — saves playlist
+- [x] Implement `playlist/addEntry` — optional `atIdx`, returns `{entryIdx}`
+- [x] Implement `playlist/removeEntry`
+- [x] Implement `playlist/setLoopCount`
+- [x] Implement `playlist/reorderEntry`
+- [x] Register in `registry.zig`
+- [x] Add playlist state to `ResponseWriter` and `dispatch()`
+- [x] Add `g_playlist_state` to `main.zig`
+- [ ] **DEFER:** WebSocket integration test
 
-**Files:** `extension/src/commands/playlist.zig`, `commands/registry.zig`
+**Files:** `extension/src/commands/playlist.zig`, `commands/registry.zig`, `commands/mod.zig`, `main.zig`
 
-### Phase 5: Playlist Event Broadcasting
-- [ ] Add playlist state to polling/event system
-- [ ] Broadcast `playlist` event on connect (initial state)
-- [ ] Broadcast `playlist` event on any playlist change
-- [ ] Include all fields: playlists, activePlaylistIndex, currentEntryIndex, loopsRemaining, isPlaying
-- [ ] **BUILD & TEST:** Verify frontend receives playlist state
+### Phase 5: Playlist Event Broadcasting ✅
+- [x] Add `g_last_playlist` for change detection
+- [x] Broadcast `playlist` event on connect (initial state in snapshot loop)
+- [x] Broadcast `playlist` event on change (MEDIUM tier, 5Hz)
+- [x] All fields included via `State.toJson()`
+
+**Files:** `extension/src/main.zig`
+
+### Phase 6: Playback Engine — Core Logic ✅
+- [x] Add `Engine` struct with state: `EngineState` (idle/playing/paused), `playlist_idx`, `entry_idx`, `loops_remaining`
+- [x] Implement `play(playlistIdx, loopCount)` — set state, seek to region start
+- [x] Implement `stop()` — clear active state
+- [x] Implement `tick(currentPosition, regionEnd, regionStart, nextEntry, entryCount)` — pure state machine returning `Action`
+- [x] Implement `next(entryCount, nextLoopCount)` — move to next entry or stop
+- [x] Implement `prev(entryCount, prevLoopCount)` — move to previous entry
+- [x] Hook into timer callback (HIGH tier, 30Hz) — finds region by ID in cached markers, executes actions
+- [x] **BUILD & TEST:** Manual play, verify auto-advance at region end
 
 **Files:** `extension/src/playlist.zig`, `extension/src/main.zig`
 
-### Phase 6: Playback Engine — Core Logic
-- [ ] Add `PlaylistEngine` struct with state: `active`, `playlist_idx`, `entry_idx`, `loops_remaining`
-- [ ] Implement `start(playlistIdx, entryIdx)` — set state, seek to region start
-- [ ] Implement `stop()` — clear active state
-- [ ] Implement `tick(currentPosition)` — boundary detection + seeking
-- [ ] Implement `advanceToNext()` — move to next entry or stop
-- [ ] Implement `goToPrev()` — move to previous entry
-- [ ] Hook into timer callback
-- [ ] **BUILD & TEST:** Manual play, verify auto-advance at region end
-
-**Files:** `extension/src/playlist.zig`
-
-### Phase 7: Playback Commands
-- [ ] Implement `playlist/play` — start engine from entry 0
-- [ ] Implement `playlist/playFromEntry` — start engine from specific entry
-- [ ] Implement `playlist/stop` — stop engine
-- [ ] Implement `playlist/next` — advance entry (manual override)
-- [ ] Implement `playlist/prev` — go back entry
-- [ ] Register in `registry.zig`
-- [ ] **BUILD & TEST:** Full playback flow via WebSocket
+### Phase 7: Playback Commands ✅
+- [x] Implement `playlist/play` — start engine from entry 0 (or resume if paused)
+- [x] Implement `playlist/playFromEntry` — start engine from specific entry
+- [x] Implement `playlist/pause` — pause playlist (remembers position)
+- [x] Implement `playlist/stop` — stop engine
+- [x] Implement `playlist/next` — advance entry (manual override)
+- [x] Implement `playlist/prev` — go back entry
+- [x] Implement `playlist/advanceAfterLoop` — set flag to advance after current loop
+- [x] Register in `registry.zig`
+- [x] Add `findRegionStart()` helper using `api.enumMarker()`
+- [ ] **DEFER:** Full playback flow via WebSocket (requires REAPER running)
 
 **Files:** `extension/src/commands/playlist.zig`, `commands/registry.zig`
 
-### Phase 8: Edge Case Handling
-- [ ] Handle deleted region (entry references non-existent region)
-- [ ] Handle empty playlist (play command should no-op or error)
-- [ ] Handle transport stop by user (pause playlist engine? continue on resume?)
-- [ ] Handle transport started externally while playlist active (what to do?)
-- [ ] Handle project switch (clear playlist engine state)
+### Phase 8: Seamless Looping via Native Loop Points ✅
+
+**Problem:** Using `SetEditCurPos2` to loop back within a region causes audio hiccup (~50-100ms discontinuity).
+
+**Solution:** Use REAPER's native loop points + repeat mode for within-region looping. REAPER handles this at the audio engine level with no hiccup.
+
+**API Additions Required:**
+- [x] Add `get_config_var` binding — read/write `smoothseek` and `smoothseekmeas` config
+- [x] Add `setLoopPoints(start, end)` wrapper — `GetSet_LoopTimeRange2(..., isLoop=true, ...)`
+- [x] Add `getLoopPoints()` wrapper — query current loop points
+- [x] Add to mock backend for testing
+
+**Engine Changes:**
+- [x] Track `prev_pos` in engine state for loop iteration detection
+- [x] On region entry: set loop points to region boundaries, enable repeat
+- [x] On region transition: proactively set up next loop points 150ms BEFORE boundary
+- [x] Detect loop iteration completion via position wrap-around (`prev_pos > end - ε` AND `current_pos < start + ε`)
+- [x] Contiguous region optimization: no seek needed when regions share boundaries, just change loop points
+
+**Commands:**
+- [x] Add `playlist/getSmoothSeek` — check if REAPER smooth seek is on
+- [x] Add `playlist/setSmoothSeek` — enable/disable smooth seek (optional, for UI toggle)
+
+**BUILD & TEST:** Play playlist, verify no audio hiccup on loop-back within same region. ✅ Tested and working.
+
+**Key insight:** Proactive loop setup (setting next region's loop points BEFORE reaching boundary) eliminates the audio hiccup that occurred when detecting wrap-around AFTER it happened.
+
+**Files:** `extension/src/reaper/raw.zig`, `extension/src/playlist.zig`, `extension/src/main.zig`, `extension/src/commands/playlist.zig`
+
+### Phase 9: Edge Case Handling ✅
+
+**Status:** COMPLETE (2026-01-04)
+
+**Design Decisions**:
+
+| Edge Case | Decision | Status |
+|-----------|----------|--------|
+| **Region validation** | On access (play start, entry transition) | ✅ Implemented |
+| **Deleted region** | Skip, continue at next valid region. `deleted: true` in event | ✅ Implemented |
+| **Region modified during playback** | Use current bounds (reactive) — always fetch fresh region bounds | ✅ Already works |
+| **Playlist editing during playback** | Allowed | ✅ Already works |
+| **Empty playlist** | Error via WebSocket (`EMPTY_PLAYLIST`) | ✅ Already implemented |
+| **Transport paused by user** | Pause playlist engine | ✅ Implemented |
+| **Transport stopped by user** | Stop playlist engine entirely | ✅ Implemented |
+| **External seek while active** | Trust smooth seek | ✅ No changes needed |
+| **Project switch** | Clear engine state, reload playlists | ✅ Already implemented |
+| **Non-contiguous region transitions** | Detect measure boundary crossing, trigger seek 100ms into final measure | ✅ Implemented |
+| **Stop after last region** | Per-playlist `stopAfterLast` setting (default: true) | ✅ Implemented |
+
+**Philosophy:** Trust users, don't over-protect.
+
+**Implementation (completed):**
+- [x] Add region validation to `playlist/play` and `playlist/playFromEntry` — error `REGION_NOT_FOUND` if region deleted
+- [x] Monitor transport state changes in tick loop: pause engine if transport paused, stop if stopped
+- [x] Skip deleted region during playback: auto-advance to next valid entry, stop if none remain
+- [x] Add `deleted: true` field to playlist JSON for entries whose region no longer exists (runtime-derived, not persisted)
+- [x] Track project identity with hybrid detection (pointer differs OR state count decreased)
+- [x] On project switch: stop engine, reload playlists, broadcast updated state
+- [x] Non-contiguous transition timing: calculate bar_length from BPM/time-sig, detect crossing into final measure
+- [x] Transition completion detection: check if position is IN next region (not just past current end) — fixes backwards seeks (R3→R1)
+- [x] Add `stopAfterLast` per-playlist setting with `playlist/setStopAfterLast` command
+- [x] Persist `stopAfterLast` in serialization format: `PlaylistName|S:1|regionId,loopCount|...`
+
+**Non-contiguous timing details:**
+- Contiguous regions (R1→R2 where R1.end == R2.start): use 0.15s margin, just change loop points
+- Non-contiguous regions (R1→R3): detect when crossing into final measure (region_end - bar_length + 0.1s)
+- Uses REAPER's "Play to end of N measures" smooth seek mode for seamless transitions
+- **Warning:** "Play to next marker/region" mode causes premature seeks if markers exist inside regions
+
+**Files modified:**
+- `extension/src/commands/playlist.zig` — Region validation on play commands, `setStopAfterLast`
+- `extension/src/main.zig` — Transport sync, deleted region skip logic, bar_length calculation
+- `extension/src/playlist.zig` — `toJson()` with regions parameter, `stopAfterLast` field, measure boundary detection
+
+## Project Switch Detection: Recommended Approach
+
+### Key Insight from Research
+
+`ReaProject*` represents **tabs**, not project files. Same pointer persists when opening a different file in the same tab. Must track both.
+
+### Implementation Strategy
+
+Since we already have a ~30Hz timer callback, we can poll for project changes there (no need for full Control Surface):
+
+```zig
+// In main.zig or playlist.zig
+const ProjectIdentity = struct {
+    project: ?*anyopaque,  // ReaProject* (tab identity)
+    path: [4096]u8,        // Full path (file identity)
+    path_len: usize,
+};
+
+var last_project: ProjectIdentity = .{ .project = null, .path = undefined, .path_len = 0 };
+
+fn checkProjectChange(api: anytype) bool {
+    var path_buf: [4096]u8 = undefined;
+    const current_project = api.enumProjects(-1, &path_buf);  // Get pointer + path
+    const path_len = std.mem.indexOfScalar(u8, &path_buf, 0) orelse path_buf.len;
+    
+    const pointer_changed = current_project != last_project.project;
+    const path_changed = !std.mem.eql(u8, path_buf[0..path_len], last_project.path[0..last_project.path_len]);
+    
+    if (pointer_changed or path_changed) {
+        // Update cached identity
+        last_project.project = current_project;
+        @memcpy(last_project.path[0..path_len], path_buf[0..path_len]);
+        last_project.path_len = path_len;
+        return true;
+    }
+    return false;
+}
+```
+
+### What Happens on Project Change
+
+1. **Stop playlist engine** (if playing/paused)
+2. **Clear in-memory engine state** (current entry, loop iteration, etc.)
+3. **Reload playlists from ProjExtState** for the new project
+4. **Broadcast `playlist` event** with new project's data (or empty if none)
+
+### New API Functions Needed
+
+|Function|Purpose|
+|---|---|
+|`EnumProjects(idx, pathBuf, bufSize)`|Get project pointer + full path|
+|`GetProjectName(proj, buf, size)`|Get filename only (for display)|
+
 - [ ] **BUILD & TEST:** Each edge case manually
 
-**Files:** `extension/src/playlist.zig`
+**Files:** `extension/src/playlist.zig`, `extension/src/commands/playlist.zig`, `extension/src/main.zig`
 
-### Phase 9: SWS Import (Optional/Stretch)
+### Phase 10: SWS Import (Optional/Stretch)
 - [ ] Implement `getProjectPath()` wrapper
 - [ ] Implement RPP file parser for `<S&M_RGN_PLAYLIST` blocks
 - [ ] Decode SWS region IDs (strip `0x40000000` flag)
@@ -370,13 +494,21 @@ void GetProjectPath(char* bufOut, int bufOut_sz);
 
 **Files:** `extension/src/sws_import.zig`, `commands/playlist.zig`
 
-### Phase 10: Documentation
-- [ ] Update `API.md` — playlist event, all commands
-- [ ] Update `PLANNED_FEATURES.md` — mark Cue List backend done
-- [ ] Update this plan document
-- [ ] Add playlist limits to API.md Limits table
+### Phase 11: Documentation
+- [x] Update `API.md` — playlist event, all commands
+- [x] Update `PLANNED_FEATURES.md` — mark Cue List backend done
+- [x] Update this plan document
+- [x] Add playlist limits to API.md Limits table
 
 **Files:** `extension/API.md`, `PLANNED_FEATURES.md`, `CUE_LIST_BACKEND_PLAN.md`
+
+### Phase 12: Final Documentation & Polish
+- [ ] Review and finalize edge case handling (see [research/PLAYLIST_ENGINE_EDGE_CASES.md](research/PLAYLIST_ENGINE_EDGE_CASES.md))
+- [ ] Add user-facing documentation (README updates, usage examples)
+- [ ] Final API.md review for completeness
+- [ ] Add any missing error codes to API.md Error Responses section
+
+**Files:** `extension/API.md`, `README.md`, `research/PLAYLIST_ENGINE_EDGE_CASES.md`
 
 ---
 
@@ -556,6 +688,7 @@ Notes:
 | 2026-01-03 | Phase 0 | Planning document created from template |
 | 2026-01-03 | Review | User feedback incorporated: dedicated playlist controls, pause/resume, advanceAfterLoop, wyhash, testable state machine, research query added |
 | 2026-01-03 | Research | SWS analysis complete (see research/CUE_LIST_RESEARCH.md). Key decisions: use display IDs not GUIDs, SetProjExtState for persistence, pipe-delimited format, SetEditCurPos2 with moveview=true |
+| 2026-01-03 | Phase 0-7 | Core backend implementation complete. Created playlist.zig with types, Engine state machine, serialization. Created commands/playlist.zig with CRUD and playback commands. Integrated engine tick into HIGH tier timer callback. Playlist state loads on project open and broadcasts on change. |
 
 ---
 
@@ -565,8 +698,12 @@ Notes:
 - **SWS region ID encoding:** SWS adds `0x40000000` flag to region IDs. Strip with `& 0x3FFFFFFF`.
 - **ProjExtState single-line only:** Values MUST NOT contain newlines — causes truncation. Use pipe-delimited format.
 - **ProjExtState size:** ~16KB limit via web interface, larger works via direct API.
-- **SetEditCurPos2 during playback:** Causes brief audio discontinuity (~50-100ms). Acceptable for v1.
+- **SetEditCurPos2 during playback:** Causes brief audio discontinuity (~50-100ms). **Solution found:** Use native loop points for within-region looping (see below).
 - **Contiguous region bug:** SWS has issue where regions ending exactly at next region start can skip. Use epsilon (50ms) for boundary detection.
+- **Native loop points are seamless:** Tested via Lua — setting `GetSet_LoopTimeRange2(..., isLoop=true, ...)` during playback causes NO audio hiccup. REAPER handles looping at the audio engine level.
+- **Smooth seek config:** REAPER's `smoothseek` config variable (Preferences → Audio → Seeking → "Do not change playback position immediately") queues seeks to execute at measure boundaries with pre-buffering. Accessible via `get_config_var("smoothseek", &size)` API — no SWS dependency.
+- **Smooth seek mode matters:** Two radio options exist: "Play to end of N measures" vs "Play to next marker/region". The latter causes premature seeks if markers exist inside regions. **Recommended:** Use "Play to end of 1 more measures" mode. The mode is encoded in **bit 1 of `smoothseek`** (not `seekmodes`): `smoothseek=1` = measures mode, `smoothseek=3` = marker mode. API returns `mode: "measures"` or `mode: "marker"`.
+- **Loop iteration detection:** When REAPER loops with repeat+loop points, position wraps from `loop_end` back to `loop_start`. Detect by checking if `prev_pos > region_end - ε` AND `current_pos < region_start + ε`.
 - **Infinite loop + empty playlist:** If only entry is infinite, `next` should stop (no next entry).
 - **Zero entries:** `playlist/play` on empty playlist should return error, not crash.
 - **Region color reset:** Reamo's region editor deletes/recreates region when resetting to default color. This changes the GUID (hence we use display IDs, not GUIDs).

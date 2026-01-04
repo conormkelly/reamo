@@ -11,11 +11,26 @@ const ws_server = @import("ws_server.zig");
 const gesture_state = @import("gesture_state.zig");
 const toggle_subscriptions = @import("toggle_subscriptions.zig");
 const project_notes = @import("project_notes.zig");
+const playlist = @import("playlist.zig");
 const errors = @import("errors.zig");
 const logging = @import("logging.zig");
 
 // Use custom panic handler that flushes log ring buffer before aborting
 pub const panic = logging.panic;
+
+// Debug file logging for playlist tick debugging
+var g_tick_log_file: ?std.fs.File = null;
+
+fn logTickToFile(comptime fmt: []const u8, args: anytype) void {
+    if (g_tick_log_file == null) {
+        g_tick_log_file = std.fs.cwd().createFile("playlist_tick.log", .{ .truncate = true }) catch return;
+    }
+    if (g_tick_log_file) |file| {
+        var buf: [512]u8 = undefined;
+        const msg = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
+        _ = file.write(msg) catch {};
+    }
+}
 
 // Configuration
 const DEFAULT_PORT: u16 = 9224;
@@ -37,6 +52,8 @@ var g_last_items: items.State = .{};
 var g_last_tracks: tracks.State = .{};
 var g_last_metering: tracks.MeteringState = .{};
 var g_last_tempomap: tempomap.State = .{};
+var g_playlist_state: playlist.State = .{};
+var g_last_playlist: playlist.State = .{}; // For change detection
 var g_initialized: bool = false;
 
 // Error rate limiting for broadcast errors
@@ -180,6 +197,11 @@ fn initTimerCallback() callconv(.c) void {
     g_last_tracks = tracks.State.poll(&backend);
     g_last_tempomap = tempomap.State.poll(&backend);
 
+    // Load playlist state from ProjExtState
+    g_playlist_state.loadAll(&backend);
+    g_last_playlist = g_playlist_state;
+    logging.info("Loaded {d} playlists from project", .{g_playlist_state.playlist_count});
+
     logging.info("WebSocket server started on port {d}", .{g_port});
 
     // Switch to processing timer
@@ -201,7 +223,7 @@ fn processTimerCallback() callconv(.c) void {
     while (shared_state.popCommand()) |cmd| {
         var command = cmd;
         defer command.deinit();
-        commands.dispatch(&backend, command.client_id, command.data, shared_state, g_gesture_state);
+        commands.dispatch(&backend, command.client_id, command.data, shared_state, g_gesture_state, &g_playlist_state);
     }
 
     // Clean up gestures and toggle subscriptions for disconnected clients
@@ -288,6 +310,11 @@ fn processTimerCallback() callconv(.c) void {
             if (tmap.toJson(&buf6)) |json| {
                 shared_state.sendToClient(client_id, json);
             }
+            // Playlist (cue list)
+            var buf7: [8192]u8 = undefined;
+            if (g_playlist_state.toJson(&buf7, g_last_markers.regions[0..g_last_markers.region_count])) |json| {
+                shared_state.sendToClient(client_id, json);
+            }
         }
     }
 
@@ -372,6 +399,211 @@ fn processTimerCallback() callconv(.c) void {
         }
     }
 
+    // Sync playlist engine with external transport changes
+    // (user paused/stopped REAPER transport outside of our control)
+    if (g_playlist_state.engine.isActive()) {
+        const transport_playing = transport.PlayState.isPlaying(current_transport.play_state);
+        const transport_stopped = current_transport.play_state == transport.PlayState.STOPPED;
+
+        if (g_playlist_state.engine.isPlaying() and !transport_playing) {
+            // Engine thinks it's playing but transport isn't
+            if (transport_stopped) {
+                _ = g_playlist_state.engine.stop();
+                backend.setRepeat(false);
+                backend.clearLoopPoints();
+                logging.debug("Stopped playlist engine - transport stopped externally", .{});
+            } else {
+                // Transport paused
+                _ = g_playlist_state.engine.pause();
+                logging.debug("Paused playlist engine - transport paused externally", .{});
+            }
+            // Broadcast state change
+            var buf: [8192]u8 = undefined;
+            if (g_playlist_state.toJson(&buf, g_last_markers.regions[0..g_last_markers.region_count])) |json| {
+                shared_state.broadcast(json);
+            }
+        }
+    }
+
+    // Playlist engine tick (when playing)
+    if (g_playlist_state.engine.isPlaying()) {
+        const current_pos = current_transport.play_position;
+
+        // Get current entry's region info
+        if (g_playlist_state.getPlaylist(g_playlist_state.engine.playlist_idx)) |p| {
+            if (g_playlist_state.engine.entry_idx < p.entry_count) {
+                const entry = &p.entries[g_playlist_state.engine.entry_idx];
+
+                // Find region by ID in cached markers state
+                var region_start: f64 = 0;
+                var region_end: f64 = 0;
+                var region_found = false;
+                for (g_last_markers.regions[0..g_last_markers.region_count]) |*r| {
+                    if (r.id == entry.region_id) {
+                        region_start = r.start;
+                        region_end = r.end;
+                        region_found = true;
+                        break;
+                    }
+                }
+
+                if (region_found) {
+                    // Get next entry info if available
+                    const next_entry: ?playlist.NextEntryInfo = blk: {
+                        if (g_playlist_state.engine.entry_idx + 1 < p.entry_count) {
+                            const next = &p.entries[g_playlist_state.engine.entry_idx + 1];
+                            // Find next region's start and end
+                            for (g_last_markers.regions[0..g_last_markers.region_count]) |*r| {
+                                if (r.id == next.region_id) {
+                                    break :blk playlist.NextEntryInfo{
+                                        .loop_count = next.loop_count,
+                                        .region_start = r.start,
+                                        .region_end = r.end,
+                                    };
+                                }
+                            }
+                        }
+                        break :blk null;
+                    };
+
+                    // Tick the engine
+                    const prev_pos = g_playlist_state.engine.prev_pos;
+                    const loops_rem = g_playlist_state.engine.loops_remaining;
+                    const iter = g_playlist_state.engine.current_loop_iteration;
+                    const pending = g_playlist_state.engine.next_loop_pending;
+
+                    // Calculate bar length for non-contiguous transition timing
+                    // bar_length = beats_per_bar * seconds_per_beat
+                    const bpm = current_transport.bpm;
+                    const beats_per_bar = current_transport.time_sig_num;
+                    const bar_length = if (bpm > 0) beats_per_bar * (60.0 / bpm) else 2.0;
+
+                    logTickToFile("TICK: pos={d:.3} prev={d:.3} region=[{d:.3},{d:.3}] loops_rem={d} iter={d} pending={}", .{
+                        current_pos, prev_pos, region_start, region_end, loops_rem, iter, pending,
+                    });
+
+                    const action = g_playlist_state.engine.tick(
+                        current_pos,
+                        region_end,
+                        region_start,
+                        next_entry,
+                        p.entry_count,
+                        bar_length,
+                    );
+
+                    // Log action result
+                    switch (action) {
+                        .none => {},
+                        .broadcast_state => logTickToFile("  -> ACTION: broadcast_state (loops_rem now {d})", .{g_playlist_state.engine.loops_remaining}),
+                        .setup_native_loop => |info| logTickToFile("  -> ACTION: setup_native_loop [{d:.3},{d:.3}]", .{ info.region_start, info.region_end }),
+                        .stop => logTickToFile("  -> ACTION: stop", .{}),
+                        .seek_to => |pos| logTickToFile("  -> ACTION: seek_to {d:.3}", .{pos}),
+                    }
+
+                    // Handle action
+                    switch (action) {
+                        .seek_to => |pos| {
+                            // Skip seek if already at target (contiguous regions)
+                            // This avoids audio hiccups when transitioning between
+                            // regions that share a boundary
+                            const distance = @abs(current_pos - pos);
+                            if (distance > 0.1) {
+                                backend.setCursorPos(pos);
+                            }
+                        },
+                        .setup_native_loop => |loop_info| {
+                            // Transition to new region with native looping
+                            // Check if this is a non-contiguous transition (needs seek)
+                            const approaching_contiguous = current_pos < loop_info.region_start and
+                                (loop_info.region_start - current_pos) < 0.2;
+                            const already_there = @abs(current_pos - loop_info.region_start) < 0.1;
+                            const needs_seek = !approaching_contiguous and !already_there;
+
+                            if (needs_seek) {
+                                // Non-contiguous transition - disable repeat first to prevent
+                                // REAPER from looping back to old region while we transition
+                                backend.setRepeat(false);
+                                backend.setCursorPos(loop_info.region_start);
+                            }
+                            // Set loop points to new region boundaries
+                            backend.setLoopPoints(loop_info.region_start, loop_info.region_end);
+                            // Enable repeat (re-enable after seek, or ensure it's on for contiguous)
+                            backend.setRepeat(true);
+                            // Note: Don't broadcast here - engine will broadcast when transition completes
+                        },
+                        .stop => {
+                            // Engine stopped - disable repeat and clear loop points
+                            backend.setRepeat(false);
+                            backend.clearLoopPoints();
+                            // Stop transport if playlist has stopAfterLast enabled
+                            if (p.stop_after_last) {
+                                backend.runCommand(reaper.Command.STOP);
+                            }
+                            // State will be broadcast via change detection
+                        },
+                        .broadcast_state => {
+                            // Immediate broadcast needed
+                            var buf: [8192]u8 = undefined;
+                            if (g_playlist_state.toJson(&buf, g_last_markers.regions[0..g_last_markers.region_count])) |json| {
+                                shared_state.broadcast(json);
+                            }
+                        },
+                        .none => {},
+                    }
+                } else {
+                    // Current region was deleted - skip to next valid entry
+                    logging.debug("Region {d} deleted, finding next valid entry", .{entry.region_id});
+
+                    // Find next entry with a valid region
+                    var next_valid_idx: ?usize = null;
+                    var next_bounds: ?struct { start: f64, end: f64 } = null;
+                    var search_idx = g_playlist_state.engine.entry_idx + 1;
+                    while (search_idx < p.entry_count) : (search_idx += 1) {
+                        const candidate = &p.entries[search_idx];
+                        for (g_last_markers.regions[0..g_last_markers.region_count]) |*r| {
+                            if (r.id == candidate.region_id) {
+                                next_valid_idx = search_idx;
+                                next_bounds = .{ .start = r.start, .end = r.end };
+                                break;
+                            }
+                        }
+                        if (next_valid_idx != null) break;
+                    }
+
+                    if (next_valid_idx) |valid_idx| {
+                        // Advance to valid entry
+                        const next_entry_data = &p.entries[valid_idx];
+                        g_playlist_state.engine.entry_idx = valid_idx;
+                        g_playlist_state.engine.loops_remaining = next_entry_data.loop_count;
+                        g_playlist_state.engine.current_loop_iteration = 1;
+                        g_playlist_state.engine.advance_after_loop = false;
+                        g_playlist_state.engine.next_loop_pending = false;
+
+                        // Set up loop for valid region
+                        if (next_bounds) |bounds| {
+                            backend.setCursorPos(bounds.start);
+                            backend.setLoopPoints(bounds.start, bounds.end);
+                        }
+
+                        logging.debug("Skipped to entry {d}", .{valid_idx});
+                    } else {
+                        // No valid entries remaining - stop
+                        _ = g_playlist_state.engine.stop();
+                        backend.setRepeat(false);
+                        backend.clearLoopPoints();
+                        logging.debug("No valid entries remaining, stopped playlist", .{});
+                    }
+
+                    // Broadcast state change
+                    var buf: [8192]u8 = undefined;
+                    if (g_playlist_state.toJson(&buf, g_last_markers.regions[0..g_last_markers.region_count])) |json| {
+                        shared_state.broadcast(json);
+                    }
+                }
+            }
+        }
+    }
+
     // ========================================================================
     // MEDIUM TIER (5Hz) - Project state, Markers, Regions, Items
     // These change less frequently and don't need instant feedback
@@ -379,8 +611,36 @@ fn processTimerCallback() callconv(.c) void {
     if (g_frame_counter % MEDIUM_TIER_INTERVAL == 0) {
         // Poll project state (undo/redo) and broadcast changes
         const current_project = project.State.poll(&backend);
+
+        // Check for project identity change (tab switch or different file in same tab)
+        if (current_project.projectChanged(&g_last_project)) {
+            logging.info("Project changed: {s}", .{
+                if (current_project.projectName().len > 0) current_project.projectName() else "(Unsaved)",
+            });
+
+            // Stop playlist engine if playing
+            if (g_playlist_state.engine.isActive()) {
+                _ = g_playlist_state.engine.stop();
+                backend.clearLoopPoints();
+                logging.info("Stopped playlist engine due to project change", .{});
+            }
+
+            // Reload playlists from new project's ProjExtState
+            g_playlist_state.reset();
+            g_playlist_state.loadAll(&backend);
+            logging.info("Loaded {d} playlists from new project", .{g_playlist_state.playlist_count});
+
+            // Broadcast updated playlist state
+            // Note: g_last_markers still has old project data, pass null - next tick will have accurate regions
+            var buf2: [8192]u8 = undefined;
+            if (g_playlist_state.toJson(&buf2, null)) |json| {
+                shared_state.broadcast(json);
+            }
+            g_last_playlist = g_playlist_state;
+        }
+
         if (!current_project.eql(&g_last_project)) {
-            var buf: [512]u8 = undefined;
+            var buf: [1024]u8 = undefined;
             if (current_project.toJson(&buf)) |json| {
                 shared_state.broadcast(json);
             }
@@ -412,6 +672,16 @@ fn processTimerCallback() callconv(.c) void {
             }
         }
         g_last_items = current_items;
+
+        // Playlist state change detection
+        // (Playlist state is modified by commands, not polled from REAPER)
+        if (!g_playlist_state.eql(&g_last_playlist)) {
+            var buf: [8192]u8 = undefined;
+            if (g_playlist_state.toJson(&buf, g_last_markers.regions[0..g_last_markers.region_count])) |json| {
+                shared_state.broadcast(json);
+            }
+            g_last_playlist = g_playlist_state;
+        }
 
         // Poll FX state for all tracks and update g_last_tracks
         // (FX data is merged into 30Hz track events, not broadcast separately)

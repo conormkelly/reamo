@@ -169,6 +169,27 @@ pub const TransportMethods = struct {
     }
 
     // =========================================================================
+    // Loop points (for native looping with repeat mode)
+    // =========================================================================
+
+    pub fn getLoopPoints(self: anytype) types.TimeSelection {
+        self.recordCall(.getLoopPoints);
+        return .{ .start = self.loop_start, .end = self.loop_end };
+    }
+
+    pub fn setLoopPoints(self: anytype, start: f64, end: f64) void {
+        self.recordCall(.setLoopPoints);
+        self.loop_start = start;
+        self.loop_end = end;
+    }
+
+    pub fn clearLoopPoints(self: anytype) void {
+        self.recordCall(.clearLoopPoints);
+        self.loop_start = 0;
+        self.loop_end = 0;
+    }
+
+    // =========================================================================
     // Repeat
     // =========================================================================
 
@@ -181,4 +202,5 @@ pub const TransportMethods = struct {
         self.recordCall(.setRepeat);
         self.repeat_enabled = enabled;
     }
+
 };

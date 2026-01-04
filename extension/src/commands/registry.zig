@@ -5,7 +5,6 @@
 ///
 /// The tuple is unrolled at comptime via `inline for`, so there's no runtime
 /// loop overhead - each handler is called directly with the concrete type.
-
 const transport = @import("transport.zig");
 const markers = @import("markers.zig");
 const regions = @import("regions.zig");
@@ -27,6 +26,8 @@ const midi = @import("midi.zig");
 const project_notes = @import("project_notes.zig");
 const fx = @import("fx.zig");
 const send = @import("send.zig");
+const playlist_cmds = @import("playlist.zig");
+const preferences = @import("preferences.zig");
 
 /// Comptime tuple of (command_name, handler_fn) pairs.
 /// Used by dispatch() with inline for to call handlers with anytype.
@@ -171,4 +172,25 @@ pub const all = .{
     // Sends
     .{ "send/setVolume", send.handleSetVolume },
     .{ "send/setMute", send.handleSetMute },
+
+    // Playlists (Cue List)
+    .{ "playlist/create", playlist_cmds.handleCreate },
+    .{ "playlist/delete", playlist_cmds.handleDelete },
+    .{ "playlist/rename", playlist_cmds.handleRename },
+    .{ "playlist/addEntry", playlist_cmds.handleAddEntry },
+    .{ "playlist/removeEntry", playlist_cmds.handleRemoveEntry },
+    .{ "playlist/setLoopCount", playlist_cmds.handleSetLoopCount },
+    .{ "playlist/setStopAfterLast", playlist_cmds.handleSetStopAfterLast },
+    .{ "playlist/reorderEntry", playlist_cmds.handleReorderEntry },
+    .{ "playlist/play", playlist_cmds.handlePlay },
+    .{ "playlist/playFromEntry", playlist_cmds.handlePlayFromEntry },
+    .{ "playlist/pause", playlist_cmds.handlePause },
+    .{ "playlist/stop", playlist_cmds.handleStop },
+    .{ "playlist/next", playlist_cmds.handleNext },
+    .{ "playlist/prev", playlist_cmds.handlePrev },
+    .{ "playlist/advanceAfterLoop", playlist_cmds.handleAdvanceAfterLoop },
+
+    // Preferences
+    .{ "preferences/getSeekSettings", preferences.handleGetSeekSettings },
+    .{ "preferences/setSeekSettings", preferences.handleSetSeekSettings },
 };

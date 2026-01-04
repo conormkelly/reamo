@@ -289,16 +289,30 @@ Core navigation architecture for Reamo. Tab bar with persistent transport.
 ## Cue List
 
 > **Full specification:** [features/CUE_LIST_FEATURE.md](features/CUE_LIST_FEATURE.md)
+> **Backend plan:** [CUE_LIST_BACKEND_PLAN.md](CUE_LIST_BACKEND_PLAN.md)
 
 Vertical list view of regions for quick tap-to-jump navigation, plus playlist mode with loop counts for arrangement sketching and live performance.
 
 **Key capabilities:**
 - Navigation mode: Tap region → jump to position
 - Playlist mode: Define sequence with loop counts, auto-advance on region end
-- SWS import: Read-only import of existing SWS Region Playlists from .RPP files
+- SWS import: Read-only import of existing SWS Region Playlists from .RPP files (Phase 10, pending)
 - Arrangement sketching: "What would Verse x4, Chorus x2 sound like?" without duplicating regions
 
-**Implementation:** Requires extension work for playlist playback engine (boundary detection, seeking). Frontend-only for basic navigation mode.
+**Backend: COMPLETE** (Phases 0-9)
+- [x] Playlist CRUD commands (create, delete, rename, addEntry, removeEntry, setLoopCount, reorderEntry)
+- [x] Playback commands (play, playFromEntry, pause, stop, next, prev, advanceAfterLoop)
+- [x] Seamless looping via native loop points (no audio hiccup)
+- [x] Playlist event broadcasting with engine state
+- [x] ProjExtState persistence (playlists save with project)
+- [x] Preferences commands (getSeekSettings, setSeekSettings)
+- [x] Edge case handling (region validation, deleted region skip, transport sync, project switch)
+
+**Frontend: PENDING**
+- [ ] Cue List view with region list
+- [ ] Playlist management UI (create, edit, reorder entries)
+- [ ] Playback controls and progress indicator
+- [ ] Loop count editing
 
 ---
 

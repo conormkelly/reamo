@@ -157,6 +157,9 @@ pub const Api = struct {
     projectconfig_var_getoffs: ?*const fn ([*:0]const u8, ?*c_int) callconv(.c) c_int = null,
     projectconfig_var_addr: ?*const fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque = null,
 
+    // Global config variables (for smoothseek, etc.)
+    getConfigVar: ?*const fn ([*:0]const u8, *c_int) callconv(.c) ?*anyopaque = null,
+
     // UI refresh
     updateTimeline_fn: ?*const fn () callconv(.c) void = null,
 
@@ -192,6 +195,10 @@ pub const Api = struct {
     getTrackSendName: ?*const fn (?*anyopaque, c_int, [*]u8, c_int) callconv(.c) bool = null,
     csurf_OnSendVolumeChange: ?*const fn (?*anyopaque, c_int, f64, bool) callconv(.c) f64 = null,
     toggleTrackSendUIMute: ?*const fn (?*anyopaque, c_int) callconv(.c) bool = null,
+
+    // Project enumeration and identity
+    enumProjects_fn: ?*const fn (c_int, [*]u8, c_int) callconv(.c) ?*anyopaque = null,
+    getProjectName_fn: ?*const fn (?*anyopaque, [*]u8, c_int) callconv(.c) void = null,
 
     // Load API from REAPER plugin info
     pub fn load(info: *PluginInfo) ?Api {
@@ -299,6 +306,8 @@ pub const Api = struct {
             // Project config variables
             .projectconfig_var_getoffs = getFunc(info, "projectconfig_var_getoffs", fn ([*:0]const u8, ?*c_int) callconv(.c) c_int),
             .projectconfig_var_addr = getFunc(info, "projectconfig_var_addr", fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque),
+            // Global config variables
+            .getConfigVar = getFunc(info, "get_config_var", fn ([*:0]const u8, *c_int) callconv(.c) ?*anyopaque),
             // UI refresh
             .updateTimeline_fn = getFunc(info, "UpdateTimeline", fn () callconv(.c) void),
             // Resource path
@@ -327,6 +336,9 @@ pub const Api = struct {
             .getTrackSendName = getFunc(info, "GetTrackSendName", fn (?*anyopaque, c_int, [*]u8, c_int) callconv(.c) bool),
             .csurf_OnSendVolumeChange = getFunc(info, "CSurf_OnSendVolumeChange", fn (?*anyopaque, c_int, f64, bool) callconv(.c) f64),
             .toggleTrackSendUIMute = getFunc(info, "ToggleTrackSendUIMute", fn (?*anyopaque, c_int) callconv(.c) bool),
+            // Project enumeration and identity
+            .enumProjects_fn = getFunc(info, "EnumProjects", fn (c_int, [*]u8, c_int) callconv(.c) ?*anyopaque),
+            .getProjectName_fn = getFunc(info, "GetProjectName", fn (?*anyopaque, [*]u8, c_int) callconv(.c) void),
         };
     }
 
@@ -435,6 +447,28 @@ pub const Api = struct {
         self.setTimeSelection(0, 0);
     }
 
+    // Loop points (separate from time selection - used with repeat mode)
+    pub fn getLoopPoints(self: *const Api) TimeSelection {
+        var start: f64 = 0;
+        var end: f64 = 0;
+        if (self.getSetLoopTimeRange2) |f| {
+            f(null, false, true, &start, &end, false); // isLoop=true
+        }
+        return .{ .start = start, .end = end };
+    }
+
+    pub fn setLoopPoints(self: *const Api, start: f64, end: f64) void {
+        if (self.getSetLoopTimeRange2) |f| {
+            var s = start;
+            var e = end;
+            f(null, true, true, &s, &e, false); // isLoop=true
+        }
+    }
+
+    pub fn clearLoopPoints(self: *const Api) void {
+        self.setLoopPoints(0, 0);
+    }
+
     // Repeat state: -1 = query, 0 = disable, 1 = enable
     pub fn getRepeat(self: *const Api) bool {
         const f = self.getSetRepeat orelse return false;
@@ -448,6 +482,79 @@ pub const Api = struct {
 
     pub fn toggleRepeat(self: *const Api) void {
         self.setRepeat(!self.getRepeat());
+    }
+
+    // Smooth seek config (REAPER global preference)
+    // When enabled, seeks are queued and executed at measure boundaries with pre-buffering
+    pub fn getSmoothSeekEnabled(self: *const Api) bool {
+        const f = self.getConfigVar orelse return false;
+        var size: c_int = 0;
+        const ptr = f("smoothseek", &size);
+        if (ptr == null or size != @sizeOf(c_int)) return false;
+        const value_ptr: *c_int = @ptrCast(@alignCast(ptr));
+        return value_ptr.* != 0;
+    }
+
+    pub fn setSmoothSeekEnabled(self: *const Api, enabled: bool) void {
+        const f = self.getConfigVar orelse return;
+        var size: c_int = 0;
+        const ptr = f("smoothseek", &size);
+        if (ptr == null or size != @sizeOf(c_int)) return;
+        const value_ptr: *c_int = @ptrCast(@alignCast(ptr));
+        // Preserve bit 1 (mode), only modify bit 0 (enabled)
+        if (enabled) {
+            value_ptr.* |= 1; // Set bit 0
+        } else {
+            value_ptr.* &= ~@as(c_int, 1); // Clear bit 0
+        }
+    }
+
+    /// Get smooth seek measures (how many measures before seek executes)
+    pub fn getSmoothSeekMeasures(self: *const Api) c_int {
+        const f = self.getConfigVar orelse return 0;
+        var size: c_int = 0;
+        const ptr = f("smoothseekmeas", &size);
+        if (ptr == null or size != @sizeOf(c_int)) return 0;
+        const value_ptr: *c_int = @ptrCast(@alignCast(ptr));
+        return value_ptr.*;
+    }
+
+    pub fn setSmoothSeekMeasures(self: *const Api, measures: c_int) void {
+        const f = self.getConfigVar orelse return;
+        var size: c_int = 0;
+        const ptr = f("smoothseekmeas", &size);
+        if (ptr == null or size != @sizeOf(c_int)) return;
+        const value_ptr: *c_int = @ptrCast(@alignCast(ptr));
+        value_ptr.* = measures;
+    }
+
+    /// Get smooth seek mode from bit 1 of smoothseek config
+    /// Returns: 0 = "measures" mode (play to end of N measures)
+    ///          1 = "marker" mode (play to next marker/region boundary)
+    pub fn getSeekMode(self: *const Api) c_int {
+        const f = self.getConfigVar orelse return 0;
+        var size: c_int = 0;
+        const ptr = f("smoothseek", &size);
+        if (ptr == null or size != @sizeOf(c_int)) return 0;
+        const value_ptr: *c_int = @ptrCast(@alignCast(ptr));
+        // Bit 1 controls mode: 0=measures, 1=marker/region
+        return (value_ptr.* >> 1) & 1;
+    }
+
+    /// Set smooth seek mode via bit 1 of smoothseek config
+    /// mode: 0 = "measures", 1 = "marker"
+    pub fn setSeekMode(self: *const Api, mode: c_int) void {
+        const f = self.getConfigVar orelse return;
+        var size: c_int = 0;
+        const ptr = f("smoothseek", &size);
+        if (ptr == null or size != @sizeOf(c_int)) return;
+        const value_ptr: *c_int = @ptrCast(@alignCast(ptr));
+        // Preserve bit 0 (enabled), only modify bit 1 (mode)
+        if (mode != 0) {
+            value_ptr.* |= 2; // Set bit 1 (marker mode)
+        } else {
+            value_ptr.* &= ~@as(c_int, 2); // Clear bit 1 (measures mode)
+        }
     }
 
     // Tempo: set BPM for current project
@@ -1606,6 +1713,38 @@ pub const Api = struct {
         const prog: c_int = @as(c_int, program & 0x7F);
         f(0, status, prog, 0); // VKB - for actual parameter control
         f(1, status, prog, 0); // Control - for MIDI Learn
+    }
+
+    // Project enumeration and identity
+
+    /// Project identity info returned by enumProjects
+    pub const ProjectInfo = struct {
+        project: ?*anyopaque, // ReaProject* pointer (identifies tab, not file!)
+        path: []const u8, // Full path to .rpp file (empty string if unsaved)
+    };
+
+    /// Get current project info (pointer + full path).
+    /// The path buffer is caller-provided and filled with the project's full path.
+    /// Returns null if the API is unavailable.
+    /// Note: project pointer identifies the TAB, not the file! Same pointer persists
+    /// when opening a different file in the same tab. Always compare BOTH pointer AND path.
+    pub fn enumCurrentProject(self: *const Api, path_buf: []u8) ?ProjectInfo {
+        const f = self.enumProjects_fn orelse return null;
+        const project = f(-1, path_buf.ptr, @intCast(path_buf.len));
+        const path_len = std.mem.indexOfScalar(u8, path_buf, 0) orelse path_buf.len;
+        return .{
+            .project = project,
+            .path = path_buf[0..path_len],
+        };
+    }
+
+    /// Get project name (filename only, e.g. "MySong.rpp").
+    /// For unsaved projects, returns empty string.
+    pub fn getProjectName(self: *const Api, project: ?*anyopaque, name_buf: []u8) []const u8 {
+        const f = self.getProjectName_fn orelse return "";
+        f(project, name_buf.ptr, @intCast(name_buf.len));
+        const name_len = std.mem.indexOfScalar(u8, name_buf, 0) orelse name_buf.len;
+        return name_buf[0..name_len];
     }
 };
 
