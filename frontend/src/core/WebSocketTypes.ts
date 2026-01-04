@@ -84,6 +84,7 @@ export type EventPayload =
 
 /** Lightweight transport tick event (position updates during playback) */
 export interface TransportTickEventPayload {
+  p: number; // Position in seconds (for time display, critical for seeks)
   t: number; // Server timestamp in ms
   b: number; // Beat position (quarter notes from project start)
   bpm: number; // Quarter-note BPM (for prediction math)

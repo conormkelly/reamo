@@ -226,14 +226,16 @@ pub const State = struct {
         return stream.getWritten();
     }
 
-    // Build lightweight tick JSON (~120 bytes vs ~350 for full)
+    // Build lightweight tick JSON (~140 bytes vs ~350 for full)
     // Used during playback when only position has changed
-    // Enhanced format includes BPM and time sig for tempo-map-aware prediction
+    // Enhanced format includes position (seconds), BPM and time sig
     pub fn toTickJson(self: State, buf: []u8) ?[]const u8 {
         var stream = std.io.fixedBufferStream(buf);
         const writer = stream.writer();
 
-        writer.print("{{\"type\":\"event\",\"event\":\"tt\",\"payload\":{{\"t\":{d:.3},", .{self.server_time_ms}) catch return null;
+        // Include position (seconds) for accurate time display after seeks
+        const position = truncateMs(self.currentPosition());
+        writer.print("{{\"type\":\"event\",\"event\":\"tt\",\"payload\":{{\"p\":{d:.3},\"t\":{d:.3},", .{ position, self.server_time_ms }) catch return null;
 
         // full_beat_position - null if corrupt
         if (self.full_beat_position) |b| {
@@ -496,6 +498,7 @@ test "toTickJson produces enhanced tick format" {
         .server_time_ms = 1234567890.123,
         .full_beat_position = 45.678,
         .play_state = 1,
+        .play_position = 22.875, // Position in seconds
         .bpm = 127.5,
         .time_sig_num = 6,
         .time_sig_denom = 8,
@@ -509,6 +512,7 @@ test "toTickJson produces enhanced tick format" {
 
     // Verify enhanced tick format fields
     try std.testing.expect(std.mem.indexOf(u8, json, "\"event\":\"tt\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"p\":22.875") != null); // Position in seconds
     try std.testing.expect(std.mem.indexOf(u8, json, "\"t\":1234567890.123") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"b\":45.678") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"bpm\":127.5") != null);
@@ -520,8 +524,8 @@ test "toTickJson produces enhanced tick format" {
     try std.testing.expect(std.mem.indexOf(u8, json, "playState") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "timeSelection") == null);
 
-    // Verify it's reasonably compact (~120 bytes)
-    try std.testing.expect(json.len < 150);
+    // Verify it's reasonably compact (~140 bytes with position field)
+    try std.testing.expect(json.len < 170);
 }
 
 test "toJson outputs null for corrupt beat data" {

@@ -209,6 +209,34 @@ export class TransportAnimationEngine {
   }
 
   /**
+   * Called when lightweight tick event arrives (~30Hz during playback).
+   * Updates position and bar.beat.ticks for accurate display during playback,
+   * especially important after seeks where client-side interpolation would be wrong.
+   */
+  onTickUpdate(position: number, positionBeats: string): void {
+    this.lastPositionBeats = positionBeats;
+
+    // Update server position and correct local interpolation
+    // This handles seeks during playback where position jumps
+    const now = performance.now();
+    const elapsed = (now - this.lastServerTime) / 1000;
+    const predicted = this.serverPosition + elapsed;
+    const error = Math.abs(position - predicted);
+
+    if (error > SNAP_THRESHOLD) {
+      // Large error (seek) - snap to server position
+      this.localPosition = position;
+    } else if (error > SMOOTH_THRESHOLD) {
+      // Small drift - smooth correction
+      this.localPosition += (position - this.localPosition) * CORRECTION_FACTOR;
+    }
+    // Errors below SMOOTH_THRESHOLD are ignored (normal playback variance)
+
+    this.serverPosition = position;
+    this.lastServerTime = now;
+  }
+
+  /**
    * Get the current beat position string.
    *
    * We don't interpolate bar.beat.ticks because calculating it correctly

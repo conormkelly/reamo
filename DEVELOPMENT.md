@@ -613,6 +613,40 @@ function SmoothPosition() {
 
 **When to use:** Any UI element that displays transport position during playback and needs smooth visual updates.
 
+#### Transport Event Architecture
+
+The extension sends **two types of transport events** to minimize bandwidth while maintaining accurate display:
+
+| Event | Size | Trigger | Contains |
+|-------|------|---------|----------|
+| `transport` | ~350 bytes | State changes (play/pause/stop), seeks when stopped | Full transport state, track meters, loop points |
+| `tt` (tick) | ~140 bytes | Position changes during playback (~30Hz) | Position (seconds), beat position, BPM, time signature |
+
+**Key insight:** During playback, only `tt` events are sent. If a component only listens to `transport` events, its display will update on play/pause/stop but freeze during playback.
+
+**Event handler wiring in `store/index.ts`:**
+
+```typescript
+// Full transport event - state changes
+if (isTransportEvent(message)) {
+  transportEngine.onServerUpdate(data);  // Animation engine
+  // Also updates store state for React components
+}
+
+// Lightweight tick event - playback position updates
+else if (isTransportTickEvent(message)) {
+  const p = message.payload as TransportTickEventPayload;
+  transportSyncEngine.onTickEvent(p.t, p.b, p.bpm, p.ts, p.bbt);  // Clock sync engine
+  transportEngine.onTickUpdate(p.p, p.bbt);  // Animation engine - position + bar.beat.ticks
+}
+```
+
+**Critical:** Both `TransportSyncEngine` (for beat display) AND `TransportAnimationEngine` (for time display) must receive `tt` events. Missing either connection causes stale display during playback.
+
+**Why position (seconds) is in `tt` events:**
+
+Client-side interpolation works well for smooth animation but cannot handle seeks. When playlist mode jumps to a new region, the client's interpolated position drifts from reality. The `tt` event's `p` field (position in seconds) allows the animation engine to detect and correct large errors (>250ms = snap, >50ms = smooth correction).
+
 **Timing Race Condition:** The animation engine notifies subscribers synchronously, but React state updates are batched. If your callback uses derived values from React state (like `renderTimeToPercent` which depends on timeline bounds), the callback may see stale values on the first notification.
 
 **Fix pattern:** When derived values change, recalculate position in a `useLayoutEffect`:

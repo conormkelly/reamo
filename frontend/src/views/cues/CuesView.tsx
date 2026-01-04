@@ -27,6 +27,7 @@ import { playlist as playlistCmd } from '../../core/WebSocketCommands';
 import type { WSPlaylist, WSPlaylistEntry } from '../../core/WebSocketTypes';
 import type { Region } from '../../core/types';
 import { reaperColorToHexWithFallback } from '../../utils/color';
+import { useTransportAnimation } from '../../hooks';
 
 // Helper to format duration
 function formatDuration(seconds: number): string {
@@ -60,7 +61,6 @@ export function CuesView(): ReactElement {
   const isPlaylistActive = useReaperStore((s) => s.isPlaylistActive);
   const isPaused = useReaperStore((s) => s.isPaused);
   const advanceAfterLoop = useReaperStore((s) => s.advanceAfterLoop);
-  const positionSeconds = useReaperStore((s) => s.positionSeconds);
 
   // Local state
   const [selectedPlaylistIdx, setSelectedPlaylistIdx] = useState<number>(0);
@@ -395,7 +395,6 @@ export function CuesView(): ReactElement {
                   isSelected={selectedEntryIdx === idx}
                   loopsRemaining={isNowPlaying ? loopsRemaining : null}
                   currentLoopIteration={isNowPlaying ? currentLoopIteration : null}
-                  positionSeconds={isNowPlaying ? positionSeconds : null}
                   reorderMode={reorderMode}
                   onSelect={() => handleSelectEntry(idx)}
                   onSetLoopCount={(count) => handleSetLoopCount(idx, count)}
@@ -555,7 +554,6 @@ interface PlaylistEntryRowProps {
   isSelected: boolean;
   loopsRemaining: number | null;
   currentLoopIteration: number | null;
-  positionSeconds: number | null;
   reorderMode: boolean;
   onSelect: () => void;
   onSetLoopCount: (count: number) => void;
@@ -580,7 +578,6 @@ function PlaylistEntryRow({
   isSelected,
   loopsRemaining,
   currentLoopIteration,
-  positionSeconds,
   reorderMode,
   onSelect,
   onSetLoopCount,
@@ -601,6 +598,23 @@ function PlaylistEntryRow({
   const regionName = region?.name ?? `Region ${entry.regionId}`;
   const duration = region ? formatDuration(region.end - region.start) : '--:--';
 
+  // Ref for progress bar direct DOM updates at 60fps
+  const progressBarRef = useRef<HTMLDivElement>(null);
+
+  // Use the animation hook for 60fps progress bar updates when playing
+  useTransportAnimation(
+    useCallback((state) => {
+      if (!isNowPlaying || !region || !progressBarRef.current) return;
+      const regionDuration = region.end - region.start;
+      if (regionDuration > 0) {
+        const posInRegion = state.position - region.start;
+        const percent = Math.max(0, Math.min(100, (posInRegion / regionDuration) * 100));
+        progressBarRef.current.style.width = `${percent}%`;
+      }
+    }, [isNowPlaying, region]),
+    [isNowPlaying, region]
+  );
+
   // Loop progress display
   let loopProgress = '';
   if (isNowPlaying && currentLoopIteration !== null) {
@@ -609,17 +623,6 @@ function PlaylistEntryRow({
     } else if (entry.loopCount > 1 && loopsRemaining !== null) {
       // Show "Loop X of Y" using iteration count
       loopProgress = `Loop ${currentLoopIteration} of ${entry.loopCount}`;
-    }
-  }
-
-  // Calculate progress through current region (0-100%)
-  let progressPercent = 0;
-  if (isNowPlaying && region && positionSeconds !== null) {
-    const regionDuration = region.end - region.start;
-    if (regionDuration > 0) {
-      // Position is absolute, region.start/end are also absolute
-      const posInRegion = positionSeconds - region.start;
-      progressPercent = Math.max(0, Math.min(100, (posInRegion / regionDuration) * 100));
     }
   }
 
@@ -662,9 +665,10 @@ function PlaylistEntryRow({
       >
         {isNowPlaying && (
           <div
-            className="h-full transition-all duration-100"
+            ref={progressBarRef}
+            className="h-full"
             style={{
-              width: `${progressPercent}%`,
+              width: '0%',
               backgroundColor: regionColor,
             }}
           />

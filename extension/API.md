@@ -1727,6 +1727,42 @@ High-frequency event broadcast every ~30ms during playback, containing position-
 
 **Note:** The `t` and `b` fields are used for client-side beat prediction to achieve ±15ms visual accuracy over WiFi. See [Clock Sync](#clock-sync) for the synchronization protocol.
 
+### `tt` Event (Transport Tick)
+
+Lightweight transport tick event sent during playback when only position changes (~30Hz). Contains minimal data for efficient position updates without the overhead of full `transport` events.
+
+```json
+{
+  "type": "event",
+  "event": "tt",
+  "payload": {
+    "p": 45.500,
+    "t": 1704067200000.123,
+    "b": 91.000,
+    "bpm": 120.00,
+    "ts": [4, 4],
+    "bbt": "23.1.00"
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `p` | float | Position in seconds (critical for accurate display after seeks) |
+| `t` | float | Server timestamp in ms (high-precision, for clock sync) |
+| `b` | float | Raw beat position (total beats from project start) |
+| `bpm` | float | Current tempo (for tempo-map-aware prediction) |
+| `ts` | [int, int] | Time signature [numerator, denominator] |
+| `bbt` | string | Pre-computed bar.beat.ticks (e.g., "23.1.00") |
+
+**When sent:**
+- During playback when only position has changed (no state/tempo/time-sig changes)
+- Full `transport` events are sent on state changes (play/pause/stop) or tempo/time-sig changes
+
+**Frontend usage:**
+- `TransportSyncEngine` uses `tt` events for clock-synchronized beat display
+- `TransportAnimationEngine` uses the `p` field to correct client-side interpolation after seeks
+
 ### `tracks` Event
 
 ```json

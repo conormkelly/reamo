@@ -215,6 +215,9 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
       // Enhanced tick event - position + BPM + time sig + bar.beat.ticks
       const p = message.payload as TransportTickEventPayload;
       transportSyncEngine.onTickEvent(p.t, p.b, p.bpm, p.ts, p.bbt);
+      // Update animation engine with position (seconds) and bar.beat.ticks
+      // Position is critical for accurate display after seeks during playback
+      transportEngine.onTickUpdate(p.p, p.bbt);
     } else if (isProjectEvent(message)) {
       const p = message.payload as ProjectEventPayload;
       get().setReaperUndoState(p.canUndo, p.canRedo);
