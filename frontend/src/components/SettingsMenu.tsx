@@ -18,6 +18,9 @@ export interface SettingsMenuProps {
   currentView: ViewId;
   showRecordingActions: boolean;
   onToggleRecordingActions: () => void;
+  // Actions view settings
+  actionsAutoCollapse: boolean;
+  onToggleActionsAutoCollapse: () => void;
   className?: string;
 }
 
@@ -31,6 +34,8 @@ export function SettingsMenu({
   currentView,
   showRecordingActions,
   onToggleRecordingActions,
+  actionsAutoCollapse,
+  onToggleActionsAutoCollapse,
   className = '',
 }: SettingsMenuProps): ReactElement {
   const [isOpen, setIsOpen] = useState(false);
@@ -145,6 +150,31 @@ export function SettingsMenu({
                 <span className={`flex items-center gap-1.5 text-xs ${showRecordingActions ? 'text-green-400' : 'text-gray-500'}`}>
                   {showRecordingActions ? <Eye size={14} /> : <EyeOff size={14} />}
                   {showRecordingActions ? 'Visible' : 'Hidden'}
+                </span>
+              </button>
+            </>
+          )}
+
+          {/* Actions section - only shown in Actions view */}
+          {currentView === 'actions' && (
+            <>
+              <div className="my-2 border-t border-gray-700" />
+
+              <div className="px-3 py-1.5 text-xs text-gray-400 uppercase tracking-wide">
+                Actions
+              </div>
+
+              {/* Auto-collapse toggle */}
+              <button
+                onClick={() => {
+                  onToggleActionsAutoCollapse();
+                }}
+                className="w-full px-3 py-2 flex items-center justify-between hover:bg-gray-700/50 transition-colors"
+              >
+                <span className="text-sm">Auto-Collapse Others</span>
+                <span className={`flex items-center gap-1.5 text-xs ${actionsAutoCollapse ? 'text-green-400' : 'text-gray-500'}`}>
+                  {actionsAutoCollapse ? <Eye size={14} /> : <EyeOff size={14} />}
+                  {actionsAutoCollapse ? 'On' : 'Off'}
                 </span>
               </button>
             </>

@@ -16,6 +16,7 @@ import { createToolbarSlice, type ToolbarSlice } from './slices/toolbarSlice';
 import { createStudioLayoutSlice, type StudioLayoutState } from './slices/studioLayoutSlice';
 import { createNotesSlice, type NotesSlice } from './slices/notesSlice';
 import { createPlaylistSlice, type PlaylistSlice } from './slices/playlistSlice';
+import { createActionsViewSlice, type ActionsViewSlice } from './slices/actionsViewSlice';
 import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
 import { ActionCommands, SWSCommands } from '../core/types';
 import type {
@@ -50,7 +51,7 @@ import { transportEngine } from '../core/TransportAnimationEngine';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & StudioLayoutState & NotesSlice & PlaylistSlice & {
+export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & {
   // Response handler action (legacy HTTP)
   handleResponses: (responses: ParsedResponse[]) => void;
   // WebSocket message handler
@@ -79,6 +80,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   ...createStudioLayoutSlice(set, get, store),
   ...createNotesSlice(set, get, store),
   ...createPlaylistSlice(set, get, store),
+  ...createActionsViewSlice(set, get, store),
 
   // Handle incoming responses from REAPER
   handleResponses: (responses: ParsedResponse[]) => {
@@ -345,6 +347,8 @@ export type { StudioLayoutState, SectionId, SectionConfig } from './slices/studi
 export type { NotesSlice } from './slices/notesSlice';
 export { getNotesIsDirty, getNotesIsOverLimit, getNotesCanSave } from './slices/notesSlice';
 export type { PlaylistSlice } from './slices/playlistSlice';
+export type { ActionsViewSlice, ActionsSection, SectionAlign, VerticalAlign, SizeOption } from './slices/actionsViewSlice';
+export { ACTIONS_VIEW_STORAGE_KEY } from './slices/actionsViewSlice';
 
 // Expose store on window for E2E tests (development only)
 if (import.meta.env.DEV) {

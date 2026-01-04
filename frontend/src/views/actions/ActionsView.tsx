@@ -1,15 +1,305 @@
 /**
- * ActionsView - User-configurable quick action buttons
- * Grid of large touch targets for custom REAPER actions
+ * ActionsView - User-configurable quick action buttons organized in sections
+ * Mobile-first grid layout with named sections (like a phone home screen)
  */
 
-import type { ReactElement } from 'react';
+import { useState, useEffect, useCallback, type ReactElement } from 'react';
+import {
+  Pencil,
+  Plus,
+  LayoutGrid,
+  AlignVerticalJustifyStart,
+  AlignVerticalJustifyCenter,
+  AlignVerticalJustifyEnd,
+} from 'lucide-react';
+import { useReaperStore } from '../../store';
+import { useReaper } from '../../components/ReaperProvider';
+import { actionToggleState } from '../../core/WebSocketCommands';
+import { ActionsSection, SectionEditor } from './components';
+import { ToolbarEditor } from '../../components/Toolbar/ToolbarEditor';
+import type { ToolbarAction } from '../../store/slices/toolbarSlice';
+import type {
+  ActionsSection as ActionsSectionType,
+  VerticalAlign,
+  SizeOption,
+} from '../../store/slices/actionsViewSlice';
 
 export function ActionsView(): ReactElement {
+  const { sendCommand, connectionState } = useReaper();
+
+  // Store selectors
+  const sections = useReaperStore((s) => s.actionsSections);
+  const editMode = useReaperStore((s) => s.actionsEditMode);
+  const toggleStates = useReaperStore((s) => s.actionsToggleStates);
+  const verticalAlign = useReaperStore((s) => s.actionsVerticalAlign);
+  const loadFromStorage = useReaperStore((s) => s.loadActionsViewFromStorage);
+  const setEditMode = useReaperStore((s) => s.setActionsEditMode);
+  const setVerticalAlign = useReaperStore((s) => s.setActionsVerticalAlign);
+  const addSection = useReaperStore((s) => s.addSection);
+  const updateSection = useReaperStore((s) => s.updateSection);
+  const removeSection = useReaperStore((s) => s.removeSection);
+  const toggleSectionCollapse = useReaperStore((s) => s.toggleSectionCollapse);
+  const setSectionAlign = useReaperStore((s) => s.setSectionAlign);
+  const reorderSections = useReaperStore((s) => s.reorderSections);
+  const addActionToSection = useReaperStore((s) => s.addActionToSection);
+  const updateActionInSection = useReaperStore((s) => s.updateActionInSection);
+  const removeActionFromSection = useReaperStore((s) => s.removeActionFromSection);
+  const reorderActionsInSection = useReaperStore((s) => s.reorderActionsInSection);
+  const getCommandIds = useReaperStore((s) => s.getActionsReaperCommandIds);
+
+  // Local modal state
+  const [editingSection, setEditingSection] = useState<ActionsSectionType | null>(null);
+  const [isAddingSection, setIsAddingSection] = useState(false);
+  const [editingAction, setEditingAction] = useState<{
+    sectionId: string;
+    action: ToolbarAction;
+  } | null>(null);
+  const [addingToSectionId, setAddingToSectionId] = useState<string | null>(null);
+
+  // Section drag state
+  const [sectionDragFromIdx, setSectionDragFromIdx] = useState<number | null>(null);
+  const [sectionDragOverIdx, setSectionDragOverIdx] = useState<number | null>(null);
+
+  // Load from storage on mount
+  useEffect(() => {
+    loadFromStorage();
+  }, [loadFromStorage]);
+
+  // Subscribe to toggle states when connected
+  useEffect(() => {
+    if (connectionState !== 'connected') return;
+
+    const commandIds = getCommandIds();
+    if (commandIds.length === 0) return;
+
+    // Subscribe to toggle states
+    sendCommand(actionToggleState.subscribe(commandIds));
+
+    // Cleanup: unsubscribe when view unmounts or sections change
+    return () => {
+      sendCommand(actionToggleState.unsubscribe(commandIds));
+    };
+  }, [connectionState, sections, sendCommand, getCommandIds]);
+
+  // Section drag handlers
+  const handleSectionDragStart = useCallback((index: number) => {
+    setSectionDragFromIdx(index);
+  }, []);
+
+  const handleSectionDragOver = useCallback((index: number) => {
+    setSectionDragOverIdx(index);
+  }, []);
+
+  const handleSectionDragEnd = useCallback(() => {
+    if (
+      sectionDragFromIdx !== null &&
+      sectionDragOverIdx !== null &&
+      sectionDragFromIdx !== sectionDragOverIdx
+    ) {
+      reorderSections(sectionDragFromIdx, sectionDragOverIdx);
+    }
+    setSectionDragFromIdx(null);
+    setSectionDragOverIdx(null);
+  }, [sectionDragFromIdx, sectionDragOverIdx, reorderSections]);
+
+  // Section CRUD handlers
+  const handleAddSection = useCallback(
+    (data: { name: string; icon?: string; color?: string; buttonSize?: SizeOption; buttonSpacing?: SizeOption }) => {
+      addSection(data);
+    },
+    [addSection]
+  );
+
+  const handleUpdateSection = useCallback(
+    (data: { name: string; icon?: string; color?: string; buttonSize?: SizeOption; buttonSpacing?: SizeOption }) => {
+      if (editingSection) {
+        updateSection(editingSection.id, data);
+      }
+    },
+    [editingSection, updateSection]
+  );
+
+  const handleDeleteSection = useCallback(() => {
+    if (editingSection) {
+      removeSection(editingSection.id);
+    }
+  }, [editingSection, removeSection]);
+
+  // Action CRUD handlers
+  const handleSaveAction = useCallback(
+    (action: ToolbarAction) => {
+      if (editingAction) {
+        // Editing existing action
+        updateActionInSection(editingAction.sectionId, action.id, action);
+      } else if (addingToSectionId) {
+        // Adding new action
+        addActionToSection(addingToSectionId, action);
+      }
+      // Close modal after save
+      setAddingToSectionId(null);
+      setEditingAction(null);
+    },
+    [editingAction, addingToSectionId, updateActionInSection, addActionToSection]
+  );
+
+  const handleDeleteAction = useCallback(
+    (actionId: string) => {
+      if (editingAction) {
+        removeActionFromSection(editingAction.sectionId, actionId);
+      }
+      // Close modal after delete
+      setAddingToSectionId(null);
+      setEditingAction(null);
+    },
+    [editingAction, removeActionFromSection]
+  );
+
+  // Vertical alignment classes
+  const verticalAlignClass =
+    verticalAlign === 'center'
+      ? 'justify-center'
+      : verticalAlign === 'bottom'
+        ? 'justify-end'
+        : 'justify-start';
+
   return (
-    <div className="min-h-screen bg-gray-950 text-white p-4 flex flex-col items-center justify-center">
-      <h1 className="text-2xl font-bold mb-4">Actions View</h1>
-      <p className="text-gray-400">Quick actions coming soon</p>
+    <div className="h-full bg-gray-950 text-white flex flex-col">
+      {/* Header - positioned to avoid burger menu */}
+      <div className="flex items-center justify-end gap-2 p-4 pt-2">
+        {/* Vertical alignment buttons (edit mode only) */}
+        {editMode && (
+          <div className="flex items-center border border-gray-600 rounded overflow-hidden">
+            {(['top', 'center', 'bottom'] as VerticalAlign[]).map((align) => {
+              const Icon =
+                align === 'top'
+                  ? AlignVerticalJustifyStart
+                  : align === 'center'
+                    ? AlignVerticalJustifyCenter
+                    : AlignVerticalJustifyEnd;
+              return (
+                <button
+                  key={align}
+                  onClick={() => setVerticalAlign(align)}
+                  className={`p-1.5 transition-colors ${
+                    verticalAlign === align
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                  }`}
+                  title={`Align sections ${align}`}
+                >
+                  <Icon size={16} />
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Add section button (edit mode only) */}
+        {editMode && (
+          <button
+            onClick={() => setIsAddingSection(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors"
+          >
+            <Plus size={16} />
+            <span className="text-sm">Section</span>
+          </button>
+        )}
+
+        {/* Edit mode toggle */}
+        <button
+          onClick={() => setEditMode(!editMode)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
+            editMode
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+          }`}
+        >
+          <Pencil size={16} />
+          <span className="text-sm">{editMode ? 'Done' : 'Edit'}</span>
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className={`flex-1 overflow-auto p-4 pt-0 flex flex-col ${verticalAlignClass}`}>
+        {sections.length === 0 ? (
+          // Empty state
+          <div className="flex flex-col items-center justify-center text-center py-12">
+            <LayoutGrid size={48} className="text-gray-600 mb-4" />
+            <h2 className="text-xl font-medium text-gray-300 mb-2">No Sections Yet</h2>
+            <p className="text-gray-500 mb-6 max-w-xs">
+              Create sections to organize your quick actions, like Transport, FX, or Navigation.
+            </p>
+            <button
+              onClick={() => {
+                setEditMode(true);
+                setIsAddingSection(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition-colors"
+            >
+              <Plus size={18} />
+              <span>Create Section</span>
+            </button>
+          </div>
+        ) : (
+          // Sections list
+          <div className="space-y-4">
+            {sections.map((section, index) => (
+              <ActionsSection
+                key={section.id}
+                section={section}
+                editMode={editMode}
+                toggleStates={toggleStates}
+                onToggleCollapse={() => toggleSectionCollapse(section.id)}
+                onEditSection={() => setEditingSection(section)}
+                onSetAlign={(align) => setSectionAlign(section.id, align)}
+                onAddAction={() => setAddingToSectionId(section.id)}
+                onEditAction={(action) =>
+                  setEditingAction({ sectionId: section.id, action })
+                }
+                onReorderActions={(from, to) =>
+                  reorderActionsInSection(section.id, from, to)
+                }
+                index={index}
+                onDragSectionStart={handleSectionDragStart}
+                onDragSectionOver={handleSectionDragOver}
+                onDragSectionEnd={handleSectionDragEnd}
+                isSectionDragTarget={
+                  sectionDragOverIdx === index &&
+                  sectionDragFromIdx !== null &&
+                  sectionDragFromIdx !== index
+                }
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Section editor modal */}
+      {(isAddingSection || editingSection) && (
+        <SectionEditor
+          section={editingSection}
+          onSave={editingSection ? handleUpdateSection : handleAddSection}
+          onDelete={editingSection ? handleDeleteSection : undefined}
+          onClose={() => {
+            setIsAddingSection(false);
+            setEditingSection(null);
+          }}
+        />
+      )}
+
+      {/* Action editor modal (reuse ToolbarEditor) */}
+      {(addingToSectionId || editingAction) && (
+        <ToolbarEditor
+          action={editingAction?.action ?? null}
+          isNew={!editingAction}
+          onSave={handleSaveAction}
+          onDelete={handleDeleteAction}
+          onClose={() => {
+            setAddingToSectionId(null);
+            setEditingAction(null);
+          }}
+        />
+      )}
     </div>
   );
 }

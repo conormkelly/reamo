@@ -27,6 +27,8 @@ function AppContent() {
 
   const showRecordingActions = useReaperStore((s) => s.showRecordingActions);
   const setShowRecordingActions = useReaperStore((s) => s.setShowRecordingActions);
+  const actionsAutoCollapse = useReaperStore((s) => s.actionsAutoCollapse);
+  const setActionsAutoCollapse = useReaperStore((s) => s.setActionsAutoCollapse);
 
   // Detect mobile for RecordingActionsBar positioning
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
@@ -69,6 +71,8 @@ function AppContent() {
           currentView={currentView}
           showRecordingActions={showRecordingActions}
           onToggleRecordingActions={() => setShowRecordingActions(!showRecordingActions)}
+          actionsAutoCollapse={actionsAutoCollapse}
+          onToggleActionsAutoCollapse={() => setActionsAutoCollapse(!actionsAutoCollapse)}
         />
       </div>
 

@@ -8,11 +8,15 @@ import { useReaper } from '../ReaperProvider';
 import { action as actionCmd, midi as midiCmd } from '../../core/WebSocketCommands';
 import type { ToolbarAction, ToggleState } from '../../store/slices/toolbarSlice';
 
+// Size variants for buttons
+type ButtonSize = 'sm' | 'md' | 'lg';
+
 interface ToolbarButtonProps {
   action: ToolbarAction;
   toggleState?: ToggleState;
   editMode: boolean;
   onEdit: () => void;
+  size?: ButtonSize;
   // Drag and drop (edit mode only)
   index?: number;
   onDragStart?: (index: number) => void;
@@ -20,6 +24,13 @@ interface ToolbarButtonProps {
   onDragEnd?: () => void;
   isDragTarget?: boolean;
 }
+
+// Size configurations
+const SIZE_CONFIG = {
+  sm: { button: 'min-w-[48px] h-[48px] px-2 py-1.5', icon: 18, text: 'text-[10px]' },
+  md: { button: 'min-w-[60px] h-[60px] px-3 py-2', icon: 24, text: 'text-xs' },
+  lg: { button: 'min-w-[72px] h-[72px] px-4 py-2.5', icon: 28, text: 'text-sm' },
+};
 
 // Default colors
 const DEFAULT_BG_COLOR = '#374151'; // gray-700
@@ -42,12 +53,14 @@ export function ToolbarButton({
   toggleState,
   editMode,
   onEdit,
+  size = 'md',
   index,
   onDragStart,
   onDragOver,
   onDragEnd,
   isDragTarget,
 }: ToolbarButtonProps) {
+  const sizeConfig = SIZE_CONFIG[size];
   const { sendCommand } = useReaper();
 
   const handleClick = useCallback(() => {
@@ -114,7 +127,7 @@ export function ToolbarButton({
       onDragEnd={handleDragEnd}
       className={`
         relative flex flex-col items-center justify-center
-        min-w-[60px] h-[60px] px-3 py-2
+        ${sizeConfig.button}
         rounded-lg transition-all duration-100
         ${editMode ? 'ring-2 ring-blue-400 ring-opacity-50 cursor-grab active:cursor-grabbing' : ''}
         ${isDragTarget ? 'ring-2 ring-yellow-400 scale-105' : ''}
@@ -127,7 +140,7 @@ export function ToolbarButton({
       {/* Icon */}
       {IconComponent && (
         <IconComponent
-          size={24}
+          size={sizeConfig.icon}
           style={{ color: iconColor }}
           className="mb-1"
         />
@@ -135,7 +148,7 @@ export function ToolbarButton({
 
       {/* Label */}
       <span
-        className="text-xs font-medium truncate max-w-full"
+        className={`${sizeConfig.text} font-medium truncate max-w-full`}
         style={{ color: textColor }}
       >
         {action.label}
