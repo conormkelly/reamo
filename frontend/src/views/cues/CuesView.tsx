@@ -648,13 +648,14 @@ function PlaylistEntryRow({
         reorderMode ? 'touch-none select-none cursor-grab' : 'cursor-pointer'
       } ${
         isNowPlaying
-          ? 'bg-gray-800 rounded-r-lg border-l-4 border-l-blue-500'
+          ? 'bg-gray-800 rounded-lg'
           : isSelected
-            ? 'bg-gray-800 rounded-r-lg border-l-4 border-l-green-500'
+            ? 'bg-gray-800 rounded-lg border-l-4 border-l-blue-500'
             : 'bg-gray-800 hover:bg-gray-750 rounded-lg'
       } ${entry.deleted ? 'opacity-50' : ''} ${
         isDragging ? 'opacity-50 cursor-grabbing' : ''
       } ${isDropTarget ? 'ring-2 ring-blue-400' : ''}`}
+      style={isNowPlaying ? { borderLeft: `4px solid ${regionColor}`, borderRadius: '0.5rem' } : undefined}
       onClick={handleClick}
       onDoubleClick={onPlayFrom}
     >
