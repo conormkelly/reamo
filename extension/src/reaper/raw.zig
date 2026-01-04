@@ -199,6 +199,7 @@ pub const Api = struct {
     // Project enumeration and identity
     enumProjects_fn: ?*const fn (c_int, [*]u8, c_int) callconv(.c) ?*anyopaque = null,
     getProjectName_fn: ?*const fn (?*anyopaque, [*]u8, c_int) callconv(.c) void = null,
+    getMainHwnd_fn: ?*const fn () callconv(.c) ?*anyopaque = null,
 
     // Load API from REAPER plugin info
     pub fn load(info: *PluginInfo) ?Api {
@@ -339,6 +340,7 @@ pub const Api = struct {
             // Project enumeration and identity
             .enumProjects_fn = getFunc(info, "EnumProjects", fn (c_int, [*]u8, c_int) callconv(.c) ?*anyopaque),
             .getProjectName_fn = getFunc(info, "GetProjectName", fn (?*anyopaque, [*]u8, c_int) callconv(.c) void),
+            .getMainHwnd_fn = getFunc(info, "GetMainHwnd", fn () callconv(.c) ?*anyopaque),
         };
     }
 
@@ -1745,6 +1747,13 @@ pub const Api = struct {
         f(project, name_buf.ptr, @intCast(name_buf.len));
         const name_len = std.mem.indexOfScalar(u8, name_buf, 0) orelse name_buf.len;
         return name_buf[0..name_len];
+    }
+
+    /// Get REAPER's main window handle.
+    /// Returns null if main window not yet initialized (e.g., during startup modal).
+    pub fn getMainHwnd(self: *const Api) ?*anyopaque {
+        const f = self.getMainHwnd_fn orelse return null;
+        return f();
     }
 };
 
