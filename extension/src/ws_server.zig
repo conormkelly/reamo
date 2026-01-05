@@ -68,34 +68,49 @@ const CommandRingBuffer = struct {
 pub const TimePreciseFn = *const fn () callconv(.c) f64;
 
 // Shared state between WebSocket thread and main thread
+//
+// Fine-grained locking strategy (Phase 9 BACKEND_IMPROVEMENTS_PLAN.md):
+// - command_mutex: Dedicated lock for command queue (SPSC pattern)
+// - client_rwlock: RwLock for client map (read-heavy during broadcasts)
+// - Atomics for simple values (token_set, html_mtime, time_precise_fn)
+//
+// This reduces contention vs a single mutex at 30Hz polling frequency.
 pub const SharedState = struct {
-    mutex: Thread.Mutex = .{},
     allocator: Allocator,
 
     // Command queue: WebSocket thread pushes, main thread pops
+    // Dedicated mutex for SPSC pattern - no contention with client operations
+    command_mutex: Thread.Mutex = .{},
     commands: CommandRingBuffer = .{},
 
     // Connected clients for broadcasting - store Conn pointers directly
     // The websocket library manages Conn lifetime, and Conn.writeText is thread-safe
+    // RwLock allows concurrent reads during broadcast while serializing writes
+    client_rwlock: Thread.RwLock = .{},
     clients: std.AutoArrayHashMap(usize, *websocket.Conn),
     next_client_id: usize = 1,
 
     // Clients that need initial state snapshot (set by WS thread after hello, consumed by main thread)
+    // Protected by client_rwlock since closely related to client lifecycle
     clients_needing_snapshot: std.AutoArrayHashMap(usize, void),
 
     // Clients that have disconnected (set by WS thread, consumed by main thread for gesture cleanup)
+    // Protected by client_rwlock since closely related to client lifecycle
     disconnected_clients: std.AutoArrayHashMap(usize, void),
 
     // Session token for authentication (hex string)
+    // Set once at startup before any connections, then read-only
+    // Atomic flag with release/acquire semantics ensures token value visibility
     session_token: [TOKEN_HEX_LENGTH]u8 = undefined,
-    token_set: bool = false,
+    token_set: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
 
     // HTML file mtime for hot reload (set by main thread, read by WS thread for hello response)
-    html_mtime: i128 = 0,
+    // Atomic since it's a simple value updated infrequently
+    html_mtime: std.atomic.Value(i128) = std.atomic.Value(i128).init(0),
 
     // High-precision timing function for clock sync
-    // Stored as usize for atomic access (main thread writes, WS thread reads)
-    time_precise_fn_ptr: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
+    // Uses typed atomic for function pointer safety (main thread writes, WS thread reads)
+    time_precise_fn: std.atomic.Value(?TimePreciseFn) = std.atomic.Value(?TimePreciseFn).init(null),
 
     pub fn init(allocator: Allocator) SharedState {
         return .{
@@ -106,23 +121,20 @@ pub const SharedState = struct {
         };
     }
 
-    // Set the session token (called by main.zig on startup)
+    // Set the session token (called by main.zig on startup, before any connections)
+    // Uses release semantics to ensure token value is visible when flag is read
     pub fn setToken(self: *SharedState, token: []const u8) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
         const len = @min(token.len, TOKEN_HEX_LENGTH);
         @memcpy(self.session_token[0..len], token[0..len]);
-        self.token_set = true;
+        // Release ensures the memcpy above is visible to any thread that sees token_set=true
+        self.token_set.store(true, .release);
     }
 
-    // Validate a token (called during hello handshake)
+    // Validate a token (called during hello handshake from WS thread)
+    // Uses acquire semantics to synchronize with setToken's release
     pub fn validateToken(self: *SharedState, token: ?[]const u8) bool {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
-        // If no token is set, allow all connections (backwards compatibility)
-        if (!self.token_set) return true;
+        // Acquire ensures we see the token value written before the flag was set
+        if (!self.token_set.load(.acquire)) return true;
 
         const t = token orelse return false;
         if (t.len != TOKEN_HEX_LENGTH) return false;
@@ -131,34 +143,30 @@ pub const SharedState = struct {
     }
 
     // Update the HTML mtime (called by main thread when file changes)
+    // Uses atomic store - no mutex needed for simple value
     pub fn setHtmlMtime(self: *SharedState, mtime: i128) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-        self.html_mtime = mtime;
+        self.html_mtime.store(mtime, .release);
     }
 
     // Set the time_precise function pointer (called by main thread on startup)
     // Uses atomic release to ensure visibility to WebSocket thread
     pub fn setTimePreciseFn(self: *SharedState, func: TimePreciseFn) void {
-        self.time_precise_fn_ptr.store(@intFromPtr(func), .release);
+        self.time_precise_fn.store(func, .release);
     }
 
     // Get high-precision time in milliseconds (thread-safe, for clock sync)
     // Uses atomic acquire to synchronize with main thread's release
     pub fn timePreciseMs(self: *SharedState) f64 {
-        const ptr_val = self.time_precise_fn_ptr.load(.acquire);
-        if (ptr_val != 0) {
-            const func: TimePreciseFn = @ptrFromInt(ptr_val);
+        if (self.time_precise_fn.load(.acquire)) |func| {
             return func() * 1000.0;
         }
         return 0;
     }
 
     // Get the HTML mtime (called by WS thread for hello response)
+    // Uses atomic load - no mutex needed for simple value
     pub fn getHtmlMtime(self: *SharedState) i128 {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-        return self.html_mtime;
+        return self.html_mtime.load(.acquire);
     }
 
     pub fn deinit(self: *SharedState) void {
@@ -174,8 +182,8 @@ pub const SharedState = struct {
 
     // Called by WebSocket thread after successful hello to request initial snapshot
     pub fn markNeedsSnapshot(self: *SharedState, client_id: usize) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.client_rwlock.lock();
+        defer self.client_rwlock.unlock();
         self.clients_needing_snapshot.put(client_id, {}) catch |e| {
             logging.warn("markNeedsSnapshot failed for client {d}: {} - client won't receive initial state", .{ client_id, e });
         };
@@ -184,8 +192,8 @@ pub const SharedState = struct {
     // Called by main thread to get and clear clients needing snapshots
     // Returns client IDs in a static buffer (caller should process immediately)
     pub fn popClientsNeedingSnapshot(self: *SharedState, out_buf: []usize) usize {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.client_rwlock.lock();
+        defer self.client_rwlock.unlock();
 
         var count: usize = 0;
         for (self.clients_needing_snapshot.keys()) |client_id| {
@@ -200,8 +208,8 @@ pub const SharedState = struct {
     // Called by WebSocket thread to register a new client
     // Returns null if allocation fails (OOM) - caller should close connection
     pub fn addClient(self: *SharedState, conn: *websocket.Conn) ?usize {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.client_rwlock.lock();
+        defer self.client_rwlock.unlock();
 
         const id = self.next_client_id;
         self.next_client_id += 1;
@@ -215,8 +223,8 @@ pub const SharedState = struct {
 
     // Called by WebSocket thread when client disconnects
     pub fn removeClient(self: *SharedState, id: usize) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.client_rwlock.lock();
+        defer self.client_rwlock.unlock();
         _ = self.clients.swapRemove(id);
         // Track disconnected client for gesture cleanup by main thread
         self.disconnected_clients.put(id, {}) catch |e| {
@@ -228,8 +236,8 @@ pub const SharedState = struct {
     // Called by main thread to get and clear disconnected clients
     // Used for cleaning up active gestures when clients disconnect
     pub fn popDisconnectedClients(self: *SharedState, out_buf: []usize) usize {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.client_rwlock.lock();
+        defer self.client_rwlock.unlock();
 
         var count: usize = 0;
         for (self.disconnected_clients.keys()) |client_id| {
@@ -242,12 +250,13 @@ pub const SharedState = struct {
     }
 
     // Called by WebSocket thread to queue a command for main thread
+    // Uses dedicated command_mutex for SPSC queue access
     pub fn pushCommand(self: *SharedState, client_id: usize, data: []const u8) bool {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
-        // Make a copy of the data for the main thread
+        // Allocate outside lock to minimize critical section
         const data_copy = self.allocator.dupe(u8, data) catch return false;
+
+        self.command_mutex.lock();
+        defer self.command_mutex.unlock();
 
         self.commands.push(.{
             .client_id = client_id,
@@ -262,17 +271,19 @@ pub const SharedState = struct {
     }
 
     // Called by main thread to get pending commands
+    // Uses dedicated command_mutex for SPSC queue access
     pub fn popCommand(self: *SharedState) ?Command {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.command_mutex.lock();
+        defer self.command_mutex.unlock();
         return self.commands.pop();
     }
 
     // Called by main thread to broadcast to all clients
+    // Uses RwLock read lock since we're only iterating, not modifying
     // Must hold lock while writing to prevent use-after-free if client disconnects
     pub fn broadcast(self: *SharedState, message: []const u8) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.client_rwlock.lockShared();
+        defer self.client_rwlock.unlockShared();
 
         // writeText is thread-safe within the websocket library
         for (self.clients.values()) |conn| {
@@ -281,10 +292,11 @@ pub const SharedState = struct {
     }
 
     // Called by main thread to send to a specific client only
+    // Uses RwLock read lock since we're only reading the map, not modifying
     // Must hold lock while writing to prevent use-after-free if client disconnects
     pub fn sendToClient(self: *SharedState, client_id: usize, message: []const u8) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.client_rwlock.lockShared();
+        defer self.client_rwlock.unlockShared();
 
         if (self.clients.get(client_id)) |conn| {
             conn.writeText(message) catch {};
@@ -292,9 +304,10 @@ pub const SharedState = struct {
     }
 
     // Get client count (for logging)
+    // Uses RwLock read lock since we're only reading
     pub fn clientCount(self: *SharedState) usize {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.client_rwlock.lockShared();
+        defer self.client_rwlock.unlockShared();
         return self.clients.count();
     }
 };
@@ -369,7 +382,7 @@ pub const Client = struct {
                 const t1 = self.state.timePreciseMs();
 
                 // Require authentication
-                if (!self.authenticated and self.state.token_set) {
+                if (!self.authenticated and self.state.token_set.load(.acquire)) {
                     try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"NOT_AUTHENTICATED\",\"message\":\"Send hello message first\"}}");
                     return;
                 }
@@ -390,7 +403,7 @@ pub const Client = struct {
             },
             .command => {
                 // Require authentication for commands
-                if (!self.authenticated and self.state.token_set) {
+                if (!self.authenticated and self.state.token_set.load(.acquire)) {
                     try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"NOT_AUTHENTICATED\",\"message\":\"Send hello message first\"}}");
                     return;
                 }

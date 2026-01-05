@@ -419,6 +419,28 @@ pub const RealBackend = struct {
     }
 
     // =========================================================================
+    // Pointer Validation
+    // =========================================================================
+
+    /// Validate a track pointer using REAPER's ValidatePtr2.
+    /// Returns true if the track still exists in the current project.
+    pub fn validateTrackPtr(self: *const RealBackend, track: ?*anyopaque) bool {
+        return self.inner.validateTrackPtr(track);
+    }
+
+    /// Validate an item pointer using REAPER's ValidatePtr2.
+    /// Returns true if the item still exists in the current project.
+    pub fn validateItemPtr(self: *const RealBackend, item: ?*anyopaque) bool {
+        return self.inner.validateItemPtr(item);
+    }
+
+    /// Validate a take pointer using REAPER's ValidatePtr2.
+    /// Returns true if the take still exists in the current project.
+    pub fn validateTakePtr(self: *const RealBackend, take: ?*anyopaque) bool {
+        return self.inner.validateTakePtr(take);
+    }
+
+    // =========================================================================
     // Track FX
     // =========================================================================
 

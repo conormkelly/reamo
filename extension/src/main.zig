@@ -14,6 +14,7 @@ const project_notes = @import("project_notes.zig");
 const playlist = @import("playlist.zig");
 const errors = @import("errors.zig");
 const logging = @import("logging.zig");
+const tiered_state = @import("tiered_state.zig");
 
 // Use custom panic handler that flushes log ring buffer before aborting
 pub const panic = logging.panic;
@@ -45,11 +46,20 @@ var g_toggle_subs: ?*toggle_subscriptions.ToggleSubscriptions = null;
 var g_notes_subs: ?*project_notes.NotesSubscriptions = null;
 var g_server: ?ws_server.Server = null;
 var g_port: u16 = 0;
+var g_tiered: ?tiered_state.TieredArenas = null;
 var g_last_transport: transport.State = .{};
 var g_last_project: project.State = .{};
 var g_last_markers: markers.State = .{};
+var g_last_markers_buf: [markers.MAX_MARKERS]markers.Marker = undefined; // Backing storage for g_last_markers.markers slice
+var g_last_regions_buf: [markers.MAX_REGIONS]markers.Region = undefined; // Backing storage for g_last_markers.regions slice
 var g_last_items: items.State = .{};
+var g_last_items_buf: [items.MAX_ITEMS]items.Item = undefined; // Backing storage for g_last_items.items slice
 var g_last_tracks: tracks.State = .{};
+var g_last_tracks_buf: [tracks.MAX_TRACKS]tracks.Track = undefined; // Backing storage for g_last_tracks.tracks slice
+// FX/Send backing storage: flat buffers, sliced per-track during polling
+// Total capacity: MAX_TRACKS * MAX_FX_PER_TRACK and MAX_TRACKS * MAX_SENDS_PER_TRACK
+var g_last_fx_buf: [tracks.MAX_TRACKS * tracks.MAX_FX_PER_TRACK]tracks.FxSlot = undefined;
+var g_last_sends_buf: [tracks.MAX_TRACKS * tracks.MAX_SENDS_PER_TRACK]tracks.SendSlot = undefined;
 var g_last_metering: tracks.MeteringState = .{};
 var g_last_tempomap: tempomap.State = .{};
 var g_playlist_state: playlist.State = .{};
@@ -95,25 +105,34 @@ fn broadcastRateLimitedError(code: errors.ErrorCode, detail: ?[]const u8) void {
 // Timer callback for deferred initialization
 // First call does initialization, then immediately switches to processing timer.
 // No warmup delays needed since pollInto() avoids large stack allocations.
+//
+// SAFETY: This is a C-callable entry point. All Zig errors must be caught here
+// to prevent error propagation across the FFI boundary which would crash REAPER.
 fn initTimerCallback() callconv(.c) void {
+    initTimerCallbackImpl() catch |err| {
+        logging.err("initTimerCallback failed: {s}", .{@errorName(err)});
+        // Error is logged but not propagated - REAPER must not see Zig errors
+    };
+}
+
+fn initTimerCallbackImpl() !void {
     // First call: do initialization
     if (!g_initialized) {
         g_initialized = true;
-        doInitialization();
+        try doInitialization();
         return;
     }
 
     // Initialization done - switch directly to processing timer
-    const api = &(g_api orelse return);
+    const api = &(g_api orelse return error.ApiNotInitialized);
     api.unregisterTimer(&initTimerCallback);
     api.registerTimer(&processTimerCallback);
     g_init_complete = true;
     logging.info("Initialization complete, starting processing timer", .{});
 }
 
-fn doInitialization() void {
-
-    const api = &(g_api orelse return);
+fn doInitialization() !void {
+    const api = &(g_api orelse return error.ApiNotInitialized);
     logging.info("Deferred initialization starting...", .{});
 
     g_allocator = std.heap.page_allocator;
@@ -142,40 +161,32 @@ fn doInitialization() void {
     }
 
     // Create shared state
-    const state = g_allocator.create(ws_server.SharedState) catch {
-        logging.err("Failed to allocate shared state", .{});
-        return;
-    };
+    const state = try g_allocator.create(ws_server.SharedState);
     state.* = ws_server.SharedState.init(g_allocator);
     g_shared_state = state;
 
     // Create gesture state for undo coalescing
-    const gestures = g_allocator.create(gesture_state.GestureState) catch {
-        logging.err("Failed to allocate gesture state", .{});
-        return;
-    };
+    const gestures = try g_allocator.create(gesture_state.GestureState);
     gestures.* = gesture_state.GestureState.init(g_allocator);
     g_gesture_state = gestures;
 
     // Create toggle subscriptions state
-    const toggles = g_allocator.create(toggle_subscriptions.ToggleSubscriptions) catch {
-        logging.err("Failed to allocate toggle subscriptions state", .{});
-        return;
-    };
+    const toggles = try g_allocator.create(toggle_subscriptions.ToggleSubscriptions);
     toggles.* = toggle_subscriptions.ToggleSubscriptions.init(g_allocator);
     g_toggle_subs = toggles;
     // Set the global reference in the command handler module
     commands.toggle_state_cmds.g_toggle_subs = toggles;
 
     // Create project notes subscriptions state
-    const notes_subs = g_allocator.create(project_notes.NotesSubscriptions) catch {
-        logging.err("Failed to allocate notes subscriptions state", .{});
-        return;
-    };
+    const notes_subs = try g_allocator.create(project_notes.NotesSubscriptions);
     notes_subs.* = project_notes.NotesSubscriptions.init(g_allocator);
     g_notes_subs = notes_subs;
     // Set the global reference in the command handler module
     commands.project_notes_cmds.g_notes_subs = notes_subs;
+
+    // Initialize tiered arenas for frame-based state management
+    g_tiered = try tiered_state.TieredArenas.init(g_allocator);
+    logging.info("Tiered arenas initialized: {d}MB total", .{tiered_state.ArenaSizes.HIGH * 2 + tiered_state.ArenaSizes.MEDIUM * 2 + tiered_state.ArenaSizes.LOW * 2 + tiered_state.ArenaSizes.SCRATCH >> 20});
 
     // Sync initial HTML mtime to shared state
     state.setHtmlMtime(g_html_mtime);
@@ -208,9 +219,9 @@ fn doInitialization() void {
     var backend = reaper.RealBackend{ .inner = api };
     g_last_transport = transport.State.poll(&backend); // Small, OK on stack
     g_last_project = project.State.poll(&backend); // Small, OK on stack
-    g_last_markers.pollInto(&backend); // ~95KB - use pollInto
-    g_last_items.pollInto(&backend); // ~600KB - use pollInto
-    g_last_tracks.pollInto(&backend); // ~2.5MB - use pollInto
+    g_last_markers.pollInto(&g_last_markers_buf, &g_last_regions_buf, &backend); // ~95KB - use pollInto with static buffers
+    g_last_items.pollInto(&g_last_items_buf, &backend); // ~600KB - use pollInto with static buffer
+    g_last_tracks.pollInto(&g_last_tracks_buf, &backend); // ~2.5MB - use pollInto with static buffer
     g_last_tempomap = tempomap.State.poll(&backend); // Small, OK on stack
 
     // Load playlist state from ProjExtState
@@ -249,14 +260,16 @@ const StaticBuffers = struct {
 // If any exceed the threshold, consider redesigning with smaller inline arrays
 comptime {
     const MAX_STATE_SIZE = 4 * 1024 * 1024; // 4MB threshold warning
-    if (@sizeOf(tracks.State) > MAX_STATE_SIZE) {
-        @compileError("tracks.State exceeds 4MB - consider reducing MAX_TRACKS or MAX_FX_PER_TRACK");
+    // tracks.State is now slice-based, check Track size * MAX_TRACKS instead
+    const tracks_buffer_size = @sizeOf(tracks.Track) * tracks.MAX_TRACKS;
+    if (tracks_buffer_size > MAX_STATE_SIZE) {
+        @compileError("tracks buffer exceeds 4MB - consider reducing MAX_TRACKS or MAX_FX_PER_TRACK");
     }
-    if (@sizeOf(markers.State) > MAX_STATE_SIZE) {
-        @compileError("markers.State exceeds 4MB - consider reducing MAX_MARKERS or MAX_REGIONS");
+    if (@sizeOf([markers.MAX_MARKERS]markers.Marker) + @sizeOf([markers.MAX_REGIONS]markers.Region) > MAX_STATE_SIZE) {
+        @compileError("markers buffers exceed 4MB - consider reducing MAX_MARKERS or MAX_REGIONS");
     }
-    if (@sizeOf(items.State) > MAX_STATE_SIZE) {
-        @compileError("items.State exceeds 4MB - consider reducing MAX_ITEMS");
+    if (@sizeOf([items.MAX_ITEMS]items.Item) > MAX_STATE_SIZE) {
+        @compileError("items buffer exceeds 4MB - consider reducing MAX_ITEMS");
     }
 }
 
@@ -281,6 +294,21 @@ const ProcessingState = struct {
     var cur_tempomap: tempomap.State = .{};
     var cur_metering: tracks.MeteringState = .{};
 
+    // Static track buffers for slice-based State (used by pollInto)
+    // These provide the backing storage that tracks.State.tracks slices point to
+    var snap_tracks_buf: [tracks.MAX_TRACKS]tracks.Track = undefined;
+    var cur_tracks_buf: [tracks.MAX_TRACKS]tracks.Track = undefined;
+
+    // Static item buffers for slice-based State (used by pollInto)
+    var snap_items_buf: [items.MAX_ITEMS]items.Item = undefined;
+    var cur_items_buf: [items.MAX_ITEMS]items.Item = undefined;
+
+    // Static marker/region buffers for slice-based State (used by pollInto)
+    var snap_markers_buf: [markers.MAX_MARKERS]markers.Marker = undefined;
+    var snap_regions_buf: [markers.MAX_REGIONS]markers.Region = undefined;
+    var cur_markers_buf: [markers.MAX_MARKERS]markers.Marker = undefined;
+    var cur_regions_buf: [markers.MAX_REGIONS]markers.Region = undefined;
+
     // Small arrays that still add up
     var disconnected_buf: [16]usize = undefined;
     var flush_buf: [16]gesture_state.ControlId = undefined;
@@ -290,30 +318,73 @@ const ProcessingState = struct {
 
 // Main processing timer - calls doProcessing() directly.
 // No warmup delays needed since pollInto() avoids large stack allocations.
+//
+// SAFETY: This is a C-callable entry point. All Zig errors must be caught here
+// to prevent error propagation across the FFI boundary which would crash REAPER.
 fn processTimerCallback() callconv(.c) void {
-    doProcessing();
+    doProcessing() catch |err| {
+        logging.err("processTimerCallback failed: {s}", .{@errorName(err)});
+        // Error is logged but not propagated - REAPER must not see Zig errors
+    };
+}
+
+// Helper to compare track slices for change detection
+fn tracksSliceEql(a: []const tracks.Track, b: []const tracks.Track) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |*track_a, *track_b| {
+        if (!track_a.eql(track_b.*)) return false;
+    }
+    return true;
+}
+
+// Helper to compare marker slices for change detection
+fn markersSliceEql(a: []const markers.Marker, b: []const markers.Marker) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |*marker_a, *marker_b| {
+        if (!marker_a.eql(marker_b)) return false;
+    }
+    return true;
+}
+
+// Helper to compare region slices for change detection
+fn regionsSliceEql(a: []const markers.Region, b: []const markers.Region) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |*region_a, *region_b| {
+        if (!region_a.eql(region_b)) return false;
+    }
+    return true;
+}
+
+// Helper to compare item slices for change detection
+fn itemsSliceEql(a: []const items.Item, b: []const items.Item) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |*item_a, *item_b| {
+        if (!item_a.eql(item_b)) return false;
+    }
+    return true;
 }
 
 // The actual processing logic
 // IMPORTANT: This function uses ProcessingState and pollInto() to avoid stack overflow
-fn doProcessing() void {
+fn doProcessing() !void {
     // Safety check - don't run until init is complete
     if (!g_init_complete) {
         return;
     }
 
-    const api = &(g_api orelse return);
-    const shared_state = g_shared_state orelse return;
+    const api = &(g_api orelse return error.ApiNotInitialized);
+    const shared_state = g_shared_state orelse return error.StateNotInitialized;
+
+    // Begin new frame - resets scratch arena and swaps tier arenas based on frame counter
+    var tiered = &(g_tiered orelse return error.TieredNotInitialized);
+    try tiered.beginFrame(g_frame_counter);
 
     // Deferred WebSocket server startup - wait a moment for REAPER UI to settle
     if (!g_ws_started and g_frame_counter >= WS_START_DELAY_FRAMES) {
         g_ws_started = true;
         logging.info("Starting WebSocket server (deferred)...", .{});
 
-        const result = ws_server.startWithPortRetry(g_allocator, shared_state, DEFAULT_PORT, MAX_PORT_ATTEMPTS) catch {
-            logging.err("Could not bind to ports 9224-9233", .{});
-            return;
-        };
+        const result = try ws_server.startWithPortRetry(g_allocator, shared_state, DEFAULT_PORT, MAX_PORT_ATTEMPTS);
         g_server = result.server;
         g_port = result.port;
 
@@ -375,10 +446,10 @@ fn doProcessing() void {
         // Get current state for all domains - use pollInto for large structs
         ProcessingState.snap_transport = transport.State.poll(&backend); // Small
         ProcessingState.snap_project = project.State.poll(&backend); // Small
-        ProcessingState.snap_markers.pollInto(&backend); // ~95KB
-        ProcessingState.snap_tracks.pollInto(&backend); // ~2.5MB
+        ProcessingState.snap_markers.pollInto(&ProcessingState.snap_markers_buf, &ProcessingState.snap_regions_buf, &backend); // ~95KB
+        ProcessingState.snap_tracks.pollInto(&ProcessingState.snap_tracks_buf, &backend); // ~2.5MB
         ProcessingState.snap_tempomap = tempomap.State.poll(&backend); // Small
-        ProcessingState.snap_items.pollInto(&backend); // ~600KB
+        ProcessingState.snap_items.pollInto(&ProcessingState.snap_items_buf, &backend); // ~600KB
 
         // Send to each new client
         for (ProcessingState.snapshot_clients[0..snapshot_count]) |client_id| {
@@ -411,7 +482,7 @@ fn doProcessing() void {
                 shared_state.sendToClient(client_id, json);
             }
             // Playlist (cue list)
-            if (g_playlist_state.toJson(&StaticBuffers.snapshot_playlist, g_last_markers.regions[0..g_last_markers.region_count])) |json| {
+            if (g_playlist_state.toJson(&StaticBuffers.snapshot_playlist, g_last_markers.regions)) |json| {
                 shared_state.sendToClient(client_id, json);
             }
         }
@@ -423,15 +494,18 @@ fn doProcessing() void {
     // ========================================================================
     // HIGH TIER (30Hz) - Transport, Tracks, Metering
     // These need real-time responsiveness for playhead and fader movements
+    // Uses arena allocation - no memcpy needed, arena swap handles it
     // ========================================================================
 
-    // Poll transport state and broadcast changes
-    // Use lightweight tick when only position changed during playback
-    ProcessingState.cur_transport = transport.State.poll(&backend);
-    const current_transport = &ProcessingState.cur_transport;
+    const high_state = tiered.high.currentState();
+    const high_prev = tiered.high.previousState();
 
-    if (!current_transport.eql(g_last_transport)) {
-        const state_changed = !current_transport.stateOnlyEql(g_last_transport);
+    // Poll transport state into arena
+    high_state.transport = transport.State.poll(&backend);
+    const current_transport = &high_state.transport;
+
+    if (!current_transport.eql(high_prev.transport)) {
+        const state_changed = !current_transport.stateOnlyEql(high_prev.transport);
         const is_playing = transport.PlayState.isPlaying(current_transport.play_state);
 
         if (state_changed) {
@@ -451,36 +525,47 @@ fn doProcessing() void {
                 shared_state.broadcast(json);
             }
         }
-        g_last_transport = current_transport.*;
+    }
+    // Keep g_last_transport updated for playlist engine compatibility
+    g_last_transport = current_transport.*;
+
+    // Poll tracks into HIGH tier arena - allocates from arena, freed on next swap
+    const high_alloc = tiered.high.currentAllocator();
+    const track_state = tracks.State.poll(high_alloc, &backend) catch |err| {
+        logging.err("Failed to poll tracks: {s}", .{@errorName(err)});
+        return err;
+    };
+    high_state.tracks = track_state.tracks;
+
+    // Copy FX/sends pointers from g_last_tracks (MEDIUM tier data, updated at 5Hz)
+    // TODO: Once MEDIUM tier is migrated, read from tiered.medium.currentState()
+    for (0..@min(high_state.tracks.len, g_last_tracks.tracks.len)) |i| {
+        high_state.tracks[i].fx = g_last_tracks.tracks[i].fx;
+        high_state.tracks[i].sends = g_last_tracks.tracks[i].sends;
     }
 
-    // Poll tracks and metering, broadcast changes (HIGH TIER - needs smooth fader/meter updates)
-    // Use pollInto to avoid ~2.5MB stack allocation
-    ProcessingState.cur_tracks.pollInto(&backend);
-
-    // Preserve FX and Send data which is polled at MEDIUM_TIER rate (5Hz), not every frame
-    // FX/Send data is updated in g_last_tracks by MEDIUM_TIER polling, so copy it forward
-    for (0..@min(ProcessingState.cur_tracks.count, g_last_tracks.count)) |i| {
-        ProcessingState.cur_tracks.tracks[i].fx = g_last_tracks.tracks[i].fx;
-        ProcessingState.cur_tracks.tracks[i].fx_count = g_last_tracks.tracks[i].fx_count;
-        ProcessingState.cur_tracks.tracks[i].sends = g_last_tracks.tracks[i].sends;
-        ProcessingState.cur_tracks.tracks[i].send_count = g_last_tracks.tracks[i].send_count;
-    }
-    ProcessingState.cur_metering.pollInto(api);
+    // Poll metering into HIGH tier state
+    high_state.metering.pollInto(api);
 
     // Broadcast if tracks changed OR if we have active metering
-    // (metering values change constantly so we always send when metering is active)
-    const tracks_changed = !ProcessingState.cur_tracks.eql(&g_last_tracks);
-    const has_metering = ProcessingState.cur_metering.hasData();
+    const tracks_changed = !tracksSliceEql(high_state.tracks, high_prev.tracks);
+    const has_metering = high_state.metering.hasData();
 
     if (tracks_changed or has_metering) {
-        const metering_ptr: ?*const tracks.MeteringState = if (has_metering) &ProcessingState.cur_metering else null;
-        if (ProcessingState.cur_tracks.toJson(&StaticBuffers.tracks_buf, metering_ptr)) |json| {
+        const metering_ptr: ?*const tracks.MeteringState = if (has_metering) &high_state.metering else null;
+        // Create temporary State to use existing toJson method
+        const temp_state = tracks.State{ .tracks = high_state.tracks };
+        if (temp_state.toJson(&StaticBuffers.tracks_buf, metering_ptr)) |json| {
             shared_state.broadcast(json);
         }
     }
-    g_last_tracks = ProcessingState.cur_tracks;
-    g_last_metering = ProcessingState.cur_metering;
+
+    // Update g_last_tracks for MEDIUM tier FX polling compatibility
+    // TODO: Remove once MEDIUM tier is fully migrated to arenas
+    const cur_len = high_state.tracks.len;
+    @memcpy(g_last_tracks_buf[0..cur_len], high_state.tracks);
+    g_last_tracks.tracks = g_last_tracks_buf[0..cur_len];
+    g_last_metering = high_state.metering;
 
     // Poll toggle state subscriptions and broadcast changes (HIGH TIER - but only when subscribed)
     if (g_toggle_subs) |toggles| {
@@ -515,7 +600,7 @@ fn doProcessing() void {
                 logging.debug("Paused playlist engine - transport paused externally", .{});
             }
             // Broadcast state change
-            if (g_playlist_state.toJson(&StaticBuffers.playlist_buf, g_last_markers.regions[0..g_last_markers.region_count])) |json| {
+            if (g_playlist_state.toJson(&StaticBuffers.playlist_buf, g_last_markers.regions)) |json| {
                 shared_state.broadcast(json);
             }
         }
@@ -534,7 +619,7 @@ fn doProcessing() void {
                 var region_start: f64 = 0;
                 var region_end: f64 = 0;
                 var region_found = false;
-                for (g_last_markers.regions[0..g_last_markers.region_count]) |*r| {
+                for (g_last_markers.regions) |*r| {
                     if (r.id == entry.region_id) {
                         region_start = r.start;
                         region_end = r.end;
@@ -549,7 +634,7 @@ fn doProcessing() void {
                         if (g_playlist_state.engine.entry_idx + 1 < p.entry_count) {
                             const next = &p.entries[g_playlist_state.engine.entry_idx + 1];
                             // Find next region's start and end
-                            for (g_last_markers.regions[0..g_last_markers.region_count]) |*r| {
+                            for (g_last_markers.regions) |*r| {
                                 if (r.id == next.region_id) {
                                     break :blk playlist.NextEntryInfo{
                                         .loop_count = next.loop_count,
@@ -639,7 +724,7 @@ fn doProcessing() void {
                         },
                         .broadcast_state => {
                             // Immediate broadcast needed
-                            if (g_playlist_state.toJson(&StaticBuffers.playlist_buf, g_last_markers.regions[0..g_last_markers.region_count])) |json| {
+                            if (g_playlist_state.toJson(&StaticBuffers.playlist_buf, g_last_markers.regions)) |json| {
                                 shared_state.broadcast(json);
                             }
                         },
@@ -655,7 +740,7 @@ fn doProcessing() void {
                     var search_idx = g_playlist_state.engine.entry_idx + 1;
                     while (search_idx < p.entry_count) : (search_idx += 1) {
                         const candidate = &p.entries[search_idx];
-                        for (g_last_markers.regions[0..g_last_markers.region_count]) |*r| {
+                        for (g_last_markers.regions) |*r| {
                             if (r.id == candidate.region_id) {
                                 next_valid_idx = search_idx;
                                 next_bounds = .{ .start = r.start, .end = r.end };
@@ -690,7 +775,7 @@ fn doProcessing() void {
                     }
 
                     // Broadcast state change
-                    if (g_playlist_state.toJson(&StaticBuffers.playlist_buf, g_last_markers.regions[0..g_last_markers.region_count])) |json| {
+                    if (g_playlist_state.toJson(&StaticBuffers.playlist_buf, g_last_markers.regions)) |json| {
                         shared_state.broadcast(json);
                     }
                 }
@@ -701,16 +786,20 @@ fn doProcessing() void {
     // ========================================================================
     // MEDIUM TIER (5Hz) - Project state, Markers, Regions, Items
     // These change less frequently and don't need instant feedback
-    // All State structs stored in ProcessingState to avoid stack overflow
+    // Uses arena allocation - no memcpy needed for change detection
     // ========================================================================
     if (g_frame_counter % MEDIUM_TIER_INTERVAL == 0) {
-        // Poll project state (undo/redo) and broadcast changes
-        ProcessingState.cur_project = project.State.poll(&backend);
+        const medium_alloc = tiered.medium.currentAllocator();
+        const medium_state = tiered.medium.currentState();
+        const medium_prev = tiered.medium.previousState();
+
+        // Poll project state into arena
+        medium_state.project = project.State.poll(&backend);
 
         // Check for project identity change (tab switch or different file in same tab)
-        if (ProcessingState.cur_project.projectChanged(&g_last_project)) {
+        if (medium_state.project.projectChanged(&medium_prev.project)) {
             logging.info("Project changed: {s}", .{
-                if (ProcessingState.cur_project.projectName().len > 0) ProcessingState.cur_project.projectName() else "(Unsaved)",
+                if (medium_state.project.projectName().len > 0) medium_state.project.projectName() else "(Unsaved)",
             });
 
             // Stop playlist engine if playing
@@ -726,47 +815,87 @@ fn doProcessing() void {
             logging.info("Loaded {d} playlists from new project", .{g_playlist_state.playlist_count});
 
             // Broadcast updated playlist state
-            // Note: g_last_markers still has old project data, pass null - next tick will have accurate regions
+            // Note: regions not available yet, pass null - next tick will have accurate regions
             if (g_playlist_state.toJson(&StaticBuffers.playlist_buf, null)) |json| {
                 shared_state.broadcast(json);
             }
             g_last_playlist = g_playlist_state;
         }
 
-        if (!ProcessingState.cur_project.eql(&g_last_project)) {
-            if (ProcessingState.cur_project.toJson(&StaticBuffers.project_buf)) |json| {
+        if (!medium_state.project.eql(&medium_prev.project)) {
+            if (medium_state.project.toJson(&StaticBuffers.project_buf)) |json| {
                 shared_state.broadcast(json);
             }
-            g_last_project = ProcessingState.cur_project;
+        }
+        // Keep g_last_project updated for compatibility
+        g_last_project = medium_state.project;
+
+        // Poll markers/regions into MEDIUM arena
+        const marker_state = markers.State.poll(medium_alloc, &backend) catch |err| {
+            logging.err("Failed to poll markers: {s}", .{@errorName(err)});
+            return err;
+        };
+        medium_state.markers = marker_state.markers;
+        medium_state.regions = marker_state.regions;
+        medium_state.bar_offset = marker_state.bar_offset;
+
+        // Broadcast if markers changed
+        if (!markersSliceEql(medium_state.markers, medium_prev.markers)) {
+            const temp_marker_state = markers.State{
+                .markers = medium_state.markers,
+                .regions = medium_state.regions,
+                .bar_offset = medium_state.bar_offset,
+            };
+            if (temp_marker_state.markersToJson(&StaticBuffers.markers_buf)) |json| {
+                shared_state.broadcast(json);
+            }
+        }
+        // Broadcast if regions changed
+        if (!regionsSliceEql(medium_state.regions, medium_prev.regions)) {
+            const temp_marker_state = markers.State{
+                .markers = medium_state.markers,
+                .regions = medium_state.regions,
+                .bar_offset = medium_state.bar_offset,
+            };
+            if (temp_marker_state.regionsToJson(&StaticBuffers.regions_buf)) |json| {
+                shared_state.broadcast(json);
+            }
         }
 
-        // Poll markers/regions and broadcast changes - use pollInto for ~95KB struct
-        ProcessingState.cur_markers.pollInto(&backend);
-        if (ProcessingState.cur_markers.markersChanged(&g_last_markers)) {
-            if (ProcessingState.cur_markers.markersToJson(&StaticBuffers.markers_buf)) |json| {
-                shared_state.broadcast(json);
-            }
-        }
-        if (ProcessingState.cur_markers.regionsChanged(&g_last_markers)) {
-            if (ProcessingState.cur_markers.regionsToJson(&StaticBuffers.regions_buf)) |json| {
-                shared_state.broadcast(json);
-            }
-        }
-        g_last_markers = ProcessingState.cur_markers;
+        // Update g_last_markers for playlist engine compatibility
+        // TODO: Remove once playlist engine uses arena state
+        const cur_markers_len = medium_state.markers.len;
+        const cur_regions_len = medium_state.regions.len;
+        @memcpy(g_last_markers_buf[0..cur_markers_len], medium_state.markers);
+        @memcpy(g_last_regions_buf[0..cur_regions_len], medium_state.regions);
+        g_last_markers.markers = g_last_markers_buf[0..cur_markers_len];
+        g_last_markers.regions = g_last_regions_buf[0..cur_regions_len];
+        g_last_markers.bar_offset = medium_state.bar_offset;
 
-        // Poll items and broadcast changes - use pollInto for ~600KB struct
-        ProcessingState.cur_items.pollInto(&backend);
-        if (ProcessingState.cur_items.itemsChanged(&g_last_items)) {
-            if (ProcessingState.cur_items.itemsToJson(&StaticBuffers.items_buf)) |json| {
+        // Poll items into MEDIUM arena
+        const item_state = items.State.poll(medium_alloc, &backend) catch |err| {
+            logging.err("Failed to poll items: {s}", .{@errorName(err)});
+            return err;
+        };
+        medium_state.items = item_state.items;
+
+        // Broadcast if items changed
+        if (!itemsSliceEql(medium_state.items, medium_prev.items)) {
+            const temp_item_state = items.State{ .items = medium_state.items };
+            if (temp_item_state.itemsToJson(&StaticBuffers.items_buf)) |json| {
                 shared_state.broadcast(json);
             }
         }
-        g_last_items = ProcessingState.cur_items;
+
+        // Update g_last_items for compatibility
+        const cur_items_len = medium_state.items.len;
+        @memcpy(g_last_items_buf[0..cur_items_len], medium_state.items);
+        g_last_items.items = g_last_items_buf[0..cur_items_len];
 
         // Playlist state change detection
         // (Playlist state is modified by commands, not polled from REAPER)
         if (!g_playlist_state.eql(&g_last_playlist)) {
-            if (g_playlist_state.toJson(&StaticBuffers.playlist_buf, g_last_markers.regions[0..g_last_markers.region_count])) |json| {
+            if (g_playlist_state.toJson(&StaticBuffers.playlist_buf, medium_state.regions)) |json| {
                 shared_state.broadcast(json);
             }
             g_last_playlist = g_playlist_state;
@@ -774,14 +903,23 @@ fn doProcessing() void {
 
         // Poll FX state for all tracks and update g_last_tracks
         // (FX data is merged into 30Hz track events, not broadcast separately)
-        for (0..g_last_tracks.count) |i| {
+        // FX/sends use slice-based storage with backing buffers
+        for (0..g_last_tracks.tracks.len) |i| {
             const track_idx: c_int = @intCast(i);
             if (backend.getTrackByUnifiedIdx(track_idx)) |track| {
                 var t = &g_last_tracks.tracks[i];
+
+                // Calculate buffer offsets for this track's FX and sends
+                const fx_buf_offset = i * tracks.MAX_FX_PER_TRACK;
+                const send_buf_offset = i * tracks.MAX_SENDS_PER_TRACK;
+
                 // Get FX count - skip FX API calls if no FX
                 const fx_count_raw = backend.trackFxCount(track);
                 const fx_count: usize = @intCast(@max(0, @min(fx_count_raw, @as(c_int, @intCast(tracks.MAX_FX_PER_TRACK)))));
-                t.fx_count = fx_count;
+
+                // Slice into FX buffer for this track
+                const fx_buf_end = fx_buf_offset + fx_count;
+                t.fx = g_last_fx_buf[fx_buf_offset..fx_buf_end];
 
                 for (0..fx_count) |fx_i| {
                     const fx_idx: c_int = @intCast(fx_i);
@@ -811,7 +949,10 @@ fn doProcessing() void {
                 // Get send count - skip send API calls if no sends
                 const send_count_raw = backend.trackSendCount(track);
                 const send_count: usize = @intCast(@max(0, @min(send_count_raw, @as(c_int, @intCast(tracks.MAX_SENDS_PER_TRACK)))));
-                t.send_count = send_count;
+
+                // Slice into sends buffer for this track
+                const send_buf_end = send_buf_offset + send_count;
+                t.sends = g_last_sends_buf[send_buf_offset..send_buf_end];
 
                 for (0..send_count) |send_i| {
                     const send_idx: c_int = @intCast(send_i);
@@ -834,18 +975,23 @@ fn doProcessing() void {
     }
 
     // ========================================================================
-    // LOW TIER (1Hz) - Tempomap, Project Notes (Phase 2)
+    // LOW TIER (1Hz) - Tempomap, Project Notes
     // These rarely change during normal operation
+    // Uses arena allocation for change detection
     // ========================================================================
     if (g_frame_counter % LOW_TIER_INTERVAL == 0) {
-        // Poll tempo map and broadcast changes (stored in ProcessingState)
-        ProcessingState.cur_tempomap = tempomap.State.poll(&backend);
-        if (ProcessingState.cur_tempomap.changed(&g_last_tempomap)) {
-            if (ProcessingState.cur_tempomap.toJson(&StaticBuffers.tempomap_buf)) |json| {
+        const low_state = tiered.low.currentState();
+        const low_prev = tiered.low.previousState();
+
+        // Poll tempo map into LOW tier state
+        low_state.tempomap = tempomap.State.poll(&backend);
+        if (low_state.tempomap.changed(&low_prev.tempomap)) {
+            if (low_state.tempomap.toJson(&StaticBuffers.tempomap_buf)) |json| {
                 shared_state.broadcast(json);
             }
         }
-        g_last_tempomap = ProcessingState.cur_tempomap;
+        // Keep g_last_tempomap updated for compatibility
+        g_last_tempomap = low_state.tempomap;
 
         // Poll project notes and broadcast changes (only if subscribers)
         if (g_notes_subs) |notes_subs| {
@@ -932,11 +1078,22 @@ fn shutdown() void {
     }
     logging.info("shared state cleaned up", .{});
 
+    if (g_tiered) |*tiered| {
+        logging.info("cleaning up tiered arenas", .{});
+        tiered.deinit(g_allocator);
+        g_tiered = null;
+    }
+    logging.info("tiered arenas cleaned up", .{});
+
     logging.info("shutdown() complete", .{});
     logging.deinit();
 }
 
 // Main entry point - called by REAPER
+//
+// SAFETY: This is a C-callable entry point. Returns c_int directly (no error union)
+// so no Zig errors can escape. Internal operations use orelse/catch for safety.
+// Any panics are caught by the custom panic handler (logging.panic).
 export fn ReaperPluginEntry(hInstance: ?*anyopaque, rec: ?*reaper.PluginInfo) callconv(.c) c_int {
     _ = hInstance;
 

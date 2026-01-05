@@ -26,6 +26,8 @@ pub const FFIError = error{
     FloatIsInf,
     /// Float value is outside the representable range for target integer type
     IntegerOverflow,
+    /// Negative float value cannot be converted to unsigned integer type
+    NegativeToUnsigned,
     /// Pointer failed REAPER's ValidatePtr2 check
     InvalidPointer,
 };
@@ -111,6 +113,7 @@ pub const ErrorCode = enum(u16) {
     null_pointer = 3006,
     project_invalid = 3007,
     index_out_of_bounds = 3008,
+    negative_to_unsigned = 3009,
 
     // 4xxx - Client/protocol
     invalid_command = 4001,
@@ -131,6 +134,7 @@ pub const ErrorCode = enum(u16) {
             error.FloatIsNaN => .float_nan,
             error.FloatIsInf => .float_inf,
             error.IntegerOverflow => .integer_overflow,
+            error.NegativeToUnsigned => .negative_to_unsigned,
             error.InvalidPointer => .null_pointer,
             error.TrackDeleted => .track_unavailable,
             error.ItemDeleted => .item_unavailable,
@@ -164,6 +168,7 @@ pub const ErrorCode = enum(u16) {
             .float_nan => "Invalid float value (NaN)",
             .float_inf => "Invalid float value (Infinity)",
             .integer_overflow => "Integer overflow",
+            .negative_to_unsigned => "Negative value for unsigned type",
             .null_pointer => "Null pointer from REAPER",
             .project_invalid => "Project invalid",
             .index_out_of_bounds => "Index out of bounds",

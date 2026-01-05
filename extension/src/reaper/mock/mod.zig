@@ -343,6 +343,13 @@ pub const MockBackend = struct {
     pub const csurfFlushUndo = tracks.TracksMethods.csurfFlushUndo;
 
     // =========================================================================
+    // Pointer Validation (delegated)
+    // =========================================================================
+    pub const validateTrackPtr = tracks.TracksMethods.validateTrackPtr;
+    pub const validateItemPtr = tracks.TracksMethods.validateItemPtr;
+    pub const validateTakePtr = tracks.TracksMethods.validateTakePtr;
+
+    // =========================================================================
     // Item methods (delegated)
     // =========================================================================
     pub const trackItemCount = tracks.TracksMethods.trackItemCount;

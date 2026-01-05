@@ -274,6 +274,38 @@ pub const TracksMethods = struct {
     }
 
     // =========================================================================
+    // Pointer Validation
+    // =========================================================================
+
+    /// Mock always returns true for valid-looking pointers.
+    /// In tests, use track_count to control what's "valid".
+    pub fn validateTrackPtr(self: anytype, track: ?*anyopaque) bool {
+        self.recordCall(.validateTrackPtr);
+        if (track == null) return false;
+        const idx = state.decodeTrackPtr(track.?);
+        return idx < self.track_count;
+    }
+
+    /// Mock always returns true for valid-looking pointers.
+    pub fn validateItemPtr(self: anytype, item: ?*anyopaque) bool {
+        self.recordCall(.validateItemPtr);
+        if (item == null) return false;
+        const info = state.decodeItemPtr(item.?);
+        if (info.track_idx >= self.track_count) return false;
+        return info.item_idx < self.tracks[info.track_idx].item_count;
+    }
+
+    /// Mock always returns true for valid-looking pointers.
+    pub fn validateTakePtr(self: anytype, take: ?*anyopaque) bool {
+        self.recordCall(.validateTakePtr);
+        // For mock, we just check it's not null and decode works
+        if (take == null) return false;
+        // Takes use same encoding as items in mock
+        const info = state.decodeItemPtr(take.?);
+        return info.track_idx < self.track_count;
+    }
+
+    // =========================================================================
     // Items
     // =========================================================================
 

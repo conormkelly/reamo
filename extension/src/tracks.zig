@@ -1,8 +1,10 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const reaper = @import("reaper.zig");
 const protocol = @import("protocol.zig");
 
 // Maximum tracks to poll (keeps buffer sizes bounded)
+// Note: With arena allocation, this is a soft limit enforced per-poll
 pub const MAX_TRACKS: usize = 128;
 
 // Maximum tracks to meter (match MAX_TRACKS for full mixer metering)
@@ -95,11 +97,11 @@ pub const Track = struct {
     selected: bool = false,
     folder_depth: c_int = 0, // 1=folder parent, 0=normal, -N=closes N folder levels
     // FX chain state (polled at 5Hz, merged into track events)
-    fx: [MAX_FX_PER_TRACK]FxSlot = undefined,
-    fx_count: usize = 0,
+    // Uses slice for arena/buffer-based allocation - variable per track
+    fx: []FxSlot = &.{},
     // Send state (polled at 5Hz, merged into track events)
-    sends: [MAX_SENDS_PER_TRACK]SendSlot = undefined,
-    send_count: usize = 0,
+    // Uses slice for arena/buffer-based allocation - variable per track
+    sends: []SendSlot = &.{},
 
     pub fn getName(self: *const Track) []const u8 {
         return self.name[0..self.name_len];
@@ -119,15 +121,15 @@ pub const Track = struct {
         if (self.fx_enabled != other.fx_enabled) return false;
         if (self.selected != other.selected) return false;
         if (self.folder_depth != other.folder_depth) return false;
-        // Compare FX chain
-        if (self.fx_count != other.fx_count) return false;
-        for (0..self.fx_count) |i| {
-            if (!self.fx[i].eql(other.fx[i])) return false;
+        // Compare FX chain (slice-based)
+        if (self.fx.len != other.fx.len) return false;
+        for (self.fx, other.fx) |*a, *b| {
+            if (!a.eql(b.*)) return false;
         }
-        // Compare sends
-        if (self.send_count != other.send_count) return false;
-        for (0..self.send_count) |i| {
-            if (!self.sends[i].eql(other.sends[i])) return false;
+        // Compare sends (slice-based)
+        if (self.sends.len != other.sends.len) return false;
+        for (self.sends, other.sends) |*a, *b| {
+            if (!a.eql(b.*)) return false;
         }
         return true;
     }
@@ -138,34 +140,52 @@ pub const Track = struct {
 };
 
 // Track state snapshot (all tracks)
+// Uses slice for arena-based allocation - no fixed size limit.
 pub const State = struct {
-    tracks: [MAX_TRACKS]Track = undefined,
-    count: usize = 0,
+    tracks: []Track = &.{},
+
+    /// Return an empty state (for initialization)
+    pub fn empty() State {
+        return .{ .tracks = &.{} };
+    }
+
+    /// Number of tracks in this state
+    pub fn count(self: *const State) usize {
+        return self.tracks.len;
+    }
 
     // Compare for change detection
     pub fn eql(self: *const State, other: *const State) bool {
-        if (self.count != other.count) return false;
-        for (0..self.count) |i| {
-            if (!self.tracks[i].eql(other.tracks[i])) return false;
+        if (self.tracks.len != other.tracks.len) return false;
+        for (self.tracks, other.tracks) |*a, *b| {
+            if (!a.eql(b.*)) return false;
         }
         return true;
     }
 
-    /// Poll current state from REAPER into an existing State struct.
+    /// Poll current state from REAPER, allocating from the provided allocator.
     /// Accepts any backend type (RealBackend, MockBackend, or test doubles).
-    /// Uses unified indexing: idx 0 = master, idx 1+ = user tracks
-    /// NOTE: Uses output pointer to avoid 2.5MB stack allocation.
-    pub fn pollInto(self: *State, api: anytype) void {
-        self.count = 0; // Reset
-        const user_track_count: usize = @intCast(@max(0, api.trackCount()));
-        // Total count = master (1) + user tracks
-        self.count = @min(user_track_count + 1, MAX_TRACKS);
+    /// Uses unified indexing: idx 0 = master, idx 1+ = user tracks.
+    ///
+    /// For arena allocation: allocator should be from currentAllocator().
+    /// Allocated memory is freed when arena resets.
+    pub fn poll(allocator: Allocator, api: anytype) Allocator.Error!State {
+        return pollWithLimit(allocator, api, MAX_TRACKS);
+    }
 
-        for (0..self.count) |i| {
+    /// Poll with a custom track limit (for user-configurable limits)
+    pub fn pollWithLimit(allocator: Allocator, api: anytype, max_tracks: usize) Allocator.Error!State {
+        const user_track_count: usize = @intCast(@max(0, api.trackCount()));
+        // Total count = master (1) + user tracks, capped at limit
+        const total_count = @min(user_track_count + 1, max_tracks);
+
+        const tracks = try allocator.alloc(Track, total_count);
+
+        for (tracks, 0..) |*t, i| {
             const idx: c_int = @intCast(i);
             // Use unified indexing: 0 = master, 1+ = user tracks
             if (api.getTrackByUnifiedIdx(idx)) |track| {
-                var t = &self.tracks[i];
+                t.* = Track{}; // Initialize with defaults
                 t.idx = idx;
 
                 // Get track name (master track returns "MASTER" from REAPER)
@@ -195,19 +215,63 @@ pub const State = struct {
                 t.fx_enabled = api.getTrackFxEnabled(track);
                 t.selected = api.getTrackSelected(track);
                 t.folder_depth = api.getTrackFolderDepth(track);
-                // Reset FX and send counts (will be populated by FX polling in main.zig)
-                t.fx_count = 0;
-                t.send_count = 0;
+                // Note: fx and sends slices default to empty (&.{}) from Track init
+                // They get populated by MEDIUM_TIER polling into g_last_tracks
+            } else {
+                // Track disappeared between count and fetch - use empty
+                t.* = Track{};
             }
         }
+
+        return .{ .tracks = tracks };
     }
 
-    /// Convenience wrapper that returns State (for tests and simple cases).
-    /// WARNING: Allocates ~2.5MB on stack - do NOT use in timer callbacks!
-    pub fn poll(api: anytype) State {
-        var state = State{};
-        state.pollInto(api);
-        return state;
+    // =========================================================================
+    // Legacy API for backwards compatibility (deprecated - will be removed)
+    // =========================================================================
+
+    /// Poll current state from REAPER into an existing State struct.
+    /// DEPRECATED: Use poll(allocator, api) with arena allocation instead.
+    /// NOTE: Uses output pointer to avoid 2.5MB stack allocation.
+    pub fn pollInto(self: *State, static_buffer: []Track, api: anytype) void {
+        const user_track_count: usize = @intCast(@max(0, api.trackCount()));
+        const total_count = @min(user_track_count + 1, @min(static_buffer.len, MAX_TRACKS));
+
+        for (static_buffer[0..total_count], 0..) |*t, i| {
+            const idx: c_int = @intCast(i);
+            if (api.getTrackByUnifiedIdx(idx)) |track| {
+                t.* = Track{};
+                t.idx = idx;
+
+                var name_buf: [MAX_NAME_LEN]u8 = undefined;
+                const name = api.getTrackNameStr(track, &name_buf);
+                const name_copy_len = @min(name.len, MAX_NAME_LEN);
+                @memcpy(t.name[0..name_copy_len], name[0..name_copy_len]);
+                t.name_len = name_copy_len;
+
+                t.color = api.getTrackColor(track) catch null;
+                t.volume = api.getTrackVolume(track);
+                t.pan = api.getTrackPan(track);
+                if (idx == 0) {
+                    t.mute = api.isMasterMuted();
+                    t.solo = if (api.isMasterSoloed()) 1 else 0;
+                } else {
+                    t.mute = api.getTrackMute(track);
+                    t.solo = api.getTrackSolo(track) catch null;
+                }
+                t.rec_arm = api.getTrackRecArm(track);
+                t.rec_mon = api.getTrackRecMon(track) catch null;
+                t.fx_enabled = api.getTrackFxEnabled(track);
+                t.selected = api.getTrackSelected(track);
+                t.folder_depth = api.getTrackFolderDepth(track);
+                // Note: fx and sends slices default to empty (&.{}) from Track init
+                // They get populated by MEDIUM_TIER polling into g_last_tracks
+            } else {
+                t.* = Track{};
+            }
+        }
+
+        self.tracks = static_buffer[0..total_count];
     }
 
     // Build JSON event for tracks state
@@ -218,9 +282,8 @@ pub const State = struct {
 
         writer.writeAll("{\"type\":\"event\",\"event\":\"tracks\",\"payload\":{\"tracks\":[") catch return null;
 
-        for (0..self.count) |i| {
+        for (self.tracks, 0..) |*t, i| {
             if (i > 0) writer.writeByte(',') catch return null;
-            const t = &self.tracks[i];
             writer.print("{{\"idx\":{d},\"name\":\"", .{t.idx}) catch return null;
             protocol.writeJsonString(writer, t.getName()) catch return null;
             writer.writeAll("\",\"color\":") catch return null;
@@ -262,11 +325,10 @@ pub const State = struct {
                 t.folder_depth,
             }) catch return null;
 
-            // Serialize FX chain
+            // Serialize FX chain (slice-based)
             writer.writeAll(",\"fx\":[") catch return null;
-            for (0..t.fx_count) |fx_i| {
+            for (t.fx, 0..) |*fx, fx_i| {
                 if (fx_i > 0) writer.writeByte(',') catch return null;
-                const fx = &t.fx[fx_i];
                 writer.writeAll("{\"name\":\"") catch return null;
                 protocol.writeJsonString(writer, fx.getName()) catch return null;
                 writer.writeAll("\",\"presetName\":\"") catch return null;
@@ -279,11 +341,10 @@ pub const State = struct {
             }
             writer.writeAll("]") catch return null;
 
-            // Serialize sends
+            // Serialize sends (slice-based)
             writer.writeAll(",\"sends\":[") catch return null;
-            for (0..t.send_count) |send_i| {
+            for (t.sends, 0..) |*send, send_i| {
                 if (send_i > 0) writer.writeByte(',') catch return null;
-                const send = &t.sends[send_i];
                 writer.print("{{\"idx\":{d},\"destName\":\"", .{send_i}) catch return null;
                 protocol.writeJsonString(writer, send.getDestName()) catch return null;
                 writer.print("\",\"volume\":{d:.6},\"muted\":{s},\"mode\":{d}}}", .{
@@ -397,16 +458,18 @@ test "Track.eql ignores small float differences" {
 }
 
 test "State.eql detects track count changes" {
-    var a = State{};
-    var b = State{};
-    a.count = 2;
-    b.count = 3;
+    // Use static buffers for test tracks
+    var tracks_a: [2]Track = undefined;
+    var tracks_b: [3]Track = undefined;
+    const a = State{ .tracks = tracks_a[0..2] };
+    const b = State{ .tracks = tracks_b[0..3] };
     try std.testing.expect(!a.eql(&b));
 }
 
 test "State.toJson without metering" {
-    var state = State{};
-    state.count = 2;
+    // Allocate tracks for test
+    var tracks_buf: [2]Track = undefined;
+    var state = State{ .tracks = &tracks_buf };
 
     // Track 0 with name "Drums"
     state.tracks[0] = .{ .idx = 0, .color = 16711680, .volume = 1.0, .pan = 0.0, .mute = false, .solo = 0, .rec_arm = false, .rec_mon = 0, .fx_enabled = true };
@@ -436,8 +499,8 @@ test "State.toJson without metering" {
 }
 
 test "State.toJson with metering" {
-    var state = State{};
-    state.count = 1;
+    var tracks_buf: [1]Track = undefined;
+    var state = State{ .tracks = &tracks_buf };
     state.tracks[0] = .{ .idx = 0, .volume = 1.0, .pan = 0.0, .mute = false, .solo = 0, .rec_arm = true, .rec_mon = 1, .fx_enabled = true };
 
     var metering = MeteringState{};
@@ -457,8 +520,8 @@ test "State.toJson with metering" {
 test "State.toJson outputs null for corrupt solo/recMon" {
     // When solo or rec_mon is null (corrupt from REAPER),
     // the JSON should contain explicit null values, not fake data
-    var state = State{};
-    state.count = 1;
+    var tracks_buf: [1]Track = undefined;
+    var state = State{ .tracks = &tracks_buf };
     state.tracks[0] = .{
         .idx = 0,
         .volume = 1.0,
@@ -512,9 +575,10 @@ test "poll with MockBackend returns configured values" {
     mock.tracks[2].rec_arm = true;
     mock.tracks[2].rec_mon = 1;
 
-    const state = State.poll(&mock);
+    const state = try State.poll(std.testing.allocator, &mock);
+    defer std.testing.allocator.free(state.tracks);
 
-    try std.testing.expectEqual(@as(usize, 3), state.count);
+    try std.testing.expectEqual(@as(usize, 3), state.tracks.len);
 
     // Master track assertions
     try std.testing.expectEqual(@as(c_int, 0), state.tracks[0].idx);
@@ -544,9 +608,10 @@ test "poll handles solo error gracefully" {
     mock.tracks[0].setName("MASTER");
     mock.tracks[1].setName("Track 1");
 
-    const state = State.poll(&mock);
+    const state = try State.poll(std.testing.allocator, &mock);
+    defer std.testing.allocator.free(state.tracks);
 
-    try std.testing.expectEqual(@as(usize, 2), state.count);
+    try std.testing.expectEqual(@as(usize, 2), state.tracks.len);
     // Master uses isMasterSoloed, not getTrackSolo, so solo should be set
     try std.testing.expectEqual(@as(?c_int, 0), state.tracks[0].solo);
     // Regular track's solo should be null due to injected error
@@ -561,9 +626,10 @@ test "poll handles recmon error gracefully" {
     mock.tracks[1].setName("Track 1");
     mock.tracks[1].rec_arm = true;
 
-    const state = State.poll(&mock);
+    const state = try State.poll(std.testing.allocator, &mock);
+    defer std.testing.allocator.free(state.tracks);
 
-    try std.testing.expectEqual(@as(usize, 2), state.count);
+    try std.testing.expectEqual(@as(usize, 2), state.tracks.len);
     // rec_mon should be null due to injected error
     try std.testing.expect(state.tracks[1].rec_mon == null);
     // Other fields should still work
@@ -578,9 +644,10 @@ test "poll handles master track mute/solo specially" {
     };
     mock.tracks[0].setName("MASTER");
 
-    const state = State.poll(&mock);
+    const state = try State.poll(std.testing.allocator, &mock);
+    defer std.testing.allocator.free(state.tracks);
 
-    try std.testing.expectEqual(@as(usize, 1), state.count);
+    try std.testing.expectEqual(@as(usize, 1), state.tracks.len);
     try std.testing.expect(state.tracks[0].mute);
     try std.testing.expectEqual(@as(?c_int, 1), state.tracks[0].solo);
 }
@@ -589,7 +656,8 @@ test "poll tracks API calls correctly" {
     var mock = MockBackend{
         .track_count = 1,
     };
-    _ = State.poll(&mock);
+    const state = try State.poll(std.testing.allocator, &mock);
+    defer std.testing.allocator.free(state.tracks);
 
     // Verify key API calls were made
     try std.testing.expect(mock.getCallCount(.trackCount) >= 1);
@@ -605,10 +673,11 @@ test "poll respects MAX_TRACKS limit" {
         .track_count = 200, // More than MAX_TRACKS (128)
     };
 
-    const state = State.poll(&mock);
+    const state = try State.poll(std.testing.allocator, &mock);
+    defer std.testing.allocator.free(state.tracks);
 
     // Should cap at MAX_TRACKS (128) = 127 user tracks + 1 master
-    try std.testing.expectEqual(MAX_TRACKS, state.count);
+    try std.testing.expectEqual(MAX_TRACKS, state.tracks.len);
 }
 
 test "poll with empty project returns only master" {
@@ -617,9 +686,21 @@ test "poll with empty project returns only master" {
     };
     mock.tracks[0].setName("MASTER");
 
-    const state = State.poll(&mock);
+    const state = try State.poll(std.testing.allocator, &mock);
+    defer std.testing.allocator.free(state.tracks);
 
-    try std.testing.expectEqual(@as(usize, 1), state.count);
+    try std.testing.expectEqual(@as(usize, 1), state.tracks.len);
     try std.testing.expectEqual(@as(c_int, 0), state.tracks[0].idx);
+}
+
+test "State.empty returns empty slice" {
+    const state = State.empty();
+    try std.testing.expectEqual(@as(usize, 0), state.tracks.len);
+}
+
+test "State.count returns slice length" {
+    var tracks_buf: [5]Track = undefined;
+    const state = State{ .tracks = tracks_buf[0..5] };
+    try std.testing.expectEqual(@as(usize, 5), state.count());
 }
 

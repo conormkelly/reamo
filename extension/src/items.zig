@@ -93,15 +93,65 @@ pub const Item = struct {
 
 // Cached state for change detection
 pub const State = struct {
-    items: [MAX_ITEMS]Item = undefined,
-    item_count: usize = 0,
+    items: []Item = &.{},
 
-    /// Poll current state from REAPER into an existing State struct.
+    const Allocator = std.mem.Allocator;
+
+    /// Returns an empty state (for initialization).
+    pub fn empty() State {
+        return .{ .items = &.{} };
+    }
+
+    /// Returns the number of items.
+    pub fn count(self: *const State) usize {
+        return self.items.len;
+    }
+
+    /// Poll current state from REAPER, allocating from the provided allocator.
+    /// Use this with arena allocation for frame-based lifetimes.
+    pub fn poll(allocator: Allocator, api: anytype) Allocator.Error!State {
+        return pollWithLimit(allocator, api, MAX_ITEMS);
+    }
+
+    /// Poll with configurable item limit.
+    pub fn pollWithLimit(allocator: Allocator, api: anytype, max_items: usize) Allocator.Error!State {
+        // First pass: count total items
+        var total_items: usize = 0;
+        const track_count = api.trackCount();
+        var track_idx: c_int = 0;
+        while (track_idx < track_count) : (track_idx += 1) {
+            const track = api.getTrackByIdx(track_idx) orelse continue;
+            const item_count_on_track: usize = @intCast(@max(0, api.trackItemCount(track)));
+            total_items += item_count_on_track;
+            if (total_items >= max_items) {
+                total_items = max_items;
+                break;
+            }
+        }
+
+        if (total_items == 0) {
+            return .{ .items = &.{} };
+        }
+
+        const items = try allocator.alloc(Item, total_items);
+        var state = State{ .items = items };
+
+        // Second pass: populate (reuse pollInto logic with our allocated buffer)
+        state.pollIntoBuffer(items, api);
+        return state;
+    }
+
+    /// Poll current state from REAPER into an existing State struct with static buffer.
     /// Accepts any backend type (RealBackend, MockBackend, or test doubles).
     /// Returns ALL items in the project (frontend filters by time selection as needed)
     /// NOTE: Uses output pointer to avoid ~600KB stack allocation.
-    pub fn pollInto(self: *State, api: anytype) void {
-        self.item_count = 0; // Reset
+    pub fn pollInto(self: *State, static_buffer: []Item, api: anytype) void {
+        self.pollIntoBuffer(static_buffer, api);
+    }
+
+    /// Internal: populate items into the provided buffer.
+    fn pollIntoBuffer(self: *State, buffer: []Item, api: anytype) void {
+        var total_count: usize = 0;
 
         // Enumerate all tracks
         const track_count = api.trackCount();
@@ -110,14 +160,14 @@ pub const State = struct {
             const track = api.getTrackByIdx(track_idx) orelse continue;
 
             // Enumerate items on this track
-            const item_count = api.trackItemCount(track);
+            const items_on_track = api.trackItemCount(track);
             var item_idx: c_int = 0;
-            while (item_idx < item_count) : (item_idx += 1) {
-                if (self.item_count >= MAX_ITEMS) break;
+            while (item_idx < items_on_track) : (item_idx += 1) {
+                if (total_count >= buffer.len) break;
 
                 const item_ptr = api.getItemByIdx(track, item_idx) orelse continue;
 
-                var item = &self.items[self.item_count];
+                var item = &buffer[total_count];
 
                 // Get item GUID
                 var guid_buf: [64]u8 = undefined;
@@ -169,26 +219,31 @@ pub const State = struct {
                     take.is_midi = api.isTakeMIDI(take_ptr);
                 }
 
-                self.item_count += 1;
+                total_count += 1;
             }
 
-            if (self.item_count >= MAX_ITEMS) break;
+            if (total_count >= buffer.len) break;
         }
+
+        self.items = buffer[0..total_count];
     }
 
-    /// Convenience wrapper that returns State (for tests).
-    /// WARNING: Allocates ~600KB on stack - do NOT use in timer callbacks!
-    pub fn poll(api: anytype) State {
+    /// Convenience wrapper that returns State using static buffer (for tests).
+    /// WARNING: Uses static buffer - NOT thread-safe, do NOT use in production!
+    pub fn pollStatic(api: anytype) State {
+        const S = struct {
+            var static_buffer: [MAX_ITEMS]Item = undefined;
+        };
         var state = State{};
-        state.pollInto(api);
+        state.pollInto(&S.static_buffer, api);
         return state;
     }
 
     // Check if items have changed
     pub fn itemsChanged(self: *const State, other: *const State) bool {
-        if (self.item_count != other.item_count) return true;
+        if (self.items.len != other.items.len) return true;
 
-        for (0..self.item_count) |i| {
+        for (0..self.items.len) |i| {
             if (!self.items[i].eql(&other.items[i])) return true;
         }
         return false;
@@ -202,7 +257,7 @@ pub const State = struct {
         w.writeAll("{\"type\":\"event\",\"event\":\"items\",\"payload\":{") catch return null;
         w.writeAll("\"items\":[") catch return null;
 
-        for (0..self.item_count) |i| {
+        for (0..self.items.len) |i| {
             if (i > 0) w.writeByte(',') catch return null;
             const item = &self.items[i];
 
@@ -340,10 +395,9 @@ test "State items JSON output" {
     const item_guid = "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}";
     const take_guid = "{11111111-2222-3333-4444-555555555555}";
 
-    var state = State{};
-
-    // Add test item
-    state.items[0] = .{
+    // Use a static buffer for testing
+    var items_buffer: [1]Item = undefined;
+    items_buffer[0] = .{
         .track_idx = 0,
         .item_idx = 0,
         .position = 10.0,
@@ -352,16 +406,17 @@ test "State items JSON output" {
         .locked = false,
         .active_take_idx = 0,
     };
-    state.items[0].guid[0..item_guid.len].* = item_guid.*;
-    state.items[0].guid_len = item_guid.len;
-    state.items[0].take_count = 1;
-    state.items[0].takes[0].guid[0..take_guid.len].* = take_guid.*;
-    state.items[0].takes[0].guid_len = take_guid.len;
-    state.items[0].takes[0].name[0..4].* = "Main".*;
-    state.items[0].takes[0].name_len = 4;
-    state.items[0].takes[0].is_active = true;
-    state.items[0].takes[0].is_midi = false;
-    state.item_count = 1;
+    items_buffer[0].guid[0..item_guid.len].* = item_guid.*;
+    items_buffer[0].guid_len = item_guid.len;
+    items_buffer[0].take_count = 1;
+    items_buffer[0].takes[0].guid[0..take_guid.len].* = take_guid.*;
+    items_buffer[0].takes[0].guid_len = take_guid.len;
+    items_buffer[0].takes[0].name[0..4].* = "Main".*;
+    items_buffer[0].takes[0].name_len = 4;
+    items_buffer[0].takes[0].is_active = true;
+    items_buffer[0].takes[0].is_midi = false;
+
+    const state = State{ .items = &items_buffer };
 
     var buf: [2048]u8 = undefined;
     const json = state.itemsToJson(&buf).?;
@@ -376,8 +431,8 @@ test "State items JSON output" {
 test "items changed detection" {
     const item_guid = "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}";
 
-    var state1 = State{};
-    state1.items[0] = .{
+    var buffer1: [1]Item = undefined;
+    buffer1[0] = .{
         .track_idx = 0,
         .item_idx = 0,
         .position = 10.0,
@@ -386,12 +441,11 @@ test "items changed detection" {
         .locked = false,
         .active_take_idx = 0,
     };
-    state1.items[0].guid[0..item_guid.len].* = item_guid.*;
-    state1.items[0].guid_len = item_guid.len;
-    state1.item_count = 1;
+    buffer1[0].guid[0..item_guid.len].* = item_guid.*;
+    buffer1[0].guid_len = item_guid.len;
 
-    var state2 = State{};
-    state2.items[0] = .{
+    var buffer2: [1]Item = undefined;
+    buffer2[0] = .{
         .track_idx = 0,
         .item_idx = 0,
         .position = 10.0,
@@ -400,13 +454,15 @@ test "items changed detection" {
         .locked = false,
         .active_take_idx = 0,
     };
-    state2.items[0].guid[0..item_guid.len].* = item_guid.*;
-    state2.items[0].guid_len = item_guid.len;
-    state2.item_count = 1;
+    buffer2[0].guid[0..item_guid.len].* = item_guid.*;
+    buffer2[0].guid_len = item_guid.len;
+
+    const state1 = State{ .items = &buffer1 };
+    var state2 = State{ .items = &buffer2 };
 
     try std.testing.expect(!state1.itemsChanged(&state2));
 
-    state2.items[0].locked = true;
+    buffer2[0].locked = true;
     try std.testing.expect(state1.itemsChanged(&state2));
 }
 
@@ -421,9 +477,9 @@ test "poll with MockBackend returns empty state for no tracks" {
         .track_count = 0,
     };
 
-    const state = State.poll(&mock);
+    const state = State.pollStatic(&mock);
 
-    try std.testing.expectEqual(@as(usize, 0), state.item_count);
+    try std.testing.expectEqual(@as(usize, 0), state.items.len);
 }
 
 test "poll with MockBackend returns items from tracks" {
@@ -446,9 +502,9 @@ test "poll with MockBackend returns items from tracks" {
     mock.tracks[0].items[0].takes[0].setName("Audio Take");
     mock.tracks[0].items[0].takes[0].is_midi = false;
 
-    const state = State.poll(&mock);
+    const state = State.pollStatic(&mock);
 
-    try std.testing.expectEqual(@as(usize, 1), state.item_count);
+    try std.testing.expectEqual(@as(usize, 1), state.items.len);
     try std.testing.expect(@abs(state.items[0].position - 5.0) < 0.001);
     try std.testing.expect(@abs(state.items[0].length - 2.5) < 0.001);
     try std.testing.expectEqual(@as(?c_int, 16711680), state.items[0].color);
@@ -468,7 +524,7 @@ test "poll tracks API calls correctly" {
         .take_count = 1,
     };
 
-    _ = State.poll(&mock);
+    _ = State.pollStatic(&mock);
 
     // Verify key API calls were made
     try std.testing.expect(mock.getCallCount(.trackCount) >= 1);

@@ -31,6 +31,11 @@ pub fn safeFloatToInt(comptime T: type, value: f64) FFIError!T {
     if (std.math.isNan(value)) return error.FloatIsNaN;
     if (std.math.isInf(value)) return error.FloatIsInf;
 
+    // For unsigned types, explicitly reject negative values with specific error
+    if (@typeInfo(T).int.signedness == .unsigned and value < 0) {
+        return error.NegativeToUnsigned;
+    }
+
     const min_val: f64 = @floatFromInt(std.math.minInt(T));
     const max_val: f64 = @floatFromInt(std.math.maxInt(T));
 
@@ -120,6 +125,12 @@ pub fn roundFloatToInt(comptime T: type, value: f64) FFIError!T {
     if (std.math.isInf(value)) return error.FloatIsInf;
 
     const rounded = @round(value);
+
+    // For unsigned types, explicitly reject negative values with specific error
+    if (@typeInfo(T).int.signedness == .unsigned and rounded < 0) {
+        return error.NegativeToUnsigned;
+    }
+
     const min_val: f64 = @floatFromInt(std.math.minInt(T));
     const max_val: f64 = @floatFromInt(std.math.maxInt(T));
 
@@ -158,7 +169,13 @@ test "safeFloatToInt rejects overflow" {
 
 test "safeFloatToInt works with u32" {
     try std.testing.expectEqual(@as(u32, 100), try safeFloatToInt(u32, 100.0));
-    try std.testing.expectError(error.IntegerOverflow, safeFloatToInt(u32, -1.0));
+    try std.testing.expectError(error.NegativeToUnsigned, safeFloatToInt(u32, -1.0));
+}
+
+test "safeFloatToInt rejects negative values for unsigned types" {
+    try std.testing.expectError(error.NegativeToUnsigned, safeFloatToInt(u8, -1.0));
+    try std.testing.expectError(error.NegativeToUnsigned, safeFloatToInt(u16, -0.5));
+    try std.testing.expectError(error.NegativeToUnsigned, safeFloatToInt(usize, -100.0));
 }
 
 test "sanitizeFloat accepts normal values" {
@@ -234,5 +251,5 @@ test "roundFloatToInt rejects NaN and Inf" {
 
 test "roundFloatToInt rejects overflow" {
     try std.testing.expectError(error.IntegerOverflow, roundFloatToInt(u8, 256.0));
-    try std.testing.expectError(error.IntegerOverflow, roundFloatToInt(u8, -1.0));
+    try std.testing.expectError(error.NegativeToUnsigned, roundFloatToInt(u8, -1.0));
 }

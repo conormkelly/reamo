@@ -32,6 +32,7 @@ pub fn build(b: *std.Build) void {
         "src/markers.zig",
         "src/items.zig",
         "src/tracks.zig",
+        "src/frame_arena.zig",
     };
 
     const test_step = b.step("test", "Run unit tests");

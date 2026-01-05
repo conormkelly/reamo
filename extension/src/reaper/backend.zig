@@ -118,6 +118,11 @@ pub fn validateBackend(comptime T: type) void {
         "csurfSetRecMon",
         "csurfFlushUndo",
 
+        // Pointer Validation
+        "validateTrackPtr",
+        "validateItemPtr",
+        "validateTakePtr",
+
         // Items
         "trackItemCount",
         "getItemByIdx",

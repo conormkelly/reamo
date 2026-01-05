@@ -201,6 +201,9 @@ pub const Api = struct {
     getProjectName_fn: ?*const fn (?*anyopaque, [*]u8, c_int) callconv(.c) void = null,
     getMainHwnd_fn: ?*const fn () callconv(.c) ?*anyopaque = null,
 
+    // Pointer validation
+    validatePtr2_fn: ?*const fn (?*anyopaque, ?*anyopaque, [*:0]const u8) callconv(.c) bool = null,
+
     // Load API from REAPER plugin info
     pub fn load(info: *PluginInfo) ?Api {
         const showConsoleMsg = getFunc(info, "ShowConsoleMsg", fn ([*:0]const u8) callconv(.c) void) orelse return null;
@@ -341,6 +344,8 @@ pub const Api = struct {
             .enumProjects_fn = getFunc(info, "EnumProjects", fn (c_int, [*]u8, c_int) callconv(.c) ?*anyopaque),
             .getProjectName_fn = getFunc(info, "GetProjectName", fn (?*anyopaque, [*]u8, c_int) callconv(.c) void),
             .getMainHwnd_fn = getFunc(info, "GetMainHwnd", fn () callconv(.c) ?*anyopaque),
+            // Pointer validation
+            .validatePtr2_fn = getFunc(info, "ValidatePtr2", fn (?*anyopaque, ?*anyopaque, [*:0]const u8) callconv(.c) bool),
         };
     }
 
@@ -1754,6 +1759,29 @@ pub const Api = struct {
     pub fn getMainHwnd(self: *const Api) ?*anyopaque {
         const f = self.getMainHwnd_fn orelse return null;
         return f();
+    }
+
+    /// Validate a pointer using REAPER's ValidatePtr2.
+    /// Returns true if the pointer is valid for the given type.
+    /// Type names: "MediaTrack*", "MediaItem*", "MediaItem_Take*"
+    pub fn validatePtr2(self: *const Api, ptr: ?*anyopaque, typename: [*:0]const u8) bool {
+        const f = self.validatePtr2_fn orelse return false;
+        return f(null, ptr, typename); // null project = current project
+    }
+
+    /// Validate a track pointer.
+    pub fn validateTrackPtr(self: *const Api, track: ?*anyopaque) bool {
+        return self.validatePtr2(track, "MediaTrack*");
+    }
+
+    /// Validate an item pointer.
+    pub fn validateItemPtr(self: *const Api, item: ?*anyopaque) bool {
+        return self.validatePtr2(item, "MediaItem*");
+    }
+
+    /// Validate a take pointer.
+    pub fn validateTakePtr(self: *const Api, take: ?*anyopaque) bool {
+        return self.validatePtr2(take, "MediaItem_Take*");
     }
 };
 

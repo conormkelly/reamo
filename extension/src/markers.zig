@@ -62,25 +62,80 @@ pub const Region = struct {
 
 // Cached state for change detection
 pub const State = struct {
-    markers: [MAX_MARKERS]Marker = undefined,
-    marker_count: usize = 0,
-    regions: [MAX_REGIONS]Region = undefined,
-    region_count: usize = 0,
+    markers: []Marker = &.{},
+    regions: []Region = &.{},
     bar_offset: c_int = 0, // For bar string formatting
 
-    /// Poll current state from REAPER into an existing State struct.
+    const Allocator = std.mem.Allocator;
+
+    /// Returns an empty state (for initialization).
+    pub fn empty() State {
+        return .{ .markers = &.{}, .regions = &.{}, .bar_offset = 0 };
+    }
+
+    /// Returns the number of markers.
+    pub fn markerCount(self: *const State) usize {
+        return self.markers.len;
+    }
+
+    /// Returns the number of regions.
+    pub fn regionCount(self: *const State) usize {
+        return self.regions.len;
+    }
+
+    /// Poll current state from REAPER, allocating from the provided allocator.
+    /// Use this with arena allocation for frame-based lifetimes.
+    pub fn poll(allocator: Allocator, api: anytype) Allocator.Error!State {
+        return pollWithLimit(allocator, api, MAX_MARKERS, MAX_REGIONS);
+    }
+
+    /// Poll with configurable limits.
+    pub fn pollWithLimit(allocator: Allocator, api: anytype, max_markers: usize, max_regions: usize) Allocator.Error!State {
+        // First pass: count markers and regions
+        var total_markers: usize = 0;
+        var total_regions: usize = 0;
+        var idx: c_int = 0;
+        while (api.enumMarker(idx)) |info| : (idx += 1) {
+            if (info.is_region) {
+                if (total_regions < max_regions) total_regions += 1;
+            } else {
+                if (total_markers < max_markers) total_markers += 1;
+            }
+        }
+
+        // Always allocate - 0-length alloc is valid and has no overhead
+        const marker_buf = try allocator.alloc(Marker, total_markers);
+        const region_buf = try allocator.alloc(Region, total_regions);
+
+        var state = State{
+            .markers = marker_buf,
+            .regions = region_buf,
+            .bar_offset = api.getBarOffset(),
+        };
+
+        // Second pass: populate (reuse pollIntoBuffers logic)
+        state.pollIntoBuffers(marker_buf, region_buf, api);
+        return state;
+    }
+
+    /// Poll current state from REAPER into an existing State struct with static buffers.
     /// Accepts any backend type (RealBackend, MockBackend, or test doubles).
     /// NOTE: Uses output pointer to avoid ~95KB stack allocation.
-    pub fn pollInto(self: *State, api: anytype) void {
-        self.marker_count = 0; // Reset
-        self.region_count = 0;
+    pub fn pollInto(self: *State, marker_buffer: []Marker, region_buffer: []Region, api: anytype) void {
+        self.pollIntoBuffers(marker_buffer, region_buffer, api);
+    }
+
+    /// Internal: populate markers and regions into the provided buffers.
+    fn pollIntoBuffers(self: *State, marker_buffer: []Marker, region_buffer: []Region, api: anytype) void {
+        var marker_count: usize = 0;
+        var region_count: usize = 0;
         self.bar_offset = api.getBarOffset();
 
         var idx: c_int = 0;
         while (api.enumMarker(idx)) |info| : (idx += 1) {
             if (info.is_region) {
-                if (self.region_count < MAX_REGIONS) {
-                    var region = &self.regions[self.region_count];
+                if (region_count < region_buffer.len) {
+                    var region = &region_buffer[region_count];
                     region.id = info.id;
                     region.start = info.pos;
                     region.end = info.end;
@@ -106,11 +161,11 @@ pub const State = struct {
                     @memcpy(region.name[0..copy_len], info.name[0..copy_len]);
                     region.name_len = copy_len;
 
-                    self.region_count += 1;
+                    region_count += 1;
                 }
             } else {
-                if (self.marker_count < MAX_MARKERS) {
-                    var marker = &self.markers[self.marker_count];
+                if (marker_count < marker_buffer.len) {
+                    var marker = &marker_buffer[marker_count];
                     marker.id = info.id;
                     marker.position = info.pos;
                     marker.color = info.color;
@@ -125,25 +180,32 @@ pub const State = struct {
                     @memcpy(marker.name[0..copy_len], info.name[0..copy_len]);
                     marker.name_len = copy_len;
 
-                    self.marker_count += 1;
+                    marker_count += 1;
                 }
             }
         }
+
+        self.markers = marker_buffer[0..marker_count];
+        self.regions = region_buffer[0..region_count];
     }
 
-    /// Convenience wrapper that returns State (for tests).
-    /// WARNING: Allocates ~95KB on stack - do NOT use in timer callbacks!
-    pub fn poll(api: anytype) State {
+    /// Convenience wrapper that returns State using static buffers (for tests).
+    /// WARNING: Uses static buffers - NOT thread-safe, do NOT use in production!
+    pub fn pollStatic(api: anytype) State {
+        const S = struct {
+            var marker_buffer: [MAX_MARKERS]Marker = undefined;
+            var region_buffer: [MAX_REGIONS]Region = undefined;
+        };
         var state = State{};
-        state.pollInto(api);
+        state.pollInto(&S.marker_buffer, &S.region_buffer, api);
         return state;
     }
 
     // Check if markers have changed
     pub fn markersChanged(self: *const State, other: *const State) bool {
-        if (self.marker_count != other.marker_count) return true;
+        if (self.markers.len != other.markers.len) return true;
 
-        for (0..self.marker_count) |i| {
+        for (0..self.markers.len) |i| {
             if (!self.markers[i].eql(&other.markers[i])) return true;
         }
         return false;
@@ -151,9 +213,9 @@ pub const State = struct {
 
     // Check if regions have changed
     pub fn regionsChanged(self: *const State, other: *const State) bool {
-        if (self.region_count != other.region_count) return true;
+        if (self.regions.len != other.regions.len) return true;
 
-        for (0..self.region_count) |i| {
+        for (0..self.regions.len) |i| {
             if (!self.regions[i].eql(&other.regions[i])) return true;
         }
         return false;
@@ -216,7 +278,7 @@ pub const State = struct {
 
         w.writeAll("{\"type\":\"event\",\"event\":\"markers\",\"payload\":{\"markers\":[") catch return null;
 
-        for (0..self.marker_count) |i| {
+        for (0..self.markers.len) |i| {
             if (i > 0) w.writeByte(',') catch return null;
             const m = &self.markers[i];
             w.print("{{\"id\":{d},\"position\":{d:.15},\"positionBeats\":{d:.6},\"positionBars\":\"", .{
@@ -241,7 +303,7 @@ pub const State = struct {
 
         w.writeAll("{\"type\":\"event\",\"event\":\"regions\",\"payload\":{\"regions\":[") catch return null;
 
-        for (0..self.region_count) |i| {
+        for (0..self.regions.len) |i| {
             if (i > 0) w.writeByte(',') catch return null;
             const r = &self.regions[i];
             w.print("{{\"id\":{d},\"start\":{d:.15},\"end\":{d:.15},\"startBeats\":{d:.6},\"endBeats\":{d:.6},\"startBars\":\"", .{
@@ -298,11 +360,9 @@ test "Region equality" {
 }
 
 test "State markers JSON output" {
-    var state = State{};
-    state.bar_offset = 0;
-
-    // Add test marker at bar 3, beat 2 (0-indexed: 1.0), 50 ticks
-    state.markers[0] = .{
+    // Use a static buffer for testing
+    var marker_buffer: [1]Marker = undefined;
+    marker_buffer[0] = .{
         .id = 1,
         .position = 10.5,
         .position_beats = 21.5,
@@ -310,9 +370,10 @@ test "State markers JSON output" {
         .position_beat_in_bar = 1.5, // 0-indexed, so beat 2 + 50 ticks
         .color = 16711680,
     };
-    state.markers[0].name[0..5].* = "Verse".*;
-    state.markers[0].name_len = 5;
-    state.marker_count = 1;
+    marker_buffer[0].name[0..5].* = "Verse".*;
+    marker_buffer[0].name_len = 5;
+
+    const state = State{ .markers = &marker_buffer, .regions = &.{}, .bar_offset = 0 };
 
     var buf: [1024]u8 = undefined;
     const json = state.markersToJson(&buf).?;
@@ -327,11 +388,9 @@ test "State markers JSON output" {
 }
 
 test "State regions JSON output" {
-    var state = State{};
-    state.bar_offset = -4; // Test with negative offset (common in REAPER)
-
-    // Add test region from bar 1 to bar 9 (display: -3 to 5 with offset -4)
-    state.regions[0] = .{
+    // Use a static buffer for testing
+    var region_buffer: [1]Region = undefined;
+    region_buffer[0] = .{
         .id = 2,
         .start = 0.0,
         .end = 30.0,
@@ -343,9 +402,10 @@ test "State regions JSON output" {
         .end_beat_in_bar = 0.0, // Beat 1 (0-indexed)
         .color = 255,
     };
-    state.regions[0].name[0..5].* = "Intro".*;
-    state.regions[0].name_len = 5;
-    state.region_count = 1;
+    region_buffer[0].name[0..5].* = "Intro".*;
+    region_buffer[0].name_len = 5;
+
+    const state = State{ .markers = &.{}, .regions = &region_buffer, .bar_offset = -4 };
 
     var buf: [1024]u8 = undefined;
     const json = state.regionsToJson(&buf).?;
@@ -365,17 +425,18 @@ test "State regions JSON output" {
 }
 
 test "markers changed detection" {
-    var state1 = State{};
-    state1.markers[0] = .{ .id = 1, .position = 10.0, .color = 0 };
-    state1.marker_count = 1;
+    var buffer1: [1]Marker = undefined;
+    buffer1[0] = .{ .id = 1, .position = 10.0, .color = 0 };
 
-    var state2 = State{};
-    state2.markers[0] = .{ .id = 1, .position = 10.0, .color = 0 };
-    state2.marker_count = 1;
+    var buffer2: [1]Marker = undefined;
+    buffer2[0] = .{ .id = 1, .position = 10.0, .color = 0 };
+
+    const state1 = State{ .markers = &buffer1, .regions = &.{} };
+    var state2 = State{ .markers = &buffer2, .regions = &.{} };
 
     try std.testing.expect(!state1.markersChanged(&state2));
 
-    state2.markers[0].position = 15.0;
+    buffer2[0].position = 15.0;
     try std.testing.expect(state1.markersChanged(&state2));
 }
 
@@ -383,11 +444,12 @@ test "marker position preserves sub-millisecond precision" {
     // Regression test: Position 17.333333... must not be truncated to 17.333
     // because that causes beat display errors (4.4.99 instead of 4.5.00)
     // at 90 BPM in 6/8 time.
-    var state = State{};
-    state.markers[0] = .{ .id = 1, .position = 17.333333333333329, .color = 0 };
-    state.markers[0].name[0..2].* = "m1".*;
-    state.markers[0].name_len = 2;
-    state.marker_count = 1;
+    var marker_buffer: [1]Marker = undefined;
+    marker_buffer[0] = .{ .id = 1, .position = 17.333333333333329, .color = 0 };
+    marker_buffer[0].name[0..2].* = "m1".*;
+    marker_buffer[0].name_len = 2;
+
+    const state = State{ .markers = &marker_buffer, .regions = &.{} };
 
     var buf: [1024]u8 = undefined;
     const json = state.markersToJson(&buf).?;
@@ -399,11 +461,12 @@ test "marker position preserves sub-millisecond precision" {
 
 test "region position preserves sub-millisecond precision" {
     // Same precision requirement for regions
-    var state = State{};
-    state.regions[0] = .{ .id = 1, .start = 0.0, .end = 17.333333333333329, .color = 0 };
-    state.regions[0].name[0..4].* = "Test".*;
-    state.regions[0].name_len = 4;
-    state.region_count = 1;
+    var region_buffer: [1]Region = undefined;
+    region_buffer[0] = .{ .id = 1, .start = 0.0, .end = 17.333333333333329, .color = 0 };
+    region_buffer[0].name[0..4].* = "Test".*;
+    region_buffer[0].name_len = 4;
+
+    const state = State{ .markers = &.{}, .regions = &region_buffer };
 
     var buf: [1024]u8 = undefined;
     const json = state.regionsToJson(&buf).?;
@@ -446,11 +509,11 @@ test "poll with MockBackend returns markers and regions" {
     };
     mock.markers[1].setName("Intro");
 
-    const state = State.poll(&mock);
+    const state = State.pollStatic(&mock);
 
     try std.testing.expectEqual(@as(c_int, -4), state.bar_offset);
-    try std.testing.expectEqual(@as(usize, 1), state.marker_count);
-    try std.testing.expectEqual(@as(usize, 1), state.region_count);
+    try std.testing.expectEqual(@as(usize, 1), state.markers.len);
+    try std.testing.expectEqual(@as(usize, 1), state.regions.len);
 
     // Verify marker
     try std.testing.expectEqual(@as(c_int, 1), state.markers[0].id);
@@ -470,10 +533,10 @@ test "poll with MockBackend returns empty state when no markers" {
         .region_count = 0,
     };
 
-    const state = State.poll(&mock);
+    const state = State.pollStatic(&mock);
 
-    try std.testing.expectEqual(@as(usize, 0), state.marker_count);
-    try std.testing.expectEqual(@as(usize, 0), state.region_count);
+    try std.testing.expectEqual(@as(usize, 0), state.markers.len);
+    try std.testing.expectEqual(@as(usize, 0), state.regions.len);
 }
 
 test "poll tracks API calls correctly" {
@@ -491,7 +554,7 @@ test "poll tracks API calls correctly" {
     };
     mock.markers[0].setName("Test");
 
-    _ = State.poll(&mock);
+    _ = State.pollStatic(&mock);
 
     // Verify key API calls were made
     try std.testing.expect(mock.getCallCount(.getBarOffset) >= 1);
