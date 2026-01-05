@@ -187,15 +187,15 @@ export const track = {
   unselectAll: (): WSCommand => ({
     command: 'track/unselectAll',
   }),
-  /** Get full FX chain details for a track (on-demand) */
-  getFx: (trackIdx: number): WSCommand => ({
+  /** Get full FX chain details for a track (on-demand) with optional pagination */
+  getFx: (trackIdx: number, offset?: number, limit?: number): WSCommand => ({
     command: 'track/getFx',
-    params: { trackIdx },
+    params: { trackIdx, ...(offset !== undefined && { offset }), ...(limit !== undefined && { limit }) },
   }),
-  /** Get full send routing details for a track (on-demand) */
-  getSends: (trackIdx: number): WSCommand => ({
+  /** Get full send routing details for a track (on-demand) with optional pagination */
+  getSends: (trackIdx: number, offset?: number, limit?: number): WSCommand => ({
     command: 'track/getSends',
-    params: { trackIdx },
+    params: { trackIdx, ...(offset !== undefined && { offset }), ...(limit !== undefined && { limit }) },
   }),
 };
 

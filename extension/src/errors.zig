@@ -282,6 +282,13 @@ pub const ErrorEvent = struct {
         return stream.getWritten();
     }
 
+    // Allocator-based version - returns owned slice from allocator
+    pub fn toJsonAlloc(self: ErrorEvent, allocator: std.mem.Allocator) ![]const u8 {
+        var buf: [512]u8 = undefined;
+        const json = self.toJson(&buf) orelse return error.JsonSerializationFailed;
+        return allocator.dupe(u8, json);
+    }
+
     /// Create error event from Zig error
     pub fn fromError(err: anyerror, detail: ?[]const u8) ErrorEvent {
         return .{

@@ -226,6 +226,13 @@ pub const State = struct {
         return stream.getWritten();
     }
 
+    // Allocator-based version - returns owned slice from allocator
+    pub fn toJsonAlloc(self: State, allocator: std.mem.Allocator) ![]const u8 {
+        var buf: [512]u8 = undefined;
+        const json = self.toJson(&buf) orelse return error.JsonSerializationFailed;
+        return allocator.dupe(u8, json);
+    }
+
     // Build lightweight tick JSON (~140 bytes vs ~350 for full)
     // Used during playback when only position has changed
     // Enhanced format includes position (seconds), BPM and time sig
@@ -267,6 +274,13 @@ pub const State = struct {
         }
 
         return stream.getWritten();
+    }
+
+    // Allocator-based version of tick JSON
+    pub fn toTickJsonAlloc(self: State, allocator: std.mem.Allocator) ![]const u8 {
+        var buf: [256]u8 = undefined;
+        const json = self.toTickJson(&buf) orelse return error.JsonSerializationFailed;
+        return allocator.dupe(u8, json);
     }
 };
 

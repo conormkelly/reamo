@@ -442,9 +442,9 @@ const FX_NAME_LEN = 128;
 // Preset name buffer size
 const PRESET_NAME_LEN = 128;
 
-/// Get full FX detail for a single track.
-/// Input: { trackIdx: number }
-/// Response: { fx: [{ fxIndex, name, presetName, presetIndex, presetCount, modified, enabled }, ...] }
+/// Get full FX detail for a single track with pagination.
+/// Input: { trackIdx: number, offset?: number, limit?: number }
+/// Response: { fx: [...], total: number, offset: number, hasMore: boolean }
 pub fn handleGetFx(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const track_idx = cmd.getInt("trackIdx") orelse {
         response.err("INVALID_PARAMS", "trackIdx is required");
@@ -455,21 +455,34 @@ pub fn handleGetFx(api: anytype, cmd: protocol.CommandMessage, response: *mod.Re
         return;
     };
 
+    // Pagination parameters
+    const offset_raw = cmd.getInt("offset") orelse 0;
+    const offset: usize = if (offset_raw > 0) @intCast(offset_raw) else 0;
+    const limit_raw = cmd.getInt("limit") orelse MAX_FX_RESPONSE;
+    const limit: usize = if (limit_raw > 0) @intCast(@min(limit_raw, MAX_FX_RESPONSE)) else MAX_FX_RESPONSE;
+
     const fx_count_raw = api.trackFxCount(track);
-    const fx_count: usize = if (fx_count_raw > 0) @intCast(@min(fx_count_raw, MAX_FX_RESPONSE)) else 0;
+    const total: usize = if (fx_count_raw > 0) @intCast(fx_count_raw) else 0;
+
+    // Calculate range to return
+    const start: usize = @min(offset, total);
+    const end: usize = @min(start + limit, total);
+    const fx_count = end - start;
+    const has_more = end < total;
 
     // Serialize directly to response buffer
     var buf: [32768]u8 = undefined;
     var stream = std.io.fixedBufferStream(&buf);
     var w = stream.writer();
 
-    w.writeAll("{\"fx\":[") catch {
+    w.print("{{\"fx\":[", .{}) catch {
         response.err("SERIALIZE_ERROR", "Buffer overflow");
         return;
     };
 
-    var i: usize = 0;
-    while (i < fx_count) : (i += 1) {
+    var i: usize = start;
+    var written: usize = 0;
+    while (i < end) : (i += 1) {
         const fx_idx: c_int = @intCast(i);
 
         // Get FX name
@@ -486,10 +499,11 @@ pub fn handleGetFx(api: anytype, cmd: protocol.CommandMessage, response: *mod.Re
         const enabled = api.trackFxGetEnabled(track, fx_idx);
 
         // Write JSON object
-        if (i > 0) w.writeByte(',') catch {
+        if (written > 0) w.writeByte(',') catch {
             response.err("SERIALIZE_ERROR", "Buffer overflow");
             return;
         };
+        written += 1;
 
         w.print("{{\"fxIndex\":{d},\"name\":\"", .{fx_idx}) catch {
             response.err("SERIALIZE_ERROR", "Buffer overflow");
@@ -518,18 +532,22 @@ pub fn handleGetFx(api: anytype, cmd: protocol.CommandMessage, response: *mod.Re
         };
     }
 
-    w.writeAll("]}") catch {
+    w.print("],\"total\":{d},\"offset\":{d},\"hasMore\":{s}}}", .{
+        total,
+        offset,
+        if (has_more) "true" else "false",
+    }) catch {
         response.err("SERIALIZE_ERROR", "Buffer overflow");
         return;
     };
 
     response.success(stream.getWritten());
-    logging.debug("Returned {d} FX for track {d}", .{ fx_count, track_idx });
+    logging.debug("Returned {d} FX for track {d} (offset={d}, total={d})", .{ fx_count, track_idx, offset, total });
 }
 
-/// Get full send detail for a single track.
-/// Input: { trackIdx: number }
-/// Response: { sends: [{ sendIndex, destName, volume, muted, mode }, ...] }
+/// Get full send detail for a single track with pagination.
+/// Input: { trackIdx: number, offset?: number, limit?: number }
+/// Response: { sends: [...], total: number, offset: number, hasMore: boolean }
 pub fn handleGetSends(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const track_idx = cmd.getInt("trackIdx") orelse {
         response.err("INVALID_PARAMS", "trackIdx is required");
@@ -540,21 +558,34 @@ pub fn handleGetSends(api: anytype, cmd: protocol.CommandMessage, response: *mod
         return;
     };
 
+    // Pagination parameters
+    const offset_raw = cmd.getInt("offset") orelse 0;
+    const offset: usize = if (offset_raw > 0) @intCast(offset_raw) else 0;
+    const limit_raw = cmd.getInt("limit") orelse MAX_SENDS_RESPONSE;
+    const limit: usize = if (limit_raw > 0) @intCast(@min(limit_raw, MAX_SENDS_RESPONSE)) else MAX_SENDS_RESPONSE;
+
     const send_count_raw = api.trackSendCount(track);
-    const send_count: usize = if (send_count_raw > 0) @intCast(@min(send_count_raw, MAX_SENDS_RESPONSE)) else 0;
+    const total: usize = if (send_count_raw > 0) @intCast(send_count_raw) else 0;
+
+    // Calculate range to return
+    const start: usize = @min(offset, total);
+    const end: usize = @min(start + limit, total);
+    const send_count = end - start;
+    const has_more = end < total;
 
     // Serialize directly to response buffer
     var buf: [16384]u8 = undefined;
     var stream = std.io.fixedBufferStream(&buf);
     var w = stream.writer();
 
-    w.writeAll("{\"sends\":[") catch {
+    w.print("{{\"sends\":[", .{}) catch {
         response.err("SERIALIZE_ERROR", "Buffer overflow");
         return;
     };
 
-    var i: usize = 0;
-    while (i < send_count) : (i += 1) {
+    var i: usize = start;
+    var written: usize = 0;
+    while (i < end) : (i += 1) {
         const send_idx: c_int = @intCast(i);
 
         // Get send properties
@@ -565,10 +596,11 @@ pub fn handleGetSends(api: anytype, cmd: protocol.CommandMessage, response: *mod
         const mode = api.trackSendGetMode(track, send_idx);
 
         // Write JSON object
-        if (i > 0) w.writeByte(',') catch {
+        if (written > 0) w.writeByte(',') catch {
             response.err("SERIALIZE_ERROR", "Buffer overflow");
             return;
         };
+        written += 1;
 
         w.print("{{\"sendIndex\":{d},\"destName\":\"", .{send_idx}) catch {
             response.err("SERIALIZE_ERROR", "Buffer overflow");
@@ -588,13 +620,17 @@ pub fn handleGetSends(api: anytype, cmd: protocol.CommandMessage, response: *mod
         };
     }
 
-    w.writeAll("]}") catch {
+    w.print("],\"total\":{d},\"offset\":{d},\"hasMore\":{s}}}", .{
+        total,
+        offset,
+        if (has_more) "true" else "false",
+    }) catch {
         response.err("SERIALIZE_ERROR", "Buffer overflow");
         return;
     };
 
     response.success(stream.getWritten());
-    logging.debug("Returned {d} sends for track {d}", .{ send_count, track_idx });
+    logging.debug("Returned {d} sends for track {d} (offset={d}, total={d})", .{ send_count, track_idx, offset, total });
 }
 
 /// Helper to write JSON-escaped string

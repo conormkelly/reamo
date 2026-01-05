@@ -326,6 +326,19 @@ pub const State = struct {
         w.writeAll("]}}") catch return null;
         return stream.getWritten();
     }
+
+    // Allocator-based versions - return owned slice from allocator
+    pub fn markersToJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
+        var buf: [8192]u8 = undefined;
+        const json = self.markersToJson(&buf) orelse return error.JsonSerializationFailed;
+        return allocator.dupe(u8, json);
+    }
+
+    pub fn regionsToJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
+        var buf: [8192]u8 = undefined;
+        const json = self.regionsToJson(&buf) orelse return error.JsonSerializationFailed;
+        return allocator.dupe(u8, json);
+    }
 };
 
 // Tests

@@ -49,19 +49,13 @@ var g_notes_subs: ?*project_notes.NotesSubscriptions = null;
 var g_server: ?ws_server.Server = null;
 var g_port: u16 = 0;
 var g_tiered: ?tiered_state.TieredArenas = null;
-var g_last_transport: transport.State = .{};
-var g_last_project: project.State = .{};
+
+// Playlist engine state - needs regions cache for cross-tier lookups
+// The playlist engine runs at 30Hz (HIGH tier) but regions are polled at 5Hz (MEDIUM tier).
+// This cache persists regions between MEDIUM polls so the playlist engine can look up region bounds.
 var g_last_markers: markers.State = .{};
-var g_last_markers_buf: [markers.MAX_MARKERS]markers.Marker = undefined; // Backing storage for g_last_markers.markers slice
-var g_last_regions_buf: [markers.MAX_REGIONS]markers.Region = undefined; // Backing storage for g_last_markers.regions slice
-var g_last_items: items.State = .{};
-var g_last_items_buf: [items.MAX_ITEMS]items.Item = undefined; // Backing storage for g_last_items.items slice
-var g_last_tracks: tracks.State = .{};
-var g_last_tracks_buf: [tracks.MAX_TRACKS]tracks.Track = undefined; // Backing storage for g_last_tracks.tracks slice
-// Note: FX/sends buffers removed - now using sparse counts with on-demand fetching.
-// Full FX/sends data is fetched via track/getFx, track/getSends commands.
-var g_last_metering: tracks.MeteringState = .{};
-var g_last_tempomap: tempomap.State = .{};
+var g_last_markers_buf: [markers.MAX_MARKERS]markers.Marker = undefined;
+var g_last_regions_buf: [markers.MAX_REGIONS]markers.Region = undefined;
 var g_playlist_state: playlist.State = .{};
 var g_last_playlist: playlist.State = .{}; // For change detection
 var g_initialized: bool = false;
@@ -233,14 +227,10 @@ fn doInitialization() !void {
     const port_str = std.fmt.bufPrint(&port_buf, "{d}", .{g_port}) catch "9224";
     api.setExtStateStr("Reamo", "WebSocketPort", port_str);
 
-    // Initialize state caches using RealBackend (already created above for entity counting)
-    // Use pollInto to avoid large stack allocations during initialization
-    g_last_transport = transport.State.poll(&backend); // Small, OK on stack
-    g_last_project = project.State.poll(&backend); // Small, OK on stack
-    g_last_markers.pollInto(&g_last_markers_buf, &g_last_regions_buf, &backend); // ~95KB - use pollInto with static buffers
-    g_last_items.pollInto(&g_last_items_buf, &backend); // ~600KB - use pollInto with static buffer
-    g_last_tracks.pollInto(&g_last_tracks_buf, &backend); // ~2.5MB - use pollInto with static buffer
-    g_last_tempomap = tempomap.State.poll(&backend); // Small, OK on stack
+    // Initialize g_last_markers for playlist engine - it needs regions across tier boundaries
+    // The playlist engine runs at 30Hz (HIGH tier) but regions are polled at 5Hz (MEDIUM tier).
+    // This cache persists regions between MEDIUM polls so the playlist engine can look up region bounds.
+    g_last_markers.pollInto(&g_last_markers_buf, &g_last_regions_buf, &backend);
 
     // Load playlist state from ProjExtState
     g_playlist_state.loadAll(&backend);
@@ -249,30 +239,11 @@ fn doInitialization() !void {
     logging.info("Initialization complete, waiting for warmup", .{});
 }
 
-// Static buffers to reduce stack usage in processTimerCallback
-// These are large and would overflow the stack when called from deep event loops
+// Static buffers for modules that haven't migrated to allocator pattern yet
+// Most JSON serialization now uses the scratch arena allocator
 const StaticBuffers = struct {
-    var snapshot_transport: [512]u8 = undefined;
-    var snapshot_project: [512]u8 = undefined;
-    var snapshot_markers: [8192]u8 = undefined;
-    var snapshot_regions: [8192]u8 = undefined;
-    var snapshot_tracks: [16384]u8 = undefined;
-    var snapshot_items: [32768]u8 = undefined;
-    var snapshot_tempo: [4096]u8 = undefined;
-    var snapshot_playlist: [8192]u8 = undefined;
-    var transport_buf: [512]u8 = undefined;
-    var transport_tick: [128]u8 = undefined;
-    var tracks_buf: [16384]u8 = undefined;
-    var toggles: [2048]u8 = undefined;
-    var playlist_buf: [8192]u8 = undefined;
-    var project_buf: [1024]u8 = undefined;
-    var markers_buf: [8192]u8 = undefined;
-    var regions_buf: [8192]u8 = undefined;
-    var items_buf: [32768]u8 = undefined;
-    var tempomap_buf: [4096]u8 = undefined;
-    var notes: [256]u8 = undefined;
-    var fx_buf: [32768]u8 = undefined;
-    var sends_buf: [16384]u8 = undefined;
+    var toggles: [2048]u8 = undefined; // toggle_subscriptions.changesToJson
+    var notes: [256]u8 = undefined; // project_notes_cmds.formatChangedEvent
 };
 
 // Compile-time size assertions to catch regressions
@@ -305,31 +276,13 @@ const ProcessingState = struct {
     var snap_items: items.State = .{};
     var snap_tempomap: tempomap.State = .{};
 
-    // Current poll states (used for change detection)
-    var cur_transport: transport.State = .{};
-    var cur_project: project.State = .{};
-    var cur_markers: markers.State = .{};
-    var cur_tracks: tracks.State = .{};
-    var cur_items: items.State = .{};
-    var cur_tempomap: tempomap.State = .{};
-    var cur_metering: tracks.MeteringState = .{};
-
-    // Static track buffers for slice-based State (used by pollInto)
-    // These provide the backing storage that tracks.State.tracks slices point to
+    // Static backing buffers for snapshot pollInto (slice-based states)
     var snap_tracks_buf: [tracks.MAX_TRACKS]tracks.Track = undefined;
-    var cur_tracks_buf: [tracks.MAX_TRACKS]tracks.Track = undefined;
-
-    // Static item buffers for slice-based State (used by pollInto)
     var snap_items_buf: [items.MAX_ITEMS]items.Item = undefined;
-    var cur_items_buf: [items.MAX_ITEMS]items.Item = undefined;
-
-    // Static marker/region buffers for slice-based State (used by pollInto)
     var snap_markers_buf: [markers.MAX_MARKERS]markers.Marker = undefined;
     var snap_regions_buf: [markers.MAX_REGIONS]markers.Region = undefined;
-    var cur_markers_buf: [markers.MAX_MARKERS]markers.Marker = undefined;
-    var cur_regions_buf: [markers.MAX_REGIONS]markers.Region = undefined;
 
-    // Small arrays that still add up
+    // Small utility arrays
     var disconnected_buf: [16]usize = undefined;
     var flush_buf: [16]gesture_state.ControlId = undefined;
     var timeout_buf: [16]gesture_state.ControlId = undefined;
@@ -490,39 +443,40 @@ fn doProcessing() !void {
         ProcessingState.snap_items.pollInto(&ProcessingState.snap_items_buf, &backend); // ~600KB
 
         // Send to each new client
+        const scratch = tiered.scratchAllocator();
         for (ProcessingState.snapshot_clients[0..snapshot_count]) |client_id| {
             // Transport
-            if (ProcessingState.snap_transport.toJson(&StaticBuffers.snapshot_transport)) |json| {
+            if (ProcessingState.snap_transport.toJsonAlloc(scratch)) |json| {
                 shared_state.sendToClient(client_id, json);
-            }
+            } else |_| {}
             // Project (undo/redo state)
-            if (ProcessingState.snap_project.toJson(&StaticBuffers.snapshot_project)) |json| {
+            if (ProcessingState.snap_project.toJsonAlloc(scratch)) |json| {
                 shared_state.sendToClient(client_id, json);
-            }
+            } else |_| {}
             // Markers
-            if (ProcessingState.snap_markers.markersToJson(&StaticBuffers.snapshot_markers)) |json| {
+            if (ProcessingState.snap_markers.markersToJsonAlloc(scratch)) |json| {
                 shared_state.sendToClient(client_id, json);
-            }
+            } else |_| {}
             // Regions
-            if (ProcessingState.snap_markers.regionsToJson(&StaticBuffers.snapshot_regions)) |json| {
+            if (ProcessingState.snap_markers.regionsToJsonAlloc(scratch)) |json| {
                 shared_state.sendToClient(client_id, json);
-            }
+            } else |_| {}
             // Tracks (without metering for initial snapshot)
-            if (ProcessingState.snap_tracks.toJson(&StaticBuffers.snapshot_tracks, null)) |json| {
+            if (ProcessingState.snap_tracks.toJsonAlloc(scratch, null)) |json| {
                 shared_state.sendToClient(client_id, json);
-            }
+            } else |_| {}
             // Items
-            if (ProcessingState.snap_items.itemsToJson(&StaticBuffers.snapshot_items)) |json| {
+            if (ProcessingState.snap_items.itemsToJsonAlloc(scratch)) |json| {
                 shared_state.sendToClient(client_id, json);
-            }
+            } else |_| {}
             // Tempo map
-            if (ProcessingState.snap_tempomap.toJson(&StaticBuffers.snapshot_tempo)) |json| {
+            if (ProcessingState.snap_tempomap.toJsonAlloc(scratch)) |json| {
                 shared_state.sendToClient(client_id, json);
-            }
+            } else |_| {}
             // Playlist (cue list)
-            if (g_playlist_state.toJson(&StaticBuffers.snapshot_playlist, g_last_markers.regions)) |json| {
+            if (g_playlist_state.toJsonAlloc(scratch, g_last_markers.regions)) |json| {
                 shared_state.sendToClient(client_id, json);
-            }
+            } else |_| {}
         }
     }
 
@@ -546,26 +500,25 @@ fn doProcessing() !void {
         const state_changed = !current_transport.stateOnlyEql(high_prev.transport);
         const is_playing = transport.PlayState.isPlaying(current_transport.play_state);
 
+        const scratch = tiered.scratchAllocator();
         if (state_changed) {
             // State changed (play/pause, BPM, time sig, etc.) - send full transport
-            if (current_transport.toJson(&StaticBuffers.transport_buf)) |json| {
+            if (current_transport.toJsonAlloc(scratch)) |json| {
                 shared_state.broadcast(json);
-            }
+            } else |_| {}
         } else if (is_playing) {
             // Only position changed during playback - send lightweight tick
-            if (current_transport.toTickJson(&StaticBuffers.transport_tick)) |json| {
+            if (current_transport.toTickJsonAlloc(scratch)) |json| {
                 shared_state.broadcast(json);
-            }
+            } else |_| {}
         } else {
             // Stopped and only position changed (cursor moved) - send full transport
             // This is infrequent so full context is fine
-            if (current_transport.toJson(&StaticBuffers.transport_buf)) |json| {
+            if (current_transport.toJsonAlloc(scratch)) |json| {
                 shared_state.broadcast(json);
-            }
+            } else |_| {}
         }
     }
-    // Keep g_last_transport updated for playlist engine compatibility
-    g_last_transport = current_transport.*;
 
     // Poll tracks into HIGH tier arena - allocates from arena, freed on next swap
     const high_alloc = tiered.high.currentAllocator();
@@ -589,17 +542,12 @@ fn doProcessing() !void {
         const metering_ptr: ?*const tracks.MeteringState = if (has_metering) &high_state.metering else null;
         // Create temporary State to use existing toJson method
         const temp_state = tracks.State{ .tracks = high_state.tracks };
-        if (temp_state.toJson(&StaticBuffers.tracks_buf, metering_ptr)) |json| {
+        const scratch = tiered.scratchAllocator();
+        if (temp_state.toJsonAlloc(scratch, metering_ptr)) |json| {
             shared_state.broadcast(json);
-        }
+        } else |_| {}
     }
 
-    // Update g_last_tracks for MEDIUM tier FX polling compatibility
-    // TODO: Remove once MEDIUM tier is fully migrated to arenas
-    const cur_len = high_state.tracks.len;
-    @memcpy(g_last_tracks_buf[0..cur_len], high_state.tracks);
-    g_last_tracks.tracks = g_last_tracks_buf[0..cur_len];
-    g_last_metering = high_state.metering;
 
     // Poll toggle state subscriptions and broadcast changes (HIGH TIER - but only when subscribed)
     if (g_toggle_subs) |toggles| {
@@ -634,9 +582,10 @@ fn doProcessing() !void {
                 logging.debug("Paused playlist engine - transport paused externally", .{});
             }
             // Broadcast state change
-            if (g_playlist_state.toJson(&StaticBuffers.playlist_buf, g_last_markers.regions)) |json| {
+            const scratch = tiered.scratchAllocator();
+            if (g_playlist_state.toJsonAlloc(scratch, g_last_markers.regions)) |json| {
                 shared_state.broadcast(json);
-            }
+            } else |_| {}
         }
     }
 
@@ -758,9 +707,10 @@ fn doProcessing() !void {
                         },
                         .broadcast_state => {
                             // Immediate broadcast needed
-                            if (g_playlist_state.toJson(&StaticBuffers.playlist_buf, g_last_markers.regions)) |json| {
+                            const scratch = tiered.scratchAllocator();
+                            if (g_playlist_state.toJsonAlloc(scratch, g_last_markers.regions)) |json| {
                                 shared_state.broadcast(json);
-                            }
+                            } else |_| {}
                         },
                         .none => {},
                     }
@@ -809,9 +759,10 @@ fn doProcessing() !void {
                     }
 
                     // Broadcast state change
-                    if (g_playlist_state.toJson(&StaticBuffers.playlist_buf, g_last_markers.regions)) |json| {
+                    const scratch = tiered.scratchAllocator();
+                    if (g_playlist_state.toJsonAlloc(scratch, g_last_markers.regions)) |json| {
                         shared_state.broadcast(json);
-                    }
+                    } else |_| {}
                 }
             }
         }
@@ -875,19 +826,19 @@ fn doProcessing() !void {
 
             // Broadcast updated playlist state
             // Note: regions not available yet, pass null - next tick will have accurate regions
-            if (g_playlist_state.toJson(&StaticBuffers.playlist_buf, null)) |json| {
+            const scratch = tiered.scratchAllocator();
+            if (g_playlist_state.toJsonAlloc(scratch, null)) |json| {
                 shared_state.broadcast(json);
-            }
+            } else |_| {}
             g_last_playlist = g_playlist_state;
         }
 
+        const scratch = tiered.scratchAllocator();
         if (!medium_state.project.eql(&medium_prev.project)) {
-            if (medium_state.project.toJson(&StaticBuffers.project_buf)) |json| {
+            if (medium_state.project.toJsonAlloc(scratch)) |json| {
                 shared_state.broadcast(json);
-            }
+            } else |_| {}
         }
-        // Keep g_last_project updated for compatibility
-        g_last_project = medium_state.project;
 
         // Poll markers/regions into MEDIUM arena
         const marker_state = markers.State.poll(medium_alloc, &backend) catch |err| {
@@ -905,9 +856,9 @@ fn doProcessing() !void {
                 .regions = medium_state.regions,
                 .bar_offset = medium_state.bar_offset,
             };
-            if (temp_marker_state.markersToJson(&StaticBuffers.markers_buf)) |json| {
+            if (temp_marker_state.markersToJsonAlloc(scratch)) |json| {
                 shared_state.broadcast(json);
-            }
+            } else |_| {}
         }
         // Broadcast if regions changed
         if (!regionsSliceEql(medium_state.regions, medium_prev.regions)) {
@@ -916,13 +867,14 @@ fn doProcessing() !void {
                 .regions = medium_state.regions,
                 .bar_offset = medium_state.bar_offset,
             };
-            if (temp_marker_state.regionsToJson(&StaticBuffers.regions_buf)) |json| {
+            if (temp_marker_state.regionsToJsonAlloc(scratch)) |json| {
                 shared_state.broadcast(json);
-            }
+            } else |_| {}
         }
 
-        // Update g_last_markers for playlist engine compatibility
-        // TODO: Remove once playlist engine uses arena state
+        // Update g_last_markers for playlist engine - required for cross-tier timing
+        // Playlist engine runs at 30Hz (HIGH) but regions poll at 5Hz (MEDIUM).
+        // This cache persists regions between MEDIUM polls for region lookups.
         const cur_markers_len = medium_state.markers.len;
         const cur_regions_len = medium_state.regions.len;
         @memcpy(g_last_markers_buf[0..cur_markers_len], medium_state.markers);
@@ -941,22 +893,17 @@ fn doProcessing() !void {
         // Broadcast if items changed
         if (!itemsSliceEql(medium_state.items, medium_prev.items)) {
             const temp_item_state = items.State{ .items = medium_state.items };
-            if (temp_item_state.itemsToJson(&StaticBuffers.items_buf)) |json| {
+            if (temp_item_state.itemsToJsonAlloc(scratch)) |json| {
                 shared_state.broadcast(json);
-            }
+            } else |_| {}
         }
-
-        // Update g_last_items for compatibility
-        const cur_items_len = medium_state.items.len;
-        @memcpy(g_last_items_buf[0..cur_items_len], medium_state.items);
-        g_last_items.items = g_last_items_buf[0..cur_items_len];
 
         // Playlist state change detection
         // (Playlist state is modified by commands, not polled from REAPER)
         if (!g_playlist_state.eql(&g_last_playlist)) {
-            if (g_playlist_state.toJson(&StaticBuffers.playlist_buf, medium_state.regions)) |json| {
+            if (g_playlist_state.toJsonAlloc(scratch, medium_state.regions)) |json| {
                 shared_state.broadcast(json);
-            }
+            } else |_| {}
             g_last_playlist = g_playlist_state;
         }
 
@@ -970,9 +917,9 @@ fn doProcessing() !void {
         // Broadcast if FX changed
         if (!fxSliceEql(medium_state.fx_slots, medium_prev.fx_slots)) {
             const temp_fx_state = fx.State{ .fx = medium_state.fx_slots };
-            if (temp_fx_state.toJson(&StaticBuffers.fx_buf)) |json| {
+            if (temp_fx_state.toJsonAlloc(scratch)) |json| {
                 shared_state.broadcast(json);
-            }
+            } else |_| {}
         }
 
         // Poll sends into MEDIUM arena (flat array with track_idx parent references)
@@ -985,9 +932,9 @@ fn doProcessing() !void {
         // Broadcast if sends changed
         if (!sendsSliceEql(medium_state.send_slots, medium_prev.send_slots)) {
             const temp_sends_state = sends.State{ .sends = medium_state.send_slots };
-            if (temp_sends_state.toJson(&StaticBuffers.sends_buf)) |json| {
+            if (temp_sends_state.toJsonAlloc(scratch)) |json| {
                 shared_state.broadcast(json);
-            }
+            } else |_| {}
         }
     }
 
@@ -1003,12 +950,11 @@ fn doProcessing() !void {
         // Poll tempo map into LOW tier state
         low_state.tempomap = tempomap.State.poll(&backend);
         if (low_state.tempomap.changed(&low_prev.tempomap)) {
-            if (low_state.tempomap.toJson(&StaticBuffers.tempomap_buf)) |json| {
+            const scratch = tiered.scratchAllocator();
+            if (low_state.tempomap.toJsonAlloc(scratch)) |json| {
                 shared_state.broadcast(json);
-            }
+            } else |_| {}
         }
-        // Keep g_last_tempomap updated for compatibility
-        g_last_tempomap = low_state.tempomap;
 
         // Poll project notes and broadcast changes (only if subscribers)
         if (g_notes_subs) |notes_subs| {

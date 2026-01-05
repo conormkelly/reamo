@@ -955,14 +955,17 @@ Delete all currently selected tracks. Uses REAPER's native action with proper un
 
 ### `track/getFx`
 
-Get full FX detail for a single track. Use for on-demand fetching when displaying FX chain details.
+Get full FX detail for a single track with pagination support. Use for on-demand fetching when displaying FX chain details.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `offset` | int | No | Start index for pagination (default: 0) |
+| `limit` | int | No | Maximum FX to return (default: 256, max: 256) |
 
 ```json
 {"type": "command", "command": "track/getFx", "trackIdx": 1, "id": "1"}
+{"type": "command", "command": "track/getFx", "trackIdx": 1, "offset": 0, "limit": 50, "id": "2"}
 ```
 
 **Response:**
@@ -976,13 +979,20 @@ Get full FX detail for a single track. Use for on-demand fetching when displayin
     "fx": [
       {"fxIndex": 0, "name": "VST: Pro-Q 3 (FabFilter)", "presetName": "Vocal Cut", "presetIndex": 5, "presetCount": 120, "modified": false, "enabled": true},
       {"fxIndex": 1, "name": "VST: LA-2A (Universal Audio)", "presetName": "", "presetIndex": -1, "presetCount": 50, "modified": true, "enabled": true}
-    ]
+    ],
+    "total": 2,
+    "offset": 0,
+    "hasMore": false
   }
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `fx` | array | Array of FX objects |
+| `total` | int | Total number of FX on track |
+| `offset` | int | Start index used for this response |
+| `hasMore` | bool | Whether more FX exist beyond this page |
 | `fxIndex` | int | FX index in chain (0-based) |
 | `name` | string | FX plugin name |
 | `presetName` | string | Currently loaded preset name (empty if none) |
@@ -993,14 +1003,17 @@ Get full FX detail for a single track. Use for on-demand fetching when displayin
 
 ### `track/getSends`
 
-Get full send detail for a single track. Use for on-demand fetching when displaying routing details.
+Get full send detail for a single track with pagination support. Use for on-demand fetching when displaying routing details.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `offset` | int | No | Start index for pagination (default: 0) |
+| `limit` | int | No | Maximum sends to return (default: 128, max: 128) |
 
 ```json
 {"type": "command", "command": "track/getSends", "trackIdx": 1, "id": "1"}
+{"type": "command", "command": "track/getSends", "trackIdx": 1, "offset": 0, "limit": 20, "id": "2"}
 ```
 
 **Response:**
@@ -1014,13 +1027,20 @@ Get full send detail for a single track. Use for on-demand fetching when display
     "sends": [
       {"sendIndex": 0, "destName": "Reverb Bus", "volume": 0.5, "muted": false, "mode": 0},
       {"sendIndex": 1, "destName": "Delay Bus", "volume": 0.25, "muted": true, "mode": 0}
-    ]
+    ],
+    "total": 2,
+    "offset": 0,
+    "hasMore": false
   }
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `sends` | array | Array of send objects |
+| `total` | int | Total number of sends on track |
+| `offset` | int | Start index used for this response |
+| `hasMore` | bool | Whether more sends exist beyond this page |
 | `sendIndex` | int | Send index (0-based) |
 | `destName` | string | Destination track name |
 | `volume` | float | Send volume (0.0 to ∞, 1.0 = 0dB) |

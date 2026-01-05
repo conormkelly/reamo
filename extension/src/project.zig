@@ -227,6 +227,13 @@ pub const State = struct {
 
         return stream.getWritten();
     }
+
+    // Allocator-based version - returns owned slice from allocator
+    pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
+        var buf: [1024]u8 = undefined;
+        const json = self.toJson(&buf) orelse return error.JsonSerializationFailed;
+        return allocator.dupe(u8, json);
+    }
 };
 
 // Tests

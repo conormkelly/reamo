@@ -3,17 +3,19 @@ const Allocator = std.mem.Allocator;
 const reaper = @import("reaper.zig");
 const protocol = @import("protocol.zig");
 
-// Maximum tracks to poll (keeps buffer sizes bounded)
-// Note: With arena allocation, this is a soft limit enforced per-poll
+// Maximum tracks to poll/meter (keeps buffer sizes bounded)
+// This is a SOFT LIMIT enforced per-poll. With arena allocation, track polling
+// can exceed this via custom limits. Metering uses a fixed array for 30Hz performance.
 pub const MAX_TRACKS: usize = 128;
 
-// Maximum tracks to meter (match MAX_TRACKS for full mixer metering)
-pub const MAX_METERED_TRACKS: usize = MAX_TRACKS;
-
-// Maximum FX per track (covers extreme cases; most tracks have 1-10 FX)
+// Maximum FX per track (INFORMATIONAL ONLY - not enforced in code)
+// Documents typical REAPER limits. Actual FX count is fetched dynamically
+// via track/getFx command which handles arbitrary counts with pagination.
 pub const MAX_FX_PER_TRACK: usize = 64;
 
-// Maximum sends per track (typical: 0-4, extreme: 10+)
+// Maximum sends per track (INFORMATIONAL ONLY - not enforced in code)
+// Documents typical REAPER limits. Actual send count is fetched dynamically
+// via track/getSends command which handles arbitrary counts with pagination.
 pub const MAX_SENDS_PER_TRACK: usize = 16;
 
 // Maximum track name length
@@ -361,6 +363,13 @@ pub const State = struct {
         writer.writeAll("}}") catch return null;
         return stream.getWritten();
     }
+
+    // Allocator-based version - returns owned slice from allocator
+    pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator, metering: ?*const MeteringState) ![]const u8 {
+        var buf: [16384]u8 = undefined;
+        const json = self.toJson(&buf, metering) orelse return error.JsonSerializationFailed;
+        return allocator.dupe(u8, json);
+    }
 };
 
 // Track meter data (post-fader output levels)
@@ -373,7 +382,7 @@ pub const TrackMeter = struct {
 
 // Metering state for all tracks (post-fader output levels for mixer display)
 pub const MeteringState = struct {
-    meters: [MAX_METERED_TRACKS]TrackMeter = undefined,
+    meters: [MAX_TRACKS]TrackMeter = undefined,
     count: usize = 0,
 
     /// Poll post-fader output meters into an existing MeteringState struct.
@@ -383,7 +392,7 @@ pub const MeteringState = struct {
         self.count = 0; // Reset
         const user_track_count: usize = @intCast(@max(0, api.trackCount()));
         // Total count = master (1) + user tracks
-        const total_count = @min(user_track_count + 1, MAX_METERED_TRACKS);
+        const total_count = @min(user_track_count + 1, MAX_TRACKS);
 
         for (0..total_count) |i| {
             const idx: c_int = @intCast(i);
