@@ -15,6 +15,7 @@ This is a living document tracking stability and correctness improvements identi
 - `BACKEND_AUDIT.md` — Original audit document with architecture overview
 - `BACKEND_AUDIT_RESPONSE.md` — Expert review with specific recommendations
 - `BACKEND_ARENA_RESEARCH.md` — Arena allocation strategy for dynamic limits
+- `MEMORY_ARCHITECTURE_OVERHAUL.md` — **NEW** Flattened data model + dynamic allocation plan
 - `research/ZIG_MEMORY_MANAGEMENT.md` — Memory allocation patterns for timer callbacks
 
 **Key concepts from audit:**
@@ -23,6 +24,13 @@ This is a living document tracking stability and correctness improvements identi
 - FFI layer converts REAPER's f64 returns to safe Zig types
 - Single mutex currently protects all shared state between threads
 - **Arena pattern** — Frame-based lifetimes are perfect for arena allocation
+
+**Key architectural decisions (from memory research):**
+- **Flattened data model** — Tracks don't contain nested FX/sends; these are separate top-level collections
+- **Sparse polling** — Heavy data (notes, takes, FX params) fetched on-demand, not every poll cycle
+- **Project-size detection** — Count entities on project load, allocate with 2x headroom, minimum 20 MB
+- **No fixed entity limits** — Support 1 track with 200 FX or 3000 tracks with 2 FX each
+- **Graceful degradation** — Skip entities when arena full, broadcast warning, never crash
 
 ---
 
@@ -98,14 +106,78 @@ if (!state.eql(prev)) broadcast(state.toJson(alloc));  // JSON buffer from arena
 
 ### User-Configurable Limits
 
-**Decision:** Store limits in REAPER ExtState, apply at runtime.
+**Decision:** ~~Store limits in REAPER ExtState, apply at runtime.~~ **SUPERSEDED** — See Flattened Data Model below.
+
+**Original Rationale:** Power users need higher limits, constrained devices want lower limits.
+
+**New Approach:** Automatic project-size detection with 2x headroom. No user configuration needed. Fully automatic by default, with architecture open for future power-user overrides if needed.
+
+### Flattened Data Model (NEW)
+
+**Decision:** Remove nested FX/sends from Track struct. Poll as separate top-level collections.
 
 **Rationale:**
-- Power users with 1000+ track orchestral templates need higher limits
-- Users on constrained devices may want lower limits
-- Config persists across sessions via ExtState
-- Changing limits reinitializes arenas (safe between frames)
-- Soft limits with warnings instead of silent truncation
+- Eliminates cross-tier pointer dependencies (HIGH tier held pointers into MEDIUM tier arenas)
+- Reduces Track struct from ~232B to ~150B
+- Enables proper separation of polling frequencies
+- FX/sends now polled at MEDIUM tier (5Hz) independently
+- Track struct just holds counts: `fx_count`, `send_count`, `receive_count`
+
+**Pattern:**
+```zig
+// OLD: nested slices (cross-tier pointer problem)
+const Track = struct {
+    fx: []FxSlot,      // Points into MEDIUM tier — DANGLING after swap!
+    sends: []SendSlot,
+};
+
+// NEW: sparse counts only
+const Track = struct {
+    fx_count: u16,
+    send_count: u16,
+    receive_count: u16,
+};
+
+// FX/sends are separate flat arrays in MEDIUM tier
+const FxSlot = struct {
+    track_idx: c_int,  // Parent reference
+    fx_index: u16,
+    name: [128]u8,
+    enabled: bool,
+};
+```
+
+### Dynamic Memory Allocation (NEW)
+
+**Decision:** Project-size detection with automatic arena sizing.
+
+**Memory Budget:**
+```
+Minimum:  20 MB (covers typical projects)
+Ceiling:  200 MB (absolute maximum)
+Headroom: 2x calculated requirement
+```
+
+**Strategy:**
+1. On startup/project load: count entities via REAPER API
+2. Calculate: `(tracks×150 + fx×281 + sends×157 + items×700 + markers×172 + regions×228) × 2`
+3. Allocate: `max(calculated, 20MB)` capped at `200MB`
+4. Resize only on project change (detected via `GetProjectPath()`)
+5. Graceful degradation at 90% utilization (skip entities, broadcast warning)
+
+### Sparse Polling Pattern (NEW)
+
+**Decision:** Heavy data fetched on-demand, not every poll cycle.
+
+**Rationale:**
+- Item notes: 1024B buffer → `has_notes: bool` flag (fetch via `item/getNotes`)
+- Item takes: 1488B array → `take_count` + `active_take_idx` (fetch via `item/getTakes`)
+- FX params: Not in regular polling (fetch via `track/getFx`)
+- Send routing detail: Not in regular polling (fetch via `track/getSends`)
+
+**Struct size reductions:**
+- Item: ~2,211B → ~700B (68% reduction)
+- Track: ~232B → ~150B (35% reduction)
 
 ---
 
@@ -290,43 +362,19 @@ pub fn DoubleBufferedState(comptime StateType: type) type {
 
 ---
 
-### Phase 6: Config System
-- [ ] Create `extension/src/config.zig` with `Config` struct
-- [ ] Add `max_tracks`, `max_items`, `max_markers`, `max_regions` fields
-- [ ] Implement `arenaSize()` calculation with headroom
-- [ ] Implement `loadFromExtState()` and `saveToExtState()`
-- [ ] Add default config values
-- [ ] **Build & test:** Config loads/saves correctly
+### Phase 6: Config System — ⚠️ SUPERSEDED
 
-**Files:** `extension/src/config.zig` (new)
+**Status:** Replaced by automatic project-size detection. See `MEMORY_ARCHITECTURE_OVERHAUL.md`.
 
-**Implementation:**
-```zig
-pub const Config = struct {
-    max_tracks: u32 = 256,
-    max_items: u32 = 1024,
-    max_markers: u32 = 256,
-    max_regions: u32 = 256,
+**Original plan:** User-configurable max limits via ExtState.
 
-    pub fn arenaSize(self: Config) usize {
-        const track_bytes = self.max_tracks * @sizeOf(Track) * 2;  // *2 for FX/sends overhead
-        const item_bytes = self.max_items * @sizeOf(Item);
-        const marker_bytes = self.max_markers * @sizeOf(Marker);
-        const region_bytes = self.max_regions * @sizeOf(Region);
-        const overhead = 4 * 1024 * 1024;  // 4MB for strings, JSON buffers
+**New approach:** No user configuration needed. Arena sizing is automatic:
+- Count entities on project load
+- Calculate required memory with 2x headroom
+- Minimum 20 MB, maximum 200 MB
+- Resize on project change only
 
-        return track_bytes + item_bytes + marker_bytes + region_bytes + overhead;
-    }
-
-    pub fn loadFromExtState(api: anytype) Config {
-        // Parse from REAPER ExtState or return defaults
-    }
-
-    pub fn saveToExtState(self: Config, api: anytype) void {
-        // Serialize to REAPER ExtState with persist=true
-    }
-};
-```
+User config may be added later as power-user escape hatches, but not in initial implementation.
 
 ---
 
@@ -386,11 +434,11 @@ pub fn poll(alloc: Allocator, api: anytype, config: Config) !State {
 - [x] **Build & test:** All tests pass (313/313)
 - [ ] (Deferred) Remove `StaticBuffers` — requires toJson signature changes
 - [ ] (Deferred) Remove `ProcessingState` — still used for snapshots
-- [ ] (Deferred) Remove `g_last_*` globals — still used for FX/sends and playlist engine
+- [ ] (Deferred) Remove `g_last_*` globals — still used for playlist engine (FX/sends buffers removed in Phase A)
 
 **Note:** Core arena integration complete. Change detection now uses arena previousState()
 instead of memcpy. Static buffers kept for JSON serialization (toJson functions use fixed-size
-buffer pointers). Old globals kept for compatibility with FX/sends polling and playlist engine.
+buffer pointers). Old globals kept for compatibility with playlist engine.
 
 **Files:** `extension/src/main.zig`
 
@@ -474,38 +522,36 @@ const SharedState = struct {
 
 ---
 
-### Phase 10: Soft Limits and Warnings
-- [ ] Add limit checking in poll functions
-- [ ] Broadcast `LIMIT_EXCEEDED` warning event when truncating
-- [ ] Track high-water marks for diagnostics
-- [ ] Add `APPROACHING_LIMIT` warning at 80% threshold
-- [ ] **Build & test:** Warnings appear when limits approached/exceeded
+### Phase 10: Graceful Degradation — ✅ COMPLETE
 
-**Files:** `extension/src/tracks.zig`, `extension/src/items.zig`, etc.
+**Status:** Implemented.
 
-**Pattern:**
-```zig
-pub fn poll(alloc: Allocator, api: anytype, config: Config, broadcast_fn: anytype) !State {
-    const actual_count = api.trackCount();
+**Approach:** Piggyback on existing `project` event + on-demand `debug/memoryStats`.
 
-    if (actual_count > config.max_tracks) {
-        broadcast_fn(.{
-            .code = "TRACK_LIMIT_EXCEEDED",
-            .message = "Project has more tracks than limit. Increase in settings.",
-            .actual = actual_count,
-            .limit = config.max_tracks,
-        });
-    } else if (actual_count > config.max_tracks * 8 / 10) {
-        broadcast_fn(.{
-            .code = "APPROACHING_TRACK_LIMIT",
-            .message = "Using 80%+ of track limit.",
-        });
-    }
+**Backend:**
+- [x] `debug/memoryStats` command already exists (Phase G)
+- [x] Track peak utilization across tiers, set warning flag when any tier > 80%
+- [x] Add `memoryWarning: boolean` field to `project` event payload
+- [x] Added `isMemoryWarning()` to TieredArenas and DiagnosticUsage
 
-    const capped = @min(actual_count, config.max_tracks);
-    // ... continue with capped count
-}
-```
+**Frontend:**
+- [x] Handle `memoryWarning` in `project` event (projectSlice.ts)
+- [x] Show dismissable warning bar: "REAmo memory usage is high"
+- [x] "Info" button → modal with `debug/memoryStats` details
+- [x] "Dismiss" button → hide warning (stored in session state)
+- [x] Info modal text explains memory reservation and suggests restart
+
+**Files:**
+- `extension/src/tiered_state.zig` — add `isDegraded()` method
+- `extension/src/main.zig` — include in project event
+- `frontend/src/store/slices/projectSlice.ts` — handle memoryWarning
+- `frontend/src/components/` — warning bar component
+
+**Why this approach:**
+- Zero extra messages under normal operation
+- New clients get status on connect via `project` event
+- Detailed stats available on-demand via `debug/memoryStats`
+- User-friendly explanation with actionable resolution
 
 ---
 
@@ -513,16 +559,158 @@ pub fn poll(alloc: Allocator, api: anytype, config: Config, broadcast_fn: anytyp
 - [ ] Update `DEVELOPMENT.md` with new patterns:
   - Arena-based state management
   - DoubleBufferedState usage
-  - Config system and ExtState persistence
+  - Flattened data model
+  - Sparse polling pattern
   - ValidatePtr2 usage
   - Fine-grained locking
   - Panic-safe entry points
 - [ ] Add "Memory Patterns" section covering arenas
 - [ ] Update "Common Pitfalls" with new gotchas discovered
-- [ ] Document user-configurable limits in README or user docs
 - [ ] Mark this plan as ✅ COMPLETE
 
 **Files:** `DEVELOPMENT.md`, `README.md`, this file
+
+---
+
+## Memory Architecture Overhaul (NEW)
+
+**See `MEMORY_ARCHITECTURE_OVERHAUL.md` for full details.**
+
+These phases implement the flattened data model and dynamic memory allocation:
+
+### Phase A: Flatten Track Struct ✅ COMPLETE
+- [x] Remove `fx: []FxSlot` and `sends: []SendSlot` from Track struct
+- [x] Add `fx_count: u16`, `send_count: u16`, `receive_count: u16`
+- [x] Update `pollInto()` to populate counts from REAPER API
+- [x] Update `toJson()` to serialize counts instead of arrays
+- [x] Update `eql()` comparison
+- [x] Update tests
+- [x] Added `trackReceiveCount` to all backends
+
+**Files:** `extension/src/tracks.zig`, backends (raw.zig, real.zig, mock/*.zig, backend.zig)
+
+### Phase B: Create FX/Sends Modules ✅ COMPLETE
+- [x] Create `FxSlot` struct with `track_idx` parent reference
+- [x] Create `fx.State` with flat `[]FxSlot` slice
+- [x] Create `fx.poll()` that iterates all tracks, all FX
+- [x] Create `fx.toJson()` for `fx_state` event
+- [x] Create `SendSlot` struct with src/dest track references
+- [x] Create `sends.State` with flat `[]SendSlot` slice
+- [x] Create `sends.poll()` and `sends.toJson()` for `sends_state` event
+- [x] Added `trackFxGetEnabled` to all backends
+- [x] Integrated FX/sends polling into MEDIUM tier (5Hz)
+- [x] Updated `tiered_state.zig` MediumTierState with `fx_slots` and `send_slots`
+
+**Files:** `extension/src/fx.zig` (new), `extension/src/sends.zig` (new), `extension/src/main.zig`, `extension/src/tiered_state.zig`
+
+### Phase C: Sparse Item Fields ✅ COMPLETE
+- [x] Remove `notes: [1024]u8` and `takes: [8]Take` from Item struct
+- [x] Add `has_notes: bool`, `take_count: u8` (kept existing `active_take_idx: ?c_int`)
+- [x] Update `pollIntoBuffer()` to check if item has notes (non-empty), count takes
+- [x] Update `toJson()` to serialize sparse fields (`hasNotes`, `takeCount`)
+- [x] Update tests
+
+**Files:** `extension/src/items.zig`
+
+### Phase D: On-Demand Commands ✅ COMPLETE
+- [x] Add `track/getFx` handler — fetch full FX detail for single track
+- [x] Add `track/getSends` handler — fetch full send detail for single track
+- [x] Add `item/getNotes` handler — fetch notes content for single item
+- [x] Add `item/getTakes` handler — fetch take list for single item
+- [x] Register in `commands/registry.zig`
+
+**Files:** `extension/src/commands/tracks.zig`, `extension/src/commands/items.zig`, `extension/src/commands/registry.zig`
+
+### Phase E: Arena Sizing ✅ COMPLETE
+- [x] Add `calculateRequiredSize()` that counts entities via REAPER API
+- [x] Update `TieredArenas.init()` to use calculated size with 2x headroom
+- [x] Add minimum 20 MB floor, 200 MB ceiling
+- [x] Add `usage()` method to each arena for monitoring (already existed)
+- [ ] Add project path tracking for resize detection (moved to Phase F)
+
+**Files:** `extension/src/tiered_state.zig`, `extension/src/main.zig`
+
+**Implementation details:**
+- Added `EntityCounts` struct with `countFromApi()` to count tracks, items, markers, regions, FX, sends, tempo events
+- Added `CalculatedSizes` struct with `fromCounts()` to compute tier sizes with 2x headroom
+- Added `MemoryBounds` constants: 20 MB minimum, 200 MB ceiling
+- Added `TieredArenas.initWithSizes()` to accept calculated sizes
+- main.zig now counts entities at startup and passes calculated sizes to arena init
+- Added 7 new unit tests for arena sizing
+
+### Phase F: Project Change Detection ✅ COMPLETE
+- [x] Add `TieredArenas.resize()` method to reinitialize arenas with new sizes
+- [x] Add `TieredArenas.shouldResize()` to check if resize is warranted (threshold-based)
+- [x] Detect project change via existing `projectChanged()` check (uses project hash/name)
+- [x] Recount entities and calculate new sizes on project change
+- [x] Resize arenas if allocation differs by >25% from current
+- [x] Log entity counts and resize events
+
+**Files:** `extension/src/tiered_state.zig`, `extension/src/main.zig`
+
+**Implementation details:**
+- Added `TieredArenas.resize(allocator, new_sizes)` that deinits all arenas and reinits with new sizes
+- Added `TieredArenas.shouldResize(new_sizes, threshold_percent)` for threshold-based resize decisions
+- On project change (detected in MEDIUM tier polling via `projectChanged()`):
+  - Count entities in new project via `EntityCounts.countFromApi()`
+  - Calculate new sizes via `CalculatedSizes.fromCounts()`
+  - If `shouldResize()` returns true (25% threshold), call `resize()`
+  - Graceful fallback: if resize fails, continue with existing arenas
+- Added 4 new unit tests for resize and shouldResize functionality
+
+### Phase G: Memory Stats Command ✅ COMPLETE
+- [x] Create `debug/memoryStats` handler
+- [x] Collect stats from all arenas: used, capacity, peak, utilization
+- [x] Report total allocation and sizes per tier
+- [x] Add frame count for debugging
+- [x] Register in registry and mod.zig
+- [x] Expose tiered arenas via global pointer from main.zig
+
+**Files:** `extension/src/commands/debug.zig` (new), `extension/src/commands/mod.zig`, `extension/src/commands/registry.zig`, `extension/src/main.zig`
+
+**Implementation details:**
+- New `debug.zig` command module with `handleMemoryStats` handler
+- Returns JSON with per-tier usage (used, capacity, peak, utilization %)
+- Returns total allocation in bytes and MB
+- Returns configured sizes for each tier
+- Global `g_tiered` pointer set in main.zig doInitialization, cleared on shutdown
+- Added tiered_state.zig to build.zig test_modules for comprehensive testing
+- Fixed mock backend for loop syntax for Zig 0.15 compatibility
+- Fixed tests for default transport.bpm value (120, not 0)
+
+**Response format:**
+```json
+{
+  "high": {"used": N, "capacity": N, "peak": N, "utilization": N.N},
+  "medium": {"used": N, "capacity": N, "peak": N, "utilization": N.N},
+  "low": {"used": N, "capacity": N, "peak": N, "utilization": N.N},
+  "scratch": {"used": N, "capacity": N},
+  "total": {"allocated": N, "allocatedMB": N.N},
+  "sizes": {"high": N, "medium": N, "low": N, "scratch": N},
+  "frameCount": N
+}
+```
+
+### Phase H: Frontend Updates ✅ COMPLETE
+- [x] Update `WSTrack` type — add fxCount/sendCount/receiveCount sparse fields
+- [x] Update `WSItem` type — remove notes/takes arrays, add hasNotes/takeCount/activeTakeGuid/activeTakeIsMidi sparse fields
+- [x] Add `fxStateSlice` for `fx_state` events
+- [x] Add `sendsStateSlice` for `sends_state` events
+- [x] Add on-demand fetch commands (track/getFx, track/getSends, item/getNotes, item/getTakes)
+- [x] Update ItemInfoBar component for sparse fields with on-demand notes fetching
+- [x] Update WaveformItem and usePeaksFetch to use sparse fields
+
+**Files:** `frontend/src/core/WebSocketTypes.ts`, `frontend/src/core/WebSocketCommands.ts`, `frontend/src/core/types.ts`, `frontend/src/store/index.ts`, `frontend/src/store/slices/fxStateSlice.ts` (new), `frontend/src/store/slices/sendsStateSlice.ts` (new), `frontend/src/components/ItemsTimeline/ItemInfoBar.tsx`, `frontend/src/components/ItemsTimeline/WaveformItem.tsx`, `frontend/src/hooks/usePeaksFetch.ts`
+
+**Implementation details:**
+- WSTrack now includes fxCount, sendCount, receiveCount sparse fields
+- WSItem now uses hasNotes, takeCount, activeTakeGuid, activeTakeIsMidi instead of full arrays
+- New WSFxSlot and WSSendSlot types for fx_state/sends_state event payloads
+- fxStateSlice and sendsStateSlice store flat arrays indexed by trackIdx
+- ItemInfoBar fetches notes on-demand when user clicks to edit
+- WaveformItem uses activeTakeIsMidi sparse field for MIDI detection
+- usePeaksFetch uses activeTakeGuid sparse field for cache keys
+- Track type in types.ts extended with fxCount field
 
 ---
 
@@ -592,6 +780,18 @@ pub fn poll(alloc: Allocator, api: anytype, config: Config, broadcast_fn: anytyp
 | 2026-01-05 | Phase 7+ | ✅ Migrated Track.fx and Track.sends to slices with flat buffer backing (resolves Open Question #4) |
 | 2026-01-05 | Phase 8 | ✅ Arena integration - TieredArenas with per-tier double buffers (HIGH/MEDIUM/LOW) + scratch arena |
 | 2026-01-05 | Phase 9 | ✅ Fine-grained locking - separate command_mutex, client_rwlock, atomics for token_set/html_mtime |
+| 2026-01-05 | Memory Research | Conducted struct size analysis, researched memory patterns for REAPER extensions |
+| 2026-01-05 | Architecture | Decided on flattened data model (FX/sends as separate collections, not nested in Track) |
+| 2026-01-05 | Architecture | Decided on dynamic allocation: project-size detection, 2x headroom, 20-200 MB bounds |
+| 2026-01-05 | Architecture | Created MEMORY_ARCHITECTURE_OVERHAUL.md with implementation phases A-H |
+| 2026-01-05 | Phase A | ✅ Flatten Track struct - removed fx/sends slices, added fx_count/send_count/receive_count, added trackReceiveCount to backends |
+| 2026-01-05 | Phase B | ✅ Create FX/Sends modules - fx.zig and sends.zig with flat arrays, integrated into MEDIUM tier, broadcasts fx_state/sends_state events at 5Hz |
+| 2026-01-05 | Phase C | ✅ Sparse Item fields - removed notes buffer (1024B) and takes array (8×Take), added has_notes/take_count sparse fields |
+| 2026-01-05 | Phase D | ✅ On-Demand Commands - added track/getFx, track/getSends, item/getNotes, item/getTakes handlers for fetching sparse data |
+| 2026-01-05 | Phase E | ✅ Arena Sizing - dynamic sizing from entity counts, 20 MB min/200 MB max, 2x headroom, EntityCounts/CalculatedSizes structs |
+| 2026-01-05 | Phase F | ✅ Project Change Detection - TieredArenas.resize() and shouldResize(), 25% threshold, graceful fallback on resize failure |
+| 2026-01-05 | Phase G | ✅ Memory Stats Command - debug/memoryStats handler, per-tier usage/capacity/peak/utilization, total allocation, frame count |
+| 2026-01-05 | Phase H | ✅ Frontend Updates - WSTrack/WSItem sparse fields, fxStateSlice/sendsStateSlice, on-demand fetch commands, ItemInfoBar/WaveformItem updated |
 
 ---
 
@@ -606,7 +806,7 @@ pub fn poll(alloc: Allocator, api: anytype, config: Config, broadcast_fn: anytyp
   - LOW (1Hz): swaps every 30 frames
   - SCRATCH: resets every frame for JSON, temps
 - Change detection uses `previousState()` from arena — no memcpy needed
-- `g_last_*` globals kept for FX/sends polling and playlist engine compatibility
+- `g_last_*` globals kept for playlist engine compatibility (FX/sends buffers removed in Phase A)
 - Small projects use fraction of arena; large projects use more
 - `threadlocal` in Zig uses TLS, may have platform-specific behavior on Windows
 - SPSC queue alternative: `std.atomic.Queue` is MPSC, need custom for true SPSC
@@ -616,8 +816,13 @@ pub fn poll(alloc: Allocator, api: anytype, config: Config, broadcast_fn: anytyp
 - Arena doubles memory (2 buffers), but eliminates per-frame copies
 - Slice-based state requires allocator parameter threading through poll functions
 - Config changes require arena reinitialization — do between frames only
-- FX/sends use flat buffer pattern: `g_last_fx_buf[track_idx * MAX_FX_PER_TRACK..][0..fx_count]` gives per-track slice
-- HIGH_TIER copies FX/send slice *pointers* (not data) since they point into stable g_last_*_buf backing storage
+- ~~FX/sends use flat buffer pattern~~ **SUPERSEDED by Phase A**: Track now has sparse `fx_count`, `send_count`, `receive_count` fields. Full FX/sends data fetched on-demand via `track/getFx`, `track/getSends` commands.
+- ~~HIGH_TIER copies FX/send slice *pointers*~~ **SUPERSEDED by Phase A**: FX/sends buffers removed. Counts populated directly in poll().
+- **Flattened data model (Phase A)**: Track contains sparse counts only (`fx_count`, `send_count`, `receive_count`). FX/sends become separate top-level collections in Phase B. Eliminates cross-tier pointer dependencies.
+- **Sparse fields**: Item notes → `has_notes: bool` (fetch via `item/getNotes`), takes → `take_count + active_take_idx` (fetch via `item/getTakes`). Reduces Item from ~2,211B to ~700B.
+- **Memory bounds**: 20 MB minimum (typical projects), 200 MB ceiling (absolute max), 2x headroom on calculated size.
+- **Resize timing**: Only resize arenas on project change (detected via `GetProjectPath()` changing). Never resize mid-session.
+- **Graceful degradation**: At 90% arena utilization, skip newest entities, broadcast `ARENA_FULL` warning. Never crash REAPER.
 
 ---
 
@@ -625,12 +830,16 @@ pub fn poll(alloc: Allocator, api: anytype, config: Config, broadcast_fn: anytyp
 
 1. **SPSC vs Mutex for commands?** Lock-free is faster but more complex. Current ring buffer with mutex is simple and likely fast enough at our message rate.
 
-2. **Arena size calculation accuracy?** The `arenaSize()` function is an estimate. May need tuning based on real-world usage. Add telemetry to track peak arena usage.
+2. ~~**Arena size calculation accuracy?**~~ **RESOLVED**: Now using project-size detection with 2x headroom. Minimum 20 MB floor, 200 MB ceiling. `debug/memoryStats` command provides runtime visibility.
 
 3. **ValidatePtr2 overhead?** Need to measure. If significant, consider caching validation per-frame or skipping for hot paths.
 
-4. ~~**FX/Send slices within Track?**~~ **RESOLVED**: Migrated `Track.fx` and `Track.sends` to slices. Uses flat buffer backing (`g_last_fx_buf`, `g_last_sends_buf`) with per-track slicing during MEDIUM_TIER polling. Memory savings: ~3.6KB per track (fx: ~2.4KB, sends: ~1.2KB) when tracks have no FX/sends.
+4. ~~**FX/Send slices within Track?**~~ **RESOLVED → SUPERSEDED**: Original slice approach had cross-tier pointer dependency issues. New approach: **flattened data model** — FX/sends are separate top-level collections, not nested in Track. Track just holds counts (`fx_count`, `send_count`). Detail fetched on-demand via `track/getFx`, `track/getSends` commands.
 
-5. **Config UI location?** REAPER menu action? Settings panel in web UI? Both? Web UI is more discoverable for users.
+5. ~~**Config UI location?**~~ **RESOLVED**: No user config needed. Automatic project-size detection handles everything. May add power-user overrides later if needed.
 
-6. **Default limits?** Current plan: 256 tracks, 1024 items, 256 markers/regions. Are these reasonable defaults? May need user feedback.
+6. ~~**Default limits?**~~ **RESOLVED**: No fixed limits. Dynamic allocation based on actual project size. Minimum 20 MB, maximum 200 MB, 2x headroom.
+
+7. **NEW: Delta updates for bandwidth optimization?** Currently sending full state on change. Could implement delta updates (only changed values) for large projects. Deferred — not a concern over LAN, adds frontend complexity.
+
+8. **NEW: Project load detection reliability?** Using `GetProjectPath()` change to detect new project. Need to verify this catches all cases (new project, open project, close project).

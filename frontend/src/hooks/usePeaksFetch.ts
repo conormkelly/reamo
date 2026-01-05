@@ -46,9 +46,8 @@ export function usePeaksFetch(
       return;
     }
 
-    // Get active take
-    const activeTake = item.takes[item.activeTakeIdx];
-    if (!activeTake) {
+    // Check for active take using sparse field
+    if (!item.activeTakeGuid) {
       setPeaks(null);
       setLoading(false);
       setError('No active take');
@@ -56,8 +55,8 @@ export function usePeaksFetch(
       return;
     }
 
-    // Skip MIDI items
-    if (activeTake.isMIDI) {
+    // Skip MIDI items (using sparse field)
+    if (item.activeTakeIsMidi) {
       setPeaks(null);
       setLoading(false);
       setError(null);
@@ -65,17 +64,17 @@ export function usePeaksFetch(
       return;
     }
 
-    // Create cache key
+    // Create cache key using sparse fields
     // Note: We don't have startOffset and playrate in WSItem, so we use defaults
     // The actual values come from the backend response
-    const itemKey = `${item.guid}:${activeTake.guid}:${item.length}`;
+    const itemKey = `${item.guid}:${item.activeTakeGuid}:${item.length}`;
     currentItemRef.current = itemKey;
 
     // Check cache first - use item.guid and take.guid as simplified key
     // Full cache with startOffset/playrate is handled in response
     const cacheKey = buildPeaksCacheKey(
       item.guid,
-      activeTake.guid,
+      item.activeTakeGuid,
       item.length,
       0, // Will be updated from response
       1 // Will be updated from response

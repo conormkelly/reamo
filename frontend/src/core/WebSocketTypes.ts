@@ -67,7 +67,7 @@ export interface EventMessage {
   payload?: EventPayload; // Optional for events like 'reload' that have no payload
 }
 
-export type EventType = 'transport' | 'tt' | 'project' | 'tracks' | 'markers' | 'regions' | 'items' | 'reload' | 'actionToggleState' | 'tempoMap' | 'projectNotesChanged' | 'playlist';
+export type EventType = 'transport' | 'tt' | 'project' | 'tracks' | 'markers' | 'regions' | 'items' | 'fx_state' | 'sends_state' | 'reload' | 'actionToggleState' | 'tempoMap' | 'projectNotesChanged' | 'playlist';
 
 export type EventPayload =
   | TransportEventPayload
@@ -77,6 +77,8 @@ export type EventPayload =
   | MarkersEventPayload
   | RegionsEventPayload
   | ItemsEventPayload
+  | FxStateEventPayload
+  | SendsStateEventPayload
   | ActionToggleStateEventPayload
   | TempoMapEventPayload
   | ProjectNotesChangedEventPayload
@@ -143,6 +145,7 @@ export interface ProjectEventPayload {
   projectLength: number; // seconds
   barOffset: number; // bar offset (e.g., -4 means time 0 = bar 1, display starts at bar -4)
   isDirty: boolean; // Project has unsaved changes
+  memoryWarning: boolean; // Arena utilization warning (any tier > 80% peak usage)
 }
 
 // =============================================================================
@@ -161,6 +164,10 @@ export interface WSTrack {
   recMon: number; // 0 = off, 1 = on, 2 = not when playing
   fxEnabled: boolean;
   selected: boolean;
+  // Sparse counts (full data fetched on-demand via track/getFx, track/getSends)
+  fxCount: number;
+  sendCount: number;
+  receiveCount: number;
 }
 
 export interface WSMeter {
@@ -234,13 +241,53 @@ export interface WSItem {
   locked: boolean;
   selected: boolean;
   activeTakeIdx: number;
-  notes: string;
-  takes: WSTake[];
+  // Sparse fields (full data fetched on-demand via item/getNotes, item/getTakes)
+  hasNotes: boolean;
+  takeCount: number;
+  activeTakeGuid: string; // For peaks cache invalidation
+  activeTakeIsMidi: boolean; // Skip peaks for MIDI items
 }
 
 export interface ItemsEventPayload {
   items: WSItem[];
   // Note: timeSelection is in TransportEventPayload, not here
+}
+
+// =============================================================================
+// FX State Event (5Hz broadcast - flat FX list across all tracks)
+// =============================================================================
+
+export interface WSFxSlot {
+  trackIdx: number; // Parent track (unified: 0 = master, 1+ = user tracks)
+  fxIndex: number; // Position in track's FX chain
+  name: string;
+  presetName: string;
+  presetIndex: number; // -1 if no preset loaded
+  presetCount: number;
+  modified: boolean; // Preset has been modified
+  enabled: boolean;
+}
+
+export interface FxStateEventPayload {
+  fx: WSFxSlot[];
+}
+
+// =============================================================================
+// Sends State Event (5Hz broadcast - flat sends list across all tracks)
+// =============================================================================
+
+export interface WSSendSlot {
+  srcTrackIdx: number; // Source track (unified: 0 = master, 1+ = user tracks)
+  destTrackIdx: number; // Destination track
+  sendIndex: number; // Position in source track's send list
+  volume: number; // Linear: 1.0 = 0dB
+  pan: number; // -1 to 1
+  muted: boolean;
+  mode: number; // 0=post-fader, 1=pre-fx, 3=pre-fader
+}
+
+export interface SendsStateEventPayload {
+  sends: WSSendSlot[];
 }
 
 // =============================================================================
@@ -463,6 +510,18 @@ export function isItemsEvent(
   msg: EventMessage
 ): msg is EventMessage & { payload: ItemsEventPayload } {
   return msg.event === 'items';
+}
+
+export function isFxStateEvent(
+  msg: EventMessage
+): msg is EventMessage & { payload: FxStateEventPayload } {
+  return msg.event === 'fx_state';
+}
+
+export function isSendsStateEvent(
+  msg: EventMessage
+): msg is EventMessage & { payload: SendsStateEventPayload } {
+  return msg.event === 'sends_state';
 }
 
 export function isActionToggleStateEvent(

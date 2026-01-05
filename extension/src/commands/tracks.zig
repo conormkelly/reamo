@@ -23,6 +23,9 @@ pub const handlers = [_]mod.Entry{
     .{ .name = "track/delete", .handler = handleDelete },
     .{ .name = "track/deleteSelected", .handler = handleDeleteSelected },
     .{ .name = "meter/clearClip", .handler = handleClearClip },
+    // On-demand data (sparse field fetch)
+    .{ .name = "track/getFx", .handler = handleGetFx },
+    .{ .name = "track/getSends", .handler = handleGetSends },
 };
 
 // Helper to get track by index from command
@@ -421,4 +424,195 @@ pub fn handleDeleteSelected(api: anytype, cmd: protocol.CommandMessage, response
     _ = response;
     api.runCommand(reaper.Command.DELETE_SELECTED_TRACKS);
     logging.debug("Deleted selected tracks", .{});
+}
+
+// =============================================================================
+// On-Demand Data Commands
+// =============================================================================
+// These commands fetch full detail data that is NOT included in the regular
+// track polling events (which only contain sparse counts like fx_count, send_count).
+// Frontend calls these when user expands track details or opens FX/routing views.
+
+// Maximum FX per response (soft limit)
+const MAX_FX_RESPONSE = 256;
+// Maximum sends per response (soft limit)
+const MAX_SENDS_RESPONSE = 128;
+// FX name buffer size
+const FX_NAME_LEN = 128;
+// Preset name buffer size
+const PRESET_NAME_LEN = 128;
+
+/// Get full FX detail for a single track.
+/// Input: { trackIdx: number }
+/// Response: { fx: [{ fxIndex, name, presetName, presetIndex, presetCount, modified, enabled }, ...] }
+pub fn handleGetFx(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const track_idx = cmd.getInt("trackIdx") orelse {
+        response.err("INVALID_PARAMS", "trackIdx is required");
+        return;
+    };
+    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
+        response.err("NOT_FOUND", "Track not found");
+        return;
+    };
+
+    const fx_count_raw = api.trackFxCount(track);
+    const fx_count: usize = if (fx_count_raw > 0) @intCast(@min(fx_count_raw, MAX_FX_RESPONSE)) else 0;
+
+    // Serialize directly to response buffer
+    var buf: [32768]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    var w = stream.writer();
+
+    w.writeAll("{\"fx\":[") catch {
+        response.err("SERIALIZE_ERROR", "Buffer overflow");
+        return;
+    };
+
+    var i: usize = 0;
+    while (i < fx_count) : (i += 1) {
+        const fx_idx: c_int = @intCast(i);
+
+        // Get FX name
+        var name_buf: [FX_NAME_LEN]u8 = undefined;
+        const name = api.trackFxGetName(track, fx_idx, &name_buf);
+
+        // Get preset info
+        var preset_count: c_int = 0;
+        const preset_index = api.trackFxGetPresetIndex(track, fx_idx, &preset_count);
+
+        var preset_name_buf: [PRESET_NAME_LEN]u8 = undefined;
+        const preset_info = api.trackFxGetPreset(track, fx_idx, &preset_name_buf);
+
+        const enabled = api.trackFxGetEnabled(track, fx_idx);
+
+        // Write JSON object
+        if (i > 0) w.writeByte(',') catch {
+            response.err("SERIALIZE_ERROR", "Buffer overflow");
+            return;
+        };
+
+        w.print("{{\"fxIndex\":{d},\"name\":\"", .{fx_idx}) catch {
+            response.err("SERIALIZE_ERROR", "Buffer overflow");
+            return;
+        };
+        writeJsonEscaped(w, name) catch {
+            response.err("SERIALIZE_ERROR", "Buffer overflow");
+            return;
+        };
+        w.writeAll("\",\"presetName\":\"") catch {
+            response.err("SERIALIZE_ERROR", "Buffer overflow");
+            return;
+        };
+        writeJsonEscaped(w, preset_info.name) catch {
+            response.err("SERIALIZE_ERROR", "Buffer overflow");
+            return;
+        };
+        w.print("\",\"presetIndex\":{d},\"presetCount\":{d},\"modified\":{s},\"enabled\":{s}}}", .{
+            preset_index,
+            preset_count,
+            if (!preset_info.matches_preset) "true" else "false",
+            if (enabled) "true" else "false",
+        }) catch {
+            response.err("SERIALIZE_ERROR", "Buffer overflow");
+            return;
+        };
+    }
+
+    w.writeAll("]}") catch {
+        response.err("SERIALIZE_ERROR", "Buffer overflow");
+        return;
+    };
+
+    response.success(stream.getWritten());
+    logging.debug("Returned {d} FX for track {d}", .{ fx_count, track_idx });
+}
+
+/// Get full send detail for a single track.
+/// Input: { trackIdx: number }
+/// Response: { sends: [{ sendIndex, destName, volume, muted, mode }, ...] }
+pub fn handleGetSends(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const track_idx = cmd.getInt("trackIdx") orelse {
+        response.err("INVALID_PARAMS", "trackIdx is required");
+        return;
+    };
+    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
+        response.err("NOT_FOUND", "Track not found");
+        return;
+    };
+
+    const send_count_raw = api.trackSendCount(track);
+    const send_count: usize = if (send_count_raw > 0) @intCast(@min(send_count_raw, MAX_SENDS_RESPONSE)) else 0;
+
+    // Serialize directly to response buffer
+    var buf: [16384]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    var w = stream.writer();
+
+    w.writeAll("{\"sends\":[") catch {
+        response.err("SERIALIZE_ERROR", "Buffer overflow");
+        return;
+    };
+
+    var i: usize = 0;
+    while (i < send_count) : (i += 1) {
+        const send_idx: c_int = @intCast(i);
+
+        // Get send properties
+        var dest_name_buf: [FX_NAME_LEN]u8 = undefined;
+        const dest_name = api.trackSendGetDestName(track, send_idx, &dest_name_buf);
+        const volume = api.trackSendGetVolume(track, send_idx);
+        const muted = api.trackSendGetMute(track, send_idx);
+        const mode = api.trackSendGetMode(track, send_idx);
+
+        // Write JSON object
+        if (i > 0) w.writeByte(',') catch {
+            response.err("SERIALIZE_ERROR", "Buffer overflow");
+            return;
+        };
+
+        w.print("{{\"sendIndex\":{d},\"destName\":\"", .{send_idx}) catch {
+            response.err("SERIALIZE_ERROR", "Buffer overflow");
+            return;
+        };
+        writeJsonEscaped(w, dest_name) catch {
+            response.err("SERIALIZE_ERROR", "Buffer overflow");
+            return;
+        };
+        w.print("\",\"volume\":{d:.6},\"muted\":{s},\"mode\":{d}}}", .{
+            volume,
+            if (muted) "true" else "false",
+            mode,
+        }) catch {
+            response.err("SERIALIZE_ERROR", "Buffer overflow");
+            return;
+        };
+    }
+
+    w.writeAll("]}") catch {
+        response.err("SERIALIZE_ERROR", "Buffer overflow");
+        return;
+    };
+
+    response.success(stream.getWritten());
+    logging.debug("Returned {d} sends for track {d}", .{ send_count, track_idx });
+}
+
+/// Helper to write JSON-escaped string
+fn writeJsonEscaped(writer: anytype, str: []const u8) !void {
+    for (str) |c| {
+        switch (c) {
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            else => {
+                if (c < 0x20) {
+                    // Skip control characters
+                } else {
+                    try writer.writeByte(c);
+                }
+            },
+        }
+    }
 }

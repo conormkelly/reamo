@@ -217,7 +217,7 @@ pub const MockBackend = struct {
     /// Set a command state for testing.
     pub fn setCommandState(self: *MockBackend, cmd: c_int, cmd_state: c_int) void {
         // Check if command already exists
-        for (&self.command_states[0..self.command_state_count]) |*entry| {
+        for (self.command_states[0..self.command_state_count]) |*entry| {
             if (entry.cmd == cmd) {
                 entry.state = cmd_state;
                 return;
@@ -398,11 +398,13 @@ pub const MockBackend = struct {
     pub const trackFxGetPreset = tracks.TracksMethods.trackFxGetPreset;
     pub const trackFxNavigatePresets = tracks.TracksMethods.trackFxNavigatePresets;
     pub const trackFxSetPresetByIndex = tracks.TracksMethods.trackFxSetPresetByIndex;
+    pub const trackFxGetEnabled = tracks.TracksMethods.trackFxGetEnabled;
 
     // =========================================================================
-    // Track Sends (delegated)
+    // Track Sends/Receives (delegated)
     // =========================================================================
     pub const trackSendCount = tracks.TracksMethods.trackSendCount;
+    pub const trackReceiveCount = tracks.TracksMethods.trackReceiveCount;
     pub const trackSendGetVolume = tracks.TracksMethods.trackSendGetVolume;
     pub const trackSendGetMute = tracks.TracksMethods.trackSendGetMute;
     pub const trackSendGetMode = tracks.TracksMethods.trackSendGetMode;

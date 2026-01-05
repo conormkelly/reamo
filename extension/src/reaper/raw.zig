@@ -187,6 +187,7 @@ pub const Api = struct {
     trackFX_GetPreset: ?*const fn (?*anyopaque, c_int, [*]u8, c_int) callconv(.c) bool = null,
     trackFX_NavigatePresets: ?*const fn (?*anyopaque, c_int, c_int) callconv(.c) bool = null,
     trackFX_SetPresetByIndex: ?*const fn (?*anyopaque, c_int, c_int) callconv(.c) bool = null,
+    trackFX_GetEnabled: ?*const fn (?*anyopaque, c_int) callconv(.c) bool = null,
 
     // Track Sends
     getTrackNumSends: ?*const fn (?*anyopaque, c_int) callconv(.c) c_int = null,
@@ -333,6 +334,7 @@ pub const Api = struct {
             .trackFX_GetPreset = getFunc(info, "TrackFX_GetPreset", fn (?*anyopaque, c_int, [*]u8, c_int) callconv(.c) bool),
             .trackFX_NavigatePresets = getFunc(info, "TrackFX_NavigatePresets", fn (?*anyopaque, c_int, c_int) callconv(.c) bool),
             .trackFX_SetPresetByIndex = getFunc(info, "TrackFX_SetPresetByIndex", fn (?*anyopaque, c_int, c_int) callconv(.c) bool),
+            .trackFX_GetEnabled = getFunc(info, "TrackFX_GetEnabled", fn (?*anyopaque, c_int) callconv(.c) bool),
             // Track Sends
             .getTrackNumSends = getFunc(info, "GetTrackNumSends", fn (?*anyopaque, c_int) callconv(.c) c_int),
             .getTrackSendInfo_Value = getFunc(info, "GetTrackSendInfo_Value", fn (?*anyopaque, c_int, c_int, [*:0]const u8) callconv(.c) f64),
@@ -1246,12 +1248,24 @@ pub const Api = struct {
         return f(track, fx_idx, preset_idx);
     }
 
+    /// Get FX enabled state (true = enabled, false = bypassed)
+    pub fn trackFxGetEnabled(self: *const Api, track: *anyopaque, fx_idx: c_int) bool {
+        const f = self.trackFX_GetEnabled orelse return true;
+        return f(track, fx_idx);
+    }
+
     // Track Send methods
 
     /// Get number of sends for a track. category: 0 = track sends
     pub fn trackSendCount(self: *const Api, track: *anyopaque) c_int {
         const f = self.getTrackNumSends orelse return 0;
         return f(track, 0); // category 0 = sends to other tracks
+    }
+
+    /// Get number of receives for a track. category: -1 = receives
+    pub fn trackReceiveCount(self: *const Api, track: *anyopaque) c_int {
+        const f = self.getTrackNumSends orelse return 0;
+        return f(track, -1); // category -1 = receives from other tracks
     }
 
     /// Get send volume (linear, 1.0 = 0dB)

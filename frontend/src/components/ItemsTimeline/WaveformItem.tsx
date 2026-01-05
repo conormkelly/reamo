@@ -32,9 +32,8 @@ export function WaveformItem({
   height,
   onClick,
 }: WaveformItemProps): ReactElement {
-  // Get the active take
-  const activeTake = item.takes[item.activeTakeIdx];
-  const isMIDI = activeTake?.isMIDI ?? false;
+  // Use sparse field for MIDI check
+  const isMIDI = item.activeTakeIsMidi ?? false;
 
   // Fetch peaks for non-MIDI items
   const { peaks, loading } = usePeaksFetch(isMIDI ? null : item);
@@ -48,8 +47,8 @@ export function WaveformItem({
     ? reaperColorToRgba(item.color, 0.6) ?? DEFAULT_ITEM_COLOR
     : DEFAULT_ITEM_COLOR;
 
-  // Take count badge
-  const takeCount = item.takes.length;
+  // Take count badge (using sparse field)
+  const takeCount = item.takeCount;
   const showTakeBadge = takeCount > 1;
 
   return (

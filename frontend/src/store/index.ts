@@ -17,6 +17,8 @@ import { createStudioLayoutSlice, type StudioLayoutState } from './slices/studio
 import { createNotesSlice, type NotesSlice } from './slices/notesSlice';
 import { createPlaylistSlice, type PlaylistSlice } from './slices/playlistSlice';
 import { createActionsViewSlice, type ActionsViewSlice } from './slices/actionsViewSlice';
+import { createFxStateSlice, type FxStateSlice } from './slices/fxStateSlice';
+import { createSendsStateSlice, type SendsStateSlice } from './slices/sendsStateSlice';
 import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
 import { ActionCommands, SWSCommands } from '../core/types';
 import type {
@@ -28,6 +30,8 @@ import type {
   MarkersEventPayload,
   RegionsEventPayload,
   ItemsEventPayload,
+  FxStateEventPayload,
+  SendsStateEventPayload,
   TempoMapEventPayload,
   PlaylistEventPayload,
 } from '../core/WebSocketTypes';
@@ -40,6 +44,8 @@ import {
   isMarkersEvent,
   isRegionsEvent,
   isItemsEvent,
+  isFxStateEvent,
+  isSendsStateEvent,
   isActionToggleStateEvent,
   isTempoMapEvent,
   isProjectNotesChangedEvent,
@@ -51,7 +57,7 @@ import { transportEngine } from '../core/TransportAnimationEngine';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & {
+export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & FxStateSlice & SendsStateSlice & {
   // Response handler action (legacy HTTP)
   handleResponses: (responses: ParsedResponse[]) => void;
   // WebSocket message handler
@@ -81,6 +87,8 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   ...createNotesSlice(set, get, store),
   ...createPlaylistSlice(set, get, store),
   ...createActionsViewSlice(set, get, store),
+  ...createFxStateSlice(set, get, store),
+  ...createSendsStateSlice(set, get, store),
 
   // Handle incoming responses from REAPER
   handleResponses: (responses: ParsedResponse[]) => {
@@ -224,6 +232,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
       const p = message.payload as ProjectEventPayload;
       get().setReaperUndoState(p.canUndo, p.canRedo);
       get().setProjectDirty(p.isDirty);
+      get().setMemoryWarning(p.memoryWarning);
       // Project-level settings (moved from transport event)
       set({
         isRepeat: p.repeat,
@@ -259,9 +268,11 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
           clipped: false,
           width: 0,
           panMode: 0,
-          sendCount: 0,
-          receiveCount: 0,
+          // Use sparse counts from WSTrack (populated by backend)
+          sendCount: t.sendCount ?? 0,
+          receiveCount: t.receiveCount ?? 0,
           hwOutCount: 0,
+          fxCount: t.fxCount ?? 0,
         };
       }
 
@@ -308,6 +319,12 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
     } else if (isItemsEvent(message)) {
       const p = message.payload as ItemsEventPayload;
       get().setItems(p.items);
+    } else if (isFxStateEvent(message)) {
+      const p = message.payload as FxStateEventPayload;
+      get().setFx(p.fx);
+    } else if (isSendsStateEvent(message)) {
+      const p = message.payload as SendsStateEventPayload;
+      get().setSends(p.sends);
     } else if (isActionToggleStateEvent(message)) {
       // Note: changes is at root level, not in payload (backend sends it directly)
       const msg = message as unknown as { changes: Record<string, number> };
@@ -349,6 +366,10 @@ export { getNotesIsDirty, getNotesIsOverLimit, getNotesCanSave } from './slices/
 export type { PlaylistSlice } from './slices/playlistSlice';
 export type { ActionsViewSlice, ActionsSection, SectionAlign, VerticalAlign, SizeOption } from './slices/actionsViewSlice';
 export { ACTIONS_VIEW_STORAGE_KEY } from './slices/actionsViewSlice';
+export type { FxStateSlice } from './slices/fxStateSlice';
+export { getFxForTrack } from './slices/fxStateSlice';
+export type { SendsStateSlice } from './slices/sendsStateSlice';
+export { getSendsFromTrack, getSendsToTrack } from './slices/sendsStateSlice';
 
 // Expose store on window for E2E tests (development only)
 if (import.meta.env.DEV) {

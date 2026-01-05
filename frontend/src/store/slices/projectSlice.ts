@@ -15,12 +15,18 @@ export interface ProjectSlice {
   // Project dirty state - true when project has unsaved changes
   isProjectDirty: boolean;
 
+  // Memory warning - true when arena utilization is high (any tier > 80%)
+  memoryWarning: boolean;
+  memoryWarningDismissed: boolean; // User dismissed the warning (session state)
+
   // Tempo map - for bar-aware time calculations
   tempoMarkers: WSTempoMarker[];
 
   // Actions
   setReaperUndoState: (canUndo: string | null, canRedo: string | null) => void;
   setProjectDirty: (isDirty: boolean) => void;
+  setMemoryWarning: (warning: boolean) => void;
+  dismissMemoryWarning: () => void;
   setTempoMarkers: (markers: WSTempoMarker[]) => void;
 }
 
@@ -29,10 +35,14 @@ export const createProjectSlice: StateCreator<ProjectSlice> = (set) => ({
   reaperCanUndo: null,
   reaperCanRedo: null,
   isProjectDirty: false,
+  memoryWarning: false,
+  memoryWarningDismissed: false,
   tempoMarkers: [],
 
   // Actions
   setReaperUndoState: (canUndo, canRedo) => set({ reaperCanUndo: canUndo, reaperCanRedo: canRedo }),
   setProjectDirty: (isDirty) => set({ isProjectDirty: isDirty }),
+  setMemoryWarning: (warning) => set({ memoryWarning: warning }),
+  dismissMemoryWarning: () => set({ memoryWarningDismissed: true }),
   setTempoMarkers: (markers) => set({ tempoMarkers: markers }),
 });

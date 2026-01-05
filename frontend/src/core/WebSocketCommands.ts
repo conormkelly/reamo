@@ -187,6 +187,16 @@ export const track = {
   unselectAll: (): WSCommand => ({
     command: 'track/unselectAll',
   }),
+  /** Get full FX chain details for a track (on-demand) */
+  getFx: (trackIdx: number): WSCommand => ({
+    command: 'track/getFx',
+    params: { trackIdx },
+  }),
+  /** Get full send routing details for a track (on-demand) */
+  getSends: (trackIdx: number): WSCommand => ({
+    command: 'track/getSends',
+    params: { trackIdx },
+  }),
 };
 
 // =============================================================================
@@ -248,6 +258,16 @@ export const item = {
   ): WSCommand => ({
     command: 'item/getPeaks',
     params: { trackIdx, itemIdx, width },
+  }),
+  /** Get notes content for an item (on-demand) */
+  getNotes: (trackIdx: number, itemIdx: number): WSCommand => ({
+    command: 'item/getNotes',
+    params: { trackIdx, itemIdx },
+  }),
+  /** Get full take list for an item (on-demand) */
+  getTakes: (trackIdx: number, itemIdx: number): WSCommand => ({
+    command: 'item/getTakes',
+    params: { trackIdx, itemIdx },
   }),
 };
 

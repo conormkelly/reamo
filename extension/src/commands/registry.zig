@@ -28,6 +28,7 @@ const fx = @import("fx.zig");
 const send = @import("send.zig");
 const playlist_cmds = @import("playlist.zig");
 const preferences = @import("preferences.zig");
+const debug = @import("debug.zig");
 
 /// Comptime tuple of (command_name, handler_fn) pairs.
 /// Used by dispatch() with inline for to call handlers with anytype.
@@ -71,6 +72,9 @@ pub const all = .{
     .{ "item/selectInTimeSel", items.handleSelectInTimeSel },
     .{ "item/unselectAll", items.handleUnselectAll },
     .{ "item/getPeaks", items.handleItemGetPeaks },
+    // On-demand item data (sparse field fetch)
+    .{ "item/getNotes", items.handleItemGetNotes },
+    .{ "item/getTakes", items.handleItemGetTakes },
 
     // Takes
     .{ "take/delete", takes.handleTakeDelete },
@@ -108,6 +112,9 @@ pub const all = .{
     .{ "track/delete", tracks.handleDelete },
     .{ "track/deleteSelected", tracks.handleDeleteSelected },
     .{ "meter/clearClip", tracks.handleClearClip },
+    // On-demand track data (sparse field fetch)
+    .{ "track/getFx", tracks.handleGetFx },
+    .{ "track/getSends", tracks.handleGetSends },
 
     // Tempo
     .{ "tempo/set", tempo.handleSet },
@@ -193,4 +200,7 @@ pub const all = .{
     // Preferences
     .{ "preferences/getSeekSettings", preferences.handleGetSeekSettings },
     .{ "preferences/setSeekSettings", preferences.handleSetSeekSettings },
+
+    // Debug
+    .{ "debug/memoryStats", debug.handleMemoryStats },
 };

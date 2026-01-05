@@ -96,12 +96,10 @@ pub const Track = struct {
     fx_enabled: bool = true,
     selected: bool = false,
     folder_depth: c_int = 0, // 1=folder parent, 0=normal, -N=closes N folder levels
-    // FX chain state (polled at 5Hz, merged into track events)
-    // Uses slice for arena/buffer-based allocation - variable per track
-    fx: []FxSlot = &.{},
-    // Send state (polled at 5Hz, merged into track events)
-    // Uses slice for arena/buffer-based allocation - variable per track
-    sends: []SendSlot = &.{},
+    // Sparse counts - actual FX/sends data is fetched on-demand via track/getFx, track/getSends
+    fx_count: u16 = 0,
+    send_count: u16 = 0,
+    receive_count: u16 = 0,
 
     pub fn getName(self: *const Track) []const u8 {
         return self.name[0..self.name_len];
@@ -121,16 +119,10 @@ pub const Track = struct {
         if (self.fx_enabled != other.fx_enabled) return false;
         if (self.selected != other.selected) return false;
         if (self.folder_depth != other.folder_depth) return false;
-        // Compare FX chain (slice-based)
-        if (self.fx.len != other.fx.len) return false;
-        for (self.fx, other.fx) |*a, *b| {
-            if (!a.eql(b.*)) return false;
-        }
-        // Compare sends (slice-based)
-        if (self.sends.len != other.sends.len) return false;
-        for (self.sends, other.sends) |*a, *b| {
-            if (!a.eql(b.*)) return false;
-        }
+        // Compare sparse counts
+        if (self.fx_count != other.fx_count) return false;
+        if (self.send_count != other.send_count) return false;
+        if (self.receive_count != other.receive_count) return false;
         return true;
     }
 
@@ -215,8 +207,13 @@ pub const State = struct {
                 t.fx_enabled = api.getTrackFxEnabled(track);
                 t.selected = api.getTrackSelected(track);
                 t.folder_depth = api.getTrackFolderDepth(track);
-                // Note: fx and sends slices default to empty (&.{}) from Track init
-                // They get populated by MEDIUM_TIER polling into g_last_tracks
+                // Sparse counts - full data fetched on-demand via track/getFx, track/getSends
+                const fx_c = api.trackFxCount(track);
+                t.fx_count = if (fx_c >= 0) @intCast(fx_c) else 0;
+                const send_c = api.trackSendCount(track);
+                t.send_count = if (send_c >= 0) @intCast(send_c) else 0;
+                const recv_c = api.trackReceiveCount(track);
+                t.receive_count = if (recv_c >= 0) @intCast(recv_c) else 0;
             } else {
                 // Track disappeared between count and fetch - use empty
                 t.* = Track{};
@@ -264,8 +261,13 @@ pub const State = struct {
                 t.fx_enabled = api.getTrackFxEnabled(track);
                 t.selected = api.getTrackSelected(track);
                 t.folder_depth = api.getTrackFolderDepth(track);
-                // Note: fx and sends slices default to empty (&.{}) from Track init
-                // They get populated by MEDIUM_TIER polling into g_last_tracks
+                // Sparse counts - full data fetched on-demand via track/getFx, track/getSends
+                const fx_c = api.trackFxCount(track);
+                t.fx_count = if (fx_c >= 0) @intCast(fx_c) else 0;
+                const send_c = api.trackSendCount(track);
+                t.send_count = if (send_c >= 0) @intCast(send_c) else 0;
+                const recv_c = api.trackReceiveCount(track);
+                t.receive_count = if (recv_c >= 0) @intCast(recv_c) else 0;
             } else {
                 t.* = Track{};
             }
@@ -325,35 +327,12 @@ pub const State = struct {
                 t.folder_depth,
             }) catch return null;
 
-            // Serialize FX chain (slice-based)
-            writer.writeAll(",\"fx\":[") catch return null;
-            for (t.fx, 0..) |*fx, fx_i| {
-                if (fx_i > 0) writer.writeByte(',') catch return null;
-                writer.writeAll("{\"name\":\"") catch return null;
-                protocol.writeJsonString(writer, fx.getName()) catch return null;
-                writer.writeAll("\",\"presetName\":\"") catch return null;
-                protocol.writeJsonString(writer, fx.getPresetName()) catch return null;
-                writer.print("\",\"presetIndex\":{d},\"presetCount\":{d},\"modified\":{s}}}", .{
-                    fx.preset_index,
-                    fx.preset_count,
-                    if (fx.modified) "true" else "false",
-                }) catch return null;
-            }
-            writer.writeAll("]") catch return null;
-
-            // Serialize sends (slice-based)
-            writer.writeAll(",\"sends\":[") catch return null;
-            for (t.sends, 0..) |*send, send_i| {
-                if (send_i > 0) writer.writeByte(',') catch return null;
-                writer.print("{{\"idx\":{d},\"destName\":\"", .{send_i}) catch return null;
-                protocol.writeJsonString(writer, send.getDestName()) catch return null;
-                writer.print("\",\"volume\":{d:.6},\"muted\":{s},\"mode\":{d}}}", .{
-                    send.volume,
-                    if (send.muted) "true" else "false",
-                    send.mode,
-                }) catch return null;
-            }
-            writer.writeAll("]}") catch return null;
+            // Serialize sparse counts (full data fetched on-demand via track/getFx, track/getSends)
+            writer.print(",\"fxCount\":{d},\"sendCount\":{d},\"receiveCount\":{d}}}", .{
+                t.fx_count,
+                t.send_count,
+                t.receive_count,
+            }) catch return null;
         }
 
         writer.writeAll("]") catch return null;
@@ -702,5 +681,66 @@ test "State.count returns slice length" {
     var tracks_buf: [5]Track = undefined;
     const state = State{ .tracks = tracks_buf[0..5] };
     try std.testing.expectEqual(@as(usize, 5), state.count());
+}
+
+test "poll populates sparse counts" {
+    var mock = MockBackend{
+        .track_count = 1, // 1 user track + master = 2 total
+    };
+    mock.tracks[0].setName("MASTER");
+    mock.tracks[0].fx_count = 2;
+    mock.tracks[0].send_count = 0;
+    mock.tracks[0].receive_count = 0;
+
+    mock.tracks[1].setName("Track 1");
+    mock.tracks[1].fx_count = 3;
+    mock.tracks[1].send_count = 2;
+    mock.tracks[1].receive_count = 1;
+
+    const state = try State.poll(std.testing.allocator, &mock);
+    defer std.testing.allocator.free(state.tracks);
+
+    try std.testing.expectEqual(@as(usize, 2), state.tracks.len);
+
+    // Master track sparse counts
+    try std.testing.expectEqual(@as(u16, 2), state.tracks[0].fx_count);
+    try std.testing.expectEqual(@as(u16, 0), state.tracks[0].send_count);
+    try std.testing.expectEqual(@as(u16, 0), state.tracks[0].receive_count);
+
+    // Track 1 sparse counts
+    try std.testing.expectEqual(@as(u16, 3), state.tracks[1].fx_count);
+    try std.testing.expectEqual(@as(u16, 2), state.tracks[1].send_count);
+    try std.testing.expectEqual(@as(u16, 1), state.tracks[1].receive_count);
+}
+
+test "State.toJson includes sparse counts" {
+    var tracks_buf: [1]Track = undefined;
+    var state = State{ .tracks = &tracks_buf };
+    state.tracks[0] = .{
+        .idx = 0,
+        .volume = 1.0,
+        .pan = 0.0,
+        .mute = false,
+        .solo = 0,
+        .rec_arm = false,
+        .rec_mon = 0,
+        .fx_enabled = true,
+        .fx_count = 5,
+        .send_count = 2,
+        .receive_count = 1,
+    };
+    state.tracks[0].name[0..4].* = "Test".*;
+    state.tracks[0].name_len = 4;
+
+    var buf: [2048]u8 = undefined;
+    const json = state.toJson(&buf, null).?;
+
+    // Verify sparse counts are in JSON
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"fxCount\":5") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sendCount\":2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"receiveCount\":1") != null);
+    // Verify old arrays are NOT in JSON
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"fx\":[") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sends\":[") == null);
 }
 

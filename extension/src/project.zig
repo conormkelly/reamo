@@ -32,6 +32,10 @@ pub const State = struct {
     frame_rate: f64 = 30.0, // Project frame rate (e.g., 29.97, 24, 25)
     drop_frame: bool = false, // True for drop-frame timecode (29.97/59.94)
 
+    // Memory warning flag - set externally from tiered arena usage monitoring
+    // When true, frontend should warn user about high memory utilization
+    memory_warning: bool = false,
+
     // Get undo string (returns null if none)
     pub fn canUndo(self: *const State) ?[]const u8 {
         if (self.undo_len == 0) return null;
@@ -94,6 +98,7 @@ pub const State = struct {
         if (self.is_dirty != other.is_dirty) return false;
         if (@abs(self.frame_rate - other.frame_rate) > 0.001) return false;
         if (self.drop_frame != other.drop_frame) return false;
+        if (self.memory_warning != other.memory_warning) return false;
         return true;
     }
 
@@ -205,7 +210,7 @@ pub const State = struct {
         }
 
         // Write remaining fields
-        writer.print(",\"stateChangeCount\":{d},\"repeat\":{s},\"metronome\":{{\"enabled\":{s},\"volume\":{d:.4},\"volumeDb\":{d:.2}}},\"master\":{{\"stereoEnabled\":{s}}},\"projectLength\":{d:.3},\"barOffset\":{d},\"isDirty\":{s},\"frameRate\":{d:.4},\"dropFrame\":{s}}}}}", .{
+        writer.print(",\"stateChangeCount\":{d},\"repeat\":{s},\"metronome\":{{\"enabled\":{s},\"volume\":{d:.4},\"volumeDb\":{d:.2}}},\"master\":{{\"stereoEnabled\":{s}}},\"projectLength\":{d:.3},\"barOffset\":{d},\"isDirty\":{s},\"frameRate\":{d:.4},\"dropFrame\":{s},\"memoryWarning\":{s}}}}}", .{
             self.state_change_count,
             if (self.repeat) "true" else "false",
             if (self.metronome_enabled) "true" else "false",
@@ -217,6 +222,7 @@ pub const State = struct {
             if (self.is_dirty) "true" else "false",
             self.frame_rate,
             if (self.drop_frame) "true" else "false",
+            if (self.memory_warning) "true" else "false",
         }) catch return null;
 
         return stream.getWritten();

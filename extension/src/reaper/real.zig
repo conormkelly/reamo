@@ -468,12 +468,20 @@ pub const RealBackend = struct {
         return self.inner.trackFxSetPresetByIndex(track, fx_idx, preset_idx);
     }
 
+    pub fn trackFxGetEnabled(self: *const RealBackend, track: *anyopaque, fx_idx: c_int) bool {
+        return self.inner.trackFxGetEnabled(track, fx_idx);
+    }
+
     // =========================================================================
     // Track Sends
     // =========================================================================
 
     pub fn trackSendCount(self: *const RealBackend, track: *anyopaque) c_int {
         return self.inner.trackSendCount(track);
+    }
+
+    pub fn trackReceiveCount(self: *const RealBackend, track: *anyopaque) c_int {
+        return self.inner.trackReceiveCount(track);
     }
 
     pub fn trackSendGetVolume(self: *const RealBackend, track: *anyopaque, send_idx: c_int) f64 {

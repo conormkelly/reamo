@@ -1,6 +1,5 @@
 const std = @import("std");
 const reaper = @import("reaper.zig");
-const protocol = @import("protocol.zig");
 
 // Maximum items/takes we track
 pub const MAX_ITEMS = 512;
@@ -53,20 +52,12 @@ pub const Item = struct {
     selected: ?bool = false,
     active_take_idx: ?c_int = 0,
 
-    // Notes (truncated to fit)
-    notes: [1024]u8 = undefined,
-    notes_len: usize = 0,
-
-    // Takes
-    takes: [MAX_TAKES_PER_ITEM]Take = undefined,
-    take_count: usize = 0,
+    // Sparse fields - full data fetched on-demand via item/getNotes, item/getTakes commands
+    has_notes: bool = false,
+    take_count: u8 = 0,
 
     pub fn getGUID(self: *const Item) []const u8 {
         return self.guid[0..self.guid_len];
-    }
-
-    pub fn getNotes(self: *const Item) []const u8 {
-        return self.notes[0..self.notes_len];
     }
 
     pub fn eql(self: *const Item, other: *const Item) bool {
@@ -80,13 +71,9 @@ pub const Item = struct {
         if (self.locked != other.locked) return false;
         if (self.selected != other.selected) return false;
         if (self.active_take_idx != other.active_take_idx) return false;
-        if (self.notes_len != other.notes_len) return false;
-        if (!std.mem.eql(u8, self.getNotes(), other.getNotes())) return false;
+        // Sparse fields
+        if (self.has_notes != other.has_notes) return false;
         if (self.take_count != other.take_count) return false;
-
-        for (0..self.take_count) |i| {
-            if (!self.takes[i].eql(&other.takes[i])) return false;
-        }
         return true;
     }
 };
@@ -186,38 +173,14 @@ pub const State = struct {
                 item.selected = api.getItemSelected(item_ptr) catch null;
                 item.active_take_idx = api.getItemActiveTakeIdx(item_ptr) catch null;
 
-                // Get notes
+                // Sparse fields - check if notes exist (non-empty), count takes
+                // Full data fetched on-demand via item/getNotes, item/getTakes commands
                 var notes_buf: [1024]u8 = undefined;
                 const notes = api.getItemNotes(item_ptr, &notes_buf);
-                const notes_copy_len = @min(notes.len, item.notes.len);
-                @memcpy(item.notes[0..notes_copy_len], notes[0..notes_copy_len]);
-                item.notes_len = notes_copy_len;
+                item.has_notes = notes.len > 0;
 
-                // Enumerate takes
-                const take_count: usize = @intCast(@max(0, api.itemTakeCount(item_ptr)));
-                item.take_count = @min(take_count, MAX_TAKES_PER_ITEM);
-
-                for (0..item.take_count) |take_idx| {
-                    const take_ptr = api.getTakeByIdx(item_ptr, @intCast(take_idx)) orelse continue;
-                    var take = &item.takes[take_idx];
-
-                    // Get take GUID
-                    var take_guid_buf: [64]u8 = undefined;
-                    const take_guid = api.getTakeGUID(take_ptr, &take_guid_buf);
-                    const take_guid_copy_len = @min(take_guid.len, take.guid.len);
-                    @memcpy(take.guid[0..take_guid_copy_len], take_guid[0..take_guid_copy_len]);
-                    take.guid_len = take_guid_copy_len;
-
-                    const take_name = api.getTakeNameStr(take_ptr);
-                    const name_copy_len = @min(take_name.len, take.name.len);
-                    @memcpy(take.name[0..name_copy_len], take_name[0..name_copy_len]);
-                    take.name_len = name_copy_len;
-                    take.is_active = if (item.active_take_idx) |ati|
-                        take_idx == @as(usize, @intCast(ati))
-                    else
-                        false;
-                    take.is_midi = api.isTakeMIDI(take_ptr);
-                }
+                const take_count_raw = api.itemTakeCount(item_ptr);
+                item.take_count = if (take_count_raw >= 0) @intCast(@min(take_count_raw, 255)) else 0;
 
                 total_count += 1;
             }
@@ -296,21 +259,11 @@ pub const State = struct {
                 w.writeAll("null") catch return null;
             }
 
-            w.writeAll(",\"notes\":\"") catch return null;
-            protocol.writeJsonString(w, item.getNotes()) catch return null;
-            w.writeAll("\",\"takes\":[") catch return null;
-
-            for (0..item.take_count) |t| {
-                if (t > 0) w.writeByte(',') catch return null;
-                const take = &item.takes[t];
-                w.writeAll("{\"guid\":\"") catch return null;
-                w.writeAll(take.getGUID()) catch return null;
-                w.writeAll("\",\"name\":\"") catch return null;
-                protocol.writeJsonString(w, take.getName()) catch return null;
-                w.print("\",\"isActive\":{},\"isMIDI\":{}}}", .{ take.is_active, take.is_midi }) catch return null;
-            }
-
-            w.writeAll("]}") catch return null;
+            // Sparse fields - full data fetched on-demand via item/getNotes, item/getTakes
+            w.print(",\"hasNotes\":{s},\"takeCount\":{d}}}", .{
+                if (item.has_notes) "true" else "false",
+                item.take_count,
+            }) catch return null;
         }
 
         w.writeAll("]}}") catch return null;
@@ -347,7 +300,6 @@ test "Take equality" {
 
 test "Item equality" {
     const item_guid = "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}";
-    const take_guid = "{11111111-2222-3333-4444-555555555555}";
 
     var item1 = Item{
         .track_idx = 0,
@@ -357,15 +309,11 @@ test "Item equality" {
         .color = 0,
         .locked = false,
         .active_take_idx = 0,
+        .has_notes = true,
+        .take_count = 2,
     };
     item1.guid[0..item_guid.len].* = item_guid.*;
     item1.guid_len = item_guid.len;
-    item1.take_count = 1;
-    item1.takes[0].guid[0..take_guid.len].* = take_guid.*;
-    item1.takes[0].guid_len = take_guid.len;
-    item1.takes[0].name[0..6].* = "Take 1".*;
-    item1.takes[0].name_len = 6;
-    item1.takes[0].is_active = true;
 
     var item2 = Item{
         .track_idx = 0,
@@ -375,25 +323,29 @@ test "Item equality" {
         .color = 0,
         .locked = false,
         .active_take_idx = 0,
+        .has_notes = true,
+        .take_count = 2,
     };
     item2.guid[0..item_guid.len].* = item_guid.*;
     item2.guid_len = item_guid.len;
-    item2.take_count = 1;
-    item2.takes[0].guid[0..take_guid.len].* = take_guid.*;
-    item2.takes[0].guid_len = take_guid.len;
-    item2.takes[0].name[0..6].* = "Take 1".*;
-    item2.takes[0].name_len = 6;
-    item2.takes[0].is_active = true;
 
     try std.testing.expect(item1.eql(&item2));
 
     item2.position = 15.0;
     try std.testing.expect(!item1.eql(&item2));
+
+    // Reset and test sparse field differences
+    item2.position = 10.0;
+    item2.has_notes = false;
+    try std.testing.expect(!item1.eql(&item2));
+
+    item2.has_notes = true;
+    item2.take_count = 1;
+    try std.testing.expect(!item1.eql(&item2));
 }
 
 test "State items JSON output" {
     const item_guid = "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}";
-    const take_guid = "{11111111-2222-3333-4444-555555555555}";
 
     // Use a static buffer for testing
     var items_buffer: [1]Item = undefined;
@@ -405,16 +357,11 @@ test "State items JSON output" {
         .color = 16711680,
         .locked = false,
         .active_take_idx = 0,
+        .has_notes = true,
+        .take_count = 2,
     };
     items_buffer[0].guid[0..item_guid.len].* = item_guid.*;
     items_buffer[0].guid_len = item_guid.len;
-    items_buffer[0].take_count = 1;
-    items_buffer[0].takes[0].guid[0..take_guid.len].* = take_guid.*;
-    items_buffer[0].takes[0].guid_len = take_guid.len;
-    items_buffer[0].takes[0].name[0..4].* = "Main".*;
-    items_buffer[0].takes[0].name_len = 4;
-    items_buffer[0].takes[0].is_active = true;
-    items_buffer[0].takes[0].is_midi = false;
 
     const state = State{ .items = &items_buffer };
 
@@ -422,8 +369,9 @@ test "State items JSON output" {
     const json = state.itemsToJson(&buf).?;
 
     // trackIdx is unified: internal track_idx 0 becomes trackIdx 1 (0 = master, 1+ = user tracks)
+    // Sparse fields: hasNotes and takeCount instead of full notes/takes arrays
     try std.testing.expectEqualStrings(
-        "{\"type\":\"event\",\"event\":\"items\",\"payload\":{\"items\":[{\"guid\":\"{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}\",\"trackIdx\":1,\"itemIdx\":0,\"position\":10.000,\"length\":5.000,\"color\":16711680,\"locked\":false,\"selected\":false,\"activeTakeIdx\":0,\"notes\":\"\",\"takes\":[{\"guid\":\"{11111111-2222-3333-4444-555555555555}\",\"name\":\"Main\",\"isActive\":true,\"isMIDI\":false}]}]}}",
+        "{\"type\":\"event\",\"event\":\"items\",\"payload\":{\"items\":[{\"guid\":\"{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}\",\"trackIdx\":1,\"itemIdx\":0,\"position\":10.000,\"length\":5.000,\"color\":16711680,\"locked\":false,\"selected\":false,\"activeTakeIdx\":0,\"hasNotes\":true,\"takeCount\":2}]}}",
         json,
     );
 }
@@ -496,11 +444,9 @@ test "poll with MockBackend returns items from tracks" {
         .locked = true,
         .selected = false,
         .active_take_idx = 0,
-        .take_count = 1,
+        .take_count = 2,
     };
     mock.tracks[0].items[0].setNotes("Test note");
-    mock.tracks[0].items[0].takes[0].setName("Audio Take");
-    mock.tracks[0].items[0].takes[0].is_midi = false;
 
     const state = State.pollStatic(&mock);
 
@@ -509,8 +455,9 @@ test "poll with MockBackend returns items from tracks" {
     try std.testing.expect(@abs(state.items[0].length - 2.5) < 0.001);
     try std.testing.expectEqual(@as(?c_int, 16711680), state.items[0].color);
     try std.testing.expect(state.items[0].locked.?);
-    try std.testing.expectEqual(@as(usize, 1), state.items[0].take_count);
-    try std.testing.expectEqualStrings("Audio Take", state.items[0].takes[0].getName());
+    // Sparse fields
+    try std.testing.expect(state.items[0].has_notes);
+    try std.testing.expectEqual(@as(u8, 2), state.items[0].take_count);
 }
 
 test "poll tracks API calls correctly" {

@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import './index.css';
-import { ReaperProvider, TabBar, PersistentTransport, SettingsMenu, ConnectionBanner, RecordingActionsBar } from './components';
+import { ReaperProvider, TabBar, PersistentTransport, SettingsMenu, ConnectionBanner, MemoryWarningBar, RecordingActionsBar } from './components';
 import { useUIPreferences } from './hooks';
 import { useReaperStore } from './store';
 import { views, type ViewId, VIEW_STORAGE_KEY, DEFAULT_VIEW } from './viewRegistry';
@@ -58,6 +58,9 @@ function AppContent() {
     <div className="flex flex-col h-screen bg-gray-950">
       {/* Connection banner - shown at top when disconnected */}
       <ConnectionBanner />
+
+      {/* Memory warning bar - shown when arena utilization is high */}
+      <MemoryWarningBar />
 
       {/* Header controls - floating top-left */}
       <div className="absolute top-3 left-3 z-50">

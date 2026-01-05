@@ -14,9 +14,9 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 - [Repeat](#repeat-commands) — set, toggle
 - [Marker](#marker-commands) — add, update, delete, goto, prev, next
 - [Region](#region-commands) — add, update, delete, goto
-- [Item](#item-commands) — setActiveTake, move, setColor, delete, getPeaks
+- [Item](#item-commands) — setActiveTake, move, setColor, delete, getPeaks, getNotes, getTakes
 - [Take](#take-commands) — deleteCurrent, cropToActive
-- [Track](#track-commands) — setVolume, setPan, setMute, setSolo, setRecArm, setRecMon, rename, create, duplicate, delete
+- [Track](#track-commands) — setVolume, setPan, setMute, setSolo, setRecArm, setRecMon, rename, create, duplicate, delete, getFx, getSends
 - [Master](#master-commands) — toggleMono
 - [Tempo](#tempo-commands) — set, tap
 - [Time Signature](#time-signature-commands) — set
@@ -31,6 +31,7 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 - [Send](#send-commands) — setVolume, setMute
 - [Playlist](#playlist-commands) — create, delete, rename, addEntry, removeEntry, play, stop, next, prev
 - [Preferences](#preferences-commands) — getSeekSettings, setSeekSettings
+- [Debug](#debug-commands) — memoryStats
 
 **Events**
 - [Events (Broadcast)](#events-broadcast) — transport, tracks, markers, regions, items, project
@@ -656,6 +657,69 @@ Get waveform peak data for an item's active take. Use for waveform visualization
 
 **Cache key:** Frontend should cache using `{itemGUID, takeGUID, length, startOffset, playrate}`. Re-fetch when any of these change in the `items` event.
 
+### `item/getNotes`
+
+Get notes content for a single item. Use for on-demand fetching when displaying item notes.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (0-based) |
+| `itemIdx` | int | Yes | Item index within track (0-based) |
+
+```json
+{"type": "command", "command": "item/getNotes", "trackIdx": 1, "itemIdx": 0, "id": "1"}
+```
+
+**Response:**
+
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": {"notes": "Verse 1 vocals - take 3 selected"}
+}
+```
+
+### `item/getTakes`
+
+Get full take list for a single item. Use for on-demand fetching when displaying take details.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (0-based) |
+| `itemIdx` | int | Yes | Item index within track (0-based) |
+
+```json
+{"type": "command", "command": "item/getTakes", "trackIdx": 1, "itemIdx": 0, "id": "1"}
+```
+
+**Response:**
+
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": {
+    "takes": [
+      {"takeIdx": 0, "guid": "{XXXX...}", "name": "Take 1", "isActive": false, "isMidi": false, "startOffset": 0.0, "playrate": 1.0},
+      {"takeIdx": 1, "guid": "{YYYY...}", "name": "Take 2", "isActive": true, "isMidi": false, "startOffset": 0.0, "playrate": 1.0}
+    ]
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `takeIdx` | int | Take index (0-based) |
+| `guid` | string | Take GUID |
+| `name` | string | Take name (usually source filename) |
+| `isActive` | bool | Whether this is the currently active take |
+| `isMidi` | bool | Whether this take contains MIDI data |
+| `startOffset` | float | Start offset in seconds |
+| `playrate` | float | Playback rate (1.0 = normal) |
+
 ---
 
 ## Take Commands
@@ -888,6 +952,80 @@ Delete all currently selected tracks. Uses REAPER's native action with proper un
 ```
 
 **Note:** Master track cannot be deleted even if selected.
+
+### `track/getFx`
+
+Get full FX detail for a single track. Use for on-demand fetching when displaying FX chain details.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+
+```json
+{"type": "command", "command": "track/getFx", "trackIdx": 1, "id": "1"}
+```
+
+**Response:**
+
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": {
+    "fx": [
+      {"fxIndex": 0, "name": "VST: Pro-Q 3 (FabFilter)", "presetName": "Vocal Cut", "presetIndex": 5, "presetCount": 120, "modified": false, "enabled": true},
+      {"fxIndex": 1, "name": "VST: LA-2A (Universal Audio)", "presetName": "", "presetIndex": -1, "presetCount": 50, "modified": true, "enabled": true}
+    ]
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `fxIndex` | int | FX index in chain (0-based) |
+| `name` | string | FX plugin name |
+| `presetName` | string | Currently loaded preset name (empty if none) |
+| `presetIndex` | int | Current preset index (-1 if no preset loaded) |
+| `presetCount` | int | Total number of presets available |
+| `modified` | bool | Whether preset has been modified from saved state |
+| `enabled` | bool | Whether FX is enabled (bypassed if false) |
+
+### `track/getSends`
+
+Get full send detail for a single track. Use for on-demand fetching when displaying routing details.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+
+```json
+{"type": "command", "command": "track/getSends", "trackIdx": 1, "id": "1"}
+```
+
+**Response:**
+
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": {
+    "sends": [
+      {"sendIndex": 0, "destName": "Reverb Bus", "volume": 0.5, "muted": false, "mode": 0},
+      {"sendIndex": 1, "destName": "Delay Bus", "volume": 0.25, "muted": true, "mode": 0}
+    ]
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `sendIndex` | int | Send index (0-based) |
+| `destName` | string | Destination track name |
+| `volume` | float | Send volume (0.0 to ∞, 1.0 = 0dB) |
+| `muted` | bool | Whether send is muted |
+| `mode` | int | Send mode (0=post-fader, 1=pre-fx, 3=pre-fader) |
 
 ---
 
@@ -1685,6 +1823,58 @@ Set seek-related settings. All parameters are optional - only provided values ar
 
 ---
 
+## Debug Commands
+
+Commands for monitoring extension internals and diagnostics.
+
+### `debug/memoryStats`
+
+Get memory usage statistics for all tiered arenas. Use for monitoring memory consumption and debugging allocation issues.
+
+```json
+{"type": "command", "command": "debug/memoryStats", "id": "1"}
+```
+
+**Response:**
+
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": {
+    "high": {"used": 51200, "capacity": 1048576, "peak": 102400, "utilization": 9.8},
+    "medium": {"used": 4500000, "capacity": 18874368, "peak": 8000000, "utilization": 42.4},
+    "low": {"used": 2048, "capacity": 131072, "peak": 4096, "utilization": 3.1},
+    "scratch": {"used": 0, "capacity": 2097152},
+    "total": {"allocated": 22151168, "allocatedMB": 21.13},
+    "sizes": {"high": 1048576, "medium": 18874368, "low": 131072, "scratch": 2097152},
+    "frameCount": 12345
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `high` | object | HIGH tier arena stats (30Hz polling - tracks, meters) |
+| `medium` | object | MEDIUM tier arena stats (5Hz polling - items, markers, regions, FX, sends) |
+| `low` | object | LOW tier arena stats (1Hz polling - tempo map) |
+| `scratch` | object | Scratch arena stats (JSON serialization buffer) |
+| `total` | object | Aggregate memory stats |
+| `sizes` | object | Configured arena sizes in bytes |
+| `frameCount` | int | Total frames processed since startup |
+
+**Arena stats fields:**
+- `used` - Bytes currently allocated in this frame
+- `capacity` - Total arena capacity in bytes
+- `peak` - High water mark (max bytes used in any frame)
+- `utilization` - Peak usage as percentage of capacity
+
+**Errors:**
+- `NOT_INITIALIZED` - Tiered arenas not yet initialized
+
+---
+
 ## Events (Broadcast)
 
 Events are sent to all connected clients when state changes. Polling occurs ~30ms.
@@ -1944,7 +2134,8 @@ Low-frequency event broadcast when project state changes. Contains project ident
     "barOffset": -4,
     "isDirty": false,
     "frameRate": 29.97,
-    "dropFrame": true
+    "dropFrame": true,
+    "memoryWarning": false
   }
 }
 ```
@@ -1965,6 +2156,7 @@ Low-frequency event broadcast when project state changes. Contains project ident
 | `isDirty` | bool | Project has unsaved changes |
 | `frameRate` | float | Project frame rate for SMPTE timecode (e.g., 23.976, 24, 25, 29.97, 30) |
 | `dropFrame` | bool | `true` if using drop-frame timecode (29.97fps or 59.94fps) |
+| `memoryWarning` | bool | `true` when arena memory utilization exceeds 80% (any tier). Frontend should show warning. |
 
 **Note:** When the project changes (user switches tabs or opens a different file), the playlist engine automatically stops and playlists are reloaded from the new project's saved state.
 

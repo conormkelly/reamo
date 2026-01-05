@@ -198,8 +198,10 @@ pub const Method = enum {
     trackFxGetPreset,
     trackFxNavigatePresets,
     trackFxSetPresetByIndex,
-    // Track Sends
+    trackFxGetEnabled,
+    // Track Sends/Receives
     trackSendCount,
+    trackReceiveCount,
     trackSendGetVolume,
     trackSendGetMute,
     trackSendGetMode,
@@ -236,6 +238,9 @@ pub const MockTrack = struct {
     // Sends for this track
     send_count: c_int = 0,
     sends: [MAX_SENDS_PER_TRACK]MockSend = [_]MockSend{.{}} ** MAX_SENDS_PER_TRACK,
+
+    // Receives for this track (incoming sends from other tracks)
+    receive_count: c_int = 0,
 
     pub fn setName(self: *MockTrack, name: []const u8) void {
         const len = @min(name.len, self.name.len);
@@ -335,6 +340,7 @@ pub const MockFx = struct {
     preset_index: c_int = -1, // -1 = no preset selected
     preset_count: c_int = 0,
     params_match_preset: bool = true, // True if params exactly match loaded preset
+    enabled: bool = true, // True = enabled, false = bypassed
 
     pub fn setName(self: *MockFx, fx_name: []const u8) void {
         const len = @min(fx_name.len, self.name.len);

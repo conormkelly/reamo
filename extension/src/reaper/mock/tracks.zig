@@ -660,6 +660,16 @@ pub const TracksMethods = struct {
         return true;
     }
 
+    pub fn trackFxGetEnabled(self: anytype, track: *anyopaque, fx_idx: c_int) bool {
+        self.recordCall(.trackFxGetEnabled);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return true;
+        if (fx_idx < 0 or fx_idx >= self.tracks[idx].fx_count) return true;
+        const fx_usize: usize = @intCast(fx_idx);
+        if (fx_usize >= state.MAX_FX_PER_TRACK) return true;
+        return self.tracks[idx].fx[fx_usize].enabled;
+    }
+
     // =========================================================================
     // Track Sends
     // =========================================================================
@@ -669,6 +679,13 @@ pub const TracksMethods = struct {
         const idx = state.decodeTrackPtr(track);
         if (idx >= state.MAX_TRACKS) return 0;
         return self.tracks[idx].send_count;
+    }
+
+    pub fn trackReceiveCount(self: anytype, track: *anyopaque) c_int {
+        self.recordCall(.trackReceiveCount);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 0;
+        return self.tracks[idx].receive_count;
     }
 
     pub fn trackSendGetVolume(self: anytype, track: *anyopaque, send_idx: c_int) f64 {

@@ -6,6 +6,8 @@ const markers = @import("markers.zig");
 const items = @import("items.zig");
 const tracks = @import("tracks.zig");
 const tempomap = @import("tempomap.zig");
+const fx = @import("fx.zig");
+const sends = @import("sends.zig");
 const commands = @import("commands/mod.zig");
 const ws_server = @import("ws_server.zig");
 const gesture_state = @import("gesture_state.zig");
@@ -56,10 +58,8 @@ var g_last_items: items.State = .{};
 var g_last_items_buf: [items.MAX_ITEMS]items.Item = undefined; // Backing storage for g_last_items.items slice
 var g_last_tracks: tracks.State = .{};
 var g_last_tracks_buf: [tracks.MAX_TRACKS]tracks.Track = undefined; // Backing storage for g_last_tracks.tracks slice
-// FX/Send backing storage: flat buffers, sliced per-track during polling
-// Total capacity: MAX_TRACKS * MAX_FX_PER_TRACK and MAX_TRACKS * MAX_SENDS_PER_TRACK
-var g_last_fx_buf: [tracks.MAX_TRACKS * tracks.MAX_FX_PER_TRACK]tracks.FxSlot = undefined;
-var g_last_sends_buf: [tracks.MAX_TRACKS * tracks.MAX_SENDS_PER_TRACK]tracks.SendSlot = undefined;
+// Note: FX/sends buffers removed - now using sparse counts with on-demand fetching.
+// Full FX/sends data is fetched via track/getFx, track/getSends commands.
 var g_last_metering: tracks.MeteringState = .{};
 var g_last_tempomap: tempomap.State = .{};
 var g_playlist_state: playlist.State = .{};
@@ -184,9 +184,28 @@ fn doInitialization() !void {
     // Set the global reference in the command handler module
     commands.project_notes_cmds.g_notes_subs = notes_subs;
 
-    // Initialize tiered arenas for frame-based state management
-    g_tiered = try tiered_state.TieredArenas.init(g_allocator);
-    logging.info("Tiered arenas initialized: {d}MB total", .{tiered_state.ArenaSizes.HIGH * 2 + tiered_state.ArenaSizes.MEDIUM * 2 + tiered_state.ArenaSizes.LOW * 2 + tiered_state.ArenaSizes.SCRATCH >> 20});
+    // Count project entities and calculate arena sizes dynamically
+    // This allows memory allocation to scale with project size
+    var backend = reaper.RealBackend{ .inner = api };
+    const entity_counts = tiered_state.EntityCounts.countFromApi(&backend);
+    const arena_sizes = tiered_state.CalculatedSizes.fromCounts(entity_counts);
+
+    // Log entity counts and calculated sizes
+    var counts_buf: [256]u8 = undefined;
+    var sizes_buf: [256]u8 = undefined;
+    if (entity_counts.format(&counts_buf)) |counts_str| {
+        logging.info("Project entities: {s}", .{counts_str});
+    }
+    if (arena_sizes.format(&sizes_buf)) |sizes_str| {
+        logging.info("Arena sizes: {s}", .{sizes_str});
+    }
+
+    // Initialize tiered arenas with calculated sizes
+    g_tiered = try tiered_state.TieredArenas.initWithSizes(g_allocator, arena_sizes);
+    logging.info("Tiered arenas initialized: {d}MB total", .{arena_sizes.totalAllocated() >> 20});
+
+    // Set global reference for debug command
+    commands.debug_cmds.g_tiered = &(g_tiered.?);
 
     // Sync initial HTML mtime to shared state
     state.setHtmlMtime(g_html_mtime);
@@ -214,9 +233,8 @@ fn doInitialization() !void {
     const port_str = std.fmt.bufPrint(&port_buf, "{d}", .{g_port}) catch "9224";
     api.setExtStateStr("Reamo", "WebSocketPort", port_str);
 
-    // Initialize state caches using RealBackend
+    // Initialize state caches using RealBackend (already created above for entity counting)
     // Use pollInto to avoid large stack allocations during initialization
-    var backend = reaper.RealBackend{ .inner = api };
     g_last_transport = transport.State.poll(&backend); // Small, OK on stack
     g_last_project = project.State.poll(&backend); // Small, OK on stack
     g_last_markers.pollInto(&g_last_markers_buf, &g_last_regions_buf, &backend); // ~95KB - use pollInto with static buffers
@@ -253,6 +271,8 @@ const StaticBuffers = struct {
     var items_buf: [32768]u8 = undefined;
     var tempomap_buf: [4096]u8 = undefined;
     var notes: [256]u8 = undefined;
+    var fx_buf: [32768]u8 = undefined;
+    var sends_buf: [16384]u8 = undefined;
 };
 
 // Compile-time size assertions to catch regressions
@@ -360,6 +380,24 @@ fn itemsSliceEql(a: []const items.Item, b: []const items.Item) bool {
     if (a.len != b.len) return false;
     for (a, b) |*item_a, *item_b| {
         if (!item_a.eql(item_b)) return false;
+    }
+    return true;
+}
+
+// Helper to compare FX slot slices for change detection
+fn fxSliceEql(a: []const fx.FxSlot, b: []const fx.FxSlot) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |*fx_a, *fx_b| {
+        if (!fx_a.eql(fx_b.*)) return false;
+    }
+    return true;
+}
+
+// Helper to compare send slot slices for change detection
+fn sendsSliceEql(a: []const sends.SendSlot, b: []const sends.SendSlot) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |*send_a, *send_b| {
+        if (!send_a.eql(send_b.*)) return false;
     }
     return true;
 }
@@ -537,12 +575,8 @@ fn doProcessing() !void {
     };
     high_state.tracks = track_state.tracks;
 
-    // Copy FX/sends pointers from g_last_tracks (MEDIUM tier data, updated at 5Hz)
-    // TODO: Once MEDIUM tier is migrated, read from tiered.medium.currentState()
-    for (0..@min(high_state.tracks.len, g_last_tracks.tracks.len)) |i| {
-        high_state.tracks[i].fx = g_last_tracks.tracks[i].fx;
-        high_state.tracks[i].sends = g_last_tracks.tracks[i].sends;
-    }
+    // Note: FX/sends are now sparse counts populated during poll().
+    // Full FX/sends data is fetched on-demand via track/getFx, track/getSends commands.
 
     // Poll metering into HIGH tier state
     high_state.metering.pollInto(api);
@@ -796,6 +830,9 @@ fn doProcessing() !void {
         // Poll project state into arena
         medium_state.project = project.State.poll(&backend);
 
+        // Set memory warning flag based on arena utilization (any tier > 80% peak usage)
+        medium_state.project.memory_warning = tiered.isMemoryWarning();
+
         // Check for project identity change (tab switch or different file in same tab)
         if (medium_state.project.projectChanged(&medium_prev.project)) {
             logging.info("Project changed: {s}", .{
@@ -807,6 +844,28 @@ fn doProcessing() !void {
                 _ = g_playlist_state.engine.stop();
                 backend.clearLoopPoints();
                 logging.info("Stopped playlist engine due to project change", .{});
+            }
+
+            // Resize arenas if new project has significantly different entity counts
+            const new_counts = tiered_state.EntityCounts.countFromApi(&backend);
+            const new_sizes = tiered_state.CalculatedSizes.fromCounts(new_counts);
+
+            // 25% threshold - only resize if allocation differs significantly
+            if (tiered.shouldResize(new_sizes, 25)) {
+                var counts_buf: [256]u8 = undefined;
+                var sizes_buf: [256]u8 = undefined;
+                if (new_counts.format(&counts_buf)) |counts_str| {
+                    logging.info("New project entities: {s}", .{counts_str});
+                }
+                if (new_sizes.format(&sizes_buf)) |sizes_str| {
+                    logging.info("Resizing arenas: {s}", .{sizes_str});
+                }
+
+                tiered.resize(g_allocator, new_sizes) catch |err| {
+                    logging.err("Failed to resize arenas: {s}", .{@errorName(err)});
+                    // Continue with existing arenas - graceful degradation
+                };
+                logging.info("Arena resize complete: {d}MB total", .{new_sizes.totalAllocated() >> 20});
             }
 
             // Reload playlists from new project's ProjExtState
@@ -901,75 +960,33 @@ fn doProcessing() !void {
             g_last_playlist = g_playlist_state;
         }
 
-        // Poll FX state for all tracks and update g_last_tracks
-        // (FX data is merged into 30Hz track events, not broadcast separately)
-        // FX/sends use slice-based storage with backing buffers
-        for (0..g_last_tracks.tracks.len) |i| {
-            const track_idx: c_int = @intCast(i);
-            if (backend.getTrackByUnifiedIdx(track_idx)) |track| {
-                var t = &g_last_tracks.tracks[i];
+        // Poll FX into MEDIUM arena (flat array with track_idx parent references)
+        const fx_state = fx.State.poll(medium_alloc, &backend) catch |err| {
+            logging.err("Failed to poll FX: {s}", .{@errorName(err)});
+            return err;
+        };
+        medium_state.fx_slots = fx_state.fx;
 
-                // Calculate buffer offsets for this track's FX and sends
-                const fx_buf_offset = i * tracks.MAX_FX_PER_TRACK;
-                const send_buf_offset = i * tracks.MAX_SENDS_PER_TRACK;
+        // Broadcast if FX changed
+        if (!fxSliceEql(medium_state.fx_slots, medium_prev.fx_slots)) {
+            const temp_fx_state = fx.State{ .fx = medium_state.fx_slots };
+            if (temp_fx_state.toJson(&StaticBuffers.fx_buf)) |json| {
+                shared_state.broadcast(json);
+            }
+        }
 
-                // Get FX count - skip FX API calls if no FX
-                const fx_count_raw = backend.trackFxCount(track);
-                const fx_count: usize = @intCast(@max(0, @min(fx_count_raw, @as(c_int, @intCast(tracks.MAX_FX_PER_TRACK)))));
+        // Poll sends into MEDIUM arena (flat array with track_idx parent references)
+        const sends_state = sends.State.poll(medium_alloc, &backend) catch |err| {
+            logging.err("Failed to poll sends: {s}", .{@errorName(err)});
+            return err;
+        };
+        medium_state.send_slots = sends_state.sends;
 
-                // Slice into FX buffer for this track
-                const fx_buf_end = fx_buf_offset + fx_count;
-                t.fx = g_last_fx_buf[fx_buf_offset..fx_buf_end];
-
-                for (0..fx_count) |fx_i| {
-                    const fx_idx: c_int = @intCast(fx_i);
-                    var fx = &t.fx[fx_i];
-
-                    // Get FX name
-                    var name_buf: [tracks.MAX_FX_NAME_LEN]u8 = undefined;
-                    const name = backend.trackFxGetName(track, fx_idx, &name_buf);
-                    const name_len = @min(name.len, tracks.MAX_FX_NAME_LEN);
-                    @memcpy(fx.name[0..name_len], name[0..name_len]);
-                    fx.name_len = name_len;
-
-                    // Get preset index and count
-                    var preset_count: c_int = 0;
-                    fx.preset_index = backend.trackFxGetPresetIndex(track, fx_idx, &preset_count);
-                    fx.preset_count = preset_count;
-
-                    // Get preset name and modified state
-                    var preset_buf: [tracks.MAX_FX_NAME_LEN]u8 = undefined;
-                    const preset_info = backend.trackFxGetPreset(track, fx_idx, &preset_buf);
-                    const preset_len = @min(preset_info.name.len, tracks.MAX_FX_NAME_LEN);
-                    @memcpy(fx.preset_name[0..preset_len], preset_info.name[0..preset_len]);
-                    fx.preset_name_len = preset_len;
-                    fx.modified = !preset_info.matches_preset;
-                }
-
-                // Get send count - skip send API calls if no sends
-                const send_count_raw = backend.trackSendCount(track);
-                const send_count: usize = @intCast(@max(0, @min(send_count_raw, @as(c_int, @intCast(tracks.MAX_SENDS_PER_TRACK)))));
-
-                // Slice into sends buffer for this track
-                const send_buf_end = send_buf_offset + send_count;
-                t.sends = g_last_sends_buf[send_buf_offset..send_buf_end];
-
-                for (0..send_count) |send_i| {
-                    const send_idx: c_int = @intCast(send_i);
-                    var send = &t.sends[send_i];
-
-                    // Get destination name
-                    var name_buf: [tracks.MAX_SEND_NAME_LEN]u8 = undefined;
-                    const dest_name = backend.trackSendGetDestName(track, send_idx, &name_buf);
-                    const name_len = @min(dest_name.len, tracks.MAX_SEND_NAME_LEN);
-                    @memcpy(send.dest_name[0..name_len], dest_name[0..name_len]);
-                    send.dest_name_len = name_len;
-
-                    // Get send volume, mute, mode
-                    send.volume = backend.trackSendGetVolume(track, send_idx);
-                    send.muted = backend.trackSendGetMute(track, send_idx);
-                    send.mode = backend.trackSendGetMode(track, send_idx);
-                }
+        // Broadcast if sends changed
+        if (!sendsSliceEql(medium_state.send_slots, medium_prev.send_slots)) {
+            const temp_sends_state = sends.State{ .sends = medium_state.send_slots };
+            if (temp_sends_state.toJson(&StaticBuffers.sends_buf)) |json| {
+                shared_state.broadcast(json);
             }
         }
     }
@@ -1080,6 +1097,7 @@ fn shutdown() void {
 
     if (g_tiered) |*tiered| {
         logging.info("cleaning up tiered arenas", .{});
+        commands.debug_cmds.g_tiered = null; // Clear global reference before deinit
         tiered.deinit(g_allocator);
         g_tiered = null;
     }

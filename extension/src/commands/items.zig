@@ -17,6 +17,9 @@ pub const handlers = [_]mod.Entry{
     .{ .name = "item/selectInTimeSel", .handler = handleSelectInTimeSel },
     .{ .name = "item/unselectAll", .handler = handleUnselectAll },
     .{ .name = "item/getPeaks", .handler = handleItemGetPeaks },
+    // On-demand data (sparse field fetch)
+    .{ .name = "item/getNotes", .handler = handleItemGetNotes },
+    .{ .name = "item/getTakes", .handler = handleItemGetTakes },
 };
 
 /// Helper to get item by track and item index from command
@@ -492,4 +495,155 @@ test "serializePeaksResponseFromArrays handles null cmd_id" {
     const json = result.?;
     // cmd_id becomes empty string
     try std.testing.expect(std.mem.indexOf(u8, json, "\"id\":\"\"") != null);
+}
+
+// =============================================================================
+// On-Demand Data Commands
+// =============================================================================
+// These commands fetch full detail data that is NOT included in the regular
+// item polling events (which only contain sparse hints like has_notes, take_count).
+// Frontend calls these when user opens item notes or take details.
+
+// Notes buffer size
+const NOTES_BUF_SIZE = 8192;
+// GUID buffer size
+const GUID_BUF_SIZE = 64;
+
+/// Get notes content for a single item.
+/// Input: { trackIdx: number, itemIdx: number }
+/// Response: { notes: string }
+pub fn handleItemGetNotes(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const item_info = getItemFromCmd(api, cmd) orelse {
+        response.err("NOT_FOUND", "Item not found");
+        return;
+    };
+
+    // Get notes content
+    var notes_buf: [NOTES_BUF_SIZE]u8 = undefined;
+    const notes = api.getItemNotes(item_info.item, &notes_buf);
+
+    // Serialize response with escaped notes
+    var buf: [NOTES_BUF_SIZE + 256]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    var w = stream.writer();
+
+    w.writeAll("{\"notes\":\"") catch {
+        response.err("SERIALIZE_ERROR", "Buffer overflow");
+        return;
+    };
+    writeJsonEscaped(w, notes) catch {
+        response.err("SERIALIZE_ERROR", "Buffer overflow");
+        return;
+    };
+    w.writeAll("\"}") catch {
+        response.err("SERIALIZE_ERROR", "Buffer overflow");
+        return;
+    };
+
+    response.success(stream.getWritten());
+    logging.debug("Returned notes for item", .{});
+}
+
+/// Get full take list for a single item.
+/// Input: { trackIdx: number, itemIdx: number }
+/// Response: { takes: [{ takeIdx, guid, name, isActive, isMidi, startOffset, playrate }, ...] }
+pub fn handleItemGetTakes(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const item_info = getItemFromCmd(api, cmd) orelse {
+        response.err("NOT_FOUND", "Item not found");
+        return;
+    };
+
+    const take_count_raw = api.itemTakeCount(item_info.item);
+    const take_count: usize = if (take_count_raw > 0) @intCast(@min(take_count_raw, 64)) else 0;
+
+    // Get active take index for comparison
+    const active_take_idx = api.getItemActiveTakeIdx(item_info.item) catch null;
+
+    // Serialize response
+    var buf: [16384]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    var w = stream.writer();
+
+    w.writeAll("{\"takes\":[") catch {
+        response.err("SERIALIZE_ERROR", "Buffer overflow");
+        return;
+    };
+
+    var i: usize = 0;
+    while (i < take_count) : (i += 1) {
+        const take_idx: c_int = @intCast(i);
+        const take = api.getTakeByIdx(item_info.item, take_idx) orelse continue;
+
+        // Get take properties
+        const name = api.getTakeNameStr(take);
+
+        var guid_buf: [GUID_BUF_SIZE]u8 = undefined;
+        const guid = api.getTakeGUID(take, &guid_buf);
+
+        const is_midi = api.isTakeMIDI(take);
+        const start_offset = api.getTakeStartOffset(take);
+        const playrate = api.getTakePlayrate(take);
+
+        const is_active = if (active_take_idx) |active_idx| (take_idx == active_idx) else false;
+
+        // Write JSON object
+        if (i > 0) w.writeByte(',') catch {
+            response.err("SERIALIZE_ERROR", "Buffer overflow");
+            return;
+        };
+
+        w.print("{{\"takeIdx\":{d},\"guid\":\"", .{take_idx}) catch {
+            response.err("SERIALIZE_ERROR", "Buffer overflow");
+            return;
+        };
+        w.writeAll(guid) catch {
+            response.err("SERIALIZE_ERROR", "Buffer overflow");
+            return;
+        };
+        w.writeAll("\",\"name\":\"") catch {
+            response.err("SERIALIZE_ERROR", "Buffer overflow");
+            return;
+        };
+        writeJsonEscaped(w, name) catch {
+            response.err("SERIALIZE_ERROR", "Buffer overflow");
+            return;
+        };
+        w.print("\",\"isActive\":{s},\"isMidi\":{s},\"startOffset\":{d:.6},\"playrate\":{d:.6}}}", .{
+            if (is_active) "true" else "false",
+            if (is_midi) "true" else "false",
+            start_offset,
+            playrate,
+        }) catch {
+            response.err("SERIALIZE_ERROR", "Buffer overflow");
+            return;
+        };
+    }
+
+    w.writeAll("]}") catch {
+        response.err("SERIALIZE_ERROR", "Buffer overflow");
+        return;
+    };
+
+    response.success(stream.getWritten());
+    logging.debug("Returned {d} takes for item", .{take_count});
+}
+
+/// Helper to write JSON-escaped string
+fn writeJsonEscaped(writer: anytype, str: []const u8) !void {
+    for (str) |c| {
+        switch (c) {
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            else => {
+                if (c < 0x20) {
+                    // Skip control characters
+                } else {
+                    try writer.writeByte(c);
+                }
+            },
+        }
+    }
 }

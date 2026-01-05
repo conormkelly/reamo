@@ -28,6 +28,7 @@ pub const toggle_state_cmds = @import("toggle_state.zig");
 const midi_cmds = @import("midi.zig");
 pub const project_notes_cmds = @import("project_notes.zig");
 const preferences_cmds = @import("preferences.zig");
+pub const debug_cmds = @import("debug.zig");
 
 // Command registry entry (used only for legacy test registry - dispatch uses comptime registry)
 pub const Entry = struct {
@@ -189,7 +190,8 @@ pub const registry = transport_cmds.handlers ++
     toggle_state_cmds.handlers ++
     midi_cmds.handlers ++
     project_notes_cmds.handlers ++
-    preferences_cmds.handlers;
+    preferences_cmds.handlers ++
+    debug_cmds.handlers;
 
 /// Dispatch a command message to the appropriate handler.
 /// Accepts any backend type (RealBackend, MockBackend) via anytype.
@@ -444,4 +446,5 @@ test {
     _ = toggle_state_cmds;
     _ = midi_cmds;
     _ = project_notes_cmds;
+    _ = debug_cmds;
 }

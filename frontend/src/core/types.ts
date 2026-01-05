@@ -65,6 +65,7 @@ export interface Track {
   sendCount: number;
   receiveCount: number;
   hwOutCount: number;
+  fxCount: number; // Number of FX in chain (sparse - full data via track/getFx)
   color: number; // 0x01rrggbb format, 0 if no custom color
 }
 

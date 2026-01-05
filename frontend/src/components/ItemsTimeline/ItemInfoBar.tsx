@@ -1,6 +1,8 @@
 /**
  * ItemInfoBar Component
  * Shows take info, actions, and metadata when an item is selected
+ *
+ * Note: Uses sparse fields from WSItem. Full notes/takes are fetched on-demand.
  */
 
 import { useState, useRef, useEffect, type ReactElement } from 'react';
@@ -19,17 +21,18 @@ interface ItemInfoBarProps {
 }
 
 export function ItemInfoBar({ item, className = '' }: ItemInfoBarProps): ReactElement {
-  const { sendCommand } = useReaper();
-  const activeTake = item.takes[item.activeTakeIdx];
-  const takeCount = item.takes.length;
+  const { sendCommand, connection } = useReaper();
+  // Use sparse fields from WSItem (full data fetched on-demand)
+  const takeCount = item.takeCount;
 
   // State for color picker
   const [showColorPicker, setShowColorPicker] = useState(false);
   const colorPickerRef = useRef<HTMLDivElement>(null);
 
-  // State for notes editing
+  // State for notes editing (fetched on-demand when editing starts)
   const [isEditingNotes, setIsEditingNotes] = useState(false);
-  const [notesValue, setNotesValue] = useState(item.notes);
+  const [notesValue, setNotesValue] = useState('');
+  const [notesLoading, setNotesLoading] = useState(false);
   const notesInputRef = useRef<HTMLInputElement>(null);
 
   // Close color picker when clicking outside
@@ -54,10 +57,33 @@ export function ItemInfoBar({ item, className = '' }: ItemInfoBarProps): ReactEl
     }
   }, [isEditingNotes]);
 
-  // Update notes value when item changes
+  // Reset notes when item changes (will be fetched on-demand)
   useEffect(() => {
-    setNotesValue(item.notes);
-  }, [item.notes]);
+    setNotesValue('');
+    setIsEditingNotes(false);
+  }, [item.guid]);
+
+  // Fetch notes on-demand when editing starts
+  const handleStartEditingNotes = async () => {
+    if (!connection) return;
+    setIsEditingNotes(true);
+    setNotesLoading(true);
+    try {
+      const cmd = itemCmd.getNotes(item.trackIdx, item.itemIdx);
+      const response = await connection.sendAsync(cmd.command, cmd.params) as {
+        success: boolean;
+        payload?: { notes: string };
+      };
+      if (response.success && response.payload) {
+        setNotesValue(response.payload.notes || '');
+      }
+    } catch {
+      // Failed to fetch, allow editing with empty string
+      setNotesValue('');
+    } finally {
+      setNotesLoading(false);
+    }
+  };
 
   // Take navigation
   const handlePrevTake = () => {
@@ -99,7 +125,7 @@ export function ItemInfoBar({ item, className = '' }: ItemInfoBarProps): ReactEl
     if (e.key === 'Enter') {
       handleNotesSubmit();
     } else if (e.key === 'Escape') {
-      setNotesValue(item.notes);
+      // Cancel editing - value will be re-fetched next time
       setIsEditingNotes(false);
     }
   };
@@ -144,40 +170,44 @@ export function ItemInfoBar({ item, className = '' }: ItemInfoBarProps): ReactEl
       {/* Divider */}
       <div className="w-px h-6 bg-gray-600" />
 
-      {/* Take name */}
+      {/* Take info (sparse - name not available without fetch) */}
       <div className="flex-1 min-w-0">
-        <span className="text-sm text-gray-300 truncate block" title={activeTake?.name}>
-          {activeTake?.name || 'Untitled'}
+        <span className="text-sm text-gray-300 truncate block">
+          Active Take
         </span>
       </div>
 
-      {/* MIDI indicator */}
-      {activeTake?.isMIDI && (
+      {/* MIDI indicator (from sparse field) */}
+      {item.activeTakeIsMidi && (
         <span className="text-xs bg-blue-600 text-white px-1.5 py-0.5 rounded">
           MIDI
         </span>
       )}
 
-      {/* Notes */}
+      {/* Notes (fetched on-demand when editing) */}
       <div className="flex items-center gap-1 min-w-[100px]">
         {isEditingNotes ? (
-          <input
-            ref={notesInputRef}
-            type="text"
-            value={notesValue}
-            onChange={(e) => setNotesValue(e.target.value)}
-            onBlur={handleNotesSubmit}
-            onKeyDown={handleNotesKeyDown}
-            className="w-full bg-gray-700 text-white text-sm px-2 py-0.5 rounded border border-gray-600 focus:border-purple-400 focus:outline-none"
-            placeholder="Add notes..."
-          />
+          notesLoading ? (
+            <span className="text-sm text-gray-500">Loading...</span>
+          ) : (
+            <input
+              ref={notesInputRef}
+              type="text"
+              value={notesValue}
+              onChange={(e) => setNotesValue(e.target.value)}
+              onBlur={handleNotesSubmit}
+              onKeyDown={handleNotesKeyDown}
+              className="w-full bg-gray-700 text-white text-sm px-2 py-0.5 rounded border border-gray-600 focus:border-purple-400 focus:outline-none"
+              placeholder="Add notes..."
+            />
+          )
         ) : (
           <button
-            onClick={() => setIsEditingNotes(true)}
+            onClick={handleStartEditingNotes}
             className="text-sm text-gray-400 hover:text-white truncate text-left"
-            title={item.notes || 'Add notes'}
+            title={item.hasNotes ? 'Edit notes' : 'Add notes'}
           >
-            {item.notes || 'Notes...'}
+            {item.hasNotes ? 'Notes...' : 'Add notes...'}
           </button>
         )}
       </div>
