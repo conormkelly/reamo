@@ -867,6 +867,36 @@ Clear the clip indicator for a track's input meter.
 {"type": "command", "command": "meter/clearClip", "trackIdx": 0}
 ```
 
+### `meter/subscribe`
+
+Subscribe to meter updates for specific track indices. Replaces any previous subscription for this client. Meters are only polled for subscribed tracks (saves CPU on large projects).
+
+Subscriptions include a 30-second grace period — when a track leaves the viewport, meters continue for 30 seconds before fully unsubscribing (smoother scroll UX).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIndices` | int[] | Yes | Array of track indices to receive meters for |
+
+```json
+{"type": "command", "command": "meter/subscribe", "trackIndices": [0, 1, 2, 5, 6], "id": "1"}
+```
+
+Response:
+
+```json
+{"type": "response", "id": "1", "success": true, "payload": {"subscribedCount": 5}}
+```
+
+To update visible tracks (e.g., on scroll), send a new subscribe with the updated list. To clear all subscriptions, send an empty array.
+
+### `meter/unsubscribe`
+
+Unsubscribe from all meter updates for this client. Called automatically on disconnect.
+
+```json
+{"type": "command", "command": "meter/unsubscribe", "id": "1"}
+```
+
 ### `track/rename`
 
 Rename a track. Master track (idx 0) cannot be renamed.

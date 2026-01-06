@@ -25,6 +25,7 @@ const undo_cmds = @import("undo.zig");
 const action_cmds = @import("actions.zig");
 const gesture_cmds = @import("gesture.zig");
 pub const toggle_state_cmds = @import("toggle_state.zig");
+pub const metering_cmds = @import("metering.zig");
 const midi_cmds = @import("midi.zig");
 pub const project_notes_cmds = @import("project_notes.zig");
 const preferences_cmds = @import("preferences.zig");
@@ -444,6 +445,7 @@ test {
     _ = action_cmds;
     _ = gesture_cmds;
     _ = toggle_state_cmds;
+    _ = metering_cmds;
     _ = midi_cmds;
     _ = project_notes_cmds;
     _ = debug_cmds;

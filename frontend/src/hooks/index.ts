@@ -11,6 +11,7 @@ export { useTimeFormatters, type UseTimeFormattersReturn } from './useTimeFormat
 export { useTransportAnimation, getTransportAnimationState } from './useTransportAnimation';
 export { usePeaksFetch, type UsePeaksFetchResult } from './usePeaksFetch';
 export { useUIPreferences, type UIPreferences } from './useUIPreferences';
+export { useMeterSubscription, getVisibleTrackIndices, type UseMeterSubscriptionOptions } from './useMeterSubscription';
 export {
   useTransportSync,
   getTransportSyncState,

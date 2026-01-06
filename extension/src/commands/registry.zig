@@ -29,6 +29,7 @@ const send = @import("send.zig");
 const playlist_cmds = @import("playlist.zig");
 const preferences = @import("preferences.zig");
 const debug = @import("debug.zig");
+const metering = @import("metering.zig");
 
 /// Comptime tuple of (command_name, handler_fn) pairs.
 /// Used by dispatch() with inline for to call handlers with anytype.
@@ -203,4 +204,8 @@ pub const all = .{
 
     // Debug
     .{ "debug/memoryStats", debug.handleMemoryStats },
+
+    // Meter Subscriptions
+    .{ "meter/subscribe", metering.handleSubscribe },
+    .{ "meter/unsubscribe", metering.handleUnsubscribe },
 };

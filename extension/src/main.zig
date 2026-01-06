@@ -12,6 +12,7 @@ const commands = @import("commands/mod.zig");
 const ws_server = @import("ws_server.zig");
 const gesture_state = @import("gesture_state.zig");
 const toggle_subscriptions = @import("toggle_subscriptions.zig");
+const meter_subscriptions = @import("meter_subscriptions.zig");
 const project_notes = @import("project_notes.zig");
 const playlist = @import("playlist.zig");
 const errors = @import("errors.zig");
@@ -45,6 +46,7 @@ var g_allocator: std.mem.Allocator = undefined;
 var g_shared_state: ?*ws_server.SharedState = null;
 var g_gesture_state: ?*gesture_state.GestureState = null;
 var g_toggle_subs: ?*toggle_subscriptions.ToggleSubscriptions = null;
+var g_meter_subs: ?*meter_subscriptions.MeterSubscriptions = null;
 var g_notes_subs: ?*project_notes.NotesSubscriptions = null;
 var g_server: ?ws_server.Server = null;
 var g_port: u16 = 0;
@@ -170,6 +172,13 @@ fn doInitialization() !void {
     g_toggle_subs = toggles;
     // Set the global reference in the command handler module
     commands.toggle_state_cmds.g_toggle_subs = toggles;
+
+    // Create meter subscriptions state
+    const meters = try g_allocator.create(meter_subscriptions.MeterSubscriptions);
+    meters.* = meter_subscriptions.MeterSubscriptions.init(g_allocator);
+    g_meter_subs = meters;
+    // Set the global reference in the command handler module
+    commands.metering_cmds.g_meter_subs = meters;
 
     // Create project notes subscriptions state
     const notes_subs = try g_allocator.create(project_notes.NotesSubscriptions);
@@ -414,6 +423,10 @@ fn doProcessing() !void {
             if (g_toggle_subs) |toggles| {
                 toggles.removeClient(client_id);
             }
+            // Clean up meter subscriptions
+            if (g_meter_subs) |meters| {
+                meters.removeClient(client_id);
+            }
             // Clean up notes subscriptions
             if (g_notes_subs) |notes| {
                 notes.removeClient(client_id);
@@ -531,8 +544,23 @@ fn doProcessing() !void {
     // Note: FX/sends are now sparse counts populated during poll().
     // Full FX/sends data is fetched on-demand via track/getFx, track/getSends commands.
 
-    // Poll metering into HIGH tier state
-    high_state.metering.pollInto(api);
+    // Poll metering into HIGH tier state - SUBSCRIPTION ONLY MODE
+    // Only poll meters for tracks that clients have explicitly subscribed to.
+    // This saves CPU on large projects by not polling unused meters.
+    if (g_meter_subs) |meters| {
+        if (meters.hasSubscriptions()) {
+            // Get list of subscribed tracks (includes grace period)
+            var subscribed_buf: [meter_subscriptions.MAX_TRACKS_PER_CLIENT]c_int = undefined;
+            const subscribed = meters.getSubscribedTracks(&subscribed_buf);
+            high_state.metering.pollSubscribedInto(api, subscribed);
+        } else {
+            // No subscriptions - no meters (saves CPU)
+            high_state.metering.count = 0;
+        }
+    } else {
+        // Subscription system not initialized - no meters
+        high_state.metering.count = 0;
+    }
 
     // Broadcast if tracks changed OR if we have active metering
     const tracks_changed = !tracksSliceEql(high_state.tracks, high_prev.tracks);
@@ -965,6 +993,11 @@ fn doProcessing() !void {
                 }
             }
         }
+
+        // Expire meter subscription grace periods (1Hz cleanup)
+        if (g_meter_subs) |meters| {
+            meters.expireGracePeriods();
+        }
     }
 
     // ========================================================================
@@ -1023,6 +1056,15 @@ fn shutdown() void {
         g_toggle_subs = null;
     }
     logging.info("toggle subscriptions cleaned up", .{});
+
+    if (g_meter_subs) |meters| {
+        logging.info("cleaning up meter subscriptions", .{});
+        commands.metering_cmds.g_meter_subs = null;
+        meters.deinit();
+        g_allocator.destroy(meters);
+        g_meter_subs = null;
+    }
+    logging.info("meter subscriptions cleaned up", .{});
 
     if (g_notes_subs) |notes| {
         logging.info("cleaning up notes subscriptions", .{});

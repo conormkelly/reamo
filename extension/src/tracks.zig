@@ -418,6 +418,34 @@ pub const MeteringState = struct {
         }
     }
 
+    /// Poll post-fader output meters for only the specified track indices.
+    /// Used when clients have subscribed to specific tracks (viewport-driven metering).
+    /// NOTE: Uses output pointer to avoid stack allocation in timer callbacks.
+    pub fn pollSubscribedInto(self: *MeteringState, api: anytype, track_indices: []const c_int) void {
+        self.count = 0; // Reset
+
+        for (track_indices) |idx| {
+            if (self.count >= MAX_TRACKS) break;
+
+            const track = api.getTrackByUnifiedIdx(idx) orelse continue;
+
+            const peak_l = api.getTrackPeakInfo(track, 0);
+            const peak_r = api.getTrackPeakInfo(track, 1);
+
+            const hold_l = api.getTrackPeakHoldDB(track, 0, false);
+            const hold_r = api.getTrackPeakHoldDB(track, 1, false);
+            const clipped = hold_l > 0.0 or hold_r > 0.0;
+
+            self.meters[self.count] = .{
+                .track_idx = idx,
+                .peak_l = peak_l,
+                .peak_r = peak_r,
+                .clipped = clipped,
+            };
+            self.count += 1;
+        }
+    }
+
     /// Convenience wrapper that returns MeteringState (for tests).
     /// WARNING: Allocates on stack - do NOT use in timer callbacks!
     pub fn poll(api: anytype) MeteringState {

@@ -356,6 +356,18 @@ export const meter = {
     command: 'meter/clearClip',
     params: { trackIdx },
   }),
+  /** Subscribe to meter updates for specific track indices.
+   * Replaces any previous subscription. Meters only poll subscribed tracks.
+   * Includes 30-second grace period for tracks leaving viewport.
+   */
+  subscribe: (trackIndices: number[]): WSCommand => ({
+    command: 'meter/subscribe',
+    params: { trackIndices },
+  }),
+  /** Unsubscribe from all meter updates. Called automatically on disconnect. */
+  unsubscribe: (): WSCommand => ({
+    command: 'meter/unsubscribe',
+  }),
 };
 
 // =============================================================================

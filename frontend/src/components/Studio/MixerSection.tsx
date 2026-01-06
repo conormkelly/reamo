@@ -8,11 +8,12 @@ import { useState, useMemo, type ReactElement } from 'react';
 import { Lock, Unlock, XCircle } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
-import { useTracks } from '../../hooks';
+import { useTracks, useMeterSubscription } from '../../hooks';
 import { track as trackCmd } from '../../core/WebSocketCommands';
 import { TrackStrip, LevelMeter, TrackFilter } from '../Track';
 
 function TrackList({ filter }: { filter: string }) {
+  const { sendCommand } = useReaper();
   const { userTracks } = useTracks();
 
   const filteredTracks = useMemo(() => {
@@ -22,6 +23,13 @@ function TrackList({ filter }: { filter: string }) {
       track.name.toLowerCase().includes(lowerFilter)
     );
   }, [userTracks, filter]);
+
+  // Subscribe to meters for visible tracks (master + filtered user tracks)
+  const visibleTrackIndices = useMemo(() => {
+    return [0, ...filteredTracks.map((t) => t.index)];
+  }, [filteredTracks]);
+
+  useMeterSubscription(visibleTrackIndices, { sendCommand });
 
   return (
     <div className="flex gap-2 overflow-x-auto pb-4">
