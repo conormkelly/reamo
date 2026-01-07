@@ -4,14 +4,6 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../logging.zig");
 
-// Take command handlers
-pub const handlers = [_]mod.Entry{
-    .{ .name = "take/delete", .handler = handleTakeDelete },
-    .{ .name = "take/cropToActive", .handler = handleTakeCropToActive },
-    .{ .name = "take/next", .handler = handleTakeNext },
-    .{ .name = "take/prev", .handler = handleTakePrev },
-};
-
 pub fn handleTakeDelete(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     // Operates on selected items - uses REAPER's built-in command
     api.undoBeginBlock();

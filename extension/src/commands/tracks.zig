@@ -4,33 +4,6 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const gesture_state = @import("../gesture_state.zig");
 const logging = @import("../logging.zig");
-const GuidCache = @import("../guid_cache.zig").GuidCache;
-
-// Global GUID cache for resolving trackGuid parameters (initialized by main.zig)
-pub var g_guid_cache: ?*GuidCache = null;
-
-// Track command handlers
-pub const handlers = [_]mod.Entry{
-    .{ .name = "track/setVolume", .handler = handleSetVolume },
-    .{ .name = "track/setPan", .handler = handleSetPan },
-    .{ .name = "track/setMute", .handler = handleSetMute },
-    .{ .name = "track/setSolo", .handler = handleSetSolo },
-    .{ .name = "track/setRecArm", .handler = handleSetRecArm },
-    .{ .name = "track/setRecMon", .handler = handleSetRecMon },
-    .{ .name = "track/setFxEnabled", .handler = handleSetFxEnabled },
-    .{ .name = "track/setSelected", .handler = handleSetSelected },
-    .{ .name = "track/unselectAll", .handler = handleDeselectAll },
-    .{ .name = "track/rename", .handler = handleRename },
-    .{ .name = "track/create", .handler = handleCreate },
-    .{ .name = "track/duplicate", .handler = handleDuplicate },
-    .{ .name = "track/duplicateSelected", .handler = handleDuplicateSelected },
-    .{ .name = "track/delete", .handler = handleDelete },
-    .{ .name = "track/deleteSelected", .handler = handleDeleteSelected },
-    .{ .name = "meter/clearClip", .handler = handleClearClip },
-    // On-demand data (sparse field fetch)
-    .{ .name = "track/getFx", .handler = handleGetFx },
-    .{ .name = "track/getSends", .handler = handleGetSends },
-};
 
 // Helper to get track by index from command
 // Uses unified indexing: 0 = master, 1+ = user tracks
@@ -60,7 +33,7 @@ pub fn resolveTrack(api: anytype, cmd: protocol.CommandMessage) ?TrackResolution
 
     // Try trackGuid (requires cache lookup + validation)
     const guid = cmd.getString("trackGuid") orelse return null;
-    const cache = g_guid_cache orelse return null;
+    const cache = mod.g_ctx.guid_cache orelse return null;
 
     const track = cache.resolve(guid) orelse return null;
 

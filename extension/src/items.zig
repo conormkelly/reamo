@@ -1,11 +1,12 @@
 const std = @import("std");
 const reaper = @import("reaper.zig");
+const constants = @import("constants.zig");
 
-// Maximum items/takes we track
-pub const MAX_ITEMS = 512;
-pub const MAX_TAKES_PER_ITEM = 8;
-pub const MAX_NAME_LEN = 128;
-pub const GUID_LEN = 38; // {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}
+// Re-export shared constants for backward compatibility
+pub const MAX_ITEMS = constants.MAX_ITEMS;
+pub const MAX_TAKES_PER_ITEM = constants.MAX_TAKES_PER_ITEM;
+pub const MAX_NAME_LEN = constants.MAX_NAME_LEN;
+pub const GUID_LEN = 38; // {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX} (exact length, no padding)
 
 // Take data
 pub const Take = struct {

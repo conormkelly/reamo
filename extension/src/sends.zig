@@ -2,9 +2,10 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const reaper = @import("reaper.zig");
 const protocol = @import("protocol.zig");
+const constants = @import("constants.zig");
 
-// Maximum send destination name length
-pub const MAX_SEND_NAME_LEN: usize = 128;
+// Re-export shared constant for backward compatibility
+pub const MAX_SEND_NAME_LEN = constants.MAX_SEND_NAME_LEN;
 
 // Maximum sends per project (soft limit for arena sizing)
 pub const MAX_SENDS: usize = 3000;

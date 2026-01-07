@@ -4,24 +4,6 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../logging.zig");
 
-// Item command handlers
-pub const handlers = [_]mod.Entry{
-    .{ .name = "item/setActiveTake", .handler = handleItemSetActiveTake },
-    .{ .name = "item/move", .handler = handleItemMove },
-    .{ .name = "item/setColor", .handler = handleItemColor },
-    .{ .name = "item/setLock", .handler = handleItemLock },
-    .{ .name = "item/setNotes", .handler = handleItemNotes },
-    .{ .name = "item/delete", .handler = handleItemDelete },
-    .{ .name = "item/goto", .handler = handleItemGoto },
-    .{ .name = "item/select", .handler = handleItemSelect },
-    .{ .name = "item/selectInTimeSel", .handler = handleSelectInTimeSel },
-    .{ .name = "item/unselectAll", .handler = handleUnselectAll },
-    .{ .name = "item/getPeaks", .handler = handleItemGetPeaks },
-    // On-demand data (sparse field fetch)
-    .{ .name = "item/getNotes", .handler = handleItemGetNotes },
-    .{ .name = "item/getTakes", .handler = handleItemGetTakes },
-};
-
 /// Helper to get item by track and item index from command
 /// Uses unified indexing: 0 = master, 1+ = user tracks
 fn getItemFromCmd(api: anytype, cmd: protocol.CommandMessage) ?struct { track: *anyopaque, item: *anyopaque } {

@@ -4,11 +4,6 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../logging.zig");
 
-// Time signature command handlers
-pub const handlers = [_]mod.Entry{
-    .{ .name = "timesig/set", .handler = handleSet },
-};
-
 // Set time signature (numerator/denominator)
 pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const numerator = cmd.getInt("numerator") orelse {
@@ -47,9 +42,4 @@ pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     } else {
         response.err("FAILED", "Failed to set time signature");
     }
-}
-
-test "handlers registered" {
-    try std.testing.expectEqual(@as(usize, 1), handlers.len);
-    try std.testing.expectEqualStrings("timesig/set", handlers[0].name);
 }

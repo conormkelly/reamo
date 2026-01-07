@@ -20,8 +20,6 @@ const tiered_state = @import("tiered_state.zig");
 const guid_cache = @import("guid_cache.zig");
 const track_subscriptions = @import("track_subscriptions.zig");
 const track_skeleton = @import("track_skeleton.zig");
-const track_subs_cmd = @import("commands/track_subs.zig");
-const tracks_cmd = @import("commands/tracks.zig");
 
 // Use custom panic handler that flushes log ring buffer before aborting
 pub const panic = logging.panic;
@@ -179,29 +177,25 @@ fn doInitialization() !void {
     const toggles = try g_allocator.create(toggle_subscriptions.ToggleSubscriptions);
     toggles.* = toggle_subscriptions.ToggleSubscriptions.init(g_allocator);
     g_toggle_subs = toggles;
-    // Set the global reference in the command handler module
-    commands.toggle_state_cmds.g_toggle_subs = toggles;
+    commands.g_ctx.toggle_subs = toggles;
 
     // Create project notes subscriptions state
     const notes_subs = try g_allocator.create(project_notes.NotesSubscriptions);
     notes_subs.* = project_notes.NotesSubscriptions.init(g_allocator);
     g_notes_subs = notes_subs;
-    // Set the global reference in the command handler module
-    commands.project_notes_cmds.g_notes_subs = notes_subs;
+    commands.g_ctx.notes_subs = notes_subs;
 
     // Create GUID cache for track subscriptions
     const cache = try g_allocator.create(guid_cache.GuidCache);
     cache.* = guid_cache.GuidCache.init(g_allocator);
     g_guid_cache = cache;
-    // Wire to command handler
-    tracks_cmd.g_guid_cache = cache;
+    commands.g_ctx.guid_cache = cache;
 
     // Create track subscriptions state
     const track_subs = try g_allocator.create(track_subscriptions.TrackSubscriptions);
     track_subs.* = track_subscriptions.TrackSubscriptions.init(g_allocator);
     g_track_subs = track_subs;
-    // Wire to command handler
-    track_subs_cmd.g_track_subs = track_subs;
+    commands.g_ctx.track_subs = track_subs;
 
     // Count project entities and calculate arena sizes dynamically
     // This allows memory allocation to scale with project size
@@ -224,7 +218,7 @@ fn doInitialization() !void {
     logging.info("Tiered arenas initialized: {d}MB total", .{arena_sizes.totalAllocated() >> 20});
 
     // Set global reference for debug command
-    commands.debug_cmds.g_tiered = &(g_tiered.?);
+    commands.g_ctx.tiered = &(g_tiered.?);
 
     // Sync initial HTML mtime to shared state
     state.setHtmlMtime(g_html_mtime);
@@ -1151,7 +1145,7 @@ fn shutdown() void {
 
     if (g_toggle_subs) |toggles| {
         logging.info("cleaning up toggle subscriptions", .{});
-        commands.toggle_state_cmds.g_toggle_subs = null;
+        commands.g_ctx.toggle_subs = null;
         toggles.deinit();
         g_allocator.destroy(toggles);
         g_toggle_subs = null;
@@ -1160,7 +1154,7 @@ fn shutdown() void {
 
     if (g_notes_subs) |notes| {
         logging.info("cleaning up notes subscriptions", .{});
-        commands.project_notes_cmds.g_notes_subs = null;
+        commands.g_ctx.notes_subs = null;
         notes.deinit();
         g_allocator.destroy(notes);
         g_notes_subs = null;
@@ -1169,7 +1163,7 @@ fn shutdown() void {
 
     if (g_track_subs) |subs| {
         logging.info("cleaning up track subscriptions", .{});
-        track_subs_cmd.g_track_subs = null;
+        commands.g_ctx.track_subs = null;
         subs.deinit();
         g_allocator.destroy(subs);
         g_track_subs = null;
@@ -1178,7 +1172,7 @@ fn shutdown() void {
 
     if (g_guid_cache) |cache| {
         logging.info("cleaning up GUID cache", .{});
-        tracks_cmd.g_guid_cache = null;
+        commands.g_ctx.guid_cache = null;
         cache.deinit();
         g_allocator.destroy(cache);
         g_guid_cache = null;
@@ -1195,7 +1189,7 @@ fn shutdown() void {
 
     if (g_tiered) |*tiered| {
         logging.info("cleaning up tiered arenas", .{});
-        commands.debug_cmds.g_tiered = null; // Clear global reference before deinit
+        commands.g_ctx.tiered = null; // Clear global reference before deinit
         tiered.deinit(g_allocator);
         g_tiered = null;
     }

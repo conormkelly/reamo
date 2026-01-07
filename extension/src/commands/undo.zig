@@ -4,15 +4,6 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../logging.zig");
 
-// Undo command handlers
-pub const handlers = [_]mod.Entry{
-    .{ .name = "undo/add", .handler = handleAdd },
-    .{ .name = "undo/begin", .handler = handleBegin },
-    .{ .name = "undo/end", .handler = handleEnd },
-    .{ .name = "undo/do", .handler = handleUndo },
-    .{ .name = "redo/do", .handler = handleRedo },
-};
-
 // Add a simple undo point with description
 pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const description = cmd.getString("description") orelse {

@@ -2,30 +2,15 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const reaper = @import("reaper.zig");
 const protocol = @import("protocol.zig");
+const constants = @import("constants.zig");
 
-// Maximum tracks to poll/meter (keeps buffer sizes bounded)
-// This is a SOFT LIMIT enforced per-poll. With arena allocation, track polling
-// can exceed this via custom limits. Metering uses a fixed array for 30Hz performance.
-pub const MAX_TRACKS: usize = 128;
-
-// Maximum FX per track (INFORMATIONAL ONLY - not enforced in code)
-// Documents typical REAPER limits. Actual FX count is fetched dynamically
-// via track/getFx command which handles arbitrary counts with pagination.
-pub const MAX_FX_PER_TRACK: usize = 64;
-
-// Maximum sends per track (INFORMATIONAL ONLY - not enforced in code)
-// Documents typical REAPER limits. Actual send count is fetched dynamically
-// via track/getSends command which handles arbitrary counts with pagination.
-pub const MAX_SENDS_PER_TRACK: usize = 16;
-
-// Maximum track name length
-pub const MAX_NAME_LEN: usize = 128;
-
-// Maximum FX/preset name length
-pub const MAX_FX_NAME_LEN: usize = 128;
-
-// Maximum send destination name length
-pub const MAX_SEND_NAME_LEN: usize = 128;
+// Re-export shared constants for backward compatibility
+pub const MAX_TRACKS = constants.MAX_TRACKS;
+pub const MAX_FX_PER_TRACK = constants.MAX_FX_PER_TRACK;
+pub const MAX_SENDS_PER_TRACK = constants.MAX_SENDS_PER_TRACK;
+pub const MAX_NAME_LEN = constants.MAX_NAME_LEN;
+pub const MAX_FX_NAME_LEN = constants.MAX_FX_NAME_LEN;
+pub const MAX_SEND_NAME_LEN = constants.MAX_SEND_NAME_LEN;
 
 /// Single FX slot state (preset info for one FX instance)
 pub const FxSlot = struct {
@@ -317,59 +302,6 @@ pub const State = struct {
         }
 
         return .{ .tracks = tracks[0..out_idx] };
-    }
-
-    // =========================================================================
-    // Legacy API for backwards compatibility (deprecated - will be removed)
-    // =========================================================================
-
-    /// Poll current state from REAPER into an existing State struct.
-    /// DEPRECATED: Use poll(allocator, api) with arena allocation instead.
-    /// NOTE: Uses output pointer to avoid 2.5MB stack allocation.
-    pub fn pollInto(self: *State, static_buffer: []Track, api: anytype) void {
-        const user_track_count: usize = @intCast(@max(0, api.trackCount()));
-        const total_count = @min(user_track_count + 1, @min(static_buffer.len, MAX_TRACKS));
-
-        for (static_buffer[0..total_count], 0..) |*t, i| {
-            const idx: c_int = @intCast(i);
-            if (api.getTrackByUnifiedIdx(idx)) |track| {
-                t.* = Track{};
-                t.idx = idx;
-
-                var name_buf: [MAX_NAME_LEN]u8 = undefined;
-                const name = api.getTrackNameStr(track, &name_buf);
-                const name_copy_len = @min(name.len, MAX_NAME_LEN);
-                @memcpy(t.name[0..name_copy_len], name[0..name_copy_len]);
-                t.name_len = name_copy_len;
-
-                t.color = api.getTrackColor(track) catch null;
-                t.volume = api.getTrackVolume(track);
-                t.pan = api.getTrackPan(track);
-                if (idx == 0) {
-                    t.mute = api.isMasterMuted();
-                    t.solo = if (api.isMasterSoloed()) 1 else 0;
-                } else {
-                    t.mute = api.getTrackMute(track);
-                    t.solo = api.getTrackSolo(track) catch null;
-                }
-                t.rec_arm = api.getTrackRecArm(track);
-                t.rec_mon = api.getTrackRecMon(track) catch null;
-                t.fx_enabled = api.getTrackFxEnabled(track);
-                t.selected = api.getTrackSelected(track);
-                t.folder_depth = api.getTrackFolderDepth(track);
-                // Sparse counts - full data fetched on-demand via track/getFx, track/getSends
-                const fx_c = api.trackFxCount(track);
-                t.fx_count = if (fx_c >= 0) @intCast(fx_c) else 0;
-                const send_c = api.trackSendCount(track);
-                t.send_count = if (send_c >= 0) @intCast(send_c) else 0;
-                const recv_c = api.trackReceiveCount(track);
-                t.receive_count = if (recv_c >= 0) @intCast(recv_c) else 0;
-            } else {
-                t.* = Track{};
-            }
-        }
-
-        self.tracks = static_buffer[0..total_count];
     }
 
     // Build JSON event for tracks state

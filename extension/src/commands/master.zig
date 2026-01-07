@@ -4,11 +4,6 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../logging.zig");
 
-// Master track command handlers
-pub const handlers = [_]mod.Entry{
-    .{ .name = "master/toggleMono", .handler = handleToggleMono },
-};
-
 // REAPER action: Master track: Toggle stereo/mono (L+R)
 const MASTER_MONO_ACTION: c_int = 40917;
 

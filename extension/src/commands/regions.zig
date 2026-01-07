@@ -4,15 +4,6 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../logging.zig");
 
-// Region command handlers
-pub const handlers = [_]mod.Entry{
-    .{ .name = "region/add", .handler = handleRegionAdd },
-    .{ .name = "region/update", .handler = handleRegionUpdate },
-    .{ .name = "region/delete", .handler = handleRegionDelete },
-    .{ .name = "region/goto", .handler = handleRegionGoto },
-    .{ .name = "region/batch", .handler = handleRegionBatch },
-};
-
 pub fn handleRegionAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const start = cmd.getFloat("start") orelse {
         response.err("MISSING_START", "Region start is required");

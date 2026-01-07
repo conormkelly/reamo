@@ -4,19 +4,10 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const toggle_subscriptions = @import("../toggle_subscriptions.zig");
 
-// Toggle state command handlers
-pub const handlers = [_]mod.Entry{
-    .{ .name = "actionToggleState/subscribe", .handler = handleSubscribe },
-    .{ .name = "actionToggleState/unsubscribe", .handler = handleUnsubscribe },
-};
-
-// Global toggle subscriptions state (initialized by main.zig)
-pub var g_toggle_subs: ?*toggle_subscriptions.ToggleSubscriptions = null;
-
 /// Subscribe to toggle states for a list of commandIds.
 /// Returns current state for all subscribed commandIds.
 pub fn handleSubscribe(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const subs = g_toggle_subs orelse {
+    const subs = mod.g_ctx.toggle_subs orelse {
         response.err("NOT_INITIALIZED", "Toggle subscriptions not initialized");
         return;
     };
@@ -63,7 +54,7 @@ pub fn handleSubscribe(api: anytype, cmd: protocol.CommandMessage, response: *mo
 
 /// Unsubscribe from toggle states for a list of commandIds.
 pub fn handleUnsubscribe(_: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const subs = g_toggle_subs orelse {
+    const subs = mod.g_ctx.toggle_subs orelse {
         response.err("NOT_INITIALIZED", "Toggle subscriptions not initialized");
         return;
     };

@@ -4,14 +4,6 @@ const mod = @import("mod.zig");
 const logging = @import("../logging.zig");
 const tiered_state = @import("../tiered_state.zig");
 
-// Handler registry for this module
-pub const handlers = [_]mod.Entry{
-    .{ .name = "debug/memoryStats", .handler = handleMemoryStats },
-};
-
-// Global reference to tiered arenas, set from main.zig
-pub var g_tiered: ?*tiered_state.TieredArenas = null;
-
 /// Get memory usage statistics for all arenas.
 /// Input: {} (no parameters)
 /// Response: {
@@ -26,7 +18,7 @@ pub fn handleMemoryStats(api: anytype, cmd: protocol.CommandMessage, response: *
     _ = api;
     _ = cmd;
 
-    const tiered = g_tiered orelse {
+    const tiered = mod.g_ctx.tiered orelse {
         response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
         return;
     };
@@ -160,11 +152,11 @@ test "memory stats JSON serialization" {
     try testing.expect(std.mem.indexOf(u8, json, "\"total\":") != null);
 }
 
-test "g_tiered is null by default" {
+test "g_ctx.tiered is null by default" {
     // Verify the global starts as null (safety check)
-    const saved = g_tiered;
-    defer g_tiered = saved;
+    const saved = mod.g_ctx.tiered;
+    defer mod.g_ctx.tiered = saved;
 
-    g_tiered = null;
-    try testing.expect(g_tiered == null);
+    mod.g_ctx.tiered = null;
+    try testing.expect(mod.g_ctx.tiered == null);
 }

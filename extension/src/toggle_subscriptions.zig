@@ -2,12 +2,13 @@ const std = @import("std");
 const reaper = @import("reaper.zig");
 const ws_server = @import("ws_server.zig");
 const logging = @import("logging.zig");
+const constants = @import("constants.zig");
 
 const Allocator = std.mem.Allocator;
 
-// Limits
-pub const MAX_COMMAND_IDS_PER_CLIENT: usize = 256;
-pub const MAX_CLIENTS: usize = 16;
+// Re-export shared constants for backward compatibility
+pub const MAX_COMMAND_IDS_PER_CLIENT = constants.MAX_COMMAND_IDS_PER_CLIENT;
+pub const MAX_CLIENTS = constants.MAX_SUBSCRIPTION_CLIENTS;
 
 /// Manages toggle state subscriptions across multiple clients.
 /// Uses reference counting so we only poll commandIds that someone cares about.

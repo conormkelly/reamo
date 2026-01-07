@@ -4,14 +4,6 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../logging.zig");
 
-// ExtState command handlers
-pub const handlers = [_]mod.Entry{
-    .{ .name = "extstate/get", .handler = handleGet },
-    .{ .name = "extstate/set", .handler = handleSet },
-    .{ .name = "extstate/projGet", .handler = handleProjGet },
-    .{ .name = "extstate/projSet", .handler = handleProjSet },
-};
-
 /// Build JSON response for ExtState value with proper escaping.
 /// Returns the JSON payload slice, or null if buffer too small.
 /// Format: {"value":"escaped_value"} or {"value":null}

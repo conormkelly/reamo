@@ -12,9 +12,11 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const protocol = @import("protocol.zig");
+const constants = @import("constants.zig");
 
-pub const MAX_NAME_LEN: usize = 128;
-pub const MAX_GUID_LEN: usize = 40; // {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX} = 38 + padding
+// Re-export shared constants for backward compatibility
+pub const MAX_NAME_LEN = constants.MAX_NAME_LEN;
+pub const MAX_GUID_LEN = constants.MAX_GUID_LEN;
 
 /// Single track skeleton entry (name + GUID only).
 pub const SkeletonTrack = struct {

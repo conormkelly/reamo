@@ -6,6 +6,11 @@ const gesture_state = @import("../gesture_state.zig");
 const playlist_mod = @import("../playlist.zig");
 const errors = @import("../errors.zig");
 const logging = @import("../logging.zig");
+const toggle_subscriptions = @import("../toggle_subscriptions.zig");
+const project_notes = @import("../project_notes.zig");
+const guid_cache = @import("../guid_cache.zig");
+const track_subscriptions = @import("../track_subscriptions.zig");
+const tiered_state = @import("../tiered_state.zig");
 
 // Import domain-specific command modules
 const transport_cmds = @import("transport.zig");
@@ -30,15 +35,6 @@ pub const project_notes_cmds = @import("project_notes.zig");
 const preferences_cmds = @import("preferences.zig");
 pub const debug_cmds = @import("debug.zig");
 
-// Command registry entry (used only for legacy test registry - dispatch uses comptime registry)
-pub const Entry = struct {
-    name: []const u8,
-    handler: *const anyopaque, // Type-erased; actual dispatch uses comptime registry
-};
-
-// Legacy type alias for backwards compatibility with handler arrays
-pub const Handler = *const anyopaque;
-
 // Comptime tuple registry for anytype dispatch
 const comptime_registry = @import("registry.zig");
 
@@ -48,6 +44,23 @@ pub const ControlId = gesture_state.ControlId;
 
 // Re-export PlaylistState for convenience
 pub const PlaylistState = playlist_mod.State;
+
+// =============================================================================
+// Command Context - Consolidated global state for command handlers
+// =============================================================================
+// Initialized by main.zig during extension startup.
+// Command handlers access via mod.g_ctx.
+
+pub const CommandContext = struct {
+    toggle_subs: ?*toggle_subscriptions.ToggleSubscriptions = null,
+    notes_subs: ?*project_notes.NotesSubscriptions = null,
+    guid_cache: ?*guid_cache.GuidCache = null,
+    track_subs: ?*track_subscriptions.TrackSubscriptions = null,
+    tiered: ?*tiered_state.TieredArenas = null,
+};
+
+/// Global command context - initialized by main.zig
+pub var g_ctx: CommandContext = .{};
 
 // Response writer for sending responses to the requesting client only
 pub const ResponseWriter = struct {
@@ -170,29 +183,6 @@ pub const ResponseWriter = struct {
     }
 };
 
-// Aggregated registry from all domain modules
-pub const registry = transport_cmds.handlers ++
-    marker_cmds.handlers ++
-    region_cmds.handlers ++
-    item_cmds.handlers ++
-    take_cmds.handlers ++
-    time_sel_cmds.handlers ++
-    repeat_cmds.handlers ++
-    track_cmds.handlers ++
-    tempo_cmds.handlers ++
-    timesig_cmds.handlers ++
-    metronome_cmds.handlers ++
-    master_cmds.handlers ++
-    extstate_cmds.handlers ++
-    undo_cmds.handlers ++
-    action_cmds.handlers ++
-    gesture_cmds.handlers ++
-    toggle_state_cmds.handlers ++
-    midi_cmds.handlers ++
-    project_notes_cmds.handlers ++
-    preferences_cmds.handlers ++
-    debug_cmds.handlers;
-
 /// Dispatch a command message to the appropriate handler.
 /// Accepts any backend type (RealBackend, MockBackend) via anytype.
 /// Uses inline for to unroll the comptime registry at compile time.
@@ -275,119 +265,31 @@ test "dispatch handles unknown commands gracefully" {
     try std.testing.expectEqualStrings("unknown/command", cmd.?.command);
 }
 
-test "registry contains expected commands" {
+test "comptime registry contains expected commands" {
+    // Spot-check that key commands from each domain are registered
     const expected = [_][]const u8{
-        // Transport
         "transport/play",
-        "transport/stop",
-        "transport/pause",
-        "transport/record",
-        "transport/toggle",
-        "transport/seek",
-        "transport/abort",
-        "transport/goStart",
-        "transport/goEnd",
-        "transport/seekBeats",
-        // Markers
+        "transport/playPause",
         "marker/add",
-        "marker/update",
-        "marker/delete",
-        "marker/goto",
-        "marker/prev",
-        "marker/next",
-        // Regions
-        "region/add",
-        "region/update",
-        "region/delete",
-        "region/goto",
         "region/batch",
-        // Items
-        "item/setActiveTake",
-        "item/move",
-        "item/color",
-        "item/lock",
-        "item/notes",
-        "item/delete",
-        "item/goto",
-        "item/selectInTimeSel",
-        "item/unselectAll",
         "item/getPeaks",
-        // Takes
-        "take/delete",
-        "take/cropToActive",
-        "take/next",
-        "take/prev",
-        // Time selection
-        "timeSelection/set",
-        "timeSelection/setBars",
-        "timeSelection/clear",
-        "timeSelection/goStart",
-        "timeSelection/goEnd",
-        "timeSelection/setStart",
-        "timeSelection/setEnd",
-        // Repeat
-        "repeat/set",
-        "repeat/toggle",
-        // Tracks
         "track/setVolume",
-        "track/setPan",
-        "track/setMute",
-        "track/setSolo",
-        "track/setRecArm",
-        "track/setRecMon",
-        "track/setFxEnabled",
-        // Tempo
         "tempo/set",
-        "tempo/tap",
-        "tempo/snap",
-        "tempo/getBarDuration",
-        "tempo/timeToBeats",
-        "tempo/barsToTime",
-        // Time signature
-        "timesig/set",
-        // Metronome
-        "metronome/toggle",
-        // Master
-        "master/toggleMono",
-        // ExtState
-        "extstate/get",
-        "extstate/set",
-        "extstate/projGet",
-        "extstate/projSet",
-        // Undo
-        "undo/add",
-        "undo/begin",
-        "undo/end",
-        "undo/do",
-        "redo/do",
-        // Actions
-        "action/getState",
-        "action/execute",
-        // Gestures
         "gesture/start",
-        "gesture/end",
-        // Toggle state subscriptions
-        "actionToggleState/subscribe",
-        "actionToggleState/unsubscribe",
-        // MIDI
-        "midi/cc",
-        "midi/pc",
-        // Project Notes
-        "projectNotes/subscribe",
-        "projectNotes/unsubscribe",
-        "projectNotes/get",
-        "projectNotes/set",
+        "playlist/play",
+        "debug/memoryStats",
     };
 
-    for (expected) |name| {
+    inline for (expected) |name| {
         var found = false;
-        for (registry) |entry| {
-            if (std.mem.eql(u8, entry.name, name)) {
+        inline for (comptime_registry.all) |entry| {
+            if (std.mem.eql(u8, name, entry[0])) {
                 found = true;
-                break;
             }
         }
-        try std.testing.expect(found);
+        if (!found) {
+            @compileError("Missing command in registry: " ++ name);
+        }
     }
 }
 

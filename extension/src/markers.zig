@@ -1,10 +1,11 @@
 const std = @import("std");
 const reaper = @import("reaper.zig");
 const protocol = @import("protocol.zig");
+const constants = @import("constants.zig");
 
-// Maximum markers/regions we track (matches frontend reasonable limits)
-pub const MAX_MARKERS = 256;
-pub const MAX_REGIONS = 256;
+// Re-export shared constants for backward compatibility
+pub const MAX_MARKERS = constants.MAX_MARKERS;
+pub const MAX_REGIONS = constants.MAX_REGIONS;
 
 // Marker data - matches frontend types.ts Marker interface
 pub const Marker = struct {

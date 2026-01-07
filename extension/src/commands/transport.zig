@@ -4,20 +4,6 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../logging.zig");
 
-// Transport command handlers
-pub const handlers = [_]mod.Entry{
-    .{ .name = "transport/play", .handler = handlePlay },
-    .{ .name = "transport/stop", .handler = handleStop },
-    .{ .name = "transport/pause", .handler = handlePause },
-    .{ .name = "transport/record", .handler = handleRecord },
-    .{ .name = "transport/playPause", .handler = handlePlayPause },
-    .{ .name = "transport/seek", .handler = handleSeek },
-    .{ .name = "transport/stopAndDelete", .handler = handleStopAndDelete },
-    .{ .name = "transport/goStart", .handler = handleGoStart },
-    .{ .name = "transport/goEnd", .handler = handleGoEnd },
-    .{ .name = "transport/seekBeats", .handler = handleSeekBeats },
-};
-
 pub fn handlePlay(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.PLAY);
 }

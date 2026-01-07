@@ -4,16 +4,6 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../logging.zig");
 
-// Tempo command handlers
-pub const handlers = [_]mod.Entry{
-    .{ .name = "tempo/set", .handler = handleSet },
-    .{ .name = "tempo/tap", .handler = handleTap },
-    .{ .name = "tempo/snap", .handler = handleSnap },
-    .{ .name = "tempo/getBarDuration", .handler = handleGetBarDuration },
-    .{ .name = "tempo/timeToBeats", .handler = handleTimeToBeats },
-    .{ .name = "tempo/barsToTime", .handler = handleBarsToTime },
-};
-
 // Set tempo (BPM)
 pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const bpm = cmd.getFloat("bpm") orelse {

@@ -3,12 +3,6 @@ const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 
-// MIDI command handlers
-pub const handlers = [_]mod.Entry{
-    .{ .name = "midi/cc", .handler = handleCC },
-    .{ .name = "midi/pc", .handler = handlePC },
-};
-
 /// Send MIDI Control Change (dual-sends to VKB + Control paths)
 /// Params: cc (0-127), value (0-127), channel (0-15, default 0)
 pub fn handleCC(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {

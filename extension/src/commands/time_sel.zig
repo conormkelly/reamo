@@ -4,17 +4,6 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../logging.zig");
 
-// Time selection command handlers
-pub const handlers = [_]mod.Entry{
-    .{ .name = "timeSelection/set", .handler = handleSet },
-    .{ .name = "timeSelection/setByBars", .handler = handleSetBars },
-    .{ .name = "timeSelection/clear", .handler = handleClear },
-    .{ .name = "timeSelection/goStart", .handler = handleGoStart },
-    .{ .name = "timeSelection/goEnd", .handler = handleGoEnd },
-    .{ .name = "timeSelection/setStartAtCursor", .handler = handleSetStart },
-    .{ .name = "timeSelection/setEndAtCursor", .handler = handleSetEnd },
-};
-
 /// Set time selection by seconds
 pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const start = mod.validatePosition(cmd.getFloat("start")) orelse {

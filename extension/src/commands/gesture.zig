@@ -5,13 +5,6 @@ const mod = @import("mod.zig");
 const gesture_state = @import("../gesture_state.zig");
 const logging = @import("../logging.zig");
 
-/// Gesture command handlers for undo coalescing
-/// These manage the lifecycle of continuous control gestures (fader drags, etc.)
-pub const handlers = [_]mod.Entry{
-    .{ .name = "gesture/start", .handler = handleStart },
-    .{ .name = "gesture/end", .handler = handleEnd },
-};
-
 /// Parse control type from command params
 fn parseControlId(cmd: protocol.CommandMessage) ?gesture_state.ControlId {
     const control_type_str = cmd.getString("controlType") orelse return null;

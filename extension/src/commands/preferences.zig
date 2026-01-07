@@ -3,12 +3,6 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../logging.zig");
 
-// Preferences command handlers
-pub const handlers = [_]mod.Entry{
-    .{ .name = "preferences/getSeekSettings", .handler = handleGetSeekSettings },
-    .{ .name = "preferences/setSeekSettings", .handler = handleSetSeekSettings },
-};
-
 /// Get all seek-related settings
 /// Returns: {"enabled": true/false, "measures": N, "mode": "measures"|"marker"}
 pub fn handleGetSeekSettings(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {

@@ -4,13 +4,6 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../logging.zig");
 
-// Action command handlers
-pub const handlers = [_]mod.Entry{
-    .{ .name = "action/getToggleState", .handler = handleGetToggleState },
-    .{ .name = "action/execute", .handler = handleExecuteCommand },
-    .{ .name = "action/executeByName", .handler = handleExecuteByName },
-};
-
 // Get toggle state of an action (1=on, 0=off, -1=not a toggle action)
 pub fn handleGetToggleState(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const command_id = cmd.getInt("commandId") orelse {

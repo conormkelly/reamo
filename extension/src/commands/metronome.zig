@@ -4,13 +4,6 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../logging.zig");
 
-// Metronome command handlers
-pub const handlers = [_]mod.Entry{
-    .{ .name = "metronome/toggle", .handler = handleToggle },
-    .{ .name = "metronome/getVolume", .handler = handleGetVolume },
-    .{ .name = "metronome/setVolume", .handler = handleSetVolume },
-};
-
 // Toggle metronome (uses REAPER's built-in command)
 pub fn handleToggle(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.METRONOME_TOGGLE);

@@ -158,7 +158,7 @@ pub fn jsonGetStringUnescaped(data: []const u8, key: []const u8, out_buf: []u8) 
                     i += 2;
                 },
                 'u' => {
-                    // \uXXXX - for now just skip (output space for non-ASCII)
+                    // \uXXXX - decode to UTF-8
                     if (i + 5 < data.len) {
                         // Parse hex digits
                         const hex = data[i + 2 .. i + 6];
@@ -168,13 +168,24 @@ pub fn jsonGetStringUnescaped(data: []const u8, key: []const u8, out_buf: []u8) 
                             i += 6;
                             continue;
                         };
-                        if (codepoint < 128) {
+                        // Encode as UTF-8
+                        if (codepoint < 0x80) {
+                            // 1-byte UTF-8 (ASCII)
                             out_buf[out_idx] = @intCast(codepoint);
                             out_idx += 1;
+                        } else if (codepoint < 0x800) {
+                            // 2-byte UTF-8
+                            if (out_idx + 2 > out_buf.len) break;
+                            out_buf[out_idx] = @intCast(0xC0 | (codepoint >> 6));
+                            out_buf[out_idx + 1] = @intCast(0x80 | (codepoint & 0x3F));
+                            out_idx += 2;
                         } else {
-                            // Non-ASCII, output replacement char
-                            out_buf[out_idx] = '?';
-                            out_idx += 1;
+                            // 3-byte UTF-8 (covers all of BMP: U+0800 to U+FFFF)
+                            if (out_idx + 3 > out_buf.len) break;
+                            out_buf[out_idx] = @intCast(0xE0 | (codepoint >> 12));
+                            out_buf[out_idx + 1] = @intCast(0x80 | ((codepoint >> 6) & 0x3F));
+                            out_buf[out_idx + 2] = @intCast(0x80 | (codepoint & 0x3F));
+                            out_idx += 3;
                         }
                         i += 6;
                     } else {
@@ -677,6 +688,41 @@ test "jsonGetStringUnescaped handles plain text" {
     const result = jsonGetStringUnescaped(data, "simple", &buf);
     try std.testing.expect(result != null);
     try std.testing.expectEqualStrings("hello world", result.?);
+}
+
+test "jsonGetStringUnescaped handles unicode escapes" {
+    // Test ASCII range (1-byte UTF-8)
+    {
+        const data = "{\"text\":\"A\\u0041B\"}"; // \u0041 = 'A'
+        var buf: [256]u8 = undefined;
+        const result = jsonGetStringUnescaped(data, "text", &buf);
+        try std.testing.expect(result != null);
+        try std.testing.expectEqualStrings("AAB", result.?);
+    }
+    // Test 2-byte UTF-8 (U+0080 to U+07FF)
+    {
+        const data = "{\"text\":\"\\u00E9\"}"; // \u00E9 = 'é' (e with acute)
+        var buf: [256]u8 = undefined;
+        const result = jsonGetStringUnescaped(data, "text", &buf);
+        try std.testing.expect(result != null);
+        try std.testing.expectEqualStrings("é", result.?);
+    }
+    // Test 3-byte UTF-8 (U+0800 to U+FFFF)
+    {
+        const data = "{\"text\":\"\\u4E2D\"}"; // \u4E2D = '中' (Chinese character)
+        var buf: [256]u8 = undefined;
+        const result = jsonGetStringUnescaped(data, "text", &buf);
+        try std.testing.expect(result != null);
+        try std.testing.expectEqualStrings("中", result.?);
+    }
+    // Test mixed content
+    {
+        const data = "{\"text\":\"Hello \\u4E16\\u754C\"}"; // "Hello 世界" (Hello World in Chinese)
+        var buf: [256]u8 = undefined;
+        const result = jsonGetStringUnescaped(data, "text", &buf);
+        try std.testing.expect(result != null);
+        try std.testing.expectEqualStrings("Hello 世界", result.?);
+    }
 }
 
 test "jsonGetString handles escaped quotes in string" {

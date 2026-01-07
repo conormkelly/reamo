@@ -14,13 +14,14 @@
 const std = @import("std");
 const logging = @import("logging.zig");
 const GuidCache = @import("guid_cache.zig").GuidCache;
+const constants = @import("constants.zig");
 
 const Allocator = std.mem.Allocator;
 
-// Limits
-pub const MAX_TRACKS_PER_CLIENT: usize = 64;
-pub const MAX_GUIDS_PER_CLIENT: usize = 64;
-pub const MAX_CLIENTS: usize = 16;
+// Re-export shared constants for backward compatibility
+pub const MAX_TRACKS_PER_CLIENT = constants.MAX_TRACKS_PER_CLIENT;
+pub const MAX_GUIDS_PER_CLIENT = constants.MAX_GUIDS_PER_CLIENT;
+pub const MAX_CLIENTS = constants.MAX_SUBSCRIPTION_CLIENTS;
 
 // Grace period: 500ms (tracks are expensive, but shorter than meter's 30s)
 pub const GRACE_PERIOD_NS: i128 = 500 * std.time.ns_per_ms;

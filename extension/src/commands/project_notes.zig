@@ -4,21 +4,10 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const project_notes = @import("../project_notes.zig");
 
-// Project notes command handlers
-pub const handlers = [_]mod.Entry{
-    .{ .name = "projectNotes/subscribe", .handler = handleSubscribe },
-    .{ .name = "projectNotes/unsubscribe", .handler = handleUnsubscribe },
-    .{ .name = "projectNotes/get", .handler = handleGet },
-    .{ .name = "projectNotes/set", .handler = handleSet },
-};
-
-// Global notes subscriptions state (initialized by main.zig)
-pub var g_notes_subs: ?*project_notes.NotesSubscriptions = null;
-
 /// Subscribe to project notes updates.
 /// Returns current notes and hash.
 pub fn handleSubscribe(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const subs = g_notes_subs orelse {
+    const subs = mod.g_ctx.notes_subs orelse {
         response.err("NOT_INITIALIZED", "Notes subscriptions not initialized");
         return;
     };
@@ -40,7 +29,7 @@ pub fn handleSubscribe(api: anytype, _: protocol.CommandMessage, response: *mod.
 
 /// Unsubscribe from project notes updates.
 pub fn handleUnsubscribe(_: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const subs = g_notes_subs orelse {
+    const subs = mod.g_ctx.notes_subs orelse {
         response.err("NOT_INITIALIZED", "Notes subscriptions not initialized");
         return;
     };
@@ -91,7 +80,7 @@ pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
         const new_hash = project_notes.computeHash(saved_notes);
 
         // Update subscription cache if available
-        if (g_notes_subs) |subs| {
+        if (mod.g_ctx.notes_subs) |subs| {
             _ = subs.getCurrentNotes(api);
         }
 

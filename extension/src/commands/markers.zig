@@ -4,16 +4,6 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../logging.zig");
 
-// Marker command handlers
-pub const handlers = [_]mod.Entry{
-    .{ .name = "marker/add", .handler = handleMarkerAdd },
-    .{ .name = "marker/update", .handler = handleMarkerUpdate },
-    .{ .name = "marker/delete", .handler = handleMarkerDelete },
-    .{ .name = "marker/goto", .handler = handleMarkerGoto },
-    .{ .name = "marker/prev", .handler = handleMarkerPrev },
-    .{ .name = "marker/next", .handler = handleMarkerNext },
-};
-
 pub fn handleMarkerAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const pos = mod.validatePosition(cmd.getFloat("position")) orelse {
         response.err("INVALID_POSITION", "Position must be a non-negative number");

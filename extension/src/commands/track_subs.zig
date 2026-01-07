@@ -8,9 +8,6 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const track_subscriptions = @import("../track_subscriptions.zig");
 
-// Global track subscriptions state (initialized by main.zig)
-pub var g_track_subs: ?*track_subscriptions.TrackSubscriptions = null;
-
 /// Subscribe to track updates. Supports two mutually exclusive modes:
 ///
 /// Range mode - subscribe to unified indices [start, end]:
@@ -25,7 +22,7 @@ pub var g_track_subs: ?*track_subscriptions.TrackSubscriptions = null;
 /// Response:
 /// { "type": "response", "id": "1", "success": true, "payload": {"subscribedCount": 32} }
 pub fn handleSubscribe(_: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const subs = g_track_subs orelse {
+    const subs = mod.g_ctx.track_subs orelse {
         response.err("NOT_INITIALIZED", "Track subscriptions not initialized");
         return;
     };
@@ -103,7 +100,7 @@ pub fn handleSubscribe(_: anytype, cmd: protocol.CommandMessage, response: *mod.
 /// Response:
 /// { "type": "response", "id": "1", "success": true }
 pub fn handleUnsubscribe(_: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const subs = g_track_subs orelse {
+    const subs = mod.g_ctx.track_subs orelse {
         response.err("NOT_INITIALIZED", "Track subscriptions not initialized");
         return;
     };

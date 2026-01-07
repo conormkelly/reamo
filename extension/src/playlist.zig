@@ -1,6 +1,7 @@
 const std = @import("std");
 const protocol = @import("protocol.zig");
 const markers = @import("markers.zig");
+const constants = @import("constants.zig");
 
 // Maximum playlists per project
 pub const MAX_PLAYLISTS: usize = 16;
@@ -8,8 +9,8 @@ pub const MAX_PLAYLISTS: usize = 16;
 // Maximum entries per playlist
 pub const MAX_ENTRIES_PER_PLAYLIST: usize = 64;
 
-// Maximum playlist name length
-pub const MAX_NAME_LEN: usize = 128;
+// Re-export shared constant for backward compatibility
+pub const MAX_NAME_LEN = constants.MAX_NAME_LEN;
 
 // Boundary detection epsilon (50ms early to account for polling jitter)
 pub const BOUNDARY_EPSILON: f64 = 0.05;

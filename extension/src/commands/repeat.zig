@@ -4,12 +4,6 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../logging.zig");
 
-// Repeat command handlers
-pub const handlers = [_]mod.Entry{
-    .{ .name = "repeat/set", .handler = handleSet },
-    .{ .name = "repeat/toggle", .handler = handleToggle },
-};
-
 /// Set repeat state explicitly
 pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const enabled = cmd.getInt("enabled") orelse {
