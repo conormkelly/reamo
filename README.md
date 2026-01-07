@@ -57,37 +57,131 @@ If the automatic installer doesn't work:
 
 ---
 
+## Views
+
+Reamo provides multiple views accessible via the tab bar at the bottom. Double-tap to toggle full-screen mode (hide tab bar and transport).
+
+| View | Description |
+|------|-------------|
+| **Studio** | All-in-one default view: transport, timeline, mixer in one screen |
+| **Mixer** | (Coming soon) Dedicated full-screen mixer |
+| **Clock** | Large transport display with big play/pause/stop/record buttons |
+| **Cues** | Playlist manager for building setlists from regions |
+| **Actions** | User-configurable button grid for REAPER actions and MIDI |
+| **Notes** | Project notes editor with external change detection |
+
+---
+
 ## Features
 
-- **Transport Control** - Play, pause, stop, record with visual feedback
-- **Recording Workflow** - Scrap (delete take), Retake (delete and restart), or Keep (stop recording) - quick actions visible during recording
-- **Track Management** - Volume faders, pan knobs, mute/solo/arm, real-time level metering
-- **Timeline Visualization** - Interactive timeline with regions, markers, playhead, and time selection
-- **Region Editing** - Drag, resize, and reorder regions directly on the timeline with ripple editing and full undo/redo support
-- **Marker Management** - Navigate between markers, add/move/delete markers, inline name and color editing with auto-advance during playback
-- **Time Selection** - Set precise start/end points using bar.beat notation or time, with quick clear option
-- **Tempo Control** - Display BPM, tap tempo, set exact tempo
-- **Auto-Punch Mode** - Time selection recording with visual indicators
-- **Take Switching** - A/B compare takes without leaving your instrument
-- **Cue Lists** - Build playlists from regions for live performance or rehearsal. Set loop counts per region (including infinite loops), drag to reorder, and control playback with play/pause/stop/skip. Visual progress bar shows position within current region, with "advance after loop" to exit infinite loops gracefully
-- **Toolbar** - User-configurable buttons for REAPER actions, SWS/scripts, and MIDI CC/PC with customizable icons and colors
-- **Touch-Optimized** - Gesture support for mobile/tablet control surfaces, responsive layout for iPhone and iPad
-- **Network Stats** - Real-time sync diagnostics with manual offset adjustment for fine-tuning visual sync
+### Transport Control
+- Play, pause, stop, record with visual feedback
+- Seek to position via timeline tap or time display input
+- Go to start/end of project or time selection
 
-### Network Stats (Advanced)
+### Recording Workflow
+- **Scrap** - Delete the current take and continue (removes bad takes instantly)
+- **Retake** - Delete the current take and restart recording from the same position
+- **Keep** - Stop recording and keep the take
+- Quick actions bar visible during recording (toggleable in settings)
 
-Long-press the connection status dot (top-right) to access real-time sync diagnostics:
+### Track Mixer
+- Volume faders with dB readout
+- Pan knobs
+- Mute, solo, record arm, input monitoring buttons
+- Real-time level metering (30Hz updates)
+- Clip indicators (tap to clear)
+- Master track mono/stereo toggle
+- Mixer lock to prevent accidental changes
 
-| Stat | What it means | Healthy range |
-|------|--------------|---------------|
-| **RTT** | Round-trip time to REAPER | < 50ms (local: < 1ms) |
-| **Jitter** | Network variability | < 30ms |
-| **Buffer** | Adaptive delay to absorb spikes | 35-50ms |
-| **Offset** | Clock difference from server | Should stabilize after sync |
+### Timeline
+- Interactive timeline showing regions, markers, and playhead
+- Time selection display with bar.beat notation
+- Tap regions/markers to navigate
+- Visual item density blobs showing where recordings exist
 
-**Manual Offset** (±50ms): Fine-tune if beat indicators feel early or late compared to audio. Positive values delay the visual display; negative values advance it. This setting persists across sessions.
+### Region Editing
+- Drag regions to reposition
+- Resize regions by dragging edges
+- Ripple editing (subsequent regions shift automatically)
+- Add, rename, delete, and color regions
+- Full undo/redo support
 
-**Resync**: Force immediate clock synchronization if sync quality degrades.
+### Marker Management
+- Navigate between markers
+- Add markers at cursor position
+- Inline name and color editing
+- Auto-advance to next marker during playback (optional)
+
+### Time Selection
+- Set precise start/end points
+- Bar.beat notation input
+- Quick clear option
+- Visual highlight on timeline
+
+### Tempo and Time Signature
+- Display and set BPM (2-960 range)
+- Tap tempo with visual feedback
+- Time signature control (numerator: 1-32, denominator: 2/4/8/16)
+
+### Auto-Punch Recording
+- Set time selection for punch-in/punch-out boundaries
+- Visual indicators for punch region
+
+### Take Management
+- Switch between takes on selected items
+- A/B compare takes without touching the computer
+- Delete active take, crop to active take
+
+### Cue Lists (Playlists)
+- Build playlists from project regions
+- Set loop count per entry (1x, 2x, infinite)
+- Drag to reorder entries
+- Play/pause/stop/skip controls
+- Visual progress bar within current region
+- "Advance after loop" to exit infinite loops gracefully
+- Auto-advance through playlist during playback
+- Playlists persist with the project file
+
+### Custom Toolbar
+- User-configurable buttons for any REAPER action
+- Support for native actions, SWS actions, and custom scripts
+- MIDI CC and Program Change output for hardware control
+- Customizable icons (from lucide-react library) and colors
+- Toggle actions show current state
+- Multiple sections for organization
+
+### Project Notes
+- View and edit REAPER project notes
+- External change detection (warns if notes edited in REAPER)
+- Character limit with counter (5000 chars)
+
+### Touch-Optimized
+- Gesture support for mobile/tablet control surfaces
+- Long-press for context actions
+- Responsive layout for iPhone and iPad
+- Collapsible sections to maximize screen space
+
+### Network Sync
+- NTP-style clock synchronization for accurate beat display
+- Achieves ±15ms visual accuracy over WiFi
+- Real-time sync diagnostics (long-press connection indicator)
+- Manual offset adjustment for perceived sync issues
+
+---
+
+## Limitations
+
+Current limitations to be aware of:
+
+- **No waveform editing** - View waveforms but no split/glue/crossfade
+- **No MIDI editing** - Audio items only, MIDI items shown as blocks
+- **No comping lanes** - Basic take switching only
+- **No FX parameter control** - FX presets work but individual parameters are not exposed
+- **No send level UI** - Backend supports sends, frontend UI pending
+- **Single user** - Designed for single-user home studio, not multi-user
+
+---
 
 ## Why Reamo?
 
@@ -102,7 +196,8 @@ The typical home recording workflow kills creativity. You sit at the piano, get 
 3. **Tap in the tempo** - No need to touch the computer, dial in or tap the BPM from your playing position
 4. **Capture ideas in boxes** - Each region is a container for an idea. Record a rough verse, move to the chorus, try a bridge. Use auto-punch to nail specific sections
 5. **Compare takes on the fly** - Not sure if that last take was better? Long-press the track, switch between takes to A/B compare without touching the computer
-6. **End with a scaffold** - Instead of 16 over-produced bars, you have rough ideas across the whole song structure recorded to a click
+6. **Build a cue list** - Arrange regions into a playlist to hear your song structure without duplicating audio
+7. **End with a scaffold** - Instead of 16 over-produced bars, you have rough ideas across the whole song structure recorded to a click
 
 The goal is **idea capture, not production**. Get the song down while you're in creative mode. The engineering can wait.
 
