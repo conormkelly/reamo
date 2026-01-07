@@ -41,6 +41,7 @@ reaper_www_root/
 ├── extension/           # Zig REAPER extension (WebSocket server)
 │   └── src/
 │       ├── main.zig           # Entry point, timer loop, state broadcasting
+│       ├── constants.zig      # Shared MAX_* constants (MAX_TRACKS, MAX_ITEMS, etc.)
 │       ├── reaper.zig         # Re-exports: RealBackend, MockBackend, raw types
 │       ├── reaper/            # REAPER API abstraction layer
 │       │   ├── raw.zig        # C function pointers (~80 raw functions)
@@ -197,7 +198,8 @@ item.selected = api.getItemSelected(item_ptr) catch null;  // ?bool
 | `reaper/real.zig` | `RealBackend` — thin wrapper around `raw.Api`, used in production |
 | `reaper/mock/mod.zig` | `MockBackend` — field-based state for tests, no REAPER needed |
 | `commands/registry.zig` | Comptime tuple of all ~70 command handlers |
-| `commands/mod.zig` | `dispatch()` using `inline for` over registry |
+| `commands/mod.zig` | `dispatch()` using `inline for`, `CommandContext` for handler globals |
+| `constants.zig` | Shared `MAX_*` constants used across modules |
 
 **Why `anytype`?**
 
@@ -236,6 +238,36 @@ pub fn handlePlay(api: anytype, cmd: CommandMessage, response: *ResponseWriter) 
     response.success(null);
 }
 ```
+
+**CommandContext for handler globals:**
+
+Some handlers need access to shared state beyond the REAPER API (subscriptions, caches, arena allocators). These are consolidated into a single `CommandContext` struct in `commands/mod.zig`:
+
+```zig
+pub const CommandContext = struct {
+    toggle_subs: ?*ToggleSubscriptions = null,
+    notes_subs: ?*NotesSubscriptions = null,
+    guid_cache: ?*GuidCache = null,
+    track_subs: ?*TrackSubscriptions = null,
+    tiered: ?*TieredArenas = null,
+};
+
+pub var g_ctx: CommandContext = .{};
+```
+
+Handlers access these via `mod.g_ctx`:
+
+```zig
+pub fn handleSubscribe(_: anytype, cmd: CommandMessage, response: *ResponseWriter) void {
+    const subs = mod.g_ctx.track_subs orelse {
+        response.err("NOT_INITIALIZED", "Track subscriptions not initialized");
+        return;
+    };
+    // ... use subs
+}
+```
+
+`main.zig` sets these fields during initialization and clears them on cleanup.
 
 **Testing with MockBackend:**
 
