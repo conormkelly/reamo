@@ -3,6 +3,7 @@ const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../logging.zig");
+const ffi = @import("../ffi.zig");
 
 // Set tempo (BPM)
 pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
@@ -105,7 +106,11 @@ pub fn handleTimeToBeats(api: anytype, cmd: protocol.CommandMessage, response: *
 
     // Format bar string (same logic as markers.zig)
     const display_bar = beats_info.measures + bar_offset;
-    const scaled: u32 = @intFromFloat(@round((beats_info.beats_in_measure + 1.0) * 100.0));
+    // roundFloatToInt validates NaN/Inf from corrupt project data
+    const scaled: u32 = ffi.roundFloatToInt(u32, (beats_info.beats_in_measure + 1.0) * 100.0) catch {
+        response.err("INVALID_BEAT", "Invalid beat position value");
+        return;
+    };
     const beat_int: u32 = @max(1, scaled / 100);
     const ticks: u32 = scaled % 100;
 

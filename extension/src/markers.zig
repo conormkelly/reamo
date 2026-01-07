@@ -1,4 +1,5 @@
 const std = @import("std");
+const ffi = @import("ffi.zig");
 const reaper = @import("reaper.zig");
 const protocol = @import("protocol.zig");
 const constants = @import("constants.zig");
@@ -230,7 +231,8 @@ pub const State = struct {
         const display_bar = bar + bar_offset;
         // Convert 0-indexed to 1-indexed and extract ticks
         // Use integer arithmetic to avoid floating-point precision issues
-        const scaled: u32 = @intFromFloat(@round((beat_in_bar + 1.0) * 100.0));
+        // roundFloatToInt validates NaN/Inf from corrupt project data
+        const scaled: u32 = ffi.roundFloatToInt(u32, (beat_in_bar + 1.0) * 100.0) catch return error.InvalidBeatValue;
         const beat_int: u32 = @max(1, scaled / 100);
         const ticks: u32 = scaled % 100;
         try w.print("{d}.{d}.{d:0>2}", .{ display_bar, beat_int, ticks });
@@ -249,8 +251,9 @@ pub const State = struct {
     ) !void {
         // Convert beat_in_bar (0-indexed with fraction) to scaled integers (ticks = fraction * 100)
         // start_beat_in_bar=0.0 means beat 1.00, start_beat_in_bar=1.5 means beat 2.50
-        const start_scaled: i32 = @intFromFloat(@round(start_beat_in_bar * 100.0));
-        const end_scaled: i32 = @intFromFloat(@round(end_beat_in_bar * 100.0));
+        // roundFloatToInt validates NaN/Inf from corrupt project data
+        const start_scaled: i32 = ffi.roundFloatToInt(i32, start_beat_in_bar * 100.0) catch return error.InvalidBeatValue;
+        const end_scaled: i32 = ffi.roundFloatToInt(i32, end_beat_in_bar * 100.0) catch return error.InvalidBeatValue;
 
         var bar_diff: i32 = end_bar - start_bar;
         var beat_diff: i32 = end_scaled - start_scaled;

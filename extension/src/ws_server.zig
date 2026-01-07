@@ -83,6 +83,12 @@ pub const SharedState = struct {
     command_mutex: Thread.Mutex = .{},
     commands: CommandRingBuffer = .{},
 
+    // Rate-limited error tracking for WebSocket write failures
+    // Logs first failure, then every LOG_INTERVAL failures to avoid spam
+    // Uses atomics since we hold only shared lock during broadcast
+    write_error_count: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
+    last_error_log_time: std.atomic.Value(i64) = std.atomic.Value(i64).init(0),
+
     // Connected clients for broadcasting - store Conn pointers directly
     // The websocket library manages Conn lifetime, and Conn.writeText is thread-safe
     // RwLock allows concurrent reads during broadcast while serializing writes
@@ -167,6 +173,22 @@ pub const SharedState = struct {
     // Uses atomic load - no mutex needed for simple value
     pub fn getHtmlMtime(self: *SharedState) i128 {
         return self.html_mtime.load(.acquire);
+    }
+
+    // Log WebSocket write errors with rate limiting (max once per 5 seconds)
+    // Called from broadcast/sendToClient when writeText fails
+    fn logWriteError(self: *SharedState, err: anyerror) void {
+        const count = self.write_error_count.fetchAdd(1, .monotonic) + 1;
+        const now = std.time.milliTimestamp();
+        const last = self.last_error_log_time.load(.monotonic);
+
+        // Log on first error, or if 5+ seconds have passed since last log
+        const should_log = (count == 1) or (now - last >= 5000);
+        if (should_log) {
+            // Try to update last log time (may race with another thread, that's OK)
+            _ = self.last_error_log_time.cmpxchgStrong(last, now, .monotonic, .monotonic);
+            logging.warn("WebSocket write error (count={d}): {}", .{ count, err });
+        }
     }
 
     pub fn deinit(self: *SharedState) void {
@@ -287,7 +309,7 @@ pub const SharedState = struct {
 
         // writeText is thread-safe within the websocket library
         for (self.clients.values()) |conn| {
-            conn.writeText(message) catch {};
+            conn.writeText(message) catch |err| self.logWriteError(err);
         }
     }
 
@@ -299,7 +321,7 @@ pub const SharedState = struct {
         defer self.client_rwlock.unlockShared();
 
         if (self.clients.get(client_id)) |conn| {
-            conn.writeText(message) catch {};
+            conn.writeText(message) catch |err| self.logWriteError(err);
         }
     }
 
@@ -497,6 +519,10 @@ pub const Server = struct {
         const server = try websocket.Server(Client).init(allocator, .{
             .port = port,
             .address = "0.0.0.0",
+            // Explicit limit on incoming message size (64KB) to prevent memory exhaustion.
+            // This is the library default, but we set it explicitly for auditability.
+            // Outgoing messages are bounded by our arena system, not the library.
+            .max_message_size = 64 * 1024,
         });
 
         return .{

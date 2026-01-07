@@ -1,4 +1,5 @@
 const std = @import("std");
+const ffi = @import("../ffi.zig");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
@@ -193,8 +194,9 @@ pub fn handleItemGetPeaks(api: anytype, cmd: protocol.CommandMessage, response: 
 
     // 6. Get item properties
     const length = api.getItemLength(item_info.item);
-    if (length <= 0) {
-        response.err("EMPTY_ITEM", "Item has zero length");
+    // Validate length is finite and positive (NaN comparisons are always false)
+    if (!ffi.isFinite(length) or length <= 0) {
+        response.err("EMPTY_ITEM", "Item has zero or invalid length");
         return;
     }
 
@@ -205,8 +207,11 @@ pub fn handleItemGetPeaks(api: anytype, cmd: protocol.CommandMessage, response: 
     };
     defer api.destroyTakeAccessor(accessor);
 
-    // 8. Calculate samples needed
-    const total_samples: usize = @intFromFloat(length * @as(f64, PEAK_SAMPLE_RATE));
+    // 8. Calculate samples needed (safeFloatToInt validates the conversion)
+    const total_samples: usize = ffi.safeFloatToInt(usize, length * @as(f64, PEAK_SAMPLE_RATE)) catch {
+        response.err("INVALID_LENGTH", "Item length too large or invalid");
+        return;
+    };
     const samples_per_peak = @max(total_samples / num_peaks, 1);
 
     logging.debug("getPeaks - length={d:.2}s, total_samples={d}, samples_per_peak={d}", .{
