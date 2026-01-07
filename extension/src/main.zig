@@ -876,6 +876,12 @@ fn doProcessing() !void {
                 logging.info("Arena resize complete: {d}MB total", .{new_sizes.totalAllocated() >> 20});
             }
 
+            // Flush any pending playlist changes to old project before loading new
+            if (g_playlist_state.dirty) {
+                g_playlist_state.saveAll(&backend);
+                g_playlist_state.dirty = false;
+            }
+
             // Reload playlists from new project's ProjExtState
             g_playlist_state.reset();
             g_playlist_state.loadAll(&backend);
@@ -963,6 +969,10 @@ fn doProcessing() !void {
             } else |_| {}
             g_last_playlist = g_playlist_state;
         }
+
+        // Deferred playlist persistence - flush dirty state to ProjExtState
+        // Debounces writes: immediate when not playing, 1s delay when playing
+        _ = g_playlist_state.flushIfNeeded(&backend, backend.timePrecise());
 
         // Poll FX into MEDIUM arena (flat array with track_idx parent references)
         const fx_state = fx.State.poll(medium_alloc, &backend) catch |err| {

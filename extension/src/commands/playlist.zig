@@ -25,9 +25,8 @@ pub fn handleCreate(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         return;
     };
 
-    // Persist to ProjExtState
-    state.savePlaylist(api, idx);
-    state.savePlaylistCount(api);
+    // Mark dirty for deferred persistence
+    state.markDirty(api.timePrecise());
 
     // Return the new playlist index
     var resp_buf: [64]u8 = undefined;
@@ -61,8 +60,8 @@ pub fn handleDelete(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         return;
     }
 
-    // Re-save all playlists (indices shifted)
-    state.saveAll(api);
+    // Mark dirty for deferred persistence
+    state.markDirty(api.timePrecise());
 
     response.success(null);
     logging.debug("Deleted playlist at index {d}", .{idx_usize});
@@ -97,7 +96,7 @@ pub fn handleRename(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
     };
 
     p.setName(name);
-    state.savePlaylist(api, idx_usize);
+    state.markDirty(api.timePrecise());
 
     response.success(null);
     logging.debug("Renamed playlist {d} to '{s}'", .{ idx_usize, name });
@@ -144,6 +143,15 @@ pub fn handleAddEntry(api: anytype, cmd: protocol.CommandMessage, response: *mod
             response.err("INSERT_FAILED", "Failed to insert entry");
             return;
         }
+
+        // Gap 3 fix: Adjust engine.entry_idx when inserting before current position
+        if (state.engine.isActive() and
+            state.engine.playlist_idx == playlist_idx_usize and
+            at_usize <= state.engine.entry_idx)
+        {
+            state.engine.entry_idx += 1;
+        }
+
         break :blk at_usize;
     } else blk: {
         const new_idx = p.entry_count;
@@ -151,10 +159,11 @@ pub fn handleAddEntry(api: anytype, cmd: protocol.CommandMessage, response: *mod
             response.err("LIMIT_REACHED", "Maximum entries reached");
             return;
         }
+        // Appending at end - no index adjustment needed
         break :blk new_idx;
     };
 
-    state.savePlaylist(api, playlist_idx_usize);
+    state.markDirty(api.timePrecise());
 
     var resp_buf: [64]u8 = undefined;
     const json = std.fmt.bufPrint(&resp_buf, "{{\"entryIdx\":{d}}}", .{entry_idx}) catch {
@@ -201,7 +210,39 @@ pub fn handleRemoveEntry(api: anytype, cmd: protocol.CommandMessage, response: *
         return;
     }
 
-    state.savePlaylist(api, playlist_idx_usize);
+    // Gap 2 fix: Adjust engine.entry_idx when removing entries from active playlist
+    if (state.engine.isActive() and state.engine.playlist_idx == playlist_idx_usize) {
+        if (entry_idx_usize < state.engine.entry_idx) {
+            // Removed before current position - shift index back
+            state.engine.entry_idx -= 1;
+        } else if (entry_idx_usize == state.engine.entry_idx) {
+            // Removed current entry - skip to next entry (which shifted into this index)
+            // Note: p.removeEntry already shifted entries, so entry_idx now points to "next"
+            if (state.engine.entry_idx < p.entry_count) {
+                // There's a next entry - immediately set up its region
+                const next_entry = &p.entries[state.engine.entry_idx];
+                state.engine.loops_remaining = next_entry.loop_count;
+                state.engine.current_loop_iteration = 1;
+                state.engine.next_loop_pending = false;
+                state.engine.advance_after_loop = false;
+                // Set up native looping on next region
+                if (findRegionBounds(api, next_entry.region_id)) |bounds| {
+                    api.setCursorPos(bounds.start);
+                    api.setLoopPoints(bounds.start, bounds.end);
+                }
+                logging.debug("Deleted current entry, skipped to next (now at idx {d})", .{state.engine.entry_idx});
+            } else {
+                // No more entries - stop playback
+                _ = state.engine.stop();
+                api.setRepeat(false);
+                api.clearLoopPoints();
+                logging.debug("Deleted current entry (last), stopped playlist", .{});
+            }
+        }
+        // If removed after current position, no adjustment needed (will be skipped naturally)
+    }
+
+    state.markDirty(api.timePrecise());
     response.success(null);
     logging.debug("Removed entry {d} from playlist {d}", .{ entry_idx_usize, playlist_idx_usize });
 }
@@ -248,7 +289,34 @@ pub fn handleSetLoopCount(api: anytype, cmd: protocol.CommandMessage, response: 
     }
 
     p.entries[entry_idx_usize].loop_count = loop_count;
-    state.savePlaylist(api, playlist_idx_usize);
+
+    // Gap 1 fix: If we're modifying the currently playing entry, sync loops_remaining
+    // This ensures live loop count changes take effect immediately
+    if (state.engine.isPlaying() and
+        state.engine.playlist_idx == playlist_idx_usize and
+        state.engine.entry_idx == entry_idx_usize)
+    {
+        if (loop_count == -1) {
+            // Switch to infinite looping
+            state.engine.loops_remaining = -1;
+        } else if (loop_count == 0) {
+            // Skip: finish current iteration then advance (set to 1, not 0)
+            // Setting to 0 would cause infinite loop since tick only advances on ==1
+            state.engine.loops_remaining = 1;
+        } else {
+            // Calculate remaining: new_count - completed_iterations
+            // current_loop_iteration is 1-indexed (which loop we're ON)
+            // completed = current_loop_iteration - 1
+            const completed = state.engine.current_loop_iteration - 1;
+            const remaining = loop_count - @as(i32, @intCast(completed));
+            // Always ensure at least 1 remaining so current iteration finishes
+            // This handles edge case: on loop 2 of 2, user changes to 1 loop
+            // We let current loop play out, then advance (graceful degradation)
+            state.engine.loops_remaining = if (remaining > 0) remaining else 1;
+        }
+    }
+
+    state.markDirty(api.timePrecise());
 
     response.success(null);
     logging.debug("Set loop count for playlist {d} entry {d} to {d}", .{ playlist_idx_usize, entry_idx_usize, loop_count });
@@ -282,7 +350,7 @@ pub fn handleSetStopAfterLast(api: anytype, cmd: protocol.CommandMessage, respon
     };
 
     p.stop_after_last = stop_after_last != 0;
-    state.savePlaylist(api, playlist_idx_usize);
+    state.markDirty(api.timePrecise());
 
     response.success(null);
     logging.debug("Set stopAfterLast for playlist {d} to {}", .{ playlist_idx_usize, p.stop_after_last });
@@ -328,12 +396,34 @@ pub fn handleReorderEntry(api: anytype, cmd: protocol.CommandMessage, response: 
         return;
     };
 
+    // Gap 3 fix: Track current entry position before reorder
+    const current_entry_idx = state.engine.entry_idx;
+    const is_active_playlist = state.engine.isActive() and state.engine.playlist_idx == playlist_idx_usize;
+
     if (!p.reorderEntry(from_idx_usize, to_idx_usize)) {
         response.err("REORDER_FAILED", "Failed to reorder entry");
         return;
     }
 
-    state.savePlaylist(api, playlist_idx_usize);
+    // Gap 3 fix: Adjust engine.entry_idx based on how reorder affected current position
+    if (is_active_playlist) {
+        if (current_entry_idx == from_idx_usize) {
+            // We moved the current entry - follow it to its new position
+            state.engine.entry_idx = to_idx_usize;
+        } else if (from_idx_usize < to_idx_usize) {
+            // Moving entry forward: entries in (from, to] shift back by 1
+            if (current_entry_idx > from_idx_usize and current_entry_idx <= to_idx_usize) {
+                state.engine.entry_idx -= 1;
+            }
+        } else {
+            // Moving entry backward: entries in [to, from) shift forward by 1
+            if (current_entry_idx >= to_idx_usize and current_entry_idx < from_idx_usize) {
+                state.engine.entry_idx += 1;
+            }
+        }
+    }
+
+    state.markDirty(api.timePrecise());
     response.success(null);
     logging.debug("Reordered playlist {d} entry from {d} to {d}", .{ playlist_idx_usize, from_idx_usize, to_idx_usize });
 }

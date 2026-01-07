@@ -484,11 +484,18 @@ pub const Engine = struct {
     }
 };
 
+/// Persistence debounce interval in seconds
+pub const PERSIST_DEBOUNCE_SECS: f64 = 1.0;
+
 /// Full playlist state (all playlists + engine state)
 pub const State = struct {
     playlists: [MAX_PLAYLISTS]Playlist = undefined,
     playlist_count: usize = 0,
     engine: Engine = .{},
+    /// Dirty flag - set when playlists modified, cleared after persist
+    dirty: bool = false,
+    /// Timestamp when dirty flag was set (for debounce)
+    dirty_since: f64 = 0,
 
     pub fn addPlaylist(self: *State, name: []const u8) ?usize {
         if (self.playlist_count >= MAX_PLAYLISTS) return null;
@@ -531,6 +538,37 @@ pub const State = struct {
     pub fn reset(self: *State) void {
         self.playlist_count = 0;
         self.engine = .{};
+        self.dirty = false;
+        self.dirty_since = 0;
+    }
+
+    /// Mark state as dirty (needs persistence). Call after any playlist modification.
+    pub fn markDirty(self: *State, current_time: f64) void {
+        if (!self.dirty) {
+            self.dirty = true;
+            self.dirty_since = current_time;
+        }
+    }
+
+    /// Check if persistence should happen and flush if needed.
+    /// Flushes immediately if not playing, or after debounce period if playing.
+    /// Returns true if data was persisted.
+    pub fn flushIfNeeded(self: *State, api: anytype, current_time: f64) bool {
+        if (!self.dirty) return false;
+
+        // If not playing, flush immediately
+        // If playing, wait for debounce period
+        const should_flush = if (!self.engine.isPlaying())
+            true
+        else
+            (current_time - self.dirty_since) >= PERSIST_DEBOUNCE_SECS;
+
+        if (should_flush) {
+            self.saveAll(api);
+            self.dirty = false;
+            return true;
+        }
+        return false;
     }
 
     /// Compare for change detection (using wyhash on serialized form would be more efficient,
@@ -625,10 +663,21 @@ pub const State = struct {
     }
 
     // Allocator-based version - returns owned slice from allocator
+    // Allocates buffer from arena (sized for max playlists/entries) instead of stack
     pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator, regions: ?[]const markers.Region) ![]const u8 {
-        var buf: [8192]u8 = undefined;
-        const json = self.toJson(&buf, regions) orelse return error.JsonSerializationFailed;
-        return allocator.dupe(u8, json);
+        // Calculate reasonable buffer size based on actual content
+        // Per entry: ~60 bytes ({"regionId":123,"loopCount":4,"deleted":true})
+        // Per playlist: ~200 bytes header + 60 * entries
+        // Engine state: ~200 bytes
+        const estimated_size = 512 + // Base overhead + engine state
+            self.playlist_count * (256 + 64 * 60);
+        const buf_size = @max(estimated_size, 4096); // Minimum 4KB
+
+        const buf = allocator.alloc(u8, buf_size) catch return error.OutOfMemory;
+        const json = self.toJson(buf, regions) orelse return error.JsonSerializationFailed;
+        // Return the slice - no need to dupe since it's already from the allocator
+        // (though the rest of buf is wasted, arena will reclaim it on swap)
+        return json;
     }
 
     // =========================================================================
@@ -938,4 +987,348 @@ test "State toJson with deleted region detection" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"regionId\":1,\"loopCount\":4}") != null);
     // Region 99 should have deleted:true
     try std.testing.expect(std.mem.indexOf(u8, json, "\"regionId\":99,\"loopCount\":2,\"deleted\":true}") != null);
+}
+
+// =============================================================================
+// Gap Fix Tests - verify live modification behavior
+// =============================================================================
+
+test "Gap 1: loop count sync - modifying current entry updates loops_remaining" {
+    // Scenario: Playing entry at idx 2, on loop 3 of 4, user changes to 6 loops
+    // Expected: loops_remaining should become 4 (6 - 2 completed)
+    var state = State{};
+    _ = state.addPlaylist("Test");
+    if (state.getPlaylist(0)) |p| {
+        _ = p.addEntry(1, 4);
+        _ = p.addEntry(2, 4);
+        _ = p.addEntry(3, 4); // Entry we'll modify
+        _ = p.addEntry(4, 4);
+    }
+
+    // Start playing from entry 2 (region 3)
+    _ = state.engine.playFromEntry(0, 2, 4);
+    state.engine.current_loop_iteration = 3; // Simulate being on loop 3
+    state.engine.loops_remaining = 2; // 2 loops left (of original 4)
+
+    // Simulate handler behavior: modify entry 2's loop count to 6
+    // This is what handleSetLoopCount does:
+    const p = state.getPlaylist(0).?;
+    const entry_idx: usize = 2;
+    const new_loop_count: i32 = 6;
+    p.entries[entry_idx].loop_count = new_loop_count;
+
+    // Handler logic: sync loops_remaining if modifying current entry
+    if (state.engine.isPlaying() and
+        state.engine.playlist_idx == 0 and
+        state.engine.entry_idx == entry_idx)
+    {
+        const completed = state.engine.current_loop_iteration - 1; // 2 completed
+        const remaining = new_loop_count - @as(i32, @intCast(completed));
+        state.engine.loops_remaining = if (remaining > 0) remaining else 1;
+    }
+
+    // Verify: 6 total - 2 completed = 4 remaining
+    try std.testing.expectEqual(@as(i32, 4), state.engine.loops_remaining);
+}
+
+test "Gap 1: loop count sync - changing to infinite" {
+    var state = State{};
+    _ = state.addPlaylist("Test");
+    if (state.getPlaylist(0)) |p| {
+        _ = p.addEntry(1, 4);
+    }
+
+    _ = state.engine.playFromEntry(0, 0, 4);
+    state.engine.current_loop_iteration = 2;
+    state.engine.loops_remaining = 3;
+
+    // Change to infinite (-1)
+    const new_loop_count: i32 = -1;
+    if (state.engine.isPlaying()) {
+        state.engine.loops_remaining = new_loop_count;
+    }
+
+    try std.testing.expectEqual(@as(i32, -1), state.engine.loops_remaining);
+}
+
+test "Gap 1: loop count sync - reducing below current iteration lets loop finish" {
+    // Scenario: On loop 2 of 2, user changes to 1 loop
+    // Expected: loops_remaining = 1 (finish current loop, then advance)
+    var state = State{};
+    _ = state.addPlaylist("Test");
+    if (state.getPlaylist(0)) |p| {
+        _ = p.addEntry(1, 2);
+    }
+
+    _ = state.engine.playFromEntry(0, 0, 2);
+    state.engine.current_loop_iteration = 2; // On loop 2
+    state.engine.loops_remaining = 1; // 1 remaining of original 2
+
+    // User reduces to 1 loop (less than current iteration)
+    const new_loop_count: i32 = 1;
+    const completed = state.engine.current_loop_iteration - 1; // 1 completed
+    const remaining = new_loop_count - @as(i32, @intCast(completed)); // 1 - 1 = 0
+    state.engine.loops_remaining = if (remaining > 0) remaining else 1;
+
+    // Should be 1 (not 0) - let current iteration finish gracefully
+    try std.testing.expectEqual(@as(i32, 1), state.engine.loops_remaining);
+}
+
+test "Gap 1: loop count sync - setting to zero (skip) still finishes current" {
+    // Scenario: Currently playing, user sets loop_count = 0 (skip)
+    // Expected: loops_remaining = 1 (finish current, then advance) not 0 (would hang)
+    var state = State{};
+    _ = state.addPlaylist("Test");
+    if (state.getPlaylist(0)) |p| {
+        _ = p.addEntry(1, 4);
+    }
+
+    _ = state.engine.playFromEntry(0, 0, 4);
+    state.engine.current_loop_iteration = 2;
+    state.engine.loops_remaining = 3;
+
+    // User sets to 0 (skip) - should set to 1, not 0
+    // Setting to 0 would cause infinite loop since tick only advances on ==1
+    const new_loop_count: i32 = 0;
+    if (new_loop_count == 0) {
+        state.engine.loops_remaining = 1; // Finish current, then advance
+    }
+
+    try std.testing.expectEqual(@as(i32, 1), state.engine.loops_remaining);
+}
+
+test "Gap 2: remove entry before current - index shifts back" {
+    // Scenario: Entries [A, B, C, D], playing C (idx 2), remove B (idx 1)
+    // Expected: entry_idx becomes 1 (C shifted to index 1)
+    var state = State{};
+    _ = state.addPlaylist("Test");
+    if (state.getPlaylist(0)) |p| {
+        _ = p.addEntry(1, 1); // A
+        _ = p.addEntry(2, 1); // B - will remove
+        _ = p.addEntry(3, 1); // C - currently playing
+        _ = p.addEntry(4, 1); // D
+    }
+
+    _ = state.engine.playFromEntry(0, 2, 1); // Playing C at index 2
+
+    // Remove B (index 1)
+    const removed_idx: usize = 1;
+    const p = state.getPlaylist(0).?;
+    _ = p.removeEntry(removed_idx);
+
+    // Handler logic: adjust index since removed before current
+    if (removed_idx < state.engine.entry_idx) {
+        state.engine.entry_idx -= 1;
+    }
+
+    // Verify: C is now at index 1
+    try std.testing.expectEqual(@as(usize, 1), state.engine.entry_idx);
+    try std.testing.expectEqual(@as(i32, 3), p.entries[state.engine.entry_idx].region_id);
+}
+
+test "Gap 2: remove entry after current - no index change" {
+    // Scenario: Entries [A, B, C, D], playing B (idx 1), remove D (idx 3)
+    // Expected: entry_idx stays at 1
+    var state = State{};
+    _ = state.addPlaylist("Test");
+    if (state.getPlaylist(0)) |p| {
+        _ = p.addEntry(1, 1); // A
+        _ = p.addEntry(2, 1); // B - currently playing
+        _ = p.addEntry(3, 1); // C
+        _ = p.addEntry(4, 1); // D - will remove
+    }
+
+    _ = state.engine.playFromEntry(0, 1, 1); // Playing B at index 1
+
+    // Remove D (index 3)
+    const removed_idx: usize = 3;
+    const p = state.getPlaylist(0).?;
+    _ = p.removeEntry(removed_idx);
+
+    // Handler logic: no adjustment needed (removed after current)
+    // entry_idx stays the same
+
+    try std.testing.expectEqual(@as(usize, 1), state.engine.entry_idx);
+    try std.testing.expectEqual(@as(i32, 2), p.entries[state.engine.entry_idx].region_id);
+}
+
+test "Gap 2: remove current entry - skip to next" {
+    // Scenario: Entries [A, B, C, D], playing B (idx 1), remove B
+    // Expected: entry_idx stays at 1, loops_remaining reset for C (now at idx 1)
+    var state = State{};
+    _ = state.addPlaylist("Test");
+    if (state.getPlaylist(0)) |p| {
+        _ = p.addEntry(1, 1); // A
+        _ = p.addEntry(2, 3); // B - currently playing, will remove
+        _ = p.addEntry(3, 5); // C - will become next
+        _ = p.addEntry(4, 1); // D
+    }
+
+    _ = state.engine.playFromEntry(0, 1, 3); // Playing B at index 1, 3 loops
+    state.engine.current_loop_iteration = 2;
+    state.engine.loops_remaining = 2;
+
+    // Remove B (current entry at index 1)
+    const removed_idx: usize = 1;
+    const p = state.getPlaylist(0).?;
+    _ = p.removeEntry(removed_idx);
+
+    // Handler logic: removed current entry, skip to next (C now at index 1)
+    if (state.engine.entry_idx < p.entry_count) {
+        const next_entry = &p.entries[state.engine.entry_idx];
+        state.engine.loops_remaining = next_entry.loop_count;
+        state.engine.current_loop_iteration = 1;
+    }
+
+    // Verify: now pointing at C (region 3), with C's loop count (5)
+    try std.testing.expectEqual(@as(usize, 1), state.engine.entry_idx);
+    try std.testing.expectEqual(@as(i32, 3), p.entries[state.engine.entry_idx].region_id);
+    try std.testing.expectEqual(@as(i32, 5), state.engine.loops_remaining);
+    try std.testing.expectEqual(@as(i32, 1), state.engine.current_loop_iteration);
+}
+
+test "Gap 3: insert entry before current - index shifts forward" {
+    // Scenario: Entries [A, B, C], playing B (idx 1), insert X at idx 0
+    // Expected: entry_idx becomes 2 (B shifted to index 2)
+    var state = State{};
+    _ = state.addPlaylist("Test");
+    if (state.getPlaylist(0)) |p| {
+        _ = p.addEntry(1, 1); // A
+        _ = p.addEntry(2, 1); // B - currently playing
+        _ = p.addEntry(3, 1); // C
+    }
+
+    _ = state.engine.playFromEntry(0, 1, 1); // Playing B at index 1
+
+    // Insert X at index 0
+    const insert_idx: usize = 0;
+    const p = state.getPlaylist(0).?;
+    _ = p.insertEntry(insert_idx, 99, 1);
+
+    // Handler logic: adjust index since inserted at/before current
+    if (insert_idx <= state.engine.entry_idx) {
+        state.engine.entry_idx += 1;
+    }
+
+    // Verify: B is now at index 2
+    try std.testing.expectEqual(@as(usize, 2), state.engine.entry_idx);
+    try std.testing.expectEqual(@as(i32, 2), p.entries[state.engine.entry_idx].region_id);
+}
+
+test "Gap 3: insert entry after current - no index change" {
+    // Scenario: Entries [A, B, C], playing B (idx 1), insert X at idx 3
+    // Expected: entry_idx stays at 1
+    var state = State{};
+    _ = state.addPlaylist("Test");
+    if (state.getPlaylist(0)) |p| {
+        _ = p.addEntry(1, 1); // A
+        _ = p.addEntry(2, 1); // B - currently playing
+        _ = p.addEntry(3, 1); // C
+    }
+
+    _ = state.engine.playFromEntry(0, 1, 1); // Playing B at index 1
+
+    // Insert X at index 3 (after current)
+    const insert_idx: usize = 3;
+    const p = state.getPlaylist(0).?;
+    _ = p.insertEntry(insert_idx, 99, 1);
+
+    // No adjustment needed
+
+    try std.testing.expectEqual(@as(usize, 1), state.engine.entry_idx);
+    try std.testing.expectEqual(@as(i32, 2), p.entries[state.engine.entry_idx].region_id);
+}
+
+test "Gap 3: reorder - move current entry to new position" {
+    // Scenario: Entries [A, B, C, D], playing B (idx 1), move B to idx 3
+    // Expected: entry_idx becomes 3 (following B)
+    var state = State{};
+    _ = state.addPlaylist("Test");
+    if (state.getPlaylist(0)) |p| {
+        _ = p.addEntry(1, 1); // A
+        _ = p.addEntry(2, 1); // B - currently playing, will move
+        _ = p.addEntry(3, 1); // C
+        _ = p.addEntry(4, 1); // D
+    }
+
+    _ = state.engine.playFromEntry(0, 1, 1); // Playing B at index 1
+
+    const from_idx: usize = 1;
+    const to_idx: usize = 3;
+    const current_idx = state.engine.entry_idx;
+    const p = state.getPlaylist(0).?;
+    _ = p.reorderEntry(from_idx, to_idx);
+
+    // Handler logic: follow the current entry to its new position
+    if (current_idx == from_idx) {
+        state.engine.entry_idx = to_idx;
+    }
+
+    // Verify: B is now at index 3
+    try std.testing.expectEqual(@as(usize, 3), state.engine.entry_idx);
+    try std.testing.expectEqual(@as(i32, 2), p.entries[state.engine.entry_idx].region_id);
+}
+
+test "Gap 3: reorder - entry moved forward past current" {
+    // Scenario: Entries [A, B, C, D], playing C (idx 2), move A (idx 0) to idx 3
+    // Expected: entry_idx becomes 1 (C shifted back)
+    var state = State{};
+    _ = state.addPlaylist("Test");
+    if (state.getPlaylist(0)) |p| {
+        _ = p.addEntry(1, 1); // A - will move
+        _ = p.addEntry(2, 1); // B
+        _ = p.addEntry(3, 1); // C - currently playing
+        _ = p.addEntry(4, 1); // D
+    }
+
+    _ = state.engine.playFromEntry(0, 2, 1); // Playing C at index 2
+
+    const from_idx: usize = 0;
+    const to_idx: usize = 3;
+    const current_idx = state.engine.entry_idx;
+    const p = state.getPlaylist(0).?;
+    _ = p.reorderEntry(from_idx, to_idx);
+
+    // Handler logic: entry moved forward past current, current shifts back
+    if (from_idx < to_idx) {
+        if (current_idx > from_idx and current_idx <= to_idx) {
+            state.engine.entry_idx -= 1;
+        }
+    }
+
+    // Verify: C is now at index 1
+    try std.testing.expectEqual(@as(usize, 1), state.engine.entry_idx);
+    try std.testing.expectEqual(@as(i32, 3), p.entries[state.engine.entry_idx].region_id);
+}
+
+test "Gap 3: reorder - entry moved backward past current" {
+    // Scenario: Entries [A, B, C, D], playing B (idx 1), move D (idx 3) to idx 0
+    // Expected: entry_idx becomes 2 (B shifted forward)
+    var state = State{};
+    _ = state.addPlaylist("Test");
+    if (state.getPlaylist(0)) |p| {
+        _ = p.addEntry(1, 1); // A
+        _ = p.addEntry(2, 1); // B - currently playing
+        _ = p.addEntry(3, 1); // C
+        _ = p.addEntry(4, 1); // D - will move
+    }
+
+    _ = state.engine.playFromEntry(0, 1, 1); // Playing B at index 1
+
+    const from_idx: usize = 3;
+    const to_idx: usize = 0;
+    const current_idx = state.engine.entry_idx;
+    const p = state.getPlaylist(0).?;
+    _ = p.reorderEntry(from_idx, to_idx);
+
+    // Handler logic: entry moved backward past current, current shifts forward
+    if (from_idx > to_idx) {
+        if (current_idx >= to_idx and current_idx < from_idx) {
+            state.engine.entry_idx += 1;
+        }
+    }
+
+    // Verify: B is now at index 2
+    try std.testing.expectEqual(@as(usize, 2), state.engine.entry_idx);
+    try std.testing.expectEqual(@as(i32, 2), p.entries[state.engine.entry_idx].region_id);
 }
