@@ -63,7 +63,7 @@ export function TrackStrip({
 
   return (
     <div
-      className={`flex flex-col items-center p-2 ${roundedClass} border min-w-[80px] select-none ${className}`}
+      className={`flex flex-col items-center p-2 ${roundedClass} border w-[100px] select-none ${className}`}
       style={{
         backgroundColor,
         borderLeftColor: sideBorderColor,
@@ -80,7 +80,7 @@ export function TrackStrip({
         style={color ? { color } : undefined}
         {...longPressHandlers}
       >
-        {trackIndex === 0 ? 'Master' : name || `Track ${trackIndex}`}
+        {trackIndex === 0 ? 'MASTER' : name || `Track ${trackIndex}`}
       </div>
 
       {/* Fader */}

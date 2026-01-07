@@ -38,7 +38,7 @@ export function TrackFilter({
         value={value}
         onChange={handleChange}
         placeholder={placeholder}
-        className="w-full pl-9 pr-8 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-gray-500"
+        className="w-full pl-9 pr-8 py-2 bg-gray-800 border border-gray-700 rounded text-base text-white placeholder-gray-500 focus:outline-none focus:border-gray-500"
       />
       {value && (
         <button

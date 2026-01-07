@@ -410,6 +410,8 @@ Large projects (1000+ tracks) cannot poll all tracks at 30Hz — the JSON alone 
 
 **Grace period:** 500ms. When a track leaves the viewport, it stays subscribed briefly for smoother scroll UX.
 
+**Force broadcast on subscribe:** When a client subscribes (or updates their subscription), the `force_broadcast` flag is set. The poll loop checks this flag and broadcasts the current track state unconditionally on the next cycle. This ensures new subscribers receive data immediately without waiting for track state to change. Without this, a page refresh could leave tracks in a "loading" state indefinitely if the track data hadn't changed since the previous session.
+
 **Write commands with GUIDs:** During fader gestures, the user might reorder tracks. If the client sends `trackIdx=5` but the user just moved that track to position 8, the wrong track gets modified. Use `trackGuid` parameter instead — GUIDs are stable across reordering.
 
 **Total count:** The `tracks` event includes `total` (user tracks only, excludes master) so clients can render accurate virtual scrollbars even when only receiving a subset of tracks.

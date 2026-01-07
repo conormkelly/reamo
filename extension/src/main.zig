@@ -567,9 +567,10 @@ fn doProcessing() !void {
             // Poll metering for subscribed tracks (same indices as track subscriptions)
             high_state.metering.pollSubscribedInto(api, subscribed_indices);
 
-            // Broadcast tracks event (only when track data changes, no metering embedded)
+            // Broadcast tracks event (when data changes OR new subscription needs immediate data)
+            const force_broadcast = track_subs.consumeForceBroadcast();
             const tracks_changed = !tracksSliceEql(high_state.tracks, high_prev.tracks);
-            if (tracks_changed) {
+            if (tracks_changed or force_broadcast) {
                 const temp_state = tracks.State{ .tracks = high_state.tracks };
                 const scratch = tiered.scratchAllocator();
                 // Use toJsonWithTotalAlloc to include total track count for viewport scrollbar

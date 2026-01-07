@@ -33,10 +33,11 @@ const VERTICAL_CANCEL_THRESHOLD = 50;
 export function Timeline({ className = '', height = 120, isSyncing = false }: TimelineProps): ReactElement {
   const { sendCommand } = useReaper();
   const { positionSeconds } = useTransport();
-  const regions = useReaperStore((state) => state.regions);
-  const markers = useReaperStore((state) => state.markers);
-  const items = useReaperStore((state) => state.items);
-  const tracks = useReaperStore((state) => state.tracks);
+  // Defensive selectors - state can be undefined briefly on mobile during hydration
+  const regions = useReaperStore((state) => state?.regions ?? []);
+  const markers = useReaperStore((state) => state?.markers ?? []);
+  const items = useReaperStore((state) => state?.items ?? []);
+  const tracks = useReaperStore((state) => state?.tracks ?? {});
   const bpm = useReaperStore((state) => state.bpm);
   const tempoMarkers = useReaperStore((state) => state.tempoMarkers);
   const storedTimeSelection = useReaperStore((state) => state.timeSelection);

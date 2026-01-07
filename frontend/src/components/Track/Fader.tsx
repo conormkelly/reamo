@@ -34,11 +34,19 @@ export function Fader({
   const { faderPosition, volumeDb, setVolume, guid } = useTrack(trackIndex);
   const mixerLocked = useReaperStore((s) => s.mixerLocked);
   const [isDragging, setIsDragging] = useState(false);
+  const [hasMounted, setHasMounted] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const lastTapRef = useRef<number>(0);
   const cleanupRef = useRef<(() => void) | null>(null);
   // Lock GUID at gesture start to handle track reordering during drag
   const gestureGuidRef = useRef<string | null>(null);
+
+  // Enable transitions only after first render to prevent blip on remount
+  useEffect(() => {
+    // Small delay to ensure initial position is set before enabling transitions
+    const timer = setTimeout(() => setHasMounted(true), 50);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Cleanup event listeners on unmount to prevent memory leaks
   useEffect(() => {
@@ -154,12 +162,12 @@ export function Fader({
       >
         {/* Fader track */}
         <div
-          className="absolute bottom-0 left-0 right-0 bg-green-600 rounded-b transition-all duration-75"
+          className={`absolute bottom-0 left-0 right-0 bg-green-600 rounded-b ${hasMounted ? 'transition-all duration-75' : ''}`}
           style={{ height: handleHeight }}
         />
         {/* Fader handle */}
         <div
-          className="absolute left-0 right-0 h-3 bg-white rounded shadow-md transition-all duration-75"
+          className={`absolute left-0 right-0 h-3 bg-white rounded shadow-md ${hasMounted ? 'transition-all duration-75' : ''}`}
           style={{ bottom: Math.max(0, handleHeight - 6) }}
         />
       </div>

@@ -106,12 +106,12 @@ pub const State = struct {
     }
 
     /// Serialize to JSON event.
-    /// Format: {"type":"event","event":"trackSkeleton","tracks":[{"n":"name","g":"guid"},...]}
+    /// Format: {"type":"event","event":"trackSkeleton","payload":{"tracks":[{"n":"name","g":"guid"},...]}}
     pub fn toJson(self: *const State, buf: []u8) ?[]const u8 {
         var stream = std.io.fixedBufferStream(buf);
         const writer = stream.writer();
 
-        writer.writeAll("{\"type\":\"event\",\"event\":\"trackSkeleton\",\"tracks\":[") catch return null;
+        writer.writeAll("{\"type\":\"event\",\"event\":\"trackSkeleton\",\"payload\":{\"tracks\":[") catch return null;
 
         var first = true;
         for (self.tracks) |*t| {
@@ -130,7 +130,7 @@ pub const State = struct {
             writer.writeAll("\"}") catch return null;
         }
 
-        writer.writeAll("]}") catch return null;
+        writer.writeAll("]}}") catch return null;
 
         return buf[0..stream.pos];
     }
@@ -223,10 +223,10 @@ test "State toJson" {
     var buf: [1024]u8 = undefined;
     const json = state.toJson(&buf) orelse unreachable;
 
-    // Should contain skeleton event structure
+    // Should contain skeleton event structure with payload wrapper
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"event\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"event\":\"trackSkeleton\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json, "\"tracks\":[") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"payload\":{\"tracks\":[") != null);
 
     // Should have master track with "master" GUID
     try std.testing.expect(std.mem.indexOf(u8, json, "\"g\":\"master\"") != null);

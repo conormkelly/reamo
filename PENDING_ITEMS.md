@@ -8,6 +8,18 @@ Consolidated from backend audits and completed plans. Items not yet addressed.
 
 ## Frontend
 
+### Subscription Buffer Setting
+
+Add user-configurable subscription buffer for viewport-driven track loading. Currently hardcoded at 30 tracks beyond visible viewport. Users on slow WiFi could reduce this to minimize bandwidth; users scrolling fast through huge sessions could increase for fewer placeholders.
+
+**Location:** Settings menu → Performance section
+**Default:** 30 (current)
+**Range:** TBD (tested 10 and 30, both work well)
+
+**Status:** Not implemented
+
+---
+
 ### Dedicated Mixer View
 
 A placeholder exists at `frontend/src/views/mixer/` for a full-screen mixer with larger faders. Currently the mixer is embedded in Studio view. The dedicated view would provide:
@@ -61,6 +73,45 @@ The full catalog was in `error_handling.md` (deleted during 2026-01-07 cleanup).
 ## Future Considerations
 
 These are deferred features mentioned in research but not on the immediate roadmap:
+
+### Viewport-Driven Items/Markers
+
+Tracks use index-based viewport subscriptions. Items and markers will use time-range subscriptions:
+
+```typescript
+{ "type": "item/subscribe", "timeRange": { "start": 0.0, "end": 120.0 } }
+```
+
+This aligns with how arrange view scrolling works (horizontal = time, not track index).
+
+**Entity Roadmap:**
+| Entity | Viewport Type | Status |
+|--------|---------------|--------|
+| Tracks | Track indices | Done |
+| Items | Time range | Future |
+| Markers/Regions | Time range | Future |
+| FX/Sends | Expanded track state | Future |
+
+**Status:** Architecture designed, not implemented
+
+### Mobile Safari Performance
+
+Gotchas discovered during research:
+
+- **Momentum scroll** — iOS doesn't fire scroll events during inertial scrolling; need `requestAnimationFrame` polling
+- **Memory limit** — 2-4GB regardless of device RAM; prune data outside 2× viewport aggressively
+- **Viewport pruning** — More aggressive garbage collection needed on iOS than desktop
+
+**Status:** Noted for future mobile optimization pass
+
+### Payload Compression / Binary Formats
+
+Deferred from viewport architecture research:
+
+- **Compression** — Probably not needed if viewport-driven keeps payloads small. Revisit if bandwidth becomes issue.
+- **Binary formats** — Keep JSON for debuggability. Consider MessagePack if we ever send waveform data.
+
+**Status:** Deferred until proven necessary
 
 ### CSurf Hybrid Architecture
 

@@ -4,7 +4,7 @@
  * Tap clip indicator to clear
  */
 
-import type { ReactElement } from 'react';
+import { useState, useEffect, type ReactElement } from 'react';
 import { useTrack } from '../../hooks/useTrack';
 import { usePeakHold } from '../../hooks/usePeakHold';
 import { useReaper } from '../ReaperProvider';
@@ -40,6 +40,13 @@ export function LevelMeter({
 }: LevelMeterProps): ReactElement {
   const { track } = useTrack(trackIndex);
   const { sendCommand } = useReaper();
+  const [hasMounted, setHasMounted] = useState(false);
+
+  // Enable transitions only after first render to prevent blip on remount
+  useEffect(() => {
+    const timer = setTimeout(() => setHasMounted(true), 50);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Get meter values (WebSocket sends linear amplitude: 1.0 = 0dB)
   const peakDb = track ? volumeToDb(track.lastMeterPeak) : -Infinity;
@@ -77,7 +84,7 @@ export function LevelMeter({
 
       {/* Current level (RMS/position) */}
       <div
-        className={`absolute ${getColor(posPercent)} transition-all duration-75 ${
+        className={`absolute ${getColor(posPercent)} ${hasMounted ? 'transition-all duration-75' : ''} ${
           isVertical ? 'bottom-0 left-0 right-0' : 'left-0 top-0 bottom-0'
         }`}
         style={

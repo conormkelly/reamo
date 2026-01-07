@@ -18,6 +18,9 @@ export interface SettingsMenuProps {
   currentView: ViewId;
   showRecordingActions: boolean;
   onToggleRecordingActions: () => void;
+  // Studio view settings
+  pinMasterTrack: boolean;
+  onTogglePinMasterTrack: () => void;
   // Actions view settings
   actionsAutoCollapse: boolean;
   onToggleActionsAutoCollapse: () => void;
@@ -34,6 +37,8 @@ export function SettingsMenu({
   currentView,
   showRecordingActions,
   onToggleRecordingActions,
+  pinMasterTrack,
+  onTogglePinMasterTrack,
   actionsAutoCollapse,
   onToggleActionsAutoCollapse,
   className = '',
@@ -150,6 +155,19 @@ export function SettingsMenu({
                 <span className={`flex items-center gap-1.5 text-xs ${showRecordingActions ? 'text-green-400' : 'text-gray-500'}`}>
                   {showRecordingActions ? <Eye size={14} /> : <EyeOff size={14} />}
                   {showRecordingActions ? 'Visible' : 'Hidden'}
+                </span>
+              </button>
+
+              {/* Pin Master Track toggle */}
+              <button
+                onClick={() => {
+                  onTogglePinMasterTrack();
+                }}
+                className="w-full px-3 py-2 flex items-center justify-between hover:bg-gray-700/50 transition-colors"
+              >
+                <span className="text-sm">Pin MASTER</span>
+                <span className={`flex items-center gap-1.5 text-xs ${pinMasterTrack ? 'text-green-400' : 'text-gray-500'}`}>
+                  {pinMasterTrack ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
                 </span>
               </button>
             </>

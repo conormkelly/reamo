@@ -27,6 +27,8 @@ function AppContent() {
 
   const showRecordingActions = useReaperStore((s) => s.showRecordingActions);
   const setShowRecordingActions = useReaperStore((s) => s.setShowRecordingActions);
+  const pinMasterTrack = useReaperStore((s) => s.pinMasterTrack);
+  const setPinMasterTrack = useReaperStore((s) => s.setPinMasterTrack);
   const actionsAutoCollapse = useReaperStore((s) => s.actionsAutoCollapse);
   const setActionsAutoCollapse = useReaperStore((s) => s.setActionsAutoCollapse);
 
@@ -74,6 +76,8 @@ function AppContent() {
           currentView={currentView}
           showRecordingActions={showRecordingActions}
           onToggleRecordingActions={() => setShowRecordingActions(!showRecordingActions)}
+          pinMasterTrack={pinMasterTrack}
+          onTogglePinMasterTrack={() => setPinMasterTrack(!pinMasterTrack)}
           actionsAutoCollapse={actionsAutoCollapse}
           onToggleActionsAutoCollapse={() => setActionsAutoCollapse(!actionsAutoCollapse)}
         />

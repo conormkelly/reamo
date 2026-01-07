@@ -60,7 +60,8 @@ export interface UseTrackReturn {
  * @param trackIndex - Track index (0 = master, 1+ = user tracks)
  */
 export function useTrack(trackIndex: number): UseTrackReturn {
-  const track = useReaperStore((state) => state.tracks[trackIndex] ?? null);
+  // Defensive selector - state can be undefined briefly on mobile during hydration
+  const track = useReaperStore((state) => state?.tracks?.[trackIndex] ?? null);
 
   // Derived state with memoization
   const derived = useMemo(() => {

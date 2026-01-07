@@ -1099,6 +1099,7 @@ Subscribe to track updates. Replaces any previous subscription for this client. 
 - `INVALID_PARAMS` — Neither range nor guids parameter provided
 
 **Notes:**
+- Subscribing immediately triggers a `tracks` event — new subscribers receive data on the next poll cycle without waiting for track state to change
 - Subscriptions include a 500ms grace period — when tracks leave the viewport, they continue being polled briefly for smoother scroll UX
 - New clients receive a `trackSkeleton` event on connect (names + GUIDs for all tracks) to enable filtering and subscription
 - Clients must subscribe to receive `tracks` events — no subscription means no track data
@@ -2051,18 +2052,20 @@ Lightweight track list broadcast at 1Hz when structure changes (add/delete/renam
 {
   "type": "event",
   "event": "trackSkeleton",
-  "tracks": [
-    {"n": "MASTER", "g": "master"},
-    {"n": "Drums", "g": "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"},
-    {"n": "Bass", "g": "{YYYYYYYY-YYYY-YYYY-YYYY-YYYYYYYYYYYY}"}
-  ]
+  "payload": {
+    "tracks": [
+      {"n": "MASTER", "g": "master"},
+      {"n": "Drums", "g": "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"},
+      {"n": "Bass", "g": "{YYYYYYYY-YYYY-YYYY-YYYY-YYYYYYYYYYYY}"}
+    ]
+  }
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `tracks[].n` | string | Track name |
-| `tracks[].g` | string | Track GUID (`"master"` for master track) |
+| `payload.tracks[].n` | string | Track name |
+| `payload.tracks[].g` | string | Track GUID (`"master"` for master track) |
 
 **Notes:**
 - Sent on connect (snapshot) and whenever track structure changes

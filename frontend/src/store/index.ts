@@ -248,11 +248,9 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
       // Track skeleton: lightweight list of all tracks (name + GUID)
       // Used for filtering/navigation, broadcast at 1Hz on structure change
       const p = message.payload as TrackSkeletonEventPayload;
-      console.log('[Store] trackSkeleton event received:', { trackCount: p.tracks.length, tracks: p.tracks });
       get().setTrackSkeleton(p.tracks);
     } else if (isTracksEvent(message)) {
       const p = message.payload as TracksEventPayload;
-      console.log('[Store] tracks event received:', { total: p.total, trackCount: p.tracks.length, firstTrack: p.tracks[0] });
       // Convert WSTrack format to Track format (subscribed tracks only)
       const tracks: Record<number, import('../core/types').Track> = {};
       for (const t of p.tracks) {

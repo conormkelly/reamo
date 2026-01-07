@@ -46,10 +46,14 @@ export interface UseTrackSkeletonReturn {
  * );
  * ```
  */
+// Empty Map singleton to avoid creating new instances on each render
+const EMPTY_MAP = new Map<string, number>();
+
 export function useTrackSkeleton(): UseTrackSkeletonReturn {
-  const skeleton = useReaperStore((state) => state.trackSkeleton);
-  const totalTracks = useReaperStore((state) => state.totalTracks);
-  const guidToIndex = useReaperStore((state) => state.guidToIndex);
+  // Defensive selectors - state can be undefined briefly on mobile during hydration
+  const skeleton = useReaperStore((state) => state?.trackSkeleton ?? []);
+  const totalTracks = useReaperStore((state) => state?.totalTracks ?? 0);
+  const guidToIndex = useReaperStore((state) => state?.guidToIndex ?? EMPTY_MAP);
 
   // Filter skeleton by name (case-insensitive)
   const filterByName = useCallback(

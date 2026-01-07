@@ -90,6 +90,10 @@ pub const TrackSubscriptions = struct {
     free_slots: [MAX_CLIENTS]usize = undefined,
     free_count: usize = 0,
 
+    /// Force broadcast flag - set when subscriptions change to ensure immediate data push.
+    /// The poll loop checks this and broadcasts tracks unconditionally when true.
+    force_broadcast: bool = false,
+
     pub fn init(allocator: Allocator) TrackSubscriptions {
         var subs = TrackSubscriptions{
             .allocator = allocator,
@@ -167,6 +171,9 @@ pub const TrackSubscriptions = struct {
         client.range_end = @max(client.range_start, end);
         client.include_master = include_master;
 
+        // Force broadcast to ensure new subscriber gets immediate data
+        self.force_broadcast = true;
+
         var count: usize = @intCast(client.range_end - client.range_start + 1);
         // Add 1 for master if requested and not already in range
         if (include_master and client.range_start > 0) {
@@ -211,6 +218,9 @@ pub const TrackSubscriptions = struct {
             client.guid_lens[client.guid_count] = len;
             client.guid_count += 1;
         }
+
+        // Force broadcast to ensure new subscriber gets immediate data
+        self.force_broadcast = true;
 
         var count = client.guid_count;
         // Add 1 for master if requested and not already in GUID list
@@ -367,6 +377,16 @@ pub const TrackSubscriptions = struct {
         }
         // Also check grace period
         return self.grace_until.count() > 0;
+    }
+
+    /// Check and clear force_broadcast flag (atomic consume).
+    /// Returns true if flag was set, clears it in the process.
+    pub fn consumeForceBroadcast(self: *TrackSubscriptions) bool {
+        if (self.force_broadcast) {
+            self.force_broadcast = false;
+            return true;
+        }
+        return false;
     }
 
     /// Get count of subscribed clients.

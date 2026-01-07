@@ -26,8 +26,9 @@ export interface UseTracksReturn {
  * Hook for accessing all tracks
  */
 export function useTracks(): UseTracksReturn {
-  const trackCount = useReaperStore((state) => state.trackCount);
-  const tracksRecord = useReaperStore((state) => state.tracks);
+  // Defensive selectors - state can be undefined briefly on mobile during hydration
+  const trackCount = useReaperStore((state) => state?.trackCount ?? 0);
+  const tracksRecord = useReaperStore((state) => state?.tracks ?? {});
 
   // Convert record to sorted array
   const tracks = useMemo(() => {

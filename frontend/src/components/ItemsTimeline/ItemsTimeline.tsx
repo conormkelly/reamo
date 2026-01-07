@@ -43,9 +43,9 @@ function getTracksWithItems(
 export function ItemsTimeline({
   height = 120,
 }: ItemsTimelineProps): ReactElement {
-  // Store state
-  const items = useReaperStore((state) => state.items);
-  const tracks = useReaperStore((state) => state.tracks);
+  // Store state - defensive selectors for mobile hydration
+  const items = useReaperStore((state) => state?.items ?? []);
+  const tracks = useReaperStore((state) => state?.tracks ?? {});
   const selectedTrackIdx = useReaperStore((state) => state.selectedTrackIdx);
   const setSelectedTrack = useReaperStore((state) => state.setSelectedTrack);
   const selectedItemKey = useReaperStore((state) => state.selectedItemKey);

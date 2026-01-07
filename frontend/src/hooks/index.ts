@@ -24,6 +24,10 @@ export {
   type SkeletonTrackWithIndex,
 } from './useTrackSkeleton';
 export {
+  useVirtualizedSubscription,
+  type UseVirtualizedSubscriptionOptions,
+} from './useVirtualizedSubscription';
+export {
   useTransportSync,
   getTransportSyncState,
   isTransportSynced,

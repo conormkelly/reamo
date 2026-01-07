@@ -93,7 +93,10 @@ export const createTracksSlice: StateCreator<TracksSlice> = (set, get) => ({
     // Build guidToIndex map from skeleton
     const guidToIndex = new Map<string, number>();
     skeleton.forEach((t, i) => guidToIndex.set(t.g, i));
-    set({ trackSkeleton: skeleton, guidToIndex });
+    // Also set totalTracks from skeleton (minus master at index 0)
+    // This allows subscription logic to work immediately on connect
+    const userTrackCount = Math.max(0, skeleton.length - 1);
+    set({ trackSkeleton: skeleton, guidToIndex, totalTracks: userTrackCount });
   },
 
   setTotalTracks: (total) => set({ totalTracks: total }),

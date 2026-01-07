@@ -17,12 +17,14 @@ export interface StudioLayoutState {
   hideCollapsed: boolean; // Eye toggle - hide collapsed sections entirely
   showRecordingActions: boolean; // Show recording actions bar during recording
   layoutLocked: boolean; // Lock layout - prevent drag/collapse
+  pinMasterTrack: boolean; // Pin master track to left of mixer (don't scroll)
 
   // Actions
   toggleSection: (id: SectionId) => void;
   setHideCollapsed: (hide: boolean) => void;
   setShowRecordingActions: (show: boolean) => void;
   setLayoutLocked: (locked: boolean) => void;
+  setPinMasterTrack: (pinned: boolean) => void;
   reorderSections: (fromIndex: number, toIndex: number) => void;
   loadLayoutFromStorage: () => void;
   saveLayoutToStorage: () => void;
@@ -49,7 +51,8 @@ const getDefaultState = () => ({
   sections: getDefaultSections(),
   hideCollapsed: false,
   showRecordingActions: true,
-  layoutLocked: false
+  layoutLocked: false,
+  pinMasterTrack: true // Master pinned by default
 });
 
 export const createStudioLayoutSlice: StateCreator<StudioLayoutState> = (set, get) => ({
@@ -83,6 +86,11 @@ export const createStudioLayoutSlice: StateCreator<StudioLayoutState> = (set, ge
     get().saveLayoutToStorage();
   },
 
+  setPinMasterTrack: (pinned) => {
+    set({ pinMasterTrack: pinned });
+    get().saveLayoutToStorage();
+  },
+
   reorderSections: (fromIndex, toIndex) => {
     const state = get();
     const sectionIds = (Object.keys(state.sections) as SectionId[]).sort(
@@ -112,7 +120,8 @@ export const createStudioLayoutSlice: StateCreator<StudioLayoutState> = (set, ge
           sections: parsed.sections || getDefaultSections(),
           hideCollapsed: parsed.hideCollapsed ?? false,
           showRecordingActions: parsed.showRecordingActions ?? true,
-          layoutLocked: parsed.layoutLocked ?? false
+          layoutLocked: parsed.layoutLocked ?? false,
+          pinMasterTrack: parsed.pinMasterTrack ?? true
         });
       }
     } catch (err) {
@@ -129,7 +138,8 @@ export const createStudioLayoutSlice: StateCreator<StudioLayoutState> = (set, ge
         sections: state.sections,
         hideCollapsed: state.hideCollapsed,
         showRecordingActions: state.showRecordingActions,
-        layoutLocked: state.layoutLocked
+        layoutLocked: state.layoutLocked,
+        pinMasterTrack: state.pinMasterTrack
       }));
     } catch (err) {
       console.error('Failed to save studio layout to storage:', err);
