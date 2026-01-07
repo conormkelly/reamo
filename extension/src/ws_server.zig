@@ -319,7 +319,61 @@ pub const Client = struct {
     state: *SharedState,
     authenticated: bool = false,
 
-    pub fn init(_: *const websocket.Handshake, conn: *websocket.Conn, state: *SharedState) !Client {
+    /// Validate Host header to prevent DNS rebinding attacks.
+    /// A malicious website can resolve to a local IP and attempt to connect,
+    /// but the Host header will contain the attacker's domain (e.g., "evil.com"),
+    /// not the actual IP. We accept connections where Host is a local/private IP.
+    fn isValidLocalHost(host: []const u8) bool {
+        // Check for valid localhost/private network patterns
+        // Accept: localhost, loopback (127.x.x.x), private networks (10.x, 172.16-31.x, 192.168.x)
+
+        // Localhost patterns
+        if (std.mem.startsWith(u8, host, "127.") or
+            std.mem.startsWith(u8, host, "localhost:") or
+            std.mem.startsWith(u8, host, "[::1]:"))
+        {
+            return true;
+        }
+
+        // Private network: 10.x.x.x
+        if (std.mem.startsWith(u8, host, "10.")) {
+            return true;
+        }
+
+        // Private network: 192.168.x.x
+        if (std.mem.startsWith(u8, host, "192.168.")) {
+            return true;
+        }
+
+        // Private network: 172.16.x.x - 172.31.x.x
+        if (std.mem.startsWith(u8, host, "172.")) {
+            // Extract second octet to check 16-31 range
+            const rest = host[4..];
+            const dot_pos = std.mem.indexOfScalar(u8, rest, '.') orelse return false;
+            const second_octet = std.fmt.parseInt(u8, rest[0..dot_pos], 10) catch return false;
+            if (second_octet >= 16 and second_octet <= 31) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    pub fn init(h: *const websocket.Handshake, conn: *websocket.Conn, state: *SharedState) !Client {
+        // DNS REBINDING PROTECTION: Validate Host header
+        // The websocket library stores headers with lowercase keys
+        const host = h.headers.get("host") orelse {
+            logging.warn("ws_server: connection rejected - missing Host header", .{});
+            conn.close(.{ .code = 4003, .reason = "Missing Host header" }) catch {};
+            return error.MissingHost;
+        };
+
+        if (!isValidLocalHost(host)) {
+            logging.warn("ws_server: connection rejected - invalid Host header: {s}", .{host});
+            conn.close(.{ .code = 4003, .reason = "Invalid Host header" }) catch {};
+            return error.InvalidHost;
+        }
+
         // Register connection (not Client pointer) with shared state
         // If allocation fails, return error to reject the connection
         const id = state.addClient(conn) orelse {

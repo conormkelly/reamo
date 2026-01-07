@@ -109,6 +109,10 @@ pub const State = struct {
         var track_idx: c_int = 0;
         while (track_idx < track_count) : (track_idx += 1) {
             const track = api.getTrackByIdx(track_idx) orelse continue;
+
+            // Validate track pointer (track could be deleted mid-enumeration)
+            if (!api.validateTrackPtr(track)) continue;
+
             const item_count_on_track: usize = @intCast(@max(0, api.trackItemCount(track)));
             total_items += item_count_on_track;
             if (total_items >= max_items) {
@@ -147,6 +151,9 @@ pub const State = struct {
         while (track_idx < track_count) : (track_idx += 1) {
             const track = api.getTrackByIdx(track_idx) orelse continue;
 
+            // Validate track pointer (track could be deleted mid-enumeration)
+            if (!api.validateTrackPtr(track)) continue;
+
             // Enumerate items on this track
             const items_on_track = api.trackItemCount(track);
             var item_idx: c_int = 0;
@@ -154,6 +161,9 @@ pub const State = struct {
                 if (total_count >= buffer.len) break;
 
                 const item_ptr = api.getItemByIdx(track, item_idx) orelse continue;
+
+                // Validate item pointer (item could be deleted mid-enumeration)
+                if (!api.validateItemPtr(item_ptr)) continue;
 
                 var item = &buffer[total_count];
 

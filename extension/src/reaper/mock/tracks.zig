@@ -303,11 +303,13 @@ pub const TracksMethods = struct {
 
     /// Mock always returns true for valid-looking pointers.
     /// In tests, use track_count to control what's "valid".
+    /// Uses <= because unified indexing: 0=master, 1..track_count=user tracks
     pub fn validateTrackPtr(self: anytype, track: ?*anyopaque) bool {
         self.recordCall(.validateTrackPtr);
         if (track == null) return false;
         const idx = state.decodeTrackPtr(track.?);
-        return idx < self.track_count;
+        // Unified indexing: 0 = master (always valid), 1..track_count = user tracks
+        return idx <= self.track_count;
     }
 
     /// Mock always returns true for valid-looking pointers.

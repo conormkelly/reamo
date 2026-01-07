@@ -81,6 +81,10 @@ pub const State = struct {
         for (0..track_count) |i| {
             const track_idx: c_int = @intCast(i);
             if (api.getTrackByUnifiedIdx(track_idx)) |track| {
+                // Validate track pointer (track could be deleted mid-enumeration)
+                // Skip validation for master track (idx=0) since it always exists
+                if (track_idx != 0 and !api.validateTrackPtr(track)) continue;
+
                 const fx_count_raw = api.trackFxCount(track);
                 const fx_count: usize = @intCast(@max(0, fx_count_raw));
                 total_fx += fx_count;
@@ -99,6 +103,9 @@ pub const State = struct {
         for (0..track_count) |i| {
             const track_idx: c_int = @intCast(i);
             if (api.getTrackByUnifiedIdx(track_idx)) |track| {
+                // Validate track pointer (track could be deleted mid-enumeration)
+                // Skip validation for master track (idx=0) since it always exists
+                if (track_idx != 0 and !api.validateTrackPtr(track)) continue;
                 const fx_count_raw = api.trackFxCount(track);
                 const fx_count: usize = @intCast(@max(0, fx_count_raw));
 

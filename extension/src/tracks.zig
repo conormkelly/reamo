@@ -175,6 +175,13 @@ pub const State = struct {
             const idx: c_int = @intCast(i);
             // Use unified indexing: 0 = master, 1+ = user tracks
             if (api.getTrackByUnifiedIdx(idx)) |track| {
+                // Validate pointer is still valid (track could be deleted mid-enumeration)
+                // Skip validation for master track (idx=0) since it always exists
+                if (idx != 0 and !api.validateTrackPtr(track)) {
+                    t.* = Track{}; // Use empty track if validation fails
+                    continue;
+                }
+
                 t.* = Track{}; // Initialize with defaults
                 t.idx = idx;
 
@@ -247,6 +254,10 @@ pub const State = struct {
 
         for (indices) |idx| {
             if (api.getTrackByUnifiedIdx(idx)) |track| {
+                // Validate pointer is still valid (track could be deleted mid-enumeration)
+                // Skip validation for master track (idx=0) since it always exists
+                if (idx != 0 and !api.validateTrackPtr(track)) continue;
+
                 const t = &tracks[out_idx];
                 t.* = Track{};
                 t.idx = idx;

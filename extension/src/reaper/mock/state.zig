@@ -136,6 +136,10 @@ pub const Method = enum {
     csurfSetRecArm,
     csurfSetRecMon,
     csurfFlushUndo,
+    // Pointer validation
+    validateTrackPtr,
+    validateItemPtr,
+    validateTakePtr,
     // Items
     trackItemCount,
     getItemByIdx,
