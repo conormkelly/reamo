@@ -12,7 +12,6 @@ const commands = @import("commands/mod.zig");
 const ws_server = @import("ws_server.zig");
 const gesture_state = @import("gesture_state.zig");
 const toggle_subscriptions = @import("toggle_subscriptions.zig");
-const meter_subscriptions = @import("meter_subscriptions.zig");
 const project_notes = @import("project_notes.zig");
 const playlist = @import("playlist.zig");
 const errors = @import("errors.zig");
@@ -51,7 +50,6 @@ var g_allocator: std.mem.Allocator = undefined;
 var g_shared_state: ?*ws_server.SharedState = null;
 var g_gesture_state: ?*gesture_state.GestureState = null;
 var g_toggle_subs: ?*toggle_subscriptions.ToggleSubscriptions = null;
-var g_meter_subs: ?*meter_subscriptions.MeterSubscriptions = null;
 var g_notes_subs: ?*project_notes.NotesSubscriptions = null;
 var g_guid_cache: ?*guid_cache.GuidCache = null;
 var g_track_subs: ?*track_subscriptions.TrackSubscriptions = null;
@@ -183,13 +181,6 @@ fn doInitialization() !void {
     g_toggle_subs = toggles;
     // Set the global reference in the command handler module
     commands.toggle_state_cmds.g_toggle_subs = toggles;
-
-    // Create meter subscriptions state
-    const meters = try g_allocator.create(meter_subscriptions.MeterSubscriptions);
-    meters.* = meter_subscriptions.MeterSubscriptions.init(g_allocator);
-    g_meter_subs = meters;
-    // Set the global reference in the command handler module
-    commands.metering_cmds.g_meter_subs = meters;
 
     // Create project notes subscriptions state
     const notes_subs = try g_allocator.create(project_notes.NotesSubscriptions);
@@ -448,10 +439,6 @@ fn doProcessing() !void {
             if (g_toggle_subs) |toggles| {
                 toggles.removeClient(client_id);
             }
-            // Clean up meter subscriptions
-            if (g_meter_subs) |meters| {
-                meters.removeClient(client_id);
-            }
             // Clean up notes subscriptions
             if (g_notes_subs) |notes| {
                 notes.removeClient(client_id);
@@ -590,29 +577,24 @@ fn doProcessing() !void {
             };
             high_state.tracks = track_state.tracks;
 
-            // Poll metering for subscribed tracks (from meter subscriptions, not track subs)
-            if (g_meter_subs) |meters| {
-                if (meters.hasSubscriptions()) {
-                    var meter_buf: [meter_subscriptions.MAX_TRACKS_PER_CLIENT]c_int = undefined;
-                    const metered = meters.getSubscribedTracks(&meter_buf);
-                    high_state.metering.pollSubscribedInto(api, metered);
-                } else {
-                    high_state.metering.count = 0;
-                }
-            } else {
-                high_state.metering.count = 0;
-            }
+            // Poll metering for subscribed tracks (same indices as track subscriptions)
+            high_state.metering.pollSubscribedInto(api, subscribed_indices);
 
-            // Broadcast if tracks changed OR if we have active metering
+            // Broadcast tracks event (only when track data changes, no metering embedded)
             const tracks_changed = !tracksSliceEql(high_state.tracks, high_prev.tracks);
-            const has_metering = high_state.metering.hasData();
-
-            if (tracks_changed or has_metering) {
-                const metering_ptr: ?*const tracks.MeteringState = if (has_metering) &high_state.metering else null;
+            if (tracks_changed) {
                 const temp_state = tracks.State{ .tracks = high_state.tracks };
                 // Use toJsonWithTotal to include total track count for viewport scrollbar
                 var json_buf: [65536]u8 = undefined;
-                if (temp_state.toJsonWithTotal(&json_buf, metering_ptr, total_tracks)) |json| {
+                if (temp_state.toJsonWithTotal(&json_buf, null, total_tracks)) |json| {
+                    shared_state.broadcast(json);
+                }
+            }
+
+            // Broadcast separate meters event (always at 30Hz when there are subscriptions)
+            if (high_state.metering.hasData()) {
+                var meter_buf: [16384]u8 = undefined;
+                if (high_state.metering.toJsonEvent(&meter_buf, high_state.tracks)) |json| {
                     shared_state.broadcast(json);
                 }
             }
@@ -622,36 +604,32 @@ fn doProcessing() !void {
             high_state.metering.count = 0;
         }
     } else {
-        // Track subscriptions not initialized - fall back to full polling
+        // Track subscriptions not initialized - fall back to full polling (legacy/startup)
         const track_state = tracks.State.poll(high_alloc, &backend) catch |err| {
             logging.err("Failed to poll tracks: {s}", .{@errorName(err)});
             return err;
         };
         high_state.tracks = track_state.tracks;
 
-        // Poll metering (subscription-based)
-        if (g_meter_subs) |meters| {
-            if (meters.hasSubscriptions()) {
-                var meter_buf: [meter_subscriptions.MAX_TRACKS_PER_CLIENT]c_int = undefined;
-                const metered = meters.getSubscribedTracks(&meter_buf);
-                high_state.metering.pollSubscribedInto(api, metered);
-            } else {
-                high_state.metering.count = 0;
-            }
-        } else {
-            high_state.metering.count = 0;
-        }
+        // Poll all meters when no subscription system
+        high_state.metering.pollInto(api);
 
+        // Broadcast tracks event (only when changed)
         const tracks_changed = !tracksSliceEql(high_state.tracks, high_prev.tracks);
-        const has_metering = high_state.metering.hasData();
-
-        if (tracks_changed or has_metering) {
-            const metering_ptr: ?*const tracks.MeteringState = if (has_metering) &high_state.metering else null;
+        if (tracks_changed) {
             const temp_state = tracks.State{ .tracks = high_state.tracks };
             const scratch = tiered.scratchAllocator();
-            if (temp_state.toJsonAlloc(scratch, metering_ptr)) |json| {
+            if (temp_state.toJsonAlloc(scratch, null)) |json| {
                 shared_state.broadcast(json);
             } else |_| {}
+        }
+
+        // Broadcast separate meters event
+        if (high_state.metering.hasData()) {
+            var meter_buf: [16384]u8 = undefined;
+            if (high_state.metering.toJsonEvent(&meter_buf, high_state.tracks)) |json| {
+                shared_state.broadcast(json);
+            }
         }
     }
 
@@ -1118,9 +1096,6 @@ fn doProcessing() !void {
         }
 
         // Expire subscription grace periods (1Hz cleanup)
-        if (g_meter_subs) |meters| {
-            meters.expireGracePeriods();
-        }
         if (g_track_subs) |track_subs| {
             track_subs.expireGracePeriods();
         }
@@ -1182,15 +1157,6 @@ fn shutdown() void {
         g_toggle_subs = null;
     }
     logging.info("toggle subscriptions cleaned up", .{});
-
-    if (g_meter_subs) |meters| {
-        logging.info("cleaning up meter subscriptions", .{});
-        commands.metering_cmds.g_meter_subs = null;
-        meters.deinit();
-        g_allocator.destroy(meters);
-        g_meter_subs = null;
-    }
-    logging.info("meter subscriptions cleaned up", .{});
 
     if (g_notes_subs) |notes| {
         logging.info("cleaning up notes subscriptions", .{});

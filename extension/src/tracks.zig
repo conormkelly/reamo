@@ -638,6 +638,54 @@ pub const MeteringState = struct {
     pub fn hasData(self: *const MeteringState) bool {
         return self.count > 0;
     }
+
+    /// Serialize metering state as JSON event with map format keyed by GUID.
+    /// Format: {"type":"event","event":"meters","m":{"master":{"i":0,"l":0.75,"r":0.68,"c":false},...}}
+    /// Map format enables O(1) lookup by GUID in frontend/Zustand.
+    pub fn toJsonEvent(self: *const MeteringState, buf: []u8, track_slice: []const Track) ?[]const u8 {
+        if (self.count == 0) return null;
+
+        var stream = std.io.fixedBufferStream(buf);
+        const writer = stream.writer();
+
+        writer.writeAll("{\"type\":\"event\",\"event\":\"meters\",\"m\":{") catch return null;
+
+        var first = true;
+        for (self.meters[0..self.count]) |meter| {
+            // Find the GUID for this track index
+            var guid: []const u8 = "";
+            for (track_slice) |*track| {
+                if (track.idx == meter.track_idx) {
+                    guid = track.getGuid();
+                    break;
+                }
+            }
+            // Skip if we can't find the track (shouldn't happen, but defensive)
+            if (guid.len == 0) continue;
+
+            if (!first) {
+                writer.writeByte(',') catch return null;
+            }
+            first = false;
+
+            // Write map entry: "guid":{"i":N,"l":0.75,"r":0.68,"c":false}
+            writer.writeByte('"') catch return null;
+            protocol.writeJsonString(writer, guid) catch return null;
+            writer.writeAll("\":{\"i\":") catch return null;
+            std.fmt.format(writer, "{d}", .{meter.track_idx}) catch return null;
+            writer.writeAll(",\"l\":") catch return null;
+            std.fmt.format(writer, "{d:.4}", .{meter.peak_l}) catch return null;
+            writer.writeAll(",\"r\":") catch return null;
+            std.fmt.format(writer, "{d:.4}", .{meter.peak_r}) catch return null;
+            writer.writeAll(",\"c\":") catch return null;
+            writer.writeAll(if (meter.clipped) "true" else "false") catch return null;
+            writer.writeByte('}') catch return null;
+        }
+
+        writer.writeAll("}}") catch return null;
+
+        return stream.getWritten();
+    }
 };
 
 // Tests

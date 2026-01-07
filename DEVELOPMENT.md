@@ -259,30 +259,37 @@ test "transport/play runs correct command" {
 ## Data Flow
 
 1. **Extension polls REAPER** (~30ms timer in main.zig)
-   - Calls `tracks.State.poll(api)` → iterates all tracks via unified indexing
-   - Calls `tracks.MeteringState.poll(api)` → gets peak levels for all tracks
+   - Calls `tracks.State.pollIndices(api, indices)` → iterates subscribed tracks only
+   - Calls `tracks.MeteringState.poll(api)` → gets peak levels for subscribed tracks
    - Compares with previous state for change detection
 
-2. **Extension broadcasts JSON** via WebSocket
+2. **Extension broadcasts JSON** via WebSocket (two separate events)
    ```json
+   // tracks event (only when data changes)
    {
      "type": "event",
      "event": "tracks",
      "payload": {
-       "tracks": [{"idx": 0, "name": "MASTER", "volume": 1.0, ...}],
-       "meters": [{"trackIdx": 0, "peakL": 0.5, "peakR": 0.45, "clipped": false}]
+       "total": 847,
+       "tracks": [{"idx": 0, "guid": "master", "name": "MASTER", "volume": 1.0, ...}]
      }
+   }
+
+   // meters event (30Hz, map keyed by GUID)
+   {
+     "type": "event",
+     "event": "meters",
+     "m": {"master": {"i": 0, "l": 0.5, "r": 0.45, "c": false}}
    }
    ```
 
 3. **Frontend receives** in `WebSocketConnection.ts` → dispatches to store
 
 4. **Store processes** in `handleWebSocketMessage()`:
-   - Converts `WSTrack` → `Track` objects
-   - Builds flags bitfield from boolean fields
-   - Merges meter data into track objects
+   - `tracks` event: Converts `WSTrack` → `Track` objects, builds flags bitfield
+   - `meters` event: O(1) lookup by GUID, updates meter state directly
 
-5. **React components** consume via hooks (`useTrack`, `useTracks`)
+5. **React components** consume via hooks (`useTrack`, `useTracks`, `useMeter`)
 
 ### Viewport-Driven Track Subscriptions
 
@@ -328,7 +335,7 @@ Large projects (1000+ tracks) cannot poll all tracks at 30Hz — the JSON alone 
 
 **Write commands with GUIDs:** During fader gestures, the user might reorder tracks. If the client sends `trackIdx=5` but the user just moved that track to position 8, the wrong track gets modified. Use `trackGuid` parameter instead — GUIDs are stable across reordering.
 
-**Total count:** The `tracks` event includes `total` (all tracks in project) so clients can render accurate virtual scrollbars even when only receiving a subset of tracks.
+**Total count:** The `tracks` event includes `total` (user tracks only, excludes master) so clients can render accurate virtual scrollbars even when only receiving a subset of tracks.
 
 ## Conventions
 

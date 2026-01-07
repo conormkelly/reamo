@@ -112,7 +112,7 @@ This simplifies reads. Write commands use GUIDs for stability (see [Write Comman
 }
 ```
 
-- **`total`**: Track count canary — catches structural changes within 33ms
+- **`total`**: User track count (excludes master) — catches structural changes within 33ms
 - **`data`**: Keyed by index, only includes subscribed tracks
 - Each track includes `guid` for write command targeting
 - Full track data: volume, pan, mute, solo, recArm, meters, etc.

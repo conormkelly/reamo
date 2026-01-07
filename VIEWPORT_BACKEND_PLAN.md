@@ -315,8 +315,7 @@ if (indices.len > 0) {
         "volume": 0.8,
         ...
       }
-    ],
-    "meters": [...]
+    ]
   }
 }
 ```
@@ -325,6 +324,7 @@ Key changes:
 - `total` field shows user track count, excludes master (for virtual scroll sizing)
 - Each track includes `guid` field
 - Only subscribed tracks are present in array
+- Meters sent separately via `meters` event (see below)
 
 ---
 
@@ -586,7 +586,7 @@ Broadcast at 1Hz when track structure changes. Contains name + GUID for all trac
 
 #### `tracks` (modified)
 
-Broadcast at 30Hz. Only contains subscribed tracks.
+Broadcast when track data changes. Only contains subscribed tracks.
 
 ```json
 {
@@ -613,9 +613,6 @@ Broadcast at 30Hz. Only contains subscribed tracks.
         "sendCount": 0,
         "receiveCount": 0
       }
-    ],
-    "meters": [
-      {"trackIdx": 0, "peakL": 0.75, "peakR": 0.68, "clipped": false}
     ]
   }
 }
@@ -627,7 +624,28 @@ Broadcast at 30Hz. Only contains subscribed tracks.
 
 **Behavior change:**
 - Only subscribed tracks included
-- No tracks event if no subscriptions
+- Meters sent separately via `meters` event
+
+#### `meters` (new)
+
+Broadcast at 30Hz for subscribed tracks. Map format keyed by GUID for O(1) frontend lookup.
+
+```json
+{
+  "type": "event",
+  "event": "meters",
+  "m": {
+    "master": {"i": 0, "l": 0.75, "r": 0.68, "c": false},
+    "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}": {"i": 5, "l": 0.5, "r": 0.6, "c": false}
+  }
+}
+```
+
+**Fields:**
+- `m` — Map of GUID → meter data
+- `i` — Track index
+- `l`, `r` — Left/right peak levels (0.0-1.0+)
+- `c` — Clip indicator (sticky until `meter/clearClip`)
 
 ---
 

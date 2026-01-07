@@ -873,36 +873,6 @@ Clear the clip indicator for a track's input meter.
 {"type": "command", "command": "meter/clearClip", "trackIdx": 0}
 ```
 
-### `meter/subscribe`
-
-Subscribe to meter updates for specific track indices. Replaces any previous subscription for this client. Meters are only polled for subscribed tracks (saves CPU on large projects).
-
-Subscriptions include a 30-second grace period — when a track leaves the viewport, meters continue for 30 seconds before fully unsubscribing (smoother scroll UX).
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `trackIndices` | int[] | Yes | Array of track indices to receive meters for |
-
-```json
-{"type": "command", "command": "meter/subscribe", "trackIndices": [0, 1, 2, 5, 6], "id": "1"}
-```
-
-Response:
-
-```json
-{"type": "response", "id": "1", "success": true, "payload": {"subscribedCount": 5}}
-```
-
-To update visible tracks (e.g., on scroll), send a new subscribe with the updated list. To clear all subscriptions, send an empty array.
-
-### `meter/unsubscribe`
-
-Unsubscribe from all meter updates for this client. Called automatically on disconnect.
-
-```json
-{"type": "command", "command": "meter/unsubscribe", "id": "1"}
-```
-
 ### `track/rename`
 
 Rename a track. Master track (idx 0) cannot be renamed.
@@ -2102,7 +2072,7 @@ Lightweight track list broadcast at 1Hz when structure changes (add/delete/renam
 
 ### `tracks` Event
 
-Broadcast at 30Hz for subscribed tracks only. Clients must call `track/subscribe` to receive this event.
+Broadcast when track data changes for subscribed tracks. Clients must call `track/subscribe` to receive this event.
 
 ```json
 {
@@ -2144,9 +2114,6 @@ Broadcast at 30Hz for subscribed tracks only. Clients must call `track/subscribe
           }
         ]
       }
-    ],
-    "meters": [
-      {"trackIdx": 0, "peakL": 0.7500, "peakR": 0.6800, "clipped": false}
     ]
   }
 }
@@ -2180,17 +2147,44 @@ Broadcast at 30Hz for subscribed tracks only. Clients must call `track/subscribe
 | `tracks[].sends[].volume` | float | Volume (linear, 1.0 = 0dB) |
 | `tracks[].sends[].muted` | bool | Mute state |
 | `tracks[].sends[].mode` | int | Send mode (0=post-fader, 1=pre-FX, 3=post-FX) |
-| `meters[].trackIdx` | int | Track index |
-| `meters[].peakL/R` | float | Peak level (0.0-1.0+, 1.0 = 0dB) |
-| `meters[].clipped` | bool | Clip indicator (sticky until cleared) |
 
 **Notes:**
 - Clients must call `track/subscribe` to receive tracks events — no subscription means no track data
 - Only subscribed tracks are included in the `tracks` array
 - `total` is user track count only (excludes master) for virtual scrollbar sizing
-- Meters only included for tracks that are record-armed AND input-monitoring
-- FX and sends are polled at 5Hz (for efficiency) but included in the 30Hz track events
+- Broadcasts only when track data changes (not every frame)
+- Meter data is sent separately via the `meters` event (see below)
+- FX and sends are polled at 5Hz (for efficiency) but included in track events
 - Max 64 FX per track, max 16 sends per track
+
+### `meters` Event
+
+Broadcast at 30Hz for subscribed tracks. Meter data is tied to track subscriptions — subscribing to tracks via `track/subscribe` automatically includes meter data for those tracks. Uses map format keyed by GUID for O(1) frontend lookups.
+
+```json
+{
+  "type": "event",
+  "event": "meters",
+  "m": {
+    "master": {"i": 0, "l": 0.7500, "r": 0.6800, "c": false},
+    "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}": {"i": 5, "l": 0.5, "r": 0.6, "c": false}
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m` | object | Map of GUID → meter data for subscribed tracks |
+| `m[guid].i` | int | Track index (0=master, 1+=user tracks) |
+| `m[guid].l` | float | Left channel peak level (0.0-1.0+, 1.0 = 0dB) |
+| `m[guid].r` | float | Right channel peak level (0.0-1.0+, 1.0 = 0dB) |
+| `m[guid].c` | bool | Clip indicator (sticky until cleared via `meter/clearClip`) |
+
+**Notes:**
+- Sent at 30Hz (every frame) when there are track subscriptions
+- Map keys are track GUIDs (`"master"` for master track) — enables O(1) lookup in frontend
+- Compact keys (`i`, `l`, `r`, `c`) minimize bandwidth (~80 bytes per track)
+- No separate subscription needed — metering follows track subscriptions
 
 ### `markers` Event
 
