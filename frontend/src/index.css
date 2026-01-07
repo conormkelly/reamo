@@ -4,9 +4,14 @@
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
+/* Prevent document-level scrolling - all scrolling happens within app containers */
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
-  min-height: 100vh;
   background-color: #1a1a1a;
   color: #ffffff;
 }

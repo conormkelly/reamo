@@ -16,6 +16,7 @@ import {
   TimelineSection,
   TimelineHeaderControls,
   MixerSection,
+  ViewHeader,
 } from '../../components';
 import { ToastContainer, useToast } from '../../components/Toast';
 import { useReaperStore, type SectionId } from '../../store';
@@ -50,15 +51,13 @@ export function StudioView(): ReactElement {
   );
 
   return (
-    <div data-view="studio" className="min-h-screen bg-gray-950 text-white p-4">
-      {/* Header: Tempo controls (ConnectionStatus moved to global App.tsx) */}
-      <header className="flex items-center justify-end mb-4 pr-8">
-        <div className="flex items-center gap-3">
-          <MetronomeButton />
-          <TapTempoButton />
-          <TimeSignatureButton />
-        </div>
-      </header>
+    <div data-view="studio" className="min-h-full bg-gray-950 text-white p-3 flex flex-col">
+      {/* Header: Burger | Tempo controls | Connection status */}
+      <ViewHeader currentView="studio">
+        <MetronomeButton />
+        <TapTempoButton />
+        <TimeSignatureButton />
+      </ViewHeader>
 
       {/* Recording Quick Actions - desktop/tablet only (mobile renders in App.tsx with fixed positioning) */}
       {!isMobile && showRecordingActions && <RecordingActionsBar className="mb-6" />}

@@ -11,6 +11,7 @@ import { useTransport, useTransportAnimation, useTransportSync } from '../../hoo
 import { useReaperStore } from '../../store';
 import { transport, action } from '../../core/WebSocketCommands';
 import { formatTime } from '../../utils';
+import { ViewHeader } from '../../components';
 
 // Hold duration for record button mode toggle
 const HOLD_THRESHOLD = 300;
@@ -135,9 +136,16 @@ export function ClockView(): ReactElement {
   return (
     <div
       data-view="clock"
-      className="h-full w-full bg-black text-white flex flex-col items-center justify-center p-2 select-none overflow-hidden"
+      className="h-full w-full bg-black text-white flex flex-col select-none overflow-hidden relative"
       style={{ containerType: 'size' }}
     >
+      {/* Header overlay - semi-transparent so clock content shows through */}
+      <div className="absolute top-0 left-0 right-0 z-10 p-3">
+        <ViewHeader currentView="clock" />
+      </div>
+
+      {/* Main content - centered */}
+      <div className="flex-1 flex flex-col items-center justify-center p-2">
       {/* Bar.Beat Display - scales with container, capped by width for long bar numbers
           Formula: text_width ≈ 6 × font_size for 10-char monospace string
           To fit 10 chars: font_size ≤ container_width / 6 ≈ 16cqw */}
@@ -259,6 +267,7 @@ export function ClockView(): ReactElement {
           <span>RECORDING</span>
         </div>
       )}
+      </div>
     </div>
   );
 }

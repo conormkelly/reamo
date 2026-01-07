@@ -5,7 +5,14 @@
 
 import { useState, useEffect } from 'react';
 import './index.css';
-import { ReaperProvider, TabBar, PersistentTransport, SettingsMenu, ConnectionBanner, MemoryWarningBar, RecordingActionsBar, ConnectionStatus } from './components';
+import {
+  ReaperProvider,
+  TabBar,
+  PersistentTransport,
+  ConnectionBanner,
+  MemoryWarningBar,
+  RecordingActionsBar,
+} from './components';
 import { useUIPreferences, useTransport } from './hooks';
 import { useReaperStore } from './store';
 import { views, type ViewId, VIEW_STORAGE_KEY, DEFAULT_VIEW } from './viewRegistry';
@@ -16,23 +23,8 @@ function AppContent() {
     return saved && saved in views ? saved : DEFAULT_VIEW;
   });
 
-  const {
-    showTabBar,
-    showPersistentTransport,
-    transportPosition,
-    toggleTabBar,
-    togglePersistentTransport,
-    toggleTransportPosition,
-  } = useUIPreferences();
-
+  const { showTabBar, showPersistentTransport, transportPosition } = useUIPreferences();
   const showRecordingActions = useReaperStore((s) => s.showRecordingActions);
-  const setShowRecordingActions = useReaperStore((s) => s.setShowRecordingActions);
-  const pinMasterTrack = useReaperStore((s) => s.pinMasterTrack);
-  const setPinMasterTrack = useReaperStore((s) => s.setPinMasterTrack);
-  const actionsAutoCollapse = useReaperStore((s) => s.actionsAutoCollapse);
-  const setActionsAutoCollapse = useReaperStore((s) => s.setActionsAutoCollapse);
-
-  // Get recording state for RecordingActionsBar visibility
   const { isRecording } = useTransport();
 
   // Detect mobile for RecordingActionsBar positioning
@@ -45,7 +37,6 @@ function AppContent() {
   }, []);
 
   // Calculate bottom offset for mobile RecordingActionsBar
-  // Tab bar height: ~48px, Persistent transport height: ~56px
   const TAB_BAR_HEIGHT = 48;
   const PERSISTENT_TRANSPORT_HEIGHT = 56;
   const mobileBottomOffset =
@@ -60,58 +51,26 @@ function AppContent() {
   const ViewComponent = views[currentView];
 
   return (
-    <div className="flex flex-col h-screen bg-gray-950">
+    <div className="flex flex-col h-screen bg-gray-950 overflow-hidden">
       {/* Connection banner - shown at top when disconnected */}
       <ConnectionBanner />
 
       {/* Memory warning bar - shown when arena utilization is high */}
       <MemoryWarningBar />
 
-      {/* Header controls - fixed top-left (stays visible on scroll) */}
-      <div className="fixed top-3 left-3 z-50">
-        <SettingsMenu
-          showTabBar={showTabBar}
-          showPersistentTransport={showPersistentTransport}
-          transportPosition={transportPosition}
-          onToggleTabBar={toggleTabBar}
-          onTogglePersistentTransport={togglePersistentTransport}
-          onToggleTransportPosition={toggleTransportPosition}
-          currentView={currentView}
-          showRecordingActions={showRecordingActions}
-          onToggleRecordingActions={() => setShowRecordingActions(!showRecordingActions)}
-          pinMasterTrack={pinMasterTrack}
-          onTogglePinMasterTrack={() => setPinMasterTrack(!pinMasterTrack)}
-          actionsAutoCollapse={actionsAutoCollapse}
-          onToggleActionsAutoCollapse={() => setActionsAutoCollapse(!actionsAutoCollapse)}
-        />
-      </div>
-
-      {/* Connection status - fixed top-right (visible on all views) */}
-      <div className="fixed top-3 right-3 z-50">
-        <ConnectionStatus />
-      </div>
-
-      {/* Active view area - fills available space, min-h-0 allows flex shrinking */}
+      {/* Active view area - each view renders its own header via ViewHeader */}
       <main className="flex-1 min-h-0 overflow-auto">
         <ViewComponent />
       </main>
 
       {/* Recording Actions Bar - only in Studio view when recording */}
-      {currentView === 'studio' && showRecordingActions && isRecording && (
-        isMobile ? (
-          // Mobile: Fixed positioning above bottom nav bars
-          <div
-            className="fixed left-0 right-0 z-40 bg-gray-950 pb-3"
-            style={{ bottom: `${mobileBottomOffset}px` }}
-          >
-            <RecordingActionsBar />
-          </div>
-        ) : (
-          // Desktop/tablet: Normal document flow (rendered in StudioView would be better, but this works)
-          // Actually, for desktop we should render it within StudioView for proper flow
-          // For now, skip desktop rendering here since StudioView should handle it
-          null
-        )
+      {currentView === 'studio' && showRecordingActions && isRecording && isMobile && (
+        <div
+          className="fixed left-0 right-0 z-40 bg-gray-950 pb-3"
+          style={{ bottom: `${mobileBottomOffset}px` }}
+        >
+          <RecordingActionsBar />
+        </div>
       )}
 
       {/* Tab bar - toggleable */}

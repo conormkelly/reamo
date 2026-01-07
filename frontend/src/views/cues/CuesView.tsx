@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../../components/ReaperProvider';
+import { ViewHeader } from '../../components';
 import { playlist as playlistCmd } from '../../core/WebSocketCommands';
 import type { WSPlaylist, WSPlaylistEntry } from '../../core/WebSocketTypes';
 import type { Region } from '../../core/types';
@@ -274,17 +275,20 @@ export function CuesView(): ReactElement {
   // No playlists empty state
   if (playlists.length === 0) {
     return (
-      <div data-view="cues" className="h-full bg-gray-950 text-white p-4 pt-14 flex flex-col items-center justify-center">
-        <h2 className="text-xl font-semibold mb-2">No Playlists Yet</h2>
-        <p className="text-gray-400 mb-6 text-center">
-          Create a playlist to build your setlist
-        </p>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-medium transition-colors"
-        >
-          Create Playlist
-        </button>
+      <div data-view="cues" className="h-full bg-gray-950 text-white p-3 flex flex-col">
+        <ViewHeader currentView="cues" />
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <h2 className="text-xl font-semibold mb-2">No Playlists Yet</h2>
+          <p className="text-gray-400 mb-6 text-center">
+            Create a playlist to build your setlist
+          </p>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-medium transition-colors"
+          >
+            Create Playlist
+          </button>
+        </div>
 
         {/* Create Modal */}
         {showCreateModal && (
@@ -303,70 +307,68 @@ export function CuesView(): ReactElement {
   }
 
   return (
-    <div data-view="cues" className="h-full bg-gray-950 text-white flex flex-col">
+    <div data-view="cues" className="h-full bg-gray-950 text-white p-3 flex flex-col">
       {/* Header */}
-      <div className="flex-none p-3 pt-14 border-b border-gray-800">
-        <div className="flex items-center gap-2">
-          {/* Playlist selector */}
-          <select
-            value={selectedPlaylistIdx}
-            onChange={(e) => {
-              setSelectedPlaylistIdx(Number(e.target.value));
-              setSelectedEntryIdx(null); // Clear selection when switching playlists
-            }}
-            className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
-          >
-            {playlists.map((pl, idx) => (
-              <option key={idx} value={idx}>
-                {pl.name}
-                {isPlaylistActive && activePlaylistIndex === idx ? ' ▶' : ''}
-              </option>
-            ))}
-          </select>
+      <ViewHeader currentView="cues">
+        {/* Playlist selector */}
+        <select
+          value={selectedPlaylistIdx}
+          onChange={(e) => {
+            setSelectedPlaylistIdx(Number(e.target.value));
+            setSelectedEntryIdx(null); // Clear selection when switching playlists
+          }}
+          className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-white text-sm"
+        >
+          {playlists.map((pl, idx) => (
+            <option key={idx} value={idx}>
+              {pl.name}
+              {isPlaylistActive && activePlaylistIndex === idx ? ' ▶' : ''}
+            </option>
+          ))}
+        </select>
 
-          {/* Reorder mode toggle */}
-          <button
-            onClick={() => setReorderMode(!reorderMode)}
-            className={`p-2 rounded-lg transition-colors ${
-              reorderMode
-                ? 'bg-blue-600 hover:bg-blue-500 text-white'
-                : 'bg-gray-800 hover:bg-gray-700'
-            }`}
-            title={reorderMode ? 'Exit reorder mode' : 'Reorder entries'}
-          >
-            <Move size={20} />
-          </button>
+        {/* Reorder mode toggle */}
+        <button
+          onClick={() => setReorderMode(!reorderMode)}
+          className={`p-1.5 rounded-lg transition-colors ${
+            reorderMode
+              ? 'bg-blue-600 hover:bg-blue-500 text-white'
+              : 'bg-gray-800 hover:bg-gray-700'
+          }`}
+          title={reorderMode ? 'Exit reorder mode' : 'Reorder entries'}
+        >
+          <Move size={18} />
+        </button>
 
-          {/* CRUD buttons */}
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
-            title="Create playlist"
-          >
-            <Plus size={20} />
-          </button>
-          <button
-            onClick={() => {
-              setNewPlaylistName(currentPlaylist?.name ?? '');
-              setShowRenameModal(true);
-            }}
-            className="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
-            title="Rename playlist"
-          >
-            <Pencil size={20} />
-          </button>
-          <button
-            onClick={() => setShowDeleteModal(true)}
-            className="p-2 bg-gray-800 hover:bg-red-900 rounded-lg transition-colors"
-            title="Delete playlist"
-          >
-            <Trash2 size={20} />
-          </button>
-        </div>
-      </div>
+        {/* CRUD buttons */}
+        <button
+          onClick={() => setShowCreateModal(true)}
+          className="p-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
+          title="Create playlist"
+        >
+          <Plus size={18} />
+        </button>
+        <button
+          onClick={() => {
+            setNewPlaylistName(currentPlaylist?.name ?? '');
+            setShowRenameModal(true);
+          }}
+          className="p-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
+          title="Rename playlist"
+        >
+          <Pencil size={18} />
+        </button>
+        <button
+          onClick={() => setShowDeleteModal(true)}
+          className="p-1.5 bg-gray-800 hover:bg-red-900 rounded-lg transition-colors"
+          title="Delete playlist"
+        >
+          <Trash2 size={18} />
+        </button>
+      </ViewHeader>
 
       {/* Entry list */}
-      <div ref={listRef} className="flex-1 overflow-auto p-3">
+      <div ref={listRef} className="flex-1 overflow-auto">
         {currentPlaylist && currentPlaylist.entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <p className="text-gray-400 mb-4">This playlist is empty</p>

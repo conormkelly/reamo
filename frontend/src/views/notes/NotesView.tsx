@@ -6,6 +6,7 @@
 import { useEffect, useCallback, type ReactElement } from 'react';
 import { useReaperStore, getNotesIsDirty, getNotesIsOverLimit, getNotesCanSave } from '../../store';
 import { useReaper } from '../../components/ReaperProvider';
+import { ViewHeader } from '../../components';
 import { projectNotes } from '../../core/WebSocketCommands';
 
 const NOTES_LIMIT = 5000;
@@ -146,14 +147,18 @@ export function NotesView(): ReactElement {
   // Show loading state
   if (isLoading && serverNotes === null) {
     return (
-      <div data-view="notes" className="h-full bg-gray-950 text-white p-4 pt-14 flex flex-col items-center justify-center">
-        <p className="text-gray-400">Loading notes...</p>
+      <div data-view="notes" className="h-full bg-gray-950 text-white p-3 flex flex-col">
+        <ViewHeader currentView="notes" />
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-gray-400">Loading notes...</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div data-view="notes" className="h-full bg-gray-950 text-white p-4 pt-14 flex flex-col">
+    <div data-view="notes" className="h-full bg-gray-950 text-white p-3 flex flex-col">
+      <ViewHeader currentView="notes" />
       {/* Error display */}
       {notesError && (
         <div className="mb-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-200">

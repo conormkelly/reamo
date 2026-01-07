@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../../components/ReaperProvider';
+import { ViewHeader } from '../../components';
 import { actionToggleState } from '../../core/WebSocketCommands';
 import { ActionsSection, SectionEditor } from './components';
 import { ToolbarEditor } from '../../components/Toolbar/ToolbarEditor';
@@ -163,9 +164,9 @@ export function ActionsView(): ReactElement {
         : 'justify-start';
 
   return (
-    <div className="h-full bg-gray-950 text-white flex flex-col">
-      {/* Header - positioned to avoid burger menu and global ConnectionStatus */}
-      <div className="flex items-center justify-end gap-2 p-4 pt-2 pr-10">
+    <div className="h-full bg-gray-950 text-white flex flex-col p-3">
+      {/* Header with ViewHeader + edit controls */}
+      <ViewHeader currentView="actions">
         {/* Vertical alignment buttons (edit mode only) */}
         {editMode && (
           <div className="flex items-center border border-gray-600 rounded overflow-hidden">
@@ -217,7 +218,7 @@ export function ActionsView(): ReactElement {
           <Pencil size={16} />
           <span className="text-sm">{editMode ? 'Done' : 'Edit'}</span>
         </button>
-      </div>
+      </ViewHeader>
 
       {/* Content */}
       <div className={`flex-1 overflow-auto p-4 pt-0 flex flex-col ${verticalAlignClass}`}>
