@@ -267,6 +267,37 @@ pub fn jsonGetInt(data: []const u8, key: []const u8) ?c_int {
     return null;
 }
 
+/// Get a boolean value by key.
+/// Handles "key":true and "key":false (not quoted).
+pub fn jsonGetBool(data: []const u8, key: []const u8) ?bool {
+    var pattern_buf: [64]u8 = undefined;
+    const pattern = std.fmt.bufPrint(&pattern_buf, "\"{s}\"", .{key}) catch return null;
+
+    const key_start = std.mem.indexOf(u8, data, pattern) orelse return null;
+    const after_key = key_start + pattern.len;
+
+    // Find colon after key
+    const colon = std.mem.indexOfPos(u8, data, after_key, ":") orelse return null;
+
+    // Skip whitespace after colon
+    var pos = colon + 1;
+    while (pos < data.len and (data[pos] == ' ' or data[pos] == '\t')) {
+        pos += 1;
+    }
+
+    if (pos >= data.len) return null;
+
+    // Check for true/false
+    if (pos + 4 <= data.len and std.mem.eql(u8, data[pos..][0..4], "true")) {
+        return true;
+    }
+    if (pos + 5 <= data.len and std.mem.eql(u8, data[pos..][0..5], "false")) {
+        return false;
+    }
+
+    return null;
+}
+
 // =============================================================================
 // Nested JSON parsing helpers (for subscription commands)
 // =============================================================================
@@ -654,6 +685,26 @@ test "jsonGetString handles escaped quotes in string" {
     try std.testing.expect(result != null);
     // Raw result includes the escape sequences
     try std.testing.expectEqualStrings("say \\\"hello\\\"", result.?);
+}
+
+test "jsonGetBool true" {
+    const data = "{\"includeMaster\":true}";
+    try std.testing.expectEqual(true, jsonGetBool(data, "includeMaster").?);
+}
+
+test "jsonGetBool false" {
+    const data = "{\"includeMaster\":false}";
+    try std.testing.expectEqual(false, jsonGetBool(data, "includeMaster").?);
+}
+
+test "jsonGetBool missing key" {
+    const data = "{\"other\":true}";
+    try std.testing.expect(jsonGetBool(data, "includeMaster") == null);
+}
+
+test "jsonGetBool with whitespace" {
+    const data = "{ \"includeMaster\" : true }";
+    try std.testing.expectEqual(true, jsonGetBool(data, "includeMaster").?);
 }
 
 test "jsonGetIntFromObject basic" {

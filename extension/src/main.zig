@@ -571,7 +571,7 @@ fn doProcessing() !void {
     // Only poll tracks that clients have subscribed to (viewport-driven).
     // This saves CPU on large projects (1000+ tracks) by not polling everything.
     const high_alloc = tiered.high.currentAllocator();
-    const total_tracks: usize = @intCast(@max(0, backend.trackCount()) + 1); // +1 for master
+    const total_tracks: usize = @intCast(@max(0, backend.trackCount())); // User tracks only (master handled separately)
 
     if (g_track_subs) |track_subs| {
         if (track_subs.hasSubscriptions()) {

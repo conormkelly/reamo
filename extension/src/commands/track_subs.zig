@@ -19,6 +19,9 @@ pub var g_track_subs: ?*track_subscriptions.TrackSubscriptions = null;
 /// GUID mode - subscribe to specific tracks by GUID:
 /// { "command": "track/subscribe", "guids": ["master", "{AAA...}"], "id": "2" }
 ///
+/// Optional includeMaster (default false) - always include master track:
+/// { "command": "track/subscribe", "range": {"start": 5, "end": 10}, "includeMaster": true, "id": "3" }
+///
 /// Response:
 /// { "type": "response", "id": "1", "success": true, "payload": {"subscribedCount": 32} }
 pub fn handleSubscribe(_: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
@@ -27,13 +30,16 @@ pub fn handleSubscribe(_: anytype, cmd: protocol.CommandMessage, response: *mod.
         return;
     };
 
+    // Parse optional includeMaster flag (defaults to false)
+    const include_master = protocol.jsonGetBool(cmd.raw, "includeMaster") orelse false;
+
     // Try range mode first
     const start = protocol.jsonGetIntFromObject(cmd.raw, "range", "start");
     const end = protocol.jsonGetIntFromObject(cmd.raw, "range", "end");
 
     if (start != null and end != null) {
         // Range mode
-        const count = subs.subscribeRange(response.client_id, start.?, end.?) catch |err| {
+        const count = subs.subscribeRange(response.client_id, start.?, end.?, include_master) catch |err| {
             switch (err) {
                 error.TooManyClients => response.err("TOO_MANY_CLIENTS", "Maximum client limit reached"),
             }
@@ -69,7 +75,7 @@ pub fn handleSubscribe(_: anytype, cmd: protocol.CommandMessage, response: *mod.
             guid_slices[i] = guid_bufs[i][0..guid_lens[i]];
         }
 
-        const subscribed = subs.subscribeGuids(response.client_id, guid_slices[0..count]) catch |err| {
+        const subscribed = subs.subscribeGuids(response.client_id, guid_slices[0..count], include_master) catch |err| {
             switch (err) {
                 error.TooManyClients => response.err("TOO_MANY_CLIENTS", "Maximum client limit reached"),
             }

@@ -45,12 +45,16 @@ pub const ClientSubscription = struct {
     guid_lens: [MAX_GUIDS_PER_CLIENT]usize = [_]usize{0} ** MAX_GUIDS_PER_CLIENT,
     guid_count: usize = 0,
 
+    // Always include master track (for pinned master meter display)
+    include_master: bool = false,
+
     /// Clear subscription state.
     pub fn clear(self: *ClientSubscription) void {
         self.mode = .none;
         self.range_start = 0;
         self.range_end = 0;
         self.guid_count = 0;
+        self.include_master = false;
     }
 
     /// Get stored GUID at index.
@@ -122,12 +126,13 @@ pub const TrackSubscriptions = struct {
     }
 
     /// Subscribe by range (unified indices). Replaces any existing subscription.
-    /// Returns the number of tracks in the range.
+    /// Returns the number of tracks in the range (plus master if includeMaster and not in range).
     pub fn subscribeRange(
         self: *TrackSubscriptions,
         client_id: usize,
         start: c_int,
         end: c_int,
+        include_master: bool,
     ) !usize {
         const slot = self.getOrCreateSlot(client_id) orelse return error.TooManyClients;
         const client = &self.clients[slot];
@@ -140,17 +145,23 @@ pub const TrackSubscriptions = struct {
         client.mode = .range;
         client.range_start = @max(0, start);
         client.range_end = @max(client.range_start, end);
+        client.include_master = include_master;
 
-        const count: usize = @intCast(client.range_end - client.range_start + 1);
+        var count: usize = @intCast(client.range_end - client.range_start + 1);
+        // Add 1 for master if requested and not already in range
+        if (include_master and client.range_start > 0) {
+            count += 1;
+        }
         return count;
     }
 
     /// Subscribe by GUID list. Replaces any existing subscription.
-    /// Returns the number of GUIDs stored (may differ from resolved tracks).
+    /// Returns the number of GUIDs stored plus master if includeMaster (may differ from resolved tracks).
     pub fn subscribeGuids(
         self: *TrackSubscriptions,
         client_id: usize,
         guids: []const []const u8,
+        include_master: bool,
     ) !usize {
         const slot = self.getOrCreateSlot(client_id) orelse return error.TooManyClients;
         const client = &self.clients[slot];
@@ -162,10 +173,18 @@ pub const TrackSubscriptions = struct {
 
         client.mode = .guids;
         client.guid_count = 0;
+        client.include_master = include_master;
+
+        // Check if master is already in the GUID list
+        var has_master = false;
 
         // Store GUIDs (resolution happens at poll time)
         for (guids) |guid| {
             if (client.guid_count >= MAX_GUIDS_PER_CLIENT) break;
+
+            if (std.mem.eql(u8, guid, "master")) {
+                has_master = true;
+            }
 
             const len = @min(guid.len, 40);
             @memcpy(client.guids[client.guid_count][0..len], guid[0..len]);
@@ -173,7 +192,12 @@ pub const TrackSubscriptions = struct {
             client.guid_count += 1;
         }
 
-        return client.guid_count;
+        var count = client.guid_count;
+        // Add 1 for master if requested and not already in GUID list
+        if (include_master and !has_master) {
+            count += 1;
+        }
+        return count;
     }
 
     /// Clear ref counts for a client's GUID subscriptions.
@@ -230,6 +254,11 @@ pub const TrackSubscriptions = struct {
         var slot_iter = self.client_id_to_slot.valueIterator();
         while (slot_iter.next()) |slot| {
             const client = &self.clients[slot.*];
+
+            // Always include master if client requested it
+            if (client.include_master) {
+                seen.put(0, {}) catch {};
+            }
 
             switch (client.mode) {
                 .none => {},
@@ -340,7 +369,7 @@ test "subscribeRange basic" {
     var subs = TrackSubscriptions.init(allocator);
     defer subs.deinit();
 
-    const count = try subs.subscribeRange(1, 0, 9);
+    const count = try subs.subscribeRange(1, 0, 9, false);
     try std.testing.expectEqual(@as(usize, 10), count);
     try std.testing.expect(subs.hasSubscriptions());
 }
@@ -351,7 +380,7 @@ test "subscribeGuids basic" {
     defer subs.deinit();
 
     const guids = [_][]const u8{ "master", "{00000001}" };
-    const count = try subs.subscribeGuids(1, &guids);
+    const count = try subs.subscribeGuids(1, &guids, false);
     try std.testing.expectEqual(@as(usize, 2), count);
     try std.testing.expect(subs.hasSubscriptions());
 }
@@ -361,7 +390,7 @@ test "unsubscribe clears subscription" {
     var subs = TrackSubscriptions.init(allocator);
     defer subs.deinit();
 
-    _ = try subs.subscribeRange(1, 0, 9);
+    _ = try subs.subscribeRange(1, 0, 9, false);
     try std.testing.expect(subs.hasSubscriptions());
 
     subs.unsubscribe(1);
@@ -376,7 +405,7 @@ test "removeClient adds to grace period" {
     var subs = TrackSubscriptions.init(allocator);
     defer subs.deinit();
 
-    _ = try subs.subscribeRange(1, 0, 2);
+    _ = try subs.subscribeRange(1, 0, 2, false);
     subs.removeClient(1);
 
     // Should have 3 tracks in grace period (indices 0, 1, 2)
@@ -396,7 +425,7 @@ test "getSubscribedIndices with range" {
     defer cache.deinit();
     try cache.rebuild(&mock);
 
-    _ = try subs.subscribeRange(1, 0, 4);
+    _ = try subs.subscribeRange(1, 0, 4, false);
 
     var buf: [32]c_int = undefined;
     const indices = subs.getSubscribedIndices(&cache, &mock, &buf);
@@ -422,7 +451,7 @@ test "getSubscribedIndices with GUIDs" {
 
     // Subscribe to master and track 3 by GUID
     const guids = [_][]const u8{ "master", "{00000000-0000-0000-0000-000000000003}" };
-    _ = try subs.subscribeGuids(1, &guids);
+    _ = try subs.subscribeGuids(1, &guids, false);
 
     var buf: [32]c_int = undefined;
     const indices = subs.getSubscribedIndices(&cache, &mock, &buf);
@@ -447,9 +476,9 @@ test "multiple clients combined" {
     try cache.rebuild(&mock);
 
     // Client 1: range 0-2
-    _ = try subs.subscribeRange(1, 0, 2);
+    _ = try subs.subscribeRange(1, 0, 2, false);
     // Client 2: range 2-4 (overlaps)
-    _ = try subs.subscribeRange(2, 2, 4);
+    _ = try subs.subscribeRange(2, 2, 4, false);
 
     var buf: [32]c_int = undefined;
     const indices = subs.getSubscribedIndices(&cache, &mock, &buf);
@@ -458,22 +487,75 @@ test "multiple clients combined" {
     try std.testing.expectEqual(@as(usize, 5), indices.len);
 }
 
+test "includeMaster adds master to range subscription" {
+    const allocator = std.testing.allocator;
+    var subs = TrackSubscriptions.init(allocator);
+    defer subs.deinit();
+
+    const reaper = @import("reaper.zig");
+    var mock = reaper.mock();
+    mock.track_count = 10;
+
+    var cache = GuidCache.init(allocator);
+    defer cache.deinit();
+    try cache.rebuild(&mock);
+
+    // Subscribe to range 5-7 with includeMaster
+    const count = try subs.subscribeRange(1, 5, 7, true);
+    try std.testing.expectEqual(@as(usize, 4), count); // 3 tracks + master
+
+    var buf: [32]c_int = undefined;
+    const indices = subs.getSubscribedIndices(&cache, &mock, &buf);
+
+    try std.testing.expectEqual(@as(usize, 4), indices.len);
+    // Should have master (0) plus 5,6,7
+    try std.testing.expectEqual(@as(c_int, 0), indices[0]);
+    try std.testing.expectEqual(@as(c_int, 5), indices[1]);
+}
+
+test "includeMaster with GUID subscription" {
+    const allocator = std.testing.allocator;
+    var subs = TrackSubscriptions.init(allocator);
+    defer subs.deinit();
+
+    const reaper = @import("reaper.zig");
+    var mock = reaper.mock();
+    mock.track_count = 5;
+
+    var cache = GuidCache.init(allocator);
+    defer cache.deinit();
+    try cache.rebuild(&mock);
+
+    // Subscribe to track 3 only, but with includeMaster
+    const guids = [_][]const u8{"{00000000-0000-0000-0000-000000000003}"};
+    const count = try subs.subscribeGuids(1, &guids, true);
+    try std.testing.expectEqual(@as(usize, 2), count); // 1 GUID + master
+
+    var buf: [32]c_int = undefined;
+    const indices = subs.getSubscribedIndices(&cache, &mock, &buf);
+
+    try std.testing.expectEqual(@as(usize, 2), indices.len);
+    // Sorted: master (0), track 3
+    try std.testing.expectEqual(@as(c_int, 0), indices[0]);
+    try std.testing.expectEqual(@as(c_int, 3), indices[1]);
+}
+
 test "switching subscription modes" {
     const allocator = std.testing.allocator;
     var subs = TrackSubscriptions.init(allocator);
     defer subs.deinit();
 
     // Start with range
-    _ = try subs.subscribeRange(1, 0, 9);
+    _ = try subs.subscribeRange(1, 0, 9, false);
     const slot = subs.client_id_to_slot.get(1).?;
     try std.testing.expectEqual(SubscriptionMode.range, subs.clients[slot].mode);
 
     // Switch to GUIDs
     const guids = [_][]const u8{"master"};
-    _ = try subs.subscribeGuids(1, &guids);
+    _ = try subs.subscribeGuids(1, &guids, false);
     try std.testing.expectEqual(SubscriptionMode.guids, subs.clients[slot].mode);
 
     // Switch back to range
-    _ = try subs.subscribeRange(1, 5, 10);
+    _ = try subs.subscribeRange(1, 5, 10, false);
     try std.testing.expectEqual(SubscriptionMode.range, subs.clients[slot].mode);
 }

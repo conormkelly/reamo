@@ -177,6 +177,7 @@ const ClientSubscription = struct {
     range_start: c_int = 0,
     range_end: c_int = 0,
     guids: std.ArrayList([]const u8),  // Owned copies
+    include_master: bool = false,  // Always include master track regardless of range/guids
 };
 ```
 
@@ -215,11 +216,20 @@ pub fn handleTrackUnsubscribe(api: anytype, client_id: usize, json: JsonObject, 
   "id": "2"
 }
 
+// Range subscription with pinned master (for mixer views that always show master)
+{
+  "type": "command",
+  "command": "track/subscribe",
+  "range": {"start": 5, "end": 10},
+  "includeMaster": true,
+  "id": "3"
+}
+
 // Unsubscribe
 {
   "type": "command",
   "command": "track/unsubscribe",
-  "id": "3"
+  "id": "4"
 }
 ```
 
@@ -269,8 +279,8 @@ if (indices.len > 0) {
     const track_state = tracks.State.pollIndices(high_alloc, &backend, indices);
     high_state.tracks = track_state.tracks;
 
-    // Get total track count for client virtual scrolling
-    const total: usize = @intCast(@max(0, backend.trackCount()) + 1);
+    // Get user track count for client virtual scrolling (excludes master)
+    const total: usize = @intCast(@max(0, backend.trackCount()));
 
     // Broadcast with total
     if (track_state.toJsonAllocWithTotal(scratch, metering_ptr, total)) |json| {
@@ -312,7 +322,7 @@ if (indices.len > 0) {
 ```
 
 Key changes:
-- `total` field shows project track count (for virtual scroll sizing)
+- `total` field shows user track count, excludes master (for virtual scroll sizing)
 - Each track includes `guid` field
 - Only subscribed tracks are present in array
 
@@ -498,6 +508,24 @@ Subscribe to track updates. Replaces any previous subscription.
 }
 ```
 
+**Optional `includeMaster` parameter:**
+
+When `includeMaster: true` is set, the master track (index 0) is always included in the subscription regardless of the range or GUID list. This is useful for mixer views that have a "pinned" master track strip that's always visible even when scrolling through other tracks.
+
+```json
+{
+  "type": "command",
+  "command": "track/subscribe",
+  "range": {"start": 5, "end": 10},
+  "includeMaster": true,
+  "id": "1"
+}
+```
+
+This would subscribe to tracks 5-10 plus the master track (7 tracks total).
+
+**Use case:** A mixer UI might want to always display the master fader for overall level monitoring/metering, while the user scrolls through tracks 5-10 in the main viewport. Without `includeMaster`, the client would need to include "master" in a GUID subscription, which is less convenient for range-based scrolling scenarios.
+
 **Response:**
 ```json
 {"type": "response", "id": "1", "success": true, "payload": {"subscribedCount": 32}}
@@ -594,7 +622,7 @@ Broadcast at 30Hz. Only contains subscribed tracks.
 ```
 
 **New fields:**
-- `total` — Total track count in project (for virtual scroll)
+- `total` — User track count, excludes master (for virtual scroll)
 - `guid` — Track GUID (per track)
 
 **Behavior change:**
@@ -634,6 +662,17 @@ echo '{"type":"hello","clientVersion":"1.0.0","protocolVersion":1,"token":"'$TOK
 ```
 
 Expected: Response with subscribedCount, then tracks events with only indices 0-5.
+
+### Test Range Subscription with Pinned Master
+
+```bash
+(echo '{"type":"hello","clientVersion":"1.0.0","protocolVersion":1,"token":"'$TOKEN'"}'
+ sleep 0.2
+ echo '{"type":"command","command":"track/subscribe","range":{"start":5,"end":7},"includeMaster":true,"id":"sub1"}'
+ sleep 1) | websocat ws://localhost:9224 2>&1 | grep -E "(response|tracks)"
+```
+
+Expected: Response with `subscribedCount: 4` (tracks 5-7 = 3 + master = 4), then tracks events containing idx 0 (master) plus idx 5, 6, 7.
 
 ### Test GUID Subscription
 
@@ -702,6 +741,8 @@ test "getSubscribedIndices includes grace tracks" { ... }
 test "expireGracePeriods removes old entries" { ... }
 test "removeClient cleans up everything" { ... }
 test "multiple clients same track" { ... }
+test "includeMaster adds master to range subscription" { ... }
+test "includeMaster adds master to GUID subscription" { ... }
 ```
 
 ### tracks.zig
@@ -749,6 +790,7 @@ test "toJson includes total field" { ... }
 - [ ] Connect via websocat, receive skeleton
 - [ ] Subscribe by range, receive only those tracks
 - [ ] Subscribe by GUID, receive only those tracks
+- [ ] Subscribe with `includeMaster: true`, receive master + range tracks
 - [ ] Unsubscribe, stop receiving tracks
 - [ ] Write command with trackGuid works
 - [ ] Write command with "master" GUID works

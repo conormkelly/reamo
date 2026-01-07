@@ -1095,6 +1095,7 @@ Subscribe to track updates. Replaces any previous subscription for this client. 
 |-----------|------|----------|-------------|
 | `range.start` | int | Yes | Start index (inclusive, 0 = master) |
 | `range.end` | int | Yes | End index (inclusive) |
+| `includeMaster` | bool | No | Always include master track (default: false) |
 
 ```json
 {"type": "command", "command": "track/subscribe", "range": {"start": 0, "end": 31}, "id": "1"}
@@ -1105,9 +1106,16 @@ Subscribe to track updates. Replaces any previous subscription for this client. 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `guids` | string[] | Yes | Array of track GUIDs (max 64). Use `"master"` for master track. |
+| `includeMaster` | bool | No | Always include master track (default: false) |
 
 ```json
 {"type": "command", "command": "track/subscribe", "guids": ["master", "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"], "id": "2"}
+```
+
+**With pinned master** — Useful when you want the master track for metering regardless of the current filter/scroll position:
+
+```json
+{"type": "command", "command": "track/subscribe", "range": {"start": 10, "end": 20}, "includeMaster": true, "id": "3"}
 ```
 
 **Response:**
@@ -2146,7 +2154,7 @@ Broadcast at 30Hz for subscribed tracks only. Clients must call `track/subscribe
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `total` | int | Total track count in project (for virtual scroll sizing) |
+| `total` | int | User track count (excludes master, for virtual scroll sizing) |
 | `tracks[].idx` | int | Track index (0=master, 1+=user tracks) |
 | `tracks[].guid` | string | Track GUID (`"master"` for master track) — use for write commands |
 | `tracks[].name` | string | Track name |
@@ -2179,7 +2187,7 @@ Broadcast at 30Hz for subscribed tracks only. Clients must call `track/subscribe
 **Notes:**
 - Clients must call `track/subscribe` to receive tracks events — no subscription means no track data
 - Only subscribed tracks are included in the `tracks` array
-- `total` is always the full project track count (for virtual scrollbar sizing)
+- `total` is user track count only (excludes master) for virtual scrollbar sizing
 - Meters only included for tracks that are record-armed AND input-monitoring
 - FX and sends are polled at 5Hz (for efficiency) but included in the 30Hz track events
 - Max 64 FX per track, max 16 sends per track
