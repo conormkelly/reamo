@@ -16,7 +16,7 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 - [Region](#region-commands) — add, update, delete, goto
 - [Item](#item-commands) — setActiveTake, move, setColor, delete, getPeaks, getNotes, getTakes
 - [Take](#take-commands) — deleteCurrent, cropToActive
-- [Track](#track-commands) — setVolume, setPan, setMute, setSolo, setRecArm, setRecMon, rename, create, duplicate, delete, getFx, getSends
+- [Track](#track-commands) — setVolume, setPan, setMute, setSolo, setRecArm, setRecMon, rename, create, duplicate, delete, getFx, getSends, subscribe, unsubscribe
 - [Master](#master-commands) — toggleMono
 - [Tempo](#tempo-commands) — set, tap
 - [Time Signature](#time-signature-commands) — set
@@ -34,7 +34,7 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 - [Debug](#debug-commands) — memoryStats
 
 **Events**
-- [Events (Broadcast)](#events-broadcast) — transport, tracks, markers, regions, items, project
+- [Events (Broadcast)](#events-broadcast) — transport, trackSkeleton, tracks, markers, regions, items, project
 
 **Reference**
 - [Limits](#limits)
@@ -762,7 +762,13 @@ Delete all takes except the active one from selected items.
 
 ## Track Commands
 
-Tracks are identified by index (0-based).
+Tracks are identified by unified index (0=master, 1+=user tracks) OR by GUID.
+
+**Track Identification:**
+- `trackIdx` — Positional index. Simple but shifts when tracks reorder.
+- `trackGuid` — Stable GUID from `trackSkeleton` event. Use during gestures (fader drags) to avoid targeting wrong track if user reorders mid-gesture. Master track uses `"master"` as GUID.
+
+All track write commands (`setVolume`, `setPan`, `setMute`, etc.) accept either parameter. If both provided, `trackGuid` takes precedence.
 
 ### `track/setVolume`
 
@@ -1076,6 +1082,62 @@ Get full send detail for a single track with pagination support. Use for on-dema
 | `volume` | float | Send volume (0.0 to ∞, 1.0 = 0dB) |
 | `muted` | bool | Whether send is muted |
 | `mode` | int | Send mode (0=post-fader, 1=pre-fx, 3=pre-fader) |
+
+### `track/subscribe`
+
+Subscribe to track updates. Replaces any previous subscription for this client. Only subscribed tracks are included in the `tracks` event at 30Hz.
+
+**Two mutually exclusive modes:**
+
+**Range mode** — For scrolling through mixer. Subscribe to index slots (whatever tracks are at those positions):
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `range.start` | int | Yes | Start index (inclusive, 0 = master) |
+| `range.end` | int | Yes | End index (inclusive) |
+
+```json
+{"type": "command", "command": "track/subscribe", "range": {"start": 0, "end": 31}, "id": "1"}
+```
+
+**GUID mode** — For filtered views. Subscribe to specific tracks by GUID (stable even when tracks reorder):
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `guids` | string[] | Yes | Array of track GUIDs (max 64). Use `"master"` for master track. |
+
+```json
+{"type": "command", "command": "track/subscribe", "guids": ["master", "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"], "id": "2"}
+```
+
+**Response:**
+
+```json
+{"type": "response", "id": "1", "success": true, "payload": {"subscribedCount": 32}}
+```
+
+**Errors:**
+- `TOO_MANY_CLIENTS` — Maximum client limit reached (16 clients)
+- `INVALID_PARAMS` — Neither range nor guids parameter provided
+
+**Notes:**
+- Subscriptions include a 500ms grace period — when tracks leave the viewport, they continue being polled briefly for smoother scroll UX
+- New clients receive a `trackSkeleton` event on connect (names + GUIDs for all tracks) to enable filtering and subscription
+- Clients must subscribe to receive `tracks` events — no subscription means no track data
+
+### `track/unsubscribe`
+
+Unsubscribe from all track updates for this client. Called automatically on disconnect.
+
+```json
+{"type": "command", "command": "track/unsubscribe", "id": "1"}
+```
+
+**Response:**
+
+```json
+{"type": "response", "id": "1", "success": true}
+```
 
 ---
 
@@ -2003,18 +2065,49 @@ Lightweight transport tick event sent during playback when only position changes
 - `TransportSyncEngine` uses `tt` events for clock-synchronized beat display
 - `TransportAnimationEngine` uses the `p` field to correct client-side interpolation after seeks
 
+### `trackSkeleton` Event
+
+Lightweight track list broadcast at 1Hz when structure changes (add/delete/rename/reorder). Contains name + GUID for all tracks. Use for client-side filtering and search — subscribe to specific tracks for full data.
+
+```json
+{
+  "type": "event",
+  "event": "trackSkeleton",
+  "tracks": [
+    {"n": "MASTER", "g": "master"},
+    {"n": "Drums", "g": "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"},
+    {"n": "Bass", "g": "{YYYYYYYY-YYYY-YYYY-YYYY-YYYYYYYYYYYY}"}
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tracks[].n` | string | Track name |
+| `tracks[].g` | string | Track GUID (`"master"` for master track) |
+
+**Notes:**
+- Sent on connect (snapshot) and whenever track structure changes
+- Array index = unified track index (0 = master, 1+ = user tracks)
+- ~65 bytes per track with JSON overhead (1000 tracks ≈ 65KB)
+- Use GUIDs for `track/subscribe` GUID mode and `trackGuid` write command parameters
+
 ### `tracks` Event
+
+Broadcast at 30Hz for subscribed tracks only. Clients must call `track/subscribe` to receive this event.
 
 ```json
 {
   "type": "event",
   "event": "tracks",
   "payload": {
+    "total": 847,
     "tracks": [
       {
         "idx": 0,
-        "name": "Drums",
-        "color": 16711680,
+        "guid": "master",
+        "name": "MASTER",
+        "color": 0,
         "volume": 1.0000,
         "pan": 0.000,
         "mute": false,
@@ -2053,7 +2146,9 @@ Lightweight transport tick event sent during playback when only position changes
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `total` | int | Total track count in project (for virtual scroll sizing) |
 | `tracks[].idx` | int | Track index (0=master, 1+=user tracks) |
+| `tracks[].guid` | string | Track GUID (`"master"` for master track) — use for write commands |
 | `tracks[].name` | string | Track name |
 | `tracks[].color` | int | Track color (native OS format, 0=default) |
 | `tracks[].volume` | float | Volume (1.0 = 0dB) |
@@ -2081,9 +2176,13 @@ Lightweight transport tick event sent during playback when only position changes
 | `meters[].peakL/R` | float | Peak level (0.0-1.0+, 1.0 = 0dB) |
 | `meters[].clipped` | bool | Clip indicator (sticky until cleared) |
 
-**Note:** Meters only included for tracks that are record-armed AND input-monitoring.
-
-**Note:** FX and sends are polled at 5Hz (for efficiency) but included in the 30Hz track events. Max 64 FX per track, max 16 sends per track.
+**Notes:**
+- Clients must call `track/subscribe` to receive tracks events — no subscription means no track data
+- Only subscribed tracks are included in the `tracks` array
+- `total` is always the full project track count (for virtual scrollbar sizing)
+- Meters only included for tracks that are record-armed AND input-monitoring
+- FX and sends are polled at 5Hz (for efficiency) but included in the 30Hz track events
+- Max 64 FX per track, max 16 sends per track
 
 ### `markers` Event
 

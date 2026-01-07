@@ -113,6 +113,8 @@ pub const Method = enum {
     getTrackSelected,
     getTrackColor,
     getTrackFolderDepth,
+    formatTrackGuid,
+    getTrackIdx,
     getSelectedTrackByIdx,
     isMasterMuted,
     isMasterSoloed,

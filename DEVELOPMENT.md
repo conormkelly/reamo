@@ -284,6 +284,52 @@ test "transport/play runs correct command" {
 
 5. **React components** consume via hooks (`useTrack`, `useTracks`)
 
+### Viewport-Driven Track Subscriptions
+
+Large projects (1000+ tracks) cannot poll all tracks at 30Hz — the JSON alone would be megabytes per second. The extension uses a **subscription-based** model where clients declare which tracks they need.
+
+**Architecture:**
+
+```
+┌─────────────────────┐     ┌──────────────────────┐
+│  TrackSkeleton      │     │  TrackSubscriptions  │
+│  (1Hz LOW tier)     │     │  (per-client state)  │
+│                     │     │                      │
+│  Poll name + GUID   │────►│  Range mode: [0..31] │
+│  for ALL tracks     │     │  GUID mode: [guids]  │
+│  Broadcast on change│     │                      │
+└─────────────────────┘     └──────────────────────┘
+          │                            │
+          ▼                            ▼
+┌─────────────────────┐     ┌──────────────────────┐
+│  GuidCache          │     │  Selective Polling   │
+│  (rebuild on change)│     │  (30Hz HIGH tier)    │
+│                     │     │                      │
+│  GUID → track ptr   │────►│  Only poll tracks    │
+│  O(1) lookup        │     │  with subscriptions  │
+└─────────────────────┘     └──────────────────────┘
+```
+
+**Key components:**
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| `TrackSkeleton` | `track_skeleton.zig` | Lightweight list (name + GUID) for all tracks. Polled at 1Hz. |
+| `TrackSubscriptions` | `track_subscriptions.zig` | Per-client subscription state. Range or GUID mode. |
+| `GuidCache` | `guid_cache.zig` | O(1) GUID → track pointer lookup for write commands. |
+
+**Subscription modes:**
+
+1. **Range mode** — Client subscribes to index slots `[start, end]`. For scrollable mixer views where tracks slide in/out as user scrolls.
+
+2. **GUID mode** — Client subscribes to specific track GUIDs. For filtered views where track set is stable but positions may change.
+
+**Grace period:** 500ms. When a track leaves the viewport, it stays subscribed briefly for smoother scroll UX.
+
+**Write commands with GUIDs:** During fader gestures, the user might reorder tracks. If the client sends `trackIdx=5` but the user just moved that track to position 8, the wrong track gets modified. Use `trackGuid` parameter instead — GUIDs are stable across reordering.
+
+**Total count:** The `tracks` event includes `total` (all tracks in project) so clients can render accurate virtual scrollbars even when only receiving a subset of tracks.
+
 ## Conventions
 
 ### Undo Blocks

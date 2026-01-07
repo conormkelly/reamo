@@ -205,6 +205,10 @@ pub const Api = struct {
     // Pointer validation
     validatePtr2_fn: ?*const fn (?*anyopaque, ?*anyopaque, [*:0]const u8) callconv(.c) bool = null,
 
+    // GUID functions
+    getTrackGUID: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque = null, // Returns GUID*
+    guidToString_fn: ?*const fn (?*anyopaque, [*]u8) callconv(.c) void = null,
+
     // Load API from REAPER plugin info
     pub fn load(info: *PluginInfo) ?Api {
         const showConsoleMsg = getFunc(info, "ShowConsoleMsg", fn ([*:0]const u8) callconv(.c) void) orelse return null;
@@ -348,6 +352,9 @@ pub const Api = struct {
             .getMainHwnd_fn = getFunc(info, "GetMainHwnd", fn () callconv(.c) ?*anyopaque),
             // Pointer validation
             .validatePtr2_fn = getFunc(info, "ValidatePtr2", fn (?*anyopaque, ?*anyopaque, [*:0]const u8) callconv(.c) bool),
+            // GUID functions
+            .getTrackGUID = getFunc(info, "GetTrackGUID", fn (?*anyopaque) callconv(.c) ?*anyopaque),
+            .guidToString_fn = getFunc(info, "guidToString", fn (?*anyopaque, [*]u8) callconv(.c) void),
         };
     }
 

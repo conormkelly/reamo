@@ -103,8 +103,16 @@ pub const Track = struct {
     send_count: u16 = 0,
     receive_count: u16 = 0,
 
+    // GUID for stable track identification (master uses "master", user tracks use REAPER GUID)
+    guid: [40]u8 = undefined,
+    guid_len: usize = 0,
+
     pub fn getName(self: *const Track) []const u8 {
         return self.name[0..self.name_len];
+    }
+
+    pub fn getGuid(self: *const Track) []const u8 {
+        return self.guid[0..self.guid_len];
     }
 
     pub fn eql(self: Track, other: Track) bool {
@@ -125,6 +133,9 @@ pub const Track = struct {
         if (self.fx_count != other.fx_count) return false;
         if (self.send_count != other.send_count) return false;
         if (self.receive_count != other.receive_count) return false;
+        // Compare GUID
+        if (self.guid_len != other.guid_len) return false;
+        if (!std.mem.eql(u8, self.guid[0..self.guid_len], other.guid[0..other.guid_len])) return false;
         return true;
     }
 
@@ -216,6 +227,19 @@ pub const State = struct {
                 t.send_count = if (send_c >= 0) @intCast(send_c) else 0;
                 const recv_c = api.trackReceiveCount(track);
                 t.receive_count = if (recv_c >= 0) @intCast(recv_c) else 0;
+
+                // GUID for stable identification (master uses literal "master")
+                if (idx == 0) {
+                    const master_guid = "master";
+                    @memcpy(t.guid[0..master_guid.len], master_guid);
+                    t.guid_len = master_guid.len;
+                } else {
+                    var guid_buf: [64]u8 = undefined;
+                    const guid = api.formatTrackGuid(track, &guid_buf);
+                    const guid_copy_len = @min(guid.len, 40);
+                    @memcpy(t.guid[0..guid_copy_len], guid[0..guid_copy_len]);
+                    t.guid_len = guid_copy_len;
+                }
             } else {
                 // Track disappeared between count and fetch - use empty
                 t.* = Track{};
@@ -223,6 +247,76 @@ pub const State = struct {
         }
 
         return .{ .tracks = tracks };
+    }
+
+    /// Poll only specific track indices (for viewport-driven subscriptions).
+    /// Indices should be unified (0 = master, 1+ = user tracks).
+    /// Invalid indices are silently skipped.
+    pub fn pollIndices(allocator: Allocator, api: anytype, indices: []const c_int) Allocator.Error!State {
+        if (indices.len == 0) {
+            return .{ .tracks = &.{} };
+        }
+
+        const tracks = try allocator.alloc(Track, indices.len);
+        var out_idx: usize = 0;
+
+        for (indices) |idx| {
+            if (api.getTrackByUnifiedIdx(idx)) |track| {
+                const t = &tracks[out_idx];
+                t.* = Track{};
+                t.idx = idx;
+
+                // Get track name
+                var name_buf: [MAX_NAME_LEN]u8 = undefined;
+                const name = api.getTrackNameStr(track, &name_buf);
+                const name_copy_len = @min(name.len, MAX_NAME_LEN);
+                @memcpy(t.name[0..name_copy_len], name[0..name_copy_len]);
+                t.name_len = name_copy_len;
+
+                t.color = api.getTrackColor(track) catch null;
+                t.volume = api.getTrackVolume(track);
+                t.pan = api.getTrackPan(track);
+
+                if (idx == 0) {
+                    t.mute = api.isMasterMuted();
+                    t.solo = if (api.isMasterSoloed()) 1 else 0;
+                } else {
+                    t.mute = api.getTrackMute(track);
+                    t.solo = api.getTrackSolo(track) catch null;
+                }
+
+                t.rec_arm = api.getTrackRecArm(track);
+                t.rec_mon = api.getTrackRecMon(track) catch null;
+                t.fx_enabled = api.getTrackFxEnabled(track);
+                t.selected = api.getTrackSelected(track);
+                t.folder_depth = api.getTrackFolderDepth(track);
+
+                const fx_c = api.trackFxCount(track);
+                t.fx_count = if (fx_c >= 0) @intCast(fx_c) else 0;
+                const send_c = api.trackSendCount(track);
+                t.send_count = if (send_c >= 0) @intCast(send_c) else 0;
+                const recv_c = api.trackReceiveCount(track);
+                t.receive_count = if (recv_c >= 0) @intCast(recv_c) else 0;
+
+                // GUID for stable identification
+                if (idx == 0) {
+                    const master_guid = "master";
+                    @memcpy(t.guid[0..master_guid.len], master_guid);
+                    t.guid_len = master_guid.len;
+                } else {
+                    var guid_buf: [64]u8 = undefined;
+                    const guid = api.formatTrackGuid(track, &guid_buf);
+                    const guid_copy_len = @min(guid.len, 40);
+                    @memcpy(t.guid[0..guid_copy_len], guid[0..guid_copy_len]);
+                    t.guid_len = guid_copy_len;
+                }
+
+                out_idx += 1;
+            }
+            // Skip invalid indices silently
+        }
+
+        return .{ .tracks = tracks[0..out_idx] };
     }
 
     // =========================================================================
@@ -369,6 +463,92 @@ pub const State = struct {
         var buf: [16384]u8 = undefined;
         const json = self.toJson(&buf, metering) orelse return error.JsonSerializationFailed;
         return allocator.dupe(u8, json);
+    }
+
+    /// Build JSON event with total track count (for viewport-driven subscriptions).
+    /// Includes "total" field so clients know how many tracks exist even when only receiving a subset.
+    /// Also includes GUID ("g") for each track for stable identification.
+    /// Format: {"type":"event","event":"tracks","payload":{"total":N,"tracks":[...],"meters":[...]}}
+    pub fn toJsonWithTotal(self: *const State, buf: []u8, metering: ?*const MeteringState, total: usize) ?[]const u8 {
+        var stream = std.io.fixedBufferStream(buf);
+        const writer = stream.writer();
+
+        writer.print("{{\"type\":\"event\",\"event\":\"tracks\",\"payload\":{{\"total\":{d},\"tracks\":[", .{total}) catch return null;
+
+        for (self.tracks, 0..) |*t, i| {
+            if (i > 0) writer.writeByte(',') catch return null;
+            writer.print("{{\"idx\":{d},\"g\":\"", .{t.idx}) catch return null;
+            protocol.writeJsonString(writer, t.getGuid()) catch return null;
+            writer.writeAll("\",\"name\":\"") catch return null;
+            protocol.writeJsonString(writer, t.getName()) catch return null;
+            writer.writeAll("\",\"color\":") catch return null;
+
+            if (t.color) |c| {
+                writer.print("{d}", .{c}) catch return null;
+            } else {
+                writer.writeAll("null") catch return null;
+            }
+
+            writer.print(",\"volume\":{d:.4},\"pan\":{d:.3},\"mute\":{s},\"solo\":", .{
+                t.volume,
+                t.pan,
+                if (t.mute) "true" else "false",
+            }) catch return null;
+
+            if (t.solo) |s| {
+                writer.print("{d}", .{s}) catch return null;
+            } else {
+                writer.writeAll("null") catch return null;
+            }
+
+            writer.print(",\"recArm\":{s},\"recMon\":", .{
+                if (t.rec_arm) "true" else "false",
+            }) catch return null;
+
+            if (t.rec_mon) |rm| {
+                writer.print("{d}", .{rm}) catch return null;
+            } else {
+                writer.writeAll("null") catch return null;
+            }
+
+            writer.print(",\"fxEnabled\":{s},\"selected\":{s},\"folderDepth\":{d}", .{
+                if (t.fx_enabled) "true" else "false",
+                if (t.selected) "true" else "false",
+                t.folder_depth,
+            }) catch return null;
+
+            writer.print(",\"fxCount\":{d},\"sendCount\":{d},\"receiveCount\":{d}}}", .{
+                t.fx_count,
+                t.send_count,
+                t.receive_count,
+            }) catch return null;
+        }
+
+        writer.writeAll("]") catch return null;
+
+        // Include metering data if provided
+        if (metering) |m| {
+            if (m.count > 0) {
+                writer.writeAll(",\"meters\":[") catch return null;
+                for (0..m.count) |i| {
+                    if (i > 0) writer.writeByte(',') catch return null;
+                    const meter = &m.meters[i];
+                    writer.print(
+                        "{{\"trackIdx\":{d},\"peakL\":{d:.4},\"peakR\":{d:.4},\"clipped\":{s}}}",
+                        .{
+                            meter.track_idx,
+                            meter.peak_l,
+                            meter.peak_r,
+                            if (meter.clipped) "true" else "false",
+                        },
+                    ) catch return null;
+                }
+                writer.writeByte(']') catch return null;
+            }
+        }
+
+        writer.writeAll("}}") catch return null;
+        return stream.getWritten();
     }
 };
 

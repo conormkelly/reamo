@@ -96,6 +96,8 @@ pub fn validateBackend(comptime T: type) void {
         "getTrackSelected",
         "getTrackColor",
         "getTrackFolderDepth",
+        "formatTrackGuid",
+        "getTrackIdx",
         "getSelectedTrackByIdx",
         "isMasterMuted",
         "isMasterSoloed",

@@ -232,6 +232,30 @@ pub const TracksMethods = struct {
         return self.tracks[idx].folder_depth;
     }
 
+    /// Format track GUID as string into provided buffer.
+    /// Mock generates deterministic GUIDs based on track index.
+    pub fn formatTrackGuid(self: anytype, track: *anyopaque, buf: []u8) []const u8 {
+        self.recordCall(.formatTrackGuid);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return "";
+        if (buf.len < 40) return "";
+
+        // Generate deterministic mock GUID: {00000000-0000-0000-0000-00000000XXXX}
+        // where XXXX is the track index in hex
+        const guid = std.fmt.bufPrint(buf, "{{00000000-0000-0000-0000-{d:0>12}}}", .{idx}) catch return "";
+        return guid;
+    }
+
+    /// Get unified track index from track pointer (reverse lookup).
+    /// Returns unified index: 0=master, 1+=user tracks.
+    pub fn getTrackIdx(self: anytype, track: *anyopaque) c_int {
+        self.recordCall(.getTrackIdx);
+        const idx = state.decodeTrackPtr(track);
+        // In mock, the encoded pointer IS the unified index
+        if (idx > @as(usize, @intCast(self.track_count))) return -1;
+        return @intCast(idx);
+    }
+
     // CSurf methods (mock just delegates to regular setters)
     pub fn csurfSetVolume(self: anytype, track: *anyopaque, vol: f64, _: bool) f64 {
         self.recordCall(.csurfSetVolume);

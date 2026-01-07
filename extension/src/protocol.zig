@@ -267,6 +267,109 @@ pub fn jsonGetInt(data: []const u8, key: []const u8) ?c_int {
     return null;
 }
 
+// =============================================================================
+// Nested JSON parsing helpers (for subscription commands)
+// =============================================================================
+
+/// Get an integer field from a nested object.
+/// E.g., for {"range": {"start": 5}}, call jsonGetIntFromObject(data, "range", "start")
+pub fn jsonGetIntFromObject(data: []const u8, obj_key: []const u8, field_key: []const u8) ?c_int {
+    // Find the object key
+    var pattern_buf: [64]u8 = undefined;
+    const pattern = std.fmt.bufPrint(&pattern_buf, "\"{s}\"", .{obj_key}) catch return null;
+
+    const key_start = std.mem.indexOf(u8, data, pattern) orelse return null;
+    const after_key = key_start + pattern.len;
+
+    // Find the colon after the key
+    const colon = std.mem.indexOfPos(u8, data, after_key, ":") orelse return null;
+
+    // Find opening brace of nested object
+    const open_brace = std.mem.indexOfPos(u8, data, colon + 1, "{") orelse return null;
+
+    // Find closing brace (simple matching, doesn't handle nested objects)
+    const close_brace = std.mem.indexOfPos(u8, data, open_brace + 1, "}") orelse return null;
+
+    // Extract the nested object content
+    const nested = data[open_brace .. close_brace + 1];
+
+    // Now parse the field from the nested object
+    return jsonGetInt(nested, field_key);
+}
+
+/// Get a string array from JSON.
+/// E.g., for {"guids": ["master", "{AAA...}"]}, call jsonGetStringArray(data, "guids", ...)
+/// Returns the number of strings parsed, or null if the key is not found.
+/// out_bufs and out_lens must be the same length and represent the output storage.
+pub fn jsonGetStringArray(
+    data: []const u8,
+    key: []const u8,
+    comptime max_items: usize,
+    comptime max_str_len: usize,
+    out_bufs: *[max_items][max_str_len]u8,
+    out_lens: *[max_items]usize,
+) ?usize {
+    // Find the key
+    var pattern_buf: [64]u8 = undefined;
+    const pattern = std.fmt.bufPrint(&pattern_buf, "\"{s}\"", .{key}) catch return null;
+
+    const key_start = std.mem.indexOf(u8, data, pattern) orelse return null;
+    const after_key = key_start + pattern.len;
+
+    // Find the colon
+    const colon = std.mem.indexOfPos(u8, data, after_key, ":") orelse return null;
+
+    // Find opening bracket
+    const open_bracket = std.mem.indexOfPos(u8, data, colon + 1, "[") orelse return null;
+
+    // Find closing bracket
+    const close_bracket = std.mem.indexOfPos(u8, data, open_bracket + 1, "]") orelse return null;
+
+    // Parse strings within brackets
+    var count: usize = 0;
+    var pos = open_bracket + 1;
+
+    while (pos < close_bracket and count < max_items) {
+        // Skip whitespace and commas
+        while (pos < close_bracket and (data[pos] == ' ' or data[pos] == ',' or data[pos] == '\t' or data[pos] == '\n')) {
+            pos += 1;
+        }
+
+        if (pos >= close_bracket) break;
+
+        // Expect opening quote
+        if (data[pos] != '"') {
+            pos += 1;
+            continue;
+        }
+        pos += 1;
+
+        // Find closing quote (handling escapes)
+        const str_start = pos;
+        while (pos < close_bracket) {
+            if (data[pos] == '"') break;
+            if (data[pos] == '\\' and pos + 1 < close_bracket) {
+                pos += 2; // Skip escaped char
+            } else {
+                pos += 1;
+            }
+        }
+
+        if (pos >= close_bracket) break;
+
+        // Copy string to output buffer
+        const str_len = pos - str_start;
+        const copy_len = @min(str_len, max_str_len);
+        @memcpy(out_bufs[count][0..copy_len], data[str_start..][0..copy_len]);
+        out_lens[count] = copy_len;
+        count += 1;
+
+        pos += 1; // Skip closing quote
+    }
+
+    return count;
+}
+
 // JSON building helpers
 
 pub const JsonWriter = struct {
@@ -551,4 +654,66 @@ test "jsonGetString handles escaped quotes in string" {
     try std.testing.expect(result != null);
     // Raw result includes the escape sequences
     try std.testing.expectEqualStrings("say \\\"hello\\\"", result.?);
+}
+
+test "jsonGetIntFromObject basic" {
+    const data = "{\"range\":{\"start\":5,\"end\":10}}";
+    try std.testing.expectEqual(@as(c_int, 5), jsonGetIntFromObject(data, "range", "start").?);
+    try std.testing.expectEqual(@as(c_int, 10), jsonGetIntFromObject(data, "range", "end").?);
+}
+
+test "jsonGetIntFromObject missing key" {
+    const data = "{\"range\":{\"start\":5}}";
+    try std.testing.expect(jsonGetIntFromObject(data, "range", "end") == null);
+    try std.testing.expect(jsonGetIntFromObject(data, "missing", "start") == null);
+}
+
+test "jsonGetIntFromObject with whitespace" {
+    const data = "{ \"range\" : { \"start\" : 0 , \"end\" : 31 } }";
+    try std.testing.expectEqual(@as(c_int, 0), jsonGetIntFromObject(data, "range", "start").?);
+    try std.testing.expectEqual(@as(c_int, 31), jsonGetIntFromObject(data, "range", "end").?);
+}
+
+test "jsonGetStringArray basic" {
+    const data = "{\"guids\":[\"master\",\"{00000001}\"]}";
+    var bufs: [4][64]u8 = undefined;
+    var lens: [4]usize = undefined;
+    const count = jsonGetStringArray(data, "guids", 4, 64, &bufs, &lens).?;
+    try std.testing.expectEqual(@as(usize, 2), count);
+    try std.testing.expectEqualStrings("master", bufs[0][0..lens[0]]);
+    try std.testing.expectEqualStrings("{00000001}", bufs[1][0..lens[1]]);
+}
+
+test "jsonGetStringArray empty array" {
+    const data = "{\"guids\":[]}";
+    var bufs: [4][64]u8 = undefined;
+    var lens: [4]usize = undefined;
+    const count = jsonGetStringArray(data, "guids", 4, 64, &bufs, &lens).?;
+    try std.testing.expectEqual(@as(usize, 0), count);
+}
+
+test "jsonGetStringArray missing key" {
+    const data = "{\"other\":[\"a\"]}";
+    var bufs: [4][64]u8 = undefined;
+    var lens: [4]usize = undefined;
+    try std.testing.expect(jsonGetStringArray(data, "guids", 4, 64, &bufs, &lens) == null);
+}
+
+test "jsonGetStringArray with whitespace" {
+    const data = "{ \"guids\" : [ \"a\" , \"b\" , \"c\" ] }";
+    var bufs: [4][64]u8 = undefined;
+    var lens: [4]usize = undefined;
+    const count = jsonGetStringArray(data, "guids", 4, 64, &bufs, &lens).?;
+    try std.testing.expectEqual(@as(usize, 3), count);
+    try std.testing.expectEqualStrings("a", bufs[0][0..lens[0]]);
+    try std.testing.expectEqualStrings("b", bufs[1][0..lens[1]]);
+    try std.testing.expectEqualStrings("c", bufs[2][0..lens[2]]);
+}
+
+test "jsonGetStringArray respects max_items" {
+    const data = "{\"guids\":[\"a\",\"b\",\"c\",\"d\",\"e\"]}";
+    var bufs: [2][64]u8 = undefined;
+    var lens: [2]usize = undefined;
+    const count = jsonGetStringArray(data, "guids", 2, 64, &bufs, &lens).?;
+    try std.testing.expectEqual(@as(usize, 2), count);
 }

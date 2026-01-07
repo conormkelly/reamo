@@ -389,6 +389,45 @@ pub const RealBackend = struct {
         return self.inner.getTrackFolderDepth(track);
     }
 
+    /// Format track GUID as string into provided buffer.
+    /// Returns slice of the GUID string (38 chars), or empty string on failure.
+    /// Note: Master track GUID is unreliable in REAPER - use "master" literal instead.
+    pub fn formatTrackGuid(self: *const RealBackend, track: *anyopaque, buf: []u8) []const u8 {
+        const getGuid = self.inner.getTrackGUID orelse return "";
+        const toString = self.inner.guidToString_fn orelse return "";
+        if (buf.len < 64) return ""; // guidToString needs 64 bytes
+
+        const guid_ptr = getGuid(track) orelse return "";
+        toString(guid_ptr, buf.ptr);
+
+        // Find null terminator (GUID is 38 chars: {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX})
+        for (buf, 0..) |c, i| {
+            if (c == 0) return buf[0..i];
+        }
+        return buf[0..@min(38, buf.len)];
+    }
+
+    /// Get unified track index from track pointer (reverse lookup).
+    /// Returns unified index: 0=master, 1+=user tracks.
+    /// Returns -1 if track not found.
+    pub fn getTrackIdx(self: *const RealBackend, track: *anyopaque) c_int {
+        // Check if master track
+        if (self.masterTrack()) |master| {
+            if (track == master) return 0;
+        }
+
+        // Search user tracks
+        const count = self.trackCount();
+        var idx: c_int = 0;
+        while (idx < count) : (idx += 1) {
+            if (self.getTrackByIdx(idx)) |t| {
+                if (t == track) return idx + 1; // +1 for unified indexing
+            }
+        }
+
+        return -1; // Not found
+    }
+
     // CSurf methods for undo-coalesced changes
     pub fn csurfSetVolume(self: *const RealBackend, track: *anyopaque, vol: f64, allowGang: bool) f64 {
         return self.inner.csurfSetVolume(track, vol, allowGang);

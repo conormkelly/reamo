@@ -4,6 +4,10 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const gesture_state = @import("../gesture_state.zig");
 const logging = @import("../logging.zig");
+const GuidCache = @import("../guid_cache.zig").GuidCache;
+
+// Global GUID cache for resolving trackGuid parameters (initialized by main.zig)
+pub var g_guid_cache: ?*GuidCache = null;
 
 // Track command handlers
 pub const handlers = [_]mod.Entry{
@@ -35,15 +39,49 @@ pub fn getTrackFromCmd(api: anytype, cmd: protocol.CommandMessage) ?*anyopaque {
     return api.getTrackByUnifiedIdx(track_idx);
 }
 
+/// Result of resolving track from command - includes both pointer and index.
+/// Index is needed for gesture tracking (ControlId).
+pub const TrackResolution = struct {
+    track: *anyopaque,
+    idx: c_int,
+};
+
+/// Resolve track from command using either trackIdx or trackGuid.
+/// trackIdx takes precedence if both are present.
+/// Returns null if track not found or GUID is stale.
+pub fn resolveTrack(api: anytype, cmd: protocol.CommandMessage) ?TrackResolution {
+    // Try trackIdx first (faster, direct lookup)
+    if (cmd.getInt("trackIdx")) |track_idx| {
+        if (api.getTrackByUnifiedIdx(track_idx)) |track| {
+            return .{ .track = track, .idx = track_idx };
+        }
+        return null; // Invalid index
+    }
+
+    // Try trackGuid (requires cache lookup + validation)
+    const guid = cmd.getString("trackGuid") orelse return null;
+    const cache = g_guid_cache orelse return null;
+
+    const track = cache.resolve(guid) orelse return null;
+
+    // Validate the pointer is still valid (O(n) scan for safety after track deletion)
+    if (!api.validateTrackPtr(track)) {
+        return null; // Stale GUID - track was deleted
+    }
+
+    // Get the index for gesture tracking
+    const idx = api.getTrackIdx(track);
+    if (idx < 0) return null;
+
+    return .{ .track = track, .idx = idx };
+}
+
 // Set track volume (0..inf, 1.0 = 0dB)
 // Uses CSurf API for undo coalescing - multiple rapid changes become one undo point
+// Accepts trackIdx or trackGuid parameter
 pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("NOT_FOUND", "trackIdx is required");
-        return;
-    };
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
-        response.err("NOT_FOUND", "Track not found");
+    const resolution = resolveTrack(api, cmd) orelse {
+        response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
     const volume = cmd.getFloat("volume") orelse {
@@ -54,25 +92,23 @@ pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mo
     const clamped = @max(0.0, volume);
 
     // Use CSurf API for undo coalescing (allowGang=true to respect track grouping)
-    _ = api.csurfSetVolume(track, clamped, true);
+    _ = api.csurfSetVolume(resolution.track, clamped, true);
 
     // Record activity for gesture timeout tracking
     if (response.gestures) |gestures| {
-        gestures.recordActivity(gesture_state.ControlId.volume(track_idx));
+        gestures.recordActivity(gesture_state.ControlId.volume(resolution.idx));
     }
 
     logging.debug("Set track volume to {d:.3}", .{clamped});
+    response.success(null);
 }
 
 // Set track pan (-1.0..1.0)
 // Uses CSurf API for undo coalescing - multiple rapid changes become one undo point
+// Accepts trackIdx or trackGuid parameter
 pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("NOT_FOUND", "trackIdx is required");
-        return;
-    };
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
-        response.err("NOT_FOUND", "Track not found");
+    const resolution = resolveTrack(api, cmd) orelse {
+        response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
     const pan = cmd.getFloat("pan") orelse {
@@ -83,128 +119,132 @@ pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
     const clamped = @max(-1.0, @min(1.0, pan));
 
     // Use CSurf API for undo coalescing (allowGang=true to respect track grouping)
-    _ = api.csurfSetPan(track, clamped, true);
+    _ = api.csurfSetPan(resolution.track, clamped, true);
 
     // Record activity for gesture timeout tracking
     if (response.gestures) |gestures| {
-        gestures.recordActivity(gesture_state.ControlId.pan(track_idx));
+        gestures.recordActivity(gesture_state.ControlId.pan(resolution.idx));
     }
 
     logging.debug("Set track pan to {d:.2}", .{clamped});
+    response.success(null);
 }
 
 // Set track mute (toggle if no value provided)
 // Uses CSurf API for proper master track support
+// Accepts trackIdx or trackGuid parameter
 pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("NOT_FOUND", "trackIdx is required");
-        return;
-    };
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
-        response.err("NOT_FOUND", "Track not found");
+    const resolution = resolveTrack(api, cmd) orelse {
+        response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
     // Toggle if no explicit value
     // For master track (idx=0), use GetMasterMuteSoloFlags for reliable state
-    const current_mute = if (track_idx == 0) api.isMasterMuted() else api.getTrackMute(track);
+    const current_mute = if (resolution.idx == 0) api.isMasterMuted() else api.getTrackMute(resolution.track);
     const mute = if (cmd.getInt("mute")) |v| v != 0 else !current_mute;
     // Use CSurf API - properly handles master track unlike SetMediaTrackInfo_Value
-    if (api.csurfSetMute(track, mute, true)) {
+    if (api.csurfSetMute(resolution.track, mute, true)) {
         logging.debug("Set track mute to {}", .{mute});
     }
+    response.success(null);
 }
 
 // Set track solo (0=off, 1=solo, 2=solo in place, etc.)
 // Uses CSurf API for proper master track support
+// Accepts trackIdx or trackGuid parameter
 pub fn handleSetSolo(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("NOT_FOUND", "trackIdx is required");
-        return;
-    };
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
-        response.err("NOT_FOUND", "Track not found");
+    const resolution = resolveTrack(api, cmd) orelse {
+        response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
     // Toggle between 0 and 1 if no explicit value
     // For master track (idx=0), use GetMasterMuteSoloFlags for reliable state
-    const current_solo = if (track_idx == 0)
+    const current_solo = if (resolution.idx == 0)
         (if (api.isMasterSoloed()) @as(c_int, 1) else @as(c_int, 0))
     else
-        api.getTrackSolo(track) catch {
+        api.getTrackSolo(resolution.track) catch {
             response.err("INVALID_STATE", "Track returned invalid solo state");
             return;
         };
     const solo = if (cmd.getInt("solo")) |v| v else if (current_solo > 0) @as(c_int, 0) else @as(c_int, 1);
     // Use CSurf API - properly handles master track unlike SetMediaTrackInfo_Value
-    if (api.csurfSetSolo(track, solo, true)) {
+    if (api.csurfSetSolo(resolution.track, solo, true)) {
         logging.debug("Set track solo to {d}", .{solo});
     }
+    response.success(null);
 }
 
 // Set track record arm (toggle if no value provided)
 // Uses CSurf API for gang support (respects track grouping when allowGang=true)
+// Accepts trackIdx or trackGuid parameter
 pub fn handleSetRecArm(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track = getTrackFromCmd(api, cmd) orelse {
-        response.err("NOT_FOUND", "Track not found");
+    const resolution = resolveTrack(api, cmd) orelse {
+        response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
-    const arm = if (cmd.getInt("arm")) |v| v != 0 else !api.getTrackRecArm(track);
+    const arm = if (cmd.getInt("arm")) |v| v != 0 else !api.getTrackRecArm(resolution.track);
     // Use CSurf API for gang support
-    if (api.csurfSetRecArm(track, arm, true)) {
+    if (api.csurfSetRecArm(resolution.track, arm, true)) {
         logging.debug("Set track rec arm to {}", .{arm});
     }
+    response.success(null);
 }
 
 // Set track record monitoring (0=off, 1=normal, 2=not when playing)
 // Uses CSurf API for gang support (respects track grouping when allowGang=true)
+// Accepts trackIdx or trackGuid parameter
 pub fn handleSetRecMon(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track = getTrackFromCmd(api, cmd) orelse {
-        response.err("NOT_FOUND", "Track not found");
+    const resolution = resolveTrack(api, cmd) orelse {
+        response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
     // Cycle through 0,1,2 if no explicit value
     const mon = if (cmd.getInt("mon")) |v| v else blk: {
-        const current = api.getTrackRecMon(track) catch {
+        const current = api.getTrackRecMon(resolution.track) catch {
             response.err("INVALID_STATE", "Track returned invalid rec mon state");
             return;
         };
         break :blk @mod(current + 1, 3);
     };
     // Use CSurf API for gang support
-    const result = api.csurfSetRecMon(track, mon, true);
+    const result = api.csurfSetRecMon(resolution.track, mon, true);
     if (result >= 0) {
         logging.debug("Set track rec mon to {d}", .{result});
     }
+    response.success(null);
 }
 
 // Set track FX enabled (toggle if no value provided)
+// Accepts trackIdx or trackGuid parameter
 pub fn handleSetFxEnabled(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track = getTrackFromCmd(api, cmd) orelse {
-        response.err("NOT_FOUND", "Track not found");
+    const resolution = resolveTrack(api, cmd) orelse {
+        response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
-    const enabled = if (cmd.getInt("enabled")) |v| v != 0 else !api.getTrackFxEnabled(track);
-    if (api.setTrackFxEnabled(track, enabled)) {
+    const enabled = if (cmd.getInt("enabled")) |v| v != 0 else !api.getTrackFxEnabled(resolution.track);
+    if (api.setTrackFxEnabled(resolution.track, enabled)) {
         logging.debug("Set track FX enabled to {}", .{enabled});
     }
+    response.success(null);
 }
 
 // Set track selected (toggle if no value provided)
+// Accepts trackIdx or trackGuid parameter
 pub fn handleSetSelected(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track = getTrackFromCmd(api, cmd) orelse {
-        response.err("NOT_FOUND", "Track not found");
+    const resolution = resolveTrack(api, cmd) orelse {
+        response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
-    const selected = if (cmd.getInt("selected")) |v| v != 0 else !api.getTrackSelected(track);
-    if (api.setTrackSelected(track, selected)) {
+    const selected = if (cmd.getInt("selected")) |v| v != 0 else !api.getTrackSelected(resolution.track);
+    if (api.setTrackSelected(resolution.track, selected)) {
         logging.debug("Set track selected to {}", .{selected});
     }
+    response.success(null);
 }
 
 // Unselect all tracks (including master)
 pub fn handleDeselectAll(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     _ = cmd;
-    _ = response;
 
     // Unselect master track
     if (api.masterTrack()) |master| {
@@ -221,17 +261,19 @@ pub fn handleDeselectAll(api: anytype, cmd: protocol.CommandMessage, response: *
     }
 
     logging.debug("Unselected all tracks", .{});
+    response.success(null);
 }
 
 // Clear clip indicator for a track's input meter
+// Accepts trackIdx or trackGuid parameter
 pub fn handleClearClip(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track = getTrackFromCmd(api, cmd) orelse {
-        response.err("NOT_FOUND", "Track not found");
+    const resolution = resolveTrack(api, cmd) orelse {
+        response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
     // Clear REAPER's internal peak hold for both channels
     // Next metering poll will see hold is now clear (no clipping)
-    api.clearTrackPeakHold(track);
+    api.clearTrackPeakHold(resolution.track);
     logging.debug("Cleared clip indicator for track", .{});
     response.success(null);
 }
@@ -241,22 +283,18 @@ pub fn handleClearClip(api: anytype, cmd: protocol.CommandMessage, response: *mo
 // =============================================================================
 
 // Rename a track (master track cannot be renamed)
+// Accepts trackIdx or trackGuid parameter
 pub fn handleRename(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("INVALID_PARAMS", "trackIdx is required");
+    const resolution = resolveTrack(api, cmd) orelse {
+        response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
 
     // Master track cannot be renamed
-    if (track_idx == 0) {
+    if (resolution.idx == 0) {
         response.err("INVALID_OPERATION", "Master track cannot be renamed");
         return;
     }
-
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
-        response.err("NOT_FOUND", "Track not found");
-        return;
-    };
 
     // Get name - use getStringUnescaped to handle JSON escape sequences
     var name_buf: [256]u8 = undefined;
@@ -265,8 +303,8 @@ pub fn handleRename(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         return;
     };
 
-    if (api.setTrackName(track, name)) {
-        logging.debug("Renamed track {d}", .{track_idx});
+    if (api.setTrackName(resolution.track, name)) {
+        logging.debug("Renamed track {d}", .{resolution.idx});
         response.success(null);
     } else {
         response.err("FAILED", "Could not rename track");
@@ -323,23 +361,19 @@ pub fn handleCreate(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
 
 // Duplicate a track (master track cannot be duplicated)
 // Uses undo block + action 40062 for full duplication (FX, items, envelopes, routing)
+// Accepts trackIdx or trackGuid parameter
 // Returns: {"trackIdx": N} with the duplicated track's unified index
 pub fn handleDuplicate(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("INVALID_PARAMS", "trackIdx is required");
+    const resolution = resolveTrack(api, cmd) orelse {
+        response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
 
     // Master track cannot be duplicated
-    if (track_idx == 0) {
+    if (resolution.idx == 0) {
         response.err("INVALID_OPERATION", "Master track cannot be duplicated");
         return;
     }
-
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
-        response.err("NOT_FOUND", "Track not found");
-        return;
-    };
 
     // Begin undo block for clean single undo point
     api.undoBeginBlock();
@@ -348,7 +382,7 @@ pub fn handleDuplicate(api: anytype, cmd: protocol.CommandMessage, response: *mo
     api.runCommand(reaper.Command.UNSELECT_ALL_TRACKS);
 
     // Select the source track
-    _ = api.setTrackSelected(track, true);
+    _ = api.setTrackSelected(resolution.track, true);
 
     // Duplicate selected tracks
     api.runCommand(reaper.Command.DUPLICATE_TRACKS);
@@ -358,7 +392,7 @@ pub fn handleDuplicate(api: anytype, cmd: protocol.CommandMessage, response: *mo
 
     // End undo block with descriptive name (needs null-terminated string)
     var desc_buf: [64:0]u8 = undefined;
-    const desc_ptr: [*:0]const u8 = if (std.fmt.bufPrintZ(&desc_buf, "Duplicate track {d}", .{track_idx})) |_|
+    const desc_ptr: [*:0]const u8 = if (std.fmt.bufPrintZ(&desc_buf, "Duplicate track {d}", .{resolution.idx})) |_|
         &desc_buf
     else |_|
         "Duplicate track";
@@ -371,7 +405,7 @@ pub fn handleDuplicate(api: anytype, cmd: protocol.CommandMessage, response: *mo
 
     // Find the unified index of the new track
     // The duplicate is inserted immediately after the source, so it's at track_idx + 1
-    const new_unified_idx = track_idx + 1;
+    const new_unified_idx = resolution.idx + 1;
 
     // Return the new track index
     var resp_buf: [64]u8 = undefined;
@@ -380,31 +414,27 @@ pub fn handleDuplicate(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     };
     response.success(json);
-    logging.debug("Duplicated track {d} to {d}", .{ track_idx, new_unified_idx });
+    logging.debug("Duplicated track {d} to {d}", .{ resolution.idx, new_unified_idx });
 }
 
 // Delete a track (master track cannot be deleted)
+// Accepts trackIdx or trackGuid parameter
 pub fn handleDelete(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("INVALID_PARAMS", "trackIdx is required");
+    const resolution = resolveTrack(api, cmd) orelse {
+        response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
 
     // Master track cannot be deleted
-    if (track_idx == 0) {
+    if (resolution.idx == 0) {
         response.err("INVALID_OPERATION", "Master track cannot be deleted");
         return;
     }
 
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
-        response.err("NOT_FOUND", "Track not found");
-        return;
-    };
-
     // Delete the track (REAPER creates undo point automatically)
-    api.deleteTrackPtr(track);
+    api.deleteTrackPtr(resolution.track);
 
-    logging.debug("Deleted track {d}", .{track_idx});
+    logging.debug("Deleted track {d}", .{resolution.idx});
     response.success(null);
 }
 

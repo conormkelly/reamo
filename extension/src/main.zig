@@ -18,6 +18,11 @@ const playlist = @import("playlist.zig");
 const errors = @import("errors.zig");
 const logging = @import("logging.zig");
 const tiered_state = @import("tiered_state.zig");
+const guid_cache = @import("guid_cache.zig");
+const track_subscriptions = @import("track_subscriptions.zig");
+const track_skeleton = @import("track_skeleton.zig");
+const track_subs_cmd = @import("commands/track_subs.zig");
+const tracks_cmd = @import("commands/tracks.zig");
 
 // Use custom panic handler that flushes log ring buffer before aborting
 pub const panic = logging.panic;
@@ -48,6 +53,12 @@ var g_gesture_state: ?*gesture_state.GestureState = null;
 var g_toggle_subs: ?*toggle_subscriptions.ToggleSubscriptions = null;
 var g_meter_subs: ?*meter_subscriptions.MeterSubscriptions = null;
 var g_notes_subs: ?*project_notes.NotesSubscriptions = null;
+var g_guid_cache: ?*guid_cache.GuidCache = null;
+var g_track_subs: ?*track_subscriptions.TrackSubscriptions = null;
+
+// Track skeleton state for LOW tier change detection
+var g_last_skeleton: track_skeleton.State = .{};
+var g_last_skeleton_buf: []track_skeleton.SkeletonTrack = &.{};
 var g_server: ?ws_server.Server = null;
 var g_port: u16 = 0;
 var g_tiered: ?tiered_state.TieredArenas = null;
@@ -186,6 +197,20 @@ fn doInitialization() !void {
     g_notes_subs = notes_subs;
     // Set the global reference in the command handler module
     commands.project_notes_cmds.g_notes_subs = notes_subs;
+
+    // Create GUID cache for track subscriptions
+    const cache = try g_allocator.create(guid_cache.GuidCache);
+    cache.* = guid_cache.GuidCache.init(g_allocator);
+    g_guid_cache = cache;
+    // Wire to command handler
+    tracks_cmd.g_guid_cache = cache;
+
+    // Create track subscriptions state
+    const track_subs = try g_allocator.create(track_subscriptions.TrackSubscriptions);
+    track_subs.* = track_subscriptions.TrackSubscriptions.init(g_allocator);
+    g_track_subs = track_subs;
+    // Wire to command handler
+    track_subs_cmd.g_track_subs = track_subs;
 
     // Count project entities and calculate arena sizes dynamically
     // This allows memory allocation to scale with project size
@@ -431,6 +456,10 @@ fn doProcessing() !void {
             if (g_notes_subs) |notes| {
                 notes.removeClient(client_id);
             }
+            // Clean up track subscriptions
+            if (g_track_subs) |track_subs| {
+                track_subs.removeClient(client_id);
+            }
         }
     }
 
@@ -451,12 +480,14 @@ fn doProcessing() !void {
         ProcessingState.snap_transport = transport.State.poll(&backend); // Small
         ProcessingState.snap_project = project.State.poll(&backend); // Small
         ProcessingState.snap_markers.pollInto(&ProcessingState.snap_markers_buf, &ProcessingState.snap_regions_buf, &backend); // ~95KB
-        ProcessingState.snap_tracks.pollInto(&ProcessingState.snap_tracks_buf, &backend); // ~2.5MB
         ProcessingState.snap_tempomap = tempomap.State.poll(&backend); // Small
         ProcessingState.snap_items.pollInto(&ProcessingState.snap_items_buf, &backend); // ~600KB
 
-        // Send to each new client
+        // Poll track skeleton for snapshot (lightweight - names and GUIDs only)
         const scratch = tiered.scratchAllocator();
+        const snap_skeleton = track_skeleton.State.poll(scratch, &backend) catch null;
+
+        // Send to each new client
         for (ProcessingState.snapshot_clients[0..snapshot_count]) |client_id| {
             // Transport
             if (ProcessingState.snap_transport.toJsonAlloc(scratch)) |json| {
@@ -474,10 +505,13 @@ fn doProcessing() !void {
             if (ProcessingState.snap_markers.regionsToJsonAlloc(scratch)) |json| {
                 shared_state.sendToClient(client_id, json);
             } else |_| {}
-            // Tracks (without metering for initial snapshot)
-            if (ProcessingState.snap_tracks.toJsonAlloc(scratch, null)) |json| {
-                shared_state.sendToClient(client_id, json);
-            } else |_| {}
+            // Track skeleton (client must subscribe to receive full track data)
+            if (snap_skeleton) |skeleton| {
+                var skeleton_buf: [32768]u8 = undefined;
+                if (skeleton.toJson(&skeleton_buf)) |json| {
+                    shared_state.sendToClient(client_id, json);
+                }
+            }
             // Items
             if (ProcessingState.snap_items.itemsToJsonAlloc(scratch)) |json| {
                 shared_state.sendToClient(client_id, json);
@@ -533,48 +567,96 @@ fn doProcessing() !void {
         }
     }
 
-    // Poll tracks into HIGH tier arena - allocates from arena, freed on next swap
+    // Poll tracks into HIGH tier arena - SUBSCRIPTION MODE ONLY
+    // Only poll tracks that clients have subscribed to (viewport-driven).
+    // This saves CPU on large projects (1000+ tracks) by not polling everything.
     const high_alloc = tiered.high.currentAllocator();
-    const track_state = tracks.State.poll(high_alloc, &backend) catch |err| {
-        logging.err("Failed to poll tracks: {s}", .{@errorName(err)});
-        return err;
-    };
-    high_state.tracks = track_state.tracks;
+    const total_tracks: usize = @intCast(@max(0, backend.trackCount()) + 1); // +1 for master
 
-    // Note: FX/sends are now sparse counts populated during poll().
-    // Full FX/sends data is fetched on-demand via track/getFx, track/getSends commands.
+    if (g_track_subs) |track_subs| {
+        if (track_subs.hasSubscriptions()) {
+            // Get subscribed track indices from all clients + grace period
+            const cache = g_guid_cache orelse {
+                logging.err("GUID cache not initialized for track subscriptions", .{});
+                return error.GuidCacheNotInitialized;
+            };
+            var subscribed_buf: [track_subscriptions.MAX_TRACKS_PER_CLIENT * track_subscriptions.MAX_CLIENTS]c_int = undefined;
+            const subscribed_indices = track_subs.getSubscribedIndices(cache, &backend, &subscribed_buf);
 
-    // Poll metering into HIGH tier state - SUBSCRIPTION ONLY MODE
-    // Only poll meters for tracks that clients have explicitly subscribed to.
-    // This saves CPU on large projects by not polling unused meters.
-    if (g_meter_subs) |meters| {
-        if (meters.hasSubscriptions()) {
-            // Get list of subscribed tracks (includes grace period)
-            var subscribed_buf: [meter_subscriptions.MAX_TRACKS_PER_CLIENT]c_int = undefined;
-            const subscribed = meters.getSubscribedTracks(&subscribed_buf);
-            high_state.metering.pollSubscribedInto(api, subscribed);
+            // Poll only subscribed tracks
+            const track_state = tracks.State.pollIndices(high_alloc, &backend, subscribed_indices) catch |err| {
+                logging.err("Failed to poll tracks: {s}", .{@errorName(err)});
+                return err;
+            };
+            high_state.tracks = track_state.tracks;
+
+            // Poll metering for subscribed tracks (from meter subscriptions, not track subs)
+            if (g_meter_subs) |meters| {
+                if (meters.hasSubscriptions()) {
+                    var meter_buf: [meter_subscriptions.MAX_TRACKS_PER_CLIENT]c_int = undefined;
+                    const metered = meters.getSubscribedTracks(&meter_buf);
+                    high_state.metering.pollSubscribedInto(api, metered);
+                } else {
+                    high_state.metering.count = 0;
+                }
+            } else {
+                high_state.metering.count = 0;
+            }
+
+            // Broadcast if tracks changed OR if we have active metering
+            const tracks_changed = !tracksSliceEql(high_state.tracks, high_prev.tracks);
+            const has_metering = high_state.metering.hasData();
+
+            if (tracks_changed or has_metering) {
+                const metering_ptr: ?*const tracks.MeteringState = if (has_metering) &high_state.metering else null;
+                const temp_state = tracks.State{ .tracks = high_state.tracks };
+                // Use toJsonWithTotal to include total track count for viewport scrollbar
+                var json_buf: [65536]u8 = undefined;
+                if (temp_state.toJsonWithTotal(&json_buf, metering_ptr, total_tracks)) |json| {
+                    shared_state.broadcast(json);
+                }
+            }
         } else {
-            // No subscriptions - no meters (saves CPU)
+            // No track subscriptions - skip track polling entirely
+            high_state.tracks = &.{};
             high_state.metering.count = 0;
         }
     } else {
-        // Subscription system not initialized - no meters
-        high_state.metering.count = 0;
+        // Track subscriptions not initialized - fall back to full polling
+        const track_state = tracks.State.poll(high_alloc, &backend) catch |err| {
+            logging.err("Failed to poll tracks: {s}", .{@errorName(err)});
+            return err;
+        };
+        high_state.tracks = track_state.tracks;
+
+        // Poll metering (subscription-based)
+        if (g_meter_subs) |meters| {
+            if (meters.hasSubscriptions()) {
+                var meter_buf: [meter_subscriptions.MAX_TRACKS_PER_CLIENT]c_int = undefined;
+                const metered = meters.getSubscribedTracks(&meter_buf);
+                high_state.metering.pollSubscribedInto(api, metered);
+            } else {
+                high_state.metering.count = 0;
+            }
+        } else {
+            high_state.metering.count = 0;
+        }
+
+        const tracks_changed = !tracksSliceEql(high_state.tracks, high_prev.tracks);
+        const has_metering = high_state.metering.hasData();
+
+        if (tracks_changed or has_metering) {
+            const metering_ptr: ?*const tracks.MeteringState = if (has_metering) &high_state.metering else null;
+            const temp_state = tracks.State{ .tracks = high_state.tracks };
+            const scratch = tiered.scratchAllocator();
+            if (temp_state.toJsonAlloc(scratch, metering_ptr)) |json| {
+                shared_state.broadcast(json);
+            } else |_| {}
+        }
     }
 
-    // Broadcast if tracks changed OR if we have active metering
-    const tracks_changed = !tracksSliceEql(high_state.tracks, high_prev.tracks);
-    const has_metering = high_state.metering.hasData();
-
-    if (tracks_changed or has_metering) {
-        const metering_ptr: ?*const tracks.MeteringState = if (has_metering) &high_state.metering else null;
-        // Create temporary State to use existing toJson method
-        const temp_state = tracks.State{ .tracks = high_state.tracks };
-        const scratch = tiered.scratchAllocator();
-        if (temp_state.toJsonAlloc(scratch, metering_ptr)) |json| {
-            shared_state.broadcast(json);
-        } else |_| {}
-    }
+    // Note: FX/sends are sparse counts populated during poll().
+    // Full FX/sends data is fetched on-demand via track/getFx, track/getSends commands.
 
 
     // Poll toggle state subscriptions and broadcast changes (HIGH TIER - but only when subscribed)
@@ -813,7 +895,7 @@ fn doProcessing() !void {
         medium_state.project.memory_warning = tiered.isMemoryWarning();
 
         // Check for project identity change (tab switch or different file in same tab)
-        if (medium_state.project.projectChanged(&medium_prev.project)) {
+        if (medium_prev.project.projectChanged(&medium_state.project)) {
             logging.info("Project changed: {s}", .{
                 if (medium_state.project.projectName().len > 0) medium_state.project.projectName() else "(Unsaved)",
             });
@@ -967,13 +1049,14 @@ fn doProcessing() !void {
     }
 
     // ========================================================================
-    // LOW TIER (1Hz) - Tempomap, Project Notes
+    // LOW TIER (1Hz) - Tempomap, Project Notes, Track Skeleton
     // These rarely change during normal operation
     // Uses arena allocation for change detection
     // ========================================================================
     if (g_frame_counter % LOW_TIER_INTERVAL == 0) {
         const low_state = tiered.low.currentState();
         const low_prev = tiered.low.previousState();
+        const low_alloc = tiered.low.currentAllocator();
 
         // Poll tempo map into LOW tier state
         low_state.tempomap = tempomap.State.poll(&backend);
@@ -982,6 +1065,46 @@ fn doProcessing() !void {
             if (low_state.tempomap.toJsonAlloc(scratch)) |json| {
                 shared_state.broadcast(json);
             } else |_| {}
+        }
+
+        // Poll track skeleton for structure changes (add/delete/rename/reorder)
+        const current_skeleton = track_skeleton.State.poll(low_alloc, &backend) catch |err| {
+            logging.err("Failed to poll skeleton: {s}", .{@errorName(err)});
+            return err;
+        };
+
+        if (!current_skeleton.eql(&g_last_skeleton)) {
+            // Track structure changed - rebuild GUID cache and broadcast
+            if (g_guid_cache) |cache| {
+                cache.rebuild(&backend) catch |err| {
+                    logging.err("Failed to rebuild GUID cache: {s}", .{@errorName(err)});
+                };
+            }
+
+            // Broadcast skeleton event
+            var skeleton_buf: [32768]u8 = undefined;
+            if (current_skeleton.toJson(&skeleton_buf)) |json| {
+                shared_state.broadcast(json);
+            }
+
+            logging.info("Track skeleton changed: {d} tracks", .{current_skeleton.count()});
+        }
+
+        // Update persistent skeleton state for next comparison
+        // Copy to persistent buffer since arena will be swapped
+        if (current_skeleton.tracks.len <= tracks.MAX_TRACKS) {
+            // Ensure we have a buffer large enough
+            if (g_last_skeleton_buf.len < current_skeleton.tracks.len) {
+                // Reallocate if needed (shouldn't happen often)
+                if (g_last_skeleton_buf.len > 0) {
+                    g_allocator.free(g_last_skeleton_buf);
+                }
+                g_last_skeleton_buf = g_allocator.alloc(track_skeleton.SkeletonTrack, current_skeleton.tracks.len) catch &.{};
+            }
+            if (g_last_skeleton_buf.len >= current_skeleton.tracks.len) {
+                @memcpy(g_last_skeleton_buf[0..current_skeleton.tracks.len], current_skeleton.tracks);
+                g_last_skeleton.tracks = g_last_skeleton_buf[0..current_skeleton.tracks.len];
+            }
         }
 
         // Poll project notes and broadcast changes (only if subscribers)
@@ -994,9 +1117,12 @@ fn doProcessing() !void {
             }
         }
 
-        // Expire meter subscription grace periods (1Hz cleanup)
+        // Expire subscription grace periods (1Hz cleanup)
         if (g_meter_subs) |meters| {
             meters.expireGracePeriods();
+        }
+        if (g_track_subs) |track_subs| {
+            track_subs.expireGracePeriods();
         }
     }
 
@@ -1074,6 +1200,24 @@ fn shutdown() void {
         g_notes_subs = null;
     }
     logging.info("notes subscriptions cleaned up", .{});
+
+    if (g_track_subs) |subs| {
+        logging.info("cleaning up track subscriptions", .{});
+        track_subs_cmd.g_track_subs = null;
+        subs.deinit();
+        g_allocator.destroy(subs);
+        g_track_subs = null;
+    }
+    logging.info("track subscriptions cleaned up", .{});
+
+    if (g_guid_cache) |cache| {
+        logging.info("cleaning up GUID cache", .{});
+        tracks_cmd.g_guid_cache = null;
+        cache.deinit();
+        g_allocator.destroy(cache);
+        g_guid_cache = null;
+    }
+    logging.info("GUID cache cleaned up", .{});
 
     if (g_shared_state) |state| {
         logging.info("cleaning up shared state", .{});
