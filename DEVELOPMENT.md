@@ -36,36 +36,54 @@ make test        # Run all tests before committing
 
 ### Project Structure
 
-```
+```text
 reaper_www_root/
 ├── extension/           # Zig REAPER extension (WebSocket server)
 │   └── src/
 │       ├── main.zig           # Entry point, timer loop, state broadcasting
 │       ├── constants.zig      # Shared MAX_* constants (MAX_TRACKS, MAX_ITEMS, etc.)
+│       ├── errors.zig         # Error type hierarchy, ErrorCode registry, rate limiting
+│       ├── ffi.zig            # FFI validation: safeFloatToInt(), NaN/Inf checks
+│       ├── logging.zig        # Ring buffer logging, crash recovery, log levels
+│       ├── protocol.zig       # JSON parsing for commands (no allocations)
 │       ├── reaper.zig         # Re-exports: RealBackend, MockBackend, raw types
 │       ├── reaper/            # REAPER API abstraction layer
 │       │   ├── raw.zig        # C function pointers (~80 raw functions)
 │       │   ├── types.zig      # Shared types (BeatsInfo, MarkerInfo, etc.)
-│       │   ├── backend.zig    # validateBackend() comptime check
+│       │   ├── backend.zig    # validateBackend() comptime check (~150 methods)
 │       │   ├── real.zig       # RealBackend - production wrapper around raw.Api
-│       │   └── mock/          # MockBackend for testing
-│       │       ├── mod.zig    # MockBackend struct composition
-│       │       ├── state.zig  # MockTrack, MockItem, encoding helpers
+│       │   └── mock/          # MockBackend for testing (7 files)
+│       │       ├── mod.zig        # MockBackend struct composition + delegation
+│       │       ├── state.zig      # MockTrack, MockItem, encoding helpers
 │       │       ├── transport.zig  # Transport mock methods
 │       │       ├── tracks.zig     # Track/item mock methods
 │       │       ├── markers.zig    # Marker/region mock methods
-│       │       └── project.zig    # Project/undo/extstate mock methods
-│       ├── transport.zig      # Transport state polling (poll(api: anytype))
-│       ├── tracks.zig         # Track state & metering (poll(api: anytype))
-│       ├── items.zig          # Item/take state polling
-│       ├── markers.zig        # Marker/region state polling
+│       │       ├── project.zig    # Project/undo/extstate mock methods
+│       │       └── preferences.zig # Smooth seek & preferences mock methods
+│       ├── frame_arena.zig    # DoubleBufferedState for swappable arenas
+│       ├── tiered_state.zig   # Tiered arenas: HIGH/MEDIUM/LOW + scratch
+│       ├── transport.zig      # Transport state polling (HIGH tier, 30Hz)
+│       ├── tracks.zig         # Track state & metering (HIGH tier, 30Hz)
+│       ├── items.zig          # Item/take state polling (MEDIUM tier, 5Hz)
+│       ├── markers.zig        # Marker/region state polling (MEDIUM tier, 5Hz)
+│       ├── project.zig        # Project state: length, BPM, undo, repeat
+│       ├── fx.zig             # FX chain state: plugins, enabled, presets
+│       ├── sends.zig          # Send state: destination, volume, pan, mute
+│       ├── tempomap.zig       # Tempo marker state (LOW tier, 1Hz)
+│       ├── track_skeleton.zig # Lightweight name+GUID list (LOW tier, 1Hz)
+│       ├── track_subscriptions.zig  # Per-client viewport subscriptions
+│       ├── toggle_subscriptions.zig # Action toggle state subscriptions
+│       ├── project_notes.zig  # Project notes subscription management
+│       ├── guid_cache.zig     # O(1) GUID → track pointer lookup
+│       ├── gesture_state.zig  # Gesture tracking for undo coalescing
+│       ├── playlist.zig       # Playlist state (entries, loop counts)
 │       ├── ws_server.zig      # WebSocket server and client management
-│       ├── protocol.zig       # JSON parsing for commands
-│       └── commands/          # Command handlers (~70 handlers)
-│           ├── mod.zig        # dispatch() with inline for
+│       └── commands/          # Command handlers (114 handlers in 27 files)
+│           ├── mod.zig        # dispatch() with inline for, ResponseWriter
 │           ├── registry.zig   # Comptime tuple of all handlers
 │           ├── tracks.zig     # track/setVolume, track/setMute, etc.
 │           ├── transport.zig  # transport/play, transport/stop, etc.
+│           ├── playlist.zig   # playlist/create, play, stop, etc. (15 handlers)
 │           └── ...
 ├── frontend/            # React/TypeScript web UI
 │   └── src/
@@ -194,10 +212,10 @@ item.selected = api.getItemSelected(item_ptr) catch null;  // ?bool
 
 | File | Purpose |
 |------|---------|
-| `reaper/backend.zig` | `validateBackend(T)` — comptime validates ~100 required methods |
+| `reaper/backend.zig` | `validateBackend(T)` — comptime validates ~150 required methods |
 | `reaper/real.zig` | `RealBackend` — thin wrapper around `raw.Api`, used in production |
 | `reaper/mock/mod.zig` | `MockBackend` — field-based state for tests, no REAPER needed |
-| `commands/registry.zig` | Comptime tuple of all ~70 command handlers |
+| `commands/registry.zig` | Comptime tuple of all 114 command handlers |
 | `commands/mod.zig` | `dispatch()` using `inline for`, `CommandContext` for handler globals |
 | `constants.zig` | Shared `MAX_*` constants used across modules |
 
@@ -215,7 +233,7 @@ item.selected = api.getItemSelected(item_ptr) catch null;  // ?bool
 pub const all = .{
     .{ "transport/play", transport.handlePlay },
     .{ "transport/stop", transport.handleStop },
-    // ... ~70 entries
+    // ... 114 entries total
 };
 
 // mod.zig — dispatch with inline for (unrolls at comptime)
