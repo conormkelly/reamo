@@ -24,20 +24,6 @@ const track_skeleton = @import("track_skeleton.zig");
 // Use custom panic handler that flushes log ring buffer before aborting
 pub const panic = logging.panic;
 
-// Debug file logging for playlist tick debugging
-var g_tick_log_file: ?std.fs.File = null;
-
-fn logTickToFile(comptime fmt: []const u8, args: anytype) void {
-    if (g_tick_log_file == null) {
-        g_tick_log_file = std.fs.cwd().createFile("playlist_tick.log", .{ .truncate = true }) catch return;
-    }
-    if (g_tick_log_file) |file| {
-        var buf: [512]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
-        _ = file.write(msg) catch {};
-    }
-}
-
 // Configuration
 const DEFAULT_PORT: u16 = 9224;
 const MAX_PORT_ATTEMPTS: u8 = 10;
@@ -720,21 +706,11 @@ fn doProcessing() !void {
                         break :blk null;
                     };
 
-                    // Tick the engine
-                    const prev_pos = g_playlist_state.engine.prev_pos;
-                    const loops_rem = g_playlist_state.engine.loops_remaining;
-                    const iter = g_playlist_state.engine.current_loop_iteration;
-                    const pending = g_playlist_state.engine.next_loop_pending;
-
                     // Calculate bar length for non-contiguous transition timing
                     // bar_length = beats_per_bar * seconds_per_beat
                     const bpm = current_transport.bpm;
                     const beats_per_bar = current_transport.time_sig_num;
                     const bar_length = if (bpm > 0) beats_per_bar * (60.0 / bpm) else 2.0;
-
-                    logTickToFile("TICK: pos={d:.3} prev={d:.3} region=[{d:.3},{d:.3}] loops_rem={d} iter={d} pending={}", .{
-                        current_pos, prev_pos, region_start, region_end, loops_rem, iter, pending,
-                    });
 
                     const action = g_playlist_state.engine.tick(
                         current_pos,
@@ -744,15 +720,6 @@ fn doProcessing() !void {
                         p.entry_count,
                         bar_length,
                     );
-
-                    // Log action result
-                    switch (action) {
-                        .none => {},
-                        .broadcast_state => logTickToFile("  -> ACTION: broadcast_state (loops_rem now {d})", .{g_playlist_state.engine.loops_remaining}),
-                        .setup_native_loop => |info| logTickToFile("  -> ACTION: setup_native_loop [{d:.3},{d:.3}]", .{ info.region_start, info.region_end }),
-                        .stop => logTickToFile("  -> ACTION: stop", .{}),
-                        .seek_to => |pos| logTickToFile("  -> ACTION: seek_to {d:.3}", .{pos}),
-                    }
 
                     // Handle action
                     switch (action) {

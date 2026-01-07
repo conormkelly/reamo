@@ -479,9 +479,29 @@ pub const TracksMethods = struct {
 
     pub fn deleteItem(self: anytype, track: *anyopaque, item: *anyopaque) bool {
         self.recordCall(.deleteItem);
-        _ = track;
-        _ = item;
-        // In real mock we'd remove from array, for now just acknowledge
+
+        // Decode item pointer to get track and item indices
+        const info = state.decodeItemPtr(item);
+        if (info.track_idx >= state.MAX_TRACKS) return false;
+        if (info.item_idx >= state.MAX_ITEMS_PER_TRACK) return false;
+
+        // Validate track pointer matches (optional safety check)
+        const track_idx = state.decodeTrackPtr(track);
+        if (track_idx != info.track_idx) return false;
+
+        const mock_track = &self.tracks[info.track_idx];
+        const item_count: usize = @intCast(@max(0, mock_track.item_count));
+        if (info.item_idx >= item_count) return false;
+
+        // Shift remaining items down to fill the gap
+        var i = info.item_idx;
+        while (i + 1 < item_count) : (i += 1) {
+            mock_track.items[i] = mock_track.items[i + 1];
+        }
+        // Clear the last slot
+        mock_track.items[item_count - 1] = .{};
+        mock_track.item_count -= 1;
+
         return true;
     }
 

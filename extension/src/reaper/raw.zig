@@ -15,7 +15,7 @@ pub const MarkerCount = types.MarkerCount;
 pub const FxPresetInfo = types.FxPresetInfo;
 
 // Debug logging - set to false for release builds
-pub const DEBUG_LOGGING = true;
+pub const DEBUG_LOGGING = false;
 
 // REAPER plugin API version
 pub const PLUGIN_VERSION: c_int = 0x20E;

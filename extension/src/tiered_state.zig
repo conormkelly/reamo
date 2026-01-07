@@ -349,7 +349,7 @@ pub const TieredArenas = struct {
 
     /// Initialize all tiered arenas with calculated sizes
     /// Use `initWithSizes()` for production with project-specific sizes
-    /// Use `initWithDefaults()` for tests
+    /// Use `init()` for tests or when API not available
     pub fn initWithSizes(backing: Allocator, sizes: CalculatedSizes) !Self {
         var self: Self = undefined;
         self.sizes = sizes;
@@ -373,13 +373,8 @@ pub const TieredArenas = struct {
     }
 
     /// Initialize with default sizes (for tests or when API not available)
-    pub fn initWithDefaults(backing: Allocator) !Self {
-        return initWithSizes(backing, CalculatedSizes.defaults());
-    }
-
-    /// Legacy init - uses default sizes for backwards compatibility
     pub fn init(backing: Allocator) !Self {
-        return initWithDefaults(backing);
+        return initWithSizes(backing, CalculatedSizes.defaults());
     }
 
     /// Clean up all arenas

@@ -2448,3 +2448,19 @@ Common error codes:
 ### Position Precision
 
 REAPER's HTTP API uses 15 decimal places for time positions (e.g., `17.332999999999998`). The WebSocket extension matches this precision for marker/region positions and time selection to avoid beat calculation errors at boundaries. Display values (position, cursorPosition, projectLength) use 3 decimal places to match REAPER's UI.
+
+### REAPER API Quirks
+
+The extension works around several REAPER API limitations:
+
+**Marker/Region Color Reset**
+
+REAPER's `SetProjectMarker4` API treats `color=0` as "don't modify color" rather than "reset to default". When a client sends `color: 0` (meaning "reset to default"), the extension deletes and recreates the marker/region with the same ID to achieve the reset behavior. This is why color reset operations may briefly cause the marker to disappear.
+
+**Audio Channel Detection**
+
+REAPER's `GetMediaSourceNumChannels` API sometimes returns incorrect values (e.g., 1 for stereo files). The extension works around this by always requesting stereo data from `AudioAccessor` and detecting mono/stereo by comparing L/R channel content.
+
+**Master Track GUID**
+
+REAPER's master track doesn't have a stable GUID like regular tracks. The extension uses the literal string `"master"` as the GUID for the master track in `trackSkeleton` events and subscription requests.

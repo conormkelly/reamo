@@ -329,31 +329,18 @@ These are correctly marked as test-only and don't affect production:
 
 ---
 
-## 10. Debug Code in Production
+## 10. ~~Debug Code in Production~~ *(FIXED)*
 
-### DEBUG_LOGGING Always True
+### ~~DEBUG_LOGGING Always True~~ *(FIXED)*
 **File:** [reaper/raw.zig:18](extension/src/reaper/raw.zig#L18)
 
-```zig
-pub const DEBUG_LOGGING = true;
-```
-
-This is re-exported in [reaper.zig:63](extension/src/reaper.zig#L63) and affects console output.
-
-**Impact:** Low - adds noise to REAPER console, minor performance impact.
-
-**Recommendation:** Set to `false` for release builds or make it build-time configurable.
+Now set to `false` for release builds.
 
 ---
 
-### Debug File Logging
-**File:** [main.zig:29](extension/src/main.zig#L29)
+### ~~Debug File Logging~~ *(FIXED)*
 
-```zig
-// Debug file logging for playlist tick debugging
-```
-
-**Recommendation:** Remove or gate behind a debug flag before release.
+Removed `logTickToFile` and associated code from main.zig.
 
 ---
 
@@ -375,16 +362,16 @@ This is re-exported in [reaper.zig:63](extension/src/reaper.zig#L63) and affects
 | ~~Consolidate MAX_* constants~~ | **FIXED** | constants.zig + 9 modules | Low | Prevents divergence |
 | ~~Add logging to silent error paths~~ | **FIXED** | subscriptions, commands, ws_server, playlist | Low | Improves debuggability |
 | ~~Migrate toJson to scratch arena~~ | **FIXED** | tracks, track_skeleton, toggle_subs, main | Medium | Supports extreme projects |
-| Set DEBUG_LOGGING=false | TODO | raw.zig | Trivial | Cleaner console output |
+| ~~Set DEBUG_LOGGING=false~~ | **FIXED** | raw.zig | Trivial | Cleaner console output |
 
 ### Low Priority (Nice to have)
 
-| Item | Files | Effort | Impact |
-|------|-------|--------|--------|
-| Implement mock deleteItem properly | mock/tracks.zig | Low | Better test fidelity |
-| Move static buffers to test_utils | items.zig, markers.zig | Low | Cleaner separation |
-| Document REAPER workarounds in API.md | API.md | Low | Better documentation |
-| Remove legacy tiered_state.init wrapper | tiered_state.zig | Trivial | Cleaner API |
+| Item | Status | Files | Effort | Impact |
+|------|--------|-------|--------|--------|
+| ~~Implement mock deleteItem properly~~ | **FIXED** | mock/tracks.zig | Low | Better test fidelity |
+| Move static buffers to test_utils | TODO | items.zig, markers.zig | Low | Cleaner separation |
+| ~~Document REAPER workarounds in API.md~~ | **FIXED** | API.md | Low | Better documentation |
+| ~~Remove legacy tiered_state.init wrapper~~ | **FIXED** | tiered_state.zig | Trivial | Cleaner API |
 
 ---
 
@@ -398,16 +385,17 @@ The following major cleanup items have been completed:
 
 1. **Duplicate command registry** - Removed legacy `handlers` arrays from all 21 command modules. ~320 lines removed.
 2. **Unicode handling** - Proper UTF-8 encoding for \uXXXX escape sequences.
-3. **Legacy APIs** - Removed deprecated `pollInto` from tracks.zig.
+3. **Legacy APIs** - Removed deprecated `pollInto` from tracks.zig, legacy `tiered_state.init` wrapper.
 4. **MAX_* constants** - Consolidated into shared `constants.zig`.
 5. **Global state** - Command handler globals consolidated into `CommandContext` struct.
 6. **Silent error handling** - Added logging to subscription, response, command, WebSocket, and playlist error paths.
 7. **JSON buffer sizing** - Migrated all production `toJson` to `toJsonAlloc` with dynamic scratch arena sizing. Supports extreme projects (3000 tracks, 10000 items).
+8. **Debug code** - Set `DEBUG_LOGGING=false`, removed playlist tick file logging.
+9. **Mock implementation** - Proper `deleteItem` implementation in mock/tracks.zig.
+10. **Documentation** - REAPER API quirks documented in API.md.
 
 ### Remaining Items
 
-- Set DEBUG_LOGGING=false for release
-- Remove debug file logging before release
-- Low-priority test infrastructure improvements
+- Move static buffers to test_utils (low priority)
 
-Since this is a pre-release application, the codebase is now in much better shape for ongoing development.
+Since this is a pre-release application, the codebase is now in excellent shape for release.
