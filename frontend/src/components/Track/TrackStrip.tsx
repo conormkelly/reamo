@@ -16,6 +16,19 @@ import { MonitorButton } from './MonitorButton';
 import { MasterMonoButton } from './MasterMonoButton';
 import { Fader } from './Fader';
 import { PanKnob } from './PanKnob';
+/** Get contrasting text color (black or white) for a hex color */
+function getContrastFromHex(hex: string | null): 'black' | 'white' {
+  if (!hex) return 'white';
+  // Parse hex to RGB
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!result) return 'white';
+  const r = parseInt(result[1], 16);
+  const g = parseInt(result[2], 16);
+  const b = parseInt(result[3], 16);
+  // Calculate luminance
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.5 ? 'black' : 'white';
+}
 
 export interface TrackStripProps {
   trackIndex: number;
@@ -52,27 +65,47 @@ export function TrackStrip({
   }
 
   // Determine style: selected = brighter background
-  // Top border always uses track color for emphasis, sides/bottom use subtle border
-  const topBorderColor = color || '#6b7280';
-  const sideBorderColor = isSelected ? (color || '#6b7280') : '#374151';
+  // color is already a hex string from useTrack
+  const defaultColor = '#6b7280';
+  const topBarColor = color || defaultColor;
+  const sideBorderColor = isSelected ? (color || defaultColor) : '#374151';
   const backgroundColor = isSelected ? '#374151' : '#1f2937';
 
   // Master track has squared top with subtle bottom radius, other tracks have full rounded corners
   const isMaster = trackIndex === 0;
   const roundedClass = isMaster ? 'rounded-b-md' : 'rounded-lg';
+  const topRoundedClass = isMaster ? '' : 'rounded-t-lg';
+
+  // Get contrasting text color for the track number
+  const trackNumberColor = getContrastFromHex(color);
 
   return (
     <div
-      className={`flex flex-col items-center p-2 ${roundedClass} border w-[100px] select-none ${className}`}
+      className={`flex flex-col items-center ${roundedClass} border border-t-0 w-[100px] select-none ${className}`}
       style={{
         backgroundColor,
         borderLeftColor: sideBorderColor,
         borderRightColor: sideBorderColor,
         borderBottomColor: sideBorderColor,
-        borderTopWidth: '5px',
-        borderTopColor: topBorderColor,
       }}
     >
+      {/* Color bar with track number */}
+      <div
+        className={`w-full h-2.5 flex items-center justify-center ${topRoundedClass}`}
+        style={{ backgroundColor: topBarColor }}
+      >
+        {!isMaster && (
+          <span
+            className="text-[9px] font-medium leading-none"
+            style={{ color: trackNumberColor }}
+          >
+            {trackIndex}
+          </span>
+        )}
+      </div>
+
+      {/* Main content */}
+      <div className="flex flex-col items-center p-2 w-full">
       {/* Track name - tap to toggle, long-press for exclusive select */}
       <div
         className="w-full text-center text-sm font-medium truncate mb-2 px-1 cursor-pointer"
@@ -109,6 +142,7 @@ export function TrackStrip({
           <MonitorButton trackIndex={trackIndex} isSelected={isSelected} />
         </div>
       )}
+      </div>
     </div>
   );
 }

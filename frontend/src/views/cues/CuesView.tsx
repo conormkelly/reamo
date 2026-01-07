@@ -28,7 +28,12 @@ import { playlist as playlistCmd } from '../../core/WebSocketCommands';
 import type { WSPlaylist, WSPlaylistEntry } from '../../core/WebSocketTypes';
 import type { Region } from '../../core/types';
 import { reaperColorToHexWithFallback } from '../../utils/color';
-import { useTransportAnimation } from '../../hooks';
+import { useTransportAnimation, useUIPreferences } from '../../hooks';
+
+// Fixed heights for bottom bar calculations
+const TAB_BAR_HEIGHT = 48;
+const PERSISTENT_TRANSPORT_HEIGHT = 56;
+const PLAYBACK_CONTROLS_HEIGHT = 80;
 
 // Helper to format duration
 function formatDuration(seconds: number): string {
@@ -51,6 +56,12 @@ function formatLoopCount(count: number): string {
 
 export function CuesView(): ReactElement {
   const { sendCommand } = useReaper();
+  const { showTabBar, showPersistentTransport } = useUIPreferences();
+
+  // Calculate bottom offset for fixed playback controls
+  const bottomOffset =
+    (showTabBar ? TAB_BAR_HEIGHT : 0) +
+    (showPersistentTransport ? PERSISTENT_TRANSPORT_HEIGHT : 0);
 
   // Store state
   const playlists = useReaperStore((s) => s.playlists);
@@ -367,8 +378,12 @@ export function CuesView(): ReactElement {
         </button>
       </ViewHeader>
 
-      {/* Entry list */}
-      <div ref={listRef} className="flex-1 overflow-auto">
+      {/* Entry list - add padding for fixed playback controls */}
+      <div
+        ref={listRef}
+        className="flex-1 overflow-auto"
+        style={{ paddingBottom: `${PLAYBACK_CONTROLS_HEIGHT}px` }}
+      >
         {currentPlaylist && currentPlaylist.entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <p className="text-gray-400 mb-4">This playlist is empty</p>
@@ -435,8 +450,11 @@ export function CuesView(): ReactElement {
         )}
       </div>
 
-      {/* Playback controls */}
-      <div className="flex-none p-3 border-t border-gray-800 bg-gray-900">
+      {/* Playback controls - fixed at bottom, above navbar/transport */}
+      <div
+        className="fixed left-0 right-0 z-40 p-3 border-t border-gray-800 bg-gray-900"
+        style={{ bottom: `${bottomOffset}px` }}
+      >
         <div className="flex items-center justify-center gap-3">
           <button
             onClick={handlePrev}

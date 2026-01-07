@@ -80,7 +80,7 @@ export function MixerSection(): ReactElement {
         <TrackFilter
           value={trackFilter}
           onChange={setTrackFilter}
-          className="w-40"
+          className="w-1/2 sm:w-40"
           placeholder="Filter..."
           matchCount={filteredCount}
           totalCount={totalTracks}
