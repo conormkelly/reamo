@@ -941,6 +941,55 @@ pub fn handleLargeResponse(self: *ResponseWriter, data: []const u8) void {
 
 For detailed research on Zig memory patterns in REAPER plugins, see `research/ZIG_MEMORY_MANAGEMENT.md`.
 
+### Tiered Arena Architecture
+
+The extension uses **double-buffered arenas per polling tier** to prevent crashes and support large projects without fixed entity limits.
+
+**The Problem:**
+
+Zig allocates ALL local variables at function entry. Large `State` structs on the stack cause overflow when REAPER's startup creates deeply nested call stacks (~45+ frames during modal dialogs like "missing media" prompts).
+
+**Interim Fix:**
+
+The `pollInto()` pattern wrote to static storage instead of returning by value. This avoided stack allocation but required careful lifetime management.
+
+**Final Solution — Tiered Double-Buffered Arenas:**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  TieredArenas (tiered_state.zig)                        │
+├─────────────────────────────────────────────────────────┤
+│  HIGH tier (30Hz)   - Tracks + meters                   │
+│                       Swaps each poll cycle             │
+│  MEDIUM tier (5Hz)  - Items, markers, FX, sends         │
+│                       Swaps at 5Hz                      │
+│  LOW tier (1Hz)     - Tempo map, track skeleton         │
+│                       Swaps at 1Hz                      │
+│  SCRATCH            - JSON serialization                │
+│                       Reset every frame                 │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Benefits:**
+
+- **Dynamic sizing** — Arenas sized based on actual project entity counts (20MB min, 200MB ceiling)
+- **Graceful degradation** — Skip entities when full, never crash
+- **No cross-tier pointer dependencies** — Flattened data model prevents dangling pointers when arenas swap
+- **Zero fixed limits** — Supports extreme projects (3000 tracks, 10000 items)
+
+**Double-buffering pattern:**
+
+Each tier maintains two arenas. While one is being read by serialization, the other is being written by polling. Swap pointers atomically between frames:
+
+```zig
+// In polling loop
+const write_arena = tiered.high.getWriteArena();
+tracks.pollInto(api, write_arena);
+tiered.high.swap();  // Write becomes read, read becomes write
+```
+
+See `tiered_state.zig` for implementation and `research/BACKEND_ARENA_RESEARCH.md` for design rationale.
+
 ## Protocol & Versioning
 
 ### Hello Handshake
@@ -1035,6 +1084,19 @@ Use `make dev` to automate this cycle:
 For rapid iteration after tests pass, use `make dev-notests`.
 
 ## Debugging
+
+### Log Files
+
+Extension logs are written to:
+```
+~/Library/Application Support/REAPER/Logs/reamo.log  (macOS)
+%APPDATA%\REAPER\Logs\reamo.log                      (Windows)
+~/.config/REAPER/Logs/reamo.log                      (Linux)
+```
+
+Set `REAMO_LOG_LEVEL` environment variable to control verbosity: `err`, `warn`, `info`, `debug`
+
+Log rotation: 1MB max, keeps last 3 files.
 
 ### Key Files & Resources
 
@@ -1181,7 +1243,7 @@ Then check REAPER's console (Actions → Show console).
     - `logging.warn()` — Unexpected but recoverable (buffer overflow with real data)
     - `logging.debug()` — Expected in edge cases (very large payloads)
 
-    See [error_handling.md](error_handling.md) for the full audit and ongoing tracking.
+    See `PENDING_ITEMS.md` for remaining items.
 
 19. **Use `toJsonAlloc` with scratch arena for JSON serialization** - All production JSON serialization should use the scratch arena via `toJsonAlloc` rather than fixed stack buffers. This supports extreme projects (3000+ tracks) without buffer overflow:
     ```zig

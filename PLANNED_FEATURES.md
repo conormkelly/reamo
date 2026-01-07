@@ -289,7 +289,6 @@ Core navigation architecture for Reamo. Tab bar with persistent transport.
 ## Cue List
 
 > **Full specification:** [features/CUE_LIST_FEATURE.md](features/CUE_LIST_FEATURE.md)
-> **Backend plan:** [CUE_LIST_BACKEND_PLAN.md](CUE_LIST_BACKEND_PLAN.md)
 
 Vertical list view of regions for quick tap-to-jump navigation, plus playlist mode with loop counts for arrangement sketching and live performance.
 
@@ -365,7 +364,7 @@ Double-tap region or zoom to time selection. Single track view with detailed ite
 
 **Architecture decision:** Backend sends ALL items (no server-side filtering). Frontend filters by time selection as needed. This enables LOD overview (colored bars showing "stuff here") and avoids round-trips when switching views. Time selection is obtained from the transport event, not the items event.
 
-> See [ITEMS_MODE_FEATURE.md](ITEMS_MODE_FEATURE.md) for detailed implementation spec.
+> See [features/ITEMS_MODE_FEATURE.md](features/ITEMS_MODE_FEATURE.md) for detailed implementation spec.
 
 ### Supported Item Actions
 
@@ -395,7 +394,6 @@ Just: **"See what I recorded, tidy it up, make quick keep/trash decisions, move 
 ## Track Management
 
 > **Full specification:** [features/TRACK_MANAGEMENT_FEATURE.md](features/TRACK_MANAGEMENT_FEATURE.md)
-> **Backend plan:** [TRACK_MANAGEMENT_BACKEND_PLAN.md](TRACK_MANAGEMENT_BACKEND_PLAN.md)
 
 Extend track control beyond mixer operations to full track lifecycle management.
 
