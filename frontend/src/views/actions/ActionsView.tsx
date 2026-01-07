@@ -164,8 +164,8 @@ export function ActionsView(): ReactElement {
 
   return (
     <div className="h-full bg-gray-950 text-white flex flex-col">
-      {/* Header - positioned to avoid burger menu */}
-      <div className="flex items-center justify-end gap-2 p-4 pt-2">
+      {/* Header - positioned to avoid burger menu and global ConnectionStatus */}
+      <div className="flex items-center justify-end gap-2 p-4 pt-2 pr-10">
         {/* Vertical alignment buttons (edit mode only) */}
         {editMode && (
           <div className="flex items-center border border-gray-600 rounded overflow-hidden">

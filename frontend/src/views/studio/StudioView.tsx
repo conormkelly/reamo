@@ -5,7 +5,6 @@
 
 import { useState, useEffect, type ReactElement } from 'react';
 import {
-  ConnectionStatus,
   RecordingActionsBar,
   MetronomeButton,
   TapTempoButton,
@@ -28,7 +27,7 @@ export function StudioView(): ReactElement {
     toggleSection,
     loadLayoutFromStorage,
   } = useReaperStore();
-  const { toasts, dismissToast } = useToast();
+  const { toasts, dismissToast, showUndo, showRedo } = useToast();
 
   // Detect mobile (for RecordingActionsBar positioning)
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
@@ -52,13 +51,12 @@ export function StudioView(): ReactElement {
 
   return (
     <div data-view="studio" className="min-h-screen bg-gray-950 text-white p-4">
-      {/* Header: Connection + Tempo right */}
-      <header className="flex items-center justify-end mb-4">
+      {/* Header: Tempo controls (ConnectionStatus moved to global App.tsx) */}
+      <header className="flex items-center justify-end mb-4 pr-8">
         <div className="flex items-center gap-3">
           <MetronomeButton />
           <TapTempoButton />
           <TimeSignatureButton />
-          <ConnectionStatus />
         </div>
       </header>
 
@@ -71,7 +69,7 @@ export function StudioView(): ReactElement {
 
         // Map section IDs to components and controls
         const sectionContent = {
-          project: <ProjectSection />,
+          project: <ProjectSection onUndo={showUndo} onRedo={showRedo} />,
           toolbar: <Toolbar />,
           timeline: <TimelineSection />,
           mixer: <MixerSection />,
@@ -105,7 +103,7 @@ export function StudioView(): ReactElement {
         );
       })}
 
-      {/* Footer */}
+      {/* Footer - at bottom of content, visible when scrolled down */}
       <footer className="mt-8 text-center text-gray-600 text-sm">
         REAmo - REAPER Web Control
       </footer>

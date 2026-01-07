@@ -11,6 +11,10 @@ export interface TrackFilterProps {
   onChange: (value: string) => void;
   className?: string;
   placeholder?: string;
+  /** Number of tracks matching the current filter (optional) */
+  matchCount?: number;
+  /** Total number of tracks (optional) */
+  totalCount?: number;
 }
 
 export function TrackFilter({
@@ -18,6 +22,8 @@ export function TrackFilter({
   onChange,
   className = '',
   placeholder = 'Filter tracks...',
+  matchCount,
+  totalCount,
 }: TrackFilterProps): ReactElement {
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     onChange(e.target.value);
@@ -26,6 +32,15 @@ export function TrackFilter({
   const handleClear = () => {
     onChange('');
   };
+
+  // Show count if totalCount is provided
+  const showCount = totalCount !== undefined && totalCount > 0;
+  // When filtering, show match/total; otherwise just show total
+  const countText = showCount
+    ? value.trim()
+      ? `${matchCount ?? 0}/${totalCount}`
+      : `${totalCount}`
+    : '';
 
   return (
     <div className={`relative ${className}`}>
@@ -38,8 +53,21 @@ export function TrackFilter({
         value={value}
         onChange={handleChange}
         placeholder={placeholder}
-        className="w-full pl-9 pr-8 py-2 bg-gray-800 border border-gray-700 rounded text-base text-white placeholder-gray-500 focus:outline-none focus:border-gray-500"
+        className={`w-full pl-9 py-2 bg-gray-800 border border-gray-700 rounded text-base text-white placeholder-gray-500 focus:outline-none focus:border-gray-500 ${
+          value ? 'pr-16' : showCount ? 'pr-12' : 'pr-8'
+        }`}
       />
+      {/* Track count indicator */}
+      {showCount && (
+        <span
+          className={`absolute top-1/2 -translate-y-1/2 text-gray-500 text-sm font-mono ${
+            value ? 'right-8' : 'right-3'
+          }`}
+        >
+          {countText}
+        </span>
+      )}
+      {/* Clear button */}
       {value && (
         <button
           onClick={handleClear}

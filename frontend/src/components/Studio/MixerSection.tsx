@@ -4,11 +4,11 @@
  * Collapse is handled by parent CollapsibleSection wrapper.
  */
 
-import { useState, type ReactElement } from 'react';
+import { useState, useMemo, type ReactElement } from 'react';
 import { Lock, Unlock, XCircle } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
-import { useTracks } from '../../hooks';
+import { useTracks, useTrackSkeleton } from '../../hooks';
 import { track as trackCmd } from '../../core/WebSocketCommands';
 import { TrackStrip, LevelMeter, TrackFilter } from '../Track';
 import { VirtualizedTrackList } from './VirtualizedTrackList';
@@ -63,6 +63,15 @@ function UnselectAllTracksButton() {
 export function MixerSection(): ReactElement {
   const [trackFilter, setTrackFilter] = useState('');
   const pinMasterTrack = useReaperStore((s) => s.pinMasterTrack);
+  const { totalTracks, filterByName } = useTrackSkeleton();
+
+  // Calculate filtered track count (exclude master for consistency with display)
+  const filteredCount = useMemo(() => {
+    if (!trackFilter.trim()) return totalTracks;
+    const filtered = filterByName(trackFilter);
+    // Exclude master track from count
+    return filtered.filter((t) => t.g !== 'master').length;
+  }, [trackFilter, totalTracks, filterByName]);
 
   return (
     <>
@@ -71,8 +80,10 @@ export function MixerSection(): ReactElement {
         <TrackFilter
           value={trackFilter}
           onChange={setTrackFilter}
-          className="max-w-xs"
-          placeholder="Filter tracks..."
+          className="w-40"
+          placeholder="Filter..."
+          matchCount={filteredCount}
+          totalCount={totalTracks}
         />
         <MixerLockButton />
         <UnselectAllTracksButton />

@@ -11,11 +11,15 @@ import {
   RedoButton,
   SaveButton,
 } from '../';
-import { useToast } from '../Toast';
 
-export function ProjectSection(): ReactElement {
-  const { showUndo, showRedo } = useToast();
+export interface ProjectSectionProps {
+  /** Callback when undo is triggered (for toast notification) */
+  onUndo?: (action: string) => void;
+  /** Callback when redo is triggered (for toast notification) */
+  onRedo?: (action: string) => void;
+}
 
+export function ProjectSection({ onUndo, onRedo }: ProjectSectionProps): ReactElement {
   return (
     <>
       {/* Time Display - centered above transport */}
@@ -27,8 +31,8 @@ export function ProjectSection(): ReactElement {
       <div className="mb-4">
         <TransportBar className="mb-3" />
         <div className="flex flex-wrap items-center justify-center gap-2">
-          <UndoButton onUndo={showUndo} />
-          <RedoButton onRedo={showRedo} />
+          <UndoButton onUndo={onUndo} />
+          <RedoButton onRedo={onRedo} />
           <SaveButton />
         </div>
       </div>

@@ -5,8 +5,8 @@
 
 import { useState, useEffect } from 'react';
 import './index.css';
-import { ReaperProvider, TabBar, PersistentTransport, SettingsMenu, ConnectionBanner, MemoryWarningBar, RecordingActionsBar } from './components';
-import { useUIPreferences } from './hooks';
+import { ReaperProvider, TabBar, PersistentTransport, SettingsMenu, ConnectionBanner, MemoryWarningBar, RecordingActionsBar, ConnectionStatus } from './components';
+import { useUIPreferences, useTransport } from './hooks';
 import { useReaperStore } from './store';
 import { views, type ViewId, VIEW_STORAGE_KEY, DEFAULT_VIEW } from './viewRegistry';
 
@@ -31,6 +31,9 @@ function AppContent() {
   const setPinMasterTrack = useReaperStore((s) => s.setPinMasterTrack);
   const actionsAutoCollapse = useReaperStore((s) => s.actionsAutoCollapse);
   const setActionsAutoCollapse = useReaperStore((s) => s.setActionsAutoCollapse);
+
+  // Get recording state for RecordingActionsBar visibility
+  const { isRecording } = useTransport();
 
   // Detect mobile for RecordingActionsBar positioning
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
@@ -64,8 +67,8 @@ function AppContent() {
       {/* Memory warning bar - shown when arena utilization is high */}
       <MemoryWarningBar />
 
-      {/* Header controls - floating top-left */}
-      <div className="absolute top-3 left-3 z-50">
+      {/* Header controls - fixed top-left (stays visible on scroll) */}
+      <div className="fixed top-3 left-3 z-50">
         <SettingsMenu
           showTabBar={showTabBar}
           showPersistentTransport={showPersistentTransport}
@@ -83,13 +86,18 @@ function AppContent() {
         />
       </div>
 
+      {/* Connection status - fixed top-right (visible on all views) */}
+      <div className="fixed top-3 right-3 z-50">
+        <ConnectionStatus />
+      </div>
+
       {/* Active view area - fills available space, min-h-0 allows flex shrinking */}
       <main className="flex-1 min-h-0 overflow-auto">
         <ViewComponent />
       </main>
 
-      {/* Recording Actions Bar - only in Studio view */}
-      {currentView === 'studio' && showRecordingActions && (
+      {/* Recording Actions Bar - only in Studio view when recording */}
+      {currentView === 'studio' && showRecordingActions && isRecording && (
         isMobile ? (
           // Mobile: Fixed positioning above bottom nav bars
           <div
