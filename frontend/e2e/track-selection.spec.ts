@@ -28,6 +28,7 @@ async function setupTestFixtures(page: Page) {
       tracks: {
         0: {
           index: 0,
+          guid: 'master',
           name: 'MASTER',
           color: 0,
           volume: 1.0,
@@ -41,9 +42,11 @@ async function setupTestFixtures(page: Page) {
           sendCount: 0,
           receiveCount: 0,
           hwOutCount: 0,
+          fxCount: 0,
         },
         1: {
           index: 1,
+          guid: '{TEST-GUID-DRUMS-0001}',
           name: 'DRUMS',
           color: 0,
           volume: 1.0,
@@ -57,9 +60,11 @@ async function setupTestFixtures(page: Page) {
           sendCount: 0,
           receiveCount: 0,
           hwOutCount: 0,
+          fxCount: 0,
         },
         2: {
           index: 2,
+          guid: '{TEST-GUID-BASS-0002}',
           name: 'BASS',
           color: 0,
           volume: 1.0,
@@ -73,6 +78,7 @@ async function setupTestFixtures(page: Page) {
           sendCount: 0,
           receiveCount: 0,
           hwOutCount: 0,
+          fxCount: 0,
         },
       },
     })

@@ -1,12 +1,13 @@
 /**
  * Meter Subscription Hook
- * Subscribes to meter updates for visible track indices only.
- * Debounces updates to avoid excessive subscription churn during scroll.
+ * @deprecated Use useTrackSubscription instead. Metering now follows track subscriptions.
+ *
+ * This hook is a no-op stub for backward compatibility during migration.
+ * It will be removed in a future version.
  */
 
-import { useEffect, useRef, useCallback } from 'react';
-import { useReaperStore } from '../store';
-import { meter, type WSCommand } from '../core/WebSocketCommands';
+import { useEffect } from 'react';
+import type { WSCommand } from '../core/WebSocketCommands';
 
 export interface UseMeterSubscriptionOptions {
   /** Debounce delay in ms (default: 150) */
@@ -18,111 +19,22 @@ export interface UseMeterSubscriptionOptions {
 }
 
 /**
- * Subscribe to meter updates for the specified track indices.
+ * @deprecated Use useTrackSubscription instead. Metering now follows track subscriptions.
  *
- * Usage:
- * ```tsx
- * const { sendCommand, connected } = useReaperConnection();
- * const visibleTracks = [0, 1, 2, 5, 6]; // from virtualized list
- * useMeterSubscription(visibleTracks, { sendCommand });
- * ```
- *
- * The hook will:
- * - Debounce subscription updates (default 150ms)
- * - Send meter/subscribe when visible tracks change
- * - Send meter/unsubscribe on unmount
- * - Skip subscription if not connected or no sendCommand provided
+ * This hook is a no-op stub. The meter/subscribe command no longer exists.
+ * Use useTrackSubscription which handles both track data and meters.
  */
 export function useMeterSubscription(
-  trackIndices: number[],
-  options: UseMeterSubscriptionOptions = {}
+  _trackIndices: number[],
+  _options: UseMeterSubscriptionOptions = {}
 ): void {
-  const { debounceMs = 150, enabled = true, sendCommand } = options;
-
-  const connected = useReaperStore((state) => state.connected);
-
-  // Track previous indices to detect changes
-  const prevIndicesRef = useRef<number[]>([]);
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mountedRef = useRef(true);
-  const wasConnectedRef = useRef(false);
-
-  // Compare arrays (order-insensitive)
-  const arraysEqual = useCallback((a: number[], b: number[]): boolean => {
-    if (a.length !== b.length) return false;
-    const sortedA = [...a].sort((x, y) => x - y);
-    const sortedB = [...b].sort((x, y) => x - y);
-    return sortedA.every((v, i) => v === sortedB[i]);
+  // Log deprecation warning once per component mount
+  useEffect(() => {
+    console.warn(
+      '[useMeterSubscription] DEPRECATED: This hook is a no-op. ' +
+        'Use useTrackSubscription instead. Metering now follows track subscriptions automatically.'
+    );
   }, []);
-
-  // Send subscription update
-  const sendSubscription = useCallback(
-    (indices: number[]) => {
-      if (!connected || !mountedRef.current || !sendCommand) return;
-      sendCommand(meter.subscribe(indices));
-      prevIndicesRef.current = indices;
-    },
-    [connected, sendCommand]
-  );
-
-  // Debounced subscription update
-  useEffect(() => {
-    if (!enabled) return;
-
-    // Clear any pending debounce
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-      debounceTimerRef.current = null;
-    }
-
-    // Skip if indices haven't changed
-    if (arraysEqual(trackIndices, prevIndicesRef.current)) {
-      return;
-    }
-
-    // Debounce the subscription update
-    debounceTimerRef.current = setTimeout(() => {
-      sendSubscription(trackIndices);
-    }, debounceMs);
-
-    return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = null;
-      }
-    };
-  }, [trackIndices, enabled, debounceMs, arraysEqual, sendSubscription]);
-
-  // Re-subscribe when connection is established
-  useEffect(() => {
-    const justConnected = connected && !wasConnectedRef.current;
-    wasConnectedRef.current = connected;
-
-    // Only send on reconnect, not on every trackIndices change
-    if (justConnected && enabled && trackIndices.length > 0 && sendCommand) {
-      // Send directly to avoid stale closure in sendSubscription
-      sendCommand(meter.subscribe(trackIndices));
-      prevIndicesRef.current = trackIndices;
-    }
-  }, [connected, enabled, trackIndices, sendCommand]);
-
-  // Unsubscribe on unmount
-  useEffect(() => {
-    mountedRef.current = true;
-
-    return () => {
-      mountedRef.current = false;
-      // Clear any pending debounce
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-      // Unsubscribe - the backend will also clean up on disconnect,
-      // but explicit unsubscribe is cleaner for component unmount
-      if (connected && sendCommand) {
-        sendCommand(meter.unsubscribe());
-      }
-    };
-  }, [connected, sendCommand]);
 }
 
 /**

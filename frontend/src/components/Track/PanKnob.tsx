@@ -7,7 +7,7 @@ import { useState, useCallback, useRef, useEffect, type ReactElement } from 'rea
 import { useReaper } from '../ReaperProvider';
 import { useTrack } from '../../hooks/useTrack';
 import { useReaperStore } from '../../store';
-import { gesture } from '../../core/WebSocketCommands';
+import { gesture, track as trackCmd } from '../../core/WebSocketCommands';
 
 /** Center pan position */
 const CENTER_PAN = 0;
@@ -40,12 +40,14 @@ export function PanKnob({
   isSelected = false,
 }: PanKnobProps): ReactElement {
   const { sendCommand } = useReaper();
-  const { pan, panDisplay, setPan } = useTrack(trackIndex);
+  const { pan, panDisplay, setPan, guid } = useTrack(trackIndex);
   const mixerLocked = useReaperStore((s) => s.mixerLocked);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const lastTapRef = useRef<number>(0);
   const cleanupRef = useRef<(() => void) | null>(null);
+  // Lock GUID at gesture start to handle track reordering during drag
+  const gestureGuidRef = useRef<string | null>(null);
 
   // Cleanup event listeners on unmount to prevent memory leaks
   useEffect(() => {
@@ -77,11 +79,20 @@ export function PanKnob({
       }
       lastTapRef.current = now;
 
+      // REQUIRE GUID for gestures - prevents modifying wrong track if reordered
+      if (!guid) {
+        console.warn(`PanKnob: No GUID for track ${trackIndex}, gesture blocked`);
+        return;
+      }
+
       e.preventDefault();
       setIsDragging(true);
 
-      // Signal gesture start for undo coalescing
-      sendCommand(gesture.start('pan', trackIndex));
+      // Lock GUID at gesture start - use this for ALL commands during gesture
+      gestureGuidRef.current = guid;
+
+      // Signal gesture start for undo coalescing (with locked GUID)
+      sendCommand(gesture.start('pan', trackIndex, gestureGuidRef.current));
 
       const getX = (event: MouseEvent | TouchEvent): number => {
         if ('touches' in event) {
@@ -91,13 +102,14 @@ export function PanKnob({
       };
 
       const updatePosition = (clientX: number) => {
-        if (!containerRef.current) return;
+        if (!containerRef.current || !gestureGuidRef.current) return;
         const rect = containerRef.current.getBoundingClientRect();
         const x = clientX - rect.left;
         // Convert to -1 to 1 range
         const position = (x / rect.width) * 2 - 1;
         const clampedPosition = Math.max(-1, Math.min(1, position));
-        sendCommand(setPan(clampedPosition));
+        // Use locked GUID for pan command (ignores trackIdx when GUID provided)
+        sendCommand(trackCmd.setPan(trackIndex, clampedPosition, gestureGuidRef.current));
       };
 
       // Handle initial click position
@@ -111,8 +123,11 @@ export function PanKnob({
 
       const handleUp = () => {
         setIsDragging(false);
-        // Signal gesture end - triggers undo point creation
-        sendCommand(gesture.end('pan', trackIndex));
+        // Signal gesture end with locked GUID - triggers undo point creation
+        if (gestureGuidRef.current) {
+          sendCommand(gesture.end('pan', trackIndex, gestureGuidRef.current));
+        }
+        gestureGuidRef.current = null;
         document.removeEventListener('mousemove', handleMove);
         document.removeEventListener('mouseup', handleUp);
         document.removeEventListener('touchmove', handleMove);
@@ -128,7 +143,7 @@ export function PanKnob({
       // Store cleanup function for unmount
       cleanupRef.current = handleUp;
     },
-    [sendCommand, setPan, handleDoubleTap, mixerLocked, trackIndex]
+    [sendCommand, handleDoubleTap, mixerLocked, trackIndex, guid]
   );
 
   // Calculate indicator position (0-100%)

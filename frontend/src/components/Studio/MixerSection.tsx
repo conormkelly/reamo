@@ -8,28 +8,65 @@ import { useState, useMemo, type ReactElement } from 'react';
 import { Lock, Unlock, XCircle } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
-import { useTracks, useMeterSubscription } from '../../hooks';
+import { useTracks, useTrackSubscription, useTrackSkeleton, type TrackSubscription } from '../../hooks';
+// Note: useTracks is still used by UnselectAllTracksButton below
 import { track as trackCmd } from '../../core/WebSocketCommands';
 import { TrackStrip, LevelMeter, TrackFilter } from '../Track';
 
 function TrackList({ filter }: { filter: string }) {
   const { sendCommand } = useReaper();
-  const { userTracks } = useTracks();
+  const tracks = useReaperStore((state) => state.tracks);
+  const { totalTracks, filterByName } = useTrackSkeleton();
 
-  const filteredTracks = useMemo(() => {
-    if (!filter.trim()) return userTracks;
-    const lowerFilter = filter.toLowerCase();
-    return userTracks.filter((track) =>
-      track.name.toLowerCase().includes(lowerFilter)
-    );
-  }, [userTracks, filter]);
+  // Filter using skeleton (has ALL tracks) - returns tracks with their indices
+  const filteredSkeleton = useMemo(() => {
+    return filterByName(filter);
+  }, [filterByName, filter]);
 
-  // Subscribe to meters for visible tracks (master + filtered user tracks)
-  const visibleTrackIndices = useMemo(() => {
-    return [0, ...filteredTracks.map((t) => t.index)];
-  }, [filteredTracks]);
+  // Build subscription based on filter state
+  const subscription: TrackSubscription = useMemo(() => {
+    if (!filter.trim()) {
+      // No filter: subscribe to range of all tracks
+      return {
+        mode: 'range',
+        start: 1, // Start at 1 (user tracks), master handled separately
+        end: Math.max(totalTracks, 1),
+      };
+    } else {
+      // Filter active: subscribe to specific GUIDs (excluding master - handled by includeMaster)
+      const userGuids = filteredSkeleton
+        .filter((t) => t.g !== 'master')
+        .map((t) => t.g);
+      return {
+        mode: 'guids',
+        guids: userGuids,
+      };
+    }
+  }, [filter, totalTracks, filteredSkeleton]);
 
-  useMeterSubscription(visibleTrackIndices, { sendCommand });
+  // Subscribe to track updates (data + meters)
+  useTrackSubscription(subscription, {
+    sendCommand,
+    includeMaster: true, // Always include master track
+  });
+
+  // Get indices to render (from skeleton when filtered, or from store when not)
+  const trackIndicesToRender = useMemo(() => {
+    if (!filter.trim()) {
+      // No filter: render all tracks we have data for (excluding master)
+      return Object.keys(tracks)
+        .map(Number)
+        .filter((idx) => idx > 0)
+        .sort((a, b) => a - b);
+    } else {
+      // Filter active: render filtered tracks that we have data for
+      return filteredSkeleton
+        .filter((t) => t.g !== 'master' && tracks[t.index])
+        .map((t) => t.index);
+    }
+  }, [filter, filteredSkeleton, tracks]);
+
+  const hasUserTracks = totalTracks > 0 || Object.keys(tracks).length > 1;
 
   return (
     <div className="flex gap-2 overflow-x-auto pb-4">
@@ -37,15 +74,15 @@ function TrackList({ filter }: { filter: string }) {
       <TrackStripWithMeter trackIndex={0} />
 
       {/* Filtered user tracks */}
-      {filteredTracks.map((track) => (
-        <TrackStripWithMeter key={track.index} trackIndex={track.index} />
+      {trackIndicesToRender.map((idx) => (
+        <TrackStripWithMeter key={idx} trackIndex={idx} />
       ))}
 
-      {userTracks.length > 0 && filteredTracks.length === 0 && (
+      {hasUserTracks && trackIndicesToRender.length === 0 && filter.trim() && (
         <div className="text-gray-500 p-4">No matching tracks</div>
       )}
 
-      {userTracks.length === 0 && (
+      {!hasUserTracks && (
         <div className="text-gray-500 p-4">No tracks in project</div>
       )}
     </div>

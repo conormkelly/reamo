@@ -26,6 +26,7 @@ import type {
   TransportEventPayload,
   TransportTickEventPayload,
   ProjectEventPayload,
+  TrackSkeletonEventPayload,
   TracksEventPayload,
   MarkersEventPayload,
   RegionsEventPayload,
@@ -40,7 +41,9 @@ import {
   isTransportEvent,
   isTransportTickEvent,
   isProjectEvent,
+  isTrackSkeletonEvent,
   isTracksEvent,
+  isMetersEvent,
   isMarkersEvent,
   isRegionsEvent,
   isItemsEvent,
@@ -241,9 +244,16 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
         masterStereo: p.master.stereoEnabled,
         barOffset: p.barOffset,
       });
+    } else if (isTrackSkeletonEvent(message)) {
+      // Track skeleton: lightweight list of all tracks (name + GUID)
+      // Used for filtering/navigation, broadcast at 1Hz on structure change
+      const p = message.payload as TrackSkeletonEventPayload;
+      console.log('[Store] trackSkeleton event received:', { trackCount: p.tracks.length, tracks: p.tracks });
+      get().setTrackSkeleton(p.tracks);
     } else if (isTracksEvent(message)) {
       const p = message.payload as TracksEventPayload;
-      // Convert WSTrack format to Track format
+      console.log('[Store] tracks event received:', { total: p.total, trackCount: p.tracks.length, firstTrack: p.tracks[0] });
+      // Convert WSTrack format to Track format (subscribed tracks only)
       const tracks: Record<number, import('../core/types').Track> = {};
       for (const t of p.tracks) {
         // Build flags bitfield from boolean fields
@@ -258,11 +268,13 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
 
         tracks[t.idx] = {
           index: t.idx,
+          guid: t.g, // Track GUID for stable targeting (backend sends "g" for compactness)
           name: t.name,
           color: t.color,
           volume: t.volume,
           pan: t.pan,
           flags,
+          // Meters arrive separately via 'meters' event at 30Hz
           lastMeterPeak: 0,
           lastMeterPos: 0,
           clipped: false,
@@ -276,20 +288,15 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
         };
       }
 
-      // Process meter data - update track objects with peak levels and clip state
-      // WebSocket sends linear amplitude (1.0 = 0dB), use max of L/R for mono display
-      if (p.meters && p.meters.length > 0) {
-        for (const m of p.meters) {
-          if (tracks[m.trackIdx]) {
-            const peak = Math.max(m.peakL, m.peakR);
-            tracks[m.trackIdx].lastMeterPeak = peak;
-            tracks[m.trackIdx].lastMeterPos = peak;
-            tracks[m.trackIdx].clipped = m.clipped;
-          }
-        }
-      }
-
+      // Replace track state entirely (decision: don't merge)
+      // Set totalTracks for virtual scrollbar sizing (excludes master)
       set({ tracks, trackCount: p.tracks.length });
+      get().setTotalTracks(p.total);
+    } else if (isMetersEvent(message)) {
+      // Meters event: GUID-keyed map at 30Hz for subscribed tracks
+      // Note: 'm' is at root level, not in payload (matches backend format)
+      const msg = message as unknown as { m: Record<string, import('../core/WebSocketTypes').MeterData> };
+      get().updateMeters(msg.m);
     } else if (isMarkersEvent(message)) {
       const p = message.payload as MarkersEventPayload;
       const markers: Marker[] = p.markers.map((m) => ({

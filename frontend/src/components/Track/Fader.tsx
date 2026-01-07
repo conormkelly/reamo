@@ -7,7 +7,8 @@ import { useState, useCallback, useRef, useEffect, type ReactElement } from 'rea
 import { useReaper } from '../ReaperProvider';
 import { useTrack } from '../../hooks/useTrack';
 import { useReaperStore } from '../../store';
-import { gesture } from '../../core/WebSocketCommands';
+import { gesture, track as trackCmd } from '../../core/WebSocketCommands';
+import { faderToVolume } from '../../utils/volume';
 
 /** Linear volume for unity gain (0dB) - exactly 1.0 */
 const UNITY_GAIN_VOLUME = 1.0;
@@ -30,12 +31,14 @@ export function Fader({
   isSelected = false,
 }: FaderProps): ReactElement {
   const { sendCommand } = useReaper();
-  const { faderPosition, volumeDb, setFaderPosition, setVolume } = useTrack(trackIndex);
+  const { faderPosition, volumeDb, setVolume, guid } = useTrack(trackIndex);
   const mixerLocked = useReaperStore((s) => s.mixerLocked);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const lastTapRef = useRef<number>(0);
   const cleanupRef = useRef<(() => void) | null>(null);
+  // Lock GUID at gesture start to handle track reordering during drag
+  const gestureGuidRef = useRef<string | null>(null);
 
   // Cleanup event listeners on unmount to prevent memory leaks
   useEffect(() => {
@@ -67,11 +70,20 @@ export function Fader({
       }
       lastTapRef.current = now;
 
+      // REQUIRE GUID for gestures - prevents modifying wrong track if reordered
+      if (!guid) {
+        console.warn(`Fader: No GUID for track ${trackIndex}, gesture blocked`);
+        return;
+      }
+
       e.preventDefault();
       setIsDragging(true);
 
-      // Signal gesture start for undo coalescing
-      sendCommand(gesture.start('volume', trackIndex));
+      // Lock GUID at gesture start - use this for ALL commands during gesture
+      gestureGuidRef.current = guid;
+
+      // Signal gesture start for undo coalescing (with locked GUID)
+      sendCommand(gesture.start('volume', trackIndex, gestureGuidRef.current));
 
       const getY = (event: MouseEvent | TouchEvent): number => {
         if ('touches' in event) {
@@ -81,11 +93,13 @@ export function Fader({
       };
 
       const updatePosition = (clientY: number) => {
-        if (!containerRef.current) return;
+        if (!containerRef.current || !gestureGuidRef.current) return;
         const rect = containerRef.current.getBoundingClientRect();
         const y = clientY - rect.top;
         const position = 1 - Math.max(0, Math.min(1, y / rect.height));
-        sendCommand(setFaderPosition(position));
+        // Use locked GUID for volume command (ignores trackIdx when GUID provided)
+        const linearVolume = faderToVolume(position);
+        sendCommand(trackCmd.setVolume(trackIndex, linearVolume, gestureGuidRef.current));
       };
 
       // Handle initial click position
@@ -99,8 +113,11 @@ export function Fader({
 
       const handleUp = () => {
         setIsDragging(false);
-        // Signal gesture end - triggers undo point creation
-        sendCommand(gesture.end('volume', trackIndex));
+        // Signal gesture end with locked GUID - triggers undo point creation
+        if (gestureGuidRef.current) {
+          sendCommand(gesture.end('volume', trackIndex, gestureGuidRef.current));
+        }
+        gestureGuidRef.current = null;
         document.removeEventListener('mousemove', handleMove);
         document.removeEventListener('mouseup', handleUp);
         document.removeEventListener('touchmove', handleMove);
@@ -116,7 +133,7 @@ export function Fader({
       // Store cleanup function for unmount
       cleanupRef.current = handleUp;
     },
-    [sendCommand, setFaderPosition, handleDoubleTap, mixerLocked, trackIndex]
+    [sendCommand, handleDoubleTap, mixerLocked, trackIndex, guid]
   );
 
   const handleHeight = Math.max(0, Math.min(height, faderPosition * height));

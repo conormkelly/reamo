@@ -13,6 +13,17 @@ export { usePeaksFetch, type UsePeaksFetchResult } from './usePeaksFetch';
 export { useUIPreferences, type UIPreferences } from './useUIPreferences';
 export { useMeterSubscription, getVisibleTrackIndices, type UseMeterSubscriptionOptions } from './useMeterSubscription';
 export {
+  useTrackSubscription,
+  createRangeSubscription,
+  type UseTrackSubscriptionOptions,
+  type TrackSubscription,
+} from './useTrackSubscription';
+export {
+  useTrackSkeleton,
+  type UseTrackSkeletonReturn,
+  type SkeletonTrackWithIndex,
+} from './useTrackSkeleton';
+export {
   useTransportSync,
   getTransportSyncState,
   isTransportSynced,

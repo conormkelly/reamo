@@ -82,8 +82,12 @@ pub const TrackSubscriptions = struct {
     /// Key is track index (resolved from GUID at subscription time).
     ref_counts: std.AutoHashMap(c_int, u8),
 
-    /// Next available slot.
+    /// Next available slot (for fresh allocation).
     next_slot: usize,
+
+    /// Free list for recycling slots from disconnected clients.
+    free_slots: [MAX_CLIENTS]usize = undefined,
+    free_count: usize = 0,
 
     pub fn init(allocator: Allocator) TrackSubscriptions {
         var subs = TrackSubscriptions{
@@ -115,6 +119,15 @@ pub const TrackSubscriptions = struct {
             return slot;
         }
 
+        // Try to reuse a freed slot first
+        if (self.free_count > 0) {
+            self.free_count -= 1;
+            const slot = self.free_slots[self.free_count];
+            self.client_id_to_slot.put(client_id, slot) catch return null;
+            return slot;
+        }
+
+        // Allocate a new slot if available
         if (self.next_slot >= MAX_CLIENTS) {
             return null;
         }
@@ -233,6 +246,10 @@ pub const TrackSubscriptions = struct {
 
         client.clear();
         _ = self.client_id_to_slot.remove(client_id);
+
+        // Add slot to free list for reuse
+        self.free_slots[self.free_count] = slot;
+        self.free_count += 1;
     }
 
     /// Get all track indices that should be polled.
@@ -558,4 +575,43 @@ test "switching subscription modes" {
     // Switch back to range
     _ = try subs.subscribeRange(1, 5, 10, false);
     try std.testing.expectEqual(SubscriptionMode.range, subs.clients[slot].mode);
+}
+
+test "slot recycling after client disconnect" {
+    const allocator = std.testing.allocator;
+    var subs = TrackSubscriptions.init(allocator);
+    defer subs.deinit();
+
+    // Fill all 16 slots
+    for (0..MAX_CLIENTS) |i| {
+        _ = try subs.subscribeRange(i, 0, 5, false);
+    }
+    try std.testing.expectEqual(@as(usize, MAX_CLIENTS), subs.clientCount());
+
+    // New client should fail (slots exhausted)
+    const result = subs.subscribeRange(999, 0, 5, false);
+    try std.testing.expectError(error.TooManyClients, result);
+
+    // Disconnect client 5
+    subs.removeClient(5);
+    try std.testing.expectEqual(@as(usize, MAX_CLIENTS - 1), subs.clientCount());
+
+    // New client should succeed (slot recycled)
+    _ = try subs.subscribeRange(100, 0, 5, false);
+    try std.testing.expectEqual(@as(usize, MAX_CLIENTS), subs.clientCount());
+
+    // Another new client should fail again
+    const result2 = subs.subscribeRange(101, 0, 5, false);
+    try std.testing.expectError(error.TooManyClients, result2);
+
+    // Disconnect multiple clients
+    subs.removeClient(0);
+    subs.removeClient(1);
+    subs.removeClient(2);
+
+    // Should be able to add 3 new clients
+    _ = try subs.subscribeRange(200, 0, 5, false);
+    _ = try subs.subscribeRange(201, 0, 5, false);
+    _ = try subs.subscribeRange(202, 0, 5, false);
+    try std.testing.expectEqual(@as(usize, MAX_CLIENTS), subs.clientCount());
 }

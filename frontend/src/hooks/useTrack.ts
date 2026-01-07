@@ -25,6 +25,9 @@ export interface UseTrackReturn {
   track: Track | null;
   exists: boolean;
 
+  // Track GUID for stable targeting (use during gestures to avoid reordering issues)
+  guid: string | undefined;
+
   // Derived state
   name: string;
   volumeDb: string;
@@ -41,10 +44,12 @@ export interface UseTrackReturn {
   textColor: 'black' | 'white';
 
   // Command builders (return WSCommand objects)
+  // Toggle commands use GUID when available for stability
   toggleMute: () => WSCommand;
   toggleSolo: () => WSCommand;
   toggleRecordArm: () => WSCommand;
   cycleRecordMonitor: () => WSCommand;
+  // Continuous control commands ALWAYS use GUID when available
   setVolume: (linearVolume: number) => WSCommand;
   setFaderPosition: (position: number) => WSCommand;
   setPan: (pan: number) => WSCommand;
@@ -94,48 +99,53 @@ export function useTrack(trackIndex: number): UseTrackReturn {
     };
   }, [track]);
 
+  // Get GUID for stable targeting
+  const guid = track?.guid;
+
   // Command builders - return WSCommand objects for use with sendCommand
+  // All commands include GUID when available for stability during track reordering
   const toggleMute = useCallback(
-    () => trackCmd.setMute(trackIndex), // No value = toggle
-    [trackIndex]
+    () => trackCmd.setMute(trackIndex, undefined, guid), // No value = toggle
+    [trackIndex, guid]
   );
 
   const toggleSolo = useCallback(
-    () => trackCmd.setSolo(trackIndex), // No value = toggle
-    [trackIndex]
+    () => trackCmd.setSolo(trackIndex, undefined, guid), // No value = toggle
+    [trackIndex, guid]
   );
 
   const toggleRecordArm = useCallback(
-    () => trackCmd.setRecArm(trackIndex), // No value = toggle
-    [trackIndex]
+    () => trackCmd.setRecArm(trackIndex, undefined, guid), // No value = toggle
+    [trackIndex, guid]
   );
 
   const cycleRecordMonitor = useCallback(
-    () => trackCmd.setRecMon(trackIndex), // No value = cycle
-    [trackIndex]
+    () => trackCmd.setRecMon(trackIndex, undefined, guid), // No value = cycle
+    [trackIndex, guid]
   );
 
   const setVolume = useCallback(
-    (linearVolume: number) => trackCmd.setVolume(trackIndex, linearVolume),
-    [trackIndex]
+    (linearVolume: number) => trackCmd.setVolume(trackIndex, linearVolume, guid),
+    [trackIndex, guid]
   );
 
   const setFaderPosition = useCallback(
     (position: number) => {
       const linearVolume = faderToVolume(position);
-      return trackCmd.setVolume(trackIndex, linearVolume);
+      return trackCmd.setVolume(trackIndex, linearVolume, guid);
     },
-    [trackIndex]
+    [trackIndex, guid]
   );
 
   const setPan = useCallback(
-    (pan: number) => trackCmd.setPan(trackIndex, pan),
-    [trackIndex]
+    (pan: number) => trackCmd.setPan(trackIndex, pan, guid),
+    [trackIndex, guid]
   );
 
   return {
     track,
     exists: track !== null,
+    guid,
     ...derived,
     toggleMute,
     toggleSolo,

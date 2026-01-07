@@ -67,13 +67,15 @@ export interface EventMessage {
   payload?: EventPayload; // Optional for events like 'reload' that have no payload
 }
 
-export type EventType = 'transport' | 'tt' | 'project' | 'tracks' | 'markers' | 'regions' | 'items' | 'fx_state' | 'sends_state' | 'reload' | 'actionToggleState' | 'tempoMap' | 'projectNotesChanged' | 'playlist';
+export type EventType = 'transport' | 'tt' | 'project' | 'trackSkeleton' | 'tracks' | 'meters' | 'markers' | 'regions' | 'items' | 'fx_state' | 'sends_state' | 'reload' | 'actionToggleState' | 'tempoMap' | 'projectNotesChanged' | 'playlist';
 
 export type EventPayload =
   | TransportEventPayload
   | TransportTickEventPayload
   | ProjectEventPayload
+  | TrackSkeletonEventPayload
   | TracksEventPayload
+  | MetersEventPayload
   | MarkersEventPayload
   | RegionsEventPayload
   | ItemsEventPayload
@@ -149,11 +151,27 @@ export interface ProjectEventPayload {
 }
 
 // =============================================================================
-// Tracks Event
+// Track Skeleton Event (lightweight list for filtering/navigation)
+// =============================================================================
+
+/** Lightweight track info for skeleton event */
+export interface SkeletonTrack {
+  n: string; // name
+  g: string; // guid ("master" for master track)
+}
+
+/** Track skeleton broadcast (1Hz, on structure change) */
+export interface TrackSkeletonEventPayload {
+  tracks: SkeletonTrack[];
+}
+
+// =============================================================================
+// Tracks Event (subscribed tracks only)
 // =============================================================================
 
 export interface WSTrack {
   idx: number;
+  g: string; // Track GUID ("master" for master track) — use for write commands (backend sends "g" for compactness)
   name: string;
   color: number; // Native OS color, 0 = default
   volume: number; // Linear: 1.0 = 0dB
@@ -170,16 +188,28 @@ export interface WSTrack {
   receiveCount: number;
 }
 
-export interface WSMeter {
-  trackIdx: number;
-  peakL: number; // 0-1+, 1.0 = 0dB
-  peakR: number;
-  clipped: boolean; // sticky until cleared
+/** Tracks event payload (only contains subscribed tracks) */
+export interface TracksEventPayload {
+  total: number; // User track count (excludes master, for virtual scroll sizing)
+  tracks: WSTrack[];
+  // Note: meters removed - now sent separately via 'meters' event
 }
 
-export interface TracksEventPayload {
-  tracks: WSTrack[];
-  meters: WSMeter[];
+// =============================================================================
+// Meters Event (GUID-keyed map, 30Hz for subscribed tracks)
+// =============================================================================
+
+/** Individual meter data for a track */
+export interface MeterData {
+  i: number; // track index
+  l: number; // left peak (0-1+, 1.0 = 0dB)
+  r: number; // right peak
+  c: boolean; // clipped (sticky until cleared)
+}
+
+/** Meters event payload (GUID-keyed map for O(1) lookup) */
+export interface MetersEventPayload {
+  m: Record<string, MeterData>; // GUID → meter data
 }
 
 // =============================================================================
@@ -488,10 +518,22 @@ export function isProjectEvent(
   return msg.event === 'project';
 }
 
+export function isTrackSkeletonEvent(
+  msg: EventMessage
+): msg is EventMessage & { payload: TrackSkeletonEventPayload } {
+  return msg.event === 'trackSkeleton';
+}
+
 export function isTracksEvent(
   msg: EventMessage
 ): msg is EventMessage & { payload: TracksEventPayload } {
   return msg.event === 'tracks';
+}
+
+export function isMetersEvent(
+  msg: EventMessage
+): msg is EventMessage & { payload: MetersEventPayload } {
+  return msg.event === 'meters';
 }
 
 export function isMarkersEvent(

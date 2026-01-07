@@ -151,38 +151,57 @@ export const region = {
 // Track Commands
 // =============================================================================
 
+/** Subscription parameters for track/subscribe command */
+export interface TrackSubscribeParams {
+  range?: { start: number; end: number };
+  guids?: string[];
+  includeMaster?: boolean;
+}
+
 export const track = {
-  setVolume: (trackIdx: number, volume: number): WSCommand => ({
+  /** Subscribe to track updates for a range or specific GUIDs.
+   * Replaces any previous subscription. Tracks events + meters only poll subscribed tracks.
+   * Use range mode for scrolling mixer, GUID mode for filtered views.
+   */
+  subscribe: (params: TrackSubscribeParams): WSCommand => ({
+    command: 'track/subscribe',
+    params: { ...params },
+  }),
+  /** Unsubscribe from track updates. Called automatically on disconnect. */
+  unsubscribe: (): WSCommand => ({
+    command: 'track/unsubscribe',
+  }),
+  setVolume: (trackIdx: number, volume: number, trackGuid?: string): WSCommand => ({
     command: 'track/setVolume',
-    params: { trackIdx, volume },
+    params: trackGuid ? { trackGuid, volume } : { trackIdx, volume },
   }),
-  setPan: (trackIdx: number, pan: number): WSCommand => ({
+  setPan: (trackIdx: number, pan: number, trackGuid?: string): WSCommand => ({
     command: 'track/setPan',
-    params: { trackIdx, pan },
+    params: trackGuid ? { trackGuid, pan } : { trackIdx, pan },
   }),
-  setMute: (trackIdx: number, mute?: number): WSCommand => ({
+  setMute: (trackIdx: number, mute?: number, trackGuid?: string): WSCommand => ({
     command: 'track/setMute',
-    params: { trackIdx, mute },
+    params: trackGuid ? { trackGuid, mute } : { trackIdx, mute },
   }),
-  setSolo: (trackIdx: number, solo?: number): WSCommand => ({
+  setSolo: (trackIdx: number, solo?: number, trackGuid?: string): WSCommand => ({
     command: 'track/setSolo',
-    params: { trackIdx, solo },
+    params: trackGuid ? { trackGuid, solo } : { trackIdx, solo },
   }),
-  setRecArm: (trackIdx: number, arm?: number): WSCommand => ({
+  setRecArm: (trackIdx: number, arm?: number, trackGuid?: string): WSCommand => ({
     command: 'track/setRecArm',
-    params: { trackIdx, arm },
+    params: trackGuid ? { trackGuid, arm } : { trackIdx, arm },
   }),
-  setRecMon: (trackIdx: number, mon?: number): WSCommand => ({
+  setRecMon: (trackIdx: number, mon?: number, trackGuid?: string): WSCommand => ({
     command: 'track/setRecMon',
-    params: { trackIdx, mon },
+    params: trackGuid ? { trackGuid, mon } : { trackIdx, mon },
   }),
-  setFxEnabled: (trackIdx: number, enabled?: number): WSCommand => ({
+  setFxEnabled: (trackIdx: number, enabled?: number, trackGuid?: string): WSCommand => ({
     command: 'track/setFxEnabled',
-    params: { trackIdx, enabled },
+    params: trackGuid ? { trackGuid, enabled } : { trackIdx, enabled },
   }),
-  setSelected: (trackIdx: number, selected?: number): WSCommand => ({
+  setSelected: (trackIdx: number, selected?: number, trackGuid?: string): WSCommand => ({
     command: 'track/setSelected',
-    params: { trackIdx, selected },
+    params: trackGuid ? { trackGuid, selected } : { trackIdx, selected },
   }),
   unselectAll: (): WSCommand => ({
     command: 'track/unselectAll',
@@ -352,22 +371,13 @@ export const master = {
 // =============================================================================
 
 export const meter = {
-  clearClip: (trackIdx: number): WSCommand => ({
+  /** Clear clip indicator for a track. Use trackGuid for stability. */
+  clearClip: (trackIdx: number, trackGuid?: string): WSCommand => ({
     command: 'meter/clearClip',
-    params: { trackIdx },
+    params: trackGuid ? { trackGuid } : { trackIdx },
   }),
-  /** Subscribe to meter updates for specific track indices.
-   * Replaces any previous subscription. Meters only poll subscribed tracks.
-   * Includes 30-second grace period for tracks leaving viewport.
-   */
-  subscribe: (trackIndices: number[]): WSCommand => ({
-    command: 'meter/subscribe',
-    params: { trackIndices },
-  }),
-  /** Unsubscribe from all meter updates. Called automatically on disconnect. */
-  unsubscribe: (): WSCommand => ({
-    command: 'meter/unsubscribe',
-  }),
+  // Note: meter/subscribe and meter/unsubscribe are obsolete.
+  // Metering now follows track subscriptions automatically via track/subscribe.
 };
 
 // =============================================================================
@@ -471,15 +481,15 @@ export const extstate = {
 export type GestureControlType = 'volume' | 'pan';
 
 export const gesture = {
-  /** Call when starting to drag a fader/knob */
-  start: (controlType: GestureControlType, trackIdx: number): WSCommand => ({
+  /** Call when starting to drag a fader/knob. Use trackGuid for stability during gestures. */
+  start: (controlType: GestureControlType, trackIdx: number, trackGuid?: string): WSCommand => ({
     command: 'gesture/start',
-    params: { controlType, trackIdx },
+    params: trackGuid ? { controlType, trackGuid } : { controlType, trackIdx },
   }),
-  /** Call when releasing a fader/knob - triggers undo point creation */
-  end: (controlType: GestureControlType, trackIdx: number): WSCommand => ({
+  /** Call when releasing a fader/knob - triggers undo point creation. Use trackGuid for stability. */
+  end: (controlType: GestureControlType, trackIdx: number, trackGuid?: string): WSCommand => ({
     command: 'gesture/end',
-    params: { controlType, trackIdx },
+    params: trackGuid ? { controlType, trackGuid } : { controlType, trackIdx },
   }),
 };
 

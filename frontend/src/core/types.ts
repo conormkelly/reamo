@@ -50,9 +50,10 @@ export interface BeatPosition {
   timeSignatureDenominator: number;
 }
 
-// Track data from TRACK response
+// Track data from tracks event
 export interface Track {
   index: number;
+  guid: string; // Track GUID ("master" for master track) — use for write commands
   name: string;
   flags: number;
   volume: number; // Linear: 0 = -inf, 1 = 0dB, 4 = +12dB
