@@ -258,6 +258,7 @@ pub fn toNullTerminated(buf: *[65]u8, str: ?[]const u8) [*:0]const u8 {
     const len = @min(s.len, 64);
     @memcpy(buf[0..len], s[0..len]);
     buf[len] = 0;
+    // SAFETY: @alignCast unnecessary - u8 has alignment 1, always valid
     return @ptrCast(buf);
 }
 

@@ -202,11 +202,38 @@ item.selected = api.getItemSelected(item_ptr) catch null;  // ?bool
 
 **JSON serialization** handles null values automatically — clients see `"color": null` for corrupt data instead of garbage values or crashes.
 
+**FFI validation utilities in `ffi.zig`:**
+
+| Function | Use Case |
+|----------|----------|
+| `safeFloatToInt(T, val)` | Direct conversion with NaN/Inf/range validation |
+| `roundFloatToInt(T, val)` | Rounds first, then validates — use for beat/tick formatting |
+| `isFinite(val)` | Quick NaN/Inf check before arithmetic |
+
+```zig
+// safeFloatToInt - for direct conversions (sample counts, indices)
+const samples: usize = ffi.safeFloatToInt(usize, length * SAMPLE_RATE) catch {
+    response.err("INVALID_LENGTH", "Item length too large");
+    return;
+};
+
+// roundFloatToInt - for display formatting (beats, ticks)
+const scaled: u32 = ffi.roundFloatToInt(u32, (beat_in_bar + 1.0) * 100.0) catch {
+    return error.InvalidBeatValue;
+};
+
+// isFinite - for early validation before arithmetic
+if (!ffi.isFinite(length) or length <= 0) {
+    response.err("INVALID_LENGTH", "Item has invalid length");
+    return;
+}
+```
+
 **FFI validation files:**
 - `src/reaper/raw.zig` — Pure C bindings, returns `f64` from REAPER
 - `src/reaper/real.zig` — `RealBackend` with `ffi.safeFloatToInt()` validation
 - `src/reaper/mock/tracks.zig` — `inject_*_error` fields for testing error paths
-- `src/ffi.zig` — `safeFloatToInt()` and `FFIError` definitions
+- `src/ffi.zig` — `safeFloatToInt()`, `roundFloatToInt()`, `isFinite()` definitions
 
 **Testability key files:**
 
@@ -909,6 +936,62 @@ const item = api.getMediaItem(proj, itemIndex) orelse {
 };
 ```
 
+### WebSocket Security
+
+**Host header validation** prevents DNS rebinding attacks where a malicious website could connect to `ws://localhost:9224` via DNS tricks:
+
+```zig
+// In Client.init() - validate Host header before accepting connection
+const host = h.headers.get("host") orelse {
+    conn.close(.{ .code = 4003, .reason = "Missing Host header" }) catch {};
+    return error.MissingHost;
+};
+if (!isValidLocalhost(host)) {
+    conn.close(.{ .code = 4003, .reason = "Invalid Host" }) catch {};
+    return error.InvalidHost;
+}
+
+fn isValidLocalhost(host: []const u8) bool {
+    return std.mem.startsWith(u8, host, "127.0.0.1:") or
+           std.mem.startsWith(u8, host, "localhost:");
+}
+```
+
+**Rate-limited error logging** for WebSocket write failures prevents log spam while maintaining visibility:
+
+```zig
+// Log first error immediately, then max once per 5 seconds
+fn logWriteError(self: *SharedState, err: anyerror) void {
+    const count = self.write_error_count.fetchAdd(1, .monotonic) + 1;
+    const now = std.time.milliTimestamp();
+    const last = self.last_error_log_time.load(.monotonic);
+    if ((count == 1) or (now - last >= 5000)) {
+        _ = self.last_error_log_time.cmpxchgStrong(last, now, .monotonic, .monotonic);
+        logging.warn("WebSocket write error (count={d}): {}", .{ count, err });
+    }
+}
+```
+
+### REAPER Pointer Validation
+
+REAPER pointers can become invalid if the user deletes tracks/items during enumeration. Use `validateTrackPtr`/`validateItemPtr` before dereferencing:
+
+```zig
+// In polling loops - validate before use
+const track = api.getTrackByUnifiedIdx(idx) orelse continue;
+if (!api.validateTrackPtr(track)) continue;  // Track was deleted
+
+// In command handlers - return error to client
+const track = api.getTrackByUnifiedIdx(track_idx) orelse {
+    response.err("NOT_FOUND", "Track not found");
+    return;
+};
+if (!api.validateTrackPtr(track)) {
+    response.err("STALE_POINTER", "Track was deleted");
+    return;
+}
+```
+
 ### Graceful Degradation
 
 | Failure | Response |
@@ -917,6 +1000,7 @@ const item = api.getMediaItem(proj, itemIndex) orelse {
 | JSON parse failure | Return error to client, don't crash |
 | Client sends garbage | Disconnect that client, others unaffected |
 | Out of memory | Return error to client, don't allocate |
+| Stale REAPER pointer | Skip entity or return error to client |
 
 ### Memory Management
 
@@ -1287,4 +1371,13 @@ Then check REAPER's console (Actions → Show console).
         const json = self.toJson(buf) orelse return error.JsonSerializationFailed;
         return json; // Arena-owned, no free needed
     }
+    ```
+
+20. **`@ptrCast` for u8 arrays doesn't need `@alignCast`** - When casting u8 array pointers to `[*:0]const u8` for C strings, `@alignCast` is unnecessary because u8 has alignment 1 (always valid). Add a SAFETY comment to prevent future audit flags:
+    ```zig
+    var buf: [256]u8 = undefined;
+    @memcpy(buf[0..len], str[0..len]);
+    buf[len] = 0;
+    // SAFETY: @alignCast unnecessary - u8 has alignment 1, always valid
+    const c_str: [*:0]const u8 = @ptrCast(&buf);
     ```

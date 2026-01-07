@@ -228,6 +228,8 @@ pub fn log(level: Level, comptime fmt: []const u8, args: anytype) void {
     const timestamp = getTimestampMs();
 
     // Format message
+    // AUDIT: Silent catch return is intentional - can't log a logging failure.
+    // Ring buffer provides crash recovery for truncated messages.
     var msg_buf: [512]u8 = undefined;
     const msg = std.fmt.bufPrint(&msg_buf, fmt, args) catch return;
 
@@ -242,7 +244,7 @@ pub fn log(level: Level, comptime fmt: []const u8, args: anytype) void {
 
     const line = std.fmt.bufPrint(&line_buf, "[{s}] {s} {s}\n", .{ ts, level.asText(), msg }) catch return;
 
-    // Write to file
+    // Write to file (silent catch - no meaningful recovery for file write failure)
     if (log_file) |f| {
         _ = f.write(line) catch {};
     }

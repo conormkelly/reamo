@@ -79,6 +79,7 @@ pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     const value_len = @min(value.len, 1024);
     @memcpy(value_buf[0..value_len], value[0..value_len]);
     value_buf[value_len] = 0;
+    // SAFETY: @alignCast unnecessary - u8 has alignment 1, always valid
     const value_z: [*:0]const u8 = @ptrCast(&value_buf);
 
     api.setExtStateValue(section_z, key_z, value_z, persist);
@@ -141,6 +142,7 @@ pub fn handleProjSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.
     const value_len = @min(value.len, 16384);
     @memcpy(value_buf[0..value_len], value[0..value_len]);
     value_buf[value_len] = 0;
+    // SAFETY: @alignCast unnecessary - u8 has alignment 1, always valid
     const value_z: [*:0]const u8 = @ptrCast(&value_buf);
 
     api.setProjExtStateValue(extname_z, key_z, value_z);
