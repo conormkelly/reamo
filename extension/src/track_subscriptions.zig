@@ -124,7 +124,10 @@ pub const TrackSubscriptions = struct {
         if (self.free_count > 0) {
             self.free_count -= 1;
             const slot = self.free_slots[self.free_count];
-            self.client_id_to_slot.put(client_id, slot) catch return null;
+            self.client_id_to_slot.put(client_id, slot) catch |e| {
+                logging.warn("track_subscriptions: slot reuse failed for client {d}: {}", .{ client_id, e });
+                return null;
+            };
             return slot;
         }
 
@@ -135,7 +138,10 @@ pub const TrackSubscriptions = struct {
 
         const slot = self.next_slot;
         self.next_slot += 1;
-        self.client_id_to_slot.put(client_id, slot) catch return null;
+        self.client_id_to_slot.put(client_id, slot) catch |e| {
+            logging.warn("track_subscriptions: slot allocation failed for client {d}: {}", .{ client_id, e });
+            return null;
+        };
         return slot;
     }
 

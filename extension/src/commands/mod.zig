@@ -75,9 +75,15 @@ pub const ResponseWriter = struct {
 
         var buf: [512]u8 = undefined;
         const json = if (payload) |p|
-            std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"payload\":{s}}}", .{ self.cmd_id.?, p }) catch return
+            std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"payload\":{s}}}", .{ self.cmd_id.?, p }) catch {
+                logging.warn("ResponseWriter.success: buffer overflow for cmd_id={s}, payload_len={d}", .{ self.cmd_id.?, p.len });
+                return;
+            }
         else
-            std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true}}", .{self.cmd_id.?}) catch return;
+            std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true}}", .{self.cmd_id.?}) catch {
+                logging.warn("ResponseWriter.success: buffer overflow for cmd_id={s}", .{self.cmd_id.?});
+                return;
+            };
 
         self.shared_state.sendToClient(self.client_id, json);
     }
@@ -117,7 +123,10 @@ pub const ResponseWriter = struct {
         }
 
         var buf: [768]u8 = undefined;
-        const json = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"action\":\"{s}\"}}", .{ self.cmd_id.?, escaped[0..escaped_len] }) catch return;
+        const json = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"action\":\"{s}\"}}", .{ self.cmd_id.?, escaped[0..escaped_len] }) catch {
+            logging.warn("ResponseWriter.successWithAction: buffer overflow for cmd_id={s}", .{self.cmd_id.?});
+            return;
+        };
 
         self.shared_state.sendToClient(self.client_id, json);
     }
@@ -151,7 +160,10 @@ pub const ResponseWriter = struct {
         if (self.cmd_id == null) return;
 
         var buf: [512]u8 = undefined;
-        const json = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":false,\"error\":{{\"code\":\"{s}\",\"message\":\"{s}\"}}}}", .{ self.cmd_id.?, code, message }) catch return;
+        const json = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":false,\"error\":{{\"code\":\"{s}\",\"message\":\"{s}\"}}}}", .{ self.cmd_id.?, code, message }) catch {
+            logging.warn("ResponseWriter.err: buffer overflow for cmd_id={s}, code={s}", .{ self.cmd_id.?, code });
+            return;
+        };
 
         self.shared_state.sendToClient(self.client_id, json);
     }
@@ -163,7 +175,10 @@ pub const ResponseWriter = struct {
         if (self.cmd_id == null) return;
 
         var buf: [512]u8 = undefined;
-        const json = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"warning\":{{\"code\":\"{s}\",\"message\":\"{s}\"}}}}", .{ self.cmd_id.?, code, message }) catch return;
+        const json = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"warning\":{{\"code\":\"{s}\",\"message\":\"{s}\"}}}}", .{ self.cmd_id.?, code, message }) catch {
+            logging.warn("ResponseWriter.warn: buffer overflow for cmd_id={s}, code={s}", .{ self.cmd_id.?, code });
+            return;
+        };
 
         self.shared_state.sendToClient(self.client_id, json);
     }

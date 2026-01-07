@@ -255,62 +255,77 @@ Project names, track names, and marker names with non-ASCII characters are now h
 
 ---
 
-## 8. Silent Error Handling Patterns
+## 8. Silent Error Handling Patterns *(PARTIALLY FIXED)*
 
-Many places use `catch return null` or `catch return` which silently fails without logging:
+**Status:** Full audit completed. See **[error_handling.md](error_handling.md)** for comprehensive checklist.
 
-### JSON Serialization (examples)
-```zig
-// transport.zig:181
-writer.print(...) catch return null;
+**Summary:** 195 instances identified across 8 categories:
 
-// project.zig:168
-writer.writeAll("{...}") catch return null;
+| Category | Count | Priority | Status |
+|----------|-------|----------|--------|
+| Subscription slot allocation | 3 | HIGH | **FIXED** |
+| ResponseWriter methods | 5 | MEDIUM | **FIXED** |
+| Event serialization (toJson) | ~150 | MEDIUM | See note* |
+| Command handler responses | ~20 | MEDIUM | **FIXED** |
+| WebSocket server | 2 | MEDIUM | **FIXED** |
+| Playlist persistence | 3 | LOW | **FIXED** |
+| Protocol JSON helpers | 7 | LOW | ACCEPTABLE |
+| Debug/logging code | 5 | N/A | ACCEPTABLE |
 
-// fx.zig:149
-writer.writeAll("{...}") catch return null;
-```
+*Event serialization: Most `toJson` methods migrated to `toJsonAlloc` using scratch arena (see Section 9). Buffer overflow is no longer a concern for dynamically-sized JSON. Remaining fixed-buffer methods have logging added.
 
-**Impact:** Medium - makes debugging difficult when serialization fails.
-
-**Recommendation:** Add debug logging before silent returns:
-```zig
-writer.print(...) catch {
-    logging.warn("JSON serialization failed: buffer overflow", .{});
-    return null;
-};
-```
-
-Or use `errdefer` for automatic logging.
+**Completed fixes:**
+- Subscription failures now log the actual error before returning `TooManyClients`
+- ResponseWriter methods log buffer overflow with cmd_id and payload size
+- Command handlers log format failures before returning
+- WebSocket server logs frame/header serialization failures
+- Playlist persistence logs save/load errors
+- DEVELOPMENT.md updated with "never use silent catch" guideline (#18)
 
 ---
 
-## 9. Static Buffer Patterns
+## 9. Static Buffer Patterns *(MOSTLY MIGRATED)*
 
-Several modules have static buffers intended for tests but with warnings about thread safety:
+**Status:** Production JSON serialization migrated to scratch arena. Only test helpers remain with static buffers.
 
-### items.zig:194-196
+### JSON Serialization - Migrated to Scratch Arena
+
+All production `toJson` call sites now use `toJsonAlloc` with the scratch arena allocator:
+
+| Module | Method | Status |
+|--------|--------|--------|
+| transport.zig | `toJsonAlloc` | ✓ Already dynamic |
+| project.zig | `toJsonAlloc` | ✓ Already dynamic |
+| markers.zig | `toJsonAlloc` | ✓ Already dynamic |
+| items.zig | `toJsonAlloc` | ✓ Already dynamic |
+| fx.zig | `toJsonAlloc` | ✓ Already dynamic |
+| sends.zig | `toJsonAlloc` | ✓ Already dynamic |
+| playlist.zig | `toJsonAlloc` | ✓ Already dynamic |
+| tempomap.zig | `toJsonAlloc` | ✓ Already dynamic |
+| tracks.zig | `toJsonWithTotalAlloc`, `toJsonEventAlloc` | **FIXED** |
+| track_skeleton.zig | `toJsonAlloc` | **FIXED** |
+| toggle_subscriptions.zig | `changesToJsonAlloc` | **FIXED** |
+| errors.zig | `toJsonAlloc` | **FIXED** |
+
+**Scratch arena sizing** (tiered_state.zig):
 ```zig
-/// Convenience wrapper that returns State using static buffer (for tests).
-/// WARNING: Uses static buffer - NOT thread-safe, do NOT use in production!
-pub fn pollStatic(api: anytype) State {
+const scratch_raw = @max(
+    counts.tracks * 600,   // ~600 bytes per track JSON (with GUID)
+    counts.items * 256,    // ~256 bytes per item JSON
+) + 128 * 1024;            // Base for skeleton, metering, toggles, errors
 ```
 
-### markers.zig:192-194
-```zig
-/// Convenience wrapper that returns State using static buffers (for tests).
-/// WARNING: Uses static buffers - NOT thread-safe, do NOT use in production!
-pub fn pollStatic(api: anytype) State {
-```
+This supports extreme projects (3000 tracks, 10000 items) without fixed buffer limits.
 
-### tracks.zig:705
-```zig
-// Use static buffers for test tracks
-```
+### Remaining Static Buffers (Test-Only)
 
-**Impact:** Low - correctly marked as test-only.
+These are correctly marked as test-only and don't affect production:
 
-**Recommendation:** Consider moving these to test files or a dedicated `test_utils.zig` to prevent accidental production use.
+- items.zig `pollStatic` - test convenience wrapper
+- markers.zig `pollStatic` - test convenience wrapper
+- tracks.zig test helpers - static buffers for mock tracks
+
+**Recommendation:** Low priority - consider moving to `test_utils.zig` eventually.
 
 ---
 
@@ -358,7 +373,8 @@ This is re-exported in [reaper.zig:63](extension/src/reaper.zig#L63) and affects
 |------|--------|-------|--------|--------|
 | ~~Consolidate globals into Context~~ | **FIXED** | main.zig, commands/*.zig | High | Improves testability, clearer dependencies |
 | ~~Consolidate MAX_* constants~~ | **FIXED** | constants.zig + 9 modules | Low | Prevents divergence |
-| Add logging to silent error paths | TODO | Multiple | Low | Improves debuggability |
+| ~~Add logging to silent error paths~~ | **FIXED** | subscriptions, commands, ws_server, playlist | Low | Improves debuggability |
+| ~~Migrate toJson to scratch arena~~ | **FIXED** | tracks, track_skeleton, toggle_subs, main | Medium | Supports extreme projects |
 | Set DEBUG_LOGGING=false | TODO | raw.zig | Trivial | Cleaner console output |
 
 ### Low Priority (Nice to have)
@@ -385,10 +401,11 @@ The following major cleanup items have been completed:
 3. **Legacy APIs** - Removed deprecated `pollInto` from tracks.zig.
 4. **MAX_* constants** - Consolidated into shared `constants.zig`.
 5. **Global state** - Command handler globals consolidated into `CommandContext` struct.
+6. **Silent error handling** - Added logging to subscription, response, command, WebSocket, and playlist error paths.
+7. **JSON buffer sizing** - Migrated all production `toJson` to `toJsonAlloc` with dynamic scratch arena sizing. Supports extreme projects (3000 tracks, 10000 items).
 
 ### Remaining Items
 
-- Add logging to silent error handling paths
 - Set DEBUG_LOGGING=false for release
 - Remove debug file logging before release
 - Low-priority test infrastructure improvements

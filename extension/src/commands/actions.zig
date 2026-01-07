@@ -13,7 +13,10 @@ pub fn handleGetToggleState(api: anytype, cmd: protocol.CommandMessage, response
 
     const state = api.getCommandState(command_id);
     var payload_buf: [32]u8 = undefined;
-    const payload = std.fmt.bufPrint(&payload_buf, "{{\"state\":{d}}}", .{state}) catch return;
+    const payload = std.fmt.bufPrint(&payload_buf, "{{\"state\":{d}}}", .{state}) catch {
+        logging.warn("actions: getToggleState response format failed", .{});
+        return;
+    };
     response.success(payload);
 }
 

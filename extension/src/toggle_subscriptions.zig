@@ -74,7 +74,10 @@ pub const ToggleSubscriptions = struct {
 
         const slot = self.next_slot;
         self.next_slot += 1;
-        self.client_id_to_slot.put(client_id, slot) catch return null;
+        self.client_id_to_slot.put(client_id, slot) catch |e| {
+            logging.warn("toggle_subscriptions: slot allocation failed for client {d}: {}", .{ client_id, e });
+            return null;
+        };
         return slot;
     }
 
@@ -250,6 +253,27 @@ pub const ToggleSubscriptions = struct {
         writer.writeAll("}") catch return null;
 
         return stream.getWritten();
+    }
+
+    /// Allocator-based version of changesToJson - dynamically sized.
+    /// Returns owned slice from allocator.
+    pub fn changesToJsonAlloc(changes: *const std.AutoHashMap(u32, i8), allocator: std.mem.Allocator) ![]const u8 {
+        if (changes.count() == 0) return error.NoChanges;
+        // Estimate: ~15 bytes per entry + 80 base overhead
+        const estimated_size = 80 + (changes.count() * 15);
+        const buf = try allocator.alloc(u8, estimated_size);
+        const json = changesToJson(changes, buf) orelse return error.JsonSerializationFailed;
+        return json; // Return slice of allocated buffer (arena-owned)
+    }
+
+    /// Allocator-based version of statesToJson - dynamically sized.
+    /// Returns owned slice from allocator.
+    pub fn statesToJsonAlloc(states: *const std.AutoHashMap(u32, i8), allocator: std.mem.Allocator) ![]const u8 {
+        // Estimate: ~15 bytes per entry + 10 base overhead
+        const estimated_size = 10 + (states.count() * 15);
+        const buf = try allocator.alloc(u8, estimated_size);
+        const json = statesToJson(states, buf) orelse return error.JsonSerializationFailed;
+        return json; // Return slice of allocated buffer (arena-owned)
     }
 };
 

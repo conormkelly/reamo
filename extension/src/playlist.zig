@@ -2,6 +2,7 @@ const std = @import("std");
 const protocol = @import("protocol.zig");
 const markers = @import("markers.zig");
 const constants = @import("constants.zig");
+const logging = @import("logging.zig");
 
 // Maximum playlists per project
 pub const MAX_PLAYLISTS: usize = 16;
@@ -640,7 +641,10 @@ pub const State = struct {
 
         // Build key: "Playlist_0", "Playlist_1", etc.
         var key_buf: [32]u8 = undefined;
-        const key = std.fmt.bufPrintZ(&key_buf, "Playlist_{d}", .{idx}) catch return;
+        const key = std.fmt.bufPrintZ(&key_buf, "Playlist_{d}", .{idx}) catch {
+            logging.warn("playlist: savePlaylist key format failed for idx={d}", .{idx});
+            return;
+        };
 
         // Serialize playlist to pipe-delimited format
         var value_buf: [4096]u8 = undefined;
@@ -658,7 +662,10 @@ pub const State = struct {
     /// Clear a playlist from ProjExtState (for deletion)
     pub fn clearPlaylist(api: anytype, idx: usize) void {
         var key_buf: [32]u8 = undefined;
-        const key = std.fmt.bufPrintZ(&key_buf, "Playlist_{d}", .{idx}) catch return;
+        const key = std.fmt.bufPrintZ(&key_buf, "Playlist_{d}", .{idx}) catch {
+            logging.warn("playlist: clearPlaylist key format failed for idx={d}", .{idx});
+            return;
+        };
         // Setting empty string clears the key
         api.setProjExtStateValue("Reamo", key, "");
     }
@@ -666,7 +673,10 @@ pub const State = struct {
     /// Save playlist count to ProjExtState
     pub fn savePlaylistCount(self: *const State, api: anytype) void {
         var count_buf: [16]u8 = undefined;
-        const count_str = std.fmt.bufPrintZ(&count_buf, "{d}", .{self.playlist_count}) catch return;
+        const count_str = std.fmt.bufPrintZ(&count_buf, "{d}", .{self.playlist_count}) catch {
+            logging.warn("playlist: savePlaylistCount format failed for count={d}", .{self.playlist_count});
+            return;
+        };
         api.setProjExtStateValue("Reamo", "PlaylistCount", count_str);
     }
 

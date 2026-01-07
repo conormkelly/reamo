@@ -54,7 +54,10 @@ pub fn handleSnap(api: anytype, cmd: protocol.CommandMessage, response: *mod.Res
     const snapped_time = api.beatsToTime(snapped_beats);
 
     var buf: [128]u8 = undefined;
-    const payload = std.fmt.bufPrint(&buf, "{{\"snappedTime\":{d:.15},\"snappedBeats\":{d:.6}}}", .{ snapped_time, snapped_beats }) catch return;
+    const payload = std.fmt.bufPrint(&buf, "{{\"snappedTime\":{d:.15},\"snappedBeats\":{d:.6}}}", .{ snapped_time, snapped_beats }) catch {
+        logging.warn("tempo: snap response format failed", .{});
+        return;
+    };
     response.success(payload);
 }
 
@@ -80,7 +83,10 @@ pub fn handleGetBarDuration(api: anytype, cmd: protocol.CommandMessage, response
         tempo.bpm,
         tempo.timesig_num,
         tempo.timesig_denom,
-    }) catch return;
+    }) catch {
+        logging.warn("tempo: getBarDuration response format failed", .{});
+        return;
+    };
     response.success(payload);
 }
 
@@ -109,7 +115,10 @@ pub fn handleTimeToBeats(api: anytype, cmd: protocol.CommandMessage, response: *
         display_bar,
         beat_int,
         ticks,
-    }) catch return;
+    }) catch {
+        logging.warn("tempo: timeToBeats response format failed", .{});
+        return;
+    };
     response.success(payload);
 }
 
@@ -155,6 +164,9 @@ pub fn handleBarsToTime(api: anytype, cmd: protocol.CommandMessage, response: *m
     const time = api.barBeatToTime(actual_bar, beat_for_api);
 
     var buf: [64]u8 = undefined;
-    const payload = std.fmt.bufPrint(&buf, "{{\"time\":{d:.15}}}", .{time}) catch return;
+    const payload = std.fmt.bufPrint(&buf, "{{\"time\":{d:.15}}}", .{time}) catch {
+        logging.warn("tempo: barsToTime response format failed", .{});
+        return;
+    };
     response.success(payload);
 }

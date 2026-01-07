@@ -1157,3 +1157,54 @@ Then check REAPER's console (Actions → Show console).
 16. **Not all controls have CSurf equivalents** - Some controls lack CSurf APIs. For send mute, use `SetTrackSendInfo_Value(track, 0, idx, "B_MUTE", value)` since there's no `CSurf_OnSendMuteChange`. Always check `docs/reaper_plugin_functions.h` for available CSurf functions before assuming one doesn't exist — e.g., `CSurf_OnFXChange` exists for FX chain enable and we do use it.
 
 17. **ResponseWriter buffer sizes** - `ResponseWriter.success()` uses a 512-byte buffer, which silently fails (via `catch return`) for large payloads. For commands returning user content (project notes, item peaks, etc.), use `successLargePayload()` which heap-allocates a 128KB buffer per call. This avoids both stack overflow and shared-state issues between concurrent commands. Heap allocation is safe for timer callbacks since they run on the main thread (see `research/ZIG_MEMORY_MANAGEMENT.md`). The silent failure in `success()` causes frontend timeouts with no error in logs — a subtle bug. Rule of thumb: if the response includes user-generated content that could exceed ~400 chars, use `successLargePayload()`.
+
+18. **Never use silent `catch return null` or `catch return;`** - These patterns silently swallow errors, making debugging extremely difficult. When a buffer overflow or serialization error occurs, the frontend sees no response (timeout) and there's nothing in the logs. Always add logging before returning:
+    ```zig
+    // BAD: Silent failure - impossible to debug
+    const payload = std.fmt.bufPrint(&buf, "...", .{...}) catch return;
+
+    // GOOD: Failure is logged - shows up in REAPER console
+    const payload = std.fmt.bufPrint(&buf, "...", .{...}) catch {
+        logging.warn("myHandler: response format failed", .{});
+        return;
+    };
+
+    // ACCEPTABLE: Helper function where caller handles null meaningfully
+    fn formatValue(buf: []u8, val: i32) ?[]const u8 {
+        return std.fmt.bufPrint(buf, "{d}", .{val}) catch null;
+    }
+    // ...but only if caller does: `formatValue(...) orelse { response.err(...); return; }`
+    ```
+
+    **Logging levels for catch blocks:**
+    - `logging.err()` — Should never happen, indicates bug
+    - `logging.warn()` — Unexpected but recoverable (buffer overflow with real data)
+    - `logging.debug()` — Expected in edge cases (very large payloads)
+
+    See [error_handling.md](error_handling.md) for the full audit and ongoing tracking.
+
+19. **Use `toJsonAlloc` with scratch arena for JSON serialization** - All production JSON serialization should use the scratch arena via `toJsonAlloc` rather than fixed stack buffers. This supports extreme projects (3000+ tracks) without buffer overflow:
+    ```zig
+    // BAD: Fixed buffer - will fail on large projects
+    var buf: [65536]u8 = undefined;
+    if (state.toJson(&buf)) |json| {
+        broadcast(json);
+    }
+
+    // GOOD: Dynamic allocation from scratch arena
+    const scratch = tiered.scratchAllocator();
+    if (state.toJsonAlloc(scratch)) |json| {
+        broadcast(json);
+    } else |_| {}
+    ```
+
+    The scratch arena is sized dynamically based on entity counts (see `tiered_state.zig`). Pattern for adding `toJsonAlloc` to a module:
+    ```zig
+    pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
+        // Estimate size: base overhead + per-item bytes
+        const estimated_size = 100 + (self.items.len * 200);
+        const buf = try allocator.alloc(u8, estimated_size);
+        const json = self.toJson(buf) orelse return error.JsonSerializationFailed;
+        return json; // Arena-owned, no free needed
+    }
+    ```

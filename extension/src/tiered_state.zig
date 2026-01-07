@@ -142,8 +142,8 @@ pub const ArenaSizes = struct {
     /// With 4x headroom: 64KB per buffer
     pub const LOW: usize = 64 * 1024;
 
-    /// SCRATCH: JSON serialization buffers, temp strings
-    /// Current StaticBuffers total ~100KB, with 4x headroom: 512KB
+    /// SCRATCH: All JSON serialization (tracks, items, skeleton, metering, toggles, errors)
+    /// Dynamic sizing scales with project size; 512KB is adequate for typical projects
     pub const SCRATCH: usize = 512 * 1024;
 };
 
@@ -265,11 +265,11 @@ pub const CalculatedSizes = struct {
             1024; // Overhead
 
         // SCRATCH: JSON serialization (scales with largest payload)
-        // Estimate based on tracks + items serialization
+        // Now handles all toJson calls including tracks, items, skeleton, metering, toggles
         const scratch_raw = @max(
-            counts.tracks * 512, // ~512 bytes per track JSON
+            counts.tracks * 600, // ~600 bytes per track JSON (with GUID)
             counts.items * 256, // ~256 bytes per item JSON
-        ) + 65536; // Base overhead
+        ) + 128 * 1024; // Increased base for skeleton (~200B/track), metering, toggles, errors
 
         // Apply headroom multiplier
         var high = high_raw * MemoryBounds.HEADROOM_MULTIPLIER;

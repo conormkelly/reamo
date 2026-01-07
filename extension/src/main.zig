@@ -98,9 +98,18 @@ fn broadcastRateLimitedError(code: errors.ErrorCode, detail: ?[]const u8) void {
 
     if (g_error_limiter.shouldBroadcast(code, current_time)) {
         const event = errors.ErrorEvent{ .code = code, .detail = detail };
-        var buf: [512]u8 = undefined;
-        if (event.toJson(&buf)) |json| {
-            shared_state.broadcast(json);
+        // Use scratch allocator if available, otherwise use fixed buffer
+        if (g_tiered) |*tiered| {
+            const scratch = tiered.scratchAllocator();
+            if (event.toJsonAlloc(scratch)) |json| {
+                shared_state.broadcast(json);
+            } else |_| {}
+        } else {
+            // Fallback for errors before tiered state is initialized
+            var buf: [2048]u8 = undefined;
+            if (event.toJson(&buf)) |json| {
+                shared_state.broadcast(json);
+            }
         }
     }
 }
@@ -261,7 +270,6 @@ fn doInitialization() !void {
 // Static buffers for modules that haven't migrated to allocator pattern yet
 // Most JSON serialization now uses the scratch arena allocator
 const StaticBuffers = struct {
-    var toggles: [2048]u8 = undefined; // toggle_subscriptions.changesToJson
     var notes: [256]u8 = undefined; // project_notes_cmds.formatChangedEvent
 };
 
@@ -488,10 +496,9 @@ fn doProcessing() !void {
             } else |_| {}
             // Track skeleton (client must subscribe to receive full track data)
             if (snap_skeleton) |skeleton| {
-                var skeleton_buf: [32768]u8 = undefined;
-                if (skeleton.toJson(&skeleton_buf)) |json| {
+                if (skeleton.toJsonAlloc(scratch)) |json| {
                     shared_state.sendToClient(client_id, json);
-                }
+                } else |_| {}
             }
             // Items
             if (ProcessingState.snap_items.itemsToJsonAlloc(scratch)) |json| {
@@ -578,19 +585,19 @@ fn doProcessing() !void {
             const tracks_changed = !tracksSliceEql(high_state.tracks, high_prev.tracks);
             if (tracks_changed) {
                 const temp_state = tracks.State{ .tracks = high_state.tracks };
-                // Use toJsonWithTotal to include total track count for viewport scrollbar
-                var json_buf: [65536]u8 = undefined;
-                if (temp_state.toJsonWithTotal(&json_buf, null, total_tracks)) |json| {
+                const scratch = tiered.scratchAllocator();
+                // Use toJsonWithTotalAlloc to include total track count for viewport scrollbar
+                if (temp_state.toJsonWithTotalAlloc(scratch, null, total_tracks)) |json| {
                     shared_state.broadcast(json);
-                }
+                } else |_| {}
             }
 
             // Broadcast separate meters event (always at 30Hz when there are subscriptions)
             if (high_state.metering.hasData()) {
-                var meter_buf: [16384]u8 = undefined;
-                if (high_state.metering.toJsonEvent(&meter_buf, high_state.tracks)) |json| {
+                const scratch = tiered.scratchAllocator();
+                if (high_state.metering.toJsonEventAlloc(scratch, high_state.tracks)) |json| {
                     shared_state.broadcast(json);
-                }
+                } else |_| {}
             }
         } else {
             // No track subscriptions - skip track polling entirely
@@ -620,10 +627,10 @@ fn doProcessing() !void {
 
         // Broadcast separate meters event
         if (high_state.metering.hasData()) {
-            var meter_buf: [16384]u8 = undefined;
-            if (high_state.metering.toJsonEvent(&meter_buf, high_state.tracks)) |json| {
+            const meter_scratch = tiered.scratchAllocator();
+            if (high_state.metering.toJsonEventAlloc(meter_scratch, high_state.tracks)) |json| {
                 shared_state.broadcast(json);
-            }
+            } else |_| {}
         }
     }
 
@@ -638,9 +645,10 @@ fn doProcessing() !void {
             defer changes.deinit();
 
             if (changes.count() > 0) {
-                if (toggle_subscriptions.ToggleSubscriptions.changesToJson(&changes, &StaticBuffers.toggles)) |json| {
+                const toggle_scratch = tiered.scratchAllocator();
+                if (toggle_subscriptions.ToggleSubscriptions.changesToJsonAlloc(&changes, toggle_scratch)) |json| {
                     shared_state.broadcast(json);
-                }
+                } else |_| {}
             }
         }
     }
@@ -1054,10 +1062,10 @@ fn doProcessing() !void {
             }
 
             // Broadcast skeleton event
-            var skeleton_buf: [32768]u8 = undefined;
-            if (current_skeleton.toJson(&skeleton_buf)) |json| {
+            const skel_scratch = tiered.scratchAllocator();
+            if (current_skeleton.toJsonAlloc(skel_scratch)) |json| {
                 shared_state.broadcast(json);
-            }
+            } else |_| {}
 
             logging.info("Track skeleton changed: {d} tracks", .{current_skeleton.count()});
         }

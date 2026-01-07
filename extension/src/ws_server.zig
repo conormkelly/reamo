@@ -359,7 +359,10 @@ pub const Client = struct {
                     if (client_version != protocol.PROTOCOL_VERSION) {
                         // Protocol mismatch - send error with our version
                         var buf: [128]u8 = undefined;
-                        const err_json = std.fmt.bufPrint(&buf, "{{\"type\":\"error\",\"error\":{{\"code\":\"PROTOCOL_MISMATCH\",\"message\":\"Expected protocol version {d}\"}}}}", .{protocol.PROTOCOL_VERSION}) catch return;
+                        const err_json = std.fmt.bufPrint(&buf, "{{\"type\":\"error\",\"error\":{{\"code\":\"PROTOCOL_MISMATCH\",\"message\":\"Expected protocol version {d}\"}}}}", .{protocol.PROTOCOL_VERSION}) catch {
+                            logging.warn("ws_server: protocol mismatch response buffer overflow", .{});
+                            return;
+                        };
                         try self.conn.writeText(err_json);
                         self.conn.close(.{ .code = 4002, .reason = "Protocol mismatch" }) catch {};
                         return;
@@ -398,7 +401,10 @@ pub const Client = struct {
 
                 // Send response directly (no queue)
                 var buf: [256]u8 = undefined;
-                const response = std.fmt.bufPrint(&buf, "{{\"type\":\"clockSyncResponse\",\"t0\":{d:.3},\"t1\":{d:.3},\"t2\":{d:.3}}}", .{ t0, t1, t2 }) catch return;
+                const response = std.fmt.bufPrint(&buf, "{{\"type\":\"clockSyncResponse\",\"t0\":{d:.3},\"t1\":{d:.3},\"t2\":{d:.3}}}", .{ t0, t1, t2 }) catch {
+                    logging.warn("ws_server: clockSync response buffer overflow", .{});
+                    return;
+                };
                 try self.conn.writeText(response);
             },
             .command => {

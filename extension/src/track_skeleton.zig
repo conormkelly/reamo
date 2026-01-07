@@ -134,6 +134,16 @@ pub const State = struct {
 
         return buf[0..stream.pos];
     }
+
+    /// Allocator-based version - dynamically sized, supports extreme projects.
+    /// Estimates buffer size based on track count, allocates from arena, returns trimmed slice.
+    pub fn toJsonAlloc(self: *const State, allocator: Allocator) ![]const u8 {
+        // Estimate: ~200 bytes per track (name + GUID + JSON overhead) + 100 base
+        const estimated_size = 100 + (self.tracks.len * 200);
+        const buf = try allocator.alloc(u8, estimated_size);
+        const json = self.toJson(buf) orelse return error.JsonSerializationFailed;
+        return json; // Return slice of allocated buffer (no copy needed, arena-owned)
+    }
 };
 
 // =============================================================================
@@ -236,4 +246,22 @@ test "State toJson buffer overflow returns null" {
     // Tiny buffer should fail
     var buf: [10]u8 = undefined;
     try std.testing.expect(state.toJson(&buf) == null);
+}
+
+test "State toJsonAlloc dynamically sizes buffer" {
+    const reaper = @import("reaper.zig");
+    var mock = reaper.mock();
+    mock.track_count = 5;
+
+    const state = try State.poll(std.testing.allocator, &mock);
+    defer std.testing.allocator.free(state.tracks);
+
+    // toJsonAlloc should succeed by dynamically sizing buffer
+    const json = try state.toJsonAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(json);
+
+    // Should contain expected structure
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"event\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"event\":\"trackSkeleton\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"g\":\"master\"") != null);
 }
