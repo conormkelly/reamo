@@ -36,14 +36,6 @@ Test-only static buffer patterns remain in production modules:
 
 These don't affect production but would be cleaner in a dedicated `test_utils.zig`.
 
-### Dedicated Lock for Command Queue (SPSC Pattern)
-
-**Priority:** Low
-
-Currently a single mutex protects all shared state between the WebSocket thread and main thread. The command queue could use a dedicated lock or lock-free SPSC (Single Producer Single Consumer) ring buffer for better performance under high command throughput.
-
-**Status:** Deferred from backend audit
-
 ---
 
 ## Error Handling (Deferred)
@@ -109,3 +101,4 @@ The following major items were completed during the 2026-01-07 cleanup:
 - DEBUG_LOGGING disabled for release
 - Mock deleteItem implementation
 - REAPER API quirks documented in API.md
+- **SPSC queue research** — concluded mutex is optimal for 30Hz polling; lock-free only needed for audio thread integration which we don't use
