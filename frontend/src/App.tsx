@@ -93,7 +93,6 @@ function AppContent() {
 
 /**
  * Loading screen - shown while connecting to REAPER
- * Shows countdown timer and Safari-specific tips immediately
  */
 function LoadingScreen() {
   const { gaveUp } = useReaper();
@@ -108,7 +107,6 @@ function LoadingScreen() {
   }, []);
 
   const troubleState = elapsed >= 10 || gaveUp;
-  const maxSeconds = 10;
 
   return (
     <div className="flex flex-col items-center justify-center h-screen-safe gap-6 bg-gray-950 px-6">
@@ -148,31 +146,18 @@ function LoadingScreen() {
             Retry
           </button>
         </div>
-      ) : (
-        /* Normal connecting state with countdown */
-        <div className="flex flex-col items-center gap-3">
-          <p className="text-gray-400 text-sm">
-            Connecting... {elapsed}s / {maxSeconds}s
-          </p>
-          {/* Progress bar */}
-          <div className="w-48 h-1 bg-gray-800 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-blue-500 transition-all duration-1000 ease-linear"
-              style={{ width: `${(elapsed / maxSeconds) * 100}%` }}
-            />
-          </div>
-        </div>
-      )}
+      ) : elapsed >= 1 ? (
+        <p className="text-gray-400 text-sm">Connecting...</p>
+      ) : null}
     </div>
   );
 }
 
 // Minimum time to show loading screen (prevents jarring flash on fast connections)
-const MIN_LOADING_MS = 2000;
+const MIN_LOADING_MS = 750;
 
 /**
  * App wrapper that shows loading screen until connected
- * Safari users see helpful message after timeout with refresh option
  */
 function AppWithLoading() {
   const { connected } = useReaper();
