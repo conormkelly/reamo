@@ -6,6 +6,7 @@ export { TabBar, type TabBarProps } from './TabBar';
 export { PersistentTransport, type PersistentTransportProps } from './PersistentTransport';
 export { SettingsMenu, type SettingsMenuProps } from './SettingsMenu';
 export { ViewHeader, type ViewHeaderProps } from './ViewHeader';
+export { TextSizeControl, type TextSizeControlProps } from './TextSizeControl';
 export * from './Transport';
 export * from './Track';
 export * from './Markers';

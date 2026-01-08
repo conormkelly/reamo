@@ -11,12 +11,14 @@ export interface UIPreferences {
   showTabBar: boolean;
   showPersistentTransport: boolean;
   transportPosition: 'left' | 'right';
+  notesFontSize: number;
 }
 
 const DEFAULT_PREFS: UIPreferences = {
   showTabBar: true,
   showPersistentTransport: true,
   transportPosition: 'left',
+  notesFontSize: 16,
 };
 
 function loadPreferences(): UIPreferences {
@@ -71,6 +73,14 @@ export function useUIPreferences() {
     setPrefs((p) => ({ ...p, transportPosition: p.transportPosition === 'left' ? 'right' : 'left' }));
   }, []);
 
+  const setNotesFontSize = useCallback((size: number) => {
+    setPrefs((p) => ({ ...p, notesFontSize: Math.max(8, Math.min(48, size)) }));
+  }, []);
+
+  const adjustNotesFontSize = useCallback((delta: number) => {
+    setPrefs((p) => ({ ...p, notesFontSize: Math.max(8, Math.min(48, p.notesFontSize + delta)) }));
+  }, []);
+
   return {
     ...prefs,
     setShowTabBar,
@@ -79,5 +89,7 @@ export function useUIPreferences() {
     toggleTabBar,
     togglePersistentTransport,
     toggleTransportPosition,
+    setNotesFontSize,
+    adjustNotesFontSize,
   };
 }

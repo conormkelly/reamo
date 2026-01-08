@@ -26,7 +26,7 @@ export function TabBar({ currentView, onViewChange, className = '' }: TabBarProp
             key={viewId}
             onClick={() => onViewChange(viewId)}
             className={`
-              flex-1 pt-1.5 pb-3 md:pt-2 md:pb-5 text-sm md:text-base font-medium transition-colors
+              flex-1 flex items-center justify-center py-2 md:py-3 text-sm md:text-base font-medium transition-colors
               ${isActive
                 ? 'text-white bg-gray-800 border-t-2 border-blue-500'
                 : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/50'

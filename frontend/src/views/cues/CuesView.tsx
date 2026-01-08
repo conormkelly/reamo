@@ -338,7 +338,7 @@ export function CuesView(): ReactElement {
             setSelectedPlaylistIdx(Number(e.target.value));
             setSelectedEntryIdx(null); // Clear selection when switching playlists
           }}
-          className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-white text-sm"
+          className="flex-1 min-w-[120px] bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-white text-sm"
         >
           {playlists.map((pl, idx) => (
             <option key={idx} value={idx}>

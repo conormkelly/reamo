@@ -6,7 +6,8 @@
 import { useEffect, useCallback, type ReactElement } from 'react';
 import { useReaperStore, getNotesIsDirty, getNotesIsOverLimit, getNotesCanSave } from '../../store';
 import { useReaper } from '../../components/ReaperProvider';
-import { ViewHeader } from '../../components';
+import { ViewHeader, TextSizeControl } from '../../components';
+import { useUIPreferences } from '../../hooks';
 import { projectNotes } from '../../core/WebSocketCommands';
 
 const NOTES_LIMIT = 5000;
@@ -29,6 +30,7 @@ export function NotesView(): ReactElement {
   // Use shared connection from context - do NOT call useReaperConnection() directly
   // as that creates a second WebSocket connection that disrupts connection state
   const { connected, sendCommand, sendCommandAsync } = useReaper();
+  const { notesFontSize, setNotesFontSize } = useUIPreferences();
 
   // Notes state from store
   const serverNotes = useReaperStore((s) => s.serverNotes);
@@ -158,7 +160,9 @@ export function NotesView(): ReactElement {
 
   return (
     <div data-view="notes" className="h-full bg-gray-950 text-white p-3 flex flex-col">
-      <ViewHeader currentView="notes" />
+      <ViewHeader currentView="notes">
+        <TextSizeControl value={notesFontSize} onChange={setNotesFontSize} />
+      </ViewHeader>
       {/* Error display */}
       {notesError && (
         <div className="mb-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-200">
@@ -172,6 +176,7 @@ export function NotesView(): ReactElement {
           className={`flex-1 w-full bg-gray-900 border rounded-lg p-3 text-white resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 ${
             hasExternalChange ? 'border-orange-500 bg-gray-900/50' : 'border-gray-700'
           } ${isOverLimit ? 'border-red-500' : ''}`}
+          style={{ fontSize: notesFontSize }}
           placeholder="Add project notes here..."
           value={localNotes}
           onChange={(e) => setLocalNotes(e.target.value)}
