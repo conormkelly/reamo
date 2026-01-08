@@ -20,6 +20,7 @@ import {
   AlertTriangle,
   GripVertical,
   Move,
+  ListMusic,
 } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../../components/ReaperProvider';
@@ -288,17 +289,26 @@ export function CuesView(): ReactElement {
     return (
       <div data-view="cues" className="h-full bg-gray-950 text-white p-3 flex flex-col">
         <ViewHeader currentView="cues" />
-        <div className="flex-1 flex flex-col items-center justify-center">
-          <h2 className="text-xl font-semibold mb-2">No Playlists Yet</h2>
-          <p className="text-gray-400 mb-6 text-center">
-            Create a playlist to build your setlist
-          </p>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-medium transition-colors"
-          >
-            Create Playlist
-          </button>
+        {/* Wrapper - position content at bottom with padding for footer bars */}
+        <div
+          className="flex-1 overflow-auto flex flex-col justify-end"
+          style={{ paddingBottom: `${bottomOffset + 24}px` }}
+        >
+          {/* Empty state content */}
+          <div className="flex flex-col items-center text-center py-8">
+            <ListMusic size={48} className="text-gray-600 mb-4" />
+            <h2 className="text-xl font-medium text-gray-300 mb-2">No Playlists Yet</h2>
+            <p className="text-gray-500 mb-6 max-w-xs">
+              Create a playlist to build your setlist for live performance.
+            </p>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition-colors"
+            >
+              <Plus size={18} />
+              <span>Create Playlist</span>
+            </button>
+          </div>
         </div>
 
         {/* Create Modal */}
@@ -450,10 +460,10 @@ export function CuesView(): ReactElement {
         )}
       </div>
 
-      {/* Playback controls - fixed at bottom, above navbar/transport */}
+      {/* Playback controls - fixed at bottom, above navbar/transport + safe area */}
       <div
-        className="fixed left-0 right-0 z-40 p-3 border-t border-gray-800 bg-gray-900"
-        style={{ bottom: `${bottomOffset}px` }}
+        className="fixed left-0 right-0 z-40 p-3 border-t border-gray-800 bg-gray-900 safe-area-x"
+        style={{ bottom: `calc(${bottomOffset}px + env(safe-area-inset-bottom, 0px))` }}
       >
         <div className="flex items-center justify-center gap-3">
           <button

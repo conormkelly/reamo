@@ -15,6 +15,7 @@ import {
 import { useReaperStore } from '../../store';
 import { useReaper } from '../../components/ReaperProvider';
 import { ViewHeader } from '../../components';
+import { useUIPreferences } from '../../hooks';
 import { actionToggleState } from '../../core/WebSocketCommands';
 import { ActionsSection, SectionEditor } from './components';
 import { ToolbarEditor } from '../../components/Toolbar/ToolbarEditor';
@@ -25,8 +26,18 @@ import type {
   SizeOption,
 } from '../../store/slices/actionsViewSlice';
 
+// Fixed heights for bottom bar calculations (must match App.tsx)
+const TAB_BAR_HEIGHT = 48;
+const PERSISTENT_TRANSPORT_HEIGHT = 56;
+
 export function ActionsView(): ReactElement {
   const { sendCommand, connectionState } = useReaper();
+  const { showTabBar, showPersistentTransport } = useUIPreferences();
+
+  // Calculate bottom offset for footer bars
+  const bottomOffset =
+    (showTabBar ? TAB_BAR_HEIGHT : 0) +
+    (showPersistentTransport ? PERSISTENT_TRANSPORT_HEIGHT : 0);
 
   // Store selectors
   const sections = useReaperStore((s) => s.actionsSections);
@@ -221,10 +232,13 @@ export function ActionsView(): ReactElement {
       </ViewHeader>
 
       {/* Content */}
-      <div className={`flex-1 overflow-auto p-4 pt-0 flex flex-col ${verticalAlignClass}`}>
-        {sections.length === 0 ? (
-          // Empty state
-          <div className="flex flex-col items-center justify-center text-center py-12">
+      {sections.length === 0 ? (
+        // Empty state - position at bottom with padding for footer bars
+        <div
+          className="flex-1 overflow-auto flex flex-col justify-end"
+          style={{ paddingBottom: `${bottomOffset + 24}px` }}
+        >
+          <div className="flex flex-col items-center text-center py-8">
             <LayoutGrid size={48} className="text-gray-600 mb-4" />
             <h2 className="text-xl font-medium text-gray-300 mb-2">No Sections Yet</h2>
             <p className="text-gray-500 mb-6 max-w-xs">
@@ -241,8 +255,10 @@ export function ActionsView(): ReactElement {
               <span>Create Section</span>
             </button>
           </div>
-        ) : (
-          // Sections list
+        </div>
+      ) : (
+        // Sections list - uses verticalAlign preference
+        <div className={`flex-1 overflow-auto p-4 pt-0 flex flex-col ${verticalAlignClass}`}>
           <div className="space-y-4">
             {sections.map((section, index) => (
               <ActionsSection
@@ -272,8 +288,8 @@ export function ActionsView(): ReactElement {
               />
             ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Section editor modal */}
       {(isAddingSection || editingSection) && (
