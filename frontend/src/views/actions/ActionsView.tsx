@@ -242,7 +242,7 @@ export function ActionsView(): ReactElement {
             <LayoutGrid size={48} className="text-gray-600 mb-4" />
             <h2 className="text-xl font-medium text-gray-300 mb-2">No Sections Yet</h2>
             <p className="text-gray-500 mb-6 max-w-xs">
-              Create sections to organize your quick actions, like Transport, FX, or Navigation.
+              Add buttons that trigger REAPER actions or send MIDI. Organize them into named sections.
             </p>
             <button
               onClick={() => {

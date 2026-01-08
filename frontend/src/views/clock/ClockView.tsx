@@ -48,9 +48,9 @@ function BigTransportButton({
         ${isActive ? colorClasses[activeColor] : 'bg-gray-700 hover:bg-gray-600 active:bg-gray-500'}
       `}
       style={{
-        // Dynamic button size: 12-15% of container height, clamped between 48px and 112px
-        width: 'clamp(48px, 12cqh, 112px)',
-        height: 'clamp(48px, 12cqh, 112px)',
+        // Dynamic button size: 12% of container min dimension, clamped between 48px and 112px
+        width: 'clamp(48px, 12cqmin, 112px)',
+        height: 'clamp(48px, 12cqmin, 112px)',
       }}
     >
       {children}
@@ -129,8 +129,8 @@ export function ClockView(): ReactElement {
 
   // Icon size scales with button (roughly 50% of button size)
   const iconStyle = {
-    width: 'clamp(24px, 6cqh, 56px)',
-    height: 'clamp(24px, 6cqh, 56px)',
+    width: 'clamp(24px, 6cqmin, 56px)',
+    height: 'clamp(24px, 6cqmin, 56px)',
   };
 
   return (
@@ -188,8 +188,8 @@ export function ClockView(): ReactElement {
 
       {/* Transport Controls - horizontally centered, dynamic sizing */}
       <div
-        className="flex items-center justify-center"
-        style={{ gap: 'clamp(6px, 1.5cqh, 32px)' }}
+        className="flex items-center justify-center safe-area-x"
+        style={{ gap: 'clamp(6px, 1.5cqmin, 32px)' }}
       >
         <BigTransportButton onClick={handleSkipToStart} title="Skip to Start">
           <SkipBack style={iconStyle} />
@@ -219,7 +219,7 @@ export function ClockView(): ReactElement {
           activeColor="gray"
           title="Stop"
         >
-          <Square style={{ ...iconStyle, width: 'clamp(20px, 5cqh, 48px)', height: 'clamp(20px, 5cqh, 48px)' }} fill={isStopped ? 'currentColor' : 'none'} />
+          <Square style={{ ...iconStyle, width: 'clamp(20px, 5cqmin, 48px)', height: 'clamp(20px, 5cqmin, 48px)' }} fill={isStopped ? 'currentColor' : 'none'} />
         </BigTransportButton>
 
         {/* Record - with long-press for auto-punch toggle */}
@@ -235,8 +235,8 @@ export function ClockView(): ReactElement {
             ${isRecording ? 'bg-red-500 animate-pulse' : recordInactiveClass}
           `}
           style={{
-            width: 'clamp(48px, 12cqh, 112px)',
-            height: 'clamp(48px, 12cqh, 112px)',
+            width: 'clamp(48px, 12cqmin, 112px)',
+            height: 'clamp(48px, 12cqmin, 112px)',
           }}
         >
           {isAutoPunch ? (
