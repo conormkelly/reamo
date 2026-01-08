@@ -23,6 +23,8 @@ interface ToolbarEditorProps {
   onClose: () => void;
   onSave: (action: ToolbarAction) => void;
   onDelete: (id: string) => void;
+  /** Custom title for the modal (e.g., "Action Button"). Defaults to "Toolbar Button". */
+  editorTitle?: string;
 }
 
 type ActionType = 'reaper_action' | 'reaper_action_name' | 'midi_cc' | 'midi_pc';
@@ -35,7 +37,7 @@ function generateId(): string {
 // Default values
 const DEFAULT_BG_COLOR = '#374151';
 const DEFAULT_TEXT_COLOR = '#FFFFFF';
-const DEFAULT_ICON_COLOR = '#000000';
+const DEFAULT_ICON_COLOR = '#FFFFFF';
 
 export function ToolbarEditor({
   action,
@@ -43,6 +45,7 @@ export function ToolbarEditor({
   onClose,
   onSave,
   onDelete,
+  editorTitle = 'Toolbar Button',
 }: ToolbarEditorProps) {
   // Form state
   const [label, setLabel] = useState('');
@@ -219,7 +222,7 @@ export function ToolbarEditor({
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-700">
           <h2 className="text-lg font-medium">
-            {isNew ? 'Add Toolbar Button' : 'Edit Toolbar Button'}
+            {isNew ? `Add ${editorTitle}` : `Edit ${editorTitle}`}
           </h2>
           <button
             onClick={onClose}

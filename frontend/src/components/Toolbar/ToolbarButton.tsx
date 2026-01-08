@@ -35,7 +35,7 @@ const SIZE_CONFIG = {
 // Default colors
 const DEFAULT_BG_COLOR = '#374151'; // gray-700
 const DEFAULT_TEXT_COLOR = '#FFFFFF';
-const DEFAULT_ICON_COLOR = '#000000';
+const DEFAULT_ICON_COLOR = '#FFFFFF';
 
 // Get icon component by name
 function getIconComponent(name: string): LucideIcon | null {

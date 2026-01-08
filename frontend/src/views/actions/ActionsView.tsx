@@ -31,7 +31,7 @@ const TAB_BAR_HEIGHT = 48;
 const PERSISTENT_TRANSPORT_HEIGHT = 56;
 
 export function ActionsView(): ReactElement {
-  const { sendCommand, connectionState } = useReaper();
+  const { sendCommand, connection, connectionState } = useReaper();
   const { showTabBar, showPersistentTransport } = useUIPreferences();
 
   // Calculate bottom offset for footer bars
@@ -42,7 +42,8 @@ export function ActionsView(): ReactElement {
   // Store selectors
   const sections = useReaperStore((s) => s.actionsSections);
   const editMode = useReaperStore((s) => s.actionsEditMode);
-  const toggleStates = useReaperStore((s) => s.actionsToggleStates);
+  const toggleStates = useReaperStore((s) => s.toggleStates); // Shared with Toolbar
+  const updateToggleStates = useReaperStore((s) => s.updateToggleStates);
   const verticalAlign = useReaperStore((s) => s.actionsVerticalAlign);
   const loadFromStorage = useReaperStore((s) => s.loadActionsViewFromStorage);
   const setEditMode = useReaperStore((s) => s.setActionsEditMode);
@@ -77,21 +78,34 @@ export function ActionsView(): ReactElement {
     loadFromStorage();
   }, [loadFromStorage]);
 
-  // Subscribe to toggle states when connected
+  // Subscribe to toggle states when connected (mirrors Toolbar pattern)
   useEffect(() => {
-    if (connectionState !== 'connected') return;
+    if (connectionState !== 'connected' || !connection) return;
 
     const commandIds = getCommandIds();
     if (commandIds.length === 0) return;
 
-    // Subscribe to toggle states
-    sendCommand(actionToggleState.subscribe(commandIds));
+    // Subscribe to toggle states and get initial snapshot
+    const cmd = actionToggleState.subscribe(commandIds);
+    connection
+      .sendAsync(cmd.command, cmd.params)
+      .then((response: unknown) => {
+        const resp = response as { success?: boolean; payload?: { states?: Record<string, number> } };
+        if (resp.success && resp.payload?.states) {
+          updateToggleStates(resp.payload.states);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to subscribe to toggle states:', err);
+      });
 
     // Cleanup: unsubscribe when view unmounts or sections change
     return () => {
-      sendCommand(actionToggleState.unsubscribe(commandIds));
+      if (commandIds.length > 0) {
+        sendCommand(actionToggleState.unsubscribe(commandIds));
+      }
     };
-  }, [connectionState, sections, sendCommand, getCommandIds]);
+  }, [connectionState, connection, sections, sendCommand, getCommandIds, updateToggleStates]);
 
   // Section drag handlers
   const handleSectionDragStart = useCallback((index: number) => {
@@ -309,6 +323,7 @@ export function ActionsView(): ReactElement {
         <ToolbarEditor
           action={editingAction?.action ?? null}
           isNew={!editingAction}
+          editorTitle="Action Button"
           onSave={handleSaveAction}
           onDelete={handleDeleteAction}
           onClose={() => {
