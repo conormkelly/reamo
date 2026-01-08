@@ -18,10 +18,6 @@ import { useUIPreferences, useTransport } from './hooks';
 import { useReaperStore } from './store';
 import { views, type ViewId, VIEW_STORAGE_KEY, DEFAULT_VIEW } from './viewRegistry';
 
-// Detect Safari (iOS or macOS)
-const isSafari = () =>
-  navigator.userAgent.includes('Safari') && !navigator.userAgent.includes('Chrome');
-
 function AppContent() {
   const [currentView, setCurrentView] = useState<ViewId>(() => {
     const saved = localStorage.getItem(VIEW_STORAGE_KEY) as ViewId | null;
@@ -111,7 +107,6 @@ function LoadingScreen() {
     return () => clearInterval(timer);
   }, []);
 
-  const safari = isSafari();
   const troubleState = elapsed >= 10 || gaveUp;
   const maxSeconds = 10;
 
@@ -144,32 +139,7 @@ function LoadingScreen() {
         /* Trouble connecting state */
         <div className="flex flex-col items-center gap-4 max-w-xs text-center">
           <p className="text-gray-400 text-sm">
-            {safari
-              ? 'Safari may need several retry attempts to connect. This is a known iOS limitation. You can try using Brave browser as a workaround.'
-              : 'Having trouble connecting to REAPER.'}
-          </p>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
-          >
-            Retry
-          </button>
-        </div>
-      ) : safari ? (
-        /* Safari connecting state - show retry button immediately */
-        <div className="flex flex-col items-center gap-4 max-w-xs text-center">
-          <p className="text-gray-400 text-sm">
-            Connecting... {elapsed}s / {maxSeconds}s
-          </p>
-          {/* Progress bar */}
-          <div className="w-48 h-1 bg-gray-800 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-blue-500 transition-all duration-1000 ease-linear"
-              style={{ width: `${(elapsed / maxSeconds) * 100}%` }}
-            />
-          </div>
-          <p className="text-gray-500 text-xs">
-            Safari may need several retry attempts due to a known iOS issue. Use Brave browser as a workaround.
+            Having trouble connecting to REAPER.
           </p>
           <button
             onClick={() => window.location.reload()}

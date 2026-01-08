@@ -191,7 +191,83 @@ export class WebSocketConnection {
       console.log('[WS] Discovered session token');
     }
 
+    // Safari PWA: Try iframe pre-connection to warm network stack before real connection
+    const isSafari = navigator.userAgent.includes('Safari') && !navigator.userAgent.includes('Chrome');
+    const isPWA = window.matchMedia('(display-mode: standalone)').matches;
+    if (isSafari && isPWA) {
+      const wsPort = this.discoveredPort ?? this.options.port ?? 9224;
+      const host = window.location.hostname || 'localhost';
+      const wsUrl = `ws://${host}:${wsPort}/`;
+      await this.warmupViaIframe(wsUrl);
+    }
+
     this.connect();
+  }
+
+  /**
+   * Safari PWA workaround: Create hidden iframe that attempts WebSocket first.
+   * Theory: iframe's WebSocket attempt may initialize Safari's shared network context,
+   * allowing the main page's subsequent WebSocket to succeed on cold start.
+   */
+  private async warmupViaIframe(wsUrl: string): Promise<void> {
+    console.log('[WS] Safari PWA: Attempting iframe pre-warmup');
+
+    return new Promise((resolve) => {
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      iframe.srcdoc = `
+        <script>
+          try {
+            const ws = new WebSocket('${wsUrl}');
+            ws.onopen = () => {
+              console.log('[iframe] WebSocket opened');
+              ws.close();
+              parent.postMessage('warmup-done', '*');
+            };
+            ws.onerror = () => {
+              console.log('[iframe] WebSocket error');
+              parent.postMessage('warmup-done', '*');
+            };
+            ws.onclose = () => {
+              console.log('[iframe] WebSocket closed');
+            };
+            // Timeout fallback
+            setTimeout(() => {
+              console.log('[iframe] Timeout - posting done');
+              parent.postMessage('warmup-done', '*');
+            }, 2000);
+          } catch (e) {
+            console.log('[iframe] Exception:', e);
+            parent.postMessage('warmup-done', '*');
+          }
+        </script>
+      `;
+
+      const cleanup = () => {
+        window.removeEventListener('message', handler);
+        if (document.body.contains(iframe)) {
+          document.body.removeChild(iframe);
+        }
+      };
+
+      const handler = (e: MessageEvent) => {
+        if (e.data === 'warmup-done') {
+          console.log('[WS] Iframe warmup completed');
+          cleanup();
+          resolve();
+        }
+      };
+
+      window.addEventListener('message', handler);
+      document.body.appendChild(iframe);
+
+      // Fallback timeout (longer than iframe's internal timeout)
+      setTimeout(() => {
+        console.log('[WS] Iframe warmup timeout (fallback)');
+        cleanup();
+        resolve();
+      }, 3000);
+    });
   }
 
   /** Stop the connection */
