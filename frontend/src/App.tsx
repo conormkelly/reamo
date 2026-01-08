@@ -162,6 +162,12 @@ const MIN_LOADING_MS = 750;
 function AppWithLoading() {
   const { connected } = useReaper();
   const [minTimePassed, setMinTimePassed] = useState(false);
+  const loadUIPrefsFromStorage = useReaperStore((s) => s.loadUIPrefsFromStorage);
+
+  // Load UI preferences from localStorage on startup
+  useEffect(() => {
+    loadUIPrefsFromStorage();
+  }, [loadUIPrefsFromStorage]);
 
   useEffect(() => {
     const timer = setTimeout(() => setMinTimePassed(true), MIN_LOADING_MS);

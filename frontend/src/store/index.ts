@@ -20,6 +20,7 @@ import { createActionsViewSlice, type ActionsViewSlice } from './slices/actionsV
 import { createClockViewSlice, type ClockViewSlice } from './slices/clockViewSlice';
 import { createFxStateSlice, type FxStateSlice } from './slices/fxStateSlice';
 import { createSendsStateSlice, type SendsStateSlice } from './slices/sendsStateSlice';
+import { createUIPreferencesSlice, type UIPreferencesState } from './slices/uiPreferencesSlice';
 import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
 import { ActionCommands, SWSCommands } from '../core/types';
 import type {
@@ -61,7 +62,7 @@ import { transportEngine } from '../core/TransportAnimationEngine';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & {
+export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & UIPreferencesState & {
   // Response handler action (legacy HTTP)
   handleResponses: (responses: ParsedResponse[]) => void;
   // WebSocket message handler
@@ -94,6 +95,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   ...createClockViewSlice(set, get, store),
   ...createFxStateSlice(set, get, store),
   ...createSendsStateSlice(set, get, store),
+  ...createUIPreferencesSlice(set, get, store),
 
   // Handle incoming responses from REAPER
   handleResponses: (responses: ParsedResponse[]) => {
@@ -379,6 +381,7 @@ export type { FxStateSlice } from './slices/fxStateSlice';
 export { getFxForTrack } from './slices/fxStateSlice';
 export type { SendsStateSlice } from './slices/sendsStateSlice';
 export { getSendsFromTrack, getSendsToTrack } from './slices/sendsStateSlice';
+export type { UIPreferencesState } from './slices/uiPreferencesSlice';
 
 // Expose store on window for E2E tests (development only)
 if (import.meta.env.DEV) {

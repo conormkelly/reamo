@@ -1,11 +1,10 @@
 /**
  * UI Preferences Hook
- * Manages user preferences for UI layout stored in localStorage
+ * Provides access to UI preferences from Zustand store
+ * Preferences are persisted to localStorage via the store slice
  */
 
-import { useState, useEffect, useCallback } from 'react';
-
-const UI_PREFS_KEY = 'reamo_ui_preferences';
+import { useReaperStore } from '../store';
 
 export interface UIPreferences {
   showTabBar: boolean;
@@ -14,75 +13,25 @@ export interface UIPreferences {
   notesFontSize: number;
 }
 
-const DEFAULT_PREFS: UIPreferences = {
-  showTabBar: true,
-  showPersistentTransport: true,
-  transportPosition: 'left',
-  notesFontSize: 16,
-};
-
-function loadPreferences(): UIPreferences {
-  try {
-    const stored = localStorage.getItem(UI_PREFS_KEY);
-    if (stored) {
-      return { ...DEFAULT_PREFS, ...JSON.parse(stored) };
-    }
-  } catch (e) {
-    console.warn('Failed to load UI preferences:', e);
-  }
-  return DEFAULT_PREFS;
-}
-
-function savePreferences(prefs: UIPreferences): void {
-  try {
-    localStorage.setItem(UI_PREFS_KEY, JSON.stringify(prefs));
-  } catch (e) {
-    console.warn('Failed to save UI preferences:', e);
-  }
-}
-
 export function useUIPreferences() {
-  const [prefs, setPrefs] = useState<UIPreferences>(loadPreferences);
-
-  // Save to localStorage whenever prefs change
-  useEffect(() => {
-    savePreferences(prefs);
-  }, [prefs]);
-
-  const setShowTabBar = useCallback((show: boolean) => {
-    setPrefs((p) => ({ ...p, showTabBar: show }));
-  }, []);
-
-  const setShowPersistentTransport = useCallback((show: boolean) => {
-    setPrefs((p) => ({ ...p, showPersistentTransport: show }));
-  }, []);
-
-  const setTransportPosition = useCallback((position: 'left' | 'right') => {
-    setPrefs((p) => ({ ...p, transportPosition: position }));
-  }, []);
-
-  const toggleTabBar = useCallback(() => {
-    setPrefs((p) => ({ ...p, showTabBar: !p.showTabBar }));
-  }, []);
-
-  const togglePersistentTransport = useCallback(() => {
-    setPrefs((p) => ({ ...p, showPersistentTransport: !p.showPersistentTransport }));
-  }, []);
-
-  const toggleTransportPosition = useCallback(() => {
-    setPrefs((p) => ({ ...p, transportPosition: p.transportPosition === 'left' ? 'right' : 'left' }));
-  }, []);
-
-  const setNotesFontSize = useCallback((size: number) => {
-    setPrefs((p) => ({ ...p, notesFontSize: Math.max(8, Math.min(48, size)) }));
-  }, []);
-
-  const adjustNotesFontSize = useCallback((delta: number) => {
-    setPrefs((p) => ({ ...p, notesFontSize: Math.max(8, Math.min(48, p.notesFontSize + delta)) }));
-  }, []);
+  const showTabBar = useReaperStore((s) => s.showTabBar);
+  const showPersistentTransport = useReaperStore((s) => s.showPersistentTransport);
+  const transportPosition = useReaperStore((s) => s.transportPosition);
+  const notesFontSize = useReaperStore((s) => s.notesFontSize);
+  const setShowTabBar = useReaperStore((s) => s.setShowTabBar);
+  const setShowPersistentTransport = useReaperStore((s) => s.setShowPersistentTransport);
+  const setTransportPosition = useReaperStore((s) => s.setTransportPosition);
+  const toggleTabBar = useReaperStore((s) => s.toggleTabBar);
+  const togglePersistentTransport = useReaperStore((s) => s.togglePersistentTransport);
+  const toggleTransportPosition = useReaperStore((s) => s.toggleTransportPosition);
+  const setNotesFontSize = useReaperStore((s) => s.setNotesFontSize);
+  const adjustNotesFontSize = useReaperStore((s) => s.adjustNotesFontSize);
 
   return {
-    ...prefs,
+    showTabBar,
+    showPersistentTransport,
+    transportPosition,
+    notesFontSize,
     setShowTabBar,
     setShowPersistentTransport,
     setTransportPosition,
