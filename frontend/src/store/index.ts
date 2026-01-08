@@ -17,6 +17,7 @@ import { createStudioLayoutSlice, type StudioLayoutState } from './slices/studio
 import { createNotesSlice, type NotesSlice } from './slices/notesSlice';
 import { createPlaylistSlice, type PlaylistSlice } from './slices/playlistSlice';
 import { createActionsViewSlice, type ActionsViewSlice } from './slices/actionsViewSlice';
+import { createClockViewSlice, type ClockViewSlice } from './slices/clockViewSlice';
 import { createFxStateSlice, type FxStateSlice } from './slices/fxStateSlice';
 import { createSendsStateSlice, type SendsStateSlice } from './slices/sendsStateSlice';
 import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
@@ -60,7 +61,7 @@ import { transportEngine } from '../core/TransportAnimationEngine';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & FxStateSlice & SendsStateSlice & {
+export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & {
   // Response handler action (legacy HTTP)
   handleResponses: (responses: ParsedResponse[]) => void;
   // WebSocket message handler
@@ -90,6 +91,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   ...createNotesSlice(set, get, store),
   ...createPlaylistSlice(set, get, store),
   ...createActionsViewSlice(set, get, store),
+  ...createClockViewSlice(set, get, store),
   ...createFxStateSlice(set, get, store),
   ...createSendsStateSlice(set, get, store),
 
@@ -371,6 +373,8 @@ export { getNotesIsDirty, getNotesIsOverLimit, getNotesCanSave } from './slices/
 export type { PlaylistSlice } from './slices/playlistSlice';
 export type { ActionsViewSlice, ActionsSection, SectionAlign, VerticalAlign, SizeOption } from './slices/actionsViewSlice';
 export { ACTIONS_VIEW_STORAGE_KEY } from './slices/actionsViewSlice';
+export type { ClockViewSlice, ClockViewConfig, ClockElement, ClockElementConfig, ScaleKey } from './slices/clockViewSlice';
+export { CLOCK_VIEW_STORAGE_KEY, ELEMENT_SCALE_MAP } from './slices/clockViewSlice';
 export type { FxStateSlice } from './slices/fxStateSlice';
 export { getFxForTrack } from './slices/fxStateSlice';
 export type { SendsStateSlice } from './slices/sendsStateSlice';

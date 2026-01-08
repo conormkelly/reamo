@@ -1,136 +1,97 @@
 /**
  * ClockView - Big transport, BPM, bar.beat
- * Dynamically sizes to fill available space without overflow
+ * Highly configurable: show/hide elements, reorder, adjust sizes
  * Uses CSS clamp() and container-relative sizing for responsive layout
  */
 
-import { useRef, useCallback, type ReactElement } from 'react';
-import { Play, Pause, Square, Circle, SkipBack, RefreshCw } from 'lucide-react';
-import { useReaper } from '../../components/ReaperProvider';
-import { useTransport, useTransportAnimation, useTransportSync } from '../../hooks';
-import { useReaperStore } from '../../store';
-import { transport, action } from '../../core/WebSocketCommands';
-import { formatTime } from '../../utils';
+import { useState, useEffect, useCallback, type ReactElement } from 'react';
+import { Pencil } from 'lucide-react';
+import { useReaperStore, ELEMENT_SCALE_MAP, type ClockElement } from '../../store';
 import { ViewHeader } from '../../components';
+import {
+  BarBeatDisplay,
+  TimeDisplay,
+  BpmTimeSigDisplay,
+  TransportControls,
+  RecordingIndicator,
+  ClockElementWrapper,
+} from './components';
 
-// Hold duration for record button mode toggle
-const HOLD_THRESHOLD = 300;
-
-
-interface BigTransportButtonProps {
-  onClick: () => void;
-  isActive?: boolean;
-  activeColor?: 'green' | 'red' | 'gray';
-  title: string;
-  children: React.ReactNode;
-}
-
-function BigTransportButton({
-  onClick,
-  isActive = false,
-  activeColor = 'gray',
-  title,
-  children,
-}: BigTransportButtonProps): ReactElement {
-  const colorClasses = {
-    green: 'bg-green-500',
-    red: 'bg-red-500',
-    gray: 'bg-gray-600',
-  };
-
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      className={`
-        aspect-square rounded-full flex items-center justify-center
-        transition-colors shadow-lg
-        ${isActive ? colorClasses[activeColor] : 'bg-gray-700 hover:bg-gray-600 active:bg-gray-500'}
-      `}
-      style={{
-        // Dynamic button size: 12% of container min dimension, clamped between 48px and 112px
-        width: 'clamp(48px, 12cqmin, 112px)',
-        height: 'clamp(48px, 12cqmin, 112px)',
-      }}
-    >
-      {children}
-    </button>
-  );
-}
+// Element labels for edit mode
+const ELEMENT_LABELS: Record<ClockElement, string> = {
+  barBeatTicks: 'Bar.Beat.Ticks',
+  timeDisplay: 'Time (Seconds)',
+  bpmTimeSig: 'BPM / Time Sig',
+  transport: 'Transport',
+  recordingIndicator: 'Recording Indicator',
+};
 
 export function ClockView(): ReactElement {
-  const { sendCommand } = useReaper();
-  const { isPlaying, isPaused, isStopped, isRecording, play, pause, stop, record } = useTransport();
-  const isAutoPunch = useReaperStore((state) => state.isAutoPunch);
-  const bpm = useReaperStore((state) => state.bpm);
-  const timeSignatureNumerator = useReaperStore((state) => state.timeSignatureNumerator);
-  const timeSignatureDenominator = useReaperStore((state) => state.timeSignatureDenominator);
+  // Clock config from store
+  const clockConfig = useReaperStore((s) => s.clockConfig);
+  const clockEditMode = useReaperStore((s) => s.clockEditMode);
+  const setClockEditMode = useReaperStore((s) => s.setClockEditMode);
+  const setClockElementVisible = useReaperStore((s) => s.setClockElementVisible);
+  const reorderClockElements = useReaperStore((s) => s.reorderClockElements);
+  const setClockScale = useReaperStore((s) => s.setClockScale);
+  const loadClockViewFromStorage = useReaperStore((s) => s.loadClockViewFromStorage);
+  const getSortedClockElements = useReaperStore((s) => s.getSortedClockElements);
 
-  // Refs for direct DOM updates at 60fps
-  const timeRef = useRef<HTMLSpanElement>(null);
-  const beatsRef = useRef<HTMLSpanElement>(null);
+  // Load config from storage on mount
+  useEffect(() => {
+    loadClockViewFromStorage();
+  }, [loadClockViewFromStorage]);
 
-  // Subscribe to 60fps animation updates for time display (seconds)
-  useTransportAnimation((state) => {
-    if (timeRef.current) {
-      timeRef.current.textContent = formatTime(state.position, { precision: 1, showSign: false });
-    }
+  // Drag state
+  const [dragFromIdx, setDragFromIdx] = useState<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+
+  // Listen for touch drag events from ClockElementWrapper
+  useEffect(() => {
+    const handleTouchDragOver = (e: Event) => {
+      const customEvent = e as CustomEvent<{ targetIndex: number }>;
+      setDragOverIdx(customEvent.detail.targetIndex);
+    };
+    window.addEventListener('clock-drag-over', handleTouchDragOver);
+    return () => window.removeEventListener('clock-drag-over', handleTouchDragOver);
   }, []);
 
-  // Subscribe to transport sync for bar.beat.ticks (server-computed, clock-synchronized)
-  useTransportSync((state) => {
-    if (beatsRef.current) {
-      beatsRef.current.textContent = state.barBeatTicks;
+  // Drag handlers
+  const handleDragEnd = useCallback(() => {
+    if (dragFromIdx !== null && dragOverIdx !== null && dragFromIdx !== dragOverIdx) {
+      reorderClockElements(dragFromIdx, dragOverIdx);
     }
-  }, []);
+    setDragFromIdx(null);
+    setDragOverIdx(null);
+  }, [dragFromIdx, dragOverIdx, reorderClockElements]);
 
-  // Transport handlers
-  const handleSkipToStart = () => sendCommand(transport.goStart());
-  const handlePlay = () => sendCommand(play());
-  const handlePause = () => sendCommand(pause());
-  const handleStop = () => sendCommand(stop());
+  // Get sorted elements
+  const sortedElements = getSortedClockElements();
 
-  // Record button long-press handlers
-  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const wasHoldRef = useRef(false);
+  // Helper to get scale for an element
+  const getScale = (id: ClockElement): number => {
+    const scaleKey = ELEMENT_SCALE_MAP[id];
+    return scaleKey ? clockConfig[scaleKey] : 1.0;
+  };
 
-  const handleRecordPointerDown = useCallback(() => {
-    wasHoldRef.current = false;
-    holdTimerRef.current = setTimeout(() => {
-      wasHoldRef.current = true;
-      if (isAutoPunch) {
-        sendCommand(action.execute(40252)); // Set record mode to normal
-      } else {
-        sendCommand(action.execute(40076)); // Set record mode to time selection auto-punch
-      }
-    }, HOLD_THRESHOLD);
-  }, [sendCommand, isAutoPunch]);
+  // Render a clock element
+  const renderElement = (id: ClockElement): ReactElement | null => {
+    const scale = getScale(id);
 
-  const handleRecordPointerUp = useCallback(() => {
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
+    switch (id) {
+      case 'barBeatTicks':
+        return <BarBeatDisplay scale={scale} />;
+      case 'timeDisplay':
+        return <TimeDisplay scale={scale} />;
+      case 'bpmTimeSig':
+        return <BpmTimeSigDisplay scale={scale} />;
+      case 'transport':
+        return <TransportControls scale={scale} />;
+      case 'recordingIndicator':
+        return <RecordingIndicator />;
+      default:
+        return null;
     }
-    if (!wasHoldRef.current) {
-      sendCommand(record());
-    }
-  }, [sendCommand, record]);
-
-  const handleRecordPointerCancel = useCallback(() => {
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-  }, []);
-
-  const recordInactiveClass = isAutoPunch
-    ? 'bg-red-900/50 hover:bg-red-800/70 ring-2 ring-red-500/50'
-    : 'bg-red-900/50 hover:bg-red-800/70 ring-2 ring-red-500/30';
-
-  // Icon size scales with button (roughly 50% of button size)
-  const iconStyle = {
-    width: 'clamp(24px, 6cqmin, 56px)',
-    height: 'clamp(24px, 6cqmin, 56px)',
   };
 
   return (
@@ -141,132 +102,70 @@ export function ClockView(): ReactElement {
     >
       {/* Header overlay - semi-transparent so clock content shows through */}
       <div className="absolute top-0 left-0 right-0 z-10 p-3">
-        <ViewHeader currentView="clock" />
+        <ViewHeader currentView="clock">
+          {/* Edit mode toggle */}
+          <button
+            onClick={() => setClockEditMode(!clockEditMode)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
+              clockEditMode
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+            }`}
+          >
+            <Pencil size={16} />
+            <span className="text-sm">{clockEditMode ? 'Done' : 'Edit'}</span>
+          </button>
+        </ViewHeader>
       </div>
 
-      {/* Main content - centered */}
-      <div className="flex-1 flex flex-col items-center justify-center p-2">
-      {/* Bar.Beat Display - scales with container, capped by width for long bar numbers
-          Formula: text_width ≈ 6 × font_size for 10-char monospace string
-          To fit 10 chars: font_size ≤ container_width / 6 ≈ 16cqw */}
+      {/* Main content - centered or scrollable in edit mode */}
       <div
-        className="text-center font-mono font-bold tracking-tight"
-        style={{
-          fontSize: 'clamp(2.5rem, min(25cqh, 16cqw), 12rem)',
-          lineHeight: 1.1,
-          marginBottom: 'clamp(0.25rem, 1cqh, 1.5rem)',
-        }}
+        className={`flex-1 flex flex-col items-center p-2 ${
+          clockEditMode
+            ? 'pt-16 overflow-y-auto justify-start'
+            : 'justify-center'
+        }`}
       >
-        <span ref={beatsRef}>1.1.00</span>
-      </div>
-
-      {/* Time Display - precision: 1 (deciseconds) prevents visual stutter from rapid changes */}
-      <div
-        className="text-center font-mono text-gray-300"
-        style={{
-          fontSize: 'clamp(1.5rem, 12cqh, 6rem)',
-          lineHeight: 1.2,
-          marginBottom: 'clamp(0.125rem, 0.5cqh, 1rem)',
-        }}
-      >
-        <span ref={timeRef}>0:00.0</span>
-      </div>
-
-      {/* BPM + Time Signature Display */}
-      <div
-        className="text-center font-bold text-gray-400"
-        style={{
-          fontSize: 'clamp(1.25rem, 8cqh, 4rem)',
-          lineHeight: 1.2,
-          marginBottom: 'clamp(0.5rem, 3cqh, 2.5rem)',
-        }}
-      >
-        {Math.round(bpm ?? 120)} <span style={{ fontSize: '0.6em', verticalAlign: 'middle' }}>BPM</span>
-        <span className="text-gray-500 mx-2">|</span>
-        {timeSignatureNumerator}/{timeSignatureDenominator}
-      </div>
-
-      {/* Transport Controls - horizontally centered, dynamic sizing */}
-      <div
-        className="flex items-center justify-center safe-area-x"
-        style={{ gap: 'clamp(6px, 1.5cqmin, 32px)' }}
-      >
-        <BigTransportButton onClick={handleSkipToStart} title="Skip to Start">
-          <SkipBack style={iconStyle} />
-        </BigTransportButton>
-
-        <BigTransportButton
-          onClick={handlePlay}
-          isActive={isPlaying}
-          activeColor="green"
-          title="Play"
-        >
-          <Play style={iconStyle} fill={isPlaying ? 'currentColor' : 'none'} />
-        </BigTransportButton>
-
-        <BigTransportButton
-          onClick={handlePause}
-          isActive={isPaused}
-          activeColor="gray"
-          title="Pause"
-        >
-          <Pause style={iconStyle} fill={isPaused ? 'currentColor' : 'none'} />
-        </BigTransportButton>
-
-        <BigTransportButton
-          onClick={handleStop}
-          isActive={isStopped}
-          activeColor="gray"
-          title="Stop"
-        >
-          <Square style={{ ...iconStyle, width: 'clamp(20px, 5cqmin, 48px)', height: 'clamp(20px, 5cqmin, 48px)' }} fill={isStopped ? 'currentColor' : 'none'} />
-        </BigTransportButton>
-
-        {/* Record - with long-press for auto-punch toggle */}
-        <button
-          onPointerDown={handleRecordPointerDown}
-          onPointerUp={handleRecordPointerUp}
-          onPointerCancel={handleRecordPointerCancel}
-          onPointerLeave={handleRecordPointerCancel}
-          title={isAutoPunch ? "Record (Auto-Punch) - hold to toggle mode" : "Record - hold to toggle auto-punch"}
-          className={`
-            aspect-square rounded-full flex items-center justify-center
-            transition-colors shadow-lg touch-none select-none
-            ${isRecording ? 'bg-red-500 animate-pulse' : recordInactiveClass}
-          `}
-          style={{
-            width: 'clamp(48px, 12cqmin, 112px)',
-            height: 'clamp(48px, 12cqmin, 112px)',
-          }}
-        >
-          {isAutoPunch ? (
-            <RefreshCw style={iconStyle} strokeWidth={2.5} />
-          ) : (
-            <Circle style={iconStyle} fill="currentColor" />
-          )}
-        </button>
-      </div>
-
-      {/* Recording indicator */}
-      {isRecording && (
+        {/* Vertical spacing between elements */}
         <div
-          className="flex items-center text-red-400 font-medium"
-          style={{
-            marginTop: 'clamp(0.5rem, 2cqh, 2rem)',
-            gap: 'clamp(0.375rem, 1cqh, 0.75rem)',
-            fontSize: 'clamp(0.875rem, 4cqh, 1.875rem)',
-          }}
+          className={`flex flex-col items-center w-full ${
+            clockEditMode ? 'gap-4' : 'gap-0'
+          }`}
+          style={
+            !clockEditMode
+              ? {
+                  // Non-edit mode: use container-relative spacing
+                  gap: 'clamp(0.25rem, 1cqh, 1.5rem)',
+                }
+              : undefined
+          }
         >
-          <div
-            className="rounded-full bg-red-500 animate-pulse"
-            style={{
-              width: 'clamp(10px, 2cqh, 20px)',
-              height: 'clamp(10px, 2cqh, 20px)',
-            }}
-          />
-          <span>RECORDING</span>
+          {sortedElements.map((element, index) => (
+            <ClockElementWrapper
+              key={element.id}
+              id={element.id}
+              label={ELEMENT_LABELS[element.id]}
+              visible={element.visible}
+              scale={getScale(element.id)}
+              scaleKey={ELEMENT_SCALE_MAP[element.id]}
+              editMode={clockEditMode}
+              index={index}
+              isDragTarget={dragOverIdx === index && dragFromIdx !== null && dragFromIdx !== index}
+              onToggleVisible={() => setClockElementVisible(element.id, !element.visible)}
+              onScaleChange={(scale) => {
+                const scaleKey = ELEMENT_SCALE_MAP[element.id];
+                if (scaleKey) {
+                  setClockScale(scaleKey, scale);
+                }
+              }}
+              onDragStart={() => setDragFromIdx(index)}
+              onDragOver={() => setDragOverIdx(index)}
+              onDragEnd={handleDragEnd}
+            >
+              {renderElement(element.id)}
+            </ClockElementWrapper>
+          ))}
         </div>
-      )}
       </div>
     </div>
   );

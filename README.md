@@ -65,7 +65,7 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 |------|-------------|
 | **Studio** | All-in-one default view: transport, timeline, mixer in one screen |
 | **Mixer** | (Coming soon) Dedicated full-screen mixer |
-| **Clock** | Large transport display with big play/pause/stop/record buttons |
+| **Clock** | Large transport display with big play/pause/stop/record buttons. Fully customizable: show/hide elements, resize, and reorder via edit mode |
 | **Cues** | Playlist manager for building setlists from regions |
 | **Actions** | User-configurable button grid for REAPER actions and MIDI |
 | **Notes** | Project notes editor with external change detection |
