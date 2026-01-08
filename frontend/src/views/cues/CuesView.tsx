@@ -299,7 +299,7 @@ export function CuesView(): ReactElement {
             <ListMusic size={48} className="text-gray-600 mb-4" />
             <h2 className="text-xl font-medium text-gray-300 mb-2">No Playlists Yet</h2>
             <p className="text-gray-500 mb-6 max-w-xs">
-              Practice, perform, or explore song arrangements from your project regions. Adjust loop counts per region on the fly.
+              Practice, perform, or explore new arrangements using project regions. Adjust loop counts per region on the fly.
             </p>
             <button
               onClick={() => setShowCreateModal(true)}
