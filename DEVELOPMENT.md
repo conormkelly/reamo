@@ -917,6 +917,37 @@ The `timestamp` field enables RTT measurement for network quality monitoring.
 2. Expected: Brief "Reconnecting..." then connected within 1-2s
 3. Check Safari Web Inspector console for `[WS] Suspended for Xms` logs
 
+### iOS Safari Cold Start Fix
+
+Safari's NSURLSession has a WebSocket lazy initialization bug: on cold start (PWA or browser), the WebSocket sits in `CONNECTING` state indefinitely with no `onopen`, `onerror`, or `onclose` events firing. A page refresh or navigate-away-and-back fixes it.
+
+**Root cause:** Safari's shared network context isn't initialized on cold start. All JavaScript-observable state (`navigator.onLine`, `document.visibilityState`, `document.hasFocus()`) appears correct — the problem is in WebKit internals.
+
+**Solution:** Hidden iframe pre-connection. Before the main WebSocket connection, create a hidden iframe that attempts its own WebSocket. This warms Safari's shared network context, allowing the main page's subsequent connection to succeed.
+
+**Implementation (`WebSocketConnection.ts` → `warmupViaIframe()`):**
+
+```typescript
+// In discoverAndConnect(), for iOS Safari (PWA or browser):
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+const isSafari = navigator.userAgent.includes('Safari') && !navigator.userAgent.includes('Chrome');
+if (isIOS && isSafari) {
+  await this.warmupViaIframe(wsUrl);
+}
+
+// The warmup method:
+private async warmupViaIframe(wsUrl: string): Promise<void> {
+  // Creates hidden iframe with inline script
+  // Iframe attempts WebSocket, posts message on open/error/timeout
+  // Parent waits for message, cleans up iframe, then proceeds
+  // 3-second fallback timeout
+}
+```
+
+**Key insight:** The iframe's WebSocket attempt initializes Safari's network stack. Whether it succeeds or fails doesn't matter — the act of attempting warms the context.
+
+**What didn't work:** HTTP pre-warm, delays (200-1000ms), focus manipulation, aggressive retry strategies, `document.readyState` checks. The issue is in WebKit's internal state, not anything JavaScript can observe or influence directly.
+
 ## Testing Conventions
 
 ### Philosophy

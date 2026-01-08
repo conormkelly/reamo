@@ -191,10 +191,11 @@ export class WebSocketConnection {
       console.log('[WS] Discovered session token');
     }
 
-    // Safari PWA: Try iframe pre-connection to warm network stack before real connection
+    // iOS Safari: Try iframe pre-connection to warm network stack before real connection
+    // Safari's NSURLSession has lazy WebSocket initialization on cold start
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     const isSafari = navigator.userAgent.includes('Safari') && !navigator.userAgent.includes('Chrome');
-    const isPWA = window.matchMedia('(display-mode: standalone)').matches;
-    if (isSafari && isPWA) {
+    if (isIOS && isSafari) {
       const wsPort = this.discoveredPort ?? this.options.port ?? 9224;
       const host = window.location.hostname || 'localhost';
       const wsUrl = `ws://${host}:${wsPort}/`;
@@ -205,12 +206,12 @@ export class WebSocketConnection {
   }
 
   /**
-   * Safari PWA workaround: Create hidden iframe that attempts WebSocket first.
-   * Theory: iframe's WebSocket attempt may initialize Safari's shared network context,
-   * allowing the main page's subsequent WebSocket to succeed on cold start.
+   * iOS Safari workaround: Create hidden iframe that attempts WebSocket first.
+   * Safari's NSURLSession has lazy WebSocket initialization - the iframe's connection
+   * attempt warms the shared network context, allowing the main connection to succeed.
    */
   private async warmupViaIframe(wsUrl: string): Promise<void> {
-    console.log('[WS] Safari PWA: Attempting iframe pre-warmup');
+    console.log('[WS] iOS Safari: Attempting iframe pre-warmup');
 
     return new Promise((resolve) => {
       const iframe = document.createElement('iframe');
