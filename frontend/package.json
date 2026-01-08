@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && cp ./dist/index.html ../reamo.html",
     "deploy": "npm run build && cp ./dist/index.html ../reamo.html",
     "release": "npm run deploy && node scripts/create-release-zip.js",
     "lint": "eslint .",

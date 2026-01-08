@@ -51,7 +51,7 @@ function AppContent() {
   const ViewComponent = views[currentView];
 
   return (
-    <div className="flex flex-col h-screen bg-gray-950 overflow-hidden">
+    <div className="flex flex-col h-screen-safe bg-gray-950 overflow-hidden safe-area-top safe-area-x">
       {/* Connection banner - shown at top when disconnected */}
       <ConnectionBanner />
 
@@ -67,20 +67,24 @@ function AppContent() {
       {currentView === 'studio' && showRecordingActions && isRecording && isMobile && (
         <div
           className="fixed left-0 right-0 z-40 bg-gray-950 pb-3"
-          style={{ bottom: `${mobileBottomOffset}px` }}
+          style={{ bottom: `calc(${mobileBottomOffset}px + env(safe-area-inset-bottom, 34px))` }}
         >
           <RecordingActionsBar />
         </div>
       )}
 
-      {/* Tab bar - toggleable */}
+      {/* Tab bar - toggleable, gets safe-area-bottom when it's the bottommost element */}
       {showTabBar && (
-        <TabBar currentView={currentView} onViewChange={setCurrentView} />
+        <TabBar
+          currentView={currentView}
+          onViewChange={setCurrentView}
+          className={!showPersistentTransport ? 'safe-area-bottom' : ''}
+        />
       )}
 
-      {/* Persistent transport - toggleable with position */}
+      {/* Persistent transport - toggleable with position, always bottommost when shown */}
       {showPersistentTransport && (
-        <PersistentTransport position={transportPosition} />
+        <PersistentTransport position={transportPosition} className="safe-area-bottom" />
       )}
     </div>
   );
