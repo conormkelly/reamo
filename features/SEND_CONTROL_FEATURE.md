@@ -4,14 +4,14 @@
 
 ### The Problem
 
-From user research, "adjusting headphone mix or levels" is a reason musicians walk to the computer. While Reamo's mixer handles basic level balance (your track vs other tracks), it doesn't expose **send levels** — the routing to aux buses like reverb, delay, or dedicated cue/headphone mixes.
+From user research, "adjusting headphone mix or levels" is a reason musicians walk to the computer. While REAmo's mixer handles basic level balance (your track vs other tracks), it doesn't expose **send levels** — the routing to aux buses like reverb, delay, or dedicated cue/headphone mixes.
 
 ### Who Actually Needs This
 
 Research reveals a split:
 - **70-80%** of home studio users rely on hardware monitoring (interface's zero-latency knob) — the existing mixer solves their needs
 - **5-10%** use DAW-based cue systems with pre-fader sends — this feature is for them
-- **Professional studios** universally use send-based cue systems — supporting this positions Reamo for demanding use cases
+- **Professional studios** universally use send-based cue systems — supporting this positions REAmo for demanding use cases
 
 ### When Adjustments Happen
 
@@ -345,7 +345,7 @@ Valid in REAPER — destination may be the source track's folder parent. No spec
 
 ### Circular Sends
 
-REAPER prevents circular routing at the DAW level. No validation needed in Reamo.
+REAPER prevents circular routing at the DAW level. No validation needed in REAmo.
 
 ### Many Sends
 

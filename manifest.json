@@ -1,6 +1,6 @@
 {
-  "name": "Reamo",
-  "short_name": "Reamo",
+  "name": "REAmo",
+  "short_name": "REAmo",
   "description": "REAPER remote control",
   "start_url": "/reamo.html",
   "display": "standalone",

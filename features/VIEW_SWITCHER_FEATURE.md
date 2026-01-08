@@ -18,7 +18,7 @@ Current web interface is one-size-fits-all. Musicians either get too much or too
 
 > "Transport controls deserve special treatment—always visible, bottom-right corner."
 
-> "Users prefer simple hardware to complex apps... Reamo's default view should be radically simple, with complexity available but not required."
+> "Users prefer simple hardware to complex apps... REAmo's default view should be radically simple, with complexity available but not required."
 
 ---
 
@@ -74,7 +74,7 @@ Current web interface is one-size-fits-all. Musicians either get too much or too
 
 Two strong candidates:
 
-- **Studio** — The "radically simple" choice. Everything a solo musician needs without tab-switching. Research says: *"Users prefer simple hardware to complex apps... Reamo's default view should be radically simple."* This is it.
+- **Studio** — The "radically simple" choice. Everything a solo musician needs without tab-switching. Research says: *"Users prefer simple hardware to complex apps... REAmo's default view should be radically simple."* This is it.
 
 - **Timeline** — The visual differentiator. Research says: *"Remote apps don't show what matters. Users want to see their actual timeline and arrangement."* This shows your song structure.
 
@@ -86,7 +86,7 @@ Two strong candidates:
 
 ### Studio View (Default)
 
-The all-in-one view. This is the current Reamo layout — transport, mixer, and regions in one screen. Optimized for full-screen iPad from day one.
+The all-in-one view. This is the current REAmo layout — transport, mixer, and regions in one screen. Optimized for full-screen iPad from day one.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -150,7 +150,7 @@ The visual differentiator. Shows your actual arrangement.
 - Not waveform-accurate (too expensive to render)
 - Just enough visual context to know where you are
 
-**This is what competitors don't show.** TouchOSC, Lemur, V-Control — they're all blind to arrangement. Reamo shows you your song.
+**This is what competitors don't show.** TouchOSC, Lemur, V-Control — they're all blind to arrangement. REAmo shows you your song.
 
 ---
 
@@ -440,7 +440,7 @@ import { useState, useEffect } from 'react';
 import { views, ViewId } from './viewRegistry';
 import { TabBar } from './components/TabBar';
 import { PersistentTransport } from './components/PersistentTransport';
-import { useReamoConnection } from './hooks/useReamoConnection';
+import { useREAmoConnection } from './hooks/useREAmoConnection';
 
 const VIEW_STORAGE_KEY = 'reamo_current_view';
 
@@ -451,7 +451,7 @@ export function App() {
   const [isFullScreen, setIsFullScreen] = useState(false);
 
   // Shared state from WebSocket
-  const { tracks, transport, regions, sendCommand } = useReamoConnection();
+  const { tracks, transport, regions, sendCommand } = useREAmoConnection();
 
   useEffect(() => {
     localStorage.setItem(VIEW_STORAGE_KEY, currentView);

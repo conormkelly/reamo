@@ -16,7 +16,7 @@ Record a verse and chorus once, then ask: "What would it sound like with 4 verse
 
 ### The Opportunity
 
-Reamo already has regions and markers on a timeline. A Cue List is just a different *presentation* — a vertical tappable list instead of horizontal timeline, optimized for:
+REAmo already has regions and markers on a timeline. A Cue List is just a different *presentation* — a vertical tappable list instead of horizontal timeline, optimized for:
 
 - Quick tap-to-jump navigation
 - Playlist mode with loop counts
@@ -59,7 +59,7 @@ This is frontend-only for basic mode, with extension work for playlist playback.
 
 ## Data Model
 
-### Reamo Playlist Entry
+### REAmo Playlist Entry
 
 ```typescript
 interface PlaylistEntry {
@@ -83,7 +83,7 @@ interface PlaylistState {
 
 ### Storage
 
-Reamo stores playlists in REAPER's EXTSTATE for persistence and API accessibility:
+REAmo stores playlists in REAPER's EXTSTATE for persistence and API accessibility:
 
 ```
 Key: "REAMO" / "PLAYLIST_0"
@@ -98,7 +98,7 @@ This differs from SWS which uses project extension config (not accessible via AP
 
 ### Why Import Matters
 
-Users with existing SWS Region Playlists shouldn't have to rebuild them. Reamo can detect and import SWS playlists on project load.
+Users with existing SWS Region Playlists shouldn't have to rebuild them. REAmo can detect and import SWS playlists on project load.
 
 ### Confirmed SWS RPP Format
 
@@ -148,7 +148,7 @@ To extract: `region_index = region_id & 0x3FFFFFFF`
 │ "With infinite" (5 entries)                             │
 │ "Untitled 1" (4 entries)                                │
 ├─────────────────────────────────────────────────────────┤
-│ Import creates a copy in Reamo. Original unchanged.     │
+│ Import creates a copy in REAmo. Original unchanged.     │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -156,7 +156,7 @@ To extract: `region_index = region_id & 0x3FFFFFFF`
 2. Parse file for `<S&M_RGN_PLAYLIST` blocks
 3. Decode region IDs, cross-reference with current regions
 4. Send `swsPlaylistDetected` event to frontend
-5. User clicks "Import" → copy to Reamo's EXTSTATE format
+5. User clicks "Import" → copy to REAmo's EXTSTATE format
 
 **Why read-only:**
 
@@ -171,7 +171,7 @@ To extract: `region_index = region_id & 0x3FFFFFFF`
 
 ### Architecture
 
-Reamo already polls at ~30ms. Add playlist monitoring to existing timer callback:
+REAmo already polls at ~30ms. Add playlist monitoring to existing timer callback:
 
 ```zig
 const PlaylistEngine = struct {
@@ -410,7 +410,7 @@ Toggle between:
 
 For users who want to trigger SWS Region Playlist directly:
 
-| Reamo Command | SWS Action |
+| REAmo Command | SWS Action |
 |---------------|------------|
 | `sws/playPlaylist` | `_S&M_PLAY_RGN_PLAYLIST` |
 | `sws/nextRegion` | `_S&M_PLAY_NEXT_RGN_PLAYLIST` |

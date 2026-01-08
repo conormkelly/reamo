@@ -1,5 +1,5 @@
 /**
- * Reamo - REAPER Web Control
+ * REAmo - REAPER Web Control
  * Main application with view switching
  */
 

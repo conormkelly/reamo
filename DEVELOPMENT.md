@@ -1,6 +1,6 @@
-# Reamo Development Guide
+# REAmo Development Guide
 
-This document captures implementation details, API quirks, and outstanding work for the Reamo REAPER web controller.
+This document captures implementation details, API quirks, and outstanding work for the REAmo REAPER web controller.
 
 ## Table of Contents
 
@@ -420,12 +420,12 @@ Large projects (1000+ tracks) cannot poll all tracks at 30Hz — the JSON alone 
 
 ### Undo Blocks
 
-All REAPER undo blocks must be prefixed with "Reamo: " for easy identification in REAPER's undo history:
+All REAPER undo blocks must be prefixed with "REAmo: " for easy identification in REAPER's undo history:
 
 ```zig
 api.undoBeginBlock();
 // ... make changes ...
-api.undoEndBlock("Reamo: Adjust time signature");
+api.undoEndBlock("REAmo: Adjust time signature");
 ```
 
 ### Command Naming
@@ -1130,8 +1130,8 @@ Server → Client:
 Client discovers WebSocket port via HTTP:
 
 ```bash
-curl -s "http://localhost:8099/_/GET/EXTSTATE/Reamo/WebsocketPort"
-curl -s "http://localhost:8099/_/GET/EXTSTATE/Reamo/SessionToken"
+curl -s "http://localhost:8099/_/GET/EXTSTATE/REAmo/WebsocketPort"
+curl -s "http://localhost:8099/_/GET/EXTSTATE/REAmo/SessionToken"
 ```
 
 ## Extension Configuration
@@ -1212,8 +1212,8 @@ Log rotation: 1MB max, keeps last 3 files.
 
 ```bash
 # Get token and port
-curl -s "http://localhost:8099/_/GET/EXTSTATE/Reamo/SessionToken"
-curl -s "http://localhost:8099/_/GET/EXTSTATE/Reamo/WebsocketPort"
+curl -s "http://localhost:8099/_/GET/EXTSTATE/REAmo/SessionToken"
+curl -s "http://localhost:8099/_/GET/EXTSTATE/REAmo/WebsocketPort"
 
 # Connect with websocat
 TOKEN="<token>"

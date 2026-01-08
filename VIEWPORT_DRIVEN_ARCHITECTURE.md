@@ -1,6 +1,6 @@
 # Viewport-Driven Architecture
 
-> Research and architecture decisions for scaling Reamo to 1000+ tracks.
+> Research and architecture decisions for scaling REAmo to 1000+ tracks.
 >
 > **Date:** 2026-01-06
 > **Status:** Architecture defined, ready for implementation
@@ -565,7 +565,7 @@ Items and markers use time-range viewport instead of index-based:
 ### What Figma/Miro Do (and why we can't)
 - Full-document sync: clients download complete files, filter locally
 - Works because documents are small (< 10MB)
-- Reamo can't do this: 1000+ tracks with waveforms/automation is too large
+- REAmo can't do this: 1000+ tracks with waveforms/automation is too large
 
 ### What Game Engines Do (our inspiration)
 - Interest management: only send entities within player's "area of interest"

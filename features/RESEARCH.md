@@ -1,10 +1,10 @@
-# Designing Reamo: What DAW Remote Users Actually Need
+# Designing REAmo: What DAW Remote Users Actually Need
 
-Building a successful DAW remote control for REAPER requires navigating a paradox: current solutions are either too simple (just transport) or too complex (extensive OSC configuration), leaving musicians in a frustrating middle ground. The **killer opportunity for Reamo** is eliminating the setup pain while providing a purpose-built web interface that works across devices without configuration headaches. Research reveals that **75%+ of user complaints center on network setup and connection reliability**—not missing features—making a zero-config web solution the single biggest differentiator.
+Building a successful DAW remote control for REAPER requires navigating a paradox: current solutions are either too simple (just transport) or too complex (extensive OSC configuration), leaving musicians in a frustrating middle ground. The **killer opportunity for REAmo** is eliminating the setup pain while providing a purpose-built web interface that works across devices without configuration headaches. Research reveals that **75%+ of user complaints center on network setup and connection reliability**—not missing features—making a zero-config web solution the single biggest differentiator.
 
 ## The competitive landscape reveals clear patterns
 
-Seven major players dominate the DAW remote space, each with distinct strengths and weaknesses that inform Reamo's design.
+Seven major players dominate the DAW remote space, each with distinct strengths and weaknesses that inform REAmo's design.
 
 **TouchOSC** ($9.99 iOS/Android, $18 desktop) offers maximum customization through fully user-designed layouts with MIDI/OSC support. Users praise its cross-platform flexibility and 10+ years of updates, but complain about a steep learning curve—"even technically skilled users struggle." The template building process requires significant investment before any productivity gains.
 
@@ -52,13 +52,13 @@ These specific actions force musicians to leave their instrument position:
 
 ## REAPER's ecosystem creates unique opportunities
 
-REAPER's built-in web interface and action system provide a foundation most users don't know exists, offering Reamo significant advantages.
+REAPER's built-in web interface and action system provide a foundation most users don't know exists, offering REAmo significant advantages.
 
 **The hidden web server.** REAPER includes HTML interfaces accessible via browser at `localhost:8080` or through the `rc.reaper.fm` relay service. Included layouts (index.html, fancier.html, more_me.html for IEM mixing, lyrics.html) demonstrate basic capabilities, but users describe them as "functional but not modern/pretty." The JavaScript API (`main.js`) supports custom development.
 
 **Every REAPER function is an action.** With **7,000+ built-in actions** plus SWS Extension additions, any UI operation can be triggered externally. Custom actions chain operations into macros. This means a web interface can trigger arbitrarily complex behavior without requiring users to write scripts.
 
-**ReaLearn changes the game.** This free, open-source VST plugin provides the most comprehensive controller integration available, supporting MIDI, OSC, MCU, and keyboard input with conditional activation and visual feedback. While powerful, its extensive feature set creates a learning curve—an opportunity for Reamo to provide simpler defaults.
+**ReaLearn changes the game.** This free, open-source VST plugin provides the most comprehensive controller integration available, supporting MIDI, OSC, MCU, and keyboard input with conditional activation and visual feedback. While powerful, its extensive feature set creates a learning curve—an opportunity for REAmo to provide simpler defaults.
 
 **Community solutions validate demand.** GitHub projects like RCRemote, reaper-remote-bandui, and reaper-ui demonstrate that developers see gaps in existing tools. The bandui project specifically targets live bands wanting personal monitor mixing with song navigation.
 
@@ -100,7 +100,7 @@ Standard in all existing apps. Logic Remote shows 8-12 channels with faders, pan
 
 ### Cue List / Setlist view — validated (HIGH priority for live)
 
-AbleSet's popularity proves demand. Features: **song/section list, jump-to-any-section, current position indicator, loop controls, stop/continue behavior**. This combined with strong mixing could differentiate Reamo.
+AbleSet's popularity proves demand. Features: **song/section list, jump-to-any-section, current position indicator, loop controls, stop/continue behavior**. This combined with strong mixing could differentiate REAmo.
 
 ### Notes view — moderate validation (MEDIUM priority)
 
@@ -122,7 +122,7 @@ Research on touch ergonomics and pro audio app patterns yields clear recommendat
 
 **Bottom navigation wins for tablets.** Tab bars at bottom offer high discoverability (hamburger menus reduce engagement by 30%+) and thumb accessibility. However, transport controls deserve special treatment—**always visible, bottom-right corner** (or configurable left/right for handedness).
 
-**Recommended paradigm for Reamo:**
+**Recommended paradigm for REAmo:**
 
 1. **Persistent transport bar** at bottom with play/stop/record always accessible
 2. **Tab-based view switching** above transport (Mixer | Performance | Cue List | Quick Actions | Notes)
@@ -145,7 +145,7 @@ Cubasis's approach of **UI scale presets** is worth emulating—let users choose
 
 Standard guidelines aren't sufficient for professional audio contexts where users are stressed, lighting is dim, and screens may be 10+ feet away.
 
-**Recommended minimums for Reamo:**
+**Recommended minimums for REAmo:**
 
 - **Standard controls:** 54pt minimum (vs. Apple's 44pt guideline)
 - **Transport and critical controls:** 80-100pt for live/stage use
@@ -158,15 +158,15 @@ Standard guidelines aren't sufficient for professional audio contexts where user
 
 ## Four insights challenge common assumptions
 
-**1. Users prefer simple hardware to complex apps.** The most satisfied users often use wireless numeric keypads ($15) rather than sophisticated touch controllers. They map 5-6 keys (record, stop, play, delete take, undo) and call it done. Implication: Reamo's **default view should be radically simple**, with complexity available but not required.
+**1. Users prefer simple hardware to complex apps.** The most satisfied users often use wireless numeric keypads ($15) rather than sophisticated touch controllers. They map 5-6 keys (record, stop, play, delete take, undo) and call it done. Implication: REAmo's **default view should be radically simple**, with complexity available but not required.
 
-**2. The "middle ground" is where frustration peaks.** Apps that are neither simple transport nor full remote desktop create a "worst of both worlds" scenario—requiring setup investment while still forcing computer trips. Implication: Reamo must either **excel at simplicity** (beat a $15 keypad) or **provide near-complete control** (approach remote desktop capability).
+**2. The "middle ground" is where frustration peaks.** Apps that are neither simple transport nor full remote desktop create a "worst of both worlds" scenario—requiring setup investment while still forcing computer trips. Implication: REAmo must either **excel at simplicity** (beat a $15 keypad) or **provide near-complete control** (approach remote desktop capability).
 
 **3. Visual feedback matters more than control density.** Users want to see where they are in the song, what's recording, and current levels—not necessarily 32 fader channels. Implication: **Prioritize meters, position indicators, and track state visibility** over cramming more controls on screen.
 
 **4. Setup complexity is the real competition.** No feature list beats "works immediately." REAPER's web interface has the unique advantage of requiring only a browser. Implication: **Zero-config should be the promise**—ideally enter IP address once and go.
 
-## Prioritized feature list for Reamo v1
+## Prioritized feature list for REAmo v1
 
 Based on cross-referencing user needs, competitive gaps, and implementation feasibility:
 
@@ -192,7 +192,7 @@ Based on cross-referencing user needs, competitive gaps, and implementation feas
 4. **Arranger view** — Song structure manipulation
 5. **Take comp selection** — Visual comping from remote
 
-## Recommended navigation for Reamo
+## Recommended navigation for REAmo
 
 ```
 ┌─────────────────────────────────────────────────────────┐

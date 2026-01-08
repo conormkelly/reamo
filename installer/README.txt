@@ -1,5 +1,5 @@
 ================================================================================
-                         REAMO - REAPER Web Control
+                         REAmo - REAPER Web Control
 ================================================================================
 
 Control REAPER from any device on your network using a web browser.
@@ -31,7 +31,7 @@ INSTALLATION
 8. Restart REAPER
 
 
-ACCESSING REAMO
+ACCESSING REAmo
 ---------------
 
 After installation and restart:

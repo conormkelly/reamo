@@ -1003,7 +1003,7 @@ Key decisions:
 
 ```bash
 # Get token
-TOKEN=$(curl -s "http://localhost:8099/_/GET/EXTSTATE/Reamo/SessionToken")
+TOKEN=$(curl -s "http://localhost:8099/_/GET/EXTSTATE/REAmo/SessionToken")
 
 # Connect and observe items event in initial snapshot
 # Should see: guid on items, guid + isMIDI on takes, NO timeSelection in payload
@@ -1019,7 +1019,7 @@ Expected items event format:
 **Phase 2: Test item/getPeaks command**
 
 ```bash
-TOKEN=$(curl -s "http://localhost:8099/_/GET/EXTSTATE/Reamo/SessionToken")
+TOKEN=$(curl -s "http://localhost:8099/_/GET/EXTSTATE/REAmo/SessionToken")
 
 # Request peaks for first item on first track
 (echo '{"type":"hello","clientVersion":"1.0.0","protocolVersion":1,"token":"'$TOKEN'"}'

@@ -1,6 +1,6 @@
 # Playlist Engine Design Document
 
-This document describes the backend implementation of the Playlist (Cue List) feature in Reamo.
+This document describes the backend implementation of the Playlist (Cue List) feature in REAmo.
 
 ## Table of Contents
 
@@ -383,17 +383,17 @@ Playlists are stored per-project using REAPER's **ProjExtState** API.
 ### Storage Format
 
 ```text
-Key: "Reamo/PlaylistCount"
+Key: "REAmo/PlaylistCount"
 Value: "3"
 
-Key: "Reamo/Playlist_0"
+Key: "REAmo/Playlist_0"
 Value: "Friday Gig|S:1|1,4|2,2|3,1"
         ↑          ↑   ↑
         │          │   └── Entries: regionId,loopCount (pipe-separated)
         │          └────── Settings: S:1 = stopAfterLast true
         └───────────────── Name (escaped if contains |)
 
-Key: "Reamo/Playlist_1"
+Key: "REAmo/Playlist_1"
 Value: "Short Set|S:0|1,2|3,-1"
 ```
 

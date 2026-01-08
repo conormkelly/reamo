@@ -4,7 +4,7 @@
 
 ### The Problem
 
-From user research, "track arming and creation — adding a new track for another layer" is listed as a top "walk to computer" trigger. Currently Reamo supports:
+From user research, "track arming and creation — adding a new track for another layer" is listed as a top "walk to computer" trigger. Currently REAmo supports:
 
 - Track selection
 - Volume, pan, solo, mute, record arm

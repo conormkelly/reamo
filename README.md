@@ -1,4 +1,4 @@
-# Reamo
+# REAmo
 
 A modern web control surface for [REAPER](https://www.reaper.fm/), designed for songwriting workflows. Control transport, tracks, and more from your iPad or tablet while staying at your instrument.
 
@@ -6,11 +6,11 @@ A modern web control surface for [REAPER](https://www.reaper.fm/), designed for 
 
 ### Automatic (Recommended)
 
-1. **Download** the latest `Reamo-vX.X.zip` from [Releases](../../releases)
+1. **Download** the latest `REAmo-vX.X.zip` from [Releases](../../releases)
 2. **Extract** the ZIP file
 3. **Open REAPER** and open the **Actions** menu (shortcut: `?` or `Cmd+?` on Mac, `Ctrl+?` on Windows)
 4. Search for and run: **"ReaScript: Run ReaScript (EEL, Lua, or Python)..."** (Action ID: 41060)
-5. Select `Install_Reamo.lua` from the extracted folder
+5. Select `Install_REAmo.lua` from the extracted folder
 6. **Follow the prompts** to complete installation
 
 After installation, enable REAPER's web server:
@@ -20,11 +20,11 @@ After installation, enable REAPER's web server:
 3. Set port (default: 8080)
 4. Restart REAPER
 
-Access Reamo at `http://localhost:8080/reamo.html` (or your computer's IP for other devices).
+Access REAmo at `http://localhost:8080/reamo.html` (or your computer's IP for other devices).
 
 ### Uninstall
 
-Run `Uninstall_Reamo.lua` from the original extracted folder using the same "Run ReaScript" action.
+Run `Uninstall_REAmo.lua` from the original extracted folder using the same "Run ReaScript" action.
 
 ### Manual Installation
 
@@ -59,7 +59,7 @@ If the automatic installer doesn't work:
 
 ## Views
 
-Reamo provides multiple views accessible via the tab bar at the bottom. Double-tap to toggle full-screen mode (hide tab bar and transport).
+REAmo provides multiple views accessible via the tab bar at the bottom. Double-tap to toggle full-screen mode (hide tab bar and transport).
 
 | View | Description |
 |------|-------------|
@@ -183,16 +183,16 @@ Current limitations to be aware of:
 
 ---
 
-## Why Reamo?
+## Why REAmo?
 
 This project was built to solve a specific songwriting problem: **staying at the instrument**.
 
 The typical home recording workflow kills creativity. You sit at the piano, get an idea, walk to the computer, set up a track, adjust levels, hit record, walk back, try to remember what you were playing... by then the moment's gone. Worse, you end up polishing 16 bars forever while the song goes nowhere.
 
-**The Reamo workflow:**
+**The REAmo workflow:**
 
 1. **Pre-structure or start blank** - Set up a REAPER project with regions (intro, verse, chorus, bridge, outro) or start completely fresh
-2. **Stay at your instrument** - Mount an iPad near your piano/guitar running Reamo
+2. **Stay at your instrument** - Mount an iPad near your piano/guitar running REAmo
 3. **Tap in the tempo** - No need to touch the computer, dial in or tap the BPM from your playing position
 4. **Capture ideas in boxes** - Each region is a container for an idea. Record a rough verse, move to the chorus, try a bridge. Use auto-punch to nail specific sections
 5. **Compare takes on the fly** - Not sure if that last take was better? Long-press the track, switch between takes to A/B compare without touching the computer

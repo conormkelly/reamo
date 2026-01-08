@@ -35,10 +35,10 @@ Zig cross-compilation verified working from macOS:
 ### GitHub Release Artifacts
 
 ```
-Reamo-v0.1.0-macOS-arm64.zip
-Reamo-v0.1.0-macOS-x64.zip
-Reamo-v0.1.0-Windows-x64.zip
-Reamo-v0.1.0-Linux-x64.zip
+REAmo-v0.1.0-macOS-arm64.zip
+REAmo-v0.1.0-macOS-x64.zip
+REAmo-v0.1.0-Windows-x64.zip
+REAmo-v0.1.0-Linux-x64.zip
 ```
 
 Each ZIP contains:
@@ -99,7 +99,7 @@ Guitarists and keyboard players want to switch between tones/patches without wal
 1. User dials in a tone in their plugin
 2. User saves it as a REAPER preset (click "+" in FX header)
 3. REAPER stores complete plugin state in `.rpl` file
-4. Reamo can browse and switch these presets
+4. REAmo can browse and switch these presets
 
 This trades factory preset discovery for universal compatibility. For guitarists with 20-50 curated tones, this is actually preferred — they don't need 500 factory presets, just their saved tones.
 
@@ -235,7 +235,7 @@ Extend tracks event with FX info:
 ### Gotchas
 
 **Plugins with internal browsers:** Will show 0 or very few presets. Detect and show:
-> "This plugin manages presets internally. Save your favorite sounds as REAPER presets to control them from Reamo, or use Quick Actions with MIDI CC."
+> "This plugin manages presets internally. Save your favorite sounds as REAPER presets to control them from REAmo, or use Quick Actions with MIDI CC."
 
 **Undo points:** Each `TrackFX_SetPreset` creates an undo point. Consider debouncing for rapid clicking.
 
@@ -250,7 +250,7 @@ Extend tracks event with FX info:
 
 > **Full specification:** [features/VIEW_SWITCHER_FEATURE.md](features/VIEW_SWITCHER_FEATURE.md)
 
-Core navigation architecture for Reamo. Tab bar with persistent transport.
+Core navigation architecture for REAmo. Tab bar with persistent transport.
 
 **Layout:**
 ```
