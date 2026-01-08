@@ -68,6 +68,9 @@ pub fn validateBackend(comptime T: type) void {
 
         // Command state
         "getCommandState",
+        "getCommandStateEx",
+        "getSectionFromUniqueID",
+        "enumerateActions",
         "isMetronomeEnabled",
         "getMetronomeVolume",
         "setMetronomeVolume",

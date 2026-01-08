@@ -73,6 +73,34 @@ pub const ProjectMethods = struct {
         return -1;
     }
 
+    pub fn getCommandStateEx(self: anytype, section_id: c_int, cmd: c_int) c_int {
+        self.recordCall(.getCommandStateEx);
+        _ = section_id;
+        // For mock, delegate to main section lookup
+        for (self.command_states[0..self.command_state_count]) |entry| {
+            if (entry.cmd == cmd) return entry.state;
+        }
+        return -1;
+    }
+
+    pub fn getSectionFromUniqueID(self: anytype, unique_id: c_int) ?*anyopaque {
+        self.recordCall(.getSectionFromUniqueID);
+        // Mock returns a non-null pointer for known section IDs
+        return switch (unique_id) {
+            0, 100, 32060, 32061, 32062, 32063 => @ptrFromInt(0x1000 + @as(usize, @intCast(unique_id))),
+            else => null,
+        };
+    }
+
+    pub fn enumerateActions(self: anytype, section: ?*anyopaque, idx: c_int, name_out: *[*:0]const u8) c_int {
+        self.recordCall(.enumerateActions);
+        _ = section;
+        _ = idx;
+        _ = name_out;
+        // Mock returns empty action list (idx=0 returns 0 = end of list)
+        return 0;
+    }
+
     pub fn isMetronomeEnabled(self: anytype) bool {
         self.recordCall(.isMetronomeEnabled);
         return self.metronome_enabled;

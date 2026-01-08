@@ -132,7 +132,7 @@ pub const ResponseWriter = struct {
     }
 
     /// Success response for commands with large payloads (e.g., project notes).
-    /// Heap-allocates a 128KB buffer per call to avoid stack overflow and shared state issues.
+    /// Heap-allocates a 512KB buffer per call to avoid stack overflow and shared state issues.
     /// Safe for timer callbacks since they run on main thread (not audio thread).
     /// See DEVELOPMENT.md "Response Buffer Sizes" and research/ZIG_MEMORY_MANAGEMENT.md.
     pub fn successLargePayload(self: *ResponseWriter, payload: []const u8) void {
@@ -140,8 +140,9 @@ pub const ResponseWriter = struct {
 
         // Heap allocation per call - safe on main thread, avoids shared state between commands
         // c_allocator is safe for timer callbacks (see ZIG_MEMORY_MANAGEMENT.md)
+        // 2MB handles action list plus JSON wrapper overhead
         const allocator = std.heap.c_allocator;
-        const buf = allocator.alloc(u8, 131072) catch {
+        const buf = allocator.alloc(u8, 2 * 1024 * 1024) catch {
             self.err("ALLOC_FAILED", "Failed to allocate response buffer");
             return;
         };

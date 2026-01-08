@@ -104,14 +104,25 @@ Gotchas discovered during research:
 
 **Status:** Noted for future mobile optimization pass
 
-### Payload Compression / Binary Formats
+### WebSocket Compression for Action List
 
-Deferred from viewport architecture research:
+The `action/getActions` command returns ~985KB of JSON (15,619 actions across 6 sections). Fine for local WiFi (<1 second) but could benefit from compression.
 
-- **Compression** — Probably not needed if viewport-driven keeps payloads small. Revisit if bandwidth becomes issue.
-- **Binary formats** — Keep JSON for debuggability. Consider MessagePack if we ever send waveform data.
+**Blocker:** websocket.zig library has per-message deflate disabled for Zig 0.15. Library author noted: "Compression is disabled as part of the 0.15 upgrade. I do hope to re-enable it soon."
 
-**Status:** Deferred until proven necessary
+**When library supports it:**
+```zig
+.compression = .{
+    .write_threshold = 256,  // Only compress messages > 256 bytes
+    .retain_write_buffer = true,
+},
+```
+
+**Expected:** ~985KB → ~60-80KB compressed.
+
+**Workaround if needed:** Link system zlib via `@cImport`, compress at application layer, send binary frames with gzip magic bytes (`0x1f 0x8b`).
+
+**Status:** Blocked on upstream library
 
 ### CSurf Hybrid Architecture
 

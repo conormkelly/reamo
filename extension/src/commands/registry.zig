@@ -153,6 +153,7 @@ pub const all = .{
     .{ "action/getToggleState", actions.handleGetToggleState },
     .{ "action/execute", actions.handleExecuteCommand },
     .{ "action/executeByName", actions.handleExecuteByName },
+    .{ "action/getActions", actions.handleGetActions },
 
     // Gestures
     .{ "gesture/start", gesture.handleStart },

@@ -523,6 +523,9 @@ pub const Server = struct {
             // This is the library default, but we set it explicitly for auditability.
             // Outgoing messages are bounded by our arena system, not the library.
             .max_message_size = 64 * 1024,
+            // NOTE: Compression disabled in websocket.zig for Zig 0.15
+            // See: https://github.com/karlseguin/websocket.zig
+            // Action list is ~985KB uncompressed; re-enable when library supports it.
         });
 
         return .{

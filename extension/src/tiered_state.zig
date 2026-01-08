@@ -143,8 +143,9 @@ pub const ArenaSizes = struct {
     pub const LOW: usize = 64 * 1024;
 
     /// SCRATCH: All JSON serialization (tracks, items, skeleton, metering, toggles, errors)
-    /// Dynamic sizing scales with project size; 512KB is adequate for typical projects
-    pub const SCRATCH: usize = 512 * 1024;
+    /// Also used for action enumeration (~300KB for ~10000 actions)
+    /// Dynamic sizing scales with project size; 2.5MB handles action lists + large projects
+    pub const SCRATCH: usize = 2560 * 1024;
 };
 
 /// Entity counts from a REAPER project, used to calculate arena sizes
@@ -281,7 +282,7 @@ pub const CalculatedSizes = struct {
         high = @max(high, 256 * 1024); // 256KB minimum
         medium = @max(medium, 1 * 1024 * 1024); // 1MB minimum
         low = @max(low, 32 * 1024); // 32KB minimum
-        scratch = @max(scratch, 256 * 1024); // 256KB minimum
+        scratch = @max(scratch, 2560 * 1024); // 2.5MB minimum (action enumeration needs ~2MB)
 
         // Calculate total and check against bounds
         const total = (high * 2) + (medium * 2) + (low * 2) + scratch;

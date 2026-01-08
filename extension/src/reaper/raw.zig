@@ -66,7 +66,12 @@ pub const Api = struct {
 
     // Command state
     getToggleCommandState: ?*const fn (c_int) callconv(.c) c_int = null,
+    getToggleCommandStateEx: ?*const fn (c_int, c_int) callconv(.c) c_int = null,
     namedCommandLookup_fn: ?*const fn ([*:0]const u8) callconv(.c) c_int = null,
+
+    // Action enumeration
+    sectionFromUniqueID: ?*const fn (c_int) callconv(.c) ?*anyopaque = null,
+    kbd_enumerateActions: ?*const fn (?*anyopaque, c_int, *[*:0]const u8) callconv(.c) c_int = null,
 
     // Markers & Regions
     countProjectMarkers: ?*const fn (?*anyopaque, ?*c_int, ?*c_int) callconv(.c) c_int = null,
@@ -238,7 +243,11 @@ pub const Api = struct {
             .getProjectLength = getFunc(info, "GetProjectLength", fn (?*anyopaque) callconv(.c) f64),
             // Command state
             .getToggleCommandState = getFunc(info, "GetToggleCommandState", fn (c_int) callconv(.c) c_int),
+            .getToggleCommandStateEx = getFunc(info, "GetToggleCommandStateEx", fn (c_int, c_int) callconv(.c) c_int),
             .namedCommandLookup_fn = getFunc(info, "NamedCommandLookup", fn ([*:0]const u8) callconv(.c) c_int),
+            // Action enumeration
+            .sectionFromUniqueID = getFunc(info, "SectionFromUniqueID", fn (c_int) callconv(.c) ?*anyopaque),
+            .kbd_enumerateActions = getFunc(info, "kbd_enumerateActions", fn (?*anyopaque, c_int, *[*:0]const u8) callconv(.c) c_int),
             .countProjectMarkers = getFunc(info, "CountProjectMarkers", fn (?*anyopaque, ?*c_int, ?*c_int) callconv(.c) c_int),
             .enumProjectMarkers3 = getFunc(info, "EnumProjectMarkers3", fn (?*anyopaque, c_int, ?*bool, ?*f64, ?*f64, ?*[*:0]const u8, ?*c_int, ?*c_int) callconv(.c) c_int),
             .addProjectMarker2 = getFunc(info, "AddProjectMarker2", fn (?*anyopaque, bool, f64, f64, [*:0]const u8, c_int, c_int) callconv(.c) c_int),
@@ -638,6 +647,24 @@ pub const Api = struct {
     pub fn getCommandState(self: *const Api, cmd: c_int) c_int {
         const f = self.getToggleCommandState orelse return -1;
         return f(cmd);
+    }
+
+    // Command toggle state for specific section: returns 1 if on, 0 if off, -1 if not toggle
+    pub fn getCommandStateEx(self: *const Api, section_id: c_int, cmd: c_int) c_int {
+        const f = self.getToggleCommandStateEx orelse return -1;
+        return f(section_id, cmd);
+    }
+
+    // Get keyboard section info by unique ID (0=Main, 32060=MIDI Editor, etc.)
+    pub fn getSectionFromUniqueID(self: *const Api, unique_id: c_int) ?*anyopaque {
+        const f = self.sectionFromUniqueID orelse return null;
+        return f(unique_id);
+    }
+
+    // Enumerate actions in a section. Returns command ID (0 = end of list)
+    pub fn enumerateActions(self: *const Api, section: ?*anyopaque, idx: c_int, name_out: *[*:0]const u8) c_int {
+        const f = self.kbd_enumerateActions orelse return 0;
+        return f(section, idx, name_out);
     }
 
     // Named command lookup: converts command name (e.g., "_SWS_ABOUT") to command ID

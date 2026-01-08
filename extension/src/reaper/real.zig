@@ -218,6 +218,18 @@ pub const RealBackend = struct {
         return self.inner.getCommandState(cmd);
     }
 
+    pub fn getCommandStateEx(self: *const RealBackend, section_id: c_int, cmd: c_int) c_int {
+        return self.inner.getCommandStateEx(section_id, cmd);
+    }
+
+    pub fn getSectionFromUniqueID(self: *const RealBackend, unique_id: c_int) ?*anyopaque {
+        return self.inner.getSectionFromUniqueID(unique_id);
+    }
+
+    pub fn enumerateActions(self: *const RealBackend, section: ?*anyopaque, idx: c_int, name_out: *[*:0]const u8) c_int {
+        return self.inner.enumerateActions(section, idx, name_out);
+    }
+
     pub fn isMetronomeEnabled(self: *const RealBackend) bool {
         return self.inner.isMetronomeEnabled();
     }
