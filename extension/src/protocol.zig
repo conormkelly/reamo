@@ -9,6 +9,7 @@ pub const MessageType = enum {
     command,
     hello,
     clockSync,
+    ping,
     unknown,
 
     pub fn parse(data: []const u8) MessageType {
@@ -16,6 +17,7 @@ pub const MessageType = enum {
             if (std.mem.eql(u8, t, "command")) return .command;
             if (std.mem.eql(u8, t, "hello")) return .hello;
             if (std.mem.eql(u8, t, "clockSync")) return .clockSync;
+            if (std.mem.eql(u8, t, "ping")) return .ping;
         }
         return .unknown;
     }

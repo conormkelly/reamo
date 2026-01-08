@@ -147,6 +147,41 @@ The client calculates clock offset using NTP formula:
 
 **Note:** Clock sync messages bypass the command queue for minimal latency jitter.
 
+### Connection Health (Ping/Pong)
+
+Application-level heartbeat for detecting zombie connections. Essential for iOS PWA where WebSocket connections die silently after suspension.
+
+**Request** (client → server):
+
+```json
+{
+  "type": "ping",
+  "timestamp": 1704067200000
+}
+```
+
+**Response** (server → client):
+
+```json
+{
+  "type": "pong",
+  "timestamp": 1704067200000
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `timestamp` | float | Optional. Client timestamp echoed back for RTT measurement |
+
+**Behavior:**
+- Ping bypasses the command queue (like clockSync) for immediate response
+- If no pong received within timeout (typically 3s), connection is assumed dead
+- Client should force-reconnect after pong timeout
+- Recommended ping interval: 10 seconds when page is visible
+- Stop heartbeat when page is hidden (conserve battery)
+
+**Use case:** iOS suspends PWAs after ~5 seconds in background, killing WebSocket connections without firing `onclose`. The ping/pong heartbeat detects these "zombie connections" that appear open (`readyState === OPEN`) but are actually dead.
+
 ---
 
 ## Transport Commands

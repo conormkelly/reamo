@@ -242,6 +242,11 @@ pub fn dispatch(api: anytype, client_id: usize, data: []const u8, shared_state: 
             // They should not reach the dispatch function
             logging.warn("Unexpected clockSync message in dispatch", .{});
         },
+        .ping => {
+            // Ping messages are handled directly by ws_server.zig (bypass queue)
+            // They should not reach the dispatch function
+            logging.warn("Unexpected ping message in dispatch", .{});
+        },
         .unknown => {
             logging.warn("Unknown message type", .{});
         },

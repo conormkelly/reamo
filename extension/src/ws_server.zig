@@ -483,6 +483,28 @@ pub const Client = struct {
                 };
                 try self.conn.writeText(response);
             },
+            .ping => {
+                // PING BYPASS: Handle immediately for connection health detection
+                // Require authentication
+                if (!self.authenticated and self.state.token_set.load(.acquire)) {
+                    try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"NOT_AUTHENTICATED\",\"message\":\"Send hello message first\"}}");
+                    return;
+                }
+
+                // Extract optional timestamp from ping message
+                const timestamp = protocol.jsonGetFloat(data, "timestamp");
+
+                // Send pong response directly (no queue)
+                var buf: [128]u8 = undefined;
+                const response = if (timestamp) |ts|
+                    std.fmt.bufPrint(&buf, "{{\"type\":\"pong\",\"timestamp\":{d:.0}}}", .{ts}) catch {
+                        logging.warn("ws_server: ping response buffer overflow", .{});
+                        return;
+                    }
+                else
+                    "{\"type\":\"pong\"}";
+                try self.conn.writeText(response);
+            },
             .command => {
                 // Require authentication for commands
                 if (!self.authenticated and self.state.token_set.load(.acquire)) {

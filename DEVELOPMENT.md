@@ -851,6 +851,72 @@ Long-press the connection status dot to access real-time sync metrics:
 - `frontend/src/components/NetworkStatsModal.tsx` — Advanced sync settings UI
 - `extension/src/ws_server.zig` — Clock sync bypass handler (line ~290)
 
+### PWA WebSocket Connection (iOS/Android)
+
+iOS aggressively suspends PWAs after ~5 seconds in background, killing WebSocket connections **without firing `onclose`**. Android gives ~5 minutes before suspension. The extension implements robust reconnection handling for both platforms.
+
+**Key insight:** `readyState === OPEN` lies after iOS suspension — the connection appears open but is dead (a "zombie connection"). The fix uses `visibilitychange` events and application-level heartbeats to detect and recover.
+
+**Architecture (`WebSocketConnection.ts`):**
+
+| Component | Purpose |
+|-----------|---------|
+| Suspension detection | Tracks `lastActiveTime`, forces reconnect after >10s hidden |
+| Application heartbeat | Ping/pong every 10s to detect zombie connections |
+| PWA init delay | 200ms delay on cold start for network stack readiness |
+| EXTSTATE fetch timeout | 2s timeout prevents hanging if network not ready |
+| Visibility handler | Forces health check or reconnect on every page visible event |
+| Online/offline events | Safari bug fallback + network change detection |
+
+**Timing constants:**
+
+```typescript
+SUSPENSION_THRESHOLD_MS = 10000   // If hidden >10s, assume connection dead
+HEARTBEAT_INTERVAL_MS = 10000     // Ping server every 10s when visible
+HEARTBEAT_TIMEOUT_MS = 3000       // Pong must arrive within 3s
+PWA_INIT_DELAY_MS = 200           // Delay initial connection in standalone mode
+```
+
+**Connection banner grace period:**
+
+The `ConnectionBanner` component has a 500ms grace period before showing "Disconnected" on initial load. This accounts for PWA cold start timing (200ms init delay + EXTSTATE fetch + WebSocket handshake).
+
+**Visibility change flow:**
+
+1. User backgrounds PWA → `lastActiveTime` recorded, heartbeat stopped
+2. iOS suspends PWA (WebSocket dies silently)
+3. User returns → `visibilitychange` fires
+4. If >10s suspended → force reconnect (close socket, reset retry state, reconnect)
+5. If <10s suspended and connected → send health check ping
+6. If <10s suspended and connecting for >3s → force reconnect (stalled connection)
+7. If disconnected/error → kick any stalled retry timers, reconnect immediately
+
+**Ping/pong protocol:**
+
+```json
+// Client → Server
+{"type": "ping", "timestamp": 1704067200000}
+
+// Server → Client (bypasses command queue for low latency)
+{"type": "pong", "timestamp": 1704067200000}
+```
+
+The `timestamp` field enables RTT measurement for network quality monitoring.
+
+**Key files:**
+
+- `frontend/src/core/WebSocketConnection.ts` — Connection manager with heartbeat and suspension detection
+- `frontend/src/hooks/useReaperConnection.ts` — React hook with visibility/online/offline handlers
+- `frontend/src/components/ConnectionStatus.tsx` — Banner with grace period
+- `extension/src/ws_server.zig` — Ping handler bypassing command queue
+- `research/PWA_RESEARCH.md` — Full research on iOS PWA WebSocket behavior
+
+**Testing PWA behavior:**
+
+1. iOS: Add to Home Screen, open PWA, background for >10s, return
+2. Expected: Brief "Reconnecting..." then connected within 1-2s
+3. Check Safari Web Inspector console for `[WS] Suspended for Xms` logs
+
 ## Testing Conventions
 
 ### Philosophy

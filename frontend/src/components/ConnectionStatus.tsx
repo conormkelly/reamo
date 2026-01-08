@@ -13,7 +13,9 @@ import { NetworkStatsModal } from './NetworkStatsModal';
 import type { NetworkQuality } from '../lib/transport-sync';
 
 // Grace period before showing banner on initial connection
-const INITIAL_CONNECT_GRACE_MS = 250;
+// PWA cold start: bundle parse (1-2s) + 200ms init delay + EXTSTATE fetch + WebSocket handshake
+// User expects loading screen for at least 2 seconds
+const INITIAL_CONNECT_GRACE_MS = 2500;
 
 // Network quality colors - moderate is still green because sync works fine on typical WiFi
 const QUALITY_COLORS: Record<NetworkQuality, string> = {
@@ -185,7 +187,7 @@ export function ConnectionBanner({ className = '' }: ConnectionBannerProps): Rea
           ? 'Connection lost'
           : isReconnecting
             ? `Reconnecting... (attempt ${errorCount})`
-            : 'Disconnected'}
+            : 'Connecting...'}
       </span>
       {gaveUp && (
         <button

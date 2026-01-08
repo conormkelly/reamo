@@ -126,6 +126,7 @@ export function useReaperConnection(
     connectionRef.current = connection;
 
     return () => {
+      console.log('[useReaperConnection] Cleanup running - stopping connection');
       connection.stop();
       connectionRef.current = null;
       startedRef.current = false;
@@ -188,11 +189,16 @@ export function useReaperConnection(
     }
   }, [autoStart, start]);
 
-  // Handle visibility change (sleep/wake) - resync clock when page becomes visible
+  // Handle visibility change - delegate to connection for suspension detection and reconnection
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && connectionRef.current) {
-        // Resync clock after wake - clocks may have drifted significantly
+      const isVisible = document.visibilityState === 'visible';
+
+      // Let connection handle suspension detection and reconnection
+      connectionRef.current?.handleVisibilityChange(isVisible);
+
+      // Also resync clock if visible and connected
+      if (isVisible && connectionRef.current?.connectionState === 'connected') {
         transportSyncEngine.resync();
         transportSyncEngine.onReconnected();
       }
@@ -200,6 +206,28 @@ export function useReaperConnection(
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
+  // Handle online/offline events (Safari bug fallback + network changes)
+  useEffect(() => {
+    const handleOnline = () => {
+      console.log('[useReaperConnection] Network online, forcing reconnect');
+      connectionRef.current?.forceReconnect();
+    };
+
+    const handleOffline = () => {
+      console.log('[useReaperConnection] Network offline');
+      // Connection will fail naturally, but we can stop heartbeat
+      connectionRef.current?.handleVisibilityChange(false);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
   return {

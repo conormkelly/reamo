@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 import './index.css';
 import {
   ReaperProvider,
+  useReaper,
   TabBar,
   PersistentTransport,
   ConnectionBanner,
@@ -16,6 +17,10 @@ import {
 import { useUIPreferences, useTransport } from './hooks';
 import { useReaperStore } from './store';
 import { views, type ViewId, VIEW_STORAGE_KEY, DEFAULT_VIEW } from './viewRegistry';
+
+// Detect Safari (iOS or macOS)
+const isSafari = () =>
+  navigator.userAgent.includes('Safari') && !navigator.userAgent.includes('Chrome');
 
 function AppContent() {
   const [currentView, setCurrentView] = useState<ViewId>(() => {
@@ -90,10 +95,136 @@ function AppContent() {
   );
 }
 
+/**
+ * Loading screen - shown while connecting to REAPER
+ * Shows countdown timer and Safari-specific tips immediately
+ */
+function LoadingScreen() {
+  const { gaveUp } = useReaper();
+  const [elapsed, setElapsed] = useState(0);
+
+  // Count elapsed seconds
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setElapsed(s => s + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const safari = isSafari();
+  const troubleState = elapsed >= 10 || gaveUp;
+  const maxSeconds = 10;
+
+  return (
+    <div className="flex flex-col items-center justify-center h-screen-safe gap-6 bg-gray-950 px-6">
+      {/* REAmo heading */}
+      <h1 className="text-2xl font-semibold tracking-wide text-white">REAmo</h1>
+
+      {/* Phone/remote icon with rotating Venn diagram circles */}
+      <svg className="w-32 h-32" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 80">
+        <rect x="0" y="0" width="48" height="80" rx="14" fill="#3a3a3a"/>
+        <g>
+          {!troubleState && (
+            <animateTransform
+              attributeName="transform"
+              type="rotate"
+              from="0 24 41"
+              to="360 24 41"
+              dur="4s"
+              repeatCount="indefinite"
+            />
+          )}
+          <circle cx="24" cy="32" r="12" fill="#5ba3d4" opacity="0.9"/>
+          <circle cx="16" cy="46" r="12" fill="#7ec96b" opacity="0.9"/>
+          <circle cx="32" cy="46" r="12" fill="#d4956b" opacity="0.9"/>
+        </g>
+      </svg>
+
+      {troubleState ? (
+        /* Trouble connecting state */
+        <div className="flex flex-col items-center gap-4 max-w-xs text-center">
+          <p className="text-gray-400 text-sm">
+            {safari
+              ? 'Safari may need several retry attempts to connect. This is a known iOS limitation. You can try using Brave browser as a workaround.'
+              : 'Having trouble connecting to REAPER.'}
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      ) : safari ? (
+        /* Safari connecting state - show retry button immediately */
+        <div className="flex flex-col items-center gap-4 max-w-xs text-center">
+          <p className="text-gray-400 text-sm">
+            Connecting... {elapsed}s / {maxSeconds}s
+          </p>
+          {/* Progress bar */}
+          <div className="w-48 h-1 bg-gray-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-blue-500 transition-all duration-1000 ease-linear"
+              style={{ width: `${(elapsed / maxSeconds) * 100}%` }}
+            />
+          </div>
+          <p className="text-gray-500 text-xs">
+            Safari may need several retry attempts due to a known iOS issue. Use Brave browser as a workaround.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      ) : (
+        /* Normal connecting state with countdown */
+        <div className="flex flex-col items-center gap-3">
+          <p className="text-gray-400 text-sm">
+            Connecting... {elapsed}s / {maxSeconds}s
+          </p>
+          {/* Progress bar */}
+          <div className="w-48 h-1 bg-gray-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-blue-500 transition-all duration-1000 ease-linear"
+              style={{ width: `${(elapsed / maxSeconds) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Minimum time to show loading screen (prevents jarring flash on fast connections)
+const MIN_LOADING_MS = 2000;
+
+/**
+ * App wrapper that shows loading screen until connected
+ * Safari users see helpful message after timeout with refresh option
+ */
+function AppWithLoading() {
+  const { connected } = useReaper();
+  const [minTimePassed, setMinTimePassed] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setMinTimePassed(true), MIN_LOADING_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Show loading screen until connected AND minimum time has passed
+  if (!connected || !minTimePassed) {
+    return <LoadingScreen />;
+  }
+
+  return <AppContent />;
+}
+
 function App() {
   return (
     <ReaperProvider autoStart={true}>
-      <AppContent />
+      <AppWithLoading />
     </ReaperProvider>
   );
 }

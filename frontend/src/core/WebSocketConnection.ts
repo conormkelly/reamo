@@ -32,10 +32,22 @@ export interface WebSocketConnectionOptions {
 /**
  * Fetch EXTSTATE value from REAPER's HTTP control surface
  * Assumes we're served from the same origin (REAPER's web root)
+ *
+ * CRITICAL: Has a 2s timeout to prevent hanging on PWA cold start.
+ * On iOS PWA, the network stack may not be ready immediately after launch,
+ * causing fetch() to hang indefinitely. Without timeout, discoverAndConnect()
+ * never completes and the WebSocket connection is never attempted.
  */
 async function fetchExtState(section: string, key: string): Promise<string | null> {
   try {
-    const response = await fetch(`/_/GET/EXTSTATE/${section}/${key}`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000); // 2s timeout
+
+    const response = await fetch(`/_/GET/EXTSTATE/${section}/${key}`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
     const text = await response.text();
     const parts = text.trim().split('\t');
     if (parts.length >= 4 && parts[0] === 'EXTSTATE') {
@@ -43,6 +55,7 @@ async function fetchExtState(section: string, key: string): Promise<string | nul
     }
     return null;
   } catch {
+    // Timeout, network error, or abort - all return null (use defaults)
     return null;
   }
 }
@@ -52,6 +65,11 @@ const INITIAL_RETRY_DELAY = 1000;
 const MAX_RETRY_DELAY = 30000;
 const RETRY_MULTIPLIER = 1.5;
 const DEFAULT_MAX_RETRIES = 10;
+
+// PWA suspension and heartbeat settings
+const HEARTBEAT_INTERVAL_MS = 10000;   // Ping every 10s when visible
+const HEARTBEAT_TIMEOUT_MS = 3000;     // Pong must arrive within 3s
+const CONNECT_TIMEOUT_MS = 5000;       // Safari: detect stuck CONNECTING state (no events fire after iOS suspension)
 
 export class WebSocketConnection {
   private ws: WebSocket | null = null;
@@ -68,6 +86,11 @@ export class WebSocketConnection {
   private discoveredToken: string | null = null;
   // HTML mtime for stale content detection on reconnect
   private htmlMtime: number | null = null;
+  // PWA suspension and heartbeat tracking
+  private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+  private heartbeatTimeout: ReturnType<typeof setTimeout> | null = null;
+  // Safari CONNECTING timeout - detects frozen socket after iOS suspension
+  private connectTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: WebSocketConnectionOptions = {}) {
     this.options = {
@@ -98,6 +121,31 @@ export class WebSocketConnection {
     this.retryDelay = INITIAL_RETRY_DELAY;
     this.gaveUp = false;
 
+    // Detect browser and mode
+    const isSafari = navigator.userAgent.includes('Safari') && !navigator.userAgent.includes('Chrome');
+    const isPWA = window.matchMedia('(display-mode: standalone)').matches;
+    console.log(`[WS] start() - Safari: ${isSafari}, PWA: ${isPWA}, readyState: ${document.readyState}`);
+
+    // Gather diagnostic data for Safari PWA debugging
+    if (isSafari && isPWA) {
+      console.log('[WS] Safari PWA diagnostic data:', {
+        onLine: navigator.onLine,
+        visibilityState: document.visibilityState,
+        hasFocus: document.hasFocus(),
+        timeOrigin: performance.timeOrigin,
+        timeSinceOrigin: Math.round(performance.now()),
+        connection: (navigator as Navigator & { connection?: { type?: string; effectiveType?: string } }).connection?.effectiveType ?? 'unknown',
+      });
+
+      // EXPERIMENT: Trigger focus cycle to simulate navigate-back conditions
+      // Safari PWA cold start may need a focus event to initialize WebSocket stack
+      console.log('[WS] Safari PWA: Triggering focus cycle to initialize WebSocket stack');
+      window.blur();
+      await new Promise(r => setTimeout(r, 50));
+      window.focus();
+      await new Promise(r => setTimeout(r, 50));
+    }
+
     await this.discoverAndConnect();
   }
 
@@ -122,16 +170,22 @@ export class WebSocketConnection {
 
   /** Discover connection params and connect */
   private async discoverAndConnect(): Promise<void> {
+    // Signal connecting state BEFORE fetches (fixes 2s black screen on iOS PWA cold start)
+    this.setState('connecting');
+
     // Always refresh port and token from EXTSTATE (handles REAPER restart)
+    // Run both fetches in parallel to minimize startup time
     console.log('[WS] Discovering connection params from EXTSTATE...');
 
-    const port = await fetchExtState('Reamo', 'WebSocketPort');
+    const [port, token] = await Promise.all([
+      fetchExtState('Reamo', 'WebSocketPort'),
+      fetchExtState('Reamo', 'SessionToken'),
+    ]);
+
     if (port) {
       this.discoveredPort = parseInt(port, 10);
       console.log(`[WS] Discovered port: ${this.discoveredPort}`);
     }
-
-    const token = await fetchExtState('Reamo', 'SessionToken');
     if (token) {
       this.discoveredToken = token;
       console.log('[WS] Discovered session token');
@@ -142,13 +196,58 @@ export class WebSocketConnection {
 
   /** Stop the connection */
   stop(): void {
+    console.log(`[WS] stop() called at T+${Math.round(performance.now())}ms`);
     this.clearRetryTimeout();
+    this.stopHeartbeat();
     if (this.ws) {
       this.ws.onclose = null; // Prevent reconnection
       this.ws.close();
       this.ws = null;
     }
     this.setState('disconnected');
+  }
+
+  /**
+   * Handle page visibility change - ALWAYS force reconnect on return
+   * Safari iOS: WebSocket can become zombie after suspension, readyState lies.
+   * Research shows: never trust existing connection after backgrounding.
+   */
+  handleVisibilityChange(isVisible: boolean): void {
+    if (isVisible) {
+      // ALWAYS force reconnect on visibility return - Safari zombies can't be trusted
+      // iOS suspension freezes WebSocket in pre-suspension state (readyState lies)
+      console.log('[WS] Visibility returned - forcing fresh connection');
+      this.forceReconnect();
+    } else {
+      // Going to background - stop heartbeat
+      this.stopHeartbeat();
+    }
+  }
+
+  /** Force close and reconnect - resets all retry state */
+  forceReconnect(): void {
+    console.log(`[WS] forceReconnect() called at T+${Math.round(performance.now())}ms`);
+    this.clearRetryTimeout();
+    this.clearConnectTimeout();
+    this.stopHeartbeat();
+
+    // Close existing socket - null handlers FIRST because frozen sockets may ignore .close()
+    if (this.ws) {
+      this.ws.onopen = null;
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      this.ws.onmessage = null;
+      try { this.ws.close(); } catch { /* ignore - frozen socket */ }
+      this.ws = null;
+    }
+
+    // Reset retry state for fresh start
+    this.retryCount = 0;
+    this.retryDelay = INITIAL_RETRY_DELAY;
+    this.gaveUp = false;
+
+    // Small delay for network stack recovery after iOS suspension
+    setTimeout(() => this.discoverAndConnect(), 200);
   }
 
   /** Send a command and optionally wait for response */
@@ -202,8 +301,9 @@ export class WebSocketConnection {
 
     // Use same hostname as page (works for both localhost and network access)
     const host = window.location.hostname || 'localhost';
-    const url = `ws://${host}:${port}`;
-    console.log(`[WS] Connecting to ${url} (attempt ${this.retryCount + 1}/${this.options.maxRetries})`);
+    const url = `ws://${host}:${port}/`;
+    const connectStart = performance.now();
+    console.log(`[WS] Connecting to ${url} (attempt ${this.retryCount + 1}/${this.options.maxRetries}) at T+${Math.round(connectStart)}ms`);
 
     try {
       this.ws = new WebSocket(url);
@@ -213,8 +313,30 @@ export class WebSocketConnection {
       return;
     }
 
+    // CRITICAL: Safari CONNECTING timeout - socket may never fire events after iOS suspension
+    // WebSocket can get stuck in CONNECTING state forever with no onopen/onclose/onerror
+    // Use scheduleRetry (not forceReconnect) to properly count attempts and eventually give up
+    this.connectTimeout = setTimeout(() => {
+      if (this.ws?.readyState === WebSocket.CONNECTING) {
+        console.log('[WS] Safari: Connection stuck in CONNECTING, scheduling retry');
+        // Clean up frozen socket - null handlers first, frozen sockets ignore close()
+        this.ws.onopen = null;
+        this.ws.onclose = null;
+        this.ws.onerror = null;
+        this.ws.onmessage = null;
+        try { this.ws.close(); } catch { /* ignore */ }
+        this.ws = null;
+        this.setState('error', 'Connection timeout');
+        this.scheduleRetry();
+      }
+    }, CONNECT_TIMEOUT_MS);
+
+    const wsCreateTime = performance.now();
+
     this.ws.onopen = () => {
-      console.log('[WS] Connected, sending hello');
+      this.clearConnectTimeout();
+      const elapsed = Math.round(performance.now() - wsCreateTime);
+      console.log(`[WS] onopen fired at T+${Math.round(performance.now())}ms (${elapsed}ms after create)`);
       this.retryDelay = INITIAL_RETRY_DELAY; // Reset on successful connect
       this.sendHello();
     };
@@ -223,17 +345,21 @@ export class WebSocketConnection {
       this.handleMessage(event.data);
     };
 
-    this.ws.onerror = (event) => {
-      console.error('[WS] Error:', event);
+    this.ws.onerror = () => {
+      this.clearConnectTimeout();
+      const elapsed = Math.round(performance.now() - wsCreateTime);
+      console.error(`[WS] onerror fired at T+${Math.round(performance.now())}ms (${elapsed}ms after create), readyState=${this.ws?.readyState}`);
     };
 
     this.ws.onclose = (event) => {
-      console.log(`[WS] Closed: code=${event.code} reason=${event.reason}`);
+      this.clearConnectTimeout();
+      const elapsed = Math.round(performance.now() - wsCreateTime);
+      console.log(`[WS] onclose fired at T+${Math.round(performance.now())}ms (${elapsed}ms after create): code=${event.code} wasClean=${event.wasClean}`);
       this.ws = null;
 
       if (this.state !== 'disconnected') {
         // Unexpected close - retry
-        this.setState('error', event.reason || 'Connection closed');
+        this.setState('error', event.reason || `Connection closed (code ${event.code})`);
         this.scheduleRetry();
       }
     };
@@ -254,6 +380,14 @@ export class WebSocketConnection {
     } catch {
       console.error('[WS] Invalid JSON:', data);
       return;
+    }
+
+    // Handle pong response for heartbeat
+    if (typeof msg === 'object' && msg !== null && 'type' in msg) {
+      if ((msg as { type: string }).type === 'pong') {
+        this.handlePong();
+        return; // Don't dispatch pong to app
+      }
     }
 
     // Hello response completes connection
@@ -294,6 +428,14 @@ export class WebSocketConnection {
     if (this.state === state) return;
     this.state = state;
     console.log(`[WS] State: ${state}${error ? ` (${error})` : ''}`);
+
+    // Manage heartbeat lifecycle based on connection state
+    if (state === 'connected') {
+      this.startHeartbeat();
+    } else {
+      this.stopHeartbeat();
+    }
+
     this.options.onStateChange?.(state, error);
   }
 
@@ -328,6 +470,61 @@ export class WebSocketConnection {
     if (this.retryTimeout) {
       clearTimeout(this.retryTimeout);
       this.retryTimeout = null;
+    }
+  }
+
+  private clearConnectTimeout(): void {
+    if (this.connectTimeout) {
+      clearTimeout(this.connectTimeout);
+      this.connectTimeout = null;
+    }
+  }
+
+  /** Start heartbeat pings when connected and visible */
+  private startHeartbeat(): void {
+    if (this.state !== 'connected' || this.heartbeatInterval) return;
+
+    this.heartbeatInterval = setInterval(() => {
+      this.sendHealthCheck();
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  /** Stop heartbeat (when disconnected or going to background) */
+  private stopHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+    if (this.heartbeatTimeout) {
+      clearTimeout(this.heartbeatTimeout);
+      this.heartbeatTimeout = null;
+    }
+  }
+
+  /** Send ping and expect pong within timeout */
+  private sendHealthCheck(): void {
+    if (this.state !== 'connected' || !this.ws) return;
+
+    // Clear any existing timeout
+    if (this.heartbeatTimeout) {
+      clearTimeout(this.heartbeatTimeout);
+    }
+
+    // Set timeout for pong response
+    this.heartbeatTimeout = setTimeout(() => {
+      console.log('[WS] Heartbeat timeout - zombie connection detected');
+      this.forceReconnect();
+    }, HEARTBEAT_TIMEOUT_MS);
+
+    // Send ping (server must respond with pong)
+    this.ws.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
+  }
+
+  /** Called when pong received to clear timeout */
+  private handlePong(): void {
+    if (this.heartbeatTimeout) {
+      clearTimeout(this.heartbeatTimeout);
+      this.heartbeatTimeout = null;
     }
   }
 }
