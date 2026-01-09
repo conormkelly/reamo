@@ -5,6 +5,7 @@
 
 import { useMemo, useCallback, type ReactElement } from 'react';
 import { useReaperStore } from '../../store';
+import { EMPTY_ITEMS, EMPTY_TRACKS } from '../../store/stableRefs';
 import type { WSItem } from '../../core/WebSocketTypes';
 import { WaveformItem } from './WaveformItem';
 import { ItemInfoBar } from './ItemInfoBar';
@@ -43,9 +44,9 @@ function getTracksWithItems(
 export function ItemsTimeline({
   height = 120,
 }: ItemsTimelineProps): ReactElement {
-  // Store state - defensive selectors for mobile hydration
-  const items = useReaperStore((state) => state?.items ?? []);
-  const tracks = useReaperStore((state) => state?.tracks ?? {});
+  // Store state - defensive selectors with stable fallbacks for mobile hydration
+  const items = useReaperStore((state) => state?.items ?? EMPTY_ITEMS);
+  const tracks = useReaperStore((state) => state?.tracks ?? EMPTY_TRACKS);
   const selectedTrackIdx = useReaperStore((state) => state.selectedTrackIdx);
   const setSelectedTrack = useReaperStore((state) => state.setSelectedTrack);
   const selectedItemKey = useReaperStore((state) => state.selectedItemKey);

@@ -3,7 +3,7 @@
  * Detects double-tap/double-click gestures with configurable delay
  */
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 export interface UseDoubleTapOptions {
   /** Callback for single tap (optional) */
@@ -70,6 +70,15 @@ export function useDoubleTap({
       }
     }
   }, [onSingleTap, onDoubleTap, delay]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   return { onClick };
 }

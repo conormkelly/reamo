@@ -11,18 +11,8 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
-  icons,
-  type LucideIcon,
 } from 'lucide-react';
-
-// Get icon component by name (kebab-case to PascalCase)
-function getIconComponent(name: string): LucideIcon | null {
-  const pascalName = name
-    .split('-')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join('');
-  return (icons as Record<string, LucideIcon>)[pascalName] || null;
-}
+import { getIconComponent } from '../../../components/Toolbar/DynamicIcon';
 import { ActionsGrid } from './ActionsGrid';
 import type {
   ActionsSection as ActionsSectionType,

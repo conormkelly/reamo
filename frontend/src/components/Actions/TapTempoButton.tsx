@@ -81,6 +81,15 @@ export function TapTempoButton({
     }
   }, []);
 
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+      }
+    };
+  }, []);
+
   const applyTempo = useCallback(
     (newBpm: number) => {
       const clampedBpm = Math.max(2, Math.min(960, Math.round(newBpm)));

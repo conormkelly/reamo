@@ -11,7 +11,7 @@ import { useTransport } from '../hooks/useTransport';
 import { useReaperStore } from '../store';
 import { transport, action } from '../core/WebSocketCommands';
 import { useTransportAnimation } from '../hooks';
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import { formatTime } from '../utils';
 
 // Hold duration threshold in ms
@@ -48,6 +48,8 @@ function MiniTransportButton({
     <button
       onClick={onClick}
       title={title}
+      aria-label={title}
+      aria-pressed={isActive}
       className={`
         w-10 h-10 rounded-full flex items-center justify-center
         transition-colors
@@ -120,6 +122,15 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
     }
   }, []);
 
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+      }
+    };
+  }, []);
+
   const recordInactiveClass = isAutoPunch
     ? 'bg-red-900/30 hover:bg-red-800/50 ring-2 ring-red-500/50'
     : 'bg-red-900/30 hover:bg-red-800/50 ring-2 ring-red-500/30';
@@ -168,6 +179,8 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
           onPointerCancel={handleRecordPointerCancel}
           onPointerLeave={handleRecordPointerCancel}
           title={isAutoPunch ? "Record (Auto-Punch) - hold to toggle mode" : "Record - hold to toggle auto-punch"}
+          aria-label={isAutoPunch ? "Record (Auto-Punch mode)" : "Record"}
+          aria-pressed={isRecording}
           className={`
             w-10 h-10 rounded-full flex items-center justify-center
             transition-colors touch-none select-none

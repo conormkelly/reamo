@@ -99,6 +99,15 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
     }
   }, [isEditingName, showColorPicker, setLocked]);
 
+  // Cleanup save timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // Save marker name/color using native command
   const saveMarkerEdit = useCallback(
     (name: string, color: number) => {

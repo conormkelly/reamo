@@ -3,7 +3,7 @@
  * Detects tap and long-press gestures with configurable duration
  */
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 export interface UseLongPressOptions {
   /** Callback when tap (short press) is detected */
@@ -128,6 +128,15 @@ export function useLongPress({
   const onTouchEnd = useCallback(() => {
     end(true);
   }, [end]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   return {
     handlers: {

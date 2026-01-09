@@ -5,6 +5,7 @@
 
 import { useMemo } from 'react';
 import { useReaperStore } from '../store';
+import { EMPTY_TRACKS } from '../store/stableRefs';
 import { isSelected, type Track } from '../core/types';
 
 export interface UseTracksReturn {
@@ -26,9 +27,9 @@ export interface UseTracksReturn {
  * Hook for accessing all tracks
  */
 export function useTracks(): UseTracksReturn {
-  // Defensive selectors - state can be undefined briefly on mobile during hydration
+  // Defensive selectors with stable fallbacks - state can be undefined briefly on mobile during hydration
   const trackCount = useReaperStore((state) => state?.trackCount ?? 0);
-  const tracksRecord = useReaperStore((state) => state?.tracks ?? {});
+  const tracksRecord = useReaperStore((state) => state?.tracks ?? EMPTY_TRACKS);
 
   // Convert record to sorted array
   const tracks = useMemo(() => {

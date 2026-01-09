@@ -3,7 +3,7 @@
  * Manages marker drag and long-press interactions
  */
 
-import { useState, useCallback, useRef, type RefObject } from 'react';
+import { useState, useCallback, useEffect, useRef, type RefObject } from 'react';
 import type { Marker } from '../../../core/types';
 import { snapToGrid } from '../../../utils';
 
@@ -182,6 +182,15 @@ export function useMarkerDrag({
     },
     [draggedMarker, isDragging, dragStartY, previewPercent, timelineStart, duration, containerRef, onMove, onSelect]
   );
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+      }
+    };
+  }, []);
 
   return {
     isDragging,

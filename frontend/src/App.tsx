@@ -13,6 +13,7 @@ import {
   ConnectionBanner,
   MemoryWarningBar,
   RecordingActionsBar,
+  ErrorBoundary,
 } from './components';
 import { useUIPreferences, useTransport } from './hooks';
 import { useReaperStore } from './store';
@@ -64,7 +65,9 @@ function AppContent() {
 
       {/* Active view area - each view renders its own header via ViewHeader */}
       <main className="flex-1 min-h-0 overflow-auto">
-        <ViewComponent />
+        <ErrorBoundary>
+          <ViewComponent />
+        </ErrorBoundary>
       </main>
 
       {/* Recording Actions Bar - only in Studio view when recording */}

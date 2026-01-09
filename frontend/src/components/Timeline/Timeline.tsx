@@ -5,6 +5,7 @@
 
 import { useState, useRef, useCallback, useMemo, type ReactElement } from 'react';
 import { useReaperStore } from '../../store';
+import { EMPTY_REGIONS, EMPTY_MARKERS, EMPTY_ITEMS, EMPTY_TRACKS } from '../../store/stableRefs';
 import { useReaper } from '../ReaperProvider';
 import { useTransport, useTimeSignature, useBarOffset } from '../../hooks';
 import { transport, timeSelection as timeSelCmd, action, marker as markerCmd } from '../../core/WebSocketCommands';
@@ -33,11 +34,11 @@ const VERTICAL_CANCEL_THRESHOLD = 50;
 export function Timeline({ className = '', height = 120, isSyncing = false }: TimelineProps): ReactElement {
   const { sendCommand } = useReaper();
   const { positionSeconds } = useTransport();
-  // Defensive selectors - state can be undefined briefly on mobile during hydration
-  const regions = useReaperStore((state) => state?.regions ?? []);
-  const markers = useReaperStore((state) => state?.markers ?? []);
-  const items = useReaperStore((state) => state?.items ?? []);
-  const tracks = useReaperStore((state) => state?.tracks ?? {});
+  // Defensive selectors with stable fallbacks - state can be undefined briefly on mobile during hydration
+  const regions = useReaperStore((state) => state?.regions ?? EMPTY_REGIONS);
+  const markers = useReaperStore((state) => state?.markers ?? EMPTY_MARKERS);
+  const items = useReaperStore((state) => state?.items ?? EMPTY_ITEMS);
+  const tracks = useReaperStore((state) => state?.tracks ?? EMPTY_TRACKS);
   const bpm = useReaperStore((state) => state.bpm);
   const tempoMarkers = useReaperStore((state) => state.tempoMarkers);
   const storedTimeSelection = useReaperStore((state) => state.timeSelection);

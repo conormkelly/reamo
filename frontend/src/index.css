@@ -145,3 +145,29 @@ body {
 .animate-slide-up {
   animation: slide-up 0.2s ease-out;
 }
+
+/* =============================================================================
+ * REDUCED MOTION SUPPORT
+ * Respects user's OS-level preference for reduced motion.
+ * - Disables all CSS animations and transitions
+ * - Still allows instant state changes (opacity, visibility)
+ * ============================================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Specific animation class overrides */
+  .animate-slide-up,
+  .animate-pulse,
+  .animate-spin,
+  .animate-bounce {
+    animation: none !important;
+  }
+}

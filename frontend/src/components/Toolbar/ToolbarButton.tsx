@@ -3,10 +3,11 @@
  */
 
 import { useCallback } from 'react';
-import { Pencil, icons, type LucideIcon } from 'lucide-react';
+import { Pencil } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { action as actionCmd, midi as midiCmd } from '../../core/WebSocketCommands';
 import type { ToolbarAction, ToggleState } from '../../store/slices/toolbarSlice';
+import { getIconComponent } from './DynamicIcon';
 
 // Size variants for buttons
 type ButtonSize = 'sm' | 'md' | 'lg';
@@ -36,17 +37,6 @@ const SIZE_CONFIG = {
 const DEFAULT_BG_COLOR = '#374151'; // gray-700
 const DEFAULT_TEXT_COLOR = '#FFFFFF';
 const DEFAULT_ICON_COLOR = '#FFFFFF';
-
-// Get icon component by name
-function getIconComponent(name: string): LucideIcon | null {
-  // Convert kebab-case to PascalCase for icon lookup
-  const pascalName = name
-    .split('-')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join('');
-
-  return (icons as Record<string, LucideIcon>)[pascalName] || null;
-}
 
 export function ToolbarButton({
   action,

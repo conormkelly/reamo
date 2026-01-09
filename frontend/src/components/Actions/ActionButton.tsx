@@ -3,7 +3,7 @@
  * Triggers any REAPER action by command ID
  */
 
-import { useState, useRef, useCallback, type ReactElement, type ReactNode } from 'react';
+import { useState, useRef, useCallback, useEffect, type ReactElement, type ReactNode } from 'react';
 import { Gauge, Undo2, Redo2, Save, MapPinPlus, Minus, Plus, SkipBack, SkipForward, X } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
@@ -158,6 +158,15 @@ export function MetronomeButton({
     }
   }, []);
 
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+      }
+    };
+  }, []);
+
   const handleVolumeUp = useCallback(() => {
     sendCommand(action.executeByName(SWS_METRO_VOL_UP));
   }, [sendCommand]);
@@ -201,6 +210,8 @@ export function MetronomeButton({
         onPointerCancel={handlePointerCancel}
         onPointerLeave={handlePointerCancel}
         title="Toggle Metronome - hold for volume"
+        aria-label="Toggle Metronome"
+        aria-pressed={isMetronome}
         className={`
           ${sizeClasses[size]}
           ${activeClass}

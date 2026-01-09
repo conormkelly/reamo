@@ -3,22 +3,14 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { X, Trash2, ToggleLeft, icons, type LucideIcon } from 'lucide-react';
+import { X, Trash2, ToggleLeft } from 'lucide-react';
 import { IconPicker } from './IconPicker';
 import { ColorPickerInput } from './ColorPickerInput';
 import { ActionSearch, getStableActionId } from './ActionSearch';
+import { getIconComponent } from './DynamicIcon';
 import type { ToolbarAction } from '../../store/slices/toolbarSlice';
 import { useReaperStore, type ReaperAction } from '../../store';
 import { getSectionName } from '../../core/constants';
-
-// Get icon component by name (kebab-case to PascalCase)
-function getIconComponent(name: string): LucideIcon | null {
-  const pascalName = name
-    .split('-')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join('');
-  return (icons as Record<string, LucideIcon>)[pascalName] || null;
-}
 
 interface ToolbarEditorProps {
   action: ToolbarAction | null;

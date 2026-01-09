@@ -6,6 +6,7 @@
 
 import { useCallback, useMemo } from 'react';
 import { useReaperStore } from '../store';
+import { EMPTY_SKELETON, EMPTY_GUID_MAP } from '../store/stableRefs';
 import type { SkeletonTrack } from '../core/WebSocketTypes';
 
 export interface SkeletonTrackWithIndex extends SkeletonTrack {
@@ -46,14 +47,11 @@ export interface UseTrackSkeletonReturn {
  * );
  * ```
  */
-// Empty Map singleton to avoid creating new instances on each render
-const EMPTY_MAP = new Map<string, number>();
-
 export function useTrackSkeleton(): UseTrackSkeletonReturn {
-  // Defensive selectors - state can be undefined briefly on mobile during hydration
-  const skeleton = useReaperStore((state) => state?.trackSkeleton ?? []);
+  // Defensive selectors with stable fallbacks - state can be undefined briefly on mobile during hydration
+  const skeleton = useReaperStore((state) => state?.trackSkeleton ?? EMPTY_SKELETON);
   const totalTracks = useReaperStore((state) => state?.totalTracks ?? 0);
-  const guidToIndex = useReaperStore((state) => state?.guidToIndex ?? EMPTY_MAP);
+  const guidToIndex = useReaperStore((state) => state?.guidToIndex ?? EMPTY_GUID_MAP);
 
   // Filter skeleton by name (case-insensitive)
   const filterByName = useCallback(

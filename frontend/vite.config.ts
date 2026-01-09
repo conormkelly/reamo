@@ -4,7 +4,7 @@ import { viteSingleFile } from 'vite-plugin-singlefile'
 import { resolve } from 'path'
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react(), viteSingleFile()],
   build: {
     target: 'esnext',
@@ -22,9 +22,13 @@ export default defineConfig({
       },
     },
   },
+  esbuild: {
+    // Strip console.log and debugger statements in production
+    drop: mode === 'production' ? ['console', 'debugger'] : [],
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
     },
   },
-})
+}))

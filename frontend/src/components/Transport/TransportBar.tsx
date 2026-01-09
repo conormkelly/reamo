@@ -3,7 +3,7 @@
  * Icon-only transport controls matching REAPER's native layout
  */
 
-import { useRef, useCallback, type ReactElement } from 'react';
+import { useRef, useCallback, useEffect, type ReactElement } from 'react';
 import { SkipBack, Play, Pause, Repeat, Square, Circle, RefreshCw } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useTransport } from '../../hooks/useTransport';
@@ -48,6 +48,8 @@ function TransportButton({
     <button
       onClick={onClick}
       title={title}
+      aria-label={title}
+      aria-pressed={isActive}
       className={`
         w-11 h-11 rounded-full flex items-center justify-center
         transition-colors
@@ -112,6 +114,15 @@ export function TransportBar({ className = '' }: TransportBarProps): ReactElemen
     }
   }, []);
 
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+      }
+    };
+  }, []);
+
   // Determine record button styling based on auto-punch mode
   const recordInactiveClass = isAutoPunch
     ? 'bg-red-900/30 hover:bg-red-800/50 ring-2 ring-red-500/50'
@@ -171,6 +182,8 @@ export function TransportBar({ className = '' }: TransportBarProps): ReactElemen
         onPointerCancel={handleRecordPointerCancel}
         onPointerLeave={handleRecordPointerCancel}
         title={isAutoPunch ? "Record (Auto-Punch) - hold to toggle mode" : "Record - hold to toggle auto-punch"}
+        aria-label={isAutoPunch ? "Record (Auto-Punch mode)" : "Record"}
+        aria-pressed={isRecording}
         className={`
           w-11 h-11 rounded-full flex items-center justify-center
           transition-colors touch-none select-none

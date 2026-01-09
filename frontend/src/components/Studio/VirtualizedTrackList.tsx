@@ -7,6 +7,7 @@
 import { useMemo, useEffect, useState, useCallback, type ReactElement } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useReaperStore } from '../../store';
+import { EMPTY_TRACKS } from '../../store/stableRefs';
 import { useReaper } from '../ReaperProvider';
 import { useTrackSkeleton, type SkeletonTrackWithIndex } from '../../hooks/useTrackSkeleton';
 import { useVirtualizedSubscription } from '../../hooks/useVirtualizedSubscription';
@@ -44,8 +45,8 @@ export function VirtualizedTrackList({
 }: VirtualizedTrackListProps): ReactElement {
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
   const { sendCommand } = useReaper();
-  // Defensive selector - state can be undefined briefly on mobile during hydration
-  const tracks = useReaperStore((state) => state?.tracks ?? {});
+  // Defensive selector with stable fallback - state can be undefined briefly on mobile during hydration
+  const tracks = useReaperStore((state) => state?.tracks ?? EMPTY_TRACKS);
   const { totalTracks, filterByName } = useTrackSkeleton();
 
   // Ref callback to capture scroll element and trigger re-render for virtualizer

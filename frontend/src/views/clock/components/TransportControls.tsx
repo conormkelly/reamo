@@ -3,7 +3,7 @@
  * Record button supports long-press to toggle auto-punch mode
  */
 
-import { useRef, useCallback, type ReactElement } from 'react';
+import { useRef, useCallback, useEffect, type ReactElement } from 'react';
 import { Play, Pause, Square, Circle, SkipBack, RefreshCw } from 'lucide-react';
 import { useReaper } from '../../../components/ReaperProvider';
 import { useTransport } from '../../../hooks';
@@ -40,6 +40,8 @@ function BigTransportButton({
     <button
       onClick={onClick}
       title={title}
+      aria-label={title}
+      aria-pressed={isActive}
       className={`
         aspect-square rounded-full flex items-center justify-center
         transition-colors shadow-lg
@@ -101,6 +103,15 @@ export function TransportControls({ scale }: TransportControlsProps): ReactEleme
       clearTimeout(holdTimerRef.current);
       holdTimerRef.current = null;
     }
+  }, []);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+      }
+    };
   }, []);
 
   const recordInactiveClass = isAutoPunch
@@ -165,6 +176,8 @@ export function TransportControls({ scale }: TransportControlsProps): ReactEleme
         onPointerCancel={handleRecordPointerCancel}
         onPointerLeave={handleRecordPointerCancel}
         title={isAutoPunch ? 'Record (Auto-Punch) - hold to toggle mode' : 'Record - hold to toggle auto-punch'}
+        aria-label={isAutoPunch ? 'Record (Auto-Punch mode)' : 'Record'}
+        aria-pressed={isRecording}
         className={`
           aspect-square rounded-full flex items-center justify-center
           transition-colors shadow-lg touch-none select-none

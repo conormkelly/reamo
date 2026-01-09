@@ -502,6 +502,15 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
     }
   };
 
+  // Cleanup long-press timer on unmount
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+      }
+    };
+  }, []);
+
   const renderField = (
     field: EditingField,
     label: string,

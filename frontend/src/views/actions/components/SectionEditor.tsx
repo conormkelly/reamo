@@ -3,22 +3,14 @@
  */
 
 import { useState, useEffect, useCallback, type ReactElement } from 'react';
-import { X, Trash2, icons, type LucideIcon } from 'lucide-react';
+import { X, Trash2 } from 'lucide-react';
 import { IconPicker } from '../../../components/Toolbar/IconPicker';
 import { ColorPickerInput } from '../../../components/Toolbar/ColorPickerInput';
+import { getIconComponent } from '../../../components/Toolbar/DynamicIcon';
 import type { ActionsSection, SizeOption } from '../../../store/slices/actionsViewSlice';
 
 // Default color (gray) - same as no-color state
 const DEFAULT_SECTION_COLOR = '#374151';
-
-// Get icon component by name (kebab-case to PascalCase)
-function getIconComponent(name: string): LucideIcon | null {
-  const pascalName = name
-    .split('-')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join('');
-  return (icons as Record<string, LucideIcon>)[pascalName] || null;
-}
 
 interface SectionEditorProps {
   section: ActionsSection | null; // null = creating new

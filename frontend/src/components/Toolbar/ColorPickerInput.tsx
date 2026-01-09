@@ -3,7 +3,7 @@
  * Click to open system color picker, hold 500ms to reset to default
  */
 
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 
 interface ColorPickerInputProps {
   label: string;
@@ -52,6 +52,15 @@ export function ColorPickerInput({
       clearTimeout(holdTimer.current);
       holdTimer.current = null;
     }
+  }, []);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (holdTimer.current) {
+        clearTimeout(holdTimer.current);
+      }
+    };
   }, []);
 
   return (

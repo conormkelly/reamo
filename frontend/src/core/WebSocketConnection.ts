@@ -276,6 +276,7 @@ export class WebSocketConnection {
     console.log(`[WS] stop() called at T+${Math.round(performance.now())}ms`);
     this.clearRetryTimeout();
     this.stopHeartbeat();
+    this.clearPendingResponses();
     if (this.ws) {
       this.ws.onclose = null; // Prevent reconnection
       this.ws.close();
@@ -307,6 +308,7 @@ export class WebSocketConnection {
     this.clearRetryTimeout();
     this.clearConnectTimeout();
     this.stopHeartbeat();
+    this.clearPendingResponses();
 
     // Close existing socket - null handlers FIRST because frozen sockets may ignore .close()
     if (this.ws) {
@@ -555,6 +557,15 @@ export class WebSocketConnection {
       clearTimeout(this.connectTimeout);
       this.connectTimeout = null;
     }
+  }
+
+  /** Reject all pending async responses (call on disconnect) */
+  private clearPendingResponses(): void {
+    this.pendingResponses.forEach((resolve, id) => {
+      // Resolve with error response so callers don't hang
+      resolve({ success: false, error: 'Connection closed', id });
+    });
+    this.pendingResponses.clear();
   }
 
   /** Start heartbeat pings when connected and visible */
