@@ -55,7 +55,8 @@ export type ToggleState = -1 | 0 | 1; // -1 = not a toggle, 0 = off, 1 = on
 export interface ToolbarSlice {
   // State
   toolbarActions: ToolbarAction[];
-  toggleStates: Map<number, ToggleState>;
+  toggleStates: Map<string, ToggleState>; // Keyed by actionId (numeric string or named string)
+  toggleNameToId: Map<string, number>; // Maps named commands to current numeric IDs (for change events)
   toolbarCollapsed: boolean;
   toolbarEditMode: boolean;
   toolbarAlign: ToolbarAlign;
@@ -68,8 +69,8 @@ export interface ToolbarSlice {
   reorderToolbarActions: (fromIndex: number, toIndex: number) => void;
 
   // Toggle state management
-  setToggleState: (commandId: number, state: ToggleState) => void;
-  updateToggleStates: (states: Record<string, number>) => void;
+  setToggleState: (actionId: string, state: ToggleState) => void;
+  updateToggleStates: (states: Record<string, number>, nameToId?: Record<string, number>) => void;
   clearToggleStates: () => void;
 
   // UI state
@@ -82,13 +83,14 @@ export interface ToolbarSlice {
   saveToolbarToStorage: () => void;
 
   // Helpers
-  getReaperActionCommandIds: () => number[];
+  getReaperActionIds: () => { commandIds: number[]; names: string[] };
 }
 
 export const createToolbarSlice: StateCreator<ToolbarSlice> = (set, get) => ({
   // Initial state
   toolbarActions: [],
-  toggleStates: new Map(),
+  toggleStates: new Map<string, ToggleState>(),
+  toggleNameToId: new Map<string, number>(),
   toolbarCollapsed: false,
   toolbarEditMode: false,
   toolbarAlign: 'left' as ToolbarAlign,
@@ -133,26 +135,48 @@ export const createToolbarSlice: StateCreator<ToolbarSlice> = (set, get) => ({
   },
 
   // Toggle state management
-  setToggleState: (commandId, state) => {
+  setToggleState: (actionId, state) => {
     set((store) => {
       const newMap = new Map(store.toggleStates);
-      newMap.set(commandId, state);
+      newMap.set(actionId, state);
       return { toggleStates: newMap };
     });
   },
 
-  updateToggleStates: (states) => {
+  updateToggleStates: (states, nameToId) => {
     set((store) => {
-      const newMap = new Map(store.toggleStates);
-      Object.entries(states).forEach(([id, state]) => {
-        newMap.set(parseInt(id, 10), state as ToggleState);
+      const newStates = new Map(store.toggleStates);
+      const newNameToId = new Map(store.toggleNameToId);
+
+      // Update name-to-id mapping if provided (from subscription response)
+      if (nameToId) {
+        Object.entries(nameToId).forEach(([name, numericId]) => {
+          newNameToId.set(name, numericId);
+        });
+      }
+
+      // Build reverse lookup: numeric ID -> named command
+      // Used to translate change events (which use numeric IDs) back to named commands
+      const idToName = new Map<number, string>();
+      newNameToId.forEach((numericId, name) => {
+        idToName.set(numericId, name);
       });
-      return { toggleStates: newMap };
+
+      // Update toggle states - translate numeric IDs to names if needed
+      Object.entries(states).forEach(([id, state]) => {
+        const numericId = parseInt(id, 10);
+        // Check if this numeric ID maps to a named command
+        const namedKey = !isNaN(numericId) ? idToName.get(numericId) : undefined;
+        const key = namedKey ?? id;
+        newStates.set(key, state as ToggleState);
+      });
+
+      return { toggleStates: newStates, toggleNameToId: newNameToId };
     });
   },
 
   clearToggleStates: () => {
-    set({ toggleStates: new Map() });
+    set({ toggleStates: new Map(), toggleNameToId: new Map() });
   },
 
   // UI state
@@ -201,16 +225,24 @@ export const createToolbarSlice: StateCreator<ToolbarSlice> = (set, get) => ({
 
   // Helpers
   /**
-   * Get numeric command IDs for toggle state subscription.
-   * Only returns IDs for native REAPER actions (numeric actionIds).
-   * SWS/script actions (actionId starts with "_") are excluded.
+   * Get action IDs for toggle state subscription.
+   * Returns both numeric commandIds (for native actions) and names (for SWS/scripts).
    */
-  getReaperActionCommandIds: () => {
+  getReaperActionIds: () => {
     const { toolbarActions } = get();
-    return toolbarActions
-      .filter((a): a is ToolbarAction & { type: 'reaper_action' } => a.type === 'reaper_action')
-      .filter((a) => a.actionId && !a.actionId.startsWith('_')) // Skip SWS/script actions
+    const reaperActions = toolbarActions.filter(
+      (a): a is ToolbarAction & { type: 'reaper_action' } => a.type === 'reaper_action'
+    );
+
+    const commandIds = reaperActions
+      .filter((a) => a.actionId && !a.actionId.startsWith('_'))
       .map((a) => parseInt(a.actionId, 10))
-      .filter((id) => !isNaN(id)); // Safety check
+      .filter((id) => !isNaN(id));
+
+    const names = reaperActions
+      .filter((a) => a.actionId && a.actionId.startsWith('_'))
+      .map((a) => a.actionId);
+
+    return { commandIds, names };
   },
 });

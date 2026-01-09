@@ -432,13 +432,21 @@ export const action = {
 // =============================================================================
 
 export const actionToggleState = {
-  /** Subscribe to toggle state changes for a list of action commandIds.
-   * Returns current state for all subscribed commandIds in the response.
+  /**
+   * Subscribe to toggle state changes for actions.
+   * Accepts:
+   *   - commandIds: Numeric command IDs for native REAPER actions
+   *   - names: Named command identifiers for SWS/scripts (e.g., "_SWS_SAVESEL")
+   * Returns current state for all subscribed actions in the response.
    * State values: -1 = not a toggle, 0 = off, 1 = on
+   * Also returns nameToId mapping for translating change events.
    */
-  subscribe: (commandIds: number[]): WSCommand => ({
+  subscribe: (commandIds?: number[], names?: string[]): WSCommand => ({
     command: 'actionToggleState/subscribe',
-    params: { commandIds },
+    params: {
+      ...(commandIds && commandIds.length > 0 && { commandIds }),
+      ...(names && names.length > 0 && { names }),
+    },
   }),
   /** Unsubscribe from toggle state changes for a list of action commandIds. */
   unsubscribe: (commandIds: number[]): WSCommand => ({

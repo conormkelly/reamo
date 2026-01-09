@@ -33,7 +33,7 @@ import type { ToolbarAction, ToggleState } from '../../../store/slices/toolbarSl
 interface ActionsSectionProps {
   section: ActionsSectionType;
   editMode: boolean;
-  toggleStates: Map<number, ToggleState>;
+  toggleStates: Map<string, ToggleState>;
   onToggleCollapse: () => void;
   onEditSection: () => void;
   onSetAlign: (align: SectionAlign) => void;

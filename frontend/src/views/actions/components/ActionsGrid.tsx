@@ -21,7 +21,7 @@ interface ActionsGridProps {
   buttonSize: SizeOption;
   buttonSpacing: SizeOption;
   editMode: boolean;
-  toggleStates: Map<number, ToggleState>;
+  toggleStates: Map<string, ToggleState>;
   onEditAction: (action: ToolbarAction) => void;
   // Drag-drop for action reordering within grid
   dragFromIdx: number | null;
@@ -62,8 +62,8 @@ export function ActionsGrid({
           key={action.id}
           action={action}
           toggleState={
-            action.type === 'reaper_action' && action.actionId && !action.actionId.startsWith('_')
-              ? toggleStates.get(parseInt(action.actionId, 10))
+            action.type === 'reaper_action' && action.actionId
+              ? toggleStates.get(action.actionId)
               : undefined
           }
           editMode={editMode}

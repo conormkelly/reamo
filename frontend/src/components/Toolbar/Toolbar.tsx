@@ -121,23 +121,36 @@ export function Toolbar(): ReactElement {
   useEffect(() => {
     if (connectionState !== 'connected' || !connection) return;
 
-    // Extract numeric commandIds from native REAPER action buttons (SWS/scripts excluded)
-    const commandIds = toolbarActions
-      .filter((a): a is ToolbarAction & { type: 'reaper_action' } => a.type === 'reaper_action')
-      .filter((a) => a.actionId && !a.actionId.startsWith('_')) // Skip SWS/script actions
+    // Extract action IDs - both numeric (native) and named (SWS/scripts)
+    const reaperActions = toolbarActions.filter(
+      (a): a is ToolbarAction & { type: 'reaper_action' } => a.type === 'reaper_action'
+    );
+
+    const commandIds = reaperActions
+      .filter((a) => a.actionId && !a.actionId.startsWith('_'))
       .map((a) => parseInt(a.actionId, 10))
       .filter((id) => !isNaN(id));
 
-    if (commandIds.length === 0) return;
+    const names = reaperActions
+      .filter((a) => a.actionId && a.actionId.startsWith('_'))
+      .map((a) => a.actionId);
+
+    if (commandIds.length === 0 && names.length === 0) return;
 
     // Subscribe to toggle states and get initial snapshot
-    const cmd = actionToggleState.subscribe(commandIds);
+    const cmd = actionToggleState.subscribe(
+      commandIds.length > 0 ? commandIds : undefined,
+      names.length > 0 ? names : undefined
+    );
     connection
       .sendAsync(cmd.command, cmd.params)
       .then((response: unknown) => {
-        const resp = response as { success?: boolean; payload?: { states?: Record<string, number> } };
+        const resp = response as {
+          success?: boolean;
+          payload?: { states?: Record<string, number>; nameToId?: Record<string, number> };
+        };
         if (resp.success && resp.payload?.states) {
-          updateToggleStates(resp.payload.states);
+          updateToggleStates(resp.payload.states, resp.payload.nameToId);
         }
       })
       .catch((err) => {
@@ -149,6 +162,8 @@ export function Toolbar(): ReactElement {
       if (commandIds.length > 0) {
         sendCommand(actionToggleState.unsubscribe(commandIds));
       }
+      // Note: Named commands are tracked by their resolved numeric ID internally,
+      // but we don't need to explicitly unsubscribe - the server handles cleanup on disconnect
     };
   }, [connectionState, connection, toolbarActions, sendCommand, updateToggleStates]);
 
@@ -211,8 +226,8 @@ export function Toolbar(): ReactElement {
             key={action.id}
             action={action}
             toggleState={
-              action.type === 'reaper_action' && action.actionId && !action.actionId.startsWith('_')
-                ? toggleStates.get(parseInt(action.actionId, 10))
+              action.type === 'reaper_action' && action.actionId
+                ? toggleStates.get(action.actionId)
                 : undefined
             }
             editMode={toolbarEditMode}

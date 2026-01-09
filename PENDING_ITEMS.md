@@ -148,6 +148,32 @@ Import existing SWS auto-generated region playlists for compatibility with users
 
 **Status:** Deferred from Cue List backend plan
 
+### Toggle State Change Events: Named IDs vs Numeric IDs
+
+**Context:** Toggle state subscriptions now accept both numeric `commandIds` (native REAPER actions) and `names` (SWS/scripts like `_SWS_AWMRECTOG`). However, change events always use numeric IDs, requiring frontend to reverse-translate.
+
+**Current flow:**
+```
+Subscribe: { names: ["_SWS_AWMRECTOG"] }
+Response: { states: {"_SWS_AWMRECTOG": 1}, nameToId: {"_SWS_AWMRECTOG": 53532} }
+Change event: { changes: {"53532": 0} }  ← numeric ID
+Frontend: reverse-lookup 53532 → "_SWS_AWMRECTOG"
+```
+
+**Why it's safe:** Numeric IDs are stable within a REAPER session. The `nameToId` mapping captured at subscription time remains valid until WebSocket disconnect. On REAPER restart, the socket drops, client reconnects, re-subscribes, and gets fresh mapping.
+
+**Why consider changing:** The current design pushes translation complexity to the frontend. This caused a subtle bug where change events weren't updating the UI because numeric IDs weren't being translated back to named keys. Sending named IDs directly in change events would:
+- Eliminate frontend reverse-lookup logic
+- Prevent translation bugs
+- Keep backend as single source of truth for ID resolution
+
+**Implementation if pursued:**
+- Backend maintains `id_to_name` reverse mapping per client (built at subscription time)
+- Change event serialization checks reverse map, uses name if found, numeric ID otherwise
+- Mixed format in single event: `{"40364": 0, "_SWS_AWMRECTOG": 1}`
+
+**Status:** Working as-is; consider refactoring if toggle subscription logic is revisited
+
 ---
 
 ## Completed (Reference)

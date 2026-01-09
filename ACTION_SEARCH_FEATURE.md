@@ -499,3 +499,40 @@ All phases implemented and tested. The Action Search feature is now ready for us
 - Native REAPER actions use numeric IDs (also stable)
 - MIDI Editor actions execute in correct context when editor is open
 - Large action lists (10k+) perform smoothly via virtualization
+
+---
+
+## Post-Release Fix: Toggle State for SWS/Scripts
+
+### Problem
+SWS/ReaPack/script actions that are toggleable were showing orange (unknown state) because:
+1. Toggle state subscription only accepted numeric `commandIds`
+2. SWS/script numeric IDs are **dynamic** (change on restart)
+3. Frontend stored stable string IDs (`_SWS_*`) but couldn't subscribe to their toggle states
+
+### Solution
+Extended toggle state APIs to accept named command identifiers:
+
+**Backend changes:**
+- `action/getToggleState` - Added `name` parameter (resolves to numeric ID via `NamedCommandLookup`)
+- `actionToggleState/subscribe` - Added `names` array parameter
+  - Resolves names to numeric IDs at subscription time
+  - Returns `nameToId` mapping so frontend can translate change events back to named IDs
+  - Change events still use numeric IDs (for efficiency), frontend uses mapping
+
+**Frontend changes:**
+- Changed `toggleStates` from `Map<number, ToggleState>` to `Map<string, ToggleState>`
+- Added `toggleNameToId` map to store for translating change events
+- Updated subscription to pass both `commandIds` (native) and `names` (SWS/scripts)
+- Updated all components to look up toggle state by `actionId` string
+
+**Files modified:**
+- `extension/src/commands/actions.zig` - `name` param in getToggleState
+- `extension/src/commands/toggle_state.zig` - `names` array parsing, `nameToId` response
+- `extension/API.md` - New `actionToggleState/subscribe` section
+- `frontend/src/store/slices/toolbarSlice.ts` - String-keyed maps, `getReaperActionIds()` helper
+- `frontend/src/components/Toolbar/Toolbar.tsx` - Updated subscription logic
+- `frontend/src/views/actions/components/ActionsSection.tsx` - Updated interface
+- `frontend/src/views/actions/components/ActionsGrid.tsx` - Updated interface
+
+**Key insight:** Change events from server use numeric IDs (efficient for polling). Frontend maintains `nameToId` mapping to translate these back to the stable string identifiers used for lookup.

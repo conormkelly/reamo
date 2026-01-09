@@ -5,9 +5,23 @@ const mod = @import("mod.zig");
 const logging = @import("../logging.zig");
 
 // Get toggle state of an action (1=on, 0=off, -1=not a toggle action)
+// Accepts either:
+//   - commandId (int): Numeric command ID (for native REAPER actions)
+//   - name (string): Named command identifier like "_SWS_SAVESEL" (for SWS/scripts)
+// If both provided, name takes precedence.
 pub fn handleGetToggleState(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const command_id = cmd.getInt("commandId") orelse {
-        response.err("MISSING_COMMAND_ID", "commandId is required");
+    // Try named command first (for SWS/scripts)
+    const command_id: c_int = if (cmd.getString("name")) |name| blk: {
+        const resolved = api.namedCommandLookup(name);
+        if (resolved == 0) {
+            response.err("NOT_FOUND", "Named command not found");
+            return;
+        }
+        break :blk resolved;
+    } else if (cmd.getInt("commandId")) |id| blk: {
+        break :blk id;
+    } else {
+        response.err("MISSING_PARAM", "commandId or name is required");
         return;
     };
 
