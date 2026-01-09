@@ -125,7 +125,7 @@ function LoadingScreen() {
   return (
     <div className="flex flex-col items-center justify-center h-screen-safe gap-6 bg-bg-app px-6">
       {/* REAmo heading */}
-      <h1 className="text-2xl font-semibold tracking-wide text-white">REAmo</h1>
+      <h1 className="text-2xl font-semibold tracking-wide text-text-primary">REAmo</h1>
 
       {/* Phone/remote icon with rotating Venn diagram circles */}
       <svg className="w-32 h-32" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 80">
@@ -155,7 +155,7 @@ function LoadingScreen() {
           </p>
           <button
             onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-primary hover:bg-primary-hover text-text-primary text-sm font-medium rounded-lg transition-colors"
+            className="px-4 py-2 bg-primary hover:bg-primary-hover text-text-on-primary text-sm font-medium rounded-lg transition-colors"
           >
             Retry
           </button>

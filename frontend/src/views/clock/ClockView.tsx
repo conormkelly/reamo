@@ -97,7 +97,7 @@ export function ClockView(): ReactElement {
   return (
     <div
       data-view="clock"
-      className="h-full w-full bg-black text-white flex flex-col select-none overflow-hidden relative"
+      className="h-full w-full bg-bg-clock text-text-primary flex flex-col select-none overflow-hidden relative"
       style={{ containerType: 'size' }}
     >
       {/* Header overlay - semi-transparent so clock content shows through */}
@@ -108,7 +108,7 @@ export function ClockView(): ReactElement {
             onClick={() => setClockEditMode(!clockEditMode)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
               clockEditMode
-                ? 'bg-primary text-text-primary'
+                ? 'bg-primary text-text-on-primary'
                 : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
             }`}
           >

@@ -198,7 +198,7 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
       {/* Time display - compact */}
       <div className={`font-mono ${isRight ? 'text-left' : 'text-right'}`}>
         <div className="text-lg font-medium">
-          <span ref={beatsRef} className="text-white">1.1.00</span>
+          <span ref={beatsRef} className="text-text-primary">1.1.00</span>
         </div>
         <div className="text-xs text-text-secondary">
           <span ref={timeRef}>0:00</span>

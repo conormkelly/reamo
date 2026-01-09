@@ -160,7 +160,7 @@ export function ActionsSection({
                   onClick={() => onSetAlign(align)}
                   className={`p-1 transition-colors ${
                     section.align === align
-                      ? 'bg-primary text-text-primary'
+                      ? 'bg-primary text-text-on-primary'
                       : 'bg-bg-elevated text-text-secondary hover:bg-bg-hover'
                   }`}
                   title={`Align ${align}`}

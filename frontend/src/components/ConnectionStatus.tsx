@@ -195,7 +195,7 @@ export function ConnectionBanner({ className = '' }: ConnectionBannerProps): Rea
       {gaveUp && (
         <button
           onClick={retry}
-          className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-text-primary bg-error-action hover:bg-error rounded transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-text-on-error bg-error-action hover:bg-error rounded transition-colors"
         >
           <RefreshCw size={12} />
           Reconnect

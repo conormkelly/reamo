@@ -68,11 +68,11 @@ export function ToggleButton({
   };
 
   const activeColorClasses = {
-    green: 'bg-success-action text-text-primary hover:bg-success',
-    blue: 'bg-primary text-text-primary hover:bg-primary-hover',
+    green: 'bg-success-action text-text-on-success hover:bg-success',
+    blue: 'bg-primary text-text-on-primary hover:bg-primary-hover',
     yellow: 'bg-toggle-yellow text-toggle-yellow-text hover:bg-toggle-yellow-hover',
-    red: 'bg-error-action text-text-primary hover:bg-error',
-    purple: 'bg-accent-region text-text-primary hover:bg-accent-region-hover',
+    red: 'bg-error-action text-text-on-error hover:bg-error',
+    purple: 'bg-accent-region text-text-on-accent hover:bg-accent-region-hover',
   };
 
   const inactiveClasses = 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover';

@@ -10,6 +10,7 @@
   --color-bg-elevated: #374151;
   --color-bg-hover: #4b5563;
   --color-bg-disabled: #6b7280;
+  --color-bg-clock: #000000;           /* clock view background (dark: black, light: white) */
 
   /* === Text === */
   --color-text-primary: #ffffff;
@@ -17,6 +18,13 @@
   --color-text-tertiary: #d1d5db;
   --color-text-muted: #6b7280;
   --color-text-disabled: #4b5563;
+
+  /* === Text on Colored Backgrounds (always light for contrast) === */
+  --color-text-on-primary: #ffffff;   /* white text on blue bg */
+  --color-text-on-success: #ffffff;   /* white text on green bg */
+  --color-text-on-error: #ffffff;     /* white text on red bg */
+  --color-text-on-accent: #ffffff;    /* white text on purple bg */
+  --color-text-marker: #ffffff;       /* marker pill text (dark: white, light: dark) */
 
   /* === Borders === */
   --color-border-default: #4b5563;

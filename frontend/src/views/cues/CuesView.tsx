@@ -289,7 +289,7 @@ export function CuesView(): ReactElement {
             </p>
             <button
               onClick={() => setShowCreateModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-primary text-text-primary rounded-lg hover:bg-primary-hover transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-text-on-primary rounded-lg hover:bg-primary-hover transition-colors"
             >
               <Plus size={18} />
               <span>Create Playlist</span>
@@ -339,7 +339,7 @@ export function CuesView(): ReactElement {
           onClick={() => setReorderMode(!reorderMode)}
           className={`p-1.5 rounded-lg transition-colors ${
             reorderMode
-              ? 'bg-primary hover:bg-primary-hover text-text-primary'
+              ? 'bg-primary hover:bg-primary-hover text-text-on-primary'
               : 'bg-bg-surface hover:bg-bg-elevated'
           }`}
           title={reorderMode ? 'Exit reorder mode' : 'Reorder entries'}

@@ -39,7 +39,7 @@ export function MuteButton({
       title={isMuted ? 'Unmute Track' : 'Mute Track'}
       className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
         mixerLocked ? 'opacity-50 cursor-not-allowed' : ''
-      } ${isMuted ? 'bg-primary-hover text-text-primary' : inactiveBg} ${className}`}
+      } ${isMuted ? 'bg-primary-hover text-text-on-primary' : inactiveBg} ${className}`}
     >
       M
     </button>

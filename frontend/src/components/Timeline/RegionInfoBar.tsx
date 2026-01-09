@@ -682,7 +682,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
       {region && (
         <button
           onClick={() => setShowDeleteModal(true)}
-          className="flex items-center gap-1.5 px-3 py-2 h-10 bg-error-action/80 hover:bg-error text-text-primary text-sm font-medium rounded-lg transition-colors flex-shrink-0"
+          className="flex items-center gap-1.5 px-3 py-2 h-10 bg-error-action/80 hover:bg-error text-text-on-error text-sm font-medium rounded-lg transition-colors flex-shrink-0"
           title="Delete selected region"
         >
           <Trash2 size={16} />

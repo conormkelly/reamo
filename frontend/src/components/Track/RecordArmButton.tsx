@@ -41,7 +41,7 @@ export function RecordArmButton({
       title={isRecordArmed ? 'Disarm Track' : 'Arm Track for Recording'}
       className={`px-2 py-1 rounded text-sm font-medium transition-colors ${
         mixerLocked ? 'opacity-50 cursor-not-allowed' : ''
-      } ${isRecordArmed ? 'bg-error-action text-text-primary' : inactiveBg} ${className}`}
+      } ${isRecordArmed ? 'bg-error-action text-text-on-error' : inactiveBg} ${className}`}
     >
       <Circle size={14} className={`inline-block ${isRecordArmed ? 'fill-current' : ''}`} />
     </button>

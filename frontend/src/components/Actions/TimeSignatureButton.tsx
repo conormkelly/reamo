@@ -183,7 +183,7 @@ export function TimeSignatureButton({
                   onClick={() => handlePreset(preset.num, preset.denom)}
                   className={`px-3 py-1.5 rounded text-sm font-mono transition-colors ${
                     numerator === preset.num && denominator === preset.denom
-                      ? 'bg-primary text-text-primary'
+                      ? 'bg-primary text-text-on-primary'
                       : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
                   }`}
                 >

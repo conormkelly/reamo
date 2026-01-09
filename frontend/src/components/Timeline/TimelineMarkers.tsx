@@ -129,7 +129,7 @@ export function TimelineMarkerPills({
             onPointerUp={isDisabled ? undefined : handleMarkerPointerUp}
             onPointerCancel={isDisabled ? undefined : handleMarkerPointerUp}
           >
-            <span className="text-[10px] font-bold leading-none text-white">
+            <span className="text-[10px] font-bold leading-none text-text-marker">
               {marker.id}
             </span>
           </div>

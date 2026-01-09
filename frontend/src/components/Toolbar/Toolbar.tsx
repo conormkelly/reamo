@@ -40,7 +40,7 @@ export function ToolbarHeaderControls(): ReactElement {
         onClick={handleToggleEditMode}
         className={`px-2 py-1 text-xs rounded transition-colors flex items-center gap-1 ${
           toolbarEditMode
-            ? 'bg-primary text-text-primary'
+            ? 'bg-primary text-text-on-primary'
             : 'bg-bg-elevated hover:bg-bg-hover text-text-tertiary'
         }`}
       >
@@ -59,7 +59,7 @@ export function ToolbarHeaderControls(): ReactElement {
                   onClick={() => setToolbarAlign(align)}
                   className={`p-1.5 transition-colors ${
                     toolbarAlign === align
-                      ? 'bg-primary text-text-primary'
+                      ? 'bg-primary text-text-on-primary'
                       : 'bg-bg-elevated text-text-secondary hover:bg-bg-hover'
                   }`}
                   title={`Align ${align}`}
@@ -71,7 +71,7 @@ export function ToolbarHeaderControls(): ReactElement {
           </div>
           <button
             onClick={handleAddClick}
-            className="px-2 py-1 text-xs bg-success-action hover:bg-success text-text-primary rounded transition-colors flex items-center gap-1"
+            className="px-2 py-1 text-xs bg-success-action hover:bg-success text-text-on-success rounded transition-colors flex items-center gap-1"
           >
             <Plus size={12} />
             Add

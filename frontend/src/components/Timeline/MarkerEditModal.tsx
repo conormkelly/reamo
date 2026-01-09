@@ -292,7 +292,7 @@ export function MarkerEditModal({
             <button
               onClick={handleSaveNameColor}
               disabled={isSaving}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-success-action hover:bg-success text-text-primary rounded font-medium transition-colors disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-success-action hover:bg-success text-text-on-success rounded font-medium transition-colors disabled:opacity-50"
             >
               <Save size={16} />
               {isSaving ? 'Saving...' : 'Save Name & Color'}
@@ -312,7 +312,7 @@ export function MarkerEditModal({
                 onClick={() => setEditMode('time')}
                 className={`flex-1 px-3 py-1.5 text-sm font-medium transition-colors ${
                   editMode === 'time'
-                    ? 'bg-primary text-text-primary'
+                    ? 'bg-primary text-text-on-primary'
                     : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
                 }`}
               >
@@ -322,7 +322,7 @@ export function MarkerEditModal({
                 onClick={() => setEditMode('beats')}
                 className={`flex-1 px-3 py-1.5 text-sm font-medium transition-colors ${
                   editMode === 'beats'
-                    ? 'bg-primary text-text-primary'
+                    ? 'bg-primary text-text-on-primary'
                     : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
                 }`}
               >
@@ -353,7 +353,7 @@ export function MarkerEditModal({
           {/* Move Button */}
           <button
             onClick={handleMove}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded font-medium transition-colors bg-primary hover:bg-primary-hover text-text-primary"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded font-medium transition-colors bg-primary hover:bg-primary-hover text-text-on-primary"
           >
             <Move size={16} />
             Move to Position

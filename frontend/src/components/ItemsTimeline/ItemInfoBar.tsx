@@ -146,7 +146,7 @@ export function ItemInfoBar({ item, className = '' }: ItemInfoBarProps): ReactEl
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
-        <span className="text-sm text-white min-w-[60px] text-center">
+        <span className="text-sm text-text-primary min-w-[60px] text-center">
           Take {item.activeTakeIdx + 1}/{takeCount}
         </span>
         <button

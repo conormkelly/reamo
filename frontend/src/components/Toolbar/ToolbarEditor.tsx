@@ -317,7 +317,7 @@ export function ToolbarEditor({
                   onClick={() => setActionType(opt.value as ActionType)}
                   className={`px-3 py-2 rounded text-sm transition-colors ${
                     actionType === opt.value
-                      ? 'bg-primary text-text-primary'
+                      ? 'bg-primary text-text-on-primary'
                       : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
                   }`}
                 >
@@ -485,7 +485,7 @@ export function ToolbarEditor({
                 onClick={handleDeleteClick}
                 className={`px-3 py-2 rounded transition-colors flex items-center gap-1 ${
                   confirmingDelete
-                    ? 'bg-error-action text-text-primary hover:bg-error'
+                    ? 'bg-error-action text-text-on-error hover:bg-error'
                     : 'text-delete-text hover:text-delete-text-hover hover:bg-delete-dim-bg'
                 }`}
               >
@@ -506,7 +506,7 @@ export function ToolbarEditor({
               disabled={!isValid}
               className={`px-4 py-2 rounded transition-colors ${
                 isValid
-                  ? 'bg-primary hover:bg-primary-hover text-text-primary'
+                  ? 'bg-primary hover:bg-primary-hover text-text-on-primary'
                   : 'bg-bg-elevated text-text-muted cursor-not-allowed'
               }`}
             >

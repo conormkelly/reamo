@@ -241,7 +241,7 @@ export function NotesView(): ReactElement {
           disabled={!canSave || isSaving}
           className={`flex-1 py-3 rounded-lg font-medium transition-colors ${
             canSave && !isSaving
-              ? 'bg-primary hover:bg-primary-hover text-text-primary'
+              ? 'bg-primary hover:bg-primary-hover text-text-on-primary'
               : 'bg-bg-deep text-text-disabled cursor-not-allowed'
           }`}
         >

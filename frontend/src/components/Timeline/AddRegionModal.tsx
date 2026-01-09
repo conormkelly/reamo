@@ -177,7 +177,7 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
-          <h2 className="text-lg font-semibold text-white">Add Region</h2>
+          <h2 className="text-lg font-semibold text-text-primary">Add Region</h2>
           <button
             onClick={onClose}
             className="p-1 text-text-secondary hover:text-text-primary transition-colors"
@@ -312,7 +312,7 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
           </button>
           <button
             onClick={handleCreate}
-            className="px-4 py-2 text-sm font-medium text-text-primary bg-accent-region hover:bg-accent-region-hover rounded-lg transition-colors"
+            className="px-4 py-2 text-sm font-medium text-text-on-accent bg-accent-region hover:bg-accent-region-hover rounded-lg transition-colors"
           >
             Add Region
           </button>

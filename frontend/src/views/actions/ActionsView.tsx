@@ -208,7 +208,7 @@ export function ActionsView(): ReactElement {
                   onClick={() => setVerticalAlign(align)}
                   className={`p-1.5 transition-colors ${
                     verticalAlign === align
-                      ? 'bg-primary text-text-primary'
+                      ? 'bg-primary text-text-on-primary'
                       : 'bg-bg-elevated text-text-secondary hover:bg-bg-hover'
                   }`}
                   title={`Align sections ${align}`}
@@ -224,7 +224,7 @@ export function ActionsView(): ReactElement {
         {editMode && (
           <button
             onClick={() => setIsAddingSection(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-success-action text-text-primary rounded-lg hover:bg-success transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-success-action text-text-on-success rounded-lg hover:bg-success transition-colors"
           >
             <Plus size={16} />
             <span className="text-sm">Section</span>
@@ -236,7 +236,7 @@ export function ActionsView(): ReactElement {
           onClick={() => setEditMode(!editMode)}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
             editMode
-              ? 'bg-primary text-text-primary'
+              ? 'bg-primary text-text-on-primary'
               : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
           }`}
         >
@@ -263,7 +263,7 @@ export function ActionsView(): ReactElement {
                 setEditMode(true);
                 setIsAddingSection(true);
               }}
-              className="flex items-center gap-2 px-4 py-2 bg-primary text-text-primary rounded-lg hover:bg-primary-hover transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-text-on-primary rounded-lg hover:bg-primary-hover transition-colors"
             >
               <Plus size={18} />
               <span>Create Section</span>

@@ -70,8 +70,8 @@ export function ActionButton({
 
   const variantClasses = {
     default: 'bg-bg-elevated text-text-primary hover:bg-bg-hover active:bg-bg-disabled',
-    primary: 'bg-primary text-text-primary hover:bg-primary-hover active:bg-primary-active',
-    danger: 'bg-error-action text-text-primary hover:bg-error active:bg-error-action',
+    primary: 'bg-primary text-text-on-primary hover:bg-primary-hover active:bg-primary-active',
+    danger: 'bg-error-action text-text-on-error hover:bg-error active:bg-error-action',
     ghost: 'bg-transparent text-text-tertiary hover:bg-bg-surface active:bg-bg-elevated',
   };
 

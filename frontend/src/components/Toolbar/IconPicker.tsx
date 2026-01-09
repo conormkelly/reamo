@@ -202,7 +202,7 @@ export function IconPicker({ value, onChange, onClose }: IconPickerProps) {
                   onClick={() => onChange(kebabName)}
                   className={`p-2 rounded transition-colors flex items-center justify-center ${
                     isSelected
-                      ? 'bg-primary text-text-primary ring-2 ring-control-ring'
+                      ? 'bg-primary text-text-on-primary ring-2 ring-control-ring'
                       : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
                   }`}
                   title={kebabName}

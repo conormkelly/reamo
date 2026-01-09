@@ -90,7 +90,7 @@ export function DeleteRegionModal({
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+          <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">
             <Trash2 size={20} className="text-error" />
             Delete Region
           </h2>
@@ -111,7 +111,7 @@ export function DeleteRegionModal({
               style={{ backgroundColor: region.color ? reaperColorToRgba(region.color, 1) ?? 'var(--color-text-muted)' : 'var(--color-text-muted)' }}
             />
             <div>
-              <div className="text-white font-medium">{region.name}</div>
+              <div className="text-text-primary font-medium">{region.name}</div>
               <div className="text-sm text-text-secondary">{durationText}</div>
             </div>
           </div>
@@ -136,7 +136,7 @@ export function DeleteRegionModal({
                   className="mt-1 text-accent-region focus:ring-accent-region"
                 />
                 <div>
-                  <div className="text-white font-medium">Leave empty space</div>
+                  <div className="text-text-primary font-medium">Leave empty space</div>
                   <div className="text-sm text-text-secondary">
                     Delete the region and leave a gap in its place
                   </div>
@@ -163,7 +163,7 @@ export function DeleteRegionModal({
                   className="mt-1 text-accent-region focus:ring-accent-region"
                 />
                 <div>
-                  <div className="text-white font-medium">Extend previous region</div>
+                  <div className="text-text-primary font-medium">Extend previous region</div>
                   <div className="text-sm text-text-secondary">
                     {hasPreviousRegion
                       ? `Extend "${previousRegion?.name}" to fill the gap`
@@ -189,7 +189,7 @@ export function DeleteRegionModal({
                   className="mt-1 text-accent-region focus:ring-accent-region"
                 />
                 <div>
-                  <div className="text-white font-medium">Ripple delete</div>
+                  <div className="text-text-primary font-medium">Ripple delete</div>
                   <div className="text-sm text-text-secondary">
                     Delete and shift all following regions back to close the gap
                   </div>
@@ -214,7 +214,7 @@ export function DeleteRegionModal({
           </button>
           <button
             onClick={handleDelete}
-            className="px-4 py-2 text-sm font-medium text-text-primary bg-error-action hover:bg-error rounded-lg transition-colors flex items-center gap-1.5"
+            className="px-4 py-2 text-sm font-medium text-text-on-error bg-error-action hover:bg-error rounded-lg transition-colors flex items-center gap-1.5"
           >
             <Trash2 size={16} />
             Delete Region

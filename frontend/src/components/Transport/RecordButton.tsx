@@ -24,7 +24,7 @@ export function RecordButton({ className = '' }: RecordButtonProps): ReactElemen
       onClick={handleClick}
       className={`px-4 py-2 rounded font-medium transition-colors ${
         isRecording
-          ? 'bg-error text-text-primary animate-pulse'
+          ? 'bg-error text-text-on-error animate-pulse'
           : 'bg-bg-elevated text-text-primary hover:bg-error-action'
       } ${className}`}
     >

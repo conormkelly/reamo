@@ -218,7 +218,7 @@ export function PlaylistEntryRow({
             onClick={() => onSetLoopCount(entry.loopCount === -1 ? 1 : -1)}
             className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${
               entry.loopCount === -1
-                ? 'bg-accent-region hover:bg-accent-region-hover text-text-primary'
+                ? 'bg-accent-region hover:bg-accent-region-hover text-text-on-accent'
                 : 'bg-bg-elevated hover:bg-bg-hover'
             }`}
             title="Infinite loops"

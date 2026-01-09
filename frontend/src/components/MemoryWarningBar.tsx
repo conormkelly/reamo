@@ -108,7 +108,7 @@ export function MemoryWarningBar({ className = '' }: MemoryWarningBarProps): Rea
           >
             <div className="flex items-center gap-2 mb-4">
               <AlertTriangle size={20} className="text-memory-warning-icon" />
-              <h2 className="text-lg font-semibold text-white">Memory Usage Warning</h2>
+              <h2 className="text-lg font-semibold text-text-primary">Memory Usage Warning</h2>
             </div>
 
             {statsLoading ? (

@@ -59,7 +59,7 @@ export function TimelineModeToggle(): ReactElement {
           disabled={hasPending}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${
             timelineMode === 'navigate'
-              ? 'bg-primary text-text-primary'
+              ? 'bg-primary text-text-on-primary'
               : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
           } ${hasPending ? 'cursor-not-allowed opacity-50' : ''}`}
           title="Navigate mode: Tap to seek, drag for time selection"
@@ -72,7 +72,7 @@ export function TimelineModeToggle(): ReactElement {
           disabled={hasPending}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${
             timelineMode === 'items'
-              ? 'bg-success-action text-text-primary'
+              ? 'bg-success-action text-text-on-success'
               : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
           } ${hasPending ? 'cursor-not-allowed opacity-50' : ''}`}
           title="Items mode: View waveforms and manage takes"
@@ -85,7 +85,7 @@ export function TimelineModeToggle(): ReactElement {
           disabled={hasPending}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${
             timelineMode === 'regions'
-              ? 'bg-accent-region text-text-primary'
+              ? 'bg-accent-region text-text-on-accent'
               : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
           } ${hasPending ? 'cursor-not-allowed opacity-50' : ''}`}
           title="Regions mode: Edit region positions (ripple edit)"

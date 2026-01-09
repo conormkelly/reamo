@@ -384,7 +384,7 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
             </button>
             <button
               onClick={handleApply}
-              className="px-4 py-2 text-sm font-medium text-text-primary bg-accent-region hover:bg-accent-region-hover rounded-lg transition-colors"
+              className="px-4 py-2 text-sm font-medium text-text-on-accent bg-accent-region hover:bg-accent-region-hover rounded-lg transition-colors"
             >
               Apply
             </button>
