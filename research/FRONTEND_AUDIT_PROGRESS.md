@@ -139,26 +139,32 @@ REAmo is a React PWA control surface for REAPER DAW. It runs on iPad/iPhone for 
 | `startTransition` for expensive updates | N/A | Zustand uses `useSyncExternalStore` internally which handles this |
 | 60fps `style.left`/`style.width` animations | Deferred | Timeline components use percentage-based left/width - requires canvas migration for true compositor-only rendering |
 
+### Batch 9: Design System + Code Organization (DONE)
+
+| Issue | Fix | Files Modified |
+|-------|-----|----------------|
+| Design tokens / CSS variables | Added 129 semantic tokens to `@theme` block, converted all Tailwind color classes | `src/index.css`, ~60 component files |
+| On-color text tokens | Added `text-on-primary`, `text-on-success`, etc. for buttons on colored backgrounds | `src/index.css`, ~35 files |
+| Unified drag-and-drop | Created `useListReorder` hook with HTML5 drag + touch fallback | `src/hooks/useListReorder.ts` (new), `ReorderSectionsModal.tsx`, `Toolbar.tsx`, `ActionsSection.tsx` |
+
+**Commits:**
+- `74abfcd` - Complete CSS design tokens refactor (129 tokens)
+- `6f42ffb` - Add on-color text tokens for theme robustness
+- `781e156` - Unify drag-and-drop with useListReorder hook
+
 ---
 
 ## Remaining Items (Priority Order)
 
-### Medium Priority / Architectural Refactors
+### Deferred / Future Work
 
-| Item | Notes |
-|------|-------|
-| **Design tokens / CSS variables** | ~50+ hardcoded hex colors across 23 files. Should extract to CSS custom properties (e.g., `--color-playhead: #337066`, `--color-marker-default: #dc2626`, `--color-region-default: #6b7280`). Files: TimelinePlayhead, TimelineMarkers, ToolbarButton, PlaylistEntryRow, index.css, etc. |
-| **Unified drag-and-drop system** | 5+ different drag implementations: (1) Timeline hooks (usePlayheadDrag, useMarkerDrag, useRegionDrag) use pointer capture, (2) CuesView/PlaylistEntryRow use HTML5 drag + touch fallback, (3) Toolbar uses HTML5 draggable, (4) ActionsView uses HTML5 draggable, (5) ClockView has custom drag, (6) ReorderSectionsModal has another. Consider unified hook or library. |
-| Canvas-based Timeline rendering | TimelinePlayhead, PlaylistEntryRow use `style.left`/`style.width` at 60fps which triggers layout. Canvas would enable compositor-only rendering. Significant refactor. |
-
-### Low Priority / Nice to Have
-
-| Item | Notes |
-|------|-------|
-| Small touch targets (24x24 color swatches) | ColorPickerInput has 24x24 swatches - below 44x44 recommended. Low priority - rarely used during performance. |
-| Service worker for offline caching | Currently relies on HTML mtime check for updates |
-| useShallow for multi-value selectors | Not currently needed (no array destructuring found) |
-| Test coverage expansion | 200 source files, 17 test files - prioritize WebSocketConnection, regionEditSlice |
+| Item | Notes | Priority |
+|------|-------|----------|
+| Canvas-based Timeline rendering | `style.left`/`style.width` at 60fps triggers layout. Canvas would enable compositor-only rendering. Significant refactor. | Medium |
+| Service worker for offline caching | Currently relies on HTML mtime check for updates. Not critical for local REAPER connection. | Low |
+| Test coverage expansion | 200 source files, 17 test files - prioritize WebSocketConnection, regionEditSlice if needed. | Low |
+| Small touch targets (24x24 color swatches) | ColorPickerInput swatches below 44x44 minimum. Rarely used during performance. | Low |
+| Frame rate monitoring | No Battery API on iOS Safari - would need indirect detection. | Low |
 
 ### Checklist Coverage Summary
 
@@ -171,25 +177,25 @@ REAmo is a React PWA control surface for REAPER DAW. It runs on iPad/iPhone for 
 | 3. WebSocket Lifecycle | ✅ Complete | sendAsync promises resolved on disconnect, reconnection tested |
 | 4. TypeScript Strictness | ✅ Complete | Only 4 `as unknown as` uses, all necessary for WS typing |
 | 5. Zustand Patterns | ✅ Complete | get() in actions OK, Map mutations create new Maps, localStorage try-catch |
-| 6. Touch/Gesture | ⚠️ Partial | touch-action added, pointer capture error handling added; drag unification deferred |
-| 7. PWA Issues | ⚠️ Partial | Safe areas complete; service worker deferred |
+| 6. Touch/Gesture | ✅ Complete | touch-action added, pointer capture error handling, useListReorder unified DnD |
+| 7. PWA Issues | ✅ Complete | Safe areas, -webkit-touch-callout, localStorage try-catch. Service worker deferred. |
 | 8. Error Boundaries | ✅ Complete | ErrorBoundary added, React 19 error callbacks added |
 | 9. Testing Gaps | ⏸️ Deferred | Low priority - current coverage adequate for production |
 | 10. Bundle Analysis | ✅ Complete | IconPicker lazy loaded, console.log stripped in prod |
 | 11. Accessibility | ✅ Complete | aria-live regions, prefers-reduced-motion, aria-label/pressed on buttons |
+| 12. Design System | ✅ Complete | 129 semantic tokens, on-color text tokens, zero Tailwind color classes remaining |
 
 ---
 
-## Key Files to Read
+## Related Documentation
 
-When continuing this audit, read these files for context:
-
-1. **This file** - `research/FRONTEND_AUDIT_PROGRESS.md`
-2. **Full checklist** - `research/FRONTEND_PRODUCTION_REVIEW_CHECKLIST.md`
-3. **Original research query** - `research/FRONTEND_PRODUCTION_CHECKLIST_QUERY.md`
-4. **Stable refs module** - `src/store/stableRefs.ts`
-5. **WebSocket connection** - `src/core/WebSocketConnection.ts` (iOS Safari workarounds)
-6. **Store structure** - `src/store/index.ts` (17 slices)
+| Document | Purpose |
+|----------|---------|
+| `frontend/FRONTEND_DEVELOPMENT.md` | **Best practices guide** - Patterns, anti-patterns, code conventions |
+| `research/FRONTEND_PRODUCTION_REVIEW_CHECKLIST.md` | Original audit checklist with grep patterns |
+| `research/css-var-refactor.md` | Design token system reference (129 tokens) |
+| `src/store/stableRefs.ts` | Stable empty references for Zustand selectors |
+| `src/core/WebSocketConnection.ts` | iOS Safari workarounds |
 
 ---
 
@@ -203,36 +209,8 @@ npm run test           # Run tests
 npm run lint           # Type check + lint
 ```
 
-**Bundle size target:** ~1.0MB (currently 1,038 kB - acceptable)
+**Bundle size target:** ≤1,050 kB (currently ~1,048 kB)
 
 ---
 
-## Notes for Future Sessions
-
-1. **Timer cleanup pattern** - All gesture hooks should have:
-   ```typescript
-   useEffect(() => {
-     return () => {
-       if (timerRef.current) clearTimeout(timerRef.current);
-     };
-   }, []);
-   ```
-
-2. **Stable selector pattern** - Use frozen refs for fallbacks:
-   ```typescript
-   // BAD: Creates new object each render
-   const tracks = useReaperStore((s) => s?.tracks ?? {});
-
-   // GOOD: Uses stable reference
-   const tracks = useReaperStore((s) => s?.tracks ?? EMPTY_TRACKS);
-   ```
-
-3. **iOS Safari quirks** - WebSocketConnection.ts has extensive workarounds. Don't remove:
-   - Iframe warmup for NSURLSession lazy init
-   - Focus cycle trick for PWA cold start
-   - CONNECTING state timeout (5s) for frozen sockets
-   - Force reconnect on visibility return
-
----
-
-*Last updated: Session completed Batch 1-8 (all high-priority items complete, canvas migration noted for future)*
+*Last updated: 2026-01-09 - Audit complete. All high-priority items addressed. See `FRONTEND_DEVELOPMENT.md` for implementation guide.*

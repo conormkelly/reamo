@@ -9,6 +9,7 @@
     "build": "tsc -b && vite build && cp ./dist/index.html ../reamo.html",
     "deploy": "npm run build && cp ./dist/index.html ../reamo.html",
     "release": "npm run deploy && node scripts/create-release-zip.js",
+    "analyze": "tsc -b && vite build --mode analyze",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "cross-env NODE_OPTIONS=--no-webstorage vitest",
@@ -32,6 +33,7 @@
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.1.1",
     "autoprefixer": "^10.4.22",
     "cross-env": "^10.1.0",
@@ -41,11 +43,13 @@
     "globals": "^16.5.0",
     "jsdom": "^27.3.0",
     "postcss": "^8.5.6",
+    "rollup-plugin-visualizer": "^6.0.5",
     "tailwindcss": "^4.1.17",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
     "vite": "^7.2.4",
     "vite-plugin-singlefile": "^2.3.0",
-    "vitest": "^4.0.16"
+    "vitest": "^4.0.16",
+    "ws": "^8.19.0"
   }
 }

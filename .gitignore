@@ -15,6 +15,7 @@ dist-ssr
 playwright-report
 test-results
 releases
+frontend/bundle-stats.html
 
 # Extension build artifacts (Zig)
 .zig-cache

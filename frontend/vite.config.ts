@@ -1,11 +1,21 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { viteSingleFile } from 'vite-plugin-singlefile'
+import { visualizer } from 'rollup-plugin-visualizer'
 import { resolve } from 'path'
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), viteSingleFile()],
+  plugins: [
+    react(),
+    viteSingleFile(),
+    mode === 'analyze' && visualizer({
+      open: true,
+      filename: 'bundle-stats.html',
+      gzipSize: true,
+      brotliSize: true,
+    }),
+  ].filter(Boolean),
   build: {
     target: 'esnext',
     // Output to dist folder

@@ -1,9 +1,14 @@
 /**
- * IconPicker - Searchable grid of Lucide icons
+ * IconPicker - Searchable grid of curated DAW icons
+ *
+ * Uses the curated icon set (292 icons) instead of all 1663 Lucide icons.
+ * Supports semantic search via iconSearchIndex (e.g., "record" finds Circle, Mic, Disc).
  */
 
 import { useState, useMemo, useEffect } from 'react';
-import { X, icons, type LucideIcon } from 'lucide-react';
+import { X } from 'lucide-react';
+import { commonIcons, type CommonIconName } from '../../icons/commonIcons';
+import { searchIcons } from '../../icons/iconSearchIndex';
 
 interface IconPickerProps {
   value?: string;
@@ -11,109 +16,33 @@ interface IconPickerProps {
   onClose: () => void;
 }
 
-// Get all icon names from lucide-react
-const iconNames = Object.keys(icons);
+// Get all icon names from our curated set
+const iconNames = Object.keys(commonIcons) as CommonIconName[];
 
-// Audio/music related icons to show first
-const FEATURED_ICONS = [
-  'Play',
-  'Pause',
-  'Square',
-  'Circle',
-  'SkipBack',
-  'SkipForward',
-  'Repeat',
-  'Repeat1',
-  'Shuffle',
-  'Volume',
-  'Volume1',
-  'Volume2',
-  'VolumeX',
-  'Mic',
-  'Mic2',
-  'MicOff',
-  'Headphones',
-  'Speaker',
-  'Radio',
-  'Music',
-  'Music2',
-  'Music3',
-  'Music4',
-  'AudioLines',
-  'AudioWaveform',
-  'Guitar',
-  'Piano',
-  'Drum',
-  'ChevronLeft',
-  'ChevronRight',
-  'ChevronUp',
-  'ChevronDown',
-  'ArrowLeft',
-  'ArrowRight',
-  'Plus',
-  'Minus',
-  'Check',
-  'X',
-  'Power',
-  'PowerOff',
-  'Zap',
-  'Save',
-  'Download',
-  'Upload',
-  'Folder',
-  'File',
-  'FileAudio',
-  'Settings',
-  'Settings2',
-  'Sliders',
-  'SlidersHorizontal',
-  'RotateCcw',
-  'RotateCw',
-  'Undo',
-  'Undo2',
-  'Redo',
-  'Redo2',
-  'Copy',
-  'Scissors',
-  'Trash',
-  'Trash2',
-  'Edit',
-  'Edit2',
-  'Edit3',
-  'Pencil',
-  'PenTool',
-  'Layers',
-  'Layers2',
-  'Layers3',
-  'Layout',
-  'Grid',
-  'List',
-  'Clock',
-  'Timer',
-  'TimerOff',
-  'Bookmark',
-  'Star',
-  'Heart',
-  'Flag',
-  'Tag',
-  'Hash',
-  'Link',
-  'Link2',
-  'Lock',
-  'Unlock',
-  'Eye',
-  'EyeOff',
-  'Search',
-  'ZoomIn',
-  'ZoomOut',
-  'Maximize',
-  'Minimize',
-  'Move',
-  'Hand',
-  'Pointer',
-  'Target',
-  'Crosshair',
-  'Focus',
+// DAW-focused featured icons (shown first when no search)
+const FEATURED_ICONS: CommonIconName[] = [
+  // Transport
+  'Play', 'Pause', 'Square', 'Circle', 'SkipBack', 'SkipForward',
+  'Repeat', 'Repeat1', 'FastForward', 'Rewind',
+  // Audio
+  'Volume', 'Volume1', 'Volume2', 'VolumeX', 'VolumeOff',
+  'Mic', 'MicOff', 'Headphones', 'Speaker', 'AudioLines', 'AudioWaveform',
+  // Music
+  'Music', 'Music2', 'Piano', 'Radio',
+  // Editing
+  'Scissors', 'Copy', 'ClipboardPaste', 'Trash2', 'Undo2', 'Redo2',
+  // Navigation
+  'ZoomIn', 'ZoomOut', 'Move', 'Navigation', 'Target',
+  // Markers/Regions
+  'MapPin', 'Flag', 'Bookmark', 'RectangleHorizontal',
+  // Settings
+  'Settings', 'Sliders', 'SlidersHorizontal', 'SlidersVertical',
+  // Layout
+  'Layers', 'Rows2', 'LayoutList', 'Grid3x3',
+  // Common actions
+  'Plus', 'Minus', 'Check', 'X', 'Save', 'RefreshCw',
+  // Status
+  'Eye', 'EyeOff', 'Lock', 'Unlock', 'Power',
 ];
 
 // Convert PascalCase to kebab-case for display
@@ -136,22 +65,39 @@ export function IconPicker({ value, onChange, onClose }: IconPickerProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  // Filter icons based on search
+  // Filter icons based on search (supports semantic search)
   const filteredIcons = useMemo(() => {
-    const searchLower = search.toLowerCase();
+    const searchLower = search.toLowerCase().trim();
 
     if (!searchLower) {
-      // Show featured icons first, then others
+      // Show featured icons first, then others alphabetically
       const featured = FEATURED_ICONS.filter((name) => iconNames.includes(name));
       const others = iconNames
         .filter((name) => !FEATURED_ICONS.includes(name))
-        .slice(0, 100); // Limit to prevent performance issues
+        .sort();
       return [...featured, ...others];
     }
 
-    return iconNames
-      .filter((name) => name.toLowerCase().includes(searchLower))
-      .slice(0, 100);
+    // Semantic search: "record" finds Circle, Mic, Disc, etc.
+    const semanticMatches = searchIcons(searchLower);
+
+    // Also do direct name matching
+    const nameMatches = iconNames.filter((name) =>
+      name.toLowerCase().includes(searchLower)
+    );
+
+    // Combine results, semantic matches first, deduplicated
+    const combined = new Set<CommonIconName>();
+    for (const name of semanticMatches) {
+      if (iconNames.includes(name as CommonIconName)) {
+        combined.add(name as CommonIconName);
+      }
+    }
+    for (const name of nameMatches) {
+      combined.add(name);
+    }
+
+    return [...combined];
   }, [search]);
 
   return (
@@ -181,7 +127,7 @@ export function IconPicker({ value, onChange, onClose }: IconPickerProps) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full px-3 py-2 bg-bg-deep border border-border-default rounded text-text-primary"
-            placeholder="Search icons..."
+            placeholder="record, marker, guitar..."
             autoFocus
           />
         </div>
@@ -190,7 +136,7 @@ export function IconPicker({ value, onChange, onClose }: IconPickerProps) {
         <div className="flex-1 overflow-y-auto p-4">
           <div className="grid grid-cols-8 gap-1">
             {filteredIcons.map((name) => {
-              const IconComponent = icons[name as keyof typeof icons] as LucideIcon;
+              const IconComponent = commonIcons[name];
               if (!IconComponent) return null;
 
               const kebabName = toKebabCase(name);
