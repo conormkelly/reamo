@@ -1566,6 +1566,42 @@ Response:
 
 State values: `1` = on, `0` = off, `-1` = not a toggle action.
 
+### `action/getActions`
+
+Get all REAPER built-in actions across all sections. **Returns data.**
+
+```json
+{"type": "command", "command": "action/getActions", "id": "1"}
+```
+
+**Response:**
+
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": [
+    [40364, 0, "Options: Toggle metronome", 1],
+    [40044, 0, "Transport: Play/stop", 0]
+  ]
+}
+```
+
+**Array format:** `[commandId, sectionId, "name", isToggle]`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `commandId` | int | REAPER command ID for `action/execute` |
+| `sectionId` | int | Section ID (0=main, 100=main alt, 32060-32063=MIDI editor) |
+| `name` | string | Human-readable action name |
+| `isToggle` | int | `1` = toggle action, `0` = not a toggle |
+
+**Notes:**
+- Returns ~2500+ built-in REAPER actions
+- Does NOT include SWS, ReaPack, or custom script actions (use `action/executeByName` for those)
+- Section IDs: `0` = Main, `100` = Main (alt recording), `32060` = MIDI Editor, `32061` = MIDI Event List Editor, `32062` = MIDI Inline Editor, `32063` = Media Explorer
+
 ### `action/execute`
 
 Execute a REAPER action by command ID.
