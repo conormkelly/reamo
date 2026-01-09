@@ -471,17 +471,31 @@ bool MIDIEditor_OnCommand(HWND midieditor, int command_id);  // Execute in MIDI 
 
 ---
 
-## Post-Implementation: Documentation Updates (In Progress)
+## Post-Implementation: Documentation Updates
 
-### Phase 4: Documentation & API Completeness (Current)
-- [ ] Update `DEVELOPMENT.md` - Add "Action ID Stability" section with guidance
-- [ ] Add section-specific execution APIs to backend (don't just use Main_OnCommand)
-  - `KBD_OnMainActionEx` for main section with full control
-  - `MIDIEditor_GetActive` + `MIDIEditor_OnCommand` for MIDI Editor actions
-- [ ] Update `API.md` - Document new response format and sectionId parameters
-- [ ] Update this file with completion notes
+### Phase 4: Documentation & API Completeness (Complete ✅)
+- [x] Updated `DEVELOPMENT.md` - Added item #21 "Action ID Stability" with table and guidance
+- [x] Added section-specific execution APIs to backend:
+  - Added `MIDIEditor_GetActive` and `MIDIEditor_OnCommand` bindings to raw.zig, real.zig, mock/
+  - Updated `action/execute` and `action/executeByName` to delegate based on sectionId
+  - Main sections (0, 100, 32063): uses `Main_OnCommand`
+  - MIDI Editor sections (32060-32062): uses `MIDIEditor_OnCommand`
+  - Added `NO_MIDI_EDITOR` error when MIDI editor action requested but no editor is active
+- [x] Updated `API.md` - Documented section-specific execution and new error code
+- [x] Updated backend.zig validateBackend() with new MIDI Editor methods
 
-**Why this matters:**
-- Currently all actions route through `Main_OnCommand` which works for most cases
-- MIDI Editor actions (sectionId 32060-32062) need `MIDIEditor_OnCommand` to work when editor is focused
-- Proper delegation ensures actions execute in correct context
+**Notes:**
+- MIDI Editor actions now work correctly when sectionId 32060-32062 is passed
+- If no MIDI editor is active, returns clear error instead of silently failing
+- `KBD_OnMainActionEx` not added (Main_OnCommand sufficient for current needs)
+
+---
+
+## Feature Complete ✅
+
+All phases implemented and tested. The Action Search feature is now ready for use:
+- Users can search for any REAPER action by name, ID, or named ID
+- SWS/ReaPack/script actions properly store string identifiers (stable across restarts)
+- Native REAPER actions use numeric IDs (also stable)
+- MIDI Editor actions execute in correct context when editor is open
+- Large action lists (10k+) perform smoothly via virtualization

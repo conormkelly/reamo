@@ -1623,11 +1623,19 @@ Execute a REAPER action by command ID.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `commandId` | int | Yes | REAPER command ID |
-| `sectionId` | int | No | Section ID (default: 0). Reserved for future section-specific execution. |
+| `sectionId` | int | No | Section ID (default: 0). See section table below. |
 
 ```json
 {"type": "command", "command": "action/execute", "commandId": 40364, "id": "1"}
+{"type": "command", "command": "action/execute", "commandId": 40036, "sectionId": 32060, "id": "2"}
 ```
+
+**Section-specific execution:**
+- Main sections (0, 100, 32063): Uses `Main_OnCommand` — works for most actions
+- MIDI Editor sections (32060-32062): Uses `MIDIEditor_OnCommand` — requires MIDI editor to be active
+
+**Errors:**
+- `NO_MIDI_EDITOR` - MIDI Editor action requested but no MIDI editor window is active
 
 ### `action/executeByName`
 
@@ -1636,13 +1644,16 @@ Execute a REAPER action by named command identifier. Use this for SWS, ReaPack, 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `name` | string | Yes | Named command identifier (e.g., `"_SWS_ABOUT"`) |
-| `sectionId` | int | No | Section ID (default: 0). Reserved for future section-specific execution. |
+| `sectionId` | int | No | Section ID (default: 0). See section table above. |
 
 ```json
 {"type": "command", "command": "action/executeByName", "name": "_SWS_ABOUT", "id": "1"}
+{"type": "command", "command": "action/executeByName", "name": "_RS12345...", "sectionId": 32060, "id": "2"}
 ```
 
-Returns `NOT_FOUND` error if the named command doesn't exist (e.g., SWS not installed).
+**Errors:**
+- `NOT_FOUND` - Named command doesn't exist (e.g., SWS not installed)
+- `NO_MIDI_EDITOR` - MIDI Editor action requested but no MIDI editor window is active
 
 ---
 

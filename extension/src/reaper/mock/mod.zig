@@ -463,6 +463,12 @@ pub const MockBackend = struct {
     pub const sendMidiCC = project.ProjectMethods.sendMidiCC;
     pub const sendMidiPC = project.ProjectMethods.sendMidiPC;
     pub const updateTimeline = project.ProjectMethods.updateTimeline;
+
+    // =========================================================================
+    // MIDI Editor (for section-specific action execution)
+    // =========================================================================
+    pub const midiEditorGetActive = project.ProjectMethods.midiEditorGetActive;
+    pub const midiEditorOnCommand = project.ProjectMethods.midiEditorOnCommand;
 };
 
 // Validate at comptime that MockBackend has all required methods

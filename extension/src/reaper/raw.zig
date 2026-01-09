@@ -215,6 +215,10 @@ pub const Api = struct {
     getTrackGUID: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque = null, // Returns GUID*
     guidToString_fn: ?*const fn (?*anyopaque, [*]u8) callconv(.c) void = null,
 
+    // MIDI Editor - for section-specific action execution
+    midiEditor_GetActive: ?*const fn () callconv(.c) ?*anyopaque = null,
+    midiEditor_OnCommand: ?*const fn (?*anyopaque, c_int) callconv(.c) bool = null,
+
     // Load API from REAPER plugin info
     pub fn load(info: *PluginInfo) ?Api {
         const showConsoleMsg = getFunc(info, "ShowConsoleMsg", fn ([*:0]const u8) callconv(.c) void) orelse return null;
@@ -366,6 +370,9 @@ pub const Api = struct {
             // GUID functions
             .getTrackGUID = getFunc(info, "GetTrackGUID", fn (?*anyopaque) callconv(.c) ?*anyopaque),
             .guidToString_fn = getFunc(info, "guidToString", fn (?*anyopaque, [*]u8) callconv(.c) void),
+            // MIDI Editor
+            .midiEditor_GetActive = getFunc(info, "MIDIEditor_GetActive", fn () callconv(.c) ?*anyopaque),
+            .midiEditor_OnCommand = getFunc(info, "MIDIEditor_OnCommand", fn (?*anyopaque, c_int) callconv(.c) bool),
         };
     }
 
@@ -688,6 +695,19 @@ pub const Api = struct {
         const f = self.reverseNamedCommandLookup_fn orelse return null;
         const ptr = f(cmd_id) orelse return null;
         return std.mem.span(ptr);
+    }
+
+    // MIDI Editor - for section-specific action execution
+    /// Get the active MIDI editor window, or null if none is open
+    pub fn midiEditorGetActive(self: *const Api) ?*anyopaque {
+        const f = self.midiEditor_GetActive orelse return null;
+        return f();
+    }
+
+    /// Execute a command in the MIDI editor. Returns true if successful.
+    pub fn midiEditorOnCommand(self: *const Api, hwnd: ?*anyopaque, command_id: c_int) bool {
+        const f = self.midiEditor_OnCommand orelse return false;
+        return f(hwnd, command_id);
     }
 
     // Metronome state

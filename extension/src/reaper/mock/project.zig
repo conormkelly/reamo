@@ -108,6 +108,21 @@ pub const ProjectMethods = struct {
         return null;
     }
 
+    // MIDI Editor - for section-specific action execution
+    pub fn midiEditorGetActive(self: anytype) ?*anyopaque {
+        self.recordCall(.midiEditorGetActive);
+        // Mock returns null (no MIDI editor open)
+        return null;
+    }
+
+    pub fn midiEditorOnCommand(self: anytype, hwnd: ?*anyopaque, command_id: c_int) bool {
+        self.recordCall(.midiEditorOnCommand);
+        _ = hwnd;
+        _ = command_id;
+        // Mock returns true (command executed successfully)
+        return true;
+    }
+
     pub fn isMetronomeEnabled(self: anytype) bool {
         self.recordCall(.isMetronomeEnabled);
         return self.metronome_enabled;

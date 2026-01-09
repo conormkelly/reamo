@@ -213,6 +213,10 @@ pub fn validateBackend(comptime T: type) void {
 
         // UI
         "updateTimeline",
+
+        // MIDI Editor (for section-specific action execution)
+        "midiEditorGetActive",
+        "midiEditorOnCommand",
     };
 
     inline for (required_methods) |method| {

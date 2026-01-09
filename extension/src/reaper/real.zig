@@ -234,6 +234,20 @@ pub const RealBackend = struct {
         return self.inner.reverseNamedCommandLookup(cmd_id);
     }
 
+    // =========================================================================
+    // MIDI Editor (for section-specific action execution)
+    // =========================================================================
+
+    /// Get the active MIDI editor window, or null if none is open
+    pub fn midiEditorGetActive(self: *const RealBackend) ?*anyopaque {
+        return self.inner.midiEditorGetActive();
+    }
+
+    /// Execute a command in the MIDI editor. Returns true if successful.
+    pub fn midiEditorOnCommand(self: *const RealBackend, hwnd: ?*anyopaque, command_id: c_int) bool {
+        return self.inner.midiEditorOnCommand(hwnd, command_id);
+    }
+
     pub fn isMetronomeEnabled(self: *const RealBackend) bool {
         return self.inner.isMetronomeEnabled();
     }

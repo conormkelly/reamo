@@ -28,13 +28,23 @@ pub fn handleExecuteCommand(api: anytype, cmd: protocol.CommandMessage, response
     };
 
     // Optional sectionId (default: 0 = main section)
-    // Note: Main_OnCommand works for most actions across sections.
-    // MIDI Editor-specific actions may require the MIDI editor to be focused.
     const section_id = cmd.getInt("sectionId") orelse 0;
-    _ = section_id; // Reserved for future section-specific execution
 
-    api.runCommand(command_id);
-    logging.debug("Executed command {d}", .{command_id});
+    // Delegate to appropriate executor based on section
+    if (section_id >= 32060 and section_id <= 32062) {
+        // MIDI Editor sections - requires active MIDI editor window
+        const midi_hwnd = api.midiEditorGetActive();
+        if (midi_hwnd == null) {
+            response.err("NO_MIDI_EDITOR", "MIDI Editor not active");
+            return;
+        }
+        _ = api.midiEditorOnCommand(midi_hwnd, command_id);
+        logging.debug("Executed MIDI Editor command {d} in section {d}", .{ command_id, section_id });
+    } else {
+        // Main sections (0, 100, 32063) use Main_OnCommand
+        api.runCommand(command_id);
+        logging.debug("Executed command {d}", .{command_id});
+    }
     response.success(null);
 }
 
@@ -46,9 +56,7 @@ pub fn handleExecuteByName(api: anytype, cmd: protocol.CommandMessage, response:
     };
 
     // Optional sectionId (default: 0 = main section)
-    // Note: Main_OnCommand works for most actions across sections.
     const section_id = cmd.getInt("sectionId") orelse 0;
-    _ = section_id; // Reserved for future section-specific execution
 
     const command_id = api.namedCommandLookup(name);
     if (command_id == 0) {
@@ -56,8 +64,21 @@ pub fn handleExecuteByName(api: anytype, cmd: protocol.CommandMessage, response:
         return;
     }
 
-    api.runCommand(command_id);
-    logging.debug("Executed named command {s}", .{name});
+    // Delegate to appropriate executor based on section
+    if (section_id >= 32060 and section_id <= 32062) {
+        // MIDI Editor sections - requires active MIDI editor window
+        const midi_hwnd = api.midiEditorGetActive();
+        if (midi_hwnd == null) {
+            response.err("NO_MIDI_EDITOR", "MIDI Editor not active");
+            return;
+        }
+        _ = api.midiEditorOnCommand(midi_hwnd, command_id);
+        logging.debug("Executed MIDI Editor named command {s} in section {d}", .{ name, section_id });
+    } else {
+        // Main sections (0, 100, 32063) use Main_OnCommand
+        api.runCommand(command_id);
+        logging.debug("Executed named command {s}", .{name});
+    }
     response.success(null);
 }
 
