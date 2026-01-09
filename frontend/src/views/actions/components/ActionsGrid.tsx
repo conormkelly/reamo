@@ -62,8 +62,8 @@ export function ActionsGrid({
           key={action.id}
           action={action}
           toggleState={
-            action.type === 'reaper_action'
-              ? toggleStates.get(action.commandId)
+            action.type === 'reaper_action' && action.actionId && !action.actionId.startsWith('_')
+              ? toggleStates.get(parseInt(action.actionId, 10))
               : undefined
           }
           editMode={editMode}

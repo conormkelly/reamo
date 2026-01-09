@@ -22,14 +22,20 @@ export interface ToolbarActionBase {
   backgroundColor?: string; // Hex color, default "#374151"
 }
 
+/**
+ * Unified REAPER action type.
+ * - actionId: Stable identifier - numeric string for native actions ("40001"),
+ *   or named string for SWS/scripts ("_SWS_SAVESEL")
+ * - sectionId: Action section (0=Main, 32060=MIDI Editor, etc.)
+ *
+ * For native REAPER actions, actionId is the numeric command ID as a string.
+ * For SWS/ReaPack/scripts, actionId is the stable named command (starts with "_").
+ */
 export type ToolbarAction =
   | (ToolbarActionBase & {
       type: 'reaper_action';
-      commandId: number;
-    })
-  | (ToolbarActionBase & {
-      type: 'reaper_action_name';
-      name: string; // e.g., "_SWS_SAVESEL"
+      actionId: string; // "40001" (native) or "_SWS_SAVESEL" (SWS/script)
+      sectionId: number; // 0 = main, 32060 = MIDI editor, etc.
     })
   | (ToolbarActionBase & {
       type: 'midi_cc';
@@ -194,10 +200,17 @@ export const createToolbarSlice: StateCreator<ToolbarSlice> = (set, get) => ({
   },
 
   // Helpers
+  /**
+   * Get numeric command IDs for toggle state subscription.
+   * Only returns IDs for native REAPER actions (numeric actionIds).
+   * SWS/script actions (actionId starts with "_") are excluded.
+   */
   getReaperActionCommandIds: () => {
     const { toolbarActions } = get();
     return toolbarActions
       .filter((a): a is ToolbarAction & { type: 'reaper_action' } => a.type === 'reaper_action')
-      .map((a) => a.commandId);
+      .filter((a) => a.actionId && !a.actionId.startsWith('_')) // Skip SWS/script actions
+      .map((a) => parseInt(a.actionId, 10))
+      .filter((id) => !isNaN(id)); // Safety check
   },
 });

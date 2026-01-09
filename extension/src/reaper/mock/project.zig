@@ -101,6 +101,13 @@ pub const ProjectMethods = struct {
         return 0;
     }
 
+    pub fn reverseNamedCommandLookup(self: anytype, cmd_id: c_int) ?[]const u8 {
+        self.recordCall(.reverseNamedCommandLookup);
+        _ = cmd_id;
+        // Mock returns null (native REAPER actions don't have string IDs)
+        return null;
+    }
+
     pub fn isMetronomeEnabled(self: anytype) bool {
         self.recordCall(.isMetronomeEnabled);
         return self.metronome_enabled;

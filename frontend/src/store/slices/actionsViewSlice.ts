@@ -296,8 +296,10 @@ export const createActionsViewSlice: StateCreator<ActionsViewSlice> = (set, get)
     const commandIds: number[] = [];
     for (const section of actionsSections) {
       for (const action of section.actions) {
-        if (action.type === 'reaper_action') {
-          commandIds.push(action.commandId);
+        // Only include native REAPER actions (not SWS/scripts which start with "_")
+        if (action.type === 'reaper_action' && action.actionId && !action.actionId.startsWith('_')) {
+          const id = parseInt(action.actionId, 10);
+          if (!isNaN(id)) commandIds.push(id);
         }
       }
     }

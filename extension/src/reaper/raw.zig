@@ -72,6 +72,7 @@ pub const Api = struct {
     // Action enumeration
     sectionFromUniqueID: ?*const fn (c_int) callconv(.c) ?*anyopaque = null,
     kbd_enumerateActions: ?*const fn (?*anyopaque, c_int, *[*:0]const u8) callconv(.c) c_int = null,
+    reverseNamedCommandLookup_fn: ?*const fn (c_int) callconv(.c) ?[*:0]const u8 = null,
 
     // Markers & Regions
     countProjectMarkers: ?*const fn (?*anyopaque, ?*c_int, ?*c_int) callconv(.c) c_int = null,
@@ -248,6 +249,7 @@ pub const Api = struct {
             // Action enumeration
             .sectionFromUniqueID = getFunc(info, "SectionFromUniqueID", fn (c_int) callconv(.c) ?*anyopaque),
             .kbd_enumerateActions = getFunc(info, "kbd_enumerateActions", fn (?*anyopaque, c_int, *[*:0]const u8) callconv(.c) c_int),
+            .reverseNamedCommandLookup_fn = getFunc(info, "ReverseNamedCommandLookup", fn (c_int) callconv(.c) ?[*:0]const u8),
             .countProjectMarkers = getFunc(info, "CountProjectMarkers", fn (?*anyopaque, ?*c_int, ?*c_int) callconv(.c) c_int),
             .enumProjectMarkers3 = getFunc(info, "EnumProjectMarkers3", fn (?*anyopaque, c_int, ?*bool, ?*f64, ?*f64, ?*[*:0]const u8, ?*c_int, ?*c_int) callconv(.c) c_int),
             .addProjectMarker2 = getFunc(info, "AddProjectMarker2", fn (?*anyopaque, bool, f64, f64, [*:0]const u8, c_int, c_int) callconv(.c) c_int),
@@ -677,6 +679,15 @@ pub const Api = struct {
         @memcpy(buf[0..len], name[0..len]);
         buf[len] = 0;
         return f(@ptrCast(&buf));
+    }
+
+    // Reverse named command lookup: converts command ID to command name
+    // Returns null for native REAPER actions (which don't have string IDs)
+    // NOTE: Returns string WITHOUT leading underscore (e.g., "SWS_ABOUT" not "_SWS_ABOUT")
+    pub fn reverseNamedCommandLookup(self: *const Api, cmd_id: c_int) ?[]const u8 {
+        const f = self.reverseNamedCommandLookup_fn orelse return null;
+        const ptr = f(cmd_id) orelse return null;
+        return std.mem.span(ptr);
     }
 
     // Metronome state

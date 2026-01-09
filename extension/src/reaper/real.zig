@@ -230,6 +230,10 @@ pub const RealBackend = struct {
         return self.inner.enumerateActions(section, idx, name_out);
     }
 
+    pub fn reverseNamedCommandLookup(self: *const RealBackend, cmd_id: c_int) ?[]const u8 {
+        return self.inner.reverseNamedCommandLookup(cmd_id);
+    }
+
     pub fn isMetronomeEnabled(self: *const RealBackend) bool {
         return self.inner.isMetronomeEnabled();
     }

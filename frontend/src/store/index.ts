@@ -13,6 +13,7 @@ import { createMarkersSlice, type MarkersSlice } from './slices/markersSlice';
 import { createRegionEditSlice, type RegionEditSlice } from './slices/regionEditSlice';
 import { createItemsSlice, type ItemsSlice } from './slices/itemsSlice';
 import { createToolbarSlice, type ToolbarSlice } from './slices/toolbarSlice';
+import { createActionsSlice, type ActionsSlice } from './slices/actionsSlice';
 import { createStudioLayoutSlice, type StudioLayoutState } from './slices/studioLayoutSlice';
 import { createNotesSlice, type NotesSlice } from './slices/notesSlice';
 import { createPlaylistSlice, type PlaylistSlice } from './slices/playlistSlice';
@@ -62,7 +63,7 @@ import { transportEngine } from '../core/TransportAnimationEngine';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & UIPreferencesState & {
+export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & ActionsSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & UIPreferencesState & {
   // Response handler action (legacy HTTP)
   handleResponses: (responses: ParsedResponse[]) => void;
   // WebSocket message handler
@@ -88,6 +89,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   ...createRegionEditSlice(set, get, store),
   ...createItemsSlice(set, get, store),
   ...createToolbarSlice(set, get, store),
+  ...createActionsSlice(set, get, store),
   ...createStudioLayoutSlice(set, get, store),
   ...createNotesSlice(set, get, store),
   ...createPlaylistSlice(set, get, store),
@@ -369,6 +371,8 @@ export type { ItemsSlice } from './slices/itemsSlice';
 export { makeItemKey, parseItemKey } from './slices/itemsSlice';
 export type { ToolbarSlice, ToolbarAction, ToolbarActionBase, ToggleState } from './slices/toolbarSlice';
 export { TOOLBAR_STORAGE_KEY } from './slices/toolbarSlice';
+export type { ActionsSlice, ReaperAction } from './slices/actionsSlice';
+export { parseActionResponse } from './slices/actionsSlice';
 export type { StudioLayoutState, SectionId, SectionConfig } from './slices/studioLayoutSlice';
 export type { NotesSlice } from './slices/notesSlice';
 export { getNotesIsDirty, getNotesIsOverLimit, getNotesCanSave } from './slices/notesSlice';

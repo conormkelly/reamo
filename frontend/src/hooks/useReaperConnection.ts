@@ -7,8 +7,46 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { WebSocketConnection } from '../core/WebSocketConnection';
 import type { ConnectionState } from '../core/WebSocketTypes';
 import type { WSCommand } from '../core/WebSocketCommands';
-import { useReaperStore } from '../store';
+import { useReaperStore, parseActionResponse } from '../store';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
+
+/**
+ * Fetch and cache REAPER actions on connect.
+ * This runs during the splash screen to populate the action search cache.
+ */
+async function fetchActionCache(connection: WebSocketConnection): Promise<void> {
+  const store = useReaperStore.getState();
+
+  // Don't refetch if already loaded (reconnect scenario)
+  if (store.actionCache.length > 0) {
+    console.log('[useReaperConnection] Action cache already populated, skipping fetch');
+    return;
+  }
+
+  store.setActionCacheLoading(true);
+  console.log('[useReaperConnection] Fetching action cache...');
+
+  try {
+    const response = await connection.sendAsync('action/getActions', {}) as {
+      success?: boolean;
+      payload?: unknown;
+      error?: string;
+    };
+
+    if (response.success && response.payload) {
+      const actions = parseActionResponse(response.payload);
+      store.setActionCache(actions);
+      console.log(`[useReaperConnection] Action cache loaded: ${actions.length} actions`);
+    } else {
+      store.setActionCacheError(response.error ?? 'Unknown error fetching actions');
+      console.error('[useReaperConnection] Failed to fetch actions:', response.error);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    store.setActionCacheError(message);
+    console.error('[useReaperConnection] Error fetching action cache:', err);
+  }
+}
 
 export interface UseReaperConnectionOptions {
   /** WebSocket port (default: 9224) */
@@ -111,6 +149,8 @@ export function useReaperConnection(
           transportSyncEngine.setSendRaw((msg) => connection.sendRaw(msg));
           // Trigger initial clock sync
           transportSyncEngine.resync();
+          // Fetch action cache for toolbar action search (runs during splash screen)
+          fetchActionCache(connection);
         } else if (state === 'disconnected') {
           // Clear transport sync engine send function
           transportSyncEngine.clearSendRaw();

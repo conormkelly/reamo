@@ -91,6 +91,7 @@ pub const Method = enum {
     getCommandStateEx,
     getSectionFromUniqueID,
     enumerateActions,
+    reverseNamedCommandLookup,
     isMetronomeEnabled,
     getMetronomeVolume,
     setMetronomeVolume,

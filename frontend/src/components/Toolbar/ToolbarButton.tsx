@@ -72,10 +72,15 @@ export function ToolbarButton({
     // Execute action based on type
     switch (action.type) {
       case 'reaper_action':
-        sendCommand(actionCmd.execute(action.commandId));
-        break;
-      case 'reaper_action_name':
-        sendCommand(actionCmd.executeByName(action.name));
+        // Skip if actionId is missing (corrupted data)
+        if (!action.actionId) break;
+        // Use executeByName for SWS/scripts (actionId starts with "_")
+        // Use execute for native REAPER actions (numeric actionId)
+        if (action.actionId.startsWith('_')) {
+          sendCommand(actionCmd.executeByName(action.actionId, action.sectionId));
+        } else {
+          sendCommand(actionCmd.execute(parseInt(action.actionId, 10), action.sectionId));
+        }
         break;
       case 'midi_cc':
         sendCommand(midiCmd.cc(action.cc, action.value, action.channel));

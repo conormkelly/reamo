@@ -121,10 +121,12 @@ export function Toolbar(): ReactElement {
   useEffect(() => {
     if (connectionState !== 'connected' || !connection) return;
 
-    // Extract commandIds from REAPER action buttons
+    // Extract numeric commandIds from native REAPER action buttons (SWS/scripts excluded)
     const commandIds = toolbarActions
       .filter((a): a is ToolbarAction & { type: 'reaper_action' } => a.type === 'reaper_action')
-      .map((a) => a.commandId);
+      .filter((a) => a.actionId && !a.actionId.startsWith('_')) // Skip SWS/script actions
+      .map((a) => parseInt(a.actionId, 10))
+      .filter((id) => !isNaN(id));
 
     if (commandIds.length === 0) return;
 
@@ -209,8 +211,8 @@ export function Toolbar(): ReactElement {
             key={action.id}
             action={action}
             toggleState={
-              action.type === 'reaper_action'
-                ? toggleStates.get(action.commandId)
+              action.type === 'reaper_action' && action.actionId && !action.actionId.startsWith('_')
+                ? toggleStates.get(parseInt(action.actionId, 10))
                 : undefined
             }
             editMode={toolbarEditMode}

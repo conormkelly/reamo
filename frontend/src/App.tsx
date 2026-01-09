@@ -19,6 +19,9 @@ import { useReaperStore } from './store';
 import { views, type ViewId, VIEW_STORAGE_KEY, DEFAULT_VIEW } from './viewRegistry';
 
 function AppContent() {
+  // DEV FAILSAFE: Uncomment to clear all localStorage on init (useful when API changes break stored data)
+  localStorage.clear(); console.warn('DEV: localStorage cleared');
+
   const [currentView, setCurrentView] = useState<ViewId>(() => {
     const saved = localStorage.getItem(VIEW_STORAGE_KEY) as ViewId | null;
     return saved && saved in views ? saved : DEFAULT_VIEW;

@@ -440,6 +440,7 @@ pub const MockBackend = struct {
     pub const getCommandStateEx = project.ProjectMethods.getCommandStateEx;
     pub const getSectionFromUniqueID = project.ProjectMethods.getSectionFromUniqueID;
     pub const enumerateActions = project.ProjectMethods.enumerateActions;
+    pub const reverseNamedCommandLookup = project.ProjectMethods.reverseNamedCommandLookup;
     pub const isMetronomeEnabled = project.ProjectMethods.isMetronomeEnabled;
     pub const getMetronomeVolume = project.ProjectMethods.getMetronomeVolume;
     pub const setMetronomeVolume = project.ProjectMethods.setMetronomeVolume;

@@ -385,17 +385,45 @@ export const meter = {
 // =============================================================================
 
 export const action = {
-  execute: (commandId: number): WSCommand => ({
+  /**
+   * Execute a REAPER action by numeric command ID.
+   * Use this for native REAPER actions (stable IDs).
+   * @param commandId - The numeric command ID
+   * @param sectionId - Optional section ID (default: 0 = main section)
+   */
+  execute: (commandId: number, sectionId?: number): WSCommand => ({
     command: 'action/execute',
-    params: { commandId },
+    params: {
+      commandId,
+      ...(sectionId !== undefined && sectionId !== 0 && { sectionId }),
+    },
   }),
-  executeByName: (name: string): WSCommand => ({
+  /**
+   * Execute a REAPER action by named command string.
+   * Use this for SWS/ReaPack/script actions (numeric IDs are unstable).
+   * @param name - The named command (e.g., "_SWS_SAVESEL")
+   * @param sectionId - Optional section ID (default: 0 = main section)
+   */
+  executeByName: (name: string, sectionId?: number): WSCommand => ({
     command: 'action/executeByName',
-    params: { name },
+    params: {
+      name,
+      ...(sectionId !== undefined && sectionId !== 0 && { sectionId }),
+    },
   }),
+  /** Get toggle state of an action */
   getToggleState: (commandId: number): WSCommand => ({
     command: 'action/getToggleState',
     params: { commandId },
+  }),
+  /**
+   * Get all available actions across all sections.
+   * Returns: [[cmdId, sectionId, name, isToggle, namedId], ...]
+   * namedId is the stable string identifier for SWS/scripts, null for native actions.
+   */
+  getActions: (): WSCommand => ({
+    command: 'action/getActions',
+    params: {},
   }),
 };
 

@@ -1568,7 +1568,7 @@ State values: `1` = on, `0` = off, `-1` = not a toggle action.
 
 ### `action/getActions`
 
-Get all REAPER built-in actions across all sections. **Returns data.**
+Get all REAPER actions across all sections, including SWS, ReaPack, and custom scripts. **Returns data.**
 
 ```json
 {"type": "command", "command": "action/getActions", "id": "1"}
@@ -1582,25 +1582,39 @@ Get all REAPER built-in actions across all sections. **Returns data.**
   "id": "1",
   "success": true,
   "payload": [
-    [40364, 0, "Options: Toggle metronome", 1],
-    [40044, 0, "Transport: Play/stop", 0]
+    [40364, 0, "Options: Toggle metronome", 1, null],
+    [40044, 0, "Transport: Play/stop", 0, null],
+    [47912, 0, "SWS: Save track selection", 0, "_SWS_SAVESEL"]
   ]
 }
 ```
 
-**Array format:** `[commandId, sectionId, "name", isToggle]`
+**Array format:** `[commandId, sectionId, "name", isToggle, namedId]`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `commandId` | int | REAPER command ID for `action/execute` |
-| `sectionId` | int | Section ID (0=main, 100=main alt, 32060-32063=MIDI editor) |
+| `commandId` | int | REAPER command ID (for `action/execute`) |
+| `sectionId` | int | Section ID (see table below) |
 | `name` | string | Human-readable action name |
 | `isToggle` | int | `1` = toggle action, `0` = not a toggle |
+| `namedId` | string\|null | Stable string identifier for SWS/scripts, `null` for native actions |
+
+**Section IDs:**
+
+| ID | Section |
+|----|---------|
+| `0` | Main |
+| `100` | Main (alt recording) |
+| `32060` | MIDI Editor |
+| `32061` | MIDI Event List Editor |
+| `32062` | MIDI Inline Editor |
+| `32063` | Media Explorer |
 
 **Notes:**
-- Returns ~2500+ built-in REAPER actions
-- Does NOT include SWS, ReaPack, or custom script actions (use `action/executeByName` for those)
-- Section IDs: `0` = Main, `100` = Main (alt recording), `32060` = MIDI Editor, `32061` = MIDI Event List Editor, `32062` = MIDI Inline Editor, `32063` = Media Explorer
+- Returns all actions including SWS, ReaPack, and custom scripts (if installed)
+- Response size: ~1.2 MB — cache on client side
+- **Important:** For SWS/ReaPack/scripts, use `namedId` for storage (not `commandId`) as numeric IDs can change on restart. Native REAPER action IDs are stable.
+- Storage strategy: If `namedId` is not null, store it (e.g., `"_SWS_SAVESEL"`). Otherwise store the numeric `commandId` as a string (e.g., `"40364"`).
 
 ### `action/execute`
 
@@ -1609,24 +1623,26 @@ Execute a REAPER action by command ID.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `commandId` | int | Yes | REAPER command ID |
+| `sectionId` | int | No | Section ID (default: 0). Reserved for future section-specific execution. |
 
 ```json
-{"type": "command", "command": "action/execute", "commandId": 40364}
+{"type": "command", "command": "action/execute", "commandId": 40364, "id": "1"}
 ```
 
 ### `action/executeByName`
 
-Execute a REAPER action by named command identifier. Useful for SWS, ReaPack, or custom script actions.
+Execute a REAPER action by named command identifier. Use this for SWS, ReaPack, or custom script actions where the string identifier is stable across restarts.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `name` | string | Yes | Named command identifier (e.g., `"_SWS_ABOUT"`) |
+| `sectionId` | int | No | Section ID (default: 0). Reserved for future section-specific execution. |
 
 ```json
-{"type": "command", "command": "action/executeByName", "name": "_SWS_ABOUT"}
+{"type": "command", "command": "action/executeByName", "name": "_SWS_ABOUT", "id": "1"}
 ```
 
-Returns `NOT_FOUND` error if the named command doesn't exist.
+Returns `NOT_FOUND` error if the named command doesn't exist (e.g., SWS not installed).
 
 ---
 

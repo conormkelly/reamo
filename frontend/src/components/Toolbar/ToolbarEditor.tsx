@@ -2,11 +2,14 @@
  * ToolbarEditor - Modal for adding/editing toolbar buttons
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { X, Trash2, icons, type LucideIcon } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { X, Trash2, ToggleLeft, icons, type LucideIcon } from 'lucide-react';
 import { IconPicker } from './IconPicker';
 import { ColorPickerInput } from './ColorPickerInput';
+import { ActionSearch, getStableActionId } from './ActionSearch';
 import type { ToolbarAction } from '../../store/slices/toolbarSlice';
+import { useReaperStore, type ReaperAction } from '../../store';
+import { getSectionName } from '../../core/constants';
 
 // Get icon component by name (kebab-case to PascalCase)
 function getIconComponent(name: string): LucideIcon | null {
@@ -27,7 +30,7 @@ interface ToolbarEditorProps {
   editorTitle?: string;
 }
 
-type ActionType = 'reaper_action' | 'reaper_action_name' | 'midi_cc' | 'midi_pc';
+type ActionType = 'reaper_action' | 'midi_cc' | 'midi_pc';
 
 // Generate a simple unique ID
 function generateId(): string {
@@ -56,15 +59,24 @@ export function ToolbarEditor({
   const [actionType, setActionType] = useState<ActionType>('reaper_action');
 
   // Action-specific state
-  const [commandId, setCommandId] = useState('');
-  const [actionName, setActionName] = useState('');
+  const [actionId, setActionId] = useState(''); // "40001" (native) or "_SWS_SAVESEL" (SWS/script)
   const [cc, setCc] = useState('');
   const [ccValue, setCcValue] = useState('127');
   const [program, setProgram] = useState('');
   const [channel, setChannel] = useState('1'); // Display as 1-16, convert to 0-15 on save
 
   const [showIconPicker, setShowIconPicker] = useState(false);
+  const [showActionSearch, setShowActionSearch] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  // Get action cache for looking up action details
+  const actionCache = useReaperStore((s) => s.actionCache);
+
+  // Look up current action in cache for display
+  const currentActionFromCache = useMemo(() => {
+    if (!actionId) return null;
+    return actionCache.find((a) => getStableActionId(a) === actionId) ?? null;
+  }, [actionCache, actionId]);
 
   // Initialize form from existing action
   useEffect(() => {
@@ -78,10 +90,7 @@ export function ToolbarEditor({
 
       switch (action.type) {
         case 'reaper_action':
-          setCommandId(String(action.commandId));
-          break;
-        case 'reaper_action_name':
-          setActionName(action.name);
+          setActionId(action.actionId);
           break;
         case 'midi_cc':
           setCc(String(action.cc));
@@ -121,19 +130,12 @@ export function ToolbarEditor({
 
     switch (actionType) {
       case 'reaper_action':
-        if (!commandId) return;
+        if (!actionId) return;
         newAction = {
           ...base,
           type: 'reaper_action',
-          commandId: parseInt(commandId, 10),
-        };
-        break;
-      case 'reaper_action_name':
-        if (!actionName) return;
-        newAction = {
-          ...base,
-          type: 'reaper_action_name',
-          name: actionName,
+          actionId: actionId.trim(),
+          sectionId: 0, // Default to main section for now
         };
         break;
       case 'midi_cc':
@@ -166,8 +168,7 @@ export function ToolbarEditor({
     textColor,
     backgroundColor,
     actionType,
-    commandId,
-    actionName,
+    actionId,
     cc,
     ccValue,
     program,
@@ -186,6 +187,17 @@ export function ToolbarEditor({
     }
   }, [action, confirmingDelete, onDelete]);
 
+  // Handle action selection from ActionSearch
+  const handleActionSelect = useCallback((selectedAction: ReaperAction) => {
+    const stableId = getStableActionId(selectedAction);
+    setActionId(stableId);
+    // Auto-populate label if empty
+    if (!label.trim()) {
+      setLabel(selectedAction.name);
+    }
+    setShowActionSearch(false);
+  }, [label]);
+
   // Validation helpers
   const isValidMidiValue = (val: string, min = 0, max = 127) => {
     const num = parseInt(val, 10);
@@ -196,9 +208,8 @@ export function ToolbarEditor({
     if (!label.trim()) return false;
     switch (actionType) {
       case 'reaper_action':
-        return !!commandId && !isNaN(parseInt(commandId, 10));
-      case 'reaper_action_name':
-        return !!actionName.trim();
+        // Valid if: numeric ID (e.g., "40001") or named ID (e.g., "_SWS_SAVESEL")
+        return !!actionId.trim() && (actionId.startsWith('_') || !isNaN(parseInt(actionId, 10)));
       case 'midi_cc':
         return (
           isValidMidiValue(cc) &&
@@ -303,10 +314,9 @@ export function ToolbarEditor({
           {/* Action Type */}
           <div>
             <label className="block text-sm text-gray-400 mb-2">Type</label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {[
-                { value: 'reaper_action', label: 'REAPER Action' },
-                { value: 'reaper_action_name', label: 'Action by Name' },
+                { value: 'reaper_action', label: 'Action' },
                 { value: 'midi_cc', label: 'MIDI CC' },
                 { value: 'midi_pc', label: 'MIDI PC' },
               ].map((opt) => (
@@ -330,36 +340,72 @@ export function ToolbarEditor({
             {actionType === 'reaper_action' && (
               <div>
                 <label className="block text-sm text-gray-400 mb-1">
-                  Command ID
+                  Action
                 </label>
-                <input
-                  type="number"
-                  value={commandId}
-                  onChange={(e) => setCommandId(e.target.value)}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white"
-                  placeholder="e.g., 40364 (metronome)"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Find IDs in REAPER: Actions → Show action list
-                </p>
-              </div>
-            )}
-
-            {actionType === 'reaper_action_name' && (
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">
-                  Action Name
-                </label>
-                <input
-                  type="text"
-                  value={actionName}
-                  onChange={(e) => setActionName(e.target.value)}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white font-mono text-sm"
-                  placeholder="_SWS_SAVESEL"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  SWS/script action identifiers start with _
-                </p>
+                {showActionSearch ? (
+                  <div className="space-y-2">
+                    <ActionSearch
+                      onSelect={handleActionSelect}
+                      selectedActionId={actionId}
+                      maxHeight={300}
+                    />
+                    <button
+                      onClick={() => setShowActionSearch(false)}
+                      className="w-full px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm text-gray-300 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : actionId && currentActionFromCache ? (
+                  <div className="p-3 bg-gray-800 border border-gray-600 rounded">
+                    <div className="flex items-center gap-2 mb-1">
+                      {currentActionFromCache.isToggle && (
+                        <ToggleLeft size={14} className="text-gray-400 flex-shrink-0" />
+                      )}
+                      <span className="text-sm text-white truncate flex-1">
+                        {currentActionFromCache.name}
+                      </span>
+                      {currentActionFromCache.sectionId !== 0 && (
+                        <span className="px-1.5 py-0.5 text-xs bg-gray-700 text-gray-300 rounded flex-shrink-0">
+                          {getSectionName(currentActionFromCache.sectionId)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-500 font-mono mb-2">
+                      {actionId}
+                    </div>
+                    <button
+                      onClick={() => setShowActionSearch(true)}
+                      className="w-full px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm text-gray-300 transition-colors"
+                    >
+                      Change Action
+                    </button>
+                  </div>
+                ) : actionId ? (
+                  // Action ID set but not found in cache (manual entry or cache not loaded)
+                  <div className="p-3 bg-gray-800 border border-gray-600 rounded">
+                    <div className="text-sm text-gray-300 mb-1">
+                      Action ID: <span className="font-mono">{actionId}</span>
+                    </div>
+                    <div className="text-xs text-yellow-500 mb-2">
+                      Not found in action cache
+                    </div>
+                    <button
+                      onClick={() => setShowActionSearch(true)}
+                      className="w-full px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm text-gray-300 transition-colors"
+                    >
+                      Search Actions
+                    </button>
+                  </div>
+                ) : (
+                  // No action selected yet
+                  <button
+                    onClick={() => setShowActionSearch(true)}
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 border-dashed rounded text-gray-400 hover:border-gray-500 hover:text-gray-300 transition-colors"
+                  >
+                    Search and Select Action...
+                  </button>
+                )}
               </div>
             )}
 

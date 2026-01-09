@@ -27,6 +27,12 @@ pub fn handleExecuteCommand(api: anytype, cmd: protocol.CommandMessage, response
         return;
     };
 
+    // Optional sectionId (default: 0 = main section)
+    // Note: Main_OnCommand works for most actions across sections.
+    // MIDI Editor-specific actions may require the MIDI editor to be focused.
+    const section_id = cmd.getInt("sectionId") orelse 0;
+    _ = section_id; // Reserved for future section-specific execution
+
     api.runCommand(command_id);
     logging.debug("Executed command {d}", .{command_id});
     response.success(null);
@@ -38,6 +44,11 @@ pub fn handleExecuteByName(api: anytype, cmd: protocol.CommandMessage, response:
         response.err("MISSING_NAME", "name is required");
         return;
     };
+
+    // Optional sectionId (default: 0 = main section)
+    // Note: Main_OnCommand works for most actions across sections.
+    const section_id = cmd.getInt("sectionId") orelse 0;
+    _ = section_id; // Reserved for future section-specific execution
 
     const command_id = api.namedCommandLookup(name);
     if (command_id == 0) {
@@ -54,7 +65,8 @@ pub fn handleExecuteByName(api: anytype, cmd: protocol.CommandMessage, response:
 const SECTIONS = [_]c_int{ 0, 100, 32060, 32061, 32062, 32063 };
 
 // Get all actions across all sections
-// Response format: [[cmd_id, section_id, "name", is_toggle], ...]
+// Response format: [[cmd_id, section_id, "name", is_toggle, named_id], ...]
+// named_id is the stable string identifier (e.g., "_SWS_SAVESEL") or null for native actions
 pub fn handleGetActions(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     // Use scratch arena for temporary allocation
     const tiered = mod.g_ctx.tiered orelse {
@@ -93,6 +105,10 @@ pub fn handleGetActions(api: anytype, _: protocol.CommandMessage, response: *mod
             const is_toggle: u8 = if (api.getCommandStateEx(section_id, cmd_id) != -1) 1 else 0;
             const name = std.mem.span(name_ptr);
 
+            // Get stable string identifier for SWS/scripts (null for native actions)
+            // NOTE: ReverseNamedCommandLookup returns WITHOUT leading underscore
+            const raw_named_id = api.reverseNamedCommandLookup(cmd_id);
+
             if (!first) {
                 writer.writeAll(",") catch {
                     logging.warn("actions: buffer overflow at action {d}", .{total_count});
@@ -101,7 +117,7 @@ pub fn handleGetActions(api: anytype, _: protocol.CommandMessage, response: *mod
             }
             first = false;
 
-            // Terse format: [cmd_id, section_id, "name", is_toggle]
+            // Terse format: [cmd_id, section_id, "name", is_toggle, named_id]
             // Escape quotes in name for JSON safety
             writer.print("[{d},{d},\"", .{ cmd_id, section_id }) catch {
                 logging.warn("actions: buffer overflow at action {d}", .{total_count});
@@ -119,10 +135,28 @@ pub fn handleGetActions(api: anytype, _: protocol.CommandMessage, response: *mod
                 }
             }
 
-            writer.print("\",{d}]", .{is_toggle}) catch {
+            // Write is_toggle and named_id
+            writer.print("\",{d},", .{is_toggle}) catch {
                 logging.warn("actions: buffer overflow at action {d}", .{total_count});
                 return;
             };
+
+            // Write named_id: "_PREFIX_NAME" or null
+            // Prepend underscore since API returns without it
+            if (raw_named_id) |nid| {
+                writer.writeAll("\"_") catch return;
+                // Escape the named_id (usually alphanumeric, but be safe)
+                for (nid) |c| {
+                    switch (c) {
+                        '"' => writer.writeAll("\\\"") catch return,
+                        '\\' => writer.writeAll("\\\\") catch return,
+                        else => writer.writeByte(c) catch return,
+                    }
+                }
+                writer.writeAll("\"]") catch return;
+            } else {
+                writer.writeAll("null]") catch return;
+            }
 
             idx += 1;
             total_count += 1;

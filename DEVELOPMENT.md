@@ -1480,3 +1480,35 @@ Then check REAPER's console (Actions → Show console).
     // SAFETY: @alignCast unnecessary - u8 has alignment 1, always valid
     const c_str: [*:0]const u8 = @ptrCast(&buf);
     ```
+
+21. **Store string IDs for SWS/script actions, numeric IDs for native actions** - REAPER action IDs have different stability guarantees:
+
+    | Action Type | Numeric ID Stable? | String ID | Storage Strategy |
+    |-------------|-------------------|-----------|------------------|
+    | Native REAPER | ✅ Yes | NULL | Store `"40001"` |
+    | SWS Extension | ❌ No | `_SWS_*` | Store `"_SWS_SAVESEL"` |
+    | ReaScripts | ❌ No | `_RS*` | Store `"_RS7f8a2b..."` |
+    | Custom Actions | ❌ No | `_` + 32 hex | Store `"_113088d1..."` |
+
+    **Why this matters:** SWS/ReaPack/script action numeric IDs are assigned dynamically at REAPER startup and change between sessions. Storing the numeric ID means the wrong action executes after restart. Always use `ReverseNamedCommandLookup` to get the stable string identifier for non-native actions.
+
+    **API quirk:** `ReverseNamedCommandLookup` returns the string **without** the leading underscore. Prepend `_` when storing:
+    ```zig
+    const raw_id = api.reverseNamedCommandLookup(cmd_id);
+    if (raw_id) |id| {
+        // id = "SWS_SAVESEL", store as "_SWS_SAVESEL"
+        buf[0] = '_';
+        @memcpy(buf[1..], id);
+    }
+    ```
+
+    **Frontend pattern:** Check `actionId.startsWith('_')` to determine execution method:
+    ```typescript
+    if (action.actionId.startsWith('_')) {
+      sendCommand(actionCmd.executeByName(action.actionId, action.sectionId));
+    } else {
+      sendCommand(actionCmd.execute(parseInt(action.actionId, 10), action.sectionId));
+    }
+    ```
+
+    **Buffer size:** 128 bytes is safe for all action string IDs (SWS-established limit `SNM_MAX_ACTION_CUSTID_LEN`). Longest observed in practice: 47 characters.
