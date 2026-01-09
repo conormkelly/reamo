@@ -112,6 +112,21 @@ REAmo is a React PWA control surface for REAPER DAW. It runs on iPad/iPhone for 
 - `toggleStates`/`guidToIndex` Maps are bounded by project size (not unbounded growth)
 - Style mutations (`.style.left`, `.style.width`) are intentional 60fps animations
 
+### Structural Audit (DONE)
+
+**Verified OK - no action needed:**
+- Source maps disabled in production (Vite default)
+- Dependencies minimal (5 runtime: react, react-dom, zustand, tanstack-virtual, lucide-react)
+- Type assertions (`as unknown as`) - only 4 uses, all necessary for WebSocket message typing
+- Barrel exports (`export * from`) - reasonable, not causing issues
+- Timeline.tsx (737 lines) - complex but cohesive, splitting would harm readability
+- RegionInfoBar.tsx (725 lines) - modals already extracted to separate files
+
+**Structural improvements made:**
+| Issue | Fix | Files Modified |
+|-------|-----|----------------|
+| ActionButton.tsx has 9 components (567 lines) | Split into separate files | `ActionButton.tsx` (base only, 94 lines), `MetronomeButton.tsx` (new), `MarkerButtons.tsx` (new), `UndoRedoButtons.tsx` (new), `SaveButton.tsx` (new), `index.ts` (updated exports) |
+
 ---
 
 ## Remaining Items (Priority Order)
@@ -122,6 +137,7 @@ REAmo is a React PWA control surface for REAPER DAW. It runs on iPad/iPhone for 
 |------|-------|
 | Service worker for offline caching | Currently relies on HTML mtime check for updates |
 | useShallow for multi-value selectors | Not currently needed (no array destructuring found) |
+| Test coverage expansion | 200 source files, 17 test files - prioritize WebSocketConnection, regionEditSlice |
 
 ---
 

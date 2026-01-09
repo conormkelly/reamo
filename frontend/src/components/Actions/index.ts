@@ -1,24 +1,37 @@
+// Base action button
+export { ActionButton, type ActionButtonProps } from './ActionButton';
+
+// Metronome with long-press volume control
+export { MetronomeButton, type MetronomeButtonProps } from './MetronomeButton';
+
+// Undo/Redo
 export {
-  ActionButton,
-  MetronomeButton,
   UndoButton,
   RedoButton,
-  SaveButton,
+  type UndoButtonProps,
+  type RedoButtonProps,
+} from './UndoRedoButtons';
+
+// Save
+export { SaveButton, type SaveButtonProps } from './SaveButton';
+
+// Marker navigation
+export {
   AddMarkerButton,
   PrevMarkerButton,
   NextMarkerButton,
-  ClearSelectionButton,
-  type ActionButtonProps,
-  type MetronomeButtonProps,
-  type UndoButtonProps,
-  type RedoButtonProps,
-  type SaveButtonProps,
   type AddMarkerButtonProps,
   type PrevMarkerButtonProps,
   type NextMarkerButtonProps,
-  type ClearSelectionButtonProps,
-} from './ActionButton';
+} from './MarkerButtons';
 
+// Mixer / track selection
+export {
+  ClearSelectionButton,
+  type ClearSelectionButtonProps,
+} from './MixerButtons';
+
+// Other action buttons
 export { ToggleButton, type ToggleButtonProps } from './ToggleButton';
 export { TapTempoButton, type TapTempoButtonProps } from './TapTempoButton';
 export { TimeSignatureButton, type TimeSignatureButtonProps } from './TimeSignatureButton';
