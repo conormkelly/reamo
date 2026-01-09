@@ -18,15 +18,16 @@ Best practices, patterns, and conventions for the REAmo React frontend.
 5. [React 19 Patterns](#5-react-19-patterns)
 6. [Zustand 5 Patterns](#6-zustand-5-patterns)
 7. [WebSocket & Connection](#7-websocket--connection)
-8. [Touch & Gesture Handling](#8-touch--gesture-handling)
-9. [PWA & iOS Safari](#9-pwa--ios-safari)
-10. [Accessibility](#10-accessibility)
-11. [Performance](#11-performance)
-12. [Bundle Size](#12-bundle-size)
-13. [Error Handling](#13-error-handling)
-14. [Testing](#14-testing)
-15. [Anti-Patterns Checklist](#15-anti-patterns-checklist)
-16. [Deferred/Future Work](#16-deferredfuture-work)
+8. [Modal System](#8-modal-system)
+9. [Touch & Gesture Handling](#9-touch--gesture-handling)
+10. [PWA & iOS Safari](#10-pwa--ios-safari)
+11. [Accessibility](#11-accessibility)
+12. [Performance](#12-performance)
+13. [Bundle Size](#13-bundle-size)
+14. [Error Handling](#14-error-handling)
+15. [Testing](#15-testing)
+16. [Anti-Patterns Checklist](#16-anti-patterns-checklist)
+17. [Deferred/Future Work](#17-deferredfuture-work)
 
 ---
 
@@ -332,9 +333,166 @@ import { useReaperConnection } from '../hooks/useReaperConnection';
 
 Cleared on disconnect via `clearPendingResponses()`, called from `stop()` and `forceReconnect()`.
 
+### Async Commands (sendCommandAsync)
+
+Use `sendCommandAsync` for operations that need response data:
+
+```typescript
+const { sendCommandAsync } = useReaper();
+
+// Example: Convert bar.beat position to time
+try {
+  const response = await sendCommandAsync(tempoCmd.barsToTime(4, 1, 0));
+  const time = (response as { payload?: { time?: number } })?.payload?.time;
+  if (time !== undefined) {
+    // Use the converted time
+  }
+} catch (error) {
+  // Handle timeout (5s) or disconnection
+  console.error('Command failed:', error);
+}
+```
+
+**Key behaviors:**
+- Rejects immediately if not connected
+- Automatically times out after 5 seconds
+- Response matched via unique message ID
+- Pending responses cleared on disconnect/reconnect
+
+**When to use:**
+| Scenario | Method |
+|----------|--------|
+| Fire-and-forget actions | `sendCommand()` |
+| Need response data | `sendCommandAsync()` |
+| Time-critical (meters, transport) | `sendCommand()` |
+| Bar/beat ↔ time conversion | `sendCommandAsync()` |
+
 ---
 
-## 8. Touch & Gesture Handling
+## 8. Modal System
+
+### Architecture Overview
+
+Modals use a three-part architecture:
+
+| Component | Purpose |
+|-----------|---------|
+| `Modal` | Wrapper with Escape, backdrop, focus management |
+| `ModalContent` | Content area with consistent padding |
+| `ModalFooter` | Action buttons (Cancel/Confirm variants) |
+| `modalSlice` | Zustand slice for centralized state |
+| `ModalRoot` | Renders Timeline-related modals from state |
+
+### Basic Usage
+
+```tsx
+import { Modal, ModalContent, ModalFooter } from '../components/Modal';
+
+function MyModal({ isOpen, onClose }: Props) {
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Edit Item">
+      <ModalContent>
+        <input ... />
+      </ModalContent>
+      <ModalFooter
+        onCancel={onClose}
+        onConfirm={handleSave}
+        confirmDisabled={!isValid}
+      />
+    </Modal>
+  );
+}
+```
+
+### Modal Props
+
+```typescript
+interface ModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  title: string;
+  children: ReactNode;
+  showCloseButton?: boolean; // default: true
+  closeOnBackdrop?: boolean; // default: true
+  closeOnEscape?: boolean;   // default: true
+  width?: 'sm' | 'md' | 'lg' | 'xl'; // default: 'md'
+  icon?: ReactNode;
+}
+```
+
+### ModalFooter Variants
+
+```tsx
+// Primary (default) - Save, Create, etc.
+<ModalFooter onCancel={close} onConfirm={save} confirmText="Save" />
+
+// Danger - Delete, Remove, etc.
+<ModalFooter
+  onCancel={close}
+  onConfirm={handleDelete}
+  confirmText="Delete"
+  confirmVariant="danger"
+/>
+
+// Success - Complete, Confirm, etc.
+<ModalFooter
+  onCancel={close}
+  onConfirm={handleComplete}
+  confirmText="Complete"
+  confirmVariant="success"
+/>
+
+// Loading state
+<ModalFooter
+  onCancel={close}
+  onConfirm={save}
+  confirmLoading={isSaving}
+/>
+```
+
+### Centralized Modal State (modalSlice)
+
+For modals that need to be opened from multiple places (e.g., Timeline components), use the centralized modalSlice:
+
+```typescript
+// Opening a modal from any component
+const openMarkerEditModal = useReaperStore((s) => s.openMarkerEditModal);
+openMarkerEditModal(marker);
+
+// Closing modals
+const closeModal = useReaperStore((s) => s.closeModal);
+closeModal();
+```
+
+Available actions:
+- `openMarkerEditModal(marker)` - Edit marker position/color
+- `openDeleteRegionModal(region, regionId)` - Confirm region deletion
+- `openAddRegionModal()` - Create new region
+- `openMakeSelectionModal()` - Set time selection
+- `closeModal()` - Close any open modal
+
+### ModalRoot
+
+`ModalRoot` in `App.tsx` renders all Timeline-related modals based on centralized state:
+
+```tsx
+// In App.tsx
+<ModalRoot />
+```
+
+This pattern decouples modal rendering from the components that trigger them, allowing Timeline.tsx to remain focused on timeline rendering.
+
+### When to Use Each Pattern
+
+| Pattern | Use Case |
+|---------|----------|
+| Local state | View-specific modals (CuesView playlists, Settings) |
+| modalSlice | Modals triggered from multiple places (Timeline, RegionInfoBar) |
+| ModalRoot | Centralizes Timeline modals (Marker, Region, Selection) |
+
+---
+
+## 9. Touch & Gesture Handling
 
 ### Required CSS
 
@@ -386,7 +544,7 @@ const handleTouchEnd = () => {
 
 ---
 
-## 9. PWA & iOS Safari
+## 10. PWA & iOS Safari
 
 ### Viewport
 
@@ -434,7 +592,7 @@ try {
 
 ---
 
-## 10. Accessibility
+## 11. Accessibility
 
 ### ARIA Live Regions
 
@@ -469,7 +627,7 @@ try {
 
 ---
 
-## 11. Performance
+## 12. Performance
 
 ### 30Hz Budget: 33ms per update
 
@@ -509,7 +667,7 @@ return <div ref={elementRef} />;
 
 ---
 
-## 12. Bundle Size
+## 13. Bundle Size
 
 ### Target: ≤1,050 kB (single-file output)
 
@@ -559,7 +717,7 @@ import { icons } from 'lucide-react';
 
 ---
 
-## 13. Error Handling
+## 14. Error Handling
 
 ### ErrorBoundary
 
@@ -578,7 +736,7 @@ Wraps `ViewComponent` in `App.tsx`. Catches component-level errors and shows rec
 
 ---
 
-## 14. Testing
+## 15. Testing
 
 ### Store Reset Between Tests
 
@@ -612,7 +770,7 @@ vi.useRealTimers();
 
 ---
 
-## 15. Anti-Patterns Checklist
+## 16. Anti-Patterns Checklist
 
 | Don't | Do Instead |
 |-------|------------|
@@ -631,7 +789,7 @@ vi.useRealTimers();
 
 ---
 
-## 16. Deferred/Future Work
+## 17. Deferred/Future Work
 
 Items intentionally not addressed yet:
 

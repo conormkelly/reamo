@@ -6,6 +6,33 @@
  * - Provides handlers for HTML5 drag events
  * - Returns computed values for styling (isDragging, isDragTarget)
  * - Calls onReorder when drag completes with different indices
+ *
+ * @example
+ * ```tsx
+ * function ReorderableList({ items, onReorder }) {
+ *   const { getDragItemProps, isDragging, isDragTarget } = useListReorder({
+ *     onReorder,
+ *     enabled: true,
+ *   });
+ *
+ *   return (
+ *     <ul>
+ *       {items.map((item, index) => (
+ *         <li
+ *           key={item.id}
+ *           {...getDragItemProps(index)}
+ *           className={`
+ *             ${isDragging(index) ? 'opacity-50' : ''}
+ *             ${isDragTarget(index) ? 'ring-2 ring-primary' : ''}
+ *           `}
+ *         >
+ *           {item.name}
+ *         </li>
+ *       ))}
+ *     </ul>
+ *   );
+ * }
+ * ```
  */
 
 import { useState, useCallback, useMemo } from 'react';
