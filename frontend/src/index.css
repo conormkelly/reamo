@@ -31,6 +31,8 @@ body {
   background-color: #1a1a1a;
   color: #ffffff;
   overflow: hidden;
+  /* Prevent iOS Safari context menu on long-press */
+  -webkit-touch-callout: none;
 }
 
 #root {

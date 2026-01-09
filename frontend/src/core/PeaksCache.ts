@@ -1,11 +1,17 @@
 /**
- * PeaksCache - Caches waveform peak data to avoid refetching
+ * PeaksCache - LRU cache for waveform peak data
  *
  * Cache key is based on: {itemGUID, takeGUID, length, startOffset, playrate}
  * When any of these change, the cached peaks are invalidated.
+ *
+ * Uses LRU eviction to prevent unbounded memory growth during long sessions.
+ * Default max size: 100 entries (each entry ~10-50KB depending on width).
  */
 
 import type { PeaksResponsePayload } from './WebSocketTypes';
+
+/** Maximum number of cached peak entries before LRU eviction */
+const MAX_CACHE_SIZE = 100;
 
 export interface PeaksCacheKey {
   itemGUID: string;
@@ -27,20 +33,44 @@ function makeKeyString(key: PeaksCacheKey): string {
 }
 
 class PeaksCacheImpl {
+  // Map maintains insertion order - we use this for LRU eviction
   private cache = new Map<string, PeaksResponsePayload>();
 
   /**
-   * Get cached peaks for a key
+   * Get cached peaks for a key (updates LRU order)
    */
   get(key: PeaksCacheKey): PeaksResponsePayload | undefined {
-    return this.cache.get(makeKeyString(key));
+    const keyStr = makeKeyString(key);
+    const value = this.cache.get(keyStr);
+    if (value !== undefined) {
+      // Move to end (most recently used) by re-inserting
+      this.cache.delete(keyStr);
+      this.cache.set(keyStr, value);
+    }
+    return value;
   }
 
   /**
-   * Store peaks in cache
+   * Store peaks in cache with LRU eviction
    */
   set(key: PeaksCacheKey, peaks: PeaksResponsePayload): void {
-    this.cache.set(makeKeyString(key), peaks);
+    const keyStr = makeKeyString(key);
+
+    // If key exists, delete it first so it moves to end
+    if (this.cache.has(keyStr)) {
+      this.cache.delete(keyStr);
+    }
+
+    // Evict oldest entries if at capacity
+    while (this.cache.size >= MAX_CACHE_SIZE) {
+      // Map.keys().next() gives the oldest (first inserted) key
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey) {
+        this.cache.delete(oldestKey);
+      }
+    }
+
+    this.cache.set(keyStr, peaks);
   }
 
   /**
@@ -74,6 +104,13 @@ class PeaksCacheImpl {
    */
   get size(): number {
     return this.cache.size;
+  }
+
+  /**
+   * Get max cache size (for debugging)
+   */
+  get maxSize(): number {
+    return MAX_CACHE_SIZE;
   }
 }
 

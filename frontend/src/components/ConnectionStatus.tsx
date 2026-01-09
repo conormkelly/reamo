@@ -173,14 +173,17 @@ export function ConnectionBanner({ className = '' }: ConnectionBannerProps): Rea
   return (
     <div
       data-testid="connection-banner"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
       className={`flex items-center justify-center gap-3 px-4 py-2 ${
         gaveUp ? 'bg-red-900/90' : 'bg-yellow-900/90'
       } ${className}`}
     >
       {gaveUp ? (
-        <WifiOff size={16} className="text-red-400" />
+        <WifiOff size={16} className="text-red-400" aria-hidden="true" />
       ) : (
-        <Wifi size={16} className="text-yellow-400 animate-pulse" />
+        <Wifi size={16} className="text-yellow-400 animate-pulse" aria-hidden="true" />
       )}
       <span className="text-sm">
         {gaveUp

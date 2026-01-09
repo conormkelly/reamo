@@ -128,8 +128,24 @@ export function TransportBar({ className = '' }: TransportBarProps): ReactElemen
     ? 'bg-red-900/30 hover:bg-red-800/50 ring-2 ring-red-500/50'
     : 'bg-red-900/30 hover:bg-red-800/50 ring-2 ring-red-500/30';
 
+  // Announce recording state changes to screen readers
+  const recordingStatusText = isRecording
+    ? 'Recording started'
+    : isPlaying
+      ? 'Playing'
+      : isStopped
+        ? 'Stopped'
+        : isPaused
+          ? 'Paused'
+          : '';
+
   return (
     <div className={`flex items-center justify-center gap-2 ${className}`}>
+      {/* Visually hidden live region for screen readers */}
+      <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {recordingStatusText}
+      </span>
+
       {/* Skip to Start */}
       <TransportButton onClick={handleSkipToStart} title="Skip to Start">
         <SkipBack size={20} />

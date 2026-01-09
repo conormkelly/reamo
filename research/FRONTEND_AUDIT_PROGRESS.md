@@ -75,6 +75,27 @@ REAmo is a React PWA control surface for REAPER DAW. It runs on iPad/iPhone for 
 - All `get()` calls are inside action function bodies (fresh state, no stale closures)
 - No async actions in store slices (no stale state risk)
 
+### Batch 5: Deep Audit Items (DONE)
+
+| Issue | Fix | Files Modified |
+|-------|-----|----------------|
+| No React 19 error callbacks | Added `onUncaughtError` and `onCaughtError` to createRoot | `src/main.tsx` |
+| Fader missing touch-action | Added `touch-none` class to prevent browser gesture hijacking | `src/components/Track/Fader.tsx` |
+| PanKnob missing touch-action | Added `touch-none` class to prevent browser gesture hijacking | `src/components/Track/PanKnob.tsx` |
+| PeaksCache unbounded growth | Added LRU eviction with max 100 entries | `src/core/PeaksCache.ts` |
+
+**Also verified (no issues found):**
+- `transportSyncEngine.destroy()` never called - OK, singleton lives for entire PWA lifetime
+- `useVirtualizedSubscription` already has proper cleanup (lines 188-196)
+
+### Batch 6: Accessibility + iOS Polish (DONE)
+
+| Issue | Fix | Files Modified |
+|-------|-----|----------------|
+| No -webkit-touch-callout | Added to body to prevent iOS context menu on long-press | `src/index.css` |
+| No aria-live for connection status | Added `role="status"` + `aria-live="polite"` to ConnectionBanner | `src/components/ConnectionStatus.tsx` |
+| No aria-live for transport state | Added visually-hidden live region announcing play/record/stop | `src/components/Transport/TransportBar.tsx` |
+
 ---
 
 ## Remaining Items (Priority Order)
@@ -83,7 +104,6 @@ REAmo is a React PWA control surface for REAPER DAW. It runs on iPad/iPhone for 
 
 | Item | Notes |
 |------|-------|
-| Add more aria-live regions for real-time updates | Currently none |
 | Service worker for offline caching | Currently relies on HTML mtime check for updates |
 | useShallow for multi-value selectors | Not currently needed (no array destructuring found) |
 
@@ -144,4 +164,4 @@ npm run lint           # Type check + lint
 
 ---
 
-*Last updated: Session completed Batch 1 + Batch 2 + Batch 3 + Batch 4*
+*Last updated: Session completed Batch 1-6 (all major items complete)*
