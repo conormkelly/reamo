@@ -9,5 +9,7 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     include: ['**/*.{test,spec}.{ts,tsx}'],
     exclude: ['e2e/**', 'node_modules/**'],
+    // Suppress console output unless test fails
+    silent: true,
   },
 })
