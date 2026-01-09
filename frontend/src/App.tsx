@@ -64,7 +64,7 @@ function AppContent() {
   const ViewComponent = views[currentView];
 
   return (
-    <div className="flex flex-col h-screen-safe bg-gray-950 overflow-hidden safe-area-top safe-area-x">
+    <div className="flex flex-col h-screen-safe bg-bg-app overflow-hidden safe-area-top safe-area-x">
       {/* Connection banner - shown at top when disconnected */}
       <ConnectionBanner />
 
@@ -81,7 +81,7 @@ function AppContent() {
       {/* Recording Actions Bar - only in Studio view when recording */}
       {currentView === 'studio' && showRecordingActions && isRecording && isMobile && (
         <div
-          className="fixed left-0 right-0 z-40 bg-gray-950 pb-3"
+          className="fixed left-0 right-0 z-40 bg-bg-app pb-3"
           style={{ bottom: `calc(${mobileBottomOffset}px + env(safe-area-inset-bottom, 34px))` }}
         >
           <RecordingActionsBar />
@@ -123,7 +123,7 @@ function LoadingScreen() {
   const troubleState = elapsed >= 10 || gaveUp;
 
   return (
-    <div className="flex flex-col items-center justify-center h-screen-safe gap-6 bg-gray-950 px-6">
+    <div className="flex flex-col items-center justify-center h-screen-safe gap-6 bg-bg-app px-6">
       {/* REAmo heading */}
       <h1 className="text-2xl font-semibold tracking-wide text-white">REAmo</h1>
 
@@ -150,18 +150,18 @@ function LoadingScreen() {
       {troubleState ? (
         /* Trouble connecting state */
         <div className="flex flex-col items-center gap-4 max-w-xs text-center">
-          <p className="text-gray-400 text-sm">
+          <p className="text-text-secondary text-sm">
             Having trouble connecting to REAPER.
           </p>
           <button
             onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
+            className="px-4 py-2 bg-primary hover:bg-primary-hover text-text-primary text-sm font-medium rounded-lg transition-colors"
           >
             Retry
           </button>
         </div>
       ) : elapsed >= 1 ? (
-        <p className="text-gray-400 text-sm">Connecting...</p>
+        <p className="text-text-secondary text-sm">Connecting...</p>
       ) : null}
     </div>
   );

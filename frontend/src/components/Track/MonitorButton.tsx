@@ -32,13 +32,13 @@ export function MonitorButton({
 
   // Buttons always darker than track background for contrast
   const offStyle = isSelected
-    ? 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-    : 'bg-gray-900 text-gray-300 hover:bg-gray-800';
+    ? 'bg-bg-surface text-text-tertiary hover:bg-bg-elevated'
+    : 'bg-bg-deep text-text-tertiary hover:bg-bg-surface';
 
   const stateStyles = {
     off: offStyle,
-    on: 'bg-gray-200 text-gray-900',
-    auto: 'bg-red-900 text-red-200',
+    on: 'bg-text-tertiary text-bg-deep',
+    auto: 'bg-monitor-auto-bg text-monitor-auto-text',
   };
 
   const stateLabels = {

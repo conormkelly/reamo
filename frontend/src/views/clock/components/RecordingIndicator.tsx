@@ -15,7 +15,7 @@ export function RecordingIndicator(): ReactElement | null {
 
   return (
     <div
-      className="flex items-center text-red-400 font-medium"
+      className="flex items-center text-record-text font-medium"
       style={{
         marginTop: 'clamp(0.5rem, 2cqh, 2rem)',
         gap: 'clamp(0.375rem, 1cqh, 0.75rem)',
@@ -23,7 +23,7 @@ export function RecordingIndicator(): ReactElement | null {
       }}
     >
       <div
-        className="rounded-full bg-red-500 animate-pulse"
+        className="rounded-full bg-record animate-pulse"
         style={{
           width: 'clamp(10px, 2cqh, 20px)',
           height: 'clamp(10px, 2cqh, 20px)',

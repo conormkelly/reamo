@@ -24,8 +24,8 @@ export function RecordButton({ className = '' }: RecordButtonProps): ReactElemen
       onClick={handleClick}
       className={`px-4 py-2 rounded font-medium transition-colors ${
         isRecording
-          ? 'bg-red-500 text-white animate-pulse'
-          : 'bg-gray-700 text-white hover:bg-red-600'
+          ? 'bg-error text-text-primary animate-pulse'
+          : 'bg-bg-elevated text-text-primary hover:bg-error-action'
       } ${className}`}
     >
       <Circle size={16} className="inline-block mr-1 fill-current" />

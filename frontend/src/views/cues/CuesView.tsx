@@ -273,7 +273,7 @@ export function CuesView(): ReactElement {
   // No playlists empty state
   if (playlists.length === 0) {
     return (
-      <div data-view="cues" className="h-full bg-gray-950 text-white p-3 flex flex-col">
+      <div data-view="cues" className="h-full bg-bg-app text-text-primary p-3 flex flex-col">
         <ViewHeader currentView="cues" />
         {/* Wrapper - position content at bottom with padding for footer bars */}
         <div
@@ -282,14 +282,14 @@ export function CuesView(): ReactElement {
         >
           {/* Empty state content */}
           <div className="flex flex-col items-center text-center py-8">
-            <ListMusic size={48} className="text-gray-600 mb-4" />
-            <h2 className="text-xl font-medium text-gray-300 mb-2">No Playlists Yet</h2>
-            <p className="text-gray-500 mb-6 max-w-xs">
+            <ListMusic size={48} className="text-text-disabled mb-4" />
+            <h2 className="text-xl font-medium text-text-tertiary mb-2">No Playlists Yet</h2>
+            <p className="text-text-muted mb-6 max-w-xs">
               Practice, perform, or explore new arrangements using project regions. Adjust loop counts per region on the fly.
             </p>
             <button
               onClick={() => setShowCreateModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-text-primary rounded-lg hover:bg-primary-hover transition-colors"
             >
               <Plus size={18} />
               <span>Create Playlist</span>
@@ -314,7 +314,7 @@ export function CuesView(): ReactElement {
   }
 
   return (
-    <div data-view="cues" className="h-full bg-gray-950 text-white p-3 flex flex-col">
+    <div data-view="cues" className="h-full bg-bg-app text-text-primary p-3 flex flex-col">
       {/* Header */}
       <ViewHeader currentView="cues">
         {/* Playlist selector */}
@@ -324,7 +324,7 @@ export function CuesView(): ReactElement {
             setSelectedPlaylistIdx(Number(e.target.value));
             setSelectedEntryIdx(null); // Clear selection when switching playlists
           }}
-          className="flex-1 min-w-[120px] bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-white text-sm"
+          className="flex-1 min-w-[120px] bg-bg-surface border border-border-subtle rounded-lg px-2 py-1.5 text-text-primary text-sm"
         >
           {playlists.map((pl, idx) => (
             <option key={idx} value={idx}>
@@ -339,8 +339,8 @@ export function CuesView(): ReactElement {
           onClick={() => setReorderMode(!reorderMode)}
           className={`p-1.5 rounded-lg transition-colors ${
             reorderMode
-              ? 'bg-blue-600 hover:bg-blue-500 text-white'
-              : 'bg-gray-800 hover:bg-gray-700'
+              ? 'bg-primary hover:bg-primary-hover text-text-primary'
+              : 'bg-bg-surface hover:bg-bg-elevated'
           }`}
           title={reorderMode ? 'Exit reorder mode' : 'Reorder entries'}
         >
@@ -350,7 +350,7 @@ export function CuesView(): ReactElement {
         {/* CRUD buttons */}
         <button
           onClick={() => setShowCreateModal(true)}
-          className="p-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
+          className="p-1.5 bg-bg-surface hover:bg-bg-elevated rounded-lg transition-colors"
           title="Create playlist"
         >
           <Plus size={18} />
@@ -360,14 +360,14 @@ export function CuesView(): ReactElement {
             setNewPlaylistName(currentPlaylist?.name ?? '');
             setShowRenameModal(true);
           }}
-          className="p-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
+          className="p-1.5 bg-bg-surface hover:bg-bg-elevated rounded-lg transition-colors"
           title="Rename playlist"
         >
           <Pencil size={18} />
         </button>
         <button
           onClick={() => setShowDeleteModal(true)}
-          className="p-1.5 bg-gray-800 hover:bg-red-900 rounded-lg transition-colors"
+          className="p-1.5 bg-bg-surface hover:bg-error-action/20 rounded-lg transition-colors"
           title="Delete playlist"
         >
           <Trash2 size={18} />
@@ -381,11 +381,11 @@ export function CuesView(): ReactElement {
       >
         {currentPlaylist && currentPlaylist.entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
-            <p className="text-gray-400 mb-4">This playlist is empty</p>
-            <p className="text-gray-500 text-sm mb-6">Add regions to build your setlist</p>
+            <p className="text-text-secondary mb-4">This playlist is empty</p>
+            <p className="text-text-muted text-sm mb-6">Add regions to build your setlist</p>
             <button
               onClick={() => setShowRegionPicker(true)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-medium transition-colors"
+              className="px-4 py-2 bg-primary hover:bg-primary-hover rounded-lg font-medium transition-colors"
             >
               Add Region
             </button>
@@ -437,7 +437,7 @@ export function CuesView(): ReactElement {
             {/* Add region button at bottom of list */}
             <button
               onClick={() => setShowRegionPicker(true)}
-              className="w-full py-3 border-2 border-dashed border-gray-700 hover:border-gray-500 rounded-lg text-gray-400 hover:text-gray-300 transition-colors"
+              className="w-full py-3 border-2 border-dashed border-border-subtle hover:border-bg-hover rounded-lg text-text-secondary hover:text-text-tertiary transition-colors"
             >
               + Add Region
             </button>
@@ -447,14 +447,14 @@ export function CuesView(): ReactElement {
 
       {/* Playback controls - fixed at bottom, above navbar/transport + safe area */}
       <div
-        className="fixed left-0 right-0 z-40 p-3 border-t border-gray-800 bg-gray-900 safe-area-x"
+        className="fixed left-0 right-0 z-40 p-3 border-t border-border-muted bg-bg-deep safe-area-x"
         style={{ bottom: `calc(${bottomOffset}px + env(safe-area-inset-bottom, 0px))` }}
       >
         <div className="flex items-center justify-center gap-3">
           <button
             onClick={handlePrev}
             disabled={!isPlaylistActive}
-            className="w-12 h-12 flex items-center justify-center bg-gray-800 hover:bg-gray-700 disabled:bg-gray-900 disabled:text-gray-600 rounded-lg transition-colors"
+            className="w-12 h-12 flex items-center justify-center bg-bg-surface hover:bg-bg-elevated disabled:bg-bg-deep disabled:text-text-disabled rounded-lg transition-colors"
             title="Previous"
           >
             <SkipBack size={24} />
@@ -463,7 +463,7 @@ export function CuesView(): ReactElement {
           {isPlaylistActive && !isPaused ? (
             <button
               onClick={handlePause}
-              className="w-14 h-14 flex items-center justify-center bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors"
+              className="w-14 h-14 flex items-center justify-center bg-primary hover:bg-primary-hover rounded-lg transition-colors"
               title="Pause"
             >
               <Pause size={28} />
@@ -472,7 +472,7 @@ export function CuesView(): ReactElement {
             <button
               onClick={handlePlay}
               disabled={!currentPlaylist || currentPlaylist.entries.length === 0}
-              className="w-14 h-14 flex items-center justify-center bg-blue-600 hover:bg-blue-500 disabled:bg-gray-900 disabled:text-gray-600 rounded-lg transition-colors"
+              className="w-14 h-14 flex items-center justify-center bg-primary hover:bg-primary-hover disabled:bg-bg-deep disabled:text-text-disabled rounded-lg transition-colors"
               title="Play"
             >
               <Play size={28} />
@@ -482,7 +482,7 @@ export function CuesView(): ReactElement {
           <button
             onClick={handleStop}
             disabled={!isPlaylistActive}
-            className="w-12 h-12 flex items-center justify-center bg-gray-800 hover:bg-gray-700 disabled:bg-gray-900 disabled:text-gray-600 rounded-lg transition-colors"
+            className="w-12 h-12 flex items-center justify-center bg-bg-surface hover:bg-bg-elevated disabled:bg-bg-deep disabled:text-text-disabled rounded-lg transition-colors"
             title="Stop"
           >
             <Square size={24} />
@@ -491,7 +491,7 @@ export function CuesView(): ReactElement {
           <button
             onClick={handleNext}
             disabled={!isPlaylistActive}
-            className="w-12 h-12 flex items-center justify-center bg-gray-800 hover:bg-gray-700 disabled:bg-gray-900 disabled:text-gray-600 rounded-lg transition-colors"
+            className="w-12 h-12 flex items-center justify-center bg-bg-surface hover:bg-bg-elevated disabled:bg-bg-deep disabled:text-text-disabled rounded-lg transition-colors"
             title="Next"
           >
             <SkipForward size={24} />
@@ -503,8 +503,8 @@ export function CuesView(): ReactElement {
             disabled={!isPlaylistActive}
             className={`w-12 h-12 flex items-center justify-center rounded-lg transition-colors ${
               advanceAfterLoop
-                ? 'bg-orange-600 hover:bg-orange-500 text-white'
-                : 'bg-gray-800 hover:bg-gray-700 disabled:bg-gray-900 disabled:text-gray-600'
+                ? 'bg-warning-bright hover:bg-warning text-text-primary'
+                : 'bg-bg-surface hover:bg-bg-elevated disabled:bg-bg-deep disabled:text-text-disabled'
             }`}
             title="Advance to next region after current loop iteration"
           >

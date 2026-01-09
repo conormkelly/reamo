@@ -491,14 +491,14 @@ describe('Playhead visibility', () => {
 function findTimeSelectionElement(container: Element): HTMLElement | null {
   // The time selection div has these classes and pointer-events-none
   // In navigate mode: bg-white/15 border-white/60
-  // In regions mode: bg-gray-500/5 border-gray-700 opacity-50
+  // In regions mode: bg-text-muted/5 border-border-subtle opacity-50
   // It's rendered with inline left/width styles
   const candidates = container.querySelectorAll('.border-l-2.border-r-2.pointer-events-none')
   for (const el of candidates) {
     const htmlEl = el as HTMLElement
     // Time selection has both left and width set (selection preview also matches but has different bg)
-    // Time selection uses bg-white/15 or bg-gray-500/5, selection preview uses bg-blue-500/30
-    if (htmlEl.style.left && htmlEl.style.width && !htmlEl.classList.contains('bg-blue-500/30')) {
+    // Time selection uses bg-white/15 or similar, selection preview uses bg-selection-preview
+    if (htmlEl.style.left && htmlEl.style.width && !htmlEl.classList.contains('bg-selection-preview')) {
       return htmlEl
     }
   }

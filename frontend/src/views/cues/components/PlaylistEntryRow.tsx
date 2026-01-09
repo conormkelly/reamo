@@ -132,13 +132,13 @@ export function PlaylistEntryRow({
         reorderMode ? 'touch-none select-none cursor-grab' : 'cursor-pointer'
       } ${
         isNowPlaying
-          ? 'bg-gray-800 rounded-lg'
+          ? 'bg-bg-surface rounded-lg'
           : isSelected
-            ? 'bg-gray-800 rounded-lg border-l-4 border-l-blue-500'
-            : 'bg-gray-800 hover:bg-gray-750 rounded-lg'
+            ? 'bg-bg-surface rounded-lg border-l-4 border-l-row-selected-border'
+            : 'bg-bg-surface hover:bg-bg-elevated rounded-lg'
       } ${entry.deleted ? 'opacity-50' : ''} ${
         isDragging ? 'opacity-50 cursor-grabbing' : ''
-      } ${isDropTarget ? 'ring-2 ring-blue-400' : ''}`}
+      } ${isDropTarget ? 'ring-2 ring-control-ring' : ''}`}
       style={isNowPlaying ? { borderLeft: `4px solid ${regionColor}`, borderRadius: '0.5rem' } : undefined}
       onClick={handleClick}
       onDoubleClick={onPlayFrom}
@@ -164,7 +164,7 @@ export function PlaylistEntryRow({
       <div className="flex items-center gap-2 p-3 pt-4">
         {/* Drag handle - only in reorder mode */}
         {reorderMode && (
-          <div className="flex-none cursor-grab active:cursor-grabbing text-gray-500 hover:text-gray-300">
+          <div className="flex-none cursor-grab active:cursor-grabbing text-text-muted hover:text-text-tertiary">
             <GripVertical size={20} />
           </div>
         )}
@@ -174,15 +174,15 @@ export function PlaylistEntryRow({
           <div className="flex items-center gap-2">
             <span className="font-medium truncate">{regionName}</span>
             {entry.deleted && (
-              <span className="text-orange-400 text-xs flex items-center gap-1">
+              <span className="text-external-text text-xs flex items-center gap-1">
                 <AlertTriangle size={12} /> Deleted
               </span>
             )}
           </div>
-          <div className="text-sm text-gray-400 flex items-center gap-2">
+          <div className="text-sm text-text-secondary flex items-center gap-2">
             <span>{duration}</span>
             {loopProgress && (
-              <span className="text-blue-400">• {loopProgress}</span>
+              <span className="text-info">• {loopProgress}</span>
             )}
           </div>
         </div>
@@ -196,7 +196,7 @@ export function PlaylistEntryRow({
               }
             }}
             disabled={entry.loopCount === -1}
-            className="w-8 h-8 flex items-center justify-center bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 rounded transition-colors"
+            className="w-8 h-8 flex items-center justify-center bg-bg-elevated hover:bg-bg-hover disabled:bg-bg-surface disabled:text-text-disabled rounded transition-colors"
           >
             <Minus size={16} />
           </button>
@@ -210,7 +210,7 @@ export function PlaylistEntryRow({
               }
             }}
             disabled={entry.loopCount === -1}
-            className="w-8 h-8 flex items-center justify-center bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 rounded transition-colors"
+            className="w-8 h-8 flex items-center justify-center bg-bg-elevated hover:bg-bg-hover disabled:bg-bg-surface disabled:text-text-disabled rounded transition-colors"
           >
             <Plus size={16} />
           </button>
@@ -218,8 +218,8 @@ export function PlaylistEntryRow({
             onClick={() => onSetLoopCount(entry.loopCount === -1 ? 1 : -1)}
             className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${
               entry.loopCount === -1
-                ? 'bg-purple-600 hover:bg-purple-500 text-white'
-                : 'bg-gray-700 hover:bg-gray-600'
+                ? 'bg-accent-region hover:bg-accent-region-hover text-text-primary'
+                : 'bg-bg-elevated hover:bg-bg-hover'
             }`}
             title="Infinite loops"
           >
@@ -230,7 +230,7 @@ export function PlaylistEntryRow({
         {/* Remove button */}
         <button
           onClick={onRemove}
-          className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-red-400 transition-colors"
+          className="w-8 h-8 flex items-center justify-center text-text-muted hover:text-error-text transition-colors"
           title="Remove from playlist"
         >
           <X size={18} />

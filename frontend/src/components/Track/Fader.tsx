@@ -151,9 +151,9 @@ export function Fader({
       <div
         ref={containerRef}
         className={`relative w-8 rounded select-none touch-none ${
-          isSelected ? 'bg-gray-500' : 'bg-gray-700'
+          isSelected ? 'bg-bg-disabled' : 'bg-bg-elevated'
         } ${mixerLocked ? 'cursor-not-allowed opacity-50' : 'cursor-ns-resize'} ${
-          isDragging ? 'ring-2 ring-blue-400' : ''
+          isDragging ? 'ring-2 ring-control-ring' : ''
         }`}
         style={{ height }}
         onMouseDown={handleMouseDown}
@@ -162,7 +162,7 @@ export function Fader({
       >
         {/* Fader track */}
         <div
-          className={`absolute bottom-0 left-0 right-0 bg-green-600 rounded-b ${hasMounted ? 'transition-all duration-75' : ''}`}
+          className={`absolute bottom-0 left-0 right-0 bg-fader-fill rounded-b ${hasMounted ? 'transition-all duration-75' : ''}`}
           style={{ height: handleHeight }}
         />
         {/* Fader handle */}
@@ -171,7 +171,7 @@ export function Fader({
           style={{ bottom: Math.max(0, handleHeight - 6) }}
         />
       </div>
-      <span className="text-xs text-gray-400 font-mono">{volumeDb}</span>
+      <span className="text-xs text-text-secondary font-mono">{volumeDb}</span>
     </div>
   );
 }

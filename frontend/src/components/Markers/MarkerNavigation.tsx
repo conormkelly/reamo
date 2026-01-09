@@ -37,7 +37,7 @@ export function MarkerNavigation({
     lg: 'px-4 py-3 text-lg',
   };
 
-  const buttonClass = `${sizeClasses[size]} rounded font-medium transition-colors bg-gray-700 text-white hover:bg-gray-600 active:bg-gray-500`;
+  const buttonClass = `${sizeClasses[size]} rounded font-medium transition-colors bg-bg-elevated text-text-primary hover:bg-bg-hover active:bg-bg-disabled`;
 
   return (
     <div className={`flex items-center gap-2 ${className}`}>

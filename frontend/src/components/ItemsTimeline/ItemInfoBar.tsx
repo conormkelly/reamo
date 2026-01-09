@@ -135,13 +135,13 @@ export function ItemInfoBar({ item, className = '' }: ItemInfoBarProps): ReactEl
 
 
   return (
-    <div className={`flex items-center gap-2 px-3 py-2 bg-gray-800 border-t border-gray-700 ${className}`}>
+    <div className={`flex items-center gap-2 px-3 py-2 bg-bg-surface border-t border-border-subtle ${className}`}>
       {/* Take navigation */}
       <div className="flex items-center gap-1">
         <button
           onClick={handlePrevTake}
           disabled={takeCount <= 1}
-          className="p-1 rounded hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
+          className="p-1 rounded hover:bg-bg-elevated disabled:opacity-30 disabled:cursor-not-allowed"
           title="Previous take"
         >
           <ChevronLeft className="w-4 h-4" />
@@ -152,7 +152,7 @@ export function ItemInfoBar({ item, className = '' }: ItemInfoBarProps): ReactEl
         <button
           onClick={handleNextTake}
           disabled={takeCount <= 1}
-          className="p-1 rounded hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
+          className="p-1 rounded hover:bg-bg-elevated disabled:opacity-30 disabled:cursor-not-allowed"
           title="Next take"
         >
           <ChevronRight className="w-4 h-4" />
@@ -160,18 +160,18 @@ export function ItemInfoBar({ item, className = '' }: ItemInfoBarProps): ReactEl
       </div>
 
       {/* Divider */}
-      <div className="w-px h-6 bg-gray-600" />
+      <div className="w-px h-6 bg-bg-hover" />
 
       {/* Take info (sparse - name not available without fetch) */}
       <div className="flex-1 min-w-0">
-        <span className="text-sm text-gray-300 truncate block">
+        <span className="text-sm text-text-tertiary truncate block">
           Active Take
         </span>
       </div>
 
       {/* MIDI indicator (from sparse field) */}
       {item.activeTakeIsMidi && (
-        <span className="text-xs bg-blue-600 text-white px-1.5 py-0.5 rounded">
+        <span className="text-xs bg-midi-badge text-white px-1.5 py-0.5 rounded">
           MIDI
         </span>
       )}
@@ -180,7 +180,7 @@ export function ItemInfoBar({ item, className = '' }: ItemInfoBarProps): ReactEl
       <div className="flex items-center gap-1 min-w-[100px]">
         {isEditingNotes ? (
           notesLoading ? (
-            <span className="text-sm text-gray-500">Loading...</span>
+            <span className="text-sm text-text-muted">Loading...</span>
           ) : (
             <input
               ref={notesInputRef}
@@ -189,14 +189,14 @@ export function ItemInfoBar({ item, className = '' }: ItemInfoBarProps): ReactEl
               onChange={(e) => setNotesValue(e.target.value)}
               onBlur={handleNotesSubmit}
               onKeyDown={handleNotesKeyDown}
-              className="w-full bg-gray-700 text-white text-sm px-2 py-0.5 rounded border border-gray-600 focus:border-purple-400 focus:outline-none"
+              className="w-full bg-bg-elevated text-text-primary text-sm px-2 py-0.5 rounded border border-border-default focus:border-accent-region focus:outline-none"
               placeholder="Add notes..."
             />
           )
         ) : (
           <button
             onClick={handleStartEditingNotes}
-            className="text-sm text-gray-400 hover:text-white truncate text-left"
+            className="text-sm text-text-secondary hover:text-text-primary truncate text-left"
             title={item.hasNotes ? 'Edit notes' : 'Add notes'}
           >
             {item.hasNotes ? 'Notes...' : 'Add notes...'}
@@ -205,7 +205,7 @@ export function ItemInfoBar({ item, className = '' }: ItemInfoBarProps): ReactEl
       </div>
 
       {/* Divider */}
-      <div className="w-px h-6 bg-gray-600" />
+      <div className="w-px h-6 bg-bg-hover" />
 
       {/* Actions */}
       <div className="flex items-center gap-1">
@@ -213,19 +213,19 @@ export function ItemInfoBar({ item, className = '' }: ItemInfoBarProps): ReactEl
         <div className="relative" ref={colorPickerRef}>
           <button
             onClick={() => setShowColorPicker(!showColorPicker)}
-            className="p-1.5 rounded hover:bg-gray-700"
+            className="p-1.5 rounded hover:bg-bg-elevated"
             title="Set color"
           >
             <Palette className="w-4 h-4" style={{ color: currentColor }} />
           </button>
           {showColorPicker && (
-            <div className="absolute bottom-full right-0 mb-2 p-2 bg-gray-700 rounded-lg shadow-lg z-50">
+            <div className="absolute bottom-full right-0 mb-2 p-2 bg-bg-elevated rounded-lg shadow-lg z-50">
               <div className="grid grid-cols-4 gap-1">
                 {ITEM_COLORS.map((color) => (
                   <button
                     key={color}
                     onClick={() => handleColorChange(color)}
-                    className="w-6 h-6 rounded border border-gray-600 hover:scale-110 transition-transform"
+                    className="w-6 h-6 rounded border border-border-default hover:scale-110 transition-transform"
                     style={{ backgroundColor: color }}
                   />
                 ))}
@@ -243,7 +243,7 @@ export function ItemInfoBar({ item, className = '' }: ItemInfoBarProps): ReactEl
         {/* Lock toggle */}
         <button
           onClick={handleToggleLock}
-          className={`p-1.5 rounded hover:bg-gray-700 ${item.locked ? 'text-yellow-400' : ''}`}
+          className={`p-1.5 rounded hover:bg-bg-elevated ${item.locked ? 'text-locked' : ''}`}
           title={item.locked ? 'Unlock item' : 'Lock item'}
         >
           {item.locked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
@@ -253,7 +253,7 @@ export function ItemInfoBar({ item, className = '' }: ItemInfoBarProps): ReactEl
         <button
           onClick={handleCropToActive}
           disabled={takeCount <= 1}
-          className="p-1.5 rounded hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
+          className="p-1.5 rounded hover:bg-bg-elevated disabled:opacity-30 disabled:cursor-not-allowed"
           title="Crop to active take"
         >
           <Scissors className="w-4 h-4" />
@@ -263,7 +263,7 @@ export function ItemInfoBar({ item, className = '' }: ItemInfoBarProps): ReactEl
         <button
           onClick={handleDeleteTake}
           disabled={takeCount <= 1}
-          className="p-1.5 rounded hover:bg-gray-700 text-red-400 disabled:opacity-30 disabled:cursor-not-allowed"
+          className="p-1.5 rounded hover:bg-bg-elevated text-error-text disabled:opacity-30 disabled:cursor-not-allowed"
           title="Delete active take"
         >
           <Trash2 className="w-4 h-4" />

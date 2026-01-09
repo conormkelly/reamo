@@ -105,7 +105,7 @@ export function ClockElementWrapper({
       className={`
         relative
         ${editMode ? 'p-2' : ''}
-        ${isDragTarget ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-black rounded-lg' : ''}
+        ${isDragTarget ? 'ring-2 ring-drag-target-ring ring-offset-2 ring-offset-black rounded-lg' : ''}
         ${editMode && !visible ? 'opacity-40' : ''}
       `}
       draggable={editMode}
@@ -129,7 +129,7 @@ export function ClockElementWrapper({
           {/* Left side: drag handle + label */}
           <div className="flex items-center gap-2">
             <div
-              className="cursor-grab active:cursor-grabbing text-gray-500 hover:text-gray-300 touch-none p-2 -m-2"
+              className="cursor-grab active:cursor-grabbing text-text-muted hover:text-text-tertiary touch-none p-2 -m-2"
               onTouchStart={handleTouchStart}
               onTouchMove={handleTouchMove}
               onTouchEnd={handleTouchEnd}
@@ -137,7 +137,7 @@ export function ClockElementWrapper({
             >
               <GripVertical size={24} />
             </div>
-            <span className="text-xs text-gray-400 uppercase tracking-wide">{label}</span>
+            <span className="text-xs text-text-secondary uppercase tracking-wide">{label}</span>
           </div>
 
           {/* Right side: visibility toggle */}
@@ -145,8 +145,8 @@ export function ClockElementWrapper({
             onClick={onToggleVisible}
             className={`p-1.5 rounded transition-colors ${
               visible
-                ? 'text-gray-300 hover:text-white hover:bg-gray-700'
-                : 'text-gray-600 hover:text-gray-400 hover:bg-gray-800'
+                ? 'text-text-tertiary hover:text-text-primary hover:bg-bg-elevated'
+                : 'text-text-disabled hover:text-text-secondary hover:bg-bg-surface'
             }`}
             title={visible ? 'Hide element' : 'Show element'}
           >
@@ -163,14 +163,14 @@ export function ClockElementWrapper({
       {/* Size controls - only show in edit mode for elements with scale */}
       {editMode && scaleKey && (
         <div className="flex justify-center mt-2">
-          <div className="inline-flex items-center gap-0.5 bg-gray-800/80 rounded-lg p-0.5">
+          <div className="inline-flex items-center gap-0.5 bg-bg-surface/80 rounded-lg p-0.5">
             <button
               onClick={() => onScaleChange(Math.max(0.5, scale - step))}
               disabled={!canDecrease}
               className={`p-1.5 rounded transition-colors ${
                 canDecrease
-                  ? 'hover:bg-gray-700 text-gray-300'
-                  : 'text-gray-600 cursor-not-allowed'
+                  ? 'hover:bg-bg-elevated text-text-tertiary'
+                  : 'text-text-disabled cursor-not-allowed'
               }`}
               title="Decrease size"
               aria-label="Decrease size"
@@ -178,7 +178,7 @@ export function ClockElementWrapper({
               <Minus size={14} />
             </button>
             <div
-              className="px-2 text-gray-400 text-xs font-mono min-w-[3rem] text-center"
+              className="px-2 text-text-secondary text-xs font-mono min-w-[3rem] text-center"
               title={`Scale: ${Math.round(scale * 100)}%`}
             >
               <ALargeSmall size={16} className="inline mr-1" />
@@ -189,8 +189,8 @@ export function ClockElementWrapper({
               disabled={!canIncrease}
               className={`p-1.5 rounded transition-colors ${
                 canIncrease
-                  ? 'hover:bg-gray-700 text-gray-300'
-                  : 'text-gray-600 cursor-not-allowed'
+                  ? 'hover:bg-bg-elevated text-text-tertiary'
+                  : 'text-text-disabled cursor-not-allowed'
               }`}
               title="Increase size"
               aria-label="Increase size"

@@ -160,27 +160,27 @@ export function IconPicker({ value, onChange, onClose }: IconPickerProps) {
       onClick={onClose}
     >
       <div
-        className="bg-gray-800 rounded-lg shadow-xl w-[400px] max-w-[95vw] max-h-[80vh] flex flex-col"
+        className="bg-bg-surface rounded-lg shadow-xl w-[400px] max-w-[95vw] max-h-[80vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-700">
+        <div className="flex items-center justify-between p-4 border-b border-border-subtle">
           <h3 className="text-lg font-medium">Select Icon</h3>
           <button
             onClick={onClose}
-            className="p-1 hover:bg-gray-700 rounded transition-colors"
+            className="p-1 hover:bg-bg-elevated rounded transition-colors"
           >
             <X size={20} />
           </button>
         </div>
 
         {/* Search */}
-        <div className="p-4 border-b border-gray-700">
+        <div className="p-4 border-b border-border-subtle">
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full px-3 py-2 bg-gray-900 border border-gray-600 rounded text-white"
+            className="w-full px-3 py-2 bg-bg-deep border border-border-default rounded text-text-primary"
             placeholder="Search icons..."
             autoFocus
           />
@@ -202,8 +202,8 @@ export function IconPicker({ value, onChange, onClose }: IconPickerProps) {
                   onClick={() => onChange(kebabName)}
                   className={`p-2 rounded transition-colors flex items-center justify-center ${
                     isSelected
-                      ? 'bg-blue-600 text-white ring-2 ring-blue-400'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      ? 'bg-primary text-text-primary ring-2 ring-control-ring'
+                      : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
                   }`}
                   title={kebabName}
                 >
@@ -213,18 +213,18 @@ export function IconPicker({ value, onChange, onClose }: IconPickerProps) {
             })}
           </div>
           {filteredIcons.length === 0 && (
-            <div className="text-center text-gray-500 py-8">
+            <div className="text-center text-text-muted py-8">
               No icons found for "{search}"
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-gray-700 text-center text-sm text-gray-500">
+        <div className="p-4 border-t border-border-subtle text-center text-sm text-text-muted">
           {filteredIcons.length} icons
           {value && (
             <span className="ml-2">
-              • Selected: <code className="text-gray-400">{value}</code>
+              • Selected: <code className="text-text-secondary">{value}</code>
             </span>
           )}
         </div>

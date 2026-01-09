@@ -69,10 +69,10 @@ export function ActionButton({
   };
 
   const variantClasses = {
-    default: 'bg-gray-700 text-white hover:bg-gray-600 active:bg-gray-500',
-    primary: 'bg-blue-600 text-white hover:bg-blue-500 active:bg-blue-700',
-    danger: 'bg-red-600 text-white hover:bg-red-500 active:bg-red-700',
-    ghost: 'bg-transparent text-gray-300 hover:bg-gray-800 active:bg-gray-700',
+    default: 'bg-bg-elevated text-text-primary hover:bg-bg-hover active:bg-bg-disabled',
+    primary: 'bg-primary text-text-primary hover:bg-primary-hover active:bg-primary-active',
+    danger: 'bg-error-action text-text-primary hover:bg-error active:bg-error-action',
+    ghost: 'bg-transparent text-text-tertiary hover:bg-bg-surface active:bg-bg-elevated',
   };
 
   return (

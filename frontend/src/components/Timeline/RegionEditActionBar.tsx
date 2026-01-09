@@ -122,16 +122,16 @@ export function RegionEditActionBar(): ReactElement | null {
   }
 
   return (
-    <div className="flex items-center justify-between px-3 py-2 bg-amber-900/30 border border-amber-600/50 rounded-lg">
+    <div className="flex items-center justify-between px-3 py-2 bg-pending-bg border border-pending-border rounded-lg">
       <div className="flex items-center gap-2">
         {commitError ? (
-          <AlertCircle size={16} className="text-red-400" />
+          <AlertCircle size={16} className="text-error-text" />
         ) : (
-          <div className="w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
+          <div className="w-2 h-2 bg-pending-dot rounded-full animate-pulse" />
         )}
-        <span className="text-sm text-amber-200">
+        <span className="text-sm text-pending-text">
           {commitError ? (
-            <span className="text-red-400">{commitError}</span>
+            <span className="text-error-text">{commitError}</span>
           ) : isCommitting ? (
             'Saving changes...'
           ) : (
@@ -146,7 +146,7 @@ export function RegionEditActionBar(): ReactElement | null {
           <button
             onClick={() => undo()}
             disabled={!canUndo() || isCommitting || isDragging}
-            className="flex items-center justify-center w-8 h-8 text-gray-300 bg-gray-700 hover:bg-gray-600 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex items-center justify-center w-8 h-8 text-text-tertiary bg-bg-elevated hover:bg-bg-hover rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             title="Undo"
           >
             <Undo2 size={16} />
@@ -154,7 +154,7 @@ export function RegionEditActionBar(): ReactElement | null {
           <button
             onClick={() => redo()}
             disabled={!canRedo() || isCommitting || isDragging}
-            className="flex items-center justify-center w-8 h-8 text-gray-300 bg-gray-700 hover:bg-gray-600 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex items-center justify-center w-8 h-8 text-text-tertiary bg-bg-elevated hover:bg-bg-hover rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             title="Redo"
           >
             <Redo2 size={16} />
@@ -164,7 +164,7 @@ export function RegionEditActionBar(): ReactElement | null {
         <button
           onClick={handleCancel}
           disabled={isCommitting}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-300 bg-gray-700 hover:bg-gray-600 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-text-tertiary bg-bg-elevated hover:bg-bg-hover rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <X size={14} />
           Cancel
@@ -172,7 +172,7 @@ export function RegionEditActionBar(): ReactElement | null {
         <button
           onClick={handleSave}
           disabled={isCommitting}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-green-600 hover:bg-green-500 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-text-primary bg-success-action hover:bg-success rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isCommitting ? (
             <Loader2 size={14} className="animate-spin" />

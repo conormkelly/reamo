@@ -112,8 +112,8 @@ export function MetronomeButton({
   };
 
   const activeClass = isMetronome
-    ? 'bg-yellow-500/20 text-yellow-500 hover:bg-yellow-500/30'
-    : 'bg-gray-700 text-gray-300 hover:bg-gray-600';
+    ? 'bg-metronome-bg text-metronome hover:bg-metronome-hover'
+    : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover';
 
   return (
     <>
@@ -142,39 +142,39 @@ export function MetronomeButton({
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
           onClick={handleOverlayClick}
         >
-          <div className="bg-gray-800 rounded-lg p-4 shadow-xl border border-gray-700 min-w-[200px]">
+          <div className="bg-bg-surface rounded-lg p-4 shadow-xl border border-border-subtle min-w-[200px]">
             {/* Volume Section */}
-            <div className="text-sm text-gray-400 mb-3 text-center">Metronome Volume</div>
+            <div className="text-sm text-text-secondary mb-3 text-center">Metronome Volume</div>
             <div className="flex items-center justify-center gap-4">
               <button
                 onClick={handleVolumeDown}
-                className="w-14 h-14 rounded-lg bg-gray-700 hover:bg-gray-600 active:bg-gray-500 flex items-center justify-center text-2xl"
+                className="w-14 h-14 rounded-lg bg-bg-elevated hover:bg-bg-hover active:bg-bg-disabled flex items-center justify-center text-2xl"
               >
                 <Minus size={28} />
               </button>
               <button
                 onClick={handleVolumeUp}
-                className="w-14 h-14 rounded-lg bg-gray-700 hover:bg-gray-600 active:bg-gray-500 flex items-center justify-center text-2xl"
+                className="w-14 h-14 rounded-lg bg-bg-elevated hover:bg-bg-hover active:bg-bg-disabled flex items-center justify-center text-2xl"
               >
                 <Plus size={28} />
               </button>
             </div>
-            <div className="text-xs text-gray-500 mt-2 text-center">
+            <div className="text-xs text-text-muted mt-2 text-center">
               ~0.2 dB per tap
             </div>
 
             {/* Divider */}
-            <div className="border-t border-gray-700 my-4" />
+            <div className="border-t border-border-subtle my-4" />
 
             {/* Count-In Section */}
-            <div className="text-sm text-gray-400 mb-3 text-center">Count-In</div>
+            <div className="text-sm text-text-secondary mb-3 text-center">Count-In</div>
             <div className="flex items-center justify-center gap-3">
               <button
                 onClick={handleToggleCountInRecord}
                 className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                   isCountInRecord
-                    ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
-                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    ? 'bg-count-in-record-bg text-count-in-record-text hover:bg-count-in-record-hover'
+                    : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
                 }`}
               >
                 Record
@@ -183,8 +183,8 @@ export function MetronomeButton({
                 onClick={handleToggleCountInPlayback}
                 className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                   isCountInPlayback
-                    ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
-                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    ? 'bg-count-in-play-bg text-count-in-play-text hover:bg-count-in-play-hover'
+                    : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
                 }`}
               >
                 Playback

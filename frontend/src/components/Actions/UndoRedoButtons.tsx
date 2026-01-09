@@ -50,7 +50,7 @@ export function UndoButton({
       title={reaperCanUndo ? `Undo: ${reaperCanUndo}` : 'Nothing to undo'}
       className={`
         ${sizeClasses[size]}
-        bg-gray-700 text-white hover:bg-gray-600 active:bg-gray-500
+        bg-bg-elevated text-text-primary hover:bg-bg-hover active:bg-bg-disabled
         rounded font-medium transition-colors
         disabled:opacity-50 disabled:cursor-not-allowed
         ${className}
@@ -104,7 +104,7 @@ export function RedoButton({
       title={reaperCanRedo ? `Redo: ${reaperCanRedo}` : 'Nothing to redo'}
       className={`
         ${sizeClasses[size]}
-        bg-gray-700 text-white hover:bg-gray-600 active:bg-gray-500
+        bg-bg-elevated text-text-primary hover:bg-bg-hover active:bg-bg-disabled
         rounded font-medium transition-colors
         disabled:opacity-50 disabled:cursor-not-allowed
         ${className}

@@ -39,9 +39,9 @@ function MiniTransportButton({
   children,
 }: MiniTransportButtonProps): ReactElement {
   const colorClasses = {
-    green: 'bg-green-500',
-    red: 'bg-red-500',
-    gray: 'bg-gray-600',
+    green: 'bg-success',
+    red: 'bg-error',
+    gray: 'bg-bg-hover',
   };
 
   return (
@@ -53,7 +53,7 @@ function MiniTransportButton({
       className={`
         w-10 h-10 rounded-full flex items-center justify-center
         transition-colors
-        ${isActive ? colorClasses[activeColor] : 'bg-gray-700 hover:bg-gray-600'}
+        ${isActive ? colorClasses[activeColor] : 'bg-bg-elevated hover:bg-bg-hover'}
       `}
     >
       {children}
@@ -132,13 +132,13 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
   }, []);
 
   const recordInactiveClass = isAutoPunch
-    ? 'bg-red-900/30 hover:bg-red-800/50 ring-2 ring-red-500/50'
-    : 'bg-red-900/30 hover:bg-red-800/50 ring-2 ring-red-500/30';
+    ? 'bg-record-dim hover:bg-record-hover ring-2 ring-record-ring'
+    : 'bg-record-dim hover:bg-record-hover ring-2 ring-record-ring-dim';
 
   const isRight = position === 'right';
 
   return (
-    <div className={`flex items-center justify-between bg-gray-900 border-t border-gray-800 px-3 py-2 ${isRight ? 'flex-row-reverse' : ''} ${className}`}>
+    <div className={`flex items-center justify-between bg-bg-deep border-t border-border-muted px-3 py-2 ${isRight ? 'flex-row-reverse' : ''} ${className}`}>
       {/* Transport buttons - compact row */}
       <div className="flex items-center gap-1.5">
         <MiniTransportButton onClick={handleSkipToStart} title="Skip to Start">
@@ -184,7 +184,7 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
           className={`
             w-10 h-10 rounded-full flex items-center justify-center
             transition-colors touch-none select-none
-            ${isRecording ? 'bg-red-500 animate-pulse' : recordInactiveClass}
+            ${isRecording ? 'bg-record animate-pulse' : recordInactiveClass}
           `}
         >
           {isAutoPunch ? (
@@ -200,7 +200,7 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
         <div className="text-lg font-medium">
           <span ref={beatsRef} className="text-white">1.1.00</span>
         </div>
-        <div className="text-xs text-gray-400">
+        <div className="text-xs text-text-secondary">
           <span ref={timeRef}>0:00</span>
           <span className="mx-1.5">|</span>
           <span>{Math.round(bpm ?? 120)}</span>

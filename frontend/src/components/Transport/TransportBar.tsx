@@ -37,12 +37,12 @@ function TransportButton({
   pulse = false,
 }: TransportButtonProps): ReactElement {
   const colorClasses = {
-    green: 'bg-green-500',
-    red: 'bg-red-500',
-    gray: 'bg-gray-500',
+    green: 'bg-success',
+    red: 'bg-error',
+    gray: 'bg-bg-disabled',
   };
 
-  const defaultInactiveClass = 'bg-gray-700 hover:bg-gray-600';
+  const defaultInactiveClass = 'bg-bg-elevated hover:bg-bg-hover';
 
   return (
     <button
@@ -125,8 +125,8 @@ export function TransportBar({ className = '' }: TransportBarProps): ReactElemen
 
   // Determine record button styling based on auto-punch mode
   const recordInactiveClass = isAutoPunch
-    ? 'bg-red-900/30 hover:bg-red-800/50 ring-2 ring-red-500/50'
-    : 'bg-red-900/30 hover:bg-red-800/50 ring-2 ring-red-500/30';
+    ? 'bg-record-dim hover:bg-record-hover ring-2 ring-record-ring'
+    : 'bg-record-dim hover:bg-record-hover ring-2 ring-record-ring-dim';
 
   // Announce recording state changes to screen readers
   const recordingStatusText = isRecording
@@ -203,7 +203,7 @@ export function TransportBar({ className = '' }: TransportBarProps): ReactElemen
         className={`
           w-11 h-11 rounded-full flex items-center justify-center
           transition-colors touch-none select-none
-          ${isRecording ? 'bg-red-500 animate-pulse' : recordInactiveClass}
+          ${isRecording ? 'bg-error animate-pulse' : recordInactiveClass}
         `}
       >
         {isAutoPunch ? (

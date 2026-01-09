@@ -10,8 +10,8 @@ import type { WSItem } from '../../core/WebSocketTypes';
 import { type Track, isSelected } from '../../core/types';
 import { reaperColorToRgba } from '../../utils';
 
-// Default density block color - #818989 at 50% opacity
-const DEFAULT_BLOCK_COLOR = 'rgba(129, 137, 137, 0.5)';
+// Default density block color - matches --color-density-block token
+const DEFAULT_BLOCK_COLOR = 'rgba(129, 137, 137, 0.5)'; // --color-density-block
 
 export interface ItemsDensityOverlayProps {
   /** All items in the project */

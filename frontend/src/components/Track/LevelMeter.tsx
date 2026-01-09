@@ -62,24 +62,24 @@ export function LevelMeter({
 
   // Determine color based on level
   const getColor = (percent: number): string => {
-    if (percent > 95) return 'bg-red-500'; // Clipping
-    if (percent > 80) return 'bg-yellow-500'; // Hot
-    if (percent > 50) return 'bg-green-500'; // Good
-    return 'bg-green-600'; // Low
+    if (percent > 95) return 'bg-meter-clip'; // Clipping
+    if (percent > 80) return 'bg-meter-hot'; // Hot
+    if (percent > 50) return 'bg-meter-good'; // Good
+    return 'bg-meter-low'; // Low
   };
 
   const isVertical = orientation === 'vertical';
 
   return (
     <div
-      className={`relative bg-gray-900 rounded overflow-hidden ${className}`}
+      className={`relative bg-bg-deep rounded overflow-hidden ${className}`}
       style={isVertical ? { width: 12, height } : { height: 12, width: height }}
     >
       {/* Background gradient markers */}
       <div className="absolute inset-0 flex flex-col justify-between opacity-20">
-        <div className="h-px bg-red-500" style={{ marginTop: '5%' }} />
-        <div className="h-px bg-yellow-500" style={{ marginTop: '15%' }} />
-        <div className="h-px bg-gray-500" style={{ marginTop: '50%' }} />
+        <div className="h-px bg-meter-clip" style={{ marginTop: '5%' }} />
+        <div className="h-px bg-meter-hot" style={{ marginTop: '15%' }} />
+        <div className="h-px bg-bg-disabled" style={{ marginTop: '50%' }} />
       </div>
 
       {/* Current level (RMS/position) */}
@@ -111,7 +111,7 @@ export function LevelMeter({
       {/* Clip indicator - tap to clear */}
       {track?.clipped && (
         <div
-          className={`absolute bg-red-500 animate-pulse cursor-pointer ${
+          className={`absolute bg-meter-clip animate-pulse cursor-pointer ${
             isVertical ? 'top-0 left-0 right-0 h-2' : 'right-0 top-0 bottom-0 w-2'
           }`}
           onClick={() => sendCommand(meter.clearClip(trackIndex))}

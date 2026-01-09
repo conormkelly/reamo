@@ -26,6 +26,10 @@ function isStereo(peaks: StereoPeak[] | MonoPeak[]): peaks is StereoPeak[] {
   return peaks.length > 0 && typeof peaks[0] === 'object' && 'l' in peaks[0];
 }
 
+// CSS variable fallbacks for canvas (canvas API can't use CSS vars directly)
+const WAVEFORM_CENTERLINE_COLOR = 'rgba(255, 255, 255, 0.2)'; // matches --color-waveform-centerline
+const WAVEFORM_DEFAULT_COLOR = 'rgba(255, 255, 255, 0.7)'; // matches --color-waveform-default
+
 /**
  * Draw waveform on canvas
  */
@@ -34,7 +38,8 @@ function drawWaveform(
   peaks: StereoPeak[] | MonoPeak[],
   width: number,
   height: number,
-  color: string
+  color: string,
+  centerlineColor: string = WAVEFORM_CENTERLINE_COLOR
 ): void {
   ctx.clearRect(0, 0, width, height);
 
@@ -77,7 +82,7 @@ function drawWaveform(
     ctx.fill();
 
     // Center line
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.strokeStyle = centerlineColor;
     ctx.beginPath();
     ctx.moveTo(0, halfHeight);
     ctx.lineTo(width, halfHeight);
@@ -101,7 +106,7 @@ function drawWaveform(
     ctx.fill();
 
     // Center line
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.strokeStyle = centerlineColor;
     ctx.beginPath();
     ctx.moveTo(0, centerY);
     ctx.lineTo(width, centerY);
@@ -114,7 +119,7 @@ export function WaveformCanvas({
   height,
   visibleStart = 0,
   visibleEnd = 1,
-  color = 'rgba(255, 255, 255, 0.7)',
+  color = WAVEFORM_DEFAULT_COLOR,
 }: WaveformCanvasProps): ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 

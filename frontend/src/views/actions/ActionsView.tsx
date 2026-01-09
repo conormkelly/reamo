@@ -189,12 +189,12 @@ export function ActionsView(): ReactElement {
         : 'justify-start';
 
   return (
-    <div className="h-full bg-gray-950 text-white flex flex-col p-3">
+    <div className="h-full bg-bg-app text-text-primary flex flex-col p-3">
       {/* Header with ViewHeader + edit controls */}
       <ViewHeader currentView="actions">
         {/* Vertical alignment buttons (edit mode only) */}
         {editMode && (
-          <div className="flex items-center border border-gray-600 rounded overflow-hidden">
+          <div className="flex items-center border border-border-default rounded overflow-hidden">
             {(['top', 'center', 'bottom'] as VerticalAlign[]).map((align) => {
               const Icon =
                 align === 'top'
@@ -208,8 +208,8 @@ export function ActionsView(): ReactElement {
                   onClick={() => setVerticalAlign(align)}
                   className={`p-1.5 transition-colors ${
                     verticalAlign === align
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                      ? 'bg-primary text-text-primary'
+                      : 'bg-bg-elevated text-text-secondary hover:bg-bg-hover'
                   }`}
                   title={`Align sections ${align}`}
                 >
@@ -224,7 +224,7 @@ export function ActionsView(): ReactElement {
         {editMode && (
           <button
             onClick={() => setIsAddingSection(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-success-action text-text-primary rounded-lg hover:bg-success transition-colors"
           >
             <Plus size={16} />
             <span className="text-sm">Section</span>
@@ -236,8 +236,8 @@ export function ActionsView(): ReactElement {
           onClick={() => setEditMode(!editMode)}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
             editMode
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              ? 'bg-primary text-text-primary'
+              : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
           }`}
         >
           <Pencil size={16} />
@@ -253,9 +253,9 @@ export function ActionsView(): ReactElement {
           style={{ paddingBottom: `${bottomOffset + 24}px` }}
         >
           <div className="flex flex-col items-center text-center py-8">
-            <LayoutGrid size={48} className="text-gray-600 mb-4" />
-            <h2 className="text-xl font-medium text-gray-300 mb-2">No Sections Yet</h2>
-            <p className="text-gray-500 mb-6 max-w-xs">
+            <LayoutGrid size={48} className="text-text-disabled mb-4" />
+            <h2 className="text-xl font-medium text-text-tertiary mb-2">No Sections Yet</h2>
+            <p className="text-text-muted mb-6 max-w-xs">
               Add buttons that trigger REAPER actions or send MIDI. Organize them into named sections.
             </p>
             <button
@@ -263,7 +263,7 @@ export function ActionsView(): ReactElement {
                 setEditMode(true);
                 setIsAddingSection(true);
               }}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-text-primary rounded-lg hover:bg-primary-hover transition-colors"
             >
               <Plus size={18} />
               <span>Create Section</span>

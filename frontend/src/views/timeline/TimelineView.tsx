@@ -7,9 +7,9 @@ import type { ReactElement } from 'react';
 
 export function TimelineView(): ReactElement {
   return (
-    <div className="min-h-screen bg-gray-950 text-white p-4 flex flex-col items-center justify-center">
+    <div className="min-h-screen bg-bg-app text-text-primary p-4 flex flex-col items-center justify-center">
       <h1 className="text-2xl font-bold mb-4">Timeline View</h1>
-      <p className="text-gray-400">Visual arrangement coming soon</p>
+      <p className="text-text-secondary">Visual arrangement coming soon</p>
     </div>
   );
 }

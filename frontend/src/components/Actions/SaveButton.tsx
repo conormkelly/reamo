@@ -40,8 +40,8 @@ export function SaveButton({
 
   // Green when dirty, grey when clean
   const buttonClass = isProjectDirty
-    ? 'bg-green-600 text-white hover:bg-green-500 active:bg-green-700'
-    : 'bg-gray-700 text-gray-400 cursor-not-allowed';
+    ? 'bg-success-action text-text-primary hover:bg-success active:bg-success-action'
+    : 'bg-bg-elevated text-text-secondary cursor-not-allowed';
 
   return (
     <button

@@ -86,17 +86,17 @@ export function DeleteRegionModal({
     >
       <div
         ref={modalRef}
-        className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-md border border-gray-700"
+        className="bg-bg-surface rounded-xl shadow-2xl w-full max-w-md border border-border-subtle"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
           <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <Trash2 size={20} className="text-red-400" />
+            <Trash2 size={20} className="text-error" />
             Delete Region
           </h2>
           <button
             onClick={onClose}
-            className="p-1 text-gray-400 hover:text-white transition-colors"
+            className="p-1 text-text-secondary hover:text-text-primary transition-colors"
           >
             <X size={20} />
           </button>
@@ -112,7 +112,7 @@ export function DeleteRegionModal({
             />
             <div>
               <div className="text-white font-medium">{region.name}</div>
-              <div className="text-sm text-gray-400">{durationText}</div>
+              <div className="text-sm text-text-secondary">{durationText}</div>
             </div>
           </div>
 
@@ -123,8 +123,8 @@ export function DeleteRegionModal({
               <label
                 className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                   deleteMode === 'leave-gap'
-                    ? 'border-purple-500 bg-purple-500/10'
-                    : 'border-gray-600 hover:border-gray-500'
+                    ? 'border-accent-region bg-accent-region/10'
+                    : 'border-border-default hover:border-border-subtle'
                 }`}
               >
                 <input
@@ -133,11 +133,11 @@ export function DeleteRegionModal({
                   value="leave-gap"
                   checked={deleteMode === 'leave-gap'}
                   onChange={() => setDeleteMode('leave-gap')}
-                  className="mt-1 text-purple-500 focus:ring-purple-500"
+                  className="mt-1 text-accent-region focus:ring-accent-region"
                 />
                 <div>
                   <div className="text-white font-medium">Leave empty space</div>
-                  <div className="text-sm text-gray-400">
+                  <div className="text-sm text-text-secondary">
                     Delete the region and leave a gap in its place
                   </div>
                 </div>
@@ -149,8 +149,8 @@ export function DeleteRegionModal({
                   !hasPreviousRegion ? 'opacity-50 cursor-not-allowed' : ''
                 } ${
                   deleteMode === 'extend-previous'
-                    ? 'border-purple-500 bg-purple-500/10'
-                    : 'border-gray-600 hover:border-gray-500'
+                    ? 'border-accent-region bg-accent-region/10'
+                    : 'border-border-default hover:border-border-subtle'
                 }`}
               >
                 <input
@@ -160,11 +160,11 @@ export function DeleteRegionModal({
                   checked={deleteMode === 'extend-previous'}
                   onChange={() => setDeleteMode('extend-previous')}
                   disabled={!hasPreviousRegion}
-                  className="mt-1 text-purple-500 focus:ring-purple-500"
+                  className="mt-1 text-accent-region focus:ring-accent-region"
                 />
                 <div>
                   <div className="text-white font-medium">Extend previous region</div>
-                  <div className="text-sm text-gray-400">
+                  <div className="text-sm text-text-secondary">
                     {hasPreviousRegion
                       ? `Extend "${previousRegion?.name}" to fill the gap`
                       : 'No previous region to extend'}
@@ -176,8 +176,8 @@ export function DeleteRegionModal({
               <label
                 className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                   deleteMode === 'ripple-back'
-                    ? 'border-purple-500 bg-purple-500/10'
-                    : 'border-gray-600 hover:border-gray-500'
+                    ? 'border-accent-region bg-accent-region/10'
+                    : 'border-border-default hover:border-border-subtle'
                 }`}
               >
                 <input
@@ -186,11 +186,11 @@ export function DeleteRegionModal({
                   value="ripple-back"
                   checked={deleteMode === 'ripple-back'}
                   onChange={() => setDeleteMode('ripple-back')}
-                  className="mt-1 text-purple-500 focus:ring-purple-500"
+                  className="mt-1 text-accent-region focus:ring-accent-region"
                 />
                 <div>
                   <div className="text-white font-medium">Ripple delete</div>
-                  <div className="text-sm text-gray-400">
+                  <div className="text-sm text-text-secondary">
                     Delete and shift all following regions back to close the gap
                   </div>
                 </div>
@@ -199,22 +199,22 @@ export function DeleteRegionModal({
           </div>
 
           {/* Info about pending state */}
-          <p className="text-xs text-center text-gray-400">
+          <p className="text-xs text-center text-text-secondary">
             Deletion will be staged as a pending change. Click Save to apply to REAPER.
           </p>
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-2 px-4 py-3 border-t border-gray-700">
+        <div className="flex justify-end gap-2 px-4 py-3 border-t border-border-subtle">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white transition-colors"
+            className="px-4 py-2 text-sm font-medium text-text-tertiary hover:text-text-primary transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleDelete}
-            className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-500 rounded-lg transition-colors flex items-center gap-1.5"
+            className="px-4 py-2 text-sm font-medium text-text-primary bg-error-action hover:bg-error rounded-lg transition-colors flex items-center gap-1.5"
           >
             <Trash2 size={16} />
             Delete Region

@@ -103,17 +103,17 @@ export function SectionEditor({
       onClick={onClose}
     >
       <div
-        className="bg-gray-800 rounded-lg w-full max-w-sm max-h-[90vh] flex flex-col"
+        className="bg-bg-surface rounded-lg w-full max-w-sm max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-700 flex-shrink-0">
-          <h2 className="text-lg font-semibold text-white">
+        <div className="flex items-center justify-between p-4 border-b border-border-subtle flex-shrink-0">
+          <h2 className="text-lg font-semibold text-text-primary">
             {isNew ? 'New Section' : 'Edit Section'}
           </h2>
           <button
             onClick={onClose}
-            className="p-1 text-gray-400 hover:text-white rounded-lg hover:bg-gray-700 transition-colors"
+            className="p-1 text-text-secondary hover:text-text-primary rounded-lg hover:bg-bg-elevated transition-colors"
           >
             <X size={20} />
           </button>
@@ -123,7 +123,7 @@ export function SectionEditor({
         <div className="p-4 space-y-4 overflow-y-auto flex-1">
           {/* Section Name */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-text-tertiary mb-1">
               Section Name
             </label>
             <input
@@ -132,7 +132,7 @@ export function SectionEditor({
               onChange={(e) => setName(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="e.g., Transport, FX, Navigation"
-              className="w-full px-3 py-2 bg-gray-900 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+              className="w-full px-3 py-2 bg-bg-deep border border-border-default rounded-lg text-text-primary placeholder-text-muted focus:border-focus-border focus:outline-none"
               autoFocus
             />
           </div>
@@ -141,26 +141,26 @@ export function SectionEditor({
           <div className="flex gap-4">
             {/* Icon Picker */}
             <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-300 mb-1">
+              <label className="block text-sm font-medium text-text-tertiary mb-1">
                 Icon (optional)
               </label>
               <button
                 onClick={() => setShowIconPicker(true)}
-                className="w-full px-3 py-2 bg-gray-900 border border-gray-600 rounded-lg text-left flex items-center gap-2 hover:border-gray-500 transition-colors"
+                className="w-full px-3 py-2 bg-bg-deep border border-border-default rounded-lg text-left flex items-center gap-2 hover:border-bg-hover transition-colors"
               >
                 {IconComponent ? (
                   <>
-                    <IconComponent size={20} className="text-white" />
-                    <span className="text-gray-300 truncate">{icon}</span>
+                    <IconComponent size={20} className="text-text-primary" />
+                    <span className="text-text-tertiary truncate">{icon}</span>
                   </>
                 ) : (
-                  <span className="text-gray-500">None</span>
+                  <span className="text-text-muted">None</span>
                 )}
               </button>
               {icon && (
                 <button
                   onClick={() => setIcon(undefined)}
-                  className="mt-1 text-xs text-gray-500 hover:text-gray-400"
+                  className="mt-1 text-xs text-text-muted hover:text-text-secondary"
                 >
                   Clear icon
                 </button>
@@ -169,7 +169,7 @@ export function SectionEditor({
 
             {/* Color Picker */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
+              <label className="block text-sm font-medium text-text-tertiary mb-1">
                 Color
               </label>
               <ColorPickerInput
@@ -181,7 +181,7 @@ export function SectionEditor({
               {color && color !== DEFAULT_SECTION_COLOR && (
                 <button
                   onClick={() => setColor(undefined)}
-                  className="mt-1 text-xs text-gray-500 hover:text-gray-400"
+                  className="mt-1 text-xs text-text-muted hover:text-text-secondary"
                 >
                   Clear
                 </button>
@@ -192,18 +192,18 @@ export function SectionEditor({
           {/* Button Size and Spacing */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
+              <label className="block text-sm font-medium text-text-tertiary mb-1">
                 Button Size
               </label>
-              <div className="flex border border-gray-600 rounded-lg overflow-hidden">
+              <div className="flex border border-border-default rounded-lg overflow-hidden">
                 {(['sm', 'md', 'lg'] as SizeOption[]).map((size) => (
                   <button
                     key={size}
                     onClick={() => setButtonSize(size)}
                     className={`flex-1 py-1.5 text-sm transition-colors ${
                       buttonSize === size
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                        ? 'bg-primary text-text-primary'
+                        : 'bg-bg-elevated text-text-secondary hover:bg-bg-hover'
                     }`}
                   >
                     {size.toUpperCase()}
@@ -212,18 +212,18 @@ export function SectionEditor({
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
+              <label className="block text-sm font-medium text-text-tertiary mb-1">
                 Spacing
               </label>
-              <div className="flex border border-gray-600 rounded-lg overflow-hidden">
+              <div className="flex border border-border-default rounded-lg overflow-hidden">
                 {(['sm', 'md', 'lg'] as SizeOption[]).map((size) => (
                   <button
                     key={size}
                     onClick={() => setButtonSpacing(size)}
                     className={`flex-1 py-1.5 text-sm transition-colors ${
                       buttonSpacing === size
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                        ? 'bg-primary text-text-primary'
+                        : 'bg-bg-elevated text-text-secondary hover:bg-bg-hover'
                     }`}
                   >
                     {size.toUpperCase()}
@@ -236,11 +236,11 @@ export function SectionEditor({
           {/* Preview */}
           {(icon || color) && (
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
+              <label className="block text-sm font-medium text-text-tertiary mb-1">
                 Preview
               </label>
               <div
-                className="bg-gray-900 rounded-lg p-3 flex items-center gap-2"
+                className="bg-bg-deep rounded-lg p-3 flex items-center gap-2"
                 style={{
                   borderLeft: color ? `4px solid ${color}` : undefined,
                 }}
@@ -251,7 +251,7 @@ export function SectionEditor({
                     style={{ color: color || 'var(--color-text-secondary)' }}
                   />
                 )}
-                <span className="font-medium text-white">
+                <span className="font-medium text-text-primary">
                   {name || 'Section Name'}
                 </span>
               </div>
@@ -260,15 +260,15 @@ export function SectionEditor({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between p-4 border-t border-gray-700 flex-shrink-0">
+        <div className="flex items-center justify-between p-4 border-t border-border-subtle flex-shrink-0">
           {/* Delete button (only for existing sections) */}
           {!isNew && onDelete && (
             <button
               onClick={handleDelete}
               className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
                 confirmingDelete
-                  ? 'bg-red-600 text-white'
-                  : 'text-red-400 hover:text-red-300 hover:bg-gray-700'
+                  ? 'bg-error-action text-text-primary'
+                  : 'text-delete-text hover:text-delete-text-hover hover:bg-bg-elevated'
               }`}
             >
               <Trash2 size={16} />
@@ -283,14 +283,14 @@ export function SectionEditor({
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-gray-300 hover:text-white transition-colors"
+              className="px-4 py-2 text-text-tertiary hover:text-text-primary transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
               disabled={!name.trim()}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-4 py-2 bg-primary text-text-primary rounded-lg hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isNew ? 'Create' : 'Save'}
             </button>

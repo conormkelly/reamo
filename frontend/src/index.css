@@ -5,14 +5,33 @@
 
   /* === Backgrounds === */
   --color-bg-app: #1a1a1a;
+  --color-bg-deep: #111827;
   --color-bg-surface: #1f2937;
   --color-bg-elevated: #374151;
   --color-bg-hover: #4b5563;
+  --color-bg-disabled: #6b7280;
 
   /* === Text === */
   --color-text-primary: #ffffff;
   --color-text-secondary: #9ca3af;
+  --color-text-tertiary: #d1d5db;
   --color-text-muted: #6b7280;
+  --color-text-disabled: #4b5563;
+
+  /* === Borders === */
+  --color-border-default: #4b5563;
+  --color-border-subtle: #374151;
+  --color-border-muted: #1f2937;
+
+  /* === Primary (blue) === */
+  --color-primary: #2563eb;
+  --color-primary-hover: #3b82f6;
+  --color-primary-active: #1d4ed8;
+
+  /* === Region Accent (purple) === */
+  --color-accent-region: #9333ea;
+  --color-accent-region-hover: #a855f7;
+  --color-accent-region-dark: #7c3aed;
 
   /* === REAPER Timeline === */
   --color-playhead: #337066;
@@ -22,9 +41,185 @@
 
   /* === Status === */
   --color-success: #22c55e;
+  --color-success-action: #16a34a;
   --color-warning: #eab308;
   --color-warning-bright: #f97316;
   --color-error: #ef4444;
+  --color-error-action: #dc2626;
+
+  /* === Network Quality (connection status indicators) === */
+  --color-network-optimal: #4ade80;      /* green-400 */
+  --color-network-good: #86efac;         /* green-300 */
+  --color-network-moderate: #bbf7d0;     /* green-200 */
+  --color-network-poor: #facc15;         /* yellow-400 */
+  --color-network-degraded: #fb923c;     /* orange-400 */
+  --color-network-reconnecting: #ef4444; /* red-500 */
+
+  /* === Recording === */
+  --color-record: #ef4444;               /* red-500 - active recording */
+  --color-record-text: #f87171;          /* red-400 - recording indicator text */
+  --color-record-dim: #7f1d1d4d;         /* red-900/30 - inactive bg */
+  --color-record-dim-50: #7f1d1d80;      /* red-900/50 - inactive bg (clock view) */
+  --color-record-hover: #991b1b80;       /* red-800/50 - hover */
+  --color-record-hover-70: #991b1bb3;    /* red-800/70 - hover (clock view) */
+  --color-record-ring: #ef444480;        /* red-500/50 - auto-punch ring */
+  --color-record-ring-dim: #ef44444d;    /* red-500/30 - normal ring */
+
+  /* === Recording Actions (scrap/retake/keep buttons) === */
+  --color-action-scrap-bg: #7f1d1d66;    /* red-900/40 */
+  --color-action-scrap-hover: #991b1b99; /* red-800/60 */
+  --color-action-scrap-border: #ef444480;/* red-500/50 */
+  --color-action-scrap-text: #fecaca;    /* red-200 */
+  --color-action-scrap-text-hover: #fee2e2; /* red-100 */
+  --color-action-retake-bg: #78350f66;   /* amber-900/40 */
+  --color-action-retake-hover: #92400e99;/* amber-800/60 */
+  --color-action-retake-border: #f59e0b80;/* amber-500/50 */
+  --color-action-retake-text: #fde68a;   /* amber-200 */
+  --color-action-retake-text-hover: #fef3c7; /* amber-100 */
+  --color-action-keep-bg: #14532d66;     /* green-900/40 */
+  --color-action-keep-hover: #16653299;  /* green-800/60 */
+  --color-action-keep-border: #22c55e80; /* green-500/50 */
+  --color-action-keep-text: #bbf7d0;     /* green-200 */
+  --color-action-keep-text-hover: #dcfce7; /* green-100 */
+
+  /* === Metronome === */
+  --color-metronome: #eab308;            /* yellow-500 */
+  --color-metronome-bg: #eab30833;       /* yellow-500/20 */
+  --color-metronome-hover: #eab3084d;    /* yellow-500/30 */
+
+  /* === Timeline Editing === */
+  --color-selection-preview: #3b82f64d;  /* blue-500/30 */
+  --color-selection-border: #60a5fa;     /* blue-400 */
+  --color-insert-indicator: #4ade80;     /* green-400 */
+  --color-delta-positive-bg: #14532de6;  /* green-900/90 */
+  --color-delta-positive-text: #bbf7d0;  /* green-200 */
+  --color-delta-positive-border: #22c55e;/* green-500 */
+  --color-delta-negative-bg: #7f1d1de6;  /* red-900/90 */
+  --color-delta-negative-text: #fecaca;  /* red-200 */
+  --color-delta-negative-border: #ef4444;/* red-500 */
+
+  /* === Sync Indicator === */
+  --color-sync-border: #eab30880;        /* yellow-500/50 */
+  --color-sync-text: #facc15;            /* yellow-400 */
+
+  /* === Count-In States === */
+  --color-count-in-record-bg: #ef444433; /* red-500/20 */
+  --color-count-in-record-text: #f87171; /* red-400 */
+  --color-count-in-record-hover: #ef44444d; /* red-500/30 */
+  --color-count-in-play-bg: #22c55e33;   /* green-500/20 */
+  --color-count-in-play-text: #4ade80;   /* green-400 */
+  --color-count-in-play-hover: #22c55e4d;/* green-500/30 */
+
+  /* === Info/Accent (signed values, network icon) === */
+  --color-info: #60a5fa;                 /* blue-400 */
+  --color-info-muted: #93c5fd;           /* blue-300 */
+
+  /* === Memory Warning (amber bar) === */
+  --color-memory-warning-bg: #78350fe6;  /* amber-900/90 */
+  --color-memory-warning-icon: #fbbf24;  /* amber-400 */
+  --color-memory-warning-text: #fef3c7;  /* amber-100 */
+  --color-memory-warning-btn: #d97706;   /* amber-600 */
+  --color-memory-warning-btn-hover: #f59e0b; /* amber-500 */
+
+  /* === Track Solo (yellow) === */
+  --color-solo: #eab308;                 /* yellow-500 */
+  --color-solo-text: #000000;            /* black */
+
+  /* === Track Monitor (auto mode) === */
+  --color-monitor-auto-bg: #7f1d1d;      /* red-900 */
+  --color-monitor-auto-text: #fecaca;    /* red-200 */
+
+  /* === Error/Warning Icons === */
+  --color-warning-icon: #eab308;         /* yellow-500 */
+
+  /* === Level Meter === */
+  --color-meter-clip: #ef4444;           /* red-500 - clipping */
+  --color-meter-hot: #eab308;            /* yellow-500 - hot/loud */
+  --color-meter-good: #22c55e;           /* green-500 - good level */
+  --color-meter-low: #16a34a;            /* green-600 - low level */
+
+  /* === Fader/Pan Controls === */
+  --color-control-ring: #60a5fa;         /* blue-400 - active drag ring */
+  --color-control-indicator: #3b82f6;    /* blue-500 - pan indicator */
+  --color-control-indicator-selected: #60a5fa; /* blue-400 - selected */
+  --color-fader-fill: #16a34a;           /* green-600 - volume level */
+
+  /* === Toggle Button Active States === */
+  --color-toggle-yellow: #eab308;        /* yellow-500 */
+  --color-toggle-yellow-hover: #facc15;  /* yellow-400 */
+  --color-toggle-yellow-text: #000000;   /* black */
+
+  /* === Pending Changes Bar (amber) === */
+  --color-pending-bg: #78350f4d;         /* amber-900/30 */
+  --color-pending-border: #d9770680;     /* amber-600/50 */
+  --color-pending-dot: #fbbf24;          /* amber-400 */
+  --color-pending-text: #fde68a;         /* amber-200 */
+
+  /* === Region Navigation (purple buttons) === */
+  --color-region-nav: #7c3aed;           /* purple-700 */
+  --color-region-nav-hover: #9333ea;     /* purple-600 */
+  --color-region-nav-active: #a855f7;    /* purple-500 */
+
+  /* === Error Text (form validation) === */
+  --color-error-text: #f87171;           /* red-400 */
+
+  /* === MIDI Badge === */
+  --color-midi-badge: #2563eb;           /* blue-600 */
+
+  /* === Locked Indicator === */
+  --color-locked: #facc15;               /* yellow-400 */
+
+  /* === Focus States === */
+  --color-focus-ring: #3b82f6;           /* blue-500 */
+  --color-focus-border: #3b82f6;         /* blue-500 */
+
+  /* === Selection Highlight (lists/rows) === */
+  --color-row-selected-bg: #2563eb4d;    /* blue-600/30 */
+  --color-row-selected-border: #3b82f6;  /* blue-500 */
+
+  /* === External Change Warning (orange) === */
+  --color-external-border: #f97316;      /* orange-500 */
+  --color-external-text: #fb923c;        /* orange-400 */
+  --color-external-bar-bg: #7c2d1280;    /* orange-900/50 */
+  --color-external-bar-border: #ea580c;  /* orange-600 */
+  --color-external-bar-text: #fed7aa;    /* orange-200 */
+  --color-external-btn: #ea580c;         /* orange-600 */
+  --color-external-btn-hover: #f97316;   /* orange-500 */
+
+  /* === Error Display (notes, forms) === */
+  --color-error-display-bg: #7f1d1d80;   /* red-900/50 */
+  --color-error-display-border: #b91c1c; /* red-700 */
+  --color-error-display-text: #fecaca;   /* red-200 */
+
+  /* === Character Counter === */
+  --color-counter-warning: #fb923c;      /* orange-400 */
+  --color-counter-error: #ef4444;        /* red-500 */
+
+  /* === Delete Button (destructive secondary action) === */
+  --color-delete-text: #f87171;          /* red-400 - delete text */
+  --color-delete-text-hover: #fca5a5;    /* red-300 - delete text hover */
+  --color-delete-bg: #dc262633;          /* red-600/20 - delete bg */
+  --color-delete-bg-hover: #dc262666;    /* red-600/40 - delete bg hover */
+  --color-delete-border: #dc262680;      /* red-600/50 - delete border */
+  --color-delete-dim-bg: #7f1d1d33;      /* red-900/20 - subtle delete bg */
+
+  /* === Drag & Drop States === */
+  --color-drag-target-ring: #facc15;     /* yellow-400 - drop target indicator */
+  --color-edit-mode-ring: #3b82f64d;     /* blue-500/30 - edit mode outline */
+
+  /* === Pending Changes Ring === */
+  --color-pending-ring: #fbbf24;         /* amber-400 - pending changes indicator */
+
+  /* === Waveform === */
+  --color-waveform-selected-ring: #c084fc; /* purple-400 - selected item ring */
+  --color-waveform-default: rgba(255, 255, 255, 0.7);  /* default waveform fill */
+  --color-waveform-centerline: rgba(255, 255, 255, 0.2); /* center line stroke */
+
+  /* === Density Overlay === */
+  --color-density-block: rgba(129, 137, 137, 0.5); /* item density blocks */
+
+  /* === Shadows === */
+  --color-shadow-contrast: rgba(0, 0, 0, 0.5); /* outline for contrast */
 }
 
 :root {

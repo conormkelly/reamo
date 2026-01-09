@@ -174,7 +174,7 @@ export function ActionSearch({
   // Loading state
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-8 text-gray-400">
+      <div className="flex items-center justify-center p-8 text-text-secondary">
         <Loader2 className="animate-spin mr-2" size={20} />
         Loading actions...
       </div>
@@ -184,7 +184,7 @@ export function ActionSearch({
   // Error state
   if (error) {
     return (
-      <div className="p-4 text-red-400 text-sm">
+      <div className="p-4 text-error-text text-sm">
         Failed to load actions: {error}
       </div>
     );
@@ -193,7 +193,7 @@ export function ActionSearch({
   // Empty cache state
   if (actionCache.length === 0) {
     return (
-      <div className="p-4 text-gray-400 text-sm">
+      <div className="p-4 text-text-secondary text-sm">
         No actions available. Make sure REAPER is connected.
       </div>
     );
@@ -203,12 +203,12 @@ export function ActionSearch({
     <div className="flex flex-col">
       {/* Section filter */}
       <div className="mb-3">
-        <label className="block text-xs text-gray-400 mb-1">Section</label>
+        <label className="block text-xs text-text-secondary mb-1">Section</label>
         <div className="relative">
           <select
             value={sectionFilter}
             onChange={(e) => setSectionFilter(Number(e.target.value))}
-            className="w-full px-3 py-2 pr-8 bg-gray-900 border border-gray-600 rounded text-white appearance-none focus:border-blue-500 focus:outline-none"
+            className="w-full px-3 py-2 pr-8 bg-bg-deep border border-border-default rounded text-text-primary appearance-none focus:border-focus-border focus:outline-none"
           >
             <option value={ALL_SECTIONS}>All Sections</option>
             {availableSections.map((sectionId) => (
@@ -218,7 +218,7 @@ export function ActionSearch({
             ))}
           </select>
           <ChevronDown
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary pointer-events-none"
             size={16}
           />
         </div>
@@ -227,7 +227,7 @@ export function ActionSearch({
       {/* Search input */}
       <div className="relative mb-3">
         <Search
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary"
           size={18}
         />
         <input
@@ -235,13 +235,13 @@ export function ActionSearch({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search by name (e.g., sws selection cons)..."
-          className="w-full pl-10 pr-3 py-2 bg-gray-900 border border-gray-600 rounded text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+          className="w-full pl-10 pr-3 py-2 bg-bg-deep border border-border-default rounded text-text-primary placeholder-text-muted focus:border-focus-border focus:outline-none"
           autoFocus
         />
       </div>
 
       {/* Results count */}
-      <div className="text-xs text-gray-500 mb-2">
+      <div className="text-xs text-text-muted mb-2">
         {filtered.length === sortedActions.length
           ? `${sortedActions.length} actions`
           : `${filtered.length} of ${sortedActions.length} actions`}
@@ -254,7 +254,7 @@ export function ActionSearch({
 
       {/* No results */}
       {filtered.length === 0 && (
-        <div className="p-4 text-gray-400 text-sm text-center">
+        <div className="p-4 text-text-secondary text-sm text-center">
           No matching actions found
         </div>
       )}
@@ -263,7 +263,7 @@ export function ActionSearch({
       {filtered.length > 0 && (
         <div
           ref={parentRef}
-          className="overflow-auto border border-gray-700 rounded bg-gray-900"
+          className="overflow-auto border border-border-subtle rounded bg-bg-deep"
           style={{ maxHeight }}
         >
           <div
@@ -294,30 +294,30 @@ export function ActionSearch({
                     onClick={() => handleRowClick(action)}
                     className={`w-full h-full px-3 flex items-center gap-3 text-left transition-colors ${
                       isSelected
-                        ? 'bg-blue-600/30 border-l-2 border-blue-500'
-                        : 'hover:bg-gray-800 border-l-2 border-transparent'
+                        ? 'bg-row-selected-bg border-l-2 border-row-selected-border'
+                        : 'hover:bg-bg-surface border-l-2 border-transparent'
                     }`}
                   >
                     {/* Toggle indicator */}
                     <div className="flex-shrink-0 w-5">
                       {action.isToggle && (
-                        <ToggleLeft size={16} className="text-gray-400" />
+                        <ToggleLeft size={16} className="text-text-secondary" />
                       )}
                     </div>
 
                     {/* Action name and details */}
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm text-white truncate">
+                      <div className="text-sm text-text-primary truncate">
                         {action.name}
                       </div>
-                      <div className="text-xs text-gray-500 truncate">
+                      <div className="text-xs text-text-muted truncate">
                         {action.namedId ?? action.commandId}
                       </div>
                     </div>
 
                     {/* Section badge */}
                     {action.sectionId !== 0 && (
-                      <div className="flex-shrink-0 px-2 py-0.5 text-xs bg-gray-700 text-gray-300 rounded">
+                      <div className="flex-shrink-0 px-2 py-0.5 text-xs bg-bg-elevated text-text-tertiary rounded">
                         {getSectionName(action.sectionId)}
                       </div>
                     )}

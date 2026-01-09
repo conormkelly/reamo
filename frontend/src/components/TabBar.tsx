@@ -16,7 +16,7 @@ const VIEW_ORDER: ViewId[] = ['studio', 'mixer', 'clock', 'cues', 'actions', 'no
 
 export function TabBar({ currentView, onViewChange, className = '' }: TabBarProps): ReactElement {
   return (
-    <nav className={`flex bg-gray-900 border-t border-gray-800 ${className}`}>
+    <nav className={`flex bg-bg-deep border-t border-border-muted ${className}`}>
       {VIEW_ORDER.map((viewId) => {
         const meta = viewMeta[viewId];
         const isActive = currentView === viewId;
@@ -28,8 +28,8 @@ export function TabBar({ currentView, onViewChange, className = '' }: TabBarProp
             className={`
               flex-1 flex items-center justify-center py-2 md:py-3 text-sm md:text-base font-medium transition-colors
               ${isActive
-                ? 'text-white bg-gray-800 border-t-2 border-blue-500'
-                : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/50'
+                ? 'text-text-primary bg-bg-surface border-t-2 border-primary'
+                : 'text-text-secondary hover:text-text-tertiary hover:bg-bg-surface/50'
               }
             `}
           >

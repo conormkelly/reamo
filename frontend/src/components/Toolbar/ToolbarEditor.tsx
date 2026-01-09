@@ -219,17 +219,17 @@ export function ToolbarEditor({
       onClick={onClose}
     >
       <div
-        className="bg-gray-800 rounded-lg shadow-xl w-96 max-w-[95vw] max-h-[90vh] overflow-y-auto"
+        className="bg-bg-surface rounded-lg shadow-xl w-96 max-w-[95vw] max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-700">
+        <div className="flex items-center justify-between p-4 border-b border-border-subtle">
           <h2 className="text-lg font-medium">
             {isNew ? `Add ${editorTitle}` : `Edit ${editorTitle}`}
           </h2>
           <button
             onClick={onClose}
-            className="p-1 hover:bg-gray-700 rounded transition-colors"
+            className="p-1 hover:bg-bg-elevated rounded transition-colors"
           >
             <X size={20} />
           </button>
@@ -239,12 +239,12 @@ export function ToolbarEditor({
         <div className="p-4 space-y-4">
           {/* Label */}
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Label</label>
+            <label className="block text-sm text-text-secondary mb-1">Label</label>
             <input
               type="text"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              className="w-full px-3 py-2 bg-gray-900 border border-gray-600 rounded text-white"
+              className="w-full px-3 py-2 bg-bg-deep border border-border-default rounded text-text-primary"
               placeholder="Button label"
               autoFocus
             />
@@ -252,11 +252,11 @@ export function ToolbarEditor({
 
           {/* Icon */}
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Icon</label>
+            <label className="block text-sm text-text-secondary mb-1">Icon</label>
             <div className="flex gap-2">
               <button
                 onClick={() => setShowIconPicker(true)}
-                className="flex-1 px-3 py-2 bg-gray-900 border border-gray-600 rounded text-left text-gray-300 hover:border-gray-500 flex items-center gap-2"
+                className="flex-1 px-3 py-2 bg-bg-deep border border-border-default rounded text-left text-text-tertiary hover:border-bg-hover flex items-center gap-2"
               >
                 {icon ? (
                   <>
@@ -273,7 +273,7 @@ export function ToolbarEditor({
               {icon && (
                 <button
                   onClick={() => setIcon(undefined)}
-                  className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded text-gray-300"
+                  className="px-3 py-2 bg-bg-elevated hover:bg-bg-hover rounded text-text-tertiary"
                 >
                   Clear
                 </button>
@@ -305,7 +305,7 @@ export function ToolbarEditor({
 
           {/* Action Type */}
           <div>
-            <label className="block text-sm text-gray-400 mb-2">Type</label>
+            <label className="block text-sm text-text-secondary mb-2">Type</label>
             <div className="grid grid-cols-3 gap-2">
               {[
                 { value: 'reaper_action', label: 'Action' },
@@ -317,8 +317,8 @@ export function ToolbarEditor({
                   onClick={() => setActionType(opt.value as ActionType)}
                   className={`px-3 py-2 rounded text-sm transition-colors ${
                     actionType === opt.value
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      ? 'bg-primary text-text-primary'
+                      : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
                   }`}
                 >
                   {opt.label}
@@ -328,10 +328,10 @@ export function ToolbarEditor({
           </div>
 
           {/* Action-specific fields */}
-          <div className="p-3 bg-gray-900 rounded border border-gray-700">
+          <div className="p-3 bg-bg-deep rounded border border-border-subtle">
             {actionType === 'reaper_action' && (
               <div>
-                <label className="block text-sm text-gray-400 mb-1">
+                <label className="block text-sm text-text-secondary mb-1">
                   Action
                 </label>
                 {showActionSearch ? (
@@ -343,48 +343,48 @@ export function ToolbarEditor({
                     />
                     <button
                       onClick={() => setShowActionSearch(false)}
-                      className="w-full px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm text-gray-300 transition-colors"
+                      className="w-full px-3 py-2 bg-bg-elevated hover:bg-bg-hover rounded text-sm text-text-tertiary transition-colors"
                     >
                       Cancel
                     </button>
                   </div>
                 ) : actionId && currentActionFromCache ? (
-                  <div className="p-3 bg-gray-800 border border-gray-600 rounded">
+                  <div className="p-3 bg-bg-surface border border-border-default rounded">
                     <div className="flex items-center gap-2 mb-1">
                       {currentActionFromCache.isToggle && (
-                        <ToggleLeft size={14} className="text-gray-400 flex-shrink-0" />
+                        <ToggleLeft size={14} className="text-text-secondary flex-shrink-0" />
                       )}
-                      <span className="text-sm text-white truncate flex-1">
+                      <span className="text-sm text-text-primary truncate flex-1">
                         {currentActionFromCache.name}
                       </span>
                       {currentActionFromCache.sectionId !== 0 && (
-                        <span className="px-1.5 py-0.5 text-xs bg-gray-700 text-gray-300 rounded flex-shrink-0">
+                        <span className="px-1.5 py-0.5 text-xs bg-bg-elevated text-text-tertiary rounded flex-shrink-0">
                           {getSectionName(currentActionFromCache.sectionId)}
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-gray-500 font-mono mb-2">
+                    <div className="text-xs text-text-muted font-mono mb-2">
                       {actionId}
                     </div>
                     <button
                       onClick={() => setShowActionSearch(true)}
-                      className="w-full px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm text-gray-300 transition-colors"
+                      className="w-full px-3 py-1.5 bg-bg-elevated hover:bg-bg-hover rounded text-sm text-text-tertiary transition-colors"
                     >
                       Change Action
                     </button>
                   </div>
                 ) : actionId ? (
                   // Action ID set but not found in cache (manual entry or cache not loaded)
-                  <div className="p-3 bg-gray-800 border border-gray-600 rounded">
-                    <div className="text-sm text-gray-300 mb-1">
+                  <div className="p-3 bg-bg-surface border border-border-default rounded">
+                    <div className="text-sm text-text-tertiary mb-1">
                       Action ID: <span className="font-mono">{actionId}</span>
                     </div>
-                    <div className="text-xs text-yellow-500 mb-2">
+                    <div className="text-xs text-warning mb-2">
                       Not found in action cache
                     </div>
                     <button
                       onClick={() => setShowActionSearch(true)}
-                      className="w-full px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm text-gray-300 transition-colors"
+                      className="w-full px-3 py-1.5 bg-bg-elevated hover:bg-bg-hover rounded text-sm text-text-tertiary transition-colors"
                     >
                       Search Actions
                     </button>
@@ -393,7 +393,7 @@ export function ToolbarEditor({
                   // No action selected yet
                   <button
                     onClick={() => setShowActionSearch(true)}
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 border-dashed rounded text-gray-400 hover:border-gray-500 hover:text-gray-300 transition-colors"
+                    className="w-full px-3 py-2 bg-bg-surface border border-border-default border-dashed rounded text-text-secondary hover:border-bg-hover hover:text-text-tertiary transition-colors"
                   >
                     Search and Select Action...
                   </button>
@@ -405,38 +405,38 @@ export function ToolbarEditor({
               <div className="space-y-3">
                 <div className="grid grid-cols-3 gap-2">
                   <div>
-                    <label className="block text-sm text-gray-400 mb-1">CC#</label>
+                    <label className="block text-sm text-text-secondary mb-1">CC#</label>
                     <input
                       type="number"
                       min="0"
                       max="127"
                       value={cc}
                       onChange={(e) => setCc(e.target.value)}
-                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white"
+                      className="w-full px-3 py-2 bg-bg-surface border border-border-default rounded text-text-primary"
                       placeholder="0-127"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm text-gray-400 mb-1">Value</label>
+                    <label className="block text-sm text-text-secondary mb-1">Value</label>
                     <input
                       type="number"
                       min="0"
                       max="127"
                       value={ccValue}
                       onChange={(e) => setCcValue(e.target.value)}
-                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white"
+                      className="w-full px-3 py-2 bg-bg-surface border border-border-default rounded text-text-primary"
                       placeholder="0-127"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm text-gray-400 mb-1">Channel</label>
+                    <label className="block text-sm text-text-secondary mb-1">Channel</label>
                     <input
                       type="number"
                       min="1"
                       max="16"
                       value={channel}
                       onChange={(e) => setChannel(e.target.value)}
-                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white"
+                      className="w-full px-3 py-2 bg-bg-surface border border-border-default rounded text-text-primary"
                       placeholder="1-16"
                     />
                   </div>
@@ -448,26 +448,26 @@ export function ToolbarEditor({
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-sm text-gray-400 mb-1">Program</label>
+                    <label className="block text-sm text-text-secondary mb-1">Program</label>
                     <input
                       type="number"
                       min="0"
                       max="127"
                       value={program}
                       onChange={(e) => setProgram(e.target.value)}
-                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white"
+                      className="w-full px-3 py-2 bg-bg-surface border border-border-default rounded text-text-primary"
                       placeholder="0-127"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm text-gray-400 mb-1">Channel</label>
+                    <label className="block text-sm text-text-secondary mb-1">Channel</label>
                     <input
                       type="number"
                       min="1"
                       max="16"
                       value={channel}
                       onChange={(e) => setChannel(e.target.value)}
-                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white"
+                      className="w-full px-3 py-2 bg-bg-surface border border-border-default rounded text-text-primary"
                       placeholder="1-16"
                     />
                   </div>
@@ -478,15 +478,15 @@ export function ToolbarEditor({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between p-4 border-t border-gray-700">
+        <div className="flex items-center justify-between p-4 border-t border-border-subtle">
           <div>
             {!isNew && (
               <button
                 onClick={handleDeleteClick}
                 className={`px-3 py-2 rounded transition-colors flex items-center gap-1 ${
                   confirmingDelete
-                    ? 'bg-red-600 text-white hover:bg-red-500'
-                    : 'text-red-400 hover:text-red-300 hover:bg-red-900/20'
+                    ? 'bg-error-action text-text-primary hover:bg-error'
+                    : 'text-delete-text hover:text-delete-text-hover hover:bg-delete-dim-bg'
                 }`}
               >
                 <Trash2 size={16} />
@@ -497,7 +497,7 @@ export function ToolbarEditor({
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+              className="px-4 py-2 bg-bg-elevated hover:bg-bg-hover rounded transition-colors"
             >
               Cancel
             </button>
@@ -506,8 +506,8 @@ export function ToolbarEditor({
               disabled={!isValid}
               className={`px-4 py-2 rounded transition-colors ${
                 isValid
-                  ? 'bg-blue-600 hover:bg-blue-500 text-white'
-                  : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                  ? 'bg-primary hover:bg-primary-hover text-text-primary'
+                  : 'bg-bg-elevated text-text-muted cursor-not-allowed'
               }`}
             >
               {isNew ? 'Add' : 'Save'}

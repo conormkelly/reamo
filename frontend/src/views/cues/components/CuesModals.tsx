@@ -27,14 +27,14 @@ export interface CreatePlaylistModalProps {
 export function CreatePlaylistModal({ value, onChange, onCreate, onCancel }: CreatePlaylistModalProps): ReactElement {
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onCancel}>
-      <div className="bg-gray-800 rounded-lg p-4 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-bg-surface rounded-lg p-4 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-lg font-semibold mb-4">Create Playlist</h3>
         <input
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="Playlist name"
-          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full bg-bg-deep border border-border-subtle rounded-lg px-3 py-2 text-text-primary mb-4 focus:outline-none focus:ring-2 focus:ring-focus-ring"
           autoFocus
           onKeyDown={(e) => {
             if (e.key === 'Enter') onCreate();
@@ -44,14 +44,14 @@ export function CreatePlaylistModal({ value, onChange, onCreate, onCancel }: Cre
         <div className="flex gap-2">
           <button
             onClick={onCancel}
-            className="flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+            className="flex-1 py-2 bg-bg-elevated hover:bg-bg-hover rounded-lg transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={onCreate}
             disabled={!value.trim()}
-            className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg transition-colors"
+            className="flex-1 py-2 bg-primary hover:bg-primary-hover disabled:bg-bg-elevated disabled:text-text-muted rounded-lg transition-colors"
           >
             Create
           </button>
@@ -75,14 +75,14 @@ export interface RenamePlaylistModalProps {
 export function RenamePlaylistModal({ value, onChange, onRename, onCancel }: RenamePlaylistModalProps): ReactElement {
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onCancel}>
-      <div className="bg-gray-800 rounded-lg p-4 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-bg-surface rounded-lg p-4 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-lg font-semibold mb-4">Rename Playlist</h3>
         <input
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="Playlist name"
-          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full bg-bg-deep border border-border-subtle rounded-lg px-3 py-2 text-text-primary mb-4 focus:outline-none focus:ring-2 focus:ring-focus-ring"
           autoFocus
           onKeyDown={(e) => {
             if (e.key === 'Enter') onRename();
@@ -92,14 +92,14 @@ export function RenamePlaylistModal({ value, onChange, onRename, onCancel }: Ren
         <div className="flex gap-2">
           <button
             onClick={onCancel}
-            className="flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+            className="flex-1 py-2 bg-bg-elevated hover:bg-bg-hover rounded-lg transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={onRename}
             disabled={!value.trim()}
-            className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg transition-colors"
+            className="flex-1 py-2 bg-primary hover:bg-primary-hover disabled:bg-bg-elevated disabled:text-text-muted rounded-lg transition-colors"
           >
             Rename
           </button>
@@ -122,21 +122,21 @@ export interface DeletePlaylistModalProps {
 export function DeletePlaylistModal({ playlistName, onDelete, onCancel }: DeletePlaylistModalProps): ReactElement {
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onCancel}>
-      <div className="bg-gray-800 rounded-lg p-4 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-bg-surface rounded-lg p-4 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-lg font-semibold mb-2">Delete Playlist?</h3>
-        <p className="text-gray-400 mb-4">
+        <p className="text-text-secondary mb-4">
           Are you sure you want to delete "{playlistName}"? This cannot be undone.
         </p>
         <div className="flex gap-2">
           <button
             onClick={onCancel}
-            className="flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+            className="flex-1 py-2 bg-bg-elevated hover:bg-bg-hover rounded-lg transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={onDelete}
-            className="flex-1 py-2 bg-red-600 hover:bg-red-500 rounded-lg transition-colors"
+            className="flex-1 py-2 bg-error-action hover:bg-error rounded-lg transition-colors"
           >
             Delete
           </button>
@@ -173,14 +173,14 @@ export function RegionPickerModal({
   if (regions.length === 0) {
     return (
       <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
-        <div className="bg-gray-800 rounded-lg p-4 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-bg-surface rounded-lg p-4 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
           <h3 className="text-lg font-semibold mb-4">Add Region</h3>
-          <p className="text-gray-400 mb-4 text-center">
+          <p className="text-text-secondary mb-4 text-center">
             No regions in this project. Create regions in REAPER to add them here.
           </p>
           <button
             onClick={onClose}
-            className="w-full py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+            className="w-full py-2 bg-bg-elevated hover:bg-bg-hover rounded-lg transition-colors"
           >
             Close
           </button>
@@ -192,18 +192,18 @@ export function RegionPickerModal({
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div
-        className="bg-gray-800 rounded-lg w-full max-w-md max-h-[80vh] flex flex-col"
+        className="bg-bg-surface rounded-lg w-full max-w-md max-h-[80vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-4 border-b border-gray-700">
+        <div className="p-4 border-b border-border-subtle">
           <h3 className="text-lg font-semibold">Add Region</h3>
         </div>
 
         {/* Add All button */}
-        <div className="p-3 border-b border-gray-700">
+        <div className="p-3 border-b border-border-subtle">
           <button
             onClick={onAddAll}
-            className="w-full py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-medium transition-colors"
+            className="w-full py-2 bg-primary hover:bg-primary-hover rounded-lg font-medium transition-colors"
           >
             Add All Regions ({regions.length})
           </button>
@@ -222,7 +222,7 @@ export function RegionPickerModal({
                   onClick={() => {
                     onAdd(region.id);
                   }}
-                  className="w-full flex items-center gap-3 p-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors text-left"
+                  className="w-full flex items-center gap-3 p-3 bg-bg-elevated hover:bg-bg-hover rounded-lg transition-colors text-left"
                 >
                   <div
                     className="w-1.5 h-8 rounded-full flex-none"
@@ -230,12 +230,12 @@ export function RegionPickerModal({
                   />
                   <div className="flex-1 min-w-0">
                     <div className="font-medium truncate">{region.name}</div>
-                    <div className="text-sm text-gray-400">
+                    <div className="text-sm text-text-secondary">
                       {formatDuration(region.end - region.start)}
                     </div>
                   </div>
                   {inPlaylist && (
-                    <span className="text-gray-500 text-sm">In list</span>
+                    <span className="text-text-muted text-sm">In list</span>
                   )}
                 </button>
               );
@@ -243,10 +243,10 @@ export function RegionPickerModal({
           </div>
         </div>
 
-        <div className="p-3 border-t border-gray-700">
+        <div className="p-3 border-t border-border-subtle">
           <button
             onClick={onClose}
-            className="w-full py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+            className="w-full py-2 bg-bg-elevated hover:bg-bg-hover rounded-lg transition-colors"
           >
             Done
           </button>

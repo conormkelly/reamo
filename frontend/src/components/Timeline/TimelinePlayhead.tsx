@@ -237,7 +237,7 @@ export function PlayheadDragPreview({
       </div>
       {/* Position pill showing time and beats - at bottom so finger doesn't obscure */}
       <div className="absolute bottom-1 -translate-x-1/2 z-40">
-        <div className="bg-gray-900 border border-playhead rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg">
+        <div className="bg-bg-deep border border-playhead rounded px-2 py-1 text-xs text-text-primary font-mono whitespace-nowrap shadow-lg">
           {beatsStr ? `${beatsStr} | ${timeStr}` : timeStr}
         </div>
       </div>
@@ -323,7 +323,7 @@ export function MarkerDragPreview({
       <div className="absolute top-0 bottom-0 left-0 w-0.5 z-10" style={{ backgroundColor: markerColor }} />
       {/* Position pill showing time and beats */}
       <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 z-40">
-        <div className="bg-gray-900 rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg" style={{ borderColor: markerColor, borderWidth: 1 }}>
+        <div className="bg-bg-deep rounded px-2 py-1 text-xs text-text-primary font-mono whitespace-nowrap shadow-lg" style={{ borderColor: markerColor, borderWidth: 1 }}>
           {beatsStr ? `${beatsStr} | ${timeStr}` : timeStr}
         </div>
       </div>

@@ -37,7 +37,7 @@ export function RegionNavigation({
     lg: 'px-4 py-3 text-lg',
   };
 
-  const buttonClass = `${sizeClasses[size]} rounded font-medium transition-colors bg-purple-700 text-white hover:bg-purple-600 active:bg-purple-500`;
+  const buttonClass = `${sizeClasses[size]} rounded font-medium transition-colors bg-region-nav text-white hover:bg-region-nav-hover active:bg-region-nav-active`;
 
   return (
     <div className={`flex items-center gap-2 ${className}`}>

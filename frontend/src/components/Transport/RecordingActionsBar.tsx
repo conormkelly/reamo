@@ -51,15 +51,15 @@ export function RecordingActionsBar({ className = '' }: RecordingActionsBarProps
 
   return (
     <div className={`flex items-center justify-center gap-4 mt-3 ${className}`}>
-      {/* Scrap - destructive, red */}
+      {/* Scrap - destructive */}
       <button
         onClick={handleScrap}
         title="Stop recording and delete this take"
         className="
           flex items-center gap-2.5 px-5 py-2.5 rounded-lg
-          bg-red-900/40 hover:bg-red-800/60
-          border border-red-500/50
-          text-red-200 hover:text-red-100
+          bg-action-scrap-bg hover:bg-action-scrap-hover
+          border border-action-scrap-border
+          text-action-scrap-text hover:text-action-scrap-text-hover
           transition-colors
         "
       >
@@ -67,15 +67,15 @@ export function RecordingActionsBar({ className = '' }: RecordingActionsBarProps
         <span className="text-base font-medium">Scrap</span>
       </button>
 
-      {/* Retake - amber/orange */}
+      {/* Retake */}
       <button
         onClick={handleRetake}
         title="Delete this take and record again"
         className="
           flex items-center gap-2.5 px-5 py-2.5 rounded-lg
-          bg-amber-900/40 hover:bg-amber-800/60
-          border border-amber-500/50
-          text-amber-200 hover:text-amber-100
+          bg-action-retake-bg hover:bg-action-retake-hover
+          border border-action-retake-border
+          text-action-retake-text hover:text-action-retake-text-hover
           transition-colors
         "
       >
@@ -83,15 +83,15 @@ export function RecordingActionsBar({ className = '' }: RecordingActionsBarProps
         <span className="text-base font-medium">Retake</span>
       </button>
 
-      {/* Keep - green/success */}
+      {/* Keep */}
       <button
         onClick={handleKeep}
         title="Stop recording and keep this take"
         className="
           flex items-center gap-2.5 px-5 py-2.5 rounded-lg
-          bg-green-900/40 hover:bg-green-800/60
-          border border-green-500/50
-          text-green-200 hover:text-green-100
+          bg-action-keep-bg hover:bg-action-keep-hover
+          border border-action-keep-border
+          text-action-keep-text hover:text-action-keep-text-hover
           transition-colors
         "
       >

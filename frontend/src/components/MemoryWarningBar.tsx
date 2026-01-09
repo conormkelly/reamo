@@ -74,22 +74,22 @@ export function MemoryWarningBar({ className = '' }: MemoryWarningBarProps): Rea
     <>
       <div
         data-testid="memory-warning-bar"
-        className={`flex items-center justify-center gap-3 px-4 py-2 bg-amber-900/90 ${className}`}
+        className={`flex items-center justify-center gap-3 px-4 py-2 bg-memory-warning-bg ${className}`}
       >
-        <AlertTriangle size={16} className="text-amber-400 flex-shrink-0" />
-        <span className="text-sm text-amber-100">
+        <AlertTriangle size={16} className="text-memory-warning-icon flex-shrink-0" />
+        <span className="text-sm text-memory-warning-text">
           REAmo memory usage is high
         </span>
         <button
           onClick={handleInfo}
-          className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-white bg-amber-600 hover:bg-amber-500 rounded transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-white bg-memory-warning-btn hover:bg-memory-warning-btn-hover rounded transition-colors"
         >
           <Info size={12} />
           Info
         </button>
         <button
           onClick={handleDismiss}
-          className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-white bg-gray-600 hover:bg-gray-500 rounded transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-text-primary bg-bg-hover hover:bg-bg-disabled rounded transition-colors"
         >
           <X size={12} />
           Dismiss
@@ -103,50 +103,50 @@ export function MemoryWarningBar({ className = '' }: MemoryWarningBarProps): Rea
           onClick={handleCloseModal}
         >
           <div
-            className="bg-gray-800 rounded-lg p-6 max-w-md mx-4 shadow-xl"
+            className="bg-bg-surface rounded-lg p-6 max-w-md mx-4 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-2 mb-4">
-              <AlertTriangle size={20} className="text-amber-400" />
+              <AlertTriangle size={20} className="text-memory-warning-icon" />
               <h2 className="text-lg font-semibold text-white">Memory Usage Warning</h2>
             </div>
 
             {statsLoading ? (
-              <p className="text-gray-400">Loading memory stats...</p>
+              <p className="text-text-secondary">Loading memory stats...</p>
             ) : stats ? (
               <div className="space-y-4">
-                <div className="text-sm text-gray-300 space-y-2">
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-xs bg-gray-900 p-3 rounded">
-                    <span className="text-gray-500">HIGH tier:</span>
+                <div className="text-sm text-text-tertiary space-y-2">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-xs bg-bg-deep p-3 rounded">
+                    <span className="text-text-muted">HIGH tier:</span>
                     <span>{stats.high.utilization.toFixed(1)}% ({formatBytes(stats.high.peak)} peak)</span>
-                    <span className="text-gray-500">MEDIUM tier:</span>
+                    <span className="text-text-muted">MEDIUM tier:</span>
                     <span>{stats.medium.utilization.toFixed(1)}% ({formatBytes(stats.medium.peak)} peak)</span>
-                    <span className="text-gray-500">LOW tier:</span>
+                    <span className="text-text-muted">LOW tier:</span>
                     <span>{stats.low.utilization.toFixed(1)}% ({formatBytes(stats.low.peak)} peak)</span>
-                    <span className="text-gray-500">Total allocated:</span>
+                    <span className="text-text-muted">Total allocated:</span>
                     <span>{stats.total.allocatedMB.toFixed(1)} MB</span>
                   </div>
                 </div>
 
-                <p className="text-sm text-gray-400">
+                <p className="text-sm text-text-secondary">
                   Memory is reserved when your project loads for performance reasons.
                   If you&apos;ve added many tracks, items, or FX since loading, some data
                   may not be visible in REAmo.
                 </p>
 
-                <p className="text-sm text-gray-400">
-                  <strong className="text-gray-300">To resolve:</strong> Save your project and restart REAPER.
+                <p className="text-sm text-text-secondary">
+                  <strong className="text-text-tertiary">To resolve:</strong> Save your project and restart REAPER.
                   Or you can dismiss this warning and continue working.
                 </p>
               </div>
             ) : (
-              <p className="text-gray-400">Unable to load memory stats.</p>
+              <p className="text-text-secondary">Unable to load memory stats.</p>
             )}
 
             <div className="mt-6 flex justify-end">
               <button
                 onClick={handleCloseModal}
-                className="px-4 py-2 text-sm font-medium text-white bg-gray-600 hover:bg-gray-500 rounded transition-colors"
+                className="px-4 py-2 text-sm font-medium text-text-primary bg-bg-hover hover:bg-bg-disabled rounded transition-colors"
               >
                 Close
               </button>

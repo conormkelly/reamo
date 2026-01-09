@@ -50,11 +50,11 @@ export function TimeDisplay({
   return (
     <div data-testid="time-display" className={`font-mono ${className}`}>
       {showState && (
-        <div className="text-xs uppercase text-gray-400 mb-1">{stateLabel}</div>
+        <div className="text-xs uppercase text-text-secondary mb-1">{stateLabel}</div>
       )}
       <div className="text-2xl">
         {isSyncing ? (
-          <Loader2 className="w-6 h-6 text-gray-500 animate-spin inline-block" />
+          <Loader2 className="w-6 h-6 text-text-muted animate-spin inline-block" />
         ) : (
           <>
             {format === 'time' && <span ref={timeRef}>0:00.000</span>}
@@ -62,8 +62,8 @@ export function TimeDisplay({
             {format === 'both' && (
               <>
                 <span ref={beatsRef}>1.1.00</span>
-                <span className="text-gray-500 mx-2">|</span>
-                <span ref={timeRef} className="text-gray-400">0:00.000</span>
+                <span className="text-text-muted mx-2">|</span>
+                <span ref={timeRef} className="text-text-secondary">0:00.000</span>
               </>
             )}
           </>

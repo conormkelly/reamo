@@ -40,8 +40,8 @@ export function ToolbarHeaderControls(): ReactElement {
         onClick={handleToggleEditMode}
         className={`px-2 py-1 text-xs rounded transition-colors flex items-center gap-1 ${
           toolbarEditMode
-            ? 'bg-blue-600 text-white'
-            : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+            ? 'bg-primary text-text-primary'
+            : 'bg-bg-elevated hover:bg-bg-hover text-text-tertiary'
         }`}
       >
         <Pencil size={12} />
@@ -50,7 +50,7 @@ export function ToolbarHeaderControls(): ReactElement {
       {toolbarEditMode && (
         <>
           {/* Alignment buttons */}
-          <div className="flex items-center border border-gray-600 rounded overflow-hidden">
+          <div className="flex items-center border border-border-default rounded overflow-hidden">
             {(['left', 'center', 'right'] as ToolbarAlign[]).map((align) => {
               const Icon = align === 'left' ? AlignLeft : align === 'center' ? AlignCenter : AlignRight;
               return (
@@ -59,8 +59,8 @@ export function ToolbarHeaderControls(): ReactElement {
                   onClick={() => setToolbarAlign(align)}
                   className={`p-1.5 transition-colors ${
                     toolbarAlign === align
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                      ? 'bg-primary text-text-primary'
+                      : 'bg-bg-elevated text-text-secondary hover:bg-bg-hover'
                   }`}
                   title={`Align ${align}`}
                 >
@@ -71,7 +71,7 @@ export function ToolbarHeaderControls(): ReactElement {
           </div>
           <button
             onClick={handleAddClick}
-            className="px-2 py-1 text-xs bg-green-600 hover:bg-green-500 text-white rounded transition-colors flex items-center gap-1"
+            className="px-2 py-1 text-xs bg-success-action hover:bg-success text-text-primary rounded transition-colors flex items-center gap-1"
           >
             <Plus size={12} />
             Add
@@ -240,7 +240,7 @@ export function Toolbar(): ReactElement {
           />
         ))}
         {toolbarActions.length === 0 && (
-          <div className="text-gray-500 text-sm py-4 px-2">
+          <div className="text-text-muted text-sm py-4 px-2">
             {toolbarEditMode
               ? 'No toolbar buttons configured. Click "Add" to create one.'
               : 'No toolbar buttons. Click "Edit" to add some.'}

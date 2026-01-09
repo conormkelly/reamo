@@ -34,7 +34,7 @@ export function CollapsibleSection({
           <button
             data-section-header={_id}
             onClick={onToggle}
-            className="flex items-center gap-1 text-sm font-medium text-gray-400 hover:text-gray-300 transition-colors"
+            className="flex items-center gap-1 text-sm font-medium text-text-secondary hover:text-text-tertiary transition-colors"
           >
             {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
             <h3>{title}</h3>

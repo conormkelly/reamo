@@ -32,8 +32,8 @@ export function RecordArmButton({
 
   // Buttons always darker than track background for contrast
   const inactiveBg = isSelected
-    ? 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-    : 'bg-gray-900 text-gray-300 hover:bg-gray-800';
+    ? 'bg-bg-surface text-text-tertiary hover:bg-bg-elevated'
+    : 'bg-bg-deep text-text-tertiary hover:bg-bg-surface';
 
   return (
     <button
@@ -41,7 +41,7 @@ export function RecordArmButton({
       title={isRecordArmed ? 'Disarm Track' : 'Arm Track for Recording'}
       className={`px-2 py-1 rounded text-sm font-medium transition-colors ${
         mixerLocked ? 'opacity-50 cursor-not-allowed' : ''
-      } ${isRecordArmed ? 'bg-red-600 text-white' : inactiveBg} ${className}`}
+      } ${isRecordArmed ? 'bg-error-action text-text-primary' : inactiveBg} ${className}`}
     >
       <Circle size={14} className={`inline-block ${isRecordArmed ? 'fill-current' : ''}`} />
     </button>

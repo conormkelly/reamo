@@ -19,10 +19,10 @@ const INITIAL_CONNECT_GRACE_MS = 2500;
 
 // Network quality colors - moderate is still green because sync works fine on typical WiFi
 const QUALITY_COLORS: Record<NetworkQuality, string> = {
-  excellent: 'bg-green-500',
-  good: 'bg-green-400',
-  moderate: 'bg-green-300',  // Normal WiFi conditions - sync still meets ±15ms target
-  poor: 'bg-yellow-500',     // May notice sync issues
+  excellent: 'bg-success',
+  good: 'bg-success',
+  moderate: 'bg-success/70',  // Normal WiFi conditions - sync still meets ±15ms target
+  poor: 'bg-warning',     // May notice sync issues
 };
 
 const QUALITY_TITLES: Record<NetworkQuality, string> = {
@@ -177,13 +177,13 @@ export function ConnectionBanner({ className = '' }: ConnectionBannerProps): Rea
       aria-live="polite"
       aria-atomic="true"
       className={`flex items-center justify-center gap-3 px-4 py-2 ${
-        gaveUp ? 'bg-red-900/90' : 'bg-yellow-900/90'
+        gaveUp ? 'bg-error/20' : 'bg-warning/20'
       } ${className}`}
     >
       {gaveUp ? (
-        <WifiOff size={16} className="text-red-400" aria-hidden="true" />
+        <WifiOff size={16} className="text-error" aria-hidden="true" />
       ) : (
-        <Wifi size={16} className="text-yellow-400 animate-pulse" aria-hidden="true" />
+        <Wifi size={16} className="text-warning animate-pulse" aria-hidden="true" />
       )}
       <span className="text-sm">
         {gaveUp
@@ -195,7 +195,7 @@ export function ConnectionBanner({ className = '' }: ConnectionBannerProps): Rea
       {gaveUp && (
         <button
           onClick={retry}
-          className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-500 rounded transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-text-primary bg-error-action hover:bg-error rounded transition-colors"
         >
           <RefreshCw size={12} />
           Reconnect

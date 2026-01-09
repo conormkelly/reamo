@@ -65,20 +65,20 @@ export function ColorPickerInput({
 
   return (
     <div>
-      <label className="block text-xs text-gray-400 mb-1">{label}</label>
+      <label className="block text-xs text-text-secondary mb-1">{label}</label>
       <div
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
         onTouchStart={handleMouseDown}
         onTouchEnd={handleMouseUp}
-        className="relative w-10 h-10 rounded border-2 border-gray-600 cursor-pointer hover:border-gray-400 transition-colors touch-none"
+        className="relative w-10 h-10 rounded border-2 border-border-default cursor-pointer hover:border-text-secondary transition-colors touch-none"
         style={{ backgroundColor: value }}
         title={isDefault ? value : `${value} (hold to reset)`}
       >
         {/* Non-default indicator dot */}
         {!isDefault && (
-          <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full border border-gray-800" />
+          <div className="absolute -top-1 -right-1 w-3 h-3 bg-primary-hover rounded-full border border-bg-surface" />
         )}
         {/* Hidden color input */}
         <input

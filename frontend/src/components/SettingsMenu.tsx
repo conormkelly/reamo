@@ -66,7 +66,7 @@ export function SettingsMenu({
       {/* Hamburger button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="p-2 rounded-lg bg-gray-800/80 hover:bg-gray-700 transition-colors"
+        className="p-2 rounded-lg bg-bg-surface/80 hover:bg-bg-elevated transition-colors"
         title="Settings"
       >
         {isOpen ? <X size={20} /> : <Menu size={20} />}
@@ -74,8 +74,8 @@ export function SettingsMenu({
 
       {/* Dropdown menu */}
       {isOpen && (
-        <div data-testid="settings-dropdown" className="absolute top-full mt-2 left-0 w-56 bg-gray-800 rounded-lg shadow-xl border border-gray-700 py-2 z-50">
-          <div className="px-3 py-1.5 text-xs text-gray-400 uppercase tracking-wide">
+        <div data-testid="settings-dropdown" className="absolute top-full mt-2 left-0 w-56 bg-bg-surface rounded-lg shadow-xl border border-border-subtle py-2 z-50">
+          <div className="px-3 py-1.5 text-xs text-text-secondary uppercase tracking-wide">
             Global
           </div>
 
@@ -84,10 +84,10 @@ export function SettingsMenu({
             onClick={() => {
               onToggleTabBar();
             }}
-            className="w-full px-3 py-2 flex items-center justify-between hover:bg-gray-700/50 transition-colors"
+            className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
           >
             <span className="text-sm">Tab Bar</span>
-            <span className={`flex items-center gap-1.5 text-xs ${showTabBar ? 'text-green-400' : 'text-gray-500'}`}>
+            <span className={`flex items-center gap-1.5 text-xs ${showTabBar ? 'text-success' : 'text-text-muted'}`}>
               {showTabBar ? <Eye size={14} /> : <EyeOff size={14} />}
               {showTabBar ? 'Visible' : 'Hidden'}
             </span>
@@ -98,10 +98,10 @@ export function SettingsMenu({
             onClick={() => {
               onTogglePersistentTransport();
             }}
-            className="w-full px-3 py-2 flex items-center justify-between hover:bg-gray-700/50 transition-colors"
+            className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
           >
             <span className="text-sm">Transport Bar</span>
-            <span className={`flex items-center gap-1.5 text-xs ${showPersistentTransport ? 'text-green-400' : 'text-gray-500'}`}>
+            <span className={`flex items-center gap-1.5 text-xs ${showPersistentTransport ? 'text-success' : 'text-text-muted'}`}>
               {showPersistentTransport ? <Eye size={14} /> : <EyeOff size={14} />}
               {showPersistentTransport ? 'Visible' : 'Hidden'}
             </span>
@@ -112,10 +112,10 @@ export function SettingsMenu({
             onClick={() => {
               onToggleTransportPosition();
             }}
-            className="w-full px-3 py-2 flex items-center justify-between hover:bg-gray-700/50 transition-colors"
+            className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
           >
             <span className="text-sm">Transport Position</span>
-            <span className="flex items-center gap-1.5 text-xs text-blue-400">
+            <span className="flex items-center gap-1.5 text-xs text-primary">
               <ArrowLeftRight size={14} />
               {transportPosition === 'left' ? 'Left' : 'Right'}
             </span>
@@ -124,9 +124,9 @@ export function SettingsMenu({
           {/* Studio section - only shown in Studio view */}
           {currentView === 'studio' && (
             <>
-              <div className="my-2 border-t border-gray-700" />
+              <div className="my-2 border-t border-border-subtle" />
 
-              <div className="px-3 py-1.5 text-xs text-gray-400 uppercase tracking-wide">
+              <div className="px-3 py-1.5 text-xs text-text-secondary uppercase tracking-wide">
                 Studio
               </div>
 
@@ -136,10 +136,10 @@ export function SettingsMenu({
                   setShowReorderModal(true);
                   setIsOpen(false);
                 }}
-                className="w-full px-3 py-2 flex items-center justify-between hover:bg-gray-700/50 transition-colors"
+                className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
               >
                 <span className="text-sm">Reorder Sections</span>
-                <span className="flex items-center gap-1.5 text-xs text-blue-400">
+                <span className="flex items-center gap-1.5 text-xs text-primary">
                   <ArrowLeftRight size={14} />
                 </span>
               </button>
@@ -149,10 +149,10 @@ export function SettingsMenu({
                 onClick={() => {
                   onToggleRecordingActions();
                 }}
-                className="w-full px-3 py-2 flex items-center justify-between hover:bg-gray-700/50 transition-colors"
+                className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
               >
                 <span className="text-sm">Rec Quick Actions</span>
-                <span className={`flex items-center gap-1.5 text-xs ${showRecordingActions ? 'text-green-400' : 'text-gray-500'}`}>
+                <span className={`flex items-center gap-1.5 text-xs ${showRecordingActions ? 'text-success' : 'text-text-muted'}`}>
                   {showRecordingActions ? <Eye size={14} /> : <EyeOff size={14} />}
                   {showRecordingActions ? 'Visible' : 'Hidden'}
                 </span>
@@ -163,10 +163,10 @@ export function SettingsMenu({
                 onClick={() => {
                   onTogglePinMasterTrack();
                 }}
-                className="w-full px-3 py-2 flex items-center justify-between hover:bg-gray-700/50 transition-colors"
+                className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
               >
                 <span className="text-sm">Pin MASTER</span>
-                <span className={`flex items-center gap-1.5 text-xs ${pinMasterTrack ? 'text-green-400' : 'text-gray-500'}`}>
+                <span className={`flex items-center gap-1.5 text-xs ${pinMasterTrack ? 'text-success' : 'text-text-muted'}`}>
                   {pinMasterTrack ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
                 </span>
               </button>
@@ -176,9 +176,9 @@ export function SettingsMenu({
           {/* Actions section - only shown in Actions view */}
           {currentView === 'actions' && (
             <>
-              <div className="my-2 border-t border-gray-700" />
+              <div className="my-2 border-t border-border-subtle" />
 
-              <div className="px-3 py-1.5 text-xs text-gray-400 uppercase tracking-wide">
+              <div className="px-3 py-1.5 text-xs text-text-secondary uppercase tracking-wide">
                 Actions
               </div>
 
@@ -187,10 +187,10 @@ export function SettingsMenu({
                 onClick={() => {
                   onToggleActionsAutoCollapse();
                 }}
-                className="w-full px-3 py-2 flex items-center justify-between hover:bg-gray-700/50 transition-colors"
+                className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
               >
                 <span className="text-sm">Auto-Collapse Others</span>
-                <span className={`flex items-center gap-1.5 text-xs ${actionsAutoCollapse ? 'text-green-400' : 'text-gray-500'}`}>
+                <span className={`flex items-center gap-1.5 text-xs ${actionsAutoCollapse ? 'text-success' : 'text-text-muted'}`}>
                   {actionsAutoCollapse ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
                 </span>
               </button>

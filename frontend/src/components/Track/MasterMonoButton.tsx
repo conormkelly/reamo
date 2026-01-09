@@ -30,11 +30,11 @@ export function MasterMonoButton({
 
   // Buttons always darker than track background for contrast
   const inactiveBg = isSelected
-    ? 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-    : 'bg-gray-900 text-gray-300 hover:bg-gray-800';
+    ? 'bg-bg-surface text-text-tertiary hover:bg-bg-elevated'
+    : 'bg-bg-deep text-text-tertiary hover:bg-bg-surface';
 
   // Active state when mono is enabled
-  const activeClass = isMono ? 'bg-orange-600 text-white' : inactiveBg;
+  const activeClass = isMono ? 'bg-warning-bright text-text-primary' : inactiveBg;
 
   return (
     <button

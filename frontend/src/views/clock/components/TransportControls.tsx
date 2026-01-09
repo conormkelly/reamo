@@ -31,9 +31,9 @@ function BigTransportButton({
   scale,
 }: BigTransportButtonProps): ReactElement {
   const colorClasses = {
-    green: 'bg-green-500',
-    red: 'bg-red-500',
-    gray: 'bg-gray-600',
+    green: 'bg-success',
+    red: 'bg-error',
+    gray: 'bg-bg-hover',
   };
 
   return (
@@ -45,7 +45,7 @@ function BigTransportButton({
       className={`
         aspect-square rounded-full flex items-center justify-center
         transition-colors shadow-lg
-        ${isActive ? colorClasses[activeColor] : 'bg-gray-700 hover:bg-gray-600 active:bg-gray-500'}
+        ${isActive ? colorClasses[activeColor] : 'bg-bg-elevated hover:bg-bg-hover active:bg-bg-disabled'}
       `}
       style={{
         width: `calc(clamp(48px, 12cqmin, 112px) * ${scale})`,
@@ -115,8 +115,8 @@ export function TransportControls({ scale }: TransportControlsProps): ReactEleme
   }, []);
 
   const recordInactiveClass = isAutoPunch
-    ? 'bg-red-900/50 hover:bg-red-800/70 ring-2 ring-red-500/50'
-    : 'bg-red-900/50 hover:bg-red-800/70 ring-2 ring-red-500/30';
+    ? 'bg-record-dim-50 hover:bg-record-hover-70 ring-2 ring-record-ring'
+    : 'bg-record-dim-50 hover:bg-record-hover-70 ring-2 ring-record-ring-dim';
 
   // Icon size scales with button (roughly 50% of button size)
   const iconStyle = {
@@ -181,7 +181,7 @@ export function TransportControls({ scale }: TransportControlsProps): ReactEleme
         className={`
           aspect-square rounded-full flex items-center justify-center
           transition-colors shadow-lg touch-none select-none
-          ${isRecording ? 'bg-red-500 animate-pulse' : recordInactiveClass}
+          ${isRecording ? 'bg-record animate-pulse' : recordInactiveClass}
         `}
         style={{
           width: `calc(clamp(48px, 12cqmin, 112px) * ${scale})`,

@@ -24,8 +24,8 @@ export function PlayButton({ className = '' }: PlayButtonProps): ReactElement {
       onClick={handleClick}
       className={`px-4 py-2 rounded font-medium transition-colors ${
         isPlaying
-          ? 'bg-green-500 text-white'
-          : 'bg-gray-700 text-white hover:bg-gray-600'
+          ? 'bg-success text-text-primary'
+          : 'bg-bg-elevated text-text-primary hover:bg-bg-hover'
       } ${className}`}
     >
       <Play size={16} className="inline-block mr-1" />

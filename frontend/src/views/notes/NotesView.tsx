@@ -141,31 +141,31 @@ export function NotesView(): ReactElement {
 
   // Counter color based on threshold
   const getCounterColor = () => {
-    if (isOverLimit) return 'text-red-500';
-    if (charRatio >= COUNTER_WARNING_THRESHOLD) return 'text-orange-400';
-    return 'text-gray-400';
+    if (isOverLimit) return 'text-counter-error';
+    if (charRatio >= COUNTER_WARNING_THRESHOLD) return 'text-counter-warning';
+    return 'text-text-secondary';
   };
 
   // Show loading state
   if (isLoading && serverNotes === null) {
     return (
-      <div data-view="notes" className="h-full bg-gray-950 text-white p-3 flex flex-col">
+      <div data-view="notes" className="h-full bg-bg-app text-text-primary p-3 flex flex-col">
         <ViewHeader currentView="notes" />
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-gray-400">Loading notes...</p>
+          <p className="text-text-secondary">Loading notes...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div data-view="notes" className="h-full bg-gray-950 text-white p-3 flex flex-col">
+    <div data-view="notes" className="h-full bg-bg-app text-text-primary p-3 flex flex-col">
       <ViewHeader currentView="notes">
         <TextSizeControl value={notesFontSize} onChange={setNotesFontSize} />
       </ViewHeader>
       {/* Error display */}
       {notesError && (
-        <div className="mb-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-200">
+        <div className="mb-4 p-3 bg-error-display-bg border border-error-display-border rounded-lg text-error-display-text">
           {notesError}
         </div>
       )}
@@ -173,9 +173,9 @@ export function NotesView(): ReactElement {
       {/* Textarea */}
       <div className="flex-1 flex flex-col min-h-0">
         <textarea
-          className={`flex-1 w-full bg-gray-900 border rounded-lg p-3 text-white resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            hasExternalChange ? 'border-orange-500 bg-gray-900/50' : 'border-gray-700'
-          } ${isOverLimit ? 'border-red-500' : ''}`}
+          className={`flex-1 w-full bg-bg-deep border rounded-lg p-3 text-text-primary resize-none focus:outline-none focus:ring-2 focus:ring-focus-ring ${
+            hasExternalChange ? 'border-external-border bg-bg-deep/50' : 'border-border-subtle'
+          } ${isOverLimit ? 'border-counter-error' : ''}`}
           style={{ fontSize: notesFontSize }}
           placeholder="Add project notes here..."
           value={localNotes}
@@ -204,18 +204,18 @@ export function NotesView(): ReactElement {
 
       {/* External change warning bar */}
       {hasExternalChange && (
-        <div className="mt-4 p-3 bg-orange-900/50 border border-orange-600 rounded-lg flex items-center justify-between gap-3">
-          <span className="text-orange-200">Notes edited elsewhere</span>
+        <div className="mt-4 p-3 bg-external-bar-bg border border-external-bar-border rounded-lg flex items-center justify-between gap-3">
+          <span className="text-external-bar-text">Notes edited elsewhere</span>
           <div className="flex gap-2">
             <button
               onClick={handleReload}
-              className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 rounded text-white text-sm font-medium"
+              className="px-3 py-1.5 bg-external-btn hover:bg-external-btn-hover rounded text-text-primary text-sm font-medium"
             >
               Reload
             </button>
             <button
               onClick={handleIgnore}
-              className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-white text-sm font-medium"
+              className="px-3 py-1.5 bg-bg-elevated hover:bg-bg-hover rounded text-text-primary text-sm font-medium"
             >
               Ignore
             </button>
@@ -230,8 +230,8 @@ export function NotesView(): ReactElement {
           disabled={!isDirty && !hasExternalChange}
           className={`flex-1 py-3 rounded-lg font-medium transition-colors ${
             isDirty || hasExternalChange
-              ? 'bg-gray-800 hover:bg-gray-700 text-white'
-              : 'bg-gray-900 text-gray-600 cursor-not-allowed'
+              ? 'bg-bg-surface hover:bg-bg-elevated text-text-primary'
+              : 'bg-bg-deep text-text-disabled cursor-not-allowed'
           }`}
         >
           Discard
@@ -241,8 +241,8 @@ export function NotesView(): ReactElement {
           disabled={!canSave || isSaving}
           className={`flex-1 py-3 rounded-lg font-medium transition-colors ${
             canSave && !isSaving
-              ? 'bg-blue-600 hover:bg-blue-500 text-white'
-              : 'bg-gray-900 text-gray-600 cursor-not-allowed'
+              ? 'bg-primary hover:bg-primary-hover text-text-primary'
+              : 'bg-bg-deep text-text-disabled cursor-not-allowed'
           }`}
         >
           {isSaving ? 'Saving...' : 'Save'}

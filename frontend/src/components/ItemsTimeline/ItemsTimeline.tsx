@@ -132,7 +132,7 @@ export function ItemsTimeline({
   if (items.length === 0) {
     return (
       <div
-        className="flex items-center justify-center bg-gray-900 rounded text-gray-400 text-sm"
+        className="flex items-center justify-center bg-bg-deep rounded text-text-secondary text-sm"
         style={{ height: `${height}px` }}
       >
         No items in project
@@ -144,7 +144,7 @@ export function ItemsTimeline({
   if (tracksWithItems.length === 0) {
     return (
       <div
-        className="flex items-center justify-center bg-gray-900 rounded text-gray-400 text-sm"
+        className="flex items-center justify-center bg-bg-deep rounded text-text-secondary text-sm"
         style={{ height: `${height}px` }}
       >
         No tracks with items
@@ -155,12 +155,12 @@ export function ItemsTimeline({
   return (
     <div className="flex flex-col">
       {/* Track selector */}
-      <div className="flex items-center gap-2 px-2 py-1.5 bg-gray-800 rounded-t border border-gray-700">
-        <label className="text-xs text-gray-400">Track:</label>
+      <div className="flex items-center gap-2 px-2 py-1.5 bg-bg-surface rounded-t border border-border-subtle">
+        <label className="text-xs text-text-secondary">Track:</label>
         <select
           value={activeTrackIdx ?? ''}
           onChange={handleTrackChange}
-          className="flex-1 bg-gray-700 text-white text-sm rounded px-2 py-1 border border-gray-600 focus:border-green-400 focus:outline-none"
+          className="flex-1 bg-bg-elevated text-text-primary text-sm rounded px-2 py-1 border border-border-default focus:border-success focus:outline-none"
         >
           {tracksWithItems.map((track) => (
             <option key={track.trackIdx} value={track.trackIdx}>
@@ -172,11 +172,11 @@ export function ItemsTimeline({
 
       {/* Items area */}
       <div
-        className="relative bg-gray-900 border-x border-gray-700"
+        className="relative bg-bg-deep border-x border-border-subtle"
         style={{ height: `${height}px` }}
       >
         {trackItems.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+          <div className="flex items-center justify-center h-full text-text-muted text-sm">
             No items on this track
           </div>
         ) : (
@@ -194,11 +194,11 @@ export function ItemsTimeline({
       </div>
 
       {/* Item info bar */}
-      <div className="bg-gray-800 rounded-b border border-t-0 border-gray-700 px-2 py-1.5">
+      <div className="bg-bg-surface rounded-b border border-t-0 border-border-subtle px-2 py-1.5">
         {selectedItem ? (
           <ItemInfoBar item={selectedItem} />
         ) : (
-          <div className="text-xs text-gray-500">
+          <div className="text-xs text-text-muted">
             Tap an item to select it
           </div>
         )}

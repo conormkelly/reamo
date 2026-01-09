@@ -172,21 +172,21 @@ export function MarkerEditModal({
       onClick={onClose}
     >
       <div
-        className="bg-gray-800 rounded-lg shadow-xl w-80 max-w-[90vw] overflow-hidden"
+        className="bg-bg-surface rounded-lg shadow-xl w-80 max-w-[90vw] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 bg-gray-900 border-b border-gray-700">
+        <div className="flex items-center justify-between px-4 py-3 bg-bg-deep border-b border-border-subtle">
           <div className="flex items-center gap-2">
             <div
-              className="w-4 h-4 rounded-full border border-gray-600"
+              className="w-4 h-4 rounded-full border border-border-default"
               style={{ backgroundColor: colorValue ?? DEFAULT_MARKER_COLOR }}
             />
-            <h3 className="text-white font-semibold">Marker {marker.id}</h3>
+            <h3 className="text-text-primary font-semibold">Marker {marker.id}</h3>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-white transition-colors"
+            className="text-text-secondary hover:text-text-primary transition-colors"
           >
             <X size={20} />
           </button>
@@ -196,19 +196,19 @@ export function MarkerEditModal({
         <div className="p-4 space-y-4">
           {/* Name Input */}
           <div className="space-y-2">
-            <label className="text-sm text-gray-400">Name</label>
+            <label className="text-sm text-text-secondary">Name</label>
             <input
               type="text"
               value={nameValue}
               onChange={(e) => setNameValue(e.target.value)}
-              className="w-full px-3 py-2 bg-gray-900 border border-gray-600 rounded text-white text-sm focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-bg-deep border border-border-default rounded text-text-primary text-sm focus:outline-none focus:border-focus-border"
               placeholder="Marker name"
             />
           </div>
 
           {/* Color Picker */}
           <div className="space-y-2">
-              <label className="text-sm text-gray-400">Color</label>
+              <label className="text-sm text-text-secondary">Color</label>
 
               {/* Default + Project colors row */}
               <div className="mb-2">
@@ -219,7 +219,7 @@ export function MarkerEditModal({
                     className={`w-6 h-6 rounded border-2 transition-all relative ${
                       colorValue === null
                         ? 'border-white scale-110'
-                        : 'border-transparent hover:border-gray-400'
+                        : 'border-transparent hover:border-text-secondary'
                     }`}
                     style={{ backgroundColor: DEFAULT_MARKER_COLOR }}
                     title="Reset to default"
@@ -235,7 +235,7 @@ export function MarkerEditModal({
                       className={`w-6 h-6 rounded border-2 transition-all ${
                         colorValue !== null && colorValue.toLowerCase() === color.toLowerCase()
                           ? 'border-white scale-110'
-                          : 'border-transparent hover:border-gray-400'
+                          : 'border-transparent hover:border-text-secondary'
                       }`}
                       style={{ backgroundColor: color }}
                     />
@@ -245,7 +245,7 @@ export function MarkerEditModal({
 
               {/* Default color swatches */}
               <div className="mb-2">
-                <span className="text-xs text-gray-500 mb-1 block">Presets</span>
+                <span className="text-xs text-text-muted mb-1 block">Presets</span>
                 <div className="flex gap-1.5 flex-wrap">
                   {MARKER_COLORS.map((color) => (
                     <button
@@ -254,7 +254,7 @@ export function MarkerEditModal({
                       className={`w-6 h-6 rounded border-2 transition-all ${
                         colorValue !== null && colorValue.toLowerCase() === color.toLowerCase()
                           ? 'border-white scale-110'
-                          : 'border-transparent hover:border-gray-400'
+                          : 'border-transparent hover:border-text-secondary'
                       }`}
                       style={{ backgroundColor: color }}
                     />
@@ -268,7 +268,7 @@ export function MarkerEditModal({
                   type="color"
                   value={colorValue ?? DEFAULT_MARKER_COLOR}
                   onChange={(e) => setColorValue(e.target.value)}
-                  className="w-8 h-8 rounded border border-gray-600 cursor-pointer bg-transparent"
+                  className="w-8 h-8 rounded border border-border-default cursor-pointer bg-transparent"
                 />
                 <input
                   type="text"
@@ -281,7 +281,7 @@ export function MarkerEditModal({
                       setColorValue(val.startsWith('#') ? val : `#${val}`);
                     }
                   }}
-                  className="flex-1 px-2 py-1 bg-gray-900 border border-gray-600 rounded text-white text-xs font-mono focus:outline-none focus:border-blue-500"
+                  className="flex-1 px-2 py-1 bg-bg-deep border border-border-default rounded text-text-primary text-xs font-mono focus:outline-none focus:border-focus-border"
                   placeholder="Default"
                 />
               </div>
@@ -292,7 +292,7 @@ export function MarkerEditModal({
             <button
               onClick={handleSaveNameColor}
               disabled={isSaving}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded font-medium transition-colors disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-success-action hover:bg-success text-text-primary rounded font-medium transition-colors disabled:opacity-50"
             >
               <Save size={16} />
               {isSaving ? 'Saving...' : 'Save Name & Color'}
@@ -300,20 +300,20 @@ export function MarkerEditModal({
           )}
 
           {/* Divider */}
-          <div className="border-t border-gray-700" />
+          <div className="border-t border-border-subtle" />
 
           {/* Position Input */}
           <div className="space-y-2">
-            <label className="text-sm text-gray-400">Position</label>
+            <label className="text-sm text-text-secondary">Position</label>
 
             {/* Mode Toggle */}
-            <div className="flex rounded-lg overflow-hidden border border-gray-600">
+            <div className="flex rounded-lg overflow-hidden border border-border-default">
               <button
                 onClick={() => setEditMode('time')}
                 className={`flex-1 px-3 py-1.5 text-sm font-medium transition-colors ${
                   editMode === 'time'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    ? 'bg-primary text-text-primary'
+                    : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
                 }`}
               >
                 Time
@@ -322,8 +322,8 @@ export function MarkerEditModal({
                 onClick={() => setEditMode('beats')}
                 className={`flex-1 px-3 py-1.5 text-sm font-medium transition-colors ${
                   editMode === 'beats'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    ? 'bg-primary text-text-primary'
+                    : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
                 }`}
               >
                 Bar.Beat
@@ -342,30 +342,30 @@ export function MarkerEditModal({
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleMove();
               }}
-              className="w-full px-3 py-2 bg-gray-900 border border-gray-600 rounded text-white text-sm focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-bg-deep border border-border-default rounded text-text-primary text-sm focus:outline-none focus:border-focus-border"
               placeholder={editMode === 'time' ? 'MM:SS.ms' : 'Bar.Beat'}
             />
 
             {/* Error message */}
-            {error && <p className="text-red-400 text-xs">{error}</p>}
+            {error && <p className="text-error-text text-xs">{error}</p>}
           </div>
 
           {/* Move Button */}
           <button
             onClick={handleMove}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded font-medium transition-colors bg-blue-600 hover:bg-blue-500 text-white"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded font-medium transition-colors bg-primary hover:bg-primary-hover text-text-primary"
           >
             <Move size={16} />
             Move to Position
           </button>
 
           {/* Divider */}
-          <div className="border-t border-gray-700" />
+          <div className="border-t border-border-subtle" />
 
           {/* Reorder Button */}
           <button
             onClick={handleReorder}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded font-medium transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-bg-elevated hover:bg-bg-hover text-text-primary rounded font-medium transition-colors"
           >
             <ListOrdered size={16} />
             Reorder All Markers
@@ -374,7 +374,7 @@ export function MarkerEditModal({
           {/* Delete Button */}
           <button
             onClick={handleDelete}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/40 text-red-400 hover:text-red-300 border border-red-600/50 rounded font-medium transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-delete-bg hover:bg-delete-bg-hover text-delete-text hover:text-delete-text-hover border border-delete-border rounded font-medium transition-colors"
           >
             <Trash2 size={16} />
             Delete Marker

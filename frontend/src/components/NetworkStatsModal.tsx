@@ -25,23 +25,23 @@ interface DisplayMetrics {
   isSynced: boolean;
 }
 
-// Status colors - OPTIMAL/GOOD/MODERATE are all "working fine" (green shades)
+// Status colors - OPTIMAL/GOOD/MODERATE are all "working fine"
 const STATUS_COLORS: Record<NetworkStatus, string> = {
-  OPTIMAL: 'text-green-400',
-  GOOD: 'text-green-300',
-  MODERATE: 'text-green-200',  // Still working well
-  POOR: 'text-yellow-400',     // May notice sync issues
-  DEGRADED: 'text-orange-400',
-  RECONNECTING: 'text-red-500',
-  DISCONNECTED: 'text-gray-500',
+  OPTIMAL: 'text-network-optimal',
+  GOOD: 'text-network-good',
+  MODERATE: 'text-network-moderate',  // Still working well
+  POOR: 'text-network-poor',          // May notice sync issues
+  DEGRADED: 'text-network-degraded',
+  RECONNECTING: 'text-network-reconnecting',
+  DISCONNECTED: 'text-text-muted',
 };
 
 // Quality colors - moderate is normal for WiFi, not a warning
 const QUALITY_COLORS: Record<NetworkQuality, string> = {
-  excellent: 'text-green-400',
-  good: 'text-green-300',
-  moderate: 'text-green-200',  // Normal WiFi - sync still meets ±15ms target
-  poor: 'text-yellow-400',     // May notice sync issues
+  excellent: 'text-network-optimal',
+  good: 'text-network-good',
+  moderate: 'text-network-moderate',  // Normal WiFi - sync still meets ±15ms target
+  poor: 'text-network-poor',          // May notice sync issues
 };
 
 export function NetworkStatsModal({ isOpen, onClose }: NetworkStatsModalProps): ReactElement | null {
@@ -110,16 +110,16 @@ export function NetworkStatsModal({ isOpen, onClose }: NetworkStatsModalProps): 
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-gray-900 rounded-xl shadow-2xl border border-gray-700 w-full max-w-sm mx-4 overflow-hidden">
+      <div className="bg-bg-deep rounded-xl shadow-2xl border border-border-subtle w-full max-w-sm mx-4 overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
           <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Activity size={20} className="text-blue-400" />
+            <Activity size={20} className="text-info" />
             Network Stats
           </h2>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-gray-700 transition-colors"
+            className="p-1.5 rounded-lg hover:bg-bg-elevated transition-colors"
           >
             <X size={18} />
           </button>
@@ -144,8 +144,8 @@ export function NetworkStatsModal({ isOpen, onClose }: NetworkStatsModalProps): 
           </div>
 
           {/* Timing Stats */}
-          <div className="bg-gray-800/50 rounded-lg p-3 space-y-2">
-            <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">
+          <div className="bg-bg-surface/50 rounded-lg p-3 space-y-2">
+            <div className="text-xs text-text-secondary uppercase tracking-wide mb-2">
               Timing
             </div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
@@ -157,18 +157,18 @@ export function NetworkStatsModal({ isOpen, onClose }: NetworkStatsModalProps): 
           </div>
 
           {/* Clock Sync Status */}
-          <div className="bg-gray-800/50 rounded-lg p-3">
-            <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">
+          <div className="bg-bg-surface/50 rounded-lg p-3">
+            <div className="text-xs text-text-secondary uppercase tracking-wide mb-2">
               Clock Sync
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Clock size={16} className={metrics?.isSynced ? 'text-green-400' : 'text-yellow-400'} />
+                <Clock size={16} className={metrics?.isSynced ? 'text-network-optimal' : 'text-network-poor'} />
                 <span className="text-sm">
                   {metrics?.isSynced ? 'Synchronized' : 'Not synced'}
                 </span>
                 {metrics?.isSynced && metrics.clock.estimatedDrift !== 0 && (
-                  <span className="text-xs text-gray-500">
+                  <span className="text-xs text-text-muted">
                     (drift: {formatMs(metrics.clock.estimatedDrift)})
                   </span>
                 )}
@@ -176,7 +176,7 @@ export function NetworkStatsModal({ isOpen, onClose }: NetworkStatsModalProps): 
               <button
                 onClick={handleResync}
                 disabled={isResyncing}
-                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:text-gray-400 rounded transition-colors"
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-primary hover:bg-primary-hover disabled:bg-primary-active disabled:text-text-secondary rounded transition-colors"
               >
                 <RefreshCw size={12} className={isResyncing ? 'animate-spin' : ''} />
                 {isResyncing ? 'Syncing...' : 'Resync'}
@@ -185,12 +185,12 @@ export function NetworkStatsModal({ isOpen, onClose }: NetworkStatsModalProps): 
           </div>
 
           {/* Manual Offset */}
-          <div className="bg-gray-800/50 rounded-lg p-3">
+          <div className="bg-bg-surface/50 rounded-lg p-3">
             <div className="flex items-center justify-between mb-2">
-              <div className="text-xs text-gray-400 uppercase tracking-wide">
+              <div className="text-xs text-text-secondary uppercase tracking-wide">
                 Manual Offset
               </div>
-              <span className="text-xs text-gray-500 font-mono">
+              <span className="text-xs text-text-muted font-mono">
                 {manualOffset > 0 ? '+' : ''}{manualOffset}ms
               </span>
             </div>
@@ -201,18 +201,18 @@ export function NetworkStatsModal({ isOpen, onClose }: NetworkStatsModalProps): 
               step={1}
               value={manualOffset}
               onChange={(e) => handleOffsetChange(Number(e.target.value))}
-              className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              className="w-full h-1.5 bg-bg-elevated rounded-lg appearance-none cursor-pointer accent-primary-hover"
             />
-            <div className="flex justify-between text-xs text-gray-600 mt-1">
+            <div className="flex justify-between text-xs text-text-disabled mt-1">
               <span>-50ms</span>
-              <span className="text-gray-500">Earlier ← → Later</span>
+              <span className="text-text-muted">Earlier ← → Later</span>
               <span>+50ms</span>
             </div>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-3 border-t border-gray-700 text-xs text-gray-500 text-center">
+        <div className="px-4 py-3 border-t border-border-subtle text-xs text-text-muted text-center">
           Long-press connection dot to open
         </div>
       </div>
@@ -226,7 +226,7 @@ function StatCard({
   icon,
   label,
   value,
-  valueClassName = 'text-white',
+  valueClassName = 'text-text-primary',
 }: {
   icon: ReactElement;
   label: string;
@@ -234,8 +234,8 @@ function StatCard({
   valueClassName?: string;
 }) {
   return (
-    <div className="bg-gray-800/50 rounded-lg p-3">
-      <div className="flex items-center gap-1.5 text-gray-400 text-xs mb-1">
+    <div className="bg-bg-surface/50 rounded-lg p-3">
+      <div className="flex items-center gap-1.5 text-text-secondary text-xs mb-1">
         {icon}
         {label}
       </div>
@@ -257,8 +257,8 @@ function StatRow({
 }) {
   return (
     <>
-      <span className="text-gray-400">{label}</span>
-      <span className={`font-mono text-right ${signed ? 'text-blue-300' : 'text-white'}`}>
+      <span className="text-text-secondary">{label}</span>
+      <span className={`font-mono text-right ${signed ? 'text-info-muted' : 'text-text-primary'}`}>
         {value}
       </span>
     </>

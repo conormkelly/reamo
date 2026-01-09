@@ -190,8 +190,8 @@ export function getRegionStates(container: HTMLElement): Array<{
  * Check if an insertion point indicator is visible
  */
 export function hasInsertionIndicator(container: HTMLElement): boolean {
-  // Look for the green insertion line
-  return container.querySelector('.bg-green-400') !== null
+  // Look for the insertion indicator line (semantic token)
+  return container.querySelector('.bg-insert-indicator') !== null
 }
 
 /**
@@ -199,6 +199,6 @@ export function hasInsertionIndicator(container: HTMLElement): boolean {
  */
 export function hasResizeIndicator(container: HTMLElement): boolean {
   // Similar to insertion but during resize operations
-  const indicator = container.querySelector('[class*="bg-green-400"]')
+  const indicator = container.querySelector('[class*="bg-insert-indicator"]')
   return indicator !== null
 }

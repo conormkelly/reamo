@@ -30,11 +30,11 @@ function ToastItem({ toast, onDismiss }: ToastItemProps): ReactElement {
 
   return (
     <div
-      className="flex items-center gap-2 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg border border-gray-700 animate-slide-up"
+      className="flex items-center gap-2 bg-bg-surface text-text-primary px-4 py-2 rounded-lg shadow-lg border border-border-subtle animate-slide-up"
       role="status"
       aria-live="polite"
     >
-      <Icon size={16} className="text-gray-400 shrink-0" />
+      <Icon size={16} className="text-text-secondary shrink-0" />
       <span className="text-sm">{toast.message}</span>
     </div>
   );

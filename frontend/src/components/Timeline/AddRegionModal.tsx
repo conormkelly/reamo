@@ -173,14 +173,14 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
     >
       <div
         ref={modalRef}
-        className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-md border border-gray-700"
+        className="bg-bg-surface rounded-xl shadow-2xl w-full max-w-md border border-border-subtle"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
           <h2 className="text-lg font-semibold text-white">Add Region</h2>
           <button
             onClick={onClose}
-            className="p-1 text-gray-400 hover:text-white transition-colors"
+            className="p-1 text-text-secondary hover:text-text-primary transition-colors"
           >
             <X size={20} />
           </button>
@@ -190,20 +190,20 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
         <div className="p-4 space-y-4">
           {/* Name */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Name</label>
+            <label className="block text-sm font-medium text-text-tertiary mb-1">Name</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               autoFocus
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-purple-400"
+              className="w-full px-3 py-2 bg-bg-elevated border border-border-default rounded-lg text-text-primary focus:outline-none focus:border-accent-region"
               placeholder="Region name"
             />
           </div>
 
           {/* Color */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Color</label>
+            <label className="block text-sm font-medium text-text-tertiary mb-2">Color</label>
 
             {/* Default + Project colors row */}
             <div className="mb-3">
@@ -214,7 +214,7 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
                   className={`w-8 h-8 rounded-lg border-2 transition-all flex-shrink-0 relative ${
                     selectedColor === null
                       ? 'border-white scale-110'
-                      : 'border-transparent hover:border-gray-400'
+                      : 'border-transparent hover:border-text-secondary'
                   }`}
                   style={{ backgroundColor: DEFAULT_REGION_COLOR }}
                   title="Use default color"
@@ -230,7 +230,7 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
                     className={`w-8 h-8 rounded-lg border-2 transition-all flex-shrink-0 ${
                       selectedColor !== null && selectedColor.toLowerCase() === color.toLowerCase()
                         ? 'border-white scale-110'
-                        : 'border-transparent hover:border-gray-400'
+                        : 'border-transparent hover:border-text-secondary'
                     }`}
                     style={{ backgroundColor: color }}
                   />
@@ -240,13 +240,13 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
 
             {/* Color picker and hex input */}
             <div>
-              <span className="text-xs text-gray-400 mb-1.5 block">Custom</span>
+              <span className="text-xs text-text-secondary mb-1.5 block">Custom</span>
               <div className="flex gap-2 items-center">
                 <input
                   type="color"
                   value={selectedColor ?? DEFAULT_REGION_COLOR}
                   onChange={(e) => setSelectedColor(e.target.value)}
-                  className="w-10 h-10 rounded-lg border-2 border-gray-600 cursor-pointer bg-transparent"
+                  className="w-10 h-10 rounded-lg border-2 border-border-default cursor-pointer bg-transparent"
                   title="Pick a color"
                 />
                 <input
@@ -261,7 +261,7 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
                     }
                   }}
                   placeholder="Default"
-                  className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm font-mono focus:outline-none focus:border-purple-400"
+                  className="flex-1 px-3 py-2 bg-bg-elevated border border-border-default rounded-lg text-text-primary text-sm font-mono focus:outline-none focus:border-accent-region"
                 />
               </div>
             </div>
@@ -270,49 +270,49 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
           {/* Start and Length */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">Start</label>
+              <label className="block text-sm font-medium text-text-tertiary mb-1">Start</label>
               <input
                 type="text"
                 value={startBar}
                 onChange={(e) => setStartBar(e.target.value)}
                 placeholder="69.1.40"
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-purple-400"
+                className="w-full px-3 py-2 bg-bg-elevated border border-border-default rounded-lg text-text-primary focus:outline-none focus:border-accent-region"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">Length (bars)</label>
+              <label className="block text-sm font-medium text-text-tertiary mb-1">Length (bars)</label>
               <input
                 type="number"
                 min="1"
                 value={lengthBars}
                 onChange={(e) => setLengthBars(e.target.value)}
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-purple-400"
+                className="w-full px-3 py-2 bg-bg-elevated border border-border-default rounded-lg text-text-primary focus:outline-none focus:border-accent-region"
               />
             </div>
           </div>
 
           {/* Info about pending state */}
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-text-secondary">
             Region will be created as a pending change. Click Save to apply to REAPER.
           </p>
 
           {/* Error */}
           {error && (
-            <p className="text-sm text-red-400">{error}</p>
+            <p className="text-sm text-error-text">{error}</p>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-2 px-4 py-3 border-t border-gray-700">
+        <div className="flex justify-end gap-2 px-4 py-3 border-t border-border-subtle">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white transition-colors"
+            className="px-4 py-2 text-sm font-medium text-text-tertiary hover:text-text-primary transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleCreate}
-            className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors"
+            className="px-4 py-2 text-sm font-medium text-text-primary bg-accent-region hover:bg-accent-region-hover rounded-lg transition-colors"
           >
             Add Region
           </button>

@@ -51,7 +51,7 @@ export function StudioView(): ReactElement {
   );
 
   return (
-    <div data-view="studio" className="min-h-full bg-gray-950 text-white p-3 flex flex-col">
+    <div data-view="studio" className="min-h-full bg-bg-app text-text-primary p-3 flex flex-col">
       {/* Header: Burger | Tempo controls | Connection status */}
       <ViewHeader currentView="studio">
         <MetronomeButton />
@@ -103,7 +103,7 @@ export function StudioView(): ReactElement {
       })}
 
       {/* Footer - at bottom of content, visible when scrolled down */}
-      <footer className="mt-8 text-center text-gray-600 text-sm">
+      <footer className="mt-8 text-center text-text-disabled text-sm">
         REAmo - REAPER Web Control
       </footer>
 

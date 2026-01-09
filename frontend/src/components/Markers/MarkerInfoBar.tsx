@@ -174,22 +174,22 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
 
   return (
     <div className={`flex items-center gap-2 min-w-0 ${className}`}>
-      <div className="flex flex-col gap-1 px-3 py-1.5 bg-gray-800/50 rounded-lg text-sm flex-1 min-w-0">
+      <div className="flex flex-col gap-1 px-3 py-1.5 bg-bg-surface/50 rounded-lg text-sm flex-1 min-w-0">
         {currentMarker ? (
           <>
             {/* Line 1: Marker ID and Name */}
             <div className="flex items-center gap-3 min-w-0">
               {/* Marker ID */}
               <div className="flex items-center gap-1.5">
-                <span className="text-gray-400 text-xs">Marker:</span>
-                <span className="text-white font-mono text-xs font-bold">{currentMarker.id}</span>
+                <span className="text-text-secondary text-xs">Marker:</span>
+                <span className="text-text-primary font-mono text-xs font-bold">{currentMarker.id}</span>
               </div>
 
-              <div className="w-px h-4 bg-gray-600 flex-shrink-0" />
+              <div className="w-px h-4 bg-border-default flex-shrink-0" />
 
               {/* Name (editable if script installed) */}
               <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                <span className="text-gray-400 text-xs flex-shrink-0">Name:</span>
+                <span className="text-text-secondary text-xs flex-shrink-0">Name:</span>
                 {isEditingName ? (
                   <input
                     ref={nameInputRef}
@@ -198,12 +198,12 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
                     onChange={(e) => setNameValue(e.target.value)}
                     onKeyDown={handleNameKeyDown}
                     onBlur={handleNameConfirm}
-                    className="flex-1 min-w-0 px-1.5 py-0.5 bg-gray-700 border border-blue-400 rounded text-white font-mono text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    className="flex-1 min-w-0 px-1.5 py-0.5 bg-bg-elevated border border-focus-border rounded text-text-primary font-mono text-xs focus:outline-none focus:ring-1 focus:ring-focus-ring"
                   />
                 ) : (
                   <button
                     onClick={handleNameClick}
-                    className="text-white font-mono text-xs px-1.5 py-0.5 rounded transition-colors truncate min-w-0 hover:bg-gray-700 cursor-pointer"
+                    className="text-text-primary font-mono text-xs px-1.5 py-0.5 rounded transition-colors truncate min-w-0 hover:bg-bg-elevated cursor-pointer"
                     title="Click to edit name"
                   >
                     {currentMarker.name || '(unnamed)'}
@@ -213,7 +213,7 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
 
               {/* Saving indicator */}
               {isSaving && (
-                <span className="text-gray-500 text-xs italic ml-auto">Saving...</span>
+                <span className="text-text-muted text-xs italic ml-auto">Saving...</span>
               )}
             </div>
 
@@ -221,17 +221,17 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
             <div className="flex items-center gap-3">
               {/* Color indicator */}
               <div className="flex items-center gap-1.5 relative">
-                <span className="text-gray-400 text-xs">Color:</span>
+                <span className="text-text-secondary text-xs">Color:</span>
                 <button
                   onClick={handleColorClick}
-                  className="w-6 h-6 rounded border-2 transition-colors border-gray-600 hover:border-gray-400 cursor-pointer"
+                  className="w-6 h-6 rounded border-2 transition-colors border-border-default hover:border-text-secondary cursor-pointer"
                   style={{ backgroundColor: currentColor }}
                   title="Click to change color"
                 />
                 {showColorPicker && (
                   <div
                     ref={colorPickerRef}
-                    className="absolute top-full left-0 mt-2 p-3 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 min-w-[200px]"
+                    className="absolute top-full left-0 mt-2 p-3 bg-bg-surface border border-border-default rounded-lg shadow-xl z-50 min-w-[200px]"
                   >
                     {/* Default + Project colors row */}
                     <div className="mb-3">
@@ -242,7 +242,7 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
                           className={`w-6 h-6 rounded border-2 transition-all flex-shrink-0 relative ${
                             isDefaultColor
                               ? 'border-white scale-110'
-                              : 'border-transparent hover:border-gray-400'
+                              : 'border-transparent hover:border-text-secondary'
                           }`}
                           style={{ backgroundColor: DEFAULT_MARKER_COLOR }}
                           title="Reset to default"
@@ -258,7 +258,7 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
                             className={`w-6 h-6 rounded border-2 transition-all flex-shrink-0 ${
                               !isDefaultColor && currentColor.toLowerCase() === color.toLowerCase()
                                 ? 'border-white scale-110'
-                                : 'border-transparent hover:border-gray-400'
+                                : 'border-transparent hover:border-text-secondary'
                             }`}
                             style={{ backgroundColor: color }}
                           />
@@ -268,7 +268,7 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
 
                     {/* Preset colors */}
                     <div className="mb-3">
-                      <div className="text-xs text-gray-400 mb-1.5">Presets</div>
+                      <div className="text-xs text-text-secondary mb-1.5">Presets</div>
                       <div className="flex gap-2 flex-wrap">
                         {MARKER_COLORS.map((color) => (
                           <button
@@ -277,7 +277,7 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
                             className={`w-6 h-6 rounded border-2 transition-all ${
                               !isDefaultColor && currentColor.toLowerCase() === color.toLowerCase()
                                 ? 'border-white scale-110'
-                                : 'border-transparent hover:border-gray-400'
+                                : 'border-transparent hover:border-text-secondary'
                             }`}
                             style={{ backgroundColor: color }}
                           />
@@ -286,19 +286,19 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
                     </div>
 
                     {/* Color picker and hex input */}
-                    <div className="text-xs text-gray-400 mb-1.5">Custom</div>
+                    <div className="text-xs text-text-secondary mb-1.5">Custom</div>
                     <div className="flex gap-2 items-center">
                       <input
                         type="color"
                         value={currentColor}
                         onChange={(e) => handleColorSelect(e.target.value)}
-                        className="w-8 h-8 rounded border-2 border-gray-600 cursor-pointer bg-transparent"
+                        className="w-8 h-8 rounded border-2 border-border-default cursor-pointer bg-transparent"
                       />
                       <input
                         type="text"
                         placeholder="Default"
                         defaultValue={isDefaultColor ? '' : currentColor}
-                        className="flex-1 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-xs font-mono focus:outline-none focus:border-blue-400"
+                        className="flex-1 px-2 py-1 bg-bg-elevated border border-border-default rounded text-text-primary text-xs font-mono focus:outline-none focus:border-focus-border"
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             const val = (e.target as HTMLInputElement).value;
@@ -313,19 +313,19 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
                 )}
               </div>
 
-              <div className="w-px h-4 bg-gray-600 flex-shrink-0" />
+              <div className="w-px h-4 bg-border-default flex-shrink-0" />
 
               {/* Position - use server bar string if available */}
               <div className="flex items-center gap-1.5">
-                <span className="text-gray-400 text-xs">At:</span>
-                <span className="text-blue-300 font-mono text-xs">
+                <span className="text-text-secondary text-xs">At:</span>
+                <span className="text-info-muted font-mono text-xs">
                   {currentMarker.positionBars ?? formatPosition(currentMarker.position)}
                 </span>
               </div>
             </div>
           </>
         ) : (
-          <span className="text-gray-500 text-sm italic">
+          <span className="text-text-muted text-sm italic">
             No marker selected
           </span>
         )}

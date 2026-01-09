@@ -108,7 +108,7 @@ export function TimeSignatureButton({
         title="Time Signature - tap to change"
         className={`
           ${sizeClasses[size]}
-          bg-gray-700 text-white hover:bg-gray-600 active:bg-gray-500
+          bg-bg-elevated text-text-primary hover:bg-bg-hover active:bg-bg-disabled
           rounded font-medium font-mono transition-colors
           ${className}
         `}
@@ -122,14 +122,14 @@ export function TimeSignatureButton({
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
           onClick={handleOverlayClick}
         >
-          <div className="bg-gray-800 rounded-lg p-4 shadow-xl border border-gray-700 min-w-[220px]">
-            <div className="text-sm text-gray-400 mb-4 text-center">Time Signature</div>
+          <div className="bg-bg-surface rounded-lg p-4 shadow-xl border border-border-subtle min-w-[220px]">
+            <div className="text-sm text-text-secondary mb-4 text-center">Time Signature</div>
 
             {/* Numerator */}
             <div className="flex items-center justify-center gap-3 mb-2">
               <button
                 onClick={handleNumeratorDown}
-                className="w-10 h-10 rounded bg-gray-700 hover:bg-gray-600 active:bg-gray-500 flex items-center justify-center"
+                className="w-10 h-10 rounded bg-bg-elevated hover:bg-bg-hover active:bg-bg-disabled flex items-center justify-center"
               >
                 <Minus size={20} />
               </button>
@@ -138,20 +138,20 @@ export function TimeSignatureButton({
               </div>
               <button
                 onClick={handleNumeratorUp}
-                className="w-10 h-10 rounded bg-gray-700 hover:bg-gray-600 active:bg-gray-500 flex items-center justify-center"
+                className="w-10 h-10 rounded bg-bg-elevated hover:bg-bg-hover active:bg-bg-disabled flex items-center justify-center"
               >
                 <Plus size={20} />
               </button>
             </div>
 
             {/* Divider line */}
-            <div className="w-20 h-0.5 bg-gray-500 mx-auto mb-2" />
+            <div className="w-20 h-0.5 bg-bg-disabled mx-auto mb-2" />
 
             {/* Denominator */}
             <div className="flex items-center justify-center gap-3 mb-4">
               <button
                 onClick={handleDenominatorDown}
-                className="w-10 h-10 rounded bg-gray-700 hover:bg-gray-600 active:bg-gray-500 flex items-center justify-center"
+                className="w-10 h-10 rounded bg-bg-elevated hover:bg-bg-hover active:bg-bg-disabled flex items-center justify-center"
               >
                 <Minus size={20} />
               </button>
@@ -160,7 +160,7 @@ export function TimeSignatureButton({
               </div>
               <button
                 onClick={handleDenominatorUp}
-                className="w-10 h-10 rounded bg-gray-700 hover:bg-gray-600 active:bg-gray-500 flex items-center justify-center"
+                className="w-10 h-10 rounded bg-bg-elevated hover:bg-bg-hover active:bg-bg-disabled flex items-center justify-center"
               >
                 <Plus size={20} />
               </button>
@@ -169,13 +169,13 @@ export function TimeSignatureButton({
             {/* Apply button */}
             <button
               onClick={handleApply}
-              className="w-full py-2 mb-4 rounded bg-blue-600 hover:bg-blue-500 active:bg-blue-700 font-medium transition-colors"
+              className="w-full py-2 mb-4 rounded bg-primary hover:bg-primary-hover active:bg-primary-active font-medium transition-colors"
             >
               Apply {numerator}/{denominator}
             </button>
 
             {/* Presets */}
-            <div className="text-xs text-gray-500 mb-2 text-center">Presets</div>
+            <div className="text-xs text-text-muted mb-2 text-center">Presets</div>
             <div className="flex items-center justify-center gap-2">
               {TIME_SIG_PRESETS.map((preset) => (
                 <button
@@ -183,8 +183,8 @@ export function TimeSignatureButton({
                   onClick={() => handlePreset(preset.num, preset.denom)}
                   className={`px-3 py-1.5 rounded text-sm font-mono transition-colors ${
                     numerator === preset.num && denominator === preset.denom
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      ? 'bg-primary text-text-primary'
+                      : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
                   }`}
                 >
                   {preset.label}

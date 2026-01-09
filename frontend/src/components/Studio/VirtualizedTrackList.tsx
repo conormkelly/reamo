@@ -131,13 +131,13 @@ export function VirtualizedTrackList({
 
   if (!hasUserTracks) {
     return (
-      <div className={`text-gray-500 p-4 ${className}`}>No tracks in project</div>
+      <div className={`text-text-muted p-4 ${className}`}>No tracks in project</div>
     );
   }
 
   if (filterActive && trackCount === 0) {
     return (
-      <div className={`text-gray-500 p-4 ${className}`}>No matching tracks</div>
+      <div className={`text-text-muted p-4 ${className}`}>No matching tracks</div>
     );
   }
 
@@ -173,8 +173,8 @@ export function VirtualizedTrackList({
               ) : (
                 // Placeholder while loading - matches TrackStripWithMeter structure
                 <div className="flex gap-1 flex-shrink-0">
-                  <div className="w-[12px] h-[200px] bg-gray-800/50 rounded" />
-                  <div className="w-[100px] bg-gray-800/50 rounded-lg animate-pulse" />
+                  <div className="w-[12px] h-[200px] bg-bg-surface/50 rounded" />
+                  <div className="w-[100px] bg-bg-surface/50 rounded-lg animate-pulse" />
                 </div>
               )}
             </div>

@@ -85,7 +85,7 @@ export function TimelineSection(): ReactElement {
             <button
               onClick={() => setShowMakeSelectionModal(true)}
               title="Set time selection"
-              className="px-3 py-2 bg-gray-700 text-white hover:bg-gray-600 active:bg-gray-500 rounded font-medium transition-colors flex items-center"
+              className="px-3 py-2 bg-bg-elevated text-text-primary hover:bg-bg-hover active:bg-bg-disabled rounded font-medium transition-colors flex items-center"
             >
               <RectangleHorizontal size={16} className="mr-1" />
               <span>Selection</span>

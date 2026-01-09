@@ -22,7 +22,7 @@ export function LazyIconPicker(props: IconPickerProps) {
     <Suspense
       fallback={
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-lg p-8 text-gray-400">
+          <div className="bg-bg-surface rounded-lg p-8 text-text-secondary">
             Loading icons...
           </div>
         </div>

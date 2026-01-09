@@ -30,8 +30,8 @@ export function MuteButton({
 
   // Buttons always darker than track background for contrast
   const inactiveBg = isSelected
-    ? 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-    : 'bg-gray-900 text-gray-300 hover:bg-gray-800';
+    ? 'bg-bg-surface text-text-tertiary hover:bg-bg-elevated'
+    : 'bg-bg-deep text-text-tertiary hover:bg-bg-surface';
 
   return (
     <button
@@ -39,7 +39,7 @@ export function MuteButton({
       title={isMuted ? 'Unmute Track' : 'Mute Track'}
       className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
         mixerLocked ? 'opacity-50 cursor-not-allowed' : ''
-      } ${isMuted ? 'bg-blue-500 text-white' : inactiveBg} ${className}`}
+      } ${isMuted ? 'bg-primary-hover text-text-primary' : inactiveBg} ${className}`}
     >
       M
     </button>

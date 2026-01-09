@@ -53,14 +53,14 @@ export function TimelineModeToggle(): ReactElement {
   return (
     <div className="flex items-center gap-3">
       {/* Timeline Mode Toggle */}
-      <div className="flex rounded-lg overflow-hidden border border-gray-600">
+      <div className="flex rounded-lg overflow-hidden border border-border-default">
         <button
           onClick={() => handleTimelineModeChange('navigate')}
           disabled={hasPending}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${
             timelineMode === 'navigate'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              ? 'bg-primary text-text-primary'
+              : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
           } ${hasPending ? 'cursor-not-allowed opacity-50' : ''}`}
           title="Navigate mode: Tap to seek, drag for time selection"
         >
@@ -72,8 +72,8 @@ export function TimelineModeToggle(): ReactElement {
           disabled={hasPending}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${
             timelineMode === 'items'
-              ? 'bg-green-600 text-white'
-              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              ? 'bg-success-action text-text-primary'
+              : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
           } ${hasPending ? 'cursor-not-allowed opacity-50' : ''}`}
           title="Items mode: View waveforms and manage takes"
         >
@@ -85,8 +85,8 @@ export function TimelineModeToggle(): ReactElement {
           disabled={hasPending}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${
             timelineMode === 'regions'
-              ? 'bg-purple-600 text-white'
-              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              ? 'bg-accent-region text-text-primary'
+              : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
           } ${hasPending ? 'cursor-not-allowed opacity-50' : ''}`}
           title="Regions mode: Edit region positions (ripple edit)"
         >

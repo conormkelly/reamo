@@ -492,7 +492,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   return (
     <div className={`${className}`}>
       {/* Top bar - region labels (color bar + text) */}
-      <div className="relative h-[25px] bg-gray-900 rounded-t-lg">
+      <div className="relative h-[25px] bg-bg-deep rounded-t-lg">
         <TimelineRegionLabels
           displayRegions={displayRegions}
           timelineMode={timelineMode}
@@ -507,7 +507,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       <div
         ref={containerRef}
         data-testid="timeline-canvas"
-        className="relative bg-gray-800 overflow-hidden touch-none select-none"
+        className="relative bg-bg-surface overflow-hidden touch-none select-none"
         style={{ height }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -542,7 +542,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           <div
             className={`absolute top-0 bottom-0 border-l-2 border-r-2 pointer-events-none ${
               timelineMode === 'regions'
-                ? 'bg-gray-500/5 border-gray-700 opacity-50'
+                ? 'bg-bg-disabled/5 border-border-subtle opacity-50'
                 : 'bg-white/15 border-white/60'
             }`}
             style={{
@@ -562,7 +562,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         {/* Selection Preview */}
         {selectionPreview && (
           <div
-            className="absolute top-0 bottom-0 bg-blue-500/30 border-l-2 border-r-2 border-blue-400 pointer-events-none"
+            className="absolute top-0 bottom-0 bg-selection-preview border-l-2 border-r-2 border-selection-border pointer-events-none"
             style={{
               left: `${renderTimeToPercent(selectionPreview.start)}%`,
               width: `${renderTimeToPercent(selectionPreview.end) - renderTimeToPercent(selectionPreview.start)}%`,
@@ -577,14 +577,14 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
             style={{ left: `${renderTimeToPercent(insertionPoint)}%` }}
           >
             {/* Main insertion line */}
-            <div className="absolute top-0 bottom-0 left-0 w-1 bg-green-400 shadow-lg shadow-green-400/50" />
+            <div className="absolute top-0 bottom-0 left-0 w-1 bg-insert-indicator shadow-lg shadow-insert-indicator/50" />
             {/* Top arrow indicator */}
-            <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-t-[8px] border-l-transparent border-r-transparent border-t-green-400" />
+            <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-t-[8px] border-l-transparent border-r-transparent border-t-insert-indicator" />
             {/* Bottom arrow indicator */}
-            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-b-[8px] border-l-transparent border-r-transparent border-b-green-400" />
+            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-b-[8px] border-l-transparent border-r-transparent border-b-insert-indicator" />
             {/* Position pill showing bar position at bottom - uses tempo map for accuracy */}
             <div className="absolute bottom-1 -translate-x-1/2 z-40">
-              <div className="bg-gray-900 border border-green-400 rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg">
+              <div className="bg-bg-deep border border-insert-indicator rounded px-2 py-1 text-xs text-text-primary font-mono whitespace-nowrap shadow-lg">
                 {tempoMarkers.length > 0
                   ? formatBarBeat(timeToBarBeat(insertionPoint, tempoMarkers, barOffset))
                   : bpm
@@ -609,16 +609,16 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
                 style={{ left: `${renderTimeToPercent(resizeEdgePosition)}%` }}
               >
                 {/* Main edge line */}
-                <div className="absolute top-0 bottom-0 left-0 w-1 bg-green-400 shadow-lg shadow-green-400/50" />
+                <div className="absolute top-0 bottom-0 left-0 w-1 bg-insert-indicator shadow-lg shadow-insert-indicator/50" />
                 {/* Top arrow indicator */}
-                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-t-[8px] border-l-transparent border-r-transparent border-t-green-400" />
+                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-t-[8px] border-l-transparent border-r-transparent border-t-insert-indicator" />
                 {/* Bottom arrow indicator */}
-                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-b-[8px] border-l-transparent border-r-transparent border-b-green-400" />
+                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-b-[8px] border-l-transparent border-r-transparent border-b-insert-indicator" />
                 {/* Delta pill showing change amount */}
                 {showDelta && (
                   <div className="absolute top-8 -translate-x-1/2 z-40">
                     <div className={`rounded px-2 py-0.5 text-xs font-mono whitespace-nowrap shadow-lg ${
-                      delta < 0 ? 'bg-red-900/90 text-red-200 border border-red-500' : 'bg-green-900/90 text-green-200 border border-green-500'
+                      delta < 0 ? 'bg-delta-negative-bg text-delta-negative-text border border-delta-negative-border' : 'bg-delta-positive-bg text-delta-positive-text border border-delta-positive-border'
                     }`}>
                       {formatDelta(delta, bpm!, beatsPerBar, denominator)}
                     </div>
@@ -626,7 +626,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
                 )}
                 {/* Position pill showing bar position at bottom - uses tempo map for accuracy */}
                 <div className="absolute bottom-1 -translate-x-1/2 z-40">
-                  <div className="bg-gray-900 border border-green-400 rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg">
+                  <div className="bg-bg-deep border border-insert-indicator rounded px-2 py-1 text-xs text-text-primary font-mono whitespace-nowrap shadow-lg">
                     {tempoMarkers.length > 0
                       ? formatBarBeat(timeToBarBeat(resizeEdgePosition, tempoMarkers, barOffset))
                       : bpm
@@ -676,7 +676,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
 
         {/* Empty state */}
         {displayRegions.length === 0 && markers.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-sm">
+          <div className="absolute inset-0 flex items-center justify-center text-text-muted text-sm">
             No regions or markers
           </div>
         )}
@@ -684,7 +684,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         {/* Syncing indicator */}
         {isSyncing && (
           <div className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none">
-            <div className="px-3 py-1.5 bg-gray-900/90 border border-yellow-500/50 rounded-full text-yellow-400 text-xs font-medium animate-pulse">
+            <div className="px-3 py-1.5 bg-bg-deep/90 border border-sync-border rounded-full text-sync-text text-xs font-medium animate-pulse">
               Syncing...
             </div>
           </div>
@@ -692,12 +692,12 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       </div>
 
       {/* Bottom bar - selection indicator and marker pills */}
-      <div className="relative h-5 bg-gray-900 rounded-b-lg">
+      <div className="relative h-5 bg-bg-deep rounded-b-lg">
         {/* Time selection indicator - top half */}
         {timeSelectionSeconds && (
           <div
             className={`absolute top-0 h-1/2 ${
-              timelineMode === 'regions' ? 'bg-gray-600 opacity-40' : 'bg-white/70'
+              timelineMode === 'regions' ? 'bg-bg-hover opacity-40' : 'bg-white/70'
             }`}
             style={{
               left: `${renderTimeToPercent(timeSelectionSeconds.start)}%`,

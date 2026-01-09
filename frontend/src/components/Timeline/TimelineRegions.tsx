@@ -53,7 +53,7 @@ export function TimelineRegionLabels({
         const hasPending = pendingChanges[regionId] !== undefined;
         const isBeingDragged = draggedRegionId === regionId && regionDragType !== 'none';
         // New regions get white outline, modified existing get orange
-        const pendingRingClass = isNewRegion ? 'ring-1 ring-inset ring-white' : hasPending ? 'ring-1 ring-inset ring-amber-400' : '';
+        const pendingRingClass = isNewRegion ? 'ring-1 ring-inset ring-white' : hasPending ? 'ring-1 ring-inset ring-pending-ring' : '';
 
         // Get region color for stem borders
         const regionColor = region.color ? reaperColorToRgba(region.color, 1) ?? DEFAULT_REGION_COLOR_RGB : DEFAULT_REGION_COLOR_RGB;
@@ -71,9 +71,9 @@ export function TimelineRegionLabels({
               hideRightBorder ? '' : 'border-r'
             } ${
               isBeingDragged
-                ? 'border-purple-400 z-20 bg-gray-900'
+                ? 'border-accent-region z-20 bg-bg-deep'
                 : isSelected
-                  ? 'border-purple-400 z-10'
+                  ? 'border-accent-region z-10'
                   : ''
             } ${pendingRingClass}`}
             style={{
@@ -124,7 +124,7 @@ export function TimelineRegionBlocks({
         const isSingleSelection = isSelected && selectedRegionIds.size === 1;
         const isBeingDragged = draggedRegionId === regionId && regionDragType !== 'none';
         // New regions get white outline, modified existing get orange
-        const pendingRingClass = isNewRegion ? 'ring-1 ring-inset ring-white' : hasPending ? 'ring-1 ring-inset ring-amber-400' : '';
+        const pendingRingClass = isNewRegion ? 'ring-1 ring-inset ring-white' : hasPending ? 'ring-1 ring-inset ring-pending-ring' : '';
 
         // Get region color for stem borders
         const regionColor = region.color ? reaperColorToRgba(region.color, 1) ?? DEFAULT_REGION_COLOR_RGB : DEFAULT_REGION_COLOR_RGB;
@@ -138,10 +138,10 @@ export function TimelineRegionBlocks({
               hasAdjacentRegion ? '' : 'border-r'
             } ${
               isBeingDragged
-                ? 'border-purple-400 bg-purple-500/50 z-20'
+                ? 'border-accent-region bg-accent-region/50 z-20'
                 : isSelected
-                  ? 'border-purple-400 bg-purple-500/30 z-10'
-                  : 'bg-gray-700/50'
+                  ? 'border-accent-region bg-accent-region/30 z-10'
+                  : 'bg-bg-elevated/50'
             } ${pendingRingClass}`}
             style={{
               left: `${renderTimeToPercent(region.start)}%`,
@@ -159,14 +159,14 @@ export function TimelineRegionBlocks({
                   className="absolute left-0 top-0 bottom-0 w-5 cursor-ew-resize flex items-center justify-start"
                   style={{ touchAction: 'none' }}
                 >
-                  <div className="w-1.5 h-8 bg-purple-400 rounded-r-sm" />
+                  <div className="w-1.5 h-8 bg-accent-region rounded-r-sm" />
                 </div>
                 {/* Right edge handle */}
                 <div
                   className="absolute right-0 top-0 bottom-0 w-5 cursor-ew-resize flex items-center justify-end"
                   style={{ touchAction: 'none' }}
                 >
-                  <div className="w-1.5 h-8 bg-purple-400 rounded-l-sm" />
+                  <div className="w-1.5 h-8 bg-accent-region rounded-l-sm" />
                 </div>
               </>
             )}

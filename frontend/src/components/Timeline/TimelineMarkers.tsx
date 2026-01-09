@@ -82,7 +82,7 @@ export function TimelineMarkerLines({
  * Design: Outlined pill with dark interior, white text
  * - 2px colored outline (marker color or red default)
  * - Thin dark stroke outside for contrast with light colors
- * - Dark gray interior (bg-gray-800)
+ * - Dark interior (bg-bg-surface)
  * - White text for number
  */
 export function TimelineMarkerPills({
@@ -113,7 +113,7 @@ export function TimelineMarkerPills({
             role="button"
             aria-label={ariaLabel}
             aria-disabled={isDisabled}
-            className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center touch-none select-none transition-opacity bg-gray-800 ${
+            className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center touch-none select-none transition-opacity bg-bg-surface ${
               isDisabled
                 ? 'pointer-events-none opacity-40'
                 : 'cursor-grab active:cursor-grabbing'
@@ -122,7 +122,7 @@ export function TimelineMarkerPills({
               left: `calc(${renderTimeToPercent(marker.position)}% + 1px)`,
               // 2px colored outline + 1px dark stroke outside for contrast
               border: `2px solid ${outlineColor}`,
-              boxShadow: '0 0 0 1px rgba(0,0,0,0.5)',
+              boxShadow: '0 0 0 1px var(--color-shadow-contrast)',
             }}
             onPointerDown={isDisabled ? undefined : (e) => handleMarkerPointerDown(e, marker)}
             onPointerMove={isDisabled ? undefined : handleMarkerPointerMove}

@@ -114,15 +114,15 @@ export function ReorderSectionsModal({ isOpen, onClose }: ReorderSectionsModalPr
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
       <div
-        className="bg-gray-900 rounded-lg shadow-xl border border-gray-700 w-full max-w-md mx-4"
+        className="bg-bg-deep rounded-lg shadow-xl border border-border-subtle w-full max-w-md mx-4"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-700">
+        <div className="flex items-center justify-between p-4 border-b border-border-subtle">
           <h2 className="text-lg font-medium">Reorder Sections</h2>
           <button
             onClick={onClose}
-            className="p-1 hover:bg-gray-800 rounded transition-colors"
+            className="p-1 hover:bg-bg-surface rounded transition-colors"
           >
             <X size={20} />
           </button>
@@ -148,12 +148,12 @@ export function ReorderSectionsModal({ isOpen, onClose }: ReorderSectionsModalPr
                 onTouchEnd={handleTouchEnd}
                 className={`
                   flex items-center gap-3 p-3 rounded-lg border-2 transition-all cursor-move touch-none select-none
-                  ${isDragging ? 'opacity-50 border-blue-500' : 'border-gray-700'}
-                  ${isOver ? 'border-blue-400 bg-blue-900/20' : 'bg-gray-800'}
-                  hover:bg-gray-750
+                  ${isDragging ? 'opacity-50 border-primary' : 'border-border-subtle'}
+                  ${isOver ? 'border-primary-hover bg-primary/20' : 'bg-bg-surface'}
+                  hover:bg-bg-elevated
                 `}
               >
-                <GripVertical size={20} className="text-gray-500" />
+                <GripVertical size={20} className="text-text-muted" />
                 <span className="flex-1 text-sm font-medium">{SECTION_LABELS[sectionId]}</span>
               </div>
             );
@@ -161,10 +161,10 @@ export function ReorderSectionsModal({ isOpen, onClose }: ReorderSectionsModalPr
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-gray-700 flex justify-end">
+        <div className="p-4 border-t border-border-subtle flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors text-sm font-medium"
+            className="px-4 py-2 bg-primary hover:bg-primary-active rounded-lg transition-colors text-sm font-medium"
           >
             Done
           </button>

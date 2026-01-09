@@ -46,21 +46,21 @@ export function TrackFilter({
     <div className={`relative ${className}`}>
       <Search
         size={16}
-        className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
+        className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
       />
       <input
         type="text"
         value={value}
         onChange={handleChange}
         placeholder={placeholder}
-        className={`w-full pl-9 py-2 bg-gray-800 border border-gray-700 rounded text-base text-white placeholder-gray-500 focus:outline-none focus:border-gray-500 ${
+        className={`w-full pl-9 py-2 bg-bg-surface border border-border-subtle rounded text-base text-text-primary placeholder-text-muted focus:outline-none focus:border-border-default ${
           value ? 'pr-16' : showCount ? 'pr-12' : 'pr-8'
         }`}
       />
       {/* Track count indicator */}
       {showCount && (
         <span
-          className={`absolute top-1/2 -translate-y-1/2 text-gray-500 text-sm font-mono ${
+          className={`absolute top-1/2 -translate-y-1/2 text-text-muted text-sm font-mono ${
             value ? 'right-8' : 'right-3'
           }`}
         >
@@ -71,7 +71,7 @@ export function TrackFilter({
       {value && (
         <button
           onClick={handleClear}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-tertiary"
           title="Clear filter"
         >
           <X size={16} />

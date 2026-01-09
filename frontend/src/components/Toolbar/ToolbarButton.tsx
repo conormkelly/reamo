@@ -124,8 +124,8 @@ export function ToolbarButton({
         relative flex flex-col items-center justify-center
         ${sizeConfig.button}
         rounded-lg transition-all duration-100
-        ${editMode ? 'ring-2 ring-blue-400 ring-opacity-50 cursor-grab active:cursor-grabbing' : ''}
-        ${isDragTarget ? 'ring-2 ring-yellow-400 scale-105' : ''}
+        ${editMode ? 'ring-2 ring-edit-mode-ring cursor-grab active:cursor-grabbing' : ''}
+        ${isDragTarget ? 'ring-2 ring-drag-target-ring scale-105' : ''}
         hover:brightness-110
         active:scale-95 active:brightness-75
       `}
@@ -161,10 +161,10 @@ export function ToolbarButton({
         <div
           className={`absolute top-1 right-1 w-3 h-3 rounded-full border-2 border-white shadow-md ${
             toggleState === 1
-              ? 'bg-green-500'
+              ? 'bg-success'
               : toggleState === 0
-                ? 'bg-gray-300'
-                : 'bg-yellow-500' // undefined = loading
+                ? 'bg-text-tertiary'
+                : 'bg-warning' // undefined = loading
           }`}
         />
       )}

@@ -154,9 +154,9 @@ export function PanKnob({
       <div
         ref={containerRef}
         className={`relative h-4 rounded select-none touch-none ${
-          isSelected ? 'bg-gray-500' : 'bg-gray-700'
+          isSelected ? 'bg-bg-disabled' : 'bg-bg-elevated'
         } ${mixerLocked ? 'cursor-not-allowed opacity-50' : 'cursor-ew-resize'} ${
-          isDragging ? 'ring-2 ring-blue-400' : ''
+          isDragging ? 'ring-2 ring-control-ring' : ''
         }`}
         style={{ width }}
         onMouseDown={handleMouseDown}
@@ -164,17 +164,17 @@ export function PanKnob({
         title="Pan - double-tap to center"
       >
         {/* Center line */}
-        <div className="absolute top-0 bottom-0 left-1/2 w-px bg-gray-600" />
+        <div className="absolute top-0 bottom-0 left-1/2 w-px bg-bg-hover" />
 
         {/* Pan indicator */}
         <div
           className={`absolute top-0.5 bottom-0.5 w-2 rounded transition-all duration-75 ${
-            isSelected ? 'bg-blue-400' : 'bg-blue-500'
+            isSelected ? 'bg-control-indicator-selected' : 'bg-control-indicator'
           }`}
           style={{ left: `calc(${indicatorPosition}% - 4px)` }}
         />
       </div>
-      <span className="text-xs text-gray-400 font-mono">{panDisplay}</span>
+      <span className="text-xs text-text-secondary font-mono">{panDisplay}</span>
     </div>
   );
 }

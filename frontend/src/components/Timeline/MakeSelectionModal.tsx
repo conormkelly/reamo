@@ -290,14 +290,14 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
     >
       <div
         ref={modalRef}
-        className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm border border-gray-700"
+        className="bg-bg-surface rounded-xl shadow-2xl w-full max-w-sm border border-border-subtle"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
-          <h2 className="text-lg font-semibold text-white">Set Time Selection</h2>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
+          <h2 className="text-lg font-semibold text-text-primary">Set Time Selection</h2>
           <button
             onClick={onClose}
-            className="p-1 text-gray-400 hover:text-white transition-colors"
+            className="p-1 text-text-secondary hover:text-text-primary transition-colors"
           >
             <X size={20} />
           </button>
@@ -306,13 +306,13 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
         {/* Body */}
         <div className="p-4 space-y-4">
           {/* Mode toggle */}
-          <div className="flex rounded-lg bg-gray-700 p-1">
+          <div className="flex rounded-lg bg-bg-elevated p-1">
             <button
               onClick={() => setMode('beats')}
               className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
                 mode === 'beats'
-                  ? 'bg-gray-600 text-white'
-                  : 'text-gray-400 hover:text-white'
+                  ? 'bg-bg-hover text-text-primary'
+                  : 'text-text-secondary hover:text-text-primary'
               }`}
             >
               Bars.Beats
@@ -321,8 +321,8 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
               onClick={() => setMode('time')}
               className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
                 mode === 'time'
-                  ? 'bg-gray-600 text-white'
-                  : 'text-gray-400 hover:text-white'
+                  ? 'bg-bg-hover text-text-primary'
+                  : 'text-text-secondary hover:text-text-primary'
               }`}
             >
               Time
@@ -332,30 +332,30 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
           {/* Start and End inputs */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">Start</label>
+              <label className="block text-sm font-medium text-text-tertiary mb-1">Start</label>
               <input
                 type="text"
                 value={startValue}
                 onChange={(e) => setStartValue(e.target.value)}
                 placeholder={mode === 'beats' ? '1.1' : '0:00.000'}
                 autoFocus
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-purple-400"
+                className="w-full px-3 py-2 bg-bg-elevated border border-border-default rounded-lg text-text-primary focus:outline-none focus:border-accent-region"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">End</label>
+              <label className="block text-sm font-medium text-text-tertiary mb-1">End</label>
               <input
                 type="text"
                 value={endValue}
                 onChange={(e) => setEndValue(e.target.value)}
                 placeholder={mode === 'beats' ? '2.1' : '0:30.000'}
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-purple-400"
+                className="w-full px-3 py-2 bg-bg-elevated border border-border-default rounded-lg text-text-primary focus:outline-none focus:border-accent-region"
               />
             </div>
           </div>
 
           {/* Hint */}
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-text-secondary">
             {mode === 'beats'
               ? 'Format: bar.beat or bar.beat.ticks (e.g., 5.2 or 5.2.50)'
               : 'Format: MM:SS or HH:MM:SS.mmm (e.g., 1:30 or 0:45.500)'}
@@ -363,28 +363,28 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
 
           {/* Error */}
           {error && (
-            <p className="text-sm text-red-400">{error}</p>
+            <p className="text-sm text-error-text">{error}</p>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex justify-between px-4 py-3 border-t border-gray-700">
+        <div className="flex justify-between px-4 py-3 border-t border-border-subtle">
           <button
             onClick={handleClear}
-            className="px-4 py-2 text-sm font-medium text-gray-400 hover:text-red-400 transition-colors"
+            className="px-4 py-2 text-sm font-medium text-text-secondary hover:text-error transition-colors"
           >
             Clear Selection
           </button>
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white transition-colors"
+              className="px-4 py-2 text-sm font-medium text-text-tertiary hover:text-text-primary transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={handleApply}
-              className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors"
+              className="px-4 py-2 text-sm font-medium text-text-primary bg-accent-region hover:bg-accent-region-hover rounded-lg transition-colors"
             >
               Apply
             </button>

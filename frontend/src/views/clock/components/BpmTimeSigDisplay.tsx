@@ -16,14 +16,14 @@ export function BpmTimeSigDisplay({ scale }: BpmTimeSigDisplayProps): ReactEleme
 
   return (
     <div
-      className="text-center font-bold text-gray-400"
+      className="text-center font-bold text-text-secondary"
       style={{
         fontSize: `calc(clamp(1.25rem, 8cqh, 4rem) * ${scale})`,
         lineHeight: 1.2,
       }}
     >
       {Math.round(bpm ?? 120)} <span style={{ fontSize: '0.6em', verticalAlign: 'middle' }}>BPM</span>
-      <span className="text-gray-500 mx-2">|</span>
+      <span className="text-text-muted mx-2">|</span>
       {timeSignatureNumerator}/{timeSignatureDenominator}
     </div>
   );

@@ -104,9 +104,9 @@ export function ActionsSection({
 
   return (
     <div
-      className={`bg-gray-900 rounded-lg overflow-hidden transition-all ${
-        editMode ? 'ring-1 ring-blue-500/30' : ''
-      } ${isSectionDragTarget ? 'ring-2 ring-yellow-400 scale-[1.02]' : ''}`}
+      className={`bg-bg-deep rounded-lg overflow-hidden transition-all ${
+        editMode ? 'ring-1 ring-edit-mode-ring' : ''
+      } ${isSectionDragTarget ? 'ring-2 ring-drag-target-ring scale-[1.02]' : ''}`}
       style={{
         borderLeft: section.color ? `4px solid ${section.color}` : undefined,
       }}
@@ -114,7 +114,7 @@ export function ActionsSection({
     >
       {/* Section header */}
       <div
-        className={`flex items-center gap-2 p-3 border-b border-gray-800 ${
+        className={`flex items-center gap-2 p-3 border-b border-border-muted ${
           editMode ? 'cursor-grab active:cursor-grabbing' : ''
         }`}
         draggable={editMode}
@@ -123,7 +123,7 @@ export function ActionsSection({
       >
         {/* Drag handle (edit mode only) */}
         {editMode && (
-          <GripVertical size={18} className="text-gray-500 flex-shrink-0" />
+          <GripVertical size={18} className="text-text-muted flex-shrink-0" />
         )}
 
         {/* Collapse toggle + name */}
@@ -133,7 +133,7 @@ export function ActionsSection({
         >
           <ChevronDown
             size={18}
-            className={`text-gray-400 flex-shrink-0 transition-transform ${
+            className={`text-text-secondary flex-shrink-0 transition-transform ${
               section.collapsed ? '-rotate-90' : ''
             }`}
           />
@@ -144,13 +144,13 @@ export function ActionsSection({
               style={{ color: section.color || 'var(--color-text-secondary)' }}
             />
           )}
-          <span className="font-medium text-white truncate">{section.name}</span>
-          <span className="text-sm text-gray-500">({section.actions.length})</span>
+          <span className="font-medium text-text-primary truncate">{section.name}</span>
+          <span className="text-sm text-text-muted">({section.actions.length})</span>
         </button>
 
         {/* Alignment buttons (edit mode only) */}
         {editMode && (
-          <div className="flex items-center border border-gray-600 rounded overflow-hidden">
+          <div className="flex items-center border border-border-default rounded overflow-hidden">
             {(['left', 'center', 'right'] as SectionAlign[]).map((align) => {
               const Icon =
                 align === 'left' ? AlignLeft : align === 'center' ? AlignCenter : AlignRight;
@@ -160,8 +160,8 @@ export function ActionsSection({
                   onClick={() => onSetAlign(align)}
                   className={`p-1 transition-colors ${
                     section.align === align
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                      ? 'bg-primary text-text-primary'
+                      : 'bg-bg-elevated text-text-secondary hover:bg-bg-hover'
                   }`}
                   title={`Align ${align}`}
                 >
@@ -176,7 +176,7 @@ export function ActionsSection({
         {editMode && (
           <button
             onClick={onEditSection}
-            className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+            className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-elevated rounded-lg transition-colors"
           >
             <Pencil size={16} />
           </button>
@@ -202,7 +202,7 @@ export function ActionsSection({
               onDragEnd={handleActionDragEnd}
             />
           ) : (
-            <div className="text-center text-gray-500 py-4">
+            <div className="text-center text-text-muted py-4">
               {editMode ? 'No actions yet. Tap + to add.' : 'No actions configured'}
             </div>
           )}
@@ -211,7 +211,7 @@ export function ActionsSection({
           {editMode && (
             <button
               onClick={onAddAction}
-              className="w-full mt-3 py-2 border-2 border-dashed border-gray-700 rounded-lg text-gray-400 hover:border-gray-500 hover:text-gray-300 transition-colors flex items-center justify-center gap-2"
+              className="w-full mt-3 py-2 border-2 border-dashed border-border-subtle rounded-lg text-text-secondary hover:border-bg-hover hover:text-text-tertiary transition-colors flex items-center justify-center gap-2"
             >
               <Plus size={16} />
               <span>Add Action</span>

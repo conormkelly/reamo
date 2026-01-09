@@ -53,7 +53,7 @@ export function WaveformItem({
     <div
       className={`absolute top-2 bottom-2 rounded cursor-pointer transition-all ${
         isSelected
-          ? 'ring-2 ring-purple-400 z-10'
+          ? 'ring-2 ring-waveform-selected-ring z-10'
           : 'hover:ring-1 hover:ring-white/30'
       } ${item.locked ? 'opacity-60' : ''}`}
       style={{

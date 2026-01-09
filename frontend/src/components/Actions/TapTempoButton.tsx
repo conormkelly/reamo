@@ -165,7 +165,7 @@ export function TapTempoButton({
         title="Tap Tempo - tap repeatedly to set BPM, hold to enter manually"
         className={`
           ${sizeClasses[size]}
-          bg-gray-700 text-white hover:bg-gray-600 active:bg-gray-500
+          bg-bg-elevated text-text-primary hover:bg-bg-hover active:bg-bg-disabled
           rounded font-medium font-mono transition-colors touch-none select-none
           ${className}
         `}
@@ -180,12 +180,12 @@ export function TapTempoButton({
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
           onClick={handleOverlayClick}
         >
-          <div className="bg-gray-800 rounded-lg p-4 shadow-xl border border-gray-700">
-            <div className="text-sm text-gray-400 mb-2 text-center">Set Tempo</div>
+          <div className="bg-bg-surface rounded-lg p-4 shadow-xl border border-border-subtle">
+            <div className="text-sm text-text-secondary mb-2 text-center">Set Tempo</div>
             <div className="flex items-center gap-2">
               <button
                 onClick={handleDecrement}
-                className="w-10 h-10 rounded bg-gray-700 hover:bg-gray-600 active:bg-gray-500 flex items-center justify-center"
+                className="w-10 h-10 rounded bg-bg-elevated hover:bg-bg-hover active:bg-bg-disabled flex items-center justify-center"
               >
                 <Minus size={20} />
               </button>
@@ -197,16 +197,16 @@ export function TapTempoButton({
                 value={inputValue}
                 onChange={handleInputChange}
                 onKeyDown={handleInputKeyDown}
-                className="w-20 h-10 text-center text-xl font-mono bg-gray-900 border border-gray-600 rounded focus:border-blue-500 focus:outline-none"
+                className="w-20 h-10 text-center text-xl font-mono bg-bg-deep border border-border-default rounded focus:border-primary focus:outline-none"
               />
               <button
                 onClick={handleIncrement}
-                className="w-10 h-10 rounded bg-gray-700 hover:bg-gray-600 active:bg-gray-500 flex items-center justify-center"
+                className="w-10 h-10 rounded bg-bg-elevated hover:bg-bg-hover active:bg-bg-disabled flex items-center justify-center"
               >
                 <Plus size={20} />
               </button>
             </div>
-            <div className="text-xs text-gray-500 mt-2 text-center">BPM (2-960)</div>
+            <div className="text-xs text-text-muted mt-2 text-center">BPM (2-960)</div>
           </div>
         </div>
       )}

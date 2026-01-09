@@ -513,14 +513,14 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
     field: EditingField,
     label: string,
     value: string,
-    colorClass: string = 'text-white',
+    colorClass: string = 'text-text-primary',
     inputWidth: string = 'w-20'
   ) => {
     const isEditing = editingField === field;
 
     return (
       <div className="flex items-center gap-1.5">
-        <span className="text-gray-400 text-xs">{label}:</span>
+        <span className="text-text-secondary text-xs">{label}:</span>
         {isEditing ? (
           <input
             ref={inputRef}
@@ -529,12 +529,12 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
             onChange={(e) => setEditValue(e.target.value)}
             onKeyDown={handleKeyDown}
             onBlur={handleConfirm}
-            className={`${inputWidth} px-1.5 py-0.5 bg-gray-700 border border-purple-400 rounded text-white font-mono text-xs focus:outline-none focus:ring-1 focus:ring-purple-400`}
+            className={`${inputWidth} px-1.5 py-0.5 bg-bg-elevated border border-accent-region rounded text-text-primary font-mono text-xs focus:outline-none focus:ring-1 focus:ring-accent-region`}
           />
         ) : (
           <button
             onClick={() => handleFieldClick(field)}
-            className={`${colorClass} font-mono text-xs hover:bg-gray-700 px-1.5 py-0.5 rounded transition-colors cursor-pointer truncate max-w-24`}
+            className={`${colorClass} font-mono text-xs hover:bg-bg-elevated px-1.5 py-0.5 rounded transition-colors cursor-pointer truncate max-w-24`}
           >
             {value}
           </button>
@@ -546,29 +546,29 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
   return (
     <div className={`flex items-center gap-2 ${className}`}>
       {/* Region info section */}
-      <div className="flex flex-col gap-1 px-3 py-1.5 bg-gray-800/50 rounded-lg text-sm flex-1 min-w-0">
+      <div className="flex flex-col gap-1 px-3 py-1.5 bg-bg-surface/50 rounded-lg text-sm flex-1 min-w-0">
         {region ? (
           <>
             {/* Line 1: Name and Color */}
             <div className="flex items-center gap-3">
               {/* Name */}
-              {renderField('name', 'Name', region.name, 'text-white font-medium', 'w-24')}
+              {renderField('name', 'Name', region.name, 'text-text-primary font-medium', 'w-24')}
 
-              <div className="w-px h-4 bg-gray-600 flex-shrink-0" />
+              <div className="w-px h-4 bg-border-default flex-shrink-0" />
 
               {/* Color */}
               <div className="flex items-center gap-1.5 relative">
-                <span className="text-gray-400 text-xs">Color:</span>
+                <span className="text-text-secondary text-xs">Color:</span>
                 <button
                   onClick={() => handleFieldClick('color')}
-                  className="w-6 h-6 rounded border-2 border-gray-600 hover:border-gray-400 transition-colors cursor-pointer"
+                  className="w-6 h-6 rounded border-2 border-border-default hover:border-text-secondary transition-colors cursor-pointer"
                   style={{ backgroundColor: currentColor }}
                   title="Change color"
                 />
                 {showColorPicker && (
                   <div
                     ref={colorPickerRef}
-                    className="absolute top-full left-0 mt-2 p-3 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 min-w-[200px]"
+                    className="absolute top-full left-0 mt-2 p-3 bg-bg-surface border border-border-default rounded-lg shadow-xl z-50 min-w-[200px]"
                   >
                     {/* Default + Project colors row */}
                     <div className="mb-3">
@@ -579,7 +579,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
                           className={`w-6 h-6 rounded border-2 transition-all flex-shrink-0 relative ${
                             isDefaultColor
                               ? 'border-white scale-110'
-                              : 'border-transparent hover:border-gray-400'
+                              : 'border-transparent hover:border-text-secondary'
                           }`}
                           style={{ backgroundColor: DEFAULT_REGION_COLOR }}
                           title="Reset to default"
@@ -595,7 +595,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
                             className={`w-6 h-6 rounded border-2 transition-all flex-shrink-0 ${
                               !isDefaultColor && currentColor.toLowerCase() === color.toLowerCase()
                                 ? 'border-white scale-110'
-                                : 'border-transparent hover:border-gray-400'
+                                : 'border-transparent hover:border-text-secondary'
                             }`}
                             style={{ backgroundColor: color }}
                           />
@@ -603,20 +603,20 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
                       </div>
                     </div>
                     {/* Color picker and hex input */}
-                    <div className="text-xs text-gray-400 mb-1.5">Pick color</div>
+                    <div className="text-xs text-text-secondary mb-1.5">Pick color</div>
                     <div className="flex gap-2 items-center">
                       <input
                         type="color"
                         value={currentColor}
                         onChange={(e) => handleColorSelect(e.target.value)}
-                        className="w-8 h-8 rounded border-2 border-gray-600 cursor-pointer bg-transparent"
+                        className="w-8 h-8 rounded border-2 border-border-default cursor-pointer bg-transparent"
                         title="Pick a color"
                       />
                       <input
                         type="text"
                         placeholder="Default"
                         defaultValue={isDefaultColor ? '' : currentColor}
-                        className="flex-1 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-xs font-mono focus:outline-none focus:border-purple-400"
+                        className="flex-1 px-2 py-1 bg-bg-elevated border border-border-default rounded text-text-primary text-xs font-mono focus:outline-none focus:border-accent-region"
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             const val = (e.target as HTMLInputElement).value;
@@ -641,24 +641,24 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
                 displayStartBars
               )}
 
-              <div className="w-px h-4 bg-gray-600 flex-shrink-0" />
+              <div className="w-px h-4 bg-border-default flex-shrink-0" />
 
               {/* End position - display only (derived from start + length) */}
               <div className="flex items-center gap-1.5">
-                <span className="text-gray-400 text-xs">End:</span>
-                <span className="text-gray-300 font-mono text-xs px-1.5 py-0.5">
+                <span className="text-text-secondary text-xs">End:</span>
+                <span className="text-text-tertiary font-mono text-xs px-1.5 py-0.5">
                   {displayEndBars}
                 </span>
               </div>
 
               {/* Length - inline on larger screens */}
               <div className="hidden sm:flex items-center gap-3">
-                <div className="w-px h-4 bg-gray-600 flex-shrink-0" />
+                <div className="w-px h-4 bg-border-default flex-shrink-0" />
                 {renderField(
                   'length',
                   'Length',
                   displayLengthBars,
-                  'text-purple-300 font-medium'
+                  'text-accent-region-hover font-medium'
                 )}
               </div>
             </div>
@@ -669,12 +669,12 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
                 'length',
                 'Length',
                 displayLengthBars,
-                'text-purple-300 font-medium'
+                'text-accent-region-hover font-medium'
               )}
             </div>
           </>
         ) : (
-          <span className="text-gray-500 text-sm italic">Select a region to edit</span>
+          <span className="text-text-muted text-sm italic">Select a region to edit</span>
         )}
       </div>
 
@@ -682,7 +682,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
       {region && (
         <button
           onClick={() => setShowDeleteModal(true)}
-          className="flex items-center gap-1.5 px-3 py-2 h-10 bg-red-600/80 hover:bg-red-500 text-white text-sm font-medium rounded-lg transition-colors flex-shrink-0"
+          className="flex items-center gap-1.5 px-3 py-2 h-10 bg-error-action/80 hover:bg-error text-text-primary text-sm font-medium rounded-lg transition-colors flex-shrink-0"
           title="Delete selected region"
         >
           <Trash2 size={16} />
@@ -699,10 +699,10 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
           onPointerMove={handleAddPointerMove}
           onPointerLeave={handleAddPointerLeave}
           onPointerCancel={handleAddPointerLeave}
-          className={`flex items-center gap-1.5 px-3 py-2 h-10 text-white text-sm font-medium rounded-lg transition-colors flex-shrink-0 select-none touch-none ${
+          className={`flex items-center gap-1.5 px-3 py-2 h-10 text-text-primary text-sm font-medium rounded-lg transition-colors flex-shrink-0 select-none touch-none ${
             isCloneMode
-              ? 'bg-green-600 hover:bg-green-500'
-              : 'bg-purple-600 hover:bg-purple-500'
+              ? 'bg-success-action hover:bg-success'
+              : 'bg-accent-region hover:bg-accent-region-hover'
           }`}
           title={region ? 'Tap to add, long-press to clone selected' : 'Add new region'}
         >

@@ -32,8 +32,8 @@ function MixerLockButton() {
       onClick={toggleMixerLock}
       className={`p-2 rounded transition-colors ${
         mixerLocked
-          ? 'bg-yellow-600 text-white'
-          : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+          ? 'bg-warning text-text-primary'
+          : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
       }`}
       title={mixerLocked ? 'Unlock mixer controls' : 'Lock mixer controls'}
     >
@@ -52,7 +52,7 @@ function UnselectAllTracksButton() {
   return (
     <button
       onClick={() => sendCommand(trackCmd.unselectAll())}
-      className="p-2 rounded transition-colors bg-gray-700 text-gray-300 hover:bg-gray-600"
+      className="p-2 rounded transition-colors bg-bg-elevated text-text-tertiary hover:bg-bg-hover"
       title="Deselect all tracks"
     >
       <XCircle size={18} />

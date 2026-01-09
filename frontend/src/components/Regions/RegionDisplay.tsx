@@ -47,7 +47,7 @@ export function RegionDisplay({
   if (!currentRegion) {
     return (
       <div
-        className={`flex items-center gap-2 px-3 py-2 bg-gray-800 rounded text-gray-500 ${className}`}
+        className={`flex items-center gap-2 px-3 py-2 bg-bg-surface rounded text-text-muted ${className}`}
       >
         {showIcon && <MapPin size={16} />}
         <span className="text-sm">No region</span>
@@ -57,10 +57,10 @@ export function RegionDisplay({
 
   return (
     <div
-      className={`flex items-center gap-2 px-3 py-2 bg-purple-900/50 border border-purple-700 rounded ${className}`}
+      className={`flex items-center gap-2 px-3 py-2 bg-accent-region-dark/50 border border-accent-region-dark rounded ${className}`}
     >
-      {showIcon && <MapPin size={16} className="text-purple-400" />}
-      <span className="text-sm font-medium text-purple-200 truncate max-w-[150px]">
+      {showIcon && <MapPin size={16} className="text-accent-region" />}
+      <span className="text-sm font-medium text-accent-region-hover truncate max-w-[150px]">
         {currentRegion.name}
       </span>
     </div>

@@ -30,8 +30,8 @@ export function SoloButton({
 
   // Buttons always darker than track background for contrast
   const inactiveBg = isSelected
-    ? 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-    : 'bg-gray-900 text-gray-300 hover:bg-gray-800';
+    ? 'bg-bg-surface text-text-tertiary hover:bg-bg-elevated'
+    : 'bg-bg-deep text-text-tertiary hover:bg-bg-surface';
 
   return (
     <button
@@ -39,7 +39,7 @@ export function SoloButton({
       title={isSoloed ? 'Unsolo Track' : 'Solo Track'}
       className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
         mixerLocked ? 'opacity-50 cursor-not-allowed' : ''
-      } ${isSoloed ? 'bg-yellow-500 text-black' : inactiveBg} ${className}`}
+      } ${isSoloed ? 'bg-solo text-solo-text' : inactiveBg} ${className}`}
     >
       S
     </button>
