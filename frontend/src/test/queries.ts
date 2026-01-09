@@ -77,11 +77,11 @@ export function findTimeline(container: HTMLElement): HTMLElement | null {
 // ============================================================================
 
 /**
- * Check if element appears selected (purple border/bg)
+ * Check if element appears selected (accent-region border/bg)
  */
 export function isVisuallySelected(element: HTMLElement): boolean {
   const cls = element.className
-  return cls.includes('border-purple') || cls.includes('bg-purple')
+  return cls.includes('border-accent-region') || cls.includes('bg-accent-region')
 }
 
 /**
