@@ -2,6 +2,24 @@
  * UI Preferences Hook
  * Provides access to UI preferences from Zustand store
  * Preferences are persisted to localStorage via the store slice
+ *
+ * @example
+ * ```tsx
+ * function SettingsPanel() {
+ *   const { showTabBar, toggleTabBar, notesFontSize, adjustNotesFontSize } = useUIPreferences();
+ *
+ *   return (
+ *     <div>
+ *       <label>
+ *         <input type="checkbox" checked={showTabBar} onChange={() => toggleTabBar()} />
+ *         Show Tab Bar
+ *       </label>
+ *       <button onClick={() => adjustNotesFontSize(2)}>A+</button>
+ *       <span>{notesFontSize}px</span>
+ *     </div>
+ *   );
+ * }
+ * ```
  */
 
 import { useReaperStore } from '../store';

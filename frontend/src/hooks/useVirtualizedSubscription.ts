@@ -2,6 +2,22 @@
  * Virtualized Track Subscription Hook
  * Bridges the virtualizer viewport to track subscriptions.
  * Calculates subscription ranges from visible virtual items with buffer expansion.
+ *
+ * @example
+ * ```tsx
+ * const virtualizer = useVirtualizer({ ... });
+ * const virtualItems = virtualizer.getVirtualItems();
+ *
+ * useVirtualizedSubscription({
+ *   visibleStart: virtualItems[0]?.index ?? 0,
+ *   visibleEnd: virtualItems[virtualItems.length - 1]?.index ?? 0,
+ *   totalTracks,
+ *   filteredSkeleton,
+ *   filterActive: !!filter.trim(),
+ *   includeMaster: true,
+ *   sendCommand,
+ * });
+ * ```
  */
 
 import { useEffect, useRef, useCallback } from 'react';

@@ -1,6 +1,19 @@
 /**
  * usePeaksFetch Hook
  * Fetches and caches waveform peak data for an item
+ *
+ * @example
+ * ```tsx
+ * function Waveform({ item }: { item: WSItem }) {
+ *   const { peaks, loading, error } = usePeaksFetch(item, 200);
+ *
+ *   if (loading) return <div>Loading...</div>;
+ *   if (error) return <div>Error: {error}</div>;
+ *   if (!peaks) return null;
+ *
+ *   return <WaveformCanvas peaks={peaks} height={64} />;
+ * }
+ * ```
  */
 
 import { useState, useEffect, useRef } from 'react';

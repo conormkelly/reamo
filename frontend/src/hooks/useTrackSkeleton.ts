@@ -2,6 +2,23 @@
  * Track Skeleton Hook
  * Provides access to the lightweight track list (name + GUID) for filtering/navigation.
  * The skeleton contains ALL tracks regardless of subscription state.
+ *
+ * @example
+ * ```tsx
+ * function TrackSearch() {
+ *   const { skeleton, totalTracks, filterByName } = useTrackSkeleton();
+ *   const [query, setQuery] = useState('');
+ *   const filtered = filterByName(query);
+ *
+ *   return (
+ *     <div>
+ *       <input value={query} onChange={(e) => setQuery(e.target.value)} />
+ *       <span>{filtered.length} / {totalTracks} tracks</span>
+ *       {filtered.map((t) => <div key={t.g}>{t.n}</div>)}
+ *     </div>
+ *   );
+ * }
+ * ```
  */
 
 import { useCallback, useMemo } from 'react';

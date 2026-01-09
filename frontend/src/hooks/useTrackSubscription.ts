@@ -6,6 +6,23 @@
  * Supports two modes:
  * - Range mode: { start, end } for scrolling mixer
  * - GUID mode: string[] for filtered/search views
+ *
+ * @example
+ * ```tsx
+ * // Range mode - for scrolling mixer
+ * const { sendCommand } = useReaperConnection();
+ * useTrackSubscription(
+ *   { mode: 'range', start: 0, end: 15 },
+ *   { sendCommand, includeMaster: true }
+ * );
+ *
+ * // GUID mode - for filtered views
+ * const filteredGuids = skeleton.filter(t => t.n.includes(query)).map(t => t.g);
+ * useTrackSubscription(
+ *   { mode: 'guids', guids: filteredGuids },
+ *   { sendCommand, includeMaster: true }
+ * );
+ * ```
  */
 
 import { useEffect, useRef, useCallback } from 'react';

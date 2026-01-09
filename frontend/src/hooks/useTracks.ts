@@ -1,6 +1,23 @@
 /**
  * Tracks Hook
  * Provides access to all tracks
+ *
+ * @example
+ * ```tsx
+ * function TrackList() {
+ *   const { userTracks, selectedTracks, masterTrack } = useTracks();
+ *
+ *   return (
+ *     <div>
+ *       <div>Master: {masterTrack?.name}</div>
+ *       <div>Selected: {selectedTracks.length}</div>
+ *       {userTracks.map((track) => (
+ *         <div key={track.guid}>{track.name}</div>
+ *       ))}
+ *     </div>
+ *   );
+ * }
+ * ```
  */
 
 import { useMemo } from 'react';

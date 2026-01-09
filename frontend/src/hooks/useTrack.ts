@@ -1,6 +1,23 @@
 /**
  * Single Track Hook
  * Provides state and controls for a specific track
+ *
+ * @example
+ * ```tsx
+ * function TrackStrip({ trackIndex }: { trackIndex: number }) {
+ *   const { sendCommand } = useReaper();
+ *   const { name, volumeDb, isMuted, toggleMute, setFaderPosition } = useTrack(trackIndex);
+ *
+ *   return (
+ *     <div>
+ *       <span>{name}</span>
+ *       <span>{volumeDb}</span>
+ *       <button onClick={() => sendCommand(toggleMute())}>{isMuted ? 'M' : 'm'}</button>
+ *       <Fader onChange={(pos) => sendCommand(setFaderPosition(pos))} />
+ *     </div>
+ *   );
+ * }
+ * ```
  */
 
 import { useCallback, useMemo } from 'react';

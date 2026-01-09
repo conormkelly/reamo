@@ -7,6 +7,19 @@
  * @param currentPeak - Current peak value in dB
  * @param holdDurationMs - How long to hold peak before dropping (default: 1000ms)
  * @returns The held peak value to display
+ *
+ * @example
+ * ```tsx
+ * function PeakMeter({ peakDb }: { peakDb: number }) {
+ *   const heldPeak = usePeakHold(peakDb, 1000);
+ *   return (
+ *     <div className="meter">
+ *       <div className="current" style={{ height: `${peakDb + 60}%` }} />
+ *       <div className="peak-indicator" style={{ bottom: `${heldPeak + 60}%` }} />
+ *     </div>
+ *   );
+ * }
+ * ```
  */
 
 import { useState, useEffect, useRef } from 'react';

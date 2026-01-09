@@ -1,6 +1,23 @@
 /**
  * Transport Hook
  * Provides transport state and control actions
+ *
+ * @example
+ * ```tsx
+ * function TransportControls() {
+ *   const { sendCommand } = useReaper();
+ *   const { isPlaying, play, stop, positionBeats } = useTransport();
+ *
+ *   return (
+ *     <div>
+ *       <span>{positionBeats}</span>
+ *       <button onClick={() => sendCommand(isPlaying ? stop() : play())}>
+ *         {isPlaying ? 'Stop' : 'Play'}
+ *       </button>
+ *     </div>
+ *   );
+ * }
+ * ```
  */
 
 import { useCallback } from 'react';

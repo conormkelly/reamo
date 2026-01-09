@@ -3,6 +3,14 @@
  *
  * Provides beatsPerBar (numerator) and denominator directly from the store,
  * eliminating the need to parse the "4/4" string in each component.
+ *
+ * @example
+ * ```tsx
+ * function TimeSignatureDisplay() {
+ *   const { beatsPerBar, denominator } = useTimeSignature();
+ *   return <span>{beatsPerBar}/{denominator}</span>;
+ * }
+ * ```
  */
 
 import { useReaperStore } from '../store';

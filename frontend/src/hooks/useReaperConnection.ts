@@ -1,6 +1,15 @@
 /**
  * REAPER WebSocket Connection Hook
  * Manages the WebSocket connection lifecycle and wires messages to the store
+ *
+ * @example
+ * ```tsx
+ * // Usually accessed via useReaper() from ReaperProvider context:
+ * const { sendCommand, sendCommandAsync, connected } = useReaper();
+ *
+ * // Direct usage (rare - only in ReaperProvider):
+ * const connection = useReaperConnection({ port: 9224, autoStart: true });
+ * ```
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';

@@ -4,6 +4,19 @@
  * This hook returns formatting functions that are already configured with
  * the current BPM, time signature, and bar offset - so components don't
  * need to pass all those parameters manually.
+ *
+ * @example
+ * ```tsx
+ * function PositionDisplay({ seconds }: { seconds: number }) {
+ *   const { formatBeats, formatDuration } = useTimeFormatters();
+ *   return (
+ *     <div>
+ *       <span>Position: {formatBeats(seconds)}</span>
+ *       <span>Duration: {formatDuration(seconds)}</span>
+ *     </div>
+ *   );
+ * }
+ * ```
  */
 
 import { useMemo } from 'react';

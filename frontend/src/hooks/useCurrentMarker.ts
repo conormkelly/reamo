@@ -7,6 +7,22 @@
  * - Tapping marker pill on timeline
  * - Playhead crossing marker during playback
  * - Prev/Next marker buttons (via position matching)
+ *
+ * @example
+ * ```tsx
+ * function MarkerDisplay() {
+ *   const { currentMarker, selectMarker, isLocked, setLocked } = useCurrentMarker();
+ *
+ *   return (
+ *     <div>
+ *       {currentMarker && <span>{currentMarker.name}</span>}
+ *       <button onClick={() => setLocked(!isLocked)}>
+ *         {isLocked ? 'Unlock' : 'Lock'}
+ *       </button>
+ *     </div>
+ *   );
+ * }
+ * ```
  */
 
 import { useEffect, useRef } from 'react';

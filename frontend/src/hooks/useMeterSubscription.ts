@@ -4,6 +4,18 @@
  *
  * This hook is a no-op stub for backward compatibility during migration.
  * It will be removed in a future version.
+ *
+ * @example
+ * ```tsx
+ * // DON'T use this hook - it's deprecated and does nothing
+ * // useMeterSubscription([0, 1, 2], { sendCommand });
+ *
+ * // DO use useTrackSubscription instead:
+ * useTrackSubscription(
+ *   { mode: 'range', start: 0, end: 15 },
+ *   { sendCommand, includeMaster: true }
+ * );
+ * ```
  */
 
 import { useEffect } from 'react';
