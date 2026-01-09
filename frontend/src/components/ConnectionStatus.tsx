@@ -117,8 +117,8 @@ export function ConnectionStatus({ className = '' }: ConnectionStatusProps): Rea
         />
         <style>{`
           @keyframes connection-pulse {
-            0%, 100% { background-color: #eab308; }
-            50% { background-color: #f97316; }
+            0%, 100% { background-color: var(--color-warning); }
+            50% { background-color: var(--color-warning-bright); }
           }
         `}</style>
       </div>

@@ -78,7 +78,7 @@ export function PlaylistEntryRow({
   onTouchEnd,
   entryRef,
 }: PlaylistEntryRowProps): ReactElement {
-  const regionColor = region?.color ? reaperColorToHexWithFallback(region.color, '#6b7280') : '#6b7280';
+  const regionColor = region?.color ? reaperColorToHexWithFallback(region.color, 'var(--color-text-muted)') : 'var(--color-text-muted)';
   const regionName = region?.name ?? `Region ${entry.regionId}`;
   const duration = region ? formatDuration(region.end - region.start) : '--:--';
 

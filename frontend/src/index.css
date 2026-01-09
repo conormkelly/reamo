@@ -1,5 +1,32 @@
 @import "tailwindcss";
 
+@theme {
+  /* Custom design tokens - added alongside Tailwind's default palette */
+
+  /* === Backgrounds === */
+  --color-bg-app: #1a1a1a;
+  --color-bg-surface: #1f2937;
+  --color-bg-elevated: #374151;
+  --color-bg-hover: #4b5563;
+
+  /* === Text === */
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #9ca3af;
+  --color-text-muted: #6b7280;
+
+  /* === REAPER Timeline === */
+  --color-playhead: #337066;
+  --color-marker-default: #dc2626;
+  --color-region-default: #688585;
+  --color-item-default: #646464;
+
+  /* === Status === */
+  --color-success: #22c55e;
+  --color-warning: #eab308;
+  --color-warning-bright: #f97316;
+  --color-error: #ef4444;
+}
+
 :root {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
@@ -20,7 +47,7 @@ html {
   height: 100%;
   /* Extend document to account for safe area - helps with background color */
   min-height: calc(100% + env(safe-area-inset-top, 0px));
-  background: #1a1a1a; /* Extend into safe areas */
+  background: var(--color-bg-app);
 }
 
 body {
@@ -28,8 +55,8 @@ body {
   /* dvh = dynamic viewport height, accounts for Safari URL bar */
   min-height: 100dvh;
   margin: 0;
-  background-color: #1a1a1a;
-  color: #ffffff;
+  background-color: var(--color-bg-app);
+  color: var(--color-text-primary);
   overflow: hidden;
   /* Prevent iOS Safari context menu on long-press */
   -webkit-touch-callout: none;

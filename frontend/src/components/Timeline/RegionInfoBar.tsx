@@ -14,6 +14,7 @@ import type { Region } from '../../core/types';
 import { DeleteRegionModal } from './DeleteRegionModal';
 import { useReaper } from '../ReaperProvider';
 import { tempo as tempoCmd } from '../../core/WebSocketCommands';
+import { DEFAULT_REGION_COLOR } from '../../constants/colors';
 
 /**
  * Parse a bar.beat.ticks string (e.g., "13.1.00") into components
@@ -75,9 +76,6 @@ function addDurationToPosition(
 
   return { bar, beat, ticks };
 }
-
-// Default region color in REAPER (shown when color = 0)
-const DEFAULT_REGION_COLOR = '#688585';
 
 interface RegionInfoBarProps {
   className?: string;

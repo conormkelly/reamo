@@ -19,6 +19,7 @@ import {
 import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
 import { marker as markerCmd } from '../../core/WebSocketCommands';
+import { DEFAULT_MARKER_COLOR, MARKER_COLORS } from '../../constants/colors';
 
 export interface MarkerEditModalProps {
   marker: Marker;
@@ -55,21 +56,6 @@ function parseTime(timeStr: string): number | null {
   return null;
 }
 
-// Default marker color in REAPER (shown when color = 0)
-const DEFAULT_MARKER_COLOR = '#dc2626';
-
-// Default marker color swatches
-const DEFAULT_COLORS = [
-  '#dc2626', // red
-  '#ea580c', // orange
-  '#ca8a04', // yellow
-  '#16a34a', // green
-  '#0891b2', // cyan
-  '#2563eb', // blue
-  '#7c3aed', // purple
-  '#db2777', // pink
-];
-
 export function MarkerEditModal({
   marker,
   bpm,
@@ -96,7 +82,7 @@ export function MarkerEditModal({
   const existingColors = [...new Set(
     markers
       .filter(m => m.color)
-      .map(m => reaperColorToHexWithFallback(m.color!, '#dc2626'))
+      .map(m => reaperColorToHexWithFallback(m.color!, DEFAULT_MARKER_COLOR))
   )];
 
   // Check if name/color changed
@@ -261,7 +247,7 @@ export function MarkerEditModal({
               <div className="mb-2">
                 <span className="text-xs text-gray-500 mb-1 block">Presets</span>
                 <div className="flex gap-1.5 flex-wrap">
-                  {DEFAULT_COLORS.map((color) => (
+                  {MARKER_COLORS.map((color) => (
                     <button
                       key={color}
                       onClick={() => setColorValue(color)}

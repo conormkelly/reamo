@@ -33,10 +33,10 @@ const SIZE_CONFIG = {
   lg: { button: 'min-w-[72px] h-[72px] px-4 py-2.5', icon: 28, text: 'text-sm' },
 };
 
-// Default colors
-const DEFAULT_BG_COLOR = '#374151'; // gray-700
-const DEFAULT_TEXT_COLOR = '#FFFFFF';
-const DEFAULT_ICON_COLOR = '#FFFFFF';
+// Default colors (match CSS tokens)
+const DEFAULT_BG_COLOR = 'var(--color-bg-elevated)';
+const DEFAULT_TEXT_COLOR = 'var(--color-text-primary)';
+const DEFAULT_ICON_COLOR = 'var(--color-text-primary)';
 
 export function ToolbarButton({
   action,

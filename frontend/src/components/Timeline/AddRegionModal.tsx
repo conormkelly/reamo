@@ -12,9 +12,7 @@ import {
   hexToReaperColor,
   reaperColorToHexWithFallback,
 } from '../../utils';
-
-// Default region color in REAPER (shown when color = 0)
-const DEFAULT_REGION_COLOR = '#688585';
+import { DEFAULT_REGION_COLOR } from '../../constants/colors';
 
 interface AddRegionModalProps {
   isOpen: boolean;

@@ -29,8 +29,8 @@ function generateId(): string {
   return `tb_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-// Default values
-const DEFAULT_BG_COLOR = '#374151';
+// Default values (match CSS tokens)
+const DEFAULT_BG_COLOR = '#374151'; // Keep hex for color picker initial values
 const DEFAULT_TEXT_COLOR = '#FFFFFF';
 const DEFAULT_ICON_COLOR = '#FFFFFF';
 

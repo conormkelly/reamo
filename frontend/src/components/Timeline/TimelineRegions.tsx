@@ -10,9 +10,7 @@ import type { ReactElement } from 'react';
 import type { Region } from '../../core/types';
 import type { DragType, PendingRegionChange, TimelineMode } from '../../store';
 import { reaperColorToRgba } from '../../utils';
-
-// Default region color in REAPER (shown when color = 0) - #688585 as RGB
-const DEFAULT_REGION_COLOR_RGB = 'rgb(104, 133, 133)';
+import { DEFAULT_REGION_COLOR_RGB } from '../../constants/colors';
 
 export interface TimelineRegionsProps {
   /** Regions to display (with pending changes applied) */

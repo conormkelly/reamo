@@ -141,7 +141,7 @@ export function ActionsSection({
             <IconComponent
               size={18}
               className="flex-shrink-0"
-              style={{ color: section.color || '#9ca3af' }}
+              style={{ color: section.color || 'var(--color-text-secondary)' }}
             />
           )}
           <span className="font-medium text-white truncate">{section.name}</span>

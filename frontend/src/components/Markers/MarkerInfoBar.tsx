@@ -12,21 +12,7 @@ import { useReaper } from '../ReaperProvider';
 import { useCurrentMarker, useTimeFormatters } from '../../hooks';
 import { marker as markerCmd } from '../../core/WebSocketCommands';
 import { reaperColorToHex, hexToReaperColor } from '../../utils';
-
-// Default marker color in REAPER (shown when color = 0)
-const DEFAULT_MARKER_COLOR = '#dc2626';
-
-// Preset colors for quick selection
-const PRESET_COLORS = [
-  '#dc2626', // red
-  '#ea580c', // orange
-  '#eab308', // yellow
-  '#22c55e', // green
-  '#06b6d4', // cyan
-  '#3b82f6', // blue
-  '#8b5cf6', // purple
-  '#ec4899', // pink
-];
+import { DEFAULT_MARKER_COLOR, MARKER_COLORS } from '../../constants/colors';
 
 interface MarkerInfoBarProps {
   className?: string;
@@ -284,7 +270,7 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
                     <div className="mb-3">
                       <div className="text-xs text-gray-400 mb-1.5">Presets</div>
                       <div className="flex gap-2 flex-wrap">
-                        {PRESET_COLORS.map((color) => (
+                        {MARKER_COLORS.map((color) => (
                           <button
                             key={color}
                             onClick={() => handleColorSelect(color)}

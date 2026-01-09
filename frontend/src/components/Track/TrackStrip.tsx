@@ -66,10 +66,10 @@ export function TrackStrip({
 
   // Determine style: selected = brighter background
   // color is already a hex string from useTrack
-  const defaultColor = '#6b7280';
+  const defaultColor = 'var(--color-text-muted)';
   const topBarColor = color || defaultColor;
-  const sideBorderColor = isSelected ? (color || defaultColor) : '#374151';
-  const backgroundColor = isSelected ? '#374151' : '#1f2937';
+  const sideBorderColor = isSelected ? (color || defaultColor) : 'var(--color-bg-elevated)';
+  const backgroundColor = isSelected ? 'var(--color-bg-elevated)' : 'var(--color-bg-surface)';
 
   // Master track has squared top with subtle bottom radius, other tracks have full rounded corners
   const isMaster = trackIndex === 0;

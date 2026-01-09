@@ -113,9 +113,6 @@ export function TimelinePlayhead({
 
   if (isSyncing) return null;
 
-  // REAPER's playhead color
-  const playheadColor = '#337066';
-
   return (
     <div
       ref={containerRef}
@@ -126,7 +123,7 @@ export function TimelinePlayhead({
         className={`absolute top-0 bottom-0 left-0 w-0.5 pointer-events-none z-10 ${
           timelineMode === 'regions' ? 'opacity-40' : ''
         }`}
-        style={{ backgroundColor: timelineMode === 'regions' ? '#6b7280' : playheadColor }}
+        style={{ backgroundColor: timelineMode === 'regions' ? 'var(--color-text-muted)' : 'var(--color-playhead)' }}
       />
 
       {/* Grab handle - inverted triangle at top, above everything */}
@@ -150,7 +147,7 @@ export function TimelinePlayhead({
             height: 0,
             borderLeft: '12px solid transparent',
             borderRight: '12px solid transparent',
-            borderTop: `16px solid ${timelineMode === 'regions' ? '#6b7280' : playheadColor}`,
+            borderTop: timelineMode === 'regions' ? '16px solid var(--color-text-muted)' : '16px solid var(--color-playhead)',
           }}
         />
       </div>
@@ -217,16 +214,13 @@ export function PlayheadDragPreview({
   // Use server bar string if available, fall back to local calculation
   const beatsStr = serverBars ?? (bpm ? formatBeats(playheadPreviewTime, bpm, barOffset, beatsPerBar, denominator) : '');
 
-  // REAPER's playhead color
-  const playheadColor = '#337066';
-
   return (
     <div
       className="absolute top-0 bottom-0 pointer-events-none"
       style={{ left: `${playheadPreviewPercent}%` }}
     >
       {/* Preview line - same z as main playhead line */}
-      <div className="absolute top-0 bottom-0 left-0 w-0.5 z-10" style={{ backgroundColor: playheadColor }} />
+      <div className="absolute top-0 bottom-0 left-0 w-0.5 z-10 bg-playhead" />
       {/* Preview inverted triangle with highlight - above everything */}
       <div className="absolute top-0 -left-[11px] w-6 h-6 z-40">
         <div
@@ -236,14 +230,14 @@ export function PlayheadDragPreview({
             height: 0,
             borderLeft: '12px solid transparent',
             borderRight: '12px solid transparent',
-            borderTop: `16px solid ${playheadColor}`,
-            filter: 'drop-shadow(0 0 4px rgba(51, 112, 102, 0.9))',
+            borderTop: '16px solid var(--color-playhead)',
+            filter: 'drop-shadow(0 0 4px oklch(from var(--color-playhead) l c h / 0.9))',
           }}
         />
       </div>
       {/* Position pill showing time and beats - at bottom so finger doesn't obscure */}
       <div className="absolute bottom-1 -translate-x-1/2 z-40">
-        <div className="bg-gray-900 border rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg" style={{ borderColor: playheadColor }}>
+        <div className="bg-gray-900 border border-playhead rounded px-2 py-1 text-xs text-white font-mono whitespace-nowrap shadow-lg">
           {beatsStr ? `${beatsStr} | ${timeStr}` : timeStr}
         </div>
       </div>
@@ -317,8 +311,8 @@ export function MarkerDragPreview({
     ?? (isAtOriginalPosition ? draggedMarker.positionBars : null)
     ?? (bpm ? formatBeats(markerDragPreviewTime, bpm, barOffset, beatsPerBar, denominator) : '');
 
-  // Use marker's custom color or default red
-  const markerColor = draggedMarker.color ? reaperColorToHex(draggedMarker.color) ?? '#dc2626' : '#dc2626';
+  // Use marker's custom color or default (from CSS token)
+  const markerColor = draggedMarker.color ? reaperColorToHex(draggedMarker.color) ?? 'var(--color-marker-default)' : 'var(--color-marker-default)';
 
   return (
     <div

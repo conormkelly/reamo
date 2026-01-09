@@ -11,9 +11,7 @@ import { useReaper } from '../ReaperProvider';
 import { take as takeCmd, item as itemCmd } from '../../core/WebSocketCommands';
 import type { WSItem } from '../../core/WebSocketTypes';
 import { hexToReaperColor, reaperColorToHexWithFallback } from '../../utils';
-
-// Default item color (gray)
-const DEFAULT_ITEM_COLOR = '#646464';
+import { DEFAULT_ITEM_COLOR, ITEM_COLORS } from '../../constants/colors';
 
 interface ItemInfoBarProps {
   item: WSItem;
@@ -135,12 +133,6 @@ export function ItemInfoBar({ item, className = '' }: ItemInfoBarProps): ReactEl
     ? reaperColorToHexWithFallback(item.color, DEFAULT_ITEM_COLOR)
     : DEFAULT_ITEM_COLOR;
 
-  // Preset colors for quick selection
-  const presetColors = [
-    '#FF6B6B', '#FFE66D', '#4ECDC4', '#45B7D1',
-    '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8',
-    '#F7DC6F', '#BB8FCE', '#85C1E9', '#F8B500',
-  ];
 
   return (
     <div className={`flex items-center gap-2 px-3 py-2 bg-gray-800 border-t border-gray-700 ${className}`}>
@@ -229,7 +221,7 @@ export function ItemInfoBar({ item, className = '' }: ItemInfoBarProps): ReactEl
           {showColorPicker && (
             <div className="absolute bottom-full right-0 mb-2 p-2 bg-gray-700 rounded-lg shadow-lg z-50">
               <div className="grid grid-cols-4 gap-1">
-                {presetColors.map((color) => (
+                {ITEM_COLORS.map((color) => (
                   <button
                     key={color}
                     onClick={() => handleColorChange(color)}

@@ -108,7 +108,7 @@ export function DeleteRegionModal({
           <div className="flex items-center gap-3">
             <div
               className="w-1 h-10 rounded-full"
-              style={{ backgroundColor: region.color ? reaperColorToRgba(region.color, 1) ?? '#6b7280' : '#6b7280' }}
+              style={{ backgroundColor: region.color ? reaperColorToRgba(region.color, 1) ?? 'var(--color-text-muted)' : 'var(--color-text-muted)' }}
             />
             <div>
               <div className="text-white font-medium">{region.name}</div>

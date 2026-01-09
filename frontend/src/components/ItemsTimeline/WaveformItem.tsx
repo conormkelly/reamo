@@ -8,9 +8,7 @@ import type { WSItem } from '../../core/WebSocketTypes';
 import { reaperColorToRgba } from '../../utils';
 import { WaveformCanvas } from './WaveformCanvas';
 import { usePeaksFetch } from '../../hooks/usePeaksFetch';
-
-// Default item color (gray)
-const DEFAULT_ITEM_COLOR = 'rgb(100, 100, 100)';
+import { DEFAULT_ITEM_COLOR_RGB } from '../../constants/colors';
 
 export interface WaveformItemProps {
   /** The item to display */
@@ -44,8 +42,8 @@ export function WaveformItem({
 
   // Background color
   const bgColor = item.color
-    ? reaperColorToRgba(item.color, 0.6) ?? DEFAULT_ITEM_COLOR
-    : DEFAULT_ITEM_COLOR;
+    ? reaperColorToRgba(item.color, 0.6) ?? DEFAULT_ITEM_COLOR_RGB
+    : DEFAULT_ITEM_COLOR_RGB;
 
   // Take count badge (using sparse field)
   const takeCount = item.takeCount;

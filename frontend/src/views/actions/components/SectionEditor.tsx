@@ -9,8 +9,8 @@ import { ColorPickerInput } from '../../../components/Toolbar/ColorPickerInput';
 import { getIconComponent } from '../../../components/Toolbar/DynamicIcon';
 import type { ActionsSection, SizeOption } from '../../../store/slices/actionsViewSlice';
 
-// Default color (gray) - same as no-color state
-const DEFAULT_SECTION_COLOR = '#374151';
+// Default color (gray) - matches --color-bg-elevated token
+const DEFAULT_SECTION_COLOR = '#374151'; // Keep hex for color picker
 
 interface SectionEditorProps {
   section: ActionsSection | null; // null = creating new
@@ -248,7 +248,7 @@ export function SectionEditor({
                 {IconComponent && (
                   <IconComponent
                     size={18}
-                    style={{ color: color || '#9ca3af' }}
+                    style={{ color: color || 'var(--color-text-secondary)' }}
                   />
                 )}
                 <span className="font-medium text-white">

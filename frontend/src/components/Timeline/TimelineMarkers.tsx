@@ -33,18 +33,18 @@ export interface TimelineMarkerPillsProps extends TimelineMarkersProps {
 /**
  * Get the outline color for a marker
  * - Uses marker's custom color if available
- * - Falls back to red (#dc2626) for markers without custom color
- * - Gray (#6b7280) in regions mode (markers disabled)
+ * - Falls back to default marker color (red) for markers without custom color
+ * - Muted gray in regions mode (markers disabled)
  */
 function getMarkerColor(marker: Marker, timelineMode: TimelineMode): string {
-  // In regions mode: gray (markers are disabled)
+  // In regions mode: muted gray (markers are disabled)
   if (timelineMode === 'regions') {
-    return '#6b7280'; // gray-500
+    return 'var(--color-text-muted)';
   }
 
-  // Use marker's custom color or default red
+  // Use marker's custom color or default
   const customColor = marker.color ? reaperColorToHex(marker.color) : null;
-  return customColor || '#dc2626'; // red-600
+  return customColor || 'var(--color-marker-default)';
 }
 
 /**

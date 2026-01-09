@@ -214,7 +214,7 @@ export function RegionPickerModal({
           <div className="space-y-2">
             {sortedRegions.map((region) => {
               const inPlaylist = regionIdsInPlaylist.has(region.id);
-              const color = reaperColorToHexWithFallback(region.color, '#6b7280');
+              const color = reaperColorToHexWithFallback(region.color, 'var(--color-text-muted)');
 
               return (
                 <button
