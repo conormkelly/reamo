@@ -4,7 +4,7 @@
   /* Custom design tokens - added alongside Tailwind's default palette */
 
   /* === Backgrounds === */
-  --color-bg-app: #1a1a1a;
+  --color-bg-app: #030712;             /* gray-950 - darkest app background */
   --color-bg-deep: #111827;
   --color-bg-surface: #1f2937;
   --color-bg-elevated: #374151;
