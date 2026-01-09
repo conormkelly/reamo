@@ -365,7 +365,12 @@ export function useRegionDrag({
           endDrag();
           setDragStartY(null);
           setIsCancelled(false);
-          (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+          // Release pointer capture (may already be released on pointercancel)
+          try {
+            (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+          } catch {
+            // Pointer capture already released
+          }
           return;
         }
 
@@ -396,7 +401,12 @@ export function useRegionDrag({
       endDrag();
       setDragStartY(null);
       setIsCancelled(false);
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      // Release pointer capture (may already be released on pointercancel)
+      try {
+        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {
+        // Pointer capture already released
+      }
     },
     [
       regionDragType,

@@ -23,16 +23,23 @@ export function TimelineModeToggle(): ReactElement {
 
   // Load persisted mode from localStorage on mount
   useEffect(() => {
-    const savedTimelineMode = localStorage.getItem(TIMELINE_MODE_KEY) as TimelineMode | null;
-
-    if (savedTimelineMode && VALID_MODES.includes(savedTimelineMode)) {
-      setTimelineMode(savedTimelineMode);
+    try {
+      const savedTimelineMode = localStorage.getItem(TIMELINE_MODE_KEY) as TimelineMode | null;
+      if (savedTimelineMode && VALID_MODES.includes(savedTimelineMode)) {
+        setTimelineMode(savedTimelineMode);
+      }
+    } catch {
+      // Ignore storage errors
     }
   }, [setTimelineMode]);
 
   // Persist mode changes to localStorage
   useEffect(() => {
-    localStorage.setItem(TIMELINE_MODE_KEY, timelineMode);
+    try {
+      localStorage.setItem(TIMELINE_MODE_KEY, timelineMode);
+    } catch {
+      // Ignore quota exceeded errors on iOS
+    }
   }, [timelineMode]);
 
   const handleTimelineModeChange = (mode: TimelineMode) => {

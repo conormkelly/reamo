@@ -72,7 +72,7 @@ export function ColorPickerInput({
         onMouseLeave={handleMouseLeave}
         onTouchStart={handleMouseDown}
         onTouchEnd={handleMouseUp}
-        className="relative w-10 h-10 rounded border-2 border-gray-600 cursor-pointer hover:border-gray-400 transition-colors"
+        className="relative w-10 h-10 rounded border-2 border-gray-600 cursor-pointer hover:border-gray-400 transition-colors touch-none"
         style={{ backgroundColor: value }}
         title={isDefault ? value : `${value} (hold to reset)`}
       >

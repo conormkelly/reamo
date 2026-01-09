@@ -151,7 +151,12 @@ export function useMarkerDrag({
         return;
       }
 
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      // Release pointer capture (may already be released on pointercancel)
+      try {
+        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {
+        // Pointer capture already released
+      }
 
       // If not dragging and long-press timer was still pending, this is a tap - select the marker
       if (!isDragging && longPressWasPending && onSelect) {

@@ -395,8 +395,12 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       setDragEnd(null);
       setIsCancelled(false);
 
-      // Release pointer capture
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      // Release pointer capture (may already be released on pointercancel)
+      try {
+        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {
+        // Pointer capture already released
+      }
     },
     [
       dragStart,

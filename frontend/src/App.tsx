@@ -24,8 +24,12 @@ function AppContent() {
   // localStorage.clear(); console.warn('DEV: localStorage cleared');
 
   const [currentView, setCurrentView] = useState<ViewId>(() => {
-    const saved = localStorage.getItem(VIEW_STORAGE_KEY) as ViewId | null;
-    return saved && saved in views ? saved : DEFAULT_VIEW;
+    try {
+      const saved = localStorage.getItem(VIEW_STORAGE_KEY) as ViewId | null;
+      return saved && saved in views ? saved : DEFAULT_VIEW;
+    } catch {
+      return DEFAULT_VIEW;
+    }
   });
 
   const { showTabBar, showPersistentTransport, transportPosition } = useUIPreferences();
@@ -50,7 +54,11 @@ function AppContent() {
 
   // Persist view selection
   useEffect(() => {
-    localStorage.setItem(VIEW_STORAGE_KEY, currentView);
+    try {
+      localStorage.setItem(VIEW_STORAGE_KEY, currentView);
+    } catch {
+      // Ignore quota exceeded errors on iOS
+    }
   }, [currentView]);
 
   const ViewComponent = views[currentView];

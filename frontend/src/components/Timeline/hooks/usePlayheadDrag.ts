@@ -107,7 +107,12 @@ export function usePlayheadDrag({
     (e: React.PointerEvent) => {
       if (!isDragging || !containerRef.current) return;
 
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      // Release pointer capture (may already be released on pointercancel)
+      try {
+        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {
+        // Pointer capture already released
+      }
 
       const rect = containerRef.current.getBoundingClientRect();
       const deltaY = dragStartY !== null ? Math.abs(e.clientY - dragStartY) : 0;

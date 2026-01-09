@@ -96,6 +96,22 @@ REAmo is a React PWA control surface for REAPER DAW. It runs on iPad/iPhone for 
 | No aria-live for connection status | Added `role="status"` + `aria-live="polite"` to ConnectionBanner | `src/components/ConnectionStatus.tsx` |
 | No aria-live for transport state | Added visually-hidden live region announcing play/record/stop | `src/components/Transport/TransportBar.tsx` |
 
+### Batch 7: localStorage + touch-action + Pointer Capture (DONE)
+
+| Issue | Fix | Files Modified |
+|-------|-----|----------------|
+| localStorage without try-catch (App.tsx) | Wrapped getItem/setItem in try-catch for iOS quota errors | `src/App.tsx` |
+| localStorage without try-catch (TimelineModeToggle) | Wrapped getItem/setItem in try-catch | `src/components/Timeline/TimelineModeToggle.tsx` |
+| Missing touch-action (ColorPickerInput) | Added `touch-none` class to hold-to-reset swatch | `src/components/Toolbar/ColorPickerInput.tsx` |
+| Missing touch-action (RegionInfoBar) | Added `touch-none` class to Add button with long-press | `src/components/Timeline/RegionInfoBar.tsx` |
+| Missing touch-action (ConnectionStatus) | Added `touch-none` class to long-press stats indicator | `src/components/ConnectionStatus.tsx` |
+| Pointer capture stuck on cancel | Added try-catch around `releasePointerCapture` calls | `src/components/Timeline/Timeline.tsx`, `hooks/usePlayheadDrag.ts`, `hooks/useMarkerDrag.ts`, `hooks/useRegionDrag.ts` |
+
+**Also verified (already OK):**
+- `TransportSyncEngine.ts` already has try-catch around localStorage
+- `toggleStates`/`guidToIndex` Maps are bounded by project size (not unbounded growth)
+- Style mutations (`.style.left`, `.style.width`) are intentional 60fps animations
+
 ---
 
 ## Remaining Items (Priority Order)
@@ -164,4 +180,4 @@ npm run lint           # Type check + lint
 
 ---
 
-*Last updated: Session completed Batch 1-6 (all major items complete)*
+*Last updated: Session completed Batch 1-7 (all high-priority items complete)*
