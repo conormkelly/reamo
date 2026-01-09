@@ -58,7 +58,7 @@ export function ActionsView(): ReactElement {
   const updateActionInSection = useReaperStore((s) => s.updateActionInSection);
   const removeActionFromSection = useReaperStore((s) => s.removeActionFromSection);
   const reorderActionsInSection = useReaperStore((s) => s.reorderActionsInSection);
-  const getCommandIds = useReaperStore((s) => s.getActionsReaperCommandIds);
+  const getActionRefs = useReaperStore((s) => s.getActionsReaperActionRefs);
 
   // Local modal state
   const [editingSection, setEditingSection] = useState<ActionsSectionType | null>(null);
@@ -82,17 +82,26 @@ export function ActionsView(): ReactElement {
   useEffect(() => {
     if (connectionState !== 'connected' || !connection) return;
 
-    const commandIds = getCommandIds();
-    if (commandIds.length === 0) return;
+    const { actions, namedActions } = getActionRefs();
+    if (actions.length === 0 && namedActions.length === 0) return;
 
-    // Subscribe to toggle states and get initial snapshot
-    const cmd = actionToggleState.subscribe(commandIds);
+    // Subscribe to toggle states with section-aware format
+    const cmd = actionToggleState.subscribe({
+      actions: actions.length > 0 ? actions : undefined,
+      namedActions: namedActions.length > 0 ? namedActions : undefined,
+    });
     connection
       .sendAsync(cmd.command, cmd.params)
       .then((response: unknown) => {
-        const resp = response as { success?: boolean; payload?: { states?: Record<string, number> } };
+        const resp = response as {
+          success?: boolean;
+          payload?: {
+            states?: Array<{ s: number; c: number; v: number }>;
+            nameToId?: Array<{ n: string; s: number; c: number }>;
+          };
+        };
         if (resp.success && resp.payload?.states) {
-          updateToggleStates(resp.payload.states);
+          updateToggleStates(resp.payload.states, resp.payload.nameToId);
         }
       })
       .catch((err) => {
@@ -101,11 +110,14 @@ export function ActionsView(): ReactElement {
 
     // Cleanup: unsubscribe when view unmounts or sections change
     return () => {
-      if (commandIds.length > 0) {
-        sendCommand(actionToggleState.unsubscribe(commandIds));
+      if (actions.length > 0 || namedActions.length > 0) {
+        sendCommand(actionToggleState.unsubscribe({
+          actions: actions.length > 0 ? actions : undefined,
+          namedActions: namedActions.length > 0 ? namedActions : undefined,
+        }));
       }
     };
-  }, [connectionState, connection, sections, sendCommand, getCommandIds, updateToggleStates]);
+  }, [connectionState, connection, sections, sendCommand, getActionRefs, updateToggleStates]);
 
   // Section drag handlers
   const handleSectionDragStart = useCallback((index: number) => {

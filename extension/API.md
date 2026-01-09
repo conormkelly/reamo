@@ -1668,21 +1668,31 @@ Execute a REAPER action by named command identifier. Use this for SWS, ReaPack, 
 
 Subscribe to toggle state changes for actions (e.g., metronome on/off, repeat on/off). Polling is done server-side at ~30Hz; clients receive push notifications when states change.
 
+**Important:** Action IDs are only unique per section. The same command ID in different sections (e.g., Main vs MIDI Editor) refers to different actions. All subscriptions must include the section ID.
+
 ### `actionToggleState/subscribe`
 
 Subscribe to toggle state changes for a list of actions. **Returns data.**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `commandIds` | int[] | No* | Numeric command IDs for native REAPER actions |
-| `names` | string[] | No* | Named command identifiers for SWS/scripts (e.g., `["_SWS_SAVESEL"]`) |
+| `actions` | `{c, s}[]` | No* | Numeric actions: `c` = commandId, `s` = sectionId |
+| `namedActions` | `{n, s}[]` | No* | Named actions: `n` = named command, `s` = sectionId |
 
-\* At least one of `commandIds` or `names` is required. Both can be provided together.
+\* At least one of `actions` or `namedActions` is required. Both can be provided together.
+
+**Section IDs:**
+- `0` - Main section
+- `100` - Main section (alt)
+- `32060` - MIDI Editor
+- `32061` - MIDI Event List Editor
+- `32062` - MIDI Inline Editor
+- `32063` - Media Explorer
 
 ```json
-{"type": "command", "command": "actionToggleState/subscribe", "commandIds": [40364, 40044], "id": "1"}
-{"type": "command", "command": "actionToggleState/subscribe", "names": ["_SWS_SAVESEL", "_SWS_ABOUT"], "id": "2"}
-{"type": "command", "command": "actionToggleState/subscribe", "commandIds": [40364], "names": ["_SWS_SAVESEL"], "id": "3"}
+{"type": "command", "command": "actionToggleState/subscribe", "actions": [{"c": 40364, "s": 0}, {"c": 40044, "s": 0}], "id": "1"}
+{"type": "command", "command": "actionToggleState/subscribe", "namedActions": [{"n": "_SWS_SAVESEL", "s": 0}], "id": "2"}
+{"type": "command", "command": "actionToggleState/subscribe", "actions": [{"c": 40364, "s": 0}], "namedActions": [{"n": "_SWS_SAVESEL", "s": 0}], "id": "3"}
 ```
 
 **Response:**
@@ -1693,16 +1703,16 @@ Subscribe to toggle state changes for a list of actions. **Returns data.**
   "id": "1",
   "success": true,
   "payload": {
-    "states": {"40364": 1, "_SWS_SAVESEL": 0},
-    "nameToId": {"_SWS_SAVESEL": 47912}
+    "states": [{"s": 0, "c": 40364, "v": 1}, {"s": 0, "c": 40044, "v": 0}],
+    "nameToId": [{"n": "_SWS_SAVESEL", "s": 0, "c": 47912}]
   }
 }
 ```
 
 | Field | Description |
 |-------|-------------|
-| `states` | Current toggle states keyed by the identifier you subscribed with (numeric string or named string) |
-| `nameToId` | Mapping from named commands to their current numeric IDs (for translating change events) |
+| `states` | Array of toggle states: `s` = sectionId, `c` = commandId, `v` = value (-1 = not a toggle, 0 = off, 1 = on) |
+| `nameToId` | Array mapping named commands to their resolved IDs: `n` = name, `s` = sectionId, `c` = commandId |
 
 **Change events** are broadcast when toggle states change:
 
@@ -1710,25 +1720,27 @@ Subscribe to toggle state changes for a list of actions. **Returns data.**
 {
   "type": "event",
   "event": "actionToggleState",
-  "changes": {"40364": 0, "47912": 1}
+  "payload": {
+    "changes": [{"s": 0, "c": 40364, "v": 0}, {"s": 0, "c": 47912, "v": 1}]
+  }
 }
 ```
 
-Note: Change events use numeric IDs. Use the `nameToId` mapping from the subscribe response to translate to named commands on the client.
-
 ### `actionToggleState/unsubscribe`
 
-Unsubscribe from toggle state changes for a list of commandIds.
+Unsubscribe from toggle state changes for a list of actions.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `commandIds` | int[] | Yes | Numeric command IDs to unsubscribe from |
+| `actions` | `{c, s}[]` | No* | Numeric actions to unsubscribe from |
+| `namedActions` | `{n, s}[]` | No* | Named actions to unsubscribe from |
+
+\* At least one of `actions` or `namedActions` is required.
 
 ```json
-{"type": "command", "command": "actionToggleState/unsubscribe", "commandIds": [40364, 40044], "id": "1"}
+{"type": "command", "command": "actionToggleState/unsubscribe", "actions": [{"c": 40364, "s": 0}], "id": "1"}
+{"type": "command", "command": "actionToggleState/unsubscribe", "namedActions": [{"n": "_SWS_SAVESEL", "s": 0}], "id": "2"}
 ```
-
-Note: Named commands are tracked internally by their resolved numeric IDs. Use the `nameToId` mapping to unsubscribe.
 
 ---
 

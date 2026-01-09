@@ -6,6 +6,7 @@
 import type { ReactElement } from 'react';
 import { ToolbarButton } from '../../../components/Toolbar/ToolbarButton';
 import type { ToolbarAction, ToggleState } from '../../../store/slices/toolbarSlice';
+import { makeToggleKey } from '../../../store/slices/toolbarSlice';
 import type { SectionAlign, SizeOption } from '../../../store/slices/actionsViewSlice';
 import type { UseListReorderReturn } from '../../../hooks';
 
@@ -58,7 +59,7 @@ export function ActionsGrid({
           action={action}
           toggleState={
             action.type === 'reaper_action' && action.actionId
-              ? toggleStates.get(action.actionId)
+              ? toggleStates.get(makeToggleKey(action.sectionId, action.actionId))
               : undefined
           }
           editMode={editMode}

@@ -52,11 +52,30 @@ export type ToolbarAction =
 // Toggle state values from REAPER
 export type ToggleState = -1 | 0 | 1; // -1 = not a toggle, 0 = off, 1 = on
 
+/** Section-aware toggle state entry from backend */
+export interface ToggleStateEntry {
+  s: number; // sectionId
+  c: number; // commandId
+  v: number; // value (-1, 0, 1)
+}
+
+/** Section-aware name-to-id mapping entry from backend */
+export interface NameToIdEntry {
+  n: string; // named command
+  s: number; // sectionId
+  c: number; // commandId
+}
+
+/** Helper to create a toggle state key from sectionId and actionId */
+export function makeToggleKey(sectionId: number, actionId: string): string {
+  return `${sectionId}:${actionId}`;
+}
+
 export interface ToolbarSlice {
   // State
   toolbarActions: ToolbarAction[];
-  toggleStates: Map<string, ToggleState>; // Keyed by actionId (numeric string or named string)
-  toggleNameToId: Map<string, number>; // Maps named commands to current numeric IDs (for change events)
+  toggleStates: Map<string, ToggleState>; // Keyed by "${sectionId}:${actionId}"
+  toggleNameToId: Map<string, { sectionId: number; commandId: number }>; // Maps named commands to section+id
   toolbarCollapsed: boolean;
   toolbarEditMode: boolean;
   toolbarAlign: ToolbarAlign;
@@ -69,8 +88,8 @@ export interface ToolbarSlice {
   reorderToolbarActions: (fromIndex: number, toIndex: number) => void;
 
   // Toggle state management
-  setToggleState: (actionId: string, state: ToggleState) => void;
-  updateToggleStates: (states: Record<string, number>, nameToId?: Record<string, number>) => void;
+  setToggleState: (sectionId: number, actionId: string, state: ToggleState) => void;
+  updateToggleStates: (states: ToggleStateEntry[], nameToId?: NameToIdEntry[]) => void;
   clearToggleStates: () => void;
 
   // UI state
@@ -82,15 +101,18 @@ export interface ToolbarSlice {
   loadToolbarFromStorage: () => void;
   saveToolbarToStorage: () => void;
 
-  // Helpers
-  getReaperActionIds: () => { commandIds: number[]; names: string[] };
+  // Helpers - returns section-aware action references
+  getReaperActionRefs: () => {
+    actions: Array<{ c: number; s: number }>;
+    namedActions: Array<{ n: string; s: number }>;
+  };
 }
 
 export const createToolbarSlice: StateCreator<ToolbarSlice> = (set, get) => ({
   // Initial state
   toolbarActions: [],
   toggleStates: new Map<string, ToggleState>(),
-  toggleNameToId: new Map<string, number>(),
+  toggleNameToId: new Map<string, { sectionId: number; commandId: number }>(),
   toolbarCollapsed: false,
   toolbarEditMode: false,
   toolbarAlign: 'left' as ToolbarAlign,
@@ -135,10 +157,10 @@ export const createToolbarSlice: StateCreator<ToolbarSlice> = (set, get) => ({
   },
 
   // Toggle state management
-  setToggleState: (actionId, state) => {
+  setToggleState: (sectionId, actionId, state) => {
     set((store) => {
       const newMap = new Map(store.toggleStates);
-      newMap.set(actionId, state);
+      newMap.set(makeToggleKey(sectionId, actionId), state);
       return { toggleStates: newMap };
     });
   },
@@ -150,25 +172,27 @@ export const createToolbarSlice: StateCreator<ToolbarSlice> = (set, get) => ({
 
       // Update name-to-id mapping if provided (from subscription response)
       if (nameToId) {
-        Object.entries(nameToId).forEach(([name, numericId]) => {
-          newNameToId.set(name, numericId);
+        nameToId.forEach((entry) => {
+          newNameToId.set(entry.n, { sectionId: entry.s, commandId: entry.c });
         });
       }
 
-      // Build reverse lookup: numeric ID -> named command
-      // Used to translate change events (which use numeric IDs) back to named commands
-      const idToName = new Map<number, string>();
-      newNameToId.forEach((numericId, name) => {
-        idToName.set(numericId, name);
+      // Build reverse lookup: (sectionId, commandId) -> named command
+      // Key format: "sectionId:commandId"
+      const idToName = new Map<string, string>();
+      newNameToId.forEach(({ sectionId, commandId }, name) => {
+        idToName.set(`${sectionId}:${commandId}`, name);
       });
 
-      // Update toggle states - translate numeric IDs to names if needed
-      Object.entries(states).forEach(([id, state]) => {
-        const numericId = parseInt(id, 10);
-        // Check if this numeric ID maps to a named command
-        const namedKey = !isNaN(numericId) ? idToName.get(numericId) : undefined;
-        const key = namedKey ?? id;
-        newStates.set(key, state as ToggleState);
+      // Update toggle states - use section-aware keys
+      states.forEach((entry) => {
+        // Check if this (sectionId, commandId) maps to a named command
+        const lookupKey = `${entry.s}:${entry.c}`;
+        const namedCommand = idToName.get(lookupKey);
+        // Use named command as actionId if available, otherwise use numeric commandId
+        const actionId = namedCommand ?? String(entry.c);
+        const key = makeToggleKey(entry.s, actionId);
+        newStates.set(key, entry.v as ToggleState);
       });
 
       return { toggleStates: newStates, toggleNameToId: newNameToId };
@@ -176,7 +200,10 @@ export const createToolbarSlice: StateCreator<ToolbarSlice> = (set, get) => ({
   },
 
   clearToggleStates: () => {
-    set({ toggleStates: new Map(), toggleNameToId: new Map() });
+    set({
+      toggleStates: new Map(),
+      toggleNameToId: new Map<string, { sectionId: number; commandId: number }>(),
+    });
   },
 
   // UI state
@@ -225,24 +252,29 @@ export const createToolbarSlice: StateCreator<ToolbarSlice> = (set, get) => ({
 
   // Helpers
   /**
-   * Get action IDs for toggle state subscription.
-   * Returns both numeric commandIds (for native actions) and names (for SWS/scripts).
+   * Get section-aware action references for toggle state subscription.
+   * Returns both numeric actions (for native REAPER actions) and namedActions (for SWS/scripts).
    */
-  getReaperActionIds: () => {
+  getReaperActionRefs: () => {
     const { toolbarActions } = get();
     const reaperActions = toolbarActions.filter(
       (a): a is ToolbarAction & { type: 'reaper_action' } => a.type === 'reaper_action'
     );
 
-    const commandIds = reaperActions
+    // Section-aware numeric actions: {c: commandId, s: sectionId}
+    const actions = reaperActions
       .filter((a) => a.actionId && !a.actionId.startsWith('_'))
-      .map((a) => parseInt(a.actionId, 10))
-      .filter((id) => !isNaN(id));
+      .map((a) => {
+        const commandId = parseInt(a.actionId, 10);
+        return { c: commandId, s: a.sectionId };
+      })
+      .filter((a) => !isNaN(a.c));
 
-    const names = reaperActions
+    // Section-aware named actions: {n: name, s: sectionId}
+    const namedActions = reaperActions
       .filter((a) => a.actionId && a.actionId.startsWith('_'))
-      .map((a) => a.actionId);
+      .map((a) => ({ n: a.actionId, s: a.sectionId }));
 
-    return { commandIds, names };
+    return { actions, namedActions };
   },
 });

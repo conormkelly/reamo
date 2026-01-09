@@ -70,7 +70,10 @@ export interface ActionsViewSlice {
   saveActionsViewToStorage: () => void;
 
   // Helpers
-  getActionsReaperCommandIds: () => number[];
+  getActionsReaperActionRefs: () => {
+    actions: Array<{ c: number; s: number }>;
+    namedActions: Array<{ n: string; s: number }>;
+  };
 }
 
 // Generate unique ID for sections and actions
@@ -291,18 +294,32 @@ export const createActionsViewSlice: StateCreator<ActionsViewSlice> = (set, get)
   },
 
   // Helpers
-  getActionsReaperCommandIds: () => {
+  /**
+   * Get section-aware action references for toggle state subscription.
+   * Returns both numeric actions (for native REAPER actions) and namedActions (for SWS/scripts).
+   */
+  getActionsReaperActionRefs: () => {
     const { actionsSections } = get();
-    const commandIds: number[] = [];
+    const actions: Array<{ c: number; s: number }> = [];
+    const namedActions: Array<{ n: string; s: number }> = [];
+
     for (const section of actionsSections) {
       for (const action of section.actions) {
-        // Only include native REAPER actions (not SWS/scripts which start with "_")
-        if (action.type === 'reaper_action' && action.actionId && !action.actionId.startsWith('_')) {
-          const id = parseInt(action.actionId, 10);
-          if (!isNaN(id)) commandIds.push(id);
+        if (action.type !== 'reaper_action' || !action.actionId) continue;
+
+        if (action.actionId.startsWith('_')) {
+          // SWS/script named action
+          namedActions.push({ n: action.actionId, s: action.sectionId });
+        } else {
+          // Native REAPER numeric action
+          const commandId = parseInt(action.actionId, 10);
+          if (!isNaN(commandId)) {
+            actions.push({ c: commandId, s: action.sectionId });
+          }
         }
       }
     }
-    return commandIds;
+
+    return { actions, namedActions };
   },
 });

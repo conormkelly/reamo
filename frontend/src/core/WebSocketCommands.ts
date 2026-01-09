@@ -431,27 +431,47 @@ export const action = {
 // Action Toggle State Subscription Commands
 // =============================================================================
 
+/** Section-aware action reference for toggle state subscription */
+export interface ActionRef {
+  c: number; // commandId
+  s: number; // sectionId (0 = Main, 32060 = MIDI Editor, etc.)
+}
+
+/** Section-aware named action reference for toggle state subscription */
+export interface NamedActionRef {
+  n: string; // named command (e.g., "_SWS_SAVESEL")
+  s: number; // sectionId
+}
+
 export const actionToggleState = {
   /**
    * Subscribe to toggle state changes for actions.
-   * Accepts:
-   *   - commandIds: Numeric command IDs for native REAPER actions
-   *   - names: Named command identifiers for SWS/scripts (e.g., "_SWS_SAVESEL")
-   * Returns current state for all subscribed actions in the response.
+   * Section-aware format:
+   *   - actions: Array of {c: commandId, s: sectionId} for numeric commands
+   *   - namedActions: Array of {n: name, s: sectionId} for SWS/scripts
+   * Returns current state as array of {s, c, v} entries.
    * State values: -1 = not a toggle, 0 = off, 1 = on
-   * Also returns nameToId mapping for translating change events.
    */
-  subscribe: (commandIds?: number[], names?: string[]): WSCommand => ({
+  subscribe: (params: {
+    actions?: ActionRef[];
+    namedActions?: NamedActionRef[];
+  }): WSCommand => ({
     command: 'actionToggleState/subscribe',
     params: {
-      ...(commandIds && commandIds.length > 0 && { commandIds }),
-      ...(names && names.length > 0 && { names }),
+      ...(params.actions && params.actions.length > 0 && { actions: params.actions }),
+      ...(params.namedActions && params.namedActions.length > 0 && { namedActions: params.namedActions }),
     },
   }),
-  /** Unsubscribe from toggle state changes for a list of action commandIds. */
-  unsubscribe: (commandIds: number[]): WSCommand => ({
+  /** Unsubscribe from toggle state changes for actions. */
+  unsubscribe: (params: {
+    actions?: ActionRef[];
+    namedActions?: NamedActionRef[];
+  }): WSCommand => ({
     command: 'actionToggleState/unsubscribe',
-    params: { commandIds },
+    params: {
+      ...(params.actions && params.actions.length > 0 && { actions: params.actions }),
+      ...(params.namedActions && params.namedActions.length > 0 && { namedActions: params.namedActions }),
+    },
   }),
 };
 

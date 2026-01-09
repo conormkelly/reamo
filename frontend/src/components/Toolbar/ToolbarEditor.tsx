@@ -52,6 +52,7 @@ export function ToolbarEditor({
 
   // Action-specific state
   const [actionId, setActionId] = useState(''); // "40001" (native) or "_SWS_SAVESEL" (SWS/script)
+  const [sectionId, setSectionId] = useState(0); // Section ID (0=Main, 100=Main Alt, 32060=MIDI Editor, etc.)
   const [cc, setCc] = useState('');
   const [ccValue, setCcValue] = useState('127');
   const [program, setProgram] = useState('');
@@ -83,6 +84,7 @@ export function ToolbarEditor({
       switch (action.type) {
         case 'reaper_action':
           setActionId(action.actionId);
+          setSectionId(action.sectionId);
           break;
         case 'midi_cc':
           setCc(String(action.cc));
@@ -127,7 +129,7 @@ export function ToolbarEditor({
           ...base,
           type: 'reaper_action',
           actionId: actionId.trim(),
-          sectionId: 0, // Default to main section for now
+          sectionId, // Preserve section from selected action
         };
         break;
       case 'midi_cc':
@@ -161,6 +163,7 @@ export function ToolbarEditor({
     backgroundColor,
     actionType,
     actionId,
+    sectionId,
     cc,
     ccValue,
     program,
@@ -183,6 +186,7 @@ export function ToolbarEditor({
   const handleActionSelect = useCallback((selectedAction: ReaperAction) => {
     const stableId = getStableActionId(selectedAction);
     setActionId(stableId);
+    setSectionId(selectedAction.sectionId); // Preserve section from selected action
     // Auto-populate label if empty
     if (!label.trim()) {
       setLabel(selectedAction.name);

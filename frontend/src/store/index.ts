@@ -38,6 +38,7 @@ import type {
   SendsStateEventPayload,
   TempoMapEventPayload,
   PlaylistEventPayload,
+  ActionToggleStateEventPayload,
 } from '../core/WebSocketTypes';
 import {
   isEventMessage,
@@ -337,9 +338,8 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
       const p = message.payload as SendsStateEventPayload;
       get().setSends(p.sends);
     } else if (isActionToggleStateEvent(message)) {
-      // Note: changes is at root level, not in payload (backend sends it directly)
-      const msg = message as unknown as { changes: Record<string, number> };
-      get().updateToggleStates(msg.changes);
+      const p = message.payload as ActionToggleStateEventPayload;
+      get().updateToggleStates(p.changes);
     } else if (isTempoMapEvent(message)) {
       const p = message.payload as TempoMapEventPayload;
       get().setTempoMarkers(p.markers);

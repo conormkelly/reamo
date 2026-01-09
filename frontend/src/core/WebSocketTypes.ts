@@ -324,9 +324,16 @@ export interface SendsStateEventPayload {
 // Action Toggle State Event
 // =============================================================================
 
+/** Single toggle state change entry */
+export interface ToggleStateChange {
+  s: number; // sectionId
+  c: number; // commandId
+  v: number; // value (-1, 0, or 1)
+}
+
 /** Toggle state changes broadcast (sparse delta) */
 export interface ActionToggleStateEventPayload {
-  changes: Record<string, number>; // commandId → state (-1, 0, or 1)
+  changes: ToggleStateChange[]; // Array of section-aware toggle state changes
 }
 
 // =============================================================================

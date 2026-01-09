@@ -12,7 +12,8 @@ import { useListReorder } from '../../hooks';
 import { actionToggleState } from '../../core/WebSocketCommands';
 import { ToolbarButton } from './ToolbarButton';
 import { ToolbarEditor } from './ToolbarEditor';
-import type { ToolbarAction, ToolbarAlign } from '../../store/slices/toolbarSlice';
+import type { ToolbarAction, ToolbarAlign, ToggleStateEntry, NameToIdEntry } from '../../store/slices/toolbarSlice';
+import { makeToggleKey } from '../../store/slices/toolbarSlice';
 
 /**
  * Header controls for Toolbar section (Edit/Align/Add buttons)
@@ -126,33 +127,41 @@ export function Toolbar(): ReactElement {
   useEffect(() => {
     if (connectionState !== 'connected' || !connection) return;
 
-    // Extract action IDs - both numeric (native) and named (SWS/scripts)
+    // Extract section-aware action references
     const reaperActions = toolbarActions.filter(
       (a): a is ToolbarAction & { type: 'reaper_action' } => a.type === 'reaper_action'
     );
 
-    const commandIds = reaperActions
+    // Section-aware numeric actions: {c: commandId, s: sectionId}
+    const actions = reaperActions
       .filter((a) => a.actionId && !a.actionId.startsWith('_'))
-      .map((a) => parseInt(a.actionId, 10))
-      .filter((id) => !isNaN(id));
+      .map((a) => ({
+        c: parseInt(a.actionId, 10),
+        s: a.sectionId,
+      }))
+      .filter((a) => !isNaN(a.c));
 
-    const names = reaperActions
+    // Section-aware named actions: {n: name, s: sectionId}
+    const namedActions = reaperActions
       .filter((a) => a.actionId && a.actionId.startsWith('_'))
-      .map((a) => a.actionId);
+      .map((a) => ({ n: a.actionId, s: a.sectionId }));
 
-    if (commandIds.length === 0 && names.length === 0) return;
+    if (actions.length === 0 && namedActions.length === 0) return;
 
-    // Subscribe to toggle states and get initial snapshot
-    const cmd = actionToggleState.subscribe(
-      commandIds.length > 0 ? commandIds : undefined,
-      names.length > 0 ? names : undefined
-    );
+    // Subscribe to toggle states with section-aware format
+    const cmd = actionToggleState.subscribe({
+      actions: actions.length > 0 ? actions : undefined,
+      namedActions: namedActions.length > 0 ? namedActions : undefined,
+    });
     connection
       .sendAsync(cmd.command, cmd.params)
       .then((response: unknown) => {
         const resp = response as {
           success?: boolean;
-          payload?: { states?: Record<string, number>; nameToId?: Record<string, number> };
+          payload?: {
+            states?: ToggleStateEntry[];
+            nameToId?: NameToIdEntry[];
+          };
         };
         if (resp.success && resp.payload?.states) {
           updateToggleStates(resp.payload.states, resp.payload.nameToId);
@@ -164,8 +173,8 @@ export function Toolbar(): ReactElement {
 
     // Cleanup: unsubscribe on unmount or when actions change
     return () => {
-      if (commandIds.length > 0) {
-        sendCommand(actionToggleState.unsubscribe(commandIds));
+      if (actions.length > 0) {
+        sendCommand(actionToggleState.unsubscribe({ actions }));
       }
       // Note: Named commands are tracked by their resolved numeric ID internally,
       // but we don't need to explicitly unsubscribe - the server handles cleanup on disconnect
@@ -215,7 +224,7 @@ export function Toolbar(): ReactElement {
             action={action}
             toggleState={
               action.type === 'reaper_action' && action.actionId
-                ? toggleStates.get(action.actionId)
+                ? toggleStates.get(makeToggleKey(action.sectionId, action.actionId))
                 : undefined
             }
             editMode={toolbarEditMode}

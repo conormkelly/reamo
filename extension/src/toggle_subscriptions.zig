@@ -10,20 +10,46 @@ const Allocator = std.mem.Allocator;
 pub const MAX_COMMAND_IDS_PER_CLIENT = constants.MAX_COMMAND_IDS_PER_CLIENT;
 pub const MAX_CLIENTS = constants.MAX_SUBSCRIPTION_CLIENTS;
 
+/// Composite key for (sectionId, commandId) pairs.
+/// Action IDs are only unique within a section, so we need both to identify an action.
+/// Encoded as u64: high 32 bits = sectionId, low 32 bits = commandId
+pub const ActionKey = struct {
+    section_id: i32,
+    command_id: u32,
+
+    pub fn encode(self: ActionKey) u64 {
+        // Cast section_id to u32 for bit manipulation (preserves bit pattern), then to u64
+        const section_u32: u32 = @bitCast(self.section_id);
+        const section_bits: u64 = section_u32;
+        return (section_bits << 32) | @as(u64, self.command_id);
+    }
+
+    pub fn decode(key: u64) ActionKey {
+        return .{
+            .section_id = @bitCast(@as(u32, @truncate(key >> 32))),
+            .command_id = @truncate(key),
+        };
+    }
+
+    pub fn init(section_id: i32, command_id: u32) ActionKey {
+        return .{ .section_id = section_id, .command_id = command_id };
+    }
+};
+
 /// Manages toggle state subscriptions across multiple clients.
-/// Uses reference counting so we only poll commandIds that someone cares about.
+/// Uses reference counting so we only poll (sectionId, commandId) pairs that someone cares about.
 pub const ToggleSubscriptions = struct {
     allocator: Allocator,
 
-    /// Reference count for each commandId (number of clients subscribed)
-    ref_counts: std.AutoHashMap(u32, u8),
+    /// Reference count for each (sectionId, commandId) pair (number of clients subscribed)
+    ref_counts: std.AutoHashMap(u64, u8),
 
-    /// Previous toggle state for each commandId (for change detection)
+    /// Previous toggle state for each (sectionId, commandId) pair (for change detection)
     /// Values: -1 = not a toggle, 0 = off, 1 = on
-    prev_states: std.AutoHashMap(u32, i8),
+    prev_states: std.AutoHashMap(u64, i8),
 
     /// Per-client subscription sets (for cleanup on disconnect)
-    client_subscriptions: [MAX_CLIENTS]std.AutoHashMap(u32, void),
+    client_subscriptions: [MAX_CLIENTS]std.AutoHashMap(u64, void),
 
     /// Map from client_id to client slot index
     client_id_to_slot: std.AutoHashMap(usize, usize),
@@ -34,8 +60,8 @@ pub const ToggleSubscriptions = struct {
     pub fn init(allocator: Allocator) ToggleSubscriptions {
         var subs = ToggleSubscriptions{
             .allocator = allocator,
-            .ref_counts = std.AutoHashMap(u32, u8).init(allocator),
-            .prev_states = std.AutoHashMap(u32, i8).init(allocator),
+            .ref_counts = std.AutoHashMap(u64, u8).init(allocator),
+            .prev_states = std.AutoHashMap(u64, i8).init(allocator),
             .client_subscriptions = undefined,
             .client_id_to_slot = std.AutoHashMap(usize, usize).init(allocator),
             .next_slot = 0,
@@ -43,7 +69,7 @@ pub const ToggleSubscriptions = struct {
 
         // Initialize all client subscription maps
         for (&subs.client_subscriptions) |*map| {
-            map.* = std.AutoHashMap(u32, void).init(allocator);
+            map.* = std.AutoHashMap(u64, void).init(allocator);
         }
 
         return subs;
@@ -81,74 +107,107 @@ pub const ToggleSubscriptions = struct {
         return slot;
     }
 
-    /// Subscribe a client to a list of commandIds.
-    /// Returns the current states for all subscribed commandIds.
+    /// Subscribe a client to a list of (sectionId, commandId) pairs.
+    /// Returns the current states for all subscribed actions, keyed by encoded ActionKey.
     pub fn subscribe(
         self: *ToggleSubscriptions,
         api: anytype,
         client_id: usize,
-        command_ids: []const u32,
-    ) !std.AutoHashMap(u32, i8) {
+        action_keys: []const ActionKey,
+    ) !std.AutoHashMap(u64, i8) {
         const slot = self.getOrCreateSlot(client_id) orelse return error.TooManyClients;
         const client_subs = &self.client_subscriptions[slot];
 
         // Enforce per-client limit
-        if (client_subs.count() + command_ids.len > MAX_COMMAND_IDS_PER_CLIENT) {
+        if (client_subs.count() + action_keys.len > MAX_COMMAND_IDS_PER_CLIENT) {
             return error.TooManySubscriptions;
         }
 
-        var states = std.AutoHashMap(u32, i8).init(self.allocator);
+        var states = std.AutoHashMap(u64, i8).init(self.allocator);
         errdefer states.deinit();
 
-        for (command_ids) |cmd_id| {
+        for (action_keys) |action_key| {
+            const key = action_key.encode();
+
             // Skip if already subscribed
-            if (client_subs.contains(cmd_id)) {
+            if (client_subs.contains(key)) {
                 // Still include current state in response
-                const state = api.getCommandState(@intCast(cmd_id));
-                try states.put(cmd_id, @intCast(state));
+                const state = api.getCommandStateEx(action_key.section_id, @intCast(action_key.command_id));
+                try states.put(key, @intCast(state));
                 continue;
             }
 
             // Add to client's subscription set
-            try client_subs.put(cmd_id, {});
+            try client_subs.put(key, {});
 
             // Increment ref count
-            const current_count = self.ref_counts.get(cmd_id) orelse 0;
-            try self.ref_counts.put(cmd_id, current_count + 1);
+            const current_count = self.ref_counts.get(key) orelse 0;
+            try self.ref_counts.put(key, current_count + 1);
 
-            // Get current state and cache it
-            const state = api.getCommandState(@intCast(cmd_id));
-            try self.prev_states.put(cmd_id, @intCast(state));
-            try states.put(cmd_id, @intCast(state));
+            // Get current state and cache it (using section-aware API)
+            const state = api.getCommandStateEx(action_key.section_id, @intCast(action_key.command_id));
+            try self.prev_states.put(key, @intCast(state));
+            try states.put(key, @intCast(state));
         }
 
         return states;
     }
 
-    /// Unsubscribe a client from a list of commandIds.
+    /// Unsubscribe a client from a list of (sectionId, commandId) pairs.
     pub fn unsubscribe(
         self: *ToggleSubscriptions,
         client_id: usize,
-        command_ids: []const u32,
+        action_keys: []const ActionKey,
     ) void {
         const slot = self.client_id_to_slot.get(client_id) orelse return;
         const client_subs = &self.client_subscriptions[slot];
 
-        for (command_ids) |cmd_id| {
-            if (!client_subs.contains(cmd_id)) continue;
+        for (action_keys) |action_key| {
+            const key = action_key.encode();
+            if (!client_subs.contains(key)) continue;
 
             // Remove from client's subscription set
-            _ = client_subs.remove(cmd_id);
+            _ = client_subs.remove(key);
 
             // Decrement ref count
-            if (self.ref_counts.get(cmd_id)) |count| {
+            if (self.ref_counts.get(key)) |count| {
                 if (count <= 1) {
                     // No more subscribers - remove from tracking
-                    _ = self.ref_counts.remove(cmd_id);
-                    _ = self.prev_states.remove(cmd_id);
+                    _ = self.ref_counts.remove(key);
+                    _ = self.prev_states.remove(key);
                 } else {
-                    self.ref_counts.put(cmd_id, count - 1) catch |e| {
-                        logging.warn("toggle unsubscribe ref_count update failed for cmd {d}: {}", .{ cmd_id, e });
+                    self.ref_counts.put(key, count - 1) catch |e| {
+                        logging.warn("toggle unsubscribe ref_count update failed for key {d}: {}", .{ key, e });
+                    };
+                }
+            }
+        }
+    }
+
+    /// Unsubscribe a client from a list of encoded keys (for internal use by removeClient).
+    fn unsubscribeKeys(
+        self: *ToggleSubscriptions,
+        client_id: usize,
+        keys: []const u64,
+    ) void {
+        const slot = self.client_id_to_slot.get(client_id) orelse return;
+        const client_subs = &self.client_subscriptions[slot];
+
+        for (keys) |key| {
+            if (!client_subs.contains(key)) continue;
+
+            // Remove from client's subscription set
+            _ = client_subs.remove(key);
+
+            // Decrement ref count
+            if (self.ref_counts.get(key)) |count| {
+                if (count <= 1) {
+                    // No more subscribers - remove from tracking
+                    _ = self.ref_counts.remove(key);
+                    _ = self.prev_states.remove(key);
+                } else {
+                    self.ref_counts.put(key, count - 1) catch |e| {
+                        logging.warn("toggle unsubscribe ref_count update failed for key {d}: {}", .{ key, e });
                     };
                 }
             }
@@ -160,20 +219,20 @@ pub const ToggleSubscriptions = struct {
         const slot = self.client_id_to_slot.get(client_id) orelse return;
         const client_subs = &self.client_subscriptions[slot];
 
-        // Collect all command IDs to unsubscribe
-        var cmd_ids_buf: [MAX_COMMAND_IDS_PER_CLIENT]u32 = undefined;
+        // Collect all encoded keys to unsubscribe
+        var keys_buf: [MAX_COMMAND_IDS_PER_CLIENT]u64 = undefined;
         var count: usize = 0;
 
         var iter = client_subs.keyIterator();
-        while (iter.next()) |cmd_id| {
-            if (count < cmd_ids_buf.len) {
-                cmd_ids_buf[count] = cmd_id.*;
+        while (iter.next()) |key| {
+            if (count < keys_buf.len) {
+                keys_buf[count] = key.*;
                 count += 1;
             }
         }
 
         // Unsubscribe from all
-        self.unsubscribe(client_id, cmd_ids_buf[0..count]);
+        self.unsubscribeKeys(client_id, keys_buf[0..count]);
 
         // Clear client's subscription set
         client_subs.clearRetainingCapacity();
@@ -182,23 +241,25 @@ pub const ToggleSubscriptions = struct {
         _ = self.client_id_to_slot.remove(client_id);
     }
 
-    /// Poll all subscribed commandIds and return changes.
-    /// Returns a map of commandId -> new_state for any states that changed.
-    pub fn poll(self: *ToggleSubscriptions, api: anytype) std.AutoHashMap(u32, i8) {
-        var changes = std.AutoHashMap(u32, i8).init(self.allocator);
+    /// Poll all subscribed (sectionId, commandId) pairs and return changes.
+    /// Returns a map of encoded ActionKey -> new_state for any states that changed.
+    pub fn poll(self: *ToggleSubscriptions, api: anytype) std.AutoHashMap(u64, i8) {
+        var changes = std.AutoHashMap(u64, i8).init(self.allocator);
 
         var iter = self.ref_counts.keyIterator();
-        while (iter.next()) |cmd_id_ptr| {
-            const cmd_id = cmd_id_ptr.*;
-            const new_state: i8 = @intCast(api.getCommandState(@intCast(cmd_id)));
-            const prev = self.prev_states.get(cmd_id) orelse -2;
+        while (iter.next()) |key_ptr| {
+            const key = key_ptr.*;
+            const action_key = ActionKey.decode(key);
+            // Use section-aware API to get toggle state
+            const new_state: i8 = @intCast(api.getCommandStateEx(action_key.section_id, @intCast(action_key.command_id)));
+            const prev = self.prev_states.get(key) orelse -2;
 
             if (new_state != prev) {
-                self.prev_states.put(cmd_id, new_state) catch |e| {
-                    logging.warn("toggle poll prev_states update failed for cmd {d}: {}", .{ cmd_id, e });
+                self.prev_states.put(key, new_state) catch |e| {
+                    logging.warn("toggle poll prev_states update failed for key {d}: {}", .{ key, e });
                 };
-                changes.put(cmd_id, new_state) catch |e| {
-                    logging.warn("toggle poll changes update failed for cmd {d}: {}", .{ cmd_id, e });
+                changes.put(key, new_state) catch |e| {
+                    logging.warn("toggle poll changes update failed for key {d}: {}", .{ key, e });
                 };
             }
         }
@@ -211,14 +272,15 @@ pub const ToggleSubscriptions = struct {
         return self.ref_counts.count() > 0;
     }
 
-    /// Format changes as JSON event message
-    pub fn changesToJson(changes: *const std.AutoHashMap(u32, i8), buf: []u8) ?[]const u8 {
+    /// Format changes as JSON event message with structured array format.
+    /// Output: {"type":"event","event":"actionToggleState","changes":[{"s":0,"c":40001,"v":1},...]}
+    pub fn changesToJson(changes: *const std.AutoHashMap(u64, i8), buf: []u8) ?[]const u8 {
         if (changes.count() == 0) return null;
 
         var stream = std.io.fixedBufferStream(buf);
         var writer = stream.writer();
 
-        writer.writeAll("{\"type\":\"event\",\"event\":\"actionToggleState\",\"changes\":{") catch return null;
+        writer.writeAll("{\"type\":\"event\",\"event\":\"actionToggleState\",\"changes\":[") catch return null;
 
         var first = true;
         var iter = changes.iterator();
@@ -226,20 +288,26 @@ pub const ToggleSubscriptions = struct {
             if (!first) writer.writeAll(",") catch return null;
             first = false;
 
-            writer.print("\"{d}\":{d}", .{ entry.key_ptr.*, entry.value_ptr.* }) catch return null;
+            const action_key = ActionKey.decode(entry.key_ptr.*);
+            writer.print("{{\"s\":{d},\"c\":{d},\"v\":{d}}}", .{
+                action_key.section_id,
+                action_key.command_id,
+                entry.value_ptr.*,
+            }) catch return null;
         }
 
-        writer.writeAll("}}") catch return null;
+        writer.writeAll("]}") catch return null;
 
         return stream.getWritten();
     }
 
-    /// Format states as JSON for subscribe response
-    pub fn statesToJson(states: *const std.AutoHashMap(u32, i8), buf: []u8) ?[]const u8 {
+    /// Format states as JSON for subscribe response with structured array format.
+    /// Output: [{"s":0,"c":40001,"v":1},...]
+    pub fn statesToJson(states: *const std.AutoHashMap(u64, i8), buf: []u8) ?[]const u8 {
         var stream = std.io.fixedBufferStream(buf);
         var writer = stream.writer();
 
-        writer.writeAll("{") catch return null;
+        writer.writeAll("[") catch return null;
 
         var first = true;
         var iter = states.iterator();
@@ -247,20 +315,25 @@ pub const ToggleSubscriptions = struct {
             if (!first) writer.writeAll(",") catch return null;
             first = false;
 
-            writer.print("\"{d}\":{d}", .{ entry.key_ptr.*, entry.value_ptr.* }) catch return null;
+            const action_key = ActionKey.decode(entry.key_ptr.*);
+            writer.print("{{\"s\":{d},\"c\":{d},\"v\":{d}}}", .{
+                action_key.section_id,
+                action_key.command_id,
+                entry.value_ptr.*,
+            }) catch return null;
         }
 
-        writer.writeAll("}") catch return null;
+        writer.writeAll("]") catch return null;
 
         return stream.getWritten();
     }
 
     /// Allocator-based version of changesToJson - dynamically sized.
     /// Returns owned slice from allocator.
-    pub fn changesToJsonAlloc(changes: *const std.AutoHashMap(u32, i8), allocator: std.mem.Allocator) ![]const u8 {
+    pub fn changesToJsonAlloc(changes: *const std.AutoHashMap(u64, i8), allocator: std.mem.Allocator) ![]const u8 {
         if (changes.count() == 0) return error.NoChanges;
-        // Estimate: ~15 bytes per entry + 80 base overhead
-        const estimated_size = 80 + (changes.count() * 15);
+        // Estimate: ~30 bytes per entry ({"s":0,"c":40001,"v":1}) + 80 base overhead
+        const estimated_size = 80 + (changes.count() * 30);
         const buf = try allocator.alloc(u8, estimated_size);
         const json = changesToJson(changes, buf) orelse return error.JsonSerializationFailed;
         return json; // Return slice of allocated buffer (arena-owned)
@@ -268,9 +341,9 @@ pub const ToggleSubscriptions = struct {
 
     /// Allocator-based version of statesToJson - dynamically sized.
     /// Returns owned slice from allocator.
-    pub fn statesToJsonAlloc(states: *const std.AutoHashMap(u32, i8), allocator: std.mem.Allocator) ![]const u8 {
-        // Estimate: ~15 bytes per entry + 10 base overhead
-        const estimated_size = 10 + (states.count() * 15);
+    pub fn statesToJsonAlloc(states: *const std.AutoHashMap(u64, i8), allocator: std.mem.Allocator) ![]const u8 {
+        // Estimate: ~30 bytes per entry + 10 base overhead
+        const estimated_size = 10 + (states.count() * 30);
         const buf = try allocator.alloc(u8, estimated_size);
         const json = statesToJson(states, buf) orelse return error.JsonSerializationFailed;
         return json; // Return slice of allocated buffer (arena-owned)
@@ -278,6 +351,21 @@ pub const ToggleSubscriptions = struct {
 };
 
 // Tests
+test "ActionKey encode/decode roundtrip" {
+    const key1 = ActionKey.init(0, 40001);
+    const encoded1 = key1.encode();
+    const decoded1 = ActionKey.decode(encoded1);
+    try std.testing.expectEqual(@as(i32, 0), decoded1.section_id);
+    try std.testing.expectEqual(@as(u32, 40001), decoded1.command_id);
+
+    // Test with non-zero section
+    const key2 = ActionKey.init(32060, 12345);
+    const encoded2 = key2.encode();
+    const decoded2 = ActionKey.decode(encoded2);
+    try std.testing.expectEqual(@as(i32, 32060), decoded2.section_id);
+    try std.testing.expectEqual(@as(u32, 12345), decoded2.command_id);
+}
+
 test "subscribe and unsubscribe" {
     const allocator = std.testing.allocator;
     var subs = ToggleSubscriptions.init(allocator);
@@ -285,42 +373,70 @@ test "subscribe and unsubscribe" {
 
     // Can't test subscribe without a real REAPER API, but we can test unsubscribe logic
     // by manually adding entries
+    const key = ActionKey.init(0, 100).encode();
     const slot = subs.getOrCreateSlot(1).?;
-    try subs.client_subscriptions[slot].put(100, {});
-    try subs.ref_counts.put(100, 1);
-    try subs.prev_states.put(100, 1);
+    try subs.client_subscriptions[slot].put(key, {});
+    try subs.ref_counts.put(key, 1);
+    try subs.prev_states.put(key, 1);
 
     try std.testing.expect(subs.hasSubscriptions());
     try std.testing.expectEqual(@as(usize, 1), subs.ref_counts.count());
 
-    subs.unsubscribe(1, &[_]u32{100});
+    subs.unsubscribe(1, &[_]ActionKey{ActionKey.init(0, 100)});
 
     try std.testing.expect(!subs.hasSubscriptions());
     try std.testing.expectEqual(@as(usize, 0), subs.ref_counts.count());
 }
 
-test "multiple clients same commandId" {
+test "multiple clients same action key" {
     const allocator = std.testing.allocator;
     var subs = ToggleSubscriptions.init(allocator);
     defer subs.deinit();
 
-    // Simulate two clients subscribing to the same commandId
+    // Simulate two clients subscribing to the same (sectionId, commandId)
+    const key = ActionKey.init(0, 100).encode();
     const slot1 = subs.getOrCreateSlot(1).?;
     const slot2 = subs.getOrCreateSlot(2).?;
 
-    try subs.client_subscriptions[slot1].put(100, {});
-    try subs.client_subscriptions[slot2].put(100, {});
-    try subs.ref_counts.put(100, 2);
-    try subs.prev_states.put(100, 1);
+    try subs.client_subscriptions[slot1].put(key, {});
+    try subs.client_subscriptions[slot2].put(key, {});
+    try subs.ref_counts.put(key, 2);
+    try subs.prev_states.put(key, 1);
 
     // First client unsubscribes - should still have 1 ref
-    subs.unsubscribe(1, &[_]u32{100});
-    try std.testing.expectEqual(@as(u8, 1), subs.ref_counts.get(100).?);
+    subs.unsubscribe(1, &[_]ActionKey{ActionKey.init(0, 100)});
+    try std.testing.expectEqual(@as(u8, 1), subs.ref_counts.get(key).?);
     try std.testing.expect(subs.hasSubscriptions());
 
     // Second client unsubscribes - should remove entirely
-    subs.unsubscribe(2, &[_]u32{100});
+    subs.unsubscribe(2, &[_]ActionKey{ActionKey.init(0, 100)});
     try std.testing.expect(!subs.hasSubscriptions());
+}
+
+test "same commandId different sections are distinct" {
+    const allocator = std.testing.allocator;
+    var subs = ToggleSubscriptions.init(allocator);
+    defer subs.deinit();
+
+    // Same commandId (100) in two different sections should be tracked separately
+    const key_main = ActionKey.init(0, 100).encode();
+    const key_midi = ActionKey.init(32060, 100).encode();
+
+    const slot = subs.getOrCreateSlot(1).?;
+    try subs.client_subscriptions[slot].put(key_main, {});
+    try subs.client_subscriptions[slot].put(key_midi, {});
+    try subs.ref_counts.put(key_main, 1);
+    try subs.ref_counts.put(key_midi, 1);
+    try subs.prev_states.put(key_main, 0);
+    try subs.prev_states.put(key_midi, 1);
+
+    try std.testing.expectEqual(@as(usize, 2), subs.ref_counts.count());
+    try std.testing.expect(key_main != key_midi); // Keys should be different
+
+    // Unsubscribe from main section only
+    subs.unsubscribe(1, &[_]ActionKey{ActionKey.init(0, 100)});
+    try std.testing.expectEqual(@as(usize, 1), subs.ref_counts.count());
+    try std.testing.expect(subs.ref_counts.contains(key_midi)); // MIDI section still subscribed
 }
 
 test "removeClient cleans up all subscriptions" {
@@ -328,16 +444,20 @@ test "removeClient cleans up all subscriptions" {
     var subs = ToggleSubscriptions.init(allocator);
     defer subs.deinit();
 
+    const key1 = ActionKey.init(0, 100).encode();
+    const key2 = ActionKey.init(32060, 200).encode();
+    const key3 = ActionKey.init(100, 300).encode();
+
     const slot = subs.getOrCreateSlot(1).?;
-    try subs.client_subscriptions[slot].put(100, {});
-    try subs.client_subscriptions[slot].put(200, {});
-    try subs.client_subscriptions[slot].put(300, {});
-    try subs.ref_counts.put(100, 1);
-    try subs.ref_counts.put(200, 1);
-    try subs.ref_counts.put(300, 1);
-    try subs.prev_states.put(100, 0);
-    try subs.prev_states.put(200, 1);
-    try subs.prev_states.put(300, -1);
+    try subs.client_subscriptions[slot].put(key1, {});
+    try subs.client_subscriptions[slot].put(key2, {});
+    try subs.client_subscriptions[slot].put(key3, {});
+    try subs.ref_counts.put(key1, 1);
+    try subs.ref_counts.put(key2, 1);
+    try subs.ref_counts.put(key3, 1);
+    try subs.prev_states.put(key1, 0);
+    try subs.prev_states.put(key2, 1);
+    try subs.prev_states.put(key3, -1);
 
     try std.testing.expectEqual(@as(usize, 3), subs.ref_counts.count());
 
@@ -347,32 +467,52 @@ test "removeClient cleans up all subscriptions" {
     try std.testing.expectEqual(@as(usize, 0), subs.ref_counts.count());
 }
 
-test "changesToJson formats correctly" {
+test "changesToJson formats correctly with structured array" {
     const allocator = std.testing.allocator;
-    var changes = std.AutoHashMap(u32, i8).init(allocator);
+    var changes = std.AutoHashMap(u64, i8).init(allocator);
     defer changes.deinit();
 
-    try changes.put(40001, 1);
-    try changes.put(40002, 0);
+    // Single entry for predictable output
+    const key = ActionKey.init(0, 40001).encode();
+    try changes.put(key, 1);
 
     var buf: [256]u8 = undefined;
     const json = ToggleSubscriptions.changesToJson(&changes, &buf).?;
 
-    // The order of keys in a hashmap isn't guaranteed, so check for both possibilities
-    const valid1 = std.mem.eql(u8, json, "{\"type\":\"event\",\"event\":\"actionToggleState\",\"changes\":{\"40001\":1,\"40002\":0}}");
-    const valid2 = std.mem.eql(u8, json, "{\"type\":\"event\",\"event\":\"actionToggleState\",\"changes\":{\"40002\":0,\"40001\":1}}");
-    try std.testing.expect(valid1 or valid2);
+    try std.testing.expectEqualStrings(
+        "{\"type\":\"event\",\"event\":\"actionToggleState\",\"changes\":[{\"s\":0,\"c\":40001,\"v\":1}]}",
+        json,
+    );
 }
 
-test "statesToJson formats correctly" {
+test "changesToJson with multiple sections" {
     const allocator = std.testing.allocator;
-    var states = std.AutoHashMap(u32, i8).init(allocator);
+    var changes = std.AutoHashMap(u64, i8).init(allocator);
+    defer changes.deinit();
+
+    // Single entry with non-zero section
+    const key = ActionKey.init(32060, 12345).encode();
+    try changes.put(key, 0);
+
+    var buf: [256]u8 = undefined;
+    const json = ToggleSubscriptions.changesToJson(&changes, &buf).?;
+
+    try std.testing.expectEqualStrings(
+        "{\"type\":\"event\",\"event\":\"actionToggleState\",\"changes\":[{\"s\":32060,\"c\":12345,\"v\":0}]}",
+        json,
+    );
+}
+
+test "statesToJson formats correctly with structured array" {
+    const allocator = std.testing.allocator;
+    var states = std.AutoHashMap(u64, i8).init(allocator);
     defer states.deinit();
 
-    try states.put(100, 1);
+    const key = ActionKey.init(0, 100).encode();
+    try states.put(key, 1);
 
     var buf: [64]u8 = undefined;
     const json = ToggleSubscriptions.statesToJson(&states, &buf).?;
 
-    try std.testing.expectEqualStrings("{\"100\":1}", json);
+    try std.testing.expectEqualStrings("[{\"s\":0,\"c\":100,\"v\":1}]", json);
 }
