@@ -19,6 +19,12 @@ async function setupWithTimeSignature(
     timeout: 10000,
   })
 
+  // Enable test mode FIRST - prevents WebSocket from overwriting connection state
+  await page.evaluate(() => {
+    const store = (window as any).__REAPER_STORE__
+    store.getState()._setTestMode(true)
+  })
+
   // Calculate what REAPER would send for fullBeatPosition
   // At 2 seconds position, with given BPM and denominator
   const positionSeconds = 2
@@ -36,6 +42,9 @@ async function setupWithTimeSignature(
 
       // Set raw data
       store.setState({
+        // Bypass loading screen (no real REAPER in e2e tests)
+        connected: true,
+
         // Enable regions mode prerequisites
         luaScriptInstalled: true,
         luaScriptChecked: true,

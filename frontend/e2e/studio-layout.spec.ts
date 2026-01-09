@@ -12,10 +12,18 @@ async function setupTestStore(page: Page) {
     timeout: 10000,
   });
 
+  // Enable test mode FIRST - prevents WebSocket from overwriting connection state
+  await page.evaluate(() => {
+    const store = (window as any).__REAPER_STORE__;
+    store.getState()._setTestMode(true);
+  });
+
   // Set basic test data
   await page.evaluate(() => {
     const store = (window as any).__REAPER_STORE__;
     store.setState({
+      // Bypass loading screen (no real REAPER in e2e tests)
+      connected: true,
       tracks: [
         { idx: 0, name: 'MASTER', volume: 1.0, pan: 0, color: 0, flags: 0 },
         { idx: 1, name: 'Track 1', volume: 0.8, pan: 0, color: 0xff0000, flags: 0 },
@@ -89,9 +97,14 @@ test.describe('Studio Layout - Mobile Behavior', () => {
     await page.locator('[data-section-header="timeline"]').click();
     await expect(page.locator('[data-testid="timeline-canvas"]')).not.toBeVisible();
 
-    // Reload page
+    // Reload page - need to re-setup test mode after reload
     await page.reload();
+    await setupTestStore(page);
     await page.waitForSelector('[data-view="studio"]', { state: 'visible' });
+
+    // Wait for localStorage-persisted section states to be applied
+    // (React useEffect runs after initial render)
+    await page.waitForTimeout(200);
 
     // Verify state persisted
     await expect(page.locator('[data-testid="time-display"]')).toBeVisible(); // Project still expanded
@@ -331,7 +344,8 @@ test.describe('Reorder Sections Modal - Touch Support', () => {
     const classes = await firstSection.getAttribute('class');
     expect(classes).toContain('touch-none');
     expect(classes).toContain('select-none');
-    expect(classes).toContain('cursor-move');
+    // cursor-move was changed to cursor-grab for better UX
+    expect(classes).toContain('cursor-grab');
   });
 
   test('can close modal with Done button', async ({ page }) => {

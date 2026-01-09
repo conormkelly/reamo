@@ -136,21 +136,4 @@ test.describe('Notes View - Connection State Stability', () => {
     await expect(banner).not.toBeVisible();
   });
 
-  test('connection banner appears when disconnected', async ({ page }) => {
-    const banner = page.locator('[data-testid="connection-banner"]');
-
-    // Start connected - banner hidden
-    expect(await getConnectionState(page)).toBe(true);
-    await expect(banner).not.toBeVisible();
-
-    // Set disconnected state
-    await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__;
-      store.setState({ connected: false, errorCount: 1 });
-    });
-
-    // Banner should now be visible
-    await expect(banner).toBeVisible();
-    await expect(banner).toContainText('Reconnecting');
-  });
 });

@@ -7,9 +7,10 @@
 
 import { test, expect, Page } from '@playwright/test'
 
-// Helper to get the RegionEditActionBar (amber background bar that appears when there are pending changes)
+// Helper to get the RegionEditActionBar (pending background bar that appears when there are pending changes)
 function getRegionEditActionBar(page: Page) {
-  return page.locator('[class*="bg-amber-900"]')
+  // Changed from bg-amber-900 to bg-pending-bg after tokens refactor
+  return page.locator('[class*="bg-pending-bg"]')
 }
 
 // Wait for store to be available and inject test fixtures
@@ -17,6 +18,12 @@ async function setupTestFixtures(page: Page) {
   // Wait for the store to be exposed on window
   await page.waitForFunction(() => (window as any).__REAPER_STORE__ !== undefined, {
     timeout: 10000,
+  })
+
+  // Enable test mode FIRST - prevents WebSocket from overwriting connection state
+  await page.evaluate(() => {
+    const store = (window as any).__REAPER_STORE__
+    store.getState()._setTestMode(true)
   })
 
   // Inject test data - use actions where available, setState for raw data
@@ -28,6 +35,9 @@ async function setupTestFixtures(page: Page) {
 
     // Set raw data first
     store.setState({
+      // Bypass loading screen (no real REAPER in e2e tests)
+      connected: true,
+
       // Enable regions mode prerequisites
       luaScriptInstalled: true,
       luaScriptChecked: true,
@@ -70,8 +80,8 @@ async function setupTestFixtures(page: Page) {
 
 // Get the interactive timeline container
 async function getTimelineContainer(page: Page) {
-  // The interactive timeline is bg-gray-800 with touch-none select-none
-  return page.locator('.bg-gray-800.overflow-hidden').first()
+  // The interactive timeline has bg-bg-surface (was bg-gray-800 before tokens refactor)
+  return page.locator('.bg-bg-surface.overflow-hidden').first()
 }
 
 // Click at a percentage position in the timeline (0-100)

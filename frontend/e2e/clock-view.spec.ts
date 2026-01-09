@@ -30,6 +30,18 @@ async function navigateToClockView(page: Page) {
     timeout: 10000,
   })
 
+  // Enable test mode FIRST - prevents WebSocket from overwriting connection state
+  await page.evaluate(() => {
+    const store = (window as any).__REAPER_STORE__
+    store.getState()._setTestMode(true)
+  })
+
+  // Set connected state to bypass loading screen (no real REAPER in e2e tests)
+  await page.evaluate(() => {
+    const store = (window as any).__REAPER_STORE__
+    store.setState({ connected: true })
+  })
+
   // Click on Clock tab
   await page.getByRole('button', { name: 'Clock' }).click()
 
@@ -39,8 +51,8 @@ async function navigateToClockView(page: Page) {
 
 // Get the main clock container
 function getClockContainer(page: Page) {
-  // ClockView uses h-full w-full bg-black with container-type: size
-  return page.locator('.bg-black.h-full.w-full')
+  // ClockView has data-view="clock" attribute (more stable than class selectors)
+  return page.locator('[data-view="clock"]')
 }
 
 // Get the bar.beat display element
@@ -50,17 +62,19 @@ function getBeatsDisplay(page: Page) {
 
 // Get the time display element
 function getTimeDisplay(page: Page) {
-  return page.locator('.font-mono.text-gray-300').first()
+  // TimeDisplay uses text-text-tertiary (was text-gray-300 before tokens refactor)
+  return page.locator('.font-mono.text-text-tertiary').first()
 }
 
 // Get the BPM display element
 function getBpmDisplay(page: Page) {
-  return page.locator('.font-bold.text-gray-400').first()
+  // BpmTimeSigDisplay uses text-text-secondary (was text-gray-400 before tokens refactor)
+  return page.locator('.font-bold.text-text-secondary').first()
 }
 
 // Get all transport buttons within the Clock view (not the persistent transport bar)
 function getTransportButtons(page: Page) {
-  // ClockView buttons are inside the main black container, not the gray transport bar
+  // ClockView buttons are inside the clock container, not the persistent transport bar
   return getClockContainer(page).locator('button.rounded-full')
 }
 

@@ -21,7 +21,7 @@ import { views, type ViewId, VIEW_STORAGE_KEY, DEFAULT_VIEW } from './viewRegist
 
 function AppContent() {
   // DEV FAILSAFE: Uncomment to clear all localStorage on init (useful when API changes break stored data)
-  localStorage.clear(); console.warn('DEV: localStorage cleared');
+  // localStorage.clear(); console.warn('DEV: localStorage cleared');
 
   const [currentView, setCurrentView] = useState<ViewId>(() => {
     try {
