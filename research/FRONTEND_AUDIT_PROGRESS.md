@@ -128,17 +128,55 @@ REAmo is a React PWA control surface for REAPER DAW. It runs on iPad/iPhone for 
 | ActionButton.tsx has 9 components (567 lines) | Split into 6 focused files | `ActionButton.tsx` (94 lines), `MetronomeButton.tsx`, `MarkerButtons.tsx`, `UndoRedoButtons.tsx`, `SaveButton.tsx`, `MixerButtons.tsx`, `index.ts` |
 | CuesView.tsx has 5 components (1020 lines) | Split into 3 files | `CuesView.tsx` (560 lines), `components/PlaylistEntryRow.tsx` (220 lines), `components/CuesModals.tsx` (250 lines) |
 
+### Batch 8: Additional Verification (DONE)
+
+**Verified OK - no action needed:**
+
+| Item | Status | Notes |
+|------|--------|-------|
+| `sendAsync` promise handling | OK | `clearPendingResponses()` resolves all pending with error objects on disconnect |
+| Landscape safe areas | OK | Already handled in `index.css` (safe-area-left, safe-area-right utilities) |
+| `startTransition` for expensive updates | N/A | Zustand uses `useSyncExternalStore` internally which handles this |
+| 60fps `style.left`/`style.width` animations | Deferred | Timeline components use percentage-based left/width - requires canvas migration for true compositor-only rendering |
+
 ---
 
 ## Remaining Items (Priority Order)
+
+### Medium Priority / Architectural Refactors
+
+| Item | Notes |
+|------|-------|
+| **Design tokens / CSS variables** | ~50+ hardcoded hex colors across 23 files. Should extract to CSS custom properties (e.g., `--color-playhead: #337066`, `--color-marker-default: #dc2626`, `--color-region-default: #6b7280`). Files: TimelinePlayhead, TimelineMarkers, ToolbarButton, PlaylistEntryRow, index.css, etc. |
+| **Unified drag-and-drop system** | 5+ different drag implementations: (1) Timeline hooks (usePlayheadDrag, useMarkerDrag, useRegionDrag) use pointer capture, (2) CuesView/PlaylistEntryRow use HTML5 drag + touch fallback, (3) Toolbar uses HTML5 draggable, (4) ActionsView uses HTML5 draggable, (5) ClockView has custom drag, (6) ReorderSectionsModal has another. Consider unified hook or library. |
+| Canvas-based Timeline rendering | TimelinePlayhead, PlaylistEntryRow use `style.left`/`style.width` at 60fps which triggers layout. Canvas would enable compositor-only rendering. Significant refactor. |
 
 ### Low Priority / Nice to Have
 
 | Item | Notes |
 |------|-------|
+| Small touch targets (24x24 color swatches) | ColorPickerInput has 24x24 swatches - below 44x44 recommended. Low priority - rarely used during performance. |
 | Service worker for offline caching | Currently relies on HTML mtime check for updates |
 | useShallow for multi-value selectors | Not currently needed (no array destructuring found) |
 | Test coverage expansion | 200 source files, 17 test files - prioritize WebSocketConnection, regionEditSlice |
+
+### Checklist Coverage Summary
+
+**From FRONTEND_PRODUCTION_CHECKLIST_QUERY.md - all sections reviewed:**
+
+| Section | Status | Notes |
+|---------|--------|-------|
+| 1. Memory Leaks | ✅ Complete | Timer cleanup, pendingResponses, PeaksCache eviction, RAF cleanup |
+| 2. Re-render Performance | ✅ Complete | Stable selectors (stableRefs.ts), animation bypass pattern in use |
+| 3. WebSocket Lifecycle | ✅ Complete | sendAsync promises resolved on disconnect, reconnection tested |
+| 4. TypeScript Strictness | ✅ Complete | Only 4 `as unknown as` uses, all necessary for WS typing |
+| 5. Zustand Patterns | ✅ Complete | get() in actions OK, Map mutations create new Maps, localStorage try-catch |
+| 6. Touch/Gesture | ⚠️ Partial | touch-action added, pointer capture error handling added; drag unification deferred |
+| 7. PWA Issues | ⚠️ Partial | Safe areas complete; service worker deferred |
+| 8. Error Boundaries | ✅ Complete | ErrorBoundary added, React 19 error callbacks added |
+| 9. Testing Gaps | ⏸️ Deferred | Low priority - current coverage adequate for production |
+| 10. Bundle Analysis | ✅ Complete | IconPicker lazy loaded, console.log stripped in prod |
+| 11. Accessibility | ✅ Complete | aria-live regions, prefers-reduced-motion, aria-label/pressed on buttons |
 
 ---
 
@@ -197,4 +235,4 @@ npm run lint           # Type check + lint
 
 ---
 
-*Last updated: Session completed Batch 1-7 (all high-priority items complete)*
+*Last updated: Session completed Batch 1-8 (all high-priority items complete, canvas migration noted for future)*

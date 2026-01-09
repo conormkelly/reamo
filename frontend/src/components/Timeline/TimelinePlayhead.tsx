@@ -102,8 +102,8 @@ export function TimelinePlayhead({
   }, [renderTimeToPercent]);
 
   // Subscribe to 60fps animation updates
-  // This is the ONLY place we set left position during playback - not in JSX style prop
-  // to avoid React and animation callback fighting each other
+  // Note: Uses style.left which triggers layout. Future optimization: migrate
+  // Timeline to canvas for compositor-only 60fps rendering.
   useTransportAnimation((state) => {
     if (containerRef.current) {
       const percent = renderTimeToPercentRef.current(state.position);
