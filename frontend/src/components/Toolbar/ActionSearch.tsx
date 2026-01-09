@@ -1,13 +1,17 @@
 /**
  * ActionSearch - Searchable action picker with virtualized list
  * Uses TanStack Virtual for efficient rendering of 10k+ actions.
+ * Features:
+ * - Section filtering (Main, MIDI Editor, etc.)
+ * - Word-based fuzzy search (all words must appear, any order)
+ * - Sorted on load: named commands first (alphabetically), then by numeric ID
  */
 
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Search, ToggleLeft, Loader2 } from 'lucide-react';
+import { Search, ToggleLeft, Loader2, ChevronDown } from 'lucide-react';
 import { useReaperStore, type ReaperAction } from '../../store';
-import { getSectionName } from '../../core/constants';
+import { getSectionName, REAPER_SECTIONS } from '../../core/constants';
 
 /** Row height for virtualizer - touch-friendly 56px */
 const ROW_HEIGHT = 56;
@@ -18,6 +22,46 @@ const OVERSCAN = 5;
 /** Debounce delay for search input */
 const DEBOUNCE_MS = 150;
 
+/** Special value for "All Sections" filter */
+const ALL_SECTIONS = -1;
+
+/**
+ * Word-based fuzzy search.
+ * All query words must appear somewhere in the target string (any order).
+ * Handles punctuation like "SWS/AW:" by treating them as word separators.
+ */
+function matchesWordSearch(target: string, queryWords: string[]): boolean {
+  // Normalize target: lowercase, replace common separators with spaces
+  const normalizedTarget = target.toLowerCase().replace(/[/:_\-\.]/g, ' ');
+
+  // Every query word must appear in the target
+  return queryWords.every((word) => normalizedTarget.includes(word));
+}
+
+/**
+ * Sort actions: named commands first (alphabetically), then native by numeric ID.
+ * This matches REAPER's action list ordering.
+ * ~5-15ms for 15k items - runs once on cache load, not on every filter.
+ */
+function sortActions(actions: ReaperAction[]): ReaperAction[] {
+  return [...actions].sort((a, b) => {
+    const aHasNamed = a.namedId !== null;
+    const bHasNamed = b.namedId !== null;
+
+    // Named commands come first
+    if (aHasNamed && !bHasNamed) return -1;
+    if (!aHasNamed && bHasNamed) return 1;
+
+    // Both named: sort alphabetically by name
+    if (aHasNamed && bHasNamed) {
+      return a.name.localeCompare(b.name);
+    }
+
+    // Both native: sort by numeric command ID
+    return a.commandId - b.commandId;
+  });
+}
+
 interface ActionSearchProps {
   /** Called when user selects an action */
   onSelect: (action: ReaperAction) => void;
@@ -25,6 +69,8 @@ interface ActionSearchProps {
   selectedActionId?: string;
   /** Optional max height for the list container */
   maxHeight?: number;
+  /** Initial section filter (default: ALL_SECTIONS) */
+  initialSection?: number;
 }
 
 /**
@@ -53,36 +99,59 @@ export function ActionSearch({
   onSelect,
   selectedActionId,
   maxHeight = 400,
+  initialSection = ALL_SECTIONS,
 }: ActionSearchProps) {
   const actionCache = useReaperStore((s) => s.actionCache);
   const loading = useReaperStore((s) => s.actionCacheLoading);
   const error = useReaperStore((s) => s.actionCacheError);
 
   const [query, setQuery] = useState('');
+  const [sectionFilter, setSectionFilter] = useState(initialSection);
   const debouncedQuery = useDebounce(query, DEBOUNCE_MS);
 
-  // Filter actions by name or command ID
+  // Get unique sections from action cache for the dropdown
+  const availableSections = useMemo(() => {
+    const sectionIds = new Set(actionCache.map((a) => a.sectionId));
+    return Array.from(sectionIds).sort((a, b) => a - b);
+  }, [actionCache]);
+
+  // Sort actions once on cache change (~5-15ms for 15k items)
+  const sortedActions = useMemo(() => sortActions(actionCache), [actionCache]);
+
+  // Filter actions by section and search query
   const filtered = useMemo(() => {
-    if (!debouncedQuery.trim()) return actionCache;
+    let result = sortedActions;
 
-    const q = debouncedQuery.toLowerCase().trim();
+    // Apply section filter
+    if (sectionFilter !== ALL_SECTIONS) {
+      result = result.filter((a) => a.sectionId === sectionFilter);
+    }
 
-    // Check if query looks like a numeric ID
-    const isNumericQuery = /^\d+$/.test(q);
+    // Apply text search
+    if (debouncedQuery.trim()) {
+      const q = debouncedQuery.toLowerCase().trim();
 
-    return actionCache.filter((a) => {
-      // Match by name (case-insensitive substring)
-      if (a.name.toLowerCase().includes(q)) return true;
+      // Check if query looks like a numeric ID
+      const isNumericQuery = /^\d+$/.test(q);
 
-      // Match by command ID (prefix match for numeric queries)
-      if (isNumericQuery && String(a.commandId).startsWith(q)) return true;
+      if (isNumericQuery) {
+        // Numeric query: prefix match on command ID
+        result = result.filter((a) => String(a.commandId).startsWith(q));
+      } else {
+        // Word-based search: split query into words, all must match
+        const queryWords = q.split(/\s+/).filter((w) => w.length > 0);
+        result = result.filter((a) => {
+          // Match against name
+          if (matchesWordSearch(a.name, queryWords)) return true;
+          // Also match against namedId
+          if (a.namedId && matchesWordSearch(a.namedId, queryWords)) return true;
+          return false;
+        });
+      }
+    }
 
-      // Match by named ID (for SWS/scripts)
-      if (a.namedId?.toLowerCase().includes(q)) return true;
-
-      return false;
-    });
-  }, [actionCache, debouncedQuery]);
+    return result;
+  }, [sortedActions, sectionFilter, debouncedQuery]);
 
   // Virtualizer setup
   const parentRef = useRef<HTMLDivElement>(null);
@@ -132,6 +201,29 @@ export function ActionSearch({
 
   return (
     <div className="flex flex-col">
+      {/* Section filter */}
+      <div className="mb-3">
+        <label className="block text-xs text-gray-400 mb-1">Section</label>
+        <div className="relative">
+          <select
+            value={sectionFilter}
+            onChange={(e) => setSectionFilter(Number(e.target.value))}
+            className="w-full px-3 py-2 pr-8 bg-gray-900 border border-gray-600 rounded text-white appearance-none focus:border-blue-500 focus:outline-none"
+          >
+            <option value={ALL_SECTIONS}>All Sections</option>
+            {availableSections.map((sectionId) => (
+              <option key={sectionId} value={sectionId}>
+                {REAPER_SECTIONS[sectionId] ?? `Section ${sectionId}`}
+              </option>
+            ))}
+          </select>
+          <ChevronDown
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+            size={16}
+          />
+        </div>
+      </div>
+
       {/* Search input */}
       <div className="relative mb-3">
         <Search
@@ -142,7 +234,7 @@ export function ActionSearch({
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search actions by name or ID..."
+          placeholder="Search by name (e.g., sws selection cons)..."
           className="w-full pl-10 pr-3 py-2 bg-gray-900 border border-gray-600 rounded text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
           autoFocus
         />
@@ -150,9 +242,14 @@ export function ActionSearch({
 
       {/* Results count */}
       <div className="text-xs text-gray-500 mb-2">
-        {filtered.length === actionCache.length
-          ? `${actionCache.length} actions`
-          : `${filtered.length} of ${actionCache.length} actions`}
+        {filtered.length === sortedActions.length
+          ? `${sortedActions.length} actions`
+          : `${filtered.length} of ${sortedActions.length} actions`}
+        {sectionFilter !== ALL_SECTIONS && (
+          <span className="ml-1">
+            in {REAPER_SECTIONS[sectionFilter] ?? `Section ${sectionFilter}`}
+          </span>
+        )}
       </div>
 
       {/* No results */}
