@@ -161,6 +161,40 @@ export function TimelinePlayhead({
  */
 export function PlayheadDragPreview({
   playheadPreviewPercent,
+  isDraggingPlayhead,
+}: Pick<PlayheadPreviewProps, 'playheadPreviewPercent' | 'isDraggingPlayhead'>): ReactElement | null {
+  if (!isDraggingPlayhead || playheadPreviewPercent === null) return null;
+
+  return (
+    <div
+      className="absolute top-0 bottom-0 pointer-events-none"
+      style={{ left: `${playheadPreviewPercent}%` }}
+    >
+      {/* Preview line - same z as main playhead line */}
+      <div className="absolute top-0 bottom-0 left-0 w-0.5 z-10 bg-playhead" />
+      {/* Preview inverted triangle with highlight - above everything */}
+      <div className="absolute top-0 -left-[11px] w-6 h-6 z-40">
+        <div
+          className="absolute top-0 left-1/2 -translate-x-1/2"
+          style={{
+            width: 0,
+            height: 0,
+            borderLeft: '12px solid transparent',
+            borderRight: '12px solid transparent',
+            borderTop: '16px solid var(--color-playhead)',
+            filter: 'drop-shadow(0 0 4px oklch(from var(--color-playhead) l c h / 0.9))',
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Pill showing playhead preview position - rendered separately in header area
+ */
+export function PlayheadPreviewPill({
+  playheadPreviewPercent,
   playheadPreviewTime,
   isDraggingPlayhead,
   bpm,
@@ -209,37 +243,16 @@ export function PlayheadDragPreview({
 
   if (!isDraggingPlayhead || playheadPreviewPercent === null || playheadPreviewTime === null) return null;
 
-  // Use 3 decimal places for drag preview
   const timeStr = formatTime(playheadPreviewTime, { precision: 2 });
-  // Use server bar string if available, fall back to local calculation
   const beatsStr = serverBars ?? (bpm ? formatBeats(playheadPreviewTime, bpm, barOffset, beatsPerBar, denominator) : '');
 
   return (
     <div
-      className="absolute top-0 bottom-0 pointer-events-none"
+      className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 z-40 pointer-events-none"
       style={{ left: `${playheadPreviewPercent}%` }}
     >
-      {/* Preview line - same z as main playhead line */}
-      <div className="absolute top-0 bottom-0 left-0 w-0.5 z-10 bg-playhead" />
-      {/* Preview inverted triangle with highlight - above everything */}
-      <div className="absolute top-0 -left-[11px] w-6 h-6 z-40">
-        <div
-          className="absolute top-0 left-1/2 -translate-x-1/2"
-          style={{
-            width: 0,
-            height: 0,
-            borderLeft: '12px solid transparent',
-            borderRight: '12px solid transparent',
-            borderTop: '16px solid var(--color-playhead)',
-            filter: 'drop-shadow(0 0 4px oklch(from var(--color-playhead) l c h / 0.9))',
-          }}
-        />
-      </div>
-      {/* Position pill showing time and beats - at bottom so finger doesn't obscure */}
-      <div className="absolute bottom-1 -translate-x-1/2 z-40">
-        <div className="bg-bg-deep border border-playhead rounded px-2 py-1 text-xs text-text-primary font-mono whitespace-nowrap shadow-lg">
-          {beatsStr ? `${beatsStr} | ${timeStr}` : timeStr}
-        </div>
+      <div className="bg-bg-deep border border-playhead rounded px-2 py-1 text-xs text-text-primary font-mono whitespace-nowrap shadow-lg">
+        {beatsStr ? `${beatsStr} | ${timeStr}` : timeStr}
       </div>
     </div>
   );

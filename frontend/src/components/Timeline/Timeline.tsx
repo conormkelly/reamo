@@ -15,7 +15,7 @@ import { usePlayheadDrag, useMarkerDrag, useRegionDrag } from './hooks';
 import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
 import { ItemsDensityOverlay } from './ItemDensityBlobs';
 import { TimelineMarkerLines, TimelineMarkerPills } from './TimelineMarkers';
-import { TimelinePlayhead, PlayheadDragPreview, MarkerDragPreview } from './TimelinePlayhead';
+import { TimelinePlayhead, PlayheadDragPreview, PlayheadPreviewPill, MarkerDragPreview } from './TimelinePlayhead';
 import { formatBeats, formatDelta } from '../../utils';
 import { timeToBarBeat, formatBarBeat } from '../../core/tempoUtils';
 import { findNearestSnapTarget } from './snapUtils';
@@ -491,7 +491,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
 
   return (
     <div className={`${className}`}>
-      {/* Top bar - region labels (color bar + text) */}
+      {/* Top bar - region labels (color bar + text) + playhead preview pill */}
       <div className="relative h-[25px] bg-bg-deep rounded-t-lg">
         <TimelineRegionLabels
           displayRegions={displayRegions}
@@ -501,6 +501,16 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           draggedRegionId={draggedRegionId}
           regionDragType={regionDragType}
           renderTimeToPercent={renderTimeToPercent}
+        />
+        {/* Playhead preview pill - rendered here to avoid overflow clipping */}
+        <PlayheadPreviewPill
+          playheadPreviewPercent={playheadPreviewPercent}
+          playheadPreviewTime={playheadPreviewTime}
+          isDraggingPlayhead={isDraggingPlayhead}
+          bpm={bpm}
+          barOffset={barOffset}
+          beatsPerBar={beatsPerBar}
+          denominator={denominator}
         />
       </div>
 
@@ -651,15 +661,10 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           handlePlayheadPointerUp={handlePlayheadPointerUp}
         />
 
-        {/* Preview playhead during drag */}
+        {/* Preview playhead line/triangle during drag */}
         <PlayheadDragPreview
           playheadPreviewPercent={playheadPreviewPercent}
-          playheadPreviewTime={playheadPreviewTime}
           isDraggingPlayhead={isDraggingPlayhead}
-          bpm={bpm}
-          barOffset={barOffset}
-          beatsPerBar={beatsPerBar}
-          denominator={denominator}
         />
 
         {/* Preview marker during drag */}

@@ -16,7 +16,7 @@ const VIEW_ORDER: ViewId[] = ['studio', 'mixer', 'clock', 'cues', 'actions', 'no
 
 export function TabBar({ currentView, onViewChange, className = '' }: TabBarProps): ReactElement {
   return (
-    <nav className={`flex bg-bg-deep border-t border-border-muted ${className}`}>
+    <nav className={`flex bg-bg-deep border-t border-border-muted select-none ${className}`}>
       {VIEW_ORDER.map((viewId) => {
         const meta = viewMeta[viewId];
         const isActive = currentView === viewId;

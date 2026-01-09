@@ -7,6 +7,7 @@ import type { ReactElement } from 'react';
 import { ToolbarButton } from '../../../components/Toolbar/ToolbarButton';
 import type { ToolbarAction, ToggleState } from '../../../store/slices/toolbarSlice';
 import type { SectionAlign, SizeOption } from '../../../store/slices/actionsViewSlice';
+import type { UseListReorderReturn } from '../../../hooks';
 
 // Gap classes for spacing options
 const SPACING_CLASSES = {
@@ -23,12 +24,9 @@ interface ActionsGridProps {
   editMode: boolean;
   toggleStates: Map<string, ToggleState>;
   onEditAction: (action: ToolbarAction) => void;
-  // Drag-drop for action reordering within grid
-  dragFromIdx: number | null;
-  dragOverIdx: number | null;
-  onDragStart: (index: number) => void;
-  onDragOver: (index: number) => void;
-  onDragEnd: () => void;
+  // Drag-drop via useListReorder hook
+  getDragItemProps: UseListReorderReturn['getDragItemProps'];
+  isDragTarget: UseListReorderReturn['isDragTarget'];
 }
 
 export function ActionsGrid({
@@ -39,11 +37,8 @@ export function ActionsGrid({
   editMode,
   toggleStates,
   onEditAction,
-  dragFromIdx,
-  dragOverIdx,
-  onDragStart,
-  onDragOver,
-  onDragEnd,
+  getDragItemProps,
+  isDragTarget,
 }: ActionsGridProps): ReactElement {
   // Alignment classes for flex container
   const alignClass =
@@ -69,11 +64,8 @@ export function ActionsGrid({
           editMode={editMode}
           onEdit={() => onEditAction(action)}
           size={buttonSize}
-          index={index}
-          onDragStart={onDragStart}
-          onDragOver={onDragOver}
-          onDragEnd={onDragEnd}
-          isDragTarget={dragOverIdx === index && dragFromIdx !== null && dragFromIdx !== index}
+          dragProps={getDragItemProps(index)}
+          isDragTarget={isDragTarget(index)}
         />
       ))}
     </div>

@@ -36,3 +36,8 @@ export {
   type TransportSyncState,
   type TransportSyncSubscriber,
 } from './useTransportSync';
+export {
+  useListReorder,
+  type UseListReorderOptions,
+  type UseListReorderReturn,
+} from './useListReorder';

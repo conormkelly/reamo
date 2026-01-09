@@ -21,7 +21,7 @@ import { views, type ViewId, VIEW_STORAGE_KEY, DEFAULT_VIEW } from './viewRegist
 
 function AppContent() {
   // DEV FAILSAFE: Uncomment to clear all localStorage on init (useful when API changes break stored data)
-  // localStorage.clear(); console.warn('DEV: localStorage cleared');
+  localStorage.clear(); console.warn('DEV: localStorage cleared');
 
   const [currentView, setCurrentView] = useState<ViewId>(() => {
     try {
@@ -123,7 +123,7 @@ function LoadingScreen() {
   const troubleState = elapsed >= 10 || gaveUp;
 
   return (
-    <div className="flex flex-col items-center justify-center h-screen-safe gap-6 bg-bg-app px-6">
+    <div className="flex flex-col items-center justify-center h-screen-safe gap-6 bg-bg-app px-6 text-center">
       {/* REAmo heading */}
       <h1 className="text-2xl font-semibold tracking-wide text-text-primary">REAmo</h1>
 
@@ -149,7 +149,7 @@ function LoadingScreen() {
 
       {troubleState ? (
         /* Trouble connecting state */
-        <div className="flex flex-col items-center gap-4 max-w-xs text-center">
+        <div className="flex flex-col items-center gap-4 max-w-xs">
           <p className="text-text-secondary text-sm">
             Having trouble connecting to REAPER.
           </p>

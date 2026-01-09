@@ -1,11 +1,12 @@
 /**
  * ReorderSectionsModal Component
- * Modal for reordering sections and customizing their appearance
+ * Modal for reordering sections using the unified drag pattern from ActionsSection
  */
 
-import { useState, useRef, type ReactElement } from 'react';
+import { useState, useCallback, type ReactElement } from 'react';
 import { X, GripVertical } from 'lucide-react';
 import { useReaperStore, type SectionId } from '../../store';
+import { useListReorder } from '../../hooks';
 
 export interface ReorderSectionsModalProps {
   isOpen: boolean;
@@ -20,7 +21,7 @@ const SECTION_LABELS: Record<SectionId, string> = {
 };
 
 export function ReorderSectionsModal({ isOpen, onClose }: ReorderSectionsModalProps): ReactElement | null {
-  const { sections, reorderSections } = useReaperStore();
+  const { sections, reorderLayoutSections } = useReaperStore();
 
   // Build ordered list of section IDs
   const [orderedSections, setOrderedSections] = useState<SectionId[]>(() => {
@@ -28,88 +29,32 @@ export function ReorderSectionsModal({ isOpen, onClose }: ReorderSectionsModalPr
     return ids.sort((a, b) => sections[a].order - sections[b].order);
   });
 
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-  const touchStartY = useRef<number>(0);
-  const touchCurrentY = useRef<number>(0);
+  // Handle reorder - update local state and store
+  const handleReorder = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      // Clamp toIndex to valid range
+      const clampedTo = Math.max(0, Math.min(orderedSections.length - 1, toIndex));
+      if (fromIndex === clampedTo) return;
+
+      // Reorder locally
+      const newOrder = [...orderedSections];
+      const [moved] = newOrder.splice(fromIndex, 1);
+      newOrder.splice(clampedTo, 0, moved);
+      setOrderedSections(newOrder);
+
+      // Update store
+      reorderLayoutSections(fromIndex, clampedTo);
+    },
+    [orderedSections, reorderLayoutSections]
+  );
+
+  // Use unified drag hook
+  const { isDragging, isDragTarget, getDragItemProps } = useListReorder({
+    onReorder: handleReorder,
+    enabled: true,
+  });
 
   if (!isOpen) return null;
-
-  // Desktop drag handlers
-  const handleDragStart = (index: number) => {
-    setDraggedIndex(index);
-  };
-
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    setDragOverIndex(index);
-  };
-
-  const handleDrop = (index: number) => {
-    if (draggedIndex === null || draggedIndex === index) {
-      setDraggedIndex(null);
-      setDragOverIndex(null);
-      return;
-    }
-
-    // Reorder locally
-    const newOrder = [...orderedSections];
-    const [moved] = newOrder.splice(draggedIndex, 1);
-    newOrder.splice(index, 0, moved);
-    setOrderedSections(newOrder);
-
-    // Update store
-    reorderSections(draggedIndex, index);
-
-    setDraggedIndex(null);
-    setDragOverIndex(null);
-  };
-
-  const handleDragEnd = () => {
-    setDraggedIndex(null);
-    setDragOverIndex(null);
-  };
-
-  // Touch handlers for mobile
-  const handleTouchStart = (e: React.TouchEvent, index: number) => {
-    touchStartY.current = e.touches[0].clientY;
-    touchCurrentY.current = e.touches[0].clientY;
-    setDraggedIndex(index);
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (draggedIndex === null) return;
-
-    touchCurrentY.current = e.touches[0].clientY;
-    const deltaY = touchCurrentY.current - touchStartY.current;
-
-    // Calculate which item we're over based on touch position
-    const itemHeight = 60; // Approximate height of each item
-    const itemsMoved = Math.round(deltaY / itemHeight);
-    const newIndex = Math.max(0, Math.min(orderedSections.length - 1, draggedIndex + itemsMoved));
-
-    setDragOverIndex(newIndex);
-  };
-
-  const handleTouchEnd = () => {
-    if (draggedIndex === null || dragOverIndex === null || draggedIndex === dragOverIndex) {
-      setDraggedIndex(null);
-      setDragOverIndex(null);
-      return;
-    }
-
-    // Reorder locally
-    const newOrder = [...orderedSections];
-    const [moved] = newOrder.splice(draggedIndex, 1);
-    newOrder.splice(dragOverIndex, 0, moved);
-    setOrderedSections(newOrder);
-
-    // Update store
-    reorderSections(draggedIndex, dragOverIndex);
-
-    setDraggedIndex(null);
-    setDragOverIndex(null);
-  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
@@ -130,34 +75,23 @@ export function ReorderSectionsModal({ isOpen, onClose }: ReorderSectionsModalPr
 
         {/* Content */}
         <div className="p-4 space-y-2">
-          {orderedSections.map((sectionId, index) => {
-            const isDragging = draggedIndex === index;
-            const isOver = dragOverIndex === index && draggedIndex !== index;
-
-            return (
-              <div
-                key={sectionId}
-                data-testid="reorder-section-item"
-                draggable
-                onDragStart={() => handleDragStart(index)}
-                onDragOver={(e) => handleDragOver(e, index)}
-                onDrop={() => handleDrop(index)}
-                onDragEnd={handleDragEnd}
-                onTouchStart={(e) => handleTouchStart(e, index)}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
-                className={`
-                  flex items-center gap-3 p-3 rounded-lg border-2 transition-all cursor-move touch-none select-none
-                  ${isDragging ? 'opacity-50 border-primary' : 'border-border-subtle'}
-                  ${isOver ? 'border-primary-hover bg-primary/20' : 'bg-bg-surface'}
-                  hover:bg-bg-elevated
-                `}
-              >
-                <GripVertical size={20} className="text-text-muted" />
-                <span className="flex-1 text-sm font-medium">{SECTION_LABELS[sectionId]}</span>
-              </div>
-            );
-          })}
+          {orderedSections.map((sectionId, index) => (
+            <div
+              key={sectionId}
+              data-testid="reorder-section-item"
+              {...getDragItemProps(index)}
+              className={`
+                flex items-center gap-3 p-3 rounded-lg transition-all cursor-grab active:cursor-grabbing touch-none select-none
+                bg-bg-deep ring-1 ring-edit-mode-ring
+                ${isDragging(index) ? 'opacity-50' : ''}
+                ${isDragTarget(index) ? 'ring-2 ring-drag-target-ring scale-[1.02]' : ''}
+                hover:bg-bg-elevated
+              `}
+            >
+              <GripVertical size={20} className="text-text-muted" />
+              <span className="flex-1 text-sm font-medium">{SECTION_LABELS[sectionId]}</span>
+            </div>
+          ))}
         </div>
 
         {/* Footer */}

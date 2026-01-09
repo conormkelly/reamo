@@ -12,17 +12,26 @@ import { getIconComponent } from './DynamicIcon';
 // Size variants for buttons
 type ButtonSize = 'sm' | 'md' | 'lg';
 
+// Drag props from useListReorder hook
+interface DragItemProps {
+  draggable: boolean;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onDrop: (e: React.DragEvent) => void;
+  onDragEnd: () => void;
+  onTouchStart: (e: React.TouchEvent) => void;
+  onTouchMove: (e: React.TouchEvent) => void;
+  onTouchEnd: () => void;
+}
+
 interface ToolbarButtonProps {
   action: ToolbarAction;
   toggleState?: ToggleState;
   editMode: boolean;
   onEdit: () => void;
   size?: ButtonSize;
-  // Drag and drop (edit mode only)
-  index?: number;
-  onDragStart?: (index: number) => void;
-  onDragOver?: (index: number) => void;
-  onDragEnd?: () => void;
+  // Drag and drop via useListReorder hook (preferred)
+  dragProps?: DragItemProps;
   isDragTarget?: boolean;
 }
 
@@ -44,10 +53,7 @@ export function ToolbarButton({
   editMode,
   onEdit,
   size = 'md',
-  index,
-  onDragStart,
-  onDragOver,
-  onDragEnd,
+  dragProps,
   isDragTarget,
 }: ToolbarButtonProps) {
   const sizeConfig = SIZE_CONFIG[size];
@@ -89,37 +95,10 @@ export function ToolbarButton({
   // Get icon component
   const IconComponent = action.icon ? getIconComponent(action.icon) : null;
 
-  const handleDragStart = useCallback(
-    (e: React.DragEvent) => {
-      if (!editMode || index === undefined || !onDragStart) return;
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', String(index));
-      onDragStart(index);
-    },
-    [editMode, index, onDragStart]
-  );
-
-  const handleDragOver = useCallback(
-    (e: React.DragEvent) => {
-      if (!editMode || index === undefined || !onDragOver) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      onDragOver(index);
-    },
-    [editMode, index, onDragOver]
-  );
-
-  const handleDragEnd = useCallback(() => {
-    onDragEnd?.();
-  }, [onDragEnd]);
-
   return (
     <button
       onClick={handleClick}
-      draggable={editMode}
-      onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
-      onDragEnd={handleDragEnd}
+      {...dragProps}
       className={`
         relative flex flex-col items-center justify-center
         ${sizeConfig.button}
@@ -143,7 +122,7 @@ export function ToolbarButton({
 
       {/* Label */}
       <span
-        className={`${sizeConfig.text} font-medium truncate max-w-full`}
+        className={`${sizeConfig.text} font-medium truncate max-w-full select-none`}
         style={{ color: textColor }}
       >
         {action.label}
@@ -159,7 +138,7 @@ export function ToolbarButton({
       {/* Toggle state indicator dot - always show for REAPER actions (except non-toggles) */}
       {action.type === 'reaper_action' && toggleState !== -1 && (
         <div
-          className={`absolute top-1 right-1 w-3 h-3 rounded-full border-2 border-white shadow-md ${
+          className={`absolute top-1 right-1 w-3 h-3 rounded-full border-2 border-white shadow-md select-none ${
             toggleState === 1
               ? 'bg-success'
               : toggleState === 0

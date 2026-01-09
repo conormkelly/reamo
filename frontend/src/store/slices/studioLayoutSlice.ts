@@ -25,7 +25,7 @@ export interface StudioLayoutState {
   setShowRecordingActions: (show: boolean) => void;
   setLayoutLocked: (locked: boolean) => void;
   setPinMasterTrack: (pinned: boolean) => void;
-  reorderSections: (fromIndex: number, toIndex: number) => void;
+  reorderLayoutSections: (fromIndex: number, toIndex: number) => void;
   loadLayoutFromStorage: () => void;
   saveLayoutToStorage: () => void;
   resetLayoutToDefaults: () => void;
@@ -91,7 +91,7 @@ export const createStudioLayoutSlice: StateCreator<StudioLayoutState> = (set, ge
     get().saveLayoutToStorage();
   },
 
-  reorderSections: (fromIndex, toIndex) => {
+  reorderLayoutSections: (fromIndex, toIndex) => {
     const state = get();
     const sectionIds = (Object.keys(state.sections) as SectionId[]).sort(
       (a, b) => state.sections[a].order - state.sections[b].order

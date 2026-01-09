@@ -2,7 +2,7 @@
  * ActionsSection - Collapsible section containing a grid of action buttons
  */
 
-import { useState, useCallback, type ReactElement } from 'react';
+import { useCallback, type ReactElement } from 'react';
 import {
   ChevronDown,
   GripVertical,
@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { getIconComponent } from '../../../components/Toolbar/DynamicIcon';
 import { ActionsGrid } from './ActionsGrid';
+import { useListReorder } from '../../../hooks';
 import type {
   ActionsSection as ActionsSectionType,
   SectionAlign,
@@ -54,25 +55,11 @@ export function ActionsSection({
   onDragSectionEnd,
   isSectionDragTarget,
 }: ActionsSectionProps): ReactElement {
-  // Local drag state for actions within this section
-  const [dragFromIdx, setDragFromIdx] = useState<number | null>(null);
-  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
-
-  const handleActionDragStart = useCallback((idx: number) => {
-    setDragFromIdx(idx);
-  }, []);
-
-  const handleActionDragOver = useCallback((idx: number) => {
-    setDragOverIdx(idx);
-  }, []);
-
-  const handleActionDragEnd = useCallback(() => {
-    if (dragFromIdx !== null && dragOverIdx !== null && dragFromIdx !== dragOverIdx) {
-      onReorderActions(dragFromIdx, dragOverIdx);
-    }
-    setDragFromIdx(null);
-    setDragOverIdx(null);
-  }, [dragFromIdx, dragOverIdx, onReorderActions]);
+  // Action drag via unified hook
+  const { getDragItemProps, isDragTarget } = useListReorder({
+    onReorder: onReorderActions,
+    enabled: editMode,
+  });
 
   // Section drag handlers
   const handleSectionDragStart = useCallback(
@@ -144,8 +131,8 @@ export function ActionsSection({
               style={{ color: section.color || 'var(--color-text-secondary)' }}
             />
           )}
-          <span className="font-medium text-text-primary truncate">{section.name}</span>
-          <span className="text-sm text-text-muted">({section.actions.length})</span>
+          <span className="font-medium text-text-primary truncate select-none">{section.name}</span>
+          <span className="text-sm text-text-muted select-none">({section.actions.length})</span>
         </button>
 
         {/* Alignment buttons (edit mode only) */}
@@ -195,14 +182,11 @@ export function ActionsSection({
               editMode={editMode}
               toggleStates={toggleStates}
               onEditAction={onEditAction}
-              dragFromIdx={dragFromIdx}
-              dragOverIdx={dragOverIdx}
-              onDragStart={handleActionDragStart}
-              onDragOver={handleActionDragOver}
-              onDragEnd={handleActionDragEnd}
+              getDragItemProps={getDragItemProps}
+              isDragTarget={isDragTarget}
             />
           ) : (
-            <div className="text-center text-text-muted py-4">
+            <div className="text-center text-text-muted py-4 select-none">
               {editMode ? 'No actions yet. Tap + to add.' : 'No actions configured'}
             </div>
           )}
@@ -211,7 +195,7 @@ export function ActionsSection({
           {editMode && (
             <button
               onClick={onAddAction}
-              className="w-full mt-3 py-2 border-2 border-dashed border-border-subtle rounded-lg text-text-secondary hover:border-bg-hover hover:text-text-tertiary transition-colors flex items-center justify-center gap-2"
+              className="w-full mt-3 py-2 border-2 border-dashed border-border-subtle rounded-lg text-text-secondary hover:border-bg-hover hover:text-text-tertiary transition-colors flex items-center justify-center gap-2 select-none"
             >
               <Plus size={16} />
               <span>Add Action</span>

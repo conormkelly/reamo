@@ -8,6 +8,7 @@ import { useEffect, useCallback, useState, type ReactElement } from 'react';
 import { Plus, Pencil, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
+import { useListReorder } from '../../hooks';
 import { actionToggleState } from '../../core/WebSocketCommands';
 import { ToolbarButton } from './ToolbarButton';
 import { ToolbarEditor } from './ToolbarEditor';
@@ -99,8 +100,12 @@ export function Toolbar(): ReactElement {
   const { sendCommand, connection, connectionState } = useReaper();
   const [editingAction, setEditingAction] = useState<ToolbarAction | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
-  const [dragFromIndex, setDragFromIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  // Drag and drop via unified hook
+  const { getDragItemProps, isDragTarget } = useListReorder({
+    onReorder: reorderToolbarActions,
+    enabled: toolbarEditMode,
+  });
 
   // Load toolbar config from localStorage on mount
   useEffect(() => {
@@ -172,23 +177,6 @@ export function Toolbar(): ReactElement {
     setIsAddingNew(false);
   }, []);
 
-  // Drag and drop handlers
-  const handleDragStart = useCallback((index: number) => {
-    setDragFromIndex(index);
-  }, []);
-
-  const handleDragOver = useCallback((index: number) => {
-    setDragOverIndex(index);
-  }, []);
-
-  const handleDragEnd = useCallback(() => {
-    if (dragFromIndex !== null && dragOverIndex !== null && dragFromIndex !== dragOverIndex) {
-      reorderToolbarActions(dragFromIndex, dragOverIndex);
-    }
-    setDragFromIndex(null);
-    setDragOverIndex(null);
-  }, [dragFromIndex, dragOverIndex, reorderToolbarActions]);
-
   const handleEditorClose = useCallback(() => {
     setEditingAction(null);
     setIsAddingNew(false);
@@ -232,11 +220,8 @@ export function Toolbar(): ReactElement {
             }
             editMode={toolbarEditMode}
             onEdit={() => handleEditClick(action)}
-            index={index}
-            onDragStart={handleDragStart}
-            onDragOver={handleDragOver}
-            onDragEnd={handleDragEnd}
-            isDragTarget={dragOverIndex === index && dragFromIndex !== index}
+            dragProps={getDragItemProps(index)}
+            isDragTarget={isDragTarget(index)}
           />
         ))}
         {toolbarActions.length === 0 && (
