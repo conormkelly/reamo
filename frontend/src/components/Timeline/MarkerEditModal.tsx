@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback, useEffect, type ReactElement } from 'react';
-import { X, Trash2, ListOrdered, Move, Save, RotateCcw } from 'lucide-react';
+import { Trash2, ListOrdered, Move, Save, RotateCcw } from 'lucide-react';
 import type { Marker } from '../../core/types';
 import {
   formatTime,
@@ -20,6 +20,7 @@ import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
 import { marker as markerCmd } from '../../core/WebSocketCommands';
 import { DEFAULT_MARKER_COLOR, MARKER_COLORS } from '../../constants/colors';
+import { Modal } from '../Modal';
 
 export interface MarkerEditModalProps {
   marker: Marker;
@@ -155,45 +156,21 @@ export function MarkerEditModal({
     onClose();
   }, [onReorderAll, onClose]);
 
-  // Close on escape
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-
   return (
-    <div
-      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
-      onClick={onClose}
+    <Modal
+      isOpen
+      onClose={onClose}
+      title={`Marker ${marker.id}`}
+      icon={
+        <div
+          className="w-4 h-4 rounded-full border border-border-default"
+          style={{ backgroundColor: colorValue ?? DEFAULT_MARKER_COLOR }}
+        />
+      }
+      width="sm"
     >
-      <div
-        className="bg-bg-surface rounded-lg shadow-xl w-80 max-w-[90vw] overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 bg-bg-deep border-b border-border-subtle">
-          <div className="flex items-center gap-2">
-            <div
-              className="w-4 h-4 rounded-full border border-border-default"
-              style={{ backgroundColor: colorValue ?? DEFAULT_MARKER_COLOR }}
-            />
-            <h3 className="text-text-primary font-semibold">Marker {marker.id}</h3>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-text-secondary hover:text-text-primary transition-colors"
-          >
-            <X size={20} />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="p-4 space-y-4">
+      {/* Content */}
+      <div className="p-4 space-y-4">
           {/* Name Input */}
           <div className="space-y-2">
             <label className="text-sm text-text-secondary">Name</label>
@@ -380,7 +357,6 @@ export function MarkerEditModal({
             Delete Marker
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

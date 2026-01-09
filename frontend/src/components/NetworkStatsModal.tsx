@@ -5,9 +5,10 @@
  */
 
 import { useState, useEffect, useCallback, type ReactElement } from 'react';
-import { X, RefreshCw, Activity, Wifi, Clock, Gauge } from 'lucide-react';
+import { RefreshCw, Activity, Wifi, Clock, Gauge } from 'lucide-react';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
 import type { NetworkQuality, NetworkStatus, ClockSyncMetrics } from '../lib/transport-sync';
+import { Modal } from './Modal';
 
 export interface NetworkStatsModalProps {
   isOpen: boolean;
@@ -87,46 +88,15 @@ export function NetworkStatsModal({ isOpen, onClose }: NetworkStatsModalProps): 
     transportSyncEngine.setManualOffset(value);
   }, []);
 
-  // Close on escape key
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Network Stats"
+      icon={<Activity size={20} className="text-info" />}
     >
-      <div className="bg-bg-deep rounded-xl shadow-2xl border border-border-subtle w-full max-w-sm mx-4 overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Activity size={20} className="text-info" />
-            Network Stats
-          </h2>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-bg-elevated transition-colors"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="p-4 space-y-4">
+      {/* Content */}
+      <div className="p-4 space-y-4">
           {/* Status Section */}
           <div className="grid grid-cols-2 gap-3">
             <StatCard
@@ -211,12 +181,7 @@ export function NetworkStatsModal({ isOpen, onClose }: NetworkStatsModalProps): 
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="px-4 py-3 border-t border-border-subtle text-xs text-text-muted text-center">
-          Long-press connection dot to open
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

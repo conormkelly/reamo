@@ -4,7 +4,6 @@
  */
 
 import { useState, useEffect, useRef, type ReactElement } from 'react';
-import { X } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
 import { useTimeSignature, useBarOffset } from '../../hooks';
@@ -15,6 +14,7 @@ import {
   formatBeatsToBarBeatTicks,
 } from '../../utils';
 import { timeSelection as timeSelCmd } from '../../core/WebSocketCommands';
+import { Modal } from '../Modal';
 
 interface MakeSelectionModalProps {
   isOpen: boolean;
@@ -82,7 +82,6 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
   const [endValue, setEndValue] = useState('2.1');
   const [error, setError] = useState<string | null>(null);
 
-  const modalRef = useRef<HTMLDivElement>(null);
   const wasOpenRef = useRef(false);
   const prevModeRef = useRef<'beats' | 'time'>(mode);
   const capturedBarOffsetRef = useRef<number>(0); // Captured on modal open to prevent drift during playback
@@ -186,27 +185,6 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
     setError(null);
   }, [mode, isOpen, bpm, startValue, endValue, beatsPerBar, denominator]);
 
-  // Close on escape key
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
-  // Close when clicking outside
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
-      onClose();
-    }
-  };
-
   const handleApply = () => {
     const effectiveBpm = bpm && bpm > 0 ? bpm : 120;
     // Use captured barOffset for consistency
@@ -281,30 +259,10 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
     onClose();
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div
-      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
-      onClick={handleBackdropClick}
-    >
-      <div
-        ref={modalRef}
-        className="bg-bg-surface rounded-xl shadow-2xl w-full max-w-sm border border-border-subtle"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
-          <h2 className="text-lg font-semibold text-text-primary">Set Time Selection</h2>
-          <button
-            onClick={onClose}
-            className="p-1 text-text-secondary hover:text-text-primary transition-colors"
-          >
-            <X size={20} />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="p-4 space-y-4">
+    <Modal isOpen={isOpen} onClose={onClose} title="Set Time Selection">
+      {/* Body */}
+      <div className="p-4 space-y-4">
           {/* Mode toggle */}
           <div className="flex rounded-lg bg-bg-elevated p-1">
             <button
@@ -367,30 +325,29 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex justify-between px-4 py-3 border-t border-border-subtle">
+      {/* Footer */}
+      <div className="flex justify-between px-4 py-3 border-t border-border-subtle">
+        <button
+          onClick={handleClear}
+          className="px-4 py-2 text-sm font-medium text-text-secondary hover:text-error transition-colors"
+        >
+          Clear Selection
+        </button>
+        <div className="flex gap-2">
           <button
-            onClick={handleClear}
-            className="px-4 py-2 text-sm font-medium text-text-secondary hover:text-error transition-colors"
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-text-tertiary hover:text-text-primary transition-colors"
           >
-            Clear Selection
+            Cancel
           </button>
-          <div className="flex gap-2">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-text-tertiary hover:text-text-primary transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleApply}
-              className="px-4 py-2 text-sm font-medium text-text-on-accent bg-accent-region hover:bg-accent-region-hover rounded-lg transition-colors"
-            >
-              Apply
-            </button>
-          </div>
+          <button
+            onClick={handleApply}
+            className="px-4 py-2 text-sm font-medium text-text-on-accent bg-accent-region hover:bg-accent-region-hover rounded-lg transition-colors"
+          >
+            Apply
+          </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

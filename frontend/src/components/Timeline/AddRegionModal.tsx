@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useRef, type ReactElement } from 'react';
-import { X, RotateCcw } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
 import { tempo as tempoCmd } from '../../core/WebSocketCommands';
@@ -13,6 +13,7 @@ import {
   reaperColorToHexWithFallback,
 } from '../../utils';
 import { DEFAULT_REGION_COLOR } from '../../constants/colors';
+import { Modal, ModalFooter } from '../Modal';
 
 interface AddRegionModalProps {
   isOpen: boolean;
@@ -33,7 +34,6 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
   const [lengthBars, setLengthBars] = useState('8');
   const [error, setError] = useState<string | null>(null);
 
-  const modalRef = useRef<HTMLDivElement>(null);
   const wasOpenRef = useRef(false);
 
   // Get unique colors from existing + pending regions (snapshot when modal opens)
@@ -93,27 +93,6 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
     wasOpenRef.current = isOpen;
   }, [isOpen, regions, pendingChanges, getDisplayRegions, sendCommandAsync]);
 
-  // Close on escape key
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
-  // Close when clicking outside
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
-      onClose();
-    }
-  };
-
   const handleCreate = async () => {
     // Parse start position (bar.beat.ticks format)
     const startParts = startBar.split('.');
@@ -164,30 +143,10 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div
-      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
-      onClick={handleBackdropClick}
-    >
-      <div
-        ref={modalRef}
-        className="bg-bg-surface rounded-xl shadow-2xl w-full max-w-md border border-border-subtle"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
-          <h2 className="text-lg font-semibold text-text-primary">Add Region</h2>
-          <button
-            onClick={onClose}
-            className="p-1 text-text-secondary hover:text-text-primary transition-colors"
-          >
-            <X size={20} />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="p-4 space-y-4">
+    <Modal isOpen={isOpen} onClose={onClose} title="Add Region" width="lg">
+      {/* Body */}
+      <div className="p-4 space-y-4">
           {/* Name */}
           <div>
             <label className="block text-sm font-medium text-text-tertiary mb-1">Name</label>
@@ -302,22 +261,11 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex justify-end gap-2 px-4 py-3 border-t border-border-subtle">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-text-tertiary hover:text-text-primary transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleCreate}
-            className="px-4 py-2 text-sm font-medium text-text-on-accent bg-accent-region hover:bg-accent-region-hover rounded-lg transition-colors"
-          >
-            Add Region
-          </button>
-        </div>
-      </div>
-    </div>
+      <ModalFooter
+        onCancel={onClose}
+        onConfirm={handleCreate}
+        confirmText="Add Region"
+      />
+    </Modal>
   );
 }

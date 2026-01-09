@@ -3,12 +3,13 @@
  * Modal dialog for deleting a region with options for handling the gap
  */
 
-import { useState, useEffect, useRef, type ReactElement } from 'react';
-import { X, Trash2 } from 'lucide-react';
+import { useState, useEffect, type ReactElement } from 'react';
+import { Trash2 } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useTimeFormatters } from '../../hooks';
 import type { Region } from '../../core/types';
 import { reaperColorToRgba } from '../../utils';
+import { Modal } from '../Modal';
 
 export type DeleteMode = 'leave-gap' | 'extend-previous' | 'ripple-back';
 
@@ -31,7 +32,6 @@ export function DeleteRegionModal({
   const { formatDuration } = useTimeFormatters();
 
   const [deleteMode, setDeleteMode] = useState<DeleteMode>('leave-gap');
-  const modalRef = useRef<HTMLDivElement>(null);
 
   // Get display regions to find previous region
   const displayRegions = getDisplayRegions(regions);
@@ -46,27 +46,6 @@ export function DeleteRegionModal({
     }
   }, [isOpen]);
 
-  // Close on escape key
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
-  // Close when clicking outside
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
-      onClose();
-    }
-  };
-
   const handleDelete = () => {
     if (regionId === null) return;
 
@@ -74,36 +53,21 @@ export function DeleteRegionModal({
     onClose();
   };
 
-  if (!isOpen || !region) return null;
+  if (!region) return null;
 
   const duration = region.end - region.start;
   const durationText = formatDuration(duration);
 
   return (
-    <div
-      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
-      onClick={handleBackdropClick}
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Delete Region"
+      icon={<Trash2 size={20} className="text-error" />}
+      width="lg"
     >
-      <div
-        ref={modalRef}
-        className="bg-bg-surface rounded-xl shadow-2xl w-full max-w-md border border-border-subtle"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
-          <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">
-            <Trash2 size={20} className="text-error" />
-            Delete Region
-          </h2>
-          <button
-            onClick={onClose}
-            className="p-1 text-text-secondary hover:text-text-primary transition-colors"
-          >
-            <X size={20} />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="p-4 space-y-4">
+      {/* Body */}
+      <div className="p-4 space-y-4">
           {/* Region info - simple inline with color accent */}
           <div className="flex items-center gap-3">
             <div
@@ -204,23 +168,22 @@ export function DeleteRegionModal({
           </p>
         </div>
 
-        {/* Footer */}
-        <div className="flex justify-end gap-2 px-4 py-3 border-t border-border-subtle">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-text-tertiary hover:text-text-primary transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleDelete}
-            className="px-4 py-2 text-sm font-medium text-text-on-error bg-error-action hover:bg-error rounded-lg transition-colors flex items-center gap-1.5"
-          >
-            <Trash2 size={16} />
-            Delete Region
-          </button>
-        </div>
+      {/* Footer */}
+      <div className="flex justify-end gap-2 px-4 py-3 border-t border-border-subtle">
+        <button
+          onClick={onClose}
+          className="px-4 py-2 text-sm font-medium text-text-tertiary hover:text-text-primary transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleDelete}
+          className="px-4 py-2 text-sm font-medium text-text-on-error bg-error-action hover:bg-error rounded-lg transition-colors flex items-center gap-1.5"
+        >
+          <Trash2 size={16} />
+          Delete Region
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }
