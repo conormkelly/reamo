@@ -64,17 +64,20 @@ REAmo is a React PWA control surface for REAPER DAW. It runs on iPad/iPhone for 
 **Also verified (no issues found):**
 - No ResizeObserver or IntersectionObserver usage in codebase (nothing to clean up)
 
+### Batch 4: Medium Priority Audits (DONE)
+
+| Issue | Fix | Files Modified |
+|-------|-----|----------------|
+| IconPicker loads ~1900 icons upfront | Created `LazyIconPicker.tsx` with React.lazy() + Suspense | `src/components/Toolbar/LazyIconPicker.tsx` (new), `ToolbarEditor.tsx`, `SectionEditor.tsx`, `index.ts` |
+
+**Also verified (no issues found):**
+- Map mutations in store slices all create new Maps before calling `.set()` (correct pattern)
+- All `get()` calls are inside action function bodies (fresh state, no stale closures)
+- No async actions in store slices (no stale state risk)
+
 ---
 
 ## Remaining Items (Priority Order)
-
-### Medium Priority
-
-| Item | Risk | Notes |
-|------|------|-------|
-| Lazy-load IconPicker | Bundle size (~1900 icons loaded when modal opens) | Use React.lazy() |
-| Check Map mutation patterns | Won't trigger re-renders | `rg "\.set\(" src/store/slices/` |
-| Actions using get() vs closure capture | Stale state bugs | `rg "set\(\(state\)" src/store/slices/` |
 
 ### Low Priority / Nice to Have
 
@@ -141,4 +144,4 @@ npm run lint           # Type check + lint
 
 ---
 
-*Last updated: Session completed Batch 1 + Batch 2 + Batch 3*
+*Last updated: Session completed Batch 1 + Batch 2 + Batch 3 + Batch 4*

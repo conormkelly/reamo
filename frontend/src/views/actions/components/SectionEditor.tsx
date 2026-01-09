@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback, type ReactElement } from 'react';
 import { X, Trash2 } from 'lucide-react';
-import { IconPicker } from '../../../components/Toolbar/IconPicker';
+import { LazyIconPicker } from '../../../components/Toolbar/LazyIconPicker';
 import { ColorPickerInput } from '../../../components/Toolbar/ColorPickerInput';
 import { getIconComponent } from '../../../components/Toolbar/DynamicIcon';
 import type { ActionsSection, SizeOption } from '../../../store/slices/actionsViewSlice';
@@ -299,7 +299,7 @@ export function SectionEditor({
 
         {/* Icon Picker Modal */}
         {showIconPicker && (
-          <IconPicker
+          <LazyIconPicker
             value={icon}
             onChange={(selected: string) => {
               setIcon(selected);

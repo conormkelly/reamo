@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { X, Trash2, ToggleLeft } from 'lucide-react';
-import { IconPicker } from './IconPicker';
+import { LazyIconPicker } from './LazyIconPicker';
 import { ColorPickerInput } from './ColorPickerInput';
 import { ActionSearch, getStableActionId } from './ActionSearch';
 import { getIconComponent } from './DynamicIcon';
@@ -517,7 +517,7 @@ export function ToolbarEditor({
 
         {/* Icon Picker Modal */}
         {showIconPicker && (
-          <IconPicker
+          <LazyIconPicker
             value={icon}
             onChange={(name) => {
               setIcon(name);
