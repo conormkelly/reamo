@@ -3,6 +3,7 @@ export { ErrorBoundary } from './ErrorBoundary';
 export { ConnectionStatus, ConnectionBanner, type ConnectionStatusProps, type ConnectionBannerProps } from './ConnectionStatus';
 export { MemoryWarningBar, type MemoryWarningBarProps } from './MemoryWarningBar';
 export { NetworkStatsModal, type NetworkStatsModalProps } from './NetworkStatsModal';
+export { ModalRoot } from './ModalRoot';
 export { TabBar, type TabBarProps } from './TabBar';
 export { PersistentTransport, type PersistentTransportProps } from './PersistentTransport';
 export { SettingsMenu, type SettingsMenuProps } from './SettingsMenu';

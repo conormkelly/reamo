@@ -11,7 +11,6 @@ import { useReaperStore } from '../../store';
 import { useTimeFormatters } from '../../hooks';
 import { hexToReaperColor, reaperColorToHexWithFallback } from '../../utils';
 import type { Region } from '../../core/types';
-import { DeleteRegionModal } from './DeleteRegionModal';
 import { useReaper } from '../ReaperProvider';
 import { tempo as tempoCmd } from '../../core/WebSocketCommands';
 import { DEFAULT_REGION_COLOR } from '../../constants/colors';
@@ -117,7 +116,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
     name: string;
   } | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const openDeleteRegionModal = useReaperStore((s) => s.openDeleteRegionModal);
   // Cache of bar strings fetched for pending regions (keyed by "id:start:end")
   const [pendingBarStrings, setPendingBarStrings] = useState<Record<string, { startBars: string; endBars: string; lengthBars: string }>>({});
   const inputRef = useRef<HTMLInputElement>(null);
@@ -681,7 +680,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
       {/* Delete Region button - only show when a region is selected */}
       {region && (
         <button
-          onClick={() => setShowDeleteModal(true)}
+          onClick={() => openDeleteRegionModal(region, region.id)}
           className="flex items-center gap-1.5 px-3 py-2 h-10 bg-error-action/80 hover:bg-error text-text-on-error text-sm font-medium rounded-lg transition-colors flex-shrink-0"
           title="Delete selected region"
         >
@@ -710,14 +709,6 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
           <span className="hidden sm:inline">{isCloneMode ? 'Clone' : 'Add'}</span>
         </button>
       )}
-
-      {/* Delete Region Modal */}
-      <DeleteRegionModal
-        isOpen={showDeleteModal}
-        onClose={() => setShowDeleteModal(false)}
-        region={region ?? null}
-        regionId={region?.id ?? null}
-      />
     </div>
   );
 }

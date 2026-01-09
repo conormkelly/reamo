@@ -4,7 +4,7 @@
  * Collapse is handled by parent CollapsibleSection wrapper
  */
 
-import { useState, useMemo, type ReactElement } from 'react';
+import { useMemo, type ReactElement } from 'react';
 import { RectangleHorizontal } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import {
@@ -17,8 +17,6 @@ import {
   NextMarkerButton,
   AddMarkerButton,
   TimelineModeToggle,
-  AddRegionModal,
-  MakeSelectionModal,
 } from '../index';
 
 /**
@@ -30,11 +28,11 @@ export function TimelineHeaderControls(): ReactElement {
 }
 
 export function TimelineSection(): ReactElement {
-  const [showAddRegionModal, setShowAddRegionModal] = useState(false);
-  const [showMakeSelectionModal, setShowMakeSelectionModal] = useState(false);
   const timelineMode = useReaperStore((s) => s.timelineMode);
   const regions = useReaperStore((s) => s.regions);
   const timeSelection = useReaperStore((s) => s.timeSelection);
+  const openAddRegionModal = useReaperStore((s) => s.openAddRegionModal);
+  const openMakeSelectionModal = useReaperStore((s) => s.openMakeSelectionModal);
 
   // Compute timeline bounds for Items mode
   const itemsTimelineBounds = useMemo(() => {
@@ -66,7 +64,7 @@ export function TimelineSection(): ReactElement {
           <Timeline height={80} />
           <RegionInfoBar
             className="mt-2"
-            onAddRegion={timelineMode === 'regions' ? () => setShowAddRegionModal(true) : undefined}
+            onAddRegion={timelineMode === 'regions' ? openAddRegionModal : undefined}
           />
           <div className="mt-2">
             <RegionEditActionBar />
@@ -83,7 +81,7 @@ export function TimelineSection(): ReactElement {
           {/* Navigation buttons */}
           <div className="flex items-center gap-2 flex-shrink-0">
             <button
-              onClick={() => setShowMakeSelectionModal(true)}
+              onClick={openMakeSelectionModal}
               title="Set time selection"
               className="px-3 py-2 bg-bg-elevated text-text-primary hover:bg-bg-hover active:bg-bg-disabled rounded font-medium transition-colors flex items-center"
             >
@@ -96,18 +94,6 @@ export function TimelineSection(): ReactElement {
           </div>
         </section>
       )}
-
-      {/* Add Region Modal */}
-      <AddRegionModal
-        isOpen={showAddRegionModal}
-        onClose={() => setShowAddRegionModal(false)}
-      />
-
-      {/* Make Selection Modal */}
-      <MakeSelectionModal
-        isOpen={showMakeSelectionModal}
-        onClose={() => setShowMakeSelectionModal(false)}
-      />
     </>
   );
 }

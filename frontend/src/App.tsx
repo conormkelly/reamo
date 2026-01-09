@@ -14,6 +14,7 @@ import {
   MemoryWarningBar,
   RecordingActionsBar,
   ErrorBoundary,
+  ModalRoot,
 } from './components';
 import { useUIPreferences, useTransport } from './hooks';
 import { useReaperStore } from './store';
@@ -101,6 +102,9 @@ function AppContent() {
       {showPersistentTransport && (
         <PersistentTransport position={transportPosition} className="safe-area-bottom" />
       )}
+
+      {/* Centralized modal rendering */}
+      <ModalRoot />
     </div>
   );
 }

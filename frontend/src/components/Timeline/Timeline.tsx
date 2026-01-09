@@ -8,9 +8,7 @@ import { useReaperStore } from '../../store';
 import { EMPTY_REGIONS, EMPTY_MARKERS, EMPTY_ITEMS, EMPTY_TRACKS } from '../../store/stableRefs';
 import { useReaper } from '../ReaperProvider';
 import { useTransport, useTimeSignature, useBarOffset } from '../../hooks';
-import { transport, timeSelection as timeSelCmd, action, marker as markerCmd } from '../../core/WebSocketCommands';
-import type { Marker } from '../../core/types';
-import { MarkerEditModal } from './MarkerEditModal';
+import { transport, timeSelection as timeSelCmd, marker as markerCmd } from '../../core/WebSocketCommands';
 import { usePlayheadDrag, useMarkerDrag, useRegionDrag } from './hooks';
 import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
 import { ItemsDensityOverlay } from './ItemDensityBlobs';
@@ -116,8 +114,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   const [isCancelled, setIsCancelled] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Marker edit modal state
-  const [editingMarker, setEditingMarker] = useState<Marker | null>(null);
+  // Modal actions from store (modals rendered by ModalRoot)
+  const openMarkerEditModal = useReaperStore((s) => s.openMarkerEditModal);
 
   // Calculate base timeline bounds (without drag targets - used as fallback when cancelled)
   const { baseTimelineStart, baseDuration } = useMemo(() => {
@@ -448,29 +446,10 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     duration,
     bpm,
     timeToPercent,
-    onEdit: setEditingMarker,
+    onEdit: openMarkerEditModal,
     onMove: handleMarkerMoveFromDrag,
     onSelect: handleMarkerSelect,
   });
-
-  // Marker edit modal callbacks (also used by MarkerEditModal)
-  const handleMarkerMove = useCallback(
-    (markerId: number, newPositionSeconds: number) => {
-      sendCommand(markerCmd.update(markerId, { position: newPositionSeconds }));
-    },
-    [sendCommand]
-  );
-
-  const handleMarkerDelete = useCallback(
-    (markerId: number) => {
-      sendCommand(markerCmd.delete(markerId));
-    },
-    [sendCommand]
-  );
-
-  const handleReorderAllMarkers = useCallback(() => {
-    sendCommand(action.execute(40898)); // Renumber all markers in timeline order
-  }, [sendCommand]);
 
   // Calculate selection preview bounds
   const selectionPreview = useMemo(() => {
@@ -722,21 +701,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           handleMarkerPointerUp={handleMarkerPointerUp}
         />
       </div>
-
-      {/* Marker Edit Modal */}
-      {editingMarker && (
-        <MarkerEditModal
-          marker={editingMarker}
-          bpm={bpm || 120}
-          barOffset={barOffset}
-          beatsPerBar={beatsPerBar}
-          denominator={denominator}
-          onClose={() => setEditingMarker(null)}
-          onMove={handleMarkerMove}
-          onDelete={handleMarkerDelete}
-          onReorderAll={handleReorderAllMarkers}
-        />
-      )}
     </div>
   );
 }
