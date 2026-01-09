@@ -18,6 +18,7 @@ interface BigTransportButtonProps {
   isActive?: boolean;
   activeColor?: 'green' | 'red' | 'gray';
   title: string;
+  action: string;
   children: React.ReactNode;
   scale: number;
 }
@@ -27,6 +28,7 @@ function BigTransportButton({
   isActive = false,
   activeColor = 'gray',
   title,
+  action,
   children,
   scale,
 }: BigTransportButtonProps): ReactElement {
@@ -42,6 +44,8 @@ function BigTransportButton({
       title={title}
       aria-label={title}
       aria-pressed={isActive}
+      data-testid="transport-button"
+      data-action={action}
       className={`
         aspect-square rounded-full flex items-center justify-center
         transition-colors shadow-lg
@@ -126,10 +130,11 @@ export function TransportControls({ scale }: TransportControlsProps): ReactEleme
 
   return (
     <div
+      data-testid="transport-controls"
       className="flex items-center justify-center safe-area-x"
       style={{ gap: `calc(clamp(6px, 1.5cqmin, 32px) * ${scale})` }}
     >
-      <BigTransportButton onClick={handleSkipToStart} title="Skip to Start" scale={scale}>
+      <BigTransportButton onClick={handleSkipToStart} title="Skip to Start" action="skip" scale={scale}>
         <SkipBack style={iconStyle} />
       </BigTransportButton>
 
@@ -138,6 +143,7 @@ export function TransportControls({ scale }: TransportControlsProps): ReactEleme
         isActive={isPlaying}
         activeColor="green"
         title="Play"
+        action="play"
         scale={scale}
       >
         <Play style={iconStyle} fill={isPlaying ? 'currentColor' : 'none'} />
@@ -148,6 +154,7 @@ export function TransportControls({ scale }: TransportControlsProps): ReactEleme
         isActive={isPaused}
         activeColor="gray"
         title="Pause"
+        action="pause"
         scale={scale}
       >
         <Pause style={iconStyle} fill={isPaused ? 'currentColor' : 'none'} />
@@ -158,6 +165,7 @@ export function TransportControls({ scale }: TransportControlsProps): ReactEleme
         isActive={isStopped}
         activeColor="gray"
         title="Stop"
+        action="stop"
         scale={scale}
       >
         <Square
@@ -178,6 +186,8 @@ export function TransportControls({ scale }: TransportControlsProps): ReactEleme
         title={isAutoPunch ? 'Record (Auto-Punch) - hold to toggle mode' : 'Record - hold to toggle auto-punch'}
         aria-label={isAutoPunch ? 'Record (Auto-Punch mode)' : 'Record'}
         aria-pressed={isRecording}
+        data-testid="transport-button"
+        data-action="record"
         className={`
           aspect-square rounded-full flex items-center justify-center
           transition-colors shadow-lg touch-none select-none

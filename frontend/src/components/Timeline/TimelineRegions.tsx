@@ -67,6 +67,13 @@ export function TimelineRegionLabels({
         return (
           <div
             key={`region-label-${region.id}`}
+            data-testid="region-label"
+            data-region-id={regionId}
+            data-region-name={region.name}
+            data-selected={isSelected || undefined}
+            data-dragging={isBeingDragged || undefined}
+            data-pending={hasPending || undefined}
+            data-new={isNewRegion || undefined}
             className={`absolute top-0 bottom-0 border-l flex flex-col ${
               hideRightBorder ? '' : 'border-r'
             } ${
@@ -134,6 +141,13 @@ export function TimelineRegionBlocks({
         return (
           <div
             key={`region-${region.id}`}
+            data-testid="region-block"
+            data-region-id={regionId}
+            data-region-name={region.name}
+            data-selected={isSelected || undefined}
+            data-dragging={isBeingDragged || undefined}
+            data-pending={hasPending || undefined}
+            data-new={isNewRegion || undefined}
             className={`absolute top-0 bottom-0 border-l ${
               hasAdjacentRegion ? '' : 'border-r'
             } ${

@@ -116,6 +116,8 @@ export function TimelinePlayhead({
   return (
     <div
       ref={containerRef}
+      data-playhead
+      data-testid="playhead"
       className={`absolute top-0 bottom-0 ${isDraggingPlayhead ? 'opacity-50' : ''}`}
     >
       {/* Playhead line - above markers (z-10), below region labels (z-20) */}

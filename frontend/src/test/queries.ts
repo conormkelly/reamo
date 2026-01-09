@@ -2,7 +2,13 @@
  * DOM Query Utilities
  *
  * Helpers for finding and inspecting elements in rendered components.
- * Focused on semantic queries - what the user sees, not implementation.
+ * Uses data-testid and data-* attributes for resilient selectors.
+ *
+ * Convention:
+ * - data-testid: element type (e.g., "region-block", "region-label")
+ * - data-region-id: REAPER region ID for lookup
+ * - data-region-name: region name for debugging
+ * - data-selected/data-dragging/data-pending/data-new: state attributes
  */
 
 // ============================================================================
@@ -10,10 +16,14 @@
 // ============================================================================
 
 /**
- * Find a region element by its name
+ * Find a region element by its name (uses data-region-name attribute)
  */
 export function findRegionElement(container: HTMLElement, name: string): HTMLElement | null {
-  // Regions display their name in a span
+  // First try data attribute (preferred)
+  const byAttr = container.querySelector(`[data-region-name="${name}"]`)
+  if (byAttr) return byAttr as HTMLElement
+
+  // Fallback: search span text content (for backwards compatibility)
   const allText = container.querySelectorAll('span')
   for (const span of allText) {
     if (span.textContent?.trim() === name) {
@@ -32,10 +42,23 @@ export function findRegionElement(container: HTMLElement, name: string): HTMLEle
 }
 
 /**
- * Find all region elements
+ * Find a region element by its ID (uses data-region-id attribute)
+ */
+export function findRegionById(container: HTMLElement, id: number): HTMLElement | null {
+  return container.querySelector(`[data-region-id="${id}"]`)
+}
+
+/**
+ * Find all region elements (uses data-testid attribute)
  */
 export function findAllRegionElements(container: HTMLElement): HTMLElement[] {
-  // Regions have position styling (left%, width%)
+  // First try data-testid (preferred)
+  const byTestId = container.querySelectorAll('[data-testid="region-block"], [data-testid="region-label"]')
+  if (byTestId.length > 0) {
+    return Array.from(byTestId) as HTMLElement[]
+  }
+
+  // Fallback: style-based detection (for backwards compatibility)
   const elements: HTMLElement[] = []
   const candidates = container.querySelectorAll('[style*="left"]')
   for (const el of candidates) {
@@ -45,6 +68,20 @@ export function findAllRegionElements(container: HTMLElement): HTMLElement[] {
     }
   }
   return elements
+}
+
+/**
+ * Find all region blocks (main timeline area, not labels)
+ */
+export function findAllRegionBlocks(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll('[data-testid="region-block"]'))
+}
+
+/**
+ * Find all region labels (top bar labels)
+ */
+export function findAllRegionLabels(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll('[data-testid="region-label"]'))
 }
 
 /**
@@ -77,32 +114,52 @@ export function findTimeline(container: HTMLElement): HTMLElement | null {
 // ============================================================================
 
 /**
- * Check if element appears selected (accent-region border/bg)
+ * Check if element appears selected (uses data-selected attribute)
  */
 export function isVisuallySelected(element: HTMLElement): boolean {
+  // First check data attribute (preferred)
+  if (element.hasAttribute('data-selected')) {
+    return true
+  }
+  // Fallback: class-based check (for backwards compatibility)
   const cls = element.className
   return cls.includes('border-accent-region') || cls.includes('bg-accent-region')
 }
 
 /**
- * Check if element appears to be being dragged (elevated z-index)
+ * Check if element appears to be being dragged (uses data-dragging attribute)
  */
 export function isVisuallyDragging(element: HTMLElement): boolean {
+  // First check data attribute (preferred)
+  if (element.hasAttribute('data-dragging')) {
+    return true
+  }
+  // Fallback: class-based check
   return element.className.includes('z-20')
 }
 
 /**
- * Check if element shows pending state (ring indicator)
+ * Check if element shows pending state (uses data-pending attribute)
  */
 export function isVisuallyPending(element: HTMLElement): boolean {
+  // First check data attribute (preferred)
+  if (element.hasAttribute('data-pending') || element.hasAttribute('data-new')) {
+    return true
+  }
+  // Fallback: class-based check
   const cls = element.className
   return cls.includes('ring-amber') || cls.includes('ring-white')
 }
 
 /**
- * Check if element is a new (unsaved) region
+ * Check if element is a new (unsaved) region (uses data-new attribute)
  */
 export function isVisuallyNew(element: HTMLElement): boolean {
+  // First check data attribute (preferred)
+  if (element.hasAttribute('data-new')) {
+    return true
+  }
+  // Fallback: class-based check
   return element.className.includes('ring-white')
 }
 
@@ -187,10 +244,35 @@ export function getRegionStates(container: HTMLElement): Array<{
 }
 
 /**
+ * Find the time selection element
+ */
+export function findTimeSelection(container: HTMLElement): HTMLElement | null {
+  return container.querySelector('[data-testid="time-selection"]')
+}
+
+/**
+ * Find the selection preview element (during drag)
+ */
+export function findSelectionPreview(container: HTMLElement): HTMLElement | null {
+  return container.querySelector('[data-testid="selection-preview"]')
+}
+
+/**
+ * Find the insertion indicator element
+ */
+export function findInsertionIndicator(container: HTMLElement): HTMLElement | null {
+  return container.querySelector('[data-testid="insertion-indicator"]')
+}
+
+/**
  * Check if an insertion point indicator is visible
  */
 export function hasInsertionIndicator(container: HTMLElement): boolean {
-  // Look for the insertion indicator line (semantic token)
+  // First check data-testid (preferred)
+  if (container.querySelector('[data-testid="insertion-indicator"]')) {
+    return true
+  }
+  // Fallback: Look for the insertion indicator line (semantic token)
   return container.querySelector('.bg-insert-indicator') !== null
 }
 
@@ -198,7 +280,11 @@ export function hasInsertionIndicator(container: HTMLElement): boolean {
  * Check if resize edge indicator is visible
  */
 export function hasResizeIndicator(container: HTMLElement): boolean {
-  // Similar to insertion but during resize operations
+  // First check data-testid (preferred)
+  if (container.querySelector('[data-testid="resize-indicator"]')) {
+    return true
+  }
+  // Fallback: Similar to insertion but during resize operations
   const indicator = container.querySelector('[class*="bg-insert-indicator"]')
   return indicator !== null
 }

@@ -16,6 +16,7 @@ export function BpmTimeSigDisplay({ scale }: BpmTimeSigDisplayProps): ReactEleme
 
   return (
     <div
+      data-testid="bpm-timesig-display"
       className="text-center font-bold text-text-secondary"
       style={{
         fontSize: `calc(clamp(1.25rem, 8cqh, 4rem) * ${scale})`,

@@ -22,6 +22,7 @@ export function BarBeatDisplay({ scale }: BarBeatDisplayProps): ReactElement {
 
   return (
     <div
+      data-testid="beats-display"
       className="text-center font-mono font-bold tracking-tight text-text-primary"
       style={{
         fontSize: `calc(clamp(2.5rem, min(25cqh, 16cqw), 12rem) * ${scale})`,

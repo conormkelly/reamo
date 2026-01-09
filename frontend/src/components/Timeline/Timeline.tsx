@@ -529,6 +529,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         {/* Stored Time Selection */}
         {timeSelectionSeconds && (
           <div
+            data-testid="time-selection"
             className={`absolute top-0 bottom-0 border-l-2 border-r-2 pointer-events-none ${
               timelineMode === 'regions'
                 ? 'bg-bg-disabled/5 border-border-subtle opacity-50'
@@ -551,6 +552,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         {/* Selection Preview */}
         {selectionPreview && (
           <div
+            data-testid="selection-preview"
             className="absolute top-0 bottom-0 bg-selection-preview border-l-2 border-r-2 border-selection-border pointer-events-none"
             style={{
               left: `${renderTimeToPercent(selectionPreview.start)}%`,
@@ -562,6 +564,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         {/* Insertion Point Indicator (for move operations) */}
         {insertionPoint !== null && regionDragType === 'move' && (
           <div
+            data-testid="insertion-indicator"
             className="absolute top-0 bottom-0 pointer-events-none z-20"
             style={{ left: `${renderTimeToPercent(insertionPoint)}%` }}
           >

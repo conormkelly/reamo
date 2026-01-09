@@ -23,6 +23,7 @@ export function TimeDisplay({ scale }: TimeDisplayProps): ReactElement {
 
   return (
     <div
+      data-testid="time-display"
       className="text-center font-mono text-text-tertiary"
       style={{
         fontSize: `calc(clamp(1.5rem, 12cqh, 6rem) * ${scale})`,
