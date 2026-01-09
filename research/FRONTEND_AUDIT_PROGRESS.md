@@ -125,7 +125,8 @@ REAmo is a React PWA control surface for REAPER DAW. It runs on iPad/iPhone for 
 **Structural improvements made:**
 | Issue | Fix | Files Modified |
 |-------|-----|----------------|
-| ActionButton.tsx has 9 components (567 lines) | Split into separate files | `ActionButton.tsx` (base only, 94 lines), `MetronomeButton.tsx` (new), `MarkerButtons.tsx` (new), `UndoRedoButtons.tsx` (new), `SaveButton.tsx` (new), `index.ts` (updated exports) |
+| ActionButton.tsx has 9 components (567 lines) | Split into 6 focused files | `ActionButton.tsx` (94 lines), `MetronomeButton.tsx`, `MarkerButtons.tsx`, `UndoRedoButtons.tsx`, `SaveButton.tsx`, `MixerButtons.tsx`, `index.ts` |
+| CuesView.tsx has 5 components (1020 lines) | Split into 3 files | `CuesView.tsx` (560 lines), `components/PlaylistEntryRow.tsx` (220 lines), `components/CuesModals.tsx` (250 lines) |
 
 ---
 

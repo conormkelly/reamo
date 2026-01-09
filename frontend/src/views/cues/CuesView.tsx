@@ -14,11 +14,6 @@ import {
   SkipBack,
   SkipForward,
   ArrowRightFromLine,
-  X,
-  Minus,
-  Infinity,
-  AlertTriangle,
-  GripVertical,
   Move,
   ListMusic,
 } from 'lucide-react';
@@ -26,33 +21,25 @@ import { useReaperStore } from '../../store';
 import { useReaper } from '../../components/ReaperProvider';
 import { ViewHeader } from '../../components';
 import { playlist as playlistCmd } from '../../core/WebSocketCommands';
-import type { WSPlaylist, WSPlaylistEntry } from '../../core/WebSocketTypes';
+import type { WSPlaylist } from '../../core/WebSocketTypes';
 import type { Region } from '../../core/types';
-import { reaperColorToHexWithFallback } from '../../utils/color';
-import { useTransportAnimation, useUIPreferences } from '../../hooks';
+import { useUIPreferences } from '../../hooks';
+import {
+  PlaylistEntryRow,
+  CreatePlaylistModal,
+  RenamePlaylistModal,
+  DeletePlaylistModal,
+  RegionPickerModal,
+} from './components';
 
 // Fixed heights for bottom bar calculations
 const TAB_BAR_HEIGHT = 48;
 const PERSISTENT_TRANSPORT_HEIGHT = 56;
 const PLAYBACK_CONTROLS_HEIGHT = 80;
 
-// Helper to format duration
-function formatDuration(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
-
 // Helper to get region by ID
 function getRegionById(regions: Region[], regionId: number): Region | undefined {
   return regions.find((r) => r.id === regionId);
-}
-
-// Loop count display
-function formatLoopCount(count: number): string {
-  if (count === -1) return '∞';
-  if (count === 0) return 'Skip';
-  return `${count}x`;
 }
 
 export function CuesView(): ReactElement {
@@ -94,7 +81,6 @@ export function CuesView(): ReactElement {
   const touchCurrentY = useRef<number>(0);
 
   // Ref for autoscroll
-  const listRef = useRef<HTMLDivElement>(null);
   const entryRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   // Sync selected playlist with active when playing
@@ -390,7 +376,6 @@ export function CuesView(): ReactElement {
 
       {/* Entry list - add padding for fixed playback controls */}
       <div
-        ref={listRef}
         className="flex-1 overflow-auto"
         style={{ paddingBottom: `${PLAYBACK_CONTROLS_HEIGHT}px` }}
       >
@@ -570,451 +555,6 @@ export function CuesView(): ReactElement {
           onClose={() => setShowRegionPicker(false)}
         />
       )}
-    </div>
-  );
-}
-
-// =============================================================================
-// Sub-components
-// =============================================================================
-
-interface PlaylistEntryRowProps {
-  entry: WSPlaylistEntry;
-  entryIdx: number;
-  region: Region | undefined;
-  isNowPlaying: boolean;
-  isSelected: boolean;
-  loopsRemaining: number | null;
-  currentLoopIteration: number | null;
-  reorderMode: boolean;
-  onSelect: () => void;
-  onSetLoopCount: (count: number) => void;
-  onRemove: () => void;
-  onPlayFrom: () => void;
-  isDragging: boolean;
-  isDropTarget: boolean;
-  onDragStart: () => void;
-  onDragOver: (e: React.DragEvent) => void;
-  onDragEnd: () => void;
-  onDrop: () => void;
-  onTouchStart: (e: React.TouchEvent) => void;
-  onTouchMove: (e: React.TouchEvent) => void;
-  onTouchEnd: () => void;
-  entryRef: (el: HTMLDivElement | null) => void;
-}
-
-function PlaylistEntryRow({
-  entry,
-  region,
-  isNowPlaying,
-  isSelected,
-  loopsRemaining,
-  currentLoopIteration,
-  reorderMode,
-  onSelect,
-  onSetLoopCount,
-  onRemove,
-  onPlayFrom,
-  isDragging,
-  isDropTarget,
-  onDragStart,
-  onDragOver,
-  onDragEnd,
-  onDrop,
-  onTouchStart,
-  onTouchMove,
-  onTouchEnd,
-  entryRef,
-}: PlaylistEntryRowProps): ReactElement {
-  const regionColor = region?.color ? reaperColorToHexWithFallback(region.color, '#6b7280') : '#6b7280';
-  const regionName = region?.name ?? `Region ${entry.regionId}`;
-  const duration = region ? formatDuration(region.end - region.start) : '--:--';
-
-  // Ref for progress bar direct DOM updates at 60fps
-  const progressBarRef = useRef<HTMLDivElement>(null);
-
-  // Use the animation hook for 60fps progress bar updates when playing
-  useTransportAnimation(
-    useCallback((state) => {
-      if (!isNowPlaying || !region || !progressBarRef.current) return;
-      const regionDuration = region.end - region.start;
-      if (regionDuration > 0) {
-        const posInRegion = state.position - region.start;
-        const percent = Math.max(0, Math.min(100, (posInRegion / regionDuration) * 100));
-        progressBarRef.current.style.width = `${percent}%`;
-      }
-    }, [isNowPlaying, region]),
-    [isNowPlaying, region]
-  );
-
-  // Loop progress display
-  let loopProgress = '';
-  if (isNowPlaying && currentLoopIteration !== null) {
-    if (entry.loopCount === -1) {
-      loopProgress = `Loop ${currentLoopIteration}`;
-    } else if (entry.loopCount > 1 && loopsRemaining !== null) {
-      // Show "Loop X / Y" using iteration count
-      loopProgress = `Loop ${currentLoopIteration} / ${entry.loopCount}`;
-    }
-  }
-
-  // Handle click - select in normal mode, ignore in reorder mode
-  const handleClick = () => {
-    if (!reorderMode) {
-      onSelect();
-    }
-  };
-
-  return (
-    <div
-      ref={entryRef}
-      draggable={reorderMode}
-      onDragStart={reorderMode ? onDragStart : undefined}
-      onDragOver={reorderMode ? onDragOver : undefined}
-      onDragEnd={reorderMode ? onDragEnd : undefined}
-      onDrop={reorderMode ? onDrop : undefined}
-      onTouchStart={reorderMode ? onTouchStart : undefined}
-      onTouchMove={reorderMode ? onTouchMove : undefined}
-      onTouchEnd={reorderMode ? onTouchEnd : undefined}
-      className={`relative overflow-hidden transition-colors ${
-        reorderMode ? 'touch-none select-none cursor-grab' : 'cursor-pointer'
-      } ${
-        isNowPlaying
-          ? 'bg-gray-800 rounded-lg'
-          : isSelected
-            ? 'bg-gray-800 rounded-lg border-l-4 border-l-blue-500'
-            : 'bg-gray-800 hover:bg-gray-750 rounded-lg'
-      } ${entry.deleted ? 'opacity-50' : ''} ${
-        isDragging ? 'opacity-50 cursor-grabbing' : ''
-      } ${isDropTarget ? 'ring-2 ring-blue-400' : ''}`}
-      style={isNowPlaying ? { borderLeft: `4px solid ${regionColor}`, borderRadius: '0.5rem' } : undefined}
-      onClick={handleClick}
-      onDoubleClick={onPlayFrom}
-    >
-      {/* Progress bar at top */}
-      <div
-        className="absolute top-0 left-0 right-0 h-1"
-        style={{ backgroundColor: `${regionColor}40` }}
-      >
-        {isNowPlaying && (
-          <div
-            ref={progressBarRef}
-            className="h-full"
-            style={{
-              width: '0%',
-              backgroundColor: regionColor,
-            }}
-          />
-        )}
-      </div>
-
-      {/* Content row */}
-      <div className="flex items-center gap-2 p-3 pt-4">
-        {/* Drag handle - only in reorder mode */}
-        {reorderMode && (
-          <div className="flex-none cursor-grab active:cursor-grabbing text-gray-500 hover:text-gray-300">
-            <GripVertical size={20} />
-          </div>
-        )}
-
-        {/* Region info */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-medium truncate">{regionName}</span>
-            {entry.deleted && (
-              <span className="text-orange-400 text-xs flex items-center gap-1">
-                <AlertTriangle size={12} /> Deleted
-              </span>
-            )}
-          </div>
-          <div className="text-sm text-gray-400 flex items-center gap-2">
-            <span>{duration}</span>
-            {loopProgress && (
-              <span className="text-blue-400">• {loopProgress}</span>
-            )}
-          </div>
-        </div>
-
-        {/* Loop count stepper */}
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => {
-              if (entry.loopCount > 0) {
-                onSetLoopCount(entry.loopCount - 1);
-              }
-            }}
-            disabled={entry.loopCount === -1}
-            className="w-8 h-8 flex items-center justify-center bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 rounded transition-colors"
-          >
-            <Minus size={16} />
-          </button>
-          <span className="w-10 text-center font-mono">
-            {formatLoopCount(entry.loopCount)}
-          </span>
-          <button
-            onClick={() => {
-              if (entry.loopCount >= 0) {
-                onSetLoopCount(entry.loopCount + 1);
-              }
-            }}
-            disabled={entry.loopCount === -1}
-            className="w-8 h-8 flex items-center justify-center bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 rounded transition-colors"
-          >
-            <Plus size={16} />
-          </button>
-          <button
-            onClick={() => onSetLoopCount(entry.loopCount === -1 ? 1 : -1)}
-            className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${
-              entry.loopCount === -1
-                ? 'bg-purple-600 hover:bg-purple-500 text-white'
-                : 'bg-gray-700 hover:bg-gray-600'
-            }`}
-            title="Infinite loops"
-          >
-            <Infinity size={16} />
-          </button>
-        </div>
-
-        {/* Remove button */}
-        <button
-          onClick={onRemove}
-          className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-red-400 transition-colors"
-          title="Remove from playlist"
-        >
-          <X size={18} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// =============================================================================
-// Modal components
-// =============================================================================
-
-interface CreatePlaylistModalProps {
-  value: string;
-  onChange: (value: string) => void;
-  onCreate: () => void;
-  onCancel: () => void;
-}
-
-function CreatePlaylistModal({ value, onChange, onCreate, onCancel }: CreatePlaylistModalProps): ReactElement {
-  return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onCancel}>
-      <div className="bg-gray-800 rounded-lg p-4 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-lg font-semibold mb-4">Create Playlist</h3>
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="Playlist name"
-          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          autoFocus
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') onCreate();
-            if (e.key === 'Escape') onCancel();
-          }}
-        />
-        <div className="flex gap-2">
-          <button
-            onClick={onCancel}
-            className="flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onCreate}
-            disabled={!value.trim()}
-            className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg transition-colors"
-          >
-            Create
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-interface RenamePlaylistModalProps {
-  value: string;
-  onChange: (value: string) => void;
-  onRename: () => void;
-  onCancel: () => void;
-}
-
-function RenamePlaylistModal({ value, onChange, onRename, onCancel }: RenamePlaylistModalProps): ReactElement {
-  return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onCancel}>
-      <div className="bg-gray-800 rounded-lg p-4 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-lg font-semibold mb-4">Rename Playlist</h3>
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="Playlist name"
-          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          autoFocus
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') onRename();
-            if (e.key === 'Escape') onCancel();
-          }}
-        />
-        <div className="flex gap-2">
-          <button
-            onClick={onCancel}
-            className="flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onRename}
-            disabled={!value.trim()}
-            className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg transition-colors"
-          >
-            Rename
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-interface DeletePlaylistModalProps {
-  playlistName: string;
-  onDelete: () => void;
-  onCancel: () => void;
-}
-
-function DeletePlaylistModal({ playlistName, onDelete, onCancel }: DeletePlaylistModalProps): ReactElement {
-  return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onCancel}>
-      <div className="bg-gray-800 rounded-lg p-4 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-lg font-semibold mb-2">Delete Playlist?</h3>
-        <p className="text-gray-400 mb-4">
-          Are you sure you want to delete "{playlistName}"? This cannot be undone.
-        </p>
-        <div className="flex gap-2">
-          <button
-            onClick={onCancel}
-            className="flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onDelete}
-            className="flex-1 py-2 bg-red-600 hover:bg-red-500 rounded-lg transition-colors"
-          >
-            Delete
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-interface RegionPickerModalProps {
-  regions: Region[];
-  regionIdsInPlaylist: Set<number>;
-  onAdd: (regionId: number) => void;
-  onAddAll: () => void;
-  onClose: () => void;
-}
-
-function RegionPickerModal({
-  regions,
-  regionIdsInPlaylist,
-  onAdd,
-  onAddAll,
-  onClose,
-}: RegionPickerModalProps): ReactElement {
-  const sortedRegions = useMemo(
-    () => [...regions].sort((a, b) => a.start - b.start),
-    [regions]
-  );
-
-  if (regions.length === 0) {
-    return (
-      <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
-        <div className="bg-gray-800 rounded-lg p-4 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-          <h3 className="text-lg font-semibold mb-4">Add Region</h3>
-          <p className="text-gray-400 mb-4 text-center">
-            No regions in this project. Create regions in REAPER to add them here.
-          </p>
-          <button
-            onClick={onClose}
-            className="w-full py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div
-        className="bg-gray-800 rounded-lg w-full max-w-md max-h-[80vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="p-4 border-b border-gray-700">
-          <h3 className="text-lg font-semibold">Add Region</h3>
-        </div>
-
-        {/* Add All button */}
-        <div className="p-3 border-b border-gray-700">
-          <button
-            onClick={onAddAll}
-            className="w-full py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-medium transition-colors"
-          >
-            Add All Regions ({regions.length})
-          </button>
-        </div>
-
-        {/* Region list */}
-        <div className="flex-1 overflow-auto p-3">
-          <div className="space-y-2">
-            {sortedRegions.map((region) => {
-              const inPlaylist = regionIdsInPlaylist.has(region.id);
-              const color = reaperColorToHexWithFallback(region.color, '#6b7280');
-
-              return (
-                <button
-                  key={region.id}
-                  onClick={() => {
-                    onAdd(region.id);
-                  }}
-                  className="w-full flex items-center gap-3 p-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors text-left"
-                >
-                  <div
-                    className="w-1.5 h-8 rounded-full flex-none"
-                    style={{ backgroundColor: color }}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">{region.name}</div>
-                    <div className="text-sm text-gray-400">
-                      {formatDuration(region.end - region.start)}
-                    </div>
-                  </div>
-                  {inPlaylist && (
-                    <span className="text-gray-500 text-sm">In list</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="p-3 border-t border-gray-700">
-          <button
-            onClick={onClose}
-            className="w-full py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
-          >
-            Done
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

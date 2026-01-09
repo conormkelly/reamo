@@ -1,0 +1,241 @@
+/**
+ * PlaylistEntryRow - Individual playlist entry with progress bar and drag-drop support
+ */
+
+import { useRef, useCallback, type ReactElement } from 'react';
+import {
+  Minus,
+  Plus,
+  Infinity,
+  AlertTriangle,
+  GripVertical,
+  X,
+} from 'lucide-react';
+import type { WSPlaylistEntry } from '../../../core/WebSocketTypes';
+import type { Region } from '../../../core/types';
+import { reaperColorToHexWithFallback } from '../../../utils/color';
+import { useTransportAnimation } from '../../../hooks';
+
+// Helper to format duration
+function formatDuration(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+// Loop count display
+function formatLoopCount(count: number): string {
+  if (count === -1) return '∞';
+  if (count === 0) return 'Skip';
+  return `${count}x`;
+}
+
+export interface PlaylistEntryRowProps {
+  entry: WSPlaylistEntry;
+  entryIdx: number;
+  region: Region | undefined;
+  isNowPlaying: boolean;
+  isSelected: boolean;
+  loopsRemaining: number | null;
+  currentLoopIteration: number | null;
+  reorderMode: boolean;
+  onSelect: () => void;
+  onSetLoopCount: (count: number) => void;
+  onRemove: () => void;
+  onPlayFrom: () => void;
+  isDragging: boolean;
+  isDropTarget: boolean;
+  onDragStart: () => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onDragEnd: () => void;
+  onDrop: () => void;
+  onTouchStart: (e: React.TouchEvent) => void;
+  onTouchMove: (e: React.TouchEvent) => void;
+  onTouchEnd: () => void;
+  entryRef: (el: HTMLDivElement | null) => void;
+}
+
+export function PlaylistEntryRow({
+  entry,
+  region,
+  isNowPlaying,
+  isSelected,
+  loopsRemaining,
+  currentLoopIteration,
+  reorderMode,
+  onSelect,
+  onSetLoopCount,
+  onRemove,
+  onPlayFrom,
+  isDragging,
+  isDropTarget,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+  onDrop,
+  onTouchStart,
+  onTouchMove,
+  onTouchEnd,
+  entryRef,
+}: PlaylistEntryRowProps): ReactElement {
+  const regionColor = region?.color ? reaperColorToHexWithFallback(region.color, '#6b7280') : '#6b7280';
+  const regionName = region?.name ?? `Region ${entry.regionId}`;
+  const duration = region ? formatDuration(region.end - region.start) : '--:--';
+
+  // Ref for progress bar direct DOM updates at 60fps
+  const progressBarRef = useRef<HTMLDivElement>(null);
+
+  // Use the animation hook for 60fps progress bar updates when playing
+  useTransportAnimation(
+    useCallback((state) => {
+      if (!isNowPlaying || !region || !progressBarRef.current) return;
+      const regionDuration = region.end - region.start;
+      if (regionDuration > 0) {
+        const posInRegion = state.position - region.start;
+        const percent = Math.max(0, Math.min(100, (posInRegion / regionDuration) * 100));
+        progressBarRef.current.style.width = `${percent}%`;
+      }
+    }, [isNowPlaying, region]),
+    [isNowPlaying, region]
+  );
+
+  // Loop progress display
+  let loopProgress = '';
+  if (isNowPlaying && currentLoopIteration !== null) {
+    if (entry.loopCount === -1) {
+      loopProgress = `Loop ${currentLoopIteration}`;
+    } else if (entry.loopCount > 1 && loopsRemaining !== null) {
+      // Show "Loop X / Y" using iteration count
+      loopProgress = `Loop ${currentLoopIteration} / ${entry.loopCount}`;
+    }
+  }
+
+  // Handle click - select in normal mode, ignore in reorder mode
+  const handleClick = () => {
+    if (!reorderMode) {
+      onSelect();
+    }
+  };
+
+  return (
+    <div
+      ref={entryRef}
+      draggable={reorderMode}
+      onDragStart={reorderMode ? onDragStart : undefined}
+      onDragOver={reorderMode ? onDragOver : undefined}
+      onDragEnd={reorderMode ? onDragEnd : undefined}
+      onDrop={reorderMode ? onDrop : undefined}
+      onTouchStart={reorderMode ? onTouchStart : undefined}
+      onTouchMove={reorderMode ? onTouchMove : undefined}
+      onTouchEnd={reorderMode ? onTouchEnd : undefined}
+      className={`relative overflow-hidden transition-colors ${
+        reorderMode ? 'touch-none select-none cursor-grab' : 'cursor-pointer'
+      } ${
+        isNowPlaying
+          ? 'bg-gray-800 rounded-lg'
+          : isSelected
+            ? 'bg-gray-800 rounded-lg border-l-4 border-l-blue-500'
+            : 'bg-gray-800 hover:bg-gray-750 rounded-lg'
+      } ${entry.deleted ? 'opacity-50' : ''} ${
+        isDragging ? 'opacity-50 cursor-grabbing' : ''
+      } ${isDropTarget ? 'ring-2 ring-blue-400' : ''}`}
+      style={isNowPlaying ? { borderLeft: `4px solid ${regionColor}`, borderRadius: '0.5rem' } : undefined}
+      onClick={handleClick}
+      onDoubleClick={onPlayFrom}
+    >
+      {/* Progress bar at top */}
+      <div
+        className="absolute top-0 left-0 right-0 h-1"
+        style={{ backgroundColor: `${regionColor}40` }}
+      >
+        {isNowPlaying && (
+          <div
+            ref={progressBarRef}
+            className="h-full"
+            style={{
+              width: '0%',
+              backgroundColor: regionColor,
+            }}
+          />
+        )}
+      </div>
+
+      {/* Content row */}
+      <div className="flex items-center gap-2 p-3 pt-4">
+        {/* Drag handle - only in reorder mode */}
+        {reorderMode && (
+          <div className="flex-none cursor-grab active:cursor-grabbing text-gray-500 hover:text-gray-300">
+            <GripVertical size={20} />
+          </div>
+        )}
+
+        {/* Region info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-medium truncate">{regionName}</span>
+            {entry.deleted && (
+              <span className="text-orange-400 text-xs flex items-center gap-1">
+                <AlertTriangle size={12} /> Deleted
+              </span>
+            )}
+          </div>
+          <div className="text-sm text-gray-400 flex items-center gap-2">
+            <span>{duration}</span>
+            {loopProgress && (
+              <span className="text-blue-400">• {loopProgress}</span>
+            )}
+          </div>
+        </div>
+
+        {/* Loop count stepper */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => {
+              if (entry.loopCount > 0) {
+                onSetLoopCount(entry.loopCount - 1);
+              }
+            }}
+            disabled={entry.loopCount === -1}
+            className="w-8 h-8 flex items-center justify-center bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 rounded transition-colors"
+          >
+            <Minus size={16} />
+          </button>
+          <span className="w-10 text-center font-mono">
+            {formatLoopCount(entry.loopCount)}
+          </span>
+          <button
+            onClick={() => {
+              if (entry.loopCount >= 0) {
+                onSetLoopCount(entry.loopCount + 1);
+              }
+            }}
+            disabled={entry.loopCount === -1}
+            className="w-8 h-8 flex items-center justify-center bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 rounded transition-colors"
+          >
+            <Plus size={16} />
+          </button>
+          <button
+            onClick={() => onSetLoopCount(entry.loopCount === -1 ? 1 : -1)}
+            className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${
+              entry.loopCount === -1
+                ? 'bg-purple-600 hover:bg-purple-500 text-white'
+                : 'bg-gray-700 hover:bg-gray-600'
+            }`}
+            title="Infinite loops"
+          >
+            <Infinity size={16} />
+          </button>
+        </div>
+
+        {/* Remove button */}
+        <button
+          onClick={onRemove}
+          className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-red-400 transition-colors"
+          title="Remove from playlist"
+        >
+          <X size={18} />
+        </button>
+      </div>
+    </div>
+  );
+}
