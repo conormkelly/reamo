@@ -32,6 +32,51 @@ A placeholder exists at `frontend/src/views/mixer/` for a full-screen mixer with
 
 ---
 
+### Long-Press Position Display → Marker Navigation
+
+Long-press (500ms) on the time/position display should show a popup with all project markers for quick navigation. This is a proven UX pattern from Logic Remote.
+
+**Interaction:**
+- Touch-hold on position display (bar.beat or time readout)
+- After 500ms, show dropdown/popover with marker list
+- Tap any marker → seek to that position
+- Include regions (start points) optionally
+
+**Visual feedback:**
+- At 200ms: subtle pulse animation on display
+- At 500ms: popup appears with 200ms fade-in
+
+**Implementation notes:**
+- Reuse existing marker data from store
+- Consider including region start/end points
+- Sort by position, show name + time
+
+**Status:** Not implemented
+
+---
+
+### Momentum Scrolling for Timeline Pan
+
+Add velocity-based momentum/inertia to timeline pan gesture. Currently pan is 1:1 with finger movement (no deceleration after release).
+
+**Physics (from Logic Remote research):**
+- Calculate velocity from last ~100ms of gesture
+- Friction coefficient: 0.965 per frame
+- Overscroll: 15-20% past bounds with snap-back
+- Stop threshold: velocity < 0.5px/frame
+
+**Implementation:**
+- On touchend, calculate velocity from last 3-5 touch events
+- Animation loop: `position += velocity; velocity *= 0.965;`
+- Use `requestAnimationFrame` for smooth 60fps
+- Respect `prefers-reduced-motion` (instant stop, no deceleration)
+
+**Files:** `frontend/src/components/Timeline/hooks/usePanGesture.ts`
+
+**Status:** Not implemented
+
+---
+
 ## Backend
 
 ### Move Static Buffers to test_utils

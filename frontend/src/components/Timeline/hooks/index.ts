@@ -9,3 +9,6 @@ export type { UseRegionDragOptions, UseRegionDragResult } from './useRegionDrag'
 
 export { usePanGesture } from './usePanGesture';
 export type { UsePanGestureOptions, UsePanGestureResult } from './usePanGesture';
+
+export { useEdgeScroll } from './useEdgeScroll';
+export type { UseEdgeScrollOptions, UseEdgeScrollResult } from './useEdgeScroll';

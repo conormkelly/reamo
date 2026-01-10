@@ -4,6 +4,15 @@
  * Runs before all tests. Configures environment and cleanup.
  */
 
+// Mock ResizeObserver (not available in jsdom)
+// Must be defined before any React imports
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+global.ResizeObserver = ResizeObserverMock
+
 import { afterEach, beforeEach } from 'vitest'
 import { cleanup } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'

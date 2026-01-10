@@ -7,11 +7,16 @@ import type { StateCreator } from 'zustand';
 
 const UI_PREFS_KEY = 'reamo_ui_preferences';
 
+/** When to re-enable follow playhead after user interaction */
+export type FollowPlayheadReEnable = 'on-playback' | 'explicit-only';
+
 export interface UIPreferencesState {
   showTabBar: boolean;
   showPersistentTransport: boolean;
   transportPosition: 'left' | 'right';
   notesFontSize: number;
+  /** When to automatically re-enable follow playhead */
+  followPlayheadReEnable: FollowPlayheadReEnable;
 
   // Actions
   setShowTabBar: (show: boolean) => void;
@@ -22,6 +27,7 @@ export interface UIPreferencesState {
   toggleTransportPosition: () => void;
   setNotesFontSize: (size: number) => void;
   adjustNotesFontSize: (delta: number) => void;
+  setFollowPlayheadReEnable: (mode: FollowPlayheadReEnable) => void;
   loadUIPrefsFromStorage: () => void;
 }
 
@@ -30,6 +36,7 @@ interface StoredPrefs {
   showPersistentTransport?: boolean;
   transportPosition?: 'left' | 'right';
   notesFontSize?: number;
+  followPlayheadReEnable?: FollowPlayheadReEnable;
 }
 
 const DEFAULT_PREFS = {
@@ -37,6 +44,7 @@ const DEFAULT_PREFS = {
   showPersistentTransport: true,
   transportPosition: 'left' as const,
   notesFontSize: 16,
+  followPlayheadReEnable: 'on-playback' as FollowPlayheadReEnable,
 };
 
 function saveToStorage(prefs: StoredPrefs): void {
@@ -57,6 +65,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       showPersistentTransport: get().showPersistentTransport,
       transportPosition: get().transportPosition,
       notesFontSize: get().notesFontSize,
+      followPlayheadReEnable: get().followPlayheadReEnable,
     });
   },
 
@@ -67,6 +76,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       showPersistentTransport: show,
       transportPosition: get().transportPosition,
       notesFontSize: get().notesFontSize,
+      followPlayheadReEnable: get().followPlayheadReEnable,
     });
   },
 
@@ -77,6 +87,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       showPersistentTransport: get().showPersistentTransport,
       transportPosition: position,
       notesFontSize: get().notesFontSize,
+      followPlayheadReEnable: get().followPlayheadReEnable,
     });
   },
 
@@ -88,6 +99,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       showPersistentTransport: get().showPersistentTransport,
       transportPosition: get().transportPosition,
       notesFontSize: get().notesFontSize,
+      followPlayheadReEnable: get().followPlayheadReEnable,
     });
   },
 
@@ -99,6 +111,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       showPersistentTransport: newValue,
       transportPosition: get().transportPosition,
       notesFontSize: get().notesFontSize,
+      followPlayheadReEnable: get().followPlayheadReEnable,
     });
   },
 
@@ -110,6 +123,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       showPersistentTransport: get().showPersistentTransport,
       transportPosition: newValue,
       notesFontSize: get().notesFontSize,
+      followPlayheadReEnable: get().followPlayheadReEnable,
     });
   },
 
@@ -121,6 +135,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       showPersistentTransport: get().showPersistentTransport,
       transportPosition: get().transportPosition,
       notesFontSize: clamped,
+      followPlayheadReEnable: get().followPlayheadReEnable,
     });
   },
 
@@ -132,6 +147,18 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       showPersistentTransport: get().showPersistentTransport,
       transportPosition: get().transportPosition,
       notesFontSize: newSize,
+      followPlayheadReEnable: get().followPlayheadReEnable,
+    });
+  },
+
+  setFollowPlayheadReEnable: (mode) => {
+    set({ followPlayheadReEnable: mode });
+    saveToStorage({
+      showTabBar: get().showTabBar,
+      showPersistentTransport: get().showPersistentTransport,
+      transportPosition: get().transportPosition,
+      notesFontSize: get().notesFontSize,
+      followPlayheadReEnable: mode,
     });
   },
 
@@ -145,6 +172,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
           showPersistentTransport: parsed.showPersistentTransport ?? DEFAULT_PREFS.showPersistentTransport,
           transportPosition: parsed.transportPosition ?? DEFAULT_PREFS.transportPosition,
           notesFontSize: parsed.notesFontSize ?? DEFAULT_PREFS.notesFontSize,
+          followPlayheadReEnable: parsed.followPlayheadReEnable ?? DEFAULT_PREFS.followPlayheadReEnable,
         });
       }
     } catch (e) {

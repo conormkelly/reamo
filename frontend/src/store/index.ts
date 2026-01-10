@@ -387,7 +387,7 @@ export type { FxStateSlice } from './slices/fxStateSlice';
 export { getFxForTrack } from './slices/fxStateSlice';
 export type { SendsStateSlice } from './slices/sendsStateSlice';
 export { getSendsFromTrack, getSendsToTrack } from './slices/sendsStateSlice';
-export type { UIPreferencesState } from './slices/uiPreferencesSlice';
+export type { UIPreferencesState, FollowPlayheadReEnable } from './slices/uiPreferencesSlice';
 export type { ModalSlice, ModalState } from './slices/modalSlice';
 
 // Expose store on window for E2E tests (development only)

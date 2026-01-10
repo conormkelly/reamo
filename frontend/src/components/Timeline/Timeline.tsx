@@ -3,27 +3,30 @@
  * Visual timeline showing regions and markers for navigation and selection
  */
 
-import { useState, useRef, useCallback, useMemo, type ReactElement } from 'react';
+import { useState, useRef, useCallback, useMemo, useEffect, type ReactElement } from 'react';
 import { useReaperStore } from '../../store';
 import { EMPTY_REGIONS, EMPTY_MARKERS, EMPTY_ITEMS, EMPTY_TRACKS } from '../../store/stableRefs';
 import { useReaper } from '../ReaperProvider';
 import {
   useTransport,
+  useTransportAnimation,
   useTimeSignature,
   useBarOffset,
   useViewport,
   useVisibleRegions,
   useVisibleMarkers,
   useVisibleMediaItems,
+  useMarkerClusters,
+  type MarkerClusterData,
 } from '../../hooks';
 import { transport, timeSelection as timeSelCmd, marker as markerCmd } from '../../core/WebSocketCommands';
-import { usePlayheadDrag, useMarkerDrag, useRegionDrag, usePanGesture } from './hooks';
+import { usePlayheadDrag, useMarkerDrag, useRegionDrag, usePanGesture, useEdgeScroll } from './hooks';
 import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
 import { ItemsDensityOverlay } from './ItemDensityBlobs';
-import { TimelineMarkerLines, TimelineMarkerPills } from './TimelineMarkers';
+import { ClusteredMarkerLines, ClusteredMarkerPills } from './TimelineMarkers';
 import { TimelinePlayhead, PlayheadDragPreview, PlayheadPreviewPill, MarkerDragPreview } from './TimelinePlayhead';
 import { ZoomControls } from './ZoomControls';
-import { Crosshair } from 'lucide-react';
+import { Crosshair, Locate } from 'lucide-react';
 import { formatBeats, formatDelta } from '../../utils';
 import { timeToBarBeat, formatBarBeat } from '../../core/tempoUtils';
 import { findNearestSnapTarget } from './snapUtils';
@@ -123,9 +126,34 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   const [dragEnd, setDragEnd] = useState<number | null>(null);
   const [isCancelled, setIsCancelled] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  // Track container width for marker clustering
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const updateWidth = () => {
+      if (containerRef.current) {
+        setContainerWidth(containerRef.current.offsetWidth);
+      }
+    };
+
+    // Initial measurement
+    updateWidth();
+
+    // Use ResizeObserver for responsive updates
+    const resizeObserver = new ResizeObserver(updateWidth);
+    resizeObserver.observe(containerRef.current);
+
+    return () => resizeObserver.disconnect();
+  }, []);
 
   // Modal actions from store (modals rendered by ModalRoot)
   const openMarkerEditModal = useReaperStore((s) => s.openMarkerEditModal);
+
+  // Track max playhead position reached during playback
+  // This allows viewport to extend past the initial project end (like REAPER's soft-end behavior)
+  const [maxPlayheadPosition, setMaxPlayheadPosition] = useState(0);
 
   // Calculate base timeline bounds (without drag targets - used as fallback when cancelled)
   const { baseTimelineStart, baseDuration } = useMemo(() => {
@@ -147,12 +175,14 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     // Include playhead position to ensure it's always visible
     // (fixes race condition on initial load when regions/markers haven't synced yet)
     if (positionSeconds > end) end = positionSeconds;
+    // Include max position reached during playback (soft-end like REAPER)
+    if (maxPlayheadPosition > end) end = maxPlayheadPosition;
 
     // Add 5% padding at the end
     end = Math.max(end * 1.015, 10);
 
     return { baseTimelineStart: start, baseDuration: end - start };
-  }, [displayRegions, markers, items, positionSeconds]);
+  }, [displayRegions, markers, items, positionSeconds, maxPlayheadPosition]);
 
   // Use base bounds for hook calculations (stable positioning)
   const timelineStart = baseTimelineStart;
@@ -166,6 +196,79 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
 
   // Selection mode toggle state (pan mode vs selection mode in navigate)
   const [selectionModeActive, setSelectionModeActive] = useState(false);
+
+  // Follow playhead state
+  const [followPlayhead, setFollowPlayhead] = useState(true);
+  const followPlayheadReEnable = useReaperStore((s) => s.followPlayheadReEnable);
+  const playState = useReaperStore((s) => s.playState);
+  const isPlaying = playState === 1;
+  const wasPlayingRef = useRef(false);
+
+  // Re-enable follow on playback start (if preference allows)
+  useEffect(() => {
+    if (isPlaying && !wasPlayingRef.current && followPlayheadReEnable === 'on-playback') {
+      setFollowPlayhead(true);
+    }
+    wasPlayingRef.current = isPlaying;
+  }, [isPlaying, followPlayheadReEnable]);
+
+  // Follow playhead using animation engine
+  // Handles both smooth scrolling during playback AND jumps when stopped (marker nav, seeks)
+  const lastFollowPanRef = useRef(0);
+  const lastKnownPositionRef = useRef(0);
+  const FOLLOW_THROTTLE_MS = 100; // Max 10 viewport updates per second
+  const JUMP_THRESHOLD = 0.5; // Seconds - consider it a "jump" if position changes by more than this
+
+  useTransportAnimation(
+    (state) => {
+      const playheadPos = state.position;
+
+      // Track max position reached (extends project bounds like REAPER's soft-end)
+      // Only update during playback to avoid resetting on seeks backward
+      if (state.isPlaying && playheadPos > maxPlayheadPosition) {
+        setMaxPlayheadPosition(playheadPos);
+      }
+
+      if (!followPlayhead) return;
+
+      const { start, end } = viewport.visibleRange;
+      const visibleDuration = end - start;
+
+      // Detect jumps (marker nav, seeks) - these should always trigger a pan
+      const positionDelta = Math.abs(playheadPos - lastKnownPositionRef.current);
+      const isJump = positionDelta > JUMP_THRESHOLD;
+      lastKnownPositionRef.current = playheadPos;
+
+      // When stopped: only respond to jumps (marker navigation, seeks)
+      // When playing: use threshold-based smooth follow
+      if (!state.isPlaying && !isJump) return;
+
+      // Throttle during playback (but not for jumps - those should be immediate)
+      const now = performance.now();
+      if (!isJump && now - lastFollowPanRef.current < FOLLOW_THROTTLE_MS) return;
+
+      // Check if playhead is outside the middle 60% of viewport
+      const leftThreshold = start + visibleDuration * 0.2;
+      const rightThreshold = end - visibleDuration * 0.2;
+
+      if (playheadPos < leftThreshold || playheadPos > rightThreshold) {
+        // Center viewport on playhead (viewport hook handles clamping)
+        viewport.setVisibleRange({
+          start: playheadPos - visibleDuration / 2,
+          end: playheadPos + visibleDuration / 2,
+        });
+        lastFollowPanRef.current = now;
+      }
+    },
+    [followPlayhead, viewport, maxPlayheadPosition]
+  );
+
+  // Pause follow when user pans
+  const pauseFollow = useCallback(() => {
+    if (followPlayhead) {
+      setFollowPlayhead(false);
+    }
+  }, [followPlayhead]);
 
   // Convert time to percentage position (using base values for stability)
   const timeToPercent = useCallback(
@@ -184,7 +287,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   );
   const {
     isDragging: isDraggingPlayhead,
-    previewPercent: playheadPreviewPercent,
     previewTime: playheadPreviewTime,
     handlePointerDown: handlePlayheadPointerDown,
     handlePointerMove: handlePlayheadPointerMove,
@@ -248,7 +350,10 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   const panGesture = usePanGesture({
     containerRef,
     visibleDuration: viewport.visibleDuration,
-    onPan: viewport.pan,
+    onPan: (delta) => {
+      viewport.pan(delta);
+      pauseFollow(); // Pause follow when user pans
+    },
     disabled: timelineMode !== 'navigate' || selectionModeActive,
   });
 
@@ -302,6 +407,14 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     viewport.visibleRange,
     VISIBILITY_BUFFER
   );
+
+  // Cluster markers based on zoom level (40px merge threshold)
+  const { clusters: markerClusters } = useMarkerClusters({
+    markers: visibleMarkers,
+    visibleRange: viewport.visibleRange,
+    containerWidth,
+  });
+
   const { visibleItems: visibleItems } = useVisibleMediaItems(
     items,
     viewport.visibleRange,
@@ -495,6 +608,28 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   const setSelectedMarkerId = useReaperStore((state) => state.setSelectedMarkerId);
   const setMarkerLocked = useReaperStore((state) => state.setMarkerLocked);
 
+  // Cluster tap handler - zoom to expand or show popover
+  const handleClusterTap = useCallback(
+    (cluster: MarkerClusterData) => {
+      if (cluster.count <= 5) {
+        // Small cluster: select first marker to show info (popover can be added later)
+        const firstMarker = cluster.markers[0];
+        setSelectedMarkerId(firstMarker.id);
+        setMarkerLocked(true);
+      } else {
+        // Large cluster: zoom in on the cluster
+        const clusterStart = cluster.markers[0].position;
+        const clusterEnd = cluster.markers[cluster.markers.length - 1].position;
+        const padding = (clusterEnd - clusterStart) * 0.2 || 2; // At least 2 seconds padding
+        viewport.fitToContent({
+          start: clusterStart - padding,
+          end: clusterEnd + padding,
+        });
+      }
+    },
+    [viewport, setSelectedMarkerId, setMarkerLocked]
+  );
+
   // Handle marker selection (locks auto-advance)
   const handleMarkerSelect = useCallback(
     (markerId: number) => {
@@ -507,7 +642,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   const {
     isDragging: isDraggingMarker,
     draggedMarker,
-    previewPercent: markerDragPreviewPercent,
     previewTime: markerDragPreviewTime,
     handlePointerDown: handleMarkerPointerDown,
     handlePointerMove: handleMarkerPointerMove,
@@ -522,6 +656,50 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     onMove: handleMarkerMoveFromDrag,
     onSelect: handleMarkerSelect,
   });
+
+  // Edge scroll for playhead/marker drag operations
+  // When dragging near the container edge, auto-scroll the viewport
+  const edgeScroll = useEdgeScroll({
+    containerRef,
+    visibleDuration: viewport.visibleDuration,
+    onPan: viewport.pan,
+    enabled: isDraggingPlayhead || isDraggingMarker,
+  });
+
+  // Wrap playhead pointer handlers to include edge scroll
+  // Note: The hook uses refs for enabled check, so we always call updateEdgeScroll
+  const handlePlayheadPointerMoveWithEdge = useCallback(
+    (e: React.PointerEvent) => {
+      handlePlayheadPointerMove(e);
+      edgeScroll.updateEdgeScroll(e.clientX);
+    },
+    [handlePlayheadPointerMove, edgeScroll]
+  );
+
+  const handlePlayheadPointerUpWithEdge = useCallback(
+    (e: React.PointerEvent) => {
+      edgeScroll.stopEdgeScroll();
+      handlePlayheadPointerUp(e);
+    },
+    [handlePlayheadPointerUp, edgeScroll]
+  );
+
+  // Wrap marker pointer handlers to include edge scroll
+  const handleMarkerPointerMoveWithEdge = useCallback(
+    (e: React.PointerEvent) => {
+      handleMarkerPointerMove(e);
+      edgeScroll.updateEdgeScroll(e.clientX);
+    },
+    [handleMarkerPointerMove, edgeScroll]
+  );
+
+  const handleMarkerPointerUpWithEdge = useCallback(
+    (e: React.PointerEvent) => {
+      edgeScroll.stopEdgeScroll();
+      handleMarkerPointerUp(e);
+    },
+    [handleMarkerPointerUp, edgeScroll]
+  );
 
   // Calculate selection preview bounds
   const selectionPreview = useMemo(() => {
@@ -555,7 +733,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         />
         {/* Playhead preview pill - rendered here to avoid overflow clipping */}
         <PlayheadPreviewPill
-          playheadPreviewPercent={playheadPreviewPercent}
+          playheadPreviewPercent={playheadPreviewTime !== null ? renderTimeToPercent(playheadPreviewTime) : null}
           playheadPreviewTime={playheadPreviewTime}
           isDraggingPlayhead={isDraggingPlayhead}
           bpm={bpm}
@@ -568,6 +746,10 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       <div
         ref={containerRef}
         data-testid="timeline-canvas"
+        data-scroll-x={viewport.visibleRange.start.toFixed(2)}
+        data-zoom-level={viewport.zoomLevel}
+        data-visible-duration={viewport.visibleDuration.toFixed(2)}
+        data-selection-mode={selectionModeActive}
         className="relative bg-bg-surface overflow-hidden touch-none select-none"
         style={{ height }}
         onPointerDown={handlePointerDown}
@@ -615,8 +797,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         )}
 
         {/* Markers - lines only, labels in bottom bar */}
-        <TimelineMarkerLines
-          markers={visibleMarkers}
+        <ClusteredMarkerLines
+          clusters={markerClusters}
           timelineMode={timelineMode}
           renderTimeToPercent={renderTimeToPercent}
         />
@@ -711,13 +893,13 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           isDraggingPlayhead={isDraggingPlayhead}
           renderTimeToPercent={renderTimeToPercent}
           handlePlayheadPointerDown={handlePlayheadPointerDown}
-          handlePlayheadPointerMove={handlePlayheadPointerMove}
-          handlePlayheadPointerUp={handlePlayheadPointerUp}
+          handlePlayheadPointerMove={handlePlayheadPointerMoveWithEdge}
+          handlePlayheadPointerUp={handlePlayheadPointerUpWithEdge}
         />
 
         {/* Preview playhead line/triangle during drag */}
         <PlayheadDragPreview
-          playheadPreviewPercent={playheadPreviewPercent}
+          playheadPreviewPercent={playheadPreviewTime !== null ? renderTimeToPercent(playheadPreviewTime) : null}
           isDraggingPlayhead={isDraggingPlayhead}
         />
 
@@ -725,7 +907,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         <MarkerDragPreview
           draggedMarker={draggedMarker}
           isDraggingMarker={isDraggingMarker}
-          markerDragPreviewPercent={markerDragPreviewPercent}
+          markerDragPreviewPercent={markerDragPreviewTime !== null ? renderTimeToPercent(markerDragPreviewTime) : null}
           markerDragPreviewTime={markerDragPreviewTime}
           bpm={bpm}
           barOffset={barOffset}
@@ -736,8 +918,23 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         {/* Viewport controls overlay - only in navigate mode */}
         {timelineMode === 'navigate' && (
           <div className="absolute bottom-1 right-1 flex items-center gap-1 z-30 pointer-events-auto">
+            {/* Follow playhead toggle */}
+            <button
+              data-testid="follow-playhead-toggle"
+              onClick={() => setFollowPlayhead(!followPlayhead)}
+              className={`p-1.5 rounded transition-colors ${
+                followPlayhead
+                  ? 'bg-primary text-text-on-primary'
+                  : 'bg-bg-deep/80 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'
+              }`}
+              title={followPlayhead ? 'Stop following playhead' : 'Follow playhead'}
+              aria-pressed={followPlayhead}
+            >
+              <Locate size={14} />
+            </button>
             {/* Selection mode toggle */}
             <button
+              data-testid="selection-toggle"
               onClick={() => setSelectionModeActive(!selectionModeActive)}
               className={`p-1.5 rounded transition-colors ${
                 selectionModeActive
@@ -796,15 +993,16 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           />
         )}
         {/* Marker pills - offset by 1px to center on 2px-wide marker line */}
-        <TimelineMarkerPills
-          markers={visibleMarkers}
+        <ClusteredMarkerPills
+          clusters={markerClusters}
           timelineMode={timelineMode}
           renderTimeToPercent={renderTimeToPercent}
           draggedMarker={draggedMarker}
           isDraggingMarker={isDraggingMarker}
           handleMarkerPointerDown={handleMarkerPointerDown}
-          handleMarkerPointerMove={handleMarkerPointerMove}
-          handleMarkerPointerUp={handleMarkerPointerUp}
+          handleMarkerPointerMove={handleMarkerPointerMoveWithEdge}
+          handleMarkerPointerUp={handleMarkerPointerUpWithEdge}
+          onClusterTap={handleClusterTap}
         />
       </div>
     </div>

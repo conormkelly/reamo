@@ -56,3 +56,10 @@ export {
   type UseVisibleItemsOptions,
   type UseVisibleItemsReturn,
 } from './useVisibleItems';
+export { useReducedMotion } from './useReducedMotion';
+export {
+  useMarkerClusters,
+  type MarkerClusterData,
+  type UseMarkerClustersOptions,
+  type UseMarkerClustersReturn,
+} from './useMarkerClusters';
