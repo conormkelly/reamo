@@ -341,6 +341,32 @@ pub fn jsonGetIntFromObject(data: []const u8, obj_key: []const u8, field_key: []
     return jsonGetInt(nested, field_key);
 }
 
+/// Get a float field from a nested object.
+/// E.g., for {"timeRange": {"start": 0.0, "end": 30.0}}, call jsonGetFloatFromObject(data, "timeRange", "start")
+pub fn jsonGetFloatFromObject(data: []const u8, obj_key: []const u8, field_key: []const u8) ?f64 {
+    // Find the object key
+    var pattern_buf: [64]u8 = undefined;
+    const pattern = std.fmt.bufPrint(&pattern_buf, "\"{s}\"", .{obj_key}) catch return null;
+
+    const key_start = std.mem.indexOf(u8, data, pattern) orelse return null;
+    const after_key = key_start + pattern.len;
+
+    // Find the colon after the key
+    const colon = std.mem.indexOfPos(u8, data, after_key, ":") orelse return null;
+
+    // Find opening brace of nested object
+    const open_brace = std.mem.indexOfPos(u8, data, colon + 1, "{") orelse return null;
+
+    // Find closing brace (simple matching, doesn't handle nested objects)
+    const close_brace = std.mem.indexOfPos(u8, data, open_brace + 1, "}") orelse return null;
+
+    // Extract the nested object content
+    const nested = data[open_brace .. close_brace + 1];
+
+    // Now parse the field from the nested object
+    return jsonGetFloat(nested, field_key);
+}
+
 /// Get a string array from JSON.
 /// E.g., for {"guids": ["master", "{AAA...}"]}, call jsonGetStringArray(data, "guids", ...)
 /// Returns the number of strings parsed, or null if the key is not found.
@@ -771,6 +797,24 @@ test "jsonGetIntFromObject with whitespace" {
     const data = "{ \"range\" : { \"start\" : 0 , \"end\" : 31 } }";
     try std.testing.expectEqual(@as(c_int, 0), jsonGetIntFromObject(data, "range", "start").?);
     try std.testing.expectEqual(@as(c_int, 31), jsonGetIntFromObject(data, "range", "end").?);
+}
+
+test "jsonGetFloatFromObject basic" {
+    const data = "{\"timeRange\":{\"start\":0.0,\"end\":30.5}}";
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), jsonGetFloatFromObject(data, "timeRange", "start").?, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f64, 30.5), jsonGetFloatFromObject(data, "timeRange", "end").?, 0.001);
+}
+
+test "jsonGetFloatFromObject missing key" {
+    const data = "{\"timeRange\":{\"start\":0.0}}";
+    try std.testing.expect(jsonGetFloatFromObject(data, "timeRange", "end") == null);
+    try std.testing.expect(jsonGetFloatFromObject(data, "missing", "start") == null);
+}
+
+test "jsonGetFloatFromObject with whitespace" {
+    const data = "{ \"timeRange\" : { \"start\" : 0.0 , \"end\" : 120.5 } }";
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), jsonGetFloatFromObject(data, "timeRange", "start").?, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f64, 120.5), jsonGetFloatFromObject(data, "timeRange", "end").?, 0.001);
 }
 
 test "jsonGetStringArray basic" {

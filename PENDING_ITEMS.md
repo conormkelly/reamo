@@ -94,6 +94,26 @@ This aligns with how arrange view scrolling works (horizontal = time, not track 
 
 **Status:** Architecture designed, not implemented
 
+### Per-Client Track Filtering on Broadcast
+
+**Priority:** Low (optimization)
+
+Currently, track subscriptions optimize **polling** but not **broadcasting**:
+
+- Each client can subscribe to different track ranges (e.g., Client A: 0-10, Client B: 50-60)
+- Backend polls only the union of all subscriptions (tracks 0-10 and 50-60)
+- **However**, `shared_state.broadcast()` sends the same JSON to ALL clients
+- Both clients receive all 22 tracks instead of just their subscribed range
+
+**Impact:** Wastes bandwidth when multiple clients view different portions of large projects. For single-client usage or overlapping viewports, impact is negligible.
+
+**Implementation options:**
+1. **Per-client serialization** — Serialize tracks per-client based on their subscription. More CPU, but straightforward.
+2. **Chunked broadcast** — Split track data by index ranges, send relevant chunks per-client.
+3. **Client-side filtering** — Keep current broadcast, let frontend ignore tracks outside its viewport (already happens implicitly).
+
+**Status:** Not implemented. Current design is acceptable for typical usage (1-2 clients, overlapping viewports).
+
 ### Mobile Safari Performance
 
 Gotchas discovered during research:

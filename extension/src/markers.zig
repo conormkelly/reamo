@@ -227,7 +227,7 @@ pub const State = struct {
     // bar: measure number from timeToBeats (before offset applied)
     // beat_in_bar: 0-indexed beat within measure (from timeToBeats)
     // bar_offset: project bar offset to apply
-    fn formatBars(w: anytype, bar: c_int, beat_in_bar: f64, bar_offset: c_int) !void {
+    pub fn formatBars(w: anytype, bar: c_int, beat_in_bar: f64, bar_offset: c_int) !void {
         const display_bar = bar + bar_offset;
         // Convert 0-indexed to 1-indexed and extract ticks
         // Use integer arithmetic to avoid floating-point precision issues
@@ -241,7 +241,7 @@ pub const State = struct {
     // Format length as bar.beat.ticks string (e.g., "10.1.50")
     // Computes the difference between end and start positions with borrowing.
     // Uses time sig numerator at START position for beat borrowing (you borrow from the start bar).
-    fn formatLengthBars(
+    pub fn formatLengthBars(
         w: anytype,
         start_bar: c_int,
         start_beat_in_bar: f64,
@@ -343,7 +343,257 @@ pub const State = struct {
         const json = self.regionsToJson(&buf) orelse return error.JsonSerializationFailed;
         return allocator.dupe(u8, json);
     }
+
+    /// Poll markers within a time range (for timeline subscriptions).
+    /// Filters to only markers within [range_start, range_end].
+    pub fn pollMarkersTimeRange(allocator: Allocator, api: anytype, range_start: f64, range_end: f64) Allocator.Error!MarkersOnlyState {
+        return pollMarkersTimeRangeWithLimit(allocator, api, range_start, range_end, MAX_MARKERS);
+    }
+
+    /// Poll markers within time range with configurable limit.
+    pub fn pollMarkersTimeRangeWithLimit(allocator: Allocator, api: anytype, range_start: f64, range_end: f64, max_markers: usize) Allocator.Error!MarkersOnlyState {
+        // First pass: count markers in range
+        var total_markers: usize = 0;
+        var idx: c_int = 0;
+        while (api.enumMarker(idx)) |info| : (idx += 1) {
+            if (!info.is_region and info.pos >= range_start and info.pos <= range_end) {
+                total_markers += 1;
+                if (total_markers >= max_markers) break;
+            }
+        }
+
+        const marker_buf = try allocator.alloc(Marker, total_markers);
+        const bar_offset = api.getBarOffset();
+
+        // Second pass: populate
+        var write_idx: usize = 0;
+        idx = 0;
+        while (api.enumMarker(idx)) |info| : (idx += 1) {
+            if (write_idx >= marker_buf.len) break;
+            if (info.is_region) continue;
+            if (info.pos < range_start or info.pos > range_end) continue;
+
+            var marker = &marker_buf[write_idx];
+            marker.id = info.id;
+            marker.position = info.pos;
+            marker.color = info.color;
+
+            // Compute beat position
+            const beats_info = api.timeToBeats(info.pos);
+            marker.position_beats = beats_info.beats;
+            marker.position_bar = beats_info.measures;
+            marker.position_beat_in_bar = beats_info.beats_in_measure;
+
+            const copy_len = @min(info.name.len, marker.name.len);
+            @memcpy(marker.name[0..copy_len], info.name[0..copy_len]);
+            marker.name_len = copy_len;
+
+            write_idx += 1;
+        }
+
+        return .{ .markers = marker_buf[0..write_idx], .bar_offset = bar_offset };
+    }
+
+    /// Poll regions within a time range (for timeline subscriptions).
+    /// Filters to only regions that overlap [range_start, range_end].
+    pub fn pollRegionsTimeRange(allocator: Allocator, api: anytype, range_start: f64, range_end: f64) Allocator.Error!RegionsOnlyState {
+        return pollRegionsTimeRangeWithLimit(allocator, api, range_start, range_end, MAX_REGIONS);
+    }
+
+    /// Poll regions within time range with configurable limit.
+    pub fn pollRegionsTimeRangeWithLimit(allocator: Allocator, api: anytype, range_start: f64, range_end: f64, max_regions: usize) Allocator.Error!RegionsOnlyState {
+        // First pass: count regions in range
+        var total_regions: usize = 0;
+        var idx: c_int = 0;
+        while (api.enumMarker(idx)) |info| : (idx += 1) {
+            if (info.is_region and regionOverlapsRange(info.pos, info.end, range_start, range_end)) {
+                total_regions += 1;
+                if (total_regions >= max_regions) break;
+            }
+        }
+
+        const region_buf = try allocator.alloc(Region, total_regions);
+        const bar_offset = api.getBarOffset();
+
+        // Second pass: populate
+        var write_idx: usize = 0;
+        idx = 0;
+        while (api.enumMarker(idx)) |info| : (idx += 1) {
+            if (write_idx >= region_buf.len) break;
+            if (!info.is_region) continue;
+            if (!regionOverlapsRange(info.pos, info.end, range_start, range_end)) continue;
+
+            var region = &region_buf[write_idx];
+            region.id = info.id;
+            region.start = info.pos;
+            region.end = info.end;
+            region.color = info.color;
+
+            // Compute beat positions
+            const start_beats = api.timeToBeats(info.pos);
+            region.start_beats = start_beats.beats;
+            region.start_bar = start_beats.measures;
+            region.start_beat_in_bar = start_beats.beats_in_measure;
+
+            const end_beats = api.timeToBeats(info.end);
+            region.end_beats = end_beats.beats;
+            region.end_bar = end_beats.measures;
+            region.end_beat_in_bar = end_beats.beats_in_measure;
+
+            // Get time sig at start for length borrowing calculation
+            const start_timesig = api.getTempoAtPosition(info.pos);
+            region.start_beats_per_bar = start_timesig.timesig_num;
+
+            const copy_len = @min(info.name.len, region.name.len);
+            @memcpy(region.name[0..copy_len], info.name[0..copy_len]);
+            region.name_len = copy_len;
+
+            write_idx += 1;
+        }
+
+        return .{ .regions = region_buf[0..write_idx], .bar_offset = bar_offset };
+    }
+
+    /// Compute a hash of the markers state for change detection.
+    pub fn computeMarkersHash(self: *const State) u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(std.mem.asBytes(&self.markers.len));
+        for (self.markers) |m| {
+            hasher.update(std.mem.asBytes(&m.id));
+            hasher.update(std.mem.asBytes(&m.position));
+            hasher.update(std.mem.asBytes(&m.color));
+            hasher.update(m.name[0..m.name_len]);
+        }
+        return hasher.final();
+    }
+
+    /// Compute a hash of the regions state for change detection.
+    pub fn computeRegionsHash(self: *const State) u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(std.mem.asBytes(&self.regions.len));
+        for (self.regions) |r| {
+            hasher.update(std.mem.asBytes(&r.id));
+            hasher.update(std.mem.asBytes(&r.start));
+            hasher.update(std.mem.asBytes(&r.end));
+            hasher.update(std.mem.asBytes(&r.color));
+            hasher.update(r.name[0..r.name_len]);
+        }
+        return hasher.final();
+    }
 };
+
+/// State for markers-only polling (for timeline subscriptions).
+pub const MarkersOnlyState = struct {
+    markers: []Marker = &.{},
+    bar_offset: c_int = 0,
+
+    /// Generate JSON for markers event.
+    pub fn markersToJson(self: *const MarkersOnlyState, buf: []u8) ?[]const u8 {
+        var stream = std.io.fixedBufferStream(buf);
+        var w = stream.writer();
+
+        w.writeAll("{\"type\":\"event\",\"event\":\"markers\",\"payload\":{\"markers\":[") catch return null;
+
+        for (0..self.markers.len) |i| {
+            if (i > 0) w.writeByte(',') catch return null;
+            const m = &self.markers[i];
+            w.print("{{\"id\":{d},\"position\":{d:.15},\"positionBeats\":{d:.6},\"positionBars\":\"", .{
+                m.id,
+                m.position,
+                m.position_beats,
+            }) catch return null;
+            State.formatBars(w, m.position_bar, m.position_beat_in_bar, self.bar_offset) catch return null;
+            w.writeAll("\",\"name\":\"") catch return null;
+            protocol.writeJsonString(w, m.getName()) catch return null;
+            w.print("\",\"color\":{d}}}", .{m.color}) catch return null;
+        }
+
+        w.writeAll("]}}") catch return null;
+        return stream.getWritten();
+    }
+
+    pub fn markersToJsonAlloc(self: *const MarkersOnlyState, allocator: std.mem.Allocator) ![]const u8 {
+        var buf: [8192]u8 = undefined;
+        const json = self.markersToJson(&buf) orelse return error.JsonSerializationFailed;
+        return allocator.dupe(u8, json);
+    }
+
+    /// Compute a hash for change detection.
+    pub fn computeHash(self: *const MarkersOnlyState) u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(std.mem.asBytes(&self.markers.len));
+        for (self.markers) |m| {
+            hasher.update(std.mem.asBytes(&m.id));
+            hasher.update(std.mem.asBytes(&m.position));
+            hasher.update(std.mem.asBytes(&m.color));
+            hasher.update(m.name[0..m.name_len]);
+        }
+        return hasher.final();
+    }
+};
+
+/// State for regions-only polling (for timeline subscriptions).
+pub const RegionsOnlyState = struct {
+    regions: []Region = &.{},
+    bar_offset: c_int = 0,
+
+    /// Generate JSON for regions event.
+    pub fn regionsToJson(self: *const RegionsOnlyState, buf: []u8) ?[]const u8 {
+        var stream = std.io.fixedBufferStream(buf);
+        var w = stream.writer();
+
+        w.writeAll("{\"type\":\"event\",\"event\":\"regions\",\"payload\":{\"regions\":[") catch return null;
+
+        for (0..self.regions.len) |i| {
+            if (i > 0) w.writeByte(',') catch return null;
+            const r = &self.regions[i];
+            w.print("{{\"id\":{d},\"start\":{d:.15},\"end\":{d:.15},\"startBeats\":{d:.6},\"endBeats\":{d:.6},\"startBars\":\"", .{
+                r.id,
+                r.start,
+                r.end,
+                r.start_beats,
+                r.end_beats,
+            }) catch return null;
+            State.formatBars(w, r.start_bar, r.start_beat_in_bar, self.bar_offset) catch return null;
+            w.writeAll("\",\"endBars\":\"") catch return null;
+            State.formatBars(w, r.end_bar, r.end_beat_in_bar, self.bar_offset) catch return null;
+            w.writeAll("\",\"lengthBars\":\"") catch return null;
+            State.formatLengthBars(w, r.start_bar, r.start_beat_in_bar, r.end_bar, r.end_beat_in_bar, r.start_beats_per_bar) catch return null;
+            w.writeAll("\",\"name\":\"") catch return null;
+            protocol.writeJsonString(w, r.getName()) catch return null;
+            w.print("\",\"color\":{d}}}", .{r.color}) catch return null;
+        }
+
+        w.writeAll("]}}") catch return null;
+        return stream.getWritten();
+    }
+
+    pub fn regionsToJsonAlloc(self: *const RegionsOnlyState, allocator: std.mem.Allocator) ![]const u8 {
+        var buf: [8192]u8 = undefined;
+        const json = self.regionsToJson(&buf) orelse return error.JsonSerializationFailed;
+        return allocator.dupe(u8, json);
+    }
+
+    /// Compute a hash for change detection.
+    pub fn computeHash(self: *const RegionsOnlyState) u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(std.mem.asBytes(&self.regions.len));
+        for (self.regions) |r| {
+            hasher.update(std.mem.asBytes(&r.id));
+            hasher.update(std.mem.asBytes(&r.start));
+            hasher.update(std.mem.asBytes(&r.end));
+            hasher.update(std.mem.asBytes(&r.color));
+            hasher.update(r.name[0..r.name_len]);
+        }
+        return hasher.final();
+    }
+};
+
+/// Check if region overlaps time range.
+/// Region overlaps if: region.start < range_end AND region.end > range_start
+fn regionOverlapsRange(region_start: f64, region_end: f64, range_start: f64, range_end: f64) bool {
+    return region_start < range_end and region_end > range_start;
+}
 
 // Tests
 test "Marker equality" {
@@ -577,4 +827,93 @@ test "poll tracks API calls correctly" {
     try std.testing.expect(mock.getCallCount(.getBarOffset) >= 1);
     try std.testing.expect(mock.getCallCount(.enumMarker) >= 1);
     try std.testing.expect(mock.getCallCount(.timeToBeats) >= 1);
+}
+
+test "pollMarkersTimeRange filters markers by time range" {
+    var mock = MockBackend{
+        .marker_count = 3,
+        .region_count = 0,
+    };
+    // Create 3 markers at positions 5, 25, 50
+    mock.markers[0] = .{ .idx = 0, .id = 1, .pos = 5.0, .end = 0.0, .is_region = false, .color = 0 };
+    mock.markers[0].setName("M1");
+    mock.markers[1] = .{ .idx = 1, .id = 2, .pos = 25.0, .end = 0.0, .is_region = false, .color = 0 };
+    mock.markers[1].setName("M2");
+    mock.markers[2] = .{ .idx = 2, .id = 3, .pos = 50.0, .end = 0.0, .is_region = false, .color = 0 };
+    mock.markers[2].setName("M3");
+
+    const allocator = std.testing.allocator;
+
+    // Range 10-40 should include marker at 25 only
+    const state = try State.pollMarkersTimeRange(allocator, &mock, 10.0, 40.0);
+    defer allocator.free(state.markers);
+
+    try std.testing.expectEqual(@as(usize, 1), state.markers.len);
+    try std.testing.expect(@abs(state.markers[0].position - 25.0) < 0.001);
+}
+
+test "pollRegionsTimeRange filters regions by time range" {
+    var mock = MockBackend{
+        .marker_count = 0,
+        .region_count = 3,
+    };
+    // Create 3 regions: 0-10, 20-30, 50-60
+    mock.markers[0] = .{ .idx = 0, .id = 1, .pos = 0.0, .end = 10.0, .is_region = true, .color = 0 };
+    mock.markers[0].setName("R1");
+    mock.markers[1] = .{ .idx = 1, .id = 2, .pos = 20.0, .end = 30.0, .is_region = true, .color = 0 };
+    mock.markers[1].setName("R2");
+    mock.markers[2] = .{ .idx = 2, .id = 3, .pos = 50.0, .end = 60.0, .is_region = true, .color = 0 };
+    mock.markers[2].setName("R3");
+
+    const allocator = std.testing.allocator;
+
+    // Range 15-35 should include region at 20-30 only
+    const state = try State.pollRegionsTimeRange(allocator, &mock, 15.0, 35.0);
+    defer allocator.free(state.regions);
+
+    try std.testing.expectEqual(@as(usize, 1), state.regions.len);
+    try std.testing.expect(@abs(state.regions[0].start - 20.0) < 0.001);
+}
+
+test "pollRegionsTimeRange includes partially overlapping regions" {
+    var mock = MockBackend{
+        .marker_count = 0,
+        .region_count = 1,
+    };
+    mock.markers[0] = .{ .idx = 0, .id = 1, .pos = 5.0, .end = 15.0, .is_region = true, .color = 0 }; // 5-15
+    mock.markers[0].setName("R1");
+
+    const allocator = std.testing.allocator;
+
+    // Range 10-20 overlaps with region at 5-15 (region_end=15 > range_start=10)
+    const state = try State.pollRegionsTimeRange(allocator, &mock, 10.0, 20.0);
+    defer allocator.free(state.regions);
+
+    try std.testing.expectEqual(@as(usize, 1), state.regions.len);
+}
+
+test "regionOverlapsRange" {
+    // Region fully inside range
+    try std.testing.expect(regionOverlapsRange(15.0, 25.0, 10.0, 30.0));
+
+    // Region starts before, ends inside
+    try std.testing.expect(regionOverlapsRange(5.0, 15.0, 10.0, 30.0));
+
+    // Region starts inside, ends after
+    try std.testing.expect(regionOverlapsRange(25.0, 35.0, 10.0, 30.0));
+
+    // Region contains range
+    try std.testing.expect(regionOverlapsRange(0.0, 100.0, 10.0, 30.0));
+
+    // Region completely before range
+    try std.testing.expect(!regionOverlapsRange(0.0, 5.0, 10.0, 30.0));
+
+    // Region completely after range
+    try std.testing.expect(!regionOverlapsRange(35.0, 40.0, 10.0, 30.0));
+
+    // Region ends exactly at range start (no overlap)
+    try std.testing.expect(!regionOverlapsRange(0.0, 10.0, 10.0, 30.0));
+
+    // Region starts exactly at range end (no overlap)
+    try std.testing.expect(!regionOverlapsRange(30.0, 40.0, 10.0, 30.0));
 }

@@ -10,6 +10,7 @@ const toggle_subscriptions = @import("../toggle_subscriptions.zig");
 const project_notes = @import("../project_notes.zig");
 const guid_cache = @import("../guid_cache.zig");
 const track_subscriptions = @import("../track_subscriptions.zig");
+const timeline_subscriptions = @import("../timeline_subscriptions.zig");
 const tiered_state = @import("../tiered_state.zig");
 
 // Import domain-specific command modules
@@ -56,6 +57,7 @@ pub const CommandContext = struct {
     notes_subs: ?*project_notes.NotesSubscriptions = null,
     guid_cache: ?*guid_cache.GuidCache = null,
     track_subs: ?*track_subscriptions.TrackSubscriptions = null,
+    timeline_subs: ?*timeline_subscriptions.TimelineSubscriptions = null,
     tiered: ?*tiered_state.TieredArenas = null,
 };
 

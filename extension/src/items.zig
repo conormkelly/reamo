@@ -287,7 +287,125 @@ pub const State = struct {
         const json = self.itemsToJson(&buf) orelse return error.JsonSerializationFailed;
         return allocator.dupe(u8, json);
     }
+
+    /// Poll items within a time range (for timeline subscriptions).
+    /// Filters to only items that overlap [range_start, range_end].
+    pub fn pollTimeRange(allocator: Allocator, api: anytype, range_start: f64, range_end: f64) Allocator.Error!State {
+        return pollTimeRangeWithLimit(allocator, api, range_start, range_end, MAX_ITEMS);
+    }
+
+    /// Poll items within time range with configurable limit.
+    pub fn pollTimeRangeWithLimit(allocator: Allocator, api: anytype, range_start: f64, range_end: f64, max_items: usize) Allocator.Error!State {
+        // First pass: count items in range
+        var total_items: usize = 0;
+        const track_count = api.trackCount();
+        var track_idx: c_int = 0;
+        while (track_idx < track_count) : (track_idx += 1) {
+            const track = api.getTrackByIdx(track_idx) orelse continue;
+            if (!api.validateTrackPtr(track)) continue;
+
+            const items_on_track = api.trackItemCount(track);
+            var item_idx: c_int = 0;
+            while (item_idx < items_on_track) : (item_idx += 1) {
+                const item_ptr = api.getItemByIdx(track, item_idx) orelse continue;
+                if (!api.validateItemPtr(item_ptr)) continue;
+
+                const pos = api.getItemPosition(item_ptr);
+                const len = api.getItemLength(item_ptr);
+                if (itemOverlapsRange(pos, len, range_start, range_end)) {
+                    total_items += 1;
+                    if (total_items >= max_items) break;
+                }
+            }
+            if (total_items >= max_items) break;
+        }
+
+        if (total_items == 0) {
+            return .{ .items = &.{} };
+        }
+
+        const items = try allocator.alloc(Item, total_items);
+
+        // Second pass: populate
+        var write_idx: usize = 0;
+        track_idx = 0;
+        while (track_idx < track_count) : (track_idx += 1) {
+            const track = api.getTrackByIdx(track_idx) orelse continue;
+            if (!api.validateTrackPtr(track)) continue;
+
+            const items_on_track = api.trackItemCount(track);
+            var item_idx: c_int = 0;
+            while (item_idx < items_on_track) : (item_idx += 1) {
+                if (write_idx >= items.len) break;
+
+                const item_ptr = api.getItemByIdx(track, item_idx) orelse continue;
+                if (!api.validateItemPtr(item_ptr)) continue;
+
+                const pos = api.getItemPosition(item_ptr);
+                const len = api.getItemLength(item_ptr);
+                if (!itemOverlapsRange(pos, len, range_start, range_end)) continue;
+
+                var item = &items[write_idx];
+
+                // Get item GUID
+                var guid_buf: [64]u8 = undefined;
+                const item_guid = api.getItemGUID(item_ptr, &guid_buf);
+                const guid_copy_len = @min(item_guid.len, item.guid.len);
+                @memcpy(item.guid[0..guid_copy_len], item_guid[0..guid_copy_len]);
+                item.guid_len = guid_copy_len;
+
+                item.track_idx = track_idx;
+                item.item_idx = item_idx;
+                item.position = pos;
+                item.length = len;
+                item.color = api.getItemColor(item_ptr) catch null;
+                item.locked = api.getItemLocked(item_ptr) catch null;
+                item.selected = api.getItemSelected(item_ptr) catch null;
+                item.active_take_idx = api.getItemActiveTakeIdx(item_ptr) catch null;
+
+                // Sparse fields
+                var notes_buf: [1024]u8 = undefined;
+                const notes = api.getItemNotes(item_ptr, &notes_buf);
+                item.has_notes = notes.len > 0;
+
+                const take_count_raw = api.itemTakeCount(item_ptr);
+                item.take_count = if (take_count_raw >= 0) @intCast(@min(take_count_raw, 255)) else 0;
+
+                write_idx += 1;
+            }
+            if (write_idx >= items.len) break;
+        }
+
+        return .{ .items = items[0..write_idx] };
+    }
+
+    /// Compute a hash of the items state for change detection.
+    pub fn computeHash(self: *const State) u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(std.mem.asBytes(&self.items.len));
+        for (self.items) |item| {
+            hasher.update(item.guid[0..item.guid_len]);
+            hasher.update(std.mem.asBytes(&item.track_idx));
+            hasher.update(std.mem.asBytes(&item.item_idx));
+            hasher.update(std.mem.asBytes(&item.position));
+            hasher.update(std.mem.asBytes(&item.length));
+            hasher.update(std.mem.asBytes(&item.color));
+            hasher.update(std.mem.asBytes(&item.locked));
+            hasher.update(std.mem.asBytes(&item.selected));
+            hasher.update(std.mem.asBytes(&item.active_take_idx));
+            hasher.update(std.mem.asBytes(&item.has_notes));
+            hasher.update(std.mem.asBytes(&item.take_count));
+        }
+        return hasher.final();
+    }
 };
+
+/// Check if item overlaps time range.
+/// Item overlaps if: position < range_end AND position + length > range_start
+fn itemOverlapsRange(position: f64, length: f64, range_start: f64, range_end: f64) bool {
+    const item_end = position + length;
+    return position < range_end and item_end > range_start;
+}
 
 // Tests
 test "Take equality" {
@@ -495,4 +613,124 @@ test "poll tracks API calls correctly" {
     try std.testing.expect(mock.getCallCount(.trackCount) >= 1);
     try std.testing.expect(mock.getCallCount(.getTrackByIdx) >= 1);
     try std.testing.expect(mock.getCallCount(.trackItemCount) >= 1);
+}
+
+test "pollTimeRange filters items by time range" {
+    var mock = MockBackend{
+        .track_count = 1,
+    };
+    // Create 3 items at positions 0-10, 20-30, 50-60
+    mock.tracks[0].item_count = 3;
+    mock.tracks[0].items[0] = .{ .position = 0.0, .length = 10.0, .take_count = 1 };
+    mock.tracks[0].items[1] = .{ .position = 20.0, .length = 10.0, .take_count = 1 };
+    mock.tracks[0].items[2] = .{ .position = 50.0, .length = 10.0, .take_count = 1 };
+
+    const allocator = std.testing.allocator;
+
+    // Range 15-35 should include item at 20-30 only
+    const state = try State.pollTimeRange(allocator, &mock, 15.0, 35.0);
+    defer allocator.free(state.items);
+
+    try std.testing.expectEqual(@as(usize, 1), state.items.len);
+    try std.testing.expect(@abs(state.items[0].position - 20.0) < 0.001);
+}
+
+test "pollTimeRange includes partially overlapping items" {
+    var mock = MockBackend{
+        .track_count = 1,
+    };
+    mock.tracks[0].item_count = 1;
+    mock.tracks[0].items[0] = .{ .position = 5.0, .length = 10.0, .take_count = 1 }; // 5-15
+
+    const allocator = std.testing.allocator;
+
+    // Range 10-20 overlaps with item at 5-15 (item_end=15 > range_start=10)
+    const state = try State.pollTimeRange(allocator, &mock, 10.0, 20.0);
+    defer allocator.free(state.items);
+
+    try std.testing.expectEqual(@as(usize, 1), state.items.len);
+}
+
+test "pollTimeRange returns empty for out-of-range items" {
+    var mock = MockBackend{
+        .track_count = 1,
+    };
+    mock.tracks[0].item_count = 1;
+    mock.tracks[0].items[0] = .{ .position = 100.0, .length = 10.0, .take_count = 1 };
+
+    const allocator = std.testing.allocator;
+
+    // Range 0-50 doesn't overlap with item at 100-110
+    const state = try State.pollTimeRange(allocator, &mock, 0.0, 50.0);
+    defer if (state.items.len > 0) allocator.free(state.items);
+
+    try std.testing.expectEqual(@as(usize, 0), state.items.len);
+}
+
+test "itemOverlapsRange" {
+    // Item fully inside range
+    try std.testing.expect(itemOverlapsRange(15.0, 10.0, 10.0, 30.0));
+
+    // Item starts before, ends inside
+    try std.testing.expect(itemOverlapsRange(5.0, 10.0, 10.0, 30.0));
+
+    // Item starts inside, ends after
+    try std.testing.expect(itemOverlapsRange(25.0, 10.0, 10.0, 30.0));
+
+    // Item contains range
+    try std.testing.expect(itemOverlapsRange(0.0, 100.0, 10.0, 30.0));
+
+    // Item completely before range
+    try std.testing.expect(!itemOverlapsRange(0.0, 5.0, 10.0, 30.0));
+
+    // Item completely after range
+    try std.testing.expect(!itemOverlapsRange(35.0, 10.0, 10.0, 30.0));
+
+    // Item ends exactly at range start (no overlap)
+    try std.testing.expect(!itemOverlapsRange(0.0, 10.0, 10.0, 30.0));
+
+    // Item starts exactly at range end (no overlap)
+    try std.testing.expect(!itemOverlapsRange(30.0, 10.0, 10.0, 30.0));
+}
+
+test "computeHash produces consistent results" {
+    const item_guid = "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}";
+
+    var buffer1: [1]Item = undefined;
+    buffer1[0] = .{
+        .track_idx = 0,
+        .item_idx = 0,
+        .position = 10.0,
+        .length = 5.0,
+        .color = 0,
+        .locked = false,
+        .active_take_idx = 0,
+    };
+    buffer1[0].guid[0..item_guid.len].* = item_guid.*;
+    buffer1[0].guid_len = item_guid.len;
+
+    const state = State{ .items = &buffer1 };
+    const hash1 = state.computeHash();
+    const hash2 = state.computeHash();
+
+    try std.testing.expectEqual(hash1, hash2);
+}
+
+test "computeHash differs for different states" {
+    const item_guid = "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}";
+
+    var buffer1: [1]Item = undefined;
+    buffer1[0] = .{ .track_idx = 0, .item_idx = 0, .position = 10.0, .length = 5.0 };
+    buffer1[0].guid[0..item_guid.len].* = item_guid.*;
+    buffer1[0].guid_len = item_guid.len;
+
+    var buffer2: [1]Item = undefined;
+    buffer2[0] = .{ .track_idx = 0, .item_idx = 0, .position = 15.0, .length = 5.0 }; // Different position
+    buffer2[0].guid[0..item_guid.len].* = item_guid.*;
+    buffer2[0].guid_len = item_guid.len;
+
+    const state1 = State{ .items = &buffer1 };
+    const state2 = State{ .items = &buffer2 };
+
+    try std.testing.expect(state1.computeHash() != state2.computeHash());
 }

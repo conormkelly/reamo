@@ -71,19 +71,21 @@ reaper_www_root/
 │       ├── sends.zig          # Send state: destination, volume, pan, mute
 │       ├── tempomap.zig       # Tempo marker state (LOW tier, 1Hz)
 │       ├── track_skeleton.zig # Lightweight name+GUID list (LOW tier, 1Hz)
-│       ├── track_subscriptions.zig  # Per-client viewport subscriptions
+│       ├── track_subscriptions.zig  # Per-client track viewport subscriptions (index range or GUIDs)
+│       ├── timeline_subscriptions.zig # Per-client time-range subscriptions (items only)
 │       ├── toggle_subscriptions.zig # Action toggle state subscriptions
 │       ├── project_notes.zig  # Project notes subscription management
 │       ├── guid_cache.zig     # O(1) GUID → track pointer lookup
 │       ├── gesture_state.zig  # Gesture tracking for undo coalescing
 │       ├── playlist.zig       # Playlist state (entries, loop counts)
 │       ├── ws_server.zig      # WebSocket server and client management
-│       └── commands/          # Command handlers (114 handlers in 27 files)
+│       └── commands/          # Command handlers (116 handlers in 28 files)
 │           ├── mod.zig        # dispatch() with inline for, ResponseWriter
 │           ├── registry.zig   # Comptime tuple of all handlers
 │           ├── tracks.zig     # track/setVolume, track/setMute, etc.
 │           ├── transport.zig  # transport/play, transport/stop, etc.
 │           ├── playlist.zig   # playlist/create, play, stop, etc. (15 handlers)
+│           ├── timeline_subs.zig # timeline/subscribe, timeline/unsubscribe
 │           └── ...
 ├── frontend/            # React/TypeScript web UI
 │   └── src/
@@ -399,7 +401,8 @@ Large projects (1000+ tracks) cannot poll all tracks at 30Hz — the JSON alone 
 | Component | File | Purpose |
 |-----------|------|---------|
 | `TrackSkeleton` | `track_skeleton.zig` | Lightweight list (name + GUID) for all tracks. Polled at 1Hz. |
-| `TrackSubscriptions` | `track_subscriptions.zig` | Per-client subscription state. Range or GUID mode. |
+| `TrackSubscriptions` | `track_subscriptions.zig` | Per-client track subscription state. Range or GUID mode. |
+| `TimelineSubscriptions` | `timeline_subscriptions.zig` | Per-client time-range subscriptions for items. |
 | `GuidCache` | `guid_cache.zig` | O(1) GUID → track pointer lookup for write commands. |
 
 **Subscription modes:**
@@ -415,6 +418,28 @@ Large projects (1000+ tracks) cannot poll all tracks at 30Hz — the JSON alone 
 **Write commands with GUIDs:** During fader gestures, the user might reorder tracks. If the client sends `trackIdx=5` but the user just moved that track to position 8, the wrong track gets modified. Use `trackGuid` parameter instead — GUIDs are stable across reordering.
 
 **Total count:** The `tracks` event includes `total` (user tracks only, excludes master) so clients can render accurate virtual scrollbars even when only receiving a subset of tracks.
+
+### Timeline Subscriptions (Items Only)
+
+Timeline subscriptions provide **per-client filtering** for items based on time range. Markers and regions are **broadcast to all clients** (no subscription required).
+
+**Commands:**
+- `timeline/subscribe` — Subscribe to items for a time range, receive filtered `items` events at 5Hz
+- `timeline/unsubscribe` — Clear items subscription for this client
+
+**Frontend-calculated buffer:** The frontend specifies the exact range it wants, including any buffer:
+```javascript
+const buffer = viewportEnd - viewportStart;  // 100% of visible duration
+const start = Math.max(0, viewportStart - buffer);
+const end = viewportEnd + buffer;
+ws.send({ command: "timeline/subscribe", timeRange: { start, end } });
+```
+
+**Markers/regions (broadcast):** Sent automatically to all clients in the snapshot on connect, then on change at 5Hz. No subscription required.
+
+**Items (subscription required):** Requires `timeline/subscribe` with time range. Items overlapping the subscribed range are sent at 5Hz when changed.
+
+**Per-client change detection:** Each client has its own hash tracking for items. Events are only sent when the filtered data actually changes (or on initial subscription via `force_broadcast`).
 
 ## Conventions
 

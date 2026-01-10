@@ -19,6 +19,7 @@ const logging = @import("logging.zig");
 const tiered_state = @import("tiered_state.zig");
 const guid_cache = @import("guid_cache.zig");
 const track_subscriptions = @import("track_subscriptions.zig");
+const timeline_subscriptions = @import("timeline_subscriptions.zig");
 const track_skeleton = @import("track_skeleton.zig");
 
 // Use custom panic handler that flushes log ring buffer before aborting
@@ -37,6 +38,7 @@ var g_toggle_subs: ?*toggle_subscriptions.ToggleSubscriptions = null;
 var g_notes_subs: ?*project_notes.NotesSubscriptions = null;
 var g_guid_cache: ?*guid_cache.GuidCache = null;
 var g_track_subs: ?*track_subscriptions.TrackSubscriptions = null;
+var g_timeline_subs: ?*timeline_subscriptions.TimelineSubscriptions = null;
 
 // Track skeleton state for LOW tier change detection
 var g_last_skeleton: track_skeleton.State = .{};
@@ -191,6 +193,12 @@ fn doInitialization() !void {
     track_subs.* = track_subscriptions.TrackSubscriptions.init(g_allocator);
     g_track_subs = track_subs;
     commands.g_ctx.track_subs = track_subs;
+
+    // Create timeline subscriptions state
+    const timeline_subs = try g_allocator.create(timeline_subscriptions.TimelineSubscriptions);
+    timeline_subs.* = timeline_subscriptions.TimelineSubscriptions.init(g_allocator);
+    g_timeline_subs = timeline_subs;
+    commands.g_ctx.timeline_subs = timeline_subs;
 
     // Count project entities and calculate arena sizes dynamically
     // This allows memory allocation to scale with project size
@@ -435,6 +443,10 @@ fn doProcessing() !void {
             if (g_track_subs) |track_subs| {
                 track_subs.removeClient(client_id);
             }
+            // Clean up timeline subscriptions
+            if (g_timeline_subs) |timeline_subs| {
+                timeline_subs.removeClient(client_id);
+            }
         }
     }
 
@@ -456,9 +468,9 @@ fn doProcessing() !void {
         ProcessingState.snap_project = project.State.poll(&backend); // Small
         ProcessingState.snap_markers.pollInto(&ProcessingState.snap_markers_buf, &ProcessingState.snap_regions_buf, &backend); // ~95KB
         ProcessingState.snap_tempomap = tempomap.State.poll(&backend); // Small
-        ProcessingState.snap_items.pollInto(&ProcessingState.snap_items_buf, &backend); // ~600KB
+        // NOTE: Items NOT in snapshot - clients must subscribe via timeline/subscribe
 
-        // Poll track skeleton for snapshot (lightweight - names and GUIDs only)
+        // Poll track skeleton for snapshot
         const scratch = tiered.scratchAllocator();
         const snap_skeleton = track_skeleton.State.poll(scratch, &backend) catch null;
 
@@ -472,11 +484,11 @@ fn doProcessing() !void {
             if (ProcessingState.snap_project.toJsonAlloc(scratch)) |json| {
                 shared_state.sendToClient(client_id, json);
             } else |_| {}
-            // Markers
+            // Markers (broadcast - no subscription required)
             if (ProcessingState.snap_markers.markersToJsonAlloc(scratch)) |json| {
                 shared_state.sendToClient(client_id, json);
             } else |_| {}
-            // Regions
+            // Regions (broadcast - no subscription required)
             if (ProcessingState.snap_markers.regionsToJsonAlloc(scratch)) |json| {
                 shared_state.sendToClient(client_id, json);
             } else |_| {}
@@ -486,10 +498,6 @@ fn doProcessing() !void {
                     shared_state.sendToClient(client_id, json);
                 } else |_| {}
             }
-            // Items
-            if (ProcessingState.snap_items.itemsToJsonAlloc(scratch)) |json| {
-                shared_state.sendToClient(client_id, json);
-            } else |_| {}
             // Tempo map
             if (ProcessingState.snap_tempomap.toJsonAlloc(scratch)) |json| {
                 shared_state.sendToClient(client_id, json);
@@ -913,7 +921,7 @@ fn doProcessing() !void {
         medium_state.regions = marker_state.regions;
         medium_state.bar_offset = marker_state.bar_offset;
 
-        // Broadcast if markers changed
+        // Broadcast markers if changed (no subscription required)
         if (!markersSliceEql(medium_state.markers, medium_prev.markers)) {
             const temp_marker_state = markers.State{
                 .markers = medium_state.markers,
@@ -924,7 +932,7 @@ fn doProcessing() !void {
                 shared_state.broadcast(json);
             } else |_| {}
         }
-        // Broadcast if regions changed
+        // Broadcast regions if changed (no subscription required)
         if (!regionsSliceEql(medium_state.regions, medium_prev.regions)) {
             const temp_marker_state = markers.State{
                 .markers = medium_state.markers,
@@ -947,19 +955,38 @@ fn doProcessing() !void {
         g_last_markers.regions = g_last_regions_buf[0..cur_regions_len];
         g_last_markers.bar_offset = medium_state.bar_offset;
 
-        // Poll items into MEDIUM arena
+        // Poll items into MEDIUM arena (for playlist engine cross-tier access)
         const item_state = items.State.poll(medium_alloc, &backend) catch |err| {
             logging.err("Failed to poll items: {s}", .{@errorName(err)});
             return err;
         };
         medium_state.items = item_state.items;
 
-        // Broadcast if items changed
-        if (!itemsSliceEql(medium_state.items, medium_prev.items)) {
-            const temp_item_state = items.State{ .items = medium_state.items };
-            if (temp_item_state.itemsToJsonAlloc(scratch)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
+        // Timeline subscriptions: Per-client filtered items
+        // Items require subscription via timeline/subscribe with a time range.
+        // Markers/regions are broadcast to all clients (see above).
+        if (g_timeline_subs) |timeline_subs| {
+            if (timeline_subs.hasSubscriptions()) {
+                var iter = timeline_subs.subscribedClientIterator();
+                while (iter.next()) |entry| {
+                    const client_id = entry.client_id;
+                    const range = entry.range;
+
+                    // Frontend specifies exact range (including any buffer it needs)
+                    const filtered_items = items.State.pollTimeRange(medium_alloc, &backend, range.start, range.end) catch |err| {
+                        logging.warn("Failed to poll items for client {d}: {s}", .{ client_id, @errorName(err) });
+                        continue;
+                    };
+
+                    // Check if items changed (using hash) and send if needed
+                    const items_hash = filtered_items.computeHash();
+                    if (timeline_subs.shouldSendItems(client_id, items_hash)) {
+                        if (filtered_items.itemsToJsonAlloc(scratch)) |json| {
+                            shared_state.sendToClient(client_id, json);
+                        } else |_| {}
+                    }
+                }
+            }
         }
 
         // Playlist state change detection
@@ -1155,6 +1182,15 @@ fn shutdown() void {
         g_track_subs = null;
     }
     logging.info("track subscriptions cleaned up", .{});
+
+    if (g_timeline_subs) |subs| {
+        logging.info("cleaning up timeline subscriptions", .{});
+        commands.g_ctx.timeline_subs = null;
+        subs.deinit();
+        g_allocator.destroy(subs);
+        g_timeline_subs = null;
+    }
+    logging.info("timeline subscriptions cleaned up", .{});
 
     if (g_guid_cache) |cache| {
         logging.info("cleaning up GUID cache", .{});
