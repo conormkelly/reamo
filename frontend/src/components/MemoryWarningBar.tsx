@@ -24,19 +24,19 @@ export interface MemoryWarningBarProps {
 
 export function MemoryWarningBar({ className = '' }: MemoryWarningBarProps): ReactElement | null {
   const { memoryWarning, memoryWarningDismissed, dismissMemoryWarning } = useReaperStore();
-  const { connection } = useReaper();
+  const { sendAsync, connected } = useReaper();
   const [showModal, setShowModal] = useState(false);
   const [stats, setStats] = useState<MemoryStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
 
   const handleInfo = useCallback(async () => {
-    if (!connection) return;
+    if (!connected) return;
 
     setShowModal(true);
     setStatsLoading(true);
 
     try {
-      const response = await connection.sendAsync('debug/memoryStats', {}) as {
+      const response = await sendAsync('debug/memoryStats', {}) as {
         success: boolean;
         payload?: MemoryStats;
       };
@@ -48,7 +48,7 @@ export function MemoryWarningBar({ className = '' }: MemoryWarningBarProps): Rea
     } finally {
       setStatsLoading(false);
     }
-  }, [connection]);
+  }, [connected, sendAsync]);
 
   const handleDismiss = useCallback(() => {
     dismissMemoryWarning();

@@ -31,7 +31,7 @@ const TAB_BAR_HEIGHT = 48;
 const PERSISTENT_TRANSPORT_HEIGHT = 56;
 
 export function ActionsView(): ReactElement {
-  const { sendCommand, connection, connectionState } = useReaper();
+  const { sendCommand, sendAsync, connectionStatus } = useReaper();
   const { showTabBar, showPersistentTransport } = useUIPreferences();
 
   // Calculate bottom offset for footer bars
@@ -80,7 +80,7 @@ export function ActionsView(): ReactElement {
 
   // Subscribe to toggle states when connected (mirrors Toolbar pattern)
   useEffect(() => {
-    if (connectionState !== 'connected' || !connection) return;
+    if (connectionStatus !== 'connected') return;
 
     const { actions, namedActions } = getActionRefs();
     if (actions.length === 0 && namedActions.length === 0) return;
@@ -90,8 +90,7 @@ export function ActionsView(): ReactElement {
       actions: actions.length > 0 ? actions : undefined,
       namedActions: namedActions.length > 0 ? namedActions : undefined,
     });
-    connection
-      .sendAsync(cmd.command, cmd.params)
+    sendAsync(cmd.command, cmd.params)
       .then((response: unknown) => {
         const resp = response as {
           success?: boolean;
@@ -104,7 +103,7 @@ export function ActionsView(): ReactElement {
           updateToggleStates(resp.payload.states, resp.payload.nameToId);
         }
       })
-      .catch((err) => {
+      .catch((err: Error) => {
         console.error('Failed to subscribe to toggle states:', err);
       });
 
@@ -117,7 +116,7 @@ export function ActionsView(): ReactElement {
         }));
       }
     };
-  }, [connectionState, connection, sections, sendCommand, getActionRefs, updateToggleStates]);
+  }, [connectionStatus, sendAsync, sections, sendCommand, getActionRefs, updateToggleStates]);
 
   // Section drag handlers
   const handleSectionDragStart = useCallback((index: number) => {

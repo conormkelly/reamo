@@ -1,6 +1,6 @@
 /**
  * REAPER WebSocket Connection Hook
- * Manages the WebSocket connection lifecycle and wires messages to the store
+ * Manages the WebSocket connection lifecycle via XState actor
  *
  * @example
  * ```tsx
@@ -8,14 +8,24 @@
  * const { sendCommand, sendCommandAsync, connected } = useReaper();
  *
  * // Direct usage (rare - only in ReaperProvider):
- * const connection = useReaperConnection({ port: 9224, autoStart: true });
+ * const connection = useReaperConnection({ autoStart: true });
  * ```
  */
 
-import { useEffect, useRef, useCallback, useState } from 'react';
-import { WebSocketConnection } from '../core/WebSocketConnection';
-import type { ConnectionState } from '../core/WebSocketTypes';
+import { useEffect, useCallback, useRef } from 'react';
 import type { WSCommand } from '../core/WebSocketCommands';
+import type { ConnectionStatus } from '../core/websocketMachine';
+import {
+  start as actorStart,
+  stop as actorStop,
+  retry as actorRetry,
+  sendCommand as actorSendCommand,
+  sendCommandAsync as actorSendCommandAsync,
+  sendRaw as actorSendRaw,
+  handleVisibilityChange as actorHandleVisibility,
+  forceReconnect as actorForceReconnect,
+  isConnected,
+} from '../core/websocketActor';
 import { useReaperStore, parseActionResponse } from '../store';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
 
@@ -23,7 +33,7 @@ import { transportSyncEngine } from '../core/TransportSyncEngine';
  * Fetch and cache REAPER actions on connect.
  * This runs during the splash screen to populate the action search cache.
  */
-async function fetchActionCache(connection: WebSocketConnection): Promise<void> {
+async function fetchActionCache(): Promise<void> {
   const store = useReaperStore.getState();
 
   // Don't refetch if already loaded (reconnect scenario)
@@ -36,7 +46,7 @@ async function fetchActionCache(connection: WebSocketConnection): Promise<void> 
   console.log('[useReaperConnection] Fetching action cache...');
 
   try {
-    const response = await connection.sendAsync('action/getActions', {}) as {
+    const response = await actorSendCommandAsync('action/getActions', {}) as {
       success?: boolean;
       payload?: unknown;
       error?: string;
@@ -58,10 +68,6 @@ async function fetchActionCache(connection: WebSocketConnection): Promise<void> 
 }
 
 export interface UseReaperConnectionOptions {
-  /** WebSocket port (default: 9224) */
-  port?: number;
-  /** Auth token (optional) */
-  token?: string;
   /** Auto-start connection on mount (default: true) */
   autoStart?: boolean;
 }
@@ -69,10 +75,12 @@ export interface UseReaperConnectionOptions {
 export interface UseReaperConnectionReturn {
   /** Whether connected to REAPER */
   connected: boolean;
-  /** Current connection state */
-  connectionState: ConnectionState;
+  /** Current connection status (full state machine status) */
+  connectionStatus: ConnectionStatus;
   /** Current error count */
   errorCount: number;
+  /** Current retry count */
+  retryCount: number;
   /** Whether we've given up trying to reconnect */
   gaveUp: boolean;
   /** Start the connection */
@@ -81,173 +89,75 @@ export interface UseReaperConnectionReturn {
   stop: () => void;
   /** Retry connection after giving up */
   retry: () => void;
-  /** Send a command (raw) */
+  /** Send a command (raw, fire-and-forget) */
   send: (command: string, params?: Record<string, unknown>) => void;
   /** Send a WSCommand object (fire-and-forget) */
   sendCommand: (cmd: WSCommand) => void;
   /** Send a WSCommand object and wait for response */
   sendCommandAsync: (cmd: WSCommand) => Promise<unknown>;
-  /** The underlying connection instance */
-  connection: WebSocketConnection | null;
+  /** Send a command and wait for response (raw API) */
+  sendAsync: (command: string, params?: Record<string, unknown>) => Promise<unknown>;
 }
 
 /**
  * Hook to manage the REAPER WebSocket connection
+ * Wraps the XState actor for React lifecycle management
  */
 export function useReaperConnection(
   options: UseReaperConnectionOptions = {}
 ): UseReaperConnectionReturn {
-  const { port = 9224, token, autoStart = true } = options;
+  const { autoStart = true } = options;
 
-  const connectionRef = useRef<WebSocketConnection | null>(null);
   const startedRef = useRef(false);
+  const prevConnectedRef = useRef(false);
 
-  // Track gave-up state
-  const [gaveUp, setGaveUp] = useState(false);
-
-  // Get store actions and state - use refs to avoid effect re-runs
-  const handleWebSocketMessage = useReaperStore(
-    (state) => state.handleWebSocketMessage
-  );
-  const setConnected = useReaperStore((state) => state.setConnected);
-  const setErrorCount = useReaperStore((state) => state.setErrorCount);
+  // Get store state
   const connected = useReaperStore((state) => state.connected);
+  const connectionStatus = useReaperStore((state) => state.connectionStatus);
   const errorCount = useReaperStore((state) => state.errorCount);
+  const retryCount = useReaperStore((state) => state.retryCount);
 
-  // Store callbacks in refs to avoid triggering effect re-runs
-  const handleWebSocketMessageRef = useRef(handleWebSocketMessage);
-  const setConnectedRef = useRef(setConnected);
-  const setErrorCountRef = useRef(setErrorCount);
+  // Computed state
+  const gaveUp = connectionStatus === 'gave_up';
 
-  // Keep refs updated
+  // Handle connection state changes (for transport sync and action cache)
   useEffect(() => {
-    handleWebSocketMessageRef.current = handleWebSocketMessage;
-    setConnectedRef.current = setConnected;
-    setErrorCountRef.current = setErrorCount;
-  });
+    if (connected && !prevConnectedRef.current) {
+      // Just connected
+      console.log('[useReaperConnection] Connected - setting up transport sync');
+      transportSyncEngine.setSendRaw(actorSendRaw);
+      transportSyncEngine.resync();
+      fetchActionCache();
+    } else if (!connected && prevConnectedRef.current) {
+      // Just disconnected
+      console.log('[useReaperConnection] Disconnected - clearing transport sync');
+      transportSyncEngine.clearSendRaw();
+    }
+    prevConnectedRef.current = connected;
+  }, [connected]);
 
-  // Track connection state
-  const connectionStateRef = useRef<ConnectionState>('disconnected');
-
-  // Initialize connection - only depends on port/token, not callbacks
+  // Start connection on mount if autoStart
   useEffect(() => {
-    const connection = new WebSocketConnection({
-      port,
-      token,
-      onStateChange: (state, error) => {
-        connectionStateRef.current = state;
-
-        // In test mode, don't update connection state (allows E2E tests to control it)
-        if (!useReaperStore.getState()._testMode) {
-          setConnectedRef.current(state === 'connected');
-        }
-
-        if (state === 'error') {
-          // Increment error count - get current value from store
-          const currentCount = useReaperStore.getState().errorCount;
-          if (!useReaperStore.getState()._testMode) {
-            setErrorCountRef.current(currentCount + 1);
-          }
-          console.error('[useReaperConnection] Error:', error);
-        } else if (state === 'connected') {
-          if (!useReaperStore.getState()._testMode) {
-            setErrorCountRef.current(0);
-          }
-          setGaveUp(false); // Reset gave-up state on successful connect
-          // Wire up transport sync engine for clock sync
-          transportSyncEngine.setSendRaw((msg) => connection.sendRaw(msg));
-          // Trigger initial clock sync
-          transportSyncEngine.resync();
-          // Fetch action cache for toolbar action search (runs during splash screen)
-          fetchActionCache(connection);
-        } else if (state === 'disconnected') {
-          // Clear transport sync engine send function
-          transportSyncEngine.clearSendRaw();
-        }
-      },
-      onMessage: (msg) => handleWebSocketMessageRef.current(msg),
-      onGaveUp: () => {
-        console.log('[useReaperConnection] Connection gave up after max retries');
-        setGaveUp(true);
-      },
-    });
-
-    connectionRef.current = connection;
+    if (autoStart && !startedRef.current) {
+      console.log('[useReaperConnection] Auto-starting connection');
+      startedRef.current = true;
+      actorStart();
+    }
 
     return () => {
-      console.log('[useReaperConnection] Cleanup running - stopping connection');
-      connection.stop();
-      connectionRef.current = null;
-      startedRef.current = false;
+      // Don't stop on unmount - actor persists across component lifecycle
+      // The actor is a singleton that should keep running
     };
-  }, [port, token]);
+  }, [autoStart]);
 
-  // Start connection
-  const start = useCallback(() => {
-    if (!connectionRef.current || startedRef.current) return;
-    startedRef.current = true;
-    connectionRef.current.start();
-  }, []);
-
-  // Stop connection
-  const stop = useCallback(() => {
-    if (connectionRef.current) {
-      connectionRef.current.stop();
-      startedRef.current = false;
-      setConnected(false);
-    }
-  }, [setConnected]);
-
-  // Retry connection (after giving up)
-  const retry = useCallback(() => {
-    if (connectionRef.current) {
-      setGaveUp(false);
-      connectionRef.current.retry();
-    }
-  }, []);
-
-  // Send command (raw)
-  const send = useCallback(
-    (command: string, params?: Record<string, unknown>) => {
-      if (connectionRef.current) {
-        connectionRef.current.send(command, params);
-      }
-    },
-    []
-  );
-
-  // Send WSCommand object (fire-and-forget)
-  const sendCommand = useCallback((cmd: WSCommand) => {
-    if (connectionRef.current) {
-      connectionRef.current.send(cmd.command, cmd.params);
-    }
-  }, []);
-
-  // Send WSCommand object and wait for response
-  const sendCommandAsync = useCallback((cmd: WSCommand): Promise<unknown> => {
-    if (connectionRef.current) {
-      return connectionRef.current.sendAsync(cmd.command, cmd.params);
-    }
-    return Promise.reject(new Error('Not connected'));
-  }, []);
-
-  // Auto-start if enabled
-  useEffect(() => {
-    if (autoStart && connectionRef.current && !startedRef.current) {
-      start();
-    }
-  }, [autoStart, start]);
-
-  // Handle visibility change - delegate to connection for suspension detection and reconnection
+  // Handle visibility change
   useEffect(() => {
     const handleVisibilityChange = () => {
       const isVisible = document.visibilityState === 'visible';
-
-      // Let connection handle suspension detection and reconnection
-      connectionRef.current?.handleVisibilityChange(isVisible);
+      actorHandleVisibility(isVisible);
 
       // Also resync clock if visible and connected
-      if (isVisible && connectionRef.current?.connectionState === 'connected') {
+      if (isVisible && isConnected()) {
         transportSyncEngine.resync();
         transportSyncEngine.onReconnected();
       }
@@ -257,17 +167,16 @@ export function useReaperConnection(
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
 
-  // Handle online/offline events (Safari bug fallback + network changes)
+  // Handle online/offline events
   useEffect(() => {
     const handleOnline = () => {
       console.log('[useReaperConnection] Network online, forcing reconnect');
-      connectionRef.current?.forceReconnect();
+      actorForceReconnect();
     };
 
     const handleOffline = () => {
       console.log('[useReaperConnection] Network offline');
-      // Connection will fail naturally, but we can stop heartbeat
-      connectionRef.current?.handleVisibilityChange(false);
+      actorHandleVisibility(false);
     };
 
     window.addEventListener('online', handleOnline);
@@ -279,10 +188,56 @@ export function useReaperConnection(
     };
   }, []);
 
+  // Start connection
+  const start = useCallback(() => {
+    if (!startedRef.current) {
+      startedRef.current = true;
+      actorStart();
+    }
+  }, []);
+
+  // Stop connection
+  const stop = useCallback(() => {
+    actorStop();
+    startedRef.current = false;
+  }, []);
+
+  // Retry connection
+  const retry = useCallback(() => {
+    actorRetry();
+  }, []);
+
+  // Send command (raw)
+  const send = useCallback(
+    (command: string, params?: Record<string, unknown>) => {
+      actorSendCommand(command, params);
+    },
+    []
+  );
+
+  // Send WSCommand object (fire-and-forget)
+  const sendCommand = useCallback((cmd: WSCommand) => {
+    actorSendCommand(cmd.command, cmd.params);
+  }, []);
+
+  // Send WSCommand object and wait for response
+  const sendCommandAsync = useCallback((cmd: WSCommand): Promise<unknown> => {
+    return actorSendCommandAsync(cmd.command, cmd.params);
+  }, []);
+
+  // Send a command and wait for response (raw API)
+  const sendAsync = useCallback(
+    (command: string, params?: Record<string, unknown>): Promise<unknown> => {
+      return actorSendCommandAsync(command, params);
+    },
+    []
+  );
+
   return {
     connected,
-    connectionState: connectionStateRef.current,
+    connectionStatus,
     errorCount,
+    retryCount,
     gaveUp,
     start,
     stop,
@@ -290,6 +245,6 @@ export function useReaperConnection(
     send,
     sendCommand,
     sendCommandAsync,
-    connection: connectionRef.current,
+    sendAsync,
   };
 }

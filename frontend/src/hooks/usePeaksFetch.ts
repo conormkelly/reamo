@@ -41,7 +41,7 @@ export function usePeaksFetch(
   item: WSItem | null,
   width?: number
 ): UsePeaksFetchResult {
-  const { connection } = useReaper();
+  const { sendAsync, connected } = useReaper();
   const [peaks, setPeaks] = useState<PeaksResponsePayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,7 +102,7 @@ export function usePeaksFetch(
     }
 
     // Fetch peaks from server
-    if (!connection) {
+    if (!connected) {
       setError('Not connected');
       return;
     }
@@ -110,13 +110,12 @@ export function usePeaksFetch(
     setLoading(true);
     setError(null);
 
-    connection
-      .sendAsync('item/getPeaks', {
-        trackIdx: item.trackIdx,
-        itemIdx: item.itemIdx,
-        width: width ?? 100,
-      })
-      .then((response) => {
+    sendAsync('item/getPeaks', {
+      trackIdx: item.trackIdx,
+      itemIdx: item.itemIdx,
+      width: width ?? 100,
+    })
+      .then((response: unknown) => {
         // Check if this is still the current item
         if (currentItemRef.current !== itemKey) {
           return;
@@ -144,7 +143,7 @@ export function usePeaksFetch(
         setPeaks(peaksData);
         setLoading(false);
       })
-      .catch((err) => {
+      .catch((err: Error) => {
         // Check if this is still the current item
         if (currentItemRef.current !== itemKey) {
           return;
@@ -153,7 +152,7 @@ export function usePeaksFetch(
         setError(err.message ?? 'Failed to fetch peaks');
         setLoading(false);
       });
-  }, [item, connection, width]);
+  }, [item, connected, sendAsync, width]);
 
   return { peaks, loading, error };
 }

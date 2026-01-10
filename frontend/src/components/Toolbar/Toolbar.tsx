@@ -98,7 +98,7 @@ export function Toolbar(): ReactElement {
     updateToggleStates,
   } = useReaperStore();
 
-  const { sendCommand, connection, connectionState } = useReaper();
+  const { sendCommand, sendAsync, connectionStatus } = useReaper();
   const [editingAction, setEditingAction] = useState<ToolbarAction | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
 
@@ -125,7 +125,7 @@ export function Toolbar(): ReactElement {
 
   // Subscribe to toggle states when connected and toolbar has REAPER actions
   useEffect(() => {
-    if (connectionState !== 'connected' || !connection) return;
+    if (connectionStatus !== 'connected') return;
 
     // Extract section-aware action references
     const reaperActions = toolbarActions.filter(
@@ -153,8 +153,7 @@ export function Toolbar(): ReactElement {
       actions: actions.length > 0 ? actions : undefined,
       namedActions: namedActions.length > 0 ? namedActions : undefined,
     });
-    connection
-      .sendAsync(cmd.command, cmd.params)
+    sendAsync(cmd.command, cmd.params)
       .then((response: unknown) => {
         const resp = response as {
           success?: boolean;
@@ -167,7 +166,7 @@ export function Toolbar(): ReactElement {
           updateToggleStates(resp.payload.states, resp.payload.nameToId);
         }
       })
-      .catch((err) => {
+      .catch((err: Error) => {
         console.error('Failed to subscribe to toggle states:', err);
       });
 
@@ -179,7 +178,7 @@ export function Toolbar(): ReactElement {
       // Note: Named commands are tracked by their resolved numeric ID internally,
       // but we don't need to explicitly unsubscribe - the server handles cleanup on disconnect
     };
-  }, [connectionState, connection, toolbarActions, sendCommand, updateToggleStates]);
+  }, [connectionStatus, sendAsync, toolbarActions, sendCommand, updateToggleStates]);
 
   const handleEditClick = useCallback((action: ToolbarAction) => {
     setEditingAction(action);

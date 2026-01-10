@@ -19,7 +19,7 @@ interface ItemInfoBarProps {
 }
 
 export function ItemInfoBar({ item, className = '' }: ItemInfoBarProps): ReactElement {
-  const { sendCommand, connection } = useReaper();
+  const { sendCommand, sendAsync, connected } = useReaper();
   // Use sparse fields from WSItem (full data fetched on-demand)
   const takeCount = item.takeCount;
 
@@ -63,12 +63,12 @@ export function ItemInfoBar({ item, className = '' }: ItemInfoBarProps): ReactEl
 
   // Fetch notes on-demand when editing starts
   const handleStartEditingNotes = async () => {
-    if (!connection) return;
+    if (!connected) return;
     setIsEditingNotes(true);
     setNotesLoading(true);
     try {
       const cmd = itemCmd.getNotes(item.trackIdx, item.itemIdx);
-      const response = await connection.sendAsync(cmd.command, cmd.params) as {
+      const response = await sendAsync(cmd.command, cmd.params) as {
         success: boolean;
         payload?: { notes: string };
       };

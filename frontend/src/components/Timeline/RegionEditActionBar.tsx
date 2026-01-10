@@ -10,7 +10,7 @@ import { useReaper } from '../ReaperProvider';
 import { region, type RegionBatchOp } from '../../core/WebSocketCommands';
 
 export function RegionEditActionBar(): ReactElement | null {
-  const { connection } = useReaper();
+  const { sendAsync, connected } = useReaper();
   const hasPendingChanges = useReaperStore((s) => s.hasPendingChanges);
   const pendingChanges = useReaperStore((s) => s.pendingChanges);
   const regions = useReaperStore((s) => s.regions);
@@ -85,10 +85,10 @@ export function RegionEditActionBar(): ReactElement | null {
 
       // Send batch command and wait for response
       const cmd = region.batch(ops);
-      if (!connection) {
+      if (!connected) {
         throw new Error('Not connected to REAPER');
       }
-      const response = await connection.sendAsync(cmd.command, cmd.params);
+      const response = await sendAsync(cmd.command, cmd.params);
 
       // Check for warnings in response
       const resp = response as { applied?: number; skipped?: number; warnings?: string[] } | undefined;
@@ -105,7 +105,8 @@ export function RegionEditActionBar(): ReactElement | null {
   }, [
     hasPendingChanges,
     buildBatchOps,
-    connection,
+    connected,
+    sendAsync,
     commitChanges,
     setCommitting,
     setCommitError,

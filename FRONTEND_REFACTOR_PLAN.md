@@ -12,9 +12,27 @@
 
 ## PR 1: WebSocket State Machine Refactor
 
-> **PENDING**: Research query sent for state machine library decision (XState vs Custom vs Zustand middleware)
+> **DECISION: XState v5 + @xstate/react** (~18kB gzipped, ~4.5% of remaining 400kB budget)
 
 **Why First**: Dynamic data loading for viewport-aware timeline depends on reliable, debuggable WebSocket handling. Current implicit state machine has race conditions and memory leak potential.
+
+### Research Summary (2026-01-09)
+
+**Why XState over alternatives:**
+- Safari/iOS zombie connection handling requires robust state management
+- `fromCallback` actor cleanup + `after` transitions handle edge cases declaratively
+- Deterministic testing with Vitest fake timers
+- Visualization available via Stately.ai (optional, document as fallback for Safari debugging)
+
+**Alternatives considered:**
+- **robot3** (~1.2kB): Viable but requires manual timeout management
+- **Custom Zustand reducer**: Works but ~150-200 lines of careful timeout code
+- **@xstate/fsm**: Deprecated in v5
+
+**Zustand integration**: Global actor with manual sync to existing store (Option 2)
+- Keeps existing `useReaperStore` structure intact
+- Actor is single source of truth, syncs to `connectionSlice`
+- No new middleware dependency
 
 ### Current Issues
 - Implicit state machine across callbacks/timeouts
@@ -25,31 +43,103 @@
 
 ### Target Architecture
 ```
-States: idle → discovering → connecting → handshaking → connected → disconnected
-                                                            ↑
-                                            error → retrying ─┘
+States: idle → discovering → connecting → handshaking → connected
+                                                ↓ (on visibility return)
+                                            verifying
+                                                ↓ (on error/timeout)
+                                            retrying → waiting → gave_up
+                                                         ↓ (after delay)
+                                                     connecting
 ```
 
-### Implementation
-1. Create explicit `ConnectionState` type with all states
-2. Create `ConnectionEvent` discriminated union for transitions
-3. Replace callback-based transitions with state machine (xstate or custom)
-4. Single source of truth in Zustand (expose full state, not just boolean)
-5. Fix `pendingResponses`: bound size, proper rejection, timeout cleanup
-6. Add connection state UI feedback (connecting, retrying, gave up)
+**Key states:**
+- `discovering`: Fetch `/_/DAT` to get WebSocket URL (failures trigger retry)
+- `connecting`: WebSocket connection attempt (10s timeout for Safari CONNECTING hang)
+- `handshaking`: Waiting for `hello` response (5s timeout)
+- `connected`: Normal operation, heartbeat running (10s ping, 3s pong timeout per API.md)
+- `verifying`: On visibility return, send ping and wait for pong (5s timeout)
+- `retrying`: Increment retry count, check if can continue
+- `waiting`: Exponential backoff delay before next attempt
+- `gave_up`: Max retries (10) exceeded, manual retry available
+
+**Heartbeat implementation:**
+- Explicit ping/pong per API.md (not implicit transport sync)
+- 10s interval when page visible
+- Stop heartbeat when page hidden
+- 3s pong timeout = dead connection
+
+### Implementation Steps
+
+1. **Install dependencies**
+   ```bash
+   npm install xstate @xstate/react
+   ```
+
+2. **Create WebSocket state machine**
+   - `frontend/src/core/websocketMachine.ts` - XState machine definition
+   - Use `fromCallback` actor for WebSocket with synthetic `CloseEvent` cleanup
+   - Discovery as first state (inside machine)
+   - `after` transitions for all timeouts
+   - `reenter: true` on pong to reset heartbeat timer
+
+3. **Create global actor singleton**
+   - `frontend/src/core/websocketActor.ts` - creates and exports actor
+   - Sync relevant state to Zustand store
+
+4. **Update connectionSlice**
+   - Expose full state (not just boolean): `{ status, retryCount, lastError }`
+   - Derive `connected` for backward compatibility
+
+5. **Fix pendingResponses**
+   - Reject all pending on actor cleanup (state exit)
+   - Bound size (e.g., 100 pending max)
+   - Timeout per request (30s default)
+
+6. **Simplify useReaperConnection hook**
+   - Thin wrapper around actor
+   - Start/stop actor on mount/unmount
+
+7. **Add connection state UI** (optional enhancement)
+   - Show: connecting, connected, retrying (X/10), gave up
+   - Manual retry button in gave_up state
 
 ### Files to Modify
-- `frontend/src/core/WebSocketConnection.ts` - state machine core
-- `frontend/src/hooks/useReaperConnection.ts` - simplify to thin wrapper
+- `frontend/src/core/websocketMachine.ts` - **NEW** XState machine definition
+- `frontend/src/core/websocketActor.ts` - **NEW** global actor singleton
+- `frontend/src/core/WebSocketConnection.ts` - simplify to send/receive wrapper
+- `frontend/src/hooks/useReaperConnection.ts` - thin wrapper around actor
 - `frontend/src/store/slices/connectionSlice.ts` - expose full state
-- `frontend/src/components/ConnectionStatus.tsx` - new component (or enhance existing)
+- `frontend/src/components/ConnectionStatus.tsx` - enhance existing or new
+
+### Testing Strategy
+
+```typescript
+describe('WebSocket state machine', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('transitions to retrying after CONNECT_TIMEOUT', () => {
+    const actor = createActor(websocketMachine);
+    actor.start();
+    actor.send({ type: 'START', url: 'ws://localhost' });
+    // ... advance timers, assert state
+  });
+
+  it('resets retryCount on successful connection');
+  it('gives up after max retries');
+  it('enters verifying state on visibility return');
+  it('rejects pending requests on disconnect');
+});
+```
 
 ### Success Criteria
 - [ ] All state transitions explicit and logged
-- [ ] Single source of truth for connection state
+- [ ] Single source of truth for connection state (XState actor)
 - [ ] `sendAsync` properly rejects on disconnect/timeout
 - [ ] Connection UI shows: connecting, connected, retrying (X/10), gave up
 - [ ] Existing WebSocket tests pass + new state transition tests
+- [ ] Safari zombie detection works via ping/pong in verifying state
+- [ ] Heartbeat stops when page hidden, resumes on visible
 
 ---
 
@@ -207,18 +297,21 @@ Add `EMPTY_*` constants to `stableRefs.ts` for all nullable collections.
 
 ## Execution Order
 
-**START HERE → PR 2** (while WebSocket research is pending)
+**CURRENT: PR 1** (research complete, implementing XState)
 
 ```
-PR 2: Testing Infrastructure ← START HERE
-      └── data-testid migration for regions/timeline
-      └── Component tests for key primitives
-      └── E2E test cleanup
-
-PR 1: WebSocket State Machine (after research results)
-      └── Implement chosen state machine pattern
+PR 1: WebSocket State Machine ← IN PROGRESS
+      └── Install xstate + @xstate/react
+      └── Create websocketMachine.ts
+      └── Create websocketActor.ts with Zustand sync
+      └── Update connectionSlice for full state
       └── Fix pendingResponses issues
-      └── Expose full state to components
+      └── Simplify useReaperConnection hook
+
+PR 2: Testing Infrastructure (data-testid mostly done)
+      └── TrackStrip components (remaining)
+      └── Update E2E tests to use new selectors
+      └── Final test verification
 
 PR 3: Component Architecture
       └── Extract inline components
@@ -236,7 +329,7 @@ Then: Feature PRs (Viewport Timeline, MixerView)
 
 ## Open Questions
 
-1. **State machine library**: XState vs custom reducer vs Zustand middleware? (Research query prepared - awaiting results)
+1. ~~**State machine library**: XState vs custom reducer vs Zustand middleware?~~ **RESOLVED: XState v5**
 2. **Virtual rendering**: TanStack Virtual (already used for Mixer) vs custom for Timeline?
 3. **Extension API**: What new commands needed for time-range queries?
 
@@ -286,9 +379,73 @@ Then: Feature PRs (Viewport Timeline, MixerView)
 
 **All 482 unit tests pass.**
 
-**Remaining for PR 2:**
+**Remaining for PR 2:** (paused, will complete after PR 1)
 - [ ] TrackStrip components (for track-selection.spec.ts)
 - [ ] Update E2E tests to use new data-testid selectors
 - [ ] Final test verification
 
-**Waiting for:** WebSocket state machine research results before PR 1
+---
+
+### 2026-01-09 (continued) - PR 1 Research Complete
+
+**Research results received** - XState v5 selected as state machine library
+
+**Key decisions:**
+- **XState v5 + @xstate/react** (~18kB gzipped) - justified by Safari/iOS complexity
+- **Global actor with manual Zustand sync** - keeps existing store structure
+- **Discovery inside machine** - failures trigger retry like other connection errors
+- **Explicit ping/pong** per API.md (10s interval, 3s timeout, stop when hidden)
+- **Stately.ai visualization** - documented as optional debug tool
+
+**Starting PR 1 implementation:**
+1. Install xstate + @xstate/react
+2. Create websocketMachine.ts
+3. Create websocketActor.ts with store sync
+4. Migrate existing WebSocketConnection.ts logic
+
+---
+
+### 2026-01-09 (continued) - PR 1 Implementation Complete
+
+**Files created/modified:**
+
+| File | Status | Description |
+|------|--------|-------------|
+| `frontend/src/core/websocketMachine.ts` | **NEW** | XState v5 machine with all states: idle, discovering, connecting, handshaking, connected, verifying, retrying, waiting, gave_up |
+| `frontend/src/core/websocketActor.ts` | **NEW** | Global actor singleton with Zustand sync, pendingResponses management, sendCommand/sendCommandAsync API |
+| `frontend/src/core/websocketMachine.test.ts` | **NEW** | 20 tests for state machine structure and transitions |
+| `frontend/src/store/slices/connectionSlice.ts` | Modified | Added `connectionStatus`, `retryCount`, and corresponding setters |
+| `frontend/src/hooks/useReaperConnection.ts` | Modified | Simplified to thin wrapper around wsActor |
+
+**Key implementation details:**
+
+1. **State machine architecture:**
+   - Uses `fromCallback` actor for WebSocket with synthetic `CloseEvent` cleanup (Safari fix)
+   - Uses `fromPromise` actor for discovery (EXTSTATE fetch)
+   - Uses `fromCallback` actor for heartbeat with 10s ping interval
+   - All timeouts via `after` transitions: CONNECT_TIMEOUT (10s), HELLO_TIMEOUT (5s), PONG_TIMEOUT (3s), VERIFY_TIMEOUT (5s)
+   - Exponential backoff with jitter for reconnect delays
+
+2. **pendingResponses fixed:**
+   - Bounded to MAX_PENDING_REQUESTS (100)
+   - Individual request timeout (30s default)
+   - All pending rejected on disconnect/stop
+   - generateMessageId() with counter for unique IDs
+
+3. **Zustand integration:**
+   - Actor subscribes to state changes and syncs to `connectionSlice`
+   - Components continue using `useReaperStore` selectors
+   - `connectionStatus` exposes full state machine status (not just boolean)
+
+4. **Safari/iOS workarounds preserved:**
+   - Synthetic CloseEvent dispatch in cleanup
+   - CONNECTING state timeout (Safari hangs)
+   - Visibility return triggers verifying state with ping/pong
+   - Heartbeat stops when page hidden
+
+**All 502 tests pass.**
+
+**Remaining for PR 1:**
+- [ ] Integration testing on actual iOS device
+- [ ] Consider removing old WebSocketConnection.ts (currently kept for reference)
+- [ ] Connection status UI component (optional enhancement)
