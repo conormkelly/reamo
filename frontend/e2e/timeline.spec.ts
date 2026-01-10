@@ -9,8 +9,7 @@ import { test, expect, Page } from '@playwright/test'
 
 // Helper to get the RegionEditActionBar (pending background bar that appears when there are pending changes)
 function getRegionEditActionBar(page: Page) {
-  // Changed from bg-amber-900 to bg-pending-bg after tokens refactor
-  return page.locator('[class*="bg-pending-bg"]')
+  return page.locator('[data-testid="region-edit-action-bar"]')
 }
 
 // Wait for store to be available and inject test fixtures
@@ -80,8 +79,7 @@ async function setupTestFixtures(page: Page) {
 
 // Get the interactive timeline container
 async function getTimelineContainer(page: Page) {
-  // The interactive timeline has bg-bg-surface (was bg-gray-800 before tokens refactor)
-  return page.locator('.bg-bg-surface.overflow-hidden').first()
+  return page.locator('[data-testid="timeline-canvas"]')
 }
 
 // Click at a percentage position in the timeline (0-100)
@@ -434,11 +432,11 @@ test.describe('Time selection', () => {
 
     await page.waitForTimeout(50)
 
-    // Find time selection element (has border-l-2, border-r-2, bg-white/15)
-    const timeSelElement = page.locator('.border-l-2.border-r-2.bg-white\\/15')
+    // Find time selection element
+    const timeSelElement = page.locator('[data-testid="time-selection"]')
 
     // Should be visible
-    await expect(timeSelElement.first()).toBeVisible()
+    await expect(timeSelElement).toBeVisible()
 
     // Should have left and width styles set
     const style = await timeSelElement.first().getAttribute('style')
@@ -459,7 +457,7 @@ test.describe('Time selection', () => {
     await page.waitForTimeout(50)
 
     // Time selection element should not exist
-    const timeSelElement = page.locator('.border-l-2.border-r-2.bg-white\\/15')
+    const timeSelElement = page.locator('[data-testid="time-selection"]')
     await expect(timeSelElement).toHaveCount(0)
   })
 
@@ -475,7 +473,7 @@ test.describe('Time selection', () => {
 
     await page.waitForTimeout(50)
 
-    const timeSelElement = page.locator('.border-l-2.border-r-2.bg-white\\/15').first()
+    const timeSelElement = page.locator('[data-testid="time-selection"]')
     const initialStyle = await timeSelElement.getAttribute('style')
     const initialLeft = parseFloat(initialStyle?.match(/left:\s*([\d.]+)%/)?.[1] || '0')
 
@@ -509,8 +507,8 @@ test.describe('Time selection', () => {
     await page.waitForTimeout(50)
 
     // Should be visible
-    const timeSelElement = page.locator('.border-l-2.border-r-2.bg-white\\/15')
-    await expect(timeSelElement.first()).toBeVisible()
+    const timeSelElement = page.locator('[data-testid="time-selection"]')
+    await expect(timeSelElement).toBeVisible()
 
     // Clear time selection
     await page.evaluate(() => {

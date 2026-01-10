@@ -123,7 +123,10 @@ export function RegionEditActionBar(): ReactElement | null {
   }
 
   return (
-    <div className="flex items-center justify-between px-3 py-2 bg-pending-bg border border-pending-border rounded-lg">
+    <div
+      className="flex items-center justify-between px-3 py-2 bg-pending-bg border border-pending-border rounded-lg"
+      data-testid="region-edit-action-bar"
+    >
       <div className="flex items-center gap-2">
         {commitError ? (
           <AlertCircle size={16} className="text-error-text" />

@@ -738,6 +738,22 @@ Wraps `ViewComponent` in `App.tsx`. Catches component-level errors and shows rec
 
 ## 15. Testing
 
+### Running Tests
+
+```bash
+npm run test           # Single run
+npm run test:watch     # Watch mode
+npm run test:coverage  # With coverage report
+npm run test:e2e       # Playwright E2E tests
+npm run test:e2e:ui    # Playwright with UI
+```
+
+### Coverage
+
+Coverage uses `@vitest/coverage-v8`. Run `npm run test:coverage` to see a text report.
+
+Current coverage (~44% statements).
+
 ### Store Reset Between Tests
 
 ```typescript

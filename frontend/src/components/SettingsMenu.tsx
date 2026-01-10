@@ -85,6 +85,7 @@ export function SettingsMenu({
               onToggleTabBar();
             }}
             className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
+            data-testid="settings-tab-bar"
           >
             <span className="text-sm">Tab Bar</span>
             <span className={`flex items-center gap-1.5 text-xs ${showTabBar ? 'text-success' : 'text-text-muted'}`}>
@@ -99,6 +100,7 @@ export function SettingsMenu({
               onTogglePersistentTransport();
             }}
             className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
+            data-testid="settings-transport-bar"
           >
             <span className="text-sm">Transport Bar</span>
             <span className={`flex items-center gap-1.5 text-xs ${showPersistentTransport ? 'text-success' : 'text-text-muted'}`}>
@@ -113,6 +115,7 @@ export function SettingsMenu({
               onToggleTransportPosition();
             }}
             className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
+            data-testid="settings-transport-position"
           >
             <span className="text-sm">Transport Position</span>
             <span className="flex items-center gap-1.5 text-xs text-primary">
@@ -150,6 +153,7 @@ export function SettingsMenu({
                   onToggleRecordingActions();
                 }}
                 className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
+                data-testid="settings-rec-quick-actions"
               >
                 <span className="text-sm">Rec Quick Actions</span>
                 <span className={`flex items-center gap-1.5 text-xs ${showRecordingActions ? 'text-success' : 'text-text-muted'}`}>

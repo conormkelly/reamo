@@ -88,16 +88,22 @@ export function TrackStrip({
         borderRightColor: sideBorderColor,
         borderBottomColor: sideBorderColor,
       }}
+      data-testid="track-strip"
+      data-track-index={trackIndex}
+      data-selected={isSelected}
+      data-master={isMaster}
     >
       {/* Color bar with track number */}
       <div
         className={`w-full h-2.5 flex items-center justify-center ${topRoundedClass}`}
         style={{ backgroundColor: topBarColor }}
+        data-testid="track-color-bar"
       >
         {!isMaster && (
           <span
             className="text-[9px] font-medium leading-none"
             style={{ color: trackNumberColor }}
+            data-testid="track-number"
           >
             {trackIndex}
           </span>
@@ -111,6 +117,7 @@ export function TrackStrip({
         className="w-full text-center text-sm font-medium truncate mb-2 px-1 cursor-pointer"
         title={name}
         style={color ? { color } : undefined}
+        data-testid="track-name"
         {...longPressHandlers}
       >
         {trackIndex === 0 ? 'MASTER' : name || `Track ${trackIndex}`}

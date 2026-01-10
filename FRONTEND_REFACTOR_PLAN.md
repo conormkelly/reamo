@@ -6,7 +6,7 @@
 
 **Execution Strategy**: Sequential PRs - each phase is a mergeable PR
 
-**Last Updated**: 2026-01-09
+**Last Updated**: 2026-01-10
 
 ---
 
@@ -133,13 +133,13 @@ describe('WebSocket state machine', () => {
 ```
 
 ### Success Criteria
-- [ ] All state transitions explicit and logged
-- [ ] Single source of truth for connection state (XState actor)
-- [ ] `sendAsync` properly rejects on disconnect/timeout
-- [ ] Connection UI shows: connecting, connected, retrying (X/10), gave up
-- [ ] Existing WebSocket tests pass + new state transition tests
-- [ ] Safari zombie detection works via ping/pong in verifying state
-- [ ] Heartbeat stops when page hidden, resumes on visible
+- [x] All state transitions explicit and logged
+- [x] Single source of truth for connection state (XState actor)
+- [x] `sendAsync` properly rejects on disconnect/timeout
+- [x] Connection UI shows: connecting, connected, retrying (X/10), gave up
+- [x] Existing WebSocket tests pass + new state transition tests
+- [x] Safari zombie detection works via ping/pong in verifying state
+- [x] Heartbeat stops when page hidden, resumes on visible
 
 ---
 
@@ -192,50 +192,17 @@ describe('TrackStrip', () => {
 
 ## PR 3: Component Architecture Cleanup
 
-### 3a. Extract Inline Components
+> **See [PR3-detailed-plan.md](PR3-detailed-plan.md) for full implementation details.**
 
-**From MixerSection.tsx**:
-- `MasterTrackStrip` → `components/Track/MasterTrackStrip.tsx`
-- `MixerLockButton` → `components/Actions/MixerLockButton.tsx`
-- `UnselectAllTracksButton` → `components/Actions/UnselectAllTracksButton.tsx`
+### Summary
 
-**From VirtualizedTrackList.tsx**:
-- `TrackStripWithMeter` → `components/Track/TrackStripWithMeter.tsx`
+| Task | Scope |
+|------|-------|
+| 3a. Extract Inline Components | 4 components from MixerSection + VirtualizedTrackList |
+| 3b. Button A11y Fixes | Add `aria-pressed` to 6 toggle buttons |
+| 3c. Store Selector Consistency | Already clean - no action needed |
 
-### 3b. Button System Unification
-
-**Current State** (4+ patterns):
-- `ActionButton` with variants (default/primary/danger/ghost)
-- `ToggleButton` with activeColor (green/blue/yellow/etc)
-- Transport buttons (Play/Stop/Record) with inline ternaries
-- Track buttons (Mute/Solo/Monitor) with custom isActive styling
-
-**Target**: Unified system where all buttons compose from same primitives
-
-```typescript
-// Option A: Extend ActionButton
-<ActionButton variant="toggle" active={isMuted} activeColor="yellow">
-  <Volume2 />
-</ActionButton>
-
-// Option B: Composition
-<ToggleButton active={isMuted} activeColor="yellow">
-  <ActionButton icon={<Volume2 />} />
-</ToggleButton>
-```
-
-**Decision needed**: Which pattern? (can discuss)
-
-### 3c. Store Selector Consistency
-
-Standardize defensive selectors with stable fallbacks:
-```typescript
-// All selectors should use stable refs for fallbacks
-const tracks = useReaperStore((s) => s.tracks ?? EMPTY_TRACKS);
-const regions = useReaperStore((s) => s.regions ?? EMPTY_REGIONS);
-```
-
-Add `EMPTY_*` constants to `stableRefs.ts` for all nullable collections.
+**Decision**: Keep ActionButton and ToggleButton separate (different semantics).
 
 ---
 
@@ -297,18 +264,16 @@ Add `EMPTY_*` constants to `stableRefs.ts` for all nullable collections.
 
 ## Execution Order
 
-**CURRENT: PR 1** (research complete, implementing XState)
+**CURRENT: PR 2** (PR 1 complete, tested on Safari iOS)
 
 ```
-PR 1: WebSocket State Machine ← IN PROGRESS
-      └── Install xstate + @xstate/react
-      └── Create websocketMachine.ts
-      └── Create websocketActor.ts with Zustand sync
-      └── Update connectionSlice for full state
-      └── Fix pendingResponses issues
-      └── Simplify useReaperConnection hook
+PR 1: WebSocket State Machine ✅ COMPLETE
+      └── XState v5 machine with all states
+      └── Global actor singleton with Zustand sync
+      └── Safari/iOS fixes (zombie connections, heartbeat, visibility)
+      └── Tested on Safari iOS PWA - working
 
-PR 2: Testing Infrastructure (data-testid mostly done)
+PR 2: Testing Infrastructure ← NEXT
       └── TrackStrip components (remaining)
       └── Update E2E tests to use new selectors
       └── Final test verification
@@ -445,7 +410,46 @@ Then: Feature PRs (Viewport Timeline, MixerView)
 
 **All 502 tests pass.**
 
-**Remaining for PR 1:**
-- [ ] Integration testing on actual iOS device
-- [ ] Consider removing old WebSocketConnection.ts (currently kept for reference)
-- [ ] Connection status UI component (optional enhancement)
+**PR 1 Complete** - All items done, tested on Safari iOS PWA.
+
+---
+
+### 2026-01-10 - PR 2 Continued (TrackStrip Migration)
+
+**TrackStrip data-testid migration completed:**
+
+| Component | Attributes Added |
+|-----------|-----------------|
+| TrackStrip.tsx | `data-testid="track-strip"`, `data-track-index`, `data-selected`, `data-master`, `data-testid="track-name"`, `data-testid="track-color-bar"`, `data-testid="track-number"` |
+
+**E2E test updated:**
+- `track-selection.spec.ts` - All 8 tests migrated from class selectors (`.rounded-lg.border`, `.cursor-pointer`) to data-testid
+- Added 2 new tests for track number display (non-master shows number, master doesn't)
+
+**test/queries.ts updated:**
+- New functions: `findTrackStrip()`, `findAllTrackStrips()`, `findMasterTrackStrip()`, `findNonMasterTrackStrips()`, `findTrackName()`, `findTrackColorBar()`, `findTrackNumber()`, `isTrackSelected()`, `isTrackMaster()`, `getTrackIndex()`
+
+**All 503 tests pass.**
+
+**Remaining E2E migrations (continued):**
+
+| File | Changes |
+|------|---------|
+| clock-view.spec.ts | Migrated to `[data-testid="beats-display"]`, `[data-testid="time-display"]`, `[data-testid="bpm-timesig-display"]`, `[data-testid="transport-button"]`, `[data-testid="transport-controls"]` |
+| timeline.spec.ts | Migrated to `[data-testid="timeline-canvas"]`, `[data-testid="time-selection"]`, `[data-testid="region-edit-action-bar"]` |
+| studio-layout.spec.ts | Migrated to `[data-testid="settings-tab-bar"]`, `[data-testid="settings-transport-bar"]`, `[data-testid="settings-transport-position"]`, `[data-testid="settings-rec-quick-actions"]`, `[data-testid="modal-backdrop"]` |
+
+**Components updated:**
+| Component | Attributes Added |
+|-----------|-----------------|
+| RegionEditActionBar.tsx | `data-testid="region-edit-action-bar"` |
+| SettingsMenu.tsx | `data-testid="settings-tab-bar"`, `data-testid="settings-transport-bar"`, `data-testid="settings-transport-position"`, `data-testid="settings-rec-quick-actions"` |
+
+**All 503 tests pass. Bundle: 692 kB (target ≤1,050 kB).**
+
+**E2E Tests:** `npm run test:e2e` - 102 tests passing
+
+**PR 2 Status:** ✅ COMPLETE
+- Unit tests: 503 passing (`npm run test`)
+- E2E tests: 102 passing (`npm run test:e2e`)
+- All data-testid migrations complete

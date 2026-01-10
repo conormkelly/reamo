@@ -11,5 +11,9 @@ export default defineConfig({
     exclude: ['e2e/**', 'node_modules/**'],
     // Suppress console output unless test fails
     silent: true,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text'],
+    },
   },
 })

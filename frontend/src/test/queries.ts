@@ -288,3 +288,78 @@ export function hasResizeIndicator(container: HTMLElement): boolean {
   const indicator = container.querySelector('[class*="bg-insert-indicator"]')
   return indicator !== null
 }
+
+// ============================================================================
+// Track Strip Queries
+// ============================================================================
+
+/**
+ * Find a track strip by its index
+ */
+export function findTrackStrip(container: HTMLElement, trackIndex: number): HTMLElement | null {
+  return container.querySelector(`[data-testid="track-strip"][data-track-index="${trackIndex}"]`)
+}
+
+/**
+ * Find all track strips
+ */
+export function findAllTrackStrips(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll('[data-testid="track-strip"]'))
+}
+
+/**
+ * Find the master track strip
+ */
+export function findMasterTrackStrip(container: HTMLElement): HTMLElement | null {
+  return container.querySelector('[data-testid="track-strip"][data-master="true"]')
+}
+
+/**
+ * Find all non-master track strips
+ */
+export function findNonMasterTrackStrips(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll('[data-testid="track-strip"][data-master="false"]'))
+}
+
+/**
+ * Find the track name element within a track strip
+ */
+export function findTrackName(trackStrip: HTMLElement): HTMLElement | null {
+  return trackStrip.querySelector('[data-testid="track-name"]')
+}
+
+/**
+ * Find the track color bar element within a track strip
+ */
+export function findTrackColorBar(trackStrip: HTMLElement): HTMLElement | null {
+  return trackStrip.querySelector('[data-testid="track-color-bar"]')
+}
+
+/**
+ * Find the track number element within a track strip (non-master tracks only)
+ */
+export function findTrackNumber(trackStrip: HTMLElement): HTMLElement | null {
+  return trackStrip.querySelector('[data-testid="track-number"]')
+}
+
+/**
+ * Check if a track strip is selected
+ */
+export function isTrackSelected(trackStrip: HTMLElement): boolean {
+  return trackStrip.getAttribute('data-selected') === 'true'
+}
+
+/**
+ * Check if a track strip is the master track
+ */
+export function isTrackMaster(trackStrip: HTMLElement): boolean {
+  return trackStrip.getAttribute('data-master') === 'true'
+}
+
+/**
+ * Get the track index from a track strip element
+ */
+export function getTrackIndex(trackStrip: HTMLElement): number | null {
+  const index = trackStrip.getAttribute('data-track-index')
+  return index !== null ? parseInt(index, 10) : null
+}

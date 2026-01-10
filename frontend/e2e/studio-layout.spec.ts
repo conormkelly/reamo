@@ -200,10 +200,8 @@ test.describe('Settings Menu - Studio Section', () => {
     const settingsButton = page.getByTitle('Settings');
     await settingsButton.click();
 
-    let dropdown = page.locator('[data-testid="settings-dropdown"]');
-
-    // Find the Rec Quick Actions button within the dropdown
-    const recActionsButton = dropdown.getByText('Rec Quick Actions').locator('..');
+    const dropdown = page.locator('[data-testid="settings-dropdown"]');
+    const recActionsButton = dropdown.locator('[data-testid="settings-rec-quick-actions"]');
 
     // Check initial state (should show Visible or Hidden)
     const initialState = await recActionsButton.locator('span').last().textContent();
@@ -211,11 +209,8 @@ test.describe('Settings Menu - Studio Section', () => {
     // Click to toggle
     await recActionsButton.click();
 
-    // Menu should still be open, just get fresh reference
-    dropdown = page.locator('[data-testid="settings-dropdown"]');
-    const newState = await dropdown.getByText('Rec Quick Actions').locator('..').locator('span').last().textContent();
-
     // State should have changed
+    const newState = await recActionsButton.locator('span').last().textContent();
     expect(newState).not.toBe(initialState);
   });
 
@@ -224,19 +219,18 @@ test.describe('Settings Menu - Studio Section', () => {
     const settingsButton = page.getByTitle('Settings');
     await settingsButton.click();
 
-    let dropdown = page.locator('[data-testid="settings-dropdown"]');
+    const dropdown = page.locator('[data-testid="settings-dropdown"]');
+    const tabBarButton = dropdown.locator('[data-testid="settings-tab-bar"]');
 
     // Click Tab Bar toggle
-    const tabBarButton = dropdown.getByText('Tab Bar').locator('..');
     await tabBarButton.click();
 
     // Tab bar should disappear
     const tabBar = page.locator('nav').filter({ hasText: /studio/i });
     await expect(tabBar).not.toBeVisible();
 
-    // Menu should still be open, toggle back
-    dropdown = page.locator('[data-testid="settings-dropdown"]');
-    await dropdown.getByText('Tab Bar').locator('..').click();
+    // Toggle back
+    await tabBarButton.click();
 
     // Tab bar should reappear
     await expect(tabBar).toBeVisible();
@@ -247,17 +241,14 @@ test.describe('Settings Menu - Studio Section', () => {
     const settingsButton = page.getByTitle('Settings');
     await settingsButton.click();
 
-    let dropdown = page.locator('[data-testid="settings-dropdown"]');
+    const dropdown = page.locator('[data-testid="settings-dropdown"]');
+    const transportButton = dropdown.locator('[data-testid="settings-transport-bar"]');
 
     // Click Transport Bar toggle
-    const transportButton = dropdown.getByText('Transport Bar').locator('..');
     await transportButton.click();
 
-    // Persistent transport should disappear
-    // (Note: This tests the toggle - actual transport visibility depends on implementation)
-    // Menu should still be open, just verify the state changed
-    dropdown = page.locator('[data-testid="settings-dropdown"]');
-    const state = await dropdown.getByText('Transport Bar').locator('..').locator('span').last().textContent();
+    // Verify the state changed to Hidden
+    const state = await transportButton.locator('span').last().textContent();
     expect(state).toContain('Hidden');
   });
 
@@ -266,18 +257,17 @@ test.describe('Settings Menu - Studio Section', () => {
     const settingsButton = page.getByTitle('Settings');
     await settingsButton.click();
 
-    let dropdown = page.locator('[data-testid="settings-dropdown"]');
+    const dropdown = page.locator('[data-testid="settings-dropdown"]');
+    const positionButton = dropdown.locator('[data-testid="settings-transport-position"]');
 
     // Get initial position
-    const positionButton = dropdown.getByText('Transport Position').locator('..');
     const initialPosition = await positionButton.locator('span').last().textContent();
 
     // Click to toggle
     await positionButton.click();
 
-    // Menu should still be open, just check position changed
-    dropdown = page.locator('[data-testid="settings-dropdown"]');
-    const newPosition = await dropdown.getByText('Transport Position').locator('..').locator('span').last().textContent();
+    // Check position changed
+    const newPosition = await positionButton.locator('span').last().textContent();
 
     // Position should have switched
     if (initialPosition?.includes('Left')) {
@@ -355,7 +345,7 @@ test.describe('Reorder Sections Modal - Touch Support', () => {
 
   test('can close modal by clicking backdrop', async ({ page }) => {
     // Click outside the modal (backdrop)
-    await page.locator('.fixed.inset-0').click({ position: { x: 10, y: 10 } });
+    await page.locator('[data-testid="modal-backdrop"]').click({ position: { x: 10, y: 10 } });
     await expect(page.getByRole('heading', { name: /reorder sections/i })).not.toBeVisible();
   });
 });

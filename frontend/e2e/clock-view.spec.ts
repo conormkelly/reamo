@@ -57,25 +57,22 @@ function getClockContainer(page: Page) {
 
 // Get the bar.beat display element
 function getBeatsDisplay(page: Page) {
-  return page.locator('.font-mono.font-bold.tracking-tight').first()
+  return getClockContainer(page).locator('[data-testid="beats-display"]')
 }
 
 // Get the time display element
 function getTimeDisplay(page: Page) {
-  // TimeDisplay uses text-text-tertiary (was text-gray-300 before tokens refactor)
-  return page.locator('.font-mono.text-text-tertiary').first()
+  return getClockContainer(page).locator('[data-testid="time-display"]')
 }
 
 // Get the BPM display element
 function getBpmDisplay(page: Page) {
-  // BpmTimeSigDisplay uses text-text-secondary (was text-gray-400 before tokens refactor)
-  return page.locator('.font-bold.text-text-secondary').first()
+  return getClockContainer(page).locator('[data-testid="bpm-timesig-display"]')
 }
 
 // Get all transport buttons within the Clock view (not the persistent transport bar)
 function getTransportButtons(page: Page) {
-  // ClockView buttons are inside the clock container, not the persistent transport bar
-  return getClockContainer(page).locator('button.rounded-full')
+  return getClockContainer(page).locator('[data-testid="transport-button"]')
 }
 
 // Check if an element overflows its container
@@ -98,7 +95,7 @@ async function checkNoOverflow(page: Page) {
   }
 
   // Check that the button row is within horizontal bounds
-  const buttonRow = getClockContainer(page).locator('.flex.items-center').filter({ has: page.locator('button.rounded-full') })
+  const buttonRow = getClockContainer(page).locator('[data-testid="transport-controls"]')
   const rowBox = await buttonRow.first().boundingBox()
   if (rowBox) {
     expect(rowBox.x).toBeGreaterThanOrEqual(0)
@@ -367,7 +364,7 @@ test.describe('ClockView text overflow', () => {
    */
   async function setBeatsContent(page: Page, content: string) {
     await page.evaluate((text) => {
-      const el = document.querySelector('.font-mono.font-bold.tracking-tight span')
+      const el = document.querySelector('[data-testid="beats-display"] span')
       if (el) el.textContent = text
     }, content)
     // Give layout time to recalculate

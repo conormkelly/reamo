@@ -16,7 +16,7 @@ playwright-report
 test-results
 releases
 frontend/bundle-stats.html
-
+frontend/coverage
 # Extension build artifacts (Zig)
 .zig-cache
 zig-out
