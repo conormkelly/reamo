@@ -2384,8 +2384,8 @@ Broadcast to all clients when markers change. No subscription required.
   "event": "markers",
   "payload": {
     "markers": [
-      {"id": 1, "position": 0.000, "name": "Start", "color": 0},
-      {"id": 2, "position": 30.500, "name": "Verse", "color": 16711680}
+      {"id": 1, "position": 0.000, "positionBeats": 0.0, "positionBars": "1.1.00", "name": "Start", "color": 0},
+      {"id": 2, "position": 30.500, "positionBeats": 61.0, "positionBars": "16.2.00", "name": "Verse", "color": 16711680}
     ]
   }
 }
@@ -2395,6 +2395,8 @@ Broadcast to all clients when markers change. No subscription required.
 |-------|------|-------------|
 | `markers[].id` | int | Marker ID (REAPER's internal numbering) |
 | `markers[].position` | float | Position in seconds |
+| `markers[].positionBeats` | float | Position in beats (from project start) |
+| `markers[].positionBars` | string | Position as "bar.beat.ticks" (e.g., "16.2.00") |
 | `markers[].name` | string | Marker name |
 | `markers[].color` | int | Color (native OS format, 0=default) |
 
@@ -2413,7 +2415,18 @@ Broadcast to all clients when regions change. No subscription required.
   "event": "regions",
   "payload": {
     "regions": [
-      {"id": 1, "start": 0.000, "end": 30.000, "name": "Intro", "color": 255}
+      {
+        "id": 1,
+        "start": 0.000,
+        "end": 30.000,
+        "startBeats": 0.0,
+        "endBeats": 60.0,
+        "startBars": "1.1.00",
+        "endBars": "16.1.00",
+        "lengthBars": "15.0.00",
+        "name": "Intro",
+        "color": 255
+      }
     ]
   }
 }
@@ -2424,6 +2437,11 @@ Broadcast to all clients when regions change. No subscription required.
 | `regions[].id` | int | Region ID (REAPER's internal numbering) |
 | `regions[].start` | float | Start position in seconds |
 | `regions[].end` | float | End position in seconds |
+| `regions[].startBeats` | float | Start position in beats (from project start) |
+| `regions[].endBeats` | float | End position in beats |
+| `regions[].startBars` | string | Start as "bar.beat.ticks" (e.g., "1.1.00") |
+| `regions[].endBars` | string | End as "bar.beat.ticks" (e.g., "16.1.00") |
+| `regions[].lengthBars` | string | Duration as "bars.beats.ticks" (e.g., "15.0.00") |
 | `regions[].name` | string | Region name |
 | `regions[].color` | int | Color (native OS format, 0=default) |
 
@@ -2448,25 +2466,12 @@ Sent when items change. Broadcast to all connected clients (no subscription requ
         "itemIdx": 0,
         "position": 10.000,
         "length": 5.000,
-        "color": 0,
+        "color": 16711680,
         "locked": false,
         "selected": false,
         "activeTakeIdx": 0,
-        "notes": "",
-        "takes": [
-          {
-            "guid": "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}",
-            "name": "Take 1",
-            "isActive": true,
-            "isMIDI": false
-          },
-          {
-            "guid": "{YYYYYYYY-YYYY-YYYY-YYYY-YYYYYYYYYYYY}",
-            "name": "Take 2",
-            "isActive": false,
-            "isMIDI": false
-          }
-        ]
+        "hasNotes": true,
+        "takeCount": 2
       }
     ]
   }
@@ -2478,14 +2483,22 @@ Sent when items change. Broadcast to all connected clients (no subscription requ
 | `items[].guid` | string | Stable item identifier (REAPER GUID) |
 | `items[].trackIdx` | int | Track index (unified: 0 = master, 1+ = user tracks) |
 | `items[].itemIdx` | int | Item index within track (0-based) |
-| `items[].takes[].guid` | string | Stable take identifier for cache keying |
-| `items[].takes[].isMIDI` | bool | If true, skip peaks request (MIDI items have no audio waveform) |
+| `items[].position` | float | Position in seconds |
+| `items[].length` | float | Duration in seconds |
+| `items[].color` | int\|null | Color (native OS format), null if corrupt |
+| `items[].locked` | bool\|null | True if item is locked, null if corrupt |
+| `items[].selected` | bool\|null | True if item is selected, null if corrupt |
+| `items[].activeTakeIdx` | int\|null | Index of active take (0-based), null if corrupt |
+| `items[].hasNotes` | bool | True if item has notes (use `item/getNotes` for content) |
+| `items[].takeCount` | int | Number of takes (use `item/getTakes` for full details) |
 
 **Notes:**
 - Sent on connect (snapshot) and on change at 5Hz (MEDIUM tier)
 - Contains all items in the project
 - Broadcast to all connected clients
 - Frontend filters to visible viewport for rendering
+- Sparse fields (`hasNotes`, `takeCount`) indicate presence without sending full data
+- Use `item/getNotes` and `item/getTakes` commands for on-demand details
 
 ### `project` Event
 
