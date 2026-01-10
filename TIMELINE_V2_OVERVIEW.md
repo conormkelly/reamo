@@ -1,15 +1,27 @@
 # PR4 Analysis: Viewport-Aware Timeline
 
-## Status: Research Complete - Ready to Implement
+## Status: In Progress
 
-**Decisions Made:**
-- ✅ Full-stack implementation (backend + frontend)
-- ✅ **Pinch-to-zoom** - Continuous zoom per research recommendation (feels natural on touch)
-- ✅ **Double-tap** to snap playhead to nearest marker/region (was single tap)
-- ✅ **Selection mode toggle** - Distinguishes pan vs selection gestures clearly
-- ✅ Defer MixerView to later PR
-- ✅ Memoized filtering first (TanStack Virtual later if needed)
+**Implemented:**
+- ✅ Full-stack implementation (backend broadcast + frontend viewport)
+- ✅ **Zoom buttons** (+/-) with discrete zoom steps
+- ✅ **Selection mode toggle** - Distinguishes pan vs selection gestures
+- ✅ **Marker clustering** - 40px merge threshold with count badges
+- ✅ **Follow playhead** - Auto-scroll during playback with soft-end bounds
+- ✅ **Edge scroll** - Auto-pan when dragging to container edge
+- ✅ **Accessibility** - prefers-reduced-motion support
+- ✅ Memoized filtering (useVisibleItems hook)
 - ✅ Remove "add marker" button - users can add via custom toolbar action
+
+**Remaining:**
+- 🔲 **Double-tap to snap** - Pre-req for pinch gesture (currently single-tap snaps)
+- 🔲 **Pinch-to-zoom** - Primary zoom gesture per research
+- 🔲 **Item density LOD** - 0-30% bars, 30-60% clusters, 60-100% individual
+- 🔲 **Interval tree** - For >500 items snap queries
+
+**Separate PRs:**
+- ⏸️ MixerView
+- ⏸️ TanStack Virtual (if needed)
 
 ---
 
@@ -512,25 +524,30 @@ Phase 4: UI Controls ✅ COMPLETE
 ├── ✅ SelectionToggle button (Crosshair icon)
 └── ✅ Controls only visible in navigate mode
 
-Phase 5: Testing & Polish (TODO)
-├── timeline-viewport.spec.ts (E2E)
-└── Accessibility (prefers-reduced-motion)
+Phase 5: Testing & Polish ✅ COMPLETE
+├── ✅ timeline-viewport.spec.ts (E2E - pan, zoom, selection, reduced motion)
+├── ✅ Accessibility (useReducedMotion hook, CSS prefers-reduced-motion)
+├── ✅ Marker clustering (useMarkerClusters hook, 40px merge threshold)
+├── ✅ Follow playhead (animation engine subscription, soft-end bounds)
+├── ✅ Edge scroll (useEdgeScroll hook for drag-to-edge panning)
+└── ✅ Unit tests (useReducedMotion, useMarkerClusters, useEdgeScroll)
 ```
 
 ---
 
 ## User Decisions (Captured)
 
-| Decision | Choice |
-|----------|--------|
-| **Zoom interaction** | **Pinch-to-zoom** (continuous) + zoom buttons as secondary |
-| **Timeline tap** | **Double-tap** to snap playhead to nearest marker/region (was single tap) |
-| **Navigation mode drag** | Single-finger drag = pan viewport (not time selection) |
-| **Selection toggle** | Existing selection button becomes toggle; long-press for manual entry |
-| **Add marker button** | **REMOVED** - Users can add via custom toolbar action (40157) |
-| Snap behavior | Full marker/region data always available (broadcast, no skeleton needed) |
-| Default zoom | Mobile-first ~30 seconds |
-| PR strategy | **Backend first** → test via websocat → then frontend. Can break/delete old APIs during dev. |
+| Decision | Choice | Status |
+|----------|--------|--------|
+| **Zoom interaction** | **Pinch-to-zoom** (continuous) + zoom buttons as secondary | 🔲 Pinch TODO, ✅ Buttons done |
+| **Timeline tap** | **Double-tap** to snap playhead to nearest marker/region | 🔲 TODO (currently single-tap) |
+| **Navigation mode drag** | Single-finger drag = pan viewport (not time selection) | ✅ Done |
+| **Selection toggle** | Existing selection button becomes toggle; long-press for manual entry | ✅ Done |
+| **Add marker button** | **REMOVED** - Users can add via custom toolbar action (40157) | ✅ Done |
+| Snap behavior | Full marker/region data always available (broadcast, no skeleton needed) | ✅ Done |
+| Default zoom | Mobile-first ~30 seconds | ✅ Done |
+| **Item density LOD** | 0-30% bars, 30-60% clusters, 60-100% individual | 🔲 TODO |
+| **Interval tree** | For >500 items snap queries | 🔲 TODO |
 
 ---
 

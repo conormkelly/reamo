@@ -19,7 +19,7 @@ describe('useEdgeScroll', () => {
     return ++rafId;
   });
 
-  const mockCancelAnimationFrame = vi.fn((id: number) => {
+  const mockCancelAnimationFrame = vi.fn((_id: number) => {
     // Clear the callback (simplified mock)
     rafCallbacks = [];
   });

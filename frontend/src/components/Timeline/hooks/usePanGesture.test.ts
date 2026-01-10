@@ -2,7 +2,7 @@
  * usePanGesture Hook Tests
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { usePanGesture } from './usePanGesture';
 
@@ -44,7 +44,7 @@ describe('usePanGesture', () => {
   });
 
   describe('initialization', () => {
-    it('starts not panning', () => {
+    it('starts not panning and not in momentum', () => {
       const onPan = vi.fn();
       const { result } = renderHook(() =>
         usePanGesture({
@@ -56,6 +56,7 @@ describe('usePanGesture', () => {
 
       expect(result.current.isPanning).toBe(false);
       expect(result.current.isCancelled).toBe(false);
+      expect(result.current.isMomentumActive).toBe(false);
     });
   });
 
@@ -435,6 +436,139 @@ describe('usePanGesture', () => {
       });
 
       expect(onPan).toHaveBeenCalledWith(-2);
+    });
+  });
+
+  describe('momentum scrolling', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('does not start momentum when disableMomentum is true', () => {
+      const onPan = vi.fn();
+      const { result } = renderHook(() =>
+        usePanGesture({
+          containerRef: mockContainerRef,
+          visibleDuration: 30,
+          onPan,
+          disableMomentum: true,
+        })
+      );
+
+      // Start pan
+      act(() => {
+        result.current.handlePointerDown(createPointerEvent(200, 100));
+      });
+
+      // Move quickly (will create velocity)
+      act(() => {
+        vi.advanceTimersByTime(16);
+        result.current.handlePointerMove(createPointerEvent(300, 100));
+      });
+
+      // Release
+      act(() => {
+        result.current.handlePointerUp(createPointerEvent(300, 100));
+      });
+
+      expect(result.current.isMomentumActive).toBe(false);
+    });
+
+    it('does not start momentum when gesture was cancelled', () => {
+      const onPan = vi.fn();
+      const { result } = renderHook(() =>
+        usePanGesture({
+          containerRef: mockContainerRef,
+          visibleDuration: 30,
+          onPan,
+        })
+      );
+
+      // Start pan
+      act(() => {
+        result.current.handlePointerDown(createPointerEvent(200, 100));
+      });
+
+      // Move then cancel by going vertical
+      act(() => {
+        vi.advanceTimersByTime(16);
+        result.current.handlePointerMove(createPointerEvent(300, 100));
+      });
+      act(() => {
+        vi.advanceTimersByTime(16);
+        result.current.handlePointerMove(createPointerEvent(350, 200)); // Cancel
+      });
+
+      expect(result.current.isCancelled).toBe(true);
+
+      // Release while cancelled
+      act(() => {
+        result.current.handlePointerUp(createPointerEvent(350, 200));
+      });
+
+      expect(result.current.isMomentumActive).toBe(false);
+    });
+
+    it('stopMomentum stops active momentum', () => {
+      const onPan = vi.fn();
+      const { result } = renderHook(() =>
+        usePanGesture({
+          containerRef: mockContainerRef,
+          visibleDuration: 30,
+          onPan,
+        })
+      );
+
+      // Manually set momentum active state for testing stopMomentum
+      // Start gesture
+      act(() => {
+        result.current.handlePointerDown(createPointerEvent(200, 100));
+      });
+
+      // Stop momentum (even though not active, should not error)
+      act(() => {
+        result.current.stopMomentum();
+      });
+
+      expect(result.current.isMomentumActive).toBe(false);
+    });
+
+    it('new pointer down stops active momentum', () => {
+      const onPan = vi.fn();
+      const { result } = renderHook(() =>
+        usePanGesture({
+          containerRef: mockContainerRef,
+          visibleDuration: 30,
+          onPan,
+        })
+      );
+
+      // Start first gesture
+      act(() => {
+        result.current.handlePointerDown(createPointerEvent(200, 100));
+      });
+
+      // Move and release
+      act(() => {
+        vi.advanceTimersByTime(16);
+        result.current.handlePointerMove(createPointerEvent(300, 100));
+      });
+      act(() => {
+        result.current.handlePointerUp(createPointerEvent(300, 100));
+      });
+
+      // Start new gesture (should stop any momentum)
+      act(() => {
+        result.current.handlePointerDown(createPointerEvent(200, 100));
+      });
+
+      // Momentum should be stopped
+      expect(result.current.isPanning).toBe(true);
+      expect(result.current.isMomentumActive).toBe(false);
     });
   });
 });

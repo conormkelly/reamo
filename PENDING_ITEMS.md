@@ -55,28 +55,6 @@ Long-press (500ms) on the time/position display should show a popup with all pro
 
 ---
 
-### Momentum Scrolling for Timeline Pan
-
-Add velocity-based momentum/inertia to timeline pan gesture. Currently pan is 1:1 with finger movement (no deceleration after release).
-
-**Physics (from Logic Remote research):**
-- Calculate velocity from last ~100ms of gesture
-- Friction coefficient: 0.965 per frame
-- Overscroll: 15-20% past bounds with snap-back
-- Stop threshold: velocity < 0.5px/frame
-
-**Implementation:**
-- On touchend, calculate velocity from last 3-5 touch events
-- Animation loop: `position += velocity; velocity *= 0.965;`
-- Use `requestAnimationFrame` for smooth 60fps
-- Respect `prefers-reduced-motion` (instant stop, no deceleration)
-
-**Files:** `frontend/src/components/Timeline/hooks/usePanGesture.ts`
-
-**Status:** Not implemented
-
----
-
 ## Backend
 
 ### Move Static Buffers to test_utils
@@ -255,3 +233,6 @@ The following major items were completed during the 2026-01-07 cleanup:
 - Mock deleteItem implementation
 - REAPER API quirks documented in API.md
 - **SPSC queue research** — concluded mutex is optimal for 30Hz polling; lock-free only needed for audio thread integration which we don't use
+
+**2026-01-10:**
+- **Momentum scrolling for timeline pan** — velocity-based inertia with 0.965 friction, respects prefers-reduced-motion

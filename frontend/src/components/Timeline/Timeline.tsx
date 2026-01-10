@@ -17,6 +17,7 @@ import {
   useVisibleMarkers,
   useVisibleMediaItems,
   useMarkerClusters,
+  useReducedMotion,
   type MarkerClusterData,
 } from '../../hooks';
 import { transport, timeSelection as timeSelCmd, marker as markerCmd } from '../../core/WebSocketCommands';
@@ -58,6 +59,9 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   // Time signature and bar offset from hooks
   const { beatsPerBar, denominator } = useTimeSignature();
   const barOffset = useBarOffset();
+
+  // Accessibility: reduced motion preference
+  const prefersReducedMotion = useReducedMotion();
 
   // Region editing state
   const timelineMode = useReaperStore((state) => state.timelineMode);
@@ -355,6 +359,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       pauseFollow(); // Pause follow when user pans
     },
     disabled: timelineMode !== 'navigate' || selectionModeActive,
+    disableMomentum: prefersReducedMotion,
   });
 
   // Render-specific timeToPercent (uses VIEWPORT bounds for visible range)

@@ -79,7 +79,7 @@ test: test-frontend test-e2e test-extension
 # Run frontend unit tests (vitest)
 test-frontend:
 	@echo "Running frontend unit tests..."
-	cd frontend && npm run test:run
+	cd frontend && npm test
 
 # Run frontend E2E tests (playwright)
 test-e2e:
