@@ -7,13 +7,23 @@ import { useState, useRef, useCallback, useMemo, type ReactElement } from 'react
 import { useReaperStore } from '../../store';
 import { EMPTY_REGIONS, EMPTY_MARKERS, EMPTY_ITEMS, EMPTY_TRACKS } from '../../store/stableRefs';
 import { useReaper } from '../ReaperProvider';
-import { useTransport, useTimeSignature, useBarOffset } from '../../hooks';
+import {
+  useTransport,
+  useTimeSignature,
+  useBarOffset,
+  useViewport,
+  useVisibleRegions,
+  useVisibleMarkers,
+  useVisibleMediaItems,
+} from '../../hooks';
 import { transport, timeSelection as timeSelCmd, marker as markerCmd } from '../../core/WebSocketCommands';
-import { usePlayheadDrag, useMarkerDrag, useRegionDrag } from './hooks';
+import { usePlayheadDrag, useMarkerDrag, useRegionDrag, usePanGesture } from './hooks';
 import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
 import { ItemsDensityOverlay } from './ItemDensityBlobs';
 import { TimelineMarkerLines, TimelineMarkerPills } from './TimelineMarkers';
 import { TimelinePlayhead, PlayheadDragPreview, PlayheadPreviewPill, MarkerDragPreview } from './TimelinePlayhead';
+import { ZoomControls } from './ZoomControls';
+import { Crosshair } from 'lucide-react';
 import { formatBeats, formatDelta } from '../../utils';
 import { timeToBarBeat, formatBarBeat } from '../../core/tempoUtils';
 import { findNearestSnapTarget } from './snapUtils';
@@ -148,6 +158,15 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   const timelineStart = baseTimelineStart;
   const duration = baseDuration;
 
+  // Viewport state for pan/zoom navigation
+  const viewport = useViewport({
+    projectDuration: duration,
+    initialRange: { start: 0, end: Math.min(30, duration) }, // Default 30 seconds or full project
+  });
+
+  // Selection mode toggle state (pan mode vs selection mode in navigate)
+  const [selectionModeActive, setSelectionModeActive] = useState(false);
+
   // Convert time to percentage position (using base values for stability)
   const timeToPercent = useCallback(
     (time: number) => {
@@ -225,41 +244,68 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     moveRegion,
   });
 
-  // Calculate render-specific timeline bounds
-  // Extends timeline to show drag targets, but NOT when resize drag is cancelled
-  const renderDuration = useMemo(() => {
-    let end = baseDuration / 1.05; // Remove the 1.05 padding to get actual end
+  // Pan gesture for viewport navigation (navigate mode, when not in selection mode)
+  const panGesture = usePanGesture({
+    containerRef,
+    visibleDuration: viewport.visibleDuration,
+    onPan: viewport.pan,
+    disabled: timelineMode !== 'navigate' || selectionModeActive,
+  });
 
-    // Don't extend timeline when resize drag is cancelled (shrink back to original)
-    const isResizing = regionDragType === 'resize-start' || regionDragType === 'resize-end';
-    if (isResizing && isRegionDragCancelled) {
-      return baseDuration; // Use base duration without extension
-    }
-
-    // Extend for active (non-cancelled) resize operations
-    if (resizeEdgePosition !== null && resizeEdgePosition > end) {
-      end = resizeEdgePosition;
-    }
-    // Extend for move operations (insertion point)
-    if (insertionPoint !== null && insertionPoint > end) {
-      end = insertionPoint;
-    }
-    // Extend for any drag target
-    if (dragCurrentTime !== null && dragCurrentTime > end) {
-      end = dragCurrentTime;
-    }
-
-    // Add padding
-    return Math.max(end * 1.05, 10);
-  }, [baseDuration, resizeEdgePosition, insertionPoint, dragCurrentTime, regionDragType, isRegionDragCancelled]);
-
-  // Render-specific timeToPercent (uses extended bounds when appropriate)
+  // Render-specific timeToPercent (uses VIEWPORT bounds for visible range)
+  // Extends viewport during drag operations to show drag targets
   const renderTimeToPercent = useCallback(
     (time: number) => {
-      if (renderDuration === 0) return 0;
-      return ((time - baseTimelineStart) / renderDuration) * 100;
+      // Calculate effective visible range, extending for drag operations
+      let effectiveStart = viewport.visibleRange.start;
+      let effectiveEnd = viewport.visibleRange.end;
+
+      // Don't extend when resize drag is cancelled
+      const isResizing = regionDragType === 'resize-start' || regionDragType === 'resize-end';
+      const shouldExtend = !isResizing || !isRegionDragCancelled;
+
+      if (shouldExtend) {
+        // Extend for resize edge position
+        if (resizeEdgePosition !== null) {
+          effectiveStart = Math.min(effectiveStart, resizeEdgePosition);
+          effectiveEnd = Math.max(effectiveEnd, resizeEdgePosition);
+        }
+        // Extend for insertion point
+        if (insertionPoint !== null) {
+          effectiveStart = Math.min(effectiveStart, insertionPoint);
+          effectiveEnd = Math.max(effectiveEnd, insertionPoint);
+        }
+        // Extend for drag target
+        if (dragCurrentTime !== null) {
+          effectiveStart = Math.min(effectiveStart, dragCurrentTime);
+          effectiveEnd = Math.max(effectiveEnd, dragCurrentTime);
+        }
+      }
+
+      const effectiveDuration = effectiveEnd - effectiveStart;
+      if (effectiveDuration === 0) return 0;
+      return ((time - effectiveStart) / effectiveDuration) * 100;
     },
-    [baseTimelineStart, renderDuration]
+    [viewport.visibleRange, resizeEdgePosition, insertionPoint, dragCurrentTime, regionDragType, isRegionDragCancelled]
+  );
+
+  // Filter items to visible viewport range with buffer for smooth scrolling
+  const VISIBILITY_BUFFER = 10; // seconds of buffer on each side
+
+  const { visibleItems: visibleRegions } = useVisibleRegions(
+    displayRegions,
+    viewport.visibleRange,
+    VISIBILITY_BUFFER
+  );
+  const { visibleItems: visibleMarkers } = useVisibleMarkers(
+    markers,
+    viewport.visibleRange,
+    VISIBILITY_BUFFER
+  );
+  const { visibleItems: visibleItems } = useVisibleMediaItems(
+    items,
+    viewport.visibleRange,
+    VISIBILITY_BUFFER
   );
 
   // Set time selection in REAPER via WebSocket
@@ -307,16 +353,23 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         return;
       }
 
-      // Navigate mode - simplified gesture handling
-      const time = positionToTime(e.clientX);
-      setDragStart(time);
-      setDragEnd(time);
-      setIsCancelled(false);
-
-      // Capture pointer for drag events
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      // Navigate mode
+      if (timelineMode === 'navigate') {
+        if (!selectionModeActive) {
+          // Pan mode (default) - delegate to pan gesture
+          panGesture.handlePointerDown(e);
+          return;
+        }
+        // Selection mode - time selection gesture
+        const time = positionToTime(e.clientX);
+        setDragStart(time);
+        setDragEnd(time);
+        setIsCancelled(false);
+        // Capture pointer for drag events
+        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      }
     },
-    [positionToTime, isDraggingPlayhead, timelineMode, handleRegionPointerDown]
+    [positionToTime, isDraggingPlayhead, timelineMode, handleRegionPointerDown, selectionModeActive, panGesture]
   );
 
   // Handle touch/mouse move
@@ -329,24 +382,32 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       }
 
       // Navigate mode
-      if (dragStart === null || !containerRef.current) return;
+      if (timelineMode === 'navigate') {
+        if (!selectionModeActive) {
+          // Pan mode - delegate to pan gesture
+          panGesture.handlePointerMove(e);
+          return;
+        }
+        // Selection mode - time selection gesture
+        if (dragStart === null || !containerRef.current) return;
 
-      const time = positionToTime(e.clientX);
-      setDragEnd(time);
+        const time = positionToTime(e.clientX);
+        setDragEnd(time);
 
-      // Check if dragged off timeline (vertical cancel)
-      const rect = containerRef.current.getBoundingClientRect();
-      const isOutsideVertically =
-        e.clientY < rect.top - VERTICAL_CANCEL_THRESHOLD ||
-        e.clientY > rect.bottom + VERTICAL_CANCEL_THRESHOLD;
+        // Check if dragged off timeline (vertical cancel)
+        const rect = containerRef.current.getBoundingClientRect();
+        const isOutsideVertically =
+          e.clientY < rect.top - VERTICAL_CANCEL_THRESHOLD ||
+          e.clientY > rect.bottom + VERTICAL_CANCEL_THRESHOLD;
 
-      if (isOutsideVertically) {
-        setIsCancelled(true);
-      } else {
-        setIsCancelled(false);
+        if (isOutsideVertically) {
+          setIsCancelled(true);
+        } else {
+          setIsCancelled(false);
+        }
       }
     },
-    [dragStart, positionToTime, timelineMode, handleRegionPointerMove]
+    [dragStart, positionToTime, timelineMode, handleRegionPointerMove, selectionModeActive, panGesture]
   );
 
   // Handle touch/mouse end
@@ -359,45 +420,54 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       }
 
       // Navigate mode
-      if (dragStart === null) return;
+      if (timelineMode === 'navigate') {
+        if (!selectionModeActive) {
+          // Pan mode - delegate to pan gesture
+          panGesture.handlePointerUp(e);
+          return;
+        }
 
-      const endTime = positionToTime(e.clientX);
-      const wasDraggingHorizontally = Math.abs(endTime - dragStart) > 0.1;
+        // Selection mode - time selection gesture
+        if (dragStart === null) return;
 
-      // Check final cancel state
-      const rect = containerRef.current?.getBoundingClientRect();
-      const isOutsideVertically = rect && (
-        e.clientY < rect.top - VERTICAL_CANCEL_THRESHOLD ||
-        e.clientY > rect.bottom + VERTICAL_CANCEL_THRESHOLD
-      );
+        const endTime = positionToTime(e.clientX);
+        const wasDraggingHorizontally = Math.abs(endTime - dragStart) > 0.1;
 
-      if (isCancelled || isOutsideVertically) {
-        // Cancelled - do nothing
-      } else if (wasDraggingHorizontally) {
-        // Horizontal drag = create time selection
-        let selStart = Math.min(dragStart, endTime);
-        let selEnd = Math.max(dragStart, endTime);
+        // Check final cancel state
+        const rect = containerRef.current?.getBoundingClientRect();
+        const isOutsideVertically = rect && (
+          e.clientY < rect.top - VERTICAL_CANCEL_THRESHOLD ||
+          e.clientY > rect.bottom + VERTICAL_CANCEL_THRESHOLD
+        );
 
-        // Snap to boundaries
-        selStart = findNearestBoundary(selStart);
-        selEnd = findNearestBoundary(selEnd);
+        if (isCancelled || isOutsideVertically) {
+          // Cancelled - do nothing
+        } else if (wasDraggingHorizontally) {
+          // Horizontal drag = create time selection
+          let selStart = Math.min(dragStart, endTime);
+          let selEnd = Math.max(dragStart, endTime);
 
-        setTimeSelection(selStart, selEnd);
-      } else {
-        // Tap (no horizontal movement) = navigate to nearest boundary
-        navigateTo(findNearestBoundary(dragStart));
-      }
+          // Snap to boundaries
+          selStart = findNearestBoundary(selStart);
+          selEnd = findNearestBoundary(selEnd);
 
-      // Reset state
-      setDragStart(null);
-      setDragEnd(null);
-      setIsCancelled(false);
+          setTimeSelection(selStart, selEnd);
+        } else {
+          // Tap (no horizontal movement) = navigate to nearest boundary
+          navigateTo(findNearestBoundary(dragStart));
+        }
 
-      // Release pointer capture (may already be released on pointercancel)
-      try {
-        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-      } catch {
-        // Pointer capture already released
+        // Reset state
+        setDragStart(null);
+        setDragEnd(null);
+        setIsCancelled(false);
+
+        // Release pointer capture (may already be released on pointercancel)
+        try {
+          (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+        } catch {
+          // Pointer capture already released
+        }
       }
     },
     [
@@ -409,6 +479,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       navigateTo,
       timelineMode,
       handleRegionPointerUp,
+      selectionModeActive,
+      panGesture,
     ]
   );
 
@@ -473,7 +545,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       {/* Top bar - region labels (color bar + text) + playhead preview pill */}
       <div className="relative h-[25px] bg-bg-deep rounded-t-lg">
         <TimelineRegionLabels
-          displayRegions={displayRegions}
+          displayRegions={visibleRegions}
           timelineMode={timelineMode}
           selectedRegionIds={selectedRegionIdSet}
           pendingChanges={pendingChanges}
@@ -505,7 +577,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       >
         {/* Regions - blocks only (no color), labels in top bar */}
         <TimelineRegionBlocks
-          displayRegions={displayRegions}
+          displayRegions={visibleRegions}
           timelineMode={timelineMode}
           selectedRegionIds={selectedRegionIdSet}
           pendingChanges={pendingChanges}
@@ -516,11 +588,11 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         />
 
         {/* Items density overlay - shows where items are in navigate mode */}
-        {timelineMode === 'navigate' && items.length > 0 && (
+        {timelineMode === 'navigate' && visibleItems.length > 0 && (
           <ItemsDensityOverlay
-            items={items}
-            timelineStart={timelineStart}
-            timelineEnd={timelineStart + duration}
+            items={visibleItems}
+            timelineStart={viewport.visibleRange.start}
+            timelineEnd={viewport.visibleRange.end}
             height={height}
             tracks={tracks}
           />
@@ -544,7 +616,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
 
         {/* Markers - lines only, labels in bottom bar */}
         <TimelineMarkerLines
-          markers={markers}
+          markers={visibleMarkers}
           timelineMode={timelineMode}
           renderTimeToPercent={renderTimeToPercent}
         />
@@ -661,10 +733,41 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           denominator={denominator}
         />
 
-        {/* Empty state */}
-        {displayRegions.length === 0 && markers.length === 0 && (
+        {/* Viewport controls overlay - only in navigate mode */}
+        {timelineMode === 'navigate' && (
+          <div className="absolute bottom-1 right-1 flex items-center gap-1 z-30 pointer-events-auto">
+            {/* Selection mode toggle */}
+            <button
+              onClick={() => setSelectionModeActive(!selectionModeActive)}
+              className={`p-1.5 rounded transition-colors ${
+                selectionModeActive
+                  ? 'bg-primary text-text-on-primary'
+                  : 'bg-bg-deep/80 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'
+              }`}
+              title={selectionModeActive ? 'Exit selection mode (pan mode)' : 'Enter selection mode'}
+              aria-pressed={selectionModeActive}
+            >
+              <Crosshair size={14} />
+            </button>
+            {/* Zoom controls */}
+            <div className="bg-bg-deep/80 rounded px-1">
+              <ZoomControls
+                zoomLevel={viewport.zoomLevel}
+                visibleDuration={viewport.visibleDuration}
+                onZoomIn={viewport.zoomIn}
+                onZoomOut={viewport.zoomOut}
+                onFitToContent={() => viewport.fitToContent({ start: baseTimelineStart, end: baseTimelineStart + baseDuration })}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Empty state - show only if no visible content */}
+        {visibleRegions.length === 0 && visibleMarkers.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center text-text-muted text-sm">
-            No regions or markers
+            {displayRegions.length === 0 && markers.length === 0
+              ? 'No regions or markers'
+              : 'Pan to see content'}
           </div>
         )}
 
@@ -694,7 +797,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         )}
         {/* Marker pills - offset by 1px to center on 2px-wide marker line */}
         <TimelineMarkerPills
-          markers={markers}
+          markers={visibleMarkers}
           timelineMode={timelineMode}
           renderTimeToPercent={renderTimeToPercent}
           draggedMarker={draggedMarker}

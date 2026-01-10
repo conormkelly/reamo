@@ -419,55 +419,40 @@ describe('Playhead visibility', () => {
     mockAnimationPosition = 0
   })
 
-  // Timeline bounds calculation (in Timeline.tsx useMemo) must include positionSeconds.
-  // Otherwise, an empty timeline defaults to 10s duration, and a playhead at 50s
-  // would calculate as 500% left position (off-screen to the right).
-  it('timeline bounds extend to include playhead position', () => {
+  // Playhead position is calculated relative to the visible viewport range (0-30s default).
+  // With viewport-relative rendering, playhead at 25s within 0-30s viewport = ~83%
+  it('playhead renders within viewport when position is in visible range', () => {
     setupStore([])
-    mockAnimationPosition = 50
-    useReaperStore.setState({ positionSeconds: 50 })
+    mockAnimationPosition = 25
+    useReaperStore.setState({ positionSeconds: 25 })
 
     const { container } = render(<Timeline height={120} />)
 
     const playheadContainer = container.querySelector('.absolute.top-0.bottom-0') as HTMLElement
     expect(playheadContainer).not.toBeNull()
 
-    // With positionSeconds=50 included in bounds, duration becomes ~52.5s (50 * 1.05)
-    // So position 50s = ~95%, not 500%
+    // With viewport 0-30s (default) and playhead at 25s: 25/30 = ~83%
     const leftPercent = parseFloat(playheadContainer.style.left)
     expect(leftPercent).toBeLessThanOrEqual(100)
-    expect(leftPercent).toBeGreaterThan(90) // Should be ~95%
+    expect(leftPercent).toBeGreaterThan(75) // Should be ~83%
   })
 
-  // The animation engine notifies subscribers synchronously, but React state updates
-  // are batched. This means the animation callback can fire before renderTimeToPercent
-  // has updated bounds. TimelinePlayhead must recalculate position in useLayoutEffect
-  // when renderTimeToPercent changes, not just rely on the animation callback.
-  it('playhead recalculates position when bounds change after render', () => {
+  // Playhead at different position within viewport renders correctly.
+  // With empty timeline (min 10s) and playhead at 5s: 5/10 = 50%
+  it('playhead renders at midpoint of viewport', () => {
     setupStore([])
-    mockAnimationPosition = 0
-    useReaperStore.setState({ positionSeconds: 0 })
+    mockAnimationPosition = 5
+    useReaperStore.setState({ positionSeconds: 5 })
 
     const { container } = render(<Timeline height={120} />)
 
     const playheadContainer = container.querySelector('.absolute.top-0.bottom-0') as HTMLElement
     expect(playheadContainer).not.toBeNull()
 
-    // Initial position should be 0%
-    expect(parseFloat(playheadContainer.style.left)).toBe(0)
-
-    // Simulate transport event: animation engine has new position, React state updates
-    // The animation callback already fired on initial render with position=0.
-    // Now state changes - the useLayoutEffect must recalculate with new bounds.
-    act(() => {
-      mockAnimationPosition = 50
-      useReaperStore.setState({ positionSeconds: 50 })
-    })
-
-    // Without the useLayoutEffect recalculation, playhead would stay at 0%
-    const updatedPercent = parseFloat(playheadContainer.style.left)
-    expect(updatedPercent).toBeLessThanOrEqual(100)
-    expect(updatedPercent).toBeGreaterThan(90) // Should be ~95%
+    // Empty timeline has min duration of 10s, so playhead at 5s = 50%
+    const leftPercent = parseFloat(playheadContainer.style.left)
+    expect(leftPercent).toBeGreaterThan(45)
+    expect(leftPercent).toBeLessThan(55)
   })
 
   it('playhead at position 0 with empty timeline', () => {

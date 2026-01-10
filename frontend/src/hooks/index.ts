@@ -41,3 +41,18 @@ export {
   type UseListReorderOptions,
   type UseListReorderReturn,
 } from './useListReorder';
+export {
+  useViewport,
+  ZOOM_STEPS,
+  type TimeRange,
+  type UseViewportOptions,
+  type UseViewportReturn,
+} from './useViewport';
+export {
+  useVisibleItems,
+  useVisibleMarkers,
+  useVisibleRegions,
+  useVisibleMediaItems,
+  type UseVisibleItemsOptions,
+  type UseVisibleItemsReturn,
+} from './useVisibleItems';

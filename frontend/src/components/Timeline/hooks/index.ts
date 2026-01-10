@@ -6,3 +6,6 @@ export type { UseMarkerDragOptions, UseMarkerDragResult } from './useMarkerDrag'
 
 export { useRegionDrag } from './useRegionDrag';
 export type { UseRegionDragOptions, UseRegionDragResult } from './useRegionDrag';
+
+export { usePanGesture } from './usePanGesture';
+export type { UsePanGestureOptions, UsePanGestureResult } from './usePanGesture';

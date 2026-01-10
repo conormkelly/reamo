@@ -310,7 +310,9 @@ const visibleItems = useMemo(() =>
 - ~~`extension/src/timeline_subscriptions.zig`~~
 - ~~`extension/src/commands/timeline_subs.zig`~~
 
-### Phase 3: Timeline Component Integration
+### Phase 3: Timeline Component Integration ✅ COMPLETE
+
+> **Status:** Implemented. See `docs/PHASE3_FRONTEND_INTEGRATION.md` for details.
 
 #### 3.1 Timeline.tsx Changes
 
@@ -447,14 +449,16 @@ const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').match
 
 ### New Frontend Files
 
-| File | Purpose |
-|------|---------|
-| `frontend/src/hooks/useViewport.ts` | Viewport state management (pan, zoom, time↔percent) |
-| `frontend/src/hooks/useViewport.test.ts` | Unit tests |
-| `frontend/src/hooks/useVisibleItems.ts` | Time-range filtering (local, no backend calls) |
-| `frontend/src/hooks/useVisibleItems.test.ts` | Unit tests |
-| `frontend/src/components/Timeline/ZoomControls.tsx` | Zoom in/out buttons + level indicator |
-| `frontend/e2e/timeline-viewport.spec.ts` | E2E tests |
+| File | Status | Purpose |
+|------|--------|---------|
+| `frontend/src/hooks/useViewport.ts` | ✅ | Viewport state management (pan, zoom, time↔percent) |
+| `frontend/src/hooks/useViewport.test.ts` | ✅ | Unit tests (31 tests) |
+| `frontend/src/hooks/useVisibleItems.ts` | ✅ | Time-range filtering (local, no backend calls) |
+| `frontend/src/hooks/useVisibleItems.test.ts` | ✅ | Unit tests (15 tests) |
+| `frontend/src/components/Timeline/ZoomControls.tsx` | ✅ | Zoom in/out buttons + level indicator |
+| `frontend/src/components/Timeline/hooks/usePanGesture.ts` | ✅ | Pan gesture for viewport navigation |
+| `frontend/src/components/Timeline/hooks/usePanGesture.test.ts` | ✅ | Unit tests (17 tests) |
+| `frontend/e2e/timeline-viewport.spec.ts` | 🔲 Optional | E2E tests for viewport interactions |
 
 ### Modified Frontend Files
 
@@ -485,26 +489,28 @@ const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').match
 ## Implementation Order
 
 ```
-Phase 1: Frontend Hooks (No backend changes yet)
+Phase 1: Frontend Hooks ✅ COMPLETE
 ├── useViewport.ts + tests (pan, zoom steps, time↔percent)
-└── useVisibleItems.ts + tests (local filtering)
+├── useVisibleItems.ts + tests (local filtering)
+└── ZoomControls.tsx (zoom buttons + level indicator)
 
 Phase 2: Backend Broadcast ✅ COMPLETE
 ├── Items broadcast to all clients (like markers/regions)
 ├── Hash-based change detection
 └── API.md documentation
 
-Phase 3: Frontend Integration (TODO)
-└── Timeline.tsx viewport state integration
+Phase 3: Frontend Integration ✅ COMPLETE
+│   See: docs/PHASE3_FRONTEND_INTEGRATION.md for details
+├── ✅ usePanGesture.ts + tests (17 tests)
+├── ✅ Timeline.tsx viewport state + pan gesture
+├── ✅ Viewport-relative rendering (renderTimeToPercent)
+├── ✅ useVisibleItems filtering wired to child components
+└── ✅ Selection mode toggle state
 
-Phase 4: UI Changes (TODO)
-├── Timeline.tsx drag-to-pan in navigation mode
-├── ZoomControls.tsx (+ / - buttons, level indicator)
-├── SelectionButton.tsx (toggle behavior, long-press)
-├── Actions/index.ts (remove add marker, add zoom controls)
-├── TimelineRegions.tsx filtering
-├── TimelineMarkers.tsx filtering
-└── ItemDensityBlobs.tsx filtering
+Phase 4: UI Controls ✅ COMPLETE
+├── ✅ ZoomControls overlay (bottom-right of timeline)
+├── ✅ SelectionToggle button (Crosshair icon)
+└── ✅ Controls only visible in navigate mode
 
 Phase 5: Testing & Polish (TODO)
 ├── timeline-viewport.spec.ts (E2E)
@@ -727,18 +733,18 @@ Results integrated into "Research Results Summary" section at top of document.
 - Frontend filters locally — instant scroll/zoom, no round-trip
 - Subscription files removed: `timeline_subscriptions.zig`, `commands/timeline_subs.zig`
 
-### PR4b: Frontend Viewport Integration
+### PR4b: Frontend Viewport Integration ✅ COMPLETE
 
 **Scope**: All frontend work (no backend API dependencies!)
 
 **Deliverables**:
-1. `useViewport.ts` + tests (pan, zoom steps, time↔percent conversion)
-2. `useVisibleItems.ts` + tests (local filtering)
-3. `Timeline.tsx` integration (viewport state, drag-to-pan in nav mode)
-4. `ZoomControls.tsx` (zoom buttons + level indicator)
-5. `SelectionButton.tsx` modifications (toggle + long-press)
-6. `Actions/index.ts` changes (remove add marker, add zoom controls)
-7. E2E tests
+1. ✅ `useViewport.ts` + tests (pan, zoom steps, time↔percent conversion)
+2. ✅ `useVisibleItems.ts` + tests (local filtering)
+3. ✅ `ZoomControls.tsx` (zoom buttons + level indicator)
+4. ✅ `Timeline.tsx` integration (viewport state, drag-to-pan in nav mode)
+5. ✅ `usePanGesture.ts` + tests (pan gesture hook)
+6. ✅ SelectionToggle button (Crosshair icon for mode toggle)
+7. 🔲 E2E tests (optional)
 
 ### PR4c: Zoom-Dependent Detail (Research Complete)
 
@@ -756,6 +762,7 @@ Results integrated into "Research Results Summary" section at top of document.
 
 ## References
 
+- `docs/PHASE3_FRONTEND_INTEGRATION.md` - Phase 3 implementation plan (✅ complete)
 - `research/VIEWPORT_ANALYSIS.md` - LOD, density visualization, performance thresholds (completed research)
 - `research/TIMELINE_SCROLL_BEHAVIOUR.md` - End-of-timeline UX decisions
 - `TIMELINE_V2_BACKEND_PLAN.md` - Backend implementation details
