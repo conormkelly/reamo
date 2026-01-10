@@ -81,6 +81,7 @@ export function ToggleButton({
     <button
       onClick={handleClick}
       disabled={disabled}
+      aria-pressed={isActive}
       title={title}
       className={`
         ${sizeClasses[size]}

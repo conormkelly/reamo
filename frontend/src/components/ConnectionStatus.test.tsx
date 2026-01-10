@@ -5,16 +5,36 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { ConnectionStatus, ConnectionBanner } from './ConnectionStatus';
+import type { UseReaperConnectionReturn } from '../hooks/useReaperConnection';
 
 // Mock dependencies
 const mockRetry = vi.fn();
+const mockStart = vi.fn();
+const mockStop = vi.fn();
+const mockSend = vi.fn();
+const mockSendCommand = vi.fn();
+const mockSendCommandAsync = vi.fn();
+const mockSendAsync = vi.fn();
+
+// Create a full mock that satisfies UseReaperConnectionReturn
+const createMockReaperReturn = (overrides: Partial<UseReaperConnectionReturn> = {}): UseReaperConnectionReturn => ({
+  connected: true,
+  connectionStatus: 'connected',
+  errorCount: 0,
+  retryCount: 0,
+  gaveUp: false,
+  start: mockStart,
+  stop: mockStop,
+  retry: mockRetry,
+  send: mockSend,
+  sendCommand: mockSendCommand,
+  sendCommandAsync: mockSendCommandAsync,
+  sendAsync: mockSendAsync,
+  ...overrides,
+});
+
 vi.mock('./ReaperProvider', () => ({
-  useReaper: vi.fn(() => ({
-    connected: true,
-    errorCount: 0,
-    gaveUp: false,
-    retry: mockRetry,
-  })),
+  useReaper: vi.fn(() => createMockReaperReturn()),
 }));
 
 vi.mock('../core/TransportSyncEngine', () => ({
@@ -40,12 +60,7 @@ import { transportSyncEngine } from '../core/TransportSyncEngine';
 describe('ConnectionStatus', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.mocked(useReaper).mockReturnValue({
-      connected: true,
-      errorCount: 0,
-      gaveUp: false,
-      retry: mockRetry,
-    } as ReturnType<typeof useReaper>);
+    vi.mocked(useReaper).mockReturnValue(createMockReaperReturn());
     vi.mocked(transportSyncEngine.getNetworkQuality).mockReturnValue('good');
     mockRetry.mockClear();
   });
@@ -125,36 +140,36 @@ describe('ConnectionStatus', () => {
 
   describe('visibility states', () => {
     it('returns null when gaveUp', () => {
-      vi.mocked(useReaper).mockReturnValue({
+      vi.mocked(useReaper).mockReturnValue(createMockReaperReturn({
         connected: false,
+        connectionStatus: 'gave_up',
         errorCount: 5,
         gaveUp: true,
-        retry: mockRetry,
-      } as ReturnType<typeof useReaper>);
+      }));
 
       const { container } = render(<ConnectionStatus />);
       expect(container.firstChild).toBeNull();
     });
 
     it('returns null when disconnected with no errors', () => {
-      vi.mocked(useReaper).mockReturnValue({
+      vi.mocked(useReaper).mockReturnValue(createMockReaperReturn({
         connected: false,
+        connectionStatus: 'idle',
         errorCount: 0,
         gaveUp: false,
-        retry: mockRetry,
-      } as ReturnType<typeof useReaper>);
+      }));
 
       const { container } = render(<ConnectionStatus />);
       expect(container.firstChild).toBeNull();
     });
 
     it('shows pulsing indicator when reconnecting', () => {
-      vi.mocked(useReaper).mockReturnValue({
+      vi.mocked(useReaper).mockReturnValue(createMockReaperReturn({
         connected: false,
+        connectionStatus: 'retrying',
         errorCount: 2,
         gaveUp: false,
-        retry: mockRetry,
-      } as ReturnType<typeof useReaper>);
+      }));
 
       const { container } = render(<ConnectionStatus />);
       const dot = container.querySelector('.rounded-full');
@@ -262,12 +277,12 @@ describe('ConnectionStatus', () => {
       expect(transportSyncEngine.getNetworkQuality).toHaveBeenCalledTimes(1);
 
       // Disconnect
-      vi.mocked(useReaper).mockReturnValue({
+      vi.mocked(useReaper).mockReturnValue(createMockReaperReturn({
         connected: false,
+        connectionStatus: 'idle',
         errorCount: 0,
         gaveUp: false,
-        retry: mockRetry,
-      } as ReturnType<typeof useReaper>);
+      }));
       rerender(<ConnectionStatus />);
 
       const callCount = vi.mocked(transportSyncEngine.getNetworkQuality).mock.calls.length;
@@ -285,12 +300,7 @@ describe('ConnectionStatus', () => {
 describe('ConnectionBanner', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.mocked(useReaper).mockReturnValue({
-      connected: true,
-      errorCount: 0,
-      gaveUp: false,
-      retry: mockRetry,
-    } as ReturnType<typeof useReaper>);
+    vi.mocked(useReaper).mockReturnValue(createMockReaperReturn());
     mockRetry.mockClear();
   });
 
@@ -305,12 +315,12 @@ describe('ConnectionBanner', () => {
     });
 
     it('shows banner after grace period when disconnected', () => {
-      vi.mocked(useReaper).mockReturnValue({
+      vi.mocked(useReaper).mockReturnValue(createMockReaperReturn({
         connected: false,
+        connectionStatus: 'idle',
         errorCount: 0,
         gaveUp: false,
-        retry: mockRetry,
-      } as ReturnType<typeof useReaper>);
+      }));
 
       render(<ConnectionBanner />);
 
@@ -326,12 +336,12 @@ describe('ConnectionBanner', () => {
     });
 
     it('shows banner immediately when gaveUp', () => {
-      vi.mocked(useReaper).mockReturnValue({
+      vi.mocked(useReaper).mockReturnValue(createMockReaperReturn({
         connected: false,
+        connectionStatus: 'gave_up',
         errorCount: 5,
         gaveUp: true,
-        retry: mockRetry,
-      } as ReturnType<typeof useReaper>);
+      }));
 
       render(<ConnectionBanner />);
 
@@ -343,21 +353,16 @@ describe('ConnectionBanner', () => {
       const { rerender } = render(<ConnectionBanner />);
 
       // Connected first
-      vi.mocked(useReaper).mockReturnValue({
-        connected: true,
-        errorCount: 0,
-        gaveUp: false,
-        retry: mockRetry,
-      } as ReturnType<typeof useReaper>);
+      vi.mocked(useReaper).mockReturnValue(createMockReaperReturn());
       rerender(<ConnectionBanner />);
 
       // Then disconnect
-      vi.mocked(useReaper).mockReturnValue({
+      vi.mocked(useReaper).mockReturnValue(createMockReaperReturn({
         connected: false,
+        connectionStatus: 'retrying',
         errorCount: 1,
         gaveUp: false,
-        retry: mockRetry,
-      } as ReturnType<typeof useReaper>);
+      }));
       rerender(<ConnectionBanner />);
 
       // Should show immediately (was previously connected)
@@ -367,12 +372,12 @@ describe('ConnectionBanner', () => {
 
   describe('banner content', () => {
     it('shows "Connecting..." when no errors', () => {
-      vi.mocked(useReaper).mockReturnValue({
+      vi.mocked(useReaper).mockReturnValue(createMockReaperReturn({
         connected: false,
+        connectionStatus: 'idle',
         errorCount: 0,
         gaveUp: false,
-        retry: mockRetry,
-      } as ReturnType<typeof useReaper>);
+      }));
 
       render(<ConnectionBanner />);
 
@@ -384,12 +389,12 @@ describe('ConnectionBanner', () => {
     });
 
     it('shows reconnecting message with attempt count', () => {
-      vi.mocked(useReaper).mockReturnValue({
+      vi.mocked(useReaper).mockReturnValue(createMockReaperReturn({
         connected: false,
+        connectionStatus: 'retrying',
         errorCount: 3,
         gaveUp: false,
-        retry: mockRetry,
-      } as ReturnType<typeof useReaper>);
+      }));
 
       render(<ConnectionBanner />);
 
@@ -401,12 +406,12 @@ describe('ConnectionBanner', () => {
     });
 
     it('shows "Connection lost" when gaveUp', () => {
-      vi.mocked(useReaper).mockReturnValue({
+      vi.mocked(useReaper).mockReturnValue(createMockReaperReturn({
         connected: false,
+        connectionStatus: 'gave_up',
         errorCount: 5,
         gaveUp: true,
-        retry: mockRetry,
-      } as ReturnType<typeof useReaper>);
+      }));
 
       render(<ConnectionBanner />);
 
@@ -416,12 +421,12 @@ describe('ConnectionBanner', () => {
 
   describe('reconnect button', () => {
     it('shows reconnect button when gaveUp', () => {
-      vi.mocked(useReaper).mockReturnValue({
+      vi.mocked(useReaper).mockReturnValue(createMockReaperReturn({
         connected: false,
+        connectionStatus: 'gave_up',
         errorCount: 5,
         gaveUp: true,
-        retry: mockRetry,
-      } as ReturnType<typeof useReaper>);
+      }));
 
       render(<ConnectionBanner />);
 
@@ -429,12 +434,12 @@ describe('ConnectionBanner', () => {
     });
 
     it('calls retry when reconnect button is clicked', () => {
-      vi.mocked(useReaper).mockReturnValue({
+      vi.mocked(useReaper).mockReturnValue(createMockReaperReturn({
         connected: false,
+        connectionStatus: 'gave_up',
         errorCount: 5,
         gaveUp: true,
-        retry: mockRetry,
-      } as ReturnType<typeof useReaper>);
+      }));
 
       render(<ConnectionBanner />);
 
@@ -444,12 +449,12 @@ describe('ConnectionBanner', () => {
     });
 
     it('does not show reconnect button when reconnecting', () => {
-      vi.mocked(useReaper).mockReturnValue({
+      vi.mocked(useReaper).mockReturnValue(createMockReaperReturn({
         connected: false,
+        connectionStatus: 'retrying',
         errorCount: 3,
         gaveUp: false,
-        retry: mockRetry,
-      } as ReturnType<typeof useReaper>);
+      }));
 
       render(<ConnectionBanner />);
 
@@ -463,12 +468,12 @@ describe('ConnectionBanner', () => {
 
   describe('accessibility', () => {
     it('has role status and aria-live', () => {
-      vi.mocked(useReaper).mockReturnValue({
+      vi.mocked(useReaper).mockReturnValue(createMockReaperReturn({
         connected: false,
+        connectionStatus: 'gave_up',
         errorCount: 5,
         gaveUp: true,
-        retry: mockRetry,
-      } as ReturnType<typeof useReaper>);
+      }));
 
       render(<ConnectionBanner />);
 
@@ -481,12 +486,12 @@ describe('ConnectionBanner', () => {
 
   describe('styling', () => {
     it('applies error styling when gaveUp', () => {
-      vi.mocked(useReaper).mockReturnValue({
+      vi.mocked(useReaper).mockReturnValue(createMockReaperReturn({
         connected: false,
+        connectionStatus: 'gave_up',
         errorCount: 5,
         gaveUp: true,
-        retry: mockRetry,
-      } as ReturnType<typeof useReaper>);
+      }));
 
       render(<ConnectionBanner />);
 
@@ -495,12 +500,12 @@ describe('ConnectionBanner', () => {
     });
 
     it('applies warning styling when reconnecting', () => {
-      vi.mocked(useReaper).mockReturnValue({
+      vi.mocked(useReaper).mockReturnValue(createMockReaperReturn({
         connected: false,
+        connectionStatus: 'retrying',
         errorCount: 2,
         gaveUp: false,
-        retry: mockRetry,
-      } as ReturnType<typeof useReaper>);
+      }));
 
       render(<ConnectionBanner />);
 
@@ -513,12 +518,12 @@ describe('ConnectionBanner', () => {
     });
 
     it('applies custom className', () => {
-      vi.mocked(useReaper).mockReturnValue({
+      vi.mocked(useReaper).mockReturnValue(createMockReaperReturn({
         connected: false,
+        connectionStatus: 'gave_up',
         errorCount: 5,
         gaveUp: true,
-        retry: mockRetry,
-      } as ReturnType<typeof useReaper>);
+      }));
 
       render(<ConnectionBanner className="custom-class" />);
 

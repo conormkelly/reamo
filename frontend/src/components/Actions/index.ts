@@ -30,6 +30,8 @@ export {
   ClearSelectionButton,
   type ClearSelectionButtonProps,
 } from './MixerButtons';
+export { MixerLockButton } from './MixerLockButton';
+export { UnselectAllTracksButton } from './UnselectAllTracksButton';
 
 // Other action buttons
 export { ToggleButton, type ToggleButtonProps } from './ToggleButton';

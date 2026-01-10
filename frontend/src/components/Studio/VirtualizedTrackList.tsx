@@ -11,8 +11,7 @@ import { EMPTY_TRACKS } from '../../store/stableRefs';
 import { useReaper } from '../ReaperProvider';
 import { useTrackSkeleton, type SkeletonTrackWithIndex } from '../../hooks/useTrackSkeleton';
 import { useVirtualizedSubscription } from '../../hooks/useVirtualizedSubscription';
-import { TrackStrip } from '../Track/TrackStrip';
-import { LevelMeter } from '../Track/LevelMeter';
+import { TrackStripWithMeter } from '../Track';
 
 /** Track width in pixels (100px strip + 12px meter + 4px gap) */
 const TRACK_WIDTH = 116;
@@ -27,15 +26,6 @@ export interface VirtualizedTrackListProps {
   includeMaster?: boolean;
   /** Optional additional class name */
   className?: string;
-}
-
-function TrackStripWithMeter({ trackIndex }: { trackIndex: number }) {
-  return (
-    <div className="flex gap-1 flex-shrink-0">
-      <LevelMeter trackIndex={trackIndex} height={200} />
-      <TrackStrip trackIndex={trackIndex} />
-    </div>
-  );
 }
 
 export function VirtualizedTrackList({

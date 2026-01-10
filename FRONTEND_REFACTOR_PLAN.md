@@ -264,7 +264,7 @@ describe('TrackStrip', () => {
 
 ## Execution Order
 
-**CURRENT: PR 2** (PR 1 complete, tested on Safari iOS)
+**CURRENT: PR 4** (PRs 1-3 complete)
 
 ```
 PR 1: WebSocket State Machine ✅ COMPLETE
@@ -273,16 +273,17 @@ PR 1: WebSocket State Machine ✅ COMPLETE
       └── Safari/iOS fixes (zombie connections, heartbeat, visibility)
       └── Tested on Safari iOS PWA - working
 
-PR 2: Testing Infrastructure ← NEXT
-      └── TrackStrip components (remaining)
-      └── Update E2E tests to use new selectors
-      └── Final test verification
+PR 2: Testing Infrastructure ✅ COMPLETE
+      └── data-testid migration across E2E tests
+      └── 76 new unit tests (ActionButton, ToggleButton, useLongPress, ConnectionStatus)
+      └── Coverage tooling (@vitest/coverage-v8)
 
-PR 3: Component Architecture
-      └── Extract inline components
-      └── Button system unification (if needed)
+PR 3: Component Architecture ✅ COMPLETE
+      └── Extracted 4 inline components (MasterTrackStrip, TrackStripWithMeter, MixerLockButton, UnselectAllTracksButton)
+      └── Added aria-pressed to 6 toggle buttons
+      └── 27 new unit tests for extracted components
 
-PR 4: Pre-Feature Prep
+PR 4: Pre-Feature Prep ← NEXT
       └── Viewport hooks design
       └── MixerView component design
       └── Extension API for range queries
@@ -453,3 +454,35 @@ Then: Feature PRs (Viewport Timeline, MixerView)
 - Unit tests: 503 passing (`npm run test`)
 - E2E tests: 102 passing (`npm run test:e2e`)
 - All data-testid migrations complete
+
+---
+
+### 2026-01-10 (continued) - PR 3 Complete
+
+**3a. Extracted inline components:**
+
+| New File | From |
+|----------|------|
+| `Track/MasterTrackStrip.tsx` | MixerSection.tsx inline |
+| `Track/TrackStripWithMeter.tsx` | VirtualizedTrackList.tsx inline |
+| `Actions/MixerLockButton.tsx` | MixerSection.tsx inline |
+| `Actions/UnselectAllTracksButton.tsx` | MixerSection.tsx inline |
+
+**3b. Added aria-pressed to toggle buttons:**
+
+| File | Change |
+|------|--------|
+| ToggleButton.tsx | `aria-pressed={isActive}` |
+| MuteButton.tsx | `aria-pressed={isMuted}` |
+| SoloButton.tsx | `aria-pressed={isSoloed}` |
+| RecordArmButton.tsx | `aria-pressed={isRecordArmed}` |
+| MonitorButton.tsx | `aria-pressed={recordMonitorState !== 'off'}` |
+| MasterMonoButton.tsx | `aria-pressed={isMono}` |
+
+**New tests:** 27 tests for extracted components (MasterTrackStrip, TrackStripWithMeter, MixerLockButton, UnselectAllTracksButton)
+
+**PR 3 Status:** ✅ COMPLETE
+- Unit tests: 606 passing (`npm run test`)
+- Build: 692 kB (target ≤1,050 kB)
+- All inline components extracted
+- All toggle buttons have aria-pressed

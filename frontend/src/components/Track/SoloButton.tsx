@@ -36,6 +36,7 @@ export function SoloButton({
   return (
     <button
       onClick={handleClick}
+      aria-pressed={isSoloed}
       title={isSoloed ? 'Unsolo Track' : 'Solo Track'}
       className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
         mixerLocked ? 'opacity-50 cursor-not-allowed' : ''

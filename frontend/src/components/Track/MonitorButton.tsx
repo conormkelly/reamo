@@ -50,6 +50,7 @@ export function MonitorButton({
   return (
     <button
       onClick={handleClick}
+      aria-pressed={recordMonitorState !== 'off'}
       title={stateLabels[recordMonitorState]}
       className={`px-2 py-1 rounded text-sm font-medium transition-colors ${
         mixerLocked ? 'opacity-50 cursor-not-allowed' : ''

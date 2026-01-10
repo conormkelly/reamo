@@ -36,6 +36,7 @@ export function MuteButton({
   return (
     <button
       onClick={handleClick}
+      aria-pressed={isMuted}
       title={isMuted ? 'Unmute Track' : 'Mute Track'}
       className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
         mixerLocked ? 'opacity-50 cursor-not-allowed' : ''

@@ -5,60 +5,11 @@
  */
 
 import { useState, useMemo, type ReactElement } from 'react';
-import { Lock, Unlock, XCircle } from 'lucide-react';
 import { useReaperStore } from '../../store';
-import { useReaper } from '../ReaperProvider';
-import { useTracks, useTrackSkeleton } from '../../hooks';
-import { track as trackCmd } from '../../core/WebSocketCommands';
-import { TrackStrip, LevelMeter, TrackFilter } from '../Track';
+import { useTrackSkeleton } from '../../hooks';
+import { MasterTrackStrip, TrackFilter } from '../Track';
+import { MixerLockButton, UnselectAllTracksButton } from '../Actions';
 import { VirtualizedTrackList } from './VirtualizedTrackList';
-
-/** Master track strip with meter (always visible, not virtualized) */
-function MasterTrackStrip() {
-  return (
-    <div className="flex gap-1 flex-shrink-0">
-      <LevelMeter trackIndex={0} height={200} />
-      <TrackStrip trackIndex={0} />
-    </div>
-  );
-}
-
-function MixerLockButton() {
-  const mixerLocked = useReaperStore((s) => s.mixerLocked);
-  const toggleMixerLock = useReaperStore((s) => s.toggleMixerLock);
-
-  return (
-    <button
-      onClick={toggleMixerLock}
-      className={`p-2 rounded transition-colors ${
-        mixerLocked
-          ? 'bg-warning text-text-primary'
-          : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
-      }`}
-      title={mixerLocked ? 'Unlock mixer controls' : 'Lock mixer controls'}
-    >
-      {mixerLocked ? <Lock size={18} /> : <Unlock size={18} />}
-    </button>
-  );
-}
-
-function UnselectAllTracksButton() {
-  const { sendCommand } = useReaper();
-  const { selectedTracks } = useTracks();
-
-  // Only show when tracks are selected
-  if (selectedTracks.length === 0) return null;
-
-  return (
-    <button
-      onClick={() => sendCommand(trackCmd.unselectAll())}
-      className="p-2 rounded transition-colors bg-bg-elevated text-text-tertiary hover:bg-bg-hover"
-      title="Deselect all tracks"
-    >
-      <XCircle size={18} />
-    </button>
-  );
-}
 
 export function MixerSection(): ReactElement {
   const [trackFilter, setTrackFilter] = useState('');

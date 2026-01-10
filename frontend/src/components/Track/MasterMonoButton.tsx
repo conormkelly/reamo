@@ -39,6 +39,7 @@ export function MasterMonoButton({
   return (
     <button
       onClick={handleClick}
+      aria-pressed={isMono}
       title={isMono ? 'Mono (L+R summed) - click for Stereo' : 'Stereo - click for Mono'}
       className={`px-2 py-1 rounded text-sm font-medium transition-colors ${activeClass} ${className}`}
     >

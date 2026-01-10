@@ -38,6 +38,7 @@ export function RecordArmButton({
   return (
     <button
       onClick={handleClick}
+      aria-pressed={isRecordArmed}
       title={isRecordArmed ? 'Disarm Track' : 'Arm Track for Recording'}
       className={`px-2 py-1 rounded text-sm font-medium transition-colors ${
         mixerLocked ? 'opacity-50 cursor-not-allowed' : ''
