@@ -17,7 +17,6 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 - [Item](#item-commands) — setActiveTake, move, setColor, delete, getPeaks, getNotes, getTakes
 - [Take](#take-commands) — deleteCurrent, cropToActive
 - [Track](#track-commands) — setVolume, setPan, setMute, setSolo, setRecArm, setRecMon, rename, create, duplicate, delete, getFx, getSends, subscribe, unsubscribe
-- [Timeline](#timeline-commands) — subscribe, unsubscribe (viewport-aware items/markers/regions)
 - [Master](#master-commands) — toggleMono
 - [Tempo](#tempo-commands) — set, tap
 - [Time Signature](#time-signature-commands) — set
@@ -1146,64 +1145,6 @@ Unsubscribe from all track updates for this client. Called automatically on disc
 
 ```json
 {"type": "command", "command": "track/unsubscribe", "id": "1"}
-```
-
-**Response:**
-
-```json
-{"type": "response", "id": "1", "success": true}
-```
-
----
-
-## Timeline Commands
-
-Timeline subscriptions provide viewport-aware delivery of `items` events. Markers and regions are broadcast to all clients (no subscription required).
-
-### `timeline/subscribe`
-
-Subscribe to items updates for a time range. Replaces any previous subscription for this client. Only items within the specified range are included in events (polled at 5Hz).
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `timeRange.start` | float | Yes | Range start in seconds (>= 0) |
-| `timeRange.end` | float | Yes | Range end in seconds (> start) |
-
-**Note:** Frontend specifies exact range including any buffer it needs. Backend returns items within that range — no buffer calculation.
-
-```json
-{"type": "command", "command": "timeline/subscribe", "timeRange": {"start": 0, "end": 60}, "id": "1"}
-```
-
-**Response:**
-
-```json
-{"type": "response", "id": "1", "success": true, "payload": {"subscribedRange": {"start": 0.000, "end": 60.000}}}
-```
-
-| Response Field | Type | Description |
-|----------------|------|-------------|
-| `subscribedRange` | object | The range that was subscribed |
-
-**Errors:**
-- `TOO_MANY_CLIENTS` — Maximum client limit reached (16 clients)
-- `INVALID_PARAMS` — Missing timeRange.start or timeRange.end
-- `INVALID_RANGE` — Invalid range (start < 0, end <= start, or non-finite values)
-- `NOT_INITIALIZED` — Timeline subscriptions not initialized
-
-**Notes:**
-- Subscribing immediately triggers `items` event with data in range
-- Events sent at 5Hz (MEDIUM tier) only when data changes or subscription is new/updated
-- Each client receives only items within their subscribed range (per-client filtering)
-- Items overlapping the range are included (partial overlap counts)
-- Markers and regions are broadcast to all clients — no subscription needed
-
-### `timeline/unsubscribe`
-
-Unsubscribe from items updates for this client. Called automatically on disconnect. Markers and regions continue to broadcast.
-
-```json
-{"type": "command", "command": "timeline/unsubscribe", "id": "1"}
 ```
 
 **Response:**
@@ -2493,7 +2434,7 @@ Broadcast to all clients when regions change. No subscription required.
 
 ### `items` Event
 
-Sent when items change within the subscribed time range. **Requires `timeline/subscribe`** — clients without a timeline subscription will not receive this event.
+Sent when items change. Broadcast to all connected clients (no subscription required).
 
 ```json
 {
@@ -2541,10 +2482,10 @@ Sent when items change within the subscribed time range. **Requires `timeline/su
 | `items[].takes[].isMIDI` | bool | If true, skip peaks request (MIDI items have no audio waveform) |
 
 **Notes:**
-- Requires `timeline/subscribe` — not sent on connect, must subscribe first
-- Polled at 5Hz (MEDIUM tier)
-- Items overlapping the subscribed range are included (partial overlap counts)
-- Sent per-client based on their subscribed time range
+- Sent on connect (snapshot) and on change at 5Hz (MEDIUM tier)
+- Contains all items in the project
+- Broadcast to all connected clients
+- Frontend filters to visible viewport for rendering
 
 ### `project` Event
 

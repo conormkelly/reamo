@@ -1,6 +1,6 @@
 # Timeline V2 Backend Implementation Plan
 
-**Status**: ✅ Implementation Complete
+**Status**: Simplifying (removing subscriptions)
 **Last Updated**: 2026-01-10
 **PR Target**: PR4a (Backend Only)
 
@@ -17,186 +17,123 @@
 
 ---
 
-## Simplified Architecture (2026-01-10)
+## Simplified Architecture (2026-01-10 v2)
 
-The original design was simplified to remove unnecessary complexity:
+Further simplified to broadcast ALL data to all clients:
 
-### Markers & Regions (Broadcast)
-- **No subscription required** — sent automatically to all clients
-- Included in snapshot on connect
-- Polled at MEDIUM tier (5Hz), sent when changed
-- Full data: id, name, position/start/end, color, beats info
+### Markers, Regions, AND Items (All Broadcast)
+- **No subscription required** — all sent automatically to all clients
+- Items included in snapshot on connect (like markers/regions)
+- All polled at MEDIUM tier (5Hz), sent when changed via hash comparison
+- Full data sent; frontend filters to visible viewport
 
-### Items (Subscription Required)
-- Requires `timeline/subscribe` with `timeRange: {start, end}`
-- **Frontend specifies exact range** including any buffer it needs
-- **Backend does NOT calculate buffer** — simple separation of concerns
-- Polled at MEDIUM tier (5Hz), per-client filtering by time range
-- **NOT in snapshot** — client must subscribe to receive items
+### What Was Removed (This Revision)
+- `timeline_subscriptions.zig` — per-client subscription state
+- `commands/timeline_subs.zig` — subscribe/unsubscribe handlers
+- `timeline/subscribe` and `timeline/unsubscribe` commands
+- Per-client filtering for items
+- `jsonGetFloatFromObject` in protocol.zig (no longer needed)
 
-### What Was Removed
+### What Was Removed (Previous Revision)
 - `region_skeleton.zig`, `marker_skeleton.zig` (premature optimization)
 - Backend buffer calculation
-- Per-client filtering for markers/regions (now broadcast)
+- Per-client filtering for markers/regions
 
 ### Rationale
-- Bandwidth is negligible over LAN
-- Most users want marker/region data immediately
-- Skeleton + full-data subscriptions added complexity for ~1% edge cases
+- Bandwidth is negligible over LAN (typical: 50-200 items, <10KB per poll)
+- Frontend can efficiently filter/render only visible items
+- Subscription system added complexity for scroll/zoom that frontend must handle anyway
 - Optimization can be added later (gzip, diff events) if actually needed
+- **Simpler = faster to ship, easier to debug**
 
 ---
 
 ## API Design
 
-### Command: `timeline/subscribe`
+### No New Commands
 
-Subscribe to **items** for a time range. Replaces any previous subscription.
+Items are broadcast automatically like markers and regions. No subscription commands needed.
+
+### Event: `items`
+
+Sent at 5Hz when item data changes.
 
 ```json
 {
-  "type": "command",
-  "command": "timeline/subscribe",
-  "timeRange": { "start": 0.0, "end": 30.0 },
-  "id": "1"
-}
-```
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `timeRange.start` | float | Yes | Start time in seconds (≥0) |
-| `timeRange.end` | float | Yes | End time in seconds (> start) |
-
-**Response:**
-```json
-{
-  "type": "response",
-  "id": "1",
-  "success": true,
-  "payload": {
-    "subscribedRange": { "start": 0.0, "end": 30.0 }
-  }
+  "type": "event",
+  "event": "items",
+  "data": [
+    {
+      "trackIdx": 0,
+      "position": 0.0,
+      "length": 2.5,
+      "name": "Audio Item",
+      "color": "#FF5500",
+      "muted": false
+    }
+  ]
 }
 ```
 
 **Behavior:**
-- Items within range sent immediately, then on change at 5Hz (MEDIUM tier)
-- Frontend specifies exact range (including any buffer it needs)
-- Markers and regions are **broadcast to all clients** (no subscription needed)
-
-**Errors:**
-- `INVALID_PARAMS` — Missing or invalid timeRange
-- `INVALID_RANGE` — start >= end or negative values
-
-### Command: `timeline/unsubscribe`
-
-Unsubscribe from items updates. Called automatically on disconnect.
-
-```json
-{
-  "type": "command",
-  "command": "timeline/unsubscribe",
-  "id": "2"
-}
-```
-
-**Response:**
-```json
-{
-  "type": "response",
-  "id": "2",
-  "success": true
-}
-```
-
-**Note:** This only affects items. Markers and regions continue to broadcast.
+- Sent to all connected clients when items change (hash-based change detection)
+- Included in initial snapshot on connect
+- Frontend filters to viewport range for rendering
 
 ---
 
 ## Frontend Integration
 
-### Buffer Calculation (Frontend Responsibility)
+### Frontend Responsibility (Simplified)
 
-The frontend must calculate the buffer and include it in the subscription range:
+Frontend receives ALL items and filters locally:
 
 ```javascript
-// Calculate buffer as 100% of visible duration
-const buffer = viewportEnd - viewportStart;
-const start = Math.max(0, viewportStart - buffer);
-const end = viewportEnd + buffer;
+// All items arrive automatically via 'items' event
+const allItems = useReaperData().items;
 
-ws.send({
-  type: "command",
-  command: "timeline/subscribe",
-  timeRange: { start, end },
-  id: "sub-1"
-});
+// Filter to viewport for rendering
+const visibleItems = useMemo(() =>
+  allItems.filter(item =>
+    item.position < viewportEnd &&
+    (item.position + item.length) > viewportStart
+  ),
+  [allItems, viewportStart, viewportEnd]
+);
 ```
 
-### Data Flow
+### Data Flow (Simplified)
 
-1. **On connect:** Receive snapshot with `markers`, `regions`, `trackSkeleton` (NOT items)
-2. **Subscribe to items:** Send `timeline/subscribe` with viewport range + buffer
-3. **Receive items:** Get `items` event with items in subscribed range
-4. **On viewport change:** Re-subscribe with new range
-5. **Markers/regions:** Received automatically when they change (no subscription needed)
+1. **On connect:** Receive snapshot with `markers`, `regions`, `trackSkeleton`, AND `items`
+2. **Automatic updates:** All four data types update at 5Hz when changed
+3. **On viewport change:** Frontend re-filters locally (no backend communication)
 
 ---
 
 ## Implementation Summary
 
-### Files Created
-- [x] `extension/src/timeline_subscriptions.zig` — Per-client subscription state (items only)
-- [x] `extension/src/commands/timeline_subs.zig` — Command handlers
+### Files to Remove
+- [ ] `extension/src/timeline_subscriptions.zig` — DELETE entirely
+- [ ] `extension/src/commands/timeline_subs.zig` — DELETE entirely
 
-### Files Modified
-- [x] `extension/src/commands/registry.zig` — Register 2 handlers
-- [x] `extension/src/commands/mod.zig` — Add timeline_subs to CommandContext
-- [x] `extension/src/protocol.zig` — Add `jsonGetFloatFromObject`
-- [x] `extension/src/items.zig` — Add `pollTimeRange()`, `computeHash()`
-- [x] `extension/src/markers.zig` — Add hash functions for change detection
-- [x] `extension/src/main.zig` — Poll loop integration, init/cleanup
-- [x] `extension/API.md` — Document commands and events
-- [x] `DEVELOPMENT.md` — Document subscription pattern
+### Files to Modify
+- [ ] `extension/src/commands/registry.zig` — Remove timeline handler registrations
+- [ ] `extension/src/commands/mod.zig` — Remove timeline_subs import and context
+- [ ] `extension/src/main.zig` — Simplify poll loop (items broadcast like markers/regions)
+- [ ] `extension/src/protocol.zig` — Remove `jsonGetFloatFromObject` (unused)
+- [ ] `extension/API.md` — Remove subscription commands, document items event
 
-### Key Implementation Details
+### Files to Keep (No Changes)
+- `extension/src/items.zig` — Already has `poll()` for full items, `computeHash()` for change detection
+- `extension/src/markers.zig` — Already working for broadcast
 
-**TimeRange struct (simplified):**
+### Poll Loop (All Broadcast)
+
 ```zig
-pub const TimeRange = struct {
-    start: f64 = 0,  // Start time in seconds (>= 0)
-    end: f64 = 0,    // End time in seconds (> start)
-};
-```
-
-**ClientSubscription (items only):**
-```zig
-pub const ClientSubscription = struct {
-    range: TimeRange = .{},
-    active: bool = false,
-    force_broadcast: bool = false,
-    last_items_hash: u64 = 0,  // Only items - markers/regions are broadcast
-};
-```
-
-**Poll loop (items per-client, markers/regions broadcast):**
-```zig
-// MEDIUM tier (5Hz)
-
-// Markers/regions: broadcast to ALL clients (no subscription)
+// MEDIUM tier (5Hz) - ALL data types broadcast
 if (markers_changed) broadcast(markers_json);
 if (regions_changed) broadcast(regions_json);
-
-// Items: per-client filtering (subscription required)
-if (timeline_subs.hasSubscriptions()) {
-    var iter = timeline_subs.subscribedClientIterator();
-    while (iter.next()) |entry| {
-        const filtered_items = items.pollTimeRange(alloc, api, entry.range.start, entry.range.end);
-        if (timeline_subs.shouldSendItems(entry.client_id, filtered_items.computeHash())) {
-            sendToClient(entry.client_id, filtered_items.toJson());
-        }
-    }
-}
+if (items_changed) broadcast(items_json);  // Now just like markers/regions!
 ```
 
 ---
@@ -211,17 +148,16 @@ make extension          # Build (requires REAPER restart)
 
 ### Manual WebSocket Testing
 
-**Subscribe to items:**
+**Verify items arrive automatically:**
 ```bash
 TOKEN=$(curl -s "http://localhost:8099/_/GET/EXTSTATE/Reamo/SessionToken" | awk '{print $4}')
 
 /bin/bash -c 'TOKEN="'$TOKEN'"
 (echo "{\"type\":\"hello\",\"clientVersion\":\"1.0.0\",\"protocolVersion\":1,\"token\":\"$TOKEN\"}"
- echo "{\"type\":\"command\",\"command\":\"timeline/subscribe\",\"timeRange\":{\"start\":0,\"end\":30},\"id\":\"1\"}"
  sleep 2) | websocat ws://localhost:9224 2>&1'
 ```
 
-**Expected:** Receive response + `items` event. Markers/regions arrive in snapshot automatically.
+**Expected:** Receive snapshot with `items` array. No subscription command needed.
 
 ---
 
@@ -231,22 +167,15 @@ Per `research/ZIG_PRODUCTION_REVIEW_CHECKLIST.md`:
 
 ### Memory Safety
 - [x] Arena allocation only in poll functions
-- [x] Fixed-size client slots (MAX_CLIENTS = 16)
-- [x] Per-client hash tracking uses fixed slots (no dynamic allocation)
+- [x] No per-client state needed (broadcast model)
 - [x] No pointers held across arena swap/reset
-
-### FFI Correctness
-- [x] Validate time values with `std.math.isFinite()`
-- [x] Range validation in command handler
 
 ### Thread Safety
 - [x] All REAPER API calls on main thread (timer callback)
-- [x] Per-client sendToClient uses shared lock
-- [x] Subscription state only modified from main thread
+- [x] Broadcast uses shared lock
 
 ### Error Handling
-- [x] Graceful degradation: skip client on poll error, don't crash
-- [x] Client receives error response for invalid params
+- [x] Graceful degradation: skip poll on error, don't crash
 
 ---
 
@@ -255,20 +184,21 @@ Per `research/ZIG_PRODUCTION_REVIEW_CHECKLIST.md`:
 | Date | Phase | Status | Notes |
 |------|-------|--------|-------|
 | 2026-01-10 | Planning | Complete | Backend plan created |
-| 2026-01-10 | Implementation | Complete | All phases implemented |
-| 2026-01-10 | Simplification | Complete | Removed skeletons, reverted markers/regions to broadcast |
-| 2026-01-10 | Documentation | Complete | Updated API.md, DEVELOPMENT.md |
+| 2026-01-10 | Implementation | Complete | Subscription system implemented |
+| 2026-01-10 | Simplification v1 | Complete | Removed skeletons, markers/regions broadcast |
+| 2026-01-10 | Simplification v2 | In Progress | Removing subscriptions, items broadcast |
 
 ---
 
 ## Gotchas & Learnings
 
-1. **Per-client filtering only for items** — Markers/regions are broadcast to all clients. Only items need per-client filtering since they can be numerous in large projects.
+1. **YAGNI on subscriptions** — Originally added per-client item filtering thinking it would help frontend performance. But frontend needs to filter for rendering anyway, and subscription management added complexity to both backend and frontend.
 
-2. **Frontend calculates buffer** — Simple separation of concerns. Backend returns exactly what frontend asks for. Frontend knows its viewport and can calculate appropriate buffer.
+2. **Broadcast is simpler** — All clients get all data. Frontend filters locally. Scroll/zoom is instant (no round-trip). Server code is trivial.
 
-3. **Items NOT in snapshot** — Unlike markers/regions which are always useful, items require a viewport context. Client must subscribe after connect.
+3. **Optimize later** — If bandwidth becomes an issue (unlikely on LAN), can add:
+   - gzip compression
+   - Diff-based events (only send changes)
+   - Subscription system (re-add if proven necessary)
 
-4. **Overlap detection for items** — Items use `overlapsRange()` (partial overlap counts): `item.position < range.end AND item.end > range.start`.
-
-5. **Force broadcast on subscribe** — When client subscribes or changes range, `force_broadcast` flag ensures immediate data delivery regardless of hash.
+4. **Items in snapshot** — Unlike the subscription model where items were excluded from snapshot, now items are included like markers/regions.

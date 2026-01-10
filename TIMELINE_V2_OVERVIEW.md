@@ -15,18 +15,15 @@
 
 ## Research Results Summary
 
-### Skeleton: YES - Positions Upfront, Details Deferred
+### Skeleton: NO - Full Data Broadcast (Simplified)
 
-**Verdict**: Send all marker/region positions in initial sync (~50 bytes each), defer names/colors to viewport subscription. Virtualization libraries require `itemCount` upfront for scroll dimensions - this is non-negotiable.
+**Verdict**: Send full marker/region data to all clients (broadcast). Skeleton events were removed as premature optimization - bandwidth is negligible over LAN and most users want full data immediately.
 
-**Skeleton structure** (confirmed):
-```typescript
-interface MarkerSkeleton { id: string; position: number }        // ~20 bytes
-interface RegionSkeleton { id: string; start: number; end: number } // ~30 bytes
-// Names, colors loaded only for visible items via subscription
-```
+**Simplified architecture**:
+- **Markers/regions/items**: All broadcast to all clients at 5Hz, included in snapshot on connect
+- Frontend filters to visible viewport for rendering (no subscription required)
 
-**Snap points**: Use visible range + 100% buffer (not all positions globally). Pre-compute candidates on viewport change, synchronous lookup during drag.
+**Snap points**: Full marker/region/item data always available client-side. Pre-compute candidates on viewport change, synchronous lookup during drag.
 
 ### Density Visualization: 40px Merge Threshold
 
@@ -84,8 +81,8 @@ PR4 implements a **viewport-aware timeline** with:
 1. **Drag-to-pan in navigation mode** - Single touch/drag moves viewport horizontally
 2. **Zoom in/out buttons** - Discrete zoom controls for changing visible time range
 3. **Selection toggle** - Tap to toggle selection mode; long-press for manual selection entry
-4. **Backend time-range subscriptions** for items/markers/regions
-5. **Frontend viewport state management** with zoom/pan
+4. **Backend broadcasts** all data (markers/regions/items) to all clients
+5. **Frontend viewport state management** with zoom/pan and local filtering
 6. **Smooth scroll behavior** per research/TIMELINE_SCROLL_BEHAVIOUR.md
 
 **MixerView is deferred** to a future PR.
@@ -138,15 +135,12 @@ const virtualizer = useVirtualizer({
 
 ### Backend API Status
 
-**Already implemented (per API.md):**
+**Implemented (per API.md):**
 - `track/subscribe` - Range and GUID modes
 - `trackSkeleton` event - 1Hz, name + GUID for all tracks
-
-**NOT yet implemented:**
-- `item/subscribe { timeRange }` - Per VIEWPORT_DRIVEN_ARCHITECTURE.md "Future"
-- `marker/subscribe { timeRange }`
-- `region/subscribe { timeRange }`
-- `markerSkeleton` / `regionSkeleton` / `itemSkeleton` events
+- `markers` event - 5Hz, broadcast to all clients
+- `regions` event - 5Hz, broadcast to all clients
+- `items` event - 5Hz, broadcast to all clients (no subscription required)
 
 ---
 
@@ -281,95 +275,40 @@ function useVisibleItems<T>(options: {
 - Buffer prevents items from "popping" during small pans
 - Memoize with `useMemo` keyed on range + buffer
 
-### Phase 2: Backend Time-Range Subscriptions
+### Phase 2: Backend Broadcast (All Data) ✅ IMPLEMENTED
 
-#### 2.1 New WebSocket Commands
+> **Further Simplified**: All data (markers/regions/items) broadcast to all clients. No subscription commands needed.
 
-**File**: `frontend/src/core/WebSocketCommands.ts`
+#### 2.1 No WebSocket Commands Needed
 
-```typescript
-export const item = {
-  subscribe: (timeRange: TimeRange): WSCommand => ({
-    command: 'item/subscribe',
-    params: { timeRange },
-  }),
-  unsubscribe: (): WSCommand => ({
-    command: 'item/unsubscribe',
-  }),
-};
-
-export const marker = {
-  subscribe: (timeRange: TimeRange): WSCommand => ({
-    command: 'marker/subscribe',
-    params: { timeRange },
-  }),
-  unsubscribe: (): WSCommand => ({
-    command: 'marker/unsubscribe',
-  }),
-};
-
-export const region = {
-  subscribe: (timeRange: TimeRange): WSCommand => ({
-    command: 'region/subscribe',
-    params: { timeRange },
-  }),
-  unsubscribe: (): WSCommand => ({
-    command: 'region/unsubscribe',
-  }),
-};
-```
-
-#### 2.2 Backend Command Handlers (Zig)
-
-**Files to create/modify**:
-- `extension/src/commands/items.zig` - Add `item/subscribe`, `item/unsubscribe`
-- `extension/src/commands/markers.zig` - Add `marker/subscribe`, `marker/unsubscribe`
-- `extension/src/commands/regions.zig` - Add `region/subscribe`, `region/unsubscribe`
-- `extension/src/item_subscriptions.zig` - Per-client time-range state (new file)
-- `extension/src/marker_subscriptions.zig` - Per-client time-range state (new file)
-- `extension/src/commands/registry.zig` - Register new handlers
-
-**Subscription state structure** (per-client):
-```zig
-const TimeRange = struct {
-    start: f64,
-    end: f64,
-};
-
-const ClientSubscription = struct {
-    time_range: ?TimeRange,
-    buffer: f64 = 5.0,  // 5 second buffer for edge items
-};
-```
-
-**Filtering logic** (items.zig poll loop):
-```zig
-fn isInRange(item_start: f64, item_end: f64, range: TimeRange, buffer: f64) bool {
-    return item_end > (range.start - buffer) and item_start < (range.end + buffer);
-}
-```
-
-#### 2.3 useTimelineSubscription Hook
-
-**File**: `frontend/src/hooks/useTimelineSubscription.ts`
+Items are broadcast automatically like markers and regions. Frontend filters to visible viewport locally.
 
 ```typescript
-function useTimelineSubscription(options: {
-  visibleRange: TimeRange;
-  enabled?: boolean;
-  buffer?: number;  // seconds, default: 30
-  debounceMs?: number;  // default: 200
-  sendCommand: (cmd: WSCommand) => void;
-  subscribeItems?: boolean;
-  subscribeMarkers?: boolean;
-  subscribeRegions?: boolean;
-}): void;
+// Frontend receives all items via 'items' event
+const allItems = useReaperData().items;
+
+// Filter to viewport for rendering
+const visibleItems = useMemo(() =>
+  allItems.filter(item =>
+    item.position < viewportEnd &&
+    (item.position + item.length) > viewportStart
+  ),
+  [allItems, viewportStart, viewportEnd]
+);
 ```
 
-**Pattern**: Follow `useVirtualizedSubscription.ts`:
-- Debounce range changes (200ms)
-- Immediate re-subscribe on reconnection
-- Track previous subscription to avoid redundant commands
+#### 2.2 Backend Implementation
+
+**Poll loop broadcasts all data at 5Hz (MEDIUM tier)**:
+- `markers` event - when markers change
+- `regions` event - when regions change
+- `items` event - when items change
+
+**Hash-based change detection** ensures events only sent when data actually changes.
+
+**Files removed** (subscription system no longer needed):
+- ~~`extension/src/timeline_subscriptions.zig`~~
+- ~~`extension/src/commands/timeline_subs.zig`~~
 
 ### Phase 3: Timeline Component Integration
 
@@ -469,11 +408,10 @@ Navigation Mode (default)
 
 - `useViewport.test.ts` - State transitions, bounds clamping, pan behavior, zoom steps
 - `useVisibleItems.test.ts` - Filtering edge cases
-- `useTimelineSubscription.test.ts` - Debounce, reconnection
 
 #### E2E Tests
 
-- `timeline-viewport.spec.ts` - Drag-to-pan, pinch-to-zoom, double-tap snap, selection toggle, subscription updates
+- `timeline-viewport.spec.ts` - Drag-to-pan, pinch-to-zoom, double-tap snap, selection toggle
 
 #### Gesture Test Utilities
 
@@ -486,10 +424,9 @@ Need to add pinch and double-tap helpers to `test/gestures.ts`.
 | Risk | Impact | Mitigation |
 |------|--------|------------|
 | **Region drag across viewport edge** | Medium | Lock viewport during active gesture; extend viewport to include drag target |
-| **Snap calculations with partial data** | Medium | Keep full region/marker positions client-side (skeleton data); only send full data for visible items |
+| **Snap calculations with partial data** | Low | All data broadcast — full marker/region/item data always available client-side |
 | **Mode confusion (pan vs selection)** | Medium | Clear visual indicator on selection toggle button; consider toast/haptic feedback on mode change |
-| **Performance during rapid pan** | Low | Debounce subscription updates (200ms); local rendering immediate, subscription lazy |
-| **Backend subscription overhead** | Low | Filter at poll time, not per-client; shared subscription state if multiple clients have overlapping ranges |
+| **Performance during rapid pan** | Low | Local filtering only — no backend round-trip needed |
 | **Pinch gesture on Safari PWA** | Medium | Test thoroughly on iOS Safari; use touch-action: none; track touchIdentifier carefully |
 | **Pinch vs pan gesture conflict** | Low | Selection mode toggle clearly separates behaviors; pinch always zooms in both modes |
 
@@ -514,10 +451,8 @@ const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').match
 |------|---------|
 | `frontend/src/hooks/useViewport.ts` | Viewport state management (pan, zoom, time↔percent) |
 | `frontend/src/hooks/useViewport.test.ts` | Unit tests |
-| `frontend/src/hooks/useVisibleItems.ts` | Time-range filtering |
+| `frontend/src/hooks/useVisibleItems.ts` | Time-range filtering (local, no backend calls) |
 | `frontend/src/hooks/useVisibleItems.test.ts` | Unit tests |
-| `frontend/src/hooks/useTimelineSubscription.ts` | Viewport → backend sync |
-| `frontend/src/hooks/useTimelineSubscription.test.ts` | Unit tests |
 | `frontend/src/components/Timeline/ZoomControls.tsx` | Zoom in/out buttons + level indicator |
 | `frontend/e2e/timeline-viewport.spec.ts` | E2E tests |
 
@@ -532,28 +467,18 @@ const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').match
 | `frontend/src/components/Timeline/hooks/useRegionDrag.ts` | Viewport-aware coordinate conversion |
 | `frontend/src/components/Actions/index.ts` | Remove "add marker" button, add zoom controls |
 | `frontend/src/components/Actions/SelectionButton.tsx` | Add toggle behavior + long-press for manual entry |
-| `frontend/src/core/WebSocketCommands.ts` | Add subscribe commands for items/markers/regions |
 | `frontend/src/hooks/index.ts` | Export new hooks |
 
-### New Backend Files (Zig)
+### Backend Files (Zig) ✅ IMPLEMENTED
 
 | File | Purpose |
 |------|---------|
-| `extension/src/item_subscriptions.zig` | Per-client time-range subscription state |
-| `extension/src/marker_subscriptions.zig` | Per-client time-range subscription state |
-| `extension/src/region_subscriptions.zig` | Per-client time-range subscription state |
+| `extension/src/items.zig` | `computeHash()` for change detection |
+| `extension/src/markers.zig` | Hash functions for change detection |
+| `extension/src/main.zig` | Poll loop broadcasts items like markers/regions |
+| `extension/API.md` | Document items event (broadcast, no subscription) |
 
-### Modified Backend Files (Zig)
-
-| File | Changes |
-|------|---------|
-| `extension/src/commands/items.zig` | Add `item/subscribe`, `item/unsubscribe` handlers |
-| `extension/src/commands/markers.zig` | Add `marker/subscribe`, `marker/unsubscribe` handlers |
-| `extension/src/commands/regions.zig` | Add `region/subscribe`, `region/unsubscribe` handlers |
-| `extension/src/commands/registry.zig` | Register new command handlers |
-| `extension/src/items.zig` | Filter items by subscribed time range in poll loop |
-| `extension/src/markers.zig` | Filter markers by subscribed time range in poll loop |
-| `extension/API.md` | Document new subscription commands |
+> **Note:** `timeline_subscriptions.zig` and `commands/timeline_subs.zig` were removed — items now broadcast to all clients.
 
 ---
 
@@ -562,21 +487,17 @@ const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').match
 ```
 Phase 1: Frontend Hooks (No backend changes yet)
 ├── useViewport.ts + tests (pan, zoom steps, time↔percent)
-└── useVisibleItems.ts + tests
+└── useVisibleItems.ts + tests (local filtering)
 
-Phase 2: Backend Subscriptions
-├── item_subscriptions.zig
-├── marker_subscriptions.zig
-├── region_subscriptions.zig
-├── Command handlers + registry
+Phase 2: Backend Broadcast ✅ COMPLETE
+├── Items broadcast to all clients (like markers/regions)
+├── Hash-based change detection
 └── API.md documentation
 
-Phase 3: Frontend Integration
-├── useTimelineSubscription.ts + tests
-├── WebSocketCommands.ts additions
+Phase 3: Frontend Integration (TODO)
 └── Timeline.tsx viewport state integration
 
-Phase 4: UI Changes
+Phase 4: UI Changes (TODO)
 ├── Timeline.tsx drag-to-pan in navigation mode
 ├── ZoomControls.tsx (+ / - buttons, level indicator)
 ├── SelectionButton.tsx (toggle behavior, long-press)
@@ -585,7 +506,7 @@ Phase 4: UI Changes
 ├── TimelineMarkers.tsx filtering
 └── ItemDensityBlobs.tsx filtering
 
-Phase 5: Testing & Polish
+Phase 5: Testing & Polish (TODO)
 ├── timeline-viewport.spec.ts (E2E)
 └── Accessibility (prefers-reduced-motion)
 ```
@@ -601,59 +522,45 @@ Phase 5: Testing & Polish
 | **Navigation mode drag** | Single-finger drag = pan viewport (not time selection) |
 | **Selection toggle** | Existing selection button becomes toggle; long-press for manual entry |
 | **Add marker button** | **REMOVED** - Users can add via custom toolbar action (40157) |
-| Snap behavior | Use ALL snap points (keep full positions client-side via skeleton) |
+| Snap behavior | Full marker/region data always available (broadcast, no skeleton needed) |
 | Default zoom | Mobile-first ~30 seconds |
 | PR strategy | **Backend first** → test via websocat → then frontend. Can break/delete old APIs during dev. |
 
 ---
 
-## Skeleton Events: Minimal Data for Large Projects
+## ~~Skeleton Events~~ REMOVED
 
-Like `trackSkeleton` for tracks, we need lightweight skeleton events that provide minimal positioning data regardless of project size. This enables:
-- Snap point calculations (need ALL positions)
-- Viewport-aware filtering (know what to subscribe to)
-- Overview visualization (e.g., minimap)
-
-### Skeleton Event Payloads
-
-| Event | Minimal Fields | Rationale |
-|-------|---------------|-----------|
-| `regionSkeleton` | `id`, `start`, `end`, `color` | Position for snapping + color for overview bar |
-| `markerSkeleton` | `id`, `position`, `color` | Position for snapping + color for indicator |
-| `itemSkeleton` | `trackGuid`, `start`, `end` | Position only - used for density blobs |
-
-**NOT included in skeleton** (sent only for subscribed items):
-- Region/marker names (text is expensive, only needed when visible)
-- Item details (waveform data, takes, etc.)
-
-**Broadcast frequency**: 1Hz (same as trackSkeleton)
+> **Simplified (2026-01-10)**: Skeleton events were removed as premature optimization. Full marker/region data is broadcast to all clients. Bandwidth is negligible over LAN.
 
 ---
 
-## Subscription Buffer Strategy
+## ~~Subscription Buffer Strategy~~ REMOVED
 
-### Buffer Size: 100% of Visible Duration
+> **Simplified (2026-01-10)**: Subscription system removed. All items broadcast to all clients. Frontend filters locally to visible viewport.
 
-Per research: apps use **visible range + 100% buffer on each side** for snap points.
+### Frontend Filtering (Simple)
 
-| Visible Duration | Buffer Each Side | Total Subscribed |
-|-----------------|------------------|------------------|
-| 5s | 5s | 15s |
-| 30s | 30s | 90s |
-| 60s | 60s | 180s |
+```javascript
+// All items arrive automatically via 'items' event
+const allItems = useReaperData().items;
 
-**Formula**: `buffer = visibleDuration * 1.0` (100% each side)
+// Filter to viewport for rendering (with optional buffer for smooth scrolling)
+const buffer = (viewportEnd - viewportStart) * 0.5;  // 50% buffer each side
+const visibleItems = useMemo(() =>
+  allItems.filter(item =>
+    item.position < viewportEnd + buffer &&
+    (item.position + item.length) > viewportStart - buffer
+  ),
+  [allItems, viewportStart, viewportEnd, buffer]
+);
+```
 
-Pre-compute snap candidates on viewport change, then synchronous lookup during drag.
-
-### Edge Cases: Start/End of Project
+### Edge Cases
 
 | Scenario | Behavior |
 |----------|----------|
-| Viewport includes t=0 | Clamp subscription start to 0, no negative times |
-| Viewport includes project end | Clamp subscription end to projectDuration |
-| Full project visible | Subscribe to entire project (no filtering benefit, but still works) |
 | Playhead outside viewport | Viewport stays where user put it; playhead indicator shows direction arrow at edge |
+| Large projects | Frontend handles filtering efficiently; optimize with binary search if >500 items |
 
 ---
 
@@ -805,37 +712,33 @@ Results integrated into "Research Results Summary" section at top of document.
 
 ## Revised PR Strategy
 
-### PR4a: Backend Time-Range Subscriptions
+### PR4a: Backend Broadcast ✅ COMPLETE
 
 **Scope**: All backend work, test via websocat, update API.md
 
-**Deliverables**:
-1. `item_subscriptions.zig` - Per-client time-range state
-2. `marker_subscriptions.zig` - Per-client time-range state
-3. `region_subscriptions.zig` - Per-client time-range state
-4. Command handlers: `item/subscribe`, `marker/subscribe`, `region/subscribe` (+ unsubscribe)
-5. Poll loop filtering by subscribed time range
-6. Updated `API.md` with new commands
-7. Websocat test scripts for verification
+**Deliverables** (further simplified):
+1. Items broadcast to all clients (like markers/regions)
+2. Hash-based change detection in poll loop
+3. Updated `API.md` documenting items event
 
-**Can break/change**:
-- Existing marker/region/item event formats if needed
-- Maintain changelog for frontend awareness
+**Simplified from subscription model**:
+- No `timeline/subscribe` or `timeline/unsubscribe` commands
+- All data (markers/regions/items) broadcast to all clients
+- Frontend filters locally — instant scroll/zoom, no round-trip
+- Subscription files removed: `timeline_subscriptions.zig`, `commands/timeline_subs.zig`
 
 ### PR4b: Frontend Viewport Integration
 
-**Scope**: All frontend work, depends on PR4a APIs
+**Scope**: All frontend work (no backend API dependencies!)
 
 **Deliverables**:
 1. `useViewport.ts` + tests (pan, zoom steps, time↔percent conversion)
-2. `useVisibleItems.ts` + tests
-3. `useTimelineSubscription.ts` + tests
-4. `WebSocketCommands.ts` updates
-5. `Timeline.tsx` integration (viewport state, drag-to-pan in nav mode)
-6. `ZoomControls.tsx` (zoom buttons + level indicator)
-7. `SelectionButton.tsx` modifications (toggle + long-press)
-8. `Actions/index.ts` changes (remove add marker, add zoom controls)
-9. E2E tests
+2. `useVisibleItems.ts` + tests (local filtering)
+3. `Timeline.tsx` integration (viewport state, drag-to-pan in nav mode)
+4. `ZoomControls.tsx` (zoom buttons + level indicator)
+5. `SelectionButton.tsx` modifications (toggle + long-press)
+6. `Actions/index.ts` changes (remove add marker, add zoom controls)
+7. E2E tests
 
 ### PR4c: Zoom-Dependent Detail (Research Complete)
 
@@ -855,8 +758,7 @@ Results integrated into "Research Results Summary" section at top of document.
 
 - `research/VIEWPORT_ANALYSIS.md` - LOD, density visualization, performance thresholds (completed research)
 - `research/TIMELINE_SCROLL_BEHAVIOUR.md` - End-of-timeline UX decisions
-- `VIEWPORT_DRIVEN_ARCHITECTURE.md` - Subscription protocol design
+- `TIMELINE_V2_BACKEND_PLAN.md` - Backend implementation details
 - `FRONTEND_DEVELOPMENT.md` - Frontend patterns and best practices
 - `DEVELOPMENT.md` - Full-stack conventions
-- `frontend/src/hooks/useVirtualizedSubscription.ts` - Subscription pattern to follow
 - `frontend/src/components/Timeline/hooks/useRegionDrag.ts` - Gesture pattern to follow
