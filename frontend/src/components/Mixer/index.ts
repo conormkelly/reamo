@@ -5,4 +5,5 @@ export { SendFader, type SendFaderProps } from './SendFader';
 export { SendMuteButton, type SendMuteButtonProps } from './SendMuteButton';
 export { SendDestinationSelector, type SendDestinationSelectorProps } from './SendDestinationSelector';
 export { SendStrip, type SendStripProps } from './SendStrip';
-export { BankSelector, type BankSelectorProps, type CustomBank } from './BankSelector';
+export { BankSelector, type BankSelectorProps, type CustomBank, type BankType } from './BankSelector';
+export { BankEditorModal, type BankEditorModalProps } from './BankEditorModal';

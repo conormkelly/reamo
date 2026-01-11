@@ -78,3 +78,7 @@ export {
   type SendDestination,
   type UseSendsReturn,
 } from './useSends';
+export {
+  useCustomBanks,
+  type UseCustomBanksReturn,
+} from './useCustomBanks';

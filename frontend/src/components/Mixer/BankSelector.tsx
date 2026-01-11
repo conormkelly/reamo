@@ -7,9 +7,16 @@
 import type { ReactElement } from 'react';
 import { Plus, Pencil, Filter } from 'lucide-react';
 
+/** Bank type: 'smart' auto-matches by pattern, 'custom' uses manual track selection */
+export type BankType = 'smart' | 'custom';
+
 export interface CustomBank {
   id: string;
   name: string;
+  type: BankType;
+  /** Smart bank: pattern to match track names (case-insensitive substring) */
+  pattern?: string;
+  /** Custom bank: manually selected track GUIDs */
   trackGuids: string[];
 }
 

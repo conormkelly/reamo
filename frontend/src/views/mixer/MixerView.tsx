@@ -17,6 +17,7 @@ import {
   SendStrip,
   SendDestinationSelector,
   BankSelector,
+  BankEditorModal,
   type MixerMode,
   type CustomBank,
 } from '../../components/Mixer';
@@ -27,6 +28,7 @@ import {
   useBankNavigation,
   useTrackSkeleton,
   useSends,
+  useCustomBanks,
 } from '../../hooks';
 import { useReaper } from '../../components/ReaperProvider';
 import { track } from '../../core/WebSocketCommands';
@@ -109,35 +111,73 @@ export function MixerView(): ReactElement {
   // Get the name of the selected destination for SendStrip
   const selectedDestName = destinations.find((d) => d.trackIdx === selectedDestIdx)?.name ?? '';
 
-  // Custom banks state (skeleton - non-functional for now)
-  const [customBanks] = useState<CustomBank[]>([]);
+  // Custom banks from ProjExtState
+  const { banks: customBanks, saveBank, deleteBank } = useCustomBanks();
   const [selectedBankId, setSelectedBankId] = useState<string | null>(null);
+
+  // Bank editor modal state
+  const [bankModalOpen, setBankModalOpen] = useState(false);
+  const [editingBank, setEditingBank] = useState<CustomBank | null>(null);
 
   // Track filter state
   const [filterQuery, setFilterQuery] = useState('');
   const [filterBankIndex, setFilterBankIndex] = useState(0);
 
-  const isFiltered = filterQuery.trim().length > 0;
+  // Get skeleton for custom bank filtering
+  const { skeleton } = useTrackSkeleton();
 
-  // Filter ALL tracks by query (case-insensitive name match)
-  const allFilteredIndices = useMemo(() => {
+  // Check if we have any active filtering (custom bank or text filter)
+  const hasTextFilter = filterQuery.trim().length > 0;
+  const hasCustomBank = selectedBankId !== null;
+  const isFiltered = hasTextFilter || hasCustomBank;
+
+  // Get selected custom bank
+  const selectedBank = useMemo(
+    () => (selectedBankId ? customBanks.find((b) => b.id === selectedBankId) : null),
+    [selectedBankId, customBanks]
+  );
+
+  // Filter tracks: first by bank (smart or custom), then by text query
+  // Uses skeleton - it has ALL tracks regardless of subscription state
+  // Keep full track data (with GUIDs) for subscription
+  const allFilteredTracks = useMemo(() => {
     if (!isFiltered) return [];
-    const query = filterQuery.toLowerCase().trim();
-    const indices: number[] = [];
-    // Filter all non-master tracks (1 to totalTracks)
-    for (let i = 1; i <= totalTracks; i++) {
-      const track = tracks[i];
-      if (track?.name?.toLowerCase().includes(query)) {
-        indices.push(i);
+
+    // Start with all tracks (exclude master at index 0)
+    let baseTracks = skeleton.slice(1).map((t, i) => ({ ...t, index: i + 1 }));
+
+    // If bank selected, filter by bank type
+    if (selectedBank) {
+      if (selectedBank.type === 'smart' && selectedBank.pattern) {
+        // Smart bank: filter by pattern (case-insensitive substring match)
+        const pattern = selectedBank.pattern.toLowerCase();
+        baseTracks = baseTracks.filter((t) => t.n.toLowerCase().includes(pattern));
+      } else {
+        // Custom bank: filter by specific GUIDs
+        const bankGuids = new Set(selectedBank.trackGuids);
+        baseTracks = baseTracks.filter((t) => bankGuids.has(t.g));
       }
     }
-    return indices;
-  }, [filterQuery, totalTracks, tracks, isFiltered]);
 
-  // Reset filter bank when filter changes
+    // Apply text filter if present (on top of bank filter)
+    if (hasTextFilter) {
+      const lower = filterQuery.toLowerCase();
+      baseTracks = baseTracks.filter((t) => t.n.toLowerCase().includes(lower));
+    }
+
+    return baseTracks;
+  }, [isFiltered, skeleton, selectedBank, hasTextFilter, filterQuery]);
+
+  // Extract indices for display logic
+  const allFilteredIndices = useMemo(
+    () => allFilteredTracks.map((t) => t.index),
+    [allFilteredTracks]
+  );
+
+  // Reset filter bank when filter or bank changes
   useEffect(() => {
     setFilterBankIndex(0);
-  }, [filterQuery]);
+  }, [filterQuery, selectedBankId]);
 
   // Calculate filtered banking
   const filteredBankStart = filterBankIndex * channelCount;
@@ -179,34 +219,82 @@ export function MixerView(): ReactElement {
     }
   }, [isFiltered, goForward, filteredTotalBanks]);
 
-  // Bank management handlers (skeleton - non-functional for now)
+  // Bank management handlers
   const handleAddBank = useCallback(() => {
-    // TODO: Open modal to create new bank
-    console.log('Add bank - not yet implemented');
+    setEditingBank(null);
+    setBankModalOpen(true);
   }, []);
 
-  const handleEditBank = useCallback((bankId: string) => {
-    // TODO: Open modal to edit bank
-    console.log('Edit bank:', bankId, '- not yet implemented');
+  const handleEditBank = useCallback(
+    (bankId: string) => {
+      const bank = customBanks.find((b) => b.id === bankId);
+      if (bank) {
+        setEditingBank(bank);
+        setBankModalOpen(true);
+      }
+    },
+    [customBanks]
+  );
+
+  const handleCloseModal = useCallback(() => {
+    setBankModalOpen(false);
+    setEditingBank(null);
   }, []);
 
-  // Subscribe to prefetch range (current bank + adjacent banks for smooth navigation)
-  const subscribeToBank = useCallback(() => {
+  const handleSaveBank = useCallback(
+    async (bank: CustomBank) => {
+      await saveBank(bank);
+    },
+    [saveBank]
+  );
+
+  const handleDeleteBank = useCallback(
+    async (bankId: string) => {
+      await deleteBank(bankId);
+      // If we're deleting the currently selected bank, go back to All Tracks
+      if (selectedBankId === bankId) {
+        setSelectedBankId(null);
+      }
+    },
+    [deleteBank, selectedBankId]
+  );
+
+  // Calculate prefetch range for filtered results (same logic as useBankNavigation)
+  const filteredPrefetchBanks = channelCount <= 3 ? 4 : channelCount <= 6 ? 2 : 1;
+  const filteredPrefetchCount = filteredPrefetchBanks * channelCount;
+  const filteredPrefetchStart = Math.max(0, filteredBankStart - filteredPrefetchCount);
+  const filteredPrefetchEnd = Math.min(allFilteredTracks.length, filteredBankEnd + filteredPrefetchCount);
+
+  // Get GUIDs for filtered tracks to subscribe to (current bank + prefetch)
+  const filteredGuidsToSubscribe = useMemo(() => {
+    if (!isFiltered || allFilteredTracks.length === 0) return [];
+    return allFilteredTracks.slice(filteredPrefetchStart, filteredPrefetchEnd).map((t) => t.g);
+  }, [isFiltered, allFilteredTracks, filteredPrefetchStart, filteredPrefetchEnd]);
+
+  // Subscribe to tracks - range mode for unfiltered, GUID mode for filtered
+  useEffect(() => {
     if (totalTracks === 0) return;
 
-    // Subscribe to prefetch range plus master - includes adjacent banks to prevent flash on navigation
-    sendCommand(
-      track.subscribe({
-        range: { start: prefetchStart, end: prefetchEnd },
-        includeMaster: true,
-      })
-    );
-  }, [sendCommand, prefetchStart, prefetchEnd, totalTracks]);
-
-  // Subscribe when bank changes
-  useEffect(() => {
-    subscribeToBank();
-  }, [subscribeToBank]);
+    if (isFiltered) {
+      // Filtered: subscribe to specific GUIDs (scattered tracks)
+      if (filteredGuidsToSubscribe.length > 0) {
+        sendCommand(
+          track.subscribe({
+            guids: filteredGuidsToSubscribe,
+            includeMaster: true,
+          })
+        );
+      }
+    } else {
+      // Unfiltered: subscribe to range (contiguous tracks)
+      sendCommand(
+        track.subscribe({
+          range: { start: prefetchStart, end: prefetchEnd },
+          includeMaster: true,
+        })
+      );
+    }
+  }, [sendCommand, isFiltered, filteredGuidsToSubscribe, prefetchStart, prefetchEnd, totalTracks]);
 
   // Check if we have data for a track
   const hasTrackData = (trackIndex: number): boolean => {
@@ -342,6 +430,15 @@ export function MixerView(): ReactElement {
           </div>
         </div>
       )}
+
+      {/* Bank editor modal */}
+      <BankEditorModal
+        isOpen={bankModalOpen}
+        onClose={handleCloseModal}
+        onSave={handleSaveBank}
+        onDelete={handleDeleteBank}
+        editBank={editingBank}
+      />
     </div>
   );
 }
