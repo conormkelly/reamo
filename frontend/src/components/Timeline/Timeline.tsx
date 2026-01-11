@@ -726,7 +726,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   return (
     <div className={`${className}`}>
       {/* Top bar - region labels (color bar + text) + playhead preview pill */}
-      <div className="relative h-[25px] bg-bg-deep rounded-t-lg">
+      <div className="relative h-[25px] bg-bg-deep rounded-t-lg overflow-hidden">
         <TimelineRegionLabels
           displayRegions={visibleRegions}
           timelineMode={timelineMode}
@@ -984,7 +984,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       </div>
 
       {/* Bottom bar - selection indicator and marker pills */}
-      <div className="relative h-5 bg-bg-deep rounded-b-lg">
+      <div className="relative h-5 bg-bg-deep rounded-b-lg overflow-hidden">
         {/* Time selection indicator - top half */}
         {timeSelectionSeconds && (
           <div
