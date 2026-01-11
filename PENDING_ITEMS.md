@@ -236,3 +236,6 @@ The following major items were completed during the 2026-01-07 cleanup:
 
 **2026-01-10:**
 - **Momentum scrolling for timeline pan** — velocity-based inertia with 0.965 friction, respects prefers-reduced-motion
+
+**2026-01-11:**
+- **Global select-none** — centralized text selection control at App root; removed redundant select-none from 21 components; CSS exception for input/textarea elements
