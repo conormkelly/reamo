@@ -8,3 +8,4 @@ export { SendStrip, type SendStripProps } from './SendStrip';
 export { BankSelector, type BankSelectorProps, type CustomBank, type BankType } from './BankSelector';
 export { BankEditorModal, type BankEditorModalProps } from './BankEditorModal';
 export { TrackInfoBar, type TrackInfoBarProps } from './TrackInfoBar';
+export { RoutingModal, type RoutingModalProps } from './RoutingModal';

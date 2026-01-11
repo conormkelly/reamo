@@ -73,10 +73,8 @@ export function MixerStrip({
   // Color bar styling
   const topBarColor = color || 'var(--color-text-muted)';
 
-  // Border color based on info selection
-  const borderClass = isInfoSelected
-    ? 'border-2 border-accent-region'
-    : 'border border-border-subtle';
+  // Border styling (no longer changes based on info selection - that's shown by bottom bar)
+  const borderClass = 'border border-border-subtle';
 
   return (
     <div
@@ -127,15 +125,13 @@ export function MixerStrip({
         />
       </div>
 
-      {/* Pan (Mix mode only) */}
-      {mode === 'mix' && (
-        <PanKnob
-          trackIndex={trackIndex}
-          width={70}
-          isSelected={isSelected}
-          className="mb-1"
-        />
-      )}
+      {/* Pan control */}
+      <PanKnob
+        trackIndex={trackIndex}
+        width={70}
+        isSelected={isSelected}
+        className="mb-1"
+      />
 
       {/* M/S buttons */}
       <div className="flex gap-1 mb-1">
@@ -168,24 +164,18 @@ export function MixerStrip({
         )
       )}
 
-      {/* Selection footer - separate visual area */}
+      {/* Selection footer - solid bar when selected */}
       {onSelectForInfo && (
-        <div className="w-full mt-1 pt-2 pb-2 bg-bg-deep rounded-b-lg border-t border-border-subtle flex justify-center">
-          <button
-            onClick={() => onSelectForInfo(trackIndex)}
-            className={`w-5 h-5 rounded-full border-2 transition-colors ${
-              isInfoSelected
-                ? 'border-accent-region bg-accent-region'
-                : 'border-text-tertiary hover:border-text-secondary bg-transparent'
-            }`}
-            title="Select for info"
-            aria-pressed={isInfoSelected}
-          >
-            {isInfoSelected && (
-              <div className="w-2.5 h-2.5 rounded-full bg-white mx-auto" />
-            )}
-          </button>
-        </div>
+        <button
+          onClick={() => onSelectForInfo(trackIndex)}
+          className={`w-full h-4 rounded-b-lg transition-colors ${
+            isInfoSelected
+              ? 'bg-primary'
+              : 'bg-bg-deep hover:bg-bg-elevated border-t border-border-subtle'
+          }`}
+          title="Select for info"
+          aria-pressed={isInfoSelected}
+        />
       )}
     </div>
   );

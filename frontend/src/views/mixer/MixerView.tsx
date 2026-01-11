@@ -16,6 +16,7 @@ import {
   BankSelector,
   BankEditorModal,
   TrackInfoBar,
+  RoutingModal,
   type CustomBank,
 } from '../../components/Mixer';
 import { TrackFilter } from '../../components/Track';
@@ -71,6 +72,10 @@ export function MixerView(): ReactElement {
   // Bank editor modal state
   const [bankModalOpen, setBankModalOpen] = useState(false);
   const [editingBank, setEditingBank] = useState<CustomBank | null>(null);
+
+  // Routing modal state
+  const [routingModalOpen, setRoutingModalOpen] = useState(false);
+  const [routingTrackIdx, setRoutingTrackIdx] = useState<number>(0);
 
   // Track filter state
   const [filterQuery, setFilterQuery] = useState('');
@@ -221,6 +226,12 @@ export function MixerView(): ReactElement {
     setEditingBank(null);
   }, []);
 
+  // Routing modal handler
+  const handleShowRouting = useCallback((trackIdx: number) => {
+    setRoutingTrackIdx(trackIdx);
+    setRoutingModalOpen(true);
+  }, []);
+
   const handleSaveBank = useCallback(
     async (bank: CustomBank) => {
       await saveBank(bank);
@@ -349,6 +360,7 @@ export function MixerView(): ReactElement {
       {/* Track info bar - shows when a track is selected */}
       <TrackInfoBar
         selectedTrackIdx={infoSelectedTrackIdx}
+        onShowRouting={handleShowRouting}
         className="mt-2"
       />
 
@@ -392,6 +404,13 @@ export function MixerView(): ReactElement {
         onSave={handleSaveBank}
         onDelete={handleDeleteBank}
         editBank={editingBank}
+      />
+
+      {/* Routing modal */}
+      <RoutingModal
+        isOpen={routingModalOpen}
+        onClose={() => setRoutingModalOpen(false)}
+        trackIndex={routingTrackIdx}
       />
     </div>
   );
