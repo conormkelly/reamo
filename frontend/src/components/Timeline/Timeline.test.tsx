@@ -777,3 +777,56 @@ describe('Region overflow prevention', () => {
     expect(topBar).not.toBeNull()
   })
 })
+
+// ============================================================================
+// Tests: Playhead Drag Viewport Coordinates (Regression)
+// ============================================================================
+
+describe('Playhead drag uses viewport coordinates', () => {
+  beforeEach(() => {
+    Element.prototype.getBoundingClientRect = vi.fn(() => mockRect)
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+    mockAnimationPosition = 0
+  })
+
+  it('playhead position uses viewport-relative coordinates', () => {
+    // Create a long project (0-120s) so timeline is much wider than default viewport (0-30s)
+    const longProject = [
+      { id: 0, name: 'Long Region', start: 0, end: 120, color: 0 },
+    ]
+    setupStore(longProject)
+    mockAnimationPosition = 15
+    useReaperStore.setState({ positionSeconds: 15 })
+
+    const { container } = render(<Timeline height={120} />)
+
+    // Find the playhead element by data-testid
+    const playhead = container.querySelector('[data-testid="playhead"]') as HTMLElement
+    expect(playhead).not.toBeNull()
+
+    // With viewport 0-30s and playhead at 15s: 15/30 = 50%
+    // NOT 15/120 = 12.5% which would be the full timeline calculation
+    const leftPercent = parseFloat(playhead.style.left)
+    expect(leftPercent).toBeGreaterThan(45) // Should be ~50%, not ~12%
+    expect(leftPercent).toBeLessThan(55)
+  })
+
+  it('playhead at viewport edge renders at 0% or 100%', () => {
+    setupStore([])
+    mockAnimationPosition = 0
+    useReaperStore.setState({ positionSeconds: 0 })
+
+    const { container } = render(<Timeline height={120} />)
+
+    const playhead = container.querySelector('[data-testid="playhead"]') as HTMLElement
+    expect(playhead).not.toBeNull()
+
+    // Playhead at 0s with viewport starting at 0 should be at 0%
+    const leftPercent = parseFloat(playhead.style.left)
+    expect(leftPercent).toBe(0)
+  })
+})

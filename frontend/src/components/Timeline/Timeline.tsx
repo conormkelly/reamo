@@ -284,7 +284,18 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   );
 
   // Playhead position and drag hook (must be before handlePointerDown which uses isDraggingPlayhead)
-  const playheadPercent = timeToPercent(positionSeconds);
+  // Use viewport-relative percent for drag calculations to match rendering
+  // Simple viewport-relative conversion (without drag-extension logic which is only for region rendering)
+  const viewportTimeToPercent = useCallback(
+    (time: number) => {
+      const { start, end } = viewport.visibleRange;
+      const duration = end - start;
+      if (duration === 0) return 0;
+      return ((time - start) / duration) * 100;
+    },
+    [viewport.visibleRange]
+  );
+  const playheadPercent = viewportTimeToPercent(positionSeconds);
   const handlePlayheadSeek = useCallback(
     (newTime: number) => sendCommand(transport.seek(newTime)),
     [sendCommand]
@@ -298,10 +309,11 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   } = usePlayheadDrag({
     containerRef,
     playheadPercent,
-    timelineStart,
-    duration,
+    playheadTime: positionSeconds,
+    viewportStart: viewport.visibleRange.start,
+    viewportEnd: viewport.visibleRange.end,
     bpm,
-    timeToPercent,
+    timeToPercent: viewportTimeToPercent,
     onSeek: handlePlayheadSeek,
   });
 

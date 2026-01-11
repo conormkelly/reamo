@@ -12,15 +12,17 @@ const VERTICAL_CANCEL_THRESHOLD = 50;
 export interface UsePlayheadDragOptions {
   /** Ref to the timeline container element */
   containerRef: RefObject<HTMLDivElement | null>;
-  /** Current playhead position as percentage (0-100) */
+  /** Current playhead position as percentage (0-100) - viewport-relative */
   playheadPercent: number;
-  /** Timeline start time in seconds */
-  timelineStart: number;
-  /** Timeline duration in seconds */
-  duration: number;
+  /** Current playhead position in seconds */
+  playheadTime: number;
+  /** Viewport visible range start in seconds */
+  viewportStart: number;
+  /** Viewport visible range end in seconds */
+  viewportEnd: number;
   /** BPM for grid snapping (null disables snapping) */
   bpm: number | null;
-  /** Convert time to percentage position */
+  /** Convert time to percentage position (viewport-relative) */
   timeToPercent: (time: number) => number;
   /** Callback when drag completes successfully */
   onSeek: (seconds: number) => void;
@@ -44,8 +46,9 @@ export interface UsePlayheadDragResult {
 export function usePlayheadDrag({
   containerRef,
   playheadPercent,
-  timelineStart,
-  duration,
+  playheadTime,
+  viewportStart,
+  viewportEnd,
   bpm,
   timeToPercent,
   onSeek,
@@ -55,20 +58,20 @@ export function usePlayheadDrag({
   const [previewPercent, setPreviewPercent] = useState<number | null>(null);
   const [previewTime, setPreviewTime] = useState<number | null>(null);
 
+  // Calculate viewport duration for position calculations
+  const viewportDuration = viewportEnd - viewportStart;
+
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
       e.stopPropagation();
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
 
-      // Calculate current time from percent for initial preview
-      const currentTime = timelineStart + (playheadPercent / 100) * duration;
-
       setIsDragging(true);
       setDragStartY(e.clientY);
       setPreviewPercent(playheadPercent);
-      setPreviewTime(currentTime);
+      setPreviewTime(playheadTime);
     },
-    [playheadPercent, timelineStart, duration]
+    [playheadPercent, playheadTime]
   );
 
   const handlePointerMove = useCallback(
@@ -83,15 +86,14 @@ export function usePlayheadDrag({
 
       if (isOutsideVertically || deltaY > VERTICAL_CANCEL_THRESHOLD) {
         // Show cancel state - preview snaps back to current playhead
-        const currentTime = timelineStart + (playheadPercent / 100) * duration;
         setPreviewPercent(playheadPercent);
-        setPreviewTime(currentTime);
+        setPreviewTime(playheadTime);
         return;
       }
 
-      // Calculate time from drag position
+      // Calculate time from drag position using VIEWPORT coordinates
       const rawPercent = ((e.clientX - rect.left) / rect.width) * 100;
-      const rawTime = timelineStart + (rawPercent / 100) * duration;
+      const rawTime = viewportStart + (rawPercent / 100) * viewportDuration;
 
       // Snap to grid (bar boundaries) if we have BPM
       const snappedTime = bpm ? snapToGrid(rawTime, bpm, 4) : rawTime;
@@ -100,7 +102,7 @@ export function usePlayheadDrag({
       setPreviewPercent(Math.max(0, Math.min(100, snappedPercent)));
       setPreviewTime(snappedTime);
     },
-    [isDragging, dragStartY, playheadPercent, containerRef, timelineStart, duration, bpm, timeToPercent]
+    [isDragging, dragStartY, playheadPercent, playheadTime, containerRef, viewportStart, viewportDuration, bpm, timeToPercent]
   );
 
   const handlePointerUp = useCallback(
