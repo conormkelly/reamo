@@ -12,6 +12,7 @@
 - ✅ **Accessibility** - prefers-reduced-motion support
 - ✅ Memoized filtering (useVisibleItems hook)
 - ✅ Remove "add marker" button - users can add via custom toolbar action
+- ✅ **Region label LOD** - 40px threshold with overlap-aware text clipping
 
 **Remaining:**
 - 🔲 **Double-tap to snap** - Pre-req for pinch gesture (currently single-tap snaps)
@@ -603,7 +604,7 @@ Med zoom:   |●3        |●2                 (merged clusters)
 Low zoom:   ████████████  (12 markers)     (density band)
 ```
 
-### Regions at Low Zoom
+### Regions at Low Zoom ✅ IMPLEMENTED
 
 **Progressive degradation**:
 1. **Full name fits** → Show full name
@@ -611,15 +612,36 @@ Low zoom:   ████████████  (12 markers)     (density band
 3. **Can't fit ANY text** → Color bar only (no label)
 4. **Region too narrow** → Minimum 2px width, just a colored line
 
-**CSS implementation**:
-```css
-.region-label {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
+**Implementation** (see [TimelineRegions.tsx](frontend/src/components/Timeline/TimelineRegions.tsx)):
+
+```typescript
+const REGION_LABEL_MIN_WIDTH_PX = 40;
+
+// Find earliest overlapping region that starts within this region's bounds
+// Text clips at that boundary to avoid overwriting shorter regions
+const overlappingStarts = displayRegions
+  .filter(r => r.id !== region.id && r.start > region.start && r.start < region.end)
+  .map(r => r.start);
+const earliestOverlap = overlappingStarts.length > 0 ? Math.min(...overlappingStarts) : null;
+
+// Calculate effective width (clipped at overlap boundary)
+const effectiveEnd = earliestOverlap ?? region.end;
+const effectivePixelWidth = containerWidth ? (effectivePercentWidth / 100) * containerWidth : Infinity;
+
+// LOD: hide name if effective (clipped) width is too narrow
+const showName = effectivePixelWidth >= REGION_LABEL_MIN_WIDTH_PX;
+
+// Text max-width as percentage of parent (clips at overlap boundary)
+const textMaxWidthPercent = earliestOverlap !== null
+  ? ((earliestOverlap - region.start) / (region.end - region.start)) * 100
+  : 100;
 ```
+
+**Key behaviors**:
+- **40px threshold**: Region names hidden when effective width < 40px
+- **Overlap-aware**: Uses clipped width (at next overlapping region), not full region width
+- **CSS clip**: `max-width` percentage prevents text from overwriting shorter overlapping regions
+- **Color bar always visible**: Even when name is hidden, the 5px color bar renders
 
 ### Spanning Regions: "Current Section" Indicator
 

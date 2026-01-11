@@ -862,14 +862,14 @@ describe('Region label LOD (level of detail)', () => {
     useReaperStore.getState().clearRegions()
   })
 
-  it('hides region name when region is narrower than 50px', () => {
-    // Create a region that spans 5% of the viewport (0.5s out of 10s)
-    // With container width of 500px, that's 25px - below the 50px threshold
+  it('hides region name when region is narrower than 40px', () => {
+    // Create a region that spans 4% of the viewport (0.4s out of 10s)
+    // With container width of 500px, that's 20px - below the 40px threshold
     const narrowRegion = [{
       id: 1,
       name: 'Narrow Region',
       start: 0,
-      end: 0.5,
+      end: 0.4,
       color: undefined,
     }]
     setupStore(narrowRegion)

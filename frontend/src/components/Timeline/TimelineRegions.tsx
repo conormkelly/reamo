@@ -13,7 +13,7 @@ import { reaperColorToRgba } from '../../utils';
 import { DEFAULT_REGION_COLOR_RGB } from '../../constants/colors';
 
 /** Minimum pixel width for region label to show name text */
-const REGION_LABEL_MIN_WIDTH_PX = 50;
+const REGION_LABEL_MIN_WIDTH_PX = 40;
 
 export interface TimelineRegionsProps {
   /** Regions to display (with pending changes applied) */
@@ -126,7 +126,7 @@ export function TimelineRegionLabels({
             {/* Region name - clipped at next overlapping region boundary */}
             {showName && (
               <span
-                className="h-5 flex items-center px-1 text-[11px] text-white font-semibold truncate"
+                className="block h-5 leading-5 px-1 text-[11px] text-white font-semibold truncate"
                 style={textMaxWidthPercent < 100 ? { maxWidth: `${textMaxWidthPercent}%` } : undefined}
               >
                 {region.name}
