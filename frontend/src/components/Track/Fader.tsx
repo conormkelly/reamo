@@ -21,6 +21,8 @@ export interface FaderProps {
   resetVolume?: number;
   /** Whether parent track is selected (affects background brightness) */
   isSelected?: boolean;
+  /** Whether to show the dB label below the fader (default: true) */
+  showDbLabel?: boolean;
 }
 
 export function Fader({
@@ -29,6 +31,7 @@ export function Fader({
   height = 150,
   resetVolume = UNITY_GAIN_VOLUME,
   isSelected = false,
+  showDbLabel = true,
 }: FaderProps): ReactElement {
   const { sendCommand } = useReaper();
   const { faderPosition, volumeDb, setVolume, guid } = useTrack(trackIndex);
@@ -171,7 +174,9 @@ export function Fader({
           style={{ bottom: Math.max(0, handleHeight - 6) }}
         />
       </div>
-      <span className="text-xs text-text-secondary font-mono">{volumeDb}</span>
+      {showDbLabel && (
+        <span className="text-xs text-text-secondary font-mono">{volumeDb}</span>
+      )}
     </div>
   );
 }
