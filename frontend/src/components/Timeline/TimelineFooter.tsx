@@ -51,7 +51,7 @@ export function TimelineFooter({
             ? 'bg-primary text-text-on-primary'
             : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'
         }`}
-        title={followPlayhead ? 'Stop following playhead' : 'Follow playhead'}
+        title={followPlayhead ? 'Stop following playhead' : 'Find and follow playhead'}
         aria-pressed={followPlayhead}
       >
         <Locate size={14} />

@@ -985,7 +985,18 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       {timelineMode === 'navigate' && (
         <TimelineFooter
           followPlayhead={followPlayhead}
-          onFollowPlayheadToggle={() => setFollowPlayhead(!followPlayhead)}
+          onFollowPlayheadToggle={() => {
+            if (!followPlayhead) {
+              // Turning follow ON - stop momentum and center viewport on playhead
+              panGesture.stopMomentum();
+              const visibleDuration = viewport.visibleDuration;
+              viewport.setVisibleRange({
+                start: positionSeconds - visibleDuration / 2,
+                end: positionSeconds + visibleDuration / 2,
+              });
+            }
+            setFollowPlayhead(!followPlayhead);
+          }}
           selectionModeActive={selectionModeActive}
           onSelectionModeToggle={() => setSelectionModeActive(!selectionModeActive)}
           zoomLevel={viewport.zoomLevel}
