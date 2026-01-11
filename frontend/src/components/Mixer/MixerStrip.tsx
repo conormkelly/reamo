@@ -6,7 +6,16 @@
 
 import type { ReactElement } from 'react';
 import { useTrack } from '../../hooks/useTrack';
-import { MuteButton, SoloButton, RecordArmButton, Fader, PanKnob, LevelMeter } from '../Track';
+import {
+  MuteButton,
+  SoloButton,
+  RecordArmButton,
+  MonitorButton,
+  MasterMonoButton,
+  Fader,
+  PanKnob,
+  LevelMeter,
+} from '../Track';
 
 export type MixerMode = 'volume' | 'mix' | 'sends';
 
@@ -24,7 +33,7 @@ export interface MixerStripProps {
  * Channel strip for the mixer view.
  *
  * Layout varies by mode:
- * - volume: Meter + Tall Fader + dB + M/S + Name (maximized fader)
+ * - volume: Meter + Tall Fader + dB + M/S + Mono(master)/RecArm+Monitor(others) + Name
  * - mix: Meter + Fader + dB + Pan + M/S + RecArm + Name
  * - sends: Uses SendStrip component instead
  */
@@ -112,7 +121,19 @@ export function MixerStrip({
         <SoloButton trackIndex={trackIndex} isSelected={isSelected} />
       </div>
 
-      {/* Record Arm (Mix mode, non-master only) - spacer for master to match height */}
+      {/* Volume mode: Master gets Mono button, others get RecArm + Monitor */}
+      {mode === 'volume' && (
+        isMaster ? (
+          <MasterMonoButton isSelected={isSelected} className="mb-1" />
+        ) : (
+          <div className="flex gap-1 mb-1">
+            <RecordArmButton trackIndex={trackIndex} isSelected={isSelected} />
+            <MonitorButton trackIndex={trackIndex} isSelected={isSelected} />
+          </div>
+        )
+      )}
+
+      {/* Mix mode: Record Arm (non-master only) - spacer for master to match height */}
       {mode === 'mix' && (
         isMaster ? (
           <div className="h-[26px] mb-1" /> // Spacer to match RecordArmButton height

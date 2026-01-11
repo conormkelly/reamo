@@ -3,6 +3,7 @@ export { MuteButton, type MuteButtonProps } from './MuteButton';
 export { SoloButton, type SoloButtonProps } from './SoloButton';
 export { RecordArmButton, type RecordArmButtonProps } from './RecordArmButton';
 export { MonitorButton, type MonitorButtonProps } from './MonitorButton';
+export { MasterMonoButton, type MasterMonoButtonProps } from './MasterMonoButton';
 
 // Track controls
 export { Fader, type FaderProps } from './Fader';
