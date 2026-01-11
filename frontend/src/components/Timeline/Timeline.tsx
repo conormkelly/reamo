@@ -317,15 +317,16 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     onSeek: handlePlayheadSeek,
   });
 
-  // Convert x position to time
+  // Convert x position to time (using viewport coordinates)
   const positionToTime = useCallback(
     (clientX: number) => {
       if (!containerRef.current) return 0;
       const rect = containerRef.current.getBoundingClientRect();
       const percent = (clientX - rect.left) / rect.width;
-      return timelineStart + percent * duration;
+      const { start, end } = viewport.visibleRange;
+      return start + percent * (end - start);
     },
-    [timelineStart, duration]
+    [viewport.visibleRange]
   );
 
   // Region drag hook (handles move, resize with vertical-cancel)
@@ -665,10 +666,10 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     handlePointerUp: handleMarkerPointerUp,
   } = useMarkerDrag({
     containerRef,
-    timelineStart,
-    duration,
+    viewportStart: viewport.visibleRange.start,
+    viewportEnd: viewport.visibleRange.end,
     bpm,
-    timeToPercent,
+    timeToPercent: viewportTimeToPercent,
     onEdit: openMarkerEditModal,
     onMove: handleMarkerMoveFromDrag,
     onSelect: handleMarkerSelect,

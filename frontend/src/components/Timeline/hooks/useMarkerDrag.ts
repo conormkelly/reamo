@@ -15,13 +15,13 @@ const VERTICAL_CANCEL_THRESHOLD = 50;
 export interface UseMarkerDragOptions {
   /** Ref to the timeline container element */
   containerRef: RefObject<HTMLDivElement | null>;
-  /** Timeline start time in seconds */
-  timelineStart: number;
-  /** Timeline duration in seconds */
-  duration: number;
+  /** Viewport visible range start in seconds */
+  viewportStart: number;
+  /** Viewport visible range end in seconds */
+  viewportEnd: number;
   /** Beats per minute (for grid snapping) */
   bpm: number | null;
-  /** Convert time to percentage position */
+  /** Convert time to percentage position (viewport-relative) */
   timeToPercent: (time: number) => number;
   /** Callback when long-press triggers edit modal */
   onEdit: (marker: Marker) => void;
@@ -50,8 +50,8 @@ export interface UseMarkerDragResult {
 
 export function useMarkerDrag({
   containerRef,
-  timelineStart,
-  duration,
+  viewportStart,
+  viewportEnd,
   bpm,
   timeToPercent,
   onEdit,
@@ -64,6 +64,9 @@ export function useMarkerDrag({
   const [previewPercent, setPreviewPercent] = useState<number | null>(null);
   const [previewTime, setPreviewTime] = useState<number | null>(null);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Calculate viewport duration for position calculations
+  const viewportDuration = viewportEnd - viewportStart;
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent, marker: Marker) => {
@@ -118,9 +121,9 @@ export function useMarkerDrag({
         return;
       }
 
-      // Calculate time from drag position
+      // Calculate time from drag position using VIEWPORT coordinates
       const rawPercent = ((e.clientX - rect.left) / rect.width) * 100;
-      const rawTime = timelineStart + (rawPercent / 100) * duration;
+      const rawTime = viewportStart + (rawPercent / 100) * viewportDuration;
 
       // Snap to grid (bar boundaries) if we have BPM
       // Note: This uses a single BPM - for tempo-aware snapping, use tempo/snap command
@@ -130,7 +133,7 @@ export function useMarkerDrag({
       setPreviewPercent(Math.max(0, Math.min(100, snappedPercent)));
       setPreviewTime(snappedTime);
     },
-    [draggedMarker, isDragging, dragStartY, timeToPercent, containerRef, timelineStart, duration, bpm]
+    [draggedMarker, isDragging, dragStartY, timeToPercent, containerRef, viewportStart, viewportDuration, bpm]
   );
 
   const handlePointerUp = useCallback(
@@ -171,9 +174,9 @@ export function useMarkerDrag({
           e.clientY < rect.top - VERTICAL_CANCEL_THRESHOLD ||
           e.clientY > rect.bottom + VERTICAL_CANCEL_THRESHOLD;
 
-        // Only commit if not cancelled
+        // Only commit if not cancelled - use viewport coordinates
         if (!isOutsideVertically && deltaY <= VERTICAL_CANCEL_THRESHOLD) {
-          const newTime = timelineStart + (previewPercent / 100) * duration;
+          const newTime = viewportStart + (previewPercent / 100) * viewportDuration;
           onMove(draggedMarker.id, newTime);
         }
       }
@@ -185,7 +188,7 @@ export function useMarkerDrag({
       setPreviewPercent(null);
       setPreviewTime(null);
     },
-    [draggedMarker, isDragging, dragStartY, previewPercent, timelineStart, duration, containerRef, onMove, onSelect]
+    [draggedMarker, isDragging, dragStartY, previewPercent, viewportStart, viewportDuration, containerRef, onMove, onSelect]
   );
 
   // Cleanup timer on unmount
