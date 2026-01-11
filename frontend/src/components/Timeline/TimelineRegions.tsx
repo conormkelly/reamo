@@ -12,6 +12,9 @@ import type { DragType, PendingRegionChange, TimelineMode } from '../../store';
 import { reaperColorToRgba } from '../../utils';
 import { DEFAULT_REGION_COLOR_RGB } from '../../constants/colors';
 
+/** Minimum pixel width for region label to show name text */
+const REGION_LABEL_MIN_WIDTH_PX = 50;
+
 export interface TimelineRegionsProps {
   /** Regions to display (with pending changes applied) */
   displayRegions: Region[];
@@ -29,6 +32,8 @@ export interface TimelineRegionsProps {
   hasPendingChanges: () => boolean;
   /** Convert time to percentage position */
   renderTimeToPercent: (time: number) => number;
+  /** Container width in pixels (for LOD calculations) */
+  containerWidth?: number;
 }
 
 /**
@@ -42,6 +47,7 @@ export function TimelineRegionLabels({
   draggedRegionId,
   regionDragType,
   renderTimeToPercent,
+  containerWidth,
 }: Omit<TimelineRegionsProps, 'hasPendingChanges'>): ReactElement {
   return (
     <>
@@ -64,6 +70,27 @@ export function TimelineRegionLabels({
         const hasOverlappingRegion = displayRegions.some(r => r.id !== region.id && r.start < region.end && r.end > region.end);
         const hideRightBorder = hasAdjacentRegion || hasOverlappingRegion;
 
+        // Find earliest overlapping region that starts within this region's bounds
+        // Text should clip at that boundary to avoid overwriting shorter regions
+        const overlappingStarts = displayRegions
+          .filter(r => r.id !== region.id && r.start > region.start && r.start < region.end)
+          .map(r => r.start);
+        const earliestOverlap = overlappingStarts.length > 0 ? Math.min(...overlappingStarts) : null;
+
+        // Calculate effective text width (clipped at overlap boundary)
+        const percentWidth = renderTimeToPercent(region.end) - renderTimeToPercent(region.start);
+        const effectiveEnd = earliestOverlap ?? region.end;
+        const effectivePercentWidth = renderTimeToPercent(effectiveEnd) - renderTimeToPercent(region.start);
+        const effectivePixelWidth = containerWidth ? (effectivePercentWidth / 100) * containerWidth : Infinity;
+
+        // LOD: hide name if effective (clipped) width is too narrow
+        const showName = effectivePixelWidth >= REGION_LABEL_MIN_WIDTH_PX;
+
+        // Calculate text max-width as percentage of parent (the region label div)
+        const textMaxWidthPercent = earliestOverlap !== null
+          ? ((earliestOverlap - region.start) / (region.end - region.start)) * 100
+          : 100;
+
         return (
           <div
             key={`region-label-${region.id}`}
@@ -85,7 +112,7 @@ export function TimelineRegionLabels({
             } ${pendingRingClass}`}
             style={{
               left: `${renderTimeToPercent(region.start)}%`,
-              width: `${renderTimeToPercent(region.end) - renderTimeToPercent(region.start)}%`,
+              width: `${percentWidth}%`,
               // Color stems with region color (overridden by selection/drag classes)
               borderLeftColor: isBeingDragged || isSelected ? undefined : regionColor,
               borderRightColor: isBeingDragged || isSelected ? undefined : hideRightBorder ? 'transparent' : regionColor,
@@ -96,10 +123,15 @@ export function TimelineRegionLabels({
               className="h-[5px] w-full"
               style={{ backgroundColor: region.color ? reaperColorToRgba(region.color, 1) ?? DEFAULT_REGION_COLOR_RGB : DEFAULT_REGION_COLOR_RGB }}
             />
-            {/* Region name */}
-            <span className="h-5 flex items-center px-1 text-[11px] text-white font-semibold truncate">
-              {region.name}
-            </span>
+            {/* Region name - clipped at next overlapping region boundary */}
+            {showName && (
+              <span
+                className="h-5 flex items-center px-1 text-[11px] text-white font-semibold truncate"
+                style={textMaxWidthPercent < 100 ? { maxWidth: `${textMaxWidthPercent}%` } : undefined}
+              >
+                {region.name}
+              </span>
+            )}
           </div>
         );
       })}

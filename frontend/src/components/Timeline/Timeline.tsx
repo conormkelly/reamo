@@ -748,6 +748,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           draggedRegionId={draggedRegionId}
           regionDragType={regionDragType}
           renderTimeToPercent={renderTimeToPercent}
+          containerWidth={containerWidth}
         />
         {/* Playhead preview pill - rendered here to avoid overflow clipping */}
         <PlayheadPreviewPill
