@@ -53,7 +53,7 @@ export function MixerModeSelector({
             title={title}
             className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
               isSendsActive
-                ? 'bg-amber-600 text-white'
+                ? 'bg-sends-hover text-white'
                 : isActive
                   ? 'bg-primary text-text-on-primary'
                   : 'text-text-secondary hover:text-text-primary hover:bg-bg-elevated'

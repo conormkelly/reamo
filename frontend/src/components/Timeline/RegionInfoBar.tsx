@@ -124,6 +124,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
 
   // Long-press handling for clone functionality
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLongPressRef = useRef(false);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const [isCloneMode, setIsCloneMode] = useState(false);
@@ -433,8 +434,8 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
     createRegion(start, end, region.name, bpm, region.color, regions);
 
     // Select the new region by its ID (the newRegionKey IS the ID for new regions)
-    // We need to do this after state updates, so use setTimeout
-    setTimeout(() => {
+    // We need to do this after state updates, so use setTimeout with ref for cleanup
+    selectTimerRef.current = setTimeout(() => {
       selectRegion(newRegionKey);
     }, 0);
   };
@@ -499,11 +500,14 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
     }
   };
 
-  // Cleanup long-press timer on unmount
+  // Cleanup timers on unmount
   useEffect(() => {
     return () => {
       if (longPressTimerRef.current) {
         clearTimeout(longPressTimerRef.current);
+      }
+      if (selectTimerRef.current) {
+        clearTimeout(selectTimerRef.current);
       }
     };
   }, []);
@@ -577,7 +581,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
                           onClick={handleColorReset}
                           className={`w-6 h-6 rounded border-2 transition-all flex-shrink-0 relative ${
                             isDefaultColor
-                              ? 'border-white scale-110'
+                              ? 'border-on-primary scale-110'
                               : 'border-transparent hover:border-text-secondary'
                           }`}
                           style={{ backgroundColor: DEFAULT_REGION_COLOR }}
@@ -593,7 +597,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
                             onClick={() => handleColorSelect(color)}
                             className={`w-6 h-6 rounded border-2 transition-all flex-shrink-0 ${
                               !isDefaultColor && currentColor.toLowerCase() === color.toLowerCase()
-                                ? 'border-white scale-110'
+                                ? 'border-on-primary scale-110'
                                 : 'border-transparent hover:border-text-secondary'
                             }`}
                             style={{ backgroundColor: color }}

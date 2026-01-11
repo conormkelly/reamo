@@ -40,6 +40,7 @@ export function TapTempoButton({
   const [showDialog, setShowDialog] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wasHoldRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -48,11 +49,16 @@ export function TapTempoButton({
     if (showDialog) {
       setInputValue(bpm !== null ? String(Math.round(bpm)) : '120');
       // Focus and select input after a brief delay for animation
-      setTimeout(() => {
+      focusTimerRef.current = setTimeout(() => {
         inputRef.current?.focus();
         inputRef.current?.select();
       }, 50);
     }
+    return () => {
+      if (focusTimerRef.current) {
+        clearTimeout(focusTimerRef.current);
+      }
+    };
   }, [showDialog, bpm]);
 
   const handlePointerDown = useCallback(() => {

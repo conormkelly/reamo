@@ -50,7 +50,7 @@ export function BankSelector({
   return (
     <div className={`flex items-center gap-1 ${className}`}>
       {/* Filter indicator */}
-      {isFiltered && <Filter size={14} className="text-amber-400" />}
+      {isFiltered && <Filter size={14} className="text-sends-muted" />}
       {/* Bank dropdown */}
       <select
         value={selectedBankId ?? ''}

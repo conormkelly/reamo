@@ -24,10 +24,10 @@ export interface TrackInfoBarProps {
 
 /** Routing indicator colors from REAPER's native routing UI */
 const ROUTING_COLORS = {
-  masterSend: '#00B4C5', // Aqua - master send enabled
-  sends: '#C5A000', // Yellow - has sends/hw out
-  receives: '#0077C5', // Blue - has receives
-  disabled: '#4A4A4A', // Gray - disabled
+  masterSend: 'var(--color-routing-master)', // Aqua - master send enabled
+  sends: 'var(--color-routing-sends)', // Yellow - has sends/hw out
+  receives: 'var(--color-routing-receives)', // Blue - has receives
+  disabled: 'var(--color-routing-disabled)', // Gray - disabled
 } as const;
 
 /**

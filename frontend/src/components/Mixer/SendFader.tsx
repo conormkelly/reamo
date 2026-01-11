@@ -175,7 +175,7 @@ export function SendFader({
         ref={containerRef}
         className={`relative w-8 rounded touch-none ${
           isSelected ? 'bg-bg-disabled' : 'bg-bg-elevated'
-        } ${cursorClass} ${isDragging ? 'ring-2 ring-amber-500/50' : ''}`}
+        } ${cursorClass} ${isDragging ? 'ring-2 ring-sends-ring' : ''}`}
         style={{ height }}
         onMouseDown={handleMouseDown}
         onTouchStart={handleMouseDown}
@@ -183,17 +183,17 @@ export function SendFader({
       >
         {/* Fader track - gold/amber color for sends */}
         <div
-          className={`absolute bottom-0 left-0 right-0 bg-amber-500 rounded-b ${hasMounted ? 'transition-all duration-75' : ''}`}
+          className={`absolute bottom-0 left-0 right-0 bg-sends-primary rounded-b ${hasMounted ? 'transition-all duration-75' : ''}`}
           style={{ height: handleHeight }}
         />
         {/* Fader handle - slightly amber tinted */}
         <div
-          className={`absolute left-0 right-0 h-3 bg-amber-100 rounded shadow-md ${hasMounted ? 'transition-all duration-75' : ''}`}
+          className={`absolute left-0 right-0 h-3 bg-sends-light rounded shadow-md ${hasMounted ? 'transition-all duration-75' : ''}`}
           style={{ bottom: Math.max(0, handleHeight - 6) }}
         />
       </div>
       {showDbLabel && (
-        <span className={`text-[10px] font-mono whitespace-nowrap ${isMuted ? 'text-amber-500/50 line-through' : 'text-amber-500'}`}>
+        <span className={`text-[10px] font-mono whitespace-nowrap ${isMuted ? 'text-sends-primary/50 line-through' : 'text-sends-primary'}`}>
           {volumeDb}
         </span>
       )}

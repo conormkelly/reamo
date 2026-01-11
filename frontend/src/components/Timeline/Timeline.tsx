@@ -857,7 +857,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
             className={`absolute top-0 bottom-0 border-l-2 border-r-2 pointer-events-none ${
               timelineMode === 'regions'
                 ? 'bg-bg-disabled/5 border-border-subtle opacity-50'
-                : 'bg-white/15 border-white/60'
+                : 'bg-selection-overlay-bg border-selection-overlay-border'
             }`}
             style={{
               left: `${renderTimeToPercent(timeSelectionSeconds.start)}%`,
@@ -1011,7 +1011,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         {timeSelectionSeconds && (
           <div
             className={`absolute top-0 h-1/2 ${
-              timelineMode === 'regions' ? 'bg-bg-hover opacity-40' : 'bg-white/70'
+              timelineMode === 'regions' ? 'bg-bg-hover opacity-40' : 'bg-selection-indicator'
             }`}
             style={{
               left: `${renderTimeToPercent(timeSelectionSeconds.start)}%`,

@@ -155,7 +155,7 @@ function HorizontalSendFader({
         onClick={handleToggleMute}
         className={`w-11 h-11 flex items-center justify-center rounded-lg transition-colors ${
           muted
-            ? 'bg-amber-500/20 text-amber-500'
+            ? 'bg-sends-primary/20 text-sends-primary'
             : 'bg-bg-surface text-text-secondary hover:bg-bg-elevated'
         }`}
         title={muted ? 'Unmute send' : 'Mute send'}
@@ -173,25 +173,25 @@ function HorizontalSendFader({
         ref={containerRef}
         className={`relative flex-1 h-8 bg-bg-elevated rounded touch-none ${
           mixerLocked ? 'cursor-not-allowed opacity-50' : 'cursor-ew-resize'
-        } ${isDragging ? 'ring-2 ring-amber-500/50' : ''}`}
+        } ${isDragging ? 'ring-2 ring-sends-ring' : ''}`}
         onMouseDown={handleMouseDown}
         onTouchStart={handleMouseDown}
         title="Send level - double-tap to reset to 0dB"
       >
         {/* Fill */}
         <div
-          className="absolute top-0 bottom-0 left-0 bg-amber-500 rounded-l transition-all duration-75"
+          className="absolute top-0 bottom-0 left-0 bg-sends-primary rounded-l transition-all duration-75"
           style={{ width: `${indicatorPosition}%` }}
         />
         {/* Handle */}
         <div
-          className="absolute top-1 bottom-1 w-3 bg-amber-100 rounded shadow-md transition-all duration-75"
+          className="absolute top-1 bottom-1 w-3 bg-sends-light rounded shadow-md transition-all duration-75"
           style={{ left: `calc(${indicatorPosition}% - 6px)` }}
         />
       </div>
 
       {/* dB readout */}
-      <span className={`text-xs font-mono w-16 text-right ${muted ? 'text-amber-500/50 line-through' : 'text-amber-500'}`}>
+      <span className={`text-xs font-mono w-16 text-right ${muted ? 'text-sends-primary/50 line-through' : 'text-sends-primary'}`}>
         {volumeDb}
       </span>
     </div>
@@ -219,7 +219,7 @@ function ReceiveRow({
       {/* Mute indicator (read-only) */}
       <div
         className={`w-11 h-11 flex items-center justify-center rounded-lg ${
-          muted ? 'bg-amber-500/20 text-amber-500' : 'bg-bg-surface text-text-muted'
+          muted ? 'bg-sends-primary/20 text-sends-primary' : 'bg-bg-surface text-text-muted'
         }`}
         title={muted ? 'Send is muted' : 'Send is active'}
       >
@@ -316,7 +316,7 @@ export function RoutingModal({
             disabled={!hasSends}
             className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
               activeTab === 'sends'
-                ? 'bg-amber-500/20 text-amber-500 border border-amber-500/50'
+                ? 'bg-sends-primary/20 text-sends-primary border border-sends-border'
                 : hasSends
                   ? 'bg-bg-surface text-text-secondary hover:bg-bg-elevated border border-border-subtle'
                   : 'bg-bg-surface/50 text-text-muted border border-border-subtle cursor-not-allowed'

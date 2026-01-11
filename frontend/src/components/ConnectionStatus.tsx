@@ -5,7 +5,7 @@
  * - ConnectionBanner: Full-width banner when disconnected/error
  */
 
-import { useState, useEffect, useCallback, type ReactElement } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactElement } from 'react';
 import { Wifi, WifiOff, RefreshCw } from 'lucide-react';
 import { useReaper } from './ReaperProvider';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
@@ -50,7 +50,7 @@ export function ConnectionStatus({ className = '' }: ConnectionStatusProps): Rea
   const { connected, errorCount, gaveUp } = useReaper();
   const [networkQuality, setNetworkQuality] = useState<NetworkQuality>('excellent');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [pressTimer, setPressTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Poll network quality when connected
   useEffect(() => {
@@ -70,19 +70,27 @@ export function ConnectionStatus({ className = '' }: ConnectionStatusProps): Rea
 
   // Long press handling - opens stats modal
   const handlePointerDown = useCallback(() => {
-    const timer = setTimeout(() => {
+    pressTimerRef.current = setTimeout(() => {
       setIsModalOpen(true);
-      setPressTimer(null);
+      pressTimerRef.current = null;
     }, 500);
-    setPressTimer(timer);
   }, []);
 
   const handlePointerUp = useCallback(() => {
-    if (pressTimer) {
-      clearTimeout(pressTimer);
-      setPressTimer(null);
+    if (pressTimerRef.current) {
+      clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
     }
-  }, [pressTimer]);
+  }, []);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (pressTimerRef.current) {
+        clearTimeout(pressTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleCloseModal = useCallback(() => {
     setIsModalOpen(false);

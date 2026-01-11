@@ -74,7 +74,7 @@ export function SendStrip({
   // Border color based on info selection (send mode has amber tint)
   const borderClass = isInfoSelected
     ? 'border-2 border-accent-region'
-    : 'border border-amber-500/30';
+    : 'border border-sends-border';
 
   return (
     <div
@@ -137,7 +137,7 @@ export function SendStrip({
 
       {/* Destination name */}
       <div
-        className="w-full text-center text-[10px] text-amber-500 truncate px-1 pb-1"
+        className="w-full text-center text-[10px] text-sends-primary truncate px-1 pb-1"
         title={`Send to: ${destName}`}
       >
         → {destName}
@@ -145,7 +145,7 @@ export function SendStrip({
 
       {/* Selection footer - separate visual area */}
       {onSelectForInfo && (
-        <div className="w-full mt-1 pt-2 pb-2 bg-bg-deep rounded-b-lg border-t border-amber-500/20 flex justify-center">
+        <div className="w-full mt-1 pt-2 pb-2 bg-bg-deep rounded-b-lg border-t border-sends-border flex justify-center">
           <button
             onClick={() => onSelectForInfo(trackIndex)}
             className={`w-5 h-5 rounded-full border-2 transition-colors ${

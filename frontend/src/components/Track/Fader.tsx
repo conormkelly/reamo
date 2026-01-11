@@ -170,7 +170,7 @@ export function Fader({
         />
         {/* Fader handle */}
         <div
-          className={`absolute left-0 right-0 h-3 bg-white rounded shadow-md ${hasMounted ? 'transition-all duration-75' : ''}`}
+          className={`absolute left-0 right-0 h-3 bg-fader-handle rounded shadow-md ${hasMounted ? 'transition-all duration-75' : ''}`}
           style={{ bottom: Math.max(0, handleHeight - 6) }}
         />
       </div>

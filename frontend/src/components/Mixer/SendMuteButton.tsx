@@ -45,7 +45,7 @@ export function SendMuteButton({
   const stateStyles = !hasSend
     ? 'bg-bg-disabled text-text-disabled cursor-default opacity-30'
     : isMuted
-      ? 'bg-amber-600 text-white'
+      ? 'bg-sends-hover text-white'
       : isSelected
         ? 'bg-bg-disabled text-text-secondary hover:bg-bg-elevated'
         : 'bg-bg-elevated text-text-secondary hover:bg-bg-surface';

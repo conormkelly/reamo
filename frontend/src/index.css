@@ -228,6 +228,28 @@
 
   /* === Shadows === */
   --color-shadow-contrast: rgba(0, 0, 0, 0.5); /* outline for contrast */
+
+  /* === Sends Mode (Mixer) === */
+  --color-sends-primary: #f59e0b;      /* amber-500 */
+  --color-sends-hover: #d97706;        /* amber-600 */
+  --color-sends-light: #fef3c7;        /* amber-100 */
+  --color-sends-muted: #fbbf24;        /* amber-400 */
+  --color-sends-border: rgba(245, 158, 11, 0.2);  /* amber-500/20 */
+  --color-sends-ring: rgba(245, 158, 11, 0.5);    /* amber-500/50 */
+
+  /* === Fader Handle === */
+  --color-fader-handle: white;
+
+  /* === Selection Overlay (Timeline white borders) === */
+  --color-selection-overlay-border: rgba(255, 255, 255, 0.6);
+  --color-selection-overlay-bg: rgba(255, 255, 255, 0.15);
+  --color-selection-indicator: rgba(255, 255, 255, 0.7);
+
+  /* === Routing Indicators (Mixer) === */
+  --color-routing-master: #00B4C5;
+  --color-routing-sends: #C5A000;
+  --color-routing-receives: #0077C5;
+  --color-routing-disabled: #4A4A4A;
 }
 
 :root {
