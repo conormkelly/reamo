@@ -1,88 +1,152 @@
 /**
  * Timeline Footer Controls
- * Provides zoom, follow playhead, and selection mode controls
- * Positioned as a footer bar beneath the marker pills
+ * Provides marker navigation, mode toggles, and zoom controls
+ * Layout: [⏮⏭] | [📍⬚] | [−][30s][+][⬛]
  */
 
-import { type ReactElement } from 'react';
-import { Crosshair, Locate } from 'lucide-react';
+import { useRef, useCallback, useEffect, type ReactElement } from 'react';
+import { SquareDashedMousePointer, Locate, SkipBack, SkipForward } from 'lucide-react';
 import { ZoomControls } from './ZoomControls';
 
 export interface TimelineFooterProps {
-  /** Whether follow playhead is active */
+  // Marker navigation
+  onPrevMarker: () => void;
+  onNextMarker: () => void;
+
+  // Mode toggles
   followPlayhead: boolean;
-  /** Toggle follow playhead */
   onFollowPlayheadToggle: () => void;
-  /** Whether selection mode is active */
   selectionModeActive: boolean;
-  /** Toggle selection mode */
   onSelectionModeToggle: () => void;
-  /** Current zoom level index */
-  zoomLevel: number;
-  /** Visible duration in seconds */
+  onSelectionLongPress?: () => void;
+
+  // Zoom controls
   visibleDuration: number;
-  /** Zoom in callback */
   onZoomIn: () => void;
-  /** Zoom out callback */
   onZoomOut: () => void;
-  /** Fit to content callback */
   onFitToContent: () => void;
 }
 
+// Long-press duration in ms
+const LONG_PRESS_DURATION = 400;
+
 export function TimelineFooter({
+  onPrevMarker,
+  onNextMarker,
   followPlayhead,
   onFollowPlayheadToggle,
   selectionModeActive,
   onSelectionModeToggle,
-  zoomLevel,
+  onSelectionLongPress,
   visibleDuration,
   onZoomIn,
   onZoomOut,
   onFitToContent,
 }: TimelineFooterProps): ReactElement {
+  // Long-press handling for selection button
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wasLongPressRef = useRef(false);
+
+  const handleSelectionPointerDown = useCallback(() => {
+    wasLongPressRef.current = false;
+    longPressTimerRef.current = setTimeout(() => {
+      wasLongPressRef.current = true;
+      onSelectionLongPress?.();
+    }, LONG_PRESS_DURATION);
+  }, [onSelectionLongPress]);
+
+  const handleSelectionPointerUp = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    // Only toggle if it wasn't a long press
+    if (!wasLongPressRef.current) {
+      onSelectionModeToggle();
+    }
+  }, [onSelectionModeToggle]);
+
+  const handleSelectionPointerCancel = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Common button styles
+  const buttonBase = 'p-2.5 rounded-lg transition-colors touch-none select-none';
+  const buttonWide = 'py-2.5 px-4 rounded-lg transition-colors touch-none select-none'; // Wider for nav buttons
+  const buttonInactive = 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary active:bg-bg-surface';
+  const buttonActive = 'bg-primary text-text-on-primary';
+
   return (
-    <div className="flex items-center justify-end gap-1 px-2 py-1 bg-bg-deep rounded-b-lg border-t border-border-subtle">
-      {/* Follow playhead toggle */}
-      <button
-        data-testid="follow-playhead-toggle"
-        onClick={onFollowPlayheadToggle}
-        className={`p-1.5 rounded transition-colors ${
-          followPlayhead
-            ? 'bg-primary text-text-on-primary'
-            : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'
-        }`}
-        title={followPlayhead ? 'Stop following playhead' : 'Find and follow playhead'}
-        aria-pressed={followPlayhead}
-      >
-        <Locate size={14} />
-      </button>
+    <div className="flex items-center px-2 py-2 bg-bg-deep rounded-b-lg border-t border-border-subtle">
+      {/* Left: Mode toggles - flex-1 to balance */}
+      <div className="flex-1 flex items-center gap-1">
+        {/* Follow playhead */}
+        <button
+          data-testid="follow-playhead-toggle"
+          onClick={onFollowPlayheadToggle}
+          className={`${buttonBase} ${followPlayhead ? buttonActive : buttonInactive}`}
+          title={followPlayhead ? 'Stop following playhead' : 'Find and follow playhead'}
+          aria-pressed={followPlayhead}
+        >
+          <Locate size={18} />
+        </button>
 
-      {/* Selection mode toggle */}
-      <button
-        data-testid="selection-toggle"
-        onClick={onSelectionModeToggle}
-        className={`p-1.5 rounded transition-colors ${
-          selectionModeActive
-            ? 'bg-primary text-text-on-primary'
-            : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'
-        }`}
-        title={selectionModeActive ? 'Exit selection mode (pan mode)' : 'Enter selection mode'}
-        aria-pressed={selectionModeActive}
-      >
-        <Crosshair size={14} />
-      </button>
+        {/* Selection mode - supports long-press for manual input */}
+        <button
+          data-testid="selection-toggle"
+          onPointerDown={handleSelectionPointerDown}
+          onPointerUp={handleSelectionPointerUp}
+          onPointerCancel={handleSelectionPointerCancel}
+          onPointerLeave={handleSelectionPointerCancel}
+          className={`${buttonBase} ${selectionModeActive ? buttonActive : buttonInactive}`}
+          title={selectionModeActive ? 'Exit selection mode' : 'Selection mode (hold for manual input)'}
+          aria-pressed={selectionModeActive}
+        >
+          <SquareDashedMousePointer size={18} />
+        </button>
+      </div>
 
-      {/* Divider */}
-      <div className="w-px h-4 bg-border-subtle mx-1" />
+      {/* Center: Marker navigation */}
+      <div className="flex items-center">
+        <button
+          onClick={onPrevMarker}
+          className={`${buttonWide} ${buttonInactive}`}
+          title="Previous marker"
+          aria-label="Previous marker"
+        >
+          <SkipBack size={18} />
+        </button>
+        <button
+          onClick={onNextMarker}
+          className={`${buttonWide} ${buttonInactive}`}
+          title="Next marker"
+          aria-label="Next marker"
+        >
+          <SkipForward size={18} />
+        </button>
+      </div>
 
-      {/* Zoom controls */}
-      <ZoomControls
-        zoomLevel={zoomLevel}
-        visibleDuration={visibleDuration}
-        onZoomIn={onZoomIn}
-        onZoomOut={onZoomOut}
-        onFitToContent={onFitToContent}
-      />
+      {/* Right: Zoom controls - flex-1 to balance */}
+      <div className="flex-1 flex items-center justify-end">
+        <ZoomControls
+          visibleDuration={visibleDuration}
+          onZoomIn={onZoomIn}
+          onZoomOut={onZoomOut}
+          onFitToContent={onFitToContent}
+        />
+      </div>
     </div>
   );
 }

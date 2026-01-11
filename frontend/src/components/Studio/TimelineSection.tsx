@@ -5,7 +5,6 @@
  */
 
 import { useMemo, type ReactElement } from 'react';
-import { RectangleHorizontal } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import {
   Timeline,
@@ -13,9 +12,6 @@ import {
   RegionInfoBar,
   RegionEditActionBar,
   MarkerInfoBar,
-  PrevMarkerButton,
-  NextMarkerButton,
-  AddMarkerButton,
   TimelineModeToggle,
 } from '../index';
 
@@ -32,7 +28,6 @@ export function TimelineSection(): ReactElement {
   const regions = useReaperStore((s) => s.regions);
   const timeSelection = useReaperStore((s) => s.timeSelection);
   const openAddRegionModal = useReaperStore((s) => s.openAddRegionModal);
-  const openMakeSelectionModal = useReaperStore((s) => s.openMakeSelectionModal);
 
   // Compute timeline bounds for Items mode
   const itemsTimelineBounds = useMemo(() => {
@@ -72,26 +67,10 @@ export function TimelineSection(): ReactElement {
         </>
       )}
 
-      {/* Marker Info & Navigation - only shown in navigate mode */}
+      {/* Marker Info - only shown in navigate mode */}
       {timelineMode === 'navigate' && (
-        <section className="mt-6 flex flex-col sm:flex-row sm:items-center gap-3">
-          {/* Marker Info Bar - shows current marker with editing */}
-          <MarkerInfoBar className="flex-1" />
-
-          {/* Navigation buttons */}
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              onClick={openMakeSelectionModal}
-              title="Set time selection"
-              className="px-3 py-2 bg-bg-elevated text-text-primary hover:bg-bg-hover active:bg-bg-disabled rounded font-medium transition-colors flex items-center"
-            >
-              <RectangleHorizontal size={16} className="mr-1" />
-              <span>Selection</span>
-            </button>
-            <PrevMarkerButton />
-            <NextMarkerButton />
-            <AddMarkerButton />
-          </div>
+        <section className="mt-4">
+          <MarkerInfoBar />
         </section>
       )}
     </>

@@ -20,7 +20,7 @@ import {
   useReducedMotion,
   type MarkerClusterData,
 } from '../../hooks';
-import { transport, timeSelection as timeSelCmd, marker as markerCmd } from '../../core/WebSocketCommands';
+import { transport, timeSelection as timeSelCmd, marker as markerCmd, action } from '../../core/WebSocketCommands';
 import { usePlayheadDrag, useMarkerDrag, useRegionDrag, usePanGesture, useEdgeScroll } from './hooks';
 import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
 import { ItemsDensityOverlay } from './ItemDensityBlobs';
@@ -153,6 +153,16 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
 
   // Modal actions from store (modals rendered by ModalRoot)
   const openMarkerEditModal = useReaperStore((s) => s.openMarkerEditModal);
+  const openMakeSelectionModal = useReaperStore((s) => s.openMakeSelectionModal);
+
+  // Marker navigation callbacks
+  const handlePrevMarker = useCallback(() => {
+    sendCommand(action.execute(40172)); // Go to previous marker/project start
+  }, [sendCommand]);
+
+  const handleNextMarker = useCallback(() => {
+    sendCommand(action.execute(40173)); // Go to next marker/project end
+  }, [sendCommand]);
 
   // Track max playhead position reached during playback
   // This allows viewport to extend past the initial project end (like REAPER's soft-end behavior)
@@ -984,6 +994,10 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       {/* Footer controls - only in navigate mode */}
       {timelineMode === 'navigate' && (
         <TimelineFooter
+          // Marker navigation
+          onPrevMarker={handlePrevMarker}
+          onNextMarker={handleNextMarker}
+          // Mode toggles
           followPlayhead={followPlayhead}
           onFollowPlayheadToggle={() => {
             if (!followPlayhead) {
@@ -999,10 +1013,11 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           }}
           selectionModeActive={selectionModeActive}
           onSelectionModeToggle={() => setSelectionModeActive(!selectionModeActive)}
-          zoomLevel={viewport.zoomLevel}
+          onSelectionLongPress={openMakeSelectionModal}
+          // Zoom controls
           visibleDuration={viewport.visibleDuration}
-          onZoomIn={viewport.zoomIn}
-          onZoomOut={viewport.zoomOut}
+          onZoomIn={() => viewport.zoomIn()}
+          onZoomOut={() => viewport.zoomOut()}
           onFitToContent={() => viewport.fitToContent({ start: baseTimelineStart, end: baseTimelineStart + baseDuration })}
         />
       )}
