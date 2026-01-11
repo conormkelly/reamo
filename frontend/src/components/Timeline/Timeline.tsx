@@ -26,8 +26,7 @@ import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
 import { ItemsDensityOverlay } from './ItemDensityBlobs';
 import { ClusteredMarkerLines, ClusteredMarkerPills } from './TimelineMarkers';
 import { TimelinePlayhead, PlayheadDragPreview, PlayheadPreviewPill, MarkerDragPreview } from './TimelinePlayhead';
-import { ZoomControls } from './ZoomControls';
-import { Crosshair, Locate } from 'lucide-react';
+import { TimelineFooter } from './TimelineFooter';
 import { formatBeats, formatDelta } from '../../utils';
 import { timeToBarBeat, formatBarBeat } from '../../core/tempoUtils';
 import { findNearestSnapTarget } from './snapUtils';
@@ -934,49 +933,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           denominator={denominator}
         />
 
-        {/* Viewport controls overlay - only in navigate mode */}
-        {timelineMode === 'navigate' && (
-          <div className="absolute bottom-1 right-1 flex items-center gap-1 z-30 pointer-events-auto">
-            {/* Follow playhead toggle */}
-            <button
-              data-testid="follow-playhead-toggle"
-              onClick={() => setFollowPlayhead(!followPlayhead)}
-              className={`p-1.5 rounded transition-colors ${
-                followPlayhead
-                  ? 'bg-primary text-text-on-primary'
-                  : 'bg-bg-deep/80 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'
-              }`}
-              title={followPlayhead ? 'Stop following playhead' : 'Follow playhead'}
-              aria-pressed={followPlayhead}
-            >
-              <Locate size={14} />
-            </button>
-            {/* Selection mode toggle */}
-            <button
-              data-testid="selection-toggle"
-              onClick={() => setSelectionModeActive(!selectionModeActive)}
-              className={`p-1.5 rounded transition-colors ${
-                selectionModeActive
-                  ? 'bg-primary text-text-on-primary'
-                  : 'bg-bg-deep/80 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'
-              }`}
-              title={selectionModeActive ? 'Exit selection mode (pan mode)' : 'Enter selection mode'}
-              aria-pressed={selectionModeActive}
-            >
-              <Crosshair size={14} />
-            </button>
-            {/* Zoom controls */}
-            <div className="bg-bg-deep/80 rounded px-1">
-              <ZoomControls
-                zoomLevel={viewport.zoomLevel}
-                visibleDuration={viewport.visibleDuration}
-                onZoomIn={viewport.zoomIn}
-                onZoomOut={viewport.zoomOut}
-                onFitToContent={() => viewport.fitToContent({ start: baseTimelineStart, end: baseTimelineStart + baseDuration })}
-              />
-            </div>
-          </div>
-        )}
 
         {/* Empty state - show only if no visible content */}
         {visibleRegions.length === 0 && visibleMarkers.length === 0 && (
@@ -998,7 +954,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       </div>
 
       {/* Bottom bar - selection indicator and marker pills */}
-      <div className="relative h-5 bg-bg-deep rounded-b-lg overflow-hidden">
+      <div className={`relative h-5 bg-bg-deep overflow-hidden ${timelineMode !== 'navigate' ? 'rounded-b-lg' : ''}`}>
         {/* Time selection indicator - top half */}
         {timeSelectionSeconds && (
           <div
@@ -1024,6 +980,21 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
           onClusterTap={handleClusterTap}
         />
       </div>
+
+      {/* Footer controls - only in navigate mode */}
+      {timelineMode === 'navigate' && (
+        <TimelineFooter
+          followPlayhead={followPlayhead}
+          onFollowPlayheadToggle={() => setFollowPlayhead(!followPlayhead)}
+          selectionModeActive={selectionModeActive}
+          onSelectionModeToggle={() => setSelectionModeActive(!selectionModeActive)}
+          zoomLevel={viewport.zoomLevel}
+          visibleDuration={viewport.visibleDuration}
+          onZoomIn={viewport.zoomIn}
+          onZoomOut={viewport.zoomOut}
+          onFitToContent={() => viewport.fitToContent({ start: baseTimelineStart, end: baseTimelineStart + baseDuration })}
+        />
+      )}
     </div>
   );
 }

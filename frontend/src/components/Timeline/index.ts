@@ -1,4 +1,5 @@
 export { Timeline, type TimelineProps } from './Timeline';
+export { TimelineFooter, type TimelineFooterProps } from './TimelineFooter';
 export { TimelineModeToggle } from './TimelineModeToggle';
 export { RegionEditActionBar } from './RegionEditActionBar';
 export { RegionInfoBar } from './RegionInfoBar';
