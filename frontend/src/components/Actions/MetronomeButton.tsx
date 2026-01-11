@@ -128,7 +128,7 @@ export function MetronomeButton({
         className={`
           ${sizeClasses[size]}
           ${activeClass}
-          rounded font-medium transition-colors touch-none select-none
+          rounded font-medium transition-colors touch-none
           ${className}
         `}
       >

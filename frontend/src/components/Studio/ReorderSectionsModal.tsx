@@ -65,7 +65,7 @@ export function ReorderSectionsModal({ isOpen, onClose }: ReorderSectionsModalPr
             data-testid="reorder-section-item"
             {...getDragItemProps(index)}
             className={`
-              flex items-center gap-3 p-3 rounded-lg transition-all cursor-grab active:cursor-grabbing touch-none select-none
+              flex items-center gap-3 p-3 rounded-lg transition-all cursor-grab active:cursor-grabbing touch-none
               bg-bg-deep ring-1 ring-edit-mode-ring
               ${isDragging(index) ? 'opacity-50' : ''}
               ${isDragTarget(index) ? 'ring-2 ring-drag-target-ring scale-[1.02]' : ''}

@@ -153,7 +153,7 @@ export function PanKnob({
     <div className={`flex flex-col items-center gap-1 ${className}`}>
       <div
         ref={containerRef}
-        className={`relative h-4 rounded select-none touch-none ${
+        className={`relative h-4 rounded touch-none ${
           isSelected ? 'bg-bg-disabled' : 'bg-bg-elevated'
         } ${mixerLocked ? 'cursor-not-allowed opacity-50' : 'cursor-ew-resize'} ${
           isDragging ? 'ring-2 ring-control-ring' : ''

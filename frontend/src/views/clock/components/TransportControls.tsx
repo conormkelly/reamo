@@ -190,7 +190,7 @@ export function TransportControls({ scale }: TransportControlsProps): ReactEleme
         data-action="record"
         className={`
           aspect-square rounded-full flex items-center justify-center
-          transition-colors shadow-lg touch-none select-none
+          transition-colors shadow-lg touch-none
           ${isRecording ? 'bg-record animate-pulse' : recordInactiveClass}
         `}
         style={{

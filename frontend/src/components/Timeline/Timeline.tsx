@@ -820,7 +820,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         data-zoom-level={viewport.zoomLevel}
         data-visible-duration={viewport.visibleDuration.toFixed(2)}
         data-selection-mode={selectionModeActive}
-        className="relative bg-bg-surface overflow-hidden touch-none select-none"
+        className="relative bg-bg-surface overflow-hidden touch-none"
         style={{ height }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}

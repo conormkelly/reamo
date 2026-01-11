@@ -65,7 +65,7 @@ function AppContent() {
   const ViewComponent = views[currentView];
 
   return (
-    <div className="flex flex-col h-screen-safe bg-bg-app overflow-hidden safe-area-top safe-area-x">
+    <div className="flex flex-col h-screen-safe bg-bg-app overflow-hidden safe-area-top safe-area-x select-none">
       {/* Connection banner - shown at top when disconnected */}
       <ConnectionBanner />
 

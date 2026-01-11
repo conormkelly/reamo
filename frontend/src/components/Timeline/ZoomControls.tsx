@@ -72,7 +72,7 @@ export function ZoomControls({
   }, [isOpen]);
 
   const zoomButtonStyle =
-    'p-3 rounded-lg transition-colors touch-none select-none text-text-secondary hover:bg-bg-hover active:bg-bg-surface';
+    'p-3 rounded-lg transition-colors touch-none text-text-secondary hover:bg-bg-hover active:bg-bg-surface';
 
   return (
     <div className={`relative flex items-center gap-1 ${className}`}>
@@ -80,7 +80,7 @@ export function ZoomControls({
       <button
         ref={buttonRef}
         onClick={() => setIsOpen(!isOpen)}
-        className="flex flex-col items-center p-1.5 rounded-lg transition-colors touch-none select-none text-text-tertiary hover:bg-bg-hover hover:text-text-secondary active:bg-bg-surface"
+        className="flex flex-col items-center p-1.5 rounded-lg transition-colors touch-none text-text-tertiary hover:bg-bg-hover hover:text-text-secondary active:bg-bg-surface"
         title="Zoom controls"
         aria-label="Open zoom controls"
         aria-expanded={isOpen}
@@ -123,7 +123,7 @@ export function ZoomControls({
             e.stopPropagation();
             onFitToContent();
           }}
-          className="p-1.5 rounded transition-colors touch-none select-none text-text-tertiary hover:bg-bg-hover hover:text-text-secondary active:bg-bg-surface"
+          className="p-1.5 rounded transition-colors touch-none text-text-tertiary hover:bg-bg-hover hover:text-text-secondary active:bg-bg-surface"
           title="Fit to content"
           aria-label="Fit to content"
         >

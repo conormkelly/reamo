@@ -97,7 +97,7 @@ export function ClockView(): ReactElement {
   return (
     <div
       data-view="clock"
-      className="h-full w-full bg-bg-clock text-text-primary flex flex-col select-none overflow-hidden relative"
+      className="h-full w-full bg-bg-clock text-text-primary flex flex-col overflow-hidden relative"
       style={{ containerType: 'size' }}
     >
       {/* Header overlay - semi-transparent so clock content shows through */}

@@ -129,7 +129,7 @@ export function PlaylistEntryRow({
       onTouchMove={reorderMode ? onTouchMove : undefined}
       onTouchEnd={reorderMode ? onTouchEnd : undefined}
       className={`relative overflow-hidden transition-colors ${
-        reorderMode ? 'touch-none select-none cursor-grab' : 'cursor-pointer'
+        reorderMode ? 'touch-none cursor-grab' : 'cursor-pointer'
       } ${
         isNowPlaying
           ? 'bg-bg-surface rounded-lg'

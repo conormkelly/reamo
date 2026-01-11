@@ -698,7 +698,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
           onPointerMove={handleAddPointerMove}
           onPointerLeave={handleAddPointerLeave}
           onPointerCancel={handleAddPointerLeave}
-          className={`flex items-center gap-1.5 px-3 py-2 h-10 text-text-primary text-sm font-medium rounded-lg transition-colors flex-shrink-0 select-none touch-none ${
+          className={`flex items-center gap-1.5 px-3 py-2 h-10 text-text-primary text-sm font-medium rounded-lg transition-colors flex-shrink-0 touch-none ${
             isCloneMode
               ? 'bg-success-action hover:bg-success'
               : 'bg-accent-region hover:bg-accent-region-hover'

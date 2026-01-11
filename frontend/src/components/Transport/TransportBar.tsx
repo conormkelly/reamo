@@ -202,7 +202,7 @@ export function TransportBar({ className = '' }: TransportBarProps): ReactElemen
         aria-pressed={isRecording}
         className={`
           w-11 h-11 rounded-full flex items-center justify-center
-          transition-colors touch-none select-none
+          transition-colors touch-none
           ${isRecording ? 'bg-error animate-pulse' : recordInactiveClass}
         `}
       >

@@ -122,7 +122,7 @@ export function ToolbarButton({
 
       {/* Label */}
       <span
-        className={`${sizeConfig.text} font-medium truncate max-w-full select-none`}
+        className={`${sizeConfig.text} font-medium truncate max-w-full`}
         style={{ color: textColor }}
       >
         {action.label}
@@ -138,7 +138,7 @@ export function ToolbarButton({
       {/* Toggle state indicator dot - always show for REAPER actions (except non-toggles) */}
       {action.type === 'reaper_action' && toggleState !== -1 && (
         <div
-          className={`absolute top-1 right-1 w-3 h-3 rounded-full border-2 border-white shadow-md select-none ${
+          className={`absolute top-1 right-1 w-3 h-3 rounded-full border-2 border-white shadow-md ${
             toggleState === 1
               ? 'bg-success'
               : toggleState === 0

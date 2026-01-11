@@ -403,3 +403,13 @@ body {
     animation: none !important;
   }
 }
+
+/* =============================================================================
+ * TEXT SELECTION
+ * App globally disables text selection (mobile-like UX), but text inputs need it.
+ * ============================================================================= */
+
+input,
+textarea {
+  user-select: text;
+}

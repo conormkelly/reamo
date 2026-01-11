@@ -83,8 +83,8 @@ export function TimelineFooter({
   }, []);
 
   // Common button styles
-  const buttonBase = 'p-2.5 rounded-lg transition-colors touch-none select-none';
-  const buttonWide = 'py-2.5 px-4 rounded-lg transition-colors touch-none select-none'; // Wider for nav buttons
+  const buttonBase = 'p-2.5 rounded-lg transition-colors touch-none';
+  const buttonWide = 'py-2.5 px-4 rounded-lg transition-colors touch-none'; // Wider for nav buttons
   const buttonInactive = 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary active:bg-bg-surface';
   const buttonActive = 'bg-primary text-text-on-primary';
 

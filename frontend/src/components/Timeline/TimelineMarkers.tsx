@@ -118,7 +118,7 @@ export function TimelineMarkerPills({
             role="button"
             aria-label={ariaLabel}
             aria-disabled={isDisabled}
-            className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center touch-none select-none transition-opacity bg-bg-surface ${
+            className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center touch-none transition-opacity bg-bg-surface ${
               isDisabled
                 ? 'pointer-events-none opacity-40'
                 : 'cursor-grab active:cursor-grabbing'
@@ -260,7 +260,7 @@ export function ClusteredMarkerPills({
               role="button"
               aria-label={ariaLabel}
               aria-disabled={isDisabled}
-              className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center touch-none select-none transition-opacity bg-bg-surface ${
+              className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 min-w-5 h-5 px-1.5 rounded-full flex items-center justify-center touch-none transition-opacity bg-bg-surface ${
                 isDisabled
                   ? 'pointer-events-none opacity-40'
                   : 'cursor-grab active:cursor-grabbing'
@@ -293,7 +293,7 @@ export function ClusteredMarkerPills({
             type="button"
             aria-label={ariaLabel}
             aria-disabled={isDisabled}
-            className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 min-w-6 h-5 px-2 rounded-full flex items-center justify-center touch-none select-none transition-opacity bg-bg-surface ${
+            className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 min-w-6 h-5 px-2 rounded-full flex items-center justify-center touch-none transition-opacity bg-bg-surface ${
               isDisabled ? 'pointer-events-none opacity-40' : 'cursor-pointer hover:opacity-80'
             }`}
             style={{

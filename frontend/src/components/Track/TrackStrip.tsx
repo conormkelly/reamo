@@ -81,7 +81,7 @@ export function TrackStrip({
 
   return (
     <div
-      className={`flex flex-col items-center ${roundedClass} border border-t-0 w-[100px] select-none ${className}`}
+      className={`flex flex-col items-center ${roundedClass} border border-t-0 w-[100px] ${className}`}
       style={{
         backgroundColor,
         borderLeftColor: sideBorderColor,

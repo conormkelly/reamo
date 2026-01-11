@@ -166,7 +166,7 @@ export function TapTempoButton({
         className={`
           ${sizeClasses[size]}
           bg-bg-elevated text-text-primary hover:bg-bg-hover active:bg-bg-disabled
-          rounded font-medium font-mono transition-colors touch-none select-none
+          rounded font-medium font-mono transition-colors touch-none
           ${className}
         `}
       >

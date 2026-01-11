@@ -150,7 +150,7 @@ export function Fader({
     <div className={`flex flex-col items-center gap-1 ${className}`}>
       <div
         ref={containerRef}
-        className={`relative w-8 rounded select-none touch-none ${
+        className={`relative w-8 rounded touch-none ${
           isSelected ? 'bg-bg-disabled' : 'bg-bg-elevated'
         } ${mixerLocked ? 'cursor-not-allowed opacity-50' : 'cursor-ns-resize'} ${
           isDragging ? 'ring-2 ring-control-ring' : ''

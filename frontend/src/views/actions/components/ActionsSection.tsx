@@ -131,8 +131,8 @@ export function ActionsSection({
               style={{ color: section.color || 'var(--color-text-secondary)' }}
             />
           )}
-          <span className="font-medium text-text-primary truncate select-none">{section.name}</span>
-          <span className="text-sm text-text-muted select-none">({section.actions.length})</span>
+          <span className="font-medium text-text-primary truncate">{section.name}</span>
+          <span className="text-sm text-text-muted">({section.actions.length})</span>
         </button>
 
         {/* Alignment buttons (edit mode only) */}
@@ -186,7 +186,7 @@ export function ActionsSection({
               isDragTarget={isDragTarget}
             />
           ) : (
-            <div className="text-center text-text-muted py-4 select-none">
+            <div className="text-center text-text-muted py-4">
               {editMode ? 'No actions yet. Tap + to add.' : 'No actions configured'}
             </div>
           )}
@@ -195,7 +195,7 @@ export function ActionsSection({
           {editMode && (
             <button
               onClick={onAddAction}
-              className="w-full mt-3 py-2 border-2 border-dashed border-border-subtle rounded-lg text-text-secondary hover:border-bg-hover hover:text-text-tertiary transition-colors flex items-center justify-center gap-2 select-none"
+              className="w-full mt-3 py-2 border-2 border-dashed border-border-subtle rounded-lg text-text-secondary hover:border-bg-hover hover:text-text-tertiary transition-colors flex items-center justify-center gap-2"
             >
               <Plus size={16} />
               <span>Add Action</span>

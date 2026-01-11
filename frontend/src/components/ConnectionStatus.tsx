@@ -98,7 +98,7 @@ export function ConnectionStatus({ className = '' }: ConnectionStatusProps): Rea
   return (
     <>
       <div
-        className={`flex items-center cursor-pointer select-none touch-none ${className}`}
+        className={`flex items-center cursor-pointer touch-none ${className}`}
         title={connected ? `${QUALITY_TITLES[networkQuality]} (hold for stats)` : 'Reconnecting...'}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
