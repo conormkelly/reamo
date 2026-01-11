@@ -21,7 +21,7 @@ import {
   type MarkerClusterData,
 } from '../../hooks';
 import { transport, timeSelection as timeSelCmd, marker as markerCmd, action } from '../../core/WebSocketCommands';
-import { usePlayheadDrag, useMarkerDrag, useRegionDrag, usePanGesture, useEdgeScroll } from './hooks';
+import { usePlayheadDrag, useMarkerDrag, useRegionDrag, usePanGesture, usePinchGesture, useEdgeScroll } from './hooks';
 import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
 import { ItemsDensityOverlay } from './ItemDensityBlobs';
 import { ClusteredMarkerLines, ClusteredMarkerPills } from './TimelineMarkers';
@@ -384,6 +384,15 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     disableMomentum: prefersReducedMotion,
   });
 
+  // Pinch gesture for zooming (works in all modes)
+  const pinchGesture = usePinchGesture({
+    containerRef,
+    visibleRange: viewport.visibleRange,
+    setVisibleRange: viewport.setVisibleRange,
+    projectDuration: duration,
+    disabled: false, // Pinch always works
+  });
+
   // Render-specific timeToPercent (uses VIEWPORT bounds for visible range)
   // Extends viewport during drag operations to show drag targets
   const renderTimeToPercent = useCallback(
@@ -481,9 +490,20 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     [regions, markers, positionSeconds]
   );
 
+  // Track if pinch gesture is active (ref so we can check during callbacks)
+  const isPinchingRef = useRef(false);
+
   // Handle touch/mouse start
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
+      // Always track pinch pointers (works in all modes)
+      const pinchStarted = pinchGesture.handlePointerDown(e);
+      if (pinchStarted) {
+        isPinchingRef.current = true;
+        pauseFollow(); // Don't follow playhead while user is zooming
+        return; // Pinch takes priority
+      }
+
       // Don't start timeline selection if dragging playhead
       if (isDraggingPlayhead) return;
 
@@ -509,12 +529,18 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         (e.target as HTMLElement).setPointerCapture(e.pointerId);
       }
     },
-    [positionToTime, isDraggingPlayhead, timelineMode, handleRegionPointerDown, selectionModeActive, panGesture]
+    [positionToTime, isDraggingPlayhead, timelineMode, handleRegionPointerDown, selectionModeActive, panGesture, pinchGesture, pauseFollow]
   );
 
   // Handle touch/mouse move
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
+      // Always update pinch pointers (even if not pinching yet, to track second finger)
+      pinchGesture.handlePointerMove(e);
+
+      // If pinching, skip other gesture handling
+      if (isPinchingRef.current) return;
+
       // Region editing mode - delegate to hook
       if (timelineMode === 'regions') {
         handleRegionPointerMove(e);
@@ -547,12 +573,27 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         }
       }
     },
-    [dragStart, positionToTime, timelineMode, handleRegionPointerMove, selectionModeActive, panGesture]
+    [dragStart, positionToTime, timelineMode, handleRegionPointerMove, selectionModeActive, panGesture, pinchGesture]
   );
 
   // Handle touch/mouse end
   const handlePointerUp = useCallback(
     (e: React.PointerEvent) => {
+      // Always track pinch pointer removal
+      pinchGesture.handlePointerUp(e);
+
+      // If we were pinching, check if pinch ended (hook clears its internal state)
+      // We reset our tracking when pointer count drops below 2
+      if (isPinchingRef.current) {
+        // Check if pinch ended by seeing if hook is still tracking 2 pointers
+        // Since we removed a pointer, if we had exactly 2 before, pinch ends
+        isPinchingRef.current = pinchGesture.isPinching;
+        if (!isPinchingRef.current) {
+          // Pinch just ended - don't process as tap/other gesture
+          return;
+        }
+      }
+
       // Region editing mode - delegate to hook
       if (timelineMode === 'regions') {
         handleRegionPointerUp(e);
@@ -621,6 +662,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       handleRegionPointerUp,
       selectionModeActive,
       panGesture,
+      pinchGesture,
     ]
   );
 

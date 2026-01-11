@@ -12,3 +12,6 @@ export type { UsePanGestureOptions, UsePanGestureResult } from './usePanGesture'
 
 export { useEdgeScroll } from './useEdgeScroll';
 export type { UseEdgeScrollOptions, UseEdgeScrollResult } from './useEdgeScroll';
+
+export { usePinchGesture } from './usePinchGesture';
+export type { UsePinchGestureOptions, UsePinchGestureResult } from './usePinchGesture';
