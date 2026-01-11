@@ -154,7 +154,7 @@ export function useBankNavigation(
   // Display string
   const bankDisplay = useMemo(() => {
     if (totalTracks === 0) return 'No tracks';
-    return `${bankStart}-${bankEnd} of ${totalTracks}`;
+    return `${bankStart}-${bankEnd} / ${totalTracks}`;
   }, [bankStart, bankEnd, totalTracks]);
 
   return {

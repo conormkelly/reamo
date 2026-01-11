@@ -31,3 +31,19 @@ export const DEFAULT_REGION_COLOR = '#688585';
 // RGB versions for contexts requiring rgb() format
 export const DEFAULT_ITEM_COLOR_RGB = 'rgb(100, 100, 100)';
 export const DEFAULT_REGION_COLOR_RGB = 'rgb(104, 133, 133)';
+
+// Track preset colors (REAPER-style colors for track strips)
+export const TRACK_COLORS = [
+  '#FF6B6B', // Red
+  '#FF8E53', // Orange
+  '#FFD93D', // Yellow
+  '#6BCB77', // Green
+  '#4D96FF', // Blue
+  '#9B59B6', // Purple
+  '#E91E8C', // Pink
+  '#00D9FF', // Cyan
+  '#A0522D', // Brown
+  '#708090', // Slate
+] as const;
+
+export const DEFAULT_TRACK_COLOR = '#808080'; // Neutral gray

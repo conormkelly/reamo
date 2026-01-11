@@ -6,6 +6,8 @@
 
 import type { ReactElement } from 'react';
 import { useTrack } from '../../hooks/useTrack';
+import { useReaper } from '../ReaperProvider';
+import { track as trackCmd } from '../../core/WebSocketCommands';
 import { LevelMeter } from '../Track';
 import { SendFader } from './SendFader';
 import { SendMuteButton } from './SendMuteButton';
@@ -21,6 +23,10 @@ export interface SendStripProps {
   faderHeight?: number;
   /** Whether to show the dB label below the fader */
   showDbLabel?: boolean;
+  /** Whether this track is selected for info display (shows in TrackInfoBar) */
+  isInfoSelected?: boolean;
+  /** Callback when track is selected for info display */
+  onSelectForInfo?: (trackIndex: number) => void;
   className?: string;
 }
 
@@ -40,9 +46,17 @@ export function SendStrip({
   destName,
   faderHeight = 180,
   showDbLabel = true,
+  isInfoSelected = false,
+  onSelectForInfo,
   className = '',
 }: SendStripProps): ReactElement | null {
-  const { exists, name, isSelected, color } = useTrack(trackIndex);
+  const { sendCommand } = useReaper();
+  const { exists, name, isSelected, color, guid } = useTrack(trackIndex);
+
+  // Toggle track selection in REAPER when tapping name
+  const handleToggleSelectInReaper = () => {
+    sendCommand(trackCmd.setSelected(trackIndex, isSelected ? 0 : 1, guid));
+  };
 
   if (!exists) {
     return null;
@@ -57,9 +71,14 @@ export function SendStrip({
   // Color bar styling
   const topBarColor = color || 'var(--color-text-muted)';
 
+  // Border color based on info selection (send mode has amber tint)
+  const borderClass = isInfoSelected
+    ? 'border-2 border-accent-region'
+    : 'border border-amber-500/30';
+
   return (
     <div
-      className={`flex flex-col items-center rounded-lg border border-amber-500/30 ${backgroundColor} ${className}`}
+      className={`flex flex-col items-center rounded-lg ${borderClass} ${backgroundColor} ${className}`}
       style={{ width: 80 }}
       data-testid="send-strip"
       data-track-index={trackIndex}
@@ -76,14 +95,17 @@ export function SendStrip({
         )}
       </div>
 
-      {/* Track name */}
-      <div
-        className="w-full text-center text-xs font-medium truncate px-1 py-1"
-        title={name}
+      {/* Track name - tappable to toggle selection in REAPER */}
+      <button
+        onClick={handleToggleSelectInReaper}
+        className={`w-full text-center text-xs font-medium truncate px-2 py-2 hover:bg-bg-elevated/50 transition-colors rounded-sm ${
+          isSelected ? 'bg-bg-elevated/30' : ''
+        }`}
+        title={`${name || (isMaster ? 'MASTER' : `Trk ${trackIndex}`)} - tap to ${isSelected ? 'deselect' : 'select'}`}
         style={color ? { color } : undefined}
       >
         {isMaster ? 'MASTER' : name || `Trk ${trackIndex}`}
-      </div>
+      </button>
 
       {/* Main content area - meter + send fader */}
       <div className="flex gap-1 px-1 pb-1">
@@ -120,6 +142,26 @@ export function SendStrip({
       >
         → {destName}
       </div>
+
+      {/* Selection footer - separate visual area */}
+      {onSelectForInfo && (
+        <div className="w-full mt-1 pt-2 pb-2 bg-bg-deep rounded-b-lg border-t border-amber-500/20 flex justify-center">
+          <button
+            onClick={() => onSelectForInfo(trackIndex)}
+            className={`w-5 h-5 rounded-full border-2 transition-colors ${
+              isInfoSelected
+                ? 'border-accent-region bg-accent-region'
+                : 'border-text-tertiary hover:border-text-secondary bg-transparent'
+            }`}
+            title="Select for info"
+            aria-pressed={isInfoSelected}
+          >
+            {isInfoSelected && (
+              <div className="w-2.5 h-2.5 rounded-full bg-white mx-auto" />
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

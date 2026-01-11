@@ -4,8 +4,8 @@
  * Features:
  * - Responsive channel count based on screen width
  * - Bank-based navigation (no scroll to prevent accidental fader changes)
- * - Mode switching: Volume (max faders) / Mix (full controls) / Sends (gold faders)
  * - Always-visible master track
+ * - Track filtering via search or custom banks
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo, type ReactElement } from 'react';
@@ -13,12 +13,9 @@ import { ViewHeader } from '../../components';
 import {
   MixerStrip,
   BankNavigator,
-  MixerModeSelector,
-  SendStrip,
-  SendDestinationSelector,
   BankSelector,
   BankEditorModal,
-  type MixerMode,
+  TrackInfoBar,
   type CustomBank,
 } from '../../components/Mixer';
 import { TrackFilter } from '../../components/Track';
@@ -27,7 +24,6 @@ import {
   useResponsiveChannelCount,
   useBankNavigation,
   useTrackSkeleton,
-  useSends,
   useCustomBanks,
 } from '../../hooks';
 import { useReaper } from '../../components/ReaperProvider';
@@ -35,15 +31,11 @@ import { track } from '../../core/WebSocketCommands';
 import { useReaperStore } from '../../store';
 import { EMPTY_TRACKS } from '../../store/stableRefs';
 
-/** Storage key for mixer mode preference */
-const MODE_STORAGE_KEY = 'reamo-mixer-mode';
+/** Storage key for info-selected track */
+const INFO_SELECTED_STORAGE_KEY = 'reamo-mixer-info-selected';
 
-/** Fader heights by mode */
-const FADER_HEIGHTS: Record<MixerMode, number> = {
-  volume: 220,
-  mix: 160,
-  sends: 180,
-};
+/** Fader height for volume mode */
+const FADER_HEIGHT = 220;
 
 export function MixerView(): ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -72,45 +64,6 @@ export function MixerView(): ReactElement {
     totalTracks,
   });
 
-  // Mode state with localStorage persistence
-  const [mode, setMode] = useState<MixerMode>(() => {
-    try {
-      const stored = localStorage.getItem(MODE_STORAGE_KEY);
-      if (stored === 'volume' || stored === 'mix' || stored === 'sends') {
-        return stored;
-      }
-    } catch {
-      // Ignore localStorage errors
-    }
-    return 'volume';
-  });
-
-  // Persist mode to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem(MODE_STORAGE_KEY, mode);
-    } catch {
-      // Ignore localStorage errors
-    }
-  }, [mode]);
-
-  // Sends mode state
-  const { destinations } = useSends();
-  const [selectedDestIdx, setSelectedDestIdx] = useState<number | null>(null);
-
-  // Auto-select first destination when entering sends mode or when destinations change
-  useEffect(() => {
-    if (mode === 'sends' && destinations.length > 0) {
-      // If no destination selected, or selected destination no longer exists, select first
-      if (selectedDestIdx === null || !destinations.find((d) => d.trackIdx === selectedDestIdx)) {
-        setSelectedDestIdx(destinations[0].trackIdx);
-      }
-    }
-  }, [mode, destinations, selectedDestIdx]);
-
-  // Get the name of the selected destination for SendStrip
-  const selectedDestName = destinations.find((d) => d.trackIdx === selectedDestIdx)?.name ?? '';
-
   // Custom banks from ProjExtState
   const { banks: customBanks, saveBank, deleteBank } = useCustomBanks();
   const [selectedBankId, setSelectedBankId] = useState<string | null>(null);
@@ -122,6 +75,33 @@ export function MixerView(): ReactElement {
   // Track filter state
   const [filterQuery, setFilterQuery] = useState('');
   const [filterBankIndex, setFilterBankIndex] = useState(0);
+
+  // Track info selection state (which track shows in InfoBar) - persisted in localStorage
+  const [infoSelectedTrackIdx, setInfoSelectedTrackIdx] = useState<number | null>(() => {
+    try {
+      const stored = localStorage.getItem(INFO_SELECTED_STORAGE_KEY);
+      if (stored !== null) {
+        const parsed = parseInt(stored, 10);
+        return isNaN(parsed) ? null : parsed;
+      }
+    } catch {
+      // Ignore localStorage errors
+    }
+    return null;
+  });
+
+  // Persist info selection to localStorage
+  useEffect(() => {
+    try {
+      if (infoSelectedTrackIdx !== null) {
+        localStorage.setItem(INFO_SELECTED_STORAGE_KEY, String(infoSelectedTrackIdx));
+      } else {
+        localStorage.removeItem(INFO_SELECTED_STORAGE_KEY);
+      }
+    } catch {
+      // Ignore localStorage errors
+    }
+  }, [infoSelectedTrackIdx]);
 
   // Get skeleton for custom bank filtering
   const { skeleton } = useTrackSkeleton();
@@ -301,14 +281,6 @@ export function MixerView(): ReactElement {
     return !!tracks[trackIndex];
   };
 
-  // Fader height based on mode
-  const faderHeight = FADER_HEIGHTS[mode];
-
-  // Show dB labels:
-  // - Always show in Volume mode (bigger faders = more room)
-  // - Hide on narrow screens (3 or fewer channels) for Mix/Sends to prevent strip resizing
-  const showDbLabel = mode === 'volume' || channelCount > 3;
-
   return (
     <div
       ref={containerRef}
@@ -328,31 +300,23 @@ export function MixerView(): ReactElement {
       </ViewHeader>
 
       {/* Main mixer area */}
-      <div className="flex-1 flex items-start justify-center gap-2 overflow-hidden pb-2">
+      <div className="flex-1 flex items-center justify-center gap-2 overflow-hidden pb-2">
         {/* Master track - always visible, on left */}
-        <div className={`border-r pr-2 ${mode === 'sends' ? 'border-amber-500/30' : 'border-border-subtle'}`}>
+        <div className="border-r pr-2 border-border-subtle">
           {hasTrackData(0) ? (
-            mode === 'sends' && selectedDestIdx !== null ? (
-              <SendStrip
-                trackIndex={0}
-                destTrackIdx={selectedDestIdx}
-                destName={selectedDestName}
-                faderHeight={faderHeight}
-                showDbLabel={showDbLabel}
-              />
-            ) : (
-              <MixerStrip
-                trackIndex={0}
-                mode={mode}
-                faderHeight={faderHeight}
-                showDbLabel={showDbLabel}
-              />
-            )
+            <MixerStrip
+              trackIndex={0}
+              mode="volume"
+              faderHeight={FADER_HEIGHT}
+              showDbLabel={true}
+              isInfoSelected={infoSelectedTrackIdx === 0}
+              onSelectForInfo={setInfoSelectedTrackIdx}
+            />
           ) : (
             // Loading placeholder for master
             <div
               className="bg-bg-surface/50 rounded-lg animate-pulse"
-              style={{ width: 80, height: faderHeight + 100 }}
+              style={{ width: 80, height: FADER_HEIGHT + 100 }}
             />
           )}
         </div>
@@ -362,27 +326,19 @@ export function MixerView(): ReactElement {
           {displayTrackIndices.map((trackIndex) => (
             <div key={trackIndex}>
               {hasTrackData(trackIndex) ? (
-                mode === 'sends' && selectedDestIdx !== null ? (
-                  <SendStrip
-                    trackIndex={trackIndex}
-                    destTrackIdx={selectedDestIdx}
-                    destName={selectedDestName}
-                    faderHeight={faderHeight}
-                    showDbLabel={showDbLabel}
-                  />
-                ) : (
-                  <MixerStrip
-                    trackIndex={trackIndex}
-                    mode={mode}
-                    faderHeight={faderHeight}
-                    showDbLabel={showDbLabel}
-                  />
-                )
+                <MixerStrip
+                  trackIndex={trackIndex}
+                  mode="volume"
+                  faderHeight={FADER_HEIGHT}
+                  showDbLabel={true}
+                  isInfoSelected={infoSelectedTrackIdx === trackIndex}
+                  onSelectForInfo={setInfoSelectedTrackIdx}
+                />
               ) : (
                 // Loading placeholder
                 <div
                   className="bg-bg-surface/50 rounded-lg animate-pulse"
-                  style={{ width: 80, height: faderHeight + 100 }}
+                  style={{ width: 80, height: FADER_HEIGHT + 100 }}
                 />
               )}
             </div>
@@ -390,27 +346,25 @@ export function MixerView(): ReactElement {
         </div>
       </div>
 
-      {/* Footer controls */}
-      <div className={`pt-2 border-t ${mode === 'sends' ? 'border-amber-500/30' : 'border-border-subtle'}`}>
-        {/* Track filter - above mode controls */}
-        <TrackFilter
-          value={filterQuery}
-          onChange={setFilterQuery}
-          placeholder="Filter tracks..."
-          hideCount
-          className="mb-2"
-        />
+      {/* Track info bar - shows when a track is selected */}
+      <TrackInfoBar
+        selectedTrackIdx={infoSelectedTrackIdx}
+        className="mt-2"
+      />
 
-        {/* Mode selector left, destination selector center (sends mode), bank navigator right */}
-        <div className="flex items-center justify-between">
-          <MixerModeSelector mode={mode} onModeChange={setMode} />
-          {/* Destination selector (sends mode only) */}
-          {mode === 'sends' && selectedDestIdx !== null && (
-            <SendDestinationSelector
-              selectedDestIdx={selectedDestIdx}
-              onDestinationChange={setSelectedDestIdx}
-            />
-          )}
+      {/* Footer controls - filter and bank navigation inline */}
+      <div className="pt-2 border-t border-border-subtle">
+        <div className="flex items-center gap-3">
+          {/* Track filter on left - takes remaining space, pushes bank nav right */}
+          <TrackFilter
+            value={filterQuery}
+            onChange={setFilterQuery}
+            placeholder="Filter..."
+            hideCount
+            className="flex-1"
+          />
+
+          {/* Bank navigator on right */}
           <BankNavigator
             bankDisplay={effectiveBankDisplay}
             canGoBack={effectiveCanGoBack}

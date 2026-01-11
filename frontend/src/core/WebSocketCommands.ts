@@ -216,6 +216,26 @@ export const track = {
     command: 'track/getSends',
     params: { trackIdx, ...(offset !== undefined && { offset }), ...(limit !== undefined && { limit }) },
   }),
+  /** Rename a track */
+  rename: (trackIdx: number, name: string): WSCommand => ({
+    command: 'track/rename',
+    params: { trackIdx, name },
+  }),
+  /** Duplicate a track (includes FX, items, routing). Returns new track index. */
+  duplicate: (trackIdx: number): WSCommand => ({
+    command: 'track/duplicate',
+    params: { trackIdx },
+  }),
+  /** Delete a track */
+  delete: (trackIdx: number): WSCommand => ({
+    command: 'track/delete',
+    params: { trackIdx },
+  }),
+  /** Create a new track */
+  create: (name?: string, afterTrackIdx?: number): WSCommand => ({
+    command: 'track/create',
+    params: { ...(name && { name }), ...(afterTrackIdx !== undefined && { afterTrackIdx }) },
+  }),
 };
 
 // =============================================================================
