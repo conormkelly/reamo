@@ -41,21 +41,21 @@ export function MixerModeSelector({
     >
       {MODES.map(({ value, label, title }) => {
         const isActive = mode === value;
-        const isDisabled = value === 'sends'; // Future feature
+        // Sends mode uses amber accent color when active
+        const isSendsActive = value === 'sends' && isActive;
 
         return (
           <button
             key={value}
-            onClick={() => !isDisabled && onModeChange(value)}
-            disabled={isDisabled}
+            onClick={() => onModeChange(value)}
             role="tab"
             aria-selected={isActive}
-            title={isDisabled ? `${title} (coming soon)` : title}
+            title={title}
             className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-              isActive
-                ? 'bg-primary text-text-on-primary'
-                : isDisabled
-                  ? 'text-text-disabled cursor-not-allowed'
+              isSendsActive
+                ? 'bg-amber-600 text-white'
+                : isActive
+                  ? 'bg-primary text-text-on-primary'
                   : 'text-text-secondary hover:text-text-primary hover:bg-bg-elevated'
             }`}
           >

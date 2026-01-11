@@ -24,6 +24,10 @@ export interface UseBankNavigationReturn {
   bankEnd: number;
   /** Track indices in current bank */
   trackIndices: number[];
+  /** Prefetch range start (includes adjacent banks for smooth navigation) */
+  prefetchStart: number;
+  /** Prefetch range end (includes adjacent banks for smooth navigation) */
+  prefetchEnd: number;
   /** Total number of banks */
   totalBanks: number;
   /** Can navigate to previous bank */
@@ -106,6 +110,22 @@ export function useBankNavigation(
     return indices;
   }, [bankStart, bankEnd]);
 
+  // Calculate prefetch range - subscribe to adjacent banks for smooth navigation
+  // Smaller banks (mobile) need more prefetched banks, larger banks need fewer
+  const { prefetchStart, prefetchEnd } = useMemo(() => {
+    // Prefetch enough tracks to cover 2-4 banks on each side
+    // Mobile (2-3 channels): 4 banks each side = 8-12 tracks
+    // Tablet (4-6 channels): 2 banks each side = 8-12 tracks
+    // Desktop (7-8 channels): 1-2 banks each side = 7-16 tracks
+    const prefetchBanks = channelCount <= 3 ? 4 : channelCount <= 6 ? 2 : 1;
+    const prefetchTracks = prefetchBanks * channelCount;
+
+    return {
+      prefetchStart: Math.max(1, bankStart - prefetchTracks),
+      prefetchEnd: Math.min(totalTracks, bankEnd + prefetchTracks),
+    };
+  }, [bankStart, bankEnd, channelCount, totalTracks]);
+
   // Navigation state
   const canGoBack = bankIndex > 0;
   const canGoForward = bankIndex < totalBanks - 1;
@@ -142,6 +162,8 @@ export function useBankNavigation(
     bankStart,
     bankEnd,
     trackIndices,
+    prefetchStart,
+    prefetchEnd,
     totalBanks,
     canGoBack,
     canGoForward,

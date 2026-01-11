@@ -4,18 +4,29 @@
  * Features:
  * - Responsive channel count based on screen width
  * - Bank-based navigation (no scroll to prevent accidental fader changes)
- * - Mode switching: Volume (max faders) / Mix (full controls) / Sends (future)
+ * - Mode switching: Volume (max faders) / Mix (full controls) / Sends (gold faders)
  * - Always-visible master track
  */
 
-import { useState, useEffect, useRef, useCallback, type ReactElement } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, type ReactElement } from 'react';
 import { ViewHeader } from '../../components';
-import { MixerStrip, BankNavigator, MixerModeSelector, type MixerMode } from '../../components/Mixer';
+import {
+  MixerStrip,
+  BankNavigator,
+  MixerModeSelector,
+  SendStrip,
+  SendDestinationSelector,
+  BankSelector,
+  type MixerMode,
+  type CustomBank,
+} from '../../components/Mixer';
+import { TrackFilter } from '../../components/Track';
 import { MixerLockButton } from '../../components/Actions';
 import {
   useResponsiveChannelCount,
   useBankNavigation,
   useTrackSkeleton,
+  useSends,
 } from '../../hooks';
 import { useReaper } from '../../components/ReaperProvider';
 import { track } from '../../core/WebSocketCommands';
@@ -46,9 +57,9 @@ export function MixerView(): ReactElement {
 
   // Bank navigation
   const {
-    bankStart,
-    bankEnd,
     trackIndices,
+    prefetchStart,
+    prefetchEnd,
     canGoBack,
     canGoForward,
     goBack,
@@ -81,18 +92,116 @@ export function MixerView(): ReactElement {
     }
   }, [mode]);
 
-  // Subscribe to current bank of tracks
+  // Sends mode state
+  const { destinations } = useSends();
+  const [selectedDestIdx, setSelectedDestIdx] = useState<number | null>(null);
+
+  // Auto-select first destination when entering sends mode or when destinations change
+  useEffect(() => {
+    if (mode === 'sends' && destinations.length > 0) {
+      // If no destination selected, or selected destination no longer exists, select first
+      if (selectedDestIdx === null || !destinations.find((d) => d.trackIdx === selectedDestIdx)) {
+        setSelectedDestIdx(destinations[0].trackIdx);
+      }
+    }
+  }, [mode, destinations, selectedDestIdx]);
+
+  // Get the name of the selected destination for SendStrip
+  const selectedDestName = destinations.find((d) => d.trackIdx === selectedDestIdx)?.name ?? '';
+
+  // Custom banks state (skeleton - non-functional for now)
+  const [customBanks] = useState<CustomBank[]>([]);
+  const [selectedBankId, setSelectedBankId] = useState<string | null>(null);
+
+  // Track filter state
+  const [filterQuery, setFilterQuery] = useState('');
+  const [filterBankIndex, setFilterBankIndex] = useState(0);
+
+  const isFiltered = filterQuery.trim().length > 0;
+
+  // Filter ALL tracks by query (case-insensitive name match)
+  const allFilteredIndices = useMemo(() => {
+    if (!isFiltered) return [];
+    const query = filterQuery.toLowerCase().trim();
+    const indices: number[] = [];
+    // Filter all non-master tracks (1 to totalTracks)
+    for (let i = 1; i <= totalTracks; i++) {
+      const track = tracks[i];
+      if (track?.name?.toLowerCase().includes(query)) {
+        indices.push(i);
+      }
+    }
+    return indices;
+  }, [filterQuery, totalTracks, tracks, isFiltered]);
+
+  // Reset filter bank when filter changes
+  useEffect(() => {
+    setFilterBankIndex(0);
+  }, [filterQuery]);
+
+  // Calculate filtered banking
+  const filteredBankStart = filterBankIndex * channelCount;
+  const filteredBankEnd = Math.min(filteredBankStart + channelCount, allFilteredIndices.length);
+  const filteredTotalBanks = Math.ceil(allFilteredIndices.length / channelCount);
+
+  // Get the track indices to display
+  const displayTrackIndices = useMemo(() => {
+    if (isFiltered) {
+      return allFilteredIndices.slice(filteredBankStart, filteredBankEnd);
+    }
+    return trackIndices;
+  }, [isFiltered, allFilteredIndices, filteredBankStart, filteredBankEnd, trackIndices]);
+
+  // Bank display and navigation for filtered vs unfiltered
+  // When filtered, show range within filtered results: "1-6 of 10" (showing 1-6 of 10 matches)
+  const effectiveBankDisplay = isFiltered
+    ? allFilteredIndices.length === 0
+      ? '0 of 0'
+      : `${filteredBankStart + 1}-${filteredBankEnd} of ${allFilteredIndices.length}`
+    : bankDisplay;
+
+  const effectiveCanGoBack = isFiltered ? filterBankIndex > 0 : canGoBack;
+  const effectiveCanGoForward = isFiltered ? filterBankIndex < filteredTotalBanks - 1 : canGoForward;
+
+  const handleBack = useCallback(() => {
+    if (isFiltered) {
+      setFilterBankIndex((prev) => Math.max(0, prev - 1));
+    } else {
+      goBack();
+    }
+  }, [isFiltered, goBack]);
+
+  const handleForward = useCallback(() => {
+    if (isFiltered) {
+      setFilterBankIndex((prev) => Math.min(filteredTotalBanks - 1, prev + 1));
+    } else {
+      goForward();
+    }
+  }, [isFiltered, goForward, filteredTotalBanks]);
+
+  // Bank management handlers (skeleton - non-functional for now)
+  const handleAddBank = useCallback(() => {
+    // TODO: Open modal to create new bank
+    console.log('Add bank - not yet implemented');
+  }, []);
+
+  const handleEditBank = useCallback((bankId: string) => {
+    // TODO: Open modal to edit bank
+    console.log('Edit bank:', bankId, '- not yet implemented');
+  }, []);
+
+  // Subscribe to prefetch range (current bank + adjacent banks for smooth navigation)
   const subscribeToBank = useCallback(() => {
     if (totalTracks === 0) return;
 
-    // Subscribe to tracks in current bank plus master
+    // Subscribe to prefetch range plus master - includes adjacent banks to prevent flash on navigation
     sendCommand(
       track.subscribe({
-        range: { start: bankStart, end: bankEnd },
+        range: { start: prefetchStart, end: prefetchEnd },
         includeMaster: true,
       })
     );
-  }, [sendCommand, bankStart, bankEnd, totalTracks]);
+  }, [sendCommand, prefetchStart, prefetchEnd, totalTracks]);
 
   // Subscribe when bank changes
   useEffect(() => {
@@ -107,30 +216,50 @@ export function MixerView(): ReactElement {
   // Fader height based on mode
   const faderHeight = FADER_HEIGHTS[mode];
 
-  // Hide dB labels on narrow screens (3 or fewer channels) to prevent strip resizing
-  const showDbLabel = channelCount > 3;
+  // Show dB labels:
+  // - Always show in Volume mode (bigger faders = more room)
+  // - Hide on narrow screens (3 or fewer channels) for Mix/Sends to prevent strip resizing
+  const showDbLabel = mode === 'volume' || channelCount > 3;
 
   return (
     <div
       ref={containerRef}
       className="h-full bg-bg-app text-text-primary p-3 flex flex-col"
     >
-      {/* Header - minimal, just settings and connection */}
+      {/* Header - settings, bank selector, lock, connection */}
       <ViewHeader currentView="mixer">
+        <BankSelector
+          selectedBankId={selectedBankId}
+          banks={customBanks}
+          onBankChange={setSelectedBankId}
+          onAddBank={handleAddBank}
+          onEditBank={handleEditBank}
+          isFiltered={isFiltered}
+        />
         <MixerLockButton />
       </ViewHeader>
 
       {/* Main mixer area */}
       <div className="flex-1 flex items-start justify-center gap-2 overflow-hidden pb-2">
         {/* Master track - always visible, on left */}
-        <div className="border-r border-border-subtle pr-2">
+        <div className={`border-r pr-2 ${mode === 'sends' ? 'border-amber-500/30' : 'border-border-subtle'}`}>
           {hasTrackData(0) ? (
-            <MixerStrip
-              trackIndex={0}
-              mode={mode}
-              faderHeight={faderHeight}
-              showDbLabel={showDbLabel}
-            />
+            mode === 'sends' && selectedDestIdx !== null ? (
+              <SendStrip
+                trackIndex={0}
+                destTrackIdx={selectedDestIdx}
+                destName={selectedDestName}
+                faderHeight={faderHeight}
+                showDbLabel={showDbLabel}
+              />
+            ) : (
+              <MixerStrip
+                trackIndex={0}
+                mode={mode}
+                faderHeight={faderHeight}
+                showDbLabel={showDbLabel}
+              />
+            )
           ) : (
             // Loading placeholder for master
             <div
@@ -142,15 +271,25 @@ export function MixerView(): ReactElement {
 
         {/* Channel strips */}
         <div className="flex gap-2">
-          {trackIndices.map((trackIndex) => (
+          {displayTrackIndices.map((trackIndex) => (
             <div key={trackIndex}>
               {hasTrackData(trackIndex) ? (
-                <MixerStrip
-                  trackIndex={trackIndex}
-                  mode={mode}
-                  faderHeight={faderHeight}
-                  showDbLabel={showDbLabel}
-                />
+                mode === 'sends' && selectedDestIdx !== null ? (
+                  <SendStrip
+                    trackIndex={trackIndex}
+                    destTrackIdx={selectedDestIdx}
+                    destName={selectedDestName}
+                    faderHeight={faderHeight}
+                    showDbLabel={showDbLabel}
+                  />
+                ) : (
+                  <MixerStrip
+                    trackIndex={trackIndex}
+                    mode={mode}
+                    faderHeight={faderHeight}
+                    showDbLabel={showDbLabel}
+                  />
+                )
               ) : (
                 // Loading placeholder
                 <div
@@ -163,16 +302,35 @@ export function MixerView(): ReactElement {
         </div>
       </div>
 
-      {/* Footer controls - mode selector left, bank navigator right */}
-      <div className="flex items-center justify-between pt-2 border-t border-border-subtle">
-        <MixerModeSelector mode={mode} onModeChange={setMode} />
-        <BankNavigator
-          bankDisplay={bankDisplay}
-          canGoBack={canGoBack}
-          canGoForward={canGoForward}
-          onBack={goBack}
-          onForward={goForward}
+      {/* Footer controls */}
+      <div className={`pt-2 border-t ${mode === 'sends' ? 'border-amber-500/30' : 'border-border-subtle'}`}>
+        {/* Track filter - above mode controls */}
+        <TrackFilter
+          value={filterQuery}
+          onChange={setFilterQuery}
+          placeholder="Filter tracks..."
+          hideCount
+          className="mb-2"
         />
+
+        {/* Mode selector left, destination selector center (sends mode), bank navigator right */}
+        <div className="flex items-center justify-between">
+          <MixerModeSelector mode={mode} onModeChange={setMode} />
+          {/* Destination selector (sends mode only) */}
+          {mode === 'sends' && selectedDestIdx !== null && (
+            <SendDestinationSelector
+              selectedDestIdx={selectedDestIdx}
+              onDestinationChange={setSelectedDestIdx}
+            />
+          )}
+          <BankNavigator
+            bankDisplay={effectiveBankDisplay}
+            canGoBack={effectiveCanGoBack}
+            canGoForward={effectiveCanGoForward}
+            onBack={handleBack}
+            onForward={handleForward}
+          />
+        </div>
       </div>
 
       {/* Empty state */}

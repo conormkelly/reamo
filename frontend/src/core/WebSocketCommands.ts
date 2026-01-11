@@ -534,18 +534,26 @@ export const extstate = {
 // Gesture Commands (for undo coalescing of continuous controls)
 // =============================================================================
 
-export type GestureControlType = 'volume' | 'pan';
+export type GestureControlType = 'volume' | 'pan' | 'send';
 
 export const gesture = {
   /** Call when starting to drag a fader/knob. Use trackGuid for stability during gestures. */
-  start: (controlType: GestureControlType, trackIdx: number, trackGuid?: string): WSCommand => ({
+  start: (controlType: GestureControlType, trackIdx: number, trackGuid?: string, sendIdx?: number): WSCommand => ({
     command: 'gesture/start',
-    params: trackGuid ? { controlType, trackGuid } : { controlType, trackIdx },
+    params: {
+      controlType,
+      ...(trackGuid ? { trackGuid } : { trackIdx }),
+      ...(sendIdx !== undefined && { sendIdx }),
+    },
   }),
   /** Call when releasing a fader/knob - triggers undo point creation. Use trackGuid for stability. */
-  end: (controlType: GestureControlType, trackIdx: number, trackGuid?: string): WSCommand => ({
+  end: (controlType: GestureControlType, trackIdx: number, trackGuid?: string, sendIdx?: number): WSCommand => ({
     command: 'gesture/end',
-    params: trackGuid ? { controlType, trackGuid } : { controlType, trackIdx },
+    params: {
+      controlType,
+      ...(trackGuid ? { trackGuid } : { trackIdx }),
+      ...(sendIdx !== undefined && { sendIdx }),
+    },
   }),
 };
 
@@ -563,6 +571,23 @@ export const midi = {
   pc: (program: number, channel = 0): WSCommand => ({
     command: 'midi/pc',
     params: { program, channel },
+  }),
+};
+
+// =============================================================================
+// Send Commands
+// =============================================================================
+
+export const send = {
+  /** Set the volume level for a track send */
+  setVolume: (trackIdx: number, sendIdx: number, volume: number): WSCommand => ({
+    command: 'send/setVolume',
+    params: { trackIdx, sendIdx, volume },
+  }),
+  /** Set the mute state for a track send */
+  setMute: (trackIdx: number, sendIdx: number, muted: number): WSCommand => ({
+    command: 'send/setMute',
+    params: { trackIdx, sendIdx, muted },
   }),
 };
 

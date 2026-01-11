@@ -1,57 +1,72 @@
 /**
- * Fader Component
- * Vertical volume fader with drag support and double-tap to reset
+ * SendFader Component
+ * Gold/orange vertical fader for controlling send levels in Sends mode.
+ * Shows "-∞" when no send exists or send is at minimum volume.
  */
 
 import { useState, useCallback, useRef, useEffect, type ReactElement } from 'react';
 import { useReaper } from '../ReaperProvider';
 import { useTrack } from '../../hooks/useTrack';
+import { useSends } from '../../hooks/useSends';
 import { useReaperStore } from '../../store';
-import { gesture, track as trackCmd } from '../../core/WebSocketCommands';
-import { faderToVolume } from '../../utils/volume';
+import { gesture, send } from '../../core/WebSocketCommands';
+import { faderToVolume, volumeToFader, volumeToDb } from '../../utils/volume';
 
-/** Linear volume for unity gain (0dB) - exactly 1.0 */
-const UNITY_GAIN_VOLUME = 1.0;
-
-export interface FaderProps {
+export interface SendFaderProps {
+  /** Source track index */
   trackIndex: number;
+  /** Destination track index (the send target) */
+  destTrackIdx: number;
   className?: string;
   height?: number;
-  /** Linear volume to reset to on double-tap (default: 1.0 = unity/0dB) */
-  resetVolume?: number;
   /** Whether parent track is selected (affects background brightness) */
   isSelected?: boolean;
   /** Whether to show the dB label below the fader (default: true) */
   showDbLabel?: boolean;
 }
 
-export function Fader({
+export function SendFader({
   trackIndex,
+  destTrackIdx,
   className = '',
   height = 150,
-  resetVolume = UNITY_GAIN_VOLUME,
   isSelected = false,
   showDbLabel = true,
-}: FaderProps): ReactElement {
+}: SendFaderProps): ReactElement {
   const { sendCommand } = useReaper();
-  const { faderPosition, volumeDb, setVolume, guid } = useTrack(trackIndex);
+  const { guid } = useTrack(trackIndex);
+  const { getSendByDestination } = useSends();
   const mixerLocked = useReaperStore((s) => s.mixerLocked);
   const [isDragging, setIsDragging] = useState(false);
   const [hasMounted, setHasMounted] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const lastTapRef = useRef<number>(0);
   const cleanupRef = useRef<(() => void) | null>(null);
-  // Lock GUID at gesture start to handle track reordering during drag
   const gestureGuidRef = useRef<string | null>(null);
+  const sendIndexRef = useRef<number>(0);
 
-  // Enable transitions only after first render to prevent blip on remount
+  // Get the send slot for this track/destination pair
+  const sendSlot = getSendByDestination(trackIndex, destTrackIdx);
+  const hasSend = !!sendSlot;
+  const sendVolume = sendSlot?.volume ?? 0;
+  const sendIndex = sendSlot?.sendIndex ?? 0;
+  const isMuted = sendSlot?.muted ?? false;
+
+  // Convert volume to fader position (0-1)
+  const faderPosition = hasSend ? volumeToFader(sendVolume) : 0;
+
+  // Format dB display
+  const volumeDb = hasSend
+    ? volumeToDb(sendVolume)
+    : '-∞';
+
+  // Enable transitions only after first render
   useEffect(() => {
-    // Small delay to ensure initial position is set before enabling transitions
     const timer = setTimeout(() => setHasMounted(true), 50);
     return () => clearTimeout(timer);
   }, []);
 
-  // Cleanup event listeners on unmount to prevent memory leaks
+  // Cleanup event listeners on unmount
   useEffect(() => {
     return () => {
       if (cleanupRef.current) {
@@ -60,20 +75,20 @@ export function Fader({
     };
   }, []);
 
-  // Handle double-tap to reset to unity - use setVolume directly to avoid fader curve round-trip
+  // Handle double-tap to reset to unity
   const handleDoubleTap = useCallback(() => {
-    sendCommand(setVolume(resetVolume));
-  }, [sendCommand, setVolume, resetVolume]);
+    if (!hasSend) return;
+    sendCommand(send.setVolume(trackIndex, sendIndex, 1.0));
+  }, [sendCommand, trackIndex, sendIndex, hasSend]);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent | React.TouchEvent) => {
-      // Ignore input when mixer is locked
-      if (mixerLocked) return;
+      // Ignore input when mixer is locked or no send exists
+      if (mixerLocked || !hasSend) return;
 
       // Check for double-tap
       const now = Date.now();
       if (now - lastTapRef.current < 300) {
-        // Double tap detected - reset to unity
         e.preventDefault();
         lastTapRef.current = 0;
         handleDoubleTap();
@@ -81,20 +96,21 @@ export function Fader({
       }
       lastTapRef.current = now;
 
-      // REQUIRE GUID for gestures - prevents modifying wrong track if reordered
+      // REQUIRE GUID for gestures
       if (!guid) {
-        console.warn(`Fader: No GUID for track ${trackIndex}, gesture blocked`);
+        console.warn(`SendFader: No GUID for track ${trackIndex}, gesture blocked`);
         return;
       }
 
       e.preventDefault();
       setIsDragging(true);
 
-      // Lock GUID at gesture start - use this for ALL commands during gesture
+      // Lock GUID and send index at gesture start
       gestureGuidRef.current = guid;
+      sendIndexRef.current = sendIndex;
 
-      // Signal gesture start for undo coalescing (with locked GUID)
-      sendCommand(gesture.start('volume', trackIndex, gestureGuidRef.current));
+      // Signal gesture start for undo coalescing
+      sendCommand(gesture.start('send', trackIndex, gestureGuidRef.current, sendIndexRef.current));
 
       const getY = (event: MouseEvent | TouchEvent): number => {
         if ('touches' in event) {
@@ -108,9 +124,8 @@ export function Fader({
         const rect = containerRef.current.getBoundingClientRect();
         const y = clientY - rect.top;
         const position = 1 - Math.max(0, Math.min(1, y / rect.height));
-        // Use locked GUID for volume command (ignores trackIdx when GUID provided)
         const linearVolume = faderToVolume(position);
-        sendCommand(trackCmd.setVolume(trackIndex, linearVolume, gestureGuidRef.current));
+        sendCommand(send.setVolume(trackIndex, sendIndexRef.current, linearVolume));
       };
 
       // Handle initial click position
@@ -124,9 +139,8 @@ export function Fader({
 
       const handleUp = () => {
         setIsDragging(false);
-        // Signal gesture end with locked GUID - triggers undo point creation
         if (gestureGuidRef.current) {
-          sendCommand(gesture.end('volume', trackIndex, gestureGuidRef.current));
+          sendCommand(gesture.end('send', trackIndex, gestureGuidRef.current, sendIndexRef.current));
         }
         gestureGuidRef.current = null;
         document.removeEventListener('mousemove', handleMove);
@@ -141,13 +155,19 @@ export function Fader({
       document.addEventListener('touchmove', handleMove, { passive: false });
       document.addEventListener('touchend', handleUp);
 
-      // Store cleanup function for unmount
       cleanupRef.current = handleUp;
     },
-    [sendCommand, handleDoubleTap, mixerLocked, trackIndex, guid]
+    [sendCommand, handleDoubleTap, mixerLocked, trackIndex, guid, hasSend, sendIndex]
   );
 
   const handleHeight = Math.max(0, Math.min(height, faderPosition * height));
+
+  // Determine cursor and opacity based on state
+  const cursorClass = !hasSend
+    ? 'cursor-default opacity-30'
+    : mixerLocked
+      ? 'cursor-not-allowed opacity-50'
+      : 'cursor-ns-resize';
 
   return (
     <div className={`flex flex-col items-center gap-1 ${className}`}>
@@ -155,27 +175,27 @@ export function Fader({
         ref={containerRef}
         className={`relative w-8 rounded touch-none ${
           isSelected ? 'bg-bg-disabled' : 'bg-bg-elevated'
-        } ${mixerLocked ? 'cursor-not-allowed opacity-50' : 'cursor-ns-resize'} ${
-          isDragging ? 'ring-2 ring-control-ring' : ''
-        }`}
+        } ${cursorClass} ${isDragging ? 'ring-2 ring-amber-500/50' : ''}`}
         style={{ height }}
         onMouseDown={handleMouseDown}
         onTouchStart={handleMouseDown}
-        title="Volume - double-tap to reset to 0dB"
+        title={hasSend ? 'Send level - double-tap to reset to 0dB' : 'No send to this destination'}
       >
-        {/* Fader track */}
+        {/* Fader track - gold/amber color for sends */}
         <div
-          className={`absolute bottom-0 left-0 right-0 bg-fader-fill rounded-b ${hasMounted ? 'transition-all duration-75' : ''}`}
+          className={`absolute bottom-0 left-0 right-0 bg-amber-500 rounded-b ${hasMounted ? 'transition-all duration-75' : ''}`}
           style={{ height: handleHeight }}
         />
-        {/* Fader handle */}
+        {/* Fader handle - slightly amber tinted */}
         <div
-          className={`absolute left-0 right-0 h-3 bg-white rounded shadow-md ${hasMounted ? 'transition-all duration-75' : ''}`}
+          className={`absolute left-0 right-0 h-3 bg-amber-100 rounded shadow-md ${hasMounted ? 'transition-all duration-75' : ''}`}
           style={{ bottom: Math.max(0, handleHeight - 6) }}
         />
       </div>
       {showDbLabel && (
-        <span className="text-[10px] text-text-secondary font-mono whitespace-nowrap">{volumeDb}</span>
+        <span className={`text-[10px] font-mono whitespace-nowrap ${isMuted ? 'text-amber-500/50 line-through' : 'text-amber-500'}`}>
+          {volumeDb}
+        </span>
       )}
     </div>
   );

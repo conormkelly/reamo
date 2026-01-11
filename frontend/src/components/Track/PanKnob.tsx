@@ -174,7 +174,7 @@ export function PanKnob({
           style={{ left: `calc(${indicatorPosition}% - 4px)` }}
         />
       </div>
-      <span className="text-xs text-text-secondary font-mono">{panDisplay}</span>
+      <span className="text-[10px] text-text-secondary font-mono whitespace-nowrap">{panDisplay}</span>
     </div>
   );
 }

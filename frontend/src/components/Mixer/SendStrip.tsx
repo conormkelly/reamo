@@ -1,40 +1,47 @@
 /**
- * MixerStrip Component
- * Channel strip optimized for the dedicated Mixer view.
- * Taller faders, compact layout, mode-aware rendering.
+ * SendStrip Component
+ * Channel strip for Sends mode - gold faders controlling send levels.
+ * Shows send level to the selected destination for each track.
  */
 
 import type { ReactElement } from 'react';
 import { useTrack } from '../../hooks/useTrack';
-import { MuteButton, SoloButton, RecordArmButton, Fader, PanKnob, LevelMeter } from '../Track';
+import { LevelMeter } from '../Track';
+import { SendFader } from './SendFader';
+import { SendMuteButton } from './SendMuteButton';
 
-export type MixerMode = 'volume' | 'mix' | 'sends';
-
-export interface MixerStripProps {
+export interface SendStripProps {
+  /** Source track index */
   trackIndex: number;
-  mode: MixerMode;
+  /** Destination track index (the send target) */
+  destTrackIdx: number;
+  /** Destination track name */
+  destName: string;
   /** Fader height in pixels */
   faderHeight?: number;
-  /** Whether to show the dB label below the fader (default: true) */
+  /** Whether to show the dB label below the fader */
   showDbLabel?: boolean;
   className?: string;
 }
 
 /**
- * Channel strip for the mixer view.
+ * Channel strip for Sends mode.
  *
- * Layout varies by mode:
- * - volume: Meter + Tall Fader + dB + M/S + Name (maximized fader)
- * - mix: Meter + Fader + dB + Pan + M/S + RecArm + Name
- * - sends: Uses SendStrip component instead
+ * Layout:
+ * - Color bar with track number
+ * - Track name
+ * - Meter + Gold Send Fader + dB
+ * - Send Mute button
+ * - Destination name (→ Bus name)
  */
-export function MixerStrip({
+export function SendStrip({
   trackIndex,
-  mode,
+  destTrackIdx,
+  destName,
   faderHeight = 180,
   showDbLabel = true,
   className = '',
-}: MixerStripProps): ReactElement | null {
+}: SendStripProps): ReactElement | null {
   const { exists, name, isSelected, color } = useTrack(trackIndex);
 
   if (!exists) {
@@ -52,9 +59,9 @@ export function MixerStrip({
 
   return (
     <div
-      className={`flex flex-col items-center rounded-lg border border-border-subtle ${backgroundColor} ${className}`}
+      className={`flex flex-col items-center rounded-lg border border-amber-500/30 ${backgroundColor} ${className}`}
       style={{ width: 80 }}
-      data-testid="mixer-strip"
+      data-testid="send-strip"
       data-track-index={trackIndex}
     >
       {/* Color bar with track number */}
@@ -78,52 +85,41 @@ export function MixerStrip({
         {isMaster ? 'MASTER' : name || `Trk ${trackIndex}`}
       </div>
 
-      {/* Main content area */}
+      {/* Main content area - meter + send fader */}
       <div className="flex gap-1 px-1 pb-1">
-        {/* Level meter */}
+        {/* Level meter (still shows track level for reference) */}
         <LevelMeter
           trackIndex={trackIndex}
           height={faderHeight}
           showPeak={true}
         />
 
-        {/* Fader */}
-        <Fader
+        {/* Send Fader (gold) */}
+        <SendFader
           trackIndex={trackIndex}
+          destTrackIdx={destTrackIdx}
           height={faderHeight}
           isSelected={isSelected}
           showDbLabel={showDbLabel}
         />
       </div>
 
-      {/* Pan (Mix mode only) */}
-      {mode === 'mix' && (
-        <PanKnob
-          trackIndex={trackIndex}
-          width={70}
-          isSelected={isSelected}
-          className="mb-1"
-        />
-      )}
-
-      {/* M/S buttons */}
+      {/* Send Mute button */}
       <div className="flex gap-1 mb-1">
-        <MuteButton trackIndex={trackIndex} isSelected={isSelected} />
-        <SoloButton trackIndex={trackIndex} isSelected={isSelected} />
+        <SendMuteButton
+          trackIndex={trackIndex}
+          destTrackIdx={destTrackIdx}
+          isSelected={isSelected}
+        />
       </div>
 
-      {/* Record Arm (Mix mode, non-master only) - spacer for master to match height */}
-      {mode === 'mix' && (
-        isMaster ? (
-          <div className="h-[26px] mb-1" /> // Spacer to match RecordArmButton height
-        ) : (
-          <RecordArmButton
-            trackIndex={trackIndex}
-            isSelected={isSelected}
-            className="mb-1"
-          />
-        )
-      )}
+      {/* Destination name */}
+      <div
+        className="w-full text-center text-[10px] text-amber-500 truncate px-1 pb-1"
+        title={`Send to: ${destName}`}
+      >
+        → {destName}
+      </div>
     </div>
   );
 }

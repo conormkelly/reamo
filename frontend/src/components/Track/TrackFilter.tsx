@@ -15,6 +15,8 @@ export interface TrackFilterProps {
   matchCount?: number;
   /** Total number of tracks (optional) */
   totalCount?: number;
+  /** Hide the inline count display (useful when count is shown elsewhere) */
+  hideCount?: boolean;
 }
 
 export function TrackFilter({
@@ -24,6 +26,7 @@ export function TrackFilter({
   placeholder = 'Filter tracks...',
   matchCount,
   totalCount,
+  hideCount = false,
 }: TrackFilterProps): ReactElement {
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     onChange(e.target.value);
@@ -33,8 +36,8 @@ export function TrackFilter({
     onChange('');
   };
 
-  // Show count if totalCount is provided
-  const showCount = totalCount !== undefined && totalCount > 0;
+  // Show count if totalCount is provided and not explicitly hidden
+  const showCount = !hideCount && totalCount !== undefined && totalCount > 0;
   // When filtering, show match/total; otherwise just show total
   const countText = showCount
     ? value.trim()
