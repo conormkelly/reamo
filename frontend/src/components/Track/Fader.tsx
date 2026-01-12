@@ -37,12 +37,15 @@ export function Fader({
   const { faderPosition, volumeDb, setVolume, guid } = useTrack(trackIndex);
   const mixerLocked = useReaperStore((s) => s.mixerLocked);
   const [isDragging, setIsDragging] = useState(false);
+  const [isFineMode, setIsFineMode] = useState(false);
   const [hasMounted, setHasMounted] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const lastTapRef = useRef<number>(0);
   const cleanupRef = useRef<(() => void) | null>(null);
   // Lock GUID at gesture start to handle track reordering during drag
   const gestureGuidRef = useRef<string | null>(null);
+  // Fine-grained control: track initial position for delta-based movement
+  const dragStartRef = useRef<{ x: number; y: number; faderPos: number } | null>(null);
 
   // Enable transitions only after first render to prevent blip on remount
   useEffect(() => {
@@ -96,34 +99,69 @@ export function Fader({
       // Signal gesture start for undo coalescing (with locked GUID)
       sendCommand(gesture.start('volume', trackIndex, gestureGuidRef.current));
 
-      const getY = (event: MouseEvent | TouchEvent): number => {
-        if ('touches' in event) {
-          return event.touches[0].clientY;
+      const getXY = (event: MouseEvent | TouchEvent | React.MouseEvent | React.TouchEvent): { x: number; y: number } => {
+        if ('touches' in event && event.touches.length > 0) {
+          return { x: event.touches[0].clientX, y: event.touches[0].clientY };
         }
-        return event.clientY;
+        if ('clientX' in event) {
+          return { x: event.clientX, y: event.clientY };
+        }
+        return { x: 0, y: 0 };
       };
 
-      const updatePosition = (clientY: number) => {
-        if (!containerRef.current || !gestureGuidRef.current) return;
+      // Capture initial position for delta-based fine control
+      const initial = getXY(e as React.MouseEvent | React.TouchEvent);
+      dragStartRef.current = {
+        x: initial.x,
+        y: initial.y,
+        faderPos: faderPosition,
+      };
+
+      // Threshold for fine mode indicator (px away from fader)
+      const FINE_MODE_THRESHOLD = 30;
+      // Sensitivity scaling factor (lower = more sensitive to horizontal distance)
+      const SENSITIVITY_DIVISOR = 50;
+
+      const updatePosition = (clientX: number, clientY: number) => {
+        if (!containerRef.current || !gestureGuidRef.current || !dragStartRef.current) return;
         const rect = containerRef.current.getBoundingClientRect();
-        const y = clientY - rect.top;
-        const position = 1 - Math.max(0, Math.min(1, y / rect.height));
+
+        // Calculate horizontal offset from start position
+        const horizontalOffset = Math.abs(clientX - dragStartRef.current.x);
+
+        // Calculate sensitivity: 1.0 at fader, decreasing as finger moves away
+        // At 50px away: 0.5x, at 100px: 0.33x, at 150px: 0.25x
+        const sensitivity = 1 / (1 + horizontalOffset / SENSITIVITY_DIVISOR);
+
+        // Update fine mode indicator
+        setIsFineMode(horizontalOffset > FINE_MODE_THRESHOLD);
+
+        // Calculate vertical delta from start (negative = up = increase)
+        const deltaY = clientY - dragStartRef.current.y;
+
+        // Apply scaled delta to initial position
+        // deltaY / height gives normalized movement, scaled by sensitivity
+        const deltaPosition = -(deltaY / rect.height) * sensitivity;
+        const newPosition = Math.max(0, Math.min(1, dragStartRef.current.faderPos + deltaPosition));
+
         // Use locked GUID for volume command (ignores trackIdx when GUID provided)
-        const linearVolume = faderToVolume(position);
+        const linearVolume = faderToVolume(newPosition);
         sendCommand(trackCmd.setVolume(trackIndex, linearVolume, gestureGuidRef.current));
       };
 
-      // Handle initial click position
-      const initialY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-      updatePosition(initialY);
+      // Handle initial click position (just sets starting point, no movement yet)
+      // Don't update position on initial click - wait for movement
 
       const handleMove = (event: MouseEvent | TouchEvent) => {
         event.preventDefault();
-        updatePosition(getY(event));
+        const { x, y } = getXY(event);
+        updatePosition(x, y);
       };
 
       const handleUp = () => {
         setIsDragging(false);
+        setIsFineMode(false);
+        dragStartRef.current = null;
         // Signal gesture end with locked GUID - triggers undo point creation
         if (gestureGuidRef.current) {
           sendCommand(gesture.end('volume', trackIndex, gestureGuidRef.current));
@@ -144,7 +182,7 @@ export function Fader({
       // Store cleanup function for unmount
       cleanupRef.current = handleUp;
     },
-    [sendCommand, handleDoubleTap, mixerLocked, trackIndex, guid]
+    [sendCommand, handleDoubleTap, mixerLocked, trackIndex, guid, faderPosition]
   );
 
   const handleHeight = Math.max(0, Math.min(height, faderPosition * height));
@@ -173,6 +211,14 @@ export function Fader({
           className={`absolute left-0 right-0 h-3 bg-fader-handle rounded shadow-md ${hasMounted ? 'transition-all duration-75' : ''}`}
           style={{ bottom: Math.max(0, handleHeight - 6) }}
         />
+        {/* Fine mode indicator */}
+        {isFineMode && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <span className="text-[8px] font-bold text-primary bg-bg-deep/80 px-1 rounded">
+              FINE
+            </span>
+          </div>
+        )}
       </div>
       {showDbLabel && (
         <span className="text-[10px] text-text-secondary font-mono whitespace-nowrap">{volumeDb}</span>
