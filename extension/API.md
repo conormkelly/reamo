@@ -857,6 +857,20 @@ Set track solo. Toggles between 0 and 1 if no explicit value.
 {"type": "command", "command": "track/setSolo", "trackIdx": 0, "solo": 1}
 ```
 
+### `track/setSoloExclusive`
+
+Exclusive solo: unsolo all tracks, then solo this one. Single undo point.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | One of | Track index |
+| `trackGuid` | string | One of | Track GUID (preferred for stability) |
+
+```json
+{"type": "command", "command": "track/setSoloExclusive", "trackIdx": 3}
+{"type": "command", "command": "track/setSoloExclusive", "trackGuid": "{ABC...}"}
+```
+
 ### `track/setRecArm`
 
 Arm or disarm track for recording. Toggles if no explicit value.

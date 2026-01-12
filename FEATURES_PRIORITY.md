@@ -46,51 +46,48 @@ Add "New Track" button to TrackInfoBar or as FAB in mixer.
 
 ## P1 — UX Polish (Medium Effort)
 
-### Fine-Grained Fader Control
+### ~~Fine-Grained Fader Control~~ ✅
 Horizontal distance from fader reduces sensitivity for precision adjustments.
 
-**Pattern (from Logic Remote):**
-- Finger directly on fader: 1:1 movement
-- Finger 50px away horizontally: 0.5x sensitivity
-- Finger 100px+ away: 0.25x sensitivity (fine mode)
-
-**Implementation:**
-- Track horizontal offset from fader center in drag handler
-- Scale vertical delta by `1 / (1 + horizontalOffset / 50)`
-- Visual indicator when in fine mode (subtle highlight or "FINE" label)
-
-**Effort:** ~3-4 hours
+**Implemented:** 2026-01-12
+- Delta-based movement (captures initial position on drag start)
+- Sensitivity scales by `1 / (1 + horizontalOffset / 50)`
+- "FINE" indicator appears when finger is >30px away horizontally
+- Works with both mouse and touch
 
 ---
 
-### Exclusive Solo Mode
+### ~~Exclusive Solo Mode~~ ✅
 Option for solo buttons to work exclusively (soloing one track un-solos others).
 
-**Implementation:**
-- Add `exclusiveSolo` toggle in mixer settings
-- On solo: if exclusive mode, send `track/setSolo false` to all other tracks first
-- Consider "solo clear" gesture (long-press solo?)
-
-**Effort:** ~2-3 hours
+**Implemented:** 2026-01-12
+- Long-press (400ms) on solo button triggers exclusive solo
+- New `track/setSoloExclusive` command handles atomically on backend
+- Uses action 40340 (unsolo all) + setSolo, wrapped in undo block
+- Undo label: "REAmo: Solo track exclusively"
+- Normal tap still toggles solo additively
 
 ---
 
-### Migrate FX Modal to BottomSheet
+### ~~Migrate FX Modal to BottomSheet~~ ✅
 Current FX modal uses custom modal. Migrate to BottomSheet for consistency.
 
-**Benefits:**
-- Swipe-to-dismiss gesture
-- Consistent with Quick Actions Panel
-- Better thumb-reach ergonomics
-
-**Effort:** ~2-3 hours
+**Implemented:** 2026-01-12
+- Replaced Modal with BottomSheet slide-up panel
+- Added header with track name
+- Scrollable content area with max-height
+- Footer summary showing FX count
 
 ---
 
-### Migrate Routing Modal to BottomSheet
+### ~~Migrate Routing Modal to BottomSheet~~ ✅
 Same as above — consistent slide-up panel UX.
 
-**Effort:** ~2-3 hours
+**Implemented:** 2026-01-12
+- Replaced Modal with BottomSheet slide-up panel
+- Added header with track name
+- Scrollable content area with tabs for Sends/Receives
+- Footer summary showing send and receive counts
 
 ---
 

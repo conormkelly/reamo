@@ -147,6 +147,34 @@ pub fn handleSetSolo(api: anytype, cmd: protocol.CommandMessage, response: *mod.
     response.success(null);
 }
 
+// Action ID for "Unsolo all tracks"
+const ACTION_UNSOLO_ALL: c_int = 40340;
+
+// Exclusive solo: unsolo all tracks, then solo this one
+// Atomic operation with single undo point
+// Accepts trackIdx or trackGuid parameter
+pub fn handleSetSoloExclusive(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const resolution = resolveTrack(api, cmd) orelse {
+        response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
+        return;
+    };
+
+    // Begin undo block for atomic operation
+    api.undoBeginBlock();
+
+    // Unsolo all tracks via action
+    api.runCommand(ACTION_UNSOLO_ALL);
+
+    // Solo the target track
+    _ = api.csurfSetSolo(resolution.track, 1, false); // allowGang=false for exclusive
+
+    // End undo block with descriptive name
+    api.undoEndBlock("REAmo: Solo track exclusively");
+
+    logging.debug("Exclusive solo on track {d}", .{resolution.idx});
+    response.success(null);
+}
+
 // Set track record arm (toggle if no value provided)
 // Uses CSurf API for gang support (respects track grouping when allowGang=true)
 // Accepts trackIdx or trackGuid parameter

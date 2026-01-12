@@ -187,6 +187,11 @@ export const track = {
     command: 'track/setSolo',
     params: trackGuid ? { trackGuid, solo } : { trackIdx, solo },
   }),
+  /** Exclusive solo: unsolo all tracks, then solo this one. Single undo point. */
+  setSoloExclusive: (trackIdx: number, trackGuid?: string): WSCommand => ({
+    command: 'track/setSoloExclusive',
+    params: trackGuid ? { trackGuid } : { trackIdx },
+  }),
   setRecArm: (trackIdx: number, arm?: number, trackGuid?: string): WSCommand => ({
     command: 'track/setRecArm',
     params: trackGuid ? { trackGuid, arm } : { trackIdx, arm },

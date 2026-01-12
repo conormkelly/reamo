@@ -101,6 +101,7 @@ pub const all = .{
     .{ "track/setPan", tracks.handleSetPan },
     .{ "track/setMute", tracks.handleSetMute },
     .{ "track/setSolo", tracks.handleSetSolo },
+    .{ "track/setSoloExclusive", tracks.handleSetSoloExclusive },
     .{ "track/setRecArm", tracks.handleSetRecArm },
     .{ "track/setRecMon", tracks.handleSetRecMon },
     .{ "track/setFxEnabled", tracks.handleSetFxEnabled },
