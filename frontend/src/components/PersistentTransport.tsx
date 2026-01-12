@@ -5,14 +5,15 @@
  */
 
 import type { ReactElement } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { SkipBack, Play, Pause, Square, Circle, RefreshCw } from 'lucide-react';
 import { useReaper } from './ReaperProvider';
 import { useTransport } from '../hooks/useTransport';
 import { useReaperStore } from '../store';
 import { transport, action } from '../core/WebSocketCommands';
-import { useTransportAnimation } from '../hooks';
-import { useRef, useCallback, useEffect } from 'react';
+import { useTransportAnimation, useDoubleTap } from '../hooks';
 import { formatTime } from '../utils';
+import { QuickActionsPanel } from './QuickActionsPanel';
 
 // Hold duration threshold in ms
 const HOLD_THRESHOLD = 300;
@@ -68,6 +69,9 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
   const bpm = useReaperStore((state) => state.bpm);
   const timeSignatureNumerator = useReaperStore((state) => state.timeSignatureNumerator);
   const timeSignatureDenominator = useReaperStore((state) => state.timeSignatureDenominator);
+
+  // Quick Actions Panel state
+  const [isQuickActionsPanelOpen, setIsQuickActionsPanelOpen] = useState(false);
 
   // Refs for direct DOM updates at 60fps
   const timeRef = useRef<HTMLSpanElement>(null);
@@ -129,6 +133,17 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
         clearTimeout(holdTimerRef.current);
       }
     };
+  }, []);
+
+  // Double-tap handler for Quick Actions Panel
+  const { onClick: handleTimeDisplayClick } = useDoubleTap({
+    onDoubleTap: useCallback(() => {
+      setIsQuickActionsPanelOpen(true);
+    }, []),
+  });
+
+  const handleCloseQuickActionsPanel = useCallback(() => {
+    setIsQuickActionsPanelOpen(false);
   }, []);
 
   const recordInactiveClass = isAutoPunch
@@ -195,8 +210,13 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
         </button>
       </div>
 
-      {/* Time display - compact */}
-      <div className={`font-mono ${isRight ? 'text-left' : 'text-right'}`}>
+      {/* Time display - compact, double-tap to open Quick Actions */}
+      <button
+        onClick={handleTimeDisplayClick}
+        className={`font-mono ${isRight ? 'text-left' : 'text-right'} hover:bg-bg-elevated/50 rounded-lg px-2 py-1 -mx-2 -my-1 transition-colors`}
+        title="Double-tap for quick actions"
+        aria-label="Time display - double-tap for quick actions"
+      >
         <div className="text-lg font-medium">
           <span ref={beatsRef} className="text-text-primary">1.1.00</span>
         </div>
@@ -207,7 +227,13 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
           <span className="mx-1">|</span>
           <span>{timeSignatureNumerator}/{timeSignatureDenominator}</span>
         </div>
-      </div>
+      </button>
+
+      {/* Quick Actions Panel */}
+      <QuickActionsPanel
+        isOpen={isQuickActionsPanelOpen}
+        onClose={handleCloseQuickActionsPanel}
+      />
     </div>
   );
 }

@@ -46,6 +46,21 @@ A placeholder exists at `frontend/src/views/mixer/` for a full-screen mixer with
 
 ---
 
+### ~~Double-Tap Time Display → Quick Actions Panel~~
+
+~~Double-tap on the time/position display in PersistentTransport opens a slide-up panel with commonly needed project actions.~~
+
+**Features implemented:**
+- ~~Project name display with dirty indicator~~
+- ~~Save, Undo, Redo buttons~~
+- ~~Metronome and Repeat toggles~~
+- ~~Tempo display/edit with +/- buttons and Tap Tempo~~
+- ~~New reusable BottomSheet component for slide-up panels~~
+
+**Status:** Implemented (2026-01-12)
+
+---
+
 ### Long-Press Position Display → Marker Navigation
 
 Long-press (500ms) on the time/position display should show a popup with all project markers for quick navigation. This is a proven UX pattern from Logic Remote.
@@ -65,53 +80,27 @@ Long-press (500ms) on the time/position display should show a popup with all pro
 - Consider including region start/end points
 - Sort by position, show name + time
 
+**Note:** Could be superseded by or coexist with the Double-Tap Quick Actions Panel above. Double-tap gives quick actions + navigation; long-press could remain as a faster path to marker-only list.
+
 **Status:** Not implemented
 
 ---
 
 ## Backend
 
-### `track/setColor` Command
+### ~~`track/setColor` Command~~
 
-Add command to set track color. Currently tracks event includes `color` field (read) but no write command exists.
+~~Add command to set track color. Currently tracks event includes `color` field (read) but no write command exists.~~
 
-**API:**
-```json
-{"type": "command", "command": "track/setColor", "trackIdx": 1, "color": 16711680}
-{"type": "command", "command": "track/setColor", "trackIdx": 1, "color": 0}  // Reset to default
-```
-
-**Parameters:**
-- `trackIdx` (int, required): Track index (0 = master, 1+ = user tracks)
-- `color` (int, required): Native OS color value, `0` to reset to default
-- `trackGuid` (string, optional): Track GUID for stable targeting
-
-**REAPER API:** `SetTrackColor(track, color)` where color is native OS format (0x01RRGGBB on Mac)
-
-**Status:** Not implemented
+**Status:** Implemented (2026-01-12)
 
 ---
 
-### `fx/setEnabled` Command (Per-FX Bypass)
+### ~~`trackFx/setEnabled` Command (Per-FX Bypass)~~
 
-Add command to enable/disable individual FX in a track's FX chain. Currently only track-level FX bypass exists (`track/setFxEnabled`).
+~~Add command to enable/disable individual FX in a track's FX chain.~~
 
-**API:**
-```json
-{"type": "command", "command": "fx/setEnabled", "trackIdx": 1, "fxIdx": 0, "enabled": 0}
-{"type": "command", "command": "fx/setEnabled", "trackIdx": 1, "fxIdx": 0}  // Toggle
-```
-
-**Parameters:**
-- `trackIdx` (int, required): Track index
-- `fxIdx` (int, required): FX index in chain (0-based)
-- `enabled` (int, optional): 0=bypass, 1=enabled (toggles if omitted)
-
-**REAPER API:** `TrackFX_SetEnabled(track, fxIdx, enabled)`
-
-**Also needed:** Add `enabled` boolean to each FX object in tracks event (currently missing).
-
-**Status:** Not implemented
+**Status:** Implemented (2026-01-12) — Command is `trackFx/setEnabled` (not `fx/setEnabled`) to distinguish from future item FX support. Per-FX enabled state included in `track/getFx` response.
 
 ---
 

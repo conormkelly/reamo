@@ -12,6 +12,9 @@ export interface ProjectSlice {
   reaperCanUndo: string | null; // Description of next undo action, or null
   reaperCanRedo: string | null; // Description of next redo action, or null
 
+  // Project name - filename of current project (e.g., "My Song.rpp")
+  projectName: string;
+
   // Project dirty state - true when project has unsaved changes
   isProjectDirty: boolean;
 
@@ -24,6 +27,7 @@ export interface ProjectSlice {
 
   // Actions
   setReaperUndoState: (canUndo: string | null, canRedo: string | null) => void;
+  setProjectName: (name: string) => void;
   setProjectDirty: (isDirty: boolean) => void;
   setMemoryWarning: (warning: boolean) => void;
   dismissMemoryWarning: () => void;
@@ -34,6 +38,7 @@ export const createProjectSlice: StateCreator<ProjectSlice> = (set) => ({
   // Initial state
   reaperCanUndo: null,
   reaperCanRedo: null,
+  projectName: '',
   isProjectDirty: false,
   memoryWarning: false,
   memoryWarningDismissed: false,
@@ -41,6 +46,7 @@ export const createProjectSlice: StateCreator<ProjectSlice> = (set) => ({
 
   // Actions
   setReaperUndoState: (canUndo, canRedo) => set({ reaperCanUndo: canUndo, reaperCanRedo: canRedo }),
+  setProjectName: (name) => set({ projectName: name }),
   setProjectDirty: (isDirty) => set({ isProjectDirty: isDirty }),
   setMemoryWarning: (warning) => set({ memoryWarning: warning }),
   dismissMemoryWarning: () => set({ memoryWarningDismissed: true }),

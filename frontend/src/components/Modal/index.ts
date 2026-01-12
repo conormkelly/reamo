@@ -19,3 +19,4 @@
 export { Modal, type ModalProps } from './Modal';
 export { ModalContent, type ModalContentProps } from './ModalContent';
 export { ModalFooter, type ModalFooterProps } from './ModalFooter';
+export { BottomSheet, type BottomSheetProps } from './BottomSheet';

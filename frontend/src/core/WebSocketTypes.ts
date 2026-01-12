@@ -134,6 +134,7 @@ export interface ProjectEventPayload {
   canUndo: string | null; // Description of next undo action, or null
   canRedo: string | null; // Description of next redo action, or null
   stateChangeCount: number; // Counter for change detection
+  projectName: string; // Project filename (e.g., "My Song.rpp")
   // Project-level settings (moved from transport for efficiency)
   repeat: boolean;
   metronome: {
