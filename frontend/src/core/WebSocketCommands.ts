@@ -612,6 +612,28 @@ export const send = {
 };
 
 // =============================================================================
+// FX Commands
+// =============================================================================
+
+export const fx = {
+  /** Navigate to the next preset for a track FX */
+  presetNext: (trackIdx: number, fxIdx: number): WSCommand => ({
+    command: 'fx/presetNext',
+    params: { trackIdx, fxIdx },
+  }),
+  /** Navigate to the previous preset for a track FX */
+  presetPrev: (trackIdx: number, fxIdx: number): WSCommand => ({
+    command: 'fx/presetPrev',
+    params: { trackIdx, fxIdx },
+  }),
+  /** Jump to a specific preset by index (-1 = default user, -2 = factory, 0+ = preset index) */
+  presetSet: (trackIdx: number, fxIdx: number, presetIdx: number): WSCommand => ({
+    command: 'fx/presetSet',
+    params: { trackIdx, fxIdx, presetIdx },
+  }),
+};
+
+// =============================================================================
 // Project Notes Commands
 // =============================================================================
 

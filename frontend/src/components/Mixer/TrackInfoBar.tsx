@@ -3,7 +3,7 @@
  * Shows track info in the mixer when a track is selected.
  * 2-line layout matching MarkerInfoBar style:
  * - Line 1: Track # | Name (editable)
- * - Line 2: Color (display only) | Routing button | Duplicate | Delete
+ * - Line 2: Color (display only) | FX toggle | Routing button | Duplicate | Delete
  */
 
 import { useState, useRef, useEffect, useCallback, type ReactElement } from 'react';
@@ -13,6 +13,7 @@ import { useTrack } from '../../hooks/useTrack';
 import { track as trackCmd } from '../../core/WebSocketCommands';
 import { reaperColorToHex } from '../../utils';
 import { DEFAULT_TRACK_COLOR } from '../../constants/colors';
+import { FxModal } from './FxModal';
 
 export interface TrackInfoBarProps {
   /** Currently selected track index (null if no selection) */
@@ -107,6 +108,11 @@ export function TrackInfoBar({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const deleteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // State for FX modal (long-press to open)
+  const [isFxModalOpen, setIsFxModalOpen] = useState(false);
+  const fxPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fxLongPressTriggeredRef = useRef(false);
+
   // Focus name input when editing starts
   useEffect(() => {
     if (isEditingName && nameInputRef.current) {
@@ -119,11 +125,16 @@ export function TrackInfoBar({
   useEffect(() => {
     setIsEditingName(false);
     setConfirmDelete(false);
+    setIsFxModalOpen(false);
 
-    // Cleanup delete timeout
+    // Cleanup timeouts
     if (deleteTimeoutRef.current) {
       clearTimeout(deleteTimeoutRef.current);
       deleteTimeoutRef.current = null;
+    }
+    if (fxPressTimerRef.current) {
+      clearTimeout(fxPressTimerRef.current);
+      fxPressTimerRef.current = null;
     }
   }, [selectedTrackIdx]);
 
@@ -132,6 +143,9 @@ export function TrackInfoBar({
     return () => {
       if (deleteTimeoutRef.current) {
         clearTimeout(deleteTimeoutRef.current);
+      }
+      if (fxPressTimerRef.current) {
+        clearTimeout(fxPressTimerRef.current);
       }
     };
   }, []);
@@ -220,6 +234,43 @@ export function TrackInfoBar({
     }
   }, [selectedTrackIdx, onShowRouting]);
 
+  // FX button handlers - tap to toggle, long-press to open modal
+  const handleFxPointerDown = useCallback(() => {
+    if (selectedTrackIdx === null || !trackData.exists || trackData.fxCount === 0) return;
+
+    fxLongPressTriggeredRef.current = false;
+    fxPressTimerRef.current = setTimeout(() => {
+      fxLongPressTriggeredRef.current = true;
+      setIsFxModalOpen(true);
+      fxPressTimerRef.current = null;
+    }, 500);
+  }, [selectedTrackIdx, trackData.exists, trackData.fxCount]);
+
+  const handleFxPointerUp = useCallback(() => {
+    // Cancel long-press timer if still pending
+    if (fxPressTimerRef.current) {
+      clearTimeout(fxPressTimerRef.current);
+      fxPressTimerRef.current = null;
+    }
+  }, []);
+
+  const handleFxClick = useCallback(() => {
+    if (selectedTrackIdx === null || !trackData.exists) return;
+
+    // If long-press triggered, don't toggle (modal is already open)
+    if (fxLongPressTriggeredRef.current) {
+      fxLongPressTriggeredRef.current = false;
+      return;
+    }
+
+    // Toggle FX enabled state (undefined = toggle)
+    sendCommand(trackCmd.setFxEnabled(selectedTrackIdx, undefined, trackData.guid));
+  }, [selectedTrackIdx, trackData.exists, trackData.guid, sendCommand]);
+
+  const handleFxModalClose = useCallback(() => {
+    setIsFxModalOpen(false);
+  }, []);
+
   // Don't render if no track selected
   if (selectedTrackIdx === null || !trackData.exists) {
     return (
@@ -290,6 +341,34 @@ export function TrackInfoBar({
 
           <div className="w-px h-6 bg-border-default flex-shrink-0" />
 
+          {/* FX indicator/toggle - tap to toggle, long-press for modal */}
+          <button
+            onClick={handleFxClick}
+            onPointerDown={handleFxPointerDown}
+            onPointerUp={handleFxPointerUp}
+            onPointerCancel={handleFxPointerUp}
+            onPointerLeave={handleFxPointerUp}
+            disabled={trackData.fxCount === 0}
+            className={`w-8 h-8 flex items-center justify-center rounded-lg border-2 transition-colors ${
+              trackData.fxCount === 0
+                ? 'text-text-muted border-border-default cursor-default'
+                : trackData.isFxDisabled
+                  ? 'text-error-text border-error-text hover:bg-bg-elevated'
+                  : 'text-success border-success hover:bg-bg-elevated'
+            }`}
+            title={
+              trackData.fxCount === 0
+                ? 'No FX on track'
+                : trackData.isFxDisabled
+                  ? `FX bypassed (${trackData.fxCount} FX) - tap to toggle, hold for details`
+                  : `FX enabled (${trackData.fxCount} FX) - tap to toggle, hold for details`
+            }
+          >
+            <span className="text-xs font-bold">FX</span>
+          </button>
+
+          <div className="w-px h-6 bg-border-default flex-shrink-0" />
+
           {/* Routing indicator */}
           <RoutingIndicator
             hasMasterSend={hasMasterSend}
@@ -329,6 +408,15 @@ export function TrackInfoBar({
           )}
         </div>
       </div>
+
+      {/* FX Modal */}
+      {selectedTrackIdx !== null && (
+        <FxModal
+          isOpen={isFxModalOpen}
+          onClose={handleFxModalClose}
+          trackIndex={selectedTrackIdx}
+        />
+      )}
     </div>
   );
 }

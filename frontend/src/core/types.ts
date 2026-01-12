@@ -19,7 +19,7 @@ export const PlayStateLabel: Record<PlayState, string> = {
 export const TrackFlags = {
   FOLDER: 1,
   SELECTED: 2,
-  HAS_FX: 4,
+  FX_DISABLED: 4, // Set when fxEnabled=false (track FX chain is bypassed)
   MUTED: 8,
   SOLOED: 16,
   SOLO_IN_PLACE: 32,
@@ -87,8 +87,9 @@ export function isSelected(track: Track): boolean {
   return (track.flags & TrackFlags.SELECTED) !== 0;
 }
 
-export function hasFx(track: Track): boolean {
-  return (track.flags & TrackFlags.HAS_FX) !== 0;
+/** Returns true if track FX chain is disabled/bypassed */
+export function isFxDisabled(track: Track): boolean {
+  return (track.flags & TrackFlags.FX_DISABLED) !== 0;
 }
 
 export function getRecordMonitorState(track: Track): 'off' | 'on' | 'auto' {

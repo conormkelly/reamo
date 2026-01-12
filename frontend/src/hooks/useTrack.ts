@@ -28,7 +28,7 @@ import {
   isSoloed,
   isRecordArmed,
   isSelected,
-  hasFx,
+  isFxDisabled,
   getRecordMonitorState,
 } from '../core/types';
 import { track as trackCmd } from '../core/WebSocketCommands';
@@ -55,7 +55,8 @@ export interface UseTrackReturn {
   isSoloed: boolean;
   isRecordArmed: boolean;
   isSelected: boolean;
-  hasFx: boolean;
+  fxCount: number;
+  isFxDisabled: boolean;
   recordMonitorState: 'off' | 'on' | 'auto';
   color: string | null;
   textColor: 'black' | 'white';
@@ -93,7 +94,8 @@ export function useTrack(trackIndex: number): UseTrackReturn {
         isSoloed: false,
         isRecordArmed: false,
         isSelected: false,
-        hasFx: false,
+        fxCount: 0,
+        isFxDisabled: false,
         recordMonitorState: 'off' as const,
         color: null,
         textColor: 'white' as const,
@@ -110,7 +112,8 @@ export function useTrack(trackIndex: number): UseTrackReturn {
       isSoloed: isSoloed(track),
       isRecordArmed: isRecordArmed(track),
       isSelected: isSelected(track),
-      hasFx: hasFx(track),
+      fxCount: track.fxCount,
+      isFxDisabled: isFxDisabled(track),
       recordMonitorState: getRecordMonitorState(track),
       color: reaperColorToHex(track.color),
       textColor: getContrastColor(track.color),

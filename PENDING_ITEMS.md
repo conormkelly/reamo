@@ -8,6 +8,20 @@ Consolidated from backend audits and completed plans. Items not yet addressed.
 
 ## Frontend
 
+### FX Modal for TrackInfoBar
+
+~~Add long-press (500ms) on FX button to open FX modal.~~
+
+**FX Modal features (with current APIs):**
+- ~~List FX chain with preset names~~
+- ~~Preset navigation (prev/next) via `fx/presetNext`, `fx/presetPrev`~~
+- ~~Show modified indicator~~
+- ~~Track-level FX bypass toggle~~
+
+**Status:** Implemented (2026-01-11)
+
+---
+
 ### Subscription Buffer Setting
 
 Add user-configurable subscription buffer for viewport-driven track loading. Currently hardcoded at 30 tracks beyond visible viewport. Users on slow WiFi could reduce this to minimize bandwidth; users scrolling fast through huge sessions could increase for fewer placeholders.
@@ -56,6 +70,50 @@ Long-press (500ms) on the time/position display should show a popup with all pro
 ---
 
 ## Backend
+
+### `track/setColor` Command
+
+Add command to set track color. Currently tracks event includes `color` field (read) but no write command exists.
+
+**API:**
+```json
+{"type": "command", "command": "track/setColor", "trackIdx": 1, "color": 16711680}
+{"type": "command", "command": "track/setColor", "trackIdx": 1, "color": 0}  // Reset to default
+```
+
+**Parameters:**
+- `trackIdx` (int, required): Track index (0 = master, 1+ = user tracks)
+- `color` (int, required): Native OS color value, `0` to reset to default
+- `trackGuid` (string, optional): Track GUID for stable targeting
+
+**REAPER API:** `SetTrackColor(track, color)` where color is native OS format (0x01RRGGBB on Mac)
+
+**Status:** Not implemented
+
+---
+
+### `fx/setEnabled` Command (Per-FX Bypass)
+
+Add command to enable/disable individual FX in a track's FX chain. Currently only track-level FX bypass exists (`track/setFxEnabled`).
+
+**API:**
+```json
+{"type": "command", "command": "fx/setEnabled", "trackIdx": 1, "fxIdx": 0, "enabled": 0}
+{"type": "command", "command": "fx/setEnabled", "trackIdx": 1, "fxIdx": 0}  // Toggle
+```
+
+**Parameters:**
+- `trackIdx` (int, required): Track index
+- `fxIdx` (int, required): FX index in chain (0-based)
+- `enabled` (int, optional): 0=bypass, 1=enabled (toggles if omitted)
+
+**REAPER API:** `TrackFX_SetEnabled(track, fxIdx, enabled)`
+
+**Also needed:** Add `enabled` boolean to each FX object in tracks event (currently missing).
+
+**Status:** Not implemented
+
+---
 
 ### Move Static Buffers to test_utils
 

@@ -25,7 +25,7 @@ export {
   isSoloed,
   isRecordArmed,
   isSelected,
-  hasFx,
+  isFxDisabled,
   getRecordMonitorState,
   isSendMuted,
   // WebSocket connection
