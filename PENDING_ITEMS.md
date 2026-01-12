@@ -61,28 +61,18 @@ A placeholder exists at `frontend/src/views/mixer/` for a full-screen mixer with
 
 ---
 
-### Long-Press Position Display → Marker Navigation
+### ~~Long-Press Position Display → Marker Navigation~~
 
-Long-press (500ms) on the time/position display should show a popup with all project markers for quick navigation. This is a proven UX pattern from Logic Remote.
+~~Long-press (500ms) on the time/position display shows a BottomSheet with all project markers and region start points for quick navigation.~~
 
-**Interaction:**
-- Touch-hold on position display (bar.beat or time readout)
-- After 500ms, show dropdown/popover with marker list
-- Tap any marker → seek to that position
-- Include regions (start points) optionally
+**Features implemented:**
+- Long-press (500ms) on time display opens MarkerNavigationPanel
+- Shows markers and region start points sorted by position
+- Each item displays: color indicator, type icon, name, bar.beat position
+- Tap any item to seek playhead there and close panel
+- Coexists with double-tap Quick Actions Panel (tap → double-tap detection, hold → marker nav)
 
-**Visual feedback:**
-- At 200ms: subtle pulse animation on display
-- At 500ms: popup appears with 200ms fade-in
-
-**Implementation notes:**
-- Reuse existing marker data from store
-- Consider including region start/end points
-- Sort by position, show name + time
-
-**Note:** Could be superseded by or coexist with the Double-Tap Quick Actions Panel above. Double-tap gives quick actions + navigation; long-press could remain as a faster path to marker-only list.
-
-**Status:** Not implemented
+**Status:** Implemented (2026-01-12)
 
 ---
 

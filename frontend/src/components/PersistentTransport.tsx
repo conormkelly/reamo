@@ -11,9 +11,10 @@ import { useReaper } from './ReaperProvider';
 import { useTransport } from '../hooks/useTransport';
 import { useReaperStore } from '../store';
 import { transport, action } from '../core/WebSocketCommands';
-import { useTransportAnimation, useDoubleTap } from '../hooks';
+import { useTransportAnimation, useDoubleTap, useLongPress } from '../hooks';
 import { formatTime } from '../utils';
 import { QuickActionsPanel } from './QuickActionsPanel';
+import { MarkerNavigationPanel } from './MarkerNavigationPanel';
 
 // Hold duration threshold in ms
 const HOLD_THRESHOLD = 300;
@@ -70,8 +71,9 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
   const timeSignatureNumerator = useReaperStore((state) => state.timeSignatureNumerator);
   const timeSignatureDenominator = useReaperStore((state) => state.timeSignatureDenominator);
 
-  // Quick Actions Panel state
+  // Panel states
   const [isQuickActionsPanelOpen, setIsQuickActionsPanelOpen] = useState(false);
+  const [isMarkerNavigationOpen, setIsMarkerNavigationOpen] = useState(false);
 
   // Refs for direct DOM updates at 60fps
   const timeRef = useRef<HTMLSpanElement>(null);
@@ -136,14 +138,28 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
   }, []);
 
   // Double-tap handler for Quick Actions Panel
-  const { onClick: handleTimeDisplayClick } = useDoubleTap({
+  const { onClick: handleDoubleTapCheck } = useDoubleTap({
     onDoubleTap: useCallback(() => {
       setIsQuickActionsPanelOpen(true);
     }, []),
   });
 
+  // Long-press handler for Marker Navigation
+  // Taps are forwarded to the double-tap handler
+  const { handlers: timeDisplayHandlers } = useLongPress({
+    onTap: handleDoubleTapCheck,
+    onLongPress: useCallback(() => {
+      setIsMarkerNavigationOpen(true);
+    }, []),
+    duration: 500,
+  });
+
   const handleCloseQuickActionsPanel = useCallback(() => {
     setIsQuickActionsPanelOpen(false);
+  }, []);
+
+  const handleCloseMarkerNavigation = useCallback(() => {
+    setIsMarkerNavigationOpen(false);
   }, []);
 
   const recordInactiveClass = isAutoPunch
@@ -210,12 +226,12 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
         </button>
       </div>
 
-      {/* Time display - compact, double-tap to open Quick Actions */}
+      {/* Time display - double-tap for Quick Actions, long-press for Marker Navigation */}
       <button
-        onClick={handleTimeDisplayClick}
-        className={`font-mono ${isRight ? 'text-left' : 'text-right'} hover:bg-bg-elevated/50 rounded-lg px-2 py-1 -mx-2 -my-1 transition-colors`}
-        title="Double-tap for quick actions"
-        aria-label="Time display - double-tap for quick actions"
+        {...timeDisplayHandlers}
+        className={`font-mono ${isRight ? 'text-left' : 'text-right'} hover:bg-bg-elevated/50 rounded-lg px-2 py-1 -mx-2 -my-1 transition-colors touch-none`}
+        title="Double-tap for quick actions, hold for marker navigation"
+        aria-label="Time display - double-tap for quick actions, hold for markers"
       >
         <div className="text-lg font-medium">
           <span ref={beatsRef} className="text-text-primary">1.1.00</span>
@@ -233,6 +249,12 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
       <QuickActionsPanel
         isOpen={isQuickActionsPanelOpen}
         onClose={handleCloseQuickActionsPanel}
+      />
+
+      {/* Marker Navigation Panel */}
+      <MarkerNavigationPanel
+        isOpen={isMarkerNavigationOpen}
+        onClose={handleCloseMarkerNavigation}
       />
     </div>
   );
