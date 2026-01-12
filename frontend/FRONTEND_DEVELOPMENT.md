@@ -20,14 +20,17 @@ Best practices, patterns, and conventions for the REAmo React frontend.
 7. [WebSocket & Connection](#7-websocket--connection)
 8. [Modal System](#8-modal-system)
 9. [Touch & Gesture Handling](#9-touch--gesture-handling)
-10. [PWA & iOS Safari](#10-pwa--ios-safari)
-11. [Accessibility](#11-accessibility)
-12. [Performance](#12-performance)
-13. [Bundle Size](#13-bundle-size)
-14. [Error Handling](#14-error-handling)
-15. [Testing](#15-testing)
-16. [Anti-Patterns Checklist](#16-anti-patterns-checklist)
-17. [Deferred/Future Work](#17-deferredfuture-work)
+10. [Timeline Coordinate Systems](#10-timeline-coordinate-systems)
+11. [PWA & iOS Safari](#11-pwa--ios-safari)
+12. [Accessibility](#12-accessibility)
+13. [Performance](#13-performance)
+14. [Bundle Size](#14-bundle-size)
+15. [Error Handling](#15-error-handling)
+16. [Testing](#16-testing)
+17. [Common Mistakes (Real Examples)](#17-common-mistakes-real-examples)
+18. [Anti-Patterns Checklist](#18-anti-patterns-checklist)
+19. [Centralized Constants](#19-centralized-constants)
+20. [Deferred/Future Work](#20-deferredfuture-work)
 
 ---
 
@@ -72,11 +75,50 @@ For text on colored backgrounds (buttons), use `text-on-*` tokens:
 // Available: text-on-primary, text-on-success, text-on-error, text-on-accent
 ```
 
+### Feature-Specific Tokens (Added Post-Audit)
+
+These tokens were added after compliance audits found hardcoded colors:
+
+| Feature | Tokens | Purpose |
+|---------|--------|---------|
+| **Sends Mode** | `sends-primary`, `sends-hover`, `sends-bg`, `sends-text`, `sends-mute-*` | Amber/gold faders in mixer sends mode |
+| **Routing** | `routing-master`, `routing-sends`, `routing-receives`, `routing-disabled` | Track routing indicator colors |
+| **Fader** | `fader-handle`, `fader-fill` | Mixer fader handle and fill colors |
+| **Selection** | `selection-overlay-bg`, `selection-overlay-border`, `selection-overlay-text` | Timeline selection overlays |
+
+**When adding a new feature with distinct colors:**
+1. Add semantic tokens to `src/index.css` under `@theme`
+2. Use descriptive names: `feature-purpose` (e.g., `sends-mute-hover`)
+3. Reference via Tailwind: `bg-sends-primary`, `text-routing-master`
+
 ### DO NOT
 
 - Use hardcoded hex colors (except in color picker inputs that need `#rrggbb`)
-- Use Tailwind color classes like `bg-gray-700`, `text-blue-500`
+- Use Tailwind color classes like `bg-gray-700`, `text-blue-500`, `bg-amber-500`, `text-white`
+- Use generic Tailwind colors for feature-specific styling (use semantic tokens)
 - Forget fallback for user-defined REAPER colors (use `reaperColorToHex()`)
+
+### Real Examples of Token Violations (Fixed)
+
+```tsx
+// BAD - hardcoded amber for sends mode (was in MixerModeSelector)
+<button className="bg-amber-500 text-white">Sends</button>
+
+// GOOD - semantic token
+<button className="bg-sends-primary text-on-primary">Sends</button>
+
+// BAD - hardcoded white for fader handle (was in Fader component)
+<div style={{ backgroundColor: 'white' }} />
+
+// GOOD - token reference
+<div className="bg-fader-handle" />
+
+// BAD - hardcoded hex for selection border (was in RegionInfoBar)
+<div className="border-white" />
+
+// GOOD - on-color token
+<div className="border-on-primary" />
+```
 
 ---
 
@@ -153,8 +195,26 @@ Over scattering across `components/`, `hooks/`, etc.
 | `useListReorder` | `hooks/useListReorder.ts` | Drag-and-drop reordering |
 | `useLongPress` | `hooks/useLongPress.ts` | Tap vs long-press |
 | `useDoubleTap` | `hooks/useDoubleTap.ts` | Double-tap detection |
+| `useReducedMotion` | `hooks/useReducedMotion.ts` | Respect prefers-reduced-motion |
+| `usePeakHold` | `hooks/usePeakHold.ts` | Meter peak hold with decay |
+| `useResponsiveChannelCount` | `hooks/useResponsiveChannelCount.ts` | Screen-width based channel count |
+| `useBankNavigation` | `hooks/useBankNavigation.ts` | Bank state with localStorage |
 | `MARKER_COLORS` | `constants/colors.ts` | Preset marker palette |
 | `ITEM_COLORS` | `constants/colors.ts` | Preset item palette |
+
+### Timeline Gesture Hooks
+
+These hooks in `components/Timeline/hooks/` handle all timeline interactions:
+
+| Hook | Purpose |
+|------|---------|
+| `useViewport` | Viewport state, zoom levels, coordinate conversion |
+| `usePanGesture` | Drag-to-pan with momentum scrolling |
+| `usePinchGesture` | Two-finger zoom |
+| `usePlayheadDrag` | Playhead seek with snap-to-grid |
+| `useMarkerDrag` | Marker repositioning |
+| `useEdgeScroll` | Auto-scroll when dragging near edges |
+| `useMarkerClusters` | Group nearby markers to prevent overlap |
 
 ---
 
@@ -177,6 +237,51 @@ useEffect(() => {
   };
 }, []);
 ```
+
+### Two-Phase Timer Cleanup (Recommended)
+
+For complex components with multiple cancel paths, null the ref after clearing:
+
+```typescript
+const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+// Cancel helper - prevents double-clear bugs
+const cancelTimer = () => {
+  if (timerRef.current) {
+    clearTimeout(timerRef.current);
+    timerRef.current = null;  // Prevent stale reference
+  }
+};
+
+// Start timer (always cancel first)
+const startTimer = () => {
+  cancelTimer();
+  timerRef.current = setTimeout(() => {
+    timerRef.current = null;  // Self-clear on completion
+    // ... handler logic
+  }, 400);
+};
+
+// Cleanup on unmount
+useEffect(() => cancelTimer, []);
+```
+
+**Why null after clear?**
+- Prevents accidental double-clearing
+- Makes "is timer active?" checks reliable (`if (timerRef.current)`)
+- Prevents stale closures from accessing dead timers
+
+### useState vs useRef for Timers
+
+```typescript
+// BAD - useState causes re-renders and stale closure issues
+const [pressTimer, setPressTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+
+// GOOD - useRef doesn't cause re-renders
+const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+```
+
+This was a real bug fixed in `ConnectionStatus.tsx` - using useState for timer IDs caused unnecessary re-renders and cleanup issues.
 
 ### Components with this pattern (reference):
 
@@ -542,9 +647,172 @@ const handleTouchEnd = () => {
 };
 ```
 
+### Vertical Cancel Pattern
+
+Allow users to cancel drags by moving finger vertically (common UX pattern):
+
+```typescript
+const VERTICAL_CANCEL_THRESHOLD = 50;  // px
+
+const handlePointerMove = (e: PointerEvent) => {
+  const rect = containerRef.current?.getBoundingClientRect();
+  if (!rect) return;
+
+  // Cancel if finger moved too far vertically
+  const isOutsideVertically =
+    e.clientY < rect.top - VERTICAL_CANCEL_THRESHOLD ||
+    e.clientY > rect.bottom + VERTICAL_CANCEL_THRESHOLD;
+
+  if (isOutsideVertically) {
+    // Revert to original value, show preview state
+    setPreviewValue(originalValue);
+    return;
+  }
+
+  // Normal drag handling
+  const percent = (e.clientX - rect.left) / rect.width;
+  setPreviewValue(calculateValue(percent));
+};
+```
+
+Used in: `usePlayheadDrag`, `useMarkerDrag`, `usePanGesture`, `RegionInfoBar`
+
+### Pointer Events Over Touch Events
+
+Always use `PointerEvent` instead of `TouchEvent`:
+
+```typescript
+// GOOD - unified pointer handling
+const handlePointerDown = (e: React.PointerEvent) => {
+  e.stopPropagation();
+  (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  // ...
+};
+
+// AVOID - separate touch/mouse handling
+const handleTouchStart = (e: React.TouchEvent) => { ... };
+const handleMouseDown = (e: React.MouseEvent) => { ... };
+```
+
+**Why PointerEvent?**
+- Single API for touch, mouse, pen
+- Built-in pointer capture
+- Better performance (no synthetic events)
+
 ---
 
-## 10. PWA & iOS Safari
+## 10. Timeline Coordinate Systems
+
+**This section exists because viewport coordinate bugs caused 3+ separate hotfixes.**
+
+### The Problem
+
+The timeline has two coordinate systems that are easy to confuse:
+
+| System | Range | Use Case |
+|--------|-------|----------|
+| **Project coordinates** | 0 to `projectDuration` (e.g., 0-120s) | Storing positions, REAPER commands |
+| **Viewport coordinates** | `viewportStart` to `viewportEnd` (e.g., 45-75s) | Screen rendering, touch handling |
+
+### Common Mistake: Using Wrong Coordinate System
+
+```typescript
+// BAD - uses full project duration for touch position
+const rawPercent = (clientX - rect.left) / rect.width;
+const time = rawPercent * projectDuration;  // WRONG when zoomed!
+
+// GOOD - uses viewport range
+const rawPercent = (clientX - rect.left) / rect.width;
+const viewportDuration = viewportEnd - viewportStart;
+const time = viewportStart + (rawPercent * viewportDuration);
+```
+
+**Why this matters:** When zoomed to view only 30s of a 120s project, touching the right edge of the screen should give `viewportEnd` (e.g., 75s), not `projectDuration` (120s).
+
+### Coordinate Conversion Functions
+
+Located in `components/Timeline/hooks/useViewport.ts`:
+
+```typescript
+// Time to screen percentage (for rendering)
+const timeToPercent = (time: number): number => {
+  const duration = viewportEnd - viewportStart;
+  return ((time - viewportStart) / duration) * 100;
+};
+
+// Screen percentage to time (for touch handling)
+const percentToTime = (percent: number): number => {
+  const duration = viewportEnd - viewportStart;
+  return viewportStart + (percent / 100) * duration;
+};
+
+// Check if time range overlaps viewport
+const isInView = (start: number, end: number, buffer = 0): boolean => {
+  return end >= viewportStart - buffer && start <= viewportEnd + buffer;
+};
+```
+
+### When to Use Each System
+
+| Operation | Coordinate System | Example |
+|-----------|-------------------|---------|
+| Send time to REAPER | Project | `transport/seek { time: 45.5 }` |
+| Render element position | Viewport % | `left: ${timeToPercent(markerTime)}%` |
+| Handle touch/click | Viewport → Project | `percentToTime(clickPercent)` |
+| Store in Zustand | Project | `setPlayheadPosition(time)` |
+| Check visibility | Both | `isInView(regionStart, regionEnd)` |
+
+### Playhead Drag Example (Real Fix)
+
+From commit `8d2b887` - playhead was jumping to wrong position when zoomed:
+
+```typescript
+// BEFORE (broken when zoomed)
+const handlePointerMove = (e: PointerEvent) => {
+  const percent = (e.clientX - rect.left) / rect.width;
+  const newTime = percent * timelineDuration;  // Used full duration!
+  setPlayheadPosition(newTime);
+};
+
+// AFTER (correct)
+const handlePointerMove = (e: PointerEvent) => {
+  const percent = (e.clientX - rect.left) / rect.width;
+  const viewportDuration = viewportEnd - viewportStart;
+  const newTime = viewportStart + (percent * viewportDuration);
+  setPlayheadPosition(newTime);
+};
+```
+
+### Overflow Clipping (Another Real Fix)
+
+From commit `9825e73` - regions overflowed the viewport container:
+
+```typescript
+// renderTimeToPercent can return >100% or <0% for items outside viewport
+const leftPercent = timeToPercent(regionStart);  // Might be -50%
+const widthPercent = timeToPercent(regionEnd) - leftPercent;  // Might be 200%
+
+// Container MUST have overflow-hidden to clip these
+<div className="relative overflow-hidden">
+  <div style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }} />
+</div>
+```
+
+**Rule:** Any container that renders time-positioned elements MUST have `overflow-hidden`.
+
+### Checklist for Timeline Features
+
+When adding new timeline interactions:
+
+- [ ] Am I using viewport coordinates for touch → time conversion?
+- [ ] Am I using project coordinates when sending to REAPER?
+- [ ] Does my container have `overflow-hidden`?
+- [ ] Have I tested with the viewport zoomed in (not showing full project)?
+- [ ] Do percentage calculations handle elements outside viewport gracefully?
+
+---
+
+## 11. PWA & iOS Safari
 
 ### Viewport
 
@@ -592,7 +860,7 @@ try {
 
 ---
 
-## 11. Accessibility
+## 12. Accessibility
 
 ### ARIA Live Regions
 
@@ -627,7 +895,7 @@ try {
 
 ---
 
-## 12. Performance
+## 13. Performance
 
 ### 30Hz Budget: 33ms per update
 
@@ -667,7 +935,7 @@ return <div ref={elementRef} />;
 
 ---
 
-## 13. Bundle Size
+## 14. Bundle Size
 
 ### Target: ≤1,050 kB (single-file output)
 
@@ -717,7 +985,7 @@ import { icons } from 'lucide-react';
 
 ---
 
-## 14. Error Handling
+## 15. Error Handling
 
 ### ErrorBoundary
 
@@ -736,7 +1004,7 @@ Wraps `ViewComponent` in `App.tsx`. Catches component-level errors and shows rec
 
 ---
 
-## 15. Testing
+## 16. Testing
 
 ### Running Tests
 
@@ -786,7 +1054,88 @@ vi.useRealTimers();
 
 ---
 
-## 16. Anti-Patterns Checklist
+## 17. Common Mistakes (Real Examples)
+
+This section documents actual bugs from recent commits to prevent recurrence.
+
+### 1. Hardcoded Colors in Feature Code
+
+**Commit:** `6b63717` - Compliance audit
+
+**Symptom:** Sends mode used `bg-amber-500`, faders used `text-white`, routing indicators used inline hex.
+
+**Root Cause:** Developer used familiar Tailwind classes instead of checking for semantic tokens.
+
+**Fix:** Added `sends-*`, `routing-*`, `fader-*` tokens and migrated 9 components.
+
+**Prevention:** Before using any color class, check:
+1. Does a semantic token exist? → Use it
+2. Is this feature-specific? → Create a token in `index.css`
+3. Is this truly arbitrary? → Only then use Tailwind defaults
+
+### 2. Viewport vs Project Coordinates
+
+**Commits:** `8d2b887`, `9cf1e64`
+
+**Symptom:** Playhead jumped to wrong position when timeline was zoomed. Selection dragged to wrong time.
+
+**Root Cause:** Touch handlers used `projectDuration` instead of viewport range for coordinate conversion.
+
+**Fix:** Updated all timeline gesture hooks to accept and use `viewportStart`/`viewportEnd`.
+
+**Prevention:** See [Timeline Coordinate Systems](#10-timeline-coordinate-systems).
+
+### 3. Missing overflow-hidden
+
+**Commit:** `9825e73`
+
+**Symptom:** Region labels and selection indicators overflowed horizontally, causing page scroll.
+
+**Root Cause:** Timeline top bar and bottom bar containers lacked `overflow-hidden`.
+
+**Fix:** Added `overflow-hidden` to all timeline section containers.
+
+**Prevention:** Any container with percentage-positioned children MUST have `overflow-hidden`.
+
+### 4. Timer State Instead of Ref
+
+**Commit:** `6b63717`
+
+**Symptom:** `ConnectionStatus` component had unnecessary re-renders and cleanup race conditions.
+
+**Root Cause:** Timer ID stored in `useState` instead of `useRef`.
+
+**Fix:** Changed `const [pressTimer, setPressTimer] = useState(...)` to `const pressTimerRef = useRef(...)`.
+
+**Prevention:** Timer IDs never need to trigger re-renders. Always use `useRef`.
+
+### 5. Scattered select-none
+
+**Commit:** `f2bc367`
+
+**Symptom:** Inconsistent text selection behavior, redundant classes in 21+ files.
+
+**Root Cause:** Each component individually added `select-none` without coordination.
+
+**Fix:** Added single `select-none` to App.tsx root, removed from all children.
+
+**Prevention:** Global behaviors belong at the root. Check if behavior already exists before adding to a component.
+
+### 6. Missing Timer Cleanup
+
+**Commits:** `6b63717`, various
+
+**Symptom:** Memory leaks in long sessions, orphaned timeouts firing after unmount.
+
+**Root Cause:** `setTimeout` used without corresponding `useEffect` cleanup.
+
+**Fix:** Added cleanup effects to `TapTempoButton`, `RegionInfoBar`, `ConnectionStatus`.
+
+**Prevention:** Every `setTimeout`/`setInterval` MUST have a cleanup effect. Use the two-phase pattern.
+
+---
+
+## 18. Anti-Patterns Checklist
 
 | Don't | Do Instead |
 |-------|------------|
@@ -794,18 +1143,91 @@ vi.useRealTimers();
 | `state?.tracks ?? {}` | `state?.tracks ?? EMPTY_TRACKS` |
 | `useReaperConnection()` in components | `useReaper()` from context |
 | Hardcoded colors `#374151` | Design tokens `bg-bg-elevated` |
+| Tailwind colors `bg-amber-500` | Semantic tokens `bg-sends-primary` |
+| `text-white` on colored bg | `text-on-primary`, `text-on-success` |
 | `100vh` for height | `100dvh` or `.h-screen-safe` |
 | Unguarded `localStorage` | try-catch wrapper |
 | Timer without cleanup effect | Add `useEffect` return |
+| `useState` for timer IDs | `useRef` for timer IDs |
 | `touch-action: manipulation` | `touch-action: none` |
 | Animate `width`/`height`/`top`/`left` | Animate `transform`/`opacity` |
 | `import { icons }` from lucide | Import individual icons |
 | Mutate Zustand Map in place | Create new Map, then set |
 | Select array/object without useShallow | Atomic primitives or useShallow |
+| `percent * projectDuration` for touch | `viewportStart + percent * viewportDuration` |
+| Percentage children without overflow | Add `overflow-hidden` to container |
+| `select-none` on individual components | Single `select-none` at App root |
+| Magic numbers for thresholds | Constants from `constants/` |
 
 ---
 
-## 17. Deferred/Future Work
+## 19. Centralized Constants
+
+Magic numbers scattered across the codebase make behavior inconsistent and hard to tune. Centralize these values.
+
+### Gesture Thresholds
+
+These should be in `constants/gestures.ts`:
+
+```typescript
+// Timing (ms)
+export const LONG_PRESS_DURATION = 400;    // useLongPress, RegionInfoBar
+export const DOUBLE_TAP_WINDOW = 300;      // useDoubleTap
+export const HOLD_THRESHOLD = 500;         // FX modal, color picker reset
+export const CONFIRM_TIMEOUT = 3000;       // Delete confirmation
+
+// Distance (px)
+export const VERTICAL_CANCEL_THRESHOLD = 50;  // Cancel drag if finger moves vertically
+export const TAP_MOVE_TOLERANCE = 10;         // Max move before tap becomes drag
+export const MARKER_CLUSTER_THRESHOLD = 40;   // Minimum px between markers
+
+// Velocity
+export const MIN_VELOCITY_THRESHOLD = 0.0005; // Momentum scrolling cutoff
+export const MAX_VELOCITY_CAP = 0.5;          // Prevent runaway scrolling
+export const FRICTION_COEFFICIENT = 0.965;    // Per-frame deceleration
+```
+
+### Timeline Constants
+
+These should be in `constants/timeline.ts`:
+
+```typescript
+export const MIN_VISIBLE_DURATION = 5;      // Minimum 5 seconds visible
+export const LOD_TEXT_THRESHOLD = 40;       // Hide region text below 40px
+export const EDGE_SCROLL_ZONE = 50;         // Edge scroll activation zone
+export const EDGE_SCROLL_SPEED = 0.5;       // Seconds per frame at edge
+```
+
+### Mixer Constants
+
+These should be in `constants/mixer.ts`:
+
+```typescript
+export const BANK_SIZES = {
+  mobile: 2,
+  tablet: 4,
+  desktop: 8,
+} as const;
+
+export const FADER_HEIGHT = 220;           // Fixed fader touch height
+export const CHANNEL_MIN_WIDTH = 80;       // Minimum channel strip width
+export const PREFETCH_BANKS = {
+  mobile: 4,
+  tablet: 2,
+  desktop: 1,
+} as const;
+```
+
+### Why Centralize?
+
+1. **Consistency**: Same threshold everywhere
+2. **Tuning**: Change once, applies everywhere
+3. **Documentation**: Single place to understand system behavior
+4. **Testing**: Easy to mock/override in tests
+
+---
+
+## 20. Deferred/Future Work
 
 Items intentionally not addressed yet:
 
