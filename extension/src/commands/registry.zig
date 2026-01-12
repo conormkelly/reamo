@@ -107,6 +107,7 @@ pub const all = .{
     .{ "track/setSelected", tracks.handleSetSelected },
     .{ "track/unselectAll", tracks.handleDeselectAll },
     .{ "track/rename", tracks.handleRename },
+    .{ "track/setColor", tracks.handleSetColor },
     .{ "track/create", tracks.handleCreate },
     .{ "track/duplicate", tracks.handleDuplicate },
     .{ "track/duplicateSelected", tracks.handleDuplicateSelected },
@@ -177,6 +178,9 @@ pub const all = .{
     .{ "fx/presetNext", fx.handlePresetNext },
     .{ "fx/presetPrev", fx.handlePresetPrev },
     .{ "fx/presetSet", fx.handlePresetSet },
+
+    // Track FX
+    .{ "trackFx/setEnabled", fx.handleSetEnabled },
 
     // Sends
     .{ "send/setVolume", send.handleSetVolume },

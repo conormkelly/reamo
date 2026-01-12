@@ -99,6 +99,7 @@ pub fn validateBackend(comptime T: type) void {
         "getTrackFxEnabled",
         "getTrackSelected",
         "getTrackColor",
+        "setTrackColor",
         "getTrackFolderDepth",
         "formatTrackGuid",
         "getTrackIdx",
@@ -183,6 +184,7 @@ pub fn validateBackend(comptime T: type) void {
         "trackFxNavigatePresets",
         "trackFxSetPresetByIndex",
         "trackFxGetEnabled",
+        "trackFxSetEnabled",
 
         // Track Sends/Receives
         "trackSendCount",

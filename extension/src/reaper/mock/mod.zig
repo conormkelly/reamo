@@ -319,6 +319,7 @@ pub const MockBackend = struct {
     pub const getTrackFxEnabled = tracks.TracksMethods.getTrackFxEnabled;
     pub const getTrackSelected = tracks.TracksMethods.getTrackSelected;
     pub const getTrackColor = tracks.TracksMethods.getTrackColor;
+    pub const setTrackColor = tracks.TracksMethods.setTrackColor;
     pub const isMasterMuted = tracks.TracksMethods.isMasterMuted;
     pub const isMasterSoloed = tracks.TracksMethods.isMasterSoloed;
     pub const setTrackVolume = tracks.TracksMethods.setTrackVolume;
@@ -401,6 +402,7 @@ pub const MockBackend = struct {
     pub const trackFxNavigatePresets = tracks.TracksMethods.trackFxNavigatePresets;
     pub const trackFxSetPresetByIndex = tracks.TracksMethods.trackFxSetPresetByIndex;
     pub const trackFxGetEnabled = tracks.TracksMethods.trackFxGetEnabled;
+    pub const trackFxSetEnabled = tracks.TracksMethods.trackFxSetEnabled;
 
     // =========================================================================
     // Track Sends/Receives (delegated)
@@ -574,4 +576,62 @@ test "MockBackend items and takes" {
 
     const take = mock.getTakeByIdx(item, 0).?;
     try std.testing.expectEqualStrings("Take 1", mock.getTakeNameStr(take));
+}
+
+test "MockBackend setTrackColor" {
+    var mock = MockBackend{
+        .track_count = 1,
+    };
+    mock.tracks[0].color = 0;
+
+    const track = mock.getTrackByUnifiedIdx(0).?;
+
+    // Set custom color
+    mock.setTrackColor(track, 0x01FF0000); // Red with custom flag
+    try std.testing.expectEqual(@as(c_int, 0x01FF0000), mock.getTrackColor(track));
+
+    // Reset to default (0)
+    mock.setTrackColor(track, 0);
+    try std.testing.expectEqual(@as(c_int, 0), mock.getTrackColor(track));
+}
+
+test "MockBackend trackFxSetEnabled" {
+    var mock = MockBackend{
+        .track_count = 1,
+    };
+    mock.tracks[0].fx_count = 2;
+    mock.tracks[0].fx[0].enabled = true;
+    mock.tracks[0].fx[1].enabled = false;
+
+    const track = mock.getTrackByUnifiedIdx(0).?;
+
+    // Verify initial state
+    try std.testing.expect(mock.trackFxGetEnabled(track, 0));
+    try std.testing.expect(!mock.trackFxGetEnabled(track, 1));
+
+    // Toggle FX 0 off
+    mock.trackFxSetEnabled(track, 0, false);
+    try std.testing.expect(!mock.trackFxGetEnabled(track, 0));
+
+    // Toggle FX 1 on
+    mock.trackFxSetEnabled(track, 1, true);
+    try std.testing.expect(mock.trackFxGetEnabled(track, 1));
+}
+
+test "MockBackend trackFxSetEnabled bounds check" {
+    var mock = MockBackend{
+        .track_count = 1,
+    };
+    mock.tracks[0].fx_count = 1;
+    mock.tracks[0].fx[0].enabled = true;
+
+    const track = mock.getTrackByUnifiedIdx(0).?;
+
+    // Negative index should be ignored (no crash)
+    mock.trackFxSetEnabled(track, -1, false);
+    try std.testing.expect(mock.trackFxGetEnabled(track, 0)); // Unchanged
+
+    // Out of range index should be ignored (no crash)
+    mock.trackFxSetEnabled(track, 5, false);
+    try std.testing.expect(mock.trackFxGetEnabled(track, 0)); // Unchanged
 }

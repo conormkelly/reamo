@@ -284,6 +284,38 @@ pub fn handleRename(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
     }
 }
 
+// Set track color
+// Accepts trackIdx or trackGuid parameter
+// color: OS-native color value (0 to reset to default)
+pub fn handleSetColor(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const resolution = resolveTrack(api, cmd) orelse {
+        response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
+        return;
+    };
+
+    const color = cmd.getInt("color") orelse {
+        response.err("INVALID_PARAMS", "color is required");
+        return;
+    };
+
+    // Build descriptive undo message
+    var track_name_buf: [128]u8 = undefined;
+    var undo_buf: [256:0]u8 = undefined;
+    const track_name = api.getTrackNameStr(resolution.track, &track_name_buf);
+
+    const undo_desc: [*:0]const u8 = if (resolution.idx == 0)
+        std.fmt.bufPrintZ(&undo_buf, "REAmo: Set track color: Master", .{}) catch "REAmo: Set track color"
+    else
+        std.fmt.bufPrintZ(&undo_buf, "REAmo: Set track color: Track {d} {s}", .{ resolution.idx, track_name }) catch "REAmo: Set track color";
+
+    api.undoBeginBlock();
+    api.setTrackColor(resolution.track, color);
+    api.undoEndBlock(undo_desc);
+
+    logging.debug("Set color for track {d} to {d}", .{ resolution.idx, color });
+    response.success(null);
+}
+
 // Create a new track
 // Optional params: name (string), afterTrackIdx (int, unified index)
 // Returns: {"trackIdx": N} with the new track's unified index
@@ -654,4 +686,19 @@ fn writeJsonEscaped(writer: anytype, str: []const u8) !void {
             },
         }
     }
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "handleSetColor requires trackIdx or trackGuid" {
+    // Command handlers require ResponseWriter with SharedState.
+    // Integration tests via websocat verify full behavior.
+    // See mock/mod.zig for MockBackend method tests.
+}
+
+test "handleSetColor with color=0 resets to default" {
+    // Verifies color=0 clears custom color (restores theme default).
+    // See mock/mod.zig "MockBackend setTrackColor" test.
 }

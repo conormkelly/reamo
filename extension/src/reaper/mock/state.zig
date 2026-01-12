@@ -118,6 +118,7 @@ pub const Method = enum {
     getTrackFxEnabled,
     getTrackSelected,
     getTrackColor,
+    setTrackColor,
     getTrackFolderDepth,
     formatTrackGuid,
     getTrackIdx,
@@ -211,6 +212,7 @@ pub const Method = enum {
     trackFxNavigatePresets,
     trackFxSetPresetByIndex,
     trackFxGetEnabled,
+    trackFxSetEnabled,
     // Track Sends/Receives
     trackSendCount,
     trackReceiveCount,

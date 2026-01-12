@@ -921,6 +921,22 @@ Rename a track. Master track (idx 0) cannot be renamed.
 {"type": "command", "command": "track/rename", "trackIdx": 1, "name": "Guitar Clean"}
 ```
 
+### `track/setColor`
+
+Set track custom color. Use 0 to reset to theme default.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | One of | Track index (0 = master, 1+ = user tracks) |
+| `trackGuid` | string | One of | Track GUID (stable across reordering) |
+| `color` | int | Yes | OS-native color value with 0x01000000 flag, or 0 to reset |
+
+```json
+{"type": "command", "command": "track/setColor", "trackIdx": 1, "color": 16777471}
+```
+
+**Note:** Color format is OS-native with bit 24 set: `0x01RRGGBB` on Windows, `0x01BBGGRR` on macOS. Use 0 to clear custom color and restore theme default.
+
 ### `track/create`
 
 Create a new track. Returns the new track's index.
@@ -1822,6 +1838,23 @@ Jump to a specific preset by index.
 ```
 
 **Note:** Each preset change creates a REAPER undo point. Consider debouncing rapid clicks in the frontend.
+
+### `trackFx/setEnabled`
+
+Enable or bypass a specific FX on a track. Toggles if no explicit value provided.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | One of | Track index (0 = master, 1+ = user tracks) |
+| `trackGuid` | string | One of | Track GUID (stable across reordering) |
+| `fxIdx` | int | Yes | FX index within track (0-based) |
+| `enabled` | int | No | 0 = bypass, 1 = enabled (toggles if omitted) |
+
+```json
+{"type": "command", "command": "trackFx/setEnabled", "trackIdx": 1, "fxIdx": 0, "enabled": 0}
+```
+
+**Note:** This controls bypass state of individual FX plugins. For the entire track's FX chain enable/disable, use `track/setFxEnabled`.
 
 ---
 

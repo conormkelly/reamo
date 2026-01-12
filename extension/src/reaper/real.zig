@@ -358,6 +358,17 @@ pub const RealBackend = struct {
         return color_val;
     }
 
+    /// Set track color. Pass 0 to reset to theme default.
+    pub fn setTrackColor(self: *const RealBackend, track: *anyopaque, color: c_int) void {
+        if (color == 0) {
+            // Reset to theme default
+            _ = self.inner.resetTrackColor(track);
+        } else {
+            // SetTrackColor API handles OS color format internally
+            self.inner.setTrackColorRaw(track, color);
+        }
+    }
+
     pub fn isMasterMuted(self: *const RealBackend) bool {
         return self.inner.isMasterMuted();
     }
@@ -539,6 +550,10 @@ pub const RealBackend = struct {
 
     pub fn trackFxGetEnabled(self: *const RealBackend, track: *anyopaque, fx_idx: c_int) bool {
         return self.inner.trackFxGetEnabled(track, fx_idx);
+    }
+
+    pub fn trackFxSetEnabled(self: *const RealBackend, track: *anyopaque, fx_idx: c_int, enabled: bool) void {
+        self.inner.trackFxSetEnabled(track, fx_idx, enabled);
     }
 
     // =========================================================================

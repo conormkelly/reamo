@@ -109,6 +109,13 @@ pub const TracksMethods = struct {
         return self.tracks[idx].color;
     }
 
+    pub fn setTrackColor(self: anytype, track: *anyopaque, color: c_int) void {
+        self.recordCall(.setTrackColor);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return;
+        self.tracks[idx].color = color;
+    }
+
     pub fn isMasterMuted(self: anytype) bool {
         self.recordCall(.isMasterMuted);
         return self.master_muted;
@@ -714,6 +721,16 @@ pub const TracksMethods = struct {
         const fx_usize: usize = @intCast(fx_idx);
         if (fx_usize >= state.MAX_FX_PER_TRACK) return true;
         return self.tracks[idx].fx[fx_usize].enabled;
+    }
+
+    pub fn trackFxSetEnabled(self: anytype, track: *anyopaque, fx_idx: c_int, enabled: bool) void {
+        self.recordCall(.trackFxSetEnabled);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return;
+        if (fx_idx < 0 or fx_idx >= self.tracks[idx].fx_count) return;
+        const fx_usize: usize = @intCast(fx_idx);
+        if (fx_usize >= state.MAX_FX_PER_TRACK) return;
+        self.tracks[idx].fx[fx_usize].enabled = enabled;
     }
 
     // =========================================================================

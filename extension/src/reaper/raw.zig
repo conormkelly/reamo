@@ -92,6 +92,7 @@ pub const Api = struct {
     getSetMediaTrackInfo_String: ?*const fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool = null,
     insertTrackAtIndex: ?*const fn (c_int, bool) callconv(.c) void = null,
     deleteTrack: ?*const fn (?*anyopaque) callconv(.c) void = null,
+    setTrackColor: ?*const fn (?*anyopaque, c_int) callconv(.c) void = null,
 
     // Items
     countTrackMediaItems: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
@@ -194,6 +195,7 @@ pub const Api = struct {
     trackFX_NavigatePresets: ?*const fn (?*anyopaque, c_int, c_int) callconv(.c) bool = null,
     trackFX_SetPresetByIndex: ?*const fn (?*anyopaque, c_int, c_int) callconv(.c) bool = null,
     trackFX_GetEnabled: ?*const fn (?*anyopaque, c_int) callconv(.c) bool = null,
+    trackFX_SetEnabled: ?*const fn (?*anyopaque, c_int, bool) callconv(.c) void = null,
 
     // Track Sends
     getTrackNumSends: ?*const fn (?*anyopaque, c_int) callconv(.c) c_int = null,
@@ -270,6 +272,7 @@ pub const Api = struct {
             .getSetMediaTrackInfo_String = getFunc(info, "GetSetMediaTrackInfo_String", fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool),
             .insertTrackAtIndex = getFunc(info, "InsertTrackAtIndex", fn (c_int, bool) callconv(.c) void),
             .deleteTrack = getFunc(info, "DeleteTrack", fn (?*anyopaque) callconv(.c) void),
+            .setTrackColor = getFunc(info, "SetTrackColor", fn (?*anyopaque, c_int) callconv(.c) void),
             // Items
             .countTrackMediaItems = getFunc(info, "CountTrackMediaItems", fn (?*anyopaque) callconv(.c) c_int),
             .getTrackMediaItem = getFunc(info, "GetTrackMediaItem", fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque),
@@ -354,6 +357,7 @@ pub const Api = struct {
             .trackFX_NavigatePresets = getFunc(info, "TrackFX_NavigatePresets", fn (?*anyopaque, c_int, c_int) callconv(.c) bool),
             .trackFX_SetPresetByIndex = getFunc(info, "TrackFX_SetPresetByIndex", fn (?*anyopaque, c_int, c_int) callconv(.c) bool),
             .trackFX_GetEnabled = getFunc(info, "TrackFX_GetEnabled", fn (?*anyopaque, c_int) callconv(.c) bool),
+            .trackFX_SetEnabled = getFunc(info, "TrackFX_SetEnabled", fn (?*anyopaque, c_int, bool) callconv(.c) void),
             // Track Sends
             .getTrackNumSends = getFunc(info, "GetTrackNumSends", fn (?*anyopaque, c_int) callconv(.c) c_int),
             .getTrackSendInfo_Value = getFunc(info, "GetTrackSendInfo_Value", fn (?*anyopaque, c_int, c_int, [*:0]const u8) callconv(.c) f64),
@@ -1263,6 +1267,18 @@ pub const Api = struct {
         return f(track, "I_CUSTOMCOLOR");
     }
 
+    /// Set track color. Use 0 to reset to default (theme color).
+    pub fn setTrackColorRaw(self: *const Api, track: *anyopaque, color: c_int) void {
+        const f = self.setTrackColor orelse return;
+        f(track, color);
+    }
+
+    /// Reset track to default (theme) color by clearing I_CUSTOMCOLOR.
+    pub fn resetTrackColor(self: *const Api, track: *anyopaque) bool {
+        const f = self.setMediaTrackInfo_Value orelse return false;
+        return f(track, "I_CUSTOMCOLOR", 0);
+    }
+
     // Track FX methods
 
     /// Get number of FX on a track
@@ -1317,6 +1333,12 @@ pub const Api = struct {
     pub fn trackFxGetEnabled(self: *const Api, track: *anyopaque, fx_idx: c_int) bool {
         const f = self.trackFX_GetEnabled orelse return true;
         return f(track, fx_idx);
+    }
+
+    /// Set FX enabled state (true = enabled, false = bypassed)
+    pub fn trackFxSetEnabled(self: *const Api, track: *anyopaque, fx_idx: c_int, enabled: bool) void {
+        const f = self.trackFX_SetEnabled orelse return;
+        f(track, fx_idx, enabled);
     }
 
     // Track Send methods
