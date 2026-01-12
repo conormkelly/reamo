@@ -4,8 +4,8 @@
  */
 
 import { useState, useMemo, useCallback, useRef, useEffect, type ReactElement } from 'react';
-import { ArrowRightLeft, Volume2, VolumeX } from 'lucide-react';
-import { Modal, ModalContent } from '../Modal';
+import { Volume2, VolumeX } from 'lucide-react';
+import { BottomSheet } from '../Modal/BottomSheet';
 import { useTrack } from '../../hooks/useTrack';
 import { useTrackSkeleton } from '../../hooks';
 import { useReaperStore, getSendsFromTrack, getSendsToTrack } from '../../store';
@@ -301,14 +301,19 @@ export function RoutingModal({
   const displayName = trackName || (isMaster ? 'MASTER' : `Track ${trackIndex}`);
 
   return (
-    <Modal
+    <BottomSheet
       isOpen={isOpen}
       onClose={onClose}
-      title={`Routing: ${displayName}`}
-      icon={<ArrowRightLeft size={18} className="text-text-secondary" />}
-      width="lg"
+      ariaLabel={`Routing for ${displayName}`}
     >
-      <ModalContent>
+      <div className="px-4 pb-6">
+        {/* Header */}
+        <div className="text-center mb-3 pt-1">
+          <h2 className="text-lg font-semibold text-text-primary truncate">
+            Routing: {displayName}
+          </h2>
+        </div>
+
         {/* Tab selector */}
         <div className="flex gap-2 mb-4">
           <button
@@ -339,49 +344,51 @@ export function RoutingModal({
           </button>
         </div>
 
-        {/* Content */}
-        <div className="space-y-1 max-h-80 overflow-y-auto">
-          {activeTab === 'sends' && (
-            <>
-              {trackSends.length === 0 ? (
-                <div className="text-center text-text-muted py-8">
-                  <p>No sends from this track</p>
-                  <p className="text-xs mt-1">Add sends in REAPER's routing window</p>
-                </div>
-              ) : (
-                trackSends.map((s) => (
-                  <HorizontalSendFader
-                    key={`${s.srcTrackIdx}-${s.sendIndex}`}
-                    trackIndex={s.srcTrackIdx}
-                    sendIndex={s.sendIndex}
-                    volume={s.volume}
-                    muted={s.muted}
-                    destName={trackNameLookup[s.destTrackIdx] || `Track ${s.destTrackIdx}`}
-                  />
-                ))
-              )}
-            </>
-          )}
+        {/* Scrollable content */}
+        <div className="max-h-80 overflow-y-auto -mx-4 px-4">
+          <div className="space-y-1">
+            {activeTab === 'sends' && (
+              <>
+                {trackSends.length === 0 ? (
+                  <div className="text-center text-text-muted py-8">
+                    <p>No sends from this track</p>
+                    <p className="text-xs mt-1">Add sends in REAPER's routing window</p>
+                  </div>
+                ) : (
+                  trackSends.map((s) => (
+                    <HorizontalSendFader
+                      key={`${s.srcTrackIdx}-${s.sendIndex}`}
+                      trackIndex={s.srcTrackIdx}
+                      sendIndex={s.sendIndex}
+                      volume={s.volume}
+                      muted={s.muted}
+                      destName={trackNameLookup[s.destTrackIdx] || `Track ${s.destTrackIdx}`}
+                    />
+                  ))
+                )}
+              </>
+            )}
 
-          {activeTab === 'receives' && (
-            <>
-              {trackReceives.length === 0 ? (
-                <div className="text-center text-text-muted py-8">
-                  <p>No receives to this track</p>
-                  <p className="text-xs mt-1">Other tracks send to this track via routing</p>
-                </div>
-              ) : (
-                trackReceives.map((r) => (
-                  <ReceiveRow
-                    key={`${r.srcTrackIdx}-${r.sendIndex}`}
-                    srcName={trackNameLookup[r.srcTrackIdx] || `Track ${r.srcTrackIdx}`}
-                    volume={r.volume}
-                    muted={r.muted}
-                  />
-                ))
-              )}
-            </>
-          )}
+            {activeTab === 'receives' && (
+              <>
+                {trackReceives.length === 0 ? (
+                  <div className="text-center text-text-muted py-8">
+                    <p>No receives to this track</p>
+                    <p className="text-xs mt-1">Other tracks send to this track via routing</p>
+                  </div>
+                ) : (
+                  trackReceives.map((r) => (
+                    <ReceiveRow
+                      key={`${r.srcTrackIdx}-${r.sendIndex}`}
+                      srcName={trackNameLookup[r.srcTrackIdx] || `Track ${r.srcTrackIdx}`}
+                      volume={r.volume}
+                      muted={r.muted}
+                    />
+                  ))
+                )}
+              </>
+            )}
+          </div>
         </div>
 
         {/* Help text */}
@@ -390,7 +397,14 @@ export function RoutingModal({
             <p className="text-sm">This track has no routing connections</p>
           </div>
         )}
-      </ModalContent>
-    </Modal>
+
+        {/* Footer summary */}
+        {(hasSends || hasReceives) && (
+          <div className="text-xs text-text-muted text-center mt-3 pt-3 border-t border-border-subtle">
+            {trackSends.length} send{trackSends.length !== 1 ? 's' : ''} · {trackReceives.length} receive{trackReceives.length !== 1 ? 's' : ''}
+          </div>
+        )}
+      </div>
+    </BottomSheet>
   );
 }

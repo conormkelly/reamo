@@ -2,11 +2,12 @@
  * FxModal - View and control track FX chain
  * Shows FX list with preset navigation and bypass controls.
  * Fetches FX data on-demand via track/getFx command.
+ * Uses BottomSheet for slide-up panel UX.
  */
 
 import { useState, useEffect, useCallback, type ReactElement } from 'react';
 import { ChevronLeft, ChevronRight, CircleDot, Loader2 } from 'lucide-react';
-import { Modal, ModalContent } from '../Modal';
+import { BottomSheet } from '../Modal/BottomSheet';
 import { useTrack } from '../../hooks/useTrack';
 import { useReaper } from '../ReaperProvider';
 import { fx as fxCmd, track as trackCmd, trackFx } from '../../core/WebSocketCommands';
@@ -214,13 +215,19 @@ export function FxModal({
   }, [sendCommand, trackIndex, guid]);
 
   return (
-    <Modal
+    <BottomSheet
       isOpen={isOpen}
       onClose={onClose}
-      title={`FX: ${trackName || `Track ${trackIndex}`}`}
-      width="lg"
+      ariaLabel={`FX chain for ${trackName || `Track ${trackIndex}`}`}
     >
-      <ModalContent className="max-h-[60vh] overflow-y-auto">
+      <div className="px-4 pb-6">
+        {/* Header */}
+        <div className="text-center mb-3 pt-1">
+          <h2 className="text-lg font-semibold text-text-primary truncate">
+            FX: {trackName || `Track ${trackIndex}`}
+          </h2>
+        </div>
+
         {/* Track-level bypass toggle */}
         <div className="flex items-center justify-between py-2 px-1 mb-3 border-b border-border-subtle">
           <span className="text-sm text-text-secondary">Track FX Chain</span>
@@ -236,47 +243,57 @@ export function FxModal({
           </button>
         </div>
 
-        {/* Loading state */}
-        {isLoading && (
-          <div className="py-8 flex justify-center">
-            <Loader2 size={24} className="animate-spin text-text-muted" />
-          </div>
-        )}
+        {/* Scrollable content area */}
+        <div className="max-h-80 overflow-y-auto -mx-4 px-4">
+          {/* Loading state */}
+          {isLoading && (
+            <div className="py-8 flex justify-center">
+              <Loader2 size={24} className="animate-spin text-text-muted" />
+            </div>
+          )}
 
-        {/* Error state */}
-        {error && !isLoading && (
-          <div className="py-8 text-center text-error-text text-sm">
-            {error}
-          </div>
-        )}
+          {/* Error state */}
+          {error && !isLoading && (
+            <div className="py-8 text-center text-error-text text-sm">
+              {error}
+            </div>
+          )}
 
-        {/* FX list */}
-        {!isLoading && !error && fxList.length === 0 && (
-          <div className="py-8 text-center text-text-muted text-sm">
-            No FX on this track
-          </div>
-        )}
+          {/* FX list */}
+          {!isLoading && !error && fxList.length === 0 && (
+            <div className="py-8 text-center text-text-muted text-sm">
+              No FX on this track
+            </div>
+          )}
 
+          {!isLoading && !error && fxList.length > 0 && (
+            <div className="space-y-2">
+              {fxList.map((fx) => (
+                <FxRow
+                  key={`${trackIndex}-${fx.fxIndex}`}
+                  trackIdx={trackIndex}
+                  trackGuid={guid}
+                  fxIndex={fx.fxIndex}
+                  name={fx.name}
+                  presetName={fx.presetName}
+                  presetIndex={fx.presetIndex}
+                  presetCount={fx.presetCount}
+                  modified={fx.modified}
+                  enabled={fx.enabled}
+                  onPresetChange={fetchFxData}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer summary */}
         {!isLoading && !error && fxList.length > 0 && (
-          <div className="space-y-2">
-            {fxList.map((fx) => (
-              <FxRow
-                key={`${trackIndex}-${fx.fxIndex}`}
-                trackIdx={trackIndex}
-                trackGuid={guid}
-                fxIndex={fx.fxIndex}
-                name={fx.name}
-                presetName={fx.presetName}
-                presetIndex={fx.presetIndex}
-                presetCount={fx.presetCount}
-                modified={fx.modified}
-                enabled={fx.enabled}
-                onPresetChange={fetchFxData}
-              />
-            ))}
+          <div className="text-xs text-text-muted text-center mt-3 pt-3 border-t border-border-subtle">
+            {fxList.length} FX plugin{fxList.length !== 1 ? 's' : ''}
           </div>
         )}
-      </ModalContent>
-    </Modal>
+      </div>
+    </BottomSheet>
   );
 }
