@@ -9,7 +9,7 @@ import { ChevronLeft, ChevronRight, CircleDot, Loader2 } from 'lucide-react';
 import { Modal, ModalContent } from '../Modal';
 import { useTrack } from '../../hooks/useTrack';
 import { useReaper } from '../ReaperProvider';
-import { fx as fxCmd, track as trackCmd } from '../../core/WebSocketCommands';
+import { fx as fxCmd, track as trackCmd, trackFx } from '../../core/WebSocketCommands';
 
 export interface FxModalProps {
   /** Whether the modal is open */
@@ -43,6 +43,7 @@ interface GetFxResponse {
  */
 function FxRow({
   trackIdx,
+  trackGuid,
   fxIndex,
   name,
   presetName,
@@ -53,6 +54,7 @@ function FxRow({
   onPresetChange,
 }: {
   trackIdx: number;
+  trackGuid?: string;
   fxIndex: number;
   name: string;
   presetName: string;
@@ -75,6 +77,13 @@ function FxRow({
     // Refetch after a short delay to get updated preset info
     setTimeout(onPresetChange, 100);
   }, [sendCommand, trackIdx, fxIndex, onPresetChange]);
+
+  const handleToggleBypass = useCallback(() => {
+    // Toggle FX enabled state (undefined = toggle)
+    sendCommand(trackFx.setEnabled(trackIdx, fxIndex, undefined, trackGuid));
+    // Refetch after a short delay to get updated state
+    setTimeout(onPresetChange, 100);
+  }, [sendCommand, trackIdx, fxIndex, trackGuid, onPresetChange]);
 
   // Display preset info
   const presetDisplay = presetName || '(no preset)';
@@ -114,6 +123,15 @@ function FxRow({
           )}
         </div>
       </div>
+
+      {/* FX bypass toggle */}
+      <input
+        type="checkbox"
+        checked={enabled}
+        onChange={handleToggleBypass}
+        className="w-5 h-5 accent-success cursor-pointer"
+        title={enabled ? 'Bypass FX' : 'Enable FX'}
+      />
 
       {/* Preset navigation */}
       {presetCount > 0 && (
@@ -245,6 +263,7 @@ export function FxModal({
               <FxRow
                 key={`${trackIndex}-${fx.fxIndex}`}
                 trackIdx={trackIndex}
+                trackGuid={guid}
                 fxIndex={fx.fxIndex}
                 name={fx.name}
                 presetName={fx.presetName}

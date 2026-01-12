@@ -10,6 +10,8 @@ interface ColorPickerInputProps {
   value: string;
   onChange: (color: string) => void;
   defaultValue: string;
+  /** Compact inline layout with smaller swatch */
+  compact?: boolean;
 }
 
 const HOLD_DURATION = 500; // ms to hold for reset
@@ -19,6 +21,7 @@ export function ColorPickerInput({
   value,
   onChange,
   defaultValue,
+  compact = false,
 }: ColorPickerInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const holdTimer = useRef<number | null>(null);
@@ -63,22 +66,27 @@ export function ColorPickerInput({
     };
   }, []);
 
+  const swatchSize = compact ? 'w-6 h-6' : 'w-10 h-10';
+  const dotSize = compact ? 'w-2 h-2 -top-0.5 -right-0.5' : 'w-3 h-3 -top-1 -right-1';
+
   return (
-    <div>
-      <label className="block text-xs text-text-secondary mb-1">{label}</label>
+    <div className={compact ? 'flex items-center gap-1.5' : ''}>
+      <label className={compact ? 'text-xs text-text-secondary' : 'block text-xs text-text-secondary mb-1'}>
+        {label}{compact ? ':' : ''}
+      </label>
       <div
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
         onTouchStart={handleMouseDown}
         onTouchEnd={handleMouseUp}
-        className="relative w-10 h-10 rounded border-2 border-border-default cursor-pointer hover:border-text-secondary transition-colors touch-none"
+        className={`relative ${swatchSize} rounded border-2 border-border-default cursor-pointer hover:border-text-secondary transition-colors touch-none`}
         style={{ backgroundColor: value }}
         title={isDefault ? value : `${value} (hold to reset)`}
       >
         {/* Non-default indicator dot */}
         {!isDefault && (
-          <div className="absolute -top-1 -right-1 w-3 h-3 bg-primary-hover rounded-full border border-bg-surface" />
+          <div className={`absolute ${dotSize} bg-primary-hover rounded-full border border-bg-surface`} />
         )}
         {/* Hidden color input */}
         <input

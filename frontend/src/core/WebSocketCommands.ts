@@ -221,6 +221,11 @@ export const track = {
     command: 'track/rename',
     params: { trackIdx, name },
   }),
+  /** Set track color. Pass 0 to reset to theme default. */
+  setColor: (trackIdx: number, color: number, trackGuid?: string): WSCommand => ({
+    command: 'track/setColor',
+    params: trackGuid ? { trackGuid, color } : { trackIdx, color },
+  }),
   /** Duplicate a track (includes FX, items, routing). Returns new track index. */
   duplicate: (trackIdx: number): WSCommand => ({
     command: 'track/duplicate',
@@ -630,6 +635,27 @@ export const fx = {
   presetSet: (trackIdx: number, fxIdx: number, presetIdx: number): WSCommand => ({
     command: 'fx/presetSet',
     params: { trackIdx, fxIdx, presetIdx },
+  }),
+};
+
+// =============================================================================
+// Track FX Commands (per-FX operations)
+// =============================================================================
+
+export const trackFx = {
+  /** Set FX enabled/bypassed state. Omit enabled to toggle. */
+  setEnabled: (
+    trackIdx: number,
+    fxIdx: number,
+    enabled?: number,
+    trackGuid?: string
+  ): WSCommand => ({
+    command: 'trackFx/setEnabled',
+    params: {
+      ...(trackGuid ? { trackGuid } : { trackIdx }),
+      fxIdx,
+      ...(enabled !== undefined && { enabled }),
+    },
   }),
 };
 

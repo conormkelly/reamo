@@ -11,9 +11,10 @@ import { Copy, Trash2 } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useTrack } from '../../hooks/useTrack';
 import { track as trackCmd } from '../../core/WebSocketCommands';
-import { reaperColorToHex } from '../../utils';
+import { reaperColorToHex, hexToReaperColor } from '../../utils';
 import { DEFAULT_TRACK_COLOR } from '../../constants/colors';
 import { FxModal } from './FxModal';
+import { ColorPickerInput } from '../Toolbar/ColorPickerInput';
 
 export interface TrackInfoBarProps {
   /** Currently selected track index (null if no selection) */
@@ -150,12 +151,23 @@ export function TrackInfoBar({
     };
   }, []);
 
-  // Get track color (display only - backend doesn't support track/setColor yet)
+  // Get track color
   const track = trackData.track;
   const isDefaultColor = !track?.color || track.color === 0;
   const currentColor = isDefaultColor
     ? DEFAULT_TRACK_COLOR
     : reaperColorToHex(track.color) ?? DEFAULT_TRACK_COLOR;
+
+  // Color change handler (receives hex string from ColorPickerInput)
+  const handleColorChange = useCallback(
+    (hex: string) => {
+      if (selectedTrackIdx === null) return;
+      // If reset to default, send 0; otherwise convert hex to REAPER color
+      const reaperColor = hex === DEFAULT_TRACK_COLOR ? 0 : hexToReaperColor(hex);
+      sendCommand(trackCmd.setColor(selectedTrackIdx, reaperColor, trackData.guid));
+    },
+    [selectedTrackIdx, trackData.guid, sendCommand]
+  );
 
   // Routing status - master send is typically enabled by default
   // TODO: Add actual master send state when backend supports it
@@ -329,17 +341,20 @@ export function TrackInfoBar({
 
         {/* Line 2: Color, Routing, Duplicate, Delete */}
         <div className="flex items-center gap-3">
-          {/* Color indicator (display only - TODO: enable editing when backend supports track/setColor) */}
-          <div className="flex items-center gap-2">
-            <span className="text-text-secondary text-sm">Color:</span>
-            <div
-              className="w-8 h-8 rounded-lg border-2 border-border-default"
-              style={{ backgroundColor: currentColor }}
-              title="Track color (read-only)"
-            />
-          </div>
+          {/* Color picker with hold-to-reset (not for master track) */}
+          {!isMaster && (
+            <>
+              <ColorPickerInput
+                label="Color"
+                value={currentColor}
+                onChange={handleColorChange}
+                defaultValue={DEFAULT_TRACK_COLOR}
+                compact
+              />
 
-          <div className="w-px h-6 bg-border-default flex-shrink-0" />
+              <div className="w-px h-6 bg-border-default flex-shrink-0" />
+            </>
+          )}
 
           {/* FX indicator/toggle - tap to toggle, long-press for modal */}
           <button
