@@ -35,9 +35,12 @@ pub fn handleItemSetActiveTake(api: anytype, cmd: protocol.CommandMessage, respo
         return;
     }
 
+    api.undoBeginBlock();
     if (api.setItemActiveTake(item_info.item, take_idx)) {
         logging.debug("Set active take to {d}", .{take_idx});
     }
+    api.undoEndBlock("Reamo: Set active take");
+    api.updateTimeline();
 }
 
 pub fn handleItemMove(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
@@ -50,9 +53,12 @@ pub fn handleItemMove(api: anytype, cmd: protocol.CommandMessage, response: *mod
         return;
     };
 
+    api.undoBeginBlock();
     if (api.setItemPosition(item_info.item, position)) {
         logging.debug("Moved item to {d:.2}", .{position});
     }
+    api.undoEndBlock("Reamo: Move item");
+    api.updateTimeline();
 }
 
 pub fn handleItemColor(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
@@ -65,9 +71,12 @@ pub fn handleItemColor(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     };
 
+    api.undoBeginBlock();
     if (api.setItemColor(item_info.item, color)) {
         logging.debug("Set item color to {d}", .{color});
     }
+    api.undoEndBlock("Reamo: Set item color");
+    api.updateTimeline();
 }
 
 pub fn handleItemLock(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
@@ -85,9 +94,12 @@ pub fn handleItemLock(api: anytype, cmd: protocol.CommandMessage, response: *mod
         break :blk !current;
     };
 
+    api.undoBeginBlock();
     if (api.setItemLocked(item_info.item, locked)) {
         logging.debug("Set item locked to {}", .{locked});
     }
+    api.undoEndBlock("Reamo: Lock item");
+    api.updateTimeline();
 }
 
 pub fn handleItemNotes(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
@@ -97,9 +109,12 @@ pub fn handleItemNotes(api: anytype, cmd: protocol.CommandMessage, response: *mo
     };
     const notes = cmd.getString("notes") orelse "";
 
+    api.undoBeginBlock();
     if (api.setItemNotes(item_info.item, notes)) {
         logging.debug("Updated item notes", .{});
     }
+    api.undoEndBlock("Reamo: Set item notes");
+    // Notes don't need visual refresh (not displayed in arrange view)
 }
 
 pub fn handleItemDelete(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
@@ -113,6 +128,7 @@ pub fn handleItemDelete(api: anytype, cmd: protocol.CommandMessage, response: *m
         logging.debug("Deleted item", .{});
     }
     api.undoEndBlock("Reamo: Delete item");
+    api.updateTimeline();
 }
 
 pub fn handleItemGoto(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {

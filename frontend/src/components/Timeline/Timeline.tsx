@@ -28,6 +28,7 @@ import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
 import { ItemsDensityOverlay } from './ItemDensityBlobs';
 import { TimelineWaveformOverlay } from './TimelineWaveformOverlay';
 import { ClusteredMarkerLines, ClusteredMarkerPills } from './TimelineMarkers';
+import { TimelineGridLines } from './TimelineGridLines';
 import { TimelinePlayhead, PlayheadDragPreview, PlayheadPreviewPill, MarkerDragPreview } from './TimelinePlayhead';
 import { TimelineFooter } from './TimelineFooter';
 import { formatBeats, formatDelta } from '../../utils';
@@ -914,6 +915,15 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
       >
+        {/* Grid lines - bar/beat markers based on tempo (behind everything) */}
+        <TimelineGridLines
+          renderTimeToPercent={renderTimeToPercent}
+          visibleRange={viewport.visibleRange}
+          visibleDuration={viewport.visibleDuration}
+          tempoMarkers={tempoMarkers}
+          barOffset={barOffset}
+        />
+
         {/* Regions - blocks only (no color), labels in top bar */}
         <TimelineRegionBlocks
           displayRegions={visibleRegions}

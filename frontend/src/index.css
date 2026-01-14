@@ -46,6 +46,7 @@
   --color-marker-default: #dc2626;
   --color-region-default: #688585;
   --color-item-default: #646464;
+  --color-grid-line: rgb(255 255 255);  /* opacity handled inline */
 
   /* === Status === */
   --color-success: #22c55e;
