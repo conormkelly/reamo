@@ -1,8 +1,17 @@
 /**
  * NavigateItemInfoBar Component
- * Shows item info in Navigate mode when an item is selected
- * Features: track selector dropdown, item navigation (prev/next),
- * take navigation, color picker, and "More" button for BottomSheet
+ * Shows item info in Navigate mode when item selection mode is active.
+ *
+ * Mode-based display:
+ * - 0 items selected: "Tap an item to select" message
+ * - 1 item selected: Full single-item controls (take nav, color, more)
+ * - 2+ items selected: Batch mode with Group button for batch operations
+ *
+ * Features:
+ * - X button to exit item selection mode (clears selection)
+ * - Track dropdown (filter only, no auto-select)
+ * - Selection count pill (opens selection refinement sheet)
+ * - Group icon (2+ selected) opens batch operations sheet
  */
 
 import {
@@ -23,6 +32,10 @@ import {
   Trash2,
   Lock,
   Unlock,
+  X,
+  ChevronUp,
+  Group,
+  Palette,
 } from 'lucide-react';
 import { BottomSheet } from '../Modal/BottomSheet';
 import { useReaperStore } from '../../store';
@@ -32,14 +45,20 @@ import { item as itemCmd, take as takeCmd } from '../../core/WebSocketCommands';
 import { hexToReaperColor, reaperColorToHexWithFallback, formatTime } from '../../utils';
 import { DEFAULT_ITEM_COLOR } from '../../constants/colors';
 import { ColorPickerInput } from '../Toolbar/ColorPickerInput';
-import { EMPTY_SKELETON } from '../../store/stableRefs';
-import type { SkeletonTrack } from '../../core/WebSocketTypes';
-import { EMPTY_ITEMS } from '../../store/stableRefs';
-import type { Track } from '../../core/types';
+import { EMPTY_SKELETON, EMPTY_ITEMS } from '../../store/stableRefs';
+import type { SkeletonTrack, WSItem } from '../../core/WebSocketTypes';
 
 export interface NavigateItemInfoBarProps {
   className?: string;
   viewport: UseViewportReturn;
+}
+
+/** Group items by track for details sheet */
+interface TrackGroup {
+  trackIdx: number;
+  trackName: string;
+  items: WSItem[];
+  isExpanded: boolean;
 }
 
 export function NavigateItemInfoBar({
@@ -51,213 +70,76 @@ export function NavigateItemInfoBar({
 
   // Store state
   const items = useReaperStore((s) => s?.items ?? EMPTY_ITEMS);
-  const tracks = useReaperStore((s) => s.tracks);
   const trackSkeleton = useReaperStore((s) => s?.trackSkeleton ?? EMPTY_SKELETON) as readonly SkeletonTrack[];
-  const selectedItemGuid = useReaperStore((s) => s.selectedItemGuid);
-  const selectItem = useReaperStore((s) => s.selectItem);
+  const itemSelectionModeActive = useReaperStore((s) => s.itemSelectionModeActive);
+  const viewFilterTrackGuid = useReaperStore((s) => s.viewFilterTrackGuid);
+  const exitItemSelectionMode = useReaperStore((s) => s.exitItemSelectionMode);
+  const setViewFilterTrack = useReaperStore((s) => s.setViewFilterTrack);
 
-  // Local state for track selector and bottom sheet
-  const [selectedTrackGuid, setSelectedTrackGuid] = useState<string | null>(null);
+  // Derive selection from items (REAPER is source of truth)
+  const selectedItems = useMemo(() => items.filter((i) => i.selected), [items]);
+  const selectedCount = selectedItems.length;
+
+  // Single item mode: when exactly 1 item is selected, that's the display item
+  const singleItem = selectedCount === 1 ? selectedItems[0] : null;
+
+  // Local state for dropdowns and sheets
   const [showTrackDropdown, setShowTrackDropdown] = useState(false);
   const [showItemSheet, setShowItemSheet] = useState(false);
+  const [showSelectionSheet, setShowSelectionSheet] = useState(false);
+  const [showBatchSheet, setShowBatchSheet] = useState(false);
   const trackDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Notes state (fetched on-demand)
+  // Accordion state for selection details sheet
+  const [expandedTracks, setExpandedTracks] = useState<Set<number>>(new Set());
+
+  // Notes state (fetched on-demand for single item)
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [notesValue, setNotesValue] = useState('');
   const [notesLoading, setNotesLoading] = useState(false);
   const notesInputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Find selected item by GUID
-  const selectedItem = useMemo(() => {
-    if (!selectedItemGuid) return null;
-    return items.find((item) => item.guid === selectedItemGuid) ?? null;
-  }, [selectedItemGuid, items]);
-
-  // Get track from GUID
-  const getTrackFromGuid = useCallback(
-    (guid: string): Track | null => {
-      return Object.values(tracks).find((t) => t.guid === guid) ?? null;
-    },
-    [tracks]
-  );
-
-  // Get track index from GUID
+  // Get track index from GUID (using trackSkeleton)
   const getTrackIdxFromGuid = useCallback(
     (guid: string): number | null => {
-      const track = getTrackFromGuid(guid);
-      return track?.index ?? null;
+      const idx = trackSkeleton.findIndex((t) => t.g === guid);
+      return idx >= 0 ? idx : null;
     },
-    [getTrackFromGuid]
+    [trackSkeleton]
   );
 
   // Get tracks with items in viewport (for dropdown)
   const tracksWithItemsInViewport = useMemo(() => {
-    const trackGuids = new Set<string>();
+    const trackIndices = new Set<number>();
     items.forEach((item) => {
       const itemEnd = item.position + item.length;
       if (
         item.position < viewport.visibleRange.end &&
         itemEnd > viewport.visibleRange.start
       ) {
-        const track = tracks[item.trackIdx];
-        if (track?.guid) trackGuids.add(track.guid);
+        trackIndices.add(item.trackIdx);
       }
     });
-    // Sort by track index for consistent ordering
-    return Array.from(trackGuids).sort((a, b) => {
-      const trackA = getTrackFromGuid(a);
-      const trackB = getTrackFromGuid(b);
-      return (trackA?.index ?? 0) - (trackB?.index ?? 0);
-    });
-  }, [items, viewport.visibleRange, tracks, getTrackFromGuid]);
+    return Array.from(trackIndices).sort((a, b) => a - b);
+  }, [items, viewport.visibleRange]);
 
-  // Default to selected item's track when item is selected
-  useEffect(() => {
-    if (selectedItem && !selectedTrackGuid) {
-      const track = tracks[selectedItem.trackIdx];
-      if (track?.guid) {
-        setSelectedTrackGuid(track.guid);
-      }
-    }
-  }, [selectedItem, selectedTrackGuid, tracks]);
+  // Current filter track index
+  const filterTrackIdx = useMemo(() => {
+    if (!viewFilterTrackGuid) return null;
+    return getTrackIdxFromGuid(viewFilterTrackGuid);
+  }, [viewFilterTrackGuid, getTrackIdxFromGuid]);
 
-  // Also update track when selected item changes to a different track
-  useEffect(() => {
-    if (selectedItem) {
-      const track = tracks[selectedItem.trackIdx];
-      if (track?.guid && track.guid !== selectedTrackGuid) {
-        setSelectedTrackGuid(track.guid);
-      }
-    }
-  }, [selectedItem, tracks, selectedTrackGuid]);
-
-  // Get current track for display
-  const currentTrack = useMemo(() => {
-    if (!selectedTrackGuid) return null;
-    return getTrackFromGuid(selectedTrackGuid);
-  }, [selectedTrackGuid, getTrackFromGuid]);
-
-  // Get items on selected track sorted by position
-  // Use selectedItem.trackIdx as fallback if selectedTrackGuid not resolved
-  const trackItems = useMemo(() => {
-    let trackIdx: number | null = null;
-    if (selectedTrackGuid) {
-      trackIdx = getTrackIdxFromGuid(selectedTrackGuid);
-    }
-    // Fallback: use selectedItem's trackIdx directly
-    if (trackIdx === null && selectedItem) {
-      trackIdx = selectedItem.trackIdx;
-    }
-    if (trackIdx === null) return [];
-    return items
-      .filter((item) => item.trackIdx === trackIdx)
-      .sort((a, b) => a.position - b.position);
-  }, [items, selectedTrackGuid, getTrackIdxFromGuid, selectedItem]);
-
-  // Find current item index in track items
-  const currentItemIndex = useMemo(() => {
-    if (!selectedItemGuid || trackItems.length === 0) return -1;
-    return trackItems.findIndex((item) => item.guid === selectedItemGuid);
-  }, [trackItems, selectedItemGuid]);
-
-  // Move viewport to center on item if it's outside current viewport
-  const moveViewportToItem = useCallback(
-    (item: typeof selectedItem) => {
-      if (!item) return;
-
-      const itemStart = item.position;
-      const itemEnd = item.position + item.length;
-      const itemCenter = item.position + item.length / 2;
-      const viewportDuration =
-        viewport.visibleRange.end - viewport.visibleRange.start;
-
-      // Only move if item is outside current viewport
-      if (
-        itemStart < viewport.visibleRange.start ||
-        itemEnd > viewport.visibleRange.end
-      ) {
-        // Center viewport on item
-        const newStart = Math.max(0, itemCenter - viewportDuration / 2);
-        viewport.setVisibleRange({
-          start: newStart,
-          end: newStart + viewportDuration,
-        });
-      }
-    },
-    [viewport]
-  );
-
-  // Item navigation
-  const handlePrevItem = useCallback(() => {
-    if (currentItemIndex > 0) {
-      const prevItem = trackItems[currentItemIndex - 1];
-      selectItem(prevItem.guid);
-      // Sync selection to REAPER so actions can be applied to this item
-      sendCommand(itemCmd.select(prevItem.trackIdx, prevItem.itemIdx));
-      moveViewportToItem(prevItem);
-    }
-  }, [currentItemIndex, trackItems, selectItem, sendCommand, moveViewportToItem]);
-
-  const handleNextItem = useCallback(() => {
-    if (currentItemIndex < trackItems.length - 1) {
-      const nextItem = trackItems[currentItemIndex + 1];
-      selectItem(nextItem.guid);
-      // Sync selection to REAPER so actions can be applied to this item
-      sendCommand(itemCmd.select(nextItem.trackIdx, nextItem.itemIdx));
-      moveViewportToItem(nextItem);
-    }
-  }, [currentItemIndex, trackItems, selectItem, sendCommand, moveViewportToItem]);
-
-  // Take navigation
-  const handlePrevTake = useCallback(() => {
-    if (!selectedItem || selectedItem.activeTakeIdx <= 0) return;
-    sendCommand(
-      itemCmd.setActiveTake(selectedItem.trackIdx, selectedItem.itemIdx, selectedItem.activeTakeIdx - 1)
-    );
-  }, [selectedItem, sendCommand]);
-
-  const handleNextTake = useCallback(() => {
-    if (!selectedItem || selectedItem.activeTakeIdx >= selectedItem.takeCount - 1) return;
-    sendCommand(
-      itemCmd.setActiveTake(selectedItem.trackIdx, selectedItem.itemIdx, selectedItem.activeTakeIdx + 1)
-    );
-  }, [selectedItem, sendCommand]);
-
-  // Track change handler
-  const handleTrackChange = useCallback(
-    (newTrackGuid: string) => {
-      setSelectedTrackGuid(newTrackGuid);
+  // Track filter change handler (filter only, no select)
+  const handleTrackFilterChange = useCallback(
+    (trackIdx: number) => {
+      const newTrackGuid = trackSkeleton[trackIdx]?.g ?? null;
+      setViewFilterTrack(newTrackGuid);
       setShowTrackDropdown(false);
-
-      const trackIdx = getTrackIdxFromGuid(newTrackGuid);
-      if (trackIdx === null) return;
-
-      // Find first item on this track in viewport (or first item if none in viewport)
-      const trackItemsForNewTrack = items
-        .filter((item) => item.trackIdx === trackIdx)
-        .sort((a, b) => a.position - b.position);
-
-      const itemInViewport = trackItemsForNewTrack.find((item) => {
-        const itemEnd = item.position + item.length;
-        return (
-          item.position < viewport.visibleRange.end &&
-          itemEnd > viewport.visibleRange.start
-        );
-      });
-
-      const itemToSelect = itemInViewport ?? trackItemsForNewTrack[0];
-      if (itemToSelect) {
-        selectItem(itemToSelect.guid);
-        // Sync to REAPER
-        sendCommand(itemCmd.select(itemToSelect.trackIdx, itemToSelect.itemIdx));
-        moveViewportToItem(itemToSelect);
-      }
     },
-    [getTrackIdxFromGuid, items, viewport.visibleRange, selectItem, sendCommand, moveViewportToItem]
+    [trackSkeleton, setViewFilterTrack]
   );
 
-  // Get track name from skeleton (always available, unlike tracks)
+  // Get track name from skeleton
   const getTrackNameFromSkeleton = useCallback(
     (trackIdx: number): string | null => {
       return trackSkeleton[trackIdx]?.n ?? null;
@@ -265,40 +147,57 @@ export function NavigateItemInfoBar({
     [trackSkeleton]
   );
 
-  // Color picker handler
+  // ========== Single Item Handlers ==========
+
+  // Take navigation (only for single item)
+  const handlePrevTake = useCallback(() => {
+    if (!singleItem || singleItem.activeTakeIdx <= 0) return;
+    sendCommand(
+      itemCmd.setActiveTake(singleItem.trackIdx, singleItem.itemIdx, singleItem.activeTakeIdx - 1)
+    );
+  }, [singleItem, sendCommand]);
+
+  const handleNextTake = useCallback(() => {
+    if (!singleItem || singleItem.activeTakeIdx >= singleItem.takeCount - 1) return;
+    sendCommand(
+      itemCmd.setActiveTake(singleItem.trackIdx, singleItem.itemIdx, singleItem.activeTakeIdx + 1)
+    );
+  }, [singleItem, sendCommand]);
+
+  // Color picker handler (single item)
   const handleColorChange = useCallback(
     (color: string) => {
-      if (!selectedItem) return;
+      if (!singleItem) return;
       const reaperColor = hexToReaperColor(color);
       sendCommand(
-        itemCmd.setColor(selectedItem.trackIdx, selectedItem.itemIdx, reaperColor)
+        itemCmd.setColor(singleItem.trackIdx, singleItem.itemIdx, reaperColor)
       );
     },
-    [selectedItem, sendCommand]
+    [singleItem, sendCommand]
   );
 
-  // Item action handlers
+  // Item action handlers (single item)
   const handleCropToActive = useCallback(() => {
     sendCommand(takeCmd.cropToActive());
   }, [sendCommand]);
 
   const handleDeleteTake = useCallback(() => {
-    if (selectedItem && selectedItem.takeCount > 1) {
+    if (singleItem && singleItem.takeCount > 1) {
       sendCommand(takeCmd.delete());
     }
-  }, [selectedItem, sendCommand]);
+  }, [singleItem, sendCommand]);
 
   const handleToggleLock = useCallback(() => {
-    if (!selectedItem) return;
-    sendCommand(itemCmd.setLock(selectedItem.trackIdx, selectedItem.itemIdx, selectedItem.locked ? 0 : 1));
-  }, [selectedItem, sendCommand]);
+    if (!singleItem) return;
+    sendCommand(itemCmd.setLock(singleItem.trackIdx, singleItem.itemIdx, singleItem.locked ? 0 : 1));
+  }, [singleItem, sendCommand]);
 
-  // Notes handlers
+  // Notes handlers (single item)
   const handleNotesSubmit = useCallback(() => {
-    if (!selectedItem) return;
-    sendCommand(itemCmd.setNotes(selectedItem.trackIdx, selectedItem.itemIdx, notesValue));
+    if (!singleItem) return;
+    sendCommand(itemCmd.setNotes(singleItem.trackIdx, singleItem.itemIdx, notesValue));
     setIsEditingNotes(false);
-  }, [selectedItem, sendCommand, notesValue]);
+  }, [singleItem, sendCommand, notesValue]);
 
   const handleNotesKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -306,21 +205,21 @@ export function NavigateItemInfoBar({
     }
   }, []);
 
-  // Reset notes when item changes
+  // Reset notes when single item changes
   useEffect(() => {
     setNotesValue('');
     setIsEditingNotes(false);
-  }, [selectedItemGuid]);
+  }, [singleItem?.guid]);
 
   // Fetch notes when sheet opens (if item has notes)
   useEffect(() => {
-    if (!showItemSheet || !selectedItem?.hasNotes || !connected) return;
+    if (!showItemSheet || !singleItem?.hasNotes || !connected) return;
     if (notesValue) return; // Already fetched
 
     const fetchNotes = async () => {
       setNotesLoading(true);
       try {
-        const cmd = itemCmd.getNotes(selectedItem.trackIdx, selectedItem.itemIdx);
+        const cmd = itemCmd.getNotes(singleItem.trackIdx, singleItem.itemIdx);
         const response = await sendAsync(cmd.command, cmd.params) as {
           success: boolean;
           payload?: { notes: string };
@@ -335,7 +234,7 @@ export function NavigateItemInfoBar({
       }
     };
     fetchNotes();
-  }, [showItemSheet, selectedItem, connected, sendAsync, notesValue]);
+  }, [showItemSheet, singleItem, connected, sendAsync, notesValue]);
 
   // Focus notes input when editing starts
   useEffect(() => {
@@ -343,6 +242,73 @@ export function NavigateItemInfoBar({
       notesInputRef.current.focus();
     }
   }, [isEditingNotes, notesLoading]);
+
+  // ========== Batch Operation Handlers ==========
+
+  // Batch color change
+  const handleBatchColorChange = useCallback(
+    (color: string) => {
+      const reaperColor = hexToReaperColor(color);
+      for (const item of selectedItems) {
+        sendCommand(itemCmd.setColor(item.trackIdx, item.itemIdx, reaperColor));
+      }
+    },
+    [selectedItems, sendCommand]
+  );
+
+  // Batch lock all
+  const handleBatchLockAll = useCallback(() => {
+    for (const item of selectedItems) {
+      if (!item.locked) {
+        sendCommand(itemCmd.setLock(item.trackIdx, item.itemIdx, 1));
+      }
+    }
+  }, [selectedItems, sendCommand]);
+
+  // Batch unlock all
+  const handleBatchUnlockAll = useCallback(() => {
+    for (const item of selectedItems) {
+      if (item.locked) {
+        sendCommand(itemCmd.setLock(item.trackIdx, item.itemIdx, 0));
+      }
+    }
+  }, [selectedItems, sendCommand]);
+
+  // Batch next take (for all items with multiple takes)
+  const handleBatchNextTake = useCallback(() => {
+    for (const item of selectedItems) {
+      if (item.takeCount > 1 && item.activeTakeIdx < item.takeCount - 1) {
+        sendCommand(itemCmd.setActiveTake(item.trackIdx, item.itemIdx, item.activeTakeIdx + 1));
+      }
+    }
+  }, [selectedItems, sendCommand]);
+
+  // Batch prev take (for all items with multiple takes)
+  const handleBatchPrevTake = useCallback(() => {
+    for (const item of selectedItems) {
+      if (item.takeCount > 1 && item.activeTakeIdx > 0) {
+        sendCommand(itemCmd.setActiveTake(item.trackIdx, item.itemIdx, item.activeTakeIdx - 1));
+      }
+    }
+  }, [selectedItems, sendCommand]);
+
+  // Check if any selected items have multiple takes
+  const anyHaveMultipleTakes = useMemo(
+    () => selectedItems.some((i) => i.takeCount > 1),
+    [selectedItems]
+  );
+
+  // Check lock states for batch UI
+  const allLocked = useMemo(
+    () => selectedItems.length > 0 && selectedItems.every((i) => i.locked),
+    [selectedItems]
+  );
+  const anyLocked = useMemo(
+    () => selectedItems.some((i) => i.locked),
+    [selectedItems]
+  );
+
+  // ========== Common Handlers ==========
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -361,47 +327,134 @@ export function NavigateItemInfoBar({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showTrackDropdown]);
 
-  // Don't render if no item selected
-  if (!selectedItem) return null;
+  // Exit mode handler
+  const handleExitMode = useCallback(() => {
+    exitItemSelectionMode();
+    // Also clear selection in REAPER
+    sendCommand(itemCmd.unselectAll());
+  }, [exitItemSelectionMode, sendCommand]);
 
-  // Format values
-  const currentColor = selectedItem.color
-    ? reaperColorToHexWithFallback(selectedItem.color, DEFAULT_ITEM_COLOR)
+  // Selection details sheet handlers
+  const handleClearAll = useCallback(() => {
+    sendCommand(itemCmd.unselectAll());
+    setShowSelectionSheet(false);
+  }, [sendCommand]);
+
+  const handleDeselectItem = useCallback(
+    (item: WSItem) => {
+      sendCommand(itemCmd.toggleSelect(item.guid));
+    },
+    [sendCommand]
+  );
+
+  const toggleTrackExpanded = useCallback((trackIdx: number) => {
+    setExpandedTracks((prev) => {
+      const next = new Set(prev);
+      if (next.has(trackIdx)) {
+        next.delete(trackIdx);
+      } else {
+        next.add(trackIdx);
+      }
+      return next;
+    });
+  }, []);
+
+  // Group selected items by track for details sheet
+  const groupedByTrack = useMemo((): TrackGroup[] => {
+    const groups = new Map<number, WSItem[]>();
+
+    for (const item of selectedItems) {
+      const existing = groups.get(item.trackIdx) ?? [];
+      existing.push(item);
+      groups.set(item.trackIdx, existing);
+    }
+
+    return Array.from(groups.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([trackIdx, trackItems]) => ({
+        trackIdx,
+        trackName: trackSkeleton[trackIdx]?.n ?? `Track ${trackIdx + 1}`,
+        items: trackItems.sort((a, b) => a.position - b.position),
+        isExpanded: expandedTracks.has(trackIdx),
+      }));
+  }, [selectedItems, trackSkeleton, expandedTracks]);
+
+  // Expand all tracks by default when sheet opens
+  useEffect(() => {
+    if (showSelectionSheet && expandedTracks.size === 0 && groupedByTrack.length > 0) {
+      setExpandedTracks(new Set(groupedByTrack.map((g) => g.trackIdx)));
+    }
+  }, [showSelectionSheet, groupedByTrack, expandedTracks.size]);
+
+  // Auto-close selection sheet if selection drops to 0
+  useEffect(() => {
+    if (showSelectionSheet && selectedCount === 0) {
+      setShowSelectionSheet(false);
+    }
+  }, [showSelectionSheet, selectedCount]);
+
+  // Auto-close batch sheet if selection drops below 2
+  useEffect(() => {
+    if (showBatchSheet && selectedCount < 2) {
+      setShowBatchSheet(false);
+    }
+  }, [showBatchSheet, selectedCount]);
+
+  // Don't render if not in item selection mode
+  if (!itemSelectionModeActive) return null;
+
+  // Format values for single item display
+  const currentColor = singleItem?.color
+    ? reaperColorToHexWithFallback(singleItem.color, DEFAULT_ITEM_COLOR)
     : DEFAULT_ITEM_COLOR;
-  const takeCount = selectedItem.takeCount;
-  const formattedPosition = formatBeats(selectedItem.position);
+  const takeCount = singleItem?.takeCount ?? 1;
+  const formattedPosition = singleItem ? formatBeats(singleItem.position) : '-';
+  const currentTrackName = filterTrackIdx !== null
+    ? (getTrackNameFromSkeleton(filterTrackIdx) || `Track ${filterTrackIdx + 1}`)
+    : 'Select Track';
 
   return (
-    <div data-testid="item-info-bar" className={`flex flex-col gap-1 px-3 py-1.5 bg-bg-surface/50 rounded-lg text-sm ${className}`}>
-      {/* Row 1: Track dropdown | Position */}
-      <div className="flex items-center gap-3 min-w-0">
-        {/* Track selector dropdown */}
+    <div data-testid="item-info-bar" className={`flex flex-col gap-1 px-3 py-1.5 bg-bg-surface/50 rounded-lg text-sm relative ${className}`}>
+      {/* Close button (X) - top right */}
+      <button
+        onClick={handleExitMode}
+        className="absolute top-1 right-1 p-1.5 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors z-10"
+        title="Exit item selection mode"
+        data-testid="item-mode-close"
+      >
+        <X className="w-4 h-4" />
+      </button>
+
+      {/* Row 1: Track dropdown | Selection pill */}
+      <div className="flex items-center gap-3 min-w-0 pr-8">
+        {/* Track selector dropdown (filter only) */}
         <div className="relative" ref={trackDropdownRef}>
           <button
             onClick={() => setShowTrackDropdown(!showTrackDropdown)}
             className="flex items-center gap-1 px-2 py-0.5 rounded bg-bg-elevated hover:bg-bg-hover text-text-primary text-xs"
+            data-testid="track-filter-dropdown"
           >
             <span className="truncate max-w-[120px]">
-              {getTrackNameFromSkeleton(selectedItem?.trackIdx ?? -1) || currentTrack?.name || `Track ${currentTrack?.index ?? selectedItem?.trackIdx ?? '?'}`}
+              {currentTrackName}
             </span>
             <ChevronDown className="w-3 h-3 flex-shrink-0" />
           </button>
           {showTrackDropdown && tracksWithItemsInViewport.length > 0 && (
             <div className="absolute top-full left-0 mt-1 py-1 bg-bg-elevated border border-border-default rounded-lg shadow-xl z-50 min-w-[150px] max-h-[200px] overflow-y-auto">
-              {tracksWithItemsInViewport.map((guid) => {
-                const track = getTrackFromGuid(guid);
-                if (!track) return null;
+              {tracksWithItemsInViewport.map((trackIdx) => {
+                const trackGuid = trackSkeleton[trackIdx]?.g;
+                const trackName = trackSkeleton[trackIdx]?.n;
                 return (
                   <button
-                    key={guid}
-                    onClick={() => handleTrackChange(guid)}
+                    key={trackIdx}
+                    onClick={() => handleTrackFilterChange(trackIdx)}
                     className={`w-full text-left px-3 py-1.5 text-xs hover:bg-bg-hover ${
-                      guid === selectedTrackGuid
+                      trackGuid === viewFilterTrackGuid
                         ? 'bg-bg-hover text-text-primary'
                         : 'text-text-secondary'
                     }`}
                   >
-                    {track.name || `Track ${track.index}`}
+                    {trackName || `Track ${trackIdx + 1}`}
                   </button>
                 );
               })}
@@ -409,279 +462,456 @@ export function NavigateItemInfoBar({
           )}
         </div>
 
-        <div className="w-px h-4 bg-border-default flex-shrink-0" />
-
-        {/* Position */}
-        <div className="flex items-center gap-1.5">
-          <span className="text-text-secondary text-xs">At:</span>
-          <span className="text-info-muted font-mono text-xs">
-            {formattedPosition}
-          </span>
-        </div>
-      </div>
-
-      {/* Row 2: Item nav | Take nav | Color | More */}
-      <div className="flex items-center gap-3">
-        {/* Item navigation */}
-        <div className="flex items-center gap-1">
+        {/* Selection count pill */}
+        {selectedCount > 0 && (
           <button
-            onClick={handlePrevItem}
-            disabled={currentItemIndex <= 0}
-            className="p-1 rounded hover:bg-bg-elevated disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Previous item on track"
+            onClick={() => setShowSelectionSheet(true)}
+            className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/20 hover:bg-primary/30 text-primary text-xs font-medium transition-colors"
+            title="View selected items"
+            data-testid="selection-pill"
           >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <span className="text-sm text-text-primary min-w-[50px] text-center">
-            {currentItemIndex >= 0 ? currentItemIndex + 1 : '-'}/{trackItems.length}
-          </span>
-          <button
-            onClick={handleNextItem}
-            disabled={currentItemIndex >= trackItems.length - 1}
-            className="p-1 rounded hover:bg-bg-elevated disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Next item on track"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="w-px h-6 bg-bg-hover" />
-
-        {/* Take navigation */}
-        <div className="flex items-center gap-1">
-          <button
-            onClick={handlePrevTake}
-            disabled={takeCount <= 1}
-            className="p-1 rounded hover:bg-bg-elevated disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Previous take"
-          >
-            <ChevronLeft className="w-3 h-3" />
-          </button>
-          <span className="text-xs text-text-secondary min-w-[55px] text-center">
-            Take {selectedItem.activeTakeIdx + 1}/{takeCount}
-          </span>
-          <button
-            onClick={handleNextTake}
-            disabled={takeCount <= 1}
-            className="p-1 rounded hover:bg-bg-elevated disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Next take"
-          >
+            <span data-testid="selection-count">{selectedCount}</span> selected
             <ChevronRight className="w-3 h-3" />
           </button>
-        </div>
-
-        <div className="w-px h-6 bg-bg-hover" />
-
-        {/* Color picker */}
-        <ColorPickerInput
-          label=""
-          value={currentColor}
-          onChange={handleColorChange}
-          defaultValue={DEFAULT_ITEM_COLOR}
-          compact
-        />
-
-        {/* More button - opens item details bottom sheet */}
-        <button
-          onClick={() => setShowItemSheet(true)}
-          className="p-1.5 rounded hover:bg-bg-elevated"
-          title="More options"
-        >
-          <MoreHorizontal className="w-4 h-4" />
-        </button>
+        )}
       </div>
 
-      {/* Item Details Bottom Sheet */}
+      {/* Row 2: Content varies based on selection count */}
+      {selectedCount === 0 ? (
+        // No items selected - prompt to select
+        <div className="text-xs text-text-muted py-1">
+          Tap an item to select
+        </div>
+      ) : selectedCount === 1 && singleItem ? (
+        // Single item selected - show full controls
+        <div className="flex items-center gap-3">
+          {/* Position */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-text-secondary text-xs">At:</span>
+            <span className="text-info-muted font-mono text-xs">
+              {formattedPosition}
+            </span>
+          </div>
+
+          <div className="w-px h-6 bg-bg-hover" />
+
+          {/* Take navigation */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handlePrevTake}
+              disabled={takeCount <= 1}
+              className="p-1 rounded hover:bg-bg-elevated disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Previous take"
+            >
+              <ChevronLeft className="w-3 h-3" />
+            </button>
+            <span className="text-xs text-text-secondary min-w-[55px] text-center">
+              Take {singleItem.activeTakeIdx + 1}/{takeCount}
+            </span>
+            <button
+              onClick={handleNextTake}
+              disabled={takeCount <= 1}
+              className="p-1 rounded hover:bg-bg-elevated disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Next take"
+            >
+              <ChevronRight className="w-3 h-3" />
+            </button>
+          </div>
+
+          <div className="w-px h-6 bg-bg-hover" />
+
+          {/* Color picker */}
+          <ColorPickerInput
+            label=""
+            value={currentColor}
+            onChange={handleColorChange}
+            defaultValue={DEFAULT_ITEM_COLOR}
+            compact
+          />
+
+          {/* More button - opens item details bottom sheet */}
+          <button
+            onClick={() => setShowItemSheet(true)}
+            className="p-1.5 rounded hover:bg-bg-elevated"
+            title="More options"
+          >
+            <MoreHorizontal className="w-4 h-4" />
+          </button>
+        </div>
+      ) : (
+        // Multiple items selected - batch mode
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-text-secondary">
+            {groupedByTrack.length > 1
+              ? `${selectedCount} items across ${groupedByTrack.length} tracks`
+              : `${selectedCount} items on ${groupedByTrack[0]?.trackName ?? 'track'}`}
+          </span>
+
+          {/* Group button - opens batch operations sheet */}
+          <button
+            onClick={() => setShowBatchSheet(true)}
+            className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded bg-bg-elevated hover:bg-bg-hover text-text-primary text-xs transition-colors"
+            title="Batch operations"
+            data-testid="batch-actions-btn"
+          >
+            <Group className="w-4 h-4" />
+            Actions
+          </button>
+        </div>
+      )}
+
+      {/* Single Item Details Bottom Sheet */}
       <BottomSheet
         isOpen={showItemSheet}
         onClose={() => setShowItemSheet(false)}
         ariaLabel="Item details"
       >
+        {singleItem && (
+          <div className="px-4 pb-6">
+            {/* Header */}
+            <div className="text-center mb-4 pt-1">
+              <h2 className="text-lg font-semibold text-text-primary truncate">
+                Item Details
+              </h2>
+              <p className="text-sm text-text-secondary">
+                {getTrackNameFromSkeleton(singleItem.trackIdx) || `Track ${singleItem.trackIdx + 1}`}
+              </p>
+            </div>
+
+            {/* Takes section - only show if multiple takes */}
+            {singleItem.takeCount > 1 && (
+              <div className="mb-4">
+                <h3 className="text-xs font-medium text-text-muted uppercase mb-2">
+                  Takes ({singleItem.takeCount})
+                </h3>
+                <div className="space-y-1 max-h-48 overflow-y-auto">
+                  {Array.from({ length: singleItem.takeCount }, (_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        sendCommand(
+                          itemCmd.setActiveTake(singleItem.trackIdx, singleItem.itemIdx, i)
+                        );
+                      }}
+                      className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-sm transition-colors ${
+                        i === singleItem.activeTakeIdx
+                          ? 'bg-accent/20 text-text-primary'
+                          : 'bg-bg-surface hover:bg-bg-hover text-text-secondary'
+                      }`}
+                    >
+                      {i === singleItem.activeTakeIdx && (
+                        <Check className="w-4 h-4 text-accent flex-shrink-0" />
+                      )}
+                      <span className={i === singleItem.activeTakeIdx ? '' : 'ml-6'}>
+                        Take {i + 1}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Actions section */}
+            <div className="mb-4">
+              <h3 className="text-xs font-medium text-text-muted uppercase mb-2">
+                Actions
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {/* Lock/Unlock */}
+                <button
+                  onClick={handleToggleLock}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                    singleItem.locked
+                      ? 'bg-warning/20 text-warning'
+                      : 'bg-bg-surface hover:bg-bg-hover text-text-secondary'
+                  }`}
+                >
+                  {singleItem.locked ? (
+                    <Lock className="w-4 h-4" />
+                  ) : (
+                    <Unlock className="w-4 h-4" />
+                  )}
+                  {singleItem.locked ? 'Locked' : 'Unlocked'}
+                </button>
+
+                {/* Crop to active take */}
+                {singleItem.takeCount > 1 && (
+                  <button
+                    onClick={handleCropToActive}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-bg-surface hover:bg-bg-hover text-text-secondary transition-colors"
+                  >
+                    <Scissors className="w-4 h-4" />
+                    Crop to Take
+                  </button>
+                )}
+
+                {/* Delete take */}
+                {singleItem.takeCount > 1 && (
+                  <button
+                    onClick={handleDeleteTake}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-error-bg hover:bg-error/30 text-error-text transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete Take
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Notes section */}
+            <div className="mb-4">
+              <h3 className="text-xs font-medium text-text-muted uppercase mb-2">
+                Notes
+              </h3>
+              {isEditingNotes ? (
+                <div className="space-y-2">
+                  <textarea
+                    ref={notesInputRef}
+                    value={notesValue}
+                    onChange={(e) => setNotesValue(e.target.value)}
+                    onKeyDown={handleNotesKeyDown}
+                    placeholder="Add notes..."
+                    className="w-full bg-bg-elevated text-text-primary text-base px-3 py-2 rounded-lg border border-border-default focus:border-accent focus:outline-none resize-none"
+                    rows={3}
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleNotesSubmit}
+                      className="px-3 py-1.5 text-sm bg-primary text-on-primary rounded-lg hover:bg-primary-hover transition-colors"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setIsEditingNotes(false)}
+                      className="px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : notesLoading ? (
+                <div className="w-full bg-bg-elevated text-text-muted text-sm px-3 py-2 rounded-lg border border-border-default">
+                  Loading...
+                </div>
+              ) : notesValue ? (
+                <button
+                  onClick={() => setIsEditingNotes(true)}
+                  className="w-full text-left bg-bg-elevated text-text-primary text-sm px-3 py-2 rounded-lg border border-border-default hover:border-text-tertiary transition-colors"
+                >
+                  <span className="block truncate">{notesValue.split('\n')[0]}</span>
+                  {notesValue.includes('\n') && (
+                    <span className="text-text-muted text-xs">...</span>
+                  )}
+                </button>
+              ) : (
+                <button
+                  onClick={() => setIsEditingNotes(true)}
+                  className="w-full text-left bg-bg-elevated text-text-muted text-sm px-3 py-2 rounded-lg border border-border-default border-dashed hover:border-text-tertiary transition-colors"
+                >
+                  Add notes...
+                </button>
+              )}
+            </div>
+
+            {/* Color section */}
+            <div className="mb-4">
+              <ColorPickerInput
+                label="Color"
+                value={currentColor}
+                onChange={handleColorChange}
+                defaultValue={DEFAULT_ITEM_COLOR}
+              />
+            </div>
+
+            {/* Item info - position and length */}
+            <div className="mb-4">
+              <h3 className="text-xs font-medium text-text-muted uppercase mb-2">
+                Position & Length
+              </h3>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="bg-bg-surface rounded-lg p-2">
+                  <div className="text-text-muted text-xs mb-1">Position</div>
+                  <div className="font-mono text-text-primary">{formattedPosition}</div>
+                  <div className="font-mono text-text-secondary text-xs">{formatTime(singleItem.position)}</div>
+                </div>
+                <div className="bg-bg-surface rounded-lg p-2">
+                  <div className="text-text-muted text-xs mb-1">Length</div>
+                  <div className="font-mono text-text-primary">{formatDuration(singleItem.length)}</div>
+                  <div className="font-mono text-text-secondary text-xs">{formatTime(singleItem.length)}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* MIDI indicator */}
+            {singleItem.activeTakeIsMidi && (
+              <div className="text-sm text-info-muted bg-info-muted/10 rounded-lg px-3 py-2">
+                MIDI Item
+              </div>
+            )}
+          </div>
+        )}
+      </BottomSheet>
+
+      {/* Batch Operations Bottom Sheet */}
+      <BottomSheet
+        isOpen={showBatchSheet}
+        onClose={() => setShowBatchSheet(false)}
+        ariaLabel="Batch operations"
+      >
         <div className="px-4 pb-6">
           {/* Header */}
           <div className="text-center mb-4 pt-1">
-            <h2 className="text-lg font-semibold text-text-primary truncate">
-              Item {currentItemIndex + 1} of {trackItems.length}
+            <h2 className="text-lg font-semibold text-text-primary">
+              Batch Operations
             </h2>
             <p className="text-sm text-text-secondary">
-              {getTrackNameFromSkeleton(selectedItem.trackIdx) || `Track ${selectedItem.trackIdx + 1}`}
+              Apply to {selectedCount} selected items
             </p>
-          </div>
-
-          {/* Takes section - only show if multiple takes */}
-          {selectedItem.takeCount > 1 && (
-            <div className="mb-4">
-              <h3 className="text-xs font-medium text-text-muted uppercase mb-2">
-                Takes ({selectedItem.takeCount})
-              </h3>
-              <div className="space-y-1 max-h-48 overflow-y-auto">
-                {Array.from({ length: selectedItem.takeCount }, (_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => {
-                      sendCommand(
-                        itemCmd.setActiveTake(selectedItem.trackIdx, selectedItem.itemIdx, i)
-                      );
-                    }}
-                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-sm transition-colors ${
-                      i === selectedItem.activeTakeIdx
-                        ? 'bg-accent/20 text-text-primary'
-                        : 'bg-bg-surface hover:bg-bg-hover text-text-secondary'
-                    }`}
-                  >
-                    {i === selectedItem.activeTakeIdx && (
-                      <Check className="w-4 h-4 text-accent flex-shrink-0" />
-                    )}
-                    <span className={i === selectedItem.activeTakeIdx ? '' : 'ml-6'}>
-                      Take {i + 1}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Actions section */}
-          <div className="mb-4">
-            <h3 className="text-xs font-medium text-text-muted uppercase mb-2">
-              Actions
-            </h3>
-            <div className="flex flex-wrap gap-2">
-              {/* Lock/Unlock */}
-              <button
-                onClick={handleToggleLock}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-                  selectedItem.locked
-                    ? 'bg-warning/20 text-warning'
-                    : 'bg-bg-surface hover:bg-bg-hover text-text-secondary'
-                }`}
-              >
-                {selectedItem.locked ? (
-                  <Lock className="w-4 h-4" />
-                ) : (
-                  <Unlock className="w-4 h-4" />
-                )}
-                {selectedItem.locked ? 'Locked' : 'Unlocked'}
-              </button>
-
-              {/* Crop to active take */}
-              {selectedItem.takeCount > 1 && (
-                <button
-                  onClick={handleCropToActive}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-bg-surface hover:bg-bg-hover text-text-secondary transition-colors"
-                >
-                  <Scissors className="w-4 h-4" />
-                  Crop to Take
-                </button>
-              )}
-
-              {/* Delete take */}
-              {selectedItem.takeCount > 1 && (
-                <button
-                  onClick={handleDeleteTake}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-error-bg hover:bg-error/30 text-error-text transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Delete Take
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Notes section */}
-          <div className="mb-4">
-            <h3 className="text-xs font-medium text-text-muted uppercase mb-2">
-              Notes
-            </h3>
-            {isEditingNotes ? (
-              /* Editing mode - full textarea */
-              <div className="space-y-2">
-                <textarea
-                  ref={notesInputRef}
-                  value={notesValue}
-                  onChange={(e) => setNotesValue(e.target.value)}
-                  onKeyDown={handleNotesKeyDown}
-                  placeholder="Add notes..."
-                  className="w-full bg-bg-elevated text-text-primary text-base px-3 py-2 rounded-lg border border-border-default focus:border-accent focus:outline-none resize-none"
-                  rows={3}
-                />
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleNotesSubmit}
-                    className="px-3 py-1.5 text-sm bg-primary text-on-primary rounded-lg hover:bg-primary-hover transition-colors"
-                  >
-                    Save
-                  </button>
-                  <button
-                    onClick={() => setIsEditingNotes(false)}
-                    className="px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : notesLoading ? (
-              /* Loading state */
-              <div className="w-full bg-bg-elevated text-text-muted text-sm px-3 py-2 rounded-lg border border-border-default">
-                Loading...
-              </div>
-            ) : notesValue ? (
-              /* Preview mode - show first line with ellipsis */
-              <button
-                onClick={() => setIsEditingNotes(true)}
-                className="w-full text-left bg-bg-elevated text-text-primary text-sm px-3 py-2 rounded-lg border border-border-default hover:border-text-tertiary transition-colors"
-              >
-                <span className="block truncate">{notesValue.split('\n')[0]}</span>
-                {notesValue.includes('\n') && (
-                  <span className="text-text-muted text-xs">...</span>
-                )}
-              </button>
-            ) : (
-              /* Empty state - add notes button styled as empty textarea */
-              <button
-                onClick={() => setIsEditingNotes(true)}
-                className="w-full text-left bg-bg-elevated text-text-muted text-sm px-3 py-2 rounded-lg border border-border-default border-dashed hover:border-text-tertiary transition-colors"
-              >
-                Add notes...
-              </button>
-            )}
           </div>
 
           {/* Color section */}
           <div className="mb-4">
+            <h3 className="text-xs font-medium text-text-muted uppercase mb-2 flex items-center gap-2">
+              <Palette className="w-3 h-3" />
+              Color All
+            </h3>
             <ColorPickerInput
-              label="Color"
-              value={currentColor}
-              onChange={handleColorChange}
+              label=""
+              value={DEFAULT_ITEM_COLOR}
+              onChange={handleBatchColorChange}
               defaultValue={DEFAULT_ITEM_COLOR}
             />
           </div>
 
-          {/* Item info - position and length in bars and seconds */}
+          {/* Lock/Unlock section */}
           <div className="mb-4">
-            <h3 className="text-xs font-medium text-text-muted uppercase mb-2">
-              Position & Length
+            <h3 className="text-xs font-medium text-text-muted uppercase mb-2 flex items-center gap-2">
+              <Lock className="w-3 h-3" />
+              Lock State
             </h3>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="bg-bg-surface rounded-lg p-2">
-                <div className="text-text-muted text-xs mb-1">Position</div>
-                <div className="font-mono text-text-primary">{formattedPosition}</div>
-                <div className="font-mono text-text-secondary text-xs">{formatTime(selectedItem.position)}</div>
-              </div>
-              <div className="bg-bg-surface rounded-lg p-2">
-                <div className="text-text-muted text-xs mb-1">Length</div>
-                <div className="font-mono text-text-primary">{formatDuration(selectedItem.length)}</div>
-                <div className="font-mono text-text-secondary text-xs">{formatTime(selectedItem.length)}</div>
-              </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleBatchLockAll}
+                disabled={allLocked}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm bg-bg-surface hover:bg-bg-hover text-text-secondary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Lock className="w-4 h-4" />
+                Lock All
+              </button>
+              <button
+                onClick={handleBatchUnlockAll}
+                disabled={!anyLocked}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm bg-bg-surface hover:bg-bg-hover text-text-secondary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Unlock className="w-4 h-4" />
+                Unlock All
+              </button>
             </div>
           </div>
 
-          {/* MIDI indicator */}
-          {selectedItem.activeTakeIsMidi && (
-            <div className="text-sm text-info-muted bg-info-muted/10 rounded-lg px-3 py-2">
-              MIDI Item
+          {/* Take navigation section - only if any items have multiple takes */}
+          {anyHaveMultipleTakes && (
+            <div className="mb-4">
+              <h3 className="text-xs font-medium text-text-muted uppercase mb-2">
+                Takes (items with multiple takes)
+              </h3>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleBatchPrevTake}
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm bg-bg-surface hover:bg-bg-hover text-text-secondary transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Prev Take
+                </button>
+                <button
+                  onClick={handleBatchNextTake}
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm bg-bg-surface hover:bg-bg-hover text-text-secondary transition-colors"
+                >
+                  Next Take
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           )}
+        </div>
+      </BottomSheet>
+
+      {/* Selection Details Bottom Sheet (opened by pill) */}
+      <BottomSheet
+        isOpen={showSelectionSheet}
+        onClose={() => setShowSelectionSheet(false)}
+        ariaLabel="Selected items"
+      >
+        <div className="px-4 pb-6 max-h-[70vh] overflow-y-auto">
+          {/* Header */}
+          <div className="text-center mb-4 pt-1">
+            <h2 className="text-lg font-semibold text-text-primary">
+              {selectedCount} Items Selected
+            </h2>
+            <p className="text-sm text-text-secondary">
+              {groupedByTrack.length > 1 && `across ${groupedByTrack.length} tracks`}
+            </p>
+          </div>
+
+          {/* Items grouped by track (accordions) */}
+          <div className="space-y-2">
+            {groupedByTrack.map((group) => (
+              <div key={group.trackIdx} className="bg-bg-surface rounded-lg overflow-hidden">
+                {/* Track header (accordion toggle) */}
+                <button
+                  onClick={() => toggleTrackExpanded(group.trackIdx)}
+                  className="w-full flex items-center justify-between px-3 py-2 hover:bg-bg-hover transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-text-primary">
+                      {group.trackName}
+                    </span>
+                    <span className="text-xs text-text-muted">
+                      ({group.items.length})
+                    </span>
+                  </div>
+                  {group.isExpanded ? (
+                    <ChevronUp className="w-4 h-4 text-text-muted" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-text-muted" />
+                  )}
+                </button>
+
+                {/* Items on this track (collapsible) */}
+                {group.isExpanded && (
+                  <div className="border-t border-border-subtle">
+                    {group.items.map((item) => (
+                      <button
+                        key={item.guid}
+                        onClick={() => handleDeselectItem(item)}
+                        className="w-full flex items-center justify-between px-3 py-2 hover:bg-bg-hover text-left transition-colors group border-b border-border-subtle last:border-b-0"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm text-text-primary truncate">
+                            Item {item.itemIdx + 1}
+                          </div>
+                          <div className="text-xs text-text-muted font-mono">
+                            {formatBeats(item.position)} · {formatDuration(item.length)}
+                          </div>
+                        </div>
+                        <div className="ml-2 text-text-tertiary group-hover:text-text-secondary">
+                          <X className="w-4 h-4" />
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Clear all button */}
+          <button
+            onClick={handleClearAll}
+            className="w-full mt-4 px-4 py-3 rounded-lg bg-error-bg hover:bg-error/30 text-error-text text-sm font-medium transition-colors"
+          >
+            Clear Selection
+          </button>
         </div>
       </BottomSheet>
     </div>

@@ -4,6 +4,7 @@ const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../logging.zig");
+const item_guid_cache = @import("../item_guid_cache.zig");
 
 /// Helper to get item by track and item index from command
 /// Uses unified indexing: 0 = master, 1+ = user tracks
@@ -166,6 +167,54 @@ pub fn handleSelectInTimeSel(api: anytype, _: protocol.CommandMessage, _: *mod.R
 pub fn handleUnselectAll(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.UNSELECT_ALL_ITEMS);
     logging.debug("Unselected all items", .{});
+}
+
+/// Toggle selection of a single item (does NOT affect other items' selection)
+/// Uses GUID for stable item identification across reordering.
+/// Params: { guid: string }
+pub fn handleItemToggleSelect(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const guid = cmd.getString("guid") orelse {
+        response.err("MISSING_GUID", "Item GUID is required");
+        return;
+    };
+
+    // Look up item location from cache
+    const cache = mod.g_ctx.item_cache orelse {
+        response.err("NOT_INITIALIZED", "Item cache not initialized");
+        return;
+    };
+
+    const location = cache.resolve(guid) orelse {
+        response.err("NOT_FOUND", "Item not found (may have been deleted)");
+        return;
+    };
+
+    // Get track and item pointers from indices
+    const track = api.getTrackByUnifiedIdx(location.track_idx) orelse {
+        response.err("NOT_FOUND", "Track not found");
+        return;
+    };
+
+    const item = api.getItemByIdx(track, location.item_idx) orelse {
+        response.err("NOT_FOUND", "Item not found at expected position");
+        return;
+    };
+
+    // Read current selection state and toggle
+    const current_selected = api.getItemSelected(item) catch {
+        response.err("CORRUPT_DATA", "Cannot read item selection state");
+        return;
+    };
+
+    const new_selected = !current_selected;
+
+    // Set new selection state (no undo - selection is UI state)
+    if (api.setItemSelected(item, new_selected)) {
+        logging.debug("Toggled item selection: {s} -> {}", .{ guid, new_selected });
+    }
+
+    // Response confirms success
+    response.success(null);
 }
 
 // Maximum items to consider for navigation (stack limit)

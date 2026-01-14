@@ -2,10 +2,10 @@
  * ItemsDensityOverlay Component
  * Shows where items exist in the timeline as blocks
  *
- * Coloring logic (based on item selection, NOT track selection):
- * - No item selected: All items shown as grey merged blocks
- * - Item selected: Items on that track shown individually with their colors,
- *   items on other tracks shown as grey merged blocks
+ * View filter logic:
+ * - No filter (viewFilterTrackIdx is null): All items shown as grey merged blocks
+ * - Filter active: Only that track's items shown individually with their colors
+ *   (other tracks' items are hidden entirely)
  */
 
 import { useMemo } from 'react';
@@ -27,8 +27,8 @@ export interface ItemsDensityOverlayProps {
   height: number;
   /** Track data for color lookup */
   tracks: Record<number, Track>;
-  /** Currently selected item GUID */
-  selectedItemGuid?: string | null;
+  /** Track index to filter to (null = show all as grey aggregate) */
+  viewFilterTrackIdx?: number | null;
 }
 
 /** A merged time range representing contiguous item coverage */
@@ -96,43 +96,36 @@ export function ItemsDensityOverlay({
   timelineEnd,
   height,
   tracks: _tracks, // Reserved for future waveform integration
-  selectedItemGuid,
+  viewFilterTrackIdx,
 }: ItemsDensityOverlayProps) {
-  // Find selected item by GUID and derive its track
-  const selectedItem = useMemo(() => {
-    if (!selectedItemGuid) return null;
-    return items.find((item) => item.guid === selectedItemGuid) ?? null;
-  }, [selectedItemGuid, items]);
+  // Check if filter is active
+  const hasFilter = viewFilterTrackIdx !== null && viewFilterTrackIdx !== undefined;
 
-  // Derive colored track from selected item (NOT from REAPER track selection)
-  const coloredTrackIdx = useMemo(() => {
-    return selectedItem?.trackIdx ?? null;
-  }, [selectedItem]);
-
-  // Split items: colored track items vs other track items
-  const { coloredTrackItems, otherTrackItems } = useMemo(() => {
-    if (coloredTrackIdx === null) {
-      return { coloredTrackItems: [], otherTrackItems: items };
+  // Split items: filtered track items vs all items (for grey blocks when no filter)
+  const { coloredTrackItems, greyBlockItems } = useMemo(() => {
+    if (!hasFilter) {
+      // No filter: show all items as grey merged blocks
+      return { coloredTrackItems: [], greyBlockItems: items };
     }
-    const onTrack = items.filter((i) => i.trackIdx === coloredTrackIdx);
-    const offTrack = items.filter((i) => i.trackIdx !== coloredTrackIdx);
-    return { coloredTrackItems: onTrack, otherTrackItems: offTrack };
-  }, [items, coloredTrackIdx]);
+    // Filter active: show only that track's items with colors, hide others
+    const onTrack = items.filter((i) => i.trackIdx === viewFilterTrackIdx);
+    return { coloredTrackItems: onTrack, greyBlockItems: [] };
+  }, [items, hasFilter, viewFilterTrackIdx]);
 
-  // Merge other track items into grey blocks
-  const otherTrackBlocks = useMemo(
-    () => mergeItemRanges(otherTrackItems),
-    [otherTrackItems]
+  // Merge grey block items (only when no filter)
+  const greyBlocks = useMemo(
+    () => mergeItemRanges(greyBlockItems),
+    [greyBlockItems]
   );
 
-  // Calculate visible merged blocks (for other tracks)
+  // Calculate visible merged blocks (grey, when no filter)
   const visibleMergedBlocks = useMemo(() => {
     const duration = timelineEnd - timelineStart;
     if (duration <= 0) return [];
 
-    return otherTrackBlocks
-      .filter((block) => block.end > timelineStart && block.start < timelineEnd)
-      .map((block) => {
+    return greyBlocks
+      .filter((block: MergedBlock) => block.end > timelineStart && block.start < timelineEnd)
+      .map((block: MergedBlock) => {
         const clampedStart = Math.max(block.start, timelineStart);
         const clampedEnd = Math.min(block.end, timelineEnd);
         return {
@@ -140,7 +133,7 @@ export function ItemsDensityOverlay({
           widthPercent: ((clampedEnd - clampedStart) / duration) * 100,
         };
       });
-  }, [otherTrackBlocks, timelineStart, timelineEnd]);
+  }, [greyBlocks, timelineStart, timelineEnd]);
 
   // Calculate visible individual items (for colored track)
   const visibleColoredItems = useMemo((): VisibleItem[] => {
@@ -177,10 +170,11 @@ export function ItemsDensityOverlay({
       data-testid="item-density-overlay"
       className="absolute inset-0 z-0 pointer-events-none"
     >
-      {/* Grey merged blocks for items on OTHER tracks */}
+      {/* Grey merged blocks (shown when no filter active) */}
       {visibleMergedBlocks.map((block, i) => (
         <div
           key={`merged-${i}`}
+          data-testid={`aggregate-blob-${i}`}
           className="absolute pointer-events-none"
           style={{
             left: `${block.leftPercent}%`,
@@ -192,25 +186,25 @@ export function ItemsDensityOverlay({
         />
       ))}
 
-      {/* Individual colored items on selected track */}
-      {visibleColoredItems.map((v) => {
-        const isSelected = v.item.guid === selectedItemGuid;
-        return (
-          <div
-            key={`item-${v.item.trackIdx}-${v.item.itemIdx}`}
-            className={`absolute pointer-events-none ${
-              isSelected ? 'ring-2 ring-selection-overlay-border rounded-sm z-10' : ''
-            }`}
-            style={{
-              left: `${v.leftPercent}%`,
-              width: `${v.widthPercent}%`,
-              top: `${topOffset}px`,
-              height: `${blobHeight}px`,
-              backgroundColor: getItemColor(v.item),
-            }}
-          />
-        );
-      })}
+      {/* Individual colored items on filtered track */}
+      {visibleColoredItems.map((v) => (
+        <div
+          key={`item-${v.item.trackIdx}-${v.item.itemIdx}`}
+          data-testid={`item-blob-${v.item.trackIdx}-${v.item.itemIdx}`}
+          data-selected={v.item.selected}
+          className="absolute pointer-events-none"
+          style={{
+            left: `${v.leftPercent}%`,
+            width: `${v.widthPercent}%`,
+            top: `${topOffset}px`,
+            height: `${blobHeight}px`,
+            backgroundColor: getItemColor(v.item),
+            // Selected: blue inset squared border (no border-radius) - matches mixer track selection
+            boxShadow: v.item.selected ? 'inset 0 0 0 2px var(--color-primary)' : 'none',
+            zIndex: v.item.selected ? 10 : 0,
+          }}
+        />
+      ))}
     </div>
   );
 }

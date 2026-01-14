@@ -8,10 +8,13 @@
 
 import { useState, useMemo, useCallback, type ReactElement } from 'react';
 import { useReaperStore } from '../../store';
-import { EMPTY_ITEMS, EMPTY_TRACKS, EMPTY_REGIONS } from '../../store/stableRefs';
+import { useReaper } from '../ReaperProvider';
+import { EMPTY_ITEMS, EMPTY_TRACKS, EMPTY_REGIONS, EMPTY_SKELETON } from '../../store/stableRefs';
+import type { SkeletonTrack } from '../../core/WebSocketTypes';
 import { useVisibleMediaItems, useTimeSignature, type TimeRange } from '../../hooks';
 import type { WSItem } from '../../core/WebSocketTypes';
 import type { TimeSelection } from '../../store/slices/transportSlice';
+import { item as itemCmd } from '../../core/WebSocketCommands';
 import { reaperColorToRgba } from '../../utils';
 import { WaveformItem } from './WaveformItem';
 import { ItemInfoBar } from './ItemInfoBar';
@@ -67,16 +70,31 @@ export function ItemsTimeline({
   timeSelection,
   height = 80,
 }: ItemsTimelineProps): ReactElement {
+  const { sendCommand } = useReaper();
+
   // Store state - defensive selectors with stable fallbacks for mobile hydration
   const items = useReaperStore((state) => state?.items ?? EMPTY_ITEMS);
   const tracks = useReaperStore((state) => state?.tracks ?? EMPTY_TRACKS);
   const regions = useReaperStore((state) => state?.regions ?? EMPTY_REGIONS);
   const bpm = useReaperStore((state) => state.bpm ?? 120);
-  const selectedTrackIdx = useReaperStore((state) => state.selectedTrackIdx);
-  const setSelectedTrack = useReaperStore((state) => state.setSelectedTrack);
-  const selectedItemGuid = useReaperStore((state) => state.selectedItemGuid);
-  const selectItem = useReaperStore((state) => state.selectItem);
-  const clearItemSelection = useReaperStore((state) => state.clearItemSelection);
+  const trackSkeleton = useReaperStore((state) => state?.trackSkeleton ?? EMPTY_SKELETON) as readonly SkeletonTrack[];
+  const viewFilterTrackGuid = useReaperStore((state) => state.viewFilterTrackGuid);
+  const setViewFilterTrack = useReaperStore((state) => state.setViewFilterTrack);
+
+  // Helper: convert track GUID → trackIdx using skeleton
+  const getTrackIdxFromGuid = useCallback(
+    (guid: string): number | null => {
+      const idx = trackSkeleton.findIndex((t) => t.g === guid);
+      return idx >= 0 ? idx : null;
+    },
+    [trackSkeleton]
+  );
+
+  // Derive selection from items (REAPER is source of truth)
+  const selectedItemGuid = useMemo(() => {
+    const selected = items.filter((i) => i.selected);
+    return selected.length === 1 ? selected[0].guid : null;
+  }, [items]);
 
   // Time signature for beat grid
   const { beatsPerBar } = useTimeSignature();
@@ -90,17 +108,18 @@ export function ItemsTimeline({
     [items, tracks]
   );
 
-  // Auto-select first track with items if none selected or selected is invalid
+  // Derive active track index from viewFilterTrackGuid
   const activeTrackIdx = useMemo(() => {
-    if (selectedTrackIdx !== null) {
-      // Verify the selected track still has items
-      if (tracksWithItems.some((t) => t.trackIdx === selectedTrackIdx)) {
-        return selectedTrackIdx;
+    if (viewFilterTrackGuid) {
+      const trackIdx = getTrackIdxFromGuid(viewFilterTrackGuid);
+      // Verify the track still has items
+      if (trackIdx !== null && tracksWithItems.some((t) => t.trackIdx === trackIdx)) {
+        return trackIdx;
       }
     }
     // Fall back to first track with items
     return tracksWithItems[0]?.trackIdx ?? null;
-  }, [selectedTrackIdx, tracksWithItems]);
+  }, [viewFilterTrackGuid, getTrackIdxFromGuid, tracksWithItems]);
 
   // Items for the active track
   const trackItems = useMemo(() => {
@@ -198,14 +217,16 @@ export function ItemsTimeline({
     return trackItems.find((item) => item.guid === selectedItemGuid) ?? null;
   }, [trackItems, selectedItemGuid]);
 
-  // Handle track selection change
+  // Handle track selection change (converts trackIdx → GUID for store)
   const handleTrackChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
       const trackIdx = parseInt(e.target.value, 10);
-      setSelectedTrack(trackIdx);
-      clearItemSelection();
+      const trackGuid = trackSkeleton[trackIdx]?.g ?? null;
+      setViewFilterTrack(trackGuid);
+      // Clear item selection in REAPER when switching tracks
+      sendCommand(itemCmd.unselectAll());
     },
-    [setSelectedTrack, clearItemSelection]
+    [trackSkeleton, setViewFilterTrack, sendCommand]
   );
 
   // Handle filter mode change
@@ -216,12 +237,13 @@ export function ItemsTimeline({
     []
   );
 
-  // Handle item click
+  // Handle item click (toggle selection)
   const handleItemClick = useCallback(
     (item: WSItem) => {
-      selectItem(item.guid);
+      // Toggle selection in REAPER (preserves other selections for multi-select)
+      sendCommand(itemCmd.toggleSelect(item.guid));
     },
-    [selectItem]
+    [sendCommand]
   );
 
   // Check if time selection filter is disabled (no selection exists)

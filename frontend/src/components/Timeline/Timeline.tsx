@@ -96,9 +96,24 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
   const insertionPoint = useReaperStore((state) => state.insertionPoint);
   const resizeEdgePosition = useReaperStore((state) => state.resizeEdgePosition);
 
-  // Item selection state (for Navigate mode tap-to-select)
-  const selectedItemGuid = useReaperStore((state) => state.selectedItemGuid);
-  const selectItem = useReaperStore((state) => state.selectItem);
+  // View filter: which track's items to show as waveforms (independent of selection)
+  const viewFilterTrackGuid = useReaperStore((state) => state.viewFilterTrackGuid);
+
+  // Item selection mode state
+  const itemSelectionModeActive = useReaperStore((state) => state.itemSelectionModeActive);
+  const enterItemSelectionMode = useReaperStore((state) => state.enterItemSelectionMode);
+
+  // Helper: convert track GUID → trackIdx using skeleton
+  const getTrackIdxFromGuid = useCallback(
+    (guid: string): number | null => {
+      const idx = trackSkeleton.findIndex((t) => t.g === guid);
+      return idx >= 0 ? idx : null;
+    },
+    [trackSkeleton]
+  );
+
+  // Marker selection action (needed for mutual exclusion with item selection)
+  const setSelectedMarkerId = useReaperStore((state) => state.setSelectedMarkerId);
 
   // Filter out invalid 0-width selections
   const timeSelectionSeconds = useMemo(() => {
@@ -476,17 +491,15 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     VISIBILITY_BUFFER
   );
 
-  // Compute items on the selected track for waveform overlay
-  const { coloredTrackItems, coloredTrackGuid } = useMemo(() => {
-    if (!selectedItemGuid) return { coloredTrackItems: [], coloredTrackGuid: null };
-    const selectedItem = visibleItems.find((item) => item.guid === selectedItemGuid);
-    if (!selectedItem) return { coloredTrackItems: [], coloredTrackGuid: null };
-    const trackIdx = selectedItem.trackIdx;
+  // Compute items on the view-filtered track for waveform overlay
+  // Uses viewFilterTrackGuid (independent of selection) so waveforms persist during multi-select
+  const { coloredTrackItems, coloredTrackGuid, viewFilterTrackIdx } = useMemo(() => {
+    if (!viewFilterTrackGuid) return { coloredTrackItems: [], coloredTrackGuid: null, viewFilterTrackIdx: null };
+    const trackIdx = getTrackIdxFromGuid(viewFilterTrackGuid);
+    if (trackIdx === null) return { coloredTrackItems: [], coloredTrackGuid: null, viewFilterTrackIdx: null };
     const filteredItems = visibleItems.filter((item) => item.trackIdx === trackIdx);
-    // Use trackSkeleton for GUID (always available), not tracks (requires subscription)
-    const trackGuid = trackSkeleton[trackIdx]?.g ?? null;
-    return { coloredTrackItems: filteredItems, coloredTrackGuid: trackGuid };
-  }, [selectedItemGuid, visibleItems, trackSkeleton]);
+    return { coloredTrackItems: filteredItems, coloredTrackGuid: viewFilterTrackGuid, viewFilterTrackIdx: trackIdx };
+  }, [viewFilterTrackGuid, visibleItems, getTrackIdxFromGuid]);
 
   // Set time selection in REAPER via WebSocket
   const setTimeSelection = useCallback(
@@ -675,15 +688,35 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
 
                 // Get first track (lowest index)
                 const firstTrackIdx = Math.min(...byTrack.keys());
-                const trackItems = byTrack.get(firstTrackIdx)!;
+                const trackGuid = trackSkeleton[firstTrackIdx]?.g;
 
-                // Sort by position, take first (earliest) item
-                const firstItem = trackItems.sort((a, b) => a.position - b.position)[0];
+                // Clear marker selection (mutual exclusion)
+                setSelectedMarkerId(null);
 
-                // Select the item (use GUID for stable selection)
-                selectItem(firstItem.guid);
-                // Sync selection to REAPER so actions can be applied to this item
-                sendCommand(itemCmd.select(firstItem.trackIdx, firstItem.itemIdx));
+                if (!itemSelectionModeActive) {
+                  // Not in item selection mode yet - enter it
+                  // This reveals items on the track but does NOT select any
+                  if (trackGuid) {
+                    enterItemSelectionMode(trackGuid);
+                  }
+                } else {
+                  // Already in item selection mode - only select items on the FILTERED track
+                  // Get the filtered track index from viewFilterTrackGuid
+                  const filterTrackIdx = viewFilterTrackGuid
+                    ? getTrackIdxFromGuid(viewFilterTrackGuid)
+                    : null;
+
+                  if (filterTrackIdx !== null && byTrack.has(filterTrackIdx)) {
+                    // Get items at this time position on the FILTERED track only
+                    const trackItemsAtTime = byTrack.get(filterTrackIdx)!;
+                    // Sort by position, take first (earliest) item
+                    const firstItem = trackItemsAtTime.sort((a, b) => a.position - b.position)[0];
+
+                    // Toggle selection in REAPER (multi-select preserves other selections)
+                    sendCommand(itemCmd.toggleSelect(firstItem.guid));
+                  }
+                  // If tap is not on the filtered track, do nothing
+                }
               }
             }
           }
@@ -749,8 +782,14 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
       panGesture,
       pinchGesture,
       items,
-      selectItem,
+      setSelectedMarkerId,
       viewport,
+      trackSkeleton,
+      itemSelectionModeActive,
+      enterItemSelectionMode,
+      viewFilterTrackGuid,
+      getTrackIdxFromGuid,
+      sendCommand,
     ]
   );
 
@@ -761,8 +800,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     },
     [sendCommand]
   );
-  // Get marker selection action from store
-  const setSelectedMarkerId = useReaperStore((state) => state.setSelectedMarkerId);
+  // Get marker lock action from store (setSelectedMarkerId already declared above)
   const setMarkerLocked = useReaperStore((state) => state.setMarkerLocked);
 
   // Cluster tap handler - zoom to expand or show popover
@@ -937,6 +975,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
         />
 
         {/* Items density overlay - shows where items are in navigate mode */}
+        {/* When viewFilterTrackIdx is set, only that track's items are shown (no grey blobs from other tracks) */}
         {timelineMode === 'navigate' && visibleItems.length > 0 && (
           <ItemsDensityOverlay
             items={visibleItems}
@@ -944,7 +983,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
             timelineEnd={viewport.visibleRange.end}
             height={height}
             tracks={tracks}
-            selectedItemGuid={selectedItemGuid}
+            viewFilterTrackIdx={viewFilterTrackIdx}
           />
         )}
 

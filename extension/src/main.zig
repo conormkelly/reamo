@@ -18,6 +18,7 @@ const errors = @import("errors.zig");
 const logging = @import("logging.zig");
 const tiered_state = @import("tiered_state.zig");
 const guid_cache = @import("guid_cache.zig");
+const item_guid_cache = @import("item_guid_cache.zig");
 const track_subscriptions = @import("track_subscriptions.zig");
 const peaks_subscriptions = @import("peaks_subscriptions.zig");
 const peaks_generator = @import("peaks_generator.zig");
@@ -39,6 +40,7 @@ var g_gesture_state: ?*gesture_state.GestureState = null;
 var g_toggle_subs: ?*toggle_subscriptions.ToggleSubscriptions = null;
 var g_notes_subs: ?*project_notes.NotesSubscriptions = null;
 var g_guid_cache: ?*guid_cache.GuidCache = null;
+var g_item_cache: ?*item_guid_cache.ItemGuidCache = null;
 var g_track_subs: ?*track_subscriptions.TrackSubscriptions = null;
 var g_peaks_subs: ?*peaks_subscriptions.PeaksSubscriptions = null;
 var g_peaks_cache: ?*peaks_cache.PeaksCache = null;
@@ -190,6 +192,12 @@ fn doInitialization() !void {
     cache.* = guid_cache.GuidCache.init(g_allocator);
     g_guid_cache = cache;
     commands.g_ctx.guid_cache = cache;
+
+    // Create item GUID cache (rebuilt every 5Hz during items poll)
+    const i_cache = try g_allocator.create(item_guid_cache.ItemGuidCache);
+    i_cache.* = item_guid_cache.ItemGuidCache.init(g_allocator);
+    g_item_cache = i_cache;
+    commands.g_ctx.item_cache = i_cache;
 
     // Create track subscriptions state
     const track_subs = try g_allocator.create(track_subscriptions.TrackSubscriptions);
@@ -1027,6 +1035,13 @@ fn doProcessing() !void {
         };
         medium_state.items = item_state.items;
 
+        // Rebuild item GUID cache from polled items (O(1) lookup for commands)
+        if (g_item_cache) |icache| {
+            icache.rebuildFromItems(items, medium_state.items) catch |err| {
+                logging.warn("Failed to rebuild item cache: {s}", .{@errorName(err)});
+            };
+        }
+
         // Broadcast items if changed (no subscription required - like markers/regions)
         if (!itemsSliceEql(medium_state.items, medium_prev.items)) {
             const temp_item_state = items.State{ .items = medium_state.items };
@@ -1254,6 +1269,15 @@ fn shutdown() void {
         g_guid_cache = null;
     }
     logging.info("GUID cache cleaned up", .{});
+
+    if (g_item_cache) |icache| {
+        logging.info("cleaning up item GUID cache", .{});
+        commands.g_ctx.item_cache = null;
+        icache.deinit();
+        g_allocator.destroy(icache);
+        g_item_cache = null;
+    }
+    logging.info("item GUID cache cleaned up", .{});
 
     if (g_shared_state) |state| {
         logging.info("cleaning up shared state", .{});

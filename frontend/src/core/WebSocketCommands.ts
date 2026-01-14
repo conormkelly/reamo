@@ -308,6 +308,11 @@ export const item = {
   }),
   selectInTimeSel: (): WSCommand => ({ command: 'item/selectInTimeSel' }),
   unselectAll: (): WSCommand => ({ command: 'item/unselectAll' }),
+  /** Toggle selection of a single item (does NOT affect other items) */
+  toggleSelect: (guid: string): WSCommand => ({
+    command: 'item/toggleSelect',
+    params: { guid },
+  }),
   /** Select next item on track (by position order) */
   selectNext: (
     trackIdx: number,

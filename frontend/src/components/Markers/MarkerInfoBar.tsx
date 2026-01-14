@@ -6,7 +6,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback, type ReactElement } from 'react';
-import { RotateCcw } from 'lucide-react';
+import { RotateCcw, X } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
 import { useCurrentMarker, useTimeFormatters } from '../../hooks';
@@ -22,6 +22,7 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
   const { sendCommand } = useReaper();
   const timelineMode = useReaperStore((s) => s.timelineMode);
   const markers = useReaperStore((s) => s.markers);
+  const setSelectedMarkerId = useReaperStore((s) => s.setSelectedMarkerId);
 
   const { currentMarker, setLocked } = useCurrentMarker();
   const { formatBeats } = useTimeFormatters();
@@ -173,9 +174,22 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
   // Format position as beats (hook handles fallback to time if no BPM)
   const formatPosition = (seconds: number): string => formatBeats(seconds);
 
+  const handleClose = () => {
+    setSelectedMarkerId(null);
+  };
+
   return (
     <div data-testid="marker-info-bar" className={`flex items-center gap-2 min-w-0 ${className}`}>
-      <div className="flex flex-col gap-1 px-3 py-1.5 bg-bg-surface/50 rounded-lg text-sm flex-1 min-w-0">
+      <div className="flex flex-col gap-1 px-3 py-1.5 bg-bg-surface/50 rounded-lg text-sm flex-1 min-w-0 relative">
+        {/* X close button - top right */}
+        <button
+          onClick={handleClose}
+          className="absolute top-1 right-1 p-1 text-text-muted hover:text-text-primary hover:bg-bg-elevated rounded transition-colors"
+          title="Close marker info"
+        >
+          <X size={14} />
+        </button>
+
         {/* Line 1: Marker ID and Name */}
         <div className="flex items-center gap-3 min-w-0">
           {/* Marker ID */}

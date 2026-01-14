@@ -581,3 +581,380 @@ test.describe('Item tap detection', () => {
     expect(selectedItemKey).toBe('1:0');
   });
 });
+
+/**
+ * Item Selection Mode E2E Tests
+ *
+ * Tests the new item selection mode flow:
+ * - Tapping aggregate blob enters mode and reveals items (no selection)
+ * - Tapping revealed items toggles selection
+ * - Track dropdown filters view only (no auto-select)
+ * - Prev/Next navigates without selecting
+ * - X button exits mode
+ */
+test.describe('Item Selection Mode', () => {
+  async function setupItemSelectionTestFixtures(page: Page) {
+    // Wait for store
+    await page.waitForFunction(() => (window as any).__REAPER_STORE__ !== undefined, {
+      timeout: 10000,
+    });
+
+    // Enable test mode
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+      store.getState()._setTestMode(true);
+    });
+
+    // Inject test data with multiple items per track for proper testing
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+
+      localStorage.setItem('reamo-timeline-mode', 'navigate');
+
+      store.setState({
+        connected: true,
+        timelineMode: 'navigate',
+
+        markers: [],
+        regions: [],
+
+        // Multiple items on multiple tracks
+        items: [
+          // Track 0: 3 items
+          {
+            trackIdx: 0,
+            itemIdx: 0,
+            position: 2,
+            length: 3,
+            guid: '{item-t0-0}',
+            activeTakeIdx: 0,
+            takeCount: 1,
+            takeName: 'T0 Item 1',
+            color: 0x888888,
+            selected: false,
+          },
+          {
+            trackIdx: 0,
+            itemIdx: 1,
+            position: 7,
+            length: 3,
+            guid: '{item-t0-1}',
+            activeTakeIdx: 0,
+            takeCount: 1,
+            takeName: 'T0 Item 2',
+            color: 0x999999,
+            selected: false,
+          },
+          {
+            trackIdx: 0,
+            itemIdx: 2,
+            position: 12,
+            length: 3,
+            guid: '{item-t0-2}',
+            activeTakeIdx: 0,
+            takeCount: 1,
+            takeName: 'T0 Item 3',
+            color: 0xaaaaaa,
+            selected: false,
+          },
+          // Track 1: 2 items
+          {
+            trackIdx: 1,
+            itemIdx: 0,
+            position: 4,
+            length: 4,
+            guid: '{item-t1-0}',
+            activeTakeIdx: 0,
+            takeCount: 1,
+            takeName: 'T1 Item 1',
+            color: 0x666666,
+            selected: false,
+          },
+          {
+            trackIdx: 1,
+            itemIdx: 1,
+            position: 15,
+            length: 5,
+            guid: '{item-t1-1}',
+            activeTakeIdx: 0,
+            takeCount: 1,
+            takeName: 'T1 Item 2',
+            color: 0x777777,
+            selected: false,
+          },
+        ],
+
+        // Track skeleton with GUIDs
+        trackSkeleton: [
+          { n: 'Track 1', g: '{track-0-guid}' },
+          { n: 'Track 2', g: '{track-1-guid}' },
+        ],
+
+        tracks: {
+          0: { index: 0, name: 'Track 1', guid: '{track-0-guid}', color: 0x444444 },
+          1: { index: 1, name: 'Track 2', guid: '{track-1-guid}', color: 0x555555 },
+        },
+
+        positionSeconds: 0,
+
+        // Item selection mode state - start NOT in mode
+        itemSelectionModeActive: false,
+        viewFilterTrackGuid: null,
+        selectedMarkerId: null,
+      });
+
+      store.getState().setTimelineMode('navigate');
+    });
+
+    await page.waitForTimeout(100);
+  }
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await setupItemSelectionTestFixtures(page);
+  });
+
+  test('aggregate blobs shown initially, no item info bar', async ({ page }) => {
+    // Aggregate blobs should be visible
+    const densityOverlay = page.locator('[data-testid="item-density-overlay"]');
+    await expect(densityOverlay).toBeVisible({ timeout: 5000 });
+
+    // Item info bar should NOT be visible (not in item selection mode)
+    const itemInfoBar = page.locator('[data-testid="item-info-bar"]');
+    await expect(itemInfoBar).not.toBeVisible();
+
+    // Check store state
+    const state = await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+      const s = store.getState();
+      return {
+        itemSelectionModeActive: s.itemSelectionModeActive,
+        viewFilterTrackGuid: s.viewFilterTrackGuid,
+      };
+    });
+
+    expect(state.itemSelectionModeActive).toBe(false);
+    expect(state.viewFilterTrackGuid).toBeNull();
+  });
+
+  test('tapping blob enters item selection mode without selecting', async ({ page }) => {
+    const timeline = page.locator('[data-testid="timeline-canvas"]');
+    const box = await timeline.boundingBox();
+    if (!box) throw new Error('Timeline not found');
+
+    // Click at center of timeline (where blobs are) at 12% (~3.6s, within first item)
+    await timeline.click({
+      position: { x: box.width * 0.12, y: box.height * 0.5 },
+    });
+
+    await page.waitForTimeout(150);
+
+    // Check store state
+    const state = await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+      const s = store.getState();
+      return {
+        itemSelectionModeActive: s.itemSelectionModeActive,
+        viewFilterTrackGuid: s.viewFilterTrackGuid,
+        selectedItems: s.items.filter((i: any) => i.selected),
+      };
+    });
+
+    // Should be in item selection mode
+    expect(state.itemSelectionModeActive).toBe(true);
+    // Should have a filter track set (first track with items at that position)
+    expect(state.viewFilterTrackGuid).toBeTruthy();
+    // NO items should be selected (mode entry doesn't select)
+    expect(state.selectedItems.length).toBe(0);
+
+    // Item info bar should now be visible
+    const itemInfoBar = page.locator('[data-testid="item-info-bar"]');
+    await expect(itemInfoBar).toBeVisible({ timeout: 2000 });
+  });
+
+  test('tapping revealed item toggles selection', async ({ page }) => {
+    // First enter item selection mode via store
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+      store.getState().enterItemSelectionMode('{track-0-guid}');
+    });
+
+    await page.waitForTimeout(100);
+
+    // Verify we're in mode
+    const itemInfoBar = page.locator('[data-testid="item-info-bar"]');
+    await expect(itemInfoBar).toBeVisible({ timeout: 2000 });
+
+    // Now tap on an item (first item is at 2-5s = ~7-17% of 30s)
+    const timeline = page.locator('[data-testid="timeline-canvas"]');
+    const box = await timeline.boundingBox();
+    if (!box) throw new Error('Timeline not found');
+
+    await timeline.click({
+      position: { x: box.width * 0.12, y: box.height * 0.5 },
+    });
+
+    await page.waitForTimeout(150);
+
+    // Simulate REAPER responding by marking item as selected
+    // (In real app, this comes from REAPER polling)
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+      const items = [...store.getState().items];
+      items[0] = { ...items[0], selected: true };
+      store.getState().setItems(items);
+    });
+
+    await page.waitForTimeout(100);
+
+    // Check that selection count pill shows
+    const selectionPill = page.locator('[data-testid="selection-pill"]');
+    await expect(selectionPill).toBeVisible({ timeout: 2000 });
+
+    // Check count
+    const selectionCount = page.locator('[data-testid="selection-count"]');
+    await expect(selectionCount).toHaveText('1');
+  });
+
+  test('selection persists when changing track filter', async ({ page }) => {
+    // Enter mode and select an item on track 0
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+      store.getState().enterItemSelectionMode('{track-0-guid}');
+
+      // Simulate item selected in REAPER
+      const items = [...store.getState().items];
+      items[0] = { ...items[0], selected: true };
+      store.getState().setItems(items);
+    });
+
+    await page.waitForTimeout(100);
+
+    // Selection count should be 1
+    await expect(page.locator('[data-testid="selection-count"]')).toHaveText('1');
+
+    // Change filter to track 1
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+      store.getState().setViewFilterTrack('{track-1-guid}');
+    });
+
+    await page.waitForTimeout(100);
+
+    // Selection count should still be 1 (selection persists across filter changes)
+    await expect(page.locator('[data-testid="selection-count"]')).toHaveText('1');
+
+    // Verify item is still selected in store
+    const selectedCount = await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+      return store.getState().items.filter((i: any) => i.selected).length;
+    });
+    expect(selectedCount).toBe(1);
+  });
+
+  test('X button exits item selection mode', async ({ page }) => {
+    // Enter mode
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+      store.getState().enterItemSelectionMode('{track-0-guid}');
+    });
+
+    await page.waitForTimeout(100);
+
+    // Verify info bar visible
+    await expect(page.locator('[data-testid="item-info-bar"]')).toBeVisible({ timeout: 2000 });
+
+    // Click X button
+    const closeBtn = page.locator('[data-testid="item-mode-close"]');
+    await closeBtn.click();
+
+    await page.waitForTimeout(100);
+
+    // Verify mode exited
+    const state = await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+      const s = store.getState();
+      return {
+        itemSelectionModeActive: s.itemSelectionModeActive,
+        viewFilterTrackGuid: s.viewFilterTrackGuid,
+      };
+    });
+
+    expect(state.itemSelectionModeActive).toBe(false);
+    expect(state.viewFilterTrackGuid).toBeNull();
+
+    // Info bar should not be visible
+    await expect(page.locator('[data-testid="item-info-bar"]')).not.toBeVisible();
+  });
+
+  test('single item selected shows take navigation', async ({ page }) => {
+    // Enter mode with track 0 filter and select first item
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+      store.getState().enterItemSelectionMode('{track-0-guid}');
+
+      // Simulate first item selected (has 1 take)
+      const items = [...store.getState().items];
+      items[0] = { ...items[0], selected: true };
+      store.getState().setItems(items);
+    });
+
+    await page.waitForTimeout(100);
+
+    // Info bar should show take info (single item mode)
+    const itemInfoBar = page.locator('[data-testid="item-info-bar"]');
+    await expect(itemInfoBar).toBeVisible({ timeout: 2000 });
+    // Should contain take navigation text
+    await expect(itemInfoBar).toContainText('Take 1/1');
+  });
+
+  test('tapping on item NOT on filtered track does nothing', async ({ page }) => {
+    // Enter mode filtered to track 0
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+      store.getState().enterItemSelectionMode('{track-0-guid}');
+    });
+
+    await page.waitForTimeout(100);
+
+    // Track 1 item 1 is at 4-8s = ~13-27% of 30s
+    // But we're filtered to track 0, so clicking there should do nothing
+    const timeline = page.locator('[data-testid="timeline-canvas"]');
+    const box = await timeline.boundingBox();
+    if (!box) throw new Error('Timeline not found');
+
+    // Click at 20% (within track 1's item but we're filtered to track 0)
+    await timeline.click({
+      position: { x: box.width * 0.2, y: box.height * 0.5 },
+    });
+
+    await page.waitForTimeout(150);
+
+    // Check no selection was made
+    const selectedCount = await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+      return store.getState().items.filter((i: any) => i.selected).length;
+    });
+
+    // Should still be 0 - tap was ignored because no track 0 item at that position
+    expect(selectedCount).toBe(0);
+  });
+
+  test('selected items show inset blue border', async ({ page }) => {
+    // Enter mode and select an item
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+      store.getState().enterItemSelectionMode('{track-0-guid}');
+
+      const items = [...store.getState().items];
+      items[0] = { ...items[0], selected: true };
+      store.getState().setItems(items);
+    });
+
+    await page.waitForTimeout(100);
+
+    // Check that item blob has data-selected="true"
+    const selectedBlob = page.locator('[data-testid="item-blob-0-0"]');
+    await expect(selectedBlob).toHaveAttribute('data-selected', 'true');
+  });
+});

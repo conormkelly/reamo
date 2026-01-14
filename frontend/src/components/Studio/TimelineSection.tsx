@@ -5,6 +5,11 @@
  *
  * Viewport state is lifted here so both Timeline and ItemsTimeline share the same
  * visible range. Zoom/pan in navigate mode persists when switching to items mode.
+ *
+ * Info bar display in navigate mode:
+ * - MarkerInfoBar: shows when a marker is selected (has its own X to close)
+ * - NavigateItemInfoBar: shows when itemSelectionModeActive is true (has X to exit mode)
+ * - Both can be visible simultaneously
  */
 
 import { useMemo, type ReactElement } from 'react';
@@ -34,8 +39,8 @@ export function TimelineSection(): ReactElement {
   const markers = useReaperStore((s) => s?.markers ?? EMPTY_MARKERS);
   const items = useReaperStore((s) => s?.items ?? EMPTY_ITEMS);
   const openAddRegionModal = useReaperStore((s) => s.openAddRegionModal);
-  const selectedItemGuid = useReaperStore((s) => s.selectedItemGuid);
   const selectedMarkerId = useReaperStore((s) => s.selectedMarkerId);
+  const itemSelectionModeActive = useReaperStore((s) => s.itemSelectionModeActive);
   const { positionSeconds } = useTransport();
 
   // Calculate project duration from content (same logic as Timeline.tsx)
@@ -78,13 +83,15 @@ export function TimelineSection(): ReactElement {
       </div>
 
       {/* Marker/Item Info - only shown in navigate mode */}
-      {/* Due to mutual exclusion, only one will be selected at a time */}
+      {/* MarkerInfoBar and NavigateItemInfoBar can be shown simultaneously */}
       {timelineMode === 'navigate' && (
         <section data-testid="navigate-info-section" className="mt-4 flex flex-col gap-2">
+          {/* Marker info bar - shown when a marker is selected */}
           <MarkerInfoBar />
-          {selectedItemGuid && <NavigateItemInfoBar viewport={viewport} />}
-          {/* Fallback when nothing is selected */}
-          {selectedMarkerId === null && !selectedItemGuid && (
+          {/* Item info bar - shown when in item selection mode */}
+          {itemSelectionModeActive && <NavigateItemInfoBar viewport={viewport} />}
+          {/* Fallback when nothing is active */}
+          {selectedMarkerId === null && !itemSelectionModeActive && (
             <div
               data-testid="nothing-selected-message"
               className="px-3 py-2 text-text-muted text-sm text-center"

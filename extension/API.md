@@ -640,6 +640,25 @@ Deselect all items.
 {"type": "command", "command": "item/unselectAll"}
 ```
 
+### `item/toggleSelect`
+
+Toggle selection of a single item. Does NOT affect other items' selection state (unlike `item/select` which deselects all others first). Uses GUID for stable item identification.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `guid` | string | Yes | Item GUID (stable identifier) |
+
+```json
+{"type": "command", "command": "item/toggleSelect", "guid": "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"}
+```
+
+**Response:** `{ "success": true }`
+
+**Errors:**
+- `MISSING_GUID` - No GUID provided
+- `NOT_FOUND` - Item not found (may have been deleted)
+- `CORRUPT_DATA` - Cannot read item selection state
+
 ### `item/getPeaks`
 
 Get waveform peak data for an item's active take. Use for waveform visualization.

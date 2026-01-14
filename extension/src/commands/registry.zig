@@ -73,6 +73,7 @@ pub const all = .{
     .{ "item/select", items.handleItemSelect },
     .{ "item/selectInTimeSel", items.handleSelectInTimeSel },
     .{ "item/unselectAll", items.handleUnselectAll },
+    .{ "item/toggleSelect", items.handleItemToggleSelect },
     .{ "item/selectNext", items.handleItemSelectNext },
     .{ "item/selectPrev", items.handleItemSelectPrev },
     .{ "item/getPeaks", items.handleItemGetPeaks },
