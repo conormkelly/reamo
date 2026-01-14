@@ -25,3 +25,7 @@ export {
   NavigateItemInfoBar,
   type NavigateItemInfoBarProps,
 } from './NavigateItemInfoBar';
+export {
+  TimelineWaveformOverlay,
+  type TimelineWaveformOverlayProps,
+} from './TimelineWaveformOverlay';

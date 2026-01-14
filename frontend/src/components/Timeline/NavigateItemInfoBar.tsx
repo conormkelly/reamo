@@ -23,7 +23,6 @@ import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
 import { useTimeFormatters, type UseViewportReturn } from '../../hooks';
 import { item as itemCmd } from '../../core/WebSocketCommands';
-import { parseItemKey } from '../../store/slices/itemsSlice';
 import { hexToReaperColor, reaperColorToHexWithFallback } from '../../utils';
 import { DEFAULT_ITEM_COLOR, ITEM_COLORS } from '../../constants/colors';
 import { EMPTY_ITEMS } from '../../store/stableRefs';
@@ -44,7 +43,7 @@ export function NavigateItemInfoBar({
   // Store state
   const items = useReaperStore((s) => s?.items ?? EMPTY_ITEMS);
   const tracks = useReaperStore((s) => s.tracks);
-  const selectedItemKey = useReaperStore((s) => s.selectedItemKey);
+  const selectedItemGuid = useReaperStore((s) => s.selectedItemGuid);
   const selectItem = useReaperStore((s) => s.selectItem);
 
   // Local state for track selector and color picker
@@ -54,16 +53,11 @@ export function NavigateItemInfoBar({
   const colorPickerRef = useRef<HTMLDivElement>(null);
   const trackDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Parse selected item
+  // Find selected item by GUID
   const selectedItem = useMemo(() => {
-    if (!selectedItemKey) return null;
-    const parsed = parseItemKey(selectedItemKey);
-    if (!parsed) return null;
-    return items.find(
-      (item) =>
-        item.trackIdx === parsed.trackIdx && item.itemIdx === parsed.itemIdx
-    ) ?? null;
-  }, [selectedItemKey, items]);
+    if (!selectedItemGuid) return null;
+    return items.find((item) => item.guid === selectedItemGuid) ?? null;
+  }, [selectedItemGuid, items]);
 
   // Get track from GUID
   const getTrackFromGuid = useCallback(
@@ -130,22 +124,27 @@ export function NavigateItemInfoBar({
   }, [selectedTrackGuid, getTrackFromGuid]);
 
   // Get items on selected track sorted by position
+  // Use selectedItem.trackIdx as fallback if selectedTrackGuid not resolved
   const trackItems = useMemo(() => {
-    if (!selectedTrackGuid) return [];
-    const trackIdx = getTrackIdxFromGuid(selectedTrackGuid);
+    let trackIdx: number | null = null;
+    if (selectedTrackGuid) {
+      trackIdx = getTrackIdxFromGuid(selectedTrackGuid);
+    }
+    // Fallback: use selectedItem's trackIdx directly
+    if (trackIdx === null && selectedItem) {
+      trackIdx = selectedItem.trackIdx;
+    }
     if (trackIdx === null) return [];
     return items
       .filter((item) => item.trackIdx === trackIdx)
       .sort((a, b) => a.position - b.position);
-  }, [items, selectedTrackGuid, getTrackIdxFromGuid]);
+  }, [items, selectedTrackGuid, getTrackIdxFromGuid, selectedItem]);
 
   // Find current item index in track items
   const currentItemIndex = useMemo(() => {
-    if (!selectedItemKey || trackItems.length === 0) return -1;
-    return trackItems.findIndex(
-      (item) => `${item.trackIdx}:${item.itemIdx}` === selectedItemKey
-    );
-  }, [trackItems, selectedItemKey]);
+    if (!selectedItemGuid || trackItems.length === 0) return -1;
+    return trackItems.findIndex((item) => item.guid === selectedItemGuid);
+  }, [trackItems, selectedItemGuid]);
 
   // Move viewport to center on item if it's outside current viewport
   const moveViewportToItem = useCallback(
@@ -178,7 +177,7 @@ export function NavigateItemInfoBar({
   const handlePrevItem = useCallback(() => {
     if (currentItemIndex > 0) {
       const prevItem = trackItems[currentItemIndex - 1];
-      selectItem(prevItem.trackIdx, prevItem.itemIdx);
+      selectItem(prevItem.guid);
       // Sync selection to REAPER so actions can be applied to this item
       sendCommand(itemCmd.select(prevItem.trackIdx, prevItem.itemIdx));
       moveViewportToItem(prevItem);
@@ -188,7 +187,7 @@ export function NavigateItemInfoBar({
   const handleNextItem = useCallback(() => {
     if (currentItemIndex < trackItems.length - 1) {
       const nextItem = trackItems[currentItemIndex + 1];
-      selectItem(nextItem.trackIdx, nextItem.itemIdx);
+      selectItem(nextItem.guid);
       // Sync selection to REAPER so actions can be applied to this item
       sendCommand(itemCmd.select(nextItem.trackIdx, nextItem.itemIdx));
       moveViewportToItem(nextItem);
@@ -234,11 +233,13 @@ export function NavigateItemInfoBar({
 
       const itemToSelect = itemInViewport ?? trackItemsForNewTrack[0];
       if (itemToSelect) {
-        selectItem(itemToSelect.trackIdx, itemToSelect.itemIdx);
+        selectItem(itemToSelect.guid);
+        // Sync to REAPER
+        sendCommand(itemCmd.select(itemToSelect.trackIdx, itemToSelect.itemIdx));
         moveViewportToItem(itemToSelect);
       }
     },
-    [getTrackIdxFromGuid, items, viewport.visibleRange, selectItem, moveViewportToItem]
+    [getTrackIdxFromGuid, items, viewport.visibleRange, selectItem, sendCommand, moveViewportToItem]
   );
 
   // Color picker handlers
@@ -298,7 +299,7 @@ export function NavigateItemInfoBar({
             className="flex items-center gap-1 px-2 py-0.5 rounded bg-bg-elevated hover:bg-bg-hover text-text-primary text-xs"
           >
             <span className="truncate max-w-[120px]">
-              {currentTrack?.name || `Track ${currentTrack?.index ?? '?'}`}
+              {currentTrack?.name || `Track ${currentTrack?.index ?? selectedItem?.trackIdx ?? '?'}`}
             </span>
             <ChevronDown className="w-3 h-3 flex-shrink-0" />
           </button>

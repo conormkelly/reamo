@@ -10,6 +10,7 @@ export { useBarOffset } from './useBarOffset';
 export { useTimeFormatters, type UseTimeFormattersReturn } from './useTimeFormatters';
 export { useTransportAnimation, getTransportAnimationState } from './useTransportAnimation';
 export { usePeaksFetch, type UsePeaksFetchResult } from './usePeaksFetch';
+export { useBatchPeaksFetch, type BatchPeaksResult, type PeaksFetchResult } from './useBatchPeaksFetch';
 export { useUIPreferences, type UIPreferences } from './useUIPreferences';
 export { useMeterSubscription, getVisibleTrackIndices, type UseMeterSubscriptionOptions } from './useMeterSubscription';
 export {

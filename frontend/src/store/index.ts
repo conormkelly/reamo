@@ -371,7 +371,6 @@ export type { RegionsSlice } from './slices/regionsSlice';
 export type { MarkersSlice } from './slices/markersSlice';
 export type { RegionEditSlice, TimelineMode, DragType, PendingRegionChange } from './slices/regionEditSlice';
 export type { ItemsSlice } from './slices/itemsSlice';
-export { makeItemKey, parseItemKey } from './slices/itemsSlice';
 export type { ToolbarSlice, ToolbarAction, ToolbarActionBase, ToggleState } from './slices/toolbarSlice';
 export { TOOLBAR_STORAGE_KEY } from './slices/toolbarSlice';
 export type { ActionsSlice, ReaperAction } from './slices/actionsSlice';

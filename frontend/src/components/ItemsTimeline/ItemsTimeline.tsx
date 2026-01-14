@@ -74,7 +74,7 @@ export function ItemsTimeline({
   const bpm = useReaperStore((state) => state.bpm ?? 120);
   const selectedTrackIdx = useReaperStore((state) => state.selectedTrackIdx);
   const setSelectedTrack = useReaperStore((state) => state.setSelectedTrack);
-  const selectedItemKey = useReaperStore((state) => state.selectedItemKey);
+  const selectedItemGuid = useReaperStore((state) => state.selectedItemGuid);
   const selectItem = useReaperStore((state) => state.selectItem);
   const clearItemSelection = useReaperStore((state) => state.clearItemSelection);
 
@@ -194,11 +194,9 @@ export function ItemsTimeline({
 
   // Selected item
   const selectedItem = useMemo(() => {
-    if (!selectedItemKey) return null;
-    return trackItems.find(
-      (item) => `${item.trackIdx}:${item.itemIdx}` === selectedItemKey
-    ) ?? null;
-  }, [trackItems, selectedItemKey]);
+    if (!selectedItemGuid) return null;
+    return trackItems.find((item) => item.guid === selectedItemGuid) ?? null;
+  }, [trackItems, selectedItemGuid]);
 
   // Handle track selection change
   const handleTrackChange = useCallback(
@@ -221,7 +219,7 @@ export function ItemsTimeline({
   // Handle item click
   const handleItemClick = useCallback(
     (item: WSItem) => {
-      selectItem(item.trackIdx, item.itemIdx);
+      selectItem(item.guid);
     },
     [selectItem]
   );
@@ -348,9 +346,9 @@ export function ItemsTimeline({
         ) : (
           filteredItems.map((item) => (
             <WaveformItem
-              key={`${item.trackIdx}:${item.itemIdx}`}
+              key={item.guid}
               item={item}
-              isSelected={selectedItemKey === `${item.trackIdx}:${item.itemIdx}`}
+              isSelected={selectedItemGuid === item.guid}
               timeToPercent={timeToPercent}
               height={itemsAreaHeight}
               onClick={() => handleItemClick(item)}

@@ -34,7 +34,7 @@ export function TimelineSection(): ReactElement {
   const markers = useReaperStore((s) => s?.markers ?? EMPTY_MARKERS);
   const items = useReaperStore((s) => s?.items ?? EMPTY_ITEMS);
   const openAddRegionModal = useReaperStore((s) => s.openAddRegionModal);
-  const selectedItemKey = useReaperStore((s) => s.selectedItemKey);
+  const selectedItemGuid = useReaperStore((s) => s.selectedItemGuid);
   const selectedMarkerId = useReaperStore((s) => s.selectedMarkerId);
   const { positionSeconds } = useTransport();
 
@@ -82,9 +82,9 @@ export function TimelineSection(): ReactElement {
       {timelineMode === 'navigate' && (
         <section data-testid="navigate-info-section" className="mt-4 flex flex-col gap-2">
           <MarkerInfoBar />
-          {selectedItemKey && <NavigateItemInfoBar viewport={viewport} />}
+          {selectedItemGuid && <NavigateItemInfoBar viewport={viewport} />}
           {/* Fallback when nothing is selected */}
-          {selectedMarkerId === null && !selectedItemKey && (
+          {selectedMarkerId === null && !selectedItemGuid && (
             <div
               data-testid="nothing-selected-message"
               className="px-3 py-2 text-text-muted text-sm text-center"

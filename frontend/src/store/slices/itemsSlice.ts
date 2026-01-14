@@ -15,33 +15,14 @@ type StoreWithMarkers = ItemsSlice & MarkersSlice;
 export interface ItemsSlice {
   // State
   items: WSItem[];
-  selectedItemKey: string | null; // "{trackIdx}:{itemIdx}" format
+  selectedItemGuid: string | null; // Stable GUID for selected item
   selectedTrackIdx: number | null; // Track filter for Items Mode view
 
   // Actions
   setItems: (items: WSItem[]) => void;
-  selectItem: (trackIdx: number, itemIdx: number) => void;
+  selectItem: (itemGuid: string) => void;
   clearItemSelection: () => void;
   setSelectedTrack: (trackIdx: number | null) => void;
-}
-
-/**
- * Create a unique key for an item
- */
-export function makeItemKey(trackIdx: number, itemIdx: number): string {
-  return `${trackIdx}:${itemIdx}`;
-}
-
-/**
- * Parse an item key back to trackIdx and itemIdx
- */
-export function parseItemKey(key: string): { trackIdx: number; itemIdx: number } | null {
-  const parts = key.split(':');
-  if (parts.length !== 2) return null;
-  const trackIdx = parseInt(parts[0], 10);
-  const itemIdx = parseInt(parts[1], 10);
-  if (isNaN(trackIdx) || isNaN(itemIdx)) return null;
-  return { trackIdx, itemIdx };
 }
 
 export const createItemsSlice: StateCreator<StoreWithMarkers, [], [], ItemsSlice> = (
@@ -50,19 +31,19 @@ export const createItemsSlice: StateCreator<StoreWithMarkers, [], [], ItemsSlice
 ) => ({
   // Initial state
   items: [],
-  selectedItemKey: null,
+  selectedItemGuid: null,
   selectedTrackIdx: null,
 
   // Actions
   setItems: (items) => set({ items }),
 
-  selectItem: (trackIdx, itemIdx) => {
+  selectItem: (itemGuid) => {
     // Mutual exclusion: clear marker selection when selecting an item
     get().setSelectedMarkerId(null);
-    set({ selectedItemKey: makeItemKey(trackIdx, itemIdx) });
+    set({ selectedItemGuid: itemGuid });
   },
 
-  clearItemSelection: () => set({ selectedItemKey: null }),
+  clearItemSelection: () => set({ selectedItemGuid: null }),
 
   setSelectedTrack: (trackIdx) => set({ selectedTrackIdx: trackIdx }),
 });

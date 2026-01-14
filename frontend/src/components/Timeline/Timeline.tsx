@@ -26,6 +26,7 @@ import { transport, timeSelection as timeSelCmd, marker as markerCmd, action, it
 import { usePlayheadDrag, useMarkerDrag, useRegionDrag, usePanGesture, usePinchGesture, useEdgeScroll } from './hooks';
 import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
 import { ItemsDensityOverlay } from './ItemDensityBlobs';
+import { TimelineWaveformOverlay } from './TimelineWaveformOverlay';
 import { ClusteredMarkerLines, ClusteredMarkerPills } from './TimelineMarkers';
 import { TimelinePlayhead, PlayheadDragPreview, PlayheadPreviewPill, MarkerDragPreview } from './TimelinePlayhead';
 import { TimelineFooter } from './TimelineFooter';
@@ -94,7 +95,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
   const resizeEdgePosition = useReaperStore((state) => state.resizeEdgePosition);
 
   // Item selection state (for Navigate mode tap-to-select)
-  const selectedItemKey = useReaperStore((state) => state.selectedItemKey);
+  const selectedItemGuid = useReaperStore((state) => state.selectedItemGuid);
   const selectItem = useReaperStore((state) => state.selectItem);
 
   // Filter out invalid 0-width selections
@@ -473,6 +474,14 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     VISIBILITY_BUFFER
   );
 
+  // Compute items on the selected track for waveform overlay
+  const coloredTrackItems = useMemo(() => {
+    if (!selectedItemGuid) return [];
+    const selectedItem = visibleItems.find((item) => item.guid === selectedItemGuid);
+    if (!selectedItem) return [];
+    return visibleItems.filter((item) => item.trackIdx === selectedItem.trackIdx);
+  }, [selectedItemGuid, visibleItems]);
+
   // Set time selection in REAPER via WebSocket
   const setTimeSelection = useCallback(
     (startSeconds: number, endSeconds: number) => {
@@ -665,8 +674,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
                 // Sort by position, take first (earliest) item
                 const firstItem = trackItems.sort((a, b) => a.position - b.position)[0];
 
-                // Select the item
-                selectItem(firstItem.trackIdx, firstItem.itemIdx);
+                // Select the item (use GUID for stable selection)
+                selectItem(firstItem.guid);
                 // Sync selection to REAPER so actions can be applied to this item
                 sendCommand(itemCmd.select(firstItem.trackIdx, firstItem.itemIdx));
               }
@@ -920,7 +929,18 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
             timelineEnd={viewport.visibleRange.end}
             height={height}
             tracks={tracks}
-            selectedItemKey={selectedItemKey}
+            selectedItemGuid={selectedItemGuid}
+          />
+        )}
+
+        {/* Waveforms for items on selected track */}
+        {timelineMode === 'navigate' && coloredTrackItems.length > 0 && (
+          <TimelineWaveformOverlay
+            items={coloredTrackItems}
+            timelineStart={viewport.visibleRange.start}
+            timelineEnd={viewport.visibleRange.end}
+            height={height}
+            enabled={true}
           />
         )}
 

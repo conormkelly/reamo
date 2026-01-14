@@ -19,6 +19,7 @@ const logging = @import("logging.zig");
 const tiered_state = @import("tiered_state.zig");
 const guid_cache = @import("guid_cache.zig");
 const track_subscriptions = @import("track_subscriptions.zig");
+const peaks_subscriptions = @import("peaks_subscriptions.zig");
 const track_skeleton = @import("track_skeleton.zig");
 
 // Use custom panic handler that flushes log ring buffer before aborting
@@ -37,6 +38,7 @@ var g_toggle_subs: ?*toggle_subscriptions.ToggleSubscriptions = null;
 var g_notes_subs: ?*project_notes.NotesSubscriptions = null;
 var g_guid_cache: ?*guid_cache.GuidCache = null;
 var g_track_subs: ?*track_subscriptions.TrackSubscriptions = null;
+var g_peaks_subs: ?*peaks_subscriptions.PeaksSubscriptions = null;
 
 // Track skeleton state for LOW tier change detection
 var g_last_skeleton: track_skeleton.State = .{};
@@ -191,6 +193,12 @@ fn doInitialization() !void {
     track_subs.* = track_subscriptions.TrackSubscriptions.init(g_allocator);
     g_track_subs = track_subs;
     commands.g_ctx.track_subs = track_subs;
+
+    // Create peaks subscriptions state
+    const peaks_subs = try g_allocator.create(peaks_subscriptions.PeaksSubscriptions);
+    peaks_subs.* = peaks_subscriptions.PeaksSubscriptions.init(g_allocator);
+    g_peaks_subs = peaks_subs;
+    commands.g_ctx.peaks_subs = peaks_subs;
 
     // Count project entities and calculate arena sizes dynamically
     // This allows memory allocation to scale with project size
@@ -434,6 +442,10 @@ fn doProcessing() !void {
             // Clean up track subscriptions
             if (g_track_subs) |track_subs| {
                 track_subs.removeClient(client_id);
+            }
+            // Clean up peaks subscriptions
+            if (g_peaks_subs) |peaks_subs| {
+                peaks_subs.removeClient(client_id);
             }
         }
     }

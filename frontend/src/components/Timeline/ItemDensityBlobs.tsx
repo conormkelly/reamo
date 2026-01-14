@@ -12,7 +12,6 @@ import { useMemo } from 'react';
 import type { WSItem } from '../../core/WebSocketTypes';
 import type { Track } from '../../core/types';
 import { reaperColorToRgba } from '../../utils';
-import { parseItemKey } from '../../store/slices/itemsSlice';
 
 // Default density block color - matches --color-density-block token
 const DEFAULT_BLOCK_COLOR = 'rgba(129, 137, 137, 0.5)'; // --color-density-block
@@ -28,8 +27,8 @@ export interface ItemsDensityOverlayProps {
   height: number;
   /** Track data for color lookup */
   tracks: Record<number, Track>;
-  /** Currently selected item key (trackIdx:itemIdx) */
-  selectedItemKey?: string | null;
+  /** Currently selected item GUID */
+  selectedItemGuid?: string | null;
 }
 
 /** A merged time range representing contiguous item coverage */
@@ -97,14 +96,18 @@ export function ItemsDensityOverlay({
   timelineEnd,
   height,
   tracks: _tracks, // Reserved for future waveform integration
-  selectedItemKey,
+  selectedItemGuid,
 }: ItemsDensityOverlayProps) {
+  // Find selected item by GUID and derive its track
+  const selectedItem = useMemo(() => {
+    if (!selectedItemGuid) return null;
+    return items.find((item) => item.guid === selectedItemGuid) ?? null;
+  }, [selectedItemGuid, items]);
+
   // Derive colored track from selected item (NOT from REAPER track selection)
   const coloredTrackIdx = useMemo(() => {
-    if (!selectedItemKey) return null;
-    const parsed = parseItemKey(selectedItemKey);
-    return parsed?.trackIdx ?? null;
-  }, [selectedItemKey]);
+    return selectedItem?.trackIdx ?? null;
+  }, [selectedItem]);
 
   // Split items: colored track items vs other track items
   const { coloredTrackItems, otherTrackItems } = useMemo(() => {
@@ -191,8 +194,7 @@ export function ItemsDensityOverlay({
 
       {/* Individual colored items on selected track */}
       {visibleColoredItems.map((v) => {
-        const isSelected =
-          selectedItemKey === `${v.item.trackIdx}:${v.item.itemIdx}`;
+        const isSelected = v.item.guid === selectedItemGuid;
         return (
           <div
             key={`item-${v.item.trackIdx}-${v.item.itemIdx}`}

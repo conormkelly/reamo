@@ -30,6 +30,7 @@ const playlist_cmds = @import("playlist.zig");
 const preferences = @import("preferences.zig");
 const debug = @import("debug.zig");
 const track_subs = @import("track_subs.zig");
+const peaks_subs = @import("peaks_subs.zig");
 
 /// Comptime tuple of (command_name, handler_fn) pairs.
 /// Used by dispatch() with inline for to call handlers with anytype.
@@ -216,4 +217,8 @@ pub const all = .{
     // Track Subscriptions (viewport-driven polling)
     .{ "track/subscribe", track_subs.handleSubscribe },
     .{ "track/unsubscribe", track_subs.handleUnsubscribe },
+
+    // Peaks Subscriptions (timeline waveforms)
+    .{ "peaks/subscribe", peaks_subs.handleSubscribe },
+    .{ "peaks/unsubscribe", peaks_subs.handleUnsubscribe },
 };
