@@ -24,6 +24,8 @@ export interface ItemsDensityOverlayProps {
   height: number;
   /** Track data for selection and color lookup */
   tracks: Record<number, Track>;
+  /** Currently selected item key (trackIdx:itemIdx) */
+  selectedItemKey?: string | null;
 }
 
 /** A merged time range representing contiguous item coverage */
@@ -76,6 +78,7 @@ export function ItemsDensityOverlay({
   timelineEnd,
   height,
   tracks,
+  selectedItemKey,
 }: ItemsDensityOverlayProps) {
   // Get selected track indices from REAPER's track selection
   const selectedTrackIndices = useMemo(() => {
@@ -127,18 +130,51 @@ export function ItemsDensityOverlay({
       });
   }, [blocks, timelineStart, timelineEnd]);
 
-  if (visibleBlocks.length === 0) return null;
+  // Find selected item and calculate its position
+  const selectedItemBlock = useMemo(() => {
+    if (!selectedItemKey) return null;
+
+    const selectedItem = filteredItems.find(
+      (item) => `${item.trackIdx}:${item.itemIdx}` === selectedItemKey
+    );
+
+    if (!selectedItem) return null;
+
+    const duration = timelineEnd - timelineStart;
+    if (duration <= 0) return null;
+
+    const itemStart = selectedItem.position;
+    const itemEnd = selectedItem.position + selectedItem.length;
+
+    // Check if item is in visible range
+    if (itemEnd < timelineStart || itemStart > timelineEnd) return null;
+
+    // Clamp to timeline bounds and convert to percentages
+    const clampedStart = Math.max(itemStart, timelineStart);
+    const clampedEnd = Math.min(itemEnd, timelineEnd);
+
+    return {
+      leftPercent: ((clampedStart - timelineStart) / duration) * 100,
+      widthPercent: ((clampedEnd - clampedStart) / duration) * 100,
+    };
+  }, [selectedItemKey, filteredItems, timelineStart, timelineEnd]);
+
+  if (visibleBlocks.length === 0 && !selectedItemBlock) return null;
 
   // 25% of container height, centered vertically
   const blobHeight = height * 0.25;
   const topOffset = (height - blobHeight) / 2;
 
   return (
-    <div className="absolute inset-0 pointer-events-none z-0">
+    <div
+      data-testid="item-density-overlay"
+      className="absolute inset-0 z-0 pointer-events-none"
+    >
+      {/* Regular merged blocks */}
       {visibleBlocks.map((block, i) => (
         <div
           key={i}
-          className="absolute"
+          className="absolute pointer-events-none"
           style={{
             left: `${block.leftPercent}%`,
             width: `${block.widthPercent}%`,
@@ -148,6 +184,20 @@ export function ItemsDensityOverlay({
           }}
         />
       ))}
+
+      {/* Selected item highlight overlay */}
+      {selectedItemBlock && (
+        <div
+          className="absolute pointer-events-none ring-2 ring-selection-overlay-border rounded-sm z-10"
+          style={{
+            left: `${selectedItemBlock.leftPercent}%`,
+            width: `${selectedItemBlock.widthPercent}%`,
+            top: `${topOffset}px`,
+            height: `${blobHeight}px`,
+            backgroundColor: blockColor,
+          }}
+        />
+      )}
     </div>
   );
 }

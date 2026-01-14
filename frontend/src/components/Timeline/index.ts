@@ -21,3 +21,7 @@ export {
   type ClusteredMarkerLinesProps,
   type ClusteredMarkerPillsProps,
 } from './TimelineMarkers';
+export {
+  NavigateItemInfoBar,
+  type NavigateItemInfoBarProps,
+} from './NavigateItemInfoBar';

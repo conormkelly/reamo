@@ -1,10 +1,16 @@
 /**
  * Items state slice
- * Manages project items and selection for Items Mode
+ * Manages project items and selection for Navigate/Items Mode
+ *
+ * Mutual exclusion: selecting an item clears marker selection (and vice versa)
  */
 
 import type { StateCreator } from 'zustand';
 import type { WSItem } from '../../core/WebSocketTypes';
+import type { MarkersSlice } from './markersSlice';
+
+// Combined slice type for mutual exclusion access
+type StoreWithMarkers = ItemsSlice & MarkersSlice;
 
 export interface ItemsSlice {
   // State
@@ -38,7 +44,10 @@ export function parseItemKey(key: string): { trackIdx: number; itemIdx: number }
   return { trackIdx, itemIdx };
 }
 
-export const createItemsSlice: StateCreator<ItemsSlice> = (set) => ({
+export const createItemsSlice: StateCreator<StoreWithMarkers, [], [], ItemsSlice> = (
+  set,
+  get
+) => ({
   // Initial state
   items: [],
   selectedItemKey: null,
@@ -47,8 +56,11 @@ export const createItemsSlice: StateCreator<ItemsSlice> = (set) => ({
   // Actions
   setItems: (items) => set({ items }),
 
-  selectItem: (trackIdx, itemIdx) =>
-    set({ selectedItemKey: makeItemKey(trackIdx, itemIdx) }),
+  selectItem: (trackIdx, itemIdx) => {
+    // Mutual exclusion: clear marker selection when selecting an item
+    get().setSelectedMarkerId(null);
+    set({ selectedItemKey: makeItemKey(trackIdx, itemIdx) });
+  },
 
   clearItemSelection: () => set({ selectedItemKey: null }),
 

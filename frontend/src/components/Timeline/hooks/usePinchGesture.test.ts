@@ -47,7 +47,7 @@ describe('usePinchGesture', () => {
         })
       );
 
-      expect(result.current.isPinching).toBe(false);
+      expect(result.current.isPinchingRef.current).toBe(false);
     });
   });
 
@@ -68,7 +68,7 @@ describe('usePinchGesture', () => {
         expect(started).toBe(false);
       });
 
-      expect(result.current.isPinching).toBe(false);
+      expect(result.current.isPinchingRef.current).toBe(false);
     });
 
     it('tracks pointer but does not zoom on move with one pointer', () => {
@@ -429,7 +429,7 @@ describe('usePinchGesture', () => {
       });
 
       // isPinching should be false now
-      expect(result.current.isPinching).toBe(false);
+      expect(result.current.isPinchingRef.current).toBe(false);
 
       // Further moves should not trigger zoom
       setVisibleRange.mockClear();

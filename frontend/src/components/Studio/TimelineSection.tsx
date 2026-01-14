@@ -2,17 +2,22 @@
  * TimelineSection - Timeline content for Studio view
  * Renders timeline, regions, items based on current mode
  * Collapse is handled by parent CollapsibleSection wrapper
+ *
+ * Viewport state is lifted here so both Timeline and ItemsTimeline share the same
+ * visible range. Zoom/pan in navigate mode persists when switching to items mode.
  */
 
 import { useMemo, type ReactElement } from 'react';
 import { useReaperStore } from '../../store';
+import { EMPTY_REGIONS, EMPTY_MARKERS, EMPTY_ITEMS } from '../../store/stableRefs';
+import { useViewport, useTransport } from '../../hooks';
 import {
   Timeline,
-  ItemsTimeline,
   RegionInfoBar,
   RegionEditActionBar,
   MarkerInfoBar,
   TimelineModeToggle,
+  NavigateItemInfoBar,
 } from '../index';
 
 /**
@@ -25,52 +30,68 @@ export function TimelineHeaderControls(): ReactElement {
 
 export function TimelineSection(): ReactElement {
   const timelineMode = useReaperStore((s) => s.timelineMode);
-  const regions = useReaperStore((s) => s.regions);
-  const timeSelection = useReaperStore((s) => s.timeSelection);
+  const regions = useReaperStore((s) => s?.regions ?? EMPTY_REGIONS);
+  const markers = useReaperStore((s) => s?.markers ?? EMPTY_MARKERS);
+  const items = useReaperStore((s) => s?.items ?? EMPTY_ITEMS);
   const openAddRegionModal = useReaperStore((s) => s.openAddRegionModal);
+  const selectedItemKey = useReaperStore((s) => s.selectedItemKey);
+  const selectedMarkerId = useReaperStore((s) => s.selectedMarkerId);
+  const { positionSeconds } = useTransport();
 
-  // Compute timeline bounds for Items mode
-  const itemsTimelineBounds = useMemo(() => {
-    // Use time selection if available
-    if (timeSelection && timeSelection.endSeconds > timeSelection.startSeconds) {
-      return { start: timeSelection.startSeconds, end: timeSelection.endSeconds };
+  // Calculate project duration from content (same logic as Timeline.tsx)
+  const projectDuration = useMemo(() => {
+    let end = 0;
+
+    for (const region of regions) {
+      if (region.end > end) end = region.end;
     }
-    // Fall back to region bounds
-    if (regions.length > 0) {
-      const start = Math.min(...regions.map((r) => r.start));
-      const end = Math.max(...regions.map((r) => r.end));
-      return { start, end };
+    for (const marker of markers) {
+      if (marker.position > end) end = marker.position;
     }
-    // Default to 0-60 seconds
-    return { start: 0, end: 60 };
-  }, [timeSelection, regions]);
+    for (const item of items) {
+      const itemEnd = item.position + item.length;
+      if (itemEnd > end) end = itemEnd;
+    }
+    // Include playhead position
+    if (positionSeconds > end) end = positionSeconds;
+
+    // Add 5% padding at the end, minimum 10 seconds
+    return Math.max(end * 1.05, 10);
+  }, [regions, markers, items, positionSeconds]);
+
+  // Shared viewport state - persists across mode switches
+  const viewport = useViewport({
+    projectDuration,
+    initialRange: { start: 0, end: Math.min(30, projectDuration) },
+  });
 
   return (
     <>
-      {/* Timeline content - varies by mode */}
-      {timelineMode === 'items' ? (
-        <ItemsTimeline
-          timelineStart={itemsTimelineBounds.start}
-          timelineEnd={itemsTimelineBounds.end}
-          height={120}
-        />
-      ) : (
-        <>
-          <Timeline height={80} />
-          <RegionInfoBar
-            className="mt-2"
-            onAddRegion={timelineMode === 'regions' ? openAddRegionModal : undefined}
-          />
-          <div className="mt-2">
-            <RegionEditActionBar />
-          </div>
-        </>
-      )}
+      {/* Timeline content */}
+      <Timeline height={80} viewport={viewport} />
+      <RegionInfoBar
+        className="mt-2"
+        onAddRegion={timelineMode === 'regions' ? openAddRegionModal : undefined}
+      />
+      <div className="mt-2">
+        <RegionEditActionBar />
+      </div>
 
-      {/* Marker Info - only shown in navigate mode */}
+      {/* Marker/Item Info - only shown in navigate mode */}
+      {/* Due to mutual exclusion, only one will be selected at a time */}
       {timelineMode === 'navigate' && (
-        <section className="mt-4">
+        <section data-testid="navigate-info-section" className="mt-4 flex flex-col gap-2">
           <MarkerInfoBar />
+          {selectedItemKey && <NavigateItemInfoBar viewport={viewport} />}
+          {/* Fallback when nothing is selected */}
+          {selectedMarkerId === null && !selectedItemKey && (
+            <div
+              data-testid="nothing-selected-message"
+              className="px-3 py-2 text-text-muted text-sm text-center"
+            >
+              Tap a marker pill or item blob to select
+            </div>
+          )}
         </section>
       )}
     </>

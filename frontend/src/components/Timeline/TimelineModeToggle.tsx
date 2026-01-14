@@ -1,18 +1,21 @@
 /**
  * Timeline Mode Toggle Component
- * Switches between Navigate, Regions, and Items modes
+ * Switches between Navigate and Regions modes
+ *
+ * Items mode has been removed - item selection is now done by tapping
+ * density blobs in Navigate mode, with NavigateItemInfoBar showing controls.
  */
 
 import { useEffect, type ReactElement } from 'react';
-import { Navigation, Layers, AudioLines } from 'lucide-react';
+import { Navigation, Layers } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import type { TimelineMode } from '../../store';
 
 // LocalStorage key
 const TIMELINE_MODE_KEY = 'reamo-timeline-mode';
 
-// Valid timeline modes for persistence
-const VALID_MODES: TimelineMode[] = ['navigate', 'regions', 'items'];
+// Valid timeline modes for persistence (items mode removed)
+const VALID_MODES: TimelineMode[] = ['navigate', 'regions'];
 
 export function TimelineModeToggle(): ReactElement {
   const timelineMode = useReaperStore((s) => s.timelineMode);
@@ -25,8 +28,12 @@ export function TimelineModeToggle(): ReactElement {
   useEffect(() => {
     try {
       const savedTimelineMode = localStorage.getItem(TIMELINE_MODE_KEY) as TimelineMode | null;
-      if (savedTimelineMode && VALID_MODES.includes(savedTimelineMode)) {
-        setTimelineMode(savedTimelineMode);
+      if (savedTimelineMode) {
+        // Migrate 'items' mode to 'navigate' (items mode removed)
+        const migratedMode = savedTimelineMode === 'items' ? 'navigate' : savedTimelineMode;
+        if (VALID_MODES.includes(migratedMode as TimelineMode)) {
+          setTimelineMode(migratedMode as TimelineMode);
+        }
       }
     } catch {
       // Ignore storage errors
@@ -62,23 +69,10 @@ export function TimelineModeToggle(): ReactElement {
               ? 'bg-primary text-text-on-primary'
               : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
           } ${hasPending ? 'cursor-not-allowed opacity-50' : ''}`}
-          title="Navigate mode: Tap to seek, drag for time selection"
+          title="Navigate mode: Tap to seek, drag for time selection, tap items to select"
         >
           <Navigation size={14} />
           <span className="hidden sm:inline">Navigate</span>
-        </button>
-        <button
-          onClick={() => handleTimelineModeChange('items')}
-          disabled={hasPending}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${
-            timelineMode === 'items'
-              ? 'bg-success-action text-text-on-success'
-              : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
-          } ${hasPending ? 'cursor-not-allowed opacity-50' : ''}`}
-          title="Items mode: View waveforms and manage takes"
-        >
-          <AudioLines size={14} />
-          <span className="hidden sm:inline">Items</span>
         </button>
         <button
           onClick={() => handleTimelineModeChange('regions')}

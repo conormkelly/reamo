@@ -261,6 +261,15 @@ export const item = {
     command: 'item/setActiveTake',
     params: { trackIdx, itemIdx, takeIdx },
   }),
+  /** Set active take by GUIDs (stable across track reordering) */
+  setActiveTakeByGuid: (
+    trackGuid: string,
+    itemGuid: string,
+    takeIdx: number
+  ): WSCommand => ({
+    command: 'item/setActiveTakeByGuid',
+    params: { trackGuid, itemGuid, takeIdx },
+  }),
   move: (trackIdx: number, itemIdx: number, position: number): WSCommand => ({
     command: 'item/move',
     params: { trackIdx, itemIdx, position },

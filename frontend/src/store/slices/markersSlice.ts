@@ -1,10 +1,16 @@
 /**
  * Markers state slice
  * Manages project markers for timeline display and navigation
+ *
+ * Mutual exclusion: selecting a marker clears item selection (and vice versa)
  */
 
 import type { StateCreator } from 'zustand';
 import type { Marker } from '../../core/types';
+import type { ItemsSlice } from './itemsSlice';
+
+// Combined slice type for mutual exclusion access
+type StoreWithItems = MarkersSlice & ItemsSlice;
 
 export interface PendingMarkerEdits {
   name?: string;
@@ -28,7 +34,10 @@ export interface MarkersSlice {
   setMarkerLocked: (locked: boolean) => void;
 }
 
-export const createMarkersSlice: StateCreator<MarkersSlice> = (set) => ({
+export const createMarkersSlice: StateCreator<StoreWithItems, [], [], MarkersSlice> = (
+  set,
+  get
+) => ({
   // Initial state
   markers: [],
   selectedMarkerId: null,
@@ -38,7 +47,13 @@ export const createMarkersSlice: StateCreator<MarkersSlice> = (set) => ({
   // Actions
   setMarkers: (markers) => set({ markers }),
   clearMarkers: () => set({ markers: [] }),
-  setSelectedMarkerId: (id) => set({ selectedMarkerId: id }),
+  setSelectedMarkerId: (id) => {
+    // Mutual exclusion: clear item selection when selecting a marker (if not null)
+    if (id !== null) {
+      get().clearItemSelection();
+    }
+    set({ selectedMarkerId: id });
+  },
   setPendingMarkerEdits: (edits) => set({ pendingMarkerEdits: edits }),
   setMarkerLocked: (locked) => set({ isMarkerLocked: locked }),
 });

@@ -6,6 +6,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect, type ReactElement } from 'react';
 import { useReaperStore } from '../../store';
 import { EMPTY_REGIONS, EMPTY_MARKERS, EMPTY_ITEMS, EMPTY_TRACKS } from '../../store/stableRefs';
+import type { WSItem } from '../../core/WebSocketTypes';
 import { useReaper } from '../ReaperProvider';
 import {
   useTransport,
@@ -19,6 +20,7 @@ import {
   useMarkerClusters,
   useReducedMotion,
   type MarkerClusterData,
+  type UseViewportReturn,
 } from '../../hooks';
 import { transport, timeSelection as timeSelCmd, marker as markerCmd, action } from '../../core/WebSocketCommands';
 import { usePlayheadDrag, useMarkerDrag, useRegionDrag, usePanGesture, usePinchGesture, useEdgeScroll } from './hooks';
@@ -37,12 +39,17 @@ export interface TimelineProps {
   height?: number;
   /** Whether time selection sync is in progress */
   isSyncing?: boolean;
+  /** External viewport state (if provided, uses this instead of creating own) */
+  viewport?: UseViewportReturn;
 }
 
 // Vertical distance to cancel gesture (drag off timeline)
 const VERTICAL_CANCEL_THRESHOLD = 50;
 
-export function Timeline({ className = '', height = 120, isSyncing = false }: TimelineProps): ReactElement {
+// Tap detection threshold (pixels) - movement less than this is considered a tap
+const TAP_THRESHOLD = 10;
+
+export function Timeline({ className = '', height = 120, isSyncing = false, viewport: externalViewport }: TimelineProps): ReactElement {
   const { sendCommand } = useReaper();
   const { positionSeconds } = useTransport();
   // Defensive selectors with stable fallbacks - state can be undefined briefly on mobile during hydration
@@ -85,6 +92,10 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   const dragStartTime = useReaperStore((state) => state.dragStartTime);
   const insertionPoint = useReaperStore((state) => state.insertionPoint);
   const resizeEdgePosition = useReaperStore((state) => state.resizeEdgePosition);
+
+  // Item selection state (for Navigate mode tap-to-select)
+  const selectedItemKey = useReaperStore((state) => state.selectedItemKey);
+  const selectItem = useReaperStore((state) => state.selectItem);
 
   // Filter out invalid 0-width selections
   const timeSelectionSeconds = useMemo(() => {
@@ -130,6 +141,9 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   const [isCancelled, setIsCancelled] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
+
+  // Track pan gesture start position for tap detection
+  const panStartPositionRef = useRef<{ x: number; y: number } | null>(null);
 
   // Track container width for marker clustering
   useEffect(() => {
@@ -202,10 +216,12 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   const duration = baseDuration;
 
   // Viewport state for pan/zoom navigation
-  const viewport = useViewport({
+  // Use external viewport if provided (shared state from TimelineSection), otherwise create own
+  const internalViewport = useViewport({
     projectDuration: duration,
     initialRange: { start: 0, end: Math.min(30, duration) }, // Default 30 seconds or full project
   });
+  const viewport = externalViewport ?? internalViewport;
 
   // Selection mode toggle state (pan mode vs selection mode in navigate)
   const [selectionModeActive, setSelectionModeActive] = useState(false);
@@ -490,16 +506,13 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
     [regions, markers, positionSeconds]
   );
 
-  // Track if pinch gesture is active (ref so we can check during callbacks)
-  const isPinchingRef = useRef(false);
-
   // Handle touch/mouse start
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
       // Always track pinch pointers (works in all modes)
       const pinchStarted = pinchGesture.handlePointerDown(e);
       if (pinchStarted) {
-        isPinchingRef.current = true;
+        // isPinchingRef is already set to true inside the hook
         pauseFollow(); // Don't follow playhead while user is zooming
         return; // Pinch takes priority
       }
@@ -516,7 +529,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       // Navigate mode
       if (timelineMode === 'navigate') {
         if (!selectionModeActive) {
-          // Pan mode (default) - delegate to pan gesture
+          // Pan mode (default) - track start position for tap detection, then delegate
+          panStartPositionRef.current = { x: e.clientX, y: e.clientY };
           panGesture.handlePointerDown(e);
           return;
         }
@@ -539,7 +553,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       pinchGesture.handlePointerMove(e);
 
       // If pinching, skip other gesture handling
-      if (isPinchingRef.current) return;
+      if (pinchGesture.isPinchingRef.current) return;
 
       // Region editing mode - delegate to hook
       if (timelineMode === 'regions') {
@@ -579,19 +593,16 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
   // Handle touch/mouse end
   const handlePointerUp = useCallback(
     (e: React.PointerEvent) => {
+      // Check if we were pinching BEFORE processing the pointer up
+      const wasPinching = pinchGesture.isPinchingRef.current;
+
       // Always track pinch pointer removal
       pinchGesture.handlePointerUp(e);
 
-      // If we were pinching, check if pinch ended (hook clears its internal state)
-      // We reset our tracking when pointer count drops below 2
-      if (isPinchingRef.current) {
-        // Check if pinch ended by seeing if hook is still tracking 2 pointers
-        // Since we removed a pointer, if we had exactly 2 before, pinch ends
-        isPinchingRef.current = pinchGesture.isPinching;
-        if (!isPinchingRef.current) {
-          // Pinch just ended - don't process as tap/other gesture
-          return;
-        }
+      // If we were pinching, don't process as tap/other gesture
+      // This handles both "still pinching" (2+ fingers) and "pinch just ended" (1 finger lifted)
+      if (wasPinching) {
+        return;
       }
 
       // Region editing mode - delegate to hook
@@ -605,6 +616,63 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
         if (!selectionModeActive) {
           // Pan mode - delegate to pan gesture
           panGesture.handlePointerUp(e);
+
+          // Check if it was a tap (minimal movement) - if so, check for item hit
+          if (panStartPositionRef.current && containerRef.current) {
+            const dx = Math.abs(e.clientX - panStartPositionRef.current.x);
+            const dy = Math.abs(e.clientY - panStartPositionRef.current.y);
+
+            if (dx < TAP_THRESHOLD && dy < TAP_THRESHOLD) {
+              // It was a tap - check for item at this position
+              const rect = containerRef.current.getBoundingClientRect();
+              const clickPercent = (e.clientX - rect.left) / rect.width;
+              const clickTime =
+                viewport.visibleRange.start +
+                clickPercent * (viewport.visibleRange.end - viewport.visibleRange.start);
+
+              // Check if tap is within item blob vertical bounds (25% height, centered)
+              // Item blobs render at topOffset to topOffset + blobHeight
+              const containerHeight = rect.height;
+              const blobHeight = containerHeight * 0.25;
+              const topOffset = (containerHeight - blobHeight) / 2;
+              const relativeY = e.clientY - rect.top;
+              const isWithinBlobYBounds = relativeY >= topOffset && relativeY <= topOffset + blobHeight;
+
+              if (!isWithinBlobYBounds) {
+                // Tap is outside the blob strip - don't select item
+                panStartPositionRef.current = null;
+                return;
+              }
+
+              // Find items at this time position
+              const itemsAtTime = items.filter(
+                (item) =>
+                  item.position <= clickTime && item.position + item.length >= clickTime
+              );
+
+              if (itemsAtTime.length > 0) {
+                // Group by track, find first track (lowest index) with items
+                const byTrack = new Map<number, WSItem[]>();
+                itemsAtTime.forEach((item) => {
+                  if (!byTrack.has(item.trackIdx)) byTrack.set(item.trackIdx, []);
+                  byTrack.get(item.trackIdx)!.push(item);
+                });
+
+                // Get first track (lowest index)
+                const firstTrackIdx = Math.min(...byTrack.keys());
+                const trackItems = byTrack.get(firstTrackIdx)!;
+
+                // Sort by position, take first (earliest) item
+                const firstItem = trackItems.sort((a, b) => a.position - b.position)[0];
+
+                // Select the item
+                selectItem(firstItem.trackIdx, firstItem.itemIdx);
+              }
+            }
+          }
+
+          // Clear start position
+          panStartPositionRef.current = null;
           return;
         }
 
@@ -663,6 +731,9 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
       selectionModeActive,
       panGesture,
       pinchGesture,
+      items,
+      selectItem,
+      viewport,
     ]
   );
 
@@ -847,6 +918,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false }: Ti
             timelineEnd={viewport.visibleRange.end}
             height={height}
             tracks={tracks}
+            selectedItemKey={selectedItemKey}
           />
         )}
 
