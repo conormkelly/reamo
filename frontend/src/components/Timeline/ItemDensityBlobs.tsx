@@ -1,14 +1,18 @@
 /**
  * ItemsDensityOverlay Component
- * Shows where items exist in the timeline as simple merged blocks
- * Overlapping items are merged into contiguous regions
- * When a track is selected, shows only that track's items in track color
+ * Shows where items exist in the timeline as blocks
+ *
+ * Coloring logic (based on item selection, NOT track selection):
+ * - No item selected: All items shown as grey merged blocks
+ * - Item selected: Items on that track shown individually with their colors,
+ *   items on other tracks shown as grey merged blocks
  */
 
 import { useMemo } from 'react';
 import type { WSItem } from '../../core/WebSocketTypes';
-import { type Track, isSelected } from '../../core/types';
+import type { Track } from '../../core/types';
 import { reaperColorToRgba } from '../../utils';
+import { parseItemKey } from '../../store/slices/itemsSlice';
 
 // Default density block color - matches --color-density-block token
 const DEFAULT_BLOCK_COLOR = 'rgba(129, 137, 137, 0.5)'; // --color-density-block
@@ -22,7 +26,7 @@ export interface ItemsDensityOverlayProps {
   timelineEnd: number;
   /** Height of the container in pixels */
   height: number;
-  /** Track data for selection and color lookup */
+  /** Track data for color lookup */
   tracks: Record<number, Track>;
   /** Currently selected item key (trackIdx:itemIdx) */
   selectedItemKey?: string | null;
@@ -32,6 +36,13 @@ export interface ItemsDensityOverlayProps {
 interface MergedBlock {
   start: number; // seconds
   end: number; // seconds
+}
+
+/** An individual item with position data for rendering */
+interface VisibleItem {
+  item: WSItem;
+  leftPercent: number;
+  widthPercent: number;
 }
 
 /**
@@ -72,94 +83,87 @@ function mergeItemRanges(items: WSItem[]): MergedBlock[] {
   return merged;
 }
 
+/**
+ * Get item color with fallback to default
+ */
+function getItemColor(item: WSItem, opacity: number = 0.6): string {
+  if (!item.color) return DEFAULT_BLOCK_COLOR;
+  return reaperColorToRgba(item.color, opacity) ?? DEFAULT_BLOCK_COLOR;
+}
+
 export function ItemsDensityOverlay({
   items,
   timelineStart,
   timelineEnd,
   height,
-  tracks,
+  tracks: _tracks, // Reserved for future waveform integration
   selectedItemKey,
 }: ItemsDensityOverlayProps) {
-  // Get selected track indices from REAPER's track selection
-  const selectedTrackIndices = useMemo(() => {
-    return Object.values(tracks)
-      .filter(isSelected)
-      .map((t) => t.index);
-  }, [tracks]);
+  // Derive colored track from selected item (NOT from REAPER track selection)
+  const coloredTrackIdx = useMemo(() => {
+    if (!selectedItemKey) return null;
+    const parsed = parseItemKey(selectedItemKey);
+    return parsed?.trackIdx ?? null;
+  }, [selectedItemKey]);
 
-  // Filter items based on track selection:
-  // - 0 selected = show all items
-  // - 1+ selected = show only items from selected tracks
-  const filteredItems = useMemo(() => {
-    if (selectedTrackIndices.length === 0) return items;
-    const selectedSet = new Set(selectedTrackIndices);
-    return items.filter((item) => selectedSet.has(item.trackIdx));
-  }, [items, selectedTrackIndices]);
+  // Split items: colored track items vs other track items
+  const { coloredTrackItems, otherTrackItems } = useMemo(() => {
+    if (coloredTrackIdx === null) {
+      return { coloredTrackItems: [], otherTrackItems: items };
+    }
+    const onTrack = items.filter((i) => i.trackIdx === coloredTrackIdx);
+    const offTrack = items.filter((i) => i.trackIdx !== coloredTrackIdx);
+    return { coloredTrackItems: onTrack, otherTrackItems: offTrack };
+  }, [items, coloredTrackIdx]);
 
-  // Merge filtered items into contiguous blocks
-  const blocks = useMemo(() => mergeItemRanges(filteredItems), [filteredItems]);
+  // Merge other track items into grey blocks
+  const otherTrackBlocks = useMemo(
+    () => mergeItemRanges(otherTrackItems),
+    [otherTrackItems]
+  );
 
-  // Get block color:
-  // - 0 selected = default color
-  // - 1 selected = that track's color
-  // - 2+ selected = default color
-  const blockColor = useMemo(() => {
-    if (selectedTrackIndices.length !== 1) return DEFAULT_BLOCK_COLOR;
-    const track = tracks[selectedTrackIndices[0]];
-    if (!track || !track.color) return DEFAULT_BLOCK_COLOR;
-    // Use track color at 50% opacity
-    return reaperColorToRgba(track.color, 0.5) ?? DEFAULT_BLOCK_COLOR;
-  }, [selectedTrackIndices, tracks]);
-
-  // Filter to blocks that overlap with the visible timeline
-  const visibleBlocks = useMemo(() => {
+  // Calculate visible merged blocks (for other tracks)
+  const visibleMergedBlocks = useMemo(() => {
     const duration = timelineEnd - timelineStart;
     if (duration <= 0) return [];
 
-    return blocks
+    return otherTrackBlocks
       .filter((block) => block.end > timelineStart && block.start < timelineEnd)
       .map((block) => {
-        // Clamp to timeline bounds and convert to percentages
         const clampedStart = Math.max(block.start, timelineStart);
         const clampedEnd = Math.min(block.end, timelineEnd);
-
         return {
           leftPercent: ((clampedStart - timelineStart) / duration) * 100,
           widthPercent: ((clampedEnd - clampedStart) / duration) * 100,
         };
       });
-  }, [blocks, timelineStart, timelineEnd]);
+  }, [otherTrackBlocks, timelineStart, timelineEnd]);
 
-  // Find selected item and calculate its position
-  const selectedItemBlock = useMemo(() => {
-    if (!selectedItemKey) return null;
-
-    const selectedItem = filteredItems.find(
-      (item) => `${item.trackIdx}:${item.itemIdx}` === selectedItemKey
-    );
-
-    if (!selectedItem) return null;
-
+  // Calculate visible individual items (for colored track)
+  const visibleColoredItems = useMemo((): VisibleItem[] => {
     const duration = timelineEnd - timelineStart;
-    if (duration <= 0) return null;
+    if (duration <= 0) return [];
 
-    const itemStart = selectedItem.position;
-    const itemEnd = selectedItem.position + selectedItem.length;
+    return coloredTrackItems
+      .filter((item) => {
+        const itemEnd = item.position + item.length;
+        return itemEnd > timelineStart && item.position < timelineEnd;
+      })
+      .map((item) => {
+        const clampedStart = Math.max(item.position, timelineStart);
+        const clampedEnd = Math.min(item.position + item.length, timelineEnd);
+        return {
+          item,
+          leftPercent: ((clampedStart - timelineStart) / duration) * 100,
+          widthPercent: ((clampedEnd - clampedStart) / duration) * 100,
+        };
+      });
+  }, [coloredTrackItems, timelineStart, timelineEnd]);
 
-    // Check if item is in visible range
-    if (itemEnd < timelineStart || itemStart > timelineEnd) return null;
-
-    // Clamp to timeline bounds and convert to percentages
-    const clampedStart = Math.max(itemStart, timelineStart);
-    const clampedEnd = Math.min(itemEnd, timelineEnd);
-
-    return {
-      leftPercent: ((clampedStart - timelineStart) / duration) * 100,
-      widthPercent: ((clampedEnd - clampedStart) / duration) * 100,
-    };
-  }, [selectedItemKey, filteredItems, timelineStart, timelineEnd]);
-
-  if (visibleBlocks.length === 0 && !selectedItemBlock) return null;
+  // Early return if nothing to render
+  if (visibleMergedBlocks.length === 0 && visibleColoredItems.length === 0) {
+    return null;
+  }
 
   // 25% of container height, centered vertically
   const blobHeight = height * 0.25;
@@ -170,34 +174,41 @@ export function ItemsDensityOverlay({
       data-testid="item-density-overlay"
       className="absolute inset-0 z-0 pointer-events-none"
     >
-      {/* Regular merged blocks */}
-      {visibleBlocks.map((block, i) => (
+      {/* Grey merged blocks for items on OTHER tracks */}
+      {visibleMergedBlocks.map((block, i) => (
         <div
-          key={i}
+          key={`merged-${i}`}
           className="absolute pointer-events-none"
           style={{
             left: `${block.leftPercent}%`,
             width: `${block.widthPercent}%`,
             top: `${topOffset}px`,
             height: `${blobHeight}px`,
-            backgroundColor: blockColor,
+            backgroundColor: DEFAULT_BLOCK_COLOR,
           }}
         />
       ))}
 
-      {/* Selected item highlight overlay */}
-      {selectedItemBlock && (
-        <div
-          className="absolute pointer-events-none ring-2 ring-selection-overlay-border rounded-sm z-10"
-          style={{
-            left: `${selectedItemBlock.leftPercent}%`,
-            width: `${selectedItemBlock.widthPercent}%`,
-            top: `${topOffset}px`,
-            height: `${blobHeight}px`,
-            backgroundColor: blockColor,
-          }}
-        />
-      )}
+      {/* Individual colored items on selected track */}
+      {visibleColoredItems.map((v) => {
+        const isSelected =
+          selectedItemKey === `${v.item.trackIdx}:${v.item.itemIdx}`;
+        return (
+          <div
+            key={`item-${v.item.trackIdx}-${v.item.itemIdx}`}
+            className={`absolute pointer-events-none ${
+              isSelected ? 'ring-2 ring-selection-overlay-border rounded-sm z-10' : ''
+            }`}
+            style={{
+              left: `${v.leftPercent}%`,
+              width: `${v.widthPercent}%`,
+              top: `${topOffset}px`,
+              height: `${blobHeight}px`,
+              backgroundColor: getItemColor(v.item),
+            }}
+          />
+        );
+      })}
     </div>
   );
 }

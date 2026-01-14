@@ -179,36 +179,36 @@ export function NavigateItemInfoBar({
     if (currentItemIndex > 0) {
       const prevItem = trackItems[currentItemIndex - 1];
       selectItem(prevItem.trackIdx, prevItem.itemIdx);
+      // Sync selection to REAPER so actions can be applied to this item
+      sendCommand(itemCmd.select(prevItem.trackIdx, prevItem.itemIdx));
       moveViewportToItem(prevItem);
     }
-  }, [currentItemIndex, trackItems, selectItem, moveViewportToItem]);
+  }, [currentItemIndex, trackItems, selectItem, sendCommand, moveViewportToItem]);
 
   const handleNextItem = useCallback(() => {
     if (currentItemIndex < trackItems.length - 1) {
       const nextItem = trackItems[currentItemIndex + 1];
       selectItem(nextItem.trackIdx, nextItem.itemIdx);
+      // Sync selection to REAPER so actions can be applied to this item
+      sendCommand(itemCmd.select(nextItem.trackIdx, nextItem.itemIdx));
       moveViewportToItem(nextItem);
     }
-  }, [currentItemIndex, trackItems, selectItem, moveViewportToItem]);
+  }, [currentItemIndex, trackItems, selectItem, sendCommand, moveViewportToItem]);
 
-  // Take navigation (using GUID-based command for stability)
+  // Take navigation
   const handlePrevTake = useCallback(() => {
     if (!selectedItem || selectedItem.activeTakeIdx <= 0) return;
-    const track = tracks[selectedItem.trackIdx];
-    if (!track?.guid) return;
     sendCommand(
-      itemCmd.setActiveTakeByGuid(track.guid, selectedItem.guid, selectedItem.activeTakeIdx - 1)
+      itemCmd.setActiveTake(selectedItem.trackIdx, selectedItem.itemIdx, selectedItem.activeTakeIdx - 1)
     );
-  }, [selectedItem, tracks, sendCommand]);
+  }, [selectedItem, sendCommand]);
 
   const handleNextTake = useCallback(() => {
     if (!selectedItem || selectedItem.activeTakeIdx >= selectedItem.takeCount - 1) return;
-    const track = tracks[selectedItem.trackIdx];
-    if (!track?.guid) return;
     sendCommand(
-      itemCmd.setActiveTakeByGuid(track.guid, selectedItem.guid, selectedItem.activeTakeIdx + 1)
+      itemCmd.setActiveTake(selectedItem.trackIdx, selectedItem.itemIdx, selectedItem.activeTakeIdx + 1)
     );
-  }, [selectedItem, tracks, sendCommand]);
+  }, [selectedItem, sendCommand]);
 
   // Track change handler
   const handleTrackChange = useCallback(

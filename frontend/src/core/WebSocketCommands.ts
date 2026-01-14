@@ -308,6 +308,24 @@ export const item = {
   }),
   selectInTimeSel: (): WSCommand => ({ command: 'item/selectInTimeSel' }),
   unselectAll: (): WSCommand => ({ command: 'item/unselectAll' }),
+  /** Select next item on track (by position order) */
+  selectNext: (
+    trackIdx: number,
+    itemIdx: number,
+    wrap?: boolean
+  ): WSCommand => ({
+    command: 'item/selectNext',
+    params: { trackIdx, itemIdx, ...(wrap !== undefined && { wrap: wrap ? 1 : 0 }) },
+  }),
+  /** Select previous item on track (by position order) */
+  selectPrev: (
+    trackIdx: number,
+    itemIdx: number,
+    wrap?: boolean
+  ): WSCommand => ({
+    command: 'item/selectPrev',
+    params: { trackIdx, itemIdx, ...(wrap !== undefined && { wrap: wrap ? 1 : 0 }) },
+  }),
   /** Get waveform peak data for an item's active take */
   getPeaks: (
     trackIdx: number,

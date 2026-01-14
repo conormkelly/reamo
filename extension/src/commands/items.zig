@@ -152,6 +152,171 @@ pub fn handleUnselectAll(api: anytype, _: protocol.CommandMessage, _: *mod.Respo
     logging.debug("Unselected all items", .{});
 }
 
+// Maximum items to consider for navigation (stack limit)
+const MAX_NAV_ITEMS = 1024;
+
+/// Select next item on same track (by position order)
+/// Params: trackIdx, itemIdx, wrap (optional, default false)
+/// Returns: { trackIdx, itemIdx } of newly selected item
+pub fn handleItemSelectNext(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const track_idx = cmd.getInt("trackIdx") orelse {
+        response.err("MISSING_TRACK_IDX", "Track index required");
+        return;
+    };
+    const item_idx = cmd.getInt("itemIdx") orelse {
+        response.err("MISSING_ITEM_IDX", "Item index required");
+        return;
+    };
+    const wrap = if (cmd.getInt("wrap")) |w| w != 0 else false;
+
+    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
+        response.err("NOT_FOUND", "Track not found");
+        return;
+    };
+
+    // Get current item position
+    const current_item = api.getItemByIdx(track, item_idx) orelse {
+        response.err("NOT_FOUND", "Current item not found");
+        return;
+    };
+    const current_pos = api.getItemPosition(current_item);
+
+    // Get item count
+    const item_count_raw = api.trackItemCount(track);
+    if (item_count_raw <= 1) {
+        response.err("NO_NEXT", "No next item (only one item on track)");
+        return;
+    }
+    const item_count: usize = @min(@as(usize, @intCast(item_count_raw)), MAX_NAV_ITEMS);
+
+    // Find next item: smallest position > current
+    var next_idx: ?c_int = null;
+    var next_pos: f64 = std.math.inf(f64);
+    var first_idx: c_int = 0;
+    var first_pos: f64 = std.math.inf(f64);
+
+    for (0..item_count) |i| {
+        const idx: c_int = @intCast(i);
+        const item = api.getItemByIdx(track, idx) orelse continue;
+        const pos = api.getItemPosition(item);
+
+        // Track first item (for wrap-around)
+        if (pos < first_pos) {
+            first_pos = pos;
+            first_idx = idx;
+        }
+
+        // Track next item (smallest position > current)
+        if (pos > current_pos and pos < next_pos) {
+            next_pos = pos;
+            next_idx = idx;
+        }
+    }
+
+    const target_idx = if (next_idx) |idx| idx else if (wrap) first_idx else {
+        response.err("NO_NEXT", "Already at last item");
+        return;
+    };
+
+    // Deselect all and select target
+    api.runCommand(reaper.Command.UNSELECT_ALL_ITEMS);
+    const target_item = api.getItemByIdx(track, target_idx) orelse {
+        response.err("NOT_FOUND", "Target item not found");
+        return;
+    };
+    _ = api.setItemSelected(target_item, true);
+
+    // Return new selection
+    var buf: [128]u8 = undefined;
+    const json = std.fmt.bufPrint(&buf, "{{\"trackIdx\":{d},\"itemIdx\":{d}}}", .{ track_idx, target_idx }) catch {
+        response.err("SERIALIZE_ERROR", "Buffer overflow");
+        return;
+    };
+    response.success(json);
+    logging.debug("Selected next item: {d}", .{target_idx});
+}
+
+/// Select previous item on same track (by position order)
+/// Params: trackIdx, itemIdx, wrap (optional, default false)
+/// Returns: { trackIdx, itemIdx } of newly selected item
+pub fn handleItemSelectPrev(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const track_idx = cmd.getInt("trackIdx") orelse {
+        response.err("MISSING_TRACK_IDX", "Track index required");
+        return;
+    };
+    const item_idx = cmd.getInt("itemIdx") orelse {
+        response.err("MISSING_ITEM_IDX", "Item index required");
+        return;
+    };
+    const wrap = if (cmd.getInt("wrap")) |w| w != 0 else false;
+
+    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
+        response.err("NOT_FOUND", "Track not found");
+        return;
+    };
+
+    // Get current item position
+    const current_item = api.getItemByIdx(track, item_idx) orelse {
+        response.err("NOT_FOUND", "Current item not found");
+        return;
+    };
+    const current_pos = api.getItemPosition(current_item);
+
+    // Get item count
+    const item_count_raw = api.trackItemCount(track);
+    if (item_count_raw <= 1) {
+        response.err("NO_PREV", "No previous item (only one item on track)");
+        return;
+    }
+    const item_count: usize = @min(@as(usize, @intCast(item_count_raw)), MAX_NAV_ITEMS);
+
+    // Find previous item: largest position < current
+    var prev_idx: ?c_int = null;
+    var prev_pos: f64 = -std.math.inf(f64);
+    var last_idx: c_int = 0;
+    var last_pos: f64 = -std.math.inf(f64);
+
+    for (0..item_count) |i| {
+        const idx: c_int = @intCast(i);
+        const item = api.getItemByIdx(track, idx) orelse continue;
+        const pos = api.getItemPosition(item);
+
+        // Track last item (for wrap-around)
+        if (pos > last_pos) {
+            last_pos = pos;
+            last_idx = idx;
+        }
+
+        // Track previous item (largest position < current)
+        if (pos < current_pos and pos > prev_pos) {
+            prev_pos = pos;
+            prev_idx = idx;
+        }
+    }
+
+    const target_idx = if (prev_idx) |idx| idx else if (wrap) last_idx else {
+        response.err("NO_PREV", "Already at first item");
+        return;
+    };
+
+    // Deselect all and select target
+    api.runCommand(reaper.Command.UNSELECT_ALL_ITEMS);
+    const target_item = api.getItemByIdx(track, target_idx) orelse {
+        response.err("NOT_FOUND", "Target item not found");
+        return;
+    };
+    _ = api.setItemSelected(target_item, true);
+
+    // Return new selection
+    var buf: [128]u8 = undefined;
+    const json = std.fmt.bufPrint(&buf, "{{\"trackIdx\":{d},\"itemIdx\":{d}}}", .{ track_idx, target_idx }) catch {
+        response.err("SERIALIZE_ERROR", "Buffer overflow");
+        return;
+    };
+    response.success(json);
+    logging.debug("Selected previous item: {d}", .{target_idx});
+}
+
 // Maximum peaks per request (enforced limit)
 const MAX_PEAKS = 2000;
 // Low sample rate for peak extraction (1/10th of CD quality)

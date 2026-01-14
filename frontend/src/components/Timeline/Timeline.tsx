@@ -22,7 +22,7 @@ import {
   type MarkerClusterData,
   type UseViewportReturn,
 } from '../../hooks';
-import { transport, timeSelection as timeSelCmd, marker as markerCmd, action } from '../../core/WebSocketCommands';
+import { transport, timeSelection as timeSelCmd, marker as markerCmd, action, item as itemCmd } from '../../core/WebSocketCommands';
 import { usePlayheadDrag, useMarkerDrag, useRegionDrag, usePanGesture, usePinchGesture, useEdgeScroll } from './hooks';
 import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
 import { ItemsDensityOverlay } from './ItemDensityBlobs';
@@ -667,6 +667,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
 
                 // Select the item
                 selectItem(firstItem.trackIdx, firstItem.itemIdx);
+                // Sync selection to REAPER so actions can be applied to this item
+                sendCommand(itemCmd.select(firstItem.trackIdx, firstItem.itemIdx));
               }
             }
           }

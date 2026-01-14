@@ -72,6 +72,8 @@ pub const all = .{
     .{ "item/select", items.handleItemSelect },
     .{ "item/selectInTimeSel", items.handleSelectInTimeSel },
     .{ "item/unselectAll", items.handleUnselectAll },
+    .{ "item/selectNext", items.handleItemSelectNext },
+    .{ "item/selectPrev", items.handleItemSelectPrev },
     .{ "item/getPeaks", items.handleItemGetPeaks },
     // On-demand item data (sparse field fetch)
     .{ "item/getNotes", items.handleItemGetNotes },
