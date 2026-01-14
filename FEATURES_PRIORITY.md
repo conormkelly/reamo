@@ -187,6 +187,28 @@ Parse existing SWS playlists from .RPP files for migration.
 
 ---
 
+### Add FX Browser
+Frontend UI to browse and add available FX plugins to tracks.
+
+**API Discovery:**
+- `EnumInstalledFX(index, &nameOut, &identOut)` — iterates all installed plugins
+- `TrackFX_AddByName(track, fxname, recFX, instantiate)` — adds FX by ident
+
+**Implementation:**
+1. Backend command `fx/enumInstalled` returns full plugin list (name + ident)
+2. Frontend shows searchable list (grouped by type: VST3/VST2/AU/JS)
+3. User taps plugin → sends `fx/add` with track index and ident
+4. Backend calls `TrackFX_AddByName(track, ident, false, -1)`
+
+**Notes:**
+- `fxname` can have prefix: `VST3:`, `VST2:`, `AU:`, `JS:`, `DX:`
+- `instantiate=-1` always creates new instance
+- Could cache plugin list (rarely changes during session)
+
+**Effort:** ~4-6 hours
+
+---
+
 ## Completed Recently ✅
 
 For reference — features completed in recent commits:
