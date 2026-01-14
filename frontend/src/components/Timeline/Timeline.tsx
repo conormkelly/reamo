@@ -5,7 +5,7 @@
 
 import { useState, useRef, useCallback, useMemo, useEffect, type ReactElement } from 'react';
 import { useReaperStore } from '../../store';
-import { EMPTY_REGIONS, EMPTY_MARKERS, EMPTY_ITEMS, EMPTY_TRACKS } from '../../store/stableRefs';
+import { EMPTY_REGIONS, EMPTY_MARKERS, EMPTY_ITEMS, EMPTY_TRACKS, EMPTY_SKELETON } from '../../store/stableRefs';
 import type { WSItem } from '../../core/WebSocketTypes';
 import { useReaper } from '../ReaperProvider';
 import {
@@ -58,6 +58,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
   const markers = useReaperStore((state) => state?.markers ?? EMPTY_MARKERS);
   const items = useReaperStore((state) => state?.items ?? EMPTY_ITEMS);
   const tracks = useReaperStore((state) => state?.tracks ?? EMPTY_TRACKS);
+  const trackSkeleton = useReaperStore((state) => state?.trackSkeleton ?? EMPTY_SKELETON);
   const bpm = useReaperStore((state) => state.bpm);
   const tempoMarkers = useReaperStore((state) => state.tempoMarkers);
   const storedTimeSelection = useReaperStore((state) => state.timeSelection);
@@ -475,12 +476,16 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
   );
 
   // Compute items on the selected track for waveform overlay
-  const coloredTrackItems = useMemo(() => {
-    if (!selectedItemGuid) return [];
+  const { coloredTrackItems, coloredTrackGuid } = useMemo(() => {
+    if (!selectedItemGuid) return { coloredTrackItems: [], coloredTrackGuid: null };
     const selectedItem = visibleItems.find((item) => item.guid === selectedItemGuid);
-    if (!selectedItem) return [];
-    return visibleItems.filter((item) => item.trackIdx === selectedItem.trackIdx);
-  }, [selectedItemGuid, visibleItems]);
+    if (!selectedItem) return { coloredTrackItems: [], coloredTrackGuid: null };
+    const trackIdx = selectedItem.trackIdx;
+    const filteredItems = visibleItems.filter((item) => item.trackIdx === trackIdx);
+    // Use trackSkeleton for GUID (always available), not tracks (requires subscription)
+    const trackGuid = trackSkeleton[trackIdx]?.g ?? null;
+    return { coloredTrackItems: filteredItems, coloredTrackGuid: trackGuid };
+  }, [selectedItemGuid, visibleItems, trackSkeleton]);
 
   // Set time selection in REAPER via WebSocket
   const setTimeSelection = useCallback(
@@ -937,6 +942,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
         {timelineMode === 'navigate' && coloredTrackItems.length > 0 && (
           <TimelineWaveformOverlay
             items={coloredTrackItems}
+            trackGuid={coloredTrackGuid}
             timelineStart={viewport.visibleRange.start}
             timelineEnd={viewport.visibleRange.end}
             height={height}

@@ -23,6 +23,7 @@ import { createFxStateSlice, type FxStateSlice } from './slices/fxStateSlice';
 import { createSendsStateSlice, type SendsStateSlice } from './slices/sendsStateSlice';
 import { createUIPreferencesSlice, type UIPreferencesState } from './slices/uiPreferencesSlice';
 import { createModalSlice, type ModalSlice } from './slices/modalSlice';
+import { createPeaksSlice, type PeaksSlice } from './slices/peaksSlice';
 import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
 import { ActionCommands, SWSCommands } from '../core/types';
 import type {
@@ -40,6 +41,7 @@ import type {
   TempoMapEventPayload,
   PlaylistEventPayload,
   ActionToggleStateEventPayload,
+  PeaksEventPayload,
 } from '../core/WebSocketTypes';
 import {
   isEventMessage,
@@ -58,6 +60,7 @@ import {
   isTempoMapEvent,
   isProjectNotesChangedEvent,
   isPlaylistEvent,
+  isPeaksEvent,
   isClockSyncResponse,
   type ProjectNotesChangedEventPayload,
 } from '../core/WebSocketTypes';
@@ -65,7 +68,7 @@ import { transportEngine } from '../core/TransportAnimationEngine';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & ActionsSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & UIPreferencesState & ModalSlice & {
+export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & ActionsSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & UIPreferencesState & ModalSlice & PeaksSlice & {
   // Response handler action (legacy HTTP)
   handleResponses: (responses: ParsedResponse[]) => void;
   // WebSocket message handler
@@ -101,6 +104,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   ...createSendsStateSlice(set, get, store),
   ...createUIPreferencesSlice(set, get, store),
   ...createModalSlice(set, get, store),
+  ...createPeaksSlice(set, get, store),
 
   // Handle incoming responses from REAPER
   handleResponses: (responses: ParsedResponse[]) => {
@@ -354,6 +358,9 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
     } else if (isPlaylistEvent(message)) {
       const p = message.payload as PlaylistEventPayload;
       get().setPlaylistState(p);
+    } else if (isPeaksEvent(message)) {
+      const p = message.payload as PeaksEventPayload;
+      get().setPeaksData(p.trackGuid, p.items);
     } else if (message.event === 'reload') {
       // Hot reload - extension detected file change
       console.log('[Store] Reload event received, refreshing page...');
@@ -389,6 +396,7 @@ export type { SendsStateSlice } from './slices/sendsStateSlice';
 export { getSendsFromTrack, getSendsToTrack } from './slices/sendsStateSlice';
 export type { UIPreferencesState, FollowPlayheadReEnable } from './slices/uiPreferencesSlice';
 export type { ModalSlice, ModalState } from './slices/modalSlice';
+export type { PeaksSlice } from './slices/peaksSlice';
 
 // Expose store on window for E2E tests (development only)
 if (import.meta.env.DEV) {

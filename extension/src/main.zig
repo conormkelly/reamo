@@ -20,6 +20,8 @@ const tiered_state = @import("tiered_state.zig");
 const guid_cache = @import("guid_cache.zig");
 const track_subscriptions = @import("track_subscriptions.zig");
 const peaks_subscriptions = @import("peaks_subscriptions.zig");
+const peaks_generator = @import("peaks_generator.zig");
+const peaks_cache = @import("peaks_cache.zig");
 const track_skeleton = @import("track_skeleton.zig");
 
 // Use custom panic handler that flushes log ring buffer before aborting
@@ -39,6 +41,7 @@ var g_notes_subs: ?*project_notes.NotesSubscriptions = null;
 var g_guid_cache: ?*guid_cache.GuidCache = null;
 var g_track_subs: ?*track_subscriptions.TrackSubscriptions = null;
 var g_peaks_subs: ?*peaks_subscriptions.PeaksSubscriptions = null;
+var g_peaks_cache: ?*peaks_cache.PeaksCache = null;
 
 // Track skeleton state for LOW tier change detection
 var g_last_skeleton: track_skeleton.State = .{};
@@ -199,6 +202,11 @@ fn doInitialization() !void {
     peaks_subs.* = peaks_subscriptions.PeaksSubscriptions.init(g_allocator);
     g_peaks_subs = peaks_subs;
     commands.g_ctx.peaks_subs = peaks_subs;
+
+    // Create peaks cache for LRU caching of waveform data
+    const p_cache = try g_allocator.create(peaks_cache.PeaksCache);
+    p_cache.* = peaks_cache.PeaksCache.init(g_allocator);
+    g_peaks_cache = p_cache;
 
     // Count project entities and calculate arena sizes dynamically
     // This allows memory allocation to scale with project size
@@ -650,6 +658,57 @@ fn doProcessing() !void {
                 if (toggle_subscriptions.ToggleSubscriptions.changesToJsonAlloc(&changes, toggle_scratch)) |json| {
                     shared_state.broadcast(json);
                 } else |_| {}
+            }
+        }
+    }
+
+    // Poll peaks subscriptions and broadcast (HIGH TIER - per-client subscription)
+    // Broadcasts when: force_broadcast is set (new subscription) OR track items changed
+    // Uses PeaksCache for LRU caching of individual item peaks
+    if (g_peaks_subs) |peaks_subs| {
+        if (peaks_subs.hasSubscriptions()) {
+            const guid_cache_ptr = g_guid_cache orelse {
+                logging.err("GUID cache not initialized for peaks subscriptions", .{});
+                return error.GuidCacheNotInitialized;
+            };
+            const p_cache = g_peaks_cache orelse {
+                logging.err("Peaks cache not initialized", .{});
+                return error.GuidCacheNotInitialized;
+            };
+
+            // Tick the cache for LRU tracking
+            p_cache.tick();
+
+            // Check if any subscription needs immediate data (new subscription)
+            const force_broadcast = peaks_subs.consumeForceBroadcast();
+
+            // Iterate active subscriptions and check for changes
+            var iter = peaks_subs.activeSubscriptions();
+            while (iter.next()) |entry| {
+                const track_guid = entry.sub.getTrackGuid() orelse continue;
+                const sample_count = entry.sub.sample_count;
+
+                // Resolve track for change detection
+                const track = guid_cache_ptr.resolve(track_guid) orelse continue;
+
+                // Check if track items changed (or force broadcast for new subscription)
+                const track_changed = p_cache.trackChanged(track_guid, &backend, track);
+                if (!force_broadcast and !track_changed) continue;
+
+                // Generate peaks JSON for this track (with caching)
+                const peaks_scratch = tiered.scratchAllocator();
+                if (peaks_generator.generatePeaksForTrackCached(
+                    peaks_scratch,
+                    &backend,
+                    guid_cache_ptr,
+                    p_cache,
+                    track_guid,
+                    sample_count,
+                    null,
+                )) |json| {
+                    shared_state.sendToClient(entry.client_id, json);
+                    // Note: json is allocated from scratch allocator, freed at end of frame
+                }
             }
         }
     }
@@ -1169,6 +1228,23 @@ fn shutdown() void {
         g_track_subs = null;
     }
     logging.info("track subscriptions cleaned up", .{});
+
+    if (g_peaks_subs) |subs| {
+        logging.info("cleaning up peaks subscriptions", .{});
+        commands.g_ctx.peaks_subs = null;
+        subs.deinit();
+        g_allocator.destroy(subs);
+        g_peaks_subs = null;
+    }
+    logging.info("peaks subscriptions cleaned up", .{});
+
+    if (g_peaks_cache) |p_cache| {
+        logging.info("cleaning up peaks cache", .{});
+        p_cache.deinit();
+        g_allocator.destroy(p_cache);
+        g_peaks_cache = null;
+    }
+    logging.info("peaks cache cleaned up", .{});
 
     if (g_guid_cache) |cache| {
         logging.info("cleaning up GUID cache", .{});

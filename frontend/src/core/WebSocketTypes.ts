@@ -67,7 +67,7 @@ export interface EventMessage {
   payload?: EventPayload; // Optional for events like 'reload' that have no payload
 }
 
-export type EventType = 'transport' | 'tt' | 'project' | 'trackSkeleton' | 'tracks' | 'meters' | 'markers' | 'regions' | 'items' | 'fx_state' | 'sends_state' | 'reload' | 'actionToggleState' | 'tempoMap' | 'projectNotesChanged' | 'playlist';
+export type EventType = 'transport' | 'tt' | 'project' | 'trackSkeleton' | 'tracks' | 'meters' | 'markers' | 'regions' | 'items' | 'fx_state' | 'sends_state' | 'reload' | 'actionToggleState' | 'tempoMap' | 'projectNotesChanged' | 'playlist' | 'peaks';
 
 export type EventPayload =
   | TransportEventPayload
@@ -84,7 +84,8 @@ export type EventPayload =
   | ActionToggleStateEventPayload
   | TempoMapEventPayload
   | ProjectNotesChangedEventPayload
-  | PlaylistEventPayload;
+  | PlaylistEventPayload
+  | PeaksEventPayload;
 
 /** Lightweight transport tick event (position updates during playback) */
 export interface TransportTickEventPayload {
@@ -392,6 +393,27 @@ export interface PlaylistEventPayload {
 }
 
 // =============================================================================
+// Peaks Subscription Event (per-client, pushed by backend)
+// =============================================================================
+
+/** Individual item's peaks from subscription */
+export interface WSItemPeaks {
+  itemGuid: string;
+  trackIdx: number;
+  itemIdx: number;
+  position: number; // seconds
+  length: number; // seconds
+  channels: 1 | 2;
+  peaks: StereoPeak[] | MonoPeak[];
+}
+
+/** Peaks event payload from subscription */
+export interface PeaksEventPayload {
+  trackGuid: string;
+  items: WSItemPeaks[];
+}
+
+// =============================================================================
 // Peaks Response (from item/getPeaks command)
 // =============================================================================
 
@@ -596,4 +618,10 @@ export function isPlaylistEvent(
   msg: EventMessage
 ): msg is EventMessage & { payload: PlaylistEventPayload } {
   return msg.event === 'playlist';
+}
+
+export function isPeaksEvent(
+  msg: EventMessage
+): msg is EventMessage & { payload: PeaksEventPayload } {
+  return msg.event === 'peaks';
 }

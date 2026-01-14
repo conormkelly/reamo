@@ -3,17 +3,19 @@
  * Renders waveforms for items on the selected track in Navigate mode
  *
  * Positioned to overlay the colored item blobs from ItemsDensityOverlay.
- * Uses batch fetching with concurrency control to avoid overwhelming the backend.
+ * Uses WebSocket subscription for peaks - data is pushed when items change.
  */
 
 import { useMemo, useRef, useEffect, type ReactElement } from 'react';
-import type { WSItem, PeaksResponsePayload, StereoPeak, MonoPeak } from '../../core/WebSocketTypes';
-import { useBatchPeaksFetch } from '../../hooks/useBatchPeaksFetch';
+import type { WSItem, StereoPeak, MonoPeak } from '../../core/WebSocketTypes';
+import { usePeaksSubscription } from '../../hooks/usePeaksSubscription';
 import { getContrastColor } from '../../utils';
 
 export interface TimelineWaveformOverlayProps {
   /** Items on the colored track (pre-filtered) */
   items: WSItem[];
+  /** Track GUID to subscribe to for peaks */
+  trackGuid: string | null;
   /** Timeline start time in seconds */
   timelineStart: number;
   /** Timeline end time in seconds */
@@ -22,11 +24,6 @@ export interface TimelineWaveformOverlayProps {
   height: number;
   /** Whether waveform fetching is enabled */
   enabled: boolean;
-}
-
-/** Build item key for lookup - must match useBatchPeaksFetch key format (GUID-based) */
-function itemKey(item: WSItem): string {
-  return `${item.guid}:${item.length.toFixed(3)}:${item.activeTakeIdx}`;
 }
 
 /** Check if peaks are stereo */
@@ -138,7 +135,7 @@ function WaveformBlob({
   blobHeight,
   itemColor,
 }: {
-  peaks: PeaksResponsePayload;
+  peaks: StereoPeak[] | MonoPeak[];
   leftPercent: number;
   widthPercent: number;
   topOffset: number;
@@ -163,7 +160,7 @@ function WaveformBlob({
     ctx.scale(dpr, dpr);
 
     // Draw waveform with contrast colors
-    drawWaveform(ctx, peaks.peaks, rect.width, rect.height, colors.fill, colors.centerline);
+    drawWaveform(ctx, peaks, rect.width, rect.height, colors.fill, colors.centerline);
   }, [peaks, blobHeight, colors]);
 
   return (
@@ -182,22 +179,18 @@ function WaveformBlob({
 
 export function TimelineWaveformOverlay({
   items,
+  trackGuid,
   timelineStart,
   timelineEnd,
   height,
   enabled,
 }: TimelineWaveformOverlayProps): ReactElement | null {
-  // Calculate width for peaks request - based on approximate pixel width
-  // Request more peaks for wider items to get better resolution
-  const peaksWidth = useMemo(() => {
-    // Estimate ~100 peaks per item is reasonable for timeline blobs
-    return 100;
-  }, []);
+  // Subscribe to peaks for the track (data pushed by backend)
+  const peaksData = usePeaksSubscription(enabled ? trackGuid : null);
 
-  // Fetch peaks for all items
-  const peaksResults = useBatchPeaksFetch(items, enabled, peaksWidth);
-
-  // Calculate visible items with positions
+  // Calculate visible items with full item positions (not clamped)
+  // Parent overflow:hidden clips to visible area, so we render full waveform
+  // and let CSS handle clipping - this is smoother than re-slicing peaks on pan
   const visibleItems = useMemo(() => {
     const duration = timelineEnd - timelineStart;
     if (duration <= 0) return [];
@@ -207,16 +200,13 @@ export function TimelineWaveformOverlay({
         const itemEnd = item.position + item.length;
         return itemEnd > timelineStart && item.position < timelineEnd;
       })
-      .map((item) => {
-        const clampedStart = Math.max(item.position, timelineStart);
-        const clampedEnd = Math.min(item.position + item.length, timelineEnd);
-        return {
-          item,
-          key: itemKey(item),
-          leftPercent: ((clampedStart - timelineStart) / duration) * 100,
-          widthPercent: ((clampedEnd - clampedStart) / duration) * 100,
-        };
-      });
+      .map((item) => ({
+        item,
+        // Full item position (can be negative if item starts before viewport)
+        leftPercent: ((item.position - timelineStart) / duration) * 100,
+        // Full item width (can extend past 100% if item ends after viewport)
+        widthPercent: (item.length / duration) * 100,
+      }));
   }, [items, timelineStart, timelineEnd]);
 
   // Don't render if no items or not enabled
@@ -231,16 +221,17 @@ export function TimelineWaveformOverlay({
   return (
     <div
       data-testid="timeline-waveform-overlay"
-      className="absolute inset-0 z-[1] pointer-events-none"
+      className="absolute inset-0 z-[1] pointer-events-none overflow-hidden"
     >
       {visibleItems.map((v) => {
-        const result = peaksResults.get(v.key);
-        if (!result?.peaks) return null;
+        // Look up peaks by item GUID
+        const peaksEntry = peaksData.get(v.item.guid);
+        if (!peaksEntry) return null;
 
         return (
           <WaveformBlob
-            key={v.key}
-            peaks={result.peaks}
+            key={v.item.guid}
+            peaks={peaksEntry.peaks}
             leftPercent={v.leftPercent}
             widthPercent={v.widthPercent}
             topOffset={topOffset}

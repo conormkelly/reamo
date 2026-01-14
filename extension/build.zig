@@ -36,6 +36,8 @@ pub fn build(b: *std.Build) void {
         "src/sends.zig",
         "src/frame_arena.zig",
         "src/tiered_state.zig",
+        "src/peaks_cache.zig",
+        "src/peaks_subscriptions.zig",
     };
 
     const test_step = b.step("test", "Run unit tests");

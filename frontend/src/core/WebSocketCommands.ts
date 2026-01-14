@@ -796,3 +796,24 @@ export const playlist = {
     params: { playlistIdx, stopAfterLast: stopAfterLast ? 1 : 0 },
   }),
 };
+
+// =============================================================================
+// Peaks Subscription Commands
+// =============================================================================
+
+export const peaks = {
+  /**
+   * Subscribe to peaks for a track.
+   * After subscribing, the client receives "peaks" events whenever items on the track change.
+   * @param trackGuid - GUID of the track to subscribe to
+   * @param sampleCount - Number of peak samples per item (default 30)
+   */
+  subscribe: (trackGuid: string, sampleCount?: number): WSCommand => ({
+    command: 'peaks/subscribe',
+    params: { trackGuid, ...(sampleCount !== undefined && { sampleCount }) },
+  }),
+  /** Unsubscribe from peaks updates. */
+  unsubscribe: (): WSCommand => ({
+    command: 'peaks/unsubscribe',
+  }),
+};

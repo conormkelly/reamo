@@ -6,12 +6,12 @@
 |-------|-------------|--------|
 | 1 | Frontend GUID-based selection | ✅ Complete |
 | 2a | Backend subscription infrastructure | ✅ Complete |
-| 2b | Backend peak generation & broadcasting | ⏳ Next |
-| 3 | Backend caching with LRU | Pending |
-| 4 | Frontend subscription hook | Pending |
-| 5 | Cleanup old code | Pending |
+| 2b | Backend peak generation & broadcasting | ✅ Complete |
+| 3 | Backend caching with LRU | ✅ Complete |
+| 4 | Frontend subscription hook | ✅ Complete |
+| 5 | Cleanup old code | ✅ Complete |
 
-**Current state:** Phase 2a complete. Backend has `peaks/subscribe` and `peaks/unsubscribe` commands wired up with per-client subscription state management. Next step is adding peak generation and broadcasting in the poll loop (Phase 2b).
+**Current state:** All phases complete. Full subscription system is operational. Frontend subscribes to peaks for the selected track, backend pushes peaks events when items change.
 
 ---
 
@@ -622,36 +622,138 @@ Client A disconnects
 
 **Tests:** Zig build + tests pass, frontend 742/742 passing
 
-### Phase 2b: Add peak generation & broadcasting ⏳ NEXT
+### Phase 2b: Add peak generation & broadcasting ✅ COMPLETE
 
-1. Implement `generatePeaksForTrack()` (reuse existing AudioAccessor code from `item/getPeaks`)
-2. Add `peaks` event type to protocol
-3. Add broadcasting in tick loop (check subscribed tracks, push if changed)
-4. Handle `force_broadcast` flag for immediate data on subscribe
+**Status:** Completed on 2026-01-14
 
-### Phase 3: Add backend caching
+**Files created:**
 
-1. Implement content-addressed `PeaksCacheKey` struct
-2. Create global `peaks_cache` HashMap with LRU eviction
-3. Add change detection via `computeTrackItemsHash()`
-4. Only regenerate peaks for items whose content changed
+| File | Description |
+|------|-------------|
+| `extension/src/peaks_generator.zig` | Peak generation for all items on a track using AudioAccessor |
 
-### Phase 4: Frontend integration
+**Files modified:**
 
-1. Add `PeaksSlice` to store
-2. Create `usePeaksSubscription` hook
-3. Update `TimelineWaveformOverlay` to:
-   - Accept `coloredTrackGuid` prop (derived from `selectedItemGuid`)
-   - Use `usePeaksSubscription(coloredTrackGuid)`
-   - Render from subscription data, no loading states
-4. Remove `useBatchPeaksFetch` hook (deprecated)
+| File | Change |
+|------|--------|
+| `extension/src/main.zig` | Added import, broadcasting in poll loop on `force_broadcast` |
 
-### Phase 5: Cleanup
+**Implementation:**
+- `generatePeaksForTrack()` resolves track GUID via GuidCache, iterates items, generates peaks
+- Reuses AudioAccessor peak extraction logic from `handleItemGetPeaks`
+- Detects mono vs stereo by comparing L/R peaks
+- Serializes to JSON event format: `{"event":"peaks","payload":{...}}`
+- Broadcasting triggers on `force_broadcast` (set when client subscribes)
+- Per-client delivery via `sendToClient(client_id, json)`
 
-1. Remove frontend `PeaksCache.ts` (no longer needed)
-2. Deprecate or remove `item/getPeaks` (or keep for ItemsTimeline detail view)
-3. Update API documentation
-4. Remove old selection helpers (`makeItemKey`, `parseItemKey`)
+**Event format:**
+```json
+{
+  "event": "peaks",
+  "payload": {
+    "trackGuid": "{GUID}",
+    "items": [
+      {
+        "itemGuid": "{GUID}",
+        "trackIdx": 0,
+        "itemIdx": 0,
+        "position": 1.5,
+        "length": 2.0,
+        "channels": 1,
+        "peaks": [[min,max], ...]
+      }
+    ]
+  }
+}
+```
+
+**Tests:** Zig build + tests pass, frontend 742/742 passing
+
+### Phase 3: Add backend caching ✅ COMPLETE
+
+**Status:** Completed on 2026-01-14
+
+**Files created:**
+
+| File | Description |
+|------|-------------|
+| `extension/src/peaks_cache.zig` | LRU cache with content-addressed keys and track change detection |
+
+**Files modified:**
+
+| File | Change |
+|------|--------|
+| `extension/src/peaks_generator.zig` | Added `generatePeaksForTrackCached()` with cache lookup/store |
+| `extension/src/main.zig` | Initialize `g_peaks_cache`, use cached generator, broadcast on track change |
+
+**Implementation:**
+- `PeaksCacheKey`: Content-addressed based on take GUID, start offset, playrate, length, sample count
+- `CachedPeaks`: Stores peak min/max arrays with LRU timestamp (frame counter)
+- `PeaksCache`: HashMap with 2000 entry limit and LRU eviction
+- Track change detection: `computeTrackItemsHash()` hashes all item/take properties
+- Broadcast triggers: force_broadcast (new subscription) OR track items changed
+- Cache stats logged: hits vs misses per generation
+
+**Cache behavior:**
+- Item moves → cache hit (position doesn't affect audio)
+- Item resized → cache miss (length changed)
+- Take switched → cache miss (different take GUID)
+- Playrate changed → cache miss (affects audio playback)
+- No changes → no broadcast (skip entirely)
+
+**Tests:** Zig build + tests pass, frontend 742/742 passing
+
+### Phase 4: Frontend integration ✅ COMPLETE
+
+**Status:** Completed on 2026-01-14
+
+**Files created:**
+
+| File | Description |
+|------|-------------|
+| `frontend/src/store/slices/peaksSlice.ts` | Store slice for peaks subscription state |
+| `frontend/src/hooks/usePeaksSubscription.ts` | Hook that manages subscribe/unsubscribe lifecycle |
+
+**Files modified:**
+
+| File | Change |
+|------|--------|
+| `frontend/src/core/WebSocketTypes.ts` | Added `PeaksEventPayload`, `WSItemPeaks`, `isPeaksEvent` |
+| `frontend/src/core/WebSocketCommands.ts` | Added `peaks.subscribe()` and `peaks.unsubscribe()` |
+| `frontend/src/store/index.ts` | Added `PeaksSlice`, peaks event handler |
+| `frontend/src/components/Timeline/TimelineWaveformOverlay.tsx` | Use `usePeaksSubscription` instead of `useBatchPeaksFetch` |
+| `frontend/src/components/Timeline/Timeline.tsx` | Derive `coloredTrackGuid` and pass to waveform overlay |
+
+**Implementation:**
+- `PeaksSlice`: Stores `subscribedTrackGuid` and `peaksData` (Map<itemGuid, WSItemPeaks>)
+- `usePeaksSubscription(trackGuid)`: Subscribes on mount/change, unsubscribes on unmount
+- `TimelineWaveformOverlay`: Receives `trackGuid` prop, looks up peaks by item GUID
+- No loading states - waveforms appear when data arrives
+
+**Tests:** Zig build + tests pass, frontend 742/742 passing
+
+### Phase 5: Cleanup ✅ COMPLETE
+
+**Status:** Completed on 2026-01-14
+
+**Files removed:**
+
+| File | Reason |
+|------|--------|
+| `frontend/src/hooks/useBatchPeaksFetch.ts` | Replaced by subscription system |
+
+**Files modified:**
+
+| File | Change |
+|------|--------|
+| `frontend/src/hooks/index.ts` | Removed `useBatchPeaksFetch` export, added `usePeaksSubscription` |
+
+**Kept (still needed):**
+- `PeaksCache.ts` - Still used by `usePeaksFetch` for ItemsTimeline detail view
+- `usePeaksFetch.ts` - Still used by `WaveformItem.tsx` for high-resolution peaks
+- `item/getPeaks` backend command - Still used for on-demand detail view
+
+**Tests:** Zig build + tests pass, frontend 742/742 passing
 
 ---
 
