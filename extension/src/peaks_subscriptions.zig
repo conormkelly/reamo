@@ -7,6 +7,12 @@
 /// When subscribed, the backend pushes peak data for all items on the subscribed tracks.
 /// The event format is a track-keyed map for efficient O(1) lookup.
 ///
+/// TODO: Master track (idx 0) in peaks subscriptions?
+///   - Currently: Range starts at 1 by convention (excludes master)
+///   - Master track CAN have audio items if "Show master track in arrange" is enabled
+///   - Options: A) Keep excluding master, B) Allow idx 0, document clearly
+///   - Master rarely has items, so low priority. Revisit if users request.
+///
 /// Usage:
 ///   var subs = PeaksSubscriptions.init(allocator);
 ///   defer subs.deinit();

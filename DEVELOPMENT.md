@@ -1378,6 +1378,49 @@ pub const DEBUG_LOGGING = true;  // Set to true for console output
 
 Then check REAPER's console (Actions → Show console).
 
+## WebSocket Compression
+
+**Status:** Blocked on upstream library
+
+The `action/getActions` command returns ~985KB of JSON (15,619 actions across 6 sections). Fine for local WiFi (<1 second) but could benefit from compression.
+
+websocket.zig library has per-message deflate disabled for Zig 0.15. Library author noted: "Compression is disabled as part of the 0.15 upgrade. I do hope to re-enable it soon."
+
+**When library supports it:**
+```zig
+.compression = .{
+    .write_threshold = 256, // Only compress messages > 256 bytes
+    .retain_write_buffer = true,
+},
+```
+
+**Expected:** ~985KB → ~60-80KB compressed.
+
+**Workaround if needed:** Link system zlib via `@cImport`, compress at application layer, send binary frames with gzip magic bytes (`0x1f 0x8b`).
+
+---
+
+## Profiling Strategy
+
+Before optimizing, measure actual impact:
+
+1. **Baseline comparison**: Measure REAPER CPU with extension disabled vs enabled
+2. **Per-callback timing**: Add `std.time.Timer` instrumentation to `processTimerCallback`
+3. **Callback jitter**: Record actual intervals between callbacks (should be ~33ms ± 5ms)
+
+```zig
+var timer = try std.time.Timer.start();
+// ... callback work ...
+const elapsed_ns = timer.read();
+if (elapsed_ns > 1_000_000) { // > 1ms
+    log("Slow callback: {}ms", elapsed_ns / 1_000_000);
+}
+```
+
+**Tracy integration** (optional): Real-time profiling with callstack support. Requires adding TracyClient.cpp to build.
+
+---
+
 ## Common Pitfalls
 
 1. **Track index 0 is NOT master in raw REAPER API** - always use `getTrackByUnifiedIdx()`

@@ -147,6 +147,26 @@ Existing take switcher needs UX improvements:
 
 ## P3 — Future Features (Deferred)
 
+### Track Create UI
+Add "New Track" button to TrackInfoBar or as FAB in mixer.
+
+**Implementation:**
+- Backend `track/create` command already exists
+- Wire up UI button
+- Consider: prompt for track name, input source selection
+
+---
+
+### Folder Display
+Show folder hierarchy in mixer/track views.
+
+**Requirements:**
+- Indentation or visual grouping for child tracks
+- Collapse/expand folder tracks
+- Backend already sends `isFolder` flag
+
+---
+
 ### Touch Instruments
 Chord strips and scale-locked keyboard for songwriting workflow.
 
@@ -240,3 +260,24 @@ For reference — features completed in recent commits:
 **P2 items** require architectural changes but unlock new workflows.
 
 **P3 items** are substantial new feature areas that need dedicated planning.
+
+---
+
+## Future Optimizations
+
+Low-priority performance improvements to consider when scaling or if profiling indicates need.
+
+### WebSocket Compression (gzip)
+Per-message deflate for large payloads (action list ~985KB). Blocked on websocket.zig library update for Zig 0.15. Expected 10-15x compression for text payloads.
+
+### Diff-Based Events
+Only send changed fields instead of full state snapshots. Would reduce bandwidth for large track counts but adds complexity.
+
+### FX Polling Optimization
+Poll FX state on-demand or on track selection change, not every 30ms. Could integrate with CSurf hybrid architecture (see `docs/architecture/CSURF_HYBRID.md`) for push-based FX change notifications.
+
+### Idle When No Clients
+Skip all polling when `clientCount() == 0`. One-line change in timer callback. Trade-off: ~30ms delay to first update on connect.
+
+### Per-Track Metering Subscriptions
+Currently all visible tracks get metered. Could subscribe per-track for large projects where only a few tracks are visible.
