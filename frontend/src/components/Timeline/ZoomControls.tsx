@@ -5,6 +5,7 @@
 
 import { useState, useRef, useEffect, type ReactElement } from 'react';
 import { ZoomOut, ZoomIn, Maximize2 } from 'lucide-react';
+import { formatZoomDuration } from '../../utils/timelineTicks';
 
 export interface ZoomControlsProps {
   /** Current visible duration in seconds */
@@ -17,23 +18,6 @@ export interface ZoomControlsProps {
   onFitToContent?: () => void;
   /** Optional className for container */
   className?: string;
-}
-
-/**
- * Format duration for display
- * @param seconds Duration in seconds
- * @returns Formatted string (e.g., "30s", "2m", "1h")
- */
-function formatDuration(seconds: number): string {
-  if (seconds < 60) {
-    return `${Math.round(seconds)}s`;
-  }
-  if (seconds < 3600) {
-    const minutes = Math.round(seconds / 60);
-    return `${minutes}m`;
-  }
-  const hours = Math.round(seconds / 3600);
-  return `${hours}h`;
 }
 
 export function ZoomControls({
@@ -87,7 +71,7 @@ export function ZoomControls({
       >
         <span className="text-[10px] font-medium leading-tight">Zoom</span>
         <span className="text-[10px] font-medium tabular-nums leading-tight">
-          {formatDuration(visibleDuration)}
+          {formatZoomDuration(visibleDuration)}
         </span>
       </button>
 

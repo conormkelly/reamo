@@ -270,12 +270,28 @@ Consistent with Mixer view - same controls, same patterns:
 1. ~~**Waveforms rendering in wrong position**~~ - Fixed: MultiTrackLanes now renders its own waveforms
 2. **"Item selection mode" concept is awkward** - With items always visible in lanes,
    the mode mainly just shows/hides the info bar. Consider simplifying.
-3. **Ruler labels jank at edges** - DOM-based ruler causes labels to pop in/out at
-   viewport edges during scroll. Future: port ruler to canvas for smooth clipping.
+3. ~~**Ruler/grid jank during pan**~~ - Fixed: Unified tick generator with:
+   - 10% visibility buffer prevents edge jank
+   - Duration snapping to nearest ZOOM_STEP prevents step size flipping
+     (e.g., 30.5s clamped duration now treated same as 30s)
+   - Time format precision also snaps (prevents decimal place flipping)
+   - Grid and ruler use same generator for consistency
 4. ~~**React Error 185 on item tap**~~ - Fixed: Removed legacy TimelineWaveformOverlay
    which was creating a second peaks subscription (GUID mode) that conflicted with
    MultiTrackLanes' subscription (range mode). Single-track mode is deprecated.
-5. **Waveform jitter during momentum scroll** - Cosmetic issue where waveforms have
+5. **Waveform brightness changes at viewport edges** - Items appear brighter when fully
+   visible, dimmer when partially clipped by parent's `overflow:hidden`. Root cause is
+   browser compositing behavior - canvas dimensions are identical in both states (verified
+   via HTML snapshot diff). Multiple fix attempts failed:
+   - Explicit canvas state reset (setTransform, globalAlpha, clearRect)
+   - GPU compositing hints (willChange, transform: translateZ(0))
+   - CSS positioning changes (inset-0 vs top-0 left-0)
+
+   **Likely solution**: Full canvas rendering for timeline content area (single canvas
+   for all items/waveforms instead of per-item canvases). This eliminates browser
+   compositing of partially-clipped child canvases entirely. See "Canvas Architecture
+   Considerations" section below.
+6. **Waveform jitter during momentum scroll** - Cosmetic issue where waveforms have
    "wibbly wobbly" appearance during momentum/inertial scrolling. Low priority.
 
 ### Implementation Notes for Future Sessions
@@ -307,8 +323,9 @@ Consistent with Mixer view - same controls, same patterns:
 **Timeline ruler** (TimelineRuler.tsx):
 - REAPER-style: bar.beat on top (e.g. "0.1"), time below, tick line extending down
 - Positioned at top (above region labels), 32px height, rounded top corners
-- Starts from bar 0 (not bar 1)
-- Uses same tempo-aware logic as TimelineGridLines
+- Bar numbers come from REAPER via barOffset (can be negative, e.g., project starts at bar -4)
+- Uses unified tick generator (`timelineTicks.ts`) shared with grid lines
+- Duration snapped to nearest ZOOM_STEP before threshold comparison (prevents step flipping)
 - Adaptive density (sparser than grid): ≤10s every bar, ≤15s every 2, ≤30s every 4, ≤60s every 8, ≤120s every 16, >120s every 32
 - Beat subdivisions shown as small ticks when zoomed in (≤10s)
 - Time precision adapts to zoom: ≤15s → 3 decimals (0:00.000), ≤30s → 2 decimals (0:00.00), >30s → no decimals (0:00)
@@ -364,3 +381,69 @@ Consistent with Mixer view - same controls, same patterns:
 - Toolbar provides quick access to common actions
 - Full-screen = more immersive, less cramped
 - Studio view can be retired without losing functionality
+
+---
+
+## Canvas Architecture Considerations
+
+The current implementation uses HTML elements with per-item canvas overlays for waveforms.
+This has caused browser compositing issues (brightness changes when items are partially
+clipped). A full canvas approach may resolve these issues.
+
+### Current: HTML + Canvas Overlays
+
+```
+┌─ Timeline Container (HTML div) ─────────────────────┐
+│  ┌─ Track Lane (HTML div, overflow:hidden) ───────┐ │
+│  │  ┌─ Item (HTML div) ────────────────────────┐  │ │
+│  │  │  ┌─ Canvas (waveform) ─────────────────┐ │  │ │
+│  │  │  │  [drawn peaks data]                 │ │  │ │
+│  │  │  └─────────────────────────────────────┘ │  │ │
+│  │  └──────────────────────────────────────────┘  │ │
+│  └────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────┘
+```
+
+**Pros**: React handles layout, DOM events work, accessible
+**Cons**: Browser compositing quirks, many layers, sub-pixel issues
+
+### Alternative: Single Canvas for Content
+
+```
+┌─ Timeline Container (HTML) ─────────────────────────┐
+│  ┌─ Ruler (HTML - keeps crisp text) ──────────────┐ │
+│  └────────────────────────────────────────────────┘ │
+│  ┌─ Canvas (items + waveforms + grid) ────────────┐ │
+│  │  [all content drawn via 2D API]                │ │
+│  │  [hit-testing via coordinate math]             │ │
+│  └────────────────────────────────────────────────┘ │
+│  ┌─ Controls (HTML) ──────────────────────────────┐ │
+│  └────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────┘
+```
+
+**Pros**: Complete pixel control, no compositing quirks, batched drawing
+**Cons**: Manual hit-testing, canvas text rendering, no DOM for content
+
+### Hybrid Approach (Recommended)
+
+Keep HTML for ruler, controls, and overlays. Use single canvas for:
+- Track lanes background
+- Items (colored rectangles)
+- Waveforms
+- Grid lines
+- Selection highlights
+
+This gives us:
+- Pixel-perfect rendering without compositing issues
+- Crisp text via HTML (ruler, labels)
+- Hit-testing is already implemented (just reuse coordinate math)
+- Eliminates the brightness bug entirely
+
+### Migration Path
+
+1. Create `TimelineCanvas` component with single canvas
+2. Move item/waveform rendering from `MultiTrackLanes` to canvas draw calls
+3. Keep existing hit-testing logic (already does coordinate math)
+4. Remove per-item canvas elements
+5. Grid lines can move to same canvas (already calculated)

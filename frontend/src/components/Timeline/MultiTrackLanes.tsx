@@ -19,7 +19,7 @@
  * level via hit-testing (same pattern as single-track mode).
  */
 
-import { useMemo, useRef, useEffect, type ReactElement } from 'react';
+import { useMemo, useRef, useEffect, useState, type ReactElement } from 'react';
 import type { WSItem, SkeletonTrack, WSItemPeaks, StereoPeak, MonoPeak } from '../../core/WebSocketTypes';
 import { reaperColorToRgba, getContrastColor } from '../../utils';
 
@@ -56,41 +56,49 @@ function isStereo(peaks: StereoPeak[] | MonoPeak[]): peaks is StereoPeak[] {
   return peaks.length > 0 && typeof peaks[0] === 'object' && 'l' in peaks[0];
 }
 
-/** Mini waveform canvas for multi-track lanes (combined mono-style for space efficiency) */
+/**
+ * Mini waveform canvas for multi-track lanes (combined mono-style for space efficiency)
+ *
+ * Note: We pass explicit pixel dimensions to avoid measuring issues with clipped elements.
+ * When items are partially off-screen (parent has overflow:hidden), DOM measurement APIs
+ * can return incorrect values, causing waveforms to render at wrong resolution.
+ */
 function LaneWaveform({
   peaks,
   color,
+  widthPx,
+  heightPx,
 }: {
   peaks: StereoPeak[] | MonoPeak[];
   color: string;
+  widthPx: number;
+  heightPx: number;
 }): ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || peaks.length === 0) return;
+    if (!canvas || peaks.length === 0 || widthPx === 0 || heightPx === 0) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Set canvas size to match container
-    const rect = canvas.getBoundingClientRect();
+    // Use explicit pixel dimensions passed from parent (avoids clipping measurement issues)
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+    canvas.width = widthPx * dpr;
+    canvas.height = heightPx * dpr;
+
     ctx.scale(dpr, dpr);
 
-    const width = rect.width;
-    const height = rect.height;
-    const centerY = height / 2;
+    const centerY = heightPx / 2;
 
     // Clear
-    ctx.clearRect(0, 0, width, height);
+    ctx.clearRect(0, 0, widthPx, heightPx);
 
     // Draw waveform (combined mono-style for cramped lanes per plan Q9)
     ctx.fillStyle = color;
 
-    const sampleWidth = width / peaks.length;
+    const sampleWidth = widthPx / peaks.length;
 
     peaks.forEach((peak, i) => {
       // For stereo, combine L+R into single peak (average)
@@ -115,13 +123,17 @@ function LaneWaveform({
 
       ctx.fillRect(x, topY, Math.max(sampleWidth - 0.5, 1), bottomY - topY);
     });
-  }, [peaks, color]);
+  }, [peaks, color, widthPx, heightPx]);
 
   return (
     <canvas
       ref={canvasRef}
-      className="absolute inset-0 w-full h-full"
-      style={{ pointerEvents: 'none' }}
+      className="absolute inset-0"
+      style={{
+        pointerEvents: 'none',
+        width: widthPx,
+        height: heightPx,
+      }}
     />
   );
 }
@@ -143,6 +155,28 @@ export function MultiTrackLanes({
   focusedTrackGuid,
   peaksByTrack,
 }: MultiTrackLanesProps): ReactElement | null {
+  // Track container width for calculating item pixel dimensions
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  // ResizeObserver to track container width changes
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    // Initial measurement
+    setContainerWidth(container.offsetWidth);
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width);
+      }
+    });
+    resizeObserver.observe(container);
+
+    return () => resizeObserver.disconnect();
+  }, []);
+
   // Group items by trackIdx for efficient lookup
   const itemsByTrack = useMemo(() => {
     const map = new Map<number, WSItem[]>();
@@ -167,9 +201,11 @@ export function MultiTrackLanes({
   // Item sizing within each lane - 60% of lane height, centered
   // (Proportionally similar to single-track's 25% of full height)
   const itemHeightPercent = 60;
+  const itemHeightPx = (laneHeight * itemHeightPercent) / 100;
 
   return (
     <div
+      ref={containerRef}
       data-testid="multi-track-lanes"
       className="absolute inset-0 pointer-events-none"
       style={{ height }}
@@ -241,10 +277,12 @@ export function MultiTrackLanes({
                   }}
                 >
                   {/* Waveform overlay when peaks available */}
-                  {itemPeaks && itemPeaks.peaks.length > 0 && (
+                  {itemPeaks && itemPeaks.peaks.length > 0 && containerWidth > 0 && (
                     <LaneWaveform
                       peaks={itemPeaks.peaks}
                       color={waveformColor}
+                      widthPx={(v.widthPercent / 100) * containerWidth}
+                      heightPx={itemHeightPx}
                     />
                   )}
                 </div>
