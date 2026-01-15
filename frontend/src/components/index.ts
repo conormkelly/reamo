@@ -15,7 +15,5 @@ export * from './Markers';
 export * from './Regions';
 export * from './Actions';
 export * from './Timeline';
-export * from './ItemsTimeline';
 export * from './Toolbar';
-export * from './Studio';
 export * from './Mixer';

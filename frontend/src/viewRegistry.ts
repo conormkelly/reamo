@@ -3,7 +3,6 @@
  * Maps view IDs to their components for state-based routing
  */
 
-import { StudioView } from './views/studio';
 import { MixerView } from './views/mixer';
 import { TimelineView } from './views/timeline';
 import { ClockView } from './views/clock';
@@ -12,7 +11,6 @@ import { ActionsView } from './views/actions';
 import { NotesView } from './views/notes';
 
 export const views = {
-  studio: StudioView,
   mixer: MixerView,
   timeline: TimelineView,
   clock: ClockView,
@@ -28,7 +26,6 @@ export const DEFAULT_VIEW: ViewId = 'timeline';
 
 // View metadata for TabBar
 export const viewMeta: Record<ViewId, { label: string; shortLabel?: string }> = {
-  studio: { label: 'Studio' },
   mixer: { label: 'Mixer' },
   timeline: { label: 'Timeline' },
   clock: { label: 'Clock' },

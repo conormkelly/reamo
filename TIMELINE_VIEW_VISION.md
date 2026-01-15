@@ -249,7 +249,7 @@ Consistent with Mixer view - same controls, same patterns:
 
 ## Current Progress & Known Issues
 
-**Last updated**: Phase 3.5 complete + waveforms implemented + single-track mode deprecated
+**Last updated**: Phase 5 complete (cleanup done)
 
 ### What's Working
 - Multi-track lanes render correctly with 4 tracks
@@ -345,12 +345,26 @@ Consistent with Mixer view - same controls, same patterns:
 - Collapse animation
 - Persist toolbar state
 
-### Phase 5: Cleanup
+### Phase 5: Cleanup ✅
 
-- Delete Studio view and legacy items mode files
-- Delete `ItemsDensityOverlay` (replaced by MultiTrackLanes)
-- Delete `TimelineWaveformOverlay` (waveforms now in MultiTrackLanes)
-- Clean up unused components
+- ✅ Delete `ItemsTimeline/` folder (archived items mode - 4 components)
+- ✅ Delete `ItemDensityBlobs.tsx` (replaced by MultiTrackLanes)
+- ✅ Delete `TimelineWaveformOverlay.tsx` (waveforms now in MultiTrackLanes)
+- ✅ Remove `useSingleTrackPeaks` deprecated hook
+- ✅ Clean up barrel exports
+- ✅ Delete Studio view (`components/Studio/`, `views/studio/`) - Timeline + Mixer views replace it
+- ✅ Move Pin Master setting to Mixer view settings menu
+
+### Follow-up Tasks (Post-Cleanup)
+
+1. **Wire up Pin Master in Mixer view** - Toggle exists in SettingsMenu (Mixer section) but
+   needs to be connected to actual functionality in MixerView that pins the MASTER track.
+
+2. **Rethink Recording Quick Actions** - With Studio view gone, the "Rec Quick Actions"
+   toggle is now in the Global settings section. Need to decide:
+   - Where should these actions appear in the UI? (Timeline footer? Persistent transport?)
+   - Should it be view-specific or truly global?
+   - What actions should it include now that it's not tied to Studio's recording workflow?
 
 ---
 

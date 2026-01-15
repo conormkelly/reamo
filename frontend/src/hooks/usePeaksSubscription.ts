@@ -147,27 +147,3 @@ export function usePeaksSubscription(
     getPeaksForItem,
   };
 }
-
-/**
- * Convenience hook for single-track peaks subscription
- * (backward compatibility / simple use cases)
- *
- * @deprecated Use usePeaksSubscription({ guids: [trackGuid] }) instead
- */
-export function useSingleTrackPeaks(
-  trackGuid: string | null,
-  sampleCount: number = DEFAULT_SAMPLE_COUNT
-): Map<string, WSItemPeaks> | undefined {
-  const { peaksByTrack } = usePeaksSubscription(
-    trackGuid ? { guids: [trackGuid], sampleCount } : null
-  );
-
-  // Find the track by GUID in the returned data
-  // Since we subscribed by GUID, we need to find which trackIdx it resolved to
-  // For now, just return the first track's data (since we only subscribed to one)
-  if (peaksByTrack.size === 0) return undefined;
-
-  // Return the first (and only) entry
-  const firstEntry = peaksByTrack.values().next().value;
-  return firstEntry;
-}

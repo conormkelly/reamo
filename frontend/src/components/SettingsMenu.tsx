@@ -6,7 +6,6 @@
 import { useState, useRef, useEffect, type ReactElement } from 'react';
 import { Menu, X, Eye, EyeOff, ArrowLeftRight, ToggleLeft, ToggleRight } from 'lucide-react';
 import type { ViewId } from '../viewRegistry';
-import { ReorderSectionsModal } from './Studio';
 
 export interface SettingsMenuProps {
   showTabBar: boolean;
@@ -18,7 +17,7 @@ export interface SettingsMenuProps {
   currentView: ViewId;
   showRecordingActions: boolean;
   onToggleRecordingActions: () => void;
-  // Studio view settings
+  // Mixer view settings
   pinMasterTrack: boolean;
   onTogglePinMasterTrack: () => void;
   // Actions view settings
@@ -44,7 +43,6 @@ export function SettingsMenu({
   className = '',
 }: SettingsMenuProps): ReactElement {
   const [isOpen, setIsOpen] = useState(false);
-  const [showReorderModal, setShowReorderModal] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Close menu when clicking outside
@@ -124,43 +122,29 @@ export function SettingsMenu({
             </span>
           </button>
 
-          {/* Studio section - only shown in Studio view */}
-          {currentView === 'studio' && (
+          {/* Recording Actions toggle */}
+          <button
+            onClick={() => {
+              onToggleRecordingActions();
+            }}
+            className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
+            data-testid="settings-rec-quick-actions"
+          >
+            <span className="text-sm">Rec Quick Actions</span>
+            <span className={`flex items-center gap-1.5 text-xs ${showRecordingActions ? 'text-success' : 'text-text-muted'}`}>
+              {showRecordingActions ? <Eye size={14} /> : <EyeOff size={14} />}
+              {showRecordingActions ? 'Visible' : 'Hidden'}
+            </span>
+          </button>
+
+          {/* Mixer section - only shown in Mixer view */}
+          {currentView === 'mixer' && (
             <>
               <div className="my-2 border-t border-border-subtle" />
 
               <div className="px-3 py-1.5 text-xs text-text-secondary uppercase tracking-wide">
-                Studio
+                Mixer
               </div>
-
-              {/* Reorder Sections button */}
-              <button
-                onClick={() => {
-                  setShowReorderModal(true);
-                  setIsOpen(false);
-                }}
-                className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
-              >
-                <span className="text-sm">Reorder Sections</span>
-                <span className="flex items-center gap-1.5 text-xs text-primary">
-                  <ArrowLeftRight size={14} />
-                </span>
-              </button>
-
-              {/* Recording Actions toggle */}
-              <button
-                onClick={() => {
-                  onToggleRecordingActions();
-                }}
-                className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
-                data-testid="settings-rec-quick-actions"
-              >
-                <span className="text-sm">Rec Quick Actions</span>
-                <span className={`flex items-center gap-1.5 text-xs ${showRecordingActions ? 'text-success' : 'text-text-muted'}`}>
-                  {showRecordingActions ? <Eye size={14} /> : <EyeOff size={14} />}
-                  {showRecordingActions ? 'Visible' : 'Hidden'}
-                </span>
-              </button>
 
               {/* Pin Master Track toggle */}
               <button
@@ -202,12 +186,6 @@ export function SettingsMenu({
           )}
         </div>
       )}
-
-      {/* Reorder Sections Modal */}
-      <ReorderSectionsModal
-        isOpen={showReorderModal}
-        onClose={() => setShowReorderModal(false)}
-      />
     </div>
   );
 }
