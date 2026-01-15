@@ -207,13 +207,25 @@ export const createToolbarSlice: StateCreator<ToolbarSlice> = (set, get) => ({
   },
 
   // UI state
-  setToolbarCollapsed: (collapsed) => set({ toolbarCollapsed: collapsed }),
   setToolbarEditMode: (editMode) => set({ toolbarEditMode: editMode }),
+  setToolbarCollapsed: (collapsed) => {
+    set({ toolbarCollapsed: collapsed });
+    // Persist collapsed state with other settings
+    try {
+      const settings = localStorage.getItem(TOOLBAR_SETTINGS_KEY);
+      const parsed = settings ? JSON.parse(settings) : {};
+      localStorage.setItem(TOOLBAR_SETTINGS_KEY, JSON.stringify({ ...parsed, collapsed }));
+    } catch (e) {
+      console.error('Failed to save toolbar settings:', e);
+    }
+  },
   setToolbarAlign: (align) => {
     set({ toolbarAlign: align });
     // Persist settings separately from actions
     try {
-      localStorage.setItem(TOOLBAR_SETTINGS_KEY, JSON.stringify({ align }));
+      const settings = localStorage.getItem(TOOLBAR_SETTINGS_KEY);
+      const parsed = settings ? JSON.parse(settings) : {};
+      localStorage.setItem(TOOLBAR_SETTINGS_KEY, JSON.stringify({ ...parsed, align }));
     } catch (e) {
       console.error('Failed to save toolbar settings:', e);
     }
@@ -231,9 +243,12 @@ export const createToolbarSlice: StateCreator<ToolbarSlice> = (set, get) => ({
       // Load settings
       const settings = localStorage.getItem(TOOLBAR_SETTINGS_KEY);
       if (settings) {
-        const parsed = JSON.parse(settings) as { align?: ToolbarAlign };
+        const parsed = JSON.parse(settings) as { align?: ToolbarAlign; collapsed?: boolean };
         if (parsed.align) {
           set({ toolbarAlign: parsed.align });
+        }
+        if (parsed.collapsed !== undefined) {
+          set({ toolbarCollapsed: parsed.collapsed });
         }
       }
     } catch (e) {

@@ -84,7 +84,12 @@ export function ToolbarHeaderControls(): ReactElement {
   );
 }
 
-export function Toolbar(): ReactElement {
+interface ToolbarProps {
+  /** Button size variant */
+  size?: 'xs' | 'sm' | 'md' | 'lg';
+}
+
+export function Toolbar({ size = 'md' }: ToolbarProps): ReactElement {
   const {
     toolbarActions,
     toolbarEditMode,
@@ -213,7 +218,7 @@ export function Toolbar(): ReactElement {
   return (
     <>
       {/* Toolbar content */}
-      <div className={`flex gap-2 overflow-x-auto p-1 pb-2 ${
+      <div className={`flex gap-1.5 overflow-x-auto ${size === 'xs' ? 'py-0.5' : 'p-1 pb-2'} ${
         toolbarAlign === 'center' ? 'justify-center' :
         toolbarAlign === 'right' ? 'justify-end' : ''
       }`}>
@@ -228,6 +233,7 @@ export function Toolbar(): ReactElement {
             }
             editMode={toolbarEditMode}
             onEdit={() => handleEditClick(action)}
+            size={size}
             dragProps={getDragItemProps(index)}
             isDragTarget={isDragTarget(index)}
           />

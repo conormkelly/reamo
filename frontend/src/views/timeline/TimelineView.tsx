@@ -16,7 +16,8 @@
  */
 
 import { useMemo, useState, useCallback, useRef, useEffect, type ReactElement } from 'react';
-import { ViewHeader } from '../../components';
+import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ViewHeader, Toolbar, ToolbarHeaderControls } from '../../components';
 import {
   Timeline,
   RegionInfoBar,
@@ -55,6 +56,8 @@ export function TimelineView(): ReactElement {
   const selectedMarkerId = useReaperStore((s) => s.selectedMarkerId);
   const itemSelectionModeActive = useReaperStore((s) => s.itemSelectionModeActive);
   const totalTracks = useReaperStore((s) => s?.totalTracks ?? 0);
+  const toolbarCollapsed = useReaperStore((s) => s.toolbarCollapsed);
+  const setToolbarCollapsed = useReaperStore((s) => s.setToolbarCollapsed);
   const { positionSeconds } = useTransport();
 
   // Get skeleton from hook (same pattern as Mixer)
@@ -410,9 +413,25 @@ export function TimelineView(): ReactElement {
         )}
       </div>
 
-      {/* Footer - filter and bank navigation (same pattern as Mixer) */}
-      <div className="pt-2 border-t border-border-subtle">
-        <div className="flex items-center gap-3">
+      {/* Footer - collapsible toolbar + filter + bank navigation */}
+      <div className="border-t border-border-subtle">
+        {/* Collapsible toolbar section */}
+        <div className="flex items-center justify-between py-1.5">
+          <button
+            onClick={() => setToolbarCollapsed(!toolbarCollapsed)}
+            className="flex items-center gap-1 text-xs font-medium text-text-secondary hover:text-text-tertiary transition-colors"
+          >
+            {toolbarCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            <span>Toolbar</span>
+          </button>
+          {/* Header controls - shown when expanded */}
+          {!toolbarCollapsed && <ToolbarHeaderControls />}
+        </div>
+        {/* Toolbar content - only rendered when expanded */}
+        {!toolbarCollapsed && <Toolbar size="sm" />}
+
+        {/* Filter + bank navigator row */}
+        <div className="flex items-center gap-3 pt-1.5 pb-1">
           {/* Track filter on left - takes remaining space */}
           <TrackFilter
             value={filterQuery}

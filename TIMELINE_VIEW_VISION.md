@@ -338,12 +338,13 @@ Consistent with Mixer view - same controls, same patterns:
 - Hold delay: 300ms
 - Ruler height: 32px
 
-### Phase 4: Collapsible Toolbar
+### Phase 4: Collapsible Toolbar ✅
 
-- User-configurable quick actions (like Studio toolbar / Actions page)
-- Support multiple toolbar configs users can switch between
-- Collapse animation
-- Persist toolbar state
+- ✅ User-configurable quick actions - reuses existing Toolbar component
+- ✅ Collapse toggle with expand/collapse button
+- ✅ Persist toolbar state (collapsed state saved to localStorage)
+- ⏳ Support multiple toolbar configs (future enhancement)
+- ⏳ Collapse animation (currently instant, could add transition)
 
 ### Phase 5: Cleanup ✅
 
@@ -365,6 +366,13 @@ Consistent with Mixer view - same controls, same patterns:
    - Where should these actions appear in the UI? (Timeline footer? Persistent transport?)
    - Should it be view-specific or truly global?
    - What actions should it include now that it's not tied to Studio's recording workflow?
+
+3. **Toolbar component redesign** - Current toolbar may need rework for better space utilization:
+   - **Slot-based layout**: Buttons occupy 1 slot (or 2 if wider), auto-fit based on available width
+   - **Variable padding**: Allow compact/normal modes with different spacing
+   - **Paging**: When buttons overflow, page through toolbar with indicator (e.g., "1/2")
+   - **Swipe navigation**: Swipe left/right to switch pages on mobile
+   - Consider whether this should be a Timeline-specific toolbar or reusable across views
 
 ---
 

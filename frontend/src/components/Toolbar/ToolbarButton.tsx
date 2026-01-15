@@ -10,7 +10,7 @@ import type { ToolbarAction, ToggleState } from '../../store/slices/toolbarSlice
 import { getIconComponent } from './DynamicIcon';
 
 // Size variants for buttons
-type ButtonSize = 'sm' | 'md' | 'lg';
+type ButtonSize = 'xs' | 'sm' | 'md' | 'lg';
 
 // Drag props from useListReorder hook
 interface DragItemProps {
@@ -37,6 +37,7 @@ interface ToolbarButtonProps {
 
 // Size configurations
 const SIZE_CONFIG = {
+  xs: { button: 'min-w-[32px] h-[32px] px-1.5 py-1', icon: 14, text: 'text-[9px]' },
   sm: { button: 'min-w-[48px] h-[48px] px-2 py-1.5', icon: 18, text: 'text-[10px]' },
   md: { button: 'min-w-[60px] h-[60px] px-3 py-2', icon: 24, text: 'text-xs' },
   lg: { button: 'min-w-[72px] h-[72px] px-4 py-2.5', icon: 28, text: 'text-sm' },
