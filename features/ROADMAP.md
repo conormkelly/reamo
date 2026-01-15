@@ -37,7 +37,46 @@ Add "New Track" button to TrackInfoBar or as FAB in mixer.
 
 ---
 
+### Wire Up Pin Master
+
+Pin Master toggle exists in Settings → Mixer section but isn't connected.
+
+**Implementation:**
+
+- MixerView needs to respect the setting and always show MASTER track at position 0
+- Should work with both bank navigation and filtering
+
+**Effort:** ~30 min
+
+---
+
 ## P2 — Feature Improvements (Larger Scope)
+
+### Item Selection UX Refinement
+
+Current item multi-select works but feels cluttered. Needs design rethink.
+
+**Issues:**
+
+- Info bar layouts clash (marker bar vs item bar - both can appear)
+- "Item selection mode" concept is awkward - mode mainly just shows/hides info bar
+- Batch operations UI needs polish
+
+**Needs:** Design session to simplify the UX flow.
+
+---
+
+### Recording Quick Actions Placement
+
+With Studio view removed, "Rec Quick Actions" toggle is orphaned in Global settings.
+
+**Questions to resolve:**
+
+- Where should these actions appear? (Timeline footer? Persistent transport?)
+- Should it be view-specific or truly global?
+- What actions make sense now that it's not tied to Studio's recording workflow?
+
+---
 
 ### Built-in Bank Groups
 
@@ -131,6 +170,33 @@ Piano roll view with touch editing.
 Parse existing SWS playlists from .RPP files for migration.
 
 **Effort:** ~1 day (backend) + UI
+
+---
+
+### Toolbar Component Redesign
+
+Current toolbar may need rework for better space utilization.
+
+**Ideas:**
+
+- Slot-based layout (buttons occupy 1-2 slots, auto-fit to width)
+- Paging with indicator when buttons overflow (e.g., "1/2")
+- Swipe navigation between pages on mobile
+- Variable padding (compact/normal modes)
+
+---
+
+### Timeline Canvas Architecture
+
+Single canvas for timeline content to fix browser compositing bugs.
+
+**Current issues:**
+
+- Waveform brightness changes at viewport edges (per-item canvas compositing)
+- Waveform jitter during momentum scroll (cosmetic)
+
+**Solution:** Full canvas rendering (items + waveforms + grid on single canvas).
+See `docs/architecture/TIMELINE.md` → "Canvas Architecture Considerations".
 
 ---
 
