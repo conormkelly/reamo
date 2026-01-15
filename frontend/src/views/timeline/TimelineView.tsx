@@ -35,6 +35,7 @@ import { TrackFilter } from '../../components/Track';
 import { useReaperStore } from '../../store';
 import { EMPTY_REGIONS, EMPTY_MARKERS, EMPTY_ITEMS } from '../../store/stableRefs';
 import { useViewport, useTransport, useBankNavigation, useCustomBanks, useTrackSkeleton } from '../../hooks';
+import { usePeaksSubscription } from '../../hooks/usePeaksSubscription';
 
 /** Duration to show track labels after bank switch (ms) */
 const BANK_SWITCH_LABEL_DURATION = 1000;
@@ -157,6 +158,27 @@ export function TimelineView(): ReactElement {
 
   const effectiveCanGoBack = isFiltered ? filterBankIndex > 0 : bank.canGoBack;
   const effectiveCanGoForward = isFiltered ? filterBankIndex < filteredTotalBanks - 1 : bank.canGoForward;
+
+  // Subscribe to peaks for waveform rendering
+  // - Range mode for unfiltered (sequential bank navigation with prefetch)
+  // - GUID mode for filtered (sparse track selection)
+  const peaksSubscriptionOptions = useMemo(() => {
+    if (laneTracks.length === 0) return null;
+
+    if (isFiltered) {
+      // Filtered: subscribe by GUID (sparse tracks)
+      const guids = laneTracks.map((t) => t.g);
+      return { guids, sampleCount: 30 };
+    } else {
+      // Unfiltered: subscribe by range with prefetch
+      return {
+        range: { start: bank.prefetchStart, end: bank.prefetchEnd },
+        sampleCount: 30,
+      };
+    }
+  }, [isFiltered, laneTracks, bank.prefetchStart, bank.prefetchEnd]);
+
+  const { peaksByTrack } = usePeaksSubscription(peaksSubscriptionOptions);
 
   // Bank management handlers
   const handleAddBank = useCallback(() => {
@@ -317,6 +339,7 @@ export function TimelineView(): ReactElement {
             viewport={viewport}
             multiTrackLanes={laneTracks}
             multiTrackIndices={displayTrackIndices}
+            peaksByTrack={peaksByTrack}
           />
 
           {/* Track labels overlay - shown when holding bank display or switching banks */}

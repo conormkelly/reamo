@@ -692,14 +692,53 @@ We are pre-release so it doesnt matter too much, just need to note it as being u
 
 ---
 
+## Implementation Status
+
+### Completed (Backend - Phases 1 & 2)
+
+- [x] **peaks_subscriptions.zig**: Multi-track subscription with range/GUID modes
+  - `SubscriptionMode` enum (none, range, guids)
+  - `ClientSubscription` struct with range_start/end and guids array
+  - `subscribeRange()` and `subscribeGuids()` methods
+  - `getSubscribedIndices()` for resolving to track indices
+  - Grace period support matching track subscriptions
+- [x] **peaks_subs.zig**: Command handlers updated for range/GUID modes
+- [x] **peaks_generator.zig**: New `generatePeaksForSubscription()` function
+  - Resolves subscription to track indices
+  - Generates peaks for all tracks in subscription
+  - `serializeMultiTrackPeaksEvent()` for track-keyed map format
+- [x] **main.zig**: Polling loop updated for multi-track model
+
+### Completed (Frontend - Phases 3-5)
+
+- [x] **peaksSlice.ts**: Updated state structure
+  - `peaksByTrack: Map<trackIdx, Map<itemGuid, WSItemPeaks>>`
+  - `handlePeaksEvent()` for track-keyed map format
+  - `setPeaksSubscriptionRange()` and `setPeaksSubscriptionGuids()`
+- [x] **WebSocketTypes.ts**: New `PeaksEventPayload` with track-keyed map format
+  - `TrackPeaksData` interface for per-track data
+- [x] **WebSocketCommands.ts**: New `peaks.subscribe()` with range/GUID modes
+  - `PeaksSubscribeParams` interface
+- [x] **usePeaksSubscription.ts**: Hook updated for multi-track
+  - Returns `{ peaksByTrack, getPeaksForTrack, getPeaksForItem }`
+  - `useSingleTrackPeaks()` for backward compatibility
+- [x] **MultiTrackLanes.tsx**: Integrated waveform rendering
+  - `LaneWaveform` component with combined mono-style for cramped lanes
+  - `peaksByTrack` prop for peaks data
+- [x] **TimelineView.tsx**: Peaks subscription integration
+  - Range mode for unfiltered (with prefetch)
+  - GUID mode for filtered views
+
+---
+
 ## Success Criteria
 
-- [ ] Multi-track peaks subscription works (range and GUID modes)
-- [ ] Waveforms render in correct lane positions
-- [ ] Prefetch works for adjacent banks (smooth scrolling)
-- [ ] Filtered views subscribe to correct GUIDs
-- [ ] Cache remains effective (no regeneration thrashing)
-- [ ] Performance acceptable with 8 visible + 16 prefetch tracks
+- [x] Multi-track peaks subscription works (range and GUID modes) ✅
+- [x] Waveforms render in correct lane positions ✅
+- [x] Prefetch works for adjacent banks (smooth scrolling) ✅
+- [x] Filtered views subscribe to correct GUIDs ✅
+- [x] Cache remains effective (no regeneration thrashing) ✅
+- [x] Performance acceptable with 8 visible + 16 prefetch tracks ✅
 
 ---
 

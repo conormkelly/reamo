@@ -673,6 +673,7 @@ fn doProcessing() !void {
     // Poll peaks subscriptions and broadcast (HIGH TIER - per-client subscription)
     // Broadcasts when: force_broadcast is set (new subscription) OR track items changed
     // Uses PeaksCache for LRU caching of individual item peaks
+    // Multi-track mode: sends track-keyed map with peaks for all subscribed tracks
     if (g_peaks_subs) |peaks_subs| {
         if (peaks_subs.hasSubscriptions()) {
             const guid_cache_ptr = g_guid_cache orelse {
@@ -690,32 +691,43 @@ fn doProcessing() !void {
             // Check if any subscription needs immediate data (new subscription)
             const force_broadcast = peaks_subs.consumeForceBroadcast();
 
-            // Iterate active subscriptions and check for changes
-            var iter = peaks_subs.activeSubscriptions();
-            while (iter.next()) |entry| {
-                const track_guid = entry.sub.getTrackGuid() orelse continue;
-                const sample_count = entry.sub.sample_count;
+            // Get all subscribed track indices across all clients
+            var indices_buf: [128]c_int = undefined;
+            const subscribed_indices = peaks_subs.getSubscribedIndices(guid_cache_ptr, &backend, &indices_buf);
 
-                // Resolve track for change detection
-                const track = guid_cache_ptr.resolve(track_guid) orelse continue;
+            // Check if any track has changes (items added/removed/modified)
+            var any_track_changed = force_broadcast;
+            if (!force_broadcast) {
+                for (subscribed_indices) |track_idx| {
+                    const track = backend.getTrackByIdx(track_idx) orelse continue;
+                    var guid_buf: [64]u8 = undefined;
+                    const track_guid = backend.formatTrackGuid(track, &guid_buf);
+                    if (p_cache.trackChanged(track_guid, &backend, track)) {
+                        any_track_changed = true;
+                        break;
+                    }
+                }
+            }
 
-                // Check if track items changed (or force broadcast for new subscription)
-                const track_changed = p_cache.trackChanged(track_guid, &backend, track);
-                if (!force_broadcast and !track_changed) continue;
+            // Only broadcast if something changed
+            if (any_track_changed) {
+                // Iterate active subscriptions and send to each client
+                var iter = peaks_subs.activeSubscriptions();
+                while (iter.next()) |entry| {
+                    const sample_count = entry.sub.sample_count;
+                    const peaks_scratch = tiered.scratchAllocator();
 
-                // Generate peaks JSON for this track (with caching)
-                const peaks_scratch = tiered.scratchAllocator();
-                if (peaks_generator.generatePeaksForTrackCached(
-                    peaks_scratch,
-                    &backend,
-                    guid_cache_ptr,
-                    p_cache,
-                    track_guid,
-                    sample_count,
-                    null,
-                )) |json| {
-                    shared_state.sendToClient(entry.client_id, json);
-                    // Note: json is allocated from scratch allocator, freed at end of frame
+                    // Generate peaks for this client's subscribed tracks
+                    if (peaks_generator.generatePeaksForSubscription(
+                        peaks_scratch,
+                        &backend,
+                        guid_cache_ptr,
+                        p_cache,
+                        entry.sub,
+                        sample_count,
+                    )) |json| {
+                        shared_state.sendToClient(entry.client_id, json);
+                    }
                 }
             }
         }

@@ -5,7 +5,7 @@
 
 import { useState, useRef, useCallback, useMemo, useEffect, type ReactElement } from 'react';
 import { useReaperStore } from '../../store';
-import { EMPTY_REGIONS, EMPTY_MARKERS, EMPTY_ITEMS, EMPTY_TRACKS, EMPTY_SKELETON } from '../../store/stableRefs';
+import { EMPTY_REGIONS, EMPTY_MARKERS, EMPTY_ITEMS, EMPTY_SKELETON } from '../../store/stableRefs';
 import type { WSItem } from '../../core/WebSocketTypes';
 import { useReaper } from '../ReaperProvider';
 import {
@@ -25,9 +25,7 @@ import {
 import { transport, timeSelection as timeSelCmd, marker as markerCmd, action, item as itemCmd } from '../../core/WebSocketCommands';
 import { usePlayheadDrag, useMarkerDrag, useRegionDrag, usePanGesture, usePinchGesture, useEdgeScroll } from './hooks';
 import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
-import { ItemsDensityOverlay } from './ItemDensityBlobs';
 import { MultiTrackLanes } from './MultiTrackLanes';
-import { TimelineWaveformOverlay } from './TimelineWaveformOverlay';
 import type { SkeletonTrack } from '../../core/WebSocketTypes';
 import { ClusteredMarkerLines, ClusteredMarkerPills } from './TimelineMarkers';
 import { TimelineGridLines } from './TimelineGridLines';
@@ -53,6 +51,8 @@ export interface TimelineProps {
   multiTrackLanes?: SkeletonTrack[];
   /** Track indices corresponding to multiTrackLanes (1-based, from bank) */
   multiTrackIndices?: number[];
+  /** Peaks data for waveform rendering (keyed by track index) */
+  peaksByTrack?: Map<number, Map<string, import('../../core/WebSocketTypes').WSItemPeaks>>;
 }
 
 // Vertical distance to cancel gesture (drag off timeline)
@@ -61,14 +61,13 @@ const VERTICAL_CANCEL_THRESHOLD = 50;
 // Tap detection threshold (pixels) - movement less than this is considered a tap
 const TAP_THRESHOLD = 10;
 
-export function Timeline({ className = '', height = 120, isSyncing = false, viewport: externalViewport, multiTrackLanes, multiTrackIndices }: TimelineProps): ReactElement {
+export function Timeline({ className = '', height = 120, isSyncing = false, viewport: externalViewport, multiTrackLanes, multiTrackIndices, peaksByTrack }: TimelineProps): ReactElement {
   const { sendCommand } = useReaper();
   const { positionSeconds } = useTransport();
   // Defensive selectors with stable fallbacks - state can be undefined briefly on mobile during hydration
   const regions = useReaperStore((state) => state?.regions ?? EMPTY_REGIONS);
   const markers = useReaperStore((state) => state?.markers ?? EMPTY_MARKERS);
   const items = useReaperStore((state) => state?.items ?? EMPTY_ITEMS);
-  const tracks = useReaperStore((state) => state?.tracks ?? EMPTY_TRACKS);
   const trackSkeleton = useReaperStore((state) => state?.trackSkeleton ?? EMPTY_SKELETON);
   const bpm = useReaperStore((state) => state.bpm);
   const tempoMarkers = useReaperStore((state) => state.tempoMarkers);
@@ -106,7 +105,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
   const insertionPoint = useReaperStore((state) => state.insertionPoint);
   const resizeEdgePosition = useReaperStore((state) => state.resizeEdgePosition);
 
-  // View filter: which track's items to show as waveforms (independent of selection)
+  // Focused track GUID for highlight in multi-track lanes
   const viewFilterTrackGuid = useReaperStore((state) => state.viewFilterTrackGuid);
 
   // Item selection mode state
@@ -501,16 +500,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     VISIBILITY_BUFFER
   );
 
-  // Compute items on the view-filtered track for waveform overlay
-  // Uses viewFilterTrackGuid (independent of selection) so waveforms persist during multi-select
-  const { coloredTrackItems, coloredTrackGuid, viewFilterTrackIdx } = useMemo(() => {
-    if (!viewFilterTrackGuid) return { coloredTrackItems: [], coloredTrackGuid: null, viewFilterTrackIdx: null };
-    const trackIdx = getTrackIdxFromGuid(viewFilterTrackGuid);
-    if (trackIdx === null) return { coloredTrackItems: [], coloredTrackGuid: null, viewFilterTrackIdx: null };
-    const filteredItems = visibleItems.filter((item) => item.trackIdx === trackIdx);
-    return { coloredTrackItems: filteredItems, coloredTrackGuid: viewFilterTrackGuid, viewFilterTrackIdx: trackIdx };
-  }, [viewFilterTrackGuid, visibleItems, getTrackIdxFromGuid]);
-
+  
   // Set time selection in REAPER via WebSocket
   const setTimeSelection = useCallback(
     (startSeconds: number, endSeconds: number) => {
@@ -1040,40 +1030,17 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
           renderTimeToPercent={renderTimeToPercent}
         />
 
-        {/* Items layer - shows where items are in navigate mode */}
-        {/* Multi-track lanes (Phase 2) OR single-track density overlay */}
-        {timelineMode === 'navigate' && visibleItems.length > 0 && (
-          multiTrackLanes && multiTrackLanes.length > 0 && multiTrackIndices ? (
-            <MultiTrackLanes
-              tracks={multiTrackLanes}
-              trackIndices={multiTrackIndices}
-              items={visibleItems}
-              timelineStart={viewport.visibleRange.start}
-              timelineEnd={viewport.visibleRange.end}
-              height={height}
-              focusedTrackGuid={viewFilterTrackGuid}
-            />
-          ) : (
-            <ItemsDensityOverlay
-              items={visibleItems}
-              timelineStart={viewport.visibleRange.start}
-              timelineEnd={viewport.visibleRange.end}
-              height={height}
-              tracks={tracks}
-              viewFilterTrackIdx={viewFilterTrackIdx}
-            />
-          )
-        )}
-
-        {/* Waveforms for items on selected track */}
-        {timelineMode === 'navigate' && coloredTrackItems.length > 0 && (
-          <TimelineWaveformOverlay
-            items={coloredTrackItems}
-            trackGuid={coloredTrackGuid}
+        {/* Items layer - multi-track lanes showing items across visible tracks */}
+        {timelineMode === 'navigate' && visibleItems.length > 0 && multiTrackLanes && multiTrackLanes.length > 0 && multiTrackIndices && (
+          <MultiTrackLanes
+            tracks={multiTrackLanes}
+            trackIndices={multiTrackIndices}
+            items={visibleItems}
             timelineStart={viewport.visibleRange.start}
             timelineEnd={viewport.visibleRange.end}
             height={height}
-            enabled={true}
+            focusedTrackGuid={viewFilterTrackGuid}
+            peaksByTrack={peaksByTrack}
           />
         )}
 

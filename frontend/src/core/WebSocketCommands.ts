@@ -806,16 +806,37 @@ export const playlist = {
 // Peaks Subscription Commands
 // =============================================================================
 
+/** Subscription parameters for peaks/subscribe command */
+export interface PeaksSubscribeParams {
+  /** Range mode: subscribe to unified track indices [start, end] */
+  range?: { start: number; end: number };
+  /** GUID mode: subscribe to specific track GUIDs */
+  guids?: string[];
+  /** Number of peak samples per item (default 30) */
+  sampleCount?: number;
+}
+
 export const peaks = {
   /**
-   * Subscribe to peaks for a track.
-   * After subscribing, the client receives "peaks" events whenever items on the track change.
-   * @param trackGuid - GUID of the track to subscribe to
-   * @param sampleCount - Number of peak samples per item (default 30)
+   * Subscribe to peaks for multiple tracks.
+   * Supports two mutually exclusive modes:
+   * - Range mode: subscribe to track indices [start, end] (for sequential bank navigation)
+   * - GUID mode: subscribe to specific track GUIDs (for filtered/custom bank views)
+   *
+   * After subscribing, the client receives "peaks" events with data for all subscribed tracks.
+   * Events are track-keyed maps for O(1) lookup: { tracks: { "1": { guid, items }, ... } }
+   *
+   * @param params.range - Track index range { start, end } (mutually exclusive with guids)
+   * @param params.guids - Array of track GUIDs (mutually exclusive with range)
+   * @param params.sampleCount - Number of peak samples per item (default 30)
    */
-  subscribe: (trackGuid: string, sampleCount?: number): WSCommand => ({
+  subscribe: (params: PeaksSubscribeParams): WSCommand => ({
     command: 'peaks/subscribe',
-    params: { trackGuid, ...(sampleCount !== undefined && { sampleCount }) },
+    params: {
+      ...(params.range && { range: params.range }),
+      ...(params.guids && { guids: params.guids }),
+      ...(params.sampleCount !== undefined && { sampleCount: params.sampleCount }),
+    },
   }),
   /** Unsubscribe from peaks updates. */
   unsubscribe: (): WSCommand => ({

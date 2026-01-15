@@ -1,47 +1,73 @@
 /// Peaks Subscriptions - Per-client subscription for track mini-peaks.
 ///
-/// Each client can subscribe to peaks for one track at a time.
-/// When subscribed, the backend pushes peak data for all items on that track.
+/// Supports two mutually exclusive subscription modes (matching track_subscriptions.zig):
+/// - Range mode: Subscribe to unified indices [start, end] (for sequential bank navigation)
+/// - GUID mode: Subscribe to specific tracks by GUID (for filtered/custom bank views)
+///
+/// When subscribed, the backend pushes peak data for all items on the subscribed tracks.
+/// The event format is a track-keyed map for efficient O(1) lookup.
 ///
 /// Usage:
 ///   var subs = PeaksSubscriptions.init(allocator);
 ///   defer subs.deinit();
-///   try subs.subscribe(client_id, "{track-guid}", 30);  // 30 peaks per item
-///   // Later: check subs.getSubscription(client_id) to get track GUID
+///   try subs.subscribeRange(client_id, 1, 8, 30);  // Tracks 1-8, 30 peaks per item
+///   try subs.subscribeGuids(client_id, &guids, 30);  // Specific GUIDs
 const std = @import("std");
 const logging = @import("logging.zig");
 const constants = @import("constants.zig");
+const GuidCache = @import("guid_cache.zig").GuidCache;
 
 const Allocator = std.mem.Allocator;
 
 // Re-export shared constants
 pub const MAX_CLIENTS = constants.MAX_SUBSCRIPTION_CLIENTS;
+pub const MAX_GUIDS_PER_CLIENT = constants.MAX_GUIDS_PER_CLIENT;
 pub const GUID_LEN = 40;
+
+// Grace period: 500ms (matches track subscription behavior)
+pub const GRACE_PERIOD_NS: i128 = 500 * std.time.ns_per_ms;
+
+/// Subscription mode (mutually exclusive).
+pub const SubscriptionMode = enum {
+    none, // No subscription
+    range, // Subscribe to unified indices [start, end]
+    guids, // Subscribe to specific GUIDs
+};
 
 /// Per-client subscription state.
 pub const ClientSubscription = struct {
-    /// Track GUID being subscribed to (38 chars + null + padding)
-    track_guid: [GUID_LEN]u8 = undefined,
-    track_guid_len: usize = 0,
+    mode: SubscriptionMode = .none,
+
+    // Range mode fields
+    range_start: c_int = 0,
+    range_end: c_int = 0,
+
+    // GUID mode fields (stored GUIDs)
+    guids: [MAX_GUIDS_PER_CLIENT][GUID_LEN]u8 = undefined,
+    guid_lens: [MAX_GUIDS_PER_CLIENT]usize = [_]usize{0} ** MAX_GUIDS_PER_CLIENT,
+    guid_count: usize = 0,
 
     /// Number of peaks per item (typically 30 for timeline blobs)
     sample_count: u32 = 30,
 
-    /// Whether this client has an active subscription
-    active: bool = false,
-
-    /// Get the track GUID as a slice
-    pub fn getTrackGuid(self: *const ClientSubscription) ?[]const u8 {
-        if (!self.active) return null;
-        if (self.track_guid_len == 0) return null;
-        return self.track_guid[0..self.track_guid_len];
+    /// Get stored GUID at index.
+    pub fn getGuid(self: *const ClientSubscription, idx: usize) ?[]const u8 {
+        if (idx >= self.guid_count) return null;
+        return self.guids[idx][0..self.guid_lens[idx]];
     }
 
     /// Clear subscription state
     pub fn clear(self: *ClientSubscription) void {
-        self.active = false;
-        self.track_guid_len = 0;
+        self.mode = .none;
+        self.range_start = 0;
+        self.range_end = 0;
+        self.guid_count = 0;
         self.sample_count = 30;
+    }
+
+    /// Check if subscription is active
+    pub fn isActive(self: *const ClientSubscription) bool {
+        return self.mode != .none;
     }
 };
 
@@ -54,6 +80,10 @@ pub const PeaksSubscriptions = struct {
 
     /// Map from client_id to slot index
     client_id_to_slot: std.AutoHashMap(usize, usize),
+
+    /// Grace period: track_idx -> expiry timestamp.
+    /// Tracks stay "subscribed" for grace period after leaving all viewports.
+    grace_until: std.AutoHashMap(c_int, i128),
 
     /// Next available slot (for fresh allocation)
     next_slot: usize,
@@ -70,6 +100,7 @@ pub const PeaksSubscriptions = struct {
             .allocator = allocator,
             .clients = undefined,
             .client_id_to_slot = std.AutoHashMap(usize, usize).init(allocator),
+            .grace_until = std.AutoHashMap(c_int, i128).init(allocator),
             .next_slot = 0,
         };
 
@@ -83,6 +114,7 @@ pub const PeaksSubscriptions = struct {
 
     pub fn deinit(self: *PeaksSubscriptions) void {
         self.client_id_to_slot.deinit();
+        self.grace_until.deinit();
     }
 
     /// Get or create a slot for a client.
@@ -116,32 +148,73 @@ pub const PeaksSubscriptions = struct {
         return slot;
     }
 
-    /// Subscribe to peaks for a track.
-    /// Replaces any existing subscription for this client.
-    pub fn subscribe(
+    /// Subscribe by range (unified indices). Replaces any existing subscription.
+    /// Returns the number of tracks in the range.
+    pub fn subscribeRange(
         self: *PeaksSubscriptions,
         client_id: usize,
-        track_guid: []const u8,
+        start: c_int,
+        end: c_int,
         sample_count: u32,
-    ) !void {
+    ) !usize {
         const slot = self.getOrCreateSlot(client_id) orelse return error.TooManyClients;
         const client = &self.clients[slot];
 
-        // Store track GUID
-        const len = @min(track_guid.len, GUID_LEN);
-        @memcpy(client.track_guid[0..len], track_guid[0..len]);
-        client.track_guid_len = len;
+        client.mode = .range;
+        client.range_start = @max(0, start);
+        client.range_end = @max(client.range_start, end);
         client.sample_count = sample_count;
-        client.active = true;
 
         // Force broadcast to ensure new subscriber gets immediate data
         self.force_broadcast = true;
 
-        logging.debug("peaks_subscriptions: client {d} subscribed to track {s} with {d} samples", .{
+        const count: usize = @intCast(client.range_end - client.range_start + 1);
+
+        logging.debug("peaks_subscriptions: client {d} subscribed to range [{d}, {d}] with {d} samples", .{
             client_id,
-            track_guid,
+            client.range_start,
+            client.range_end,
             sample_count,
         });
+
+        return count;
+    }
+
+    /// Subscribe by GUID list. Replaces any existing subscription.
+    /// Returns the number of GUIDs stored.
+    pub fn subscribeGuids(
+        self: *PeaksSubscriptions,
+        client_id: usize,
+        guids: []const []const u8,
+        sample_count: u32,
+    ) !usize {
+        const slot = self.getOrCreateSlot(client_id) orelse return error.TooManyClients;
+        const client = &self.clients[slot];
+
+        client.mode = .guids;
+        client.guid_count = 0;
+        client.sample_count = sample_count;
+
+        // Store GUIDs (resolution happens at poll time)
+        for (guids) |guid| {
+            if (client.guid_count >= MAX_GUIDS_PER_CLIENT) break;
+
+            const len = @min(guid.len, GUID_LEN);
+            @memcpy(client.guids[client.guid_count][0..len], guid[0..len]);
+            client.guid_lens[client.guid_count] = len;
+            client.guid_count += 1;
+        }
+
+        // Force broadcast to ensure new subscriber gets immediate data
+        self.force_broadcast = true;
+
+        logging.debug("peaks_subscriptions: client {d} subscribed to {d} GUIDs with {d} samples", .{
+            client_id,
+            client.guid_count,
+            sample_count,
+        });
+
+        return client.guid_count;
     }
 
     /// Unsubscribe a client (clear their subscription).
@@ -157,6 +230,16 @@ pub const PeaksSubscriptions = struct {
         const slot = self.client_id_to_slot.get(client_id) orelse return;
         const client = &self.clients[slot];
 
+        // For range subscriptions, add indices to grace period
+        if (client.mode == .range) {
+            const now = std.time.nanoTimestamp();
+            const expiry = now + GRACE_PERIOD_NS;
+            var idx = client.range_start;
+            while (idx <= client.range_end) : (idx += 1) {
+                self.grace_until.put(idx, expiry) catch {};
+            }
+        }
+
         client.clear();
         _ = self.client_id_to_slot.remove(client_id);
 
@@ -167,12 +250,106 @@ pub const PeaksSubscriptions = struct {
         logging.debug("peaks_subscriptions: client {d} removed", .{client_id});
     }
 
-    /// Get subscription for a client.
+    /// Get subscription for a client (for reading sample_count, mode, etc).
     pub fn getSubscription(self: *const PeaksSubscriptions, client_id: usize) ?*const ClientSubscription {
         const slot = self.client_id_to_slot.get(client_id) orelse return null;
         const client = &self.clients[slot];
-        if (!client.active) return null;
+        if (!client.isActive()) return null;
         return client;
+    }
+
+    /// Get all track indices that should be polled for peaks.
+    /// Combines all client subscriptions (range + GUID resolved) plus grace period.
+    pub fn getSubscribedIndices(
+        self: *PeaksSubscriptions,
+        cache: *const GuidCache,
+        api: anytype,
+        out_buf: []c_int,
+    ) []c_int {
+        // Use a hash set to dedupe indices
+        var seen = std.AutoHashMap(c_int, void).init(self.allocator);
+        defer seen.deinit();
+
+        const track_count = api.trackCount();
+        const max_idx = track_count; // Unified: 0=master, 1..track_count = user tracks
+
+        // Process each client's subscription
+        var slot_iter = self.client_id_to_slot.valueIterator();
+        while (slot_iter.next()) |slot| {
+            const client = &self.clients[slot.*];
+
+            switch (client.mode) {
+                .none => {},
+                .range => {
+                    // Add all indices in range (clamped to valid)
+                    var idx = @max(0, client.range_start);
+                    const end = @min(client.range_end, max_idx);
+                    while (idx <= end) : (idx += 1) {
+                        seen.put(idx, {}) catch {};
+                    }
+                },
+                .guids => {
+                    // Resolve each GUID to an index
+                    for (0..client.guid_count) |i| {
+                        const guid = client.getGuid(i) orelse continue;
+                        const track = cache.resolve(guid) orelse continue;
+
+                        // Get index from pointer
+                        const idx = api.getTrackIdx(track);
+                        if (idx >= 0 and idx <= max_idx) {
+                            seen.put(idx, {}) catch {};
+                        }
+                    }
+                },
+            }
+        }
+
+        // Add grace period tracks
+        const now = std.time.nanoTimestamp();
+        var grace_iter = self.grace_until.iterator();
+        while (grace_iter.next()) |entry| {
+            if (entry.value_ptr.* > now and entry.key_ptr.* <= max_idx) {
+                seen.put(entry.key_ptr.*, {}) catch {};
+            }
+        }
+
+        // Copy to output buffer
+        var count: usize = 0;
+        var key_iter = seen.keyIterator();
+        while (key_iter.next()) |key| {
+            if (count >= out_buf.len) break;
+            out_buf[count] = key.*;
+            count += 1;
+        }
+
+        // Sort for consistent ordering
+        std.mem.sort(c_int, out_buf[0..count], {}, std.sort.asc(c_int));
+
+        return out_buf[0..count];
+    }
+
+    /// Clean up expired grace period entries. Call periodically (e.g., in LOW tier).
+    pub fn expireGracePeriods(self: *PeaksSubscriptions) void {
+        const now = std.time.nanoTimestamp();
+
+        // Collect expired keys first
+        var expired_buf: [256]c_int = undefined;
+        var expired_count: usize = 0;
+
+        var iter = self.grace_until.iterator();
+        while (iter.next()) |entry| {
+            if (entry.value_ptr.* <= now) {
+                if (expired_count < expired_buf.len) {
+                    expired_buf[expired_count] = entry.key_ptr.*;
+                    expired_count += 1;
+                }
+            }
+        }
+
+        // Remove expired entries
+        for (expired_buf[0..expired_count]) |track_idx| {
+            _ = self.grace_until.remove(track_idx);
+        }
     }
 
     /// Check and clear force_broadcast flag (atomic consume).
@@ -186,21 +363,18 @@ pub const PeaksSubscriptions = struct {
 
     /// Check if there are any active subscriptions.
     pub fn hasSubscriptions(self: *const PeaksSubscriptions) bool {
+        // Check if any client has a non-none subscription
         var iter = self.client_id_to_slot.valueIterator();
         while (iter.next()) |slot| {
-            if (self.clients[slot.*].active) return true;
+            if (self.clients[slot.*].mode != .none) return true;
         }
-        return false;
+        // Also check grace period
+        return self.grace_until.count() > 0;
     }
 
     /// Get count of subscribed clients.
     pub fn clientCount(self: *const PeaksSubscriptions) usize {
-        var count: usize = 0;
-        var iter = self.client_id_to_slot.valueIterator();
-        while (iter.next()) |slot| {
-            if (self.clients[slot.*].active) count += 1;
-        }
-        return count;
+        return self.client_id_to_slot.count();
     }
 
     /// Iterator for active subscriptions (for broadcasting).
@@ -213,7 +387,7 @@ pub const PeaksSubscriptions = struct {
             while (self.key_iter.next()) |client_id| {
                 const slot = self.subs.client_id_to_slot.get(client_id.*) orelse continue;
                 const sub = &self.subs.clients[slot];
-                if (sub.active) {
+                if (sub.isActive()) {
                     return .{ .client_id = client_id.*, .sub = sub };
                 }
             }
@@ -243,18 +417,38 @@ test "PeaksSubscriptions init and deinit" {
     try std.testing.expectEqual(@as(usize, 0), subs.clientCount());
 }
 
-test "subscribe basic" {
+test "subscribeRange basic" {
     const allocator = std.testing.allocator;
     var subs = PeaksSubscriptions.init(allocator);
     defer subs.deinit();
 
-    try subs.subscribe(1, "{test-guid}", 50);
+    const count = try subs.subscribeRange(1, 0, 9, 30);
+    try std.testing.expectEqual(@as(usize, 10), count);
     try std.testing.expect(subs.hasSubscriptions());
-    try std.testing.expectEqual(@as(usize, 1), subs.clientCount());
 
     const sub = subs.getSubscription(1).?;
-    try std.testing.expectEqualStrings("{test-guid}", sub.getTrackGuid().?);
+    try std.testing.expectEqual(SubscriptionMode.range, sub.mode);
+    try std.testing.expectEqual(@as(c_int, 0), sub.range_start);
+    try std.testing.expectEqual(@as(c_int, 9), sub.range_end);
+    try std.testing.expectEqual(@as(u32, 30), sub.sample_count);
+}
+
+test "subscribeGuids basic" {
+    const allocator = std.testing.allocator;
+    var subs = PeaksSubscriptions.init(allocator);
+    defer subs.deinit();
+
+    const guids = [_][]const u8{ "{guid-1}", "{guid-2}" };
+    const count = try subs.subscribeGuids(1, &guids, 50);
+    try std.testing.expectEqual(@as(usize, 2), count);
+    try std.testing.expect(subs.hasSubscriptions());
+
+    const sub = subs.getSubscription(1).?;
+    try std.testing.expectEqual(SubscriptionMode.guids, sub.mode);
+    try std.testing.expectEqual(@as(usize, 2), sub.guid_count);
     try std.testing.expectEqual(@as(u32, 50), sub.sample_count);
+    try std.testing.expectEqualStrings("{guid-1}", sub.getGuid(0).?);
+    try std.testing.expectEqualStrings("{guid-2}", sub.getGuid(1).?);
 }
 
 test "unsubscribe clears subscription" {
@@ -262,40 +456,98 @@ test "unsubscribe clears subscription" {
     var subs = PeaksSubscriptions.init(allocator);
     defer subs.deinit();
 
-    try subs.subscribe(1, "{test-guid}", 30);
+    _ = try subs.subscribeRange(1, 0, 9, 30);
     try std.testing.expect(subs.hasSubscriptions());
 
     subs.unsubscribe(1);
-    try std.testing.expect(!subs.hasSubscriptions());
+
+    // Client mode should be none now
+    const slot = subs.client_id_to_slot.get(1).?;
+    try std.testing.expectEqual(SubscriptionMode.none, subs.clients[slot].mode);
 }
 
-test "removeClient recycles slot" {
+test "removeClient adds to grace period" {
     const allocator = std.testing.allocator;
     var subs = PeaksSubscriptions.init(allocator);
     defer subs.deinit();
 
-    try subs.subscribe(1, "{test-guid}", 30);
+    _ = try subs.subscribeRange(1, 0, 2, 30);
     subs.removeClient(1);
 
-    try std.testing.expect(!subs.hasSubscriptions());
-    try std.testing.expect(subs.getSubscription(1) == null);
+    // Should have 3 tracks in grace period (indices 0, 1, 2)
+    try std.testing.expectEqual(@as(usize, 3), subs.grace_until.count());
 }
 
-test "multiple clients" {
+test "getSubscribedIndices with range" {
     const allocator = std.testing.allocator;
     var subs = PeaksSubscriptions.init(allocator);
     defer subs.deinit();
 
-    try subs.subscribe(1, "{guid-1}", 30);
-    try subs.subscribe(2, "{guid-2}", 40);
-    try subs.subscribe(3, "{guid-3}", 50);
+    const reaper = @import("reaper.zig");
+    var mock = reaper.MockBackend{ .track_count = 10 };
 
-    try std.testing.expectEqual(@as(usize, 3), subs.clientCount());
+    var cache = GuidCache.init(allocator);
+    defer cache.deinit();
+    try cache.rebuild(&mock);
 
-    // Each client has its own subscription
-    try std.testing.expectEqualStrings("{guid-1}", subs.getSubscription(1).?.getTrackGuid().?);
-    try std.testing.expectEqualStrings("{guid-2}", subs.getSubscription(2).?.getTrackGuid().?);
-    try std.testing.expectEqualStrings("{guid-3}", subs.getSubscription(3).?.getTrackGuid().?);
+    _ = try subs.subscribeRange(1, 0, 4, 30);
+
+    var buf: [32]c_int = undefined;
+    const indices = subs.getSubscribedIndices(&cache, &mock, &buf);
+
+    try std.testing.expectEqual(@as(usize, 5), indices.len);
+    // Should be sorted
+    try std.testing.expectEqual(@as(c_int, 0), indices[0]);
+    try std.testing.expectEqual(@as(c_int, 4), indices[4]);
+}
+
+test "getSubscribedIndices with GUIDs" {
+    const allocator = std.testing.allocator;
+    var subs = PeaksSubscriptions.init(allocator);
+    defer subs.deinit();
+
+    const reaper = @import("reaper.zig");
+    var mock = reaper.MockBackend{ .track_count = 5 };
+
+    var cache = GuidCache.init(allocator);
+    defer cache.deinit();
+    try cache.rebuild(&mock);
+
+    // Subscribe to master and track 3 by GUID
+    const guids = [_][]const u8{ "master", "{00000000-0000-0000-0000-000000000003}" };
+    _ = try subs.subscribeGuids(1, &guids, 30);
+
+    var buf: [32]c_int = undefined;
+    const indices = subs.getSubscribedIndices(&cache, &mock, &buf);
+
+    try std.testing.expectEqual(@as(usize, 2), indices.len);
+    // Sorted: master (0) then track 3
+    try std.testing.expectEqual(@as(c_int, 0), indices[0]);
+    try std.testing.expectEqual(@as(c_int, 3), indices[1]);
+}
+
+test "multiple clients combined" {
+    const allocator = std.testing.allocator;
+    var subs = PeaksSubscriptions.init(allocator);
+    defer subs.deinit();
+
+    const reaper = @import("reaper.zig");
+    var mock = reaper.MockBackend{ .track_count = 10 };
+
+    var cache = GuidCache.init(allocator);
+    defer cache.deinit();
+    try cache.rebuild(&mock);
+
+    // Client 1: range 0-2
+    _ = try subs.subscribeRange(1, 0, 2, 30);
+    // Client 2: range 2-4 (overlaps)
+    _ = try subs.subscribeRange(2, 2, 4, 30);
+
+    var buf: [32]c_int = undefined;
+    const indices = subs.getSubscribedIndices(&cache, &mock, &buf);
+
+    // Should have 0,1,2,3,4 (deduped)
+    try std.testing.expectEqual(@as(usize, 5), indices.len);
 }
 
 test "force_broadcast flag" {
@@ -305,7 +557,7 @@ test "force_broadcast flag" {
 
     try std.testing.expect(!subs.consumeForceBroadcast());
 
-    try subs.subscribe(1, "{test-guid}", 30);
+    _ = try subs.subscribeRange(1, 0, 5, 30);
     try std.testing.expect(subs.consumeForceBroadcast());
     try std.testing.expect(!subs.consumeForceBroadcast()); // Consumed
 }
@@ -315,15 +567,60 @@ test "activeSubscriptions iterator" {
     var subs = PeaksSubscriptions.init(allocator);
     defer subs.deinit();
 
-    try subs.subscribe(1, "{guid-1}", 30);
-    try subs.subscribe(2, "{guid-2}", 40);
+    _ = try subs.subscribeRange(1, 0, 5, 30);
+    _ = try subs.subscribeRange(2, 5, 10, 40);
     subs.unsubscribe(1); // Inactive now
 
     var iter = subs.activeSubscriptions();
     var count: usize = 0;
     while (iter.next()) |entry| {
         try std.testing.expectEqual(@as(usize, 2), entry.client_id);
+        try std.testing.expectEqual(@as(u32, 40), entry.sub.sample_count);
         count += 1;
     }
     try std.testing.expectEqual(@as(usize, 1), count);
+}
+
+test "switching subscription modes" {
+    const allocator = std.testing.allocator;
+    var subs = PeaksSubscriptions.init(allocator);
+    defer subs.deinit();
+
+    // Start with range
+    _ = try subs.subscribeRange(1, 0, 9, 30);
+    const slot = subs.client_id_to_slot.get(1).?;
+    try std.testing.expectEqual(SubscriptionMode.range, subs.clients[slot].mode);
+
+    // Switch to GUIDs
+    const guids = [_][]const u8{"{guid-1}"};
+    _ = try subs.subscribeGuids(1, &guids, 50);
+    try std.testing.expectEqual(SubscriptionMode.guids, subs.clients[slot].mode);
+
+    // Switch back to range
+    _ = try subs.subscribeRange(1, 5, 10, 60);
+    try std.testing.expectEqual(SubscriptionMode.range, subs.clients[slot].mode);
+}
+
+test "slot recycling after client disconnect" {
+    const allocator = std.testing.allocator;
+    var subs = PeaksSubscriptions.init(allocator);
+    defer subs.deinit();
+
+    // Fill all 16 slots
+    for (0..MAX_CLIENTS) |i| {
+        _ = try subs.subscribeRange(i, 0, 5, 30);
+    }
+    try std.testing.expectEqual(@as(usize, MAX_CLIENTS), subs.clientCount());
+
+    // New client should fail (slots exhausted)
+    const result = subs.subscribeRange(999, 0, 5, 30);
+    try std.testing.expectError(error.TooManyClients, result);
+
+    // Disconnect client 5
+    subs.removeClient(5);
+    try std.testing.expectEqual(@as(usize, MAX_CLIENTS - 1), subs.clientCount());
+
+    // New client should succeed (slot recycled)
+    _ = try subs.subscribeRange(100, 0, 5, 30);
+    try std.testing.expectEqual(@as(usize, MAX_CLIENTS), subs.clientCount());
 }

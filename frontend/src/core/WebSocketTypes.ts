@@ -407,10 +407,27 @@ export interface WSItemPeaks {
   peaks: StereoPeak[] | MonoPeak[];
 }
 
-/** Peaks event payload from subscription */
-export interface PeaksEventPayload {
-  trackGuid: string;
+/** Per-track peaks data in multi-track format */
+export interface TrackPeaksData {
+  guid: string;
   items: WSItemPeaks[];
+}
+
+/** Peaks event payload from subscription (track-keyed map format)
+ *
+ * The tracks object is keyed by track index (as string) for O(1) lookup.
+ * Each track contains its GUID and array of item peaks.
+ *
+ * Example:
+ * {
+ *   "tracks": {
+ *     "1": { "guid": "{AAA...}", "items": [...] },
+ *     "5": { "guid": "{BBB...}", "items": [...] }
+ *   }
+ * }
+ */
+export interface PeaksEventPayload {
+  tracks: Record<string, TrackPeaksData>;
 }
 
 // =============================================================================

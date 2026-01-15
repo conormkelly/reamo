@@ -360,7 +360,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
       get().setPlaylistState(p);
     } else if (isPeaksEvent(message)) {
       const p = message.payload as PeaksEventPayload;
-      get().setPeaksData(p.trackGuid, p.items);
+      get().handlePeaksEvent(p);
     } else if (message.event === 'reload') {
       // Hot reload - extension detected file change
       console.log('[Store] Reload event received, refreshing page...');

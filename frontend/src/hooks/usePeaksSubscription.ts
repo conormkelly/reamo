@@ -1,19 +1,27 @@
 /**
  * usePeaksSubscription Hook
- * Subscribes to peaks data for a track via WebSocket
+ * Subscribes to peaks data for multiple tracks via WebSocket
  *
- * Unlike usePeaksFetch (pull-based), this hook uses the subscription system:
- * - Subscribe to a track GUID
- * - Backend pushes peaks events when items change
- * - No loading states - data arrives asynchronously
+ * Supports two subscription modes:
+ * - Range mode: Subscribe to track indices [start, end] (for sequential bank navigation)
+ * - GUID mode: Subscribe to specific track GUIDs (for filtered/custom bank views)
+ *
+ * Backend pushes peaks events when items change. Events are track-keyed maps.
  *
  * @example
  * ```tsx
- * function TimelineWaveforms({ trackGuid }: { trackGuid: string | null }) {
- *   const peaksData = usePeaksSubscription(trackGuid);
+ * // Range mode (for timeline view)
+ * function TimelineWaveforms({ range }: { range: { start: number; end: number } }) {
+ *   const { peaksByTrack } = usePeaksSubscription({ range });
  *
- *   // peaksData is a Map<itemGuid, WSItemPeaks>
- *   return peaksData.size > 0 ? <WaveformRenderer peaks={peaksData} /> : null;
+ *   // peaksByTrack is Map<trackIdx, Map<itemGuid, WSItemPeaks>>
+ *   return <MultiTrackWaveforms peaksByTrack={peaksByTrack} />;
+ * }
+ *
+ * // GUID mode (for filtered bank view)
+ * function FilteredWaveforms({ guids }: { guids: string[] }) {
+ *   const { peaksByTrack } = usePeaksSubscription({ guids });
+ *   // ...
  * }
  * ```
  */
@@ -27,24 +35,57 @@ import type { WSItemPeaks } from '../core/WebSocketTypes';
 /** Default number of peaks per item (for timeline blobs) */
 const DEFAULT_SAMPLE_COUNT = 30;
 
+/** Subscription options */
+export interface UsePeaksSubscriptionOptions {
+  /** Range mode: subscribe to track indices [start, end] */
+  range?: { start: number; end: number };
+  /** GUID mode: subscribe to specific track GUIDs */
+  guids?: string[];
+  /** Number of peaks per item (default 30) */
+  sampleCount?: number;
+}
+
+/** Return value from usePeaksSubscription */
+export interface UsePeaksSubscriptionResult {
+  /** Map from track index to (itemGuid -> peaks data) */
+  peaksByTrack: Map<number, Map<string, WSItemPeaks>>;
+  /** Get peaks for a specific track */
+  getPeaksForTrack: (trackIdx: number) => Map<string, WSItemPeaks> | undefined;
+  /** Get peaks for a specific item */
+  getPeaksForItem: (trackIdx: number, itemGuid: string) => WSItemPeaks | undefined;
+}
+
+// Empty map for stable reference when no data
+const EMPTY_PEAKS_MAP = new Map<number, Map<string, WSItemPeaks>>();
+
 /**
- * Hook to subscribe to peaks for a track
+ * Hook to subscribe to peaks for multiple tracks
  *
- * @param trackGuid - Track GUID to subscribe to, or null to unsubscribe
- * @param sampleCount - Number of peaks per item (default 30)
- * @returns Map of item GUIDs to peaks data
+ * @param options - Subscription options (range or guids mode)
+ * @returns Object with peaksByTrack map and helper functions
  */
 export function usePeaksSubscription(
-  trackGuid: string | null,
-  sampleCount: number = DEFAULT_SAMPLE_COUNT
-): Map<string, WSItemPeaks> {
+  options: UsePeaksSubscriptionOptions | null
+): UsePeaksSubscriptionResult {
   const { sendCommand, connected } = useReaper();
-  const setSubscribedTrack = useReaperStore((s) => s.setSubscribedTrack);
-  const clearPeaksData = useReaperStore((s) => s.clearPeaksData);
-  const peaksData = useReaperStore((s) => s.peaksData);
+  const setPeaksSubscriptionRange = useReaperStore((s) => s.setPeaksSubscriptionRange);
+  const setPeaksSubscriptionGuids = useReaperStore((s) => s.setPeaksSubscriptionGuids);
+  const clearPeaksSubscription = useReaperStore((s) => s.clearPeaksSubscription);
+  const peaksByTrack = useReaperStore((s) => s.peaksByTrack);
+  const getPeaksForTrack = useReaperStore((s) => s.getPeaksForTrack);
+  const getPeaksForItem = useReaperStore((s) => s.getPeaksForItem);
 
   // Track previous subscription to avoid duplicate commands
-  const prevTrackGuidRef = useRef<string | null>(null);
+  const prevOptionsRef = useRef<string | null>(null);
+
+  // Create a stable key for comparison
+  const optionsKey = options
+    ? JSON.stringify({
+        range: options.range,
+        guids: options.guids,
+        sampleCount: options.sampleCount,
+      })
+    : null;
 
   useEffect(() => {
     // Skip if not connected
@@ -53,35 +94,80 @@ export function usePeaksSubscription(
     }
 
     // Check if subscription changed
-    if (prevTrackGuidRef.current === trackGuid) {
+    if (prevOptionsRef.current === optionsKey) {
       return;
     }
 
-    // Unsubscribe from previous track
-    if (prevTrackGuidRef.current !== null) {
+    // Unsubscribe from previous
+    if (prevOptionsRef.current !== null) {
       sendCommand(peaks.unsubscribe());
     }
 
     // Update ref
-    prevTrackGuidRef.current = trackGuid;
+    prevOptionsRef.current = optionsKey;
 
-    // Subscribe to new track or clear if null
-    if (trackGuid) {
-      setSubscribedTrack(trackGuid);
-      sendCommand(peaks.subscribe(trackGuid, sampleCount));
+    // Subscribe with new options or clear if null
+    if (options) {
+      const sampleCount = options.sampleCount ?? DEFAULT_SAMPLE_COUNT;
+
+      if (options.range) {
+        // Range mode
+        setPeaksSubscriptionRange(options.range.start, options.range.end);
+        sendCommand(peaks.subscribe({ range: options.range, sampleCount }));
+      } else if (options.guids && options.guids.length > 0) {
+        // GUID mode
+        setPeaksSubscriptionGuids(options.guids);
+        sendCommand(peaks.subscribe({ guids: options.guids, sampleCount }));
+      }
     } else {
-      clearPeaksData();
+      clearPeaksSubscription();
     }
 
     // Cleanup on unmount
     return () => {
-      if (prevTrackGuidRef.current !== null) {
+      if (prevOptionsRef.current !== null) {
         sendCommand(peaks.unsubscribe());
-        clearPeaksData();
-        prevTrackGuidRef.current = null;
+        clearPeaksSubscription();
+        prevOptionsRef.current = null;
       }
     };
-  }, [trackGuid, sampleCount, connected, sendCommand, setSubscribedTrack, clearPeaksData]);
+  }, [
+    optionsKey,
+    options,
+    connected,
+    sendCommand,
+    setPeaksSubscriptionRange,
+    setPeaksSubscriptionGuids,
+    clearPeaksSubscription,
+  ]);
 
-  return peaksData;
+  return {
+    peaksByTrack: peaksByTrack || EMPTY_PEAKS_MAP,
+    getPeaksForTrack,
+    getPeaksForItem,
+  };
+}
+
+/**
+ * Convenience hook for single-track peaks subscription
+ * (backward compatibility / simple use cases)
+ *
+ * @deprecated Use usePeaksSubscription({ guids: [trackGuid] }) instead
+ */
+export function useSingleTrackPeaks(
+  trackGuid: string | null,
+  sampleCount: number = DEFAULT_SAMPLE_COUNT
+): Map<string, WSItemPeaks> | undefined {
+  const { peaksByTrack } = usePeaksSubscription(
+    trackGuid ? { guids: [trackGuid], sampleCount } : null
+  );
+
+  // Find the track by GUID in the returned data
+  // Since we subscribed by GUID, we need to find which trackIdx it resolved to
+  // For now, just return the first track's data (since we only subscribed to one)
+  if (peaksByTrack.size === 0) return undefined;
+
+  // Return the first (and only) entry
+  const firstEntry = peaksByTrack.values().next().value;
+  return firstEntry;
 }

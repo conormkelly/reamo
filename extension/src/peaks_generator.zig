@@ -306,6 +306,264 @@ pub fn generatePeaksForTrackCached(
     return serializePeaksEvent(allocator, track_guid, items_peaks[0..valid_count]);
 }
 
+/// Maximum tracks in a single subscription broadcast.
+const MAX_TRACKS_PER_BROADCAST = 32;
+
+/// Maximum items per track in multi-track mode (smaller than single-track to limit stack usage).
+const MAX_ITEMS_PER_TRACK_MULTITRACK = 64;
+
+/// Generate peaks for all tracks in a client's subscription.
+/// Returns a track-keyed map JSON event format for efficient frontend lookup.
+///
+/// IMPORTANT: This function uses streaming JSON output to avoid stack overflow.
+/// We process one track at a time, writing JSON directly to the output buffer.
+/// This keeps stack usage bounded to ~500KB (one track's worth of items).
+///
+/// Event format:
+/// {
+///   "type": "event",
+///   "event": "peaks",
+///   "payload": {
+///     "tracks": {
+///       "1": { "guid": "{...}", "items": [...] },
+///       "5": { "guid": "{...}", "items": [...] }
+///     }
+///   }
+/// }
+pub fn generatePeaksForSubscription(
+    allocator: Allocator,
+    api: anytype,
+    guid_cache: *const guid_cache_mod.GuidCache,
+    cache: ?*peaks_cache.PeaksCache,
+    sub: *const @import("peaks_subscriptions.zig").ClientSubscription,
+    sample_count: u32,
+) ?[]const u8 {
+    // Collect track indices from subscription
+    var track_indices_buf: [MAX_TRACKS_PER_BROADCAST]c_int = undefined;
+    var track_count: usize = 0;
+
+    switch (sub.mode) {
+        .none => return null,
+        .range => {
+            // Range mode: indices from range_start to range_end
+            const total_tracks = api.trackCount();
+            var idx = sub.range_start;
+            const end = @min(sub.range_end, total_tracks);
+            while (idx <= end and track_count < MAX_TRACKS_PER_BROADCAST) : (idx += 1) {
+                track_indices_buf[track_count] = idx;
+                track_count += 1;
+            }
+        },
+        .guids => {
+            // GUID mode: resolve each GUID to track index
+            for (0..sub.guid_count) |i| {
+                if (track_count >= MAX_TRACKS_PER_BROADCAST) break;
+                const guid = sub.getGuid(i) orelse continue;
+                const track = guid_cache.resolve(guid) orelse continue;
+                const idx = api.getTrackIdx(track);
+                if (idx >= 0) {
+                    track_indices_buf[track_count] = idx;
+                    track_count += 1;
+                }
+            }
+        },
+    }
+
+    if (track_count == 0) {
+        logging.debug("peaks_generator: no tracks resolved from subscription", .{});
+        return null;
+    }
+
+    const num_peaks: usize = @min(@as(usize, sample_count), MAX_PEAKS_PER_ITEM);
+
+    // Allocate output buffer for streaming JSON
+    // Estimate: ~800 bytes per item, ~100 bytes overhead per track, max 64 items per track
+    const estimated_size = 256 + track_count * (100 + MAX_ITEMS_PER_TRACK_MULTITRACK * 800);
+    const buf = allocator.alloc(u8, estimated_size) catch {
+        logging.warn("peaks_generator: failed to allocate {d} bytes for JSON", .{estimated_size});
+        return null;
+    };
+    errdefer allocator.free(buf);
+
+    // CRITICAL: Allocate items array on HEAP, not stack!
+    // Each ItemPeaks is ~6.5KB, 64 items = ~420KB - way over the 1KB stack limit for timer callbacks.
+    // See DEVELOPMENT.md "Memory Management" section.
+    const items_peaks = allocator.alloc(ItemPeaks, MAX_ITEMS_PER_TRACK_MULTITRACK) catch {
+        logging.warn("peaks_generator: failed to allocate items buffer", .{});
+        allocator.free(buf);
+        return null;
+    };
+    defer allocator.free(items_peaks);
+
+    var stream = std.io.fixedBufferStream(buf);
+    var w = stream.writer();
+
+    // Write event envelope opening
+    w.writeAll("{\"type\":\"event\",\"event\":\"peaks\",\"payload\":{\"tracks\":{") catch return null;
+
+    var tracks_written: usize = 0;
+
+    // Process each track, streaming JSON directly
+    // NOTE: track_idx is a UNIFIED index (0=master, 1+=user tracks) matching the items event
+    for (track_indices_buf[0..track_count]) |track_idx| {
+        const track = api.getTrackByUnifiedIdx(track_idx) orelse continue;
+
+        // Get track GUID
+        var guid_buf: [64]u8 = undefined;
+        const track_guid = api.formatTrackGuid(track, &guid_buf);
+
+        // Count items on track
+        const item_count_raw = api.trackItemCount(track);
+        if (item_count_raw <= 0) continue;
+
+        // Cap items for safety
+        const max_items: c_int = @min(item_count_raw, MAX_ITEMS_PER_TRACK_MULTITRACK);
+
+        // Reset valid item count for this track (reuse heap buffer)
+        var valid_item_count: usize = 0;
+
+        var i: c_int = 0;
+        while (i < max_items) : (i += 1) {
+            const item = api.getItemByIdx(track, i) orelse continue;
+            const take = api.getItemActiveTake(item) orelse continue;
+
+            // Skip MIDI items
+            if (api.isTakeMIDI(take)) continue;
+
+            // Initialize item peaks
+            var item_peaks = ItemPeaks{
+                .item_guid = undefined,
+                .item_guid_len = 0,
+                .track_idx = track_idx,
+                .item_idx = i,
+                .position = 0,
+                .length = 0,
+                .peak_min = [_]f64{1.0} ** (MAX_PEAKS_PER_ITEM * 2),
+                .peak_max = [_]f64{-1.0} ** (MAX_PEAKS_PER_ITEM * 2),
+                .num_peaks = num_peaks,
+                .channels = 1,
+            };
+
+            // Get item properties
+            item_peaks.position = api.getItemPosition(item);
+            item_peaks.length = api.getItemLength(item);
+
+            // Validate length
+            if (!ffi.isFinite(item_peaks.length) or item_peaks.length <= 0) continue;
+
+            // Get item GUID
+            var item_guid_buf: [64]u8 = undefined;
+            const item_guid = api.getItemGUID(item, &item_guid_buf);
+            const item_guid_len = @min(item_guid.len, 40);
+            @memcpy(item_peaks.item_guid[0..item_guid_len], item_guid[0..item_guid_len]);
+            item_peaks.item_guid_len = item_guid_len;
+
+            // Try cache lookup or generate peaks
+            if (cache) |c| {
+                var take_guid_buf: [64]u8 = undefined;
+                const take_guid = api.getTakeGUID(take, &take_guid_buf);
+                const start_offset = api.getTakeStartOffset(take);
+                const playrate = api.getTakePlayrate(take);
+
+                const key = peaks_cache.PeaksCacheKey.create(
+                    take_guid,
+                    start_offset,
+                    playrate,
+                    item_peaks.length,
+                    sample_count,
+                );
+
+                if (c.get(key)) |cached| {
+                    const copy_len = @min(@as(usize, cached.num_peaks) * @as(usize, cached.channels), MAX_PEAKS_PER_ITEM * 2);
+                    @memcpy(item_peaks.peak_min[0..copy_len], cached.peak_min[0..copy_len]);
+                    @memcpy(item_peaks.peak_max[0..copy_len], cached.peak_max[0..copy_len]);
+                    item_peaks.num_peaks = cached.num_peaks;
+                    item_peaks.channels = cached.channels;
+                } else {
+                    if (generatePeaksForItem(api, take, item_peaks.length, num_peaks, &item_peaks)) {
+                        c.put(
+                            key,
+                            item_peaks.peak_min[0 .. item_peaks.num_peaks * item_peaks.channels],
+                            item_peaks.peak_max[0 .. item_peaks.num_peaks * item_peaks.channels],
+                            item_peaks.num_peaks,
+                            item_peaks.channels,
+                        );
+                    } else {
+                        continue;
+                    }
+                }
+            } else {
+                if (!generatePeaksForItem(api, take, item_peaks.length, num_peaks, &item_peaks)) {
+                    continue;
+                }
+            }
+
+            items_peaks[valid_item_count] = item_peaks;
+            valid_item_count += 1;
+        }
+
+        // Skip tracks with no valid items
+        if (valid_item_count == 0) continue;
+
+        // Write track JSON
+        if (tracks_written > 0) w.writeByte(',') catch return null;
+        tracks_written += 1;
+
+        // Track key is the index (as string)
+        w.print("\"{d}\":{{\"guid\":\"", .{track_idx}) catch return null;
+        w.writeAll(track_guid) catch return null;
+        w.writeAll("\",\"items\":[") catch return null;
+
+        for (items_peaks[0..valid_item_count], 0..) |item, item_i| {
+            if (item_i > 0) w.writeByte(',') catch return null;
+
+            // Write item object
+            w.writeAll("{\"itemGuid\":\"") catch return null;
+            w.writeAll(item.item_guid[0..item.item_guid_len]) catch return null;
+            w.print("\",\"trackIdx\":{d},\"itemIdx\":{d}", .{ item.track_idx, item.item_idx }) catch return null;
+            w.print(",\"position\":{d:.6},\"length\":{d:.6}", .{ item.position, item.length }) catch return null;
+            w.print(",\"channels\":{d},\"peaks\":[", .{item.channels}) catch return null;
+
+            // Write peaks array
+            for (0..item.num_peaks) |p| {
+                if (p > 0) w.writeByte(',') catch return null;
+
+                if (item.channels == 2) {
+                    const max_l = item.peak_max[p * 2];
+                    const max_r = item.peak_max[p * 2 + 1];
+                    const min_l = item.peak_min[p * 2];
+                    const min_r = item.peak_min[p * 2 + 1];
+                    w.print("{{\"l\":[{d:.4},{d:.4}],\"r\":[{d:.4},{d:.4}]}}", .{
+                        min_l, max_l, min_r, max_r,
+                    }) catch return null;
+                } else {
+                    const max_val = item.peak_max[p];
+                    const min_val = item.peak_min[p];
+                    w.print("[{d:.4},{d:.4}]", .{ min_val, max_val }) catch return null;
+                }
+            }
+
+            w.writeAll("]}") catch return null;
+        }
+
+        w.writeAll("]}") catch return null;
+    }
+
+    // Close JSON envelope
+    w.writeAll("}}}") catch return null;
+
+    if (tracks_written == 0) {
+        logging.debug("peaks_generator: no tracks with audio items", .{});
+        allocator.free(buf);
+        return null;
+    }
+
+    // Shrink to actual size
+    const written = stream.getWritten();
+    const result = allocator.realloc(buf, written.len) catch buf;
+    return result[0..written.len];
+}
+
 /// Generate peaks for a single item using AudioAccessor.
 /// Populates peak_min, peak_max, and channels in item_peaks.
 /// Returns true on success.

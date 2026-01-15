@@ -47,7 +47,7 @@ Instead of single-track filtering, show **4-8 tracks simultaneously** in horizon
 - Tap item to select (multi-select with toggle)
 - Selected items highlighted with blue border
 - Vertical space divided among visible tracks
-- **Waveforms**: Future enhancement - show waveform overlays on items
+- **Waveforms**: ✅ Implemented - waveform overlays render on all items via peaks subscription
 
 ### 2. Track Banks (Like Mixer)
 
@@ -221,7 +221,7 @@ Default: Independent (different track focus per view).
 - ✅ Make lane items tappable for direct selection (via Timeline hit-testing)
 - ✅ Info bar shows selection count and batch actions
 - ✅ Removed region block shading (caused confusion with selection state)
-- **Future**: Waveform overlays on items in lanes
+- ✅ Waveform overlays on all items in lanes (via MultiTrackLanes + peaks subscription)
 
 ### Phase 3: Banks System ✅
 
@@ -249,7 +249,7 @@ Consistent with Mixer view - same controls, same patterns:
 
 ## Current Progress & Known Issues
 
-**Last updated**: Phase 3.5 complete
+**Last updated**: Phase 3.5 complete + waveforms implemented + single-track mode deprecated
 
 ### What's Working
 - Multi-track lanes render correctly with 4 tracks
@@ -267,28 +267,30 @@ Consistent with Mixer view - same controls, same patterns:
 - **Timeline ruler**: REAPER-style ruler with bar.beat on top, time below, tick lines
 
 ### Known Issues to Fix
-1. **Waveforms rendering in wrong position** - TimelineWaveformOverlay still renders
-   at the old single-track position (centered, 25% height). Needs to be disabled or
-   adapted for multi-track lanes.
+1. ~~**Waveforms rendering in wrong position**~~ - Fixed: MultiTrackLanes now renders its own waveforms
 2. **"Item selection mode" concept is awkward** - With items always visible in lanes,
    the mode mainly just shows/hides the info bar. Consider simplifying.
 3. **Ruler labels jank at edges** - DOM-based ruler causes labels to pop in/out at
    viewport edges during scroll. Future: port ruler to canvas for smooth clipping.
+4. ~~**React Error 185 on item tap**~~ - Fixed: Removed legacy TimelineWaveformOverlay
+   which was creating a second peaks subscription (GUID mode) that conflicted with
+   MultiTrackLanes' subscription (range mode). Single-track mode is deprecated.
+5. **Waveform jitter during momentum scroll** - Cosmetic issue where waveforms have
+   "wibbly wobbly" appearance during momentum/inertial scrolling. Low priority.
 
 ### Implementation Notes for Future Sessions
 
 **Item rendering architecture** (DON'T reinvent this):
-- `ItemsDensityOverlay` is the battle-tested component for rendering items
+- `MultiTrackLanes` is the component for rendering items (single-track mode deprecated)
 - Items use `pointer-events-none` - they're purely visual
 - ALL click handling happens in `Timeline.tsx` via hit-testing in `handlePointerUp`
 - The hit-testing calculates click position, determines Y bounds, finds items at that time
-- `MultiTrackLanes` follows this same pattern - items are visual, Timeline handles clicks
+- Waveforms render inside MultiTrackLanes via `peaksByTrack` prop (no separate overlay)
 
 **Multi-track hit-testing** (Timeline.tsx ~line 670):
-- When `multiTrackLanes` prop is provided, uses lane-aware hit-testing
+- Uses lane-aware hit-testing based on `multiTrackLanes` prop
 - Calculates which lane was clicked based on Y position
 - Only finds items on THAT track at that time position
-- Falls back to original single-track logic when no multiTrackLanes
 
 **Slot/index-based track handling**:
 - For sequential banks, pass `multiTrackIndices` explicitly (1-based track indices)
@@ -313,7 +315,6 @@ Consistent with Mixer view - same controls, same patterns:
 
 **Key constants**:
 - Lane item height: 60% of lane height, centered
-- Single-track blob height: 25% of container height, centered
 - These must match between rendering (MultiTrackLanes) and hit-testing (Timeline)
 - Default timeline zoom: 30 seconds minimum
 - Bank switch label duration: 1000ms
@@ -330,6 +331,8 @@ Consistent with Mixer view - same controls, same patterns:
 ### Phase 5: Cleanup
 
 - Delete Studio view and legacy items mode files
+- Delete `ItemsDensityOverlay` (replaced by MultiTrackLanes)
+- Delete `TimelineWaveformOverlay` (waveforms now in MultiTrackLanes)
 - Clean up unused components
 
 ---
@@ -345,8 +348,7 @@ Consistent with Mixer view - same controls, same patterns:
 3. **Region list sidebar**: Swipe from edge, or dedicated button?
    - Leaning: Button to toggle, keeps gestures clean for timeline interaction
 
-4. **Waveforms in multi-track**: Show for all visible tracks or only selected/focused?
-   - Leaning: Show for all - peaks subscription already supports multiple tracks
+4. ~~**Waveforms in multi-track**~~: Resolved - show for ALL visible tracks via range-based peaks subscription
 
 5. **Multiple toolbar configs**: How to expose switching between them?
    - Could be tabs/pills at toolbar edge, or a dropdown

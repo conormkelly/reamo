@@ -8,7 +8,7 @@
 
 import { useMemo, useRef, useEffect, type ReactElement } from 'react';
 import type { WSItem, StereoPeak, MonoPeak } from '../../core/WebSocketTypes';
-import { usePeaksSubscription } from '../../hooks/usePeaksSubscription';
+import { useSingleTrackPeaks } from '../../hooks/usePeaksSubscription';
 import { getContrastColor } from '../../utils';
 
 export interface TimelineWaveformOverlayProps {
@@ -186,7 +186,8 @@ export function TimelineWaveformOverlay({
   enabled,
 }: TimelineWaveformOverlayProps): ReactElement | null {
   // Subscribe to peaks for the track (data pushed by backend)
-  const peaksData = usePeaksSubscription(enabled ? trackGuid : null);
+  // Use single-track convenience hook for backward compatibility
+  const peaksData = useSingleTrackPeaks(enabled ? trackGuid : null);
 
   // Calculate visible items with full item positions (not clamped)
   // Parent overflow:hidden clips to visible area, so we render full waveform
@@ -209,8 +210,8 @@ export function TimelineWaveformOverlay({
       }));
   }, [items, timelineStart, timelineEnd]);
 
-  // Don't render if no items or not enabled
-  if (!enabled || visibleItems.length === 0) {
+  // Don't render if no items or not enabled or no peaks data
+  if (!enabled || visibleItems.length === 0 || !peaksData) {
     return null;
   }
 
