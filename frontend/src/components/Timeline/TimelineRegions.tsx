@@ -187,7 +187,7 @@ export function TimelineRegionBlocks({
                 ? 'border-accent-region bg-accent-region/50 z-20'
                 : isSelected
                   ? 'border-accent-region bg-accent-region/30 z-10'
-                  : 'bg-bg-elevated/50'
+                  : ''
             } ${pendingRingClass}`}
             style={{
               left: `${renderTimeToPercent(region.start)}%`,

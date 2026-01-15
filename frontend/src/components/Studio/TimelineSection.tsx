@@ -89,7 +89,7 @@ export function TimelineSection(): ReactElement {
           {/* Marker info bar - shown when a marker is selected */}
           <MarkerInfoBar />
           {/* Item info bar - shown when in item selection mode */}
-          {itemSelectionModeActive && <NavigateItemInfoBar viewport={viewport} />}
+          {itemSelectionModeActive && <NavigateItemInfoBar />}
           {/* Fallback when nothing is active */}
           {selectedMarkerId === null && !itemSelectionModeActive && (
             <div

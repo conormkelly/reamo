@@ -1,6 +1,6 @@
 /**
  * NavigateItemInfoBar Component
- * Shows item info in Navigate mode when item selection mode is active.
+ * Shows item info when items are selected in the timeline.
  *
  * Mode-based display:
  * - 0 items selected: "Tap an item to select" message
@@ -8,10 +8,12 @@
  * - 2+ items selected: Batch mode with Group button for batch operations
  *
  * Features:
- * - X button to exit item selection mode (clears selection)
- * - Track dropdown (filter only, no auto-select)
+ * - X button to clear selection
  * - Selection count pill (opens selection refinement sheet)
  * - Group icon (2+ selected) opens batch operations sheet
+ *
+ * Note: Track filter dropdown removed in Phase 2.5 - items are now visible
+ * across all tracks in multi-track lanes, no need for single-track filtering.
  */
 
 import {
@@ -25,7 +27,6 @@ import {
 import {
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
   MoreHorizontal,
   Check,
   Scissors,
@@ -34,13 +35,14 @@ import {
   Unlock,
   X,
   ChevronUp,
+  ChevronDown,
   Group,
   Palette,
 } from 'lucide-react';
 import { BottomSheet } from '../Modal/BottomSheet';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
-import { useTimeFormatters, type UseViewportReturn } from '../../hooks';
+import { useTimeFormatters } from '../../hooks';
 import { item as itemCmd, take as takeCmd } from '../../core/WebSocketCommands';
 import { hexToReaperColor, reaperColorToHexWithFallback, formatTime } from '../../utils';
 import { DEFAULT_ITEM_COLOR } from '../../constants/colors';
@@ -50,7 +52,6 @@ import type { SkeletonTrack, WSItem } from '../../core/WebSocketTypes';
 
 export interface NavigateItemInfoBarProps {
   className?: string;
-  viewport: UseViewportReturn;
 }
 
 /** Group items by track for details sheet */
@@ -63,7 +64,6 @@ interface TrackGroup {
 
 export function NavigateItemInfoBar({
   className = '',
-  viewport,
 }: NavigateItemInfoBarProps): ReactElement | null {
   const { sendCommand, sendAsync, connected } = useReaper();
   const { formatBeats, formatDuration } = useTimeFormatters();
@@ -72,9 +72,7 @@ export function NavigateItemInfoBar({
   const items = useReaperStore((s) => s?.items ?? EMPTY_ITEMS);
   const trackSkeleton = useReaperStore((s) => s?.trackSkeleton ?? EMPTY_SKELETON) as readonly SkeletonTrack[];
   const itemSelectionModeActive = useReaperStore((s) => s.itemSelectionModeActive);
-  const viewFilterTrackGuid = useReaperStore((s) => s.viewFilterTrackGuid);
   const exitItemSelectionMode = useReaperStore((s) => s.exitItemSelectionMode);
-  const setViewFilterTrack = useReaperStore((s) => s.setViewFilterTrack);
 
   // Derive selection from items (REAPER is source of truth)
   const selectedItems = useMemo(() => items.filter((i) => i.selected), [items]);
@@ -83,12 +81,10 @@ export function NavigateItemInfoBar({
   // Single item mode: when exactly 1 item is selected, that's the display item
   const singleItem = selectedCount === 1 ? selectedItems[0] : null;
 
-  // Local state for dropdowns and sheets
-  const [showTrackDropdown, setShowTrackDropdown] = useState(false);
+  // Local state for sheets
   const [showItemSheet, setShowItemSheet] = useState(false);
   const [showSelectionSheet, setShowSelectionSheet] = useState(false);
   const [showBatchSheet, setShowBatchSheet] = useState(false);
-  const trackDropdownRef = useRef<HTMLDivElement>(null);
 
   // Accordion state for selection details sheet
   const [expandedTracks, setExpandedTracks] = useState<Set<number>>(new Set());
@@ -98,46 +94,6 @@ export function NavigateItemInfoBar({
   const [notesValue, setNotesValue] = useState('');
   const [notesLoading, setNotesLoading] = useState(false);
   const notesInputRef = useRef<HTMLTextAreaElement>(null);
-
-  // Get track index from GUID (using trackSkeleton)
-  const getTrackIdxFromGuid = useCallback(
-    (guid: string): number | null => {
-      const idx = trackSkeleton.findIndex((t) => t.g === guid);
-      return idx >= 0 ? idx : null;
-    },
-    [trackSkeleton]
-  );
-
-  // Get tracks with items in viewport (for dropdown)
-  const tracksWithItemsInViewport = useMemo(() => {
-    const trackIndices = new Set<number>();
-    items.forEach((item) => {
-      const itemEnd = item.position + item.length;
-      if (
-        item.position < viewport.visibleRange.end &&
-        itemEnd > viewport.visibleRange.start
-      ) {
-        trackIndices.add(item.trackIdx);
-      }
-    });
-    return Array.from(trackIndices).sort((a, b) => a - b);
-  }, [items, viewport.visibleRange]);
-
-  // Current filter track index
-  const filterTrackIdx = useMemo(() => {
-    if (!viewFilterTrackGuid) return null;
-    return getTrackIdxFromGuid(viewFilterTrackGuid);
-  }, [viewFilterTrackGuid, getTrackIdxFromGuid]);
-
-  // Track filter change handler (filter only, no select)
-  const handleTrackFilterChange = useCallback(
-    (trackIdx: number) => {
-      const newTrackGuid = trackSkeleton[trackIdx]?.g ?? null;
-      setViewFilterTrack(newTrackGuid);
-      setShowTrackDropdown(false);
-    },
-    [trackSkeleton, setViewFilterTrack]
-  );
 
   // Get track name from skeleton
   const getTrackNameFromSkeleton = useCallback(
@@ -310,23 +266,6 @@ export function NavigateItemInfoBar({
 
   // ========== Common Handlers ==========
 
-  // Close dropdowns on outside click
-  useEffect(() => {
-    if (!showTrackDropdown) return;
-
-    const handleClickOutside = (e: MouseEvent) => {
-      if (
-        trackDropdownRef.current &&
-        !trackDropdownRef.current.contains(e.target as Node)
-      ) {
-        setShowTrackDropdown(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showTrackDropdown]);
-
   // Exit mode handler
   const handleExitMode = useCallback(() => {
     exitItemSelectionMode();
@@ -409,9 +348,6 @@ export function NavigateItemInfoBar({
     : DEFAULT_ITEM_COLOR;
   const takeCount = singleItem?.takeCount ?? 1;
   const formattedPosition = singleItem ? formatBeats(singleItem.position) : '-';
-  const currentTrackName = filterTrackIdx !== null
-    ? (getTrackNameFromSkeleton(filterTrackIdx) || `Track ${filterTrackIdx + 1}`)
-    : 'Select Track';
 
   return (
     <div data-testid="item-info-bar" className={`flex flex-col gap-1 px-3 py-1.5 bg-bg-surface/50 rounded-lg text-sm relative ${className}`}>
@@ -419,54 +355,18 @@ export function NavigateItemInfoBar({
       <button
         onClick={handleExitMode}
         className="absolute top-1 right-1 p-1.5 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors z-10"
-        title="Exit item selection mode"
+        title="Clear selection"
         data-testid="item-mode-close"
       >
         <X className="w-4 h-4" />
       </button>
 
-      {/* Row 1: Track dropdown | Selection pill */}
+      {/* Row 1: Selection pill (shown when items selected) */}
       <div className="flex items-center gap-3 min-w-0 pr-8">
-        {/* Track selector dropdown (filter only) */}
-        <div className="relative" ref={trackDropdownRef}>
-          <button
-            onClick={() => setShowTrackDropdown(!showTrackDropdown)}
-            className="flex items-center gap-1 px-2 py-0.5 rounded bg-bg-elevated hover:bg-bg-hover text-text-primary text-xs"
-            data-testid="track-filter-dropdown"
-          >
-            <span className="truncate max-w-[120px]">
-              {currentTrackName}
-            </span>
-            <ChevronDown className="w-3 h-3 flex-shrink-0" />
-          </button>
-          {showTrackDropdown && tracksWithItemsInViewport.length > 0 && (
-            <div className="absolute top-full left-0 mt-1 py-1 bg-bg-elevated border border-border-default rounded-lg shadow-xl z-50 min-w-[150px] max-h-[200px] overflow-y-auto">
-              {tracksWithItemsInViewport.map((trackIdx) => {
-                const trackGuid = trackSkeleton[trackIdx]?.g;
-                const trackName = trackSkeleton[trackIdx]?.n;
-                return (
-                  <button
-                    key={trackIdx}
-                    onClick={() => handleTrackFilterChange(trackIdx)}
-                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-bg-hover ${
-                      trackGuid === viewFilterTrackGuid
-                        ? 'bg-bg-hover text-text-primary'
-                        : 'text-text-secondary'
-                    }`}
-                  >
-                    {trackName || `Track ${trackIdx + 1}`}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Selection count pill */}
         {selectedCount > 0 && (
           <button
             onClick={() => setShowSelectionSheet(true)}
-            className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/20 hover:bg-primary/30 text-primary text-xs font-medium transition-colors"
+            className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/20 hover:bg-primary/30 text-primary text-xs font-medium transition-colors"
             title="View selected items"
             data-testid="selection-pill"
           >

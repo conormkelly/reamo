@@ -26,9 +26,12 @@ import { transport, timeSelection as timeSelCmd, marker as markerCmd, action, it
 import { usePlayheadDrag, useMarkerDrag, useRegionDrag, usePanGesture, usePinchGesture, useEdgeScroll } from './hooks';
 import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
 import { ItemsDensityOverlay } from './ItemDensityBlobs';
+import { MultiTrackLanes } from './MultiTrackLanes';
 import { TimelineWaveformOverlay } from './TimelineWaveformOverlay';
+import type { SkeletonTrack } from '../../core/WebSocketTypes';
 import { ClusteredMarkerLines, ClusteredMarkerPills } from './TimelineMarkers';
 import { TimelineGridLines } from './TimelineGridLines';
+import { TimelineRuler } from './TimelineRuler';
 import { TimelinePlayhead, PlayheadDragPreview, PlayheadPreviewPill, MarkerDragPreview } from './TimelinePlayhead';
 import { TimelineFooter } from './TimelineFooter';
 import { formatBeats, formatDelta } from '../../utils';
@@ -43,6 +46,13 @@ export interface TimelineProps {
   isSyncing?: boolean;
   /** External viewport state (if provided, uses this instead of creating own) */
   viewport?: UseViewportReturn;
+  /**
+   * Tracks to show as multi-track lanes (Phase 2).
+   * When provided, renders multiple track lanes instead of single-track item density overlay.
+   */
+  multiTrackLanes?: SkeletonTrack[];
+  /** Track indices corresponding to multiTrackLanes (1-based, from bank) */
+  multiTrackIndices?: number[];
 }
 
 // Vertical distance to cancel gesture (drag off timeline)
@@ -51,7 +61,7 @@ const VERTICAL_CANCEL_THRESHOLD = 50;
 // Tap detection threshold (pixels) - movement less than this is considered a tap
 const TAP_THRESHOLD = 10;
 
-export function Timeline({ className = '', height = 120, isSyncing = false, viewport: externalViewport }: TimelineProps): ReactElement {
+export function Timeline({ className = '', height = 120, isSyncing = false, viewport: externalViewport, multiTrackLanes, multiTrackIndices }: TimelineProps): ReactElement {
   const { sendCommand } = useReaper();
   const { positionSeconds } = useTransport();
   // Defensive selectors with stable fallbacks - state can be undefined briefly on mobile during hydration
@@ -657,65 +667,112 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
               const clickTime =
                 viewport.visibleRange.start +
                 clickPercent * (viewport.visibleRange.end - viewport.visibleRange.start);
-
-              // Check if tap is within item blob vertical bounds (25% height, centered)
-              // Item blobs render at topOffset to topOffset + blobHeight
               const containerHeight = rect.height;
-              const blobHeight = containerHeight * 0.25;
-              const topOffset = (containerHeight - blobHeight) / 2;
               const relativeY = e.clientY - rect.top;
-              const isWithinBlobYBounds = relativeY >= topOffset && relativeY <= topOffset + blobHeight;
 
-              if (!isWithinBlobYBounds) {
-                // Tap is outside the blob strip - don't select item
-                panStartPositionRef.current = null;
-                return;
-              }
+              // Multi-track lanes mode: determine which lane was clicked
+              if (multiTrackLanes && multiTrackLanes.length > 0 && multiTrackIndices && multiTrackIndices.length > 0) {
+                const laneCount = multiTrackLanes.length;
+                const laneHeight = containerHeight / laneCount;
+                const laneIdx = Math.floor(relativeY / laneHeight);
 
-              // Find items at this time position
-              const itemsAtTime = items.filter(
-                (item) =>
-                  item.position <= clickTime && item.position + item.length >= clickTime
-              );
+                // Validate lane index
+                if (laneIdx < 0 || laneIdx >= laneCount) {
+                  panStartPositionRef.current = null;
+                  return;
+                }
 
-              if (itemsAtTime.length > 0) {
-                // Group by track, find first track (lowest index) with items
-                const byTrack = new Map<number, WSItem[]>();
-                itemsAtTime.forEach((item) => {
-                  if (!byTrack.has(item.trackIdx)) byTrack.set(item.trackIdx, []);
-                  byTrack.get(item.trackIdx)!.push(item);
-                });
+                // Use passed track indices directly (slot-based for sequential banks)
+                const clickedTrackGuid = multiTrackLanes[laneIdx]?.g;
+                const clickedTrackIdx = multiTrackIndices[laneIdx];
+                if (clickedTrackIdx === undefined) {
+                  panStartPositionRef.current = null;
+                  return;
+                }
 
-                // Get first track (lowest index)
-                const firstTrackIdx = Math.min(...byTrack.keys());
-                const trackGuid = trackSkeleton[firstTrackIdx]?.g;
+                // Check if click is within item strip in this lane (60% height, centered)
+                const itemHeightPercent = 0.6;
+                const itemTopOffset = laneHeight * (1 - itemHeightPercent) / 2;
+                const relativeYInLane = relativeY - (laneIdx * laneHeight);
+                const isWithinItemStrip = relativeYInLane >= itemTopOffset &&
+                                          relativeYInLane <= itemTopOffset + (laneHeight * itemHeightPercent);
 
-                // Clear marker selection (mutual exclusion)
-                setSelectedMarkerId(null);
+                if (!isWithinItemStrip) {
+                  panStartPositionRef.current = null;
+                  return;
+                }
 
-                if (!itemSelectionModeActive) {
-                  // Not in item selection mode yet - enter it
-                  // This reveals items on the track but does NOT select any
-                  if (trackGuid) {
-                    enterItemSelectionMode(trackGuid);
+                // Find items at this time position ON THIS TRACK ONLY
+                const itemsAtTime = items.filter(
+                  (item) =>
+                    item.trackIdx === clickedTrackIdx &&
+                    item.position <= clickTime &&
+                    item.position + item.length >= clickTime
+                );
+
+                if (itemsAtTime.length > 0) {
+                  // Clear marker selection (mutual exclusion)
+                  setSelectedMarkerId(null);
+
+                  // Enter item selection mode if not already active
+                  if (!itemSelectionModeActive && clickedTrackGuid) {
+                    enterItemSelectionMode(clickedTrackGuid);
                   }
-                } else {
-                  // Already in item selection mode - only select items on the FILTERED track
-                  // Get the filtered track index from viewFilterTrackGuid
-                  const filterTrackIdx = viewFilterTrackGuid
-                    ? getTrackIdxFromGuid(viewFilterTrackGuid)
-                    : null;
 
-                  if (filterTrackIdx !== null && byTrack.has(filterTrackIdx)) {
-                    // Get items at this time position on the FILTERED track only
-                    const trackItemsAtTime = byTrack.get(filterTrackIdx)!;
-                    // Sort by position, take first (earliest) item
-                    const firstItem = trackItemsAtTime.sort((a, b) => a.position - b.position)[0];
+                  // Sort by position, take first (earliest) item and toggle selection
+                  const firstItem = itemsAtTime.sort((a, b) => a.position - b.position)[0];
+                  sendCommand(itemCmd.toggleSelect(firstItem.guid));
+                }
+              } else {
+                // Single-track mode: original logic
+                // Check if tap is within item blob vertical bounds (25% height, centered)
+                const blobHeight = containerHeight * 0.25;
+                const topOffset = (containerHeight - blobHeight) / 2;
+                const isWithinBlobYBounds = relativeY >= topOffset && relativeY <= topOffset + blobHeight;
 
-                    // Toggle selection in REAPER (multi-select preserves other selections)
-                    sendCommand(itemCmd.toggleSelect(firstItem.guid));
+                if (!isWithinBlobYBounds) {
+                  panStartPositionRef.current = null;
+                  return;
+                }
+
+                // Find items at this time position
+                const itemsAtTime = items.filter(
+                  (item) =>
+                    item.position <= clickTime && item.position + item.length >= clickTime
+                );
+
+                if (itemsAtTime.length > 0) {
+                  // Group by track, find first track (lowest index) with items
+                  const byTrack = new Map<number, WSItem[]>();
+                  itemsAtTime.forEach((item) => {
+                    if (!byTrack.has(item.trackIdx)) byTrack.set(item.trackIdx, []);
+                    byTrack.get(item.trackIdx)!.push(item);
+                  });
+
+                  // Get first track (lowest index)
+                  const firstTrackIdx = Math.min(...byTrack.keys());
+                  const trackGuid = trackSkeleton[firstTrackIdx]?.g;
+
+                  // Clear marker selection (mutual exclusion)
+                  setSelectedMarkerId(null);
+
+                  if (!itemSelectionModeActive) {
+                    // Not in item selection mode yet - enter it
+                    if (trackGuid) {
+                      enterItemSelectionMode(trackGuid);
+                    }
+                  } else {
+                    // Already in item selection mode - only select items on the FILTERED track
+                    const filterTrackIdx = viewFilterTrackGuid
+                      ? getTrackIdxFromGuid(viewFilterTrackGuid)
+                      : null;
+
+                    if (filterTrackIdx !== null && byTrack.has(filterTrackIdx)) {
+                      const trackItemsAtTime = byTrack.get(filterTrackIdx)!;
+                      const firstItem = trackItemsAtTime.sort((a, b) => a.position - b.position)[0];
+                      sendCommand(itemCmd.toggleSelect(firstItem.guid));
+                    }
                   }
-                  // If tap is not on the filtered track, do nothing
                 }
               }
             }
@@ -915,8 +972,17 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
 
   return (
     <div className={`${className}`}>
-      {/* Top bar - region labels (color bar + text) + playhead preview pill */}
-      <div className="relative h-[25px] bg-bg-deep rounded-t-lg overflow-hidden">
+      {/* Ruler - bar numbers and time at top */}
+      <TimelineRuler
+        renderTimeToPercent={renderTimeToPercent}
+        visibleRange={viewport.visibleRange}
+        visibleDuration={viewport.visibleDuration}
+        tempoMarkers={tempoMarkers}
+        barOffset={barOffset}
+      />
+
+      {/* Region labels bar (color bar + text) + playhead preview pill */}
+      <div className="relative h-[25px] bg-bg-deep overflow-hidden">
         <TimelineRegionLabels
           displayRegions={visibleRegions}
           timelineMode={timelineMode}
@@ -974,17 +1040,29 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
           renderTimeToPercent={renderTimeToPercent}
         />
 
-        {/* Items density overlay - shows where items are in navigate mode */}
-        {/* When viewFilterTrackIdx is set, only that track's items are shown (no grey blobs from other tracks) */}
+        {/* Items layer - shows where items are in navigate mode */}
+        {/* Multi-track lanes (Phase 2) OR single-track density overlay */}
         {timelineMode === 'navigate' && visibleItems.length > 0 && (
-          <ItemsDensityOverlay
-            items={visibleItems}
-            timelineStart={viewport.visibleRange.start}
-            timelineEnd={viewport.visibleRange.end}
-            height={height}
-            tracks={tracks}
-            viewFilterTrackIdx={viewFilterTrackIdx}
-          />
+          multiTrackLanes && multiTrackLanes.length > 0 && multiTrackIndices ? (
+            <MultiTrackLanes
+              tracks={multiTrackLanes}
+              trackIndices={multiTrackIndices}
+              items={visibleItems}
+              timelineStart={viewport.visibleRange.start}
+              timelineEnd={viewport.visibleRange.end}
+              height={height}
+              focusedTrackGuid={viewFilterTrackGuid}
+            />
+          ) : (
+            <ItemsDensityOverlay
+              items={visibleItems}
+              timelineStart={viewport.visibleRange.start}
+              timelineEnd={viewport.visibleRange.end}
+              height={height}
+              tracks={tracks}
+              viewFilterTrackIdx={viewFilterTrackIdx}
+            />
+          )
         )}
 
         {/* Waveforms for items on selected track */}

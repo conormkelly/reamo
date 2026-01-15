@@ -29,3 +29,7 @@ export {
   TimelineWaveformOverlay,
   type TimelineWaveformOverlayProps,
 } from './TimelineWaveformOverlay';
+export {
+  MultiTrackLanes,
+  type MultiTrackLanesProps,
+} from './MultiTrackLanes';

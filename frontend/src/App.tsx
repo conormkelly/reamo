@@ -79,8 +79,8 @@ function AppContent() {
         </ErrorBoundary>
       </main>
 
-      {/* Recording Actions Bar - only in Studio view when recording */}
-      {currentView === 'studio' && showRecordingActions && isRecording && isMobile && (
+      {/* Recording Actions Bar - only in Timeline view when recording */}
+      {currentView === 'timeline' && showRecordingActions && isRecording && isMobile && (
         <div
           className="fixed left-0 right-0 z-40 bg-bg-app pb-3"
           style={{ bottom: `calc(${mobileBottomOffset}px + env(safe-area-inset-bottom, 34px))` }}
