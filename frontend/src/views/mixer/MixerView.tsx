@@ -4,7 +4,7 @@
  * Features:
  * - Responsive channel count based on screen width
  * - Bank-based navigation (no scroll to prevent accidental fader changes)
- * - Always-visible master track
+ * - Optional pinned master track (Settings → Mixer → Pin MASTER)
  * - Track filtering via search or custom banks
  */
 
@@ -43,14 +43,15 @@ export function MixerView(): ReactElement {
   const { sendCommand } = useReaper();
   const { totalTracks } = useTrackSkeleton();
   const tracks = useReaperStore((state) => state?.tracks ?? EMPTY_TRACKS);
+  const pinMasterTrack = useReaperStore((state) => state.pinMasterTrack);
 
-  // Responsive channel count
+  // Responsive channel count - accounts for pinned master taking space
   const { channelCount } = useResponsiveChannelCount({
     containerRef,
-    showMaster: true,
+    masterPinned: pinMasterTrack,
   });
 
-  // Bank navigation
+  // Bank navigation - include master in banks when not pinned
   const {
     trackIndices,
     prefetchStart,
@@ -63,6 +64,7 @@ export function MixerView(): ReactElement {
   } = useBankNavigation({
     channelCount,
     totalTracks,
+    includeMaster: !pinMasterTrack,
   });
 
   // Custom banks from ProjExtState
@@ -263,6 +265,8 @@ export function MixerView(): ReactElement {
   }, [isFiltered, allFilteredTracks, filteredPrefetchStart, filteredPrefetchEnd]);
 
   // Subscribe to tracks - range mode for unfiltered, GUID mode for filtered
+  // When master is pinned, explicitly include it (it's outside the bank range)
+  // When master is not pinned, it's included in the range naturally when on first banks
   useEffect(() => {
     if (totalTracks === 0) return;
 
@@ -272,7 +276,7 @@ export function MixerView(): ReactElement {
         sendCommand(
           track.subscribe({
             guids: filteredGuidsToSubscribe,
-            includeMaster: true,
+            includeMaster: pinMasterTrack,
           })
         );
       }
@@ -281,11 +285,11 @@ export function MixerView(): ReactElement {
       sendCommand(
         track.subscribe({
           range: { start: prefetchStart, end: prefetchEnd },
-          includeMaster: true,
+          includeMaster: pinMasterTrack,
         })
       );
     }
-  }, [sendCommand, isFiltered, filteredGuidsToSubscribe, prefetchStart, prefetchEnd, totalTracks]);
+  }, [sendCommand, isFiltered, filteredGuidsToSubscribe, prefetchStart, prefetchEnd, totalTracks, pinMasterTrack]);
 
   // Check if we have data for a track
   const hasTrackData = (trackIndex: number): boolean => {
@@ -312,25 +316,27 @@ export function MixerView(): ReactElement {
 
       {/* Main mixer area */}
       <div className="flex-1 flex items-center justify-center gap-2 overflow-hidden pb-2">
-        {/* Master track - always visible, on left */}
-        <div className="border-r pr-2 border-border-subtle">
-          {hasTrackData(0) ? (
-            <MixerStrip
-              trackIndex={0}
-              mode="volume"
-              faderHeight={FADER_HEIGHT}
-              showDbLabel={true}
-              isInfoSelected={infoSelectedTrackIdx === 0}
-              onSelectForInfo={setInfoSelectedTrackIdx}
-            />
-          ) : (
-            // Loading placeholder for master
-            <div
-              className="bg-bg-surface/50 rounded-lg animate-pulse"
-              style={{ width: 80, height: FADER_HEIGHT + 100 }}
-            />
-          )}
-        </div>
+        {/* Master track - pinned on left when enabled */}
+        {pinMasterTrack && (
+          <div className="border-r pr-2 border-border-subtle">
+            {hasTrackData(0) ? (
+              <MixerStrip
+                trackIndex={0}
+                mode="volume"
+                faderHeight={FADER_HEIGHT}
+                showDbLabel={true}
+                isInfoSelected={infoSelectedTrackIdx === 0}
+                onSelectForInfo={setInfoSelectedTrackIdx}
+              />
+            ) : (
+              // Loading placeholder for master
+              <div
+                className="bg-bg-surface/50 rounded-lg animate-pulse"
+                style={{ width: 80, height: FADER_HEIGHT + 100 }}
+              />
+            )}
+          </div>
+        )}
 
         {/* Channel strips */}
         <div className="flex gap-2">

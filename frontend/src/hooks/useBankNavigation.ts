@@ -11,6 +11,8 @@ export interface UseBankNavigationOptions {
   channelCount: number;
   /** Total number of tracks (excluding master) */
   totalTracks: number;
+  /** Include master track (index 0) in bank navigation. Default: false */
+  includeMaster?: boolean;
   /** Optional: override localStorage key for persistence */
   storageKey?: string;
 }
@@ -53,12 +55,18 @@ const STORAGE_KEY = 'reamo-mixer-bank';
 export function useBankNavigation(
   options: UseBankNavigationOptions
 ): UseBankNavigationReturn {
-  const { channelCount, totalTracks, storageKey = STORAGE_KEY } = options;
+  const { channelCount, totalTracks, includeMaster = false, storageKey = STORAGE_KEY } = options;
+
+  // When master is included in banks, we have totalTracks + 1 tracks to navigate
+  // Track indices: 0 (master), 1, 2, ... totalTracks
+  // When master is NOT included, we navigate tracks 1 to totalTracks
+  const trackableCount = includeMaster ? totalTracks + 1 : totalTracks;
+  const startIndex = includeMaster ? 0 : 1;
 
   // Calculate total banks
   const totalBanks = useMemo(() => {
-    return Math.max(1, Math.ceil(totalTracks / channelCount));
-  }, [totalTracks, channelCount]);
+    return Math.max(1, Math.ceil(trackableCount / channelCount));
+  }, [trackableCount, channelCount]);
 
   // Load initial bank from localStorage
   const [bankIndex, setBankIndex] = useState<number>(() => {
@@ -92,14 +100,17 @@ export function useBankNavigation(
     }
   }, [bankIndex, storageKey]);
 
-  // Calculate bank range (1-based track indices, excluding master)
+  // Calculate bank range
+  // When includeMaster: indices 0, 1, 2, ... (startIndex = 0)
+  // When !includeMaster: indices 1, 2, 3, ... (startIndex = 1)
   const bankStart = useMemo(() => {
-    return bankIndex * channelCount + 1;
-  }, [bankIndex, channelCount]);
+    return bankIndex * channelCount + startIndex;
+  }, [bankIndex, channelCount, startIndex]);
 
   const bankEnd = useMemo(() => {
-    return Math.min((bankIndex + 1) * channelCount, totalTracks);
-  }, [bankIndex, channelCount, totalTracks]);
+    // End index is clamped to the last valid track index (totalTracks)
+    return Math.min(bankStart + channelCount - 1, totalTracks);
+  }, [bankStart, channelCount, totalTracks]);
 
   // Generate track indices
   const trackIndices = useMemo(() => {
@@ -121,10 +132,10 @@ export function useBankNavigation(
     const prefetchTracks = prefetchBanks * channelCount;
 
     return {
-      prefetchStart: Math.max(1, bankStart - prefetchTracks),
+      prefetchStart: Math.max(startIndex, bankStart - prefetchTracks),
       prefetchEnd: Math.min(totalTracks, bankEnd + prefetchTracks),
     };
-  }, [bankStart, bankEnd, channelCount, totalTracks]);
+  }, [bankStart, bankEnd, channelCount, totalTracks, startIndex]);
 
   // Navigation state
   const canGoBack = bankIndex > 0;
@@ -151,11 +162,11 @@ export function useBankNavigation(
     [totalBanks]
   );
 
-  // Display string
+  // Display string - shows track index range
   const bankDisplay = useMemo(() => {
-    if (totalTracks === 0) return 'No tracks';
-    return `${bankStart}-${bankEnd} / ${totalTracks}`;
-  }, [bankStart, bankEnd, totalTracks]);
+    if (trackableCount === 0) return 'No tracks';
+    return `${bankStart}-${bankEnd} / ${trackableCount}`;
+  }, [bankStart, bankEnd, trackableCount]);
 
   return {
     bankIndex,

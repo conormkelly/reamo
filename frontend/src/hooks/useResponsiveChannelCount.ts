@@ -4,7 +4,7 @@
  * Follows Logic Remote patterns: 2-3 on phone, 6-8 on tablet.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 
 /** Channel width in pixels (fader + meter + padding) */
 const CHANNEL_WIDTH = 90;
@@ -29,8 +29,8 @@ const CHANNEL_BREAKPOINTS = [
 export interface UseResponsiveChannelCountOptions {
   /** Container element to measure (default: window) */
   containerRef?: React.RefObject<HTMLElement | null>;
-  /** Whether to reserve space for master track */
-  showMaster?: boolean;
+  /** Whether master track is pinned (shown separately, reserving space) */
+  masterPinned?: boolean;
 }
 
 export interface UseResponsiveChannelCountReturn {
@@ -47,43 +47,25 @@ export interface UseResponsiveChannelCountReturn {
 export function useResponsiveChannelCount(
   options: UseResponsiveChannelCountOptions = {}
 ): UseResponsiveChannelCountReturn {
-  const { containerRef, showMaster = true } = options;
+  const { containerRef, masterPinned = true } = options;
 
-  const calculateChannelCount = useCallback((): UseResponsiveChannelCountReturn => {
-    const container = containerRef?.current;
-    const rawWidth = container ? container.clientWidth : window.innerWidth;
+  // Track container width for resize reactivity
+  const [containerWidth, setContainerWidth] = useState(() => {
+    return containerRef?.current?.clientWidth ?? window.innerWidth;
+  });
 
-    // Reserve space for master and padding
-    const masterSpace = showMaster ? MASTER_TRACK_WIDTH : 0;
-    const availableWidth = rawWidth - masterSpace - MIN_PADDING * 2;
-
-    // Use breakpoints with available width
-    const breakpoint = CHANNEL_BREAKPOINTS.find(bp => rawWidth <= bp.maxWidth);
-    const breakpointChannels = breakpoint?.channels ?? 8;
-
-    // Also calculate based on actual fit
-    const fittedChannels = Math.floor(availableWidth / CHANNEL_WIDTH);
-
-    // Use whichever is smaller (breakpoint or actual fit)
-    const channelCount = Math.max(2, Math.min(breakpointChannels, fittedChannels));
-
-    return { channelCount, availableWidth };
-  }, [containerRef, showMaster]);
-
-  const [state, setState] = useState<UseResponsiveChannelCountReturn>(calculateChannelCount);
-
+  // Listen for resize events
   useEffect(() => {
     const handleResize = () => {
-      setState(calculateChannelCount());
+      const width = containerRef?.current?.clientWidth ?? window.innerWidth;
+      setContainerWidth(width);
     };
 
-    // Initial calculation
+    // Initial measurement
     handleResize();
 
-    // Listen for resize
     window.addEventListener('resize', handleResize);
 
-    // Also observe container if provided
     let resizeObserver: ResizeObserver | null = null;
     if (containerRef?.current) {
       resizeObserver = new ResizeObserver(handleResize);
@@ -94,7 +76,34 @@ export function useResponsiveChannelCount(
       window.removeEventListener('resize', handleResize);
       resizeObserver?.disconnect();
     };
-  }, [calculateChannelCount, containerRef]);
+  }, [containerRef]);
 
-  return state;
+  // Calculate channel count synchronously from current width and masterPinned
+  // This avoids the two-phase render that causes flicker
+  const result = useMemo((): UseResponsiveChannelCountReturn => {
+    const rawWidth = containerWidth;
+
+    // Reserve space for pinned master and padding
+    const masterSpace = masterPinned ? MASTER_TRACK_WIDTH : 0;
+    const availableWidth = rawWidth - masterSpace - MIN_PADDING * 2;
+
+    // Use breakpoints with available width
+    const breakpoint = CHANNEL_BREAKPOINTS.find(bp => rawWidth <= bp.maxWidth);
+    let breakpointChannels = breakpoint?.channels ?? 8;
+
+    // When master isn't pinned, we can fit one extra channel in its space
+    if (!masterPinned) {
+      breakpointChannels += 1;
+    }
+
+    // Also calculate based on actual fit
+    const fittedChannels = Math.floor(availableWidth / CHANNEL_WIDTH);
+
+    // Use whichever is smaller (breakpoint or actual fit)
+    const channelCount = Math.max(2, Math.min(breakpointChannels, fittedChannels));
+
+    return { channelCount, availableWidth };
+  }, [containerWidth, masterPinned]);
+
+  return result;
 }

@@ -37,19 +37,6 @@ Add "New Track" button to TrackInfoBar or as FAB in mixer.
 
 ---
 
-### Wire Up Pin Master
-
-Pin Master toggle exists in Settings → Mixer section but isn't connected.
-
-**Implementation:**
-
-- MixerView needs to respect the setting and always show MASTER track at position 0
-- Should work with both bank navigation and filtering
-
-**Effort:** ~30 min
-
----
-
 ## P2 — Feature Improvements (Larger Scope)
 
 ### Item Selection UX Refinement
