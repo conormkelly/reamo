@@ -2483,7 +2483,7 @@ Lightweight transport tick event sent during playback when only position changes
 
 ### `trackSkeleton` Event
 
-Lightweight track list broadcast at 1Hz when structure changes (add/delete/rename/reorder). Contains name + GUID for all tracks. Use for client-side filtering and search — subscribe to specific tracks for full data.
+Lightweight track list broadcast at 1Hz when structure changes (add/delete/rename/reorder/state change). Contains name, GUID, and filter fields for all tracks. Use for client-side filtering (built-in banks) and search — subscribe to specific tracks for full data.
 
 ```json
 {
@@ -2491,9 +2491,9 @@ Lightweight track list broadcast at 1Hz when structure changes (add/delete/renam
   "event": "trackSkeleton",
   "payload": {
     "tracks": [
-      {"n": "MASTER", "g": "master"},
-      {"n": "Drums", "g": "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"},
-      {"n": "Bass", "g": "{YYYYYYYY-YYYY-YYYY-YYYY-YYYYYYYYYYYY}"}
+      {"n": "MASTER", "g": "master", "m": false, "sl": null, "sel": false, "r": false, "fd": 0, "sc": 0},
+      {"n": "Drums", "g": "{XXXXXXXX-...}", "m": false, "sl": null, "sel": true, "r": true, "fd": 0, "sc": 2},
+      {"n": "Bass", "g": "{YYYYYYYY-...}", "m": true, "sl": 2, "sel": false, "r": false, "fd": 0, "sc": 1}
     ]
   }
 }
@@ -2503,11 +2503,18 @@ Lightweight track list broadcast at 1Hz when structure changes (add/delete/renam
 |-------|------|-------------|
 | `payload.tracks[].n` | string | Track name |
 | `payload.tracks[].g` | string | Track GUID (`"master"` for master track) |
+| `payload.tracks[].m` | bool | Muted |
+| `payload.tracks[].sl` | int\|null | Solo state (`null`=off, `0`=solo, `2`=solo-in-place) |
+| `payload.tracks[].sel` | bool | Selected in REAPER |
+| `payload.tracks[].r` | bool | Record-armed |
+| `payload.tracks[].fd` | int | Folder depth (`1`=folder parent, `0`=normal, `-N`=closes N folders) |
+| `payload.tracks[].sc` | int | Send count |
 
 **Notes:**
-- Sent on connect (snapshot) and whenever track structure changes
+- Sent on connect (snapshot) and whenever track structure or filter state changes
 - Array index = unified track index (0 = master, 1+ = user tracks)
-- ~65 bytes per track with JSON overhead (1000 tracks ≈ 65KB)
+- ~120 bytes per track with JSON overhead (1000 tracks ≈ 120KB)
+- Filter fields enable built-in banks (Muted, Soloed, Armed, Selected, Folders, With Sends) without full track subscriptions
 - Use GUIDs for `track/subscribe` GUID mode and `trackGuid` write command parameters
 
 ### `tracks` Event
