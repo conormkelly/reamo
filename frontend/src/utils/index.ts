@@ -4,3 +4,4 @@ export * from './color';
 export * from './time';
 export * from './validation';
 export * from './gridLines';
+export * from './input';

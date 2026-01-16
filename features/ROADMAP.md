@@ -29,17 +29,18 @@ Tap time display to cycle: Bar.Beat → Seconds → SMPTE → Bar.Beat
 
 Add "New Track" button to TrackInfoBar or as FAB in mixer.
 
-**Status:** Research complete: [research/REC_INPUT_SELECTION.md](../research/REC_INPUT_SELECTION.md)
+**Status:** Input selection complete. Only button UI remains.
 
 **Implementation:**
 
-- Backend `track/create` command already exists
-- Need `input/enumerate` command to list available audio/MIDI inputs
-- Need `track/setInput` command (or extend `track/create`) with I_RECINPUT encoding
-- UI: Input selector dropdown in create track modal
-- Wire up UI button
+- ✅ Backend `track/create` command already exists
+- ✅ `input/enumerateAudio` and `input/enumerateMidi` commands
+- ✅ `track/setInput` command with I_RECINPUT encoding
+- ✅ InputSelectionSheet UI (long-press record arm button to access)
+- ✅ TrackInfoBar shows current input for armed tracks
+- Wire up "New Track" button UI
 
-**Effort:** TBD after research
+**Effort:** S (just button placement and wiring)
 
 ---
 

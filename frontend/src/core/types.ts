@@ -68,6 +68,7 @@ export interface Track {
   hwOutCount: number;
   fxCount: number; // Number of FX in chain (sparse - full data via track/getFx)
   color: number; // 0x01rrggbb format, 0 if no custom color
+  recInput?: number; // Raw I_RECINPUT value (only for armed tracks)
 }
 
 // Helper methods for track flags
@@ -196,3 +197,41 @@ export const SWSCommands = {
   COUNT_IN_RECORD: '_SWS_AWCOUNTRECTOG',
   COUNT_IN_PLAYBACK: '_SWS_AWCOUNTPLAYTOG',
 } as const;
+
+// =============================================================================
+// Input Selection Types
+// =============================================================================
+
+/** Audio input from input/enumerateAudio response */
+export interface AudioInput {
+  idx: number;
+  name: string;
+}
+
+/** MIDI device from input/enumerateMidi response */
+export interface MidiDevice {
+  idx: number;
+  name: string;
+}
+
+/** Special MIDI device indices */
+export const MidiDeviceIndex = {
+  VIRTUAL_KEYBOARD: 62,
+  ALL_INPUTS: 63,
+} as const;
+
+/** Decoded input config (from track/getInput response - matches API.md exactly) */
+export interface InputConfig {
+  type: 'none' | 'audio' | 'midi';
+  raw: number;
+  // Shared
+  channel?: number; // Audio: input channel index; MIDI: channel 0=all, 1-16=specific
+  // Audio-specific
+  stereo?: boolean;
+  multi?: boolean; // multichannel mode
+  rearoute?: boolean;
+  // MIDI-specific
+  device?: number; // 62=VKB, 63=all, 0-61=hardware
+  isVKB?: boolean;
+  isAll?: boolean; // All MIDI inputs (device 63)
+}

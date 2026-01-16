@@ -248,6 +248,41 @@ export const track = {
     command: 'track/create',
     params: { ...(name && { name }), ...(afterTrackIdx !== undefined && { afterTrackIdx }) },
   }),
+  /** Get current input configuration for a track (on-demand) */
+  getInput: (trackIdx: number, trackGuid?: string): WSCommand => ({
+    command: 'track/getInput',
+    params: trackGuid ? { trackGuid } : { trackIdx },
+  }),
+  /** Set input configuration for a track. Use logical mode (recommended) or raw mode. */
+  setInput: (params: {
+    trackIdx?: number;
+    trackGuid?: string;
+    // Logical mode
+    inputType?: 'none' | 'audio' | 'midi';
+    channel?: number; // Audio: channel index; MIDI: channel 0=all, 1-16=specific
+    stereo?: boolean; // Audio only: use stereo pair
+    device?: number; // MIDI only: device index (62=VKB, 63=all)
+    // Raw mode (bypass encoding)
+    raw?: number;
+  }): WSCommand => ({
+    command: 'track/setInput',
+    params,
+  }),
+};
+
+// =============================================================================
+// Input Commands
+// =============================================================================
+
+export const input = {
+  /** Get list of available audio input channels */
+  enumerateAudio: (): WSCommand => ({
+    command: 'input/enumerateAudio',
+  }),
+  /** Get list of available MIDI input devices */
+  enumerateMidi: (): WSCommand => ({
+    command: 'input/enumerateMidi',
+  }),
 };
 
 // =============================================================================

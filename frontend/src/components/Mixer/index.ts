@@ -9,3 +9,4 @@ export { BankSelector, type BankSelectorProps, type CustomBank, type BankType } 
 export { BankEditorModal, type BankEditorModalProps } from './BankEditorModal';
 export { TrackInfoBar, type TrackInfoBarProps } from './TrackInfoBar';
 export { RoutingModal, type RoutingModalProps } from './RoutingModal';
+export { InputSelectionSheet, type InputSelectionSheetProps } from './InputSelectionSheet';

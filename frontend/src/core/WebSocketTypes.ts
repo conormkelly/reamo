@@ -188,6 +188,8 @@ export interface WSTrack {
   fxCount: number;
   sendCount: number;
   receiveCount: number;
+  // Input selection (only present when recArm=true)
+  recInput?: number; // Raw I_RECINPUT value - decode with utils/input.ts
 }
 
 /** Tracks event payload (only contains subscribed tracks) */

@@ -45,6 +45,9 @@ export interface UseTrackReturn {
   // Track GUID for stable targeting (use during gestures to avoid reordering issues)
   guid: string | undefined;
 
+  // Raw I_RECINPUT value (only present when track is record-armed)
+  recInput: number | undefined;
+
   // Derived state
   name: string;
   volumeDb: string;
@@ -167,6 +170,7 @@ export function useTrack(trackIndex: number): UseTrackReturn {
     track,
     exists: track !== null,
     guid,
+    recInput: track?.recInput,
     ...derived,
     toggleMute,
     toggleSolo,

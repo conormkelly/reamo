@@ -107,7 +107,7 @@ export function BottomSheet({
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}
-        className={`bg-bg-deep rounded-t-2xl shadow-2xl border-t border-x border-border-subtle w-full max-w-md mx-0 overflow-hidden outline-none transform transition-transform duration-200 ease-out safe-area-bottom ${
+        className={`bg-bg-deep rounded-t-2xl shadow-2xl border-t border-x border-border-subtle w-full max-w-md mx-0 outline-none transform transition-transform duration-200 ease-out safe-area-bottom ${
           isAnimating ? 'translate-y-0' : 'translate-y-full'
         }`}
         onClick={(e) => e.stopPropagation()}

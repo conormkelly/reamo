@@ -297,6 +297,8 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
           receiveCount: t.receiveCount ?? 0,
           hwOutCount: 0,
           fxCount: t.fxCount ?? 0,
+          // Input selection (only present when recArm=true)
+          recInput: t.recInput,
         };
       }
 

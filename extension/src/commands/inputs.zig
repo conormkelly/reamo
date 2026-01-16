@@ -72,7 +72,9 @@ pub fn handleEnumerateAudio(api: anytype, _: protocol.CommandMessage, response: 
 
     writer.writeAll("]}") catch {};
 
-    response.success(stream.getWritten());
+    // Use large payload - input list can exceed 512-byte response buffer
+    const payload = stream.getWritten();
+    response.successLargePayload(payload);
 }
 
 // ============================================================================
@@ -136,7 +138,8 @@ pub fn handleEnumerateMidi(api: anytype, _: protocol.CommandMessage, response: *
 
     writer.writeAll("]}") catch {};
 
-    response.success(stream.getWritten());
+    // Use large payload - device list can exceed 512-byte response buffer
+    response.successLargePayload(stream.getWritten());
 }
 
 // ============================================================================

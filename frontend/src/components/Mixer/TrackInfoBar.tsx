@@ -11,8 +11,9 @@ import { Copy, Trash2 } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useTrack } from '../../hooks/useTrack';
 import { track as trackCmd } from '../../core/WebSocketCommands';
-import { reaperColorToHex, hexToReaperColor } from '../../utils';
+import { reaperColorToHex, hexToReaperColor, formatInputLabel } from '../../utils';
 import { DEFAULT_TRACK_COLOR } from '../../constants/colors';
+import { isRecordArmed } from '../../core/types';
 import { FxModal } from './FxModal';
 import { ColorPickerInput } from '../Toolbar/ColorPickerInput';
 
@@ -337,6 +338,16 @@ export function TrackInfoBar({
               </button>
             )}
           </div>
+
+          {/* Input indicator for armed tracks */}
+          {track && isRecordArmed(track) && track.recInput !== undefined && (
+            <>
+              <div className="w-px h-4 bg-border-default flex-shrink-0" />
+              <span className="text-xs text-text-muted truncate flex-shrink-0">
+                {formatInputLabel(track.recInput)}
+              </span>
+            </>
+          )}
         </div>
 
         {/* Line 2: Color, Routing, Duplicate, Delete */}
