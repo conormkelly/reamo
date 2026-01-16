@@ -221,6 +221,12 @@ pub const Api = struct {
     midiEditor_GetActive: ?*const fn () callconv(.c) ?*anyopaque = null,
     midiEditor_OnCommand: ?*const fn (?*anyopaque, c_int) callconv(.c) bool = null,
 
+    // Input enumeration (for track input selection)
+    getNumAudioInputs: ?*const fn () callconv(.c) c_int = null,
+    getInputChannelName: ?*const fn (c_int) callconv(.c) ?[*:0]const u8 = null,
+    getMaxMidiInputs: ?*const fn () callconv(.c) c_int = null,
+    getMIDIInputName: ?*const fn (c_int, [*]u8, c_int) callconv(.c) bool = null,
+
     // Load API from REAPER plugin info
     pub fn load(info: *PluginInfo) ?Api {
         const showConsoleMsg = getFunc(info, "ShowConsoleMsg", fn ([*:0]const u8) callconv(.c) void) orelse return null;
@@ -377,6 +383,11 @@ pub const Api = struct {
             // MIDI Editor
             .midiEditor_GetActive = getFunc(info, "MIDIEditor_GetActive", fn () callconv(.c) ?*anyopaque),
             .midiEditor_OnCommand = getFunc(info, "MIDIEditor_OnCommand", fn (?*anyopaque, c_int) callconv(.c) bool),
+            // Input enumeration
+            .getNumAudioInputs = getFunc(info, "GetNumAudioInputs", fn () callconv(.c) c_int),
+            .getInputChannelName = getFunc(info, "GetInputChannelName", fn (c_int) callconv(.c) ?[*:0]const u8),
+            .getMaxMidiInputs = getFunc(info, "GetMaxMidiInputs", fn () callconv(.c) c_int),
+            .getMIDIInputName = getFunc(info, "GetMIDIInputName", fn (c_int, [*]u8, c_int) callconv(.c) bool),
         };
     }
 
@@ -1883,6 +1894,38 @@ pub const Api = struct {
     /// Validate a take pointer.
     pub fn validateTakePtr(self: *const Api, take: ?*anyopaque) bool {
         return self.validatePtr2(take, "MediaItem_Take*");
+    }
+
+    // =========================================================================
+    // Input enumeration (for track input selection)
+    // =========================================================================
+
+    /// Get number of audio input channels available.
+    pub fn numAudioInputs(self: *const Api) c_int {
+        const f = self.getNumAudioInputs orelse return 0;
+        return f();
+    }
+
+    /// Get name of an audio input channel by index.
+    /// Returns null if index is out of range or function unavailable.
+    pub fn audioInputName(self: *const Api, channel: c_int) ?[*:0]const u8 {
+        const f = self.getInputChannelName orelse return null;
+        return f(channel);
+    }
+
+    /// Get maximum MIDI input device index (iterate 0..maxMidiInputs()-1).
+    /// Note: Some indices may be empty - check midiInputName return value.
+    pub fn maxMidiInputs(self: *const Api) c_int {
+        const f = self.getMaxMidiInputs orelse return 0;
+        return f();
+    }
+
+    /// Get MIDI input device name. Returns true if device exists.
+    /// name_buf: buffer to receive null-terminated device name
+    /// buf_size: size of buffer
+    pub fn midiInputName(self: *const Api, dev: c_int, name_buf: [*]u8, buf_size: c_int) bool {
+        const f = self.getMIDIInputName orelse return false;
+        return f(dev, name_buf, buf_size);
     }
 };
 

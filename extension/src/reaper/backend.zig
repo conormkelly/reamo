@@ -219,6 +219,14 @@ pub fn validateBackend(comptime T: type) void {
         // MIDI Editor (for section-specific action execution)
         "midiEditorGetActive",
         "midiEditorOnCommand",
+
+        // Input enumeration
+        "numAudioInputs",
+        "audioInputName",
+        "maxMidiInputs",
+        "midiInputName",
+        "getTrackRecInput",
+        "setTrackRecInput",
     };
 
     inline for (required_methods) |method| {

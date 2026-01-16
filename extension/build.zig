@@ -38,6 +38,7 @@ pub fn build(b: *std.Build) void {
         "src/tiered_state.zig",
         "src/peaks_cache.zig",
         "src/peaks_subscriptions.zig",
+        // Note: commands/inputs.zig tests run via library build (depends on mod.zig)
     };
 
     const test_step = b.step("test", "Run unit tests");

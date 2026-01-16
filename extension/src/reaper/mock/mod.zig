@@ -25,6 +25,7 @@ const tracks = @import("tracks.zig");
 const markers = @import("markers.zig");
 const project = @import("project.zig");
 const preferences = @import("preferences.zig");
+const inputs = @import("inputs.zig");
 
 // Re-export state types for convenience
 pub const MockTrack = state.MockTrack;
@@ -135,6 +136,12 @@ pub const MockBackend = struct {
     tracks: [MAX_TRACKS]MockTrack = [_]MockTrack{.{}} ** MAX_TRACKS,
     master_muted: bool = false,
     master_soloed: bool = false,
+
+    // =========================================================================
+    // Input enumeration (configurable for testing)
+    // =========================================================================
+    audio_input_count: c_int = 8,
+    midi_input_count: c_int = 4,
 
     // =========================================================================
     // Markers (fixed array for testing)
@@ -471,6 +478,16 @@ pub const MockBackend = struct {
     // =========================================================================
     pub const midiEditorGetActive = project.ProjectMethods.midiEditorGetActive;
     pub const midiEditorOnCommand = project.ProjectMethods.midiEditorOnCommand;
+
+    // =========================================================================
+    // Input enumeration (delegated)
+    // =========================================================================
+    pub const numAudioInputs = inputs.InputsMethods.numAudioInputs;
+    pub const audioInputName = inputs.InputsMethods.audioInputName;
+    pub const maxMidiInputs = inputs.InputsMethods.maxMidiInputs;
+    pub const midiInputName = inputs.InputsMethods.midiInputName;
+    pub const getTrackRecInput = inputs.InputsMethods.getTrackRecInput;
+    pub const setTrackRecInput = inputs.InputsMethods.setTrackRecInput;
 };
 
 // Validate at comptime that MockBackend has all required methods

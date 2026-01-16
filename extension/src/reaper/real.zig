@@ -854,6 +854,41 @@ pub const RealBackend = struct {
     pub fn updateTimeline(self: *const RealBackend) void {
         self.inner.updateTimeline();
     }
+
+    // =========================================================================
+    // Input enumeration (for track input selection)
+    // =========================================================================
+
+    pub fn numAudioInputs(self: *const RealBackend) c_int {
+        return self.inner.numAudioInputs();
+    }
+
+    pub fn audioInputName(self: *const RealBackend, channel: c_int) ?[*:0]const u8 {
+        return self.inner.audioInputName(channel);
+    }
+
+    pub fn maxMidiInputs(self: *const RealBackend) c_int {
+        return self.inner.maxMidiInputs();
+    }
+
+    pub fn midiInputName(self: *const RealBackend, dev: c_int, name_buf: [*]u8, buf_size: c_int) bool {
+        return self.inner.midiInputName(dev, name_buf, buf_size);
+    }
+
+    /// Get track record input value (I_RECINPUT encoding).
+    /// Returns -1 for no input (or on FFI error), or encoded bitfield for audio/MIDI inputs.
+    pub fn getTrackRecInput(self: *const RealBackend, track: *anyopaque) c_int {
+        const f = self.inner.getMediaTrackInfo_Value orelse return -1;
+        const val = f(track, "I_RECINPUT");
+        return ffi.safeFloatToInt(c_int, val) catch -1;
+    }
+
+    /// Set track record input value (I_RECINPUT encoding).
+    /// Pass -1 for no input, or encoded bitfield for audio/MIDI inputs.
+    pub fn setTrackRecInput(self: *const RealBackend, track: *anyopaque, value: c_int) bool {
+        const f = self.inner.setMediaTrackInfo_Value orelse return false;
+        return f(track, "I_RECINPUT", @floatFromInt(value));
+    }
 };
 
 // Validate at comptime that RealBackend has all required methods

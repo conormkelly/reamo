@@ -223,6 +223,13 @@ pub const Method = enum {
     trackSendSetVolume,
     trackSendToggleMute,
     trackSendSetMute,
+    // Inputs
+    numAudioInputs,
+    audioInputName,
+    maxMidiInputs,
+    midiInputName,
+    getTrackRecInput,
+    setTrackRecInput,
 };
 
 pub const MockTrack = struct {
@@ -238,6 +245,7 @@ pub const MockTrack = struct {
     selected: bool = false,
     color: c_int = 0,
     folder_depth: c_int = 0,
+    rec_input: c_int = -1, // I_RECINPUT value (-1 = no input)
     peak_left: f64 = 0.0,
     peak_right: f64 = 0.0,
 

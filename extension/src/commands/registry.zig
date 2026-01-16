@@ -31,6 +31,7 @@ const preferences = @import("preferences.zig");
 const debug = @import("debug.zig");
 const track_subs = @import("track_subs.zig");
 const peaks_subs = @import("peaks_subs.zig");
+const inputs = @import("inputs.zig");
 
 /// Comptime tuple of (command_name, handler_fn) pairs.
 /// Used by dispatch() with inline for to call handlers with anytype.
@@ -122,6 +123,12 @@ pub const all = .{
     // On-demand track data (sparse field fetch)
     .{ "track/getFx", tracks.handleGetFx },
     .{ "track/getSends", tracks.handleGetSends },
+    .{ "track/getInput", inputs.handleGetInput },
+    .{ "track/setInput", inputs.handleSetInput },
+
+    // Input enumeration
+    .{ "input/enumerateAudio", inputs.handleEnumerateAudio },
+    .{ "input/enumerateMidi", inputs.handleEnumerateMidi },
 
     // Tempo
     .{ "tempo/set", tempo.handleSet },

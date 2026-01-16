@@ -1204,6 +1204,192 @@ Unsubscribe from all track updates for this client. Called automatically on disc
 
 ---
 
+## Input Commands
+
+Commands for enumerating available audio/MIDI inputs and configuring track input routing.
+
+### `input/enumerateAudio`
+
+Get list of available audio input channels.
+
+**Request:**
+
+```json
+{"type": "command", "command": "input/enumerateAudio", "id": "1"}
+```
+
+**Response:**
+
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": {
+    "inputs": [
+      {"idx": 0, "name": "Built-in Mic 1"},
+      {"idx": 1, "name": "Built-in Mic 2"}
+    ]
+  }
+}
+```
+
+### `input/enumerateMidi`
+
+Get list of available MIDI input devices.
+
+**Request:**
+
+```json
+{"type": "command", "command": "input/enumerateMidi", "id": "1"}
+```
+
+**Response:**
+
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": {
+    "devices": [
+      {"idx": 0, "name": "USB MIDI Controller"},
+      {"idx": 1, "name": "IAC Driver Bus 1"},
+      {"idx": 62, "name": "Virtual MIDI Keyboard"},
+      {"idx": 63, "name": "All MIDI Inputs"}
+    ]
+  }
+}
+```
+
+**Note:** Device indices 62 (Virtual MIDI Keyboard) and 63 (All MIDI Inputs) are always included.
+
+### `track/getInput`
+
+Get current input configuration for a track.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | One of | Unified track index (0=master, 1+=user) |
+| `trackGuid` | string | these | Track GUID for stable identification |
+
+**Request:**
+
+```json
+{"type": "command", "command": "track/getInput", "trackIdx": 1, "id": "1"}
+```
+
+**Response (no input):**
+
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": {"type": "none", "raw": -1}
+}
+```
+
+**Response (audio):**
+
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": {
+    "type": "audio",
+    "raw": 1024,
+    "channel": 0,
+    "stereo": true,
+    "multi": false,
+    "rearoute": false
+  }
+}
+```
+
+**Response (MIDI):**
+
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": {
+    "type": "midi",
+    "raw": 4096,
+    "device": 0,
+    "channel": 0,
+    "isVKB": false,
+    "isAll": false
+  }
+}
+```
+
+### `track/setInput`
+
+Set input configuration for a track. Use either raw value OR logical parameters.
+
+**Parameters (raw mode):**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` / `trackGuid` | | Yes | Track identification |
+| `raw` | int | Yes | Raw I_RECINPUT value |
+
+**Parameters (logical mode):**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` / `trackGuid` | | Yes | Track identification |
+| `inputType` | string | Yes | `none`, `audio`, or `midi` |
+
+**For audio (`inputType: "audio"`):**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `channel` | int | Required | Channel index (0-based) |
+| `stereo` | bool | false | Use stereo pair (channel + next) |
+| `multi` | bool | false | Use track channel count |
+| `rearoute` | bool | false | ReaRoute/loopback input |
+
+**For MIDI (`inputType: "midi"`):**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `device` | int | Required | Device index (0-61=hardware, 62=VKB, 63=all) |
+| `channel` | int | 0 | MIDI channel (0=all, 1-16=specific) |
+
+**Examples:**
+
+```json
+// Disable input
+{"type": "command", "command": "track/setInput", "trackIdx": 1, "inputType": "none", "id": "1"}
+
+// Mono input channel 1
+{"type": "command", "command": "track/setInput", "trackIdx": 1, "inputType": "audio", "channel": 0, "id": "2"}
+
+// Stereo input channels 1+2
+{"type": "command", "command": "track/setInput", "trackIdx": 1, "inputType": "audio", "channel": 0, "stereo": true, "id": "3"}
+
+// All MIDI devices, all channels
+{"type": "command", "command": "track/setInput", "trackIdx": 1, "inputType": "midi", "device": 63, "channel": 0, "id": "4"}
+
+// Virtual MIDI Keyboard, channel 1
+{"type": "command", "command": "track/setInput", "trackIdx": 1, "inputType": "midi", "device": 62, "channel": 1, "id": "5"}
+
+// Raw value (bypass encoding)
+{"type": "command", "command": "track/setInput", "trackIdx": 1, "raw": 1024, "id": "6"}
+```
+
+**Response:**
+
+```json
+{"type": "response", "id": "1", "success": true}
+```
+
+---
+
 ## Master Commands
 
 ### `master/toggleMono`

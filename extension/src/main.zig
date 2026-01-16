@@ -633,11 +633,12 @@ fn doProcessing() !void {
         high_state.metering.pollInto(api);
 
         // Broadcast tracks event (only when changed)
+        // Use toJsonWithTotalAlloc for consistent format with subscription path (includes total, GUID, recInput)
         const tracks_changed = !tracksSliceEql(high_state.tracks, high_prev.tracks);
         if (tracks_changed) {
             const temp_state = tracks.State{ .tracks = high_state.tracks };
             const scratch = tiered.scratchAllocator();
-            if (temp_state.toJsonAlloc(scratch, null)) |json| {
+            if (temp_state.toJsonWithTotalAlloc(scratch, null, total_tracks)) |json| {
                 shared_state.broadcast(json);
             } else |_| {}
         }

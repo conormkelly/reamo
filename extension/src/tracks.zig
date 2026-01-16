@@ -88,6 +88,10 @@ pub const Track = struct {
     send_count: u16 = 0,
     receive_count: u16 = 0,
 
+    // Record input (I_RECINPUT encoding): only present when rec_arm=true
+    // -1 = no input, see research/REC_INPUT_SELECTION.md for full encoding spec
+    rec_input: ?c_int = null,
+
     // GUID for stable track identification (master uses "master", user tracks use REAPER GUID)
     guid: [40]u8 = undefined,
     guid_len: usize = 0,
@@ -118,6 +122,8 @@ pub const Track = struct {
         if (self.fx_count != other.fx_count) return false;
         if (self.send_count != other.send_count) return false;
         if (self.receive_count != other.receive_count) return false;
+        // Compare rec_input (only present when armed)
+        if (self.rec_input != other.rec_input) return false;
         // Compare GUID
         if (self.guid_len != other.guid_len) return false;
         if (!std.mem.eql(u8, self.guid[0..self.guid_len], other.guid[0..other.guid_len])) return false;
@@ -207,6 +213,10 @@ pub const State = struct {
                     t.solo = api.getTrackSolo(track) catch null;
                 }
                 t.rec_arm = api.getTrackRecArm(track);
+                // Only fetch rec_input when track is armed (matches REAPER's visual behavior)
+                if (t.rec_arm) {
+                    t.rec_input = api.getTrackRecInput(track);
+                }
                 // getTrackRecMon returns error on NaN/Inf - propagate as null to client
                 t.rec_mon = api.getTrackRecMon(track) catch null;
                 t.fx_enabled = api.getTrackFxEnabled(track);
@@ -282,6 +292,10 @@ pub const State = struct {
                 }
 
                 t.rec_arm = api.getTrackRecArm(track);
+                // Only fetch rec_input when track is armed (matches REAPER's visual behavior)
+                if (t.rec_arm) {
+                    t.rec_input = api.getTrackRecInput(track);
+                }
                 t.rec_mon = api.getTrackRecMon(track) catch null;
                 t.fx_enabled = api.getTrackFxEnabled(track);
                 t.selected = api.getTrackSelected(track);
@@ -367,11 +381,18 @@ pub const State = struct {
             }) catch return null;
 
             // Serialize sparse counts (full data fetched on-demand via track/getFx, track/getSends)
-            writer.print(",\"fxCount\":{d},\"sendCount\":{d},\"receiveCount\":{d}}}", .{
+            writer.print(",\"fxCount\":{d},\"sendCount\":{d},\"receiveCount\":{d}", .{
                 t.fx_count,
                 t.send_count,
                 t.receive_count,
             }) catch return null;
+
+            // rec_input - only present when track is armed (matches REAPER's visual behavior)
+            if (t.rec_input) |ri| {
+                writer.print(",\"recInput\":{d}", .{ri}) catch return null;
+            }
+
+            writer.writeByte('}') catch return null;
         }
 
         writer.writeAll("]") catch return null;
@@ -460,11 +481,18 @@ pub const State = struct {
                 t.folder_depth,
             }) catch return null;
 
-            writer.print(",\"fxCount\":{d},\"sendCount\":{d},\"receiveCount\":{d}}}", .{
+            writer.print(",\"fxCount\":{d},\"sendCount\":{d},\"receiveCount\":{d}", .{
                 t.fx_count,
                 t.send_count,
                 t.receive_count,
             }) catch return null;
+
+            // rec_input - only present when track is armed (matches REAPER's visual behavior)
+            if (t.rec_input) |ri| {
+                writer.print(",\"recInput\":{d}", .{ri}) catch return null;
+            }
+
+            writer.writeByte('}') catch return null;
         }
 
         writer.writeAll("]") catch return null;
