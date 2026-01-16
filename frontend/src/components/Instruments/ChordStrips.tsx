@@ -1,48 +1,79 @@
 /**
  * ChordStrips Component
- * Container for 7 diatonic chord strips (vertical columns) with key/scale selection
+ * Container for 7 diatonic chord strips (vertical columns)
  * Landscape orientation recommended - strips arranged horizontally
  */
 
-import { useState, useMemo, useCallback, type ReactElement } from 'react';
+import { useState, useMemo, useCallback, useRef, type ReactElement } from 'react';
 import {
   generateChordsForKey,
-  DEFAULT_OCTAVE,
-  DEFAULT_VELOCITY,
+  findClosestVoicing,
   type NoteName,
   type ScaleType,
+  type Chord,
 } from '@/lib/music-theory';
 import { ChordStrip } from './ChordStrip';
-import { KeySelector } from './KeySelector';
-import { ScaleSelector } from './ScaleSelector';
-import { OctaveSelector } from './OctaveSelector';
+
+/**
+ * Common chord progressions by degree (1-indexed)
+ * Maps from current chord degree to commonly following degrees
+ */
+const COMMON_PROGRESSIONS: Record<number, number[]> = {
+  1: [4, 5, 6],     // I → IV, V, vi
+  2: [5, 4],        // ii → V, IV
+  3: [6, 4],        // iii → vi, IV
+  4: [5, 1, 2],     // IV → V, I, ii
+  5: [1, 6],        // V → I, vi
+  6: [4, 2, 5],     // vi → IV, ii, V
+  7: [1, 3],        // vii° → I, iii
+};
 
 export interface ChordStripsProps {
   /** MIDI channel (0-15) */
   channel: number;
   /** Callback to send note on */
   onNoteOn: (channel: number, note: number, velocity: number) => void;
-  /** Initial key (default: C) */
-  initialKey?: NoteName;
-  /** Initial scale (default: major) */
-  initialScale?: ScaleType;
-  /** Initial octave (default: 3) */
-  initialOctave?: number;
+  /** Root key (C, D, E, etc.) */
+  rootKey: NoteName;
+  /** Scale type (major, minor, etc.) */
+  scaleType: ScaleType;
+  /** Chord octave */
+  octave: number;
+  /** Show progression hints */
+  showHints: boolean;
+  /** Enable adaptive voicing (voice leading) */
+  adaptiveVoicing: boolean;
+  /** Enable strum mode */
+  strumEnabled: boolean;
+  /** Strum delay in ms */
+  strumDelay: number;
   className?: string;
 }
 
 export function ChordStrips({
   channel,
   onNoteOn,
-  initialKey = 'C',
-  initialScale = 'major',
-  initialOctave = DEFAULT_OCTAVE,
+  rootKey,
+  scaleType,
+  octave,
+  showHints,
+  adaptiveVoicing,
+  strumEnabled,
+  strumDelay,
   className = '',
 }: ChordStripsProps): ReactElement {
-  // State for key, scale, and octave
-  const [rootKey, setRootKey] = useState<NoteName>(initialKey);
-  const [scaleType, setScaleType] = useState<ScaleType>(initialScale);
-  const [octave, setOctave] = useState(initialOctave);
+  // Internal state
+  const lastVoicingRef = useRef<number[]>([]);
+  const currentNotesRef = useRef<number[]>([]); // Notes currently sounding (for correct note-off)
+
+  // Track currently active chord for hints
+  const [activeChord, setActiveChord] = useState<Chord | null>(null);
+
+  // Calculate suggested next chords based on active chord
+  const suggestedDegrees = useMemo(() => {
+    if (!activeChord || !showHints) return new Set<number>();
+    return new Set(COMMON_PROGRESSIONS[activeChord.degree] || []);
+  }, [activeChord, showHints]);
 
   // Generate chords when key/scale/octave changes
   const chords = useMemo(
@@ -50,57 +81,91 @@ export function ChordStrips({
     [rootKey, scaleType, octave]
   );
 
-  // Handle chord note on - send all notes in the chord
+  // Bass octave is one below chord octave
+  const bassOctave = octave - 1;
+
+  // Handle chord note on - send all notes in the chord (with optional strum and adaptive voicing)
   const handleChordNoteOn = useCallback(
-    (notes: number[], velocity: number) => {
-      for (const note of notes) {
-        onNoteOn(channel, note, velocity);
+    (notes: number[], velocity: number, chord: Chord) => {
+      setActiveChord(chord);
+
+      // Determine which notes to play (adaptive voicing or root position)
+      let notesToPlay = notes;
+      if (adaptiveVoicing && lastVoicingRef.current.length > 0) {
+        notesToPlay = findClosestVoicing(notes, lastVoicingRef.current);
       }
+
+      // Store the notes we're playing for correct note-off
+      currentNotesRef.current = notesToPlay;
+      lastVoicingRef.current = notesToPlay;
+
+      if (strumEnabled && strumDelay > 0) {
+        // Strum mode: play notes with delay (low to high = upstroke)
+        const sortedNotes = [...notesToPlay].sort((a, b) => a - b);
+        sortedNotes.forEach((note, index) => {
+          setTimeout(() => {
+            onNoteOn(channel, note, velocity);
+          }, index * strumDelay);
+        });
+      } else {
+        // Normal mode: play all notes simultaneously
+        for (const note of notesToPlay) {
+          onNoteOn(channel, note, velocity);
+        }
+      }
+    },
+    [channel, onNoteOn, strumEnabled, strumDelay, adaptiveVoicing]
+  );
+
+  // Handle chord note off - send velocity 0 for all notes that were played
+  const handleChordNoteOff = useCallback(
+    (_notes: number[]) => {
+      setActiveChord(null);
+      // Use the notes that were actually played (may be inverted)
+      for (const note of currentNotesRef.current) {
+        onNoteOn(channel, note, 0);
+      }
+      currentNotesRef.current = [];
     },
     [channel, onNoteOn]
   );
 
-  // Handle chord note off - send velocity 0 for all notes
-  const handleChordNoteOff = useCallback(
-    (notes: number[]) => {
-      for (const note of notes) {
-        onNoteOn(channel, note, 0);
-      }
+  // Handle bass note on
+  const handleBassNoteOn = useCallback(
+    (note: number, velocity: number) => {
+      onNoteOn(channel, note, velocity);
+    },
+    [channel, onNoteOn]
+  );
+
+  // Handle bass note off
+  const handleBassNoteOff = useCallback(
+    (note: number) => {
+      onNoteOn(channel, note, 0);
     },
     [channel, onNoteOn]
   );
 
   return (
-    <div className={`flex flex-col h-full ${className}`}>
-      {/* Controls bar */}
-      <div className="flex items-center gap-4 px-3 py-2 bg-bg-subtle border-b border-border-subtle">
-        <KeySelector selectedKey={rootKey} onKeyChange={setRootKey} />
-        <ScaleSelector selectedScale={scaleType} onScaleChange={setScaleType} />
-        <OctaveSelector
-          octave={octave}
-          onOctaveChange={setOctave}
-          minOctave={1}
-          maxOctave={5}
+    <div
+      className={`flex flex-row gap-2 p-3 overflow-hidden ${className}`}
+      role="group"
+      aria-label="Chord strips"
+    >
+      {chords.map((chord) => (
+        <ChordStrip
+          key={`${chord.degree}-${chord.root}`}
+          chord={chord}
+          bassOctave={bassOctave}
+          onNoteOn={handleChordNoteOn}
+          onNoteOff={handleChordNoteOff}
+          onBassNoteOn={handleBassNoteOn}
+          onBassNoteOff={handleBassNoteOff}
+          isActive={activeChord?.degree === chord.degree}
+          isSuggestedNext={suggestedDegrees.has(chord.degree)}
+          className="flex-1 min-w-0 h-full"
         />
-      </div>
-
-      {/* Chord strips - horizontal row of vertical columns */}
-      <div
-        className="flex-1 flex flex-row gap-2 p-3 overflow-hidden"
-        role="group"
-        aria-label="Chord strips"
-      >
-        {chords.map((chord) => (
-          <ChordStrip
-            key={`${chord.degree}-${chord.root}`}
-            chord={chord}
-            onNoteOn={handleChordNoteOn}
-            onNoteOff={handleChordNoteOff}
-            velocity={DEFAULT_VELOCITY}
-            className="flex-1 min-w-0 h-full"
-          />
-        ))}
-      </div>
+      ))}
     </div>
   );
 }

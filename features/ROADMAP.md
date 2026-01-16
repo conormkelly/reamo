@@ -116,17 +116,27 @@ Chord strips and scale-locked keyboard for songwriting workflow.
 - Should key selector prefer flats for flat keys? (currently always shows C#, user picks)
 - Consider restricting key selector to "practical" keys only
 
-*Phase 2 (Enhanced):*
-- Vertical segments for inversions (root, 1st, 2nd)
-- Y-position velocity mapping (top=loud, bottom=soft)
-- Octave up/down control
-- 7ths toggle
+*Phase 2 (Enhanced):* ✅
+- Vertical segments for inversions (Root, 1st, 2nd, Oct) - 4 segments matching Logic
+- X-position velocity mapping (left=soft, right=loud)
+- Octave up/down control in header
+- Chord name integrated into top segment (maximizes touch target height)
 
-*Phase 3 (Advanced):*
-- Bass strip (Root, 5th, Octave)
-- Adaptive voicing (minimize voice movement)
-- Strum mode with configurable delay
-- Next-chord color hints
+*Phase 3 (Advanced):* ✅
+- Bass notes (R, 5, 8) as vertical segments below inversions (7 equal-height segments total)
+- Vertical swipe arpeggio between inversion segments
+- Adaptive voicing "Voice Lead" toggle (minimizes voice movement)
+- Strum mode with configurable delay (10-100ms)
+- Next-chord color hints (green ring for suggested progressions)
+- All controls moved to ViewHeader for cleaner layout
+
+*Phase 4 (Customization) — Deferred:*
+- 7ths toggle
+- Hide/show specific chord strips (e.g., hide dim chord)
+- Custom chord editing per strip (replace chord with variant like 7sus4)
+- Configurable strip count (4-7 visible chords)
+- Per-strip quality override (force minor instead of diminished)
+- Adjustable inversion count (2-4 segments)
 
 **Remaining for full instruments:**
 

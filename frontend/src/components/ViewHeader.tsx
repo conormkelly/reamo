@@ -58,8 +58,8 @@ export function ViewHeader({ currentView, children }: ViewHeaderProps): ReactEle
         onToggleActionsAutoCollapse={() => setActionsAutoCollapse(!actionsAutoCollapse)}
       />
 
-      {/* View-specific controls - center, pushed right */}
-      <div className="flex items-center gap-2 ml-auto">
+      {/* View-specific controls - fills remaining space, children control their own layout */}
+      <div className="flex-1 flex items-center">
         {children}
       </div>
 
