@@ -25,25 +25,6 @@ Tap time display to cycle: Bar.Beat → Seconds → SMPTE → Bar.Beat
 
 ---
 
-### Track Create Button
-
-Add "New Track" button to TrackInfoBar or as FAB in mixer.
-
-**Status:** Input selection complete. Only button UI remains.
-
-**Implementation:**
-
-- ✅ Backend `track/create` command already exists
-- ✅ `input/enumerateAudio` and `input/enumerateMidi` commands
-- ✅ `track/setInput` command with I_RECINPUT encoding
-- ✅ InputSelectionSheet UI (long-press record arm button to access)
-- ✅ TrackInfoBar shows current input for armed tracks
-- Wire up "New Track" button UI
-
-**Effort:** S (just button placement and wiring)
-
----
-
 ## P2 — Feature Improvements (Larger Scope)
 
 ### Item Selection UX Refinement
@@ -140,6 +121,7 @@ Chord strips and scale-locked keyboard for songwriting workflow.
 **Backend (trivial):** Add `midi/noteOn`, `midi/noteOff`, `midi/pitchBend`, `midi/aftertouch` commands
 
 **Frontend (main effort):**
+
 - Multi-touch tracking (touchId → noteId for proper note-off)
 - Velocity from pressure/position
 - Rate-limited continuous controllers (60-120Hz)

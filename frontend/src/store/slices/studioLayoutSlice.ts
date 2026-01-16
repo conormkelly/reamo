@@ -18,6 +18,7 @@ export interface StudioLayoutState {
   showRecordingActions: boolean; // Show recording actions bar during recording
   layoutLocked: boolean; // Lock layout - prevent drag/collapse
   pinMasterTrack: boolean; // Pin master track to left of mixer (don't scroll)
+  showAddTrackButton: boolean; // Show + button in mixer to create tracks
 
   // Actions
   toggleSection: (id: SectionId) => void;
@@ -25,6 +26,7 @@ export interface StudioLayoutState {
   setShowRecordingActions: (show: boolean) => void;
   setLayoutLocked: (locked: boolean) => void;
   setPinMasterTrack: (pinned: boolean) => void;
+  setShowAddTrackButton: (show: boolean) => void;
   reorderLayoutSections: (fromIndex: number, toIndex: number) => void;
   loadLayoutFromStorage: () => void;
   saveLayoutToStorage: () => void;
@@ -52,7 +54,8 @@ const getDefaultState = () => ({
   hideCollapsed: false,
   showRecordingActions: true,
   layoutLocked: false,
-  pinMasterTrack: true // Master pinned by default
+  pinMasterTrack: true, // Master pinned by default
+  showAddTrackButton: true // Show + button in mixer by default
 });
 
 export const createStudioLayoutSlice: StateCreator<StudioLayoutState> = (set, get) => ({
@@ -91,6 +94,11 @@ export const createStudioLayoutSlice: StateCreator<StudioLayoutState> = (set, ge
     get().saveLayoutToStorage();
   },
 
+  setShowAddTrackButton: (show) => {
+    set({ showAddTrackButton: show });
+    get().saveLayoutToStorage();
+  },
+
   reorderLayoutSections: (fromIndex, toIndex) => {
     const state = get();
     const sectionIds = (Object.keys(state.sections) as SectionId[]).sort(
@@ -121,7 +129,8 @@ export const createStudioLayoutSlice: StateCreator<StudioLayoutState> = (set, ge
           hideCollapsed: parsed.hideCollapsed ?? false,
           showRecordingActions: parsed.showRecordingActions ?? true,
           layoutLocked: parsed.layoutLocked ?? false,
-          pinMasterTrack: parsed.pinMasterTrack ?? true
+          pinMasterTrack: parsed.pinMasterTrack ?? true,
+          showAddTrackButton: parsed.showAddTrackButton ?? true
         });
       }
     } catch (err) {
@@ -139,7 +148,8 @@ export const createStudioLayoutSlice: StateCreator<StudioLayoutState> = (set, ge
         hideCollapsed: state.hideCollapsed,
         showRecordingActions: state.showRecordingActions,
         layoutLocked: state.layoutLocked,
-        pinMasterTrack: state.pinMasterTrack
+        pinMasterTrack: state.pinMasterTrack,
+        showAddTrackButton: state.showAddTrackButton
       }));
     } catch (err) {
       console.error('Failed to save studio layout to storage:', err);

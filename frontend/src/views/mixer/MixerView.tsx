@@ -17,8 +17,10 @@ import {
   BankEditorModal,
   TrackInfoBar,
   RoutingModal,
+  CreateTrackModal,
   type CustomBank,
 } from '../../components/Mixer';
+import { Plus } from 'lucide-react';
 import { TrackFilter } from '../../components/Track';
 import { MixerLockButton } from '../../components/Actions';
 import {
@@ -44,6 +46,7 @@ export function MixerView(): ReactElement {
   const { totalTracks } = useTrackSkeleton();
   const tracks = useReaperStore((state) => state?.tracks ?? EMPTY_TRACKS);
   const pinMasterTrack = useReaperStore((state) => state.pinMasterTrack);
+  const showAddTrackButton = useReaperStore((state) => state.showAddTrackButton);
 
   // Responsive channel count - accounts for pinned master taking space
   const { channelCount } = useResponsiveChannelCount({
@@ -78,6 +81,9 @@ export function MixerView(): ReactElement {
   // Routing modal state
   const [routingModalOpen, setRoutingModalOpen] = useState(false);
   const [routingTrackIdx, setRoutingTrackIdx] = useState<number>(0);
+
+  // Create track modal state
+  const [createTrackModalOpen, setCreateTrackModalOpen] = useState(false);
 
   // Track filter state
   const [filterQuery, setFilterQuery] = useState('');
@@ -387,6 +393,17 @@ export function MixerView(): ReactElement {
             </div>
           ))}
         </div>
+
+        {/* Create track button */}
+        {showAddTrackButton && (
+          <button
+            onClick={() => setCreateTrackModalOpen(true)}
+            className="self-center p-2 text-text-muted hover:text-text-primary transition-colors"
+            title="Create track"
+          >
+            <Plus size={24} />
+          </button>
+        )}
       </div>
 
       {/* Track info bar - shows when a track is selected */}
@@ -443,6 +460,12 @@ export function MixerView(): ReactElement {
         isOpen={routingModalOpen}
         onClose={() => setRoutingModalOpen(false)}
         trackIndex={routingTrackIdx}
+      />
+
+      {/* Create track modal */}
+      <CreateTrackModal
+        isOpen={createTrackModalOpen}
+        onClose={() => setCreateTrackModalOpen(false)}
       />
     </div>
   );

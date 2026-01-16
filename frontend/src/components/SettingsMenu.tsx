@@ -20,6 +20,8 @@ export interface SettingsMenuProps {
   // Mixer view settings
   pinMasterTrack: boolean;
   onTogglePinMasterTrack: () => void;
+  showAddTrackButton: boolean;
+  onToggleShowAddTrackButton: () => void;
   // Actions view settings
   actionsAutoCollapse: boolean;
   onToggleActionsAutoCollapse: () => void;
@@ -38,6 +40,8 @@ export function SettingsMenu({
   onToggleRecordingActions,
   pinMasterTrack,
   onTogglePinMasterTrack,
+  showAddTrackButton,
+  onToggleShowAddTrackButton,
   actionsAutoCollapse,
   onToggleActionsAutoCollapse,
   className = '',
@@ -156,6 +160,19 @@ export function SettingsMenu({
                 <span className="text-sm">Pin MASTER</span>
                 <span className={`flex items-center gap-1.5 text-xs ${pinMasterTrack ? 'text-success' : 'text-text-muted'}`}>
                   {pinMasterTrack ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                </span>
+              </button>
+
+              {/* Show Add Track Button toggle */}
+              <button
+                onClick={() => {
+                  onToggleShowAddTrackButton();
+                }}
+                className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
+              >
+                <span className="text-sm">Add Track Button</span>
+                <span className={`flex items-center gap-1.5 text-xs ${showAddTrackButton ? 'text-success' : 'text-text-muted'}`}>
+                  {showAddTrackButton ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
                 </span>
               </button>
             </>

@@ -32,6 +32,8 @@ export function ViewHeader({ currentView, children }: ViewHeaderProps): ReactEle
   const setShowRecordingActions = useReaperStore((s) => s.setShowRecordingActions);
   const pinMasterTrack = useReaperStore((s) => s.pinMasterTrack);
   const setPinMasterTrack = useReaperStore((s) => s.setPinMasterTrack);
+  const showAddTrackButton = useReaperStore((s) => s.showAddTrackButton);
+  const setShowAddTrackButton = useReaperStore((s) => s.setShowAddTrackButton);
   const actionsAutoCollapse = useReaperStore((s) => s.actionsAutoCollapse);
   const setActionsAutoCollapse = useReaperStore((s) => s.setActionsAutoCollapse);
 
@@ -50,6 +52,8 @@ export function ViewHeader({ currentView, children }: ViewHeaderProps): ReactEle
         onToggleRecordingActions={() => setShowRecordingActions(!showRecordingActions)}
         pinMasterTrack={pinMasterTrack}
         onTogglePinMasterTrack={() => setPinMasterTrack(!pinMasterTrack)}
+        showAddTrackButton={showAddTrackButton}
+        onToggleShowAddTrackButton={() => setShowAddTrackButton(!showAddTrackButton)}
         actionsAutoCollapse={actionsAutoCollapse}
         onToggleActionsAutoCollapse={() => setActionsAutoCollapse(!actionsAutoCollapse)}
       />

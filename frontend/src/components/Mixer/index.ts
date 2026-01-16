@@ -10,3 +10,4 @@ export { BankEditorModal, type BankEditorModalProps } from './BankEditorModal';
 export { TrackInfoBar, type TrackInfoBarProps } from './TrackInfoBar';
 export { RoutingModal, type RoutingModalProps } from './RoutingModal';
 export { InputSelectionSheet, type InputSelectionSheetProps } from './InputSelectionSheet';
+export { CreateTrackModal, type CreateTrackModalProps } from './CreateTrackModal';
