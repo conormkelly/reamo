@@ -81,24 +81,26 @@ Chord strips and scale-locked keyboard for songwriting workflow.
 **Incremental Approach:**
 
 1. ~~**Drum Pads (MVP)**~~ ✅ - 4x4 GM drum grid with multi-touch, Pointer Events API, 20ms debounce
-2. **Piano Keyboard** - Note bars with octave selection, velocity from touch
+2. ~~**Piano Keyboard**~~ ✅ - 2-octave keyboard with mod wheel, pitch bend, octave selector
 3. **Chord Strips** - Diatonic chords locked to project key, inversions
-4. **Expression** - Mod wheel, pitch bend strip, aftertouch
+4. ~~**Expression**~~ ✅ - Mod wheel (CC1), pitch bend (14-bit)
 
-**Completed (Drum Pads MVP):**
+**Completed:**
 
-- Backend: `midi/noteOn` command (velocity 0 = note-off via running status)
-- Frontend: InstrumentSelector, ChannelSelector (persisted per-instrument), DrumPadGrid
-- New "Instruments" tab replaces "Notes" in tab bar
-- Build size impact: ~200 bytes gzip
+- Backend: `midi/noteOn`, `midi/cc`, `midi/pitchBend` commands
+- Frontend: InstrumentSelector, ChannelSelector (persisted per-instrument), DrumPadGrid, PianoKeyboard
+- Orientation-locked UX: Drums=portrait only, Piano=landscape only (shows rotate warning otherwise)
+- Flex-based piano layout with proper black key positioning
+- Multi-touch support via Pointer Events API with pointer ID tracking
+- Rate-limited continuous controllers: mod wheel 50Hz, pitch bend 120Hz with spring-back
 
 **Remaining for full instruments:**
 
-- Velocity from pressure/position
-- Rate-limited continuous controllers (60-120Hz)
-- Piano and Chord Strip layouts
+- Velocity from pressure/position (touch pressure API)
+- Chord Strip layout
+- Aftertouch support
 
-**Size:** ~~Backend S, Drum Pads MVP M~~, Remaining instruments M-L
+**Size:** ~~Backend S, Drum Pads MVP M~~, ~~Piano M~~, Remaining instruments S-M
 
 ---
 

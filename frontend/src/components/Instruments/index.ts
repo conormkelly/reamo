@@ -2,3 +2,8 @@ export { InstrumentSelector, type InstrumentType, type InstrumentSelectorProps }
 export { ChannelSelector, type ChannelSelectorProps } from './ChannelSelector';
 export { DrumPad, type DrumPadProps } from './DrumPad';
 export { DrumPadGrid, type DrumPadGridProps } from './DrumPadGrid';
+export { PianoKey, type PianoKeyProps } from './PianoKey';
+export { PianoKeyboard, type PianoKeyboardProps } from './PianoKeyboard';
+export { ModWheel, type ModWheelProps } from './ModWheel';
+export { PitchBendWheel, type PitchBendWheelProps } from './PitchBendWheel';
+export { OctaveSelector, type OctaveSelectorProps } from './OctaveSelector';

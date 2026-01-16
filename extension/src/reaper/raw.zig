@@ -1843,6 +1843,18 @@ pub const Api = struct {
         f(0, status, @as(c_int, note & 0x7F), @as(c_int, velocity & 0x7F));
     }
 
+    /// Send MIDI Pitch Bend message (VKB mode only - for instrument input)
+    /// channel: 0-15, value: 0-16383 (center = 8192)
+    /// 14-bit value split across LSB (msg2) and MSB (msg3)
+    pub fn sendPitchBend(self: *const Api, channel: u8, value: u16) void {
+        const f = self.stuffMIDIMessage orelse return;
+        const status: c_int = 0xE0 | @as(c_int, channel & 0x0F);
+        const clamped = if (value > 16383) @as(u16, 16383) else value;
+        const lsb: c_int = @as(c_int, clamped & 0x7F); // lower 7 bits
+        const msb: c_int = @as(c_int, (clamped >> 7) & 0x7F); // upper 7 bits
+        f(0, status, lsb, msb);
+    }
+
     // Project enumeration and identity
 
     /// Project identity info returned by enumProjects

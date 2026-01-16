@@ -851,6 +851,10 @@ pub const RealBackend = struct {
         self.inner.sendNoteOn(channel, note, velocity);
     }
 
+    pub fn sendPitchBend(self: *const RealBackend, channel: u8, value: u16) void {
+        self.inner.sendPitchBend(channel, value);
+    }
+
     // =========================================================================
     // UI
     // =========================================================================

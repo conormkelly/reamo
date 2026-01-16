@@ -180,6 +180,7 @@ pub const all = .{
     .{ "midi/cc", midi.handleCC },
     .{ "midi/pc", midi.handlePC },
     .{ "midi/noteOn", midi.handleNoteOn },
+    .{ "midi/pitchBend", midi.handlePitchBend },
 
     // Project Notes
     .{ "projectNotes/subscribe", project_notes.handleSubscribe },

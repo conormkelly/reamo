@@ -92,3 +92,26 @@ pub fn handleNoteOn(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
     api.sendNoteOn(@intCast(channel), @intCast(note), @intCast(velocity));
     response.success(null);
 }
+
+/// Send MIDI Pitch Bend message (VKB mode for instrument tracks)
+/// Params: value (0-16383, center=8192), channel (0-15, default 0)
+pub fn handlePitchBend(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const value = cmd.getInt("value") orelse {
+        response.err("MISSING_VALUE", "value (0-16383) is required");
+        return;
+    };
+
+    if (value < 0 or value > 16383) {
+        response.err("INVALID_VALUE", "value must be 0-16383 (center=8192)");
+        return;
+    }
+
+    const channel = cmd.getInt("channel") orelse 0;
+    if (channel < 0 or channel > 15) {
+        response.err("INVALID_CHANNEL", "channel must be 0-15");
+        return;
+    }
+
+    api.sendPitchBend(@intCast(channel), @intCast(value));
+    response.success(null);
+}

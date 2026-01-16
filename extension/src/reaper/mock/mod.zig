@@ -165,6 +165,7 @@ pub const MockBackend = struct {
     last_midi_program: c_int = 0,
     last_midi_note: u8 = 0,
     last_midi_velocity: u8 = 0,
+    last_pitch_bend: u16 = 8192, // center position
 
     // =========================================================================
     // UI state
@@ -474,6 +475,7 @@ pub const MockBackend = struct {
     pub const sendMidiCC = project.ProjectMethods.sendMidiCC;
     pub const sendMidiPC = project.ProjectMethods.sendMidiPC;
     pub const sendNoteOn = project.ProjectMethods.sendNoteOn;
+    pub const sendPitchBend = project.ProjectMethods.sendPitchBend;
     pub const updateTimeline = project.ProjectMethods.updateTimeline;
 
     // =========================================================================

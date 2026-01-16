@@ -328,6 +328,12 @@ pub const ProjectMethods = struct {
         self.last_midi_velocity = velocity;
     }
 
+    pub fn sendPitchBend(self: anytype, channel: u8, value: u16) void {
+        self.recordCall(.sendPitchBend);
+        self.last_midi_channel = channel;
+        self.last_pitch_bend = value;
+    }
+
     // =========================================================================
     // UI
     // =========================================================================

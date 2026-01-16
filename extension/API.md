@@ -2024,6 +2024,19 @@ Send MIDI Note On message. Use velocity=0 for note-off (standard running status 
 {"type": "command", "command": "midi/noteOn", "note": 36, "velocity": 100, "channel": 9}
 ```
 
+### `midi/pitchBend`
+
+Send MIDI Pitch Bend message. Uses 14-bit resolution (0-16383), with 8192 as center (no bend). Messages are sent to VKB mode only (routes to record-armed/monitored tracks).
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `value` | int | Yes | - | Pitch bend value (0-16383, center=8192) |
+| `channel` | int | No | 0 | MIDI channel (0-15) |
+
+```json
+{"type": "command", "command": "midi/pitchBend", "value": 8192, "channel": 0}
+```
+
 ---
 
 ## FX Commands

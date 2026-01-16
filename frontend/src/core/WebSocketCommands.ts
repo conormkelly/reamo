@@ -676,6 +676,11 @@ export const midi = {
     command: 'midi/noteOn',
     params: { note, velocity, channel },
   }),
+  /** Send MIDI Pitch Bend message (0-16383, center=8192) */
+  pitchBend: (value: number, channel = 0): WSCommand => ({
+    command: 'midi/pitchBend',
+    params: { value, channel },
+  }),
 };
 
 // =============================================================================

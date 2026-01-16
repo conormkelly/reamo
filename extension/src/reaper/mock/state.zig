@@ -203,6 +203,7 @@ pub const Method = enum {
     sendMidiCC,
     sendMidiPC,
     sendNoteOn,
+    sendPitchBend,
     // UI
     updateTimeline,
     // Track FX

@@ -6,19 +6,19 @@
 import type { ReactElement } from 'react';
 
 /** Available instrument types */
-export type InstrumentType = 'drums';
-// Future: | 'piano' | 'chords'
+export type InstrumentType = 'drums' | 'piano';
+// Future: | 'chords'
 
 /** Metadata for instrument types */
 const INSTRUMENT_META: Record<InstrumentType, { label: string }> = {
   drums: { label: 'Drum Pads' },
+  piano: { label: 'Piano' },
   // Future:
-  // piano: { label: 'Piano' },
   // chords: { label: 'Chord Strips' },
 };
 
 /** All available instruments in display order */
-const INSTRUMENT_ORDER: InstrumentType[] = ['drums'];
+const INSTRUMENT_ORDER: InstrumentType[] = ['drums', 'piano'];
 
 export interface InstrumentSelectorProps {
   /** Currently selected instrument type */
