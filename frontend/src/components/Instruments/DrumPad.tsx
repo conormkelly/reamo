@@ -22,7 +22,7 @@ export interface DrumPadProps {
 const DEFAULT_VELOCITY = 100;
 
 /** Minimum ms between triggers to debounce */
-const DEBOUNCE_MS = 50;
+const DEBOUNCE_MS = 20;
 
 export function DrumPad({
   note,

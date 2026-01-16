@@ -74,27 +74,31 @@ Show folder hierarchy in mixer/track views.
 
 Chord strips and scale-locked keyboard for songwriting workflow.
 
-**Status:** Research complete: [research/MIDI_TOUCH_INSTRUMENTS.md](../research/MIDI_TOUCH_INSTRUMENTS.md)
+**Status:** Drum Pads MVP complete. Research: [research/MIDI_TOUCH_INSTRUMENTS.md](../research/MIDI_TOUCH_INSTRUMENTS.md)
 
 **Key Finding:** WebSocket → StuffMIDIMessage achieves 5-15ms latency (matches Logic Remote). No WebMIDI complexity needed.
 
 **Incremental Approach:**
 
-1. **Drum Pads (MVP)** - Grid of velocity-sensitive pads, multi-touch, configurable note mapping
+1. ~~**Drum Pads (MVP)**~~ ✅ - 4x4 GM drum grid with multi-touch, Pointer Events API, 20ms debounce
 2. **Piano Keyboard** - Note bars with octave selection, velocity from touch
 3. **Chord Strips** - Diatonic chords locked to project key, inversions
 4. **Expression** - Mod wheel, pitch bend strip, aftertouch
 
-**Backend (trivial):** Add `midi/noteOn`, `midi/noteOff`, `midi/pitchBend`, `midi/aftertouch` commands
+**Completed (Drum Pads MVP):**
 
-**Frontend (main effort):**
+- Backend: `midi/noteOn` command (velocity 0 = note-off via running status)
+- Frontend: InstrumentSelector, ChannelSelector (persisted per-instrument), DrumPadGrid
+- New "Instruments" tab replaces "Notes" in tab bar
+- Build size impact: ~200 bytes gzip
 
-- Multi-touch tracking (touchId → noteId for proper note-off)
+**Remaining for full instruments:**
+
 - Velocity from pressure/position
 - Rate-limited continuous controllers (60-120Hz)
-- Touch-optimized layouts
+- Piano and Chord Strip layouts
 
-**Size:** Backend S, Drum Pads MVP M, Full instruments L-XL
+**Size:** ~~Backend S, Drum Pads MVP M~~, Remaining instruments M-L
 
 ---
 
