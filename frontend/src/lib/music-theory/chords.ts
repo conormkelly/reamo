@@ -18,6 +18,7 @@ import {
   semitoneFromNoteName,
   noteNameFromSemitone,
   createScale,
+  spellScale,
 } from './scales';
 
 /**
@@ -166,14 +167,19 @@ export function buildDiatonicChord(
   // Sort intervals to ensure correct order
   intervals.sort((a, b) => a - b);
 
-  // Get the root note name (transposed from C)
+  // Get the root note name (transposed from C) - use internal representation for MIDI
   const rootOffset = semitoneFromNoteName(scale.root);
   const chordRootSemitone = (rootSemitone + rootOffset) % 12;
   const chordRootNote = noteNameFromSemitone(chordRootSemitone);
 
+  // Get properly spelled note name for display
+  const spelledNotes = spellScale(scale.root, scale.type);
+  const spelledRoot = spelledNotes[degree - 1];
+  const displayRoot = spelledRoot ? spelledRoot.display : chordRootNote;
+
   // Detect quality and generate display name
   const quality = detectChordQuality(intervals);
-  const displayName = chordRootNote + CHORD_QUALITY_SUFFIX[quality];
+  const displayName = displayRoot + CHORD_QUALITY_SUFFIX[quality];
   const romanNumeral = getRomanNumeral(degree, quality);
 
   // Convert to MIDI notes

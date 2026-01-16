@@ -1,6 +1,6 @@
 /**
  * InstrumentsView - Touch instruments for MIDI input
- * Supports: Drum Pads, Piano with mod/pitch wheels
+ * Supports: Drum Pads, Piano with mod/pitch wheels, Chord Strips
  */
 
 import { useState, useEffect, useCallback, type ReactElement } from 'react';
@@ -14,6 +14,7 @@ import {
   ModWheel,
   PitchBendWheel,
   OctaveSelector,
+  ChordStrips,
   type InstrumentType,
 } from '../../components/Instruments';
 import { midi } from '../../core/WebSocketCommands';
@@ -46,12 +47,13 @@ const STORAGE_KEY_INSTRUMENT = 'reamo_instruments_selected';
 const STORAGE_KEY_DRUMS_CHANNEL = 'reamo_instruments_drums_channel';
 const STORAGE_KEY_PIANO_CHANNEL = 'reamo_instruments_piano_channel';
 const STORAGE_KEY_PIANO_OCTAVE = 'reamo_instruments_piano_octave';
+const STORAGE_KEY_CHORDS_CHANNEL = 'reamo_instruments_chords_channel';
 
 /** Load instrument type from localStorage */
 function loadInstrument(): InstrumentType {
   try {
     const stored = localStorage.getItem(STORAGE_KEY_INSTRUMENT);
-    if (stored === 'drums' || stored === 'piano') return stored;
+    if (stored === 'drums' || stored === 'piano' || stored === 'chords') return stored;
   } catch {
     // Ignore localStorage errors
   }
@@ -142,6 +144,31 @@ function savePianoOctave(octave: number): void {
   }
 }
 
+/** Load channel for chords from localStorage */
+function loadChordsChannel(): number {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY_CHORDS_CHANNEL);
+    if (stored !== null) {
+      const parsed = parseInt(stored, 10);
+      if (!isNaN(parsed) && parsed >= 0 && parsed <= 15) {
+        return parsed;
+      }
+    }
+  } catch {
+    // Ignore localStorage errors
+  }
+  return 0; // Default to channel 1 (0-indexed: 0) for chords
+}
+
+/** Save channel for chords to localStorage */
+function saveChordsChannel(channel: number): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_CHORDS_CHANNEL, String(channel));
+  } catch {
+    // Ignore localStorage errors
+  }
+}
+
 export function InstrumentsView(): ReactElement {
   const { sendCommand } = useReaper();
   const isPortrait = useIsPortrait();
@@ -151,6 +178,7 @@ export function InstrumentsView(): ReactElement {
   const [drumsChannel, setDrumsChannel] = useState<number>(loadDrumsChannel);
   const [pianoChannel, setPianoChannel] = useState<number>(loadPianoChannel);
   const [pianoOctave, setPianoOctave] = useState<number>(loadPianoOctave);
+  const [chordsChannel, setChordsChannel] = useState<number>(loadChordsChannel);
 
   // Persist instrument selection
   useEffect(() => {
@@ -172,9 +200,18 @@ export function InstrumentsView(): ReactElement {
     savePianoOctave(pianoOctave);
   }, [pianoOctave]);
 
+  // Persist chords channel
+  useEffect(() => {
+    saveChordsChannel(chordsChannel);
+  }, [chordsChannel]);
+
   // Get current channel based on selected instrument
   const currentChannel =
-    selectedInstrument === 'drums' ? drumsChannel : selectedInstrument === 'piano' ? pianoChannel : 0;
+    selectedInstrument === 'drums'
+      ? drumsChannel
+      : selectedInstrument === 'piano'
+        ? pianoChannel
+        : chordsChannel;
 
   // Handle channel change based on instrument
   const handleChannelChange = useCallback(
@@ -183,6 +220,8 @@ export function InstrumentsView(): ReactElement {
         setDrumsChannel(channel);
       } else if (selectedInstrument === 'piano') {
         setPianoChannel(channel);
+      } else if (selectedInstrument === 'chords') {
+        setChordsChannel(channel);
       }
     },
     [selectedInstrument]
@@ -345,6 +384,38 @@ export function InstrumentsView(): ReactElement {
             <PitchBendWheel onChange={handlePitchBendWheel} className="w-12 h-full" />
           </div>
         );
+      case 'chords':
+        // Show landscape warning in portrait mode
+        if (isPortrait) {
+          return (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center text-text-secondary">
+                <svg
+                  className="w-16 h-16 mx-auto mb-4 text-text-muted"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M4 5h16a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M12 19l-2 2m2-2l2 2"
+                  />
+                </svg>
+                <p className="text-lg font-medium">Rotate to landscape</p>
+                <p className="text-sm mt-1">Chord strips work best in landscape orientation</p>
+              </div>
+            </div>
+          );
+        }
+        return <ChordStrips channel={currentChannel} onNoteOn={handleNoteOn} className="flex-1" />;
       default:
         return null;
     }

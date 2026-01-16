@@ -3,10 +3,10 @@
  * Core type definitions for scales, chords, and MIDI note generation
  */
 
-/** Note names without octave (sharps only, no enharmonic equivalents) */
+/** Note names without octave (internal representation uses sharps) */
 export type NoteName = 'C' | 'C#' | 'D' | 'D#' | 'E' | 'F' | 'F#' | 'G' | 'G#' | 'A' | 'A#' | 'B';
 
-/** All note names in chromatic order */
+/** All note names in chromatic order (sharps only, for internal use) */
 export const NOTE_NAMES: NoteName[] = [
   'C',
   'C#',
@@ -22,6 +22,51 @@ export const NOTE_NAMES: NoteName[] = [
   'B',
 ];
 
+/**
+ * Enharmonic equivalents for cleaner scale spelling
+ * Sharp keys that result in double sharps should use flat equivalents
+ * Standard convention: D# → Eb, G# → Ab, A# → Bb, C# → Db (optional)
+ */
+export const ENHARMONIC_DISPLAY: Partial<Record<NoteName, string>> = {
+  'C#': 'Db',
+  'D#': 'Eb',
+  'G#': 'Ab',
+  'A#': 'Bb',
+};
+
+/** Note letters without accidentals */
+export type NoteLetter = 'C' | 'D' | 'E' | 'F' | 'G' | 'A' | 'B';
+
+/** Letter sequence for scale degree spelling */
+export const NOTE_LETTERS: NoteLetter[] = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+
+/** Semitone value for each letter (natural notes) */
+export const LETTER_SEMITONES: Record<NoteLetter, number> = {
+  C: 0,
+  D: 2,
+  E: 4,
+  F: 5,
+  G: 7,
+  A: 9,
+  B: 11,
+};
+
+/** Accidental types for note spelling */
+export type Accidental = 'bb' | 'b' | '' | '#' | '##';
+
+/**
+ * A properly spelled note with letter and accidental
+ * This is used for display purposes (e.g., "Eb" vs "D#")
+ */
+export interface SpelledNote {
+  letter: NoteLetter;
+  accidental: Accidental;
+  /** Display string (e.g., "Eb", "F#", "C") */
+  display: string;
+  /** Semitone value (0-11) for MIDI conversion */
+  semitone: number;
+}
+
 /** Scale types supported */
 export type ScaleType =
   | 'major'
@@ -36,6 +81,22 @@ export type ScaleType =
   | 'pentatonic_major'
   | 'pentatonic_minor'
   | 'blues';
+
+/** All scale types for iteration */
+export const SCALE_TYPES: ScaleType[] = [
+  'major',
+  'natural_minor',
+  'harmonic_minor',
+  'melodic_minor',
+  'dorian',
+  'phrygian',
+  'lydian',
+  'mixolydian',
+  'locrian',
+  'pentatonic_major',
+  'pentatonic_minor',
+  'blues',
+];
 
 /** Human-readable scale names for UI display */
 export const SCALE_DISPLAY_NAMES: Record<ScaleType, string> = {

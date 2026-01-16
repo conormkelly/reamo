@@ -310,6 +310,34 @@ describe('chords', () => {
       expect(chords[0].quality).toBe('minor'); // i
       expect(chords[3].quality).toBe('major'); // IV (characteristic of Dorian)
     });
+
+    it('uses correct enharmonic spelling for C dorian (Eb not D#, Bb not A#)', () => {
+      const scale = createScale('C', 'dorian');
+      const chords = generateDiatonicChords(scale);
+
+      // C Dorian chords should be: Cm, Dm, Eb, F, Gm, Adim, Bb
+      expect(chords[0].displayName).toBe('Cm'); // i
+      expect(chords[1].displayName).toBe('Dm'); // ii
+      expect(chords[2].displayName).toBe('Eb'); // III (not D#)
+      expect(chords[3].displayName).toBe('F'); // IV
+      expect(chords[4].displayName).toBe('Gm'); // v
+      expect(chords[5].displayName).toBe('Adim'); // vi°
+      expect(chords[6].displayName).toBe('Bb'); // VII (not A#)
+    });
+
+    it('uses correct enharmonic spelling for C minor (Eb, Ab, Bb)', () => {
+      const scale = createScale('C', 'natural_minor');
+      const chords = generateDiatonicChords(scale);
+
+      // C minor chords should be: Cm, Ddim, Eb, Fm, Gm, Ab, Bb
+      expect(chords[0].displayName).toBe('Cm'); // i
+      expect(chords[1].displayName).toBe('Ddim'); // ii°
+      expect(chords[2].displayName).toBe('Eb'); // III (not D#)
+      expect(chords[3].displayName).toBe('Fm'); // iv
+      expect(chords[4].displayName).toBe('Gm'); // v
+      expect(chords[5].displayName).toBe('Ab'); // VI (not G#)
+      expect(chords[6].displayName).toBe('Bb'); // VII (not A#)
+    });
   });
 
   describe('generateChordsForKey', () => {

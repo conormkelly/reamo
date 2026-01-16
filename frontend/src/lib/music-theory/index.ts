@@ -9,8 +9,18 @@
  */
 
 // Types
-export type { NoteName, ScaleType, ChordQuality, Chord, Scale } from './types';
-export { NOTE_NAMES, SCALE_TYPES, CHORD_QUALITY_SUFFIX, DEFAULT_OCTAVE } from './types';
+export type { NoteName, NoteLetter, Accidental, SpelledNote, ScaleType, ChordQuality, Chord, Scale } from './types';
+export {
+  NOTE_NAMES,
+  NOTE_LETTERS,
+  LETTER_SEMITONES,
+  ENHARMONIC_DISPLAY,
+  SCALE_TYPES,
+  SCALE_DISPLAY_NAMES,
+  CHORD_QUALITY_SUFFIX,
+  DEFAULT_OCTAVE,
+  DEFAULT_VELOCITY,
+} from './types';
 
 // Scales
 export {
@@ -24,6 +34,9 @@ export {
   getScaleNotes,
   getScaleDegreeNote,
   countScaleNotes,
+  spellNote,
+  spellScale,
+  getSpelledScaleDegree,
 } from './scales';
 
 // Chords
