@@ -83,42 +83,42 @@ Complete research findings on Logic Remote chord strips implementation, music th
 
 ### Heptatonic Scales (7 notes)
 
-| Scale | Intervals | Binary | Hex |
-|-------|-----------|--------|-----|
+| Scale | Intervals | Binary (bit 11→0) | Hex |
+|-------|-----------|-------------------|-----|
 | Major (Ionian) | 0,2,4,5,7,9,11 | `101010110101` | `0xAB5` |
-| Natural Minor (Aeolian) | 0,2,3,5,7,8,10 | `101101011010` | `0xB5A` |
-| Harmonic Minor | 0,2,3,5,7,8,11 | `101100011010` | `0xB1A` |
-| Melodic Minor (asc) | 0,2,3,5,7,9,11 | `101010011010` | `0xA9A` |
-| Dorian | 0,2,3,5,7,9,10 | `101011011010` | `0xADA` |
-| Phrygian | 0,1,3,5,7,8,10 | `101101010110` | `0xB56` |
-| Lydian | 0,2,4,6,7,9,11 | `101010101101` | `0xAAD` |
-| Mixolydian | 0,2,4,5,7,9,10 | `101011010101` | `0xAD5` |
-| Locrian | 0,1,3,5,6,8,10 | `101101101010` | `0xB6A` |
+| Natural Minor (Aeolian) | 0,2,3,5,7,8,10 | `010110101101` | `0x5AD` |
+| Harmonic Minor | 0,2,3,5,7,8,11 | `100110101101` | `0x9AD` |
+| Melodic Minor (asc) | 0,2,3,5,7,9,11 | `101010101101` | `0xAAD` |
+| Dorian | 0,2,3,5,7,9,10 | `011010101101` | `0x6AD` |
+| Phrygian | 0,1,3,5,7,8,10 | `010110101011` | `0x5AB` |
+| Lydian | 0,2,4,6,7,9,11 | `101011010101` | `0xAD5` |
+| Mixolydian | 0,2,4,5,7,9,10 | `011010110101` | `0x6B5` |
+| Locrian | 0,1,3,5,6,8,10 | `010101101011` | `0x56B` |
 
 ### Pentatonic & Blues Scales
 
-| Scale | Intervals | Binary | Hex |
-|-------|-----------|--------|-----|
+| Scale | Intervals | Binary (bit 11→0) | Hex |
+|-------|-----------|-------------------|-----|
 | Major Pentatonic | 0,2,4,7,9 | `001010010101` | `0x295` |
-| Minor Pentatonic | 0,3,5,7,10 | `010100101001` | `0x529` |
-| Blues | 0,3,5,6,7,10 | `010110101001` | `0x5A9` |
+| Minor Pentatonic | 0,3,5,7,10 | `010010101001` | `0x4A9` |
+| Blues | 0,3,5,6,7,10 | `010011101001` | `0x4E9` |
 
 ### Usage Example
 
 ```javascript
 const SCALES = {
   major:           0xAB5,
-  naturalMinor:    0xB5A,
-  harmonicMinor:   0xB1A,
-  melodicMinor:    0xA9A,
-  dorian:          0xADA,
-  phrygian:        0xB56,
-  lydian:          0xAAD,
-  mixolydian:      0xAD5,
-  locrian:         0xB6A,
+  naturalMinor:    0x5AD,
+  harmonicMinor:   0x9AD,
+  melodicMinor:    0xAAD,
+  dorian:          0x6AD,
+  phrygian:        0x5AB,
+  lydian:          0xAD5,
+  mixolydian:      0x6B5,
+  locrian:         0x56B,
   majorPentatonic: 0x295,
-  minorPentatonic: 0x529,
-  blues:           0x5A9
+  minorPentatonic: 0x4A9,
+  blues:           0x4E9
 };
 
 // Check if a note is in the scale
@@ -254,17 +254,17 @@ const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 
 
 const SCALES = {
   major:           0xAB5,  // 101010110101
-  naturalMinor:    0xB5A,  // 101101011010
-  harmonicMinor:   0xB1A,  // 101100011010
-  melodicMinor:    0xA9A,  // 101010011010
-  dorian:          0xADA,  // 101011011010
-  phrygian:        0xB56,  // 101101010110
-  lydian:          0xAAD,  // 101010101101
-  mixolydian:      0xAD5,  // 101011010101
-  locrian:         0xB6A,  // 101101101010
+  naturalMinor:    0x5AD,  // 010110101101
+  harmonicMinor:   0x9AD,  // 100110101101
+  melodicMinor:    0xAAD,  // 101010101101
+  dorian:          0x6AD,  // 011010101101
+  phrygian:        0x5AB,  // 010110101011
+  lydian:          0xAD5,  // 101011010101
+  mixolydian:      0x6B5,  // 011010110101
+  locrian:         0x56B,  // 010101101011
   majorPentatonic: 0x295,  // 001010010101
-  minorPentatonic: 0x529,  // 010100101001
-  blues:           0x5A9   // 010110101001
+  minorPentatonic: 0x4A9,  // 010010101001
+  blues:           0x4E9   // 010011101001
 };
 
 const CHORD_QUALITIES = {
