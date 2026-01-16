@@ -156,10 +156,17 @@ export interface ProjectEventPayload {
 // Track Skeleton Event (lightweight list for filtering/navigation)
 // =============================================================================
 
-/** Lightweight track info for skeleton event */
+/** Lightweight track info for skeleton event with filter fields for built-in banks */
 export interface SkeletonTrack {
   n: string; // name
   g: string; // guid ("master" for master track)
+  // Filter fields for built-in banks (enable filtering without full track subscription)
+  m: boolean; // mute
+  sl: number | null; // solo (null=off, 0=solo, 2=solo-in-place)
+  sel: boolean; // selected
+  r: boolean; // rec-armed
+  fd: number; // folder_depth (1=folder parent, 0=normal, -N=closes N folders)
+  sc: number; // send_count
 }
 
 /** Track skeleton broadcast (1Hz, on structure change) */

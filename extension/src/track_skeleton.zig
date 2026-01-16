@@ -5,10 +5,13 @@
 /// Clients use this to know available tracks and subscribe by GUID or range.
 ///
 /// Design:
-/// - Each track has name + GUID only (minimal data for skeleton)
+/// - Each track has name + GUID + filter fields for client-side bank filtering
 /// - Master track uses "master" as GUID (REAPER's master GUID is unreliable)
 /// - Arena allocation - no fixed size limit
-/// - Compact JSON output: {"n":"name","g":"guid"} to minimize bandwidth
+/// - Compact JSON output with short keys to minimize bandwidth
+///
+/// Filter fields enable built-in banks (Muted, Soloed, Armed, Selected, Folders, With Sends)
+/// without requiring full track subscriptions. Polled in same loop - no extra overhead.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const protocol = @import("protocol.zig");
@@ -18,12 +21,20 @@ const constants = @import("constants.zig");
 pub const MAX_NAME_LEN = constants.MAX_NAME_LEN;
 pub const MAX_GUID_LEN = constants.MAX_GUID_LEN;
 
-/// Single track skeleton entry (name + GUID only).
+/// Single track skeleton entry with filter fields for built-in banks.
 pub const SkeletonTrack = struct {
     name: [MAX_NAME_LEN]u8 = undefined,
     name_len: usize = 0,
     guid: [MAX_GUID_LEN]u8 = undefined,
     guid_len: usize = 0,
+
+    // Filter fields for built-in banks (polled in same loop, no extra overhead)
+    mute: bool = false,
+    solo: ?c_int = null, // null=off, 0=solo, 2=solo-in-place
+    selected: bool = false,
+    rec_arm: bool = false,
+    folder_depth: c_int = 0, // 1=folder parent, 0=normal, -N=closes N folders
+    send_count: u16 = 0,
 
     pub fn getName(self: *const SkeletonTrack) []const u8 {
         return self.name[0..self.name_len];
@@ -38,6 +49,13 @@ pub const SkeletonTrack = struct {
         if (self.guid_len != other.guid_len) return false;
         if (!std.mem.eql(u8, self.name[0..self.name_len], other.name[0..other.name_len])) return false;
         if (!std.mem.eql(u8, self.guid[0..self.guid_len], other.guid[0..other.guid_len])) return false;
+        // Compare filter fields
+        if (self.mute != other.mute) return false;
+        if (self.solo != other.solo) return false;
+        if (self.selected != other.selected) return false;
+        if (self.rec_arm != other.rec_arm) return false;
+        if (self.folder_depth != other.folder_depth) return false;
+        if (self.send_count != other.send_count) return false;
         return true;
     }
 };
@@ -98,6 +116,21 @@ pub const State = struct {
                     @memcpy(t.guid[0..guid_copy_len], guid[0..guid_copy_len]);
                     t.guid_len = guid_copy_len;
                 }
+
+                // Filter fields for built-in banks (read in same loop - no extra overhead)
+                // Master track uses special API calls for mute/solo
+                if (idx == 0) {
+                    t.mute = api.isMasterMuted();
+                    t.solo = if (api.isMasterSoloed()) @as(?c_int, 1) else null;
+                } else {
+                    t.mute = api.getTrackMute(track);
+                    t.solo = api.getTrackSolo(track) catch null;
+                }
+                t.selected = api.getTrackSelected(track);
+                t.rec_arm = api.getTrackRecArm(track);
+                t.folder_depth = api.getTrackFolderDepth(track);
+                const send_c = api.trackSendCount(track);
+                t.send_count = if (send_c >= 0) @intCast(send_c) else 0;
             }
             // If track disappeared, we keep default empty entry (will be filtered by len=0)
         }
@@ -106,7 +139,8 @@ pub const State = struct {
     }
 
     /// Serialize to JSON event.
-    /// Format: {"type":"event","event":"trackSkeleton","payload":{"tracks":[{"n":"name","g":"guid"},...]}}
+    /// Format: {"type":"event","event":"trackSkeleton","payload":{"tracks":[{...},...]}}
+    /// Keys: n=name, g=guid, m=mute, sl=solo, sel=selected, r=rec_arm, fd=folder_depth, sc=send_count
     pub fn toJson(self: *const State, buf: []u8) ?[]const u8 {
         var stream = std.io.fixedBufferStream(buf);
         const writer = stream.writer();
@@ -123,11 +157,36 @@ pub const State = struct {
             }
             first = false;
 
+            // Name and GUID
             writer.writeAll("{\"n\":\"") catch return null;
             protocol.writeJsonString(writer, t.getName()) catch return null;
             writer.writeAll("\",\"g\":\"") catch return null;
             protocol.writeJsonString(writer, t.getGuid()) catch return null;
-            writer.writeAll("\"}") catch return null;
+
+            // Filter fields (short keys to minimize bandwidth)
+            // m=mute (bool)
+            writer.writeAll(if (t.mute) "\",\"m\":true" else "\",\"m\":false") catch return null;
+
+            // sl=solo (null or int)
+            if (t.solo) |s| {
+                writer.print(",\"sl\":{d}", .{s}) catch return null;
+            } else {
+                writer.writeAll(",\"sl\":null") catch return null;
+            }
+
+            // sel=selected (bool)
+            writer.writeAll(if (t.selected) ",\"sel\":true" else ",\"sel\":false") catch return null;
+
+            // r=rec_arm (bool)
+            writer.writeAll(if (t.rec_arm) ",\"r\":true" else ",\"r\":false") catch return null;
+
+            // fd=folder_depth (int)
+            writer.print(",\"fd\":{d}", .{t.folder_depth}) catch return null;
+
+            // sc=send_count (int)
+            writer.print(",\"sc\":{d}", .{t.send_count}) catch return null;
+
+            writer.writeByte('}') catch return null;
         }
 
         writer.writeAll("]}}") catch return null;
@@ -138,8 +197,8 @@ pub const State = struct {
     /// Allocator-based version - dynamically sized, supports extreme projects.
     /// Estimates buffer size based on track count, allocates from arena, returns trimmed slice.
     pub fn toJsonAlloc(self: *const State, allocator: Allocator) ![]const u8 {
-        // Estimate: ~200 bytes per track (name + GUID + JSON overhead) + 100 base
-        const estimated_size = 100 + (self.tracks.len * 200);
+        // Estimate: ~250 bytes per track (name + GUID + filter fields + JSON overhead) + 100 base
+        const estimated_size = 100 + (self.tracks.len * 250);
         const buf = try allocator.alloc(u8, estimated_size);
         const json = self.toJson(buf) orelse return error.JsonSerializationFailed;
         return json; // Return slice of allocated buffer (no copy needed, arena-owned)

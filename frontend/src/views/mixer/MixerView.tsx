@@ -18,7 +18,9 @@ import {
   TrackInfoBar,
   RoutingModal,
   CreateTrackModal,
+  isBuiltinBank,
   type CustomBank,
+  type BuiltinBankId,
 } from '../../components/Mixer';
 import { Plus } from 'lucide-react';
 import { TrackFilter } from '../../components/Track';
@@ -119,18 +121,19 @@ export function MixerView(): ReactElement {
   // Get skeleton for custom bank filtering
   const { skeleton } = useTrackSkeleton();
 
-  // Check if we have any active filtering (custom bank or text filter)
+  // Check if we have any active filtering (built-in bank, custom bank, or text filter)
   const hasTextFilter = filterQuery.trim().length > 0;
-  const hasCustomBank = selectedBankId !== null;
-  const isFiltered = hasTextFilter || hasCustomBank;
+  const hasBuiltinBank = isBuiltinBank(selectedBankId);
+  const hasCustomBank = selectedBankId !== null && !hasBuiltinBank;
+  const isFiltered = hasTextFilter || hasBuiltinBank || hasCustomBank;
 
-  // Get selected custom bank
+  // Get selected custom bank (not applicable for built-in banks)
   const selectedBank = useMemo(
-    () => (selectedBankId ? customBanks.find((b) => b.id === selectedBankId) : null),
-    [selectedBankId, customBanks]
+    () => (hasCustomBank ? customBanks.find((b) => b.id === selectedBankId) : null),
+    [hasCustomBank, selectedBankId, customBanks]
   );
 
-  // Filter tracks: first by bank (smart or custom), then by text query
+  // Filter tracks: first by bank (built-in, smart, or custom), then by text query
   // Uses skeleton - it has ALL tracks regardless of subscription state
   // Keep full track data (with GUIDs) for subscription
   const allFilteredTracks = useMemo(() => {
@@ -139,8 +142,30 @@ export function MixerView(): ReactElement {
     // Start with all tracks (exclude master at index 0)
     let baseTracks = skeleton.slice(1).map((t, i) => ({ ...t, index: i + 1 }));
 
-    // If bank selected, filter by bank type
-    if (selectedBank) {
+    // Built-in bank filtering (uses skeleton filter fields)
+    if (hasBuiltinBank) {
+      const builtinId = selectedBankId as BuiltinBankId;
+      baseTracks = baseTracks.filter((t) => {
+        switch (builtinId) {
+          case 'builtin:muted':
+            return t.m === true;
+          case 'builtin:soloed':
+            return t.sl !== null && t.sl !== 0;
+          case 'builtin:armed':
+            return t.r === true;
+          case 'builtin:selected':
+            return t.sel === true;
+          case 'builtin:folders':
+            return t.fd === 1; // folder_depth 1 = parent folder
+          case 'builtin:with-sends':
+            return t.sc > 0;
+          default:
+            return true;
+        }
+      });
+    }
+    // Custom bank filtering
+    else if (selectedBank) {
       if (selectedBank.type === 'smart' && selectedBank.pattern) {
         // Smart bank: filter by pattern (case-insensitive substring match)
         const pattern = selectedBank.pattern.toLowerCase();
@@ -159,7 +184,7 @@ export function MixerView(): ReactElement {
     }
 
     return baseTracks;
-  }, [isFiltered, skeleton, selectedBank, hasTextFilter, filterQuery]);
+  }, [isFiltered, skeleton, hasBuiltinBank, selectedBankId, selectedBank, hasTextFilter, filterQuery]);
 
   // Extract indices for display logic
   const allFilteredIndices = useMemo(
@@ -338,6 +363,7 @@ export function MixerView(): ReactElement {
         <BankSelector
           selectedBankId={selectedBankId}
           banks={customBanks}
+          skeleton={skeleton}
           onBankChange={setSelectedBankId}
           onAddBank={handleAddBank}
           onEditBank={handleEditBank}
@@ -393,6 +419,11 @@ export function MixerView(): ReactElement {
             </div>
           ))}
         </div>
+
+        {/* Empty filter state - when filter/bank active but no matches */}
+        {isFiltered && displayTrackIndices.length === 0 && (
+          <div className="text-text-muted text-sm">No tracks matching filter</div>
+        )}
 
         {/* Create track button */}
         {showAddTrackButton && (
