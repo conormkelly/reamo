@@ -60,13 +60,73 @@ Existing take switcher needs UX improvements:
 
 ### Folder Display
 
-Show folder hierarchy in mixer/track views.
+Show folder hierarchy in mixer/track views via flat navigation with breadcrumb "spill" pattern.
 
-**Requirements:**
+**Research:** [research/DAW_FOLDER_HIERARCHY_PATTERNS.md](../research/DAW_FOLDER_HIERARCHY_PATTERNS.md)
 
-- Indentation or visual grouping for child tracks
-- Collapse/expand folder tracks
-- Backend already sends `isFolder` flag
+**Key Insight:** Most mobile DAW controllers ignore folders entirely. Avid Control's "spill" pattern (tap folder → see children only) is the gold standard. For mobile's limited screen space, externalize hierarchy to a flat bank-based navigation rather than visual nesting.
+
+**Design Principles:**
+- Folder tracks are normal tracks — no special tap behavior, just a folder icon badge
+- Breadcrumb is the *only* folder navigation control (not on the tracks themselves)
+- Folders bank + breadcrumb = fast folder discovery without scrolling through all tracks
+- Filters stack on top of folder view (e.g., Armed tracks in Drums folder)
+
+**Data Available:**
+- Skeleton sends `fd` (folder_depth): `1` = folder parent, `0` = normal, `-N` = closes N folders
+- Hierarchy computed client-side by walking track list with depth counter
+- "Folders" built-in bank already exists (`fd === 1`)
+
+**Phase 1 (MVP):**
+- Folder icon badge on tracks where `fd === 1`
+- Child count badge on folder tracks: `Drums (8)`
+- "Folders" bank shows all folder tracks flat (already works)
+
+**Phase 2 (Breadcrumb Navigation):**
+- Compute folder hierarchy from skeleton (parent-child relationships)
+- Breadcrumb UI: `All Folders > [Drums ▾] > [Toms ▾]`
+- Each segment is a dropdown showing options at that level
+- Final segment shows available subfolders to drill deeper
+- Breadcrumb only visible when in folder navigation mode
+
+**Phase 3 (Folder Banks):**
+- New bank type: "folder" — saved shortcut to specific folder
+- Auto-activates breadcrumb at that folder's level
+- Enables quick access to frequently used folder views
+
+**Banks vs Filters (Two Dropdowns):**
+
+Banks and filters are orthogonal — banks define *which tracks*, filters define *what properties*. This requires restructuring the current "built-in banks" (Muted, Soloed, etc.) to be additive filters instead.
+
+| Dropdown | Purpose | Options |
+|----------|---------|---------|
+| Bank | Which tracks to show | All Tracks, Smart banks, Custom banks, Folder banks |
+| Filter | Property filter (additive) | None, Muted, Soloed, Armed, Selected, With Sends |
+
+**Example Combinations:**
+- "Drums" folder + "Armed" filter = armed tracks in Drums folder
+- "All Tracks" + "Muted" = all muted tracks across project
+- "Vox" smart bank + "Selected" = selected tracks matching "Vox"
+
+**Bank Types:**
+| Type | Purpose | Example |
+|------|---------|---------|
+| Smart | Pattern match track names | "Vox" matches Vox Lead, Vox Harm |
+| Custom | Manual track selection | Hand-picked track GUIDs |
+| Folder | Saved folder shortcut | "Drums" folder → shows children + breadcrumb |
+
+**UX Flow:**
+1. Select "Folders" bank → shows top-level folders, breadcrumb appears with `[Select folder ▾]`
+2. Pick "Drums" from dropdown → view shows Drums' immediate children
+3. Breadcrumb updates: `All Folders > Drums > [▾]`
+4. If Toms is a subfolder, it appears in next dropdown to drill deeper
+5. Tap any breadcrumb segment to navigate back or switch laterally
+
+**Why Not Visual Nesting:**
+- Only 3 tracks visible at a time on mobile — indentation wastes precious space
+- Would need to conditionally show/hide nesting UI based on mode
+- Users would have to scroll through all tracks to find folders
+- Breadcrumb provides instant access to any folder level
 
 ---
 
