@@ -192,13 +192,16 @@ Current toolbar may need rework for better space utilization.
 
 Single canvas for timeline content to fix browser compositing bugs.
 
+**Status:** Research complete: [research/TIMELINE_CANVAS_ARCHITECTURE.md](../research/TIMELINE_CANVAS_ARCHITECTURE.md)
+
+**Key Finding:** Layered Canvas2D (not WebGL) with DOM playhead. Playhead is already DOM - main work is replacing per-item canvases with batched draws + ImageBitmap caching.
+
 **Current issues:**
 
 - Waveform brightness changes at viewport edges (per-item canvas compositing)
 - Waveform jitter during momentum scroll (cosmetic)
 
-**Solution:** Full canvas rendering (items + waveforms + grid on single canvas).
-See `docs/architecture/TIMELINE.md` → "Canvas Architecture Considerations".
+**Size:** L (significant refactor, but patterns well-defined)
 
 ---
 
