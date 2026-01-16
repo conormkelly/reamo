@@ -12,14 +12,16 @@ Consolidated from PLANNED_FEATURES.md, PENDING_ITEMS.md, research docs, and ongo
 
 Tap time display to cycle: Bar.Beat → Seconds → SMPTE → Bar.Beat
 
+**Status:** DEFERRED until requested. Research complete: [research/SMPTE.md](../research/SMPTE.md)
+
 **Implementation:**
 
 - Backend already sends `frameRate` and `dropFrame` in project event
 - Add `timeDisplayMode` to UIPreferences (localStorage)
-- Create `secondsToSMPTE()` helper (see API.md for formula)
+- Create `secondsToSMPTE()` helper — needs research for drop-frame edge cases (59.94fps, negative time)
 - Use semicolon separator for drop-frame (29.97/59.94 fps)
 
-**Effort:** ~2-3 hours
+**Effort:** TBD after research
 
 ---
 
@@ -27,13 +29,17 @@ Tap time display to cycle: Bar.Beat → Seconds → SMPTE → Bar.Beat
 
 Add "New Track" button to TrackInfoBar or as FAB in mixer.
 
+**Status:** Research complete: [research/REC_INPUT_SELECTION.md](../research/REC_INPUT_SELECTION.md)
+
 **Implementation:**
 
 - Backend `track/create` command already exists
+- Need `input/enumerate` command to list available audio/MIDI inputs
+- Need `track/setInput` command (or extend `track/create`) with I_RECINPUT encoding
+- UI: Input selector dropdown in create track modal
 - Wire up UI button
-- Optional: prompt for track name
 
-**Effort:** ~1 hour
+**Effort:** TBD after research
 
 ---
 
