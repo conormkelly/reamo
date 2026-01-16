@@ -671,6 +671,11 @@ export const midi = {
     command: 'midi/pc',
     params: { program, channel },
   }),
+  /** Send MIDI Note On message (use velocity=0 for note off) */
+  noteOn: (note: number, velocity: number, channel = 0): WSCommand => ({
+    command: 'midi/noteOn',
+    params: { note, velocity, channel },
+  }),
 };
 
 // =============================================================================

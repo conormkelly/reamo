@@ -9,6 +9,7 @@ import { ClockView } from './views/clock';
 import { CuesView } from './views/cues';
 import { ActionsView } from './views/actions';
 import { NotesView } from './views/notes';
+import { InstrumentsView } from './views/instruments';
 
 export const views = {
   mixer: MixerView,
@@ -16,7 +17,8 @@ export const views = {
   clock: ClockView,
   cues: CuesView,
   actions: ActionsView,
-  notes: NotesView,
+  notes: NotesView, // Hidden from tab bar but still valid view
+  instruments: InstrumentsView,
 } as const;
 
 export type ViewId = keyof typeof views;
@@ -24,12 +26,13 @@ export type ViewId = keyof typeof views;
 export const VIEW_STORAGE_KEY = 'reamo_current_view';
 export const DEFAULT_VIEW: ViewId = 'timeline';
 
-// View metadata for TabBar
+// View metadata for TabBar (notes excluded from VIEW_ORDER in TabBar.tsx)
 export const viewMeta: Record<ViewId, { label: string; shortLabel?: string }> = {
   mixer: { label: 'Mixer' },
   timeline: { label: 'Timeline' },
   clock: { label: 'Clock' },
   cues: { label: 'Playlist' },
   actions: { label: 'Actions' },
-  notes: { label: 'Notes' },
+  notes: { label: 'Notes' }, // Not shown in tab bar but needs metadata
+  instruments: { label: 'Instruments', shortLabel: 'Inst' },
 };

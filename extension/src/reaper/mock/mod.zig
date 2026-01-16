@@ -159,10 +159,12 @@ pub const MockBackend = struct {
     // =========================================================================
     // MIDI state (for tracking sent messages)
     // =========================================================================
-    last_midi_channel: c_int = 0,
+    last_midi_channel: u8 = 0,
     last_midi_cc: c_int = 0,
     last_midi_value: c_int = 0,
     last_midi_program: c_int = 0,
+    last_midi_note: u8 = 0,
+    last_midi_velocity: u8 = 0,
 
     // =========================================================================
     // UI state
@@ -471,6 +473,7 @@ pub const MockBackend = struct {
     pub const namedCommandLookup = project.ProjectMethods.namedCommandLookup;
     pub const sendMidiCC = project.ProjectMethods.sendMidiCC;
     pub const sendMidiPC = project.ProjectMethods.sendMidiPC;
+    pub const sendNoteOn = project.ProjectMethods.sendNoteOn;
     pub const updateTimeline = project.ProjectMethods.updateTimeline;
 
     // =========================================================================

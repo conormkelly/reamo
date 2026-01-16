@@ -1834,6 +1834,15 @@ pub const Api = struct {
         f(1, status, prog, 0); // Control - for MIDI Learn
     }
 
+    /// Send MIDI Note On message (VKB mode only - for instrument input)
+    /// channel: 0-15, note: 0-127, velocity: 0-127
+    /// Use velocity=0 for note-off (standard running status optimization)
+    pub fn sendNoteOn(self: *const Api, channel: u8, note: u8, velocity: u8) void {
+        const f = self.stuffMIDIMessage orelse return;
+        const status: c_int = 0x90 | @as(c_int, channel & 0x0F);
+        f(0, status, @as(c_int, note & 0x7F), @as(c_int, velocity & 0x7F));
+    }
+
     // Project enumeration and identity
 
     /// Project identity info returned by enumProjects

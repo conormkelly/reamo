@@ -847,6 +847,10 @@ pub const RealBackend = struct {
         self.inner.sendMidiPC(channel, program);
     }
 
+    pub fn sendNoteOn(self: *const RealBackend, channel: u8, note: u8, velocity: u8) void {
+        self.inner.sendNoteOn(channel, note, velocity);
+    }
+
     // =========================================================================
     // UI
     // =========================================================================

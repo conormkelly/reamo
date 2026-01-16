@@ -1,0 +1,1 @@
+export { InstrumentsView } from './InstrumentsView';

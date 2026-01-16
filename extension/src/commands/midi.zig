@@ -58,3 +58,37 @@ pub fn handlePC(api: anytype, cmd: protocol.CommandMessage, response: *mod.Respo
     api.sendMidiPC(@intCast(channel), @intCast(program));
     response.success(null);
 }
+
+/// Send MIDI Note On message (VKB mode for instrument tracks)
+/// Use velocity=0 for note-off (standard running status optimization)
+/// Params: note (0-127), velocity (0-127), channel (0-15, default 0)
+pub fn handleNoteOn(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const note = cmd.getInt("note") orelse {
+        response.err("MISSING_NOTE", "note (0-127) is required");
+        return;
+    };
+
+    if (note < 0 or note > 127) {
+        response.err("INVALID_NOTE", "note must be 0-127");
+        return;
+    }
+
+    const velocity = cmd.getInt("velocity") orelse {
+        response.err("MISSING_VELOCITY", "velocity (0-127) is required");
+        return;
+    };
+
+    if (velocity < 0 or velocity > 127) {
+        response.err("INVALID_VELOCITY", "velocity must be 0-127");
+        return;
+    }
+
+    const channel = cmd.getInt("channel") orelse 0;
+    if (channel < 0 or channel > 15) {
+        response.err("INVALID_CHANNEL", "channel must be 0-15");
+        return;
+    }
+
+    api.sendNoteOn(@intCast(channel), @intCast(note), @intCast(velocity));
+    response.success(null);
+}

@@ -212,6 +212,7 @@ pub fn validateBackend(comptime T: type) void {
         // MIDI
         "sendMidiCC",
         "sendMidiPC",
+        "sendNoteOn",
 
         // UI
         "updateTimeline",

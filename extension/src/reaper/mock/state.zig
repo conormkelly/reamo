@@ -202,6 +202,7 @@ pub const Method = enum {
     // MIDI
     sendMidiCC,
     sendMidiPC,
+    sendNoteOn,
     // UI
     updateTimeline,
     // Track FX

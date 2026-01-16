@@ -321,6 +321,13 @@ pub const ProjectMethods = struct {
         self.last_midi_program = program;
     }
 
+    pub fn sendNoteOn(self: anytype, channel: u8, note: u8, velocity: u8) void {
+        self.recordCall(.sendNoteOn);
+        self.last_midi_channel = channel;
+        self.last_midi_note = note;
+        self.last_midi_velocity = velocity;
+    }
+
     // =========================================================================
     // UI
     // =========================================================================

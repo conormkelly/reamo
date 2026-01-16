@@ -179,6 +179,7 @@ pub const all = .{
     // MIDI
     .{ "midi/cc", midi.handleCC },
     .{ "midi/pc", midi.handlePC },
+    .{ "midi/noteOn", midi.handleNoteOn },
 
     // Project Notes
     .{ "projectNotes/subscribe", project_notes.handleSubscribe },

@@ -26,7 +26,7 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 - [Undo](#undo-commands) — add, begin, end, do, redo
 - [Gesture](#gesture-commands) — start, end
 - [Action](#action-commands) — getToggleState, execute, executeByName
-- [MIDI](#midi-commands) — cc, pc
+- [MIDI](#midi-commands) — cc, pc, noteOn
 - [FX](#fx-commands) — presetNext, presetPrev, presetSet
 - [Send](#send-commands) — setVolume, setMute
 - [Playlist](#playlist-commands) — create, delete, rename, addEntry, removeEntry, play, stop, next, prev
@@ -2008,6 +2008,20 @@ Send MIDI Program Change message.
 
 ```json
 {"type": "command", "command": "midi/pc", "program": 5, "channel": 0}
+```
+
+### `midi/noteOn`
+
+Send MIDI Note On message. Use velocity=0 for note-off (standard running status optimization). Messages are sent to VKB mode only (routes to record-armed/monitored tracks).
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `note` | int | Yes | - | MIDI note number (0-127) |
+| `velocity` | int | Yes | - | Note velocity (0-127). Use 0 for note-off. |
+| `channel` | int | No | 0 | MIDI channel (0-15) |
+
+```json
+{"type": "command", "command": "midi/noteOn", "note": 36, "velocity": 100, "channel": 9}
 ```
 
 ---
