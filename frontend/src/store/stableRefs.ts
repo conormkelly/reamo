@@ -36,3 +36,6 @@ export const EMPTY_SKELETON: readonly SkeletonTrack[] = Object.freeze([]);
 
 /** Stable empty GUID-to-index map */
 export const EMPTY_GUID_MAP: ReadonlyMap<string, number> = Object.freeze(new Map());
+
+/** Stable empty string array (for GUID lists, etc.) */
+export const EMPTY_STRING_ARRAY: readonly string[] = Object.freeze([]);

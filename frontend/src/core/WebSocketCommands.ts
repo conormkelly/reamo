@@ -154,7 +154,9 @@ export const region = {
 /** Subscription parameters for track/subscribe command */
 export interface TrackSubscribeParams {
   range?: { start: number; end: number };
-  guids?: string[];
+  guids?: readonly string[];
+  /** Extra GUIDs to subscribe to alongside range or guids (e.g., info-selected track outside visible bank) */
+  extraGuids?: readonly string[];
   includeMaster?: boolean;
 }
 

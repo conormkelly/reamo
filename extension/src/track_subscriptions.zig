@@ -33,6 +33,9 @@ pub const SubscriptionMode = enum {
     guids, // Subscribe to specific GUIDs
 };
 
+/// Maximum extra GUIDs per client (for hybrid range + specific tracks)
+pub const MAX_EXTRA_GUIDS = 8;
+
 /// Per-client subscription state.
 pub const ClientSubscription = struct {
     mode: SubscriptionMode = .none,
@@ -46,6 +49,12 @@ pub const ClientSubscription = struct {
     guid_lens: [MAX_GUIDS_PER_CLIENT]usize = [_]usize{0} ** MAX_GUIDS_PER_CLIENT,
     guid_count: usize = 0,
 
+    // Extra GUIDs for range mode (e.g., info-selected track outside visible bank)
+    // These are resolved alongside the range, allowing hybrid subscriptions.
+    extra_guids: [MAX_EXTRA_GUIDS][40]u8 = undefined,
+    extra_guid_lens: [MAX_EXTRA_GUIDS]usize = [_]usize{0} ** MAX_EXTRA_GUIDS,
+    extra_guid_count: usize = 0,
+
     // Always include master track (for pinned master meter display)
     include_master: bool = false,
 
@@ -55,6 +64,7 @@ pub const ClientSubscription = struct {
         self.range_start = 0;
         self.range_end = 0;
         self.guid_count = 0;
+        self.extra_guid_count = 0;
         self.include_master = false;
     }
 
@@ -62,6 +72,12 @@ pub const ClientSubscription = struct {
     pub fn getGuid(self: *const ClientSubscription, idx: usize) ?[]const u8 {
         if (idx >= self.guid_count) return null;
         return self.guids[idx][0..self.guid_lens[idx]];
+    }
+
+    /// Get stored extra GUID at index.
+    pub fn getExtraGuid(self: *const ClientSubscription, idx: usize) ?[]const u8 {
+        if (idx >= self.extra_guid_count) return null;
+        return self.extra_guids[idx][0..self.extra_guid_lens[idx]];
     }
 };
 
@@ -151,12 +167,26 @@ pub const TrackSubscriptions = struct {
 
     /// Subscribe by range (unified indices). Replaces any existing subscription.
     /// Returns the number of tracks in the range (plus master if includeMaster and not in range).
+    /// Optional extra_guids parameter allows subscribing to specific tracks outside the range
+    /// (e.g., info-selected track that's been paged out of view).
     pub fn subscribeRange(
         self: *TrackSubscriptions,
         client_id: usize,
         start: c_int,
         end: c_int,
         include_master: bool,
+    ) !usize {
+        return self.subscribeRangeWithExtras(client_id, start, end, include_master, null);
+    }
+
+    /// Subscribe by range with optional extra GUIDs for hybrid subscriptions.
+    pub fn subscribeRangeWithExtras(
+        self: *TrackSubscriptions,
+        client_id: usize,
+        start: c_int,
+        end: c_int,
+        include_master: bool,
+        extra_guids: ?[]const []const u8,
     ) !usize {
         const slot = self.getOrCreateSlot(client_id) orelse return error.TooManyClients;
         const client = &self.clients[slot];
@@ -171,6 +201,19 @@ pub const TrackSubscriptions = struct {
         client.range_end = @max(client.range_start, end);
         client.include_master = include_master;
 
+        // Store extra GUIDs if provided
+        client.extra_guid_count = 0;
+        if (extra_guids) |guids| {
+            for (guids) |guid| {
+                if (client.extra_guid_count >= MAX_EXTRA_GUIDS) break;
+
+                const len = @min(guid.len, 40);
+                @memcpy(client.extra_guids[client.extra_guid_count][0..len], guid[0..len]);
+                client.extra_guid_lens[client.extra_guid_count] = len;
+                client.extra_guid_count += 1;
+            }
+        }
+
         // Force broadcast to ensure new subscriber gets immediate data
         self.force_broadcast = true;
 
@@ -179,6 +222,8 @@ pub const TrackSubscriptions = struct {
         if (include_master and client.range_start > 0) {
             count += 1;
         }
+        // Add extra GUIDs count
+        count += client.extra_guid_count;
         return count;
     }
 
@@ -302,6 +347,17 @@ pub const TrackSubscriptions = struct {
                     const end = @min(client.range_end, max_idx);
                     while (idx <= end) : (idx += 1) {
                         seen.put(idx, {}) catch {};
+                    }
+
+                    // Also resolve any extra GUIDs (hybrid subscription)
+                    for (0..client.extra_guid_count) |i| {
+                        const guid = client.getExtraGuid(i) orelse continue;
+                        const track = cache.resolve(guid) orelse continue;
+
+                        const extra_idx = api.getTrackIdx(track);
+                        if (extra_idx >= 0 and extra_idx <= max_idx) {
+                            seen.put(extra_idx, {}) catch {};
+                        }
                     }
                 },
                 .guids => {

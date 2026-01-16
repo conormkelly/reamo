@@ -13,6 +13,9 @@ const track_subscriptions = @import("../track_subscriptions.zig");
 /// Range mode - subscribe to unified indices [start, end]:
 /// { "command": "track/subscribe", "range": {"start": 0, "end": 31}, "id": "1" }
 ///
+/// Range mode with extra GUIDs (hybrid) - subscribe to range + specific tracks outside range:
+/// { "command": "track/subscribe", "range": {"start": 0, "end": 7}, "extraGuids": ["{GUID}"], "id": "1" }
+///
 /// GUID mode - subscribe to specific tracks by GUID:
 /// { "command": "track/subscribe", "guids": ["master", "{AAA...}"], "id": "2" }
 ///
@@ -35,8 +38,31 @@ pub fn handleSubscribe(_: anytype, cmd: protocol.CommandMessage, response: *mod.
     const end = protocol.jsonGetIntFromObject(cmd.raw, "range", "end");
 
     if (start != null and end != null) {
-        // Range mode
-        const count = subs.subscribeRange(response.client_id, start.?, end.?, include_master) catch |err| {
+        // Range mode - also check for optional extraGuids
+        var extra_guid_bufs: [track_subscriptions.MAX_EXTRA_GUIDS][40]u8 = undefined;
+        var extra_guid_lens: [track_subscriptions.MAX_EXTRA_GUIDS]usize = undefined;
+
+        const extra_guid_count = protocol.jsonGetStringArray(
+            cmd.raw,
+            "extraGuids",
+            track_subscriptions.MAX_EXTRA_GUIDS,
+            40,
+            &extra_guid_bufs,
+            &extra_guid_lens,
+        );
+
+        // Build slice array for extra GUIDs if present
+        var extra_guid_slices: [track_subscriptions.MAX_EXTRA_GUIDS][]const u8 = undefined;
+        var extra_guids_param: ?[]const []const u8 = null;
+
+        if (extra_guid_count) |egc| {
+            for (0..egc) |i| {
+                extra_guid_slices[i] = extra_guid_bufs[i][0..extra_guid_lens[i]];
+            }
+            extra_guids_param = extra_guid_slices[0..egc];
+        }
+
+        const count = subs.subscribeRangeWithExtras(response.client_id, start.?, end.?, include_master, extra_guids_param) catch |err| {
             switch (err) {
                 error.TooManyClients => response.err("TOO_MANY_CLIENTS", "Maximum client limit reached"),
             }
@@ -68,11 +94,39 @@ pub fn handleSubscribe(_: anytype, cmd: protocol.CommandMessage, response: *mod.
     if (guid_count) |count| {
         // Build slice array for subscribeGuids
         var guid_slices: [track_subscriptions.MAX_GUIDS_PER_CLIENT][]const u8 = undefined;
+        var total_count = count;
+
         for (0..count) |i| {
             guid_slices[i] = guid_bufs[i][0..guid_lens[i]];
         }
 
-        const subscribed = subs.subscribeGuids(response.client_id, guid_slices[0..count], include_master) catch |err| {
+        // Also check for extraGuids and merge them into the list
+        var extra_guid_bufs: [track_subscriptions.MAX_EXTRA_GUIDS][40]u8 = undefined;
+        var extra_guid_lens: [track_subscriptions.MAX_EXTRA_GUIDS]usize = undefined;
+
+        const extra_guid_count = protocol.jsonGetStringArray(
+            cmd.raw,
+            "extraGuids",
+            track_subscriptions.MAX_EXTRA_GUIDS,
+            40,
+            &extra_guid_bufs,
+            &extra_guid_lens,
+        );
+
+        if (extra_guid_count) |egc| {
+            // Append extra GUIDs to the main list (up to MAX_GUIDS_PER_CLIENT)
+            for (0..egc) |i| {
+                if (total_count >= track_subscriptions.MAX_GUIDS_PER_CLIENT) break;
+                // Copy extra GUID to main buffers
+                const len = extra_guid_lens[i];
+                @memcpy(guid_bufs[total_count][0..len], extra_guid_bufs[i][0..len]);
+                guid_lens[total_count] = len;
+                guid_slices[total_count] = guid_bufs[total_count][0..len];
+                total_count += 1;
+            }
+        }
+
+        const subscribed = subs.subscribeGuids(response.client_id, guid_slices[0..total_count], include_master) catch |err| {
             switch (err) {
                 error.TooManyClients => response.err("TOO_MANY_CLIENTS", "Maximum client limit reached"),
             }

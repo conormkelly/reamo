@@ -30,7 +30,7 @@ import {
 import { useReaper } from '../../components/ReaperProvider';
 import { track } from '../../core/WebSocketCommands';
 import { useReaperStore } from '../../store';
-import { EMPTY_TRACKS } from '../../store/stableRefs';
+import { EMPTY_TRACKS, EMPTY_STRING_ARRAY } from '../../store/stableRefs';
 
 /** Storage key for info-selected track */
 const INFO_SELECTED_STORAGE_KEY = 'reamo-mixer-info-selected';
@@ -264,9 +264,33 @@ export function MixerView(): ReactElement {
     return allFilteredTracks.slice(filteredPrefetchStart, filteredPrefetchEnd).map((t) => t.g);
   }, [isFiltered, allFilteredTracks, filteredPrefetchStart, filteredPrefetchEnd]);
 
+  // Compute extra GUIDs for info-selected track when it's outside visible range
+  // This keeps track data flowing even when the selected track is paged out
+  // Uses EMPTY_STRING_ARRAY for stable reference when no extra GUIDs needed
+  const extraGuidsForInfoTrack = useMemo((): readonly string[] => {
+    if (infoSelectedTrackIdx === null || infoSelectedTrackIdx < 0) return EMPTY_STRING_ARRAY;
+
+    // Get the GUID for the info-selected track from skeleton
+    const trackSkeleton = skeleton[infoSelectedTrackIdx];
+    if (!trackSkeleton?.g) return EMPTY_STRING_ARRAY;
+
+    const infoGuid = trackSkeleton.g;
+
+    if (isFiltered) {
+      // In filtered mode: check if GUID is already in the subscription list
+      if (filteredGuidsToSubscribe.includes(infoGuid)) return EMPTY_STRING_ARRAY;
+      return [infoGuid];
+    } else {
+      // In range mode: check if index is outside prefetch range
+      if (infoSelectedTrackIdx >= prefetchStart && infoSelectedTrackIdx <= prefetchEnd) return EMPTY_STRING_ARRAY;
+      return [infoGuid];
+    }
+  }, [infoSelectedTrackIdx, skeleton, isFiltered, filteredGuidsToSubscribe, prefetchStart, prefetchEnd]);
+
   // Subscribe to tracks - range mode for unfiltered, GUID mode for filtered
   // When master is pinned, explicitly include it (it's outside the bank range)
   // When master is not pinned, it's included in the range naturally when on first banks
+  // extraGuids keeps info-selected track subscribed even when paged out
   useEffect(() => {
     if (totalTracks === 0) return;
 
@@ -276,6 +300,7 @@ export function MixerView(): ReactElement {
         sendCommand(
           track.subscribe({
             guids: filteredGuidsToSubscribe,
+            extraGuids: extraGuidsForInfoTrack.length > 0 ? extraGuidsForInfoTrack : undefined,
             includeMaster: pinMasterTrack,
           })
         );
@@ -285,11 +310,12 @@ export function MixerView(): ReactElement {
       sendCommand(
         track.subscribe({
           range: { start: prefetchStart, end: prefetchEnd },
+          extraGuids: extraGuidsForInfoTrack.length > 0 ? extraGuidsForInfoTrack : undefined,
           includeMaster: pinMasterTrack,
         })
       );
     }
-  }, [sendCommand, isFiltered, filteredGuidsToSubscribe, prefetchStart, prefetchEnd, totalTracks, pinMasterTrack]);
+  }, [sendCommand, isFiltered, filteredGuidsToSubscribe, extraGuidsForInfoTrack, prefetchStart, prefetchEnd, totalTracks, pinMasterTrack]);
 
   // Check if we have data for a track
   const hasTrackData = (trackIndex: number): boolean => {
