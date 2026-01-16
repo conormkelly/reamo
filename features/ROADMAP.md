@@ -125,17 +125,26 @@ Show folder hierarchy in mixer/track views.
 
 Chord strips and scale-locked keyboard for songwriting workflow.
 
-**From Research:**
-> "Chord strips with customizable chords per project—major differentiator for songwriting"
+**Status:** Research complete: [research/MIDI_TOUCH_INSTRUMENTS.md](../research/MIDI_TOUCH_INSTRUMENTS.md)
 
-**Requirements:**
+**Key Finding:** WebSocket → StuffMIDIMessage achieves 5-15ms latency (matches Logic Remote). No WebMIDI complexity needed.
 
-- MIDI output from web → REAPER
-- Scale/key detection or manual setting
-- Diatonic chord filtering
-- Strumming gestures for guitar strips
+**Incremental Approach:**
 
-**Effort:** Multi-week project
+1. **Drum Pads (MVP)** - Grid of velocity-sensitive pads, multi-touch, configurable note mapping
+2. **Piano Keyboard** - Note bars with octave selection, velocity from touch
+3. **Chord Strips** - Diatonic chords locked to project key, inversions
+4. **Expression** - Mod wheel, pitch bend strip, aftertouch
+
+**Backend (trivial):** Add `midi/noteOn`, `midi/noteOff`, `midi/pitchBend`, `midi/aftertouch` commands
+
+**Frontend (main effort):**
+- Multi-touch tracking (touchId → noteId for proper note-off)
+- Velocity from pressure/position
+- Rate-limited continuous controllers (60-120Hz)
+- Touch-optimized layouts
+
+**Size:** Backend S, Drum Pads MVP M, Full instruments L-XL
 
 ---
 
