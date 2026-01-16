@@ -55,7 +55,7 @@ test.describe('Studio Layout - Core Functionality', () => {
     await expect(dropdown.getByText('Global')).toBeVisible();
     await expect(dropdown.getByText('Studio')).toBeVisible();
     await expect(dropdown.getByText('Reorder Sections')).toBeVisible();
-    await expect(dropdown.getByText('Rec Quick Actions')).toBeVisible();
+    await expect(dropdown.getByText('Recording Actions')).toBeVisible();
   });
 
   test('Reorder Sections modal opens and closes', async ({ page }) => {

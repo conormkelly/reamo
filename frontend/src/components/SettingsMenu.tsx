@@ -134,7 +134,7 @@ export function SettingsMenu({
             className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
             data-testid="settings-rec-quick-actions"
           >
-            <span className="text-sm">Rec Quick Actions</span>
+            <span className="text-sm">Recording Actions</span>
             <span className={`flex items-center gap-1.5 text-xs ${showRecordingActions ? 'text-success' : 'text-text-muted'}`}>
               {showRecordingActions ? <Eye size={14} /> : <EyeOff size={14} />}
               {showRecordingActions ? 'Visible' : 'Hidden'}

@@ -50,7 +50,12 @@ export function RecordingActionsBar({ className = '' }: RecordingActionsBarProps
   };
 
   return (
-    <div className={`flex items-center justify-center gap-4 mt-3 ${className}`}>
+    <div className={`flex flex-col items-center gap-2 mt-3 ${className}`}>
+      {/* Heading */}
+      <span className="text-xs text-text-secondary uppercase tracking-wider">Recording Actions</span>
+
+      {/* Action buttons */}
+      <div className="flex items-center justify-center gap-4">
       {/* Scrap - destructive */}
       <button
         onClick={handleScrap}
@@ -98,6 +103,7 @@ export function RecordingActionsBar({ className = '' }: RecordingActionsBarProps
         <Check size={20} />
         <span className="text-base font-medium">Keep</span>
       </button>
+      </div>
     </div>
   );
 }

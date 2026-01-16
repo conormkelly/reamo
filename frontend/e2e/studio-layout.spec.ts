@@ -172,7 +172,7 @@ test.describe('Settings Menu - Studio Section', () => {
     // Verify Studio section is visible (only when in Studio view)
     await expect(dropdown.getByText('Studio', { exact: true })).toBeVisible();
     await expect(dropdown.getByText('Reorder Sections')).toBeVisible();
-    await expect(dropdown.getByText('Rec Quick Actions')).toBeVisible();
+    await expect(dropdown.getByText('Recording Actions')).toBeVisible();
   });
 
   test('Reorder Sections button opens modal', async ({ page }) => {
@@ -195,7 +195,7 @@ test.describe('Settings Menu - Studio Section', () => {
     await expect(page.getByRole('heading', { name: /reorder sections/i })).not.toBeVisible();
   });
 
-  test('Rec Quick Actions toggle works', async ({ page }) => {
+  test('Recording Actions toggle works', async ({ page }) => {
     // Open settings menu
     const settingsButton = page.getByTitle('Settings');
     await settingsButton.click();

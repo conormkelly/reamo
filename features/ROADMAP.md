@@ -41,18 +41,6 @@ Current item multi-select works but feels cluttered. Needs design rethink.
 
 ---
 
-### Recording Quick Actions Placement
-
-With Studio view removed, "Rec Quick Actions" toggle is orphaned in Global settings.
-
-**Questions to resolve:**
-
-- Where should these actions appear? (Timeline footer? Persistent transport?)
-- Should it be view-specific or truly global?
-- What actions make sense now that it's not tied to Studio's recording workflow?
-
----
-
 ### Built-in Bank Groups
 
 Pre-defined smart banks for common workflows:

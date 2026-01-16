@@ -37,19 +37,10 @@ function AppContent() {
   const showRecordingActions = useReaperStore((s) => s.showRecordingActions);
   const { isRecording } = useTransport();
 
-  // Detect mobile for RecordingActionsBar positioning
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
-
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth <= 768);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  // Calculate bottom offset for mobile RecordingActionsBar
+  // Calculate bottom offset for RecordingActionsBar (above tab bar + transport)
   const TAB_BAR_HEIGHT = 48;
   const PERSISTENT_TRANSPORT_HEIGHT = 56;
-  const mobileBottomOffset =
+  const bottomOffset =
     (showTabBar ? TAB_BAR_HEIGHT : 0) +
     (showPersistentTransport ? PERSISTENT_TRANSPORT_HEIGHT : 0);
 
@@ -79,11 +70,11 @@ function AppContent() {
         </ErrorBoundary>
       </main>
 
-      {/* Recording Actions Bar - only in Timeline view when recording */}
-      {currentView === 'timeline' && showRecordingActions && isRecording && isMobile && (
+      {/* Recording Actions Bar - shown globally when recording */}
+      {showRecordingActions && isRecording && (
         <div
           className="fixed left-0 right-0 z-40 bg-bg-app pb-3"
-          style={{ bottom: `calc(${mobileBottomOffset}px + env(safe-area-inset-bottom, 34px))` }}
+          style={{ bottom: `calc(${bottomOffset}px + env(safe-area-inset-bottom, 34px))` }}
         >
           <RecordingActionsBar />
         </div>
