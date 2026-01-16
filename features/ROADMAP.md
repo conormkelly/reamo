@@ -102,12 +102,19 @@ Chord strips and scale-locked keyboard for songwriting workflow.
 
 **Chord Strips Implementation Phases:**
 
-*Phase 1 (MVP):*
-- 7 horizontal diatonic chord strips (triads only)
-- Key selector (C, C#, D...) + Scale selector (Major, Minor, Dorian...)
+*Phase 1 (MVP):* ✅
+- 7 vertical diatonic chord strips (triads only) arranged horizontally
+- Key selector with enharmonic display (C# / Db) + Scale selector
+- Proper enharmonic spelling (Eb not D#, Bb not A#)
+- Automatic flat conversion for problem keys (D# → Eb spelling, etc.)
 - Tap = note-on, release = note-off
-- Landscape only
-- Fixed velocity (100)
+- Landscape only, fixed velocity (100)
+
+*Phase 1.5 (Polish) — NEEDS RESEARCH:*
+- Which scales make sense for chord strips? (pentatonic has 5 notes, blues has 6)
+- Double-sharp display symbol (𝄪 or x notation)
+- Should key selector prefer flats for flat keys? (currently always shows C#, user picks)
+- Consider restricting key selector to "practical" keys only
 
 *Phase 2 (Enhanced):*
 - Vertical segments for inversions (root, 1st, 2nd)

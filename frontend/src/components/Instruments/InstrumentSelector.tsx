@@ -1,24 +1,22 @@
 /**
  * InstrumentSelector Component
- * Dropdown to select instrument type (Drum Pads, future: Piano, Chord Strips)
+ * Dropdown to select instrument type (Drum Pads, Piano, Chord Strips)
  */
 
 import type { ReactElement } from 'react';
 
 /** Available instrument types */
-export type InstrumentType = 'drums' | 'piano';
-// Future: | 'chords'
+export type InstrumentType = 'drums' | 'piano' | 'chords';
 
 /** Metadata for instrument types */
 const INSTRUMENT_META: Record<InstrumentType, { label: string }> = {
   drums: { label: 'Drum Pads' },
   piano: { label: 'Piano' },
-  // Future:
-  // chords: { label: 'Chord Strips' },
+  chords: { label: 'Chord Strips' },
 };
 
 /** All available instruments in display order */
-const INSTRUMENT_ORDER: InstrumentType[] = ['drums', 'piano'];
+const INSTRUMENT_ORDER: InstrumentType[] = ['drums', 'piano', 'chords'];
 
 export interface InstrumentSelectorProps {
   /** Currently selected instrument type */

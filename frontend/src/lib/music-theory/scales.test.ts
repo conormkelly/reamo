@@ -14,6 +14,9 @@ import {
   getScaleNotes,
   getScaleDegreeNote,
   countScaleNotes,
+  spellNote,
+  spellScale,
+  getSpelledScaleDegree,
 } from './scales';
 
 describe('scales', () => {
@@ -313,6 +316,149 @@ describe('scales', () => {
 
     it('counts 12 for chromatic', () => {
       expect(countScaleNotes(0xfff)).toBe(12);
+    });
+  });
+
+  describe('spellNote', () => {
+    it('spells natural notes correctly', () => {
+      expect(spellNote('C', 0).display).toBe('C');
+      expect(spellNote('D', 2).display).toBe('D');
+      expect(spellNote('E', 4).display).toBe('E');
+      expect(spellNote('F', 5).display).toBe('F');
+      expect(spellNote('G', 7).display).toBe('G');
+      expect(spellNote('A', 9).display).toBe('A');
+      expect(spellNote('B', 11).display).toBe('B');
+    });
+
+    it('spells sharp notes correctly', () => {
+      expect(spellNote('C', 1).display).toBe('C#');
+      expect(spellNote('D', 3).display).toBe('D#');
+      expect(spellNote('F', 6).display).toBe('F#');
+      expect(spellNote('G', 8).display).toBe('G#');
+      expect(spellNote('A', 10).display).toBe('A#');
+    });
+
+    it('spells flat notes correctly', () => {
+      expect(spellNote('D', 1).display).toBe('Db');
+      expect(spellNote('E', 3).display).toBe('Eb');
+      expect(spellNote('G', 6).display).toBe('Gb');
+      expect(spellNote('A', 8).display).toBe('Ab');
+      expect(spellNote('B', 10).display).toBe('Bb');
+    });
+
+    it('returns correct semitone values', () => {
+      expect(spellNote('E', 3).semitone).toBe(3);
+      expect(spellNote('B', 10).semitone).toBe(10);
+    });
+
+    it('returns correct letter and accidental', () => {
+      const eb = spellNote('E', 3);
+      expect(eb.letter).toBe('E');
+      expect(eb.accidental).toBe('b');
+    });
+  });
+
+  describe('spellScale', () => {
+    it('spells C major with all natural notes', () => {
+      const spelled = spellScale('C', 'major');
+      expect(spelled.map((n) => n.display)).toEqual(['C', 'D', 'E', 'F', 'G', 'A', 'B']);
+    });
+
+    it('spells C dorian with Eb and Bb (not D# and A#)', () => {
+      const spelled = spellScale('C', 'dorian');
+      // C Dorian: C, D, Eb, F, G, A, Bb
+      expect(spelled.map((n) => n.display)).toEqual(['C', 'D', 'Eb', 'F', 'G', 'A', 'Bb']);
+    });
+
+    it('spells C natural minor with Eb, Ab, Bb', () => {
+      const spelled = spellScale('C', 'natural_minor');
+      // C minor: C, D, Eb, F, G, Ab, Bb
+      expect(spelled.map((n) => n.display)).toEqual(['C', 'D', 'Eb', 'F', 'G', 'Ab', 'Bb']);
+    });
+
+    it('spells G major with F#', () => {
+      const spelled = spellScale('G', 'major');
+      // G major: G, A, B, C, D, E, F#
+      expect(spelled.map((n) => n.display)).toEqual(['G', 'A', 'B', 'C', 'D', 'E', 'F#']);
+    });
+
+    it('spells F major with Bb', () => {
+      const spelled = spellScale('F', 'major');
+      // F major: F, G, A, Bb, C, D, E
+      expect(spelled.map((n) => n.display)).toEqual(['F', 'G', 'A', 'Bb', 'C', 'D', 'E']);
+    });
+
+    it('spells D major with F# and C#', () => {
+      const spelled = spellScale('D', 'major');
+      // D major: D, E, F#, G, A, B, C#
+      expect(spelled.map((n) => n.display)).toEqual(['D', 'E', 'F#', 'G', 'A', 'B', 'C#']);
+    });
+
+    it('ensures unique letters in each scale', () => {
+      // Every heptatonic scale should use each letter exactly once
+      const scales: Array<{ root: 'C' | 'G' | 'D' | 'F'; type: 'major' | 'natural_minor' | 'dorian' }> = [
+        { root: 'C', type: 'major' },
+        { root: 'G', type: 'major' },
+        { root: 'D', type: 'major' },
+        { root: 'F', type: 'major' },
+        { root: 'C', type: 'natural_minor' },
+        { root: 'C', type: 'dorian' },
+      ];
+
+      for (const { root, type } of scales) {
+        const spelled = spellScale(root, type);
+        const letters = spelled.map((n) => n.letter);
+        const uniqueLetters = new Set(letters);
+        expect(uniqueLetters.size, `${root} ${type} should have 7 unique letters`).toBe(7);
+      }
+    });
+
+    it('uses enharmonic equivalents for D# (spells as Eb major)', () => {
+      const spelled = spellScale('D#', 'major');
+      // D# major should use Eb spelling: Eb, F, G, Ab, Bb, C, D
+      expect(spelled.map((n) => n.display)).toEqual(['Eb', 'F', 'G', 'Ab', 'Bb', 'C', 'D']);
+    });
+
+    it('uses enharmonic equivalents for G# (spells as Ab major)', () => {
+      const spelled = spellScale('G#', 'major');
+      // G# major should use Ab spelling: Ab, Bb, C, Db, Eb, F, G
+      expect(spelled.map((n) => n.display)).toEqual(['Ab', 'Bb', 'C', 'Db', 'Eb', 'F', 'G']);
+    });
+
+    it('uses enharmonic equivalents for A# (spells as Bb major)', () => {
+      const spelled = spellScale('A#', 'major');
+      // A# major should use Bb spelling: Bb, C, D, Eb, F, G, A
+      expect(spelled.map((n) => n.display)).toEqual(['Bb', 'C', 'D', 'Eb', 'F', 'G', 'A']);
+    });
+
+    it('uses enharmonic equivalents for C# (spells as Db major)', () => {
+      const spelled = spellScale('C#', 'major');
+      // C# major should use Db spelling: Db, Eb, F, Gb, Ab, Bb, C
+      expect(spelled.map((n) => n.display)).toEqual(['Db', 'Eb', 'F', 'Gb', 'Ab', 'Bb', 'C']);
+    });
+
+    it('keeps F# as F# (not Gb) since both have 6 accidentals', () => {
+      const spelled = spellScale('F#', 'major');
+      // F# major: F#, G#, A#, B, C#, D#, E#
+      expect(spelled[0].display).toBe('F#');
+      expect(spelled[6].display).toBe('E#'); // Not F
+    });
+  });
+
+  describe('getSpelledScaleDegree', () => {
+    it('returns correct spelled note for C dorian 3rd degree', () => {
+      const note = getSpelledScaleDegree('C', 'dorian', 3);
+      expect(note?.display).toBe('Eb');
+    });
+
+    it('returns correct spelled note for C dorian 7th degree', () => {
+      const note = getSpelledScaleDegree('C', 'dorian', 7);
+      expect(note?.display).toBe('Bb');
+    });
+
+    it('returns undefined for out of range degrees', () => {
+      expect(getSpelledScaleDegree('C', 'major', 0)).toBeUndefined();
+      expect(getSpelledScaleDegree('C', 'major', 8)).toBeUndefined();
     });
   });
 });

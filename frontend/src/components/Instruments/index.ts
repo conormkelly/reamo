@@ -7,3 +7,7 @@ export { PianoKeyboard, type PianoKeyboardProps } from './PianoKeyboard';
 export { ModWheel, type ModWheelProps } from './ModWheel';
 export { PitchBendWheel, type PitchBendWheelProps } from './PitchBendWheel';
 export { OctaveSelector, type OctaveSelectorProps } from './OctaveSelector';
+export { KeySelector, type KeySelectorProps } from './KeySelector';
+export { ScaleSelector, type ScaleSelectorProps } from './ScaleSelector';
+export { ChordStrip, type ChordStripProps } from './ChordStrip';
+export { ChordStrips, type ChordStripsProps } from './ChordStrips';

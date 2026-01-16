@@ -6,7 +6,18 @@
  * Bit 0 = root (C in C-rooted scale), Bit 1 = minor 2nd, etc.
  */
 
-import { type NoteName, type ScaleType, type Scale, NOTE_NAMES } from './types';
+import {
+  type NoteName,
+  type ScaleType,
+  type Scale,
+  type NoteLetter,
+  type Accidental,
+  type SpelledNote,
+  NOTE_NAMES,
+  NOTE_LETTERS,
+  LETTER_SEMITONES,
+  ENHARMONIC_DISPLAY,
+} from './types';
 
 /**
  * Scale bitmasks - bit N = semitone N is in scale
@@ -154,4 +165,130 @@ export function countScaleNotes(bitmask: number): number {
     mask >>= 1;
   }
   return count;
+}
+
+/**
+ * Get the letter index (0-6 for C-B) from a note name
+ * Handles both sharps and natural notes
+ */
+function getLetterIndex(note: NoteName): number {
+  // Extract the letter part (first character)
+  const letter = note[0] as NoteLetter;
+  return NOTE_LETTERS.indexOf(letter);
+}
+
+/**
+ * Spell a note given the target letter and target semitone
+ * Calculates the accidental needed to make the letter match the semitone
+ * @param letter - The letter to use (C, D, E, F, G, A, B)
+ * @param targetSemitone - The actual semitone (0-11) the note should sound as
+ * @returns SpelledNote with proper accidental
+ */
+export function spellNote(letter: NoteLetter, targetSemitone: number): SpelledNote {
+  const naturalSemitone = LETTER_SEMITONES[letter];
+  const normalizedTarget = ((targetSemitone % 12) + 12) % 12;
+
+  // Calculate difference (how many semitones to adjust)
+  let diff = normalizedTarget - naturalSemitone;
+
+  // Handle wrapping (e.g., B natural is 11, target might be 0 for Cb)
+  if (diff > 6) diff -= 12;
+  if (diff < -6) diff += 12;
+
+  // Determine accidental
+  let accidental: Accidental;
+  switch (diff) {
+    case -2:
+      accidental = 'bb';
+      break;
+    case -1:
+      accidental = 'b';
+      break;
+    case 0:
+      accidental = '';
+      break;
+    case 1:
+      accidental = '#';
+      break;
+    case 2:
+      accidental = '##';
+      break;
+    default:
+      // Shouldn't happen in normal scales, default to natural
+      accidental = '';
+  }
+
+  return {
+    letter,
+    accidental,
+    display: letter + accidental,
+    semitone: normalizedTarget,
+  };
+}
+
+/**
+ * Get the display root name and letter for spelling
+ * Uses enharmonic equivalents for cleaner notation (D# → Eb, etc.)
+ */
+function getSpellingRoot(root: NoteName): { displayRoot: string; letterIndex: number } {
+  const enharmonic = ENHARMONIC_DISPLAY[root];
+  if (enharmonic) {
+    // Use the flat equivalent - extract the letter (first character)
+    const displayLetter = enharmonic[0] as NoteLetter;
+    return {
+      displayRoot: enharmonic,
+      letterIndex: NOTE_LETTERS.indexOf(displayLetter),
+    };
+  }
+  // Use the original root
+  return {
+    displayRoot: root,
+    letterIndex: getLetterIndex(root),
+  };
+}
+
+/**
+ * Spell all notes in a scale with proper enharmonic names
+ * Each scale degree uses a unique letter (C-D-E-F-G-A-B) with accidentals
+ * Uses enharmonic equivalents for roots that would result in double sharps
+ * (e.g., D# → Eb, G# → Ab, A# → Bb)
+ * @param root - Root note name
+ * @param type - Scale type
+ * @returns Array of SpelledNote for each scale degree
+ */
+export function spellScale(root: NoteName, type: ScaleType): SpelledNote[] {
+  const { letterIndex: rootLetterIndex } = getSpellingRoot(root);
+  const rootSemitone = semitoneFromNoteName(root);
+  const baseDegrees = getScaleDegrees(SCALE_BITMASKS[type]);
+
+  return baseDegrees.map((degreeSemitone, index) => {
+    // Calculate the letter for this scale degree
+    // Each degree steps through the letter sequence
+    const letterIndex = (rootLetterIndex + index) % 7;
+    const letter = NOTE_LETTERS[letterIndex];
+
+    // Calculate the actual semitone (transposed from root)
+    const actualSemitone = (rootSemitone + degreeSemitone) % 12;
+
+    return spellNote(letter, actualSemitone);
+  });
+}
+
+/**
+ * Get the properly spelled note name for a scale degree
+ * @param root - Root note name
+ * @param type - Scale type
+ * @param degree - Scale degree (1-indexed, 1 = root)
+ * @returns SpelledNote for that degree, or undefined if out of range
+ */
+export function getSpelledScaleDegree(
+  root: NoteName,
+  type: ScaleType,
+  degree: number
+): SpelledNote | undefined {
+  const spelledNotes = spellScale(root, type);
+  if (degree < 1 || degree > spelledNotes.length) {
+    return undefined;
+  }
+  return spelledNotes[degree - 1];
 }
