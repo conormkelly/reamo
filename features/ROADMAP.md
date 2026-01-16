@@ -74,7 +74,13 @@ Show folder hierarchy in mixer/track views.
 
 Chord strips and scale-locked keyboard for songwriting workflow.
 
-**Status:** Drum Pads MVP complete. Research: [research/MIDI_TOUCH_INSTRUMENTS.md](../research/MIDI_TOUCH_INSTRUMENTS.md)
+**Status:** Drum Pads & Piano complete. Chord Strips next.
+
+**Research:**
+- [research/MIDI_TOUCH_INSTRUMENTS.md](../research/MIDI_TOUCH_INSTRUMENTS.md) - Latency analysis, StuffMIDIMessage API
+- [research/LOGIC_CHORD_STRIPS.md](../research/LOGIC_CHORD_STRIPS.md) - Logic Remote layout & UX analysis
+- [research/CHORD_STRIP_TECH_REFERENCE.md](../research/CHORD_STRIP_TECH_REFERENCE.md) - Scale bitmasks, chord generation algorithms
+- [research/CHORD_STRIPS_PAIN_POINTS.md](../research/CHORD_STRIPS_PAIN_POINTS.md) - Logic Remote limitations & REAmo opportunities
 
 **Key Finding:** WebSocket → StuffMIDIMessage achieves 5-15ms latency (matches Logic Remote). No WebMIDI complexity needed.
 
@@ -82,7 +88,7 @@ Chord strips and scale-locked keyboard for songwriting workflow.
 
 1. ~~**Drum Pads (MVP)**~~ ✅ - 4x4 GM drum grid with multi-touch, Pointer Events API, 20ms debounce
 2. ~~**Piano Keyboard**~~ ✅ - 2-octave keyboard with mod wheel, pitch bend, octave selector
-3. **Chord Strips** - Diatonic chords locked to project key, inversions
+3. **Chord Strips** - Diatonic chords with key/scale selector (see phases below)
 4. ~~**Expression**~~ ✅ - Mod wheel (CC1), pitch bend (14-bit)
 
 **Completed:**
@@ -94,13 +100,33 @@ Chord strips and scale-locked keyboard for songwriting workflow.
 - Multi-touch support via Pointer Events API with pointer ID tracking
 - Rate-limited continuous controllers: mod wheel 50Hz, pitch bend 120Hz with spring-back
 
+**Chord Strips Implementation Phases:**
+
+*Phase 1 (MVP):*
+- 7 horizontal diatonic chord strips (triads only)
+- Key selector (C, C#, D...) + Scale selector (Major, Minor, Dorian...)
+- Tap = note-on, release = note-off
+- Landscape only
+- Fixed velocity (100)
+
+*Phase 2 (Enhanced):*
+- Vertical segments for inversions (root, 1st, 2nd)
+- Y-position velocity mapping (top=loud, bottom=soft)
+- Octave up/down control
+- 7ths toggle
+
+*Phase 3 (Advanced):*
+- Bass strip (Root, 5th, Octave)
+- Adaptive voicing (minimize voice movement)
+- Strum mode with configurable delay
+- Next-chord color hints
+
 **Remaining for full instruments:**
 
 - Velocity from pressure/position (touch pressure API)
-- Chord Strip layout
 - Aftertouch support
 
-**Size:** ~~Backend S, Drum Pads MVP M~~, ~~Piano M~~, Remaining instruments S-M
+**Size:** ~~Backend S, Drum Pads MVP M~~, ~~Piano M~~, Chord Strips MVP S-M
 
 ---
 
