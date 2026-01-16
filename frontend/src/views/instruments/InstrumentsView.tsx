@@ -14,9 +14,12 @@ import {
   ModWheel,
   PitchBendWheel,
   OctaveSelector,
+  KeySelector,
+  ScaleSelector,
   ChordStrips,
   type InstrumentType,
 } from '../../components/Instruments';
+import { DEFAULT_OCTAVE, type NoteName, type ScaleType } from '@/lib/music-theory';
 import { midi } from '../../core/WebSocketCommands';
 
 /** Hook to detect portrait orientation */
@@ -48,6 +51,13 @@ const STORAGE_KEY_DRUMS_CHANNEL = 'reamo_instruments_drums_channel';
 const STORAGE_KEY_PIANO_CHANNEL = 'reamo_instruments_piano_channel';
 const STORAGE_KEY_PIANO_OCTAVE = 'reamo_instruments_piano_octave';
 const STORAGE_KEY_CHORDS_CHANNEL = 'reamo_instruments_chords_channel';
+const STORAGE_KEY_CHORDS_KEY = 'reamo_instruments_chords_key';
+const STORAGE_KEY_CHORDS_SCALE = 'reamo_instruments_chords_scale';
+const STORAGE_KEY_CHORDS_OCTAVE = 'reamo_instruments_chords_octave';
+const STORAGE_KEY_CHORDS_HINTS = 'reamo_instruments_chords_hints';
+const STORAGE_KEY_CHORDS_VOICELEAD = 'reamo_instruments_chords_voicelead';
+const STORAGE_KEY_CHORDS_STRUM = 'reamo_instruments_chords_strum';
+const STORAGE_KEY_CHORDS_STRUM_DELAY = 'reamo_instruments_chords_strum_delay';
 
 /** Load instrument type from localStorage */
 function loadInstrument(): InstrumentType {
@@ -169,6 +179,152 @@ function saveChordsChannel(channel: number): void {
   }
 }
 
+/** Load chord key from localStorage */
+function loadChordsKey(): NoteName {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY_CHORDS_KEY);
+    if (stored) return stored as NoteName;
+  } catch {
+    // Ignore
+  }
+  return 'C';
+}
+
+/** Save chord key to localStorage */
+function saveChordsKey(key: NoteName): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_CHORDS_KEY, key);
+  } catch {
+    // Ignore
+  }
+}
+
+/** Load chord scale from localStorage */
+function loadChordsScale(): ScaleType {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY_CHORDS_SCALE);
+    if (stored) return stored as ScaleType;
+  } catch {
+    // Ignore
+  }
+  return 'major';
+}
+
+/** Save chord scale to localStorage */
+function saveChordsScale(scale: ScaleType): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_CHORDS_SCALE, scale);
+  } catch {
+    // Ignore
+  }
+}
+
+/** Load chord octave from localStorage */
+function loadChordsOctave(): number {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY_CHORDS_OCTAVE);
+    if (stored !== null) {
+      const parsed = parseInt(stored, 10);
+      if (!isNaN(parsed) && parsed >= 1 && parsed <= 5) return parsed;
+    }
+  } catch {
+    // Ignore
+  }
+  return DEFAULT_OCTAVE;
+}
+
+/** Save chord octave to localStorage */
+function saveChordsOctave(octave: number): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_CHORDS_OCTAVE, String(octave));
+  } catch {
+    // Ignore
+  }
+}
+
+/** Load chord hints setting from localStorage */
+function loadChordsHints(): boolean {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY_CHORDS_HINTS);
+    if (stored !== null) return stored === 'true';
+  } catch {
+    // Ignore
+  }
+  return true; // Default on
+}
+
+/** Save chord hints setting to localStorage */
+function saveChordsHints(enabled: boolean): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_CHORDS_HINTS, String(enabled));
+  } catch {
+    // Ignore
+  }
+}
+
+/** Load voice leading setting from localStorage */
+function loadChordsVoiceLead(): boolean {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY_CHORDS_VOICELEAD);
+    if (stored !== null) return stored === 'true';
+  } catch {
+    // Ignore
+  }
+  return false;
+}
+
+/** Save voice leading setting to localStorage */
+function saveChordsVoiceLead(enabled: boolean): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_CHORDS_VOICELEAD, String(enabled));
+  } catch {
+    // Ignore
+  }
+}
+
+/** Load strum setting from localStorage */
+function loadChordsStrum(): boolean {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY_CHORDS_STRUM);
+    if (stored !== null) return stored === 'true';
+  } catch {
+    // Ignore
+  }
+  return false;
+}
+
+/** Save strum setting to localStorage */
+function saveChordsStrum(enabled: boolean): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_CHORDS_STRUM, String(enabled));
+  } catch {
+    // Ignore
+  }
+}
+
+/** Load strum delay from localStorage */
+function loadChordsStrumDelay(): number {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY_CHORDS_STRUM_DELAY);
+    if (stored !== null) {
+      const parsed = parseInt(stored, 10);
+      if (!isNaN(parsed) && parsed >= 10 && parsed <= 100) return parsed;
+    }
+  } catch {
+    // Ignore
+  }
+  return 30;
+}
+
+/** Save strum delay to localStorage */
+function saveChordsStrumDelay(delay: number): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_CHORDS_STRUM_DELAY, String(delay));
+  } catch {
+    // Ignore
+  }
+}
+
 export function InstrumentsView(): ReactElement {
   const { sendCommand } = useReaper();
   const isPortrait = useIsPortrait();
@@ -179,6 +335,15 @@ export function InstrumentsView(): ReactElement {
   const [pianoChannel, setPianoChannel] = useState<number>(loadPianoChannel);
   const [pianoOctave, setPianoOctave] = useState<number>(loadPianoOctave);
   const [chordsChannel, setChordsChannel] = useState<number>(loadChordsChannel);
+
+  // Chord strip settings
+  const [chordsKey, setChordsKey] = useState<NoteName>(loadChordsKey);
+  const [chordsScale, setChordsScale] = useState<ScaleType>(loadChordsScale);
+  const [chordsOctave, setChordsOctave] = useState<number>(loadChordsOctave);
+  const [chordsHints, setChordsHints] = useState<boolean>(loadChordsHints);
+  const [chordsVoiceLead, setChordsVoiceLead] = useState<boolean>(loadChordsVoiceLead);
+  const [chordsStrum, setChordsStrum] = useState<boolean>(loadChordsStrum);
+  const [chordsStrumDelay, setChordsStrumDelay] = useState<number>(loadChordsStrumDelay);
 
   // Persist instrument selection
   useEffect(() => {
@@ -204,6 +369,35 @@ export function InstrumentsView(): ReactElement {
   useEffect(() => {
     saveChordsChannel(chordsChannel);
   }, [chordsChannel]);
+
+  // Persist chord settings
+  useEffect(() => {
+    saveChordsKey(chordsKey);
+  }, [chordsKey]);
+
+  useEffect(() => {
+    saveChordsScale(chordsScale);
+  }, [chordsScale]);
+
+  useEffect(() => {
+    saveChordsOctave(chordsOctave);
+  }, [chordsOctave]);
+
+  useEffect(() => {
+    saveChordsHints(chordsHints);
+  }, [chordsHints]);
+
+  useEffect(() => {
+    saveChordsVoiceLead(chordsVoiceLead);
+  }, [chordsVoiceLead]);
+
+  useEffect(() => {
+    saveChordsStrum(chordsStrum);
+  }, [chordsStrum]);
+
+  useEffect(() => {
+    saveChordsStrumDelay(chordsStrumDelay);
+  }, [chordsStrumDelay]);
 
   // Get current channel based on selected instrument
   const currentChannel =
@@ -415,23 +609,165 @@ export function InstrumentsView(): ReactElement {
             </div>
           );
         }
-        return <ChordStrips channel={currentChannel} onNoteOn={handleNoteOn} className="flex-1" />;
+        return (
+          <ChordStrips
+            channel={currentChannel}
+            onNoteOn={handleNoteOn}
+            rootKey={chordsKey}
+            scaleType={chordsScale}
+            octave={chordsOctave}
+            showHints={chordsHints}
+            adaptiveVoicing={chordsVoiceLead}
+            strumEnabled={chordsStrum}
+            strumDelay={chordsStrumDelay}
+            className="flex-1"
+          />
+        );
       default:
         return null;
     }
   };
 
-  return (
-    <div data-view="instruments" className="h-full bg-bg-app text-text-primary flex flex-col">
-      <ViewHeader currentView="instruments">
-        <div className="flex items-center gap-3">
+  // Settings popover state for chord strips
+  const [showChordsSettings, setShowChordsSettings] = useState(false);
+
+  // Count active modes for badge
+  const activeModeCount = [chordsHints, chordsVoiceLead, chordsStrum].filter(Boolean).length;
+
+  // Render header controls based on selected instrument
+  const renderHeaderControls = () => {
+    if (selectedInstrument === 'chords') {
+      return (
+        <div className="flex items-center gap-2 w-full">
+          {/* Left side: Key, Scale, Octave, Settings gear */}
+          <KeySelector selectedKey={chordsKey} onKeyChange={setChordsKey} />
+          <ScaleSelector selectedScale={chordsScale} onScaleChange={setChordsScale} />
+          <OctaveSelector
+            octave={chordsOctave}
+            onOctaveChange={setChordsOctave}
+            minOctave={1}
+            maxOctave={5}
+          />
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowChordsSettings(!showChordsSettings)}
+              className={`
+                p-1.5 rounded transition-colors relative
+                ${showChordsSettings
+                  ? 'bg-accent-primary text-white'
+                  : 'bg-bg-surface text-text-secondary border border-border-subtle hover:bg-bg-subtle'}
+              `}
+              aria-label="Chord settings"
+              aria-expanded={showChordsSettings}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                />
+              </svg>
+              {activeModeCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-accent-primary text-white text-[10px] rounded-full flex items-center justify-center">
+                  {activeModeCount}
+                </span>
+              )}
+            </button>
+
+            {/* Settings popover */}
+            {showChordsSettings && (
+              <>
+                {/* Backdrop to close */}
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setShowChordsSettings(false)}
+                />
+                <div className="absolute right-0 top-full mt-1 z-20 bg-bg-surface border border-border-subtle rounded-lg shadow-lg p-3 min-w-[180px]">
+                  <div className="flex flex-col gap-2">
+                    <label className="flex items-center justify-between gap-3 cursor-pointer">
+                      <span className="text-sm text-text-primary">Hints</span>
+                      <input
+                        type="checkbox"
+                        checked={chordsHints}
+                        onChange={(e) => setChordsHints(e.target.checked)}
+                        className="w-4 h-4 accent-accent-primary"
+                      />
+                    </label>
+                    <label className="flex items-center justify-between gap-3 cursor-pointer">
+                      <span className="text-sm text-text-primary">Voice Lead</span>
+                      <input
+                        type="checkbox"
+                        checked={chordsVoiceLead}
+                        onChange={(e) => setChordsVoiceLead(e.target.checked)}
+                        className="w-4 h-4 accent-accent-primary"
+                      />
+                    </label>
+                    <label className="flex items-center justify-between gap-3 cursor-pointer">
+                      <span className="text-sm text-text-primary">Strum</span>
+                      <input
+                        type="checkbox"
+                        checked={chordsStrum}
+                        onChange={(e) => setChordsStrum(e.target.checked)}
+                        className="w-4 h-4 accent-accent-primary"
+                      />
+                    </label>
+                    {chordsStrum && (
+                      <div className="flex items-center gap-2 pt-1 border-t border-border-subtle">
+                        <span className="text-xs text-text-secondary">Delay</span>
+                        <input
+                          type="range"
+                          min="10"
+                          max="100"
+                          value={chordsStrumDelay}
+                          onChange={(e) => setChordsStrumDelay(Number(e.target.value))}
+                          className="flex-1 h-1 accent-accent-primary"
+                        />
+                        <span className="text-xs text-text-secondary w-8">{chordsStrumDelay}ms</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Spacer pushes instrument/channel to right */}
+          <div className="flex-1" />
+
+          {/* Right side: same position as Piano/Drums */}
+          <ChannelSelector channel={currentChannel} onChannelChange={handleChannelChange} />
           <InstrumentSelector
             selectedInstrument={selectedInstrument}
             onInstrumentChange={setSelectedInstrument}
           />
-          <ChannelSelector channel={currentChannel} onChannelChange={handleChannelChange} />
         </div>
-      </ViewHeader>
+      );
+    }
+
+    return (
+      <div className="flex items-center gap-3 w-full">
+        {/* Spacer pushes to right */}
+        <div className="flex-1" />
+        <ChannelSelector channel={currentChannel} onChannelChange={handleChannelChange} />
+        <InstrumentSelector
+          selectedInstrument={selectedInstrument}
+          onInstrumentChange={setSelectedInstrument}
+        />
+      </div>
+    );
+  };
+
+  return (
+    <div data-view="instruments" className="h-full bg-bg-app text-text-primary flex flex-col">
+      <ViewHeader currentView="instruments">{renderHeaderControls()}</ViewHeader>
 
       {/* Instrument content area */}
       <div className="flex-1 min-h-0 flex flex-col p-2 overflow-visible">{renderInstrument()}</div>

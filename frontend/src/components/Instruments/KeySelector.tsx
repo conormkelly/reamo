@@ -37,28 +37,23 @@ export function KeySelector({
   className = '',
 }: KeySelectorProps): ReactElement {
   return (
-    <div className={`flex items-center gap-1.5 ${className}`}>
-      <label htmlFor="chord-key" className="text-text-secondary text-sm">
-        Key
-      </label>
-      <select
-        id="chord-key"
-        value={selectedKey}
-        onChange={(e) => onKeyChange(e.target.value as NoteName)}
-        className="
-          bg-bg-surface text-text-primary text-sm
-          border border-border-subtle rounded
-          px-1.5 py-1.5
-          focus:outline-none focus:ring-2 focus:ring-focus-ring
-        "
-        aria-label="Musical key"
-      >
-        {NOTE_NAMES.map((note) => (
-          <option key={note} value={note}>
-            {KEY_DISPLAY_NAMES[note]}
-          </option>
-        ))}
-      </select>
-    </div>
+    <select
+      value={selectedKey}
+      onChange={(e) => onKeyChange(e.target.value as NoteName)}
+      className={`
+        bg-bg-surface text-text-primary text-sm
+        border border-border-subtle rounded
+        px-2 py-1.5
+        focus:outline-none focus:ring-2 focus:ring-focus-ring
+        ${className}
+      `}
+      aria-label="Musical key"
+    >
+      {NOTE_NAMES.map((note) => (
+        <option key={note} value={note}>
+          {KEY_DISPLAY_NAMES[note]}
+        </option>
+      ))}
+    </select>
   );
 }

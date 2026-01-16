@@ -11,3 +11,4 @@ export { KeySelector, type KeySelectorProps } from './KeySelector';
 export { ScaleSelector, type ScaleSelectorProps } from './ScaleSelector';
 export { ChordStrip, type ChordStripProps } from './ChordStrip';
 export { ChordStrips, type ChordStripsProps } from './ChordStrips';
+export { BassStrip, type BassStripProps } from './BassStrip';
