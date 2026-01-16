@@ -2,7 +2,7 @@
 
 Consolidated from PLANNED_FEATURES.md, PENDING_ITEMS.md, research docs, and ongoing development.
 
-**Last updated:** 2026-01-15
+**Last updated:** 2026-01-16
 
 ---
 
@@ -38,27 +38,6 @@ Current item multi-select works but feels cluttered. Needs design rethink.
 - Batch operations UI needs polish
 
 **Needs:** Design session to simplify the UX flow.
-
----
-
-### Built-in Bank Groups
-
-Pre-defined smart banks for common workflows:
-
-| Bank | Filter Logic |
-|------|--------------|
-| Clipped | Tracks with peak > 0dB in current session |
-| Selected | REAPER-selected tracks only |
-| Armed | Record-armed tracks |
-| Soloed | Currently soloed tracks |
-| With Sends | Tracks that have sends configured |
-| Folders Only | Parent folder tracks |
-
-**Implementation:**
-
-- Extend BankEditorModal with "System Banks" section
-- System banks are read-only, always available
-- Filter logic runs client-side on track data
 
 ---
 
