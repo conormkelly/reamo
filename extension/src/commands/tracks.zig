@@ -696,6 +696,90 @@ pub fn handleGetSends(api: anytype, cmd: protocol.CommandMessage, response: *mod
     logging.debug("Returned {d} sends for track {d} (offset={d}, total={d})", .{ send_count, track_idx, offset, total });
 }
 
+/// On-demand sparse-field retrieval for track hardware outputs.
+/// Returns paginated HW output list with volume, pan, mute, mode.
+const MAX_HW_OUTPUTS_RESPONSE = 64;
+
+pub fn handleGetHwOutputs(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const track_idx = cmd.getInt("trackIdx") orelse {
+        response.err("INVALID_PARAMS", "trackIdx is required");
+        return;
+    };
+    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
+        response.err("NOT_FOUND", "Track not found");
+        return;
+    };
+
+    // Pagination parameters
+    const offset_raw = cmd.getInt("offset") orelse 0;
+    const offset: usize = if (offset_raw > 0) @intCast(offset_raw) else 0;
+    const limit_raw = cmd.getInt("limit") orelse MAX_HW_OUTPUTS_RESPONSE;
+    const limit: usize = if (limit_raw > 0) @intCast(@min(limit_raw, MAX_HW_OUTPUTS_RESPONSE)) else MAX_HW_OUTPUTS_RESPONSE;
+
+    const hw_count_raw = api.trackHwOutputCount(track);
+    const total: usize = if (hw_count_raw > 0) @intCast(hw_count_raw) else 0;
+
+    // Calculate range to return
+    const start: usize = @min(offset, total);
+    const end: usize = @min(start + limit, total);
+    const hw_count = end - start;
+    const has_more = end < total;
+
+    // Serialize directly to response buffer
+    var buf: [16384]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    var w = stream.writer();
+
+    w.print("{{\"hwOutputs\":[", .{}) catch {
+        response.err("SERIALIZE_ERROR", "Buffer overflow");
+        return;
+    };
+
+    var i: usize = start;
+    var written: usize = 0;
+    while (i < end) : (i += 1) {
+        const hw_idx: c_int = @intCast(i);
+
+        // Get HW output properties
+        const volume = api.trackHwOutputGetVolume(track, hw_idx);
+        const pan = api.trackHwOutputGetPan(track, hw_idx);
+        const muted = api.trackHwOutputGetMute(track, hw_idx);
+        const mode = api.trackHwOutputGetMode(track, hw_idx) catch 0;
+        const dest_chan = api.trackHwOutputGetDestChannel(track, hw_idx) catch 0;
+
+        // Write JSON object
+        if (written > 0) w.writeByte(',') catch {
+            response.err("SERIALIZE_ERROR", "Buffer overflow");
+            return;
+        };
+        written += 1;
+
+        w.print("{{\"hwIdx\":{d},\"destChannel\":{d},\"volume\":{d:.6},\"pan\":{d:.3},\"muted\":{s},\"mode\":{d}}}", .{
+            hw_idx,
+            dest_chan,
+            volume,
+            pan,
+            if (muted) "true" else "false",
+            mode,
+        }) catch {
+            response.err("SERIALIZE_ERROR", "Buffer overflow");
+            return;
+        };
+    }
+
+    w.print("],\"total\":{d},\"offset\":{d},\"hasMore\":{s}}}", .{
+        total,
+        offset,
+        if (has_more) "true" else "false",
+    }) catch {
+        response.err("SERIALIZE_ERROR", "Buffer overflow");
+        return;
+    };
+
+    response.success(stream.getWritten());
+    logging.debug("Returned {d} hw outputs for track {d} (offset={d}, total={d})", .{ hw_count, track_idx, offset, total });
+}
+
 /// Helper to write JSON-escaped string
 fn writeJsonEscaped(writer: anytype, str: []const u8) !void {
     for (str) |c| {

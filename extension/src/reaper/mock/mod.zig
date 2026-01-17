@@ -32,6 +32,8 @@ pub const MockTrack = state.MockTrack;
 pub const MockItem = state.MockItem;
 pub const MockTake = state.MockTake;
 pub const MockFx = state.MockFx;
+pub const MockSend = state.MockSend;
+pub const MockHwOutput = state.MockHwOutput;
 pub const MockMarkerInfo = state.MockMarkerInfo;
 pub const Method = state.Method;
 pub const CallEntry = state.CallEntry;
@@ -39,6 +41,8 @@ pub const MAX_TRACKS = state.MAX_TRACKS;
 pub const MAX_ITEMS_PER_TRACK = state.MAX_ITEMS_PER_TRACK;
 pub const MAX_TAKES_PER_ITEM = state.MAX_TAKES_PER_ITEM;
 pub const MAX_FX_PER_TRACK = state.MAX_FX_PER_TRACK;
+pub const MAX_SENDS_PER_TRACK = state.MAX_SENDS_PER_TRACK;
+pub const MAX_HW_OUTPUTS_PER_TRACK = state.MAX_HW_OUTPUTS_PER_TRACK;
 pub const MAX_MARKERS = state.MAX_MARKERS;
 pub const MAX_CALLS = state.MAX_CALLS;
 
@@ -420,12 +424,30 @@ pub const MockBackend = struct {
     pub const trackSendCount = tracks.TracksMethods.trackSendCount;
     pub const trackReceiveCount = tracks.TracksMethods.trackReceiveCount;
     pub const trackSendGetVolume = tracks.TracksMethods.trackSendGetVolume;
+    pub const trackSendGetPan = tracks.TracksMethods.trackSendGetPan;
     pub const trackSendGetMute = tracks.TracksMethods.trackSendGetMute;
     pub const trackSendGetMode = tracks.TracksMethods.trackSendGetMode;
+    pub const trackSendGetDestTrack = tracks.TracksMethods.trackSendGetDestTrack;
     pub const trackSendGetDestName = tracks.TracksMethods.trackSendGetDestName;
     pub const trackSendSetVolume = tracks.TracksMethods.trackSendSetVolume;
+    pub const trackSendSetPan = tracks.TracksMethods.trackSendSetPan;
     pub const trackSendToggleMute = tracks.TracksMethods.trackSendToggleMute;
     pub const trackSendSetMute = tracks.TracksMethods.trackSendSetMute;
+    pub const trackSendSetMode = tracks.TracksMethods.trackSendSetMode;
+
+    // =========================================================================
+    // Hardware Outputs (delegated)
+    // =========================================================================
+    pub const trackHwOutputCount = tracks.TracksMethods.trackHwOutputCount;
+    pub const trackHwOutputGetVolume = tracks.TracksMethods.trackHwOutputGetVolume;
+    pub const trackHwOutputGetPan = tracks.TracksMethods.trackHwOutputGetPan;
+    pub const trackHwOutputGetMute = tracks.TracksMethods.trackHwOutputGetMute;
+    pub const trackHwOutputGetMode = tracks.TracksMethods.trackHwOutputGetMode;
+    pub const trackHwOutputGetDestChannel = tracks.TracksMethods.trackHwOutputGetDestChannel;
+    pub const trackHwOutputSetVolume = tracks.TracksMethods.trackHwOutputSetVolume;
+    pub const trackHwOutputSetPan = tracks.TracksMethods.trackHwOutputSetPan;
+    pub const trackHwOutputSetMute = tracks.TracksMethods.trackHwOutputSetMute;
+    pub const trackHwOutputSetMode = tracks.TracksMethods.trackHwOutputSetMode;
 
     // =========================================================================
     // Marker methods (delegated)

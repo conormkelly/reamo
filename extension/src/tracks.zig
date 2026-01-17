@@ -83,10 +83,11 @@ pub const Track = struct {
     fx_enabled: bool = true,
     selected: bool = false,
     folder_depth: c_int = 0, // 1=folder parent, 0=normal, -N=closes N folder levels
-    // Sparse counts - actual FX/sends data is fetched on-demand via track/getFx, track/getSends
+    // Sparse counts - actual FX/sends data is fetched on-demand via track/getFx, track/getSends, track/getHwOutputs
     fx_count: u16 = 0,
     send_count: u16 = 0,
     receive_count: u16 = 0,
+    hw_output_count: u16 = 0,
 
     // Record input (I_RECINPUT encoding): only present when rec_arm=true
     // -1 = no input, see research/REC_INPUT_SELECTION.md for full encoding spec
@@ -122,6 +123,7 @@ pub const Track = struct {
         if (self.fx_count != other.fx_count) return false;
         if (self.send_count != other.send_count) return false;
         if (self.receive_count != other.receive_count) return false;
+        if (self.hw_output_count != other.hw_output_count) return false;
         // Compare rec_input (only present when armed)
         if (self.rec_input != other.rec_input) return false;
         // Compare GUID
@@ -229,6 +231,8 @@ pub const State = struct {
                 t.send_count = if (send_c >= 0) @intCast(send_c) else 0;
                 const recv_c = api.trackReceiveCount(track);
                 t.receive_count = if (recv_c >= 0) @intCast(recv_c) else 0;
+                const hw_c = api.trackHwOutputCount(track);
+                t.hw_output_count = if (hw_c >= 0) @intCast(hw_c) else 0;
 
                 // GUID for stable identification (master uses literal "master")
                 if (idx == 0) {
@@ -307,6 +311,8 @@ pub const State = struct {
                 t.send_count = if (send_c >= 0) @intCast(send_c) else 0;
                 const recv_c = api.trackReceiveCount(track);
                 t.receive_count = if (recv_c >= 0) @intCast(recv_c) else 0;
+                const hw_c = api.trackHwOutputCount(track);
+                t.hw_output_count = if (hw_c >= 0) @intCast(hw_c) else 0;
 
                 // GUID for stable identification
                 if (idx == 0) {
@@ -380,11 +386,12 @@ pub const State = struct {
                 t.folder_depth,
             }) catch return null;
 
-            // Serialize sparse counts (full data fetched on-demand via track/getFx, track/getSends)
-            writer.print(",\"fxCount\":{d},\"sendCount\":{d},\"receiveCount\":{d}", .{
+            // Serialize sparse counts (full data fetched on-demand via track/getFx, track/getSends, track/getHwOutputs)
+            writer.print(",\"fxCount\":{d},\"sendCount\":{d},\"receiveCount\":{d},\"hwOutCount\":{d}", .{
                 t.fx_count,
                 t.send_count,
                 t.receive_count,
+                t.hw_output_count,
             }) catch return null;
 
             // rec_input - only present when track is armed (matches REAPER's visual behavior)
@@ -481,10 +488,11 @@ pub const State = struct {
                 t.folder_depth,
             }) catch return null;
 
-            writer.print(",\"fxCount\":{d},\"sendCount\":{d},\"receiveCount\":{d}", .{
+            writer.print(",\"fxCount\":{d},\"sendCount\":{d},\"receiveCount\":{d},\"hwOutCount\":{d}", .{
                 t.fx_count,
                 t.send_count,
                 t.receive_count,
+                t.hw_output_count,
             }) catch return null;
 
             // rec_input - only present when track is armed (matches REAPER's visual behavior)

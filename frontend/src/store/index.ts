@@ -295,7 +295,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
           // Use sparse counts from WSTrack (populated by backend)
           sendCount: t.sendCount ?? 0,
           receiveCount: t.receiveCount ?? 0,
-          hwOutCount: 0,
+          hwOutCount: t.hwOutCount ?? 0,
           fxCount: t.fxCount ?? 0,
           // Input selection (only present when recArm=true)
           recInput: t.recInput,

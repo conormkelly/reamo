@@ -167,6 +167,7 @@ export interface SkeletonTrack {
   r: boolean; // rec-armed
   fd: number; // folder_depth (1=folder parent, 0=normal, -N=closes N folders)
   sc: number; // send_count
+  hc: number; // hw_output_count
 }
 
 /** Track skeleton broadcast (1Hz, on structure change) */
@@ -191,10 +192,11 @@ export interface WSTrack {
   recMon: number; // 0 = off, 1 = on, 2 = not when playing
   fxEnabled: boolean;
   selected: boolean;
-  // Sparse counts (full data fetched on-demand via track/getFx, track/getSends)
+  // Sparse counts (full data fetched on-demand via track/getFx, track/getSends, track/getHwOutputs)
   fxCount: number;
   sendCount: number;
   receiveCount: number;
+  hwOutCount: number;
   // Input selection (only present when recArm=true)
   recInput?: number; // Raw I_RECINPUT value - decode with utils/input.ts
 }

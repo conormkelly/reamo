@@ -28,7 +28,8 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 - [Action](#action-commands) — getToggleState, execute, executeByName
 - [MIDI](#midi-commands) — cc, pc, noteOn
 - [FX](#fx-commands) — presetNext, presetPrev, presetSet
-- [Send](#send-commands) — setVolume, setMute
+- [Send](#send-commands) — setVolume, setMute, setPan, setMode
+- [Hardware Output](#hardware-output-commands) — setVolume, setMute, setPan, setMode, getHwOutputs
 - [Playlist](#playlist-commands) — create, delete, rename, addEntry, removeEntry, play, stop, next, prev
 - [Preferences](#preferences-commands) — getSeekSettings, setSeekSettings
 - [Debug](#debug-commands) — memoryStats
@@ -2135,6 +2136,147 @@ Set the mute state for a track send.
 ```json
 {"type": "command", "command": "send/setMute", "trackIdx": 1, "sendIdx": 0, "muted": 1}
 ```
+
+### `send/setPan`
+
+Set the pan position for a track send. Uses CSurf API for automatic undo coalescing - wrap with `gesture/start` and `gesture/end` (controlType `"sendPan"`) for proper undo behavior during pan knob drags.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `sendIdx` | int | Yes | Send index within track (0-based) |
+| `pan` | float | Yes | Pan position (-1.0 = full left, 0.0 = center, 1.0 = full right) |
+
+```json
+{"type": "command", "command": "send/setPan", "trackIdx": 1, "sendIdx": 0, "pan": -0.5}
+```
+
+### `send/setMode`
+
+Set the routing mode for a track send.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `sendIdx` | int | Yes | Send index within track (0-based) |
+| `mode` | int | Yes | Send mode (0 = post-fader, 1 = pre-FX, 3 = post-FX) |
+
+**Note:** Mode 2 is not valid in REAPER's send routing.
+
+```json
+{"type": "command", "command": "send/setMode", "trackIdx": 1, "sendIdx": 0, "mode": 1}
+```
+
+---
+
+## Hardware Output Commands
+
+Control track hardware outputs (routing to physical audio interfaces). Hardware output state is included in the `tracks` event when `track/getHwOutputs` is called.
+
+**Note:** Hardware output setters use `SetTrackSendInfo_Value` directly because `CSurf_OnSendVolumeChange` only works for category 0 (sends), not category 1 (hardware outputs). Undo coalescing relies on gesture tracking.
+
+### `hw/setVolume`
+
+Set the volume level for a track hardware output. Wrap with `gesture/start` and `gesture/end` (controlType `"hwVolume"`) for proper undo behavior during fader drags.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `hwIdx` | int | Yes | Hardware output index within track (0-based) |
+| `volume` | float | Yes | Volume level (linear, 1.0 = 0dB) |
+
+```json
+{"type": "command", "command": "hw/setVolume", "trackIdx": 0, "hwIdx": 0, "volume": 1.0}
+```
+
+### `hw/setMute`
+
+Set the mute state for a track hardware output.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `hwIdx` | int | Yes | Hardware output index within track (0-based) |
+| `muted` | int | Yes | Mute state (0 = unmuted, 1 = muted) |
+
+```json
+{"type": "command", "command": "hw/setMute", "trackIdx": 0, "hwIdx": 0, "muted": 0}
+```
+
+### `hw/setPan`
+
+Set the pan position for a track hardware output. Wrap with `gesture/start` and `gesture/end` (controlType `"hwPan"`) for proper undo behavior during pan knob drags.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `hwIdx` | int | Yes | Hardware output index within track (0-based) |
+| `pan` | float | Yes | Pan position (-1.0 = full left, 0.0 = center, 1.0 = full right) |
+
+```json
+{"type": "command", "command": "hw/setPan", "trackIdx": 0, "hwIdx": 0, "pan": 0.0}
+```
+
+### `hw/setMode`
+
+Set the routing mode for a track hardware output.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `hwIdx` | int | Yes | Hardware output index within track (0-based) |
+| `mode` | int | Yes | Output mode (0 = post-fader, 1 = pre-FX, 3 = post-FX) |
+
+**Note:** Mode 2 is not valid in REAPER's hardware output routing.
+
+```json
+{"type": "command", "command": "hw/setMode", "trackIdx": 0, "hwIdx": 0, "mode": 0}
+```
+
+### `track/getHwOutputs`
+
+Get all hardware outputs for a track. **Returns data.**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+
+```json
+{"type": "command", "command": "track/getHwOutputs", "trackIdx": 0, "id": "1"}
+```
+
+Response:
+
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": {
+    "hwOutputs": [
+      {
+        "idx": 0,
+        "destChannel": 0,
+        "mono": false,
+        "volume": 1.0,
+        "pan": 0.0,
+        "muted": false,
+        "mode": 0
+      }
+    ]
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `idx` | int | Hardware output index |
+| `destChannel` | int | Output channel index (0-based) |
+| `mono` | bool | True if mono output, false if stereo |
+| `volume` | float | Volume level (linear, 1.0 = 0dB) |
+| `pan` | float | Pan position (-1.0 to 1.0) |
+| `muted` | bool | Mute state |
+| `mode` | int | Output mode (0 = post-fader, 1 = pre-FX, 3 = post-FX) |
 
 ---
 

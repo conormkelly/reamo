@@ -201,8 +201,10 @@ pub const Api = struct {
     getTrackNumSends: ?*const fn (?*anyopaque, c_int) callconv(.c) c_int = null,
     getTrackSendInfo_Value: ?*const fn (?*anyopaque, c_int, c_int, [*:0]const u8) callconv(.c) f64 = null,
     setTrackSendInfo_Value: ?*const fn (?*anyopaque, c_int, c_int, [*:0]const u8, f64) callconv(.c) bool = null,
+    getSetTrackSendInfo: ?*const fn (?*anyopaque, c_int, c_int, [*:0]const u8, ?*anyopaque) callconv(.c) ?*anyopaque = null,
     getTrackSendName: ?*const fn (?*anyopaque, c_int, [*]u8, c_int) callconv(.c) bool = null,
     csurf_OnSendVolumeChange: ?*const fn (?*anyopaque, c_int, f64, bool) callconv(.c) f64 = null,
+    csurf_OnSendPanChange: ?*const fn (?*anyopaque, c_int, f64, bool) callconv(.c) f64 = null,
     toggleTrackSendUIMute: ?*const fn (?*anyopaque, c_int) callconv(.c) bool = null,
 
     // Project enumeration and identity
@@ -368,8 +370,10 @@ pub const Api = struct {
             .getTrackNumSends = getFunc(info, "GetTrackNumSends", fn (?*anyopaque, c_int) callconv(.c) c_int),
             .getTrackSendInfo_Value = getFunc(info, "GetTrackSendInfo_Value", fn (?*anyopaque, c_int, c_int, [*:0]const u8) callconv(.c) f64),
             .setTrackSendInfo_Value = getFunc(info, "SetTrackSendInfo_Value", fn (?*anyopaque, c_int, c_int, [*:0]const u8, f64) callconv(.c) bool),
+            .getSetTrackSendInfo = getFunc(info, "GetSetTrackSendInfo", fn (?*anyopaque, c_int, c_int, [*:0]const u8, ?*anyopaque) callconv(.c) ?*anyopaque),
             .getTrackSendName = getFunc(info, "GetTrackSendName", fn (?*anyopaque, c_int, [*]u8, c_int) callconv(.c) bool),
             .csurf_OnSendVolumeChange = getFunc(info, "CSurf_OnSendVolumeChange", fn (?*anyopaque, c_int, f64, bool) callconv(.c) f64),
+            .csurf_OnSendPanChange = getFunc(info, "CSurf_OnSendPanChange", fn (?*anyopaque, c_int, f64, bool) callconv(.c) f64),
             .toggleTrackSendUIMute = getFunc(info, "ToggleTrackSendUIMute", fn (?*anyopaque, c_int) callconv(.c) bool),
             // Project enumeration and identity
             .enumProjects_fn = getFunc(info, "EnumProjects", fn (c_int, [*]u8, c_int) callconv(.c) ?*anyopaque),
@@ -1385,14 +1389,20 @@ pub const Api = struct {
         return @intFromFloat(val);
     }
 
+    /// Get destination track pointer for a send (category 0)
+    pub fn trackSendGetDestTrack(self: *const Api, track: *anyopaque, send_idx: c_int) ?*anyopaque {
+        const f = self.getSetTrackSendInfo orelse return null;
+        return f(track, 0, send_idx, "P_DESTTRACK", null);
+    }
+
     /// Get send destination name into buffer
+    /// Uses P_DESTTRACK to get the destination track, then gets its name
     pub fn trackSendGetDestName(self: *const Api, track: *anyopaque, send_idx: c_int, buf: []u8) []const u8 {
-        const f = self.getTrackSendName orelse return "";
         if (buf.len == 0) return "";
-        const success = f(track, send_idx, buf.ptr, @intCast(buf.len));
-        if (!success) return "";
-        const len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
-        return buf[0..len];
+        // Get destination track pointer
+        const dest_track = self.trackSendGetDestTrack(track, send_idx) orelse return "";
+        // Get name from destination track
+        return self.getTrackNameStr(dest_track, buf);
     }
 
     /// Set send volume using CSurf (with undo coalescing)
@@ -1411,6 +1421,93 @@ pub const Api = struct {
     pub fn trackSendSetMute(self: *const Api, track: *anyopaque, send_idx: c_int, muted: bool) bool {
         const f = self.setTrackSendInfo_Value orelse return false;
         return f(track, 0, send_idx, "B_MUTE", if (muted) 1.0 else 0.0);
+    }
+
+    /// Get send pan (-1.0 to 1.0)
+    pub fn trackSendGetPan(self: *const Api, track: *anyopaque, send_idx: c_int) f64 {
+        const f = self.getTrackSendInfo_Value orelse return 0.0;
+        return f(track, 0, send_idx, "D_PAN");
+    }
+
+    /// Set send pan using CSurf (with undo coalescing)
+    pub fn trackSendSetPan(self: *const Api, track: *anyopaque, send_idx: c_int, pan: f64) f64 {
+        const f = self.csurf_OnSendPanChange orelse return pan;
+        return f(track, send_idx, pan, false); // absolute, not relative
+    }
+
+    /// Set send mode (0=post-fader, 1=pre-FX, 3=post-FX)
+    pub fn trackSendSetMode(self: *const Api, track: *anyopaque, send_idx: c_int, mode: c_int) bool {
+        const f = self.setTrackSendInfo_Value orelse return false;
+        return f(track, 0, send_idx, "I_SENDMODE", @floatFromInt(mode));
+    }
+
+    // Hardware output methods (category=1)
+
+    /// Get number of hardware outputs for track
+    pub fn trackHwOutputCount(self: *const Api, track: *anyopaque) c_int {
+        const f = self.getTrackNumSends orelse return 0;
+        return f(track, 1); // category 1 = hardware outputs
+    }
+
+    /// Get HW output volume (linear, 1.0 = 0dB)
+    pub fn trackHwOutputGetVolume(self: *const Api, track: *anyopaque, hw_idx: c_int) f64 {
+        const f = self.getTrackSendInfo_Value orelse return 1.0;
+        return f(track, 1, hw_idx, "D_VOL");
+    }
+
+    /// Get HW output pan (-1.0 to 1.0)
+    pub fn trackHwOutputGetPan(self: *const Api, track: *anyopaque, hw_idx: c_int) f64 {
+        const f = self.getTrackSendInfo_Value orelse return 0.0;
+        return f(track, 1, hw_idx, "D_PAN");
+    }
+
+    /// Get HW output mute state (true = muted)
+    pub fn trackHwOutputGetMute(self: *const Api, track: *anyopaque, hw_idx: c_int) bool {
+        const f = self.getTrackSendInfo_Value orelse return false;
+        return f(track, 1, hw_idx, "B_MUTE") != 0;
+    }
+
+    /// Get HW output mode raw value (0=post-fader, 1=pre-FX, 3=post-FX)
+    /// Returns f64 - caller must use ffi.safeFloatToInt for safe conversion
+    pub fn trackHwOutputGetModeRaw(self: *const Api, track: *anyopaque, hw_idx: c_int) f64 {
+        const f = self.getTrackSendInfo_Value orelse return 0;
+        return f(track, 1, hw_idx, "I_SENDMODE");
+    }
+
+    /// Get HW output destination channel raw value (low 10 bits = index, &1024 = mono)
+    /// Returns f64 - caller must use ffi.safeFloatToInt for safe conversion
+    pub fn trackHwOutputGetDestChannelRaw(self: *const Api, track: *anyopaque, hw_idx: c_int) f64 {
+        const f = self.getTrackSendInfo_Value orelse return 0;
+        return f(track, 1, hw_idx, "I_DSTCHAN");
+    }
+
+    // Note: Hardware output setters use SetTrackSendInfo_Value directly because
+    // CSurf_OnSendVolumeChange only works for category 0 (sends), not category 1
+    // (hardware outputs). Its signature (track, send_idx, volume, relative) has no
+    // category parameter. Undo coalescing for HW outputs relies on gesture tracking.
+
+    /// Set HW output volume (linear, 1.0 = 0dB)
+    pub fn trackHwOutputSetVolume(self: *const Api, track: *anyopaque, hw_idx: c_int, volume: f64) bool {
+        const f = self.setTrackSendInfo_Value orelse return false;
+        return f(track, 1, hw_idx, "D_VOL", volume);
+    }
+
+    /// Set HW output pan (-1.0 to 1.0)
+    pub fn trackHwOutputSetPan(self: *const Api, track: *anyopaque, hw_idx: c_int, pan: f64) bool {
+        const f = self.setTrackSendInfo_Value orelse return false;
+        return f(track, 1, hw_idx, "D_PAN", pan);
+    }
+
+    /// Set HW output mute state
+    pub fn trackHwOutputSetMute(self: *const Api, track: *anyopaque, hw_idx: c_int, muted: bool) bool {
+        const f = self.setTrackSendInfo_Value orelse return false;
+        return f(track, 1, hw_idx, "B_MUTE", if (muted) 1.0 else 0.0);
+    }
+
+    /// Set HW output mode (0=post-fader, 1=pre-FX, 3=post-FX)
+    pub fn trackHwOutputSetMode(self: *const Api, track: *anyopaque, hw_idx: c_int, mode: c_int) bool {
+        const f = self.setTrackSendInfo_Value orelse return false;
+        return f(track, 1, hw_idx, "I_SENDMODE", @floatFromInt(mode));
     }
 
     // Item methods

@@ -14,6 +14,7 @@ pub const MAX_ITEMS_PER_TRACK = 16;
 pub const MAX_TAKES_PER_ITEM = 4;
 pub const MAX_FX_PER_TRACK = 64;
 pub const MAX_SENDS_PER_TRACK = 16;
+pub const MAX_HW_OUTPUTS_PER_TRACK = 8;
 pub const MAX_MARKERS = 64;
 pub const MAX_CALLS = 256;
 
@@ -221,10 +222,25 @@ pub const Method = enum {
     trackSendGetVolume,
     trackSendGetMute,
     trackSendGetMode,
+    trackSendGetDestTrack,
     trackSendGetDestName,
     trackSendSetVolume,
     trackSendToggleMute,
     trackSendSetMute,
+    trackSendGetPan,
+    trackSendSetPan,
+    trackSendSetMode,
+    // Hardware Outputs
+    trackHwOutputCount,
+    trackHwOutputGetVolume,
+    trackHwOutputGetPan,
+    trackHwOutputGetMute,
+    trackHwOutputGetMode,
+    trackHwOutputGetDestChannel,
+    trackHwOutputSetVolume,
+    trackHwOutputSetPan,
+    trackHwOutputSetMute,
+    trackHwOutputSetMode,
     // Inputs
     numAudioInputs,
     audioInputName,
@@ -265,6 +281,10 @@ pub const MockTrack = struct {
 
     // Receives for this track (incoming sends from other tracks)
     receive_count: c_int = 0,
+
+    // Hardware outputs for this track
+    hw_output_count: c_int = 0,
+    hw_outputs: [MAX_HW_OUTPUTS_PER_TRACK]MockHwOutput = [_]MockHwOutput{.{}} ** MAX_HW_OUTPUTS_PER_TRACK,
 
     pub fn setName(self: *MockTrack, name: []const u8) void {
         const len = @min(name.len, self.name.len);
@@ -389,9 +409,11 @@ pub const MockFx = struct {
 
 /// Mock send slot for testing send control.
 pub const MockSend = struct {
+    dest_track_idx: c_int = 0, // Destination track index (unified: 0=master, 1+=tracks)
     dest_name: [128]u8 = [_]u8{0} ** 128,
     dest_name_len: usize = 0,
     volume: f64 = 1.0, // Linear, 1.0 = 0dB
+    pan: f64 = 0.0, // -1.0 to 1.0
     muted: bool = false,
     mode: c_int = 0, // 0=post-fader, 1=pre-FX, 3=post-FX
 
@@ -403,6 +425,27 @@ pub const MockSend = struct {
 
     pub fn getDestName(self: *const MockSend) []const u8 {
         return self.dest_name[0..self.dest_name_len];
+    }
+};
+
+/// Mock hardware output slot for testing HW output control.
+pub const MockHwOutput = struct {
+    output_name: [128]u8 = [_]u8{0} ** 128,
+    output_name_len: usize = 0,
+    volume: f64 = 1.0, // Linear, 1.0 = 0dB
+    pan: f64 = 0.0, // -1.0 to 1.0
+    muted: bool = false,
+    mode: c_int = 0, // 0=post-fader, 1=pre-FX, 3=post-FX
+    dest_channel: c_int = 0, // I_DSTCHAN: low 10 bits = index, &1024 = mono
+
+    pub fn setOutputName(self: *MockHwOutput, name: []const u8) void {
+        const len = @min(name.len, self.output_name.len);
+        @memcpy(self.output_name[0..len], name[0..len]);
+        self.output_name_len = len;
+    }
+
+    pub fn getOutputName(self: *const MockHwOutput) []const u8 {
+        return self.output_name[0..self.output_name_len];
     }
 };
 

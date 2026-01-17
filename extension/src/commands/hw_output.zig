@@ -4,15 +4,15 @@ const mod = @import("mod.zig");
 const gesture_state = @import("../gesture_state.zig");
 const logging = @import("../logging.zig");
 
-/// Set send volume for the specified send
-/// Params: trackIdx (unified: 0=master, 1+=user tracks), sendIdx (0-based), volume (linear, 1.0 = 0dB)
+/// Set HW output volume for the specified hardware output
+/// Params: trackIdx (unified: 0=master, 1+=user tracks), hwIdx (0-based), volume (linear, 1.0 = 0dB)
 pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const track_idx = cmd.getInt("trackIdx") orelse {
         response.err("MISSING_TRACK_IDX", "trackIdx is required");
         return;
     };
-    const send_idx = cmd.getInt("sendIdx") orelse {
-        response.err("MISSING_SEND_IDX", "sendIdx is required");
+    const hw_idx = cmd.getInt("hwIdx") orelse {
+        response.err("MISSING_HW_IDX", "hwIdx is required");
         return;
     };
     const volume = cmd.getFloat("volume") orelse {
@@ -25,27 +25,30 @@ pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     };
 
-    // Use CSurf for undo coalescing
-    _ = api.trackSendSetVolume(track, send_idx, volume);
+    const success = api.trackHwOutputSetVolume(track, hw_idx, volume);
+    if (!success) {
+        response.err("SET_FAILED", "Failed to set HW output volume");
+        return;
+    }
 
     // Record activity for gesture timeout tracking
     if (response.gestures) |gestures| {
-        gestures.recordActivity(gesture_state.ControlId.sendVolume(track_idx, send_idx));
+        gestures.recordActivity(gesture_state.ControlId.hwOutputVolume(track_idx, hw_idx));
     }
 
-    logging.debug("Send volume set: track {} send {} volume {d:.3}", .{ track_idx, send_idx, volume });
+    logging.debug("HW output volume set: track {} hw {} volume {d:.3}", .{ track_idx, hw_idx, volume });
     response.success(null);
 }
 
-/// Set send mute state for the specified send
-/// Params: trackIdx, sendIdx, muted (boolean)
+/// Set HW output mute state for the specified hardware output
+/// Params: trackIdx, hwIdx, muted (boolean)
 pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const track_idx = cmd.getInt("trackIdx") orelse {
         response.err("MISSING_TRACK_IDX", "trackIdx is required");
         return;
     };
-    const send_idx = cmd.getInt("sendIdx") orelse {
-        response.err("MISSING_SEND_IDX", "sendIdx is required");
+    const hw_idx = cmd.getInt("hwIdx") orelse {
+        response.err("MISSING_HW_IDX", "hwIdx is required");
         return;
     };
     const muted_int = cmd.getInt("muted") orelse {
@@ -59,25 +62,25 @@ pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         return;
     };
 
-    const success = api.trackSendSetMute(track, send_idx, muted);
+    const success = api.trackHwOutputSetMute(track, hw_idx, muted);
     if (!success) {
-        response.err("SET_FAILED", "Failed to set send mute state");
+        response.err("SET_FAILED", "Failed to set HW output mute state");
         return;
     }
 
-    logging.debug("Send mute set: track {} send {} muted {}", .{ track_idx, send_idx, muted });
+    logging.debug("HW output mute set: track {} hw {} muted {}", .{ track_idx, hw_idx, muted });
     response.success(null);
 }
 
-/// Set send pan for the specified send
-/// Params: trackIdx, sendIdx, pan (-1.0 to 1.0)
+/// Set HW output pan for the specified hardware output
+/// Params: trackIdx, hwIdx, pan (-1.0 to 1.0)
 pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const track_idx = cmd.getInt("trackIdx") orelse {
         response.err("MISSING_TRACK_IDX", "trackIdx is required");
         return;
     };
-    const send_idx = cmd.getInt("sendIdx") orelse {
-        response.err("MISSING_SEND_IDX", "sendIdx is required");
+    const hw_idx = cmd.getInt("hwIdx") orelse {
+        response.err("MISSING_HW_IDX", "hwIdx is required");
         return;
     };
     const pan = cmd.getFloat("pan") orelse {
@@ -93,27 +96,30 @@ pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
     // Clamp pan to valid range
     const clamped = @max(-1.0, @min(1.0, pan));
 
-    // Use CSurf for undo coalescing
-    _ = api.trackSendSetPan(track, send_idx, clamped);
+    const success = api.trackHwOutputSetPan(track, hw_idx, clamped);
+    if (!success) {
+        response.err("SET_FAILED", "Failed to set HW output pan");
+        return;
+    }
 
     // Record activity for gesture timeout tracking
     if (response.gestures) |gestures| {
-        gestures.recordActivity(gesture_state.ControlId.sendPan(track_idx, send_idx));
+        gestures.recordActivity(gesture_state.ControlId.hwOutputPan(track_idx, hw_idx));
     }
 
-    logging.debug("Send pan set: track {} send {} pan {d:.3}", .{ track_idx, send_idx, clamped });
+    logging.debug("HW output pan set: track {} hw {} pan {d:.3}", .{ track_idx, hw_idx, clamped });
     response.success(null);
 }
 
-/// Set send mode for the specified send
-/// Params: trackIdx, sendIdx, mode (0=post-fader, 1=pre-FX, 3=post-FX)
+/// Set HW output mode for the specified hardware output
+/// Params: trackIdx, hwIdx, mode (0=post-fader, 1=pre-FX, 3=post-FX)
 pub fn handleSetMode(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const track_idx = cmd.getInt("trackIdx") orelse {
         response.err("MISSING_TRACK_IDX", "trackIdx is required");
         return;
     };
-    const send_idx = cmd.getInt("sendIdx") orelse {
-        response.err("MISSING_SEND_IDX", "sendIdx is required");
+    const hw_idx = cmd.getInt("hwIdx") orelse {
+        response.err("MISSING_HW_IDX", "hwIdx is required");
         return;
     };
     const mode = cmd.getInt("mode") orelse {
@@ -132,12 +138,12 @@ pub fn handleSetMode(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         return;
     };
 
-    const success = api.trackSendSetMode(track, send_idx, mode);
+    const success = api.trackHwOutputSetMode(track, hw_idx, mode);
     if (!success) {
-        response.err("SET_FAILED", "Failed to set send mode");
+        response.err("SET_FAILED", "Failed to set HW output mode");
         return;
     }
 
-    logging.debug("Send mode set: track {} send {} mode {}", .{ track_idx, send_idx, mode });
+    logging.debug("HW output mode set: track {} hw {} mode {}", .{ track_idx, hw_idx, mode });
     response.success(null);
 }

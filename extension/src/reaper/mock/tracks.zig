@@ -781,6 +781,18 @@ pub const TracksMethods = struct {
         return self.tracks[idx].sends[send_usize].mode;
     }
 
+    pub fn trackSendGetDestTrack(self: anytype, track: *anyopaque, send_idx: c_int) ?*anyopaque {
+        self.recordCall(.trackSendGetDestTrack);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return null;
+        if (send_idx < 0 or send_idx >= self.tracks[idx].send_count) return null;
+        const send_usize: usize = @intCast(send_idx);
+        if (send_usize >= state.MAX_SENDS_PER_TRACK) return null;
+        const dest_track_idx = self.tracks[idx].sends[send_usize].dest_track_idx;
+        if (dest_track_idx < 0) return null;
+        return state.encodeTrackPtr(@intCast(dest_track_idx));
+    }
+
     pub fn trackSendGetDestName(self: anytype, track: *anyopaque, send_idx: c_int, buf: []u8) []const u8 {
         self.recordCall(.trackSendGetDestName);
         const idx = state.decodeTrackPtr(track);
@@ -824,6 +836,143 @@ pub const TracksMethods = struct {
         const send_usize: usize = @intCast(send_idx);
         if (send_usize >= state.MAX_SENDS_PER_TRACK) return false;
         self.tracks[idx].sends[send_usize].muted = muted;
+        return true;
+    }
+
+    pub fn trackSendGetPan(self: anytype, track: *anyopaque, send_idx: c_int) f64 {
+        self.recordCall(.trackSendGetPan);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 0.0;
+        if (send_idx < 0 or send_idx >= self.tracks[idx].send_count) return 0.0;
+        const send_usize: usize = @intCast(send_idx);
+        if (send_usize >= state.MAX_SENDS_PER_TRACK) return 0.0;
+        return self.tracks[idx].sends[send_usize].pan;
+    }
+
+    pub fn trackSendSetPan(self: anytype, track: *anyopaque, send_idx: c_int, pan: f64) f64 {
+        self.recordCall(.trackSendSetPan);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return pan;
+        if (send_idx < 0 or send_idx >= self.tracks[idx].send_count) return pan;
+        const send_usize: usize = @intCast(send_idx);
+        if (send_usize >= state.MAX_SENDS_PER_TRACK) return pan;
+        self.tracks[idx].sends[send_usize].pan = pan;
+        return pan;
+    }
+
+    pub fn trackSendSetMode(self: anytype, track: *anyopaque, send_idx: c_int, mode: c_int) bool {
+        self.recordCall(.trackSendSetMode);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        if (send_idx < 0 or send_idx >= self.tracks[idx].send_count) return false;
+        const send_usize: usize = @intCast(send_idx);
+        if (send_usize >= state.MAX_SENDS_PER_TRACK) return false;
+        self.tracks[idx].sends[send_usize].mode = mode;
+        return true;
+    }
+
+    // =========================================================================
+    // Hardware Outputs
+    // =========================================================================
+
+    pub fn trackHwOutputCount(self: anytype, track: *anyopaque) c_int {
+        self.recordCall(.trackHwOutputCount);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 0;
+        return self.tracks[idx].hw_output_count;
+    }
+
+    pub fn trackHwOutputGetVolume(self: anytype, track: *anyopaque, hw_idx: c_int) f64 {
+        self.recordCall(.trackHwOutputGetVolume);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 1.0;
+        if (hw_idx < 0 or hw_idx >= self.tracks[idx].hw_output_count) return 1.0;
+        const hw_usize: usize = @intCast(hw_idx);
+        if (hw_usize >= state.MAX_HW_OUTPUTS_PER_TRACK) return 1.0;
+        return self.tracks[idx].hw_outputs[hw_usize].volume;
+    }
+
+    pub fn trackHwOutputGetPan(self: anytype, track: *anyopaque, hw_idx: c_int) f64 {
+        self.recordCall(.trackHwOutputGetPan);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 0.0;
+        if (hw_idx < 0 or hw_idx >= self.tracks[idx].hw_output_count) return 0.0;
+        const hw_usize: usize = @intCast(hw_idx);
+        if (hw_usize >= state.MAX_HW_OUTPUTS_PER_TRACK) return 0.0;
+        return self.tracks[idx].hw_outputs[hw_usize].pan;
+    }
+
+    pub fn trackHwOutputGetMute(self: anytype, track: *anyopaque, hw_idx: c_int) bool {
+        self.recordCall(.trackHwOutputGetMute);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        if (hw_idx < 0 or hw_idx >= self.tracks[idx].hw_output_count) return false;
+        const hw_usize: usize = @intCast(hw_idx);
+        if (hw_usize >= state.MAX_HW_OUTPUTS_PER_TRACK) return false;
+        return self.tracks[idx].hw_outputs[hw_usize].muted;
+    }
+
+    pub fn trackHwOutputGetMode(self: anytype, track: *anyopaque, hw_idx: c_int) ffi.FFIError!c_int {
+        self.recordCall(.trackHwOutputGetMode);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 0;
+        if (hw_idx < 0 or hw_idx >= self.tracks[idx].hw_output_count) return 0;
+        const hw_usize: usize = @intCast(hw_idx);
+        if (hw_usize >= state.MAX_HW_OUTPUTS_PER_TRACK) return 0;
+        return self.tracks[idx].hw_outputs[hw_usize].mode;
+    }
+
+    pub fn trackHwOutputGetDestChannel(self: anytype, track: *anyopaque, hw_idx: c_int) ffi.FFIError!c_int {
+        self.recordCall(.trackHwOutputGetDestChannel);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 0;
+        if (hw_idx < 0 or hw_idx >= self.tracks[idx].hw_output_count) return 0;
+        const hw_usize: usize = @intCast(hw_idx);
+        if (hw_usize >= state.MAX_HW_OUTPUTS_PER_TRACK) return 0;
+        return self.tracks[idx].hw_outputs[hw_usize].dest_channel;
+    }
+
+    pub fn trackHwOutputSetVolume(self: anytype, track: *anyopaque, hw_idx: c_int, volume: f64) bool {
+        self.recordCall(.trackHwOutputSetVolume);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        if (hw_idx < 0 or hw_idx >= self.tracks[idx].hw_output_count) return false;
+        const hw_usize: usize = @intCast(hw_idx);
+        if (hw_usize >= state.MAX_HW_OUTPUTS_PER_TRACK) return false;
+        self.tracks[idx].hw_outputs[hw_usize].volume = volume;
+        return true;
+    }
+
+    pub fn trackHwOutputSetPan(self: anytype, track: *anyopaque, hw_idx: c_int, pan: f64) bool {
+        self.recordCall(.trackHwOutputSetPan);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        if (hw_idx < 0 or hw_idx >= self.tracks[idx].hw_output_count) return false;
+        const hw_usize: usize = @intCast(hw_idx);
+        if (hw_usize >= state.MAX_HW_OUTPUTS_PER_TRACK) return false;
+        self.tracks[idx].hw_outputs[hw_usize].pan = pan;
+        return true;
+    }
+
+    pub fn trackHwOutputSetMute(self: anytype, track: *anyopaque, hw_idx: c_int, muted: bool) bool {
+        self.recordCall(.trackHwOutputSetMute);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        if (hw_idx < 0 or hw_idx >= self.tracks[idx].hw_output_count) return false;
+        const hw_usize: usize = @intCast(hw_idx);
+        if (hw_usize >= state.MAX_HW_OUTPUTS_PER_TRACK) return false;
+        self.tracks[idx].hw_outputs[hw_usize].muted = muted;
+        return true;
+    }
+
+    pub fn trackHwOutputSetMode(self: anytype, track: *anyopaque, hw_idx: c_int, mode: c_int) bool {
+        self.recordCall(.trackHwOutputSetMode);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        if (hw_idx < 0 or hw_idx >= self.tracks[idx].hw_output_count) return false;
+        const hw_usize: usize = @intCast(hw_idx);
+        if (hw_usize >= state.MAX_HW_OUTPUTS_PER_TRACK) return false;
+        self.tracks[idx].hw_outputs[hw_usize].mode = mode;
         return true;
     }
 };
