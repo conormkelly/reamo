@@ -10,7 +10,7 @@ import { useTrack } from '../../hooks/useTrack';
 import { useTrackSkeleton } from '../../hooks';
 import { useReaperStore, getSendsFromTrack, getSendsToTrack } from '../../store';
 import { useReaper } from '../ReaperProvider';
-import { send as sendCmd, hw as hwCmd, gesture, routing as routingCmd } from '../../core/WebSocketCommands';
+import { send as sendCmd, receive as receiveCmd, hw as hwCmd, gesture, routing as routingCmd } from '../../core/WebSocketCommands';
 import { volumeToDbString, faderToVolume, volumeToFader } from '../../utils/volume';
 
 export interface RoutingModalProps {
@@ -372,56 +372,334 @@ function HorizontalSendFader({
 }
 
 /**
- * Display-only row for receives (we can't control receive volume from the receiving end)
+ * Interactive row for receives - mirrors HorizontalSendFader but for receive controls
  */
-function ReceiveRow({
-  srcName,
+function HorizontalReceiveFader({
+  trackIndex,
+  recvIdx,
   volume,
+  pan,
   muted,
+  mode,
+  srcName,
 }: {
-  srcName: string;
+  trackIndex: number;
+  recvIdx: number;
   volume: number;
+  pan: number;
   muted: boolean;
+  mode: number;
+  srcName: string;
 }): ReactElement {
+  const { sendCommand } = useReaper();
+  const { guid } = useTrack(trackIndex);
+  const mixerLocked = useReaperStore((s) => s.mixerLocked);
+  const [isDragging, setIsDragging] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const lastTapRef = useRef<number>(0);
+  const cleanupRef = useRef<(() => void) | null>(null);
+  const gestureGuidRef = useRef<string | null>(null);
+  const recvIdxRef = useRef<number>(recvIdx);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (cleanupRef.current) {
+        cleanupRef.current();
+      }
+    };
+  }, []);
+
   const faderPosition = volumeToFader(volume);
   const volumeDb = volumeToDbString(volume);
+
+  // Handle double-tap to reset to unity
+  const handleDoubleTap = useCallback(() => {
+    sendCommand(receiveCmd.setVolume(trackIndex, recvIdx, 1.0));
+  }, [sendCommand, trackIndex, recvIdx]);
+
+  // Toggle mute
+  const handleToggleMute = useCallback(() => {
+    sendCommand(receiveCmd.setMute(trackIndex, recvIdx, muted ? 0 : 1));
+  }, [sendCommand, trackIndex, recvIdx, muted]);
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent | React.TouchEvent) => {
+      if (mixerLocked) return;
+
+      // Check for double-tap
+      const now = Date.now();
+      if (now - lastTapRef.current < 300) {
+        e.preventDefault();
+        lastTapRef.current = 0;
+        handleDoubleTap();
+        return;
+      }
+      lastTapRef.current = now;
+
+      if (!guid) {
+        console.warn(`HorizontalReceiveFader: No GUID for track ${trackIndex}, gesture blocked`);
+        return;
+      }
+
+      e.preventDefault();
+      setIsDragging(true);
+
+      gestureGuidRef.current = guid;
+      recvIdxRef.current = recvIdx;
+
+      sendCommand(gesture.start('receive', trackIndex, gestureGuidRef.current, undefined, undefined, recvIdxRef.current));
+
+      const getX = (event: MouseEvent | TouchEvent): number => {
+        if ('touches' in event) {
+          return event.touches[0].clientX;
+        }
+        return event.clientX;
+      };
+
+      const updatePosition = (clientX: number) => {
+        if (!containerRef.current || !gestureGuidRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        const x = clientX - rect.left;
+        const position = Math.max(0, Math.min(1, x / rect.width));
+        const linearVolume = faderToVolume(position);
+        sendCommand(receiveCmd.setVolume(trackIndex, recvIdxRef.current, linearVolume));
+      };
+
+      const initialX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      updatePosition(initialX);
+
+      const handleMove = (event: MouseEvent | TouchEvent) => {
+        event.preventDefault();
+        updatePosition(getX(event));
+      };
+
+      const handleUp = () => {
+        setIsDragging(false);
+        if (gestureGuidRef.current) {
+          sendCommand(gesture.end('receive', trackIndex, gestureGuidRef.current, undefined, undefined, recvIdxRef.current));
+        }
+        gestureGuidRef.current = null;
+        document.removeEventListener('mousemove', handleMove);
+        document.removeEventListener('mouseup', handleUp);
+        document.removeEventListener('touchmove', handleMove);
+        document.removeEventListener('touchend', handleUp);
+        cleanupRef.current = null;
+      };
+
+      document.addEventListener('mousemove', handleMove);
+      document.addEventListener('mouseup', handleUp);
+      document.addEventListener('touchmove', handleMove, { passive: false });
+      document.addEventListener('touchend', handleUp);
+
+      cleanupRef.current = handleUp;
+    },
+    [sendCommand, handleDoubleTap, mixerLocked, trackIndex, recvIdx, guid]
+  );
+
   const indicatorPosition = faderPosition * 100;
 
+  // Pan slider state
+  const [isPanDragging, setIsPanDragging] = useState(false);
+  const panContainerRef = useRef<HTMLDivElement>(null);
+  const lastPanTapRef = useRef<number>(0);
+  const panCleanupRef = useRef<(() => void) | null>(null);
+  const panGestureGuidRef = useRef<string | null>(null);
+
+  // Format pan display
+  const formatPan = (p: number): string => {
+    if (Math.abs(p) < 0.01) return 'C';
+    const pct = Math.round(Math.abs(p) * 100);
+    return p < 0 ? `L${pct}` : `R${pct}`;
+  };
+
+  // Handle double-tap to center pan
+  const handlePanDoubleTap = useCallback(() => {
+    sendCommand(receiveCmd.setPan(trackIndex, recvIdx, 0));
+  }, [sendCommand, trackIndex, recvIdx]);
+
+  // Handle mode toggle
+  const handleModeToggle = useCallback(() => {
+    sendCommand(receiveCmd.setMode(trackIndex, recvIdx, nextMode(mode)));
+  }, [sendCommand, trackIndex, recvIdx, mode]);
+
+  // Pan slider mouse/touch handler
+  const handlePanMouseDown = useCallback(
+    (e: React.MouseEvent | React.TouchEvent) => {
+      if (mixerLocked) return;
+
+      // Check for double-tap
+      const now = Date.now();
+      if (now - lastPanTapRef.current < 300) {
+        e.preventDefault();
+        lastPanTapRef.current = 0;
+        handlePanDoubleTap();
+        return;
+      }
+      lastPanTapRef.current = now;
+
+      if (!guid) {
+        console.warn(`HorizontalReceiveFader: No GUID for track ${trackIndex}, pan gesture blocked`);
+        return;
+      }
+
+      e.preventDefault();
+      setIsPanDragging(true);
+
+      panGestureGuidRef.current = guid;
+      recvIdxRef.current = recvIdx;
+
+      sendCommand(gesture.start('receivePan', trackIndex, panGestureGuidRef.current, undefined, undefined, recvIdxRef.current));
+
+      const getX = (event: MouseEvent | TouchEvent): number => {
+        if ('touches' in event) {
+          return event.touches[0].clientX;
+        }
+        return event.clientX;
+      };
+
+      const updatePan = (clientX: number) => {
+        if (!panContainerRef.current || !panGestureGuidRef.current) return;
+        const rect = panContainerRef.current.getBoundingClientRect();
+        const x = clientX - rect.left;
+        const position = Math.max(0, Math.min(1, x / rect.width));
+        const newPan = position * 2 - 1; // Convert 0-1 to -1 to 1
+        sendCommand(receiveCmd.setPan(trackIndex, recvIdxRef.current, newPan));
+      };
+
+      const initialX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      updatePan(initialX);
+
+      const handleMove = (event: MouseEvent | TouchEvent) => {
+        event.preventDefault();
+        updatePan(getX(event));
+      };
+
+      const handleUp = () => {
+        setIsPanDragging(false);
+        if (panGestureGuidRef.current) {
+          sendCommand(gesture.end('receivePan', trackIndex, panGestureGuidRef.current, undefined, undefined, recvIdxRef.current));
+        }
+        panGestureGuidRef.current = null;
+        document.removeEventListener('mousemove', handleMove);
+        document.removeEventListener('mouseup', handleUp);
+        document.removeEventListener('touchmove', handleMove);
+        document.removeEventListener('touchend', handleUp);
+        panCleanupRef.current = null;
+      };
+
+      document.addEventListener('mousemove', handleMove);
+      document.addEventListener('mouseup', handleUp);
+      document.addEventListener('touchmove', handleMove, { passive: false });
+      document.addEventListener('touchend', handleUp);
+
+      panCleanupRef.current = handleUp;
+    },
+    [sendCommand, handlePanDoubleTap, mixerLocked, trackIndex, recvIdx, guid]
+  );
+
+  // Cleanup pan gesture on unmount
+  useEffect(() => {
+    return () => {
+      if (panCleanupRef.current) {
+        panCleanupRef.current();
+      }
+    };
+  }, []);
+
+  // Convert pan (-1 to 1) to percentage (0 to 100)
+  const panPosition = ((pan + 1) / 2) * 100;
+
   return (
-    <div className="flex items-center gap-3 py-2 opacity-75">
-      {/* Mute indicator (read-only) */}
-      <div
-        className={`w-11 h-11 flex items-center justify-center rounded-lg ${
-          muted ? 'bg-sends-primary/20 text-sends-primary' : 'bg-bg-surface text-text-muted'
-        }`}
-        title={muted ? 'Send is muted' : 'Send is active'}
-      >
-        {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+    <div className="py-2 space-y-2">
+      {/* Row 1: Volume controls */}
+      <div className="flex items-center gap-3">
+        {/* Mute button */}
+        <button
+          onClick={handleToggleMute}
+          className={`w-11 h-11 flex items-center justify-center rounded-lg transition-colors ${
+            muted
+              ? 'bg-blue-500/20 text-blue-400'
+              : 'bg-bg-surface text-text-secondary hover:bg-bg-elevated'
+          }`}
+          title={muted ? 'Unmute receive' : 'Mute receive'}
+        >
+          {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+        </button>
+
+        {/* Source name */}
+        <span className="text-sm text-text-primary w-24 truncate" title={srcName}>
+          {srcName}
+        </span>
+
+        {/* Horizontal fader */}
+        <div
+          ref={containerRef}
+          className={`relative flex-1 h-8 bg-bg-elevated rounded touch-none ${
+            mixerLocked ? 'cursor-not-allowed opacity-50' : 'cursor-ew-resize'
+          } ${isDragging ? 'ring-2 ring-blue-400' : ''}`}
+          onMouseDown={handleMouseDown}
+          onTouchStart={handleMouseDown}
+          title="Receive level - double-tap to reset to 0dB"
+        >
+          {/* Fill */}
+          <div
+            className="absolute top-0 bottom-0 left-0 bg-blue-500/50 rounded-l transition-all duration-75"
+            style={{ width: `${indicatorPosition}%` }}
+          />
+          {/* Handle */}
+          <div
+            className="absolute top-1 bottom-1 w-3 bg-blue-200 rounded shadow-md transition-all duration-75"
+            style={{ left: `calc(${indicatorPosition}% - 6px)` }}
+          />
+        </div>
+
+        {/* dB readout */}
+        <span className={`text-xs font-mono w-16 text-right ${muted ? 'text-blue-400/50 line-through' : 'text-blue-400'}`}>
+          {volumeDb}
+        </span>
       </div>
 
-      {/* Source name */}
-      <span className="text-sm text-text-primary w-24 truncate" title={srcName}>
-        {srcName}
-      </span>
+      {/* Row 2: Pan and Mode controls */}
+      <div className="flex items-center gap-3 pl-14">
+        {/* Pan slider */}
+        <div
+          ref={panContainerRef}
+          className={`relative flex-1 h-6 bg-bg-elevated rounded touch-none ${
+            mixerLocked ? 'cursor-not-allowed opacity-50' : 'cursor-ew-resize'
+          } ${isPanDragging ? 'ring-2 ring-blue-400' : ''}`}
+          onMouseDown={handlePanMouseDown}
+          onTouchStart={handlePanMouseDown}
+          title="Receive pan - double-tap to center"
+        >
+          {/* Center line */}
+          <div className="absolute top-0 bottom-0 left-1/2 w-px bg-border-subtle" />
+          {/* Handle */}
+          <div
+            className="absolute top-1 bottom-1 w-3 bg-blue-200 rounded shadow-md transition-all duration-75"
+            style={{ left: `calc(${panPosition}% - 6px)` }}
+          />
+        </div>
 
-      {/* Level indicator (read-only) */}
-      <div className="relative flex-1 h-8 bg-bg-elevated rounded cursor-default">
-        {/* Fill */}
-        <div
-          className="absolute top-0 bottom-0 left-0 bg-blue-500/50 rounded-l"
-          style={{ width: `${indicatorPosition}%` }}
-        />
-        {/* Handle */}
-        <div
-          className="absolute top-1 bottom-1 w-3 bg-blue-200 rounded shadow-md"
-          style={{ left: `calc(${indicatorPosition}% - 6px)` }}
-        />
+        {/* Pan readout */}
+        <span className="text-xs font-mono w-10 text-center text-text-secondary">
+          {formatPan(pan)}
+        </span>
+
+        {/* Mode badge */}
+        <button
+          onClick={handleModeToggle}
+          disabled={mixerLocked}
+          className={`px-2 py-1 text-xs rounded-md transition-colors ${
+            mixerLocked
+              ? 'bg-bg-surface text-text-muted cursor-not-allowed'
+              : 'bg-bg-surface text-text-secondary hover:bg-bg-elevated'
+          }`}
+          title={`Mode: ${MODE_LABELS[mode] || 'Unknown'} - tap to cycle`}
+        >
+          {MODE_LABELS[mode] || '?'}
+        </button>
       </div>
-
-      {/* dB readout */}
-      <span className={`text-xs font-mono w-16 text-right ${muted ? 'text-blue-500/50 line-through' : 'text-blue-500'}`}>
-        {volumeDb}
-      </span>
     </div>
   );
 }
@@ -788,6 +1066,7 @@ export function RoutingModal({
 
   // Routing subscription state from store
   const routingSends = useReaperStore((s) => s.routingSends);
+  const routingReceives = useReaperStore((s) => s.routingReceives);
   const routingHwOutputs = useReaperStore((s) => s.routingHwOutputs);
   const setRoutingSubscription = useReaperStore((s) => s.setRoutingSubscription);
   const clearRoutingSubscription = useReaperStore((s) => s.clearRoutingSubscription);
@@ -832,12 +1111,27 @@ export function RoutingModal({
     }));
   }, [routingSends, sends, trackIndex]);
 
-  // Get receives to this track (sends that have this track as destination)
-  // Receives still use global sends state since we can't control them
-  const trackReceives = useMemo(
-    () => getSendsToTrack(sends, trackIndex),
-    [sends, trackIndex]
-  );
+  // Use routing subscription data for receives (real-time updates during drag)
+  const trackReceives = useMemo(() => {
+    // If we have routing subscription data, use it (includes pan)
+    if (routingReceives.length > 0) {
+      return routingReceives.map((r) => ({
+        srcTrackIdx: -1, // Not available in routing subscription
+        destTrackIdx: trackIndex,
+        sendIndex: r.receiveIndex,
+        volume: r.volume,
+        pan: r.pan,
+        muted: r.muted,
+        mode: r.mode,
+        srcName: r.srcName,
+      }));
+    }
+    // Fall back to global sends state (for initial render before subscription kicks in)
+    return getSendsToTrack(sends, trackIndex).map((s) => ({
+      ...s,
+      srcName: '', // Will be filled in from trackNameLookup at render time
+    }));
+  }, [routingReceives, sends, trackIndex]);
 
   // Use routing subscription data for hw outputs (real-time updates during drag)
   const hwOutputs = routingHwOutputs;
@@ -960,11 +1254,15 @@ export function RoutingModal({
                   </div>
                 ) : (
                   trackReceives.map((r) => (
-                    <ReceiveRow
-                      key={`${r.srcTrackIdx}-${r.sendIndex}`}
-                      srcName={trackNameLookup[r.srcTrackIdx] || `Track ${r.srcTrackIdx}`}
+                    <HorizontalReceiveFader
+                      key={`recv-${r.sendIndex}`}
+                      trackIndex={trackIndex}
+                      recvIdx={r.sendIndex}
                       volume={r.volume}
+                      pan={r.pan ?? 0}
                       muted={r.muted}
+                      mode={r.mode ?? 0}
+                      srcName={r.srcName || trackNameLookup[r.srcTrackIdx] || `Track ${r.srcTrackIdx}`}
                     />
                   ))
                 )}

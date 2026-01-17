@@ -25,6 +25,12 @@ fn parseControlId(api: anytype, cmd: protocol.CommandMessage) ?gesture_state.Con
     } else if (std.mem.eql(u8, control_type_str, "sendPan")) {
         const send_idx = cmd.getInt("sendIdx") orelse return null;
         return gesture_state.ControlId.sendPan(track_idx, send_idx);
+    } else if (std.mem.eql(u8, control_type_str, "receive")) {
+        const recv_idx = cmd.getInt("recvIdx") orelse return null;
+        return gesture_state.ControlId.receiveVolume(track_idx, recv_idx);
+    } else if (std.mem.eql(u8, control_type_str, "receivePan")) {
+        const recv_idx = cmd.getInt("recvIdx") orelse return null;
+        return gesture_state.ControlId.receivePan(track_idx, recv_idx);
     } else if (std.mem.eql(u8, control_type_str, "hwOutputVolume")) {
         const hw_idx = cmd.getInt("hwIdx") orelse return null;
         return gesture_state.ControlId.hwOutputVolume(track_idx, hw_idx);
@@ -36,7 +42,7 @@ fn parseControlId(api: anytype, cmd: protocol.CommandMessage) ?gesture_state.Con
 }
 
 /// Handle gesture/start - called when a client begins dragging a fader
-/// Params: { controlType: "volume"|"pan"|"send"|"sendPan"|"hwOutputVolume"|"hwOutputPan", trackIdx|trackGuid: number|string, sendIdx?/hwIdx?: number }
+/// Params: { controlType: "volume"|"pan"|"send"|"sendPan"|"receive"|"receivePan"|"hwOutputVolume"|"hwOutputPan", trackIdx|trackGuid: number|string, sendIdx?/recvIdx?/hwIdx?: number }
 pub fn handleStart(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const gestures = response.gestures orelse {
         logging.warn("gesture/start called but GestureState not available", .{});
@@ -45,7 +51,7 @@ pub fn handleStart(api: anytype, cmd: protocol.CommandMessage, response: *mod.Re
     };
 
     const control = parseControlId(api, cmd) orelse {
-        response.err("INVALID_PARAMS", "Required: controlType, trackIdx/trackGuid, and sendIdx/hwIdx for send/hw types");
+        response.err("INVALID_PARAMS", "Required: controlType, trackIdx/trackGuid, and sendIdx/recvIdx/hwIdx for send/receive/hw types");
         return;
     };
 

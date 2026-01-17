@@ -7,7 +7,7 @@
  */
 
 import type { StateCreator } from 'zustand';
-import type { RoutingStateEventPayload, WSRoutingSend, WSRoutingHwOutput } from '../../core/WebSocketTypes';
+import type { RoutingStateEventPayload, WSRoutingSend, WSRoutingReceive, WSRoutingHwOutput } from '../../core/WebSocketTypes';
 
 export interface RoutingSlice {
   // Subscription state
@@ -17,10 +17,10 @@ export interface RoutingSlice {
   // Data state
   /** Current sends for subscribed track */
   routingSends: WSRoutingSend[];
+  /** Current receives for subscribed track */
+  routingReceives: WSRoutingReceive[];
   /** Current hw outputs for subscribed track */
   routingHwOutputs: WSRoutingHwOutput[];
-  /** Receive count for subscribed track (full data coming later) */
-  routingReceiveCount: number;
 
   // Actions
   /** Set subscription state (call before sending routing/subscribe command) */
@@ -35,8 +35,8 @@ export const createRoutingSlice: StateCreator<RoutingSlice, [], [], RoutingSlice
   // Initial state
   routingSubscribedGuid: null,
   routingSends: [],
+  routingReceives: [],
   routingHwOutputs: [],
-  routingReceiveCount: 0,
 
   // Actions
   setRoutingSubscription: (trackGuid) =>
@@ -44,8 +44,8 @@ export const createRoutingSlice: StateCreator<RoutingSlice, [], [], RoutingSlice
       routingSubscribedGuid: trackGuid,
       // Clear old data when subscription changes
       routingSends: [],
+      routingReceives: [],
       routingHwOutputs: [],
-      routingReceiveCount: 0,
     }),
 
   handleRoutingStateEvent: (payload) => {
@@ -57,8 +57,8 @@ export const createRoutingSlice: StateCreator<RoutingSlice, [], [], RoutingSlice
 
     set({
       routingSends: payload.sends,
+      routingReceives: payload.receives,
       routingHwOutputs: payload.hwOutputs,
-      routingReceiveCount: payload.receiveCount,
     });
   },
 
@@ -66,7 +66,7 @@ export const createRoutingSlice: StateCreator<RoutingSlice, [], [], RoutingSlice
     set({
       routingSubscribedGuid: null,
       routingSends: [],
+      routingReceives: [],
       routingHwOutputs: [],
-      routingReceiveCount: 0,
     }),
 });

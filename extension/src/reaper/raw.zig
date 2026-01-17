@@ -1370,6 +1370,116 @@ pub const Api = struct {
         return f(track, -1); // category -1 = receives from other tracks
     }
 
+    /// Get receive volume (linear, 1.0 = 0dB)
+    pub fn trackReceiveGetVolume(self: *const Api, track: *anyopaque, recv_idx: c_int) f64 {
+        const f = self.getTrackSendInfo_Value orelse return 1.0;
+        return f(track, -1, recv_idx, "D_VOL");
+    }
+
+    /// Get receive mute state (true = muted)
+    pub fn trackReceiveGetMute(self: *const Api, track: *anyopaque, recv_idx: c_int) bool {
+        const f = self.getTrackSendInfo_Value orelse return false;
+        return f(track, -1, recv_idx, "B_MUTE") != 0;
+    }
+
+    /// Get receive mode raw value (0=post-fader, 1=pre-FX, 3=post-FX)
+    /// Returns f64 for FFI safety - use RealBackend.trackReceiveGetMode for validated c_int
+    pub fn trackReceiveGetModeRaw(self: *const Api, track: *anyopaque, recv_idx: c_int) f64 {
+        const f = self.getTrackSendInfo_Value orelse return 0;
+        return f(track, -1, recv_idx, "I_SENDMODE");
+    }
+
+    /// Get receive pan (-1.0 to 1.0)
+    pub fn trackReceiveGetPan(self: *const Api, track: *anyopaque, recv_idx: c_int) f64 {
+        const f = self.getTrackSendInfo_Value orelse return 0.0;
+        return f(track, -1, recv_idx, "D_PAN");
+    }
+
+    /// Get source track pointer for a receive (category -1)
+    pub fn trackReceiveGetSrcTrack(self: *const Api, track: *anyopaque, recv_idx: c_int) ?*anyopaque {
+        const f = self.getSetTrackSendInfo orelse return null;
+        return f(track, -1, recv_idx, "P_SRCTRACK", null);
+    }
+
+    /// Get receive source name into buffer
+    /// Uses P_SRCTRACK to get the source track, then gets its name
+    pub fn trackReceiveGetSrcName(self: *const Api, track: *anyopaque, recv_idx: c_int, buf: []u8) []const u8 {
+        if (buf.len == 0) return "";
+        // Get source track pointer
+        const src_track = self.trackReceiveGetSrcTrack(track, recv_idx) orelse return "";
+        // Get name from source track
+        return self.getTrackNameStr(src_track, buf);
+    }
+
+    /// Find the send index on source track that corresponds to a receive on dest track.
+    /// This allows using CSurf APIs for proper undo coalescing.
+    /// Returns the send index on src_track, or null if not found.
+    pub fn findSendIdxForReceive(self: *const Api, dest_track: *anyopaque, recv_idx: c_int) ?struct { src_track: *anyopaque, send_idx: c_int } {
+        // Get the source track from the receive
+        const src_track = self.trackReceiveGetSrcTrack(dest_track, recv_idx) orelse return null;
+
+        // Count sends on source track
+        const send_count = self.trackSendCount(src_track);
+
+        // Find which send on source track points to dest_track
+        var i: c_int = 0;
+        while (i < send_count) : (i += 1) {
+            const send_dest = self.trackSendGetDestTrack(src_track, i);
+            if (send_dest == dest_track) {
+                return .{ .src_track = src_track, .send_idx = i };
+            }
+        }
+        return null;
+    }
+
+    /// Set receive volume using CSurf on source track for proper undo coalescing.
+    /// Falls back to SetTrackSendInfo_Value if source track lookup fails.
+    pub fn trackReceiveSetVolume(self: *const Api, track: *anyopaque, recv_idx: c_int, volume: f64) f64 {
+        // Try to use CSurf via source track's send
+        if (self.findSendIdxForReceive(track, recv_idx)) |info| {
+            return self.trackSendSetVolume(info.src_track, info.send_idx, volume);
+        }
+        // Fallback to direct set (no CSurf undo coalescing)
+        const f = self.setTrackSendInfo_Value orelse return volume;
+        _ = f(track, -1, recv_idx, "D_VOL", volume);
+        return volume;
+    }
+
+    /// Set receive mute state
+    pub fn trackReceiveSetMute(self: *const Api, track: *anyopaque, recv_idx: c_int, muted: bool) bool {
+        // Try to use source track's send for consistency
+        if (self.findSendIdxForReceive(track, recv_idx)) |info| {
+            return self.trackSendSetMute(info.src_track, info.send_idx, muted);
+        }
+        // Fallback to direct set
+        const f = self.setTrackSendInfo_Value orelse return false;
+        return f(track, -1, recv_idx, "B_MUTE", if (muted) 1.0 else 0.0);
+    }
+
+    /// Set receive pan using CSurf on source track for proper undo coalescing.
+    /// Falls back to SetTrackSendInfo_Value if source track lookup fails.
+    pub fn trackReceiveSetPan(self: *const Api, track: *anyopaque, recv_idx: c_int, pan: f64) f64 {
+        // Try to use CSurf via source track's send
+        if (self.findSendIdxForReceive(track, recv_idx)) |info| {
+            return self.trackSendSetPan(info.src_track, info.send_idx, pan);
+        }
+        // Fallback to direct set (no CSurf undo coalescing)
+        const f = self.setTrackSendInfo_Value orelse return pan;
+        _ = f(track, -1, recv_idx, "D_PAN", pan);
+        return pan;
+    }
+
+    /// Set receive mode (0=post-fader, 1=pre-FX, 3=post-FX)
+    pub fn trackReceiveSetMode(self: *const Api, track: *anyopaque, recv_idx: c_int, mode: c_int) bool {
+        // Try to use source track's send for consistency
+        if (self.findSendIdxForReceive(track, recv_idx)) |info| {
+            return self.trackSendSetMode(info.src_track, info.send_idx, mode);
+        }
+        // Fallback to direct set
+        const f = self.setTrackSendInfo_Value orelse return false;
+        return f(track, -1, recv_idx, "I_SENDMODE", @floatFromInt(mode));
+    }
+
     /// Get send volume (linear, 1.0 = 0dB)
     pub fn trackSendGetVolume(self: *const Api, track: *anyopaque, send_idx: c_int) f64 {
         const f = self.getTrackSendInfo_Value orelse return 1.0;
@@ -1382,11 +1492,11 @@ pub const Api = struct {
         return f(track, 0, send_idx, "B_MUTE") != 0;
     }
 
-    /// Get send mode (0=post-fader, 1=pre-FX, 3=post-FX)
-    pub fn trackSendGetMode(self: *const Api, track: *anyopaque, send_idx: c_int) c_int {
+    /// Get send mode raw value (0=post-fader, 1=pre-FX, 3=post-FX)
+    /// Returns f64 for FFI safety - use RealBackend.trackSendGetMode for validated c_int
+    pub fn trackSendGetModeRaw(self: *const Api, track: *anyopaque, send_idx: c_int) f64 {
         const f = self.getTrackSendInfo_Value orelse return 0;
-        const val = f(track, 0, send_idx, "I_SENDMODE");
-        return @intFromFloat(val);
+        return f(track, 0, send_idx, "I_SENDMODE");
     }
 
     /// Get destination track pointer for a send (category 0)

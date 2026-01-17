@@ -26,6 +26,7 @@ const midi = @import("midi.zig");
 const project_notes = @import("project_notes.zig");
 const fx = @import("fx.zig");
 const send = @import("send.zig");
+const receive = @import("receive.zig");
 const hw_output = @import("hw_output.zig");
 const playlist_cmds = @import("playlist.zig");
 const preferences = @import("preferences.zig");
@@ -204,6 +205,12 @@ pub const all = .{
     .{ "send/setMute", send.handleSetMute },
     .{ "send/setPan", send.handleSetPan },
     .{ "send/setMode", send.handleSetMode },
+
+    // Receives
+    .{ "receive/setVolume", receive.handleSetVolume },
+    .{ "receive/setMute", receive.handleSetMute },
+    .{ "receive/setPan", receive.handleSetPan },
+    .{ "receive/setMode", receive.handleSetMode },
 
     // Hardware Outputs
     .{ "hw/setVolume", hw_output.handleSetVolume },

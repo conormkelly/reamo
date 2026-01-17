@@ -33,6 +33,7 @@ pub const MockItem = state.MockItem;
 pub const MockTake = state.MockTake;
 pub const MockFx = state.MockFx;
 pub const MockSend = state.MockSend;
+pub const MockReceive = state.MockReceive;
 pub const MockHwOutput = state.MockHwOutput;
 pub const MockMarkerInfo = state.MockMarkerInfo;
 pub const Method = state.Method;
@@ -42,6 +43,7 @@ pub const MAX_ITEMS_PER_TRACK = state.MAX_ITEMS_PER_TRACK;
 pub const MAX_TAKES_PER_ITEM = state.MAX_TAKES_PER_ITEM;
 pub const MAX_FX_PER_TRACK = state.MAX_FX_PER_TRACK;
 pub const MAX_SENDS_PER_TRACK = state.MAX_SENDS_PER_TRACK;
+pub const MAX_RECEIVES_PER_TRACK = state.MAX_RECEIVES_PER_TRACK;
 pub const MAX_HW_OUTPUTS_PER_TRACK = state.MAX_HW_OUTPUTS_PER_TRACK;
 pub const MAX_MARKERS = state.MAX_MARKERS;
 pub const MAX_CALLS = state.MAX_CALLS;
@@ -434,6 +436,16 @@ pub const MockBackend = struct {
     pub const trackSendToggleMute = tracks.TracksMethods.trackSendToggleMute;
     pub const trackSendSetMute = tracks.TracksMethods.trackSendSetMute;
     pub const trackSendSetMode = tracks.TracksMethods.trackSendSetMode;
+    pub const trackReceiveGetVolume = tracks.TracksMethods.trackReceiveGetVolume;
+    pub const trackReceiveGetMute = tracks.TracksMethods.trackReceiveGetMute;
+    pub const trackReceiveGetMode = tracks.TracksMethods.trackReceiveGetMode;
+    pub const trackReceiveGetPan = tracks.TracksMethods.trackReceiveGetPan;
+    pub const trackReceiveGetSrcTrack = tracks.TracksMethods.trackReceiveGetSrcTrack;
+    pub const trackReceiveGetSrcName = tracks.TracksMethods.trackReceiveGetSrcName;
+    pub const trackReceiveSetVolume = tracks.TracksMethods.trackReceiveSetVolume;
+    pub const trackReceiveSetMute = tracks.TracksMethods.trackReceiveSetMute;
+    pub const trackReceiveSetPan = tracks.TracksMethods.trackReceiveSetPan;
+    pub const trackReceiveSetMode = tracks.TracksMethods.trackReceiveSetMode;
 
     // =========================================================================
     // Hardware Outputs (delegated)
@@ -678,4 +690,98 @@ test "MockBackend trackFxSetEnabled bounds check" {
     // Out of range index should be ignored (no crash)
     mock.trackFxSetEnabled(track, 5, false);
     try std.testing.expect(mock.trackFxGetEnabled(track, 0)); // Unchanged
+}
+
+test "MockBackend receive get/set volume and pan" {
+    var mock = MockBackend{
+        .track_count = 2,
+    };
+    // Track 1 has a receive from Track 0
+    mock.tracks[1].receive_count = 1;
+    mock.tracks[1].receives[0].src_track_idx = 0;
+    mock.tracks[1].receives[0].volume = 0.5;
+    mock.tracks[1].receives[0].pan = -0.25;
+    mock.tracks[1].receives[0].muted = false;
+
+    const track1 = mock.getTrackByUnifiedIdx(1).?;
+
+    // Verify getters
+    try std.testing.expectEqual(@as(f64, 0.5), mock.trackReceiveGetVolume(track1, 0));
+    try std.testing.expectEqual(@as(f64, -0.25), mock.trackReceiveGetPan(track1, 0));
+    try std.testing.expect(!mock.trackReceiveGetMute(track1, 0));
+
+    // Verify setters
+    _ = mock.trackReceiveSetVolume(track1, 0, 0.75);
+    try std.testing.expectEqual(@as(f64, 0.75), mock.trackReceiveGetVolume(track1, 0));
+
+    _ = mock.trackReceiveSetPan(track1, 0, 0.5);
+    try std.testing.expectEqual(@as(f64, 0.5), mock.trackReceiveGetPan(track1, 0));
+
+    _ = mock.trackReceiveSetMute(track1, 0, true);
+    try std.testing.expect(mock.trackReceiveGetMute(track1, 0));
+}
+
+test "MockBackend receive get source track and name" {
+    var mock = MockBackend{
+        .track_count = 2,
+    };
+    // Set up Track 0 with a name
+    mock.tracks[0].setName("Drums");
+
+    // Track 1 receives from Track 0
+    mock.tracks[1].receive_count = 1;
+    mock.tracks[1].receives[0].src_track_idx = 0;
+    mock.tracks[1].receives[0].setSrcName("Drums");
+
+    const track1 = mock.getTrackByUnifiedIdx(1).?;
+
+    // Verify source track pointer resolves
+    const src_track = mock.trackReceiveGetSrcTrack(track1, 0);
+    try std.testing.expect(src_track != null);
+
+    // Verify source name
+    var buf: [128]u8 = undefined;
+    const src_name = mock.trackReceiveGetSrcName(track1, 0, &buf);
+    try std.testing.expectEqualStrings("Drums", src_name);
+}
+
+test "MockBackend receive mode get/set" {
+    var mock = MockBackend{
+        .track_count = 2,
+    };
+    mock.tracks[1].receive_count = 1;
+    mock.tracks[1].receives[0].mode = 0; // post-fader
+
+    const track1 = mock.getTrackByUnifiedIdx(1).?;
+
+    // Get mode (returns FFIError!c_int)
+    const mode = try mock.trackReceiveGetMode(track1, 0);
+    try std.testing.expectEqual(@as(c_int, 0), mode);
+
+    // Set to pre-FX (mode 1)
+    try std.testing.expect(mock.trackReceiveSetMode(track1, 0, 1));
+    try std.testing.expectEqual(@as(c_int, 1), try mock.trackReceiveGetMode(track1, 0));
+
+    // Set to post-FX (mode 3)
+    try std.testing.expect(mock.trackReceiveSetMode(track1, 0, 3));
+    try std.testing.expectEqual(@as(c_int, 3), try mock.trackReceiveGetMode(track1, 0));
+}
+
+test "MockBackend receive bounds checking" {
+    var mock = MockBackend{
+        .track_count = 1,
+    };
+    mock.tracks[0].receive_count = 0; // No receives
+
+    const track0 = mock.getTrackByUnifiedIdx(0).?;
+
+    // Out of bounds should return safe defaults
+    try std.testing.expectEqual(@as(f64, 1.0), mock.trackReceiveGetVolume(track0, 0));
+    try std.testing.expectEqual(@as(f64, 0.0), mock.trackReceiveGetPan(track0, 0));
+    try std.testing.expect(!mock.trackReceiveGetMute(track0, 0));
+    try std.testing.expect(mock.trackReceiveGetSrcTrack(track0, 0) == null);
+
+    // Setters should return without crash
+    _ = mock.trackReceiveSetVolume(track0, 0, 0.5);
+    try std.testing.expect(!mock.trackReceiveSetMute(track0, 0, true));
 }

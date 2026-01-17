@@ -771,7 +771,7 @@ pub const TracksMethods = struct {
         return self.tracks[idx].sends[send_usize].muted;
     }
 
-    pub fn trackSendGetMode(self: anytype, track: *anyopaque, send_idx: c_int) c_int {
+    pub fn trackSendGetMode(self: anytype, track: *anyopaque, send_idx: c_int) ffi.FFIError!c_int {
         self.recordCall(.trackSendGetMode);
         const idx = state.decodeTrackPtr(track);
         if (idx >= state.MAX_TRACKS) return 0;
@@ -868,6 +868,119 @@ pub const TracksMethods = struct {
         const send_usize: usize = @intCast(send_idx);
         if (send_usize >= state.MAX_SENDS_PER_TRACK) return false;
         self.tracks[idx].sends[send_usize].mode = mode;
+        return true;
+    }
+
+    // =========================================================================
+    // Track Receives
+    // =========================================================================
+
+    pub fn trackReceiveGetVolume(self: anytype, track: *anyopaque, recv_idx: c_int) f64 {
+        self.recordCall(.trackReceiveGetVolume);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 1.0;
+        if (recv_idx < 0 or recv_idx >= self.tracks[idx].receive_count) return 1.0;
+        const recv_usize: usize = @intCast(recv_idx);
+        if (recv_usize >= state.MAX_RECEIVES_PER_TRACK) return 1.0;
+        return self.tracks[idx].receives[recv_usize].volume;
+    }
+
+    pub fn trackReceiveGetMute(self: anytype, track: *anyopaque, recv_idx: c_int) bool {
+        self.recordCall(.trackReceiveGetMute);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        if (recv_idx < 0 or recv_idx >= self.tracks[idx].receive_count) return false;
+        const recv_usize: usize = @intCast(recv_idx);
+        if (recv_usize >= state.MAX_RECEIVES_PER_TRACK) return false;
+        return self.tracks[idx].receives[recv_usize].muted;
+    }
+
+    pub fn trackReceiveGetMode(self: anytype, track: *anyopaque, recv_idx: c_int) ffi.FFIError!c_int {
+        self.recordCall(.trackReceiveGetMode);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 0;
+        if (recv_idx < 0 or recv_idx >= self.tracks[idx].receive_count) return 0;
+        const recv_usize: usize = @intCast(recv_idx);
+        if (recv_usize >= state.MAX_RECEIVES_PER_TRACK) return 0;
+        return self.tracks[idx].receives[recv_usize].mode;
+    }
+
+    pub fn trackReceiveGetPan(self: anytype, track: *anyopaque, recv_idx: c_int) f64 {
+        self.recordCall(.trackReceiveGetPan);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 0.0;
+        if (recv_idx < 0 or recv_idx >= self.tracks[idx].receive_count) return 0.0;
+        const recv_usize: usize = @intCast(recv_idx);
+        if (recv_usize >= state.MAX_RECEIVES_PER_TRACK) return 0.0;
+        return self.tracks[idx].receives[recv_usize].pan;
+    }
+
+    pub fn trackReceiveGetSrcTrack(self: anytype, track: *anyopaque, recv_idx: c_int) ?*anyopaque {
+        self.recordCall(.trackReceiveGetSrcTrack);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return null;
+        if (recv_idx < 0 or recv_idx >= self.tracks[idx].receive_count) return null;
+        const recv_usize: usize = @intCast(recv_idx);
+        if (recv_usize >= state.MAX_RECEIVES_PER_TRACK) return null;
+        const src_track_idx = self.tracks[idx].receives[recv_usize].src_track_idx;
+        if (src_track_idx < 0) return null;
+        return state.encodeTrackPtr(@intCast(src_track_idx));
+    }
+
+    pub fn trackReceiveGetSrcName(self: anytype, track: *anyopaque, recv_idx: c_int, buf: []u8) []const u8 {
+        self.recordCall(.trackReceiveGetSrcName);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return "";
+        if (recv_idx < 0 or recv_idx >= self.tracks[idx].receive_count) return "";
+        const recv_usize: usize = @intCast(recv_idx);
+        if (recv_usize >= state.MAX_RECEIVES_PER_TRACK) return "";
+        const src_name = self.tracks[idx].receives[recv_usize].getSrcName();
+        const len = @min(src_name.len, buf.len);
+        @memcpy(buf[0..len], src_name[0..len]);
+        return buf[0..len];
+    }
+
+    pub fn trackReceiveSetVolume(self: anytype, track: *anyopaque, recv_idx: c_int, volume: f64) f64 {
+        self.recordCall(.trackReceiveSetVolume);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return volume;
+        if (recv_idx < 0 or recv_idx >= self.tracks[idx].receive_count) return volume;
+        const recv_usize: usize = @intCast(recv_idx);
+        if (recv_usize >= state.MAX_RECEIVES_PER_TRACK) return volume;
+        self.tracks[idx].receives[recv_usize].volume = volume;
+        return volume;
+    }
+
+    pub fn trackReceiveSetMute(self: anytype, track: *anyopaque, recv_idx: c_int, muted: bool) bool {
+        self.recordCall(.trackReceiveSetMute);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        if (recv_idx < 0 or recv_idx >= self.tracks[idx].receive_count) return false;
+        const recv_usize: usize = @intCast(recv_idx);
+        if (recv_usize >= state.MAX_RECEIVES_PER_TRACK) return false;
+        self.tracks[idx].receives[recv_usize].muted = muted;
+        return true;
+    }
+
+    pub fn trackReceiveSetPan(self: anytype, track: *anyopaque, recv_idx: c_int, pan: f64) f64 {
+        self.recordCall(.trackReceiveSetPan);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return pan;
+        if (recv_idx < 0 or recv_idx >= self.tracks[idx].receive_count) return pan;
+        const recv_usize: usize = @intCast(recv_idx);
+        if (recv_usize >= state.MAX_RECEIVES_PER_TRACK) return pan;
+        self.tracks[idx].receives[recv_usize].pan = pan;
+        return pan;
+    }
+
+    pub fn trackReceiveSetMode(self: anytype, track: *anyopaque, recv_idx: c_int, mode: c_int) bool {
+        self.recordCall(.trackReceiveSetMode);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        if (recv_idx < 0 or recv_idx >= self.tracks[idx].receive_count) return false;
+        const recv_usize: usize = @intCast(recv_idx);
+        if (recv_usize >= state.MAX_RECEIVES_PER_TRACK) return false;
+        self.tracks[idx].receives[recv_usize].mode = mode;
         return true;
     }
 

@@ -29,6 +29,7 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 - [MIDI](#midi-commands) — cc, pc, noteOn
 - [FX](#fx-commands) — presetNext, presetPrev, presetSet
 - [Send](#send-commands) — setVolume, setMute, setPan, setMode
+- [Receive](#receive-commands) — setVolume, setMute, setPan, setMode
 - [Hardware Output](#hardware-output-commands) — setVolume, setMute, setPan, setMode, getHwOutputs
 - [Playlist](#playlist-commands) — create, delete, rename, addEntry, removeEntry, play, stop, next, prev
 - [Preferences](#preferences-commands) — getSeekSettings, setSeekSettings
@@ -1752,13 +1753,27 @@ Begin a gesture on a continuous control.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `controlType` | string | Yes | `"volume"`, `"pan"`, or `"send"` |
+| `controlType` | string | Yes | Control type (see below) |
 | `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
-| `sendIdx` | int | For send | Send index (required when `controlType` is `"send"`) |
+| `sendIdx` | int | For sends | Send index (required for `"send"`, `"sendPan"`) |
+| `recvIdx` | int | For receives | Receive index (required for `"receive"`, `"receivePan"`) |
+| `hwIdx` | int | For hw outputs | Hardware output index (required for `"hwOutputVolume"`, `"hwOutputPan"`) |
+
+**Control types:**
+- `"volume"` — Track volume fader
+- `"pan"` — Track pan knob
+- `"send"` — Send volume fader
+- `"sendPan"` — Send pan knob
+- `"receive"` — Receive volume fader
+- `"receivePan"` — Receive pan knob
+- `"hwOutputVolume"` — Hardware output volume fader
+- `"hwOutputPan"` — Hardware output pan knob
 
 ```json
 {"type": "command", "command": "gesture/start", "controlType": "volume", "trackIdx": 1}
 {"type": "command", "command": "gesture/start", "controlType": "send", "trackIdx": 1, "sendIdx": 0}
+{"type": "command", "command": "gesture/start", "controlType": "receive", "trackIdx": 2, "recvIdx": 0}
+{"type": "command", "command": "gesture/start", "controlType": "hwOutputVolume", "trackIdx": 0, "hwIdx": 0}
 ```
 
 ### `gesture/end`
@@ -1767,13 +1782,16 @@ End a gesture on a continuous control. Triggers undo point creation.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `controlType` | string | Yes | `"volume"`, `"pan"`, or `"send"` |
+| `controlType` | string | Yes | Control type (same as gesture/start) |
 | `trackIdx` | int | Yes | Track index |
-| `sendIdx` | int | For send | Send index (required when `controlType` is `"send"`) |
+| `sendIdx` | int | For sends | Send index (required for `"send"`, `"sendPan"`) |
+| `recvIdx` | int | For receives | Receive index (required for `"receive"`, `"receivePan"`) |
+| `hwIdx` | int | For hw outputs | Hardware output index (required for `"hwOutputVolume"`, `"hwOutputPan"`) |
 
 ```json
 {"type": "command", "command": "gesture/end", "controlType": "volume", "trackIdx": 1}
 {"type": "command", "command": "gesture/end", "controlType": "send", "trackIdx": 1, "sendIdx": 0}
+{"type": "command", "command": "gesture/end", "controlType": "receive", "trackIdx": 2, "recvIdx": 0}
 ```
 
 ---
@@ -2165,6 +2183,72 @@ Set the routing mode for a track send.
 
 ```json
 {"type": "command", "command": "send/setMode", "trackIdx": 1, "sendIdx": 0, "mode": 1}
+```
+
+---
+
+## Receive Commands
+
+Control track receives (incoming routing from other tracks). Receives are the "other side" of sends — when Track A sends to Track B, Track B has a receive from Track A.
+
+**Note:** Receive commands route through the source track's send internally to use CSurf APIs for proper undo coalescing. This is transparent to the client.
+
+### `receive/setVolume`
+
+Set the volume level for a track receive. Uses CSurf API (via source track's send) for automatic undo coalescing - wrap with `gesture/start` and `gesture/end` (controlType `"receive"`) for proper undo behavior during fader drags.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `recvIdx` | int | Yes | Receive index within track (0-based) |
+| `volume` | float | Yes | Volume level (linear, 1.0 = 0dB) |
+
+```json
+{"type": "command", "command": "receive/setVolume", "trackIdx": 2, "recvIdx": 0, "volume": 0.5}
+```
+
+### `receive/setMute`
+
+Set the mute state for a track receive.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `recvIdx` | int | Yes | Receive index within track (0-based) |
+| `muted` | int | Yes | Mute state (0 = unmuted, 1 = muted) |
+
+```json
+{"type": "command", "command": "receive/setMute", "trackIdx": 2, "recvIdx": 0, "muted": 1}
+```
+
+### `receive/setPan`
+
+Set the pan position for a track receive. Uses CSurf API (via source track's send) for automatic undo coalescing - wrap with `gesture/start` and `gesture/end` (controlType `"receivePan"`) for proper undo behavior during pan knob drags.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `recvIdx` | int | Yes | Receive index within track (0-based) |
+| `pan` | float | Yes | Pan position (-1.0 = full left, 0.0 = center, 1.0 = full right) |
+
+```json
+{"type": "command", "command": "receive/setPan", "trackIdx": 2, "recvIdx": 0, "pan": -0.5}
+```
+
+### `receive/setMode`
+
+Set the routing mode for a track receive.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `recvIdx` | int | Yes | Receive index within track (0-based) |
+| `mode` | int | Yes | Receive mode (0 = post-fader, 1 = pre-FX, 3 = post-FX) |
+
+**Note:** Mode 2 is not valid in REAPER's routing.
+
+```json
+{"type": "command", "command": "receive/setMode", "trackIdx": 2, "recvIdx": 0, "mode": 1}
 ```
 
 ---

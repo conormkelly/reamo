@@ -568,6 +568,46 @@ pub const RealBackend = struct {
         return self.inner.trackReceiveCount(track);
     }
 
+    pub fn trackReceiveGetVolume(self: *const RealBackend, track: *anyopaque, recv_idx: c_int) f64 {
+        return self.inner.trackReceiveGetVolume(track, recv_idx);
+    }
+
+    pub fn trackReceiveGetMute(self: *const RealBackend, track: *anyopaque, recv_idx: c_int) bool {
+        return self.inner.trackReceiveGetMute(track, recv_idx);
+    }
+
+    pub fn trackReceiveGetMode(self: *const RealBackend, track: *anyopaque, recv_idx: c_int) ffi.FFIError!c_int {
+        return ffi.safeFloatToInt(c_int, self.inner.trackReceiveGetModeRaw(track, recv_idx));
+    }
+
+    pub fn trackReceiveGetPan(self: *const RealBackend, track: *anyopaque, recv_idx: c_int) f64 {
+        return self.inner.trackReceiveGetPan(track, recv_idx);
+    }
+
+    pub fn trackReceiveGetSrcTrack(self: *const RealBackend, track: *anyopaque, recv_idx: c_int) ?*anyopaque {
+        return self.inner.trackReceiveGetSrcTrack(track, recv_idx);
+    }
+
+    pub fn trackReceiveGetSrcName(self: *const RealBackend, track: *anyopaque, recv_idx: c_int, buf: []u8) []const u8 {
+        return self.inner.trackReceiveGetSrcName(track, recv_idx, buf);
+    }
+
+    pub fn trackReceiveSetVolume(self: *const RealBackend, track: *anyopaque, recv_idx: c_int, volume: f64) f64 {
+        return self.inner.trackReceiveSetVolume(track, recv_idx, volume);
+    }
+
+    pub fn trackReceiveSetMute(self: *const RealBackend, track: *anyopaque, recv_idx: c_int, muted: bool) bool {
+        return self.inner.trackReceiveSetMute(track, recv_idx, muted);
+    }
+
+    pub fn trackReceiveSetPan(self: *const RealBackend, track: *anyopaque, recv_idx: c_int, pan: f64) f64 {
+        return self.inner.trackReceiveSetPan(track, recv_idx, pan);
+    }
+
+    pub fn trackReceiveSetMode(self: *const RealBackend, track: *anyopaque, recv_idx: c_int, mode: c_int) bool {
+        return self.inner.trackReceiveSetMode(track, recv_idx, mode);
+    }
+
     pub fn trackSendGetVolume(self: *const RealBackend, track: *anyopaque, send_idx: c_int) f64 {
         return self.inner.trackSendGetVolume(track, send_idx);
     }
@@ -576,8 +616,8 @@ pub const RealBackend = struct {
         return self.inner.trackSendGetMute(track, send_idx);
     }
 
-    pub fn trackSendGetMode(self: *const RealBackend, track: *anyopaque, send_idx: c_int) c_int {
-        return self.inner.trackSendGetMode(track, send_idx);
+    pub fn trackSendGetMode(self: *const RealBackend, track: *anyopaque, send_idx: c_int) ffi.FFIError!c_int {
+        return ffi.safeFloatToInt(c_int, self.inner.trackSendGetModeRaw(track, send_idx));
     }
 
     pub fn trackSendGetDestTrack(self: *const RealBackend, track: *anyopaque, send_idx: c_int) ?*anyopaque {

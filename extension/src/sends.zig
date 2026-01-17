@@ -144,7 +144,7 @@ pub const State = struct {
                     slot.volume = api.trackSendGetVolume(track, send_idx);
                     slot.pan = api.trackSendGetPan(track, send_idx);
                     slot.muted = api.trackSendGetMute(track, send_idx);
-                    slot.mode = api.trackSendGetMode(track, send_idx);
+                    slot.mode = api.trackSendGetMode(track, send_idx) catch 0;
 
                     // Note: dest_track_idx would require additional API calls
                     // For now, we leave it at default (can be enhanced later)
