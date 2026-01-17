@@ -4,11 +4,16 @@ const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const gesture_state = @import("../gesture_state.zig");
 const logging = @import("../logging.zig");
+const tracks = @import("tracks.zig");
 
-/// Parse control type from command params
-fn parseControlId(cmd: protocol.CommandMessage) ?gesture_state.ControlId {
+/// Parse control type from command params.
+/// Accepts either trackIdx or trackGuid (using resolveTrack pattern).
+fn parseControlId(api: anytype, cmd: protocol.CommandMessage) ?gesture_state.ControlId {
     const control_type_str = cmd.getString("controlType") orelse return null;
-    const track_idx = cmd.getInt("trackIdx") orelse return null;
+
+    // Resolve track from either trackIdx or trackGuid
+    const resolution = tracks.resolveTrack(api, cmd) orelse return null;
+    const track_idx = resolution.idx;
 
     if (std.mem.eql(u8, control_type_str, "volume")) {
         return gesture_state.ControlId.volume(track_idx);
@@ -31,7 +36,7 @@ fn parseControlId(cmd: protocol.CommandMessage) ?gesture_state.ControlId {
 }
 
 /// Handle gesture/start - called when a client begins dragging a fader
-/// Params: { controlType: "volume"|"pan"|"send"|"sendPan"|"hwOutputVolume"|"hwOutputPan", trackIdx: number, sendIdx?/hwIdx?: number }
+/// Params: { controlType: "volume"|"pan"|"send"|"sendPan"|"hwOutputVolume"|"hwOutputPan", trackIdx|trackGuid: number|string, sendIdx?/hwIdx?: number }
 pub fn handleStart(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const gestures = response.gestures orelse {
         logging.warn("gesture/start called but GestureState not available", .{});
@@ -39,8 +44,8 @@ pub fn handleStart(api: anytype, cmd: protocol.CommandMessage, response: *mod.Re
         return;
     };
 
-    const control = parseControlId(cmd) orelse {
-        response.err("INVALID_PARAMS", "Required: controlType, trackIdx, and sendIdx/hwIdx for send/hw types");
+    const control = parseControlId(api, cmd) orelse {
+        response.err("INVALID_PARAMS", "Required: controlType, trackIdx/trackGuid, and sendIdx/hwIdx for send/hw types");
         return;
     };
 
@@ -52,16 +57,21 @@ pub fn handleStart(api: anytype, cmd: protocol.CommandMessage, response: *mod.Re
         response.client_id,
     });
 
-    // For hw output gestures, start an undo block (CSurf doesn't support category 1)
-    if (is_new and (control.control_type == .hw_output_volume or control.control_type == .hw_output_pan)) {
-        api.undoBeginBlock();
+    // For hw output gestures, manage shared undo block (CSurf doesn't support category 1)
+    // All hw gestures share one undo block since REAPER doesn't support nested blocks.
+    if (is_new and gesture_state.GestureState.isHwOutputControl(control.control_type)) {
+        const should_open = gestures.beginHwUndoBlock();
+        if (should_open) {
+            logging.debug("Opening shared HW undo block", .{});
+            api.undoBeginBlock();
+        }
     }
 
     response.success(null);
 }
 
 /// Handle gesture/end - called when a client finishes dragging a fader
-/// Params: { controlType: "volume"|"pan"|"send"|"sendPan"|"hwOutputVolume"|"hwOutputPan", trackIdx: number, sendIdx?/hwIdx?: number }
+/// Params: { controlType: "volume"|"pan"|"send"|"sendPan"|"hwOutputVolume"|"hwOutputPan", trackIdx|trackGuid: number|string, sendIdx?/hwIdx?: number }
 /// If this is the last client gesturing on the control, flushes the undo
 pub fn handleEnd(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const gestures = response.gestures orelse {
@@ -70,8 +80,8 @@ pub fn handleEnd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
         return;
     };
 
-    const control = parseControlId(cmd) orelse {
-        response.err("INVALID_PARAMS", "Required: controlType, trackIdx, and sendIdx/hwIdx for send/hw types");
+    const control = parseControlId(api, cmd) orelse {
+        response.err("INVALID_PARAMS", "Required: controlType, trackIdx/trackGuid, and sendIdx/hwIdx for send/hw types");
         return;
     };
 
@@ -84,11 +94,14 @@ pub fn handleEnd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     });
 
     if (should_flush) {
-        // For hw output gestures, end the undo block (CSurf doesn't support category 1)
-        if (control.control_type == .hw_output_volume) {
-            api.undoEndBlock("REAmo: Adjust audio hardware output volume");
-        } else if (control.control_type == .hw_output_pan) {
-            api.undoEndBlock("REAmo: Adjust audio hardware output pan");
+        // For hw output gestures, manage shared undo block (CSurf doesn't support category 1)
+        if (gesture_state.GestureState.isHwOutputControl(control.control_type)) {
+            const should_close = gestures.endHwUndoBlock();
+            if (should_close) {
+                logging.debug("Closing shared HW undo block", .{});
+                // Generic description since multiple hw controls may have been adjusted
+                api.undoEndBlock("REAmo: Adjust audio hardware outputs");
+            }
         } else {
             // For CSurf-based controls (track/send volume/pan), flush pending undo
             logging.debug("Calling CSurf_FlushUndo(true)", .{});

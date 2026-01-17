@@ -1589,3 +1589,48 @@ if (elapsed_ns > 1_000_000) { // > 1ms
     ```
 
     **Buffer size:** 128 bytes is safe for all action string IDs (SWS-established limit `SNM_MAX_ACTION_CUSTID_LEN`). Longest observed in practice: 47 characters.
+
+22. **REAPER doesn't support nested undo blocks** - Calling `Undo_BeginBlock2()` twice before `Undo_EndBlock2()` corrupts REAPER's undo state. This matters when multiple clients gesture simultaneously on different controls. See `research/REAPER_UNDO_BLOCKS.md` for detailed findings.
+
+    **For CSurf-based controls** (track volume/pan, send volume/pan): No problem — CSurf handles undo coalescing internally.
+
+    **For non-CSurf continuous controls** (hardware outputs): All gestures must share a single undo block:
+    ```zig
+    // In gesture.zig handleStart - open block on FIRST hw gesture
+    if (is_new and gesture_state.GestureState.isHwOutputControl(control.control_type)) {
+        if (gestures.beginHwUndoBlock()) {  // Returns true if count was 0
+            api.undoBeginBlock();
+        }
+    }
+
+    // In gesture.zig handleEnd - close block on LAST hw gesture
+    if (gesture_state.GestureState.isHwOutputControl(control.control_type)) {
+        if (gestures.endHwUndoBlock()) {  // Returns true if count becomes 0
+            api.undoEndBlock("REAmo: Adjust audio hardware outputs");
+        }
+    }
+    ```
+
+    The `GestureState.hw_gesture_control_count` tracks how many distinct hw controls have active gestures. Generic description is used since multiple controls may have been adjusted.
+
+    **When adding new non-CSurf continuous controls:**
+    1. Add control type to `ControlId.ControlType` enum
+    2. Decide: share existing undo block category OR create new counter (if semantically distinct)
+    3. Update `isHwOutputControl()` or add similar helper
+    4. Handle cleanup in `main.zig` disconnect and timeout paths
+
+23. **Gesture commands must accept trackGuid for reorder safety** - During a fader gesture, the user might reorder tracks in REAPER. If the frontend sends `trackIdx` and the track moved, the gesture end closes the wrong track's undo. Always use `trackGuid` in gesture commands and resolve via `tracks.resolveTrack()`:
+    ```zig
+    // gesture.zig parseControlId - accepts EITHER trackIdx or trackGuid
+    const resolution = tracks.resolveTrack(api, cmd) orelse return null;
+    const track_idx = resolution.idx;  // Resolved index at this moment
+    ```
+
+    Frontend sends `trackGuid` when available (preferred), falls back to `trackIdx`:
+    ```typescript
+    params: {
+      controlType,
+      ...(trackGuid ? { trackGuid } : { trackIdx }),
+      ...(hwIdx !== undefined && { hwIdx }),
+    }
+    ```

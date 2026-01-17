@@ -453,7 +453,25 @@ fn doProcessing() !void {
                 const flush_count = gestures.removeClientFromAll(client_id, &ProcessingState.flush_buf);
                 if (flush_count > 0) {
                     logging.info("Client {d} disconnected, flushing {d} gestures", .{ client_id, flush_count });
-                    api.csurfFlushUndo(true);
+
+                    // Check what types of gestures were flushed
+                    var had_csurf_gesture = false;
+                    for (ProcessingState.flush_buf[0..flush_count]) |control| {
+                        if (gesture_state.GestureState.isHwOutputControl(control.control_type)) {
+                            // Decrement hw count, close undo block if this was the last
+                            if (gestures.endHwUndoBlock()) {
+                                logging.info("Closing HW undo block (client disconnect)", .{});
+                                api.undoEndBlock("REAmo: Adjust audio hardware outputs");
+                            }
+                        } else {
+                            had_csurf_gesture = true;
+                        }
+                    }
+
+                    // Flush CSurf undo for non-hw gestures
+                    if (had_csurf_gesture) {
+                        api.csurfFlushUndo(true);
+                    }
                 }
             }
             // Clean up toggle subscriptions
@@ -484,7 +502,25 @@ fn doProcessing() !void {
         const timeout_count = gestures.checkTimeouts(&ProcessingState.timeout_buf);
         if (timeout_count > 0) {
             logging.info("Flushing {d} timed-out gestures", .{timeout_count});
-            api.csurfFlushUndo(true);
+
+            // Check what types of gestures timed out
+            var had_csurf_gesture = false;
+            for (ProcessingState.timeout_buf[0..timeout_count]) |control| {
+                if (gesture_state.GestureState.isHwOutputControl(control.control_type)) {
+                    // Decrement hw count, close undo block if this was the last
+                    if (gestures.endHwUndoBlock()) {
+                        logging.info("Closing HW undo block (gesture timeout)", .{});
+                        api.undoEndBlock("REAmo: Adjust audio hardware outputs");
+                    }
+                } else {
+                    had_csurf_gesture = true;
+                }
+            }
+
+            // Flush CSurf undo for non-hw gestures
+            if (had_csurf_gesture) {
+                api.csurfFlushUndo(true);
+            }
         }
     }
 

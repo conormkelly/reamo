@@ -75,12 +75,16 @@ pub const GestureState = struct {
     gestures: std.AutoHashMap(ControlId, ActiveGesture),
     last_any_activity_ns: i128,
     allocator: std.mem.Allocator,
+    /// Count of distinct hw output controls with active gestures.
+    /// Used to share one undo block across all hw output gestures (REAPER doesn't support nested blocks).
+    hw_gesture_control_count: usize,
 
     pub fn init(allocator: std.mem.Allocator) GestureState {
         return .{
             .gestures = std.AutoHashMap(ControlId, ActiveGesture).init(allocator),
             .last_any_activity_ns = 0,
             .allocator = allocator,
+            .hw_gesture_control_count = 0,
         };
     }
 
@@ -210,6 +214,38 @@ pub const GestureState = struct {
     /// Check if there are any active gestures
     pub fn hasActiveGestures(self: *const GestureState) bool {
         return self.gestures.count() > 0;
+    }
+
+    /// Check if a control type is a hardware output type
+    pub fn isHwOutputControl(control_type: ControlId.ControlType) bool {
+        return control_type == .hw_output_volume or control_type == .hw_output_pan;
+    }
+
+    /// Called when a NEW hw output gesture starts (is_new=true from beginGesture).
+    /// Returns true if this is the FIRST hw gesture globally (caller should open undo block).
+    /// REAPER doesn't support nested undo blocks, so all hw gestures share one block.
+    pub fn beginHwUndoBlock(self: *GestureState) bool {
+        const was_zero = self.hw_gesture_control_count == 0;
+        self.hw_gesture_control_count += 1;
+        logging.debug("HW undo block: begin (count {} -> {})", .{ self.hw_gesture_control_count - 1, self.hw_gesture_control_count });
+        return was_zero;
+    }
+
+    /// Called when an hw output gesture ends and should flush (should_flush=true from endGesture).
+    /// Returns true if this was the LAST hw gesture globally (caller should close undo block).
+    pub fn endHwUndoBlock(self: *GestureState) bool {
+        if (self.hw_gesture_control_count == 0) {
+            logging.warn("endHwUndoBlock called but count already 0", .{});
+            return false;
+        }
+        self.hw_gesture_control_count -= 1;
+        logging.debug("HW undo block: end (count {} -> {})", .{ self.hw_gesture_control_count + 1, self.hw_gesture_control_count });
+        return self.hw_gesture_control_count == 0;
+    }
+
+    /// Check if there's an active hw undo block
+    pub fn hasHwUndoBlock(self: *const GestureState) bool {
+        return self.hw_gesture_control_count > 0;
     }
 };
 
