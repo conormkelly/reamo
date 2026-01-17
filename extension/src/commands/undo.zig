@@ -23,31 +23,9 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     response.success(null);
 }
 
-// Begin an undo block (for grouping multiple operations)
-pub fn handleBegin(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    api.undoBeginBlock();
-    logging.info("Undo block started", .{});
-    response.success(null);
-}
-
-// End an undo block with description
-pub fn handleEnd(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const description = cmd.getString("description") orelse {
-        response.err("MISSING_DESCRIPTION", "description is required");
-        return;
-    };
-
-    var desc_buf: [256]u8 = undefined;
-    const len = @min(description.len, 255);
-    @memcpy(desc_buf[0..len], description[0..len]);
-    desc_buf[len] = 0;
-    // SAFETY: @alignCast unnecessary - u8 has alignment 1, always valid
-    const desc_z: [*:0]const u8 = @ptrCast(&desc_buf);
-
-    api.undoEndBlock(desc_z);
-    logging.info("Undo block ended: {s}", .{description});
-    response.success(null);
-}
+// NOTE: undo/begin and undo/end commands deliberately removed - they're dangerous with multiple
+// clients as REAPER doesn't support nested undo blocks. See research/REAPER_UNDO_BLOCKS.md
+// Use gesture-based undo coalescing instead (gesture/start, gesture/end).
 
 // Perform undo
 pub fn handleUndo(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
