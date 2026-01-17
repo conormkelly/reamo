@@ -26,6 +26,7 @@ const routing_generator = @import("routing_generator.zig");
 const peaks_generator = @import("peaks_generator.zig");
 const peaks_cache = @import("peaks_cache.zig");
 const track_skeleton = @import("track_skeleton.zig");
+const csurf = @import("csurf.zig");
 const ztracy = @import("ztracy");
 
 // Use custom panic handler that flushes log ring buffer before aborting
@@ -48,6 +49,8 @@ var g_track_subs: ?*track_subscriptions.TrackSubscriptions = null;
 var g_peaks_subs: ?*peaks_subscriptions.PeaksSubscriptions = null;
 var g_routing_subs: ?*routing_subscriptions.RoutingSubscriptions = null;
 var g_peaks_cache: ?*peaks_cache.PeaksCache = null;
+var g_csurf: ?*csurf.ControlSurface = null;
+var g_plugin_register: ?*const fn ([*:0]const u8, ?*anyopaque) callconv(.c) c_int = null;
 
 // Track skeleton state for LOW tier change detection
 var g_last_skeleton: track_skeleton.State = .{};
@@ -264,6 +267,27 @@ fn doInitialization() !void {
     state.setToken(&token_hex);
     api.setExtStateStr("Reamo", "SessionToken", &token_hex);
     logging.info("Session token generated", .{});
+
+    // Initialize CSurf (Control Surface) for push-based callbacks
+    // Only active when built with -Dcsurf=true
+    if (csurf.enabled) {
+        if (g_plugin_register) |plugin_register| {
+            const cs = try g_allocator.create(csurf.ControlSurface);
+            cs.* = csurf.ControlSurface.init(state, plugin_register) catch |err| {
+                logging.err("Failed to create CSurf: {s}", .{@errorName(err)});
+                g_allocator.destroy(cs);
+                return err;
+            };
+            if (cs.register()) {
+                g_csurf = cs;
+                logging.info("CSurf registered for push-based callbacks", .{});
+            } else {
+                logging.warn("CSurf registration failed", .{});
+                cs.deinit();
+                g_allocator.destroy(cs);
+            }
+        }
+    }
 
     // WebSocket server will be started in processTimerCallback after startup completes
     // This avoids stack overflow when REAPER shows modal dialogs during startup
@@ -1299,6 +1323,16 @@ fn shutdown() void {
     }
     logging.info("timer unregistered", .{});
 
+    // Unregister and clean up CSurf before other cleanup
+    if (g_csurf) |cs| {
+        logging.info("cleaning up CSurf", .{});
+        cs.unregister();
+        cs.deinit();
+        g_allocator.destroy(cs);
+        g_csurf = null;
+    }
+    logging.info("CSurf cleaned up", .{});
+
     if (g_server) |*server| {
         logging.info("stopping server", .{});
         server.stop();
@@ -1429,6 +1463,9 @@ export fn ReaperPluginEntry(hInstance: ?*anyopaque, rec: ?*reaper.PluginInfo) ca
 
     // Load REAPER API
     g_api = reaper.Api.load(info) orelse return 0;
+
+    // Save plugin_register for CSurf integration
+    g_plugin_register = info.Register;
 
     // Register deferred initialization timer
     g_api.?.registerTimer(&initTimerCallback);

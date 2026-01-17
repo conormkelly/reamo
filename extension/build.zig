@@ -36,6 +36,28 @@ pub fn build(b: *std.Build) void {
         lib.linkLibrary(ztracy_dep.artifact("tracy"));
     }
 
+    // CSurf integration option - compiles C++ shim for IReaperControlSurface callbacks
+    const enable_csurf = b.option(bool, "csurf", "Enable CSurf push-based callbacks") orelse false;
+
+    // Pass csurf option to Zig code for conditional compilation
+    const csurf_options = b.addOptions();
+    csurf_options.addOption(bool, "enable_csurf", enable_csurf);
+    lib.root_module.addOptions("csurf_options", csurf_options);
+
+    if (enable_csurf) {
+        // Compile C++ shim for IReaperControlSurface
+        lib.addCSourceFile(.{
+            .file = b.path("src/zig_control_surface.cpp"),
+            .flags = &.{
+                "-std=c++17",
+                "-fno-exceptions", // REAPER SDK doesn't use exceptions
+                "-fno-rtti", // No RTTI needed
+            },
+        });
+        // Link C++ standard library
+        lib.linkLibCpp();
+    }
+
     b.installArtifact(lib);
 
     // Unit tests - test modules that don't depend on websocket or parent imports
