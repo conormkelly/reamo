@@ -3,6 +3,7 @@ const reaper = @import("../reaper.zig");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../logging.zig");
+const ztracy = @import("ztracy");
 
 // Get toggle state of an action (1=on, 0=off, -1=not a toggle action)
 // Accepts either:
@@ -103,6 +104,9 @@ const SECTIONS = [_]c_int{ 0, 100, 32060, 32061, 32062, 32063 };
 // Response format: [[cmd_id, section_id, "name", is_toggle, named_id], ...]
 // named_id is the stable string identifier (e.g., "_SWS_SAVESEL") or null for native actions
 pub fn handleGetActions(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const zone = ztracy.ZoneN(@src(), "action/getActions");
+    defer zone.End();
+
     // Use scratch arena for temporary allocation
     const tiered = mod.g_ctx.tiered orelse {
         response.err("NOT_INITIALIZED", "Tiered arenas not initialized");

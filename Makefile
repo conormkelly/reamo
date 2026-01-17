@@ -1,5 +1,5 @@
 .PHONY: all frontend extension clean test test-frontend test-extension test-e2e \
-        dev dev-notests dev-cycle stop-reaper start-reaper frontend-dev install typecheck
+        dev dev-notests dev-cycle stop-reaper start-reaper frontend-dev install typecheck tracy
 
 # Default target: run tests first, then build
 all: test frontend extension
@@ -20,6 +20,20 @@ extension:
 	cp extension/zig-out/lib/libreaper_reamo.dylib \
 		"$(HOME)/Library/Application Support/REAPER/UserPlugins/reaper_reamo.dylib"
 	@echo "Extension installed. Restart REAPER to load."
+
+# Build extension with Tracy profiler enabled (ReleaseFast required for Zig 0.15)
+tracy:
+	@echo "Building extension with Tracy profiler..."
+	cd extension && zig build -Dtracy=true -Doptimize=ReleaseFast
+	@echo "Installing Tracy-enabled build to REAPER UserPlugins..."
+	cp extension/zig-out/lib/libreaper_reamo.dylib \
+		"$(HOME)/Library/Application Support/REAPER/UserPlugins/reaper_reamo.dylib"
+	@echo ""
+	@echo "Tracy-enabled extension installed. To profile:"
+	@echo "  1. Start Tracy GUI: tracy (or open Tracy.app)"
+	@echo "  2. Launch REAPER"
+	@echo "  3. Connect Tracy to REAPER process"
+	@echo "  4. Trigger actions to profile (e.g., open Actions panel)"
 
 # Clean build artifacts
 clean:
