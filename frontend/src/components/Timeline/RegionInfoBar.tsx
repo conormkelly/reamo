@@ -227,6 +227,18 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showColorPicker]);
 
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+      }
+      if (selectTimerRef.current) {
+        clearTimeout(selectTimerRef.current);
+      }
+    };
+  }, []);
+
   // Only show in regions mode
   if (timelineMode !== 'regions') {
     return null;
@@ -499,18 +511,6 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
       setIsCloneMode(false);
     }
   };
-
-  // Cleanup timers on unmount
-  useEffect(() => {
-    return () => {
-      if (longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current);
-      }
-      if (selectTimerRef.current) {
-        clearTimeout(selectTimerRef.current);
-      }
-    };
-  }, []);
 
   const renderField = (
     field: EditingField,
