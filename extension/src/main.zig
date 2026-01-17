@@ -21,6 +21,8 @@ const guid_cache = @import("guid_cache.zig");
 const item_guid_cache = @import("item_guid_cache.zig");
 const track_subscriptions = @import("track_subscriptions.zig");
 const peaks_subscriptions = @import("peaks_subscriptions.zig");
+const routing_subscriptions = @import("routing_subscriptions.zig");
+const routing_generator = @import("routing_generator.zig");
 const peaks_generator = @import("peaks_generator.zig");
 const peaks_cache = @import("peaks_cache.zig");
 const track_skeleton = @import("track_skeleton.zig");
@@ -43,6 +45,7 @@ var g_guid_cache: ?*guid_cache.GuidCache = null;
 var g_item_cache: ?*item_guid_cache.ItemGuidCache = null;
 var g_track_subs: ?*track_subscriptions.TrackSubscriptions = null;
 var g_peaks_subs: ?*peaks_subscriptions.PeaksSubscriptions = null;
+var g_routing_subs: ?*routing_subscriptions.RoutingSubscriptions = null;
 var g_peaks_cache: ?*peaks_cache.PeaksCache = null;
 
 // Track skeleton state for LOW tier change detection
@@ -210,6 +213,12 @@ fn doInitialization() !void {
     peaks_subs.* = peaks_subscriptions.PeaksSubscriptions.init(g_allocator);
     g_peaks_subs = peaks_subs;
     commands.g_ctx.peaks_subs = peaks_subs;
+
+    // Create routing subscriptions state (per-track routing: sends/receives/hw outputs)
+    const routing_subs = try g_allocator.create(routing_subscriptions.RoutingSubscriptions);
+    routing_subs.* = routing_subscriptions.RoutingSubscriptions.init(g_allocator);
+    g_routing_subs = routing_subs;
+    commands.g_ctx.routing_subs = routing_subs;
 
     // Create peaks cache for LRU caching of waveform data
     const p_cache = try g_allocator.create(peaks_cache.PeaksCache);
@@ -462,6 +471,10 @@ fn doProcessing() !void {
             // Clean up peaks subscriptions
             if (g_peaks_subs) |peaks_subs| {
                 peaks_subs.removeClient(client_id);
+            }
+            // Clean up routing subscriptions
+            if (g_routing_subs) |routing_subs| {
+                routing_subs.removeClient(client_id);
             }
         }
     }
@@ -727,6 +740,36 @@ fn doProcessing() !void {
                         entry.sub,
                         sample_count,
                     )) |json| {
+                        shared_state.sendToClient(entry.client_id, json);
+                    }
+                }
+            }
+        }
+    }
+
+    // Poll routing subscriptions and broadcast (HIGH TIER - per-client single-track)
+    // Broadcasts sends, receives (count only), and hw outputs for each subscribed track
+    if (g_routing_subs) |routing_subs| {
+        if (routing_subs.hasSubscriptions()) {
+            const guid_cache_ptr = g_guid_cache orelse {
+                logging.err("GUID cache not initialized for routing subscriptions", .{});
+                return error.GuidCacheNotInitialized;
+            };
+
+            var iter = routing_subs.activeSubscriptions();
+            while (iter.next()) |entry| {
+                const routing_scratch = tiered.scratchAllocator();
+
+                // Generate routing state JSON for this client's subscribed track
+                if (routing_generator.generateRoutingState(
+                    routing_scratch,
+                    &backend,
+                    guid_cache_ptr,
+                    entry.guid,
+                )) |json| {
+                    // Check if changed using hash
+                    const data_hash = routing_generator.hashRoutingState(json);
+                    if (routing_subs.checkChanged(entry.slot, data_hash)) {
                         shared_state.sendToClient(entry.client_id, json);
                     }
                 }
@@ -1265,6 +1308,15 @@ fn shutdown() void {
         g_peaks_subs = null;
     }
     logging.info("peaks subscriptions cleaned up", .{});
+
+    if (g_routing_subs) |subs| {
+        logging.info("cleaning up routing subscriptions", .{});
+        commands.g_ctx.routing_subs = null;
+        subs.deinit();
+        g_allocator.destroy(subs);
+        g_routing_subs = null;
+    }
+    logging.info("routing subscriptions cleaned up", .{});
 
     if (g_peaks_cache) |p_cache| {
         logging.info("cleaning up peaks cache", .{});

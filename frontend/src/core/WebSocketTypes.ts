@@ -67,7 +67,7 @@ export interface EventMessage {
   payload?: EventPayload; // Optional for events like 'reload' that have no payload
 }
 
-export type EventType = 'transport' | 'tt' | 'project' | 'trackSkeleton' | 'tracks' | 'meters' | 'markers' | 'regions' | 'items' | 'fx_state' | 'sends_state' | 'reload' | 'actionToggleState' | 'tempoMap' | 'projectNotesChanged' | 'playlist' | 'peaks';
+export type EventType = 'transport' | 'tt' | 'project' | 'trackSkeleton' | 'tracks' | 'meters' | 'markers' | 'regions' | 'items' | 'fx_state' | 'sends_state' | 'routing_state' | 'reload' | 'actionToggleState' | 'tempoMap' | 'projectNotesChanged' | 'playlist' | 'peaks';
 
 export type EventPayload =
   | TransportEventPayload
@@ -81,6 +81,7 @@ export type EventPayload =
   | ItemsEventPayload
   | FxStateEventPayload
   | SendsStateEventPayload
+  | RoutingStateEventPayload
   | ActionToggleStateEventPayload
   | TempoMapEventPayload
   | ProjectNotesChangedEventPayload
@@ -331,6 +332,51 @@ export interface WSSendSlot {
 
 export interface SendsStateEventPayload {
   sends: WSSendSlot[];
+}
+
+// =============================================================================
+// Routing State Event (30Hz per-client subscription)
+// =============================================================================
+
+/** Send slot in routing subscription (includes pan, unlike WSSendSlot) */
+export interface WSRoutingSend {
+  sendIndex: number;
+  destName: string;
+  volume: number;  // Linear: 1.0 = 0dB
+  pan: number;     // -1 to 1
+  muted: boolean;
+  mode: number;    // 0=post-fader, 1=pre-fx, 3=post-fx
+}
+
+/** Hardware output slot in routing subscription */
+export interface WSRoutingHwOutput {
+  hwIdx: number;
+  destChannel: number;  // Encoded: lower 10 bits = channel, upper bits = num channels
+  volume: number;       // Linear: 1.0 = 0dB
+  pan: number;          // -1 to 1
+  muted: boolean;
+  mode: number;         // 0=post-fader, 1=pre-FX, 3=post-FX
+}
+
+/** Routing state event payload (per-client, pushed by backend at 30Hz) */
+export interface RoutingStateEventPayload {
+  trackGuid: string;
+  sends: WSRoutingSend[];
+  receiveCount: number;  // TODO: Full receive data coming later
+  hwOutputs: WSRoutingHwOutput[];
+}
+
+// =============================================================================
+// Hardware Output Types (on-demand via track/getHwOutputs)
+// =============================================================================
+
+export interface WSHardwareOutputSlot {
+  hwIdx: number;         // 0-based hardware output index
+  destChannel: number;   // Output channel (encoded: lower 10 bits = channel, upper bits = num channels)
+  volume: number;        // Linear: 1.0 = 0dB
+  pan: number;           // -1.0 to 1.0
+  muted: boolean;
+  mode: number;          // 0=post-fader, 1=pre-FX, 3=post-FX
 }
 
 // =============================================================================
@@ -652,4 +698,10 @@ export function isPeaksEvent(
   msg: EventMessage
 ): msg is EventMessage & { payload: PeaksEventPayload } {
   return msg.event === 'peaks';
+}
+
+export function isRoutingStateEvent(
+  msg: EventMessage
+): msg is EventMessage & { payload: RoutingStateEventPayload } {
+  return msg.event === 'routing_state';
 }

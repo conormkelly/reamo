@@ -12,6 +12,7 @@ const guid_cache = @import("../guid_cache.zig");
 const item_guid_cache = @import("../item_guid_cache.zig");
 const track_subscriptions = @import("../track_subscriptions.zig");
 const peaks_subscriptions = @import("../peaks_subscriptions.zig");
+const routing_subscriptions = @import("../routing_subscriptions.zig");
 const tiered_state = @import("../tiered_state.zig");
 
 // Import domain-specific command modules
@@ -60,6 +61,7 @@ pub const CommandContext = struct {
     item_cache: ?*item_guid_cache.ItemGuidCache = null,
     track_subs: ?*track_subscriptions.TrackSubscriptions = null,
     peaks_subs: ?*peaks_subscriptions.PeaksSubscriptions = null,
+    routing_subs: ?*routing_subscriptions.RoutingSubscriptions = null,
     tiered: ?*tiered_state.TieredArenas = null,
 };
 

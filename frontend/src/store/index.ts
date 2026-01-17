@@ -24,6 +24,7 @@ import { createSendsStateSlice, type SendsStateSlice } from './slices/sendsState
 import { createUIPreferencesSlice, type UIPreferencesState } from './slices/uiPreferencesSlice';
 import { createModalSlice, type ModalSlice } from './slices/modalSlice';
 import { createPeaksSlice, type PeaksSlice } from './slices/peaksSlice';
+import { createRoutingSlice, type RoutingSlice } from './slices/routingSlice';
 import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
 import { ActionCommands, SWSCommands } from '../core/types';
 import type {
@@ -38,6 +39,7 @@ import type {
   ItemsEventPayload,
   FxStateEventPayload,
   SendsStateEventPayload,
+  RoutingStateEventPayload,
   TempoMapEventPayload,
   PlaylistEventPayload,
   ActionToggleStateEventPayload,
@@ -56,6 +58,7 @@ import {
   isItemsEvent,
   isFxStateEvent,
   isSendsStateEvent,
+  isRoutingStateEvent,
   isActionToggleStateEvent,
   isTempoMapEvent,
   isProjectNotesChangedEvent,
@@ -68,7 +71,7 @@ import { transportEngine } from '../core/TransportAnimationEngine';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & ActionsSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & UIPreferencesState & ModalSlice & PeaksSlice & {
+export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & ActionsSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & UIPreferencesState & ModalSlice & PeaksSlice & RoutingSlice & {
   // Response handler action (legacy HTTP)
   handleResponses: (responses: ParsedResponse[]) => void;
   // WebSocket message handler
@@ -105,6 +108,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   ...createUIPreferencesSlice(set, get, store),
   ...createModalSlice(set, get, store),
   ...createPeaksSlice(set, get, store),
+  ...createRoutingSlice(set, get, store),
 
   // Handle incoming responses from REAPER
   handleResponses: (responses: ParsedResponse[]) => {
@@ -346,6 +350,9 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
     } else if (isSendsStateEvent(message)) {
       const p = message.payload as SendsStateEventPayload;
       get().setSends(p.sends);
+    } else if (isRoutingStateEvent(message)) {
+      const p = message.payload as RoutingStateEventPayload;
+      get().handleRoutingStateEvent(p);
     } else if (isActionToggleStateEvent(message)) {
       const p = message.payload as ActionToggleStateEventPayload;
       get().updateToggleStates(p.changes);
@@ -399,6 +406,7 @@ export { getSendsFromTrack, getSendsToTrack } from './slices/sendsStateSlice';
 export type { UIPreferencesState, FollowPlayheadReEnable } from './slices/uiPreferencesSlice';
 export type { ModalSlice, ModalState } from './slices/modalSlice';
 export type { PeaksSlice } from './slices/peaksSlice';
+export type { RoutingSlice } from './slices/routingSlice';
 
 // Expose store on window for E2E tests (development only)
 if (import.meta.env.DEV) {
