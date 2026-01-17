@@ -76,6 +76,11 @@ public:
         if (m_cb.extended) return m_cb.extended(m_cb.user_context, call, p1, p2, p3);
         return 0;
     }
+
+    void ResetCachedVolPanStates() override {
+        if (m_cb.reset_cached_vol_pan_states)
+            m_cb.reset_cached_vol_pan_states(m_cb.user_context);
+    }
 };
 
 // C API implementation
