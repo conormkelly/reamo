@@ -136,15 +136,15 @@ test "GuidCache resolve master special case" {
 
     // Manually set master track for test
     var dummy: u8 = 0;
-    cache.master_track = &dummy;
+    const dummy_ptr: *anyopaque = @ptrCast(&dummy);
+    cache.master_track = dummy_ptr;
 
-    try std.testing.expect(cache.resolve("master") == &dummy);
+    try std.testing.expect(cache.resolve("master") == dummy_ptr);
 }
 
 test "GuidCache rebuild with mock backend" {
     const reaper = @import("reaper.zig");
-    var mock = reaper.mock();
-    mock.track_count = 2;
+    var mock = reaper.MockBackend{ .track_count = 2 };
 
     var cache = GuidCache.init(std.testing.allocator);
     defer cache.deinit();
@@ -169,8 +169,7 @@ test "GuidCache rebuild with mock backend" {
 
 test "GuidCache rebuild clears stale entries" {
     const reaper = @import("reaper.zig");
-    var mock = reaper.mock();
-    mock.track_count = 3;
+    var mock = reaper.MockBackend{ .track_count = 3 };
 
     var cache = GuidCache.init(std.testing.allocator);
     defer cache.deinit();
