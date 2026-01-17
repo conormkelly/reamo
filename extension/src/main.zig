@@ -468,13 +468,17 @@ fn doProcessing() !void {
     // This enables O(changes) polling instead of O(n) unconditional polling.
     // ========================================================================
     var force_skeleton = false;
+    var force_transport = false;
+    var force_markers = false;
+    var force_tempo = false;
 
     if (csurf.enabled) {
         if (g_dirty_flags) |flags| {
             // Consume global dirty flags (reads and clears atomically)
-            // Note: transport/markers/tempo dirty handling deferred to Phase 4.5
-            // For now, just consume skeleton_dirty for immediate rebuild
             force_skeleton = csurf_dirty.DirtyFlags.consumeGlobal(&flags.skeleton_dirty);
+            force_transport = csurf_dirty.DirtyFlags.consumeGlobal(&flags.transport_dirty);
+            force_markers = csurf_dirty.DirtyFlags.consumeGlobal(&flags.markers_dirty);
+            force_tempo = csurf_dirty.DirtyFlags.consumeGlobal(&flags.tempo_dirty);
         }
     }
 
@@ -673,8 +677,9 @@ fn doProcessing() !void {
     high_state.transport = transport.State.poll(&backend);
     const current_transport = &high_state.transport;
 
-    if (!current_transport.eql(high_prev.transport)) {
-        const state_changed = !current_transport.stateOnlyEql(high_prev.transport);
+    // Broadcast when changed OR when CSurf force flag set (ensures immediate response to callbacks)
+    if (force_transport or !current_transport.eql(high_prev.transport)) {
+        const state_changed = force_transport or !current_transport.stateOnlyEql(high_prev.transport);
         const is_playing = transport.PlayState.isPlaying(current_transport.play_state);
 
         const scratch = tiered.scratchAllocator();
@@ -1077,11 +1082,66 @@ fn doProcessing() !void {
     }
 
     // ========================================================================
+    // IMMEDIATE MARKERS/REGIONS POLL (CSurf dirty flag triggered)
+    // When markers_dirty was set by CSurf callback, poll immediately instead
+    // of waiting for next MEDIUM tier interval. Skip if on medium tick to
+    // avoid double polling.
+    // ========================================================================
+    const medium_tick = g_frame_counter % MEDIUM_TIER_INTERVAL == 0;
+    if (force_markers and !medium_tick) {
+        const medium_alloc = tiered.medium.currentAllocator();
+        const medium_state = tiered.medium.currentState();
+        const medium_prev = tiered.medium.previousState();
+        const scratch = tiered.scratchAllocator();
+
+        // Poll markers/regions into MEDIUM arena
+        const marker_state = markers.State.poll(medium_alloc, &backend) catch |err| {
+            logging.err("CSurf immediate markers poll failed: {s}", .{@errorName(err)});
+            return err;
+        };
+        medium_state.markers = marker_state.markers;
+        medium_state.regions = marker_state.regions;
+        medium_state.bar_offset = marker_state.bar_offset;
+
+        // Broadcast markers if changed
+        if (!markersSliceEql(medium_state.markers, medium_prev.markers)) {
+            const temp_marker_state = markers.State{
+                .markers = medium_state.markers,
+                .regions = medium_state.regions,
+                .bar_offset = medium_state.bar_offset,
+            };
+            if (temp_marker_state.markersToJsonAlloc(scratch)) |json| {
+                shared_state.broadcast(json);
+            } else |_| {}
+        }
+        // Broadcast regions if changed
+        if (!regionsSliceEql(medium_state.regions, medium_prev.regions)) {
+            const temp_marker_state = markers.State{
+                .markers = medium_state.markers,
+                .regions = medium_state.regions,
+                .bar_offset = medium_state.bar_offset,
+            };
+            if (temp_marker_state.regionsToJsonAlloc(scratch)) |json| {
+                shared_state.broadcast(json);
+            } else |_| {}
+        }
+
+        // Update g_last_markers cache for playlist engine
+        const cur_markers_len = medium_state.markers.len;
+        const cur_regions_len = medium_state.regions.len;
+        @memcpy(g_last_markers_buf[0..cur_markers_len], medium_state.markers);
+        @memcpy(g_last_regions_buf[0..cur_regions_len], medium_state.regions);
+        g_last_markers.markers = g_last_markers_buf[0..cur_markers_len];
+        g_last_markers.regions = g_last_regions_buf[0..cur_regions_len];
+        g_last_markers.bar_offset = medium_state.bar_offset;
+    }
+
+    // ========================================================================
     // MEDIUM TIER (5Hz) - Project state, Markers, Regions, Items
     // These change less frequently and don't need instant feedback
     // Uses arena allocation - no memcpy needed for change detection
     // ========================================================================
-    if (g_frame_counter % MEDIUM_TIER_INTERVAL == 0) {
+    if (medium_tick) {
         const medium_alloc = tiered.medium.currentAllocator();
         const medium_state = tiered.medium.currentState();
         const medium_prev = tiered.medium.previousState();
@@ -1264,11 +1324,31 @@ fn doProcessing() !void {
     }
 
     // ========================================================================
+    // IMMEDIATE TEMPO POLL (CSurf dirty flag triggered)
+    // When tempo_dirty was set by CSurf callback (SETBPMANDPLAYRATE), poll
+    // immediately instead of waiting for next LOW tier interval.
+    // ========================================================================
+    const low_tick = g_frame_counter % LOW_TIER_INTERVAL == 0;
+    if (force_tempo and !low_tick) {
+        const low_state = tiered.low.currentState();
+        const low_prev = tiered.low.previousState();
+
+        // Poll tempo map into LOW tier state
+        low_state.tempomap = tempomap.State.poll(&backend);
+        if (low_state.tempomap.changed(&low_prev.tempomap)) {
+            const scratch = tiered.scratchAllocator();
+            if (low_state.tempomap.toJsonAlloc(scratch)) |json| {
+                shared_state.broadcast(json);
+            } else |_| {}
+        }
+    }
+
+    // ========================================================================
     // LOW TIER (1Hz) - Tempomap, Project Notes, Track Skeleton
     // These rarely change during normal operation
     // Uses arena allocation for change detection
     // ========================================================================
-    if (g_frame_counter % LOW_TIER_INTERVAL == 0) {
+    if (low_tick) {
         const low_state = tiered.low.currentState();
         const low_prev = tiered.low.previousState();
         const low_alloc = tiered.low.currentAllocator();
