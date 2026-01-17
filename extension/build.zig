@@ -4,6 +4,9 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // Tracy profiler option - must use ReleaseFast due to Zig 0.15 bug
+    const enable_tracy = b.option(bool, "tracy", "Enable Tracy profiler") orelse false;
+
     const websocket = b.dependency("websocket", .{
         .target = target,
         .optimize = optimize,
@@ -21,6 +24,17 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
+
+    // Add Tracy (ztracy provides no-op stubs when enable_ztracy=false)
+    const ztracy_dep = b.dependency("ztracy", .{
+        .target = target,
+        .optimize = optimize,
+        .enable_ztracy = enable_tracy,
+    });
+    lib.root_module.addImport("ztracy", ztracy_dep.module("root"));
+    if (enable_tracy) {
+        lib.linkLibrary(ztracy_dep.artifact("tracy"));
+    }
 
     b.installArtifact(lib);
 

@@ -26,6 +26,7 @@ const routing_generator = @import("routing_generator.zig");
 const peaks_generator = @import("peaks_generator.zig");
 const peaks_cache = @import("peaks_cache.zig");
 const track_skeleton = @import("track_skeleton.zig");
+const ztracy = @import("ztracy");
 
 // Use custom panic handler that flushes log ring buffer before aborting
 pub const panic = logging.panic;
@@ -408,6 +409,11 @@ fn doProcessing() !void {
     if (!g_init_complete) {
         return;
     }
+
+    // Tracy frame marker for 30Hz timer callback
+    ztracy.FrameMark();
+    const zone = ztracy.ZoneN(@src(), "doProcessing");
+    defer zone.End();
 
     const api = &(g_api orelse return error.ApiNotInitialized);
     const shared_state = g_shared_state orelse return error.StateNotInitialized;
