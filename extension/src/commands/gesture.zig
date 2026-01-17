@@ -20,10 +20,10 @@ fn parseControlId(cmd: protocol.CommandMessage) ?gesture_state.ControlId {
     } else if (std.mem.eql(u8, control_type_str, "sendPan")) {
         const send_idx = cmd.getInt("sendIdx") orelse return null;
         return gesture_state.ControlId.sendPan(track_idx, send_idx);
-    } else if (std.mem.eql(u8, control_type_str, "hwVolume")) {
+    } else if (std.mem.eql(u8, control_type_str, "hwOutputVolume")) {
         const hw_idx = cmd.getInt("hwIdx") orelse return null;
         return gesture_state.ControlId.hwOutputVolume(track_idx, hw_idx);
-    } else if (std.mem.eql(u8, control_type_str, "hwPan")) {
+    } else if (std.mem.eql(u8, control_type_str, "hwOutputPan")) {
         const hw_idx = cmd.getInt("hwIdx") orelse return null;
         return gesture_state.ControlId.hwOutputPan(track_idx, hw_idx);
     }
@@ -31,8 +31,8 @@ fn parseControlId(cmd: protocol.CommandMessage) ?gesture_state.ControlId {
 }
 
 /// Handle gesture/start - called when a client begins dragging a fader
-/// Params: { controlType: "volume"|"pan"|"send"|"sendPan"|"hwVolume"|"hwPan", trackIdx: number, sendIdx?/hwIdx?: number }
-pub fn handleStart(_: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+/// Params: { controlType: "volume"|"pan"|"send"|"sendPan"|"hwOutputVolume"|"hwOutputPan", trackIdx: number, sendIdx?/hwIdx?: number }
+pub fn handleStart(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const gestures = response.gestures orelse {
         logging.warn("gesture/start called but GestureState not available", .{});
         response.err("INTERNAL_ERROR", "Gesture tracking not initialized");
@@ -52,11 +52,16 @@ pub fn handleStart(_: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
         response.client_id,
     });
 
+    // For hw output gestures, start an undo block (CSurf doesn't support category 1)
+    if (is_new and (control.control_type == .hw_output_volume or control.control_type == .hw_output_pan)) {
+        api.undoBeginBlock();
+    }
+
     response.success(null);
 }
 
 /// Handle gesture/end - called when a client finishes dragging a fader
-/// Params: { controlType: "volume"|"pan"|"send"|"sendPan"|"hwVolume"|"hwPan", trackIdx: number, sendIdx?/hwIdx?: number }
+/// Params: { controlType: "volume"|"pan"|"send"|"sendPan"|"hwOutputVolume"|"hwOutputPan", trackIdx: number, sendIdx?/hwIdx?: number }
 /// If this is the last client gesturing on the control, flushes the undo
 pub fn handleEnd(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const gestures = response.gestures orelse {
@@ -79,8 +84,16 @@ pub fn handleEnd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     });
 
     if (should_flush) {
-        logging.debug("Calling CSurf_FlushUndo(true)", .{});
-        api.csurfFlushUndo(true);
+        // For hw output gestures, end the undo block (CSurf doesn't support category 1)
+        if (control.control_type == .hw_output_volume) {
+            api.undoEndBlock("REAmo: Adjust audio hardware output volume");
+        } else if (control.control_type == .hw_output_pan) {
+            api.undoEndBlock("REAmo: Adjust audio hardware output pan");
+        } else {
+            // For CSurf-based controls (track/send volume/pan), flush pending undo
+            logging.debug("Calling CSurf_FlushUndo(true)", .{});
+            api.csurfFlushUndo(true);
+        }
     }
 
     response.success(null);

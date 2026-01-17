@@ -223,6 +223,11 @@ export const track = {
     command: 'track/getSends',
     params: { trackIdx, ...(offset !== undefined && { offset }), ...(limit !== undefined && { limit }) },
   }),
+  /** Get hardware outputs for a track (on-demand) */
+  getHwOutputs: (trackIdx: number): WSCommand => ({
+    command: 'track/getHwOutputs',
+    params: { trackIdx },
+  }),
   /** Rename a track */
   rename: (trackIdx: number, name: string): WSCommand => ({
     command: 'track/rename',
@@ -633,25 +638,27 @@ export const extstate = {
 // Gesture Commands (for undo coalescing of continuous controls)
 // =============================================================================
 
-export type GestureControlType = 'volume' | 'pan' | 'send';
+export type GestureControlType = 'volume' | 'pan' | 'send' | 'sendPan' | 'hwOutputVolume' | 'hwOutputPan';
 
 export const gesture = {
   /** Call when starting to drag a fader/knob. Use trackGuid for stability during gestures. */
-  start: (controlType: GestureControlType, trackIdx: number, trackGuid?: string, sendIdx?: number): WSCommand => ({
+  start: (controlType: GestureControlType, trackIdx: number, trackGuid?: string, sendIdx?: number, hwIdx?: number): WSCommand => ({
     command: 'gesture/start',
     params: {
       controlType,
       ...(trackGuid ? { trackGuid } : { trackIdx }),
       ...(sendIdx !== undefined && { sendIdx }),
+      ...(hwIdx !== undefined && { hwIdx }),
     },
   }),
   /** Call when releasing a fader/knob - triggers undo point creation. Use trackGuid for stability. */
-  end: (controlType: GestureControlType, trackIdx: number, trackGuid?: string, sendIdx?: number): WSCommand => ({
+  end: (controlType: GestureControlType, trackIdx: number, trackGuid?: string, sendIdx?: number, hwIdx?: number): WSCommand => ({
     command: 'gesture/end',
     params: {
       controlType,
       ...(trackGuid ? { trackGuid } : { trackIdx }),
       ...(sendIdx !== undefined && { sendIdx }),
+      ...(hwIdx !== undefined && { hwIdx }),
     },
   }),
 };
@@ -697,6 +704,43 @@ export const send = {
   setMute: (trackIdx: number, sendIdx: number, muted: number): WSCommand => ({
     command: 'send/setMute',
     params: { trackIdx, sendIdx, muted },
+  }),
+  /** Set the pan for a track send (-1.0 to 1.0) */
+  setPan: (trackIdx: number, sendIdx: number, pan: number): WSCommand => ({
+    command: 'send/setPan',
+    params: { trackIdx, sendIdx, pan },
+  }),
+  /** Set the mode for a track send (0=post-fader, 1=pre-FX, 3=post-FX) */
+  setMode: (trackIdx: number, sendIdx: number, mode: number): WSCommand => ({
+    command: 'send/setMode',
+    params: { trackIdx, sendIdx, mode },
+  }),
+};
+
+// =============================================================================
+// Hardware Output Commands
+// =============================================================================
+
+export const hw = {
+  /** Set the volume level for a hardware output */
+  setVolume: (trackIdx: number, hwIdx: number, volume: number): WSCommand => ({
+    command: 'hw/setVolume',
+    params: { trackIdx, hwIdx, volume },
+  }),
+  /** Set the mute state for a hardware output */
+  setMute: (trackIdx: number, hwIdx: number, muted: number): WSCommand => ({
+    command: 'hw/setMute',
+    params: { trackIdx, hwIdx, muted },
+  }),
+  /** Set the pan for a hardware output (-1.0 to 1.0) */
+  setPan: (trackIdx: number, hwIdx: number, pan: number): WSCommand => ({
+    command: 'hw/setPan',
+    params: { trackIdx, hwIdx, pan },
+  }),
+  /** Set the mode for a hardware output (0=post-fader, 1=pre-FX, 3=post-FX) */
+  setMode: (trackIdx: number, hwIdx: number, mode: number): WSCommand => ({
+    command: 'hw/setMode',
+    params: { trackIdx, hwIdx, mode },
   }),
 };
 
@@ -888,5 +932,27 @@ export const peaks = {
   /** Unsubscribe from peaks updates. */
   unsubscribe: (): WSCommand => ({
     command: 'peaks/unsubscribe',
+  }),
+};
+
+// =============================================================================
+// Routing Subscription Commands
+// =============================================================================
+
+export const routing = {
+  /**
+   * Subscribe to routing updates for a single track.
+   * Provides real-time sends, receives, and hw outputs at 30Hz.
+   * Only one track can be subscribed per client (for RoutingModal).
+   *
+   * @param trackGuid - GUID of the track to subscribe to
+   */
+  subscribe: (trackGuid: string): WSCommand => ({
+    command: 'routing/subscribe',
+    params: { trackGuid },
+  }),
+  /** Unsubscribe from routing updates. */
+  unsubscribe: (): WSCommand => ({
+    command: 'routing/unsubscribe',
   }),
 };

@@ -25,6 +25,8 @@ pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     };
 
+    // No undo block here - continuous control uses gesture-based undo coalescing
+    // (undoBeginBlock on gesture/start, undoEndBlock on gesture/end)
     const success = api.trackHwOutputSetVolume(track, hw_idx, volume);
     if (!success) {
         response.err("SET_FAILED", "Failed to set HW output volume");
@@ -62,7 +64,10 @@ pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         return;
     };
 
+    api.undoBeginBlock();
     const success = api.trackHwOutputSetMute(track, hw_idx, muted);
+    api.undoEndBlock("REAmo: Adjust audio hardware output mute");
+
     if (!success) {
         response.err("SET_FAILED", "Failed to set HW output mute state");
         return;
@@ -96,6 +101,8 @@ pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
     // Clamp pan to valid range
     const clamped = @max(-1.0, @min(1.0, pan));
 
+    // No undo block here - continuous control uses gesture-based undo coalescing
+    // (undoBeginBlock on gesture/start, undoEndBlock on gesture/end)
     const success = api.trackHwOutputSetPan(track, hw_idx, clamped);
     if (!success) {
         response.err("SET_FAILED", "Failed to set HW output pan");
@@ -138,7 +145,10 @@ pub fn handleSetMode(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         return;
     };
 
+    api.undoBeginBlock();
     const success = api.trackHwOutputSetMode(track, hw_idx, mode);
+    api.undoEndBlock("REAmo: Adjust audio hardware output mode");
+
     if (!success) {
         response.err("SET_FAILED", "Failed to set HW output mode");
         return;
