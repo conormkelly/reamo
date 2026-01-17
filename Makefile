@@ -35,6 +35,17 @@ tracy:
 	@echo "  3. Connect Tracy to REAPER process"
 	@echo "  4. Trigger actions to profile (e.g., open Actions panel)"
 
+# Build extension with CSurf push-based callbacks enabled
+csurf:
+	@echo "Building extension with CSurf (push-based callbacks)..."
+	cd extension && zig build -Dcsurf=true
+	@echo "Installing CSurf-enabled build to REAPER UserPlugins..."
+	cp extension/zig-out/lib/libreaper_reamo.dylib \
+		"$(HOME)/Library/Application Support/REAPER/UserPlugins/reaper_reamo.dylib"
+	@echo ""
+	@echo "CSurf-enabled extension installed. Restart REAPER to load."
+	@echo "Check extension log for 'CSurf registered for push-based callbacks'"
+
 # Clean build artifacts
 clean:
 	@echo "Cleaning frontend..."

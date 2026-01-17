@@ -309,6 +309,58 @@ Frontend UI to browse and add available FX plugins to tracks.
 
 Low-priority performance improvements to consider when scaling or if profiling indicates need.
 
+### CSurf Push-Based Architecture (Major Optimization)
+
+**Status:** Research complete. Ready to implement.
+
+**Research:** [research/ZIG_CONTROL_SURFACE.md](../research/ZIG_CONTROL_SURFACE.md)
+
+**Current State:** All state polling at 30Hz (transport, tracks, FX, markers, etc.)
+
+**With CSurf:** Push-based callbacks for most state, polling only for position/meters.
+
+| State | Current | With CSurf |
+|-------|---------|------------|
+| Transport play/pause/rec | 30Hz poll | **Instant** `SetPlayState()` |
+| Track volume/pan | 30Hz poll | **Instant** `SetSurfaceVolume/Pan()` |
+| Track mute/solo | 30Hz poll | **Instant** `SetSurfaceMute/Solo()` |
+| Track selection | 30Hz poll | **Instant** `SetSurfaceSelected()` |
+| Track list changes | 5Hz poll | **Instant** `SetTrackListChange()` |
+| FX parameters | 5Hz poll | **Instant** `Extended(SETFXPARAM)` |
+| FX bypass | 5Hz poll | **Instant** `Extended(SETFXENABLED)` |
+| Markers/regions | 5Hz poll | **Instant** `Extended(MARKERCHANGE)` |
+| Send volume/pan | 5Hz poll | **Instant** `Extended(SETSENDVOLUME)` |
+| Repeat state | 5Hz poll | **Instant** `SetRepeatState()` |
+| BPM/playrate | 5Hz poll | **Instant** `Extended(SETBPMANDPLAYRATE)` |
+| **Playhead position** | 30Hz poll | **Still poll** (no callback exists) |
+| **Peak metering** | 30Hz poll | **Still poll** (no callback exists) |
+| **Edit cursor** | 30Hz poll | **Still poll** |
+| **Time selection** | 30Hz poll | **Still poll** |
+| **Undo state** | 5Hz poll | **Still poll** |
+
+**Benefits:**
+- Instant state change notifications (~0ms vs ~33ms latency)
+- Reduced CPU (only poll what has no callback)
+- Timer can drop from 30Hz to ~10Hz (position/meters only)
+- Cleaner architecture (react to changes vs poll for them)
+
+**Implementation:**
+1. Add C++ shim (~100 lines) - forwards virtual calls to C function pointers
+2. Update build.zig to compile C++ and link with Zig
+3. Create Zig CSurf module implementing callbacks
+4. Merge instant callbacks into existing broadcast system
+5. Reduce timer to ~10Hz for position/meters only
+
+**Gotchas (from research):**
+- `SetSurfaceSelected` fires per-track - debounce before broadcasting
+- `CSURF_EXT_SETPROJECTMARKERCHANGE` has no details - must re-enumerate
+- Volume values are 0.0-1.0 normalized, not dB
+- All callbacks run on main thread (same as timer)
+
+**Effort:** M-L (C++ shim + Zig integration + refactor polling)
+
+---
+
 ### WebSocket Compression (gzip)
 
 Per-message deflate for large payloads (action list ~985KB). Blocked on websocket.zig library update for Zig 0.15. Expected 10-15x compression for text payloads.
