@@ -656,7 +656,7 @@ pub fn handleGetSends(api: anytype, cmd: protocol.CommandMessage, response: *mod
         const dest_name = api.trackSendGetDestName(track, send_idx, &dest_name_buf);
         const volume = api.trackSendGetVolume(track, send_idx);
         const muted = api.trackSendGetMute(track, send_idx);
-        const mode = api.trackSendGetMode(track, send_idx);
+        const mode = api.trackSendGetMode(track, send_idx) catch 0;
 
         // Write JSON object
         if (written > 0) w.writeByte(',') catch {

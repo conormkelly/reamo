@@ -48,7 +48,7 @@ pub fn generateRoutingState(
         const volume = api.trackSendGetVolume(track, i);
         const pan = api.trackSendGetPan(track, i);
         const muted = api.trackSendGetMute(track, i);
-        const mode = api.trackSendGetMode(track, i);
+        const mode = api.trackSendGetMode(track, i) catch 0;
 
         w.print("{{\"sendIndex\":{d},\"destName\":\"", .{i}) catch return null;
         protocol.writeJsonString(w, dest_name) catch return null;
@@ -61,12 +61,30 @@ pub fn generateRoutingState(
     }
     w.writeAll("],") catch return null;
 
-    // Write receives (category -1)
-    // TODO: Add full receive details (volume, pan, mute, mode, srcName).
-    // Requires implementing trackReceiveGet* API wrappers in raw.zig/real.zig/mock.
-    // For now, only expose count so frontend can show "N receives" badge.
+    // Write receives array (category -1)
+    w.writeAll("\"receives\":[") catch return null;
     const receive_count = api.trackReceiveCount(track);
-    w.print("\"receiveCount\":{d},", .{receive_count}) catch return null;
+    i = 0;
+    while (i < receive_count) : (i += 1) {
+        if (i > 0) w.writeByte(',') catch return null;
+
+        var src_name_buf: [MAX_NAME_LEN]u8 = undefined;
+        const src_name = api.trackReceiveGetSrcName(track, i, &src_name_buf);
+        const recv_volume = api.trackReceiveGetVolume(track, i);
+        const recv_pan = api.trackReceiveGetPan(track, i);
+        const recv_muted = api.trackReceiveGetMute(track, i);
+        const recv_mode = api.trackReceiveGetMode(track, i) catch 0;
+
+        w.print("{{\"receiveIndex\":{d},\"srcName\":\"", .{i}) catch return null;
+        protocol.writeJsonString(w, src_name) catch return null;
+        w.print("\",\"volume\":{d:.6},\"pan\":{d:.6},\"muted\":{s},\"mode\":{d}}}", .{
+            recv_volume,
+            recv_pan,
+            if (recv_muted) "true" else "false",
+            recv_mode,
+        }) catch return null;
+    }
+    w.writeAll("],") catch return null;
 
     // Write hwOutputs array (category 1)
     w.writeAll("\"hwOutputs\":[") catch return null;

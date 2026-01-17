@@ -14,6 +14,7 @@ pub const MAX_ITEMS_PER_TRACK = 16;
 pub const MAX_TAKES_PER_ITEM = 4;
 pub const MAX_FX_PER_TRACK = 64;
 pub const MAX_SENDS_PER_TRACK = 16;
+pub const MAX_RECEIVES_PER_TRACK = 16;
 pub const MAX_HW_OUTPUTS_PER_TRACK = 8;
 pub const MAX_MARKERS = 64;
 pub const MAX_CALLS = 256;
@@ -230,6 +231,17 @@ pub const Method = enum {
     trackSendGetPan,
     trackSendSetPan,
     trackSendSetMode,
+    // Track Receives
+    trackReceiveGetVolume,
+    trackReceiveGetMute,
+    trackReceiveGetMode,
+    trackReceiveGetPan,
+    trackReceiveGetSrcTrack,
+    trackReceiveGetSrcName,
+    trackReceiveSetVolume,
+    trackReceiveSetMute,
+    trackReceiveSetPan,
+    trackReceiveSetMode,
     // Hardware Outputs
     trackHwOutputCount,
     trackHwOutputGetVolume,
@@ -281,6 +293,7 @@ pub const MockTrack = struct {
 
     // Receives for this track (incoming sends from other tracks)
     receive_count: c_int = 0,
+    receives: [MAX_RECEIVES_PER_TRACK]MockReceive = [_]MockReceive{.{}} ** MAX_RECEIVES_PER_TRACK,
 
     // Hardware outputs for this track
     hw_output_count: c_int = 0,
@@ -425,6 +438,27 @@ pub const MockSend = struct {
 
     pub fn getDestName(self: *const MockSend) []const u8 {
         return self.dest_name[0..self.dest_name_len];
+    }
+};
+
+/// Mock receive slot for testing receive control.
+pub const MockReceive = struct {
+    src_track_idx: c_int = 0, // Source track index (unified: 0=master, 1+=tracks)
+    src_name: [128]u8 = [_]u8{0} ** 128,
+    src_name_len: usize = 0,
+    volume: f64 = 1.0, // Linear, 1.0 = 0dB
+    pan: f64 = 0.0, // -1.0 to 1.0
+    muted: bool = false,
+    mode: c_int = 0, // 0=post-fader, 1=pre-FX, 3=post-FX
+
+    pub fn setSrcName(self: *MockReceive, name: []const u8) void {
+        const len = @min(name.len, self.src_name.len);
+        @memcpy(self.src_name[0..len], name[0..len]);
+        self.src_name_len = len;
+    }
+
+    pub fn getSrcName(self: *const MockReceive) []const u8 {
+        return self.src_name[0..self.src_name_len];
     }
 };
 

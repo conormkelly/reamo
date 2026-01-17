@@ -200,6 +200,16 @@ pub fn validateBackend(comptime T: type) void {
         "trackSendToggleMute",
         "trackSendSetMute",
         "trackSendSetMode",
+        "trackReceiveGetVolume",
+        "trackReceiveGetMute",
+        "trackReceiveGetMode",
+        "trackReceiveGetPan",
+        "trackReceiveGetSrcTrack",
+        "trackReceiveGetSrcName",
+        "trackReceiveSetVolume",
+        "trackReceiveSetMute",
+        "trackReceiveSetPan",
+        "trackReceiveSetMode",
 
         // Hardware Outputs
         "trackHwOutputCount",

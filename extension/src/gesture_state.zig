@@ -16,6 +16,8 @@ pub const ControlId = struct {
         pan,
         send_volume,
         send_pan,
+        receive_volume,
+        receive_pan,
         hw_output_volume,
         hw_output_pan,
     };
@@ -34,6 +36,14 @@ pub const ControlId = struct {
 
     pub fn sendPan(track_idx: c_int, send_idx: c_int) ControlId {
         return .{ .control_type = .send_pan, .track_idx = track_idx, .sub_idx = send_idx };
+    }
+
+    pub fn receiveVolume(track_idx: c_int, recv_idx: c_int) ControlId {
+        return .{ .control_type = .receive_volume, .track_idx = track_idx, .sub_idx = recv_idx };
+    }
+
+    pub fn receivePan(track_idx: c_int, recv_idx: c_int) ControlId {
+        return .{ .control_type = .receive_pan, .track_idx = track_idx, .sub_idx = recv_idx };
     }
 
     pub fn hwOutputVolume(track_idx: c_int, hw_idx: c_int) ControlId {

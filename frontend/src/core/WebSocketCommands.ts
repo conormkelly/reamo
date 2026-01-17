@@ -636,27 +636,29 @@ export const extstate = {
 // Gesture Commands (for undo coalescing of continuous controls)
 // =============================================================================
 
-export type GestureControlType = 'volume' | 'pan' | 'send' | 'sendPan' | 'hwOutputVolume' | 'hwOutputPan';
+export type GestureControlType = 'volume' | 'pan' | 'send' | 'sendPan' | 'receive' | 'receivePan' | 'hwOutputVolume' | 'hwOutputPan';
 
 export const gesture = {
   /** Call when starting to drag a fader/knob. Use trackGuid for stability during gestures. */
-  start: (controlType: GestureControlType, trackIdx: number, trackGuid?: string, sendIdx?: number, hwIdx?: number): WSCommand => ({
+  start: (controlType: GestureControlType, trackIdx: number, trackGuid?: string, sendIdx?: number, hwIdx?: number, recvIdx?: number): WSCommand => ({
     command: 'gesture/start',
     params: {
       controlType,
       ...(trackGuid ? { trackGuid } : { trackIdx }),
       ...(sendIdx !== undefined && { sendIdx }),
       ...(hwIdx !== undefined && { hwIdx }),
+      ...(recvIdx !== undefined && { recvIdx }),
     },
   }),
   /** Call when releasing a fader/knob - triggers undo point creation. Use trackGuid for stability. */
-  end: (controlType: GestureControlType, trackIdx: number, trackGuid?: string, sendIdx?: number, hwIdx?: number): WSCommand => ({
+  end: (controlType: GestureControlType, trackIdx: number, trackGuid?: string, sendIdx?: number, hwIdx?: number, recvIdx?: number): WSCommand => ({
     command: 'gesture/end',
     params: {
       controlType,
       ...(trackGuid ? { trackGuid } : { trackIdx }),
       ...(sendIdx !== undefined && { sendIdx }),
       ...(hwIdx !== undefined && { hwIdx }),
+      ...(recvIdx !== undefined && { recvIdx }),
     },
   }),
 };
@@ -712,6 +714,33 @@ export const send = {
   setMode: (trackIdx: number, sendIdx: number, mode: number): WSCommand => ({
     command: 'send/setMode',
     params: { trackIdx, sendIdx, mode },
+  }),
+};
+
+// =============================================================================
+// Receive Commands
+// =============================================================================
+
+export const receive = {
+  /** Set the volume level for a track receive */
+  setVolume: (trackIdx: number, recvIdx: number, volume: number): WSCommand => ({
+    command: 'receive/setVolume',
+    params: { trackIdx, recvIdx, volume },
+  }),
+  /** Set the mute state for a track receive */
+  setMute: (trackIdx: number, recvIdx: number, muted: number): WSCommand => ({
+    command: 'receive/setMute',
+    params: { trackIdx, recvIdx, muted },
+  }),
+  /** Set the pan for a track receive (-1.0 to 1.0) */
+  setPan: (trackIdx: number, recvIdx: number, pan: number): WSCommand => ({
+    command: 'receive/setPan',
+    params: { trackIdx, recvIdx, pan },
+  }),
+  /** Set the mode for a track receive (0=post-fader, 1=pre-FX, 3=post-FX) */
+  setMode: (trackIdx: number, recvIdx: number, mode: number): WSCommand => ({
+    command: 'receive/setMode',
+    params: { trackIdx, recvIdx, mode },
   }),
 };
 

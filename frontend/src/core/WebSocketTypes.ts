@@ -348,6 +348,16 @@ export interface WSRoutingSend {
   mode: number;    // 0=post-fader, 1=pre-fx, 3=post-fx
 }
 
+/** Receive slot in routing subscription */
+export interface WSRoutingReceive {
+  receiveIndex: number;
+  srcName: string;
+  volume: number;  // Linear: 1.0 = 0dB
+  pan: number;     // -1 to 1
+  muted: boolean;
+  mode: number;    // 0=post-fader, 1=pre-fx, 3=post-fx
+}
+
 /** Hardware output slot in routing subscription */
 export interface WSRoutingHwOutput {
   hwIdx: number;
@@ -362,7 +372,7 @@ export interface WSRoutingHwOutput {
 export interface RoutingStateEventPayload {
   trackGuid: string;
   sends: WSRoutingSend[];
-  receiveCount: number;  // TODO: Full receive data coming later
+  receives: WSRoutingReceive[];
   hwOutputs: WSRoutingHwOutput[];
 }
 
