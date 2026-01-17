@@ -272,12 +272,11 @@ flowchart TB
 ```
 
 **End-State Performance Characteristics:**
-- **CPU**: O(changes) instead of O(n) - only poll what CSurf says changed
-- **100 tracks idle**: ~30 API calls/sec (position/meters only)
-- **100 tracks active**: ~10-50 API calls/sec (only changed tracks)
-- **Latency**: <33ms for all state changes (next frame after CSurf callback)
+- **CPU**: O(subscribed) polling with hash-based change detection (not O(changes) - see research findings below)
+- **Latency**: <33ms for callback-driven changes (dirty flags force immediate broadcast)
+- **Reliability**: Hash catches callback gaps (undo, selection, FX drag) - no 2s wait
 - **Memory**: Same tiered arenas + 384 bytes for 3 BitSet(1024)
-- **Bandwidth**: Unchanged - same change detection, same JSON events
+- **Bandwidth**: Unchanged - same JSON events, smarter broadcast decisions
 
 ---
 
@@ -307,15 +306,20 @@ CSurf callbacks signal *what* changed via dirty flags. The main loop polls *curr
 
 ### Revised Polling Strategy
 
-| Trigger | Content | Notes |
-|---------|---------|-------|
-| Every frame | Position, meters, playlist | No CSurf callback exists |
-| Dirty flag | Subscribed track data | CSurf sets dirty, consumed immediately |
-| Dirty flag | Markers, regions, FX, sends | CSurf triggers poll |
-| Dirty flag | Skeleton, tempomap | **Immediate rebuild**, not tier-bound |
-| Every 60 frames (2s) | Full state refresh | Safety net for missed callbacks |
+| Content | Polling | Broadcast Trigger | Notes |
+|---------|---------|-------------------|-------|
+| Position, meters | Every frame | Always | No CSurf callback exists |
+| Subscribed tracks | Every frame | Hash changed OR dirty flag | Dirty = instant latency, hash catches gaps |
+| Markers, regions | 5Hz + immediate | Dirty flag OR hash changed | CSurf triggers immediate poll |
+| Skeleton | Immediate on dirty | Always on change | Rebuilt before consuming track flags |
+| Tempomap | 1Hz + immediate | Dirty flag | Immediate rebuild on tempo change |
+| Full state | Every 60 frames | Sets all_dirty | Safety net for missed callbacks |
 
-**Key insight:** Skeleton rebuild happens **immediately when dirty flag is consumed**, not waiting for LOW tier. This minimizes the window where track callbacks are dropped.
+**Key insights:**
+1. We poll ALL subscribed tracks every frame (not filtering by dirty bits)
+2. Dirty flags provide **instant latency** - force broadcast even if hash unchanged
+3. Hash comparison catches **callback gaps** (undo, selection, FX drag)
+4. Skeleton rebuild happens **immediately**, not waiting for LOW tier
 
 ### What Must Still Poll (No Callback Exists)
 
@@ -716,22 +720,32 @@ fn doProcessing() !void {
     high_state.transport = transport.State.poll(&backend);
     high_state.metering = metering.pollSubscribedInto(...);
 
-    // Track data: poll if dirty OR force_broadcast
+    // Track data: ALWAYS poll all subscribed (research showed callback gaps)
+    // Use hash for change detection, dirty flags for instant latency
+    high_state.tracks = tracks.State.pollIndices(..., subscribed_indices);
+
+    // Hash-based change detection (replaces fragile slice comparison)
+    const current_hash = tracks.computeHash(high_state.tracks);
+
+    // Consume dirty flags for latency optimization
     const track_dirty = if (g_dirty_flags) |flags|
         flags.consumeTrackDirty()
     else
-        .{ .bits = std.StaticBitSet(1024).initEmpty(), .all = true };
+        .{ .bits = std.StaticBitSet(1024).initEmpty(), .all = false };
+    const any_dirty = track_dirty.all or track_dirty.bits.count() > 0;
 
-    if (track_dirty.all) {
-        // Poll all subscribed tracks
-        high_state.tracks = tracks.State.pollIndices(..., subscribed_indices);
-    } else {
-        // Poll only dirty + subscribed tracks
-        for (subscribed_indices) |idx| {
-            if (track_dirty.bits.isSet(@intCast(idx))) {
-                // Poll this specific track
-            }
-        }
+    // Broadcast decision: hash changed OR dirty flag OR force_broadcast
+    const hash_changed = current_hash != prev_tracks_hash;
+    const should_broadcast = hash_changed or any_dirty or force_broadcast;
+
+    // Drift logging: hash changed without dirty flag = missed callback
+    if (hash_changed and !any_dirty and !force_broadcast) {
+        logging.warn("Track drift without dirty flag (undo/selection?)", .{});
+    }
+
+    if (should_broadcast) {
+        broadcast(...);
+        prev_tracks_hash = current_hash;
     }
 
     // ============================================================
@@ -776,12 +790,14 @@ fn doProcessing() !void {
 ```
 
 **Critical ordering:**
-1. Consume dirty flags FIRST (every frame)
+1. Consume global dirty flags FIRST (every frame)
 2. Skeleton rebuild IMMEDIATELY when dirty (before track flag consumption)
-3. Then HIGH tier with dirty-driven track polling
-4. Then MEDIUM tier with dirty-driven marker/FX polling
-5. LOW tier becomes safety net only
-6. Heartbeat every 2s forces full comparison
+3. HIGH tier: Poll ALL subscribed tracks, use hash + dirty flags for broadcast decision
+4. MEDIUM tier: Poll when dirty OR regular interval
+5. LOW tier: Safety net polling
+6. Heartbeat every 2s sets all_dirty for full validation
+
+**Key insight (from research):** We do NOT filter polling by dirty bits. Callback gaps (undo, selection, FX drag) would cause missed updates. Instead, we poll everything and use dirty flags only for instant broadcast latency.
 
 ### Phase 5: Add ResetCachedVolPanStates to C++ Shim
 
@@ -846,15 +862,26 @@ void ResetCachedVolPanStates() override {
 
 ---
 
-## CPU Savings Estimate
+## Actual Benefits (Post-Research)
 
-| State | Current | CSurf Mode | Savings |
-|-------|---------|------------|---------|
-| Track data (100 tracks) | 3000 polls/s | ~10 polls/s | ~99% |
-| Markers/regions | 5 polls/s | ~0.1 polls/s | ~98% |
-| Skeleton | 1 poll/s | ~0.01 polls/s | ~99% |
-| Transport state | 30 polls/s | on-demand | ~95% |
-| Position/meters | 30 polls/s | 30 polls/s | 0% |
+**Important:** Research (`CSURF_RESEARCH.md`) revealed that CSurf callbacks have documented gaps (undo/redo, action-based selection, FX drag between tracks). We chose **latency optimization + reliable change detection** over aggressive API call reduction.
+
+| Benefit | Description |
+|---------|-------------|
+| **Latency** | <33ms response to callback-driven changes (force broadcast on dirty flag) |
+| **Reliability** | Hash-based change detection catches callback gaps immediately |
+| **Debugging** | Drift logging identifies missed callbacks (undo, selection, etc.) |
+
+**What we're NOT doing:** The original plan claimed 99% API call reduction by filtering subscribed_indices by dirty bits. Research showed this is risky - callback gaps would cause missed updates.
+
+**Actual polling behavior:**
+| State | Polling Rate | Change Detection |
+|-------|--------------|------------------|
+| Track data | 30Hz (all subscribed) | Hash + dirty flag force |
+| Markers/regions | 5Hz + immediate on dirty | Hash comparison |
+| Skeleton | Immediate on dirty | Rebuilt immediately |
+| Transport | 30Hz + immediate on dirty | Direct comparison |
+| Position/meters | 30Hz always | No callback exists |
 
 ---
 
@@ -883,18 +910,51 @@ void ResetCachedVolPanStates() override {
 
 ## Migration Path
 
-1. **Phase 1-2**: Infrastructure (low risk, no behavior change)
-2. **Phase 3**: Wire callbacks (medium risk, test extensively)
-3. **Phase 4**: Main loop changes (higher risk, keep `-Dcsurf=true` flag)
-4. **Phase 5**: Validate thoroughly with real projects
-5. **Phase 6**: Make CSurf the default (flip `orelse false` to `orelse true` in build.zig)
+| Phase | Description | Status |
+|-------|-------------|--------|
+| **Phase 1** | DirtyFlags struct in `csurf_dirty.zig` | ✅ Complete |
+| **Phase 2** | reverse_map in `guid_cache.zig` | ✅ Complete |
+| **Phase 3** | Wire callbacks to dirty flags in `csurf.zig` | ✅ Complete |
+| **Phase 4** | Main loop integration (skeleton rebuild, heartbeat) | ✅ Complete |
+| **Phase 4.5** | Global dirty flag consumption (transport/markers/tempo) | ✅ Complete |
+| **Phase 4.6** | Per-track dirty flag consumption + hash-based change detection | ✅ Complete |
+| **Phase 5** | ResetCachedVolPanStates callback | ✅ Complete |
+| **Phase 6** | Make CSurf the default (flip `orelse false` to `orelse true`) | ✅ Complete |
 
-The `-Dcsurf=true` flag remains opt-in during validation, then becomes default once proven stable.
+CSurf is now enabled by default. Use `-Dcsurf=false` to disable during debugging.
+
+**Phase 4.6 details:** See `docs/architecture/CSURF_PHASE4.6_HANDOVER.md` for full implementation plan and research-backed rationale.
+
+---
+
+## Research Findings (Phase 4.6)
+
+External research was conducted to validate the implementation approach. Key findings:
+
+**1. Hybrid architecture is universal**
+All production CSurf implementations (MCU, HUI, SWS, CSI, ReaLearn) use callback + polling. Pure callbacks are insufficient.
+
+**2. Documented callback gaps**
+- `OnTrackSelection()` - doesn't fire for action/API-based selection
+- `CSURF_EXT_SETFXCHANGE` - doesn't fire when dragging FX between tracks
+- Undo/redo - no dedicated callback
+- Project tab switching only triggers `SetTrackListChange()`
+
+**3. Hash computation is negligibly cheap**
+Wyhash at 30Hz = ~0.0008% CPU. Hash comparison (2ns) is 10-100x cheaper than API calls.
+
+**4. Recommended approach**
+"Callback-primary with polling safety net: trust callbacks for immediate response, process changes using dirty flags, run hash-based safety poll to catch drift."
+
+**Decision:** We chose Option B-1 + A (hash-based detection + dirty flag force broadcast) over B-2 (dirty-flag-driven polling) because callback gaps would cause missed updates.
+
+Full research: `CSURF_RESEARCH.md`
 
 ---
 
 ## Research References
 
 - `research/REAPER_CSURF_API_BEHAVIOUR.md` - Authoritative callback behavior from SWS analysis
+- `CSURF_RESEARCH.md` - External research on DAW control surface best practices
 - SWS Extension source (`sws_extension.cpp`, `TrackList.cpp`) - 15+ years battle-tested patterns
 - REAPER SDK (`reaper_plugin.h`, `reaper_csurf.h`) - Official interface definitions

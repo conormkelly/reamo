@@ -23,8 +23,8 @@ const guid_cache = @import("guid_cache.zig");
 pub const enabled = csurf_options.enable_csurf;
 
 // Module-level access to dirty flags and guid cache.
-// Set by main.zig during initialization (Phase 4).
-// CSurf callbacks use these to set dirty flags for push-based polling.
+// Set by main.zig during initialization, before CSurf registration.
+// CSurf callbacks use these to set dirty flags for immediate response.
 var g_dirty_flags: ?*csurf_dirty.DirtyFlags = null;
 var g_guid_cache: ?*guid_cache.GuidCache = null;
 
