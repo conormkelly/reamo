@@ -104,6 +104,7 @@ const RealControlSurface = struct {
     const ZigOnTrackSelectionCb = ?*const fn (?*anyopaque, MediaTrackHandle) callconv(.c) void;
     const ZigSetAutoModeCb = ?*const fn (?*anyopaque, c_int) callconv(.c) void;
     const ZigExtendedCb = ?*const fn (?*anyopaque, c_int, ?*anyopaque, ?*anyopaque, ?*anyopaque) callconv(.c) c_int;
+    const ZigResetCachedVolPanStatesCb = ?*const fn (?*anyopaque) callconv(.c) void;
 
     // Callback struct passed to C++ shim
     const ZigCSurfCallbacks = extern struct {
@@ -123,6 +124,7 @@ const RealControlSurface = struct {
         on_track_selection: ZigOnTrackSelectionCb,
         set_auto_mode: ZigSetAutoModeCb,
         extended: ZigExtendedCb,
+        reset_cached_vol_pan_states: ZigResetCachedVolPanStatesCb,
     };
 
     // C API functions from the shim
@@ -166,6 +168,7 @@ const RealControlSurface = struct {
             .on_track_selection = onTrackSelection,
             .set_auto_mode = null,
             .extended = extended,
+            .reset_cached_vol_pan_states = resetCachedVolPanStates,
         };
 
         self.handle = zig_csurf_create(&callbacks);
@@ -364,6 +367,22 @@ const RealControlSurface = struct {
             else => {},
         }
         return 0; // ALWAYS 0 - never consume callbacks
+    }
+
+    /// Called after certain undo operations - invalidate everything.
+    /// Research: Undocumented trigger conditions, treat as "nuclear option".
+    /// Sets all dirty flags so main loop re-polls complete state.
+    fn resetCachedVolPanStates(ctx: ?*anyopaque) callconv(.c) void {
+        _ = ctx;
+        const flags = g_dirty_flags orelse return;
+
+        // Nuclear option: mark everything dirty
+        flags.setAllTracksDirty();
+        flags.transport_dirty = true;
+        flags.skeleton_dirty = true;
+        flags.markers_dirty = true;
+        flags.tempo_dirty = true;
+        // Don't set reverse_map_valid = false here - skeleton_dirty will trigger rebuild
     }
 
     /// Helper to get self from context pointer

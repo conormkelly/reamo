@@ -36,6 +36,7 @@ typedef void (*ZigSetSurfaceRecArmCb)(void* ctx, MediaTrackHandle track, bool ar
 typedef void (*ZigOnTrackSelectionCb)(void* ctx, MediaTrackHandle track);
 typedef void (*ZigSetAutoModeCb)(void* ctx, int mode);
 typedef int  (*ZigExtendedCb)(void* ctx, int call, void* p1, void* p2, void* p3);
+typedef void (*ZigResetCachedVolPanStatesCb)(void* ctx);
 
 // Callback struct - Zig populates this and passes to zig_csurf_create
 typedef struct {
@@ -56,6 +57,7 @@ typedef struct {
     ZigOnTrackSelectionCb   on_track_selection;
     ZigSetAutoModeCb        set_auto_mode;
     ZigExtendedCb           extended;
+    ZigResetCachedVolPanStatesCb reset_cached_vol_pan_states;
 } ZigCSurfCallbacks;
 
 // C API for Zig
