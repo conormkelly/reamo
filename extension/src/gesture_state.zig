@@ -15,6 +15,9 @@ pub const ControlId = struct {
         volume,
         pan,
         send_volume,
+        send_pan,
+        hw_output_volume,
+        hw_output_pan,
     };
 
     pub fn volume(track_idx: c_int) ControlId {
@@ -27,6 +30,18 @@ pub const ControlId = struct {
 
     pub fn sendVolume(track_idx: c_int, send_idx: c_int) ControlId {
         return .{ .control_type = .send_volume, .track_idx = track_idx, .sub_idx = send_idx };
+    }
+
+    pub fn sendPan(track_idx: c_int, send_idx: c_int) ControlId {
+        return .{ .control_type = .send_pan, .track_idx = track_idx, .sub_idx = send_idx };
+    }
+
+    pub fn hwOutputVolume(track_idx: c_int, hw_idx: c_int) ControlId {
+        return .{ .control_type = .hw_output_volume, .track_idx = track_idx, .sub_idx = hw_idx };
+    }
+
+    pub fn hwOutputPan(track_idx: c_int, hw_idx: c_int) ControlId {
+        return .{ .control_type = .hw_output_pan, .track_idx = track_idx, .sub_idx = hw_idx };
     }
 };
 

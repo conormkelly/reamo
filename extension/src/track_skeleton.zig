@@ -35,6 +35,7 @@ pub const SkeletonTrack = struct {
     rec_arm: bool = false,
     folder_depth: c_int = 0, // 1=folder parent, 0=normal, -N=closes N folders
     send_count: u16 = 0,
+    hw_output_count: u16 = 0,
 
     pub fn getName(self: *const SkeletonTrack) []const u8 {
         return self.name[0..self.name_len];
@@ -56,6 +57,7 @@ pub const SkeletonTrack = struct {
         if (self.rec_arm != other.rec_arm) return false;
         if (self.folder_depth != other.folder_depth) return false;
         if (self.send_count != other.send_count) return false;
+        if (self.hw_output_count != other.hw_output_count) return false;
         return true;
     }
 };
@@ -131,6 +133,8 @@ pub const State = struct {
                 t.folder_depth = api.getTrackFolderDepth(track);
                 const send_c = api.trackSendCount(track);
                 t.send_count = if (send_c >= 0) @intCast(send_c) else 0;
+                const hw_c = api.trackHwOutputCount(track);
+                t.hw_output_count = if (hw_c >= 0) @intCast(hw_c) else 0;
             }
             // If track disappeared, we keep default empty entry (will be filtered by len=0)
         }
@@ -140,7 +144,7 @@ pub const State = struct {
 
     /// Serialize to JSON event.
     /// Format: {"type":"event","event":"trackSkeleton","payload":{"tracks":[{...},...]}}
-    /// Keys: n=name, g=guid, m=mute, sl=solo, sel=selected, r=rec_arm, fd=folder_depth, sc=send_count
+    /// Keys: n=name, g=guid, m=mute, sl=solo, sel=selected, r=rec_arm, fd=folder_depth, sc=send_count, hc=hw_output_count
     pub fn toJson(self: *const State, buf: []u8) ?[]const u8 {
         var stream = std.io.fixedBufferStream(buf);
         const writer = stream.writer();
@@ -185,6 +189,9 @@ pub const State = struct {
 
             // sc=send_count (int)
             writer.print(",\"sc\":{d}", .{t.send_count}) catch return null;
+
+            // hc=hw_output_count (int)
+            writer.print(",\"hc\":{d}", .{t.hw_output_count}) catch return null;
 
             writer.writeByte('}') catch return null;
         }

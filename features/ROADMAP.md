@@ -56,6 +56,43 @@ Existing take switcher needs UX improvements:
 
 ---
 
+### Routing Modal Enhancement
+
+Add send pan/mode controls and hardware outputs to RoutingModal.
+
+**Plan:** [features/planned/epics/ROUTING_MODAL_ENHANCEMENT.md](planned/epics/ROUTING_MODAL_ENHANCEMENT.md)
+
+**Current State:**
+- Send volume/mute: ✅ Working
+- Send pan: ❌ Not polled, no command
+- Send mode: ✅ Polled, but no command to change it
+- Hardware outputs: ❌ Not implemented
+
+**Phase 1: Backend - Send Pan & Mode**
+- Add `CSurf_OnSendPanChange` FFI binding
+- Poll pan in sends.zig
+- Add `send/setPan` and `send/setMode` commands
+- Add gesture tracking for send pan
+
+**Phase 2: Frontend - Send Pan & Mode UI**
+- MiniPanControl component (horizontal slider, double-tap to center)
+- SendModeToggle component (badge cycling: POST → PRE-FX → PRE)
+- Integrate into RoutingModal rows
+
+**Phase 3: Backend - Hardware Outputs**
+- New HardwareOutputSlot struct
+- Poll hardware outputs (REAPER category=1)
+- Add `hw/*` commands (setVolume, setMute, setPan, setMode)
+
+**Phase 4: Frontend - Hardware Outputs UI**
+- New "Hardware" tab in RoutingModal
+- HardwareOutputRow component
+- hwOutputs store slice
+
+**Effort:** ~2-3 days
+
+---
+
 ## P3 — Future Features (Deferred)
 
 ### Folder Display

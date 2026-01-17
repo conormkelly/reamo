@@ -26,6 +26,7 @@ const midi = @import("midi.zig");
 const project_notes = @import("project_notes.zig");
 const fx = @import("fx.zig");
 const send = @import("send.zig");
+const hw_output = @import("hw_output.zig");
 const playlist_cmds = @import("playlist.zig");
 const preferences = @import("preferences.zig");
 const debug = @import("debug.zig");
@@ -123,6 +124,7 @@ pub const all = .{
     // On-demand track data (sparse field fetch)
     .{ "track/getFx", tracks.handleGetFx },
     .{ "track/getSends", tracks.handleGetSends },
+    .{ "track/getHwOutputs", tracks.handleGetHwOutputs },
     .{ "track/getInput", inputs.handleGetInput },
     .{ "track/setInput", inputs.handleSetInput },
 
@@ -199,6 +201,14 @@ pub const all = .{
     // Sends
     .{ "send/setVolume", send.handleSetVolume },
     .{ "send/setMute", send.handleSetMute },
+    .{ "send/setPan", send.handleSetPan },
+    .{ "send/setMode", send.handleSetMode },
+
+    // Hardware Outputs
+    .{ "hw/setVolume", hw_output.handleSetVolume },
+    .{ "hw/setMute", hw_output.handleSetMute },
+    .{ "hw/setPan", hw_output.handleSetPan },
+    .{ "hw/setMode", hw_output.handleSetMode },
 
     // Playlists (Cue List)
     .{ "playlist/create", playlist_cmds.handleCreate },

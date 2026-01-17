@@ -580,6 +580,10 @@ pub const RealBackend = struct {
         return self.inner.trackSendGetMode(track, send_idx);
     }
 
+    pub fn trackSendGetDestTrack(self: *const RealBackend, track: *anyopaque, send_idx: c_int) ?*anyopaque {
+        return self.inner.trackSendGetDestTrack(track, send_idx);
+    }
+
     pub fn trackSendGetDestName(self: *const RealBackend, track: *anyopaque, send_idx: c_int, buf: []u8) []const u8 {
         return self.inner.trackSendGetDestName(track, send_idx, buf);
     }
@@ -594,6 +598,62 @@ pub const RealBackend = struct {
 
     pub fn trackSendSetMute(self: *const RealBackend, track: *anyopaque, send_idx: c_int, muted: bool) bool {
         return self.inner.trackSendSetMute(track, send_idx, muted);
+    }
+
+    pub fn trackSendGetPan(self: *const RealBackend, track: *anyopaque, send_idx: c_int) f64 {
+        return self.inner.trackSendGetPan(track, send_idx);
+    }
+
+    pub fn trackSendSetPan(self: *const RealBackend, track: *anyopaque, send_idx: c_int, pan: f64) f64 {
+        return self.inner.trackSendSetPan(track, send_idx, pan);
+    }
+
+    pub fn trackSendSetMode(self: *const RealBackend, track: *anyopaque, send_idx: c_int, mode: c_int) bool {
+        return self.inner.trackSendSetMode(track, send_idx, mode);
+    }
+
+    // =========================================================================
+    // Hardware Outputs
+    // =========================================================================
+
+    pub fn trackHwOutputCount(self: *const RealBackend, track: *anyopaque) c_int {
+        return self.inner.trackHwOutputCount(track);
+    }
+
+    pub fn trackHwOutputGetVolume(self: *const RealBackend, track: *anyopaque, hw_idx: c_int) f64 {
+        return self.inner.trackHwOutputGetVolume(track, hw_idx);
+    }
+
+    pub fn trackHwOutputGetPan(self: *const RealBackend, track: *anyopaque, hw_idx: c_int) f64 {
+        return self.inner.trackHwOutputGetPan(track, hw_idx);
+    }
+
+    pub fn trackHwOutputGetMute(self: *const RealBackend, track: *anyopaque, hw_idx: c_int) bool {
+        return self.inner.trackHwOutputGetMute(track, hw_idx);
+    }
+
+    pub fn trackHwOutputGetMode(self: *const RealBackend, track: *anyopaque, hw_idx: c_int) ffi.FFIError!c_int {
+        return ffi.safeFloatToInt(c_int, self.inner.trackHwOutputGetModeRaw(track, hw_idx));
+    }
+
+    pub fn trackHwOutputGetDestChannel(self: *const RealBackend, track: *anyopaque, hw_idx: c_int) ffi.FFIError!c_int {
+        return ffi.safeFloatToInt(c_int, self.inner.trackHwOutputGetDestChannelRaw(track, hw_idx));
+    }
+
+    pub fn trackHwOutputSetVolume(self: *const RealBackend, track: *anyopaque, hw_idx: c_int, volume: f64) bool {
+        return self.inner.trackHwOutputSetVolume(track, hw_idx, volume);
+    }
+
+    pub fn trackHwOutputSetPan(self: *const RealBackend, track: *anyopaque, hw_idx: c_int, pan: f64) bool {
+        return self.inner.trackHwOutputSetPan(track, hw_idx, pan);
+    }
+
+    pub fn trackHwOutputSetMute(self: *const RealBackend, track: *anyopaque, hw_idx: c_int, muted: bool) bool {
+        return self.inner.trackHwOutputSetMute(track, hw_idx, muted);
+    }
+
+    pub fn trackHwOutputSetMode(self: *const RealBackend, track: *anyopaque, hw_idx: c_int, mode: c_int) bool {
+        return self.inner.trackHwOutputSetMode(track, hw_idx, mode);
     }
 
     // =========================================================================

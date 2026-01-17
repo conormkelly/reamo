@@ -1476,16 +1476,25 @@ if (elapsed_ns > 1_000_000) { // > 1ms
     3. Command handler - Call `gestures.recordActivity()`
     4. `API.md` - Document the new controlType
 
-15. **Compound control IDs need sub_idx** - Controls like sends require both track index AND send index. The `ControlId` struct has `sub_idx` for this:
+15. **Compound control IDs need sub_idx** - Controls like sends and hardware outputs require both track index AND send/hw index. The `ControlId` struct has `sub_idx` for this:
     ```zig
     // Track volume: only needs track_idx
     ControlId.volume(track_idx)
 
     // Send volume: needs track_idx AND send_idx
     ControlId.sendVolume(track_idx, send_idx)
+    ControlId.sendPan(track_idx, send_idx)
+
+    // Hardware output: needs track_idx AND hw_idx
+    ControlId.hwOutputVolume(track_idx, hw_idx)
+    ControlId.hwOutputPan(track_idx, hw_idx)
     ```
 
-16. **Not all controls have CSurf equivalents** - Some controls lack CSurf APIs. For send mute, use `SetTrackSendInfo_Value(track, 0, idx, "B_MUTE", value)` since there's no `CSurf_OnSendMuteChange`. Always check `docs/reaper_plugin_functions.h` for available CSurf functions before assuming one doesn't exist — e.g., `CSurf_OnFXChange` exists for FX chain enable and we do use it.
+16. **Not all controls have CSurf equivalents** - Some controls lack CSurf APIs:
+    - **Hardware outputs**: `CSurf_OnSendVolumeChange` only works for category 0 (sends), not category 1 (hardware outputs) — its signature `(track, send_idx, volume, relative)` has no category parameter. Use `SetTrackSendInfo_Value(track, 1, hw_idx, "D_VOL", value)` directly; undo coalescing relies on gesture tracking.
+    - **Send mute**: Use `SetTrackSendInfo_Value(track, 0, idx, "B_MUTE", value)` since there's no `CSurf_OnSendMuteChange`.
+
+    Always check `docs/reaper_plugin_functions.h` for available CSurf functions before assuming one doesn't exist — e.g., `CSurf_OnFXChange` exists for FX chain enable and we do use it.
 
 17. **ResponseWriter buffer sizes** - `ResponseWriter.success()` uses a 512-byte buffer, which silently fails (via `catch return`) for large payloads. For commands returning user content (project notes, item peaks, etc.), use `successLargePayload()` which heap-allocates a 128KB buffer per call. This avoids both stack overflow and shared-state issues between concurrent commands. Heap allocation is safe for timer callbacks since they run on the main thread (see `research/ZIG_MEMORY_MANAGEMENT.md`). The silent failure in `success()` causes frontend timeouts with no error in logs — a subtle bug. Rule of thumb: if the response includes user-generated content that could exceed ~400 chars, use `successLargePayload()`.
 
