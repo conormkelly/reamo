@@ -161,6 +161,38 @@ pub const State = struct {
         return true;
     }
 
+    /// Compute hash for change detection - hashes ALL fields that appear in broadcast JSON.
+    /// More efficient than element-by-element comparison for large track counts.
+    /// Catches changes that CSurf callbacks miss (undo/redo, FX drag, action-based selection).
+    pub fn computeHash(self: *const State) u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(std.mem.asBytes(&self.tracks.len));
+        for (self.tracks) |*t| {
+            // All fields from Track.eql() / toJsonWithTotal():
+            hasher.update(std.mem.asBytes(&t.idx));
+            hasher.update(t.name[0..t.name_len]); // Variable-length name content
+            hasher.update(std.mem.asBytes(&t.name_len));
+            hasher.update(std.mem.asBytes(&t.color));
+            hasher.update(std.mem.asBytes(&t.volume));
+            hasher.update(std.mem.asBytes(&t.pan));
+            hasher.update(std.mem.asBytes(&t.mute));
+            hasher.update(std.mem.asBytes(&t.solo));
+            hasher.update(std.mem.asBytes(&t.rec_arm));
+            hasher.update(std.mem.asBytes(&t.rec_mon));
+            hasher.update(std.mem.asBytes(&t.fx_enabled));
+            hasher.update(std.mem.asBytes(&t.selected));
+            hasher.update(std.mem.asBytes(&t.folder_depth));
+            hasher.update(std.mem.asBytes(&t.fx_count));
+            hasher.update(std.mem.asBytes(&t.send_count));
+            hasher.update(std.mem.asBytes(&t.receive_count));
+            hasher.update(std.mem.asBytes(&t.hw_output_count));
+            hasher.update(std.mem.asBytes(&t.rec_input));
+            hasher.update(t.guid[0..t.guid_len]); // Variable-length GUID content
+            hasher.update(std.mem.asBytes(&t.guid_len));
+        }
+        return hasher.final();
+    }
+
     /// Poll current state from REAPER, allocating from the provided allocator.
     /// Accepts any backend type (RealBackend, MockBackend, or test doubles).
     /// Uses unified indexing: idx 0 = master, idx 1+ = user tracks.
@@ -1008,5 +1040,68 @@ test "State.toJson includes sparse counts" {
     // Verify old arrays are NOT in JSON
     try std.testing.expect(std.mem.indexOf(u8, json, "\"fx\":[") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"sends\":[") == null);
+}
+
+test "State.computeHash detects changes" {
+    var tracks_buf: [2]Track = undefined;
+    var state = State{ .tracks = &tracks_buf };
+
+    // Initialize tracks
+    state.tracks[0] = .{ .idx = 0, .volume = 1.0, .pan = 0.0, .mute = false, .solo = 0, .rec_arm = false, .rec_mon = 0, .fx_enabled = true };
+    state.tracks[0].name[0..6].* = "Master".*;
+    state.tracks[0].name_len = 6;
+    state.tracks[0].guid[0..6].* = "master".*;
+    state.tracks[0].guid_len = 6;
+
+    state.tracks[1] = .{ .idx = 1, .volume = 0.8, .pan = -0.5, .mute = false, .solo = 0, .rec_arm = false, .rec_mon = 0, .fx_enabled = true };
+    state.tracks[1].name[0..5].* = "Drums".*;
+    state.tracks[1].name_len = 5;
+    state.tracks[1].guid[0..8].* = "{abc123}".*;
+    state.tracks[1].guid_len = 8;
+
+    const hash1 = state.computeHash();
+
+    // Same state should produce same hash
+    const hash2 = state.computeHash();
+    try std.testing.expectEqual(hash1, hash2);
+
+    // Changing any field should produce different hash
+    state.tracks[1].mute = true;
+    const hash3 = state.computeHash();
+    try std.testing.expect(hash1 != hash3);
+
+    // Change back - should match original
+    state.tracks[1].mute = false;
+    const hash4 = state.computeHash();
+    try std.testing.expectEqual(hash1, hash4);
+
+    // Change volume - should differ
+    state.tracks[1].volume = 0.5;
+    const hash5 = state.computeHash();
+    try std.testing.expect(hash1 != hash5);
+}
+
+test "State.computeHash detects track count changes" {
+    var tracks_buf: [2]Track = undefined;
+    var state1 = State{ .tracks = tracks_buf[0..1] };
+    var state2 = State{ .tracks = tracks_buf[0..2] };
+
+    // Initialize
+    state1.tracks[0] = .{ .idx = 0 };
+    state2.tracks[0] = .{ .idx = 0 };
+    state2.tracks[1] = .{ .idx = 1 };
+
+    const hash1 = state1.computeHash();
+    const hash2 = state2.computeHash();
+
+    // Different track counts should produce different hashes
+    try std.testing.expect(hash1 != hash2);
+}
+
+test "State.computeHash empty state" {
+    const state = State.empty();
+    const hash = state.computeHash();
+    // Empty state should still produce a valid hash (of just the length=0)
+    try std.testing.expect(hash != 0); // Wyhash of len=0 should be non-zero
 }
 

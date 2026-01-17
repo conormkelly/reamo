@@ -36,8 +36,9 @@ pub fn build(b: *std.Build) void {
         lib.linkLibrary(ztracy_dep.artifact("tracy"));
     }
 
-    // CSurf integration option - compiles C++ shim for IReaperControlSurface callbacks
-    const enable_csurf = b.option(bool, "csurf", "Enable CSurf push-based callbacks") orelse false;
+    // CSurf integration - push-based callbacks from REAPER for instant state change notifications.
+    // Enabled by default. Use -Dcsurf=false to disable for debugging.
+    const enable_csurf = b.option(bool, "csurf", "Enable CSurf push-based callbacks") orelse true;
 
     // Pass csurf option to Zig code for conditional compilation
     const csurf_options = b.addOptions();

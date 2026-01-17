@@ -57,6 +57,10 @@ var g_dirty_flags: ?*csurf_dirty.DirtyFlags = null;
 // Track skeleton state for LOW tier change detection
 var g_last_skeleton: track_skeleton.State = .{};
 var g_last_skeleton_buf: []track_skeleton.SkeletonTrack = &.{};
+
+// CSurf: Hash-based track change detection
+var g_prev_tracks_hash: u64 = 0;
+var g_last_drift_log_time: i64 = 0; // Rate-limit drift warnings (max 1/sec)
 var g_server: ?ws_server.Server = null;
 var g_port: u16 = 0;
 var g_tiered: ?tiered_state.TieredArenas = null;
@@ -472,6 +476,9 @@ fn doProcessing() !void {
     var force_markers = false;
     var force_tempo = false;
 
+    // CSurf: Track dirty flags for instant latency response
+    var csurf_track_dirty = false;
+
     if (csurf.enabled) {
         if (g_dirty_flags) |flags| {
             // Consume global dirty flags (reads and clears atomically)
@@ -479,6 +486,14 @@ fn doProcessing() !void {
             force_transport = csurf_dirty.DirtyFlags.consumeGlobal(&flags.transport_dirty);
             force_markers = csurf_dirty.DirtyFlags.consumeGlobal(&flags.markers_dirty);
             force_tempo = csurf_dirty.DirtyFlags.consumeGlobal(&flags.tempo_dirty);
+
+            // Consume per-track dirty flags
+            // Note: We don't filter by dirty indices - we still poll all subscribed tracks
+            // to maintain hash-based change detection. Dirty flags are used to:
+            // 1. Force broadcast even if hash unchanged (instant latency response)
+            // 2. Detect drift when hash changes without dirty flags (missed callback)
+            const track_dirty_result = flags.consumeTrackDirty();
+            csurf_track_dirty = track_dirty_result.all or track_dirty_result.bits.count() > 0;
         }
     }
 
@@ -728,16 +743,36 @@ fn doProcessing() !void {
             // Poll metering for subscribed tracks (same indices as track subscriptions)
             high_state.metering.pollSubscribedInto(api, subscribed_indices);
 
-            // Broadcast tracks event (when data changes OR new subscription needs immediate data)
+            // CSurf: Hash-based change detection with dirty flag force broadcast
+            // This replaces tracksSliceEql for more robust change detection.
             const force_broadcast = track_subs.consumeForceBroadcast();
-            const tracks_changed = !tracksSliceEql(high_state.tracks, high_prev.tracks);
-            if (tracks_changed or force_broadcast) {
-                const temp_state = tracks.State{ .tracks = high_state.tracks };
+            const temp_state = tracks.State{ .tracks = high_state.tracks };
+            const current_hash = temp_state.computeHash();
+            const hash_changed = current_hash != g_prev_tracks_hash;
+
+            // Combine all change signals:
+            // 1. hash_changed: actual state change detected via hash comparison
+            // 2. force_broadcast: new subscription needs immediate data
+            // 3. csurf_track_dirty: CSurf callback signaled a change (instant latency)
+            const tracks_changed = hash_changed or force_broadcast or csurf_track_dirty;
+
+            // Drift logging: hash changed but no dirty flag = missed callback
+            // Rate-limited to max 1/second to avoid spam during undo/redo bursts
+            if (csurf.enabled and hash_changed and !csurf_track_dirty and !force_broadcast) {
+                const now_ms = std.time.milliTimestamp();
+                if (now_ms - g_last_drift_log_time > 1000) {
+                    logging.warn("Track state drift detected without dirty flag (undo/selection/FX drag?)", .{});
+                    g_last_drift_log_time = now_ms;
+                }
+            }
+
+            if (tracks_changed) {
                 const scratch = tiered.scratchAllocator();
                 // Use toJsonWithTotalAlloc to include total track count for viewport scrollbar
                 if (temp_state.toJsonWithTotalAlloc(scratch, null, total_tracks)) |json| {
                     shared_state.broadcast(json);
                 } else |_| {}
+                g_prev_tracks_hash = current_hash;
             }
 
             // Broadcast separate meters event (always at 30Hz when there are subscriptions)
@@ -763,15 +798,27 @@ fn doProcessing() !void {
         // Poll all meters when no subscription system
         high_state.metering.pollInto(api);
 
-        // Broadcast tracks event (only when changed)
-        // Use toJsonWithTotalAlloc for consistent format with subscription path (includes total, GUID, recInput)
-        const tracks_changed = !tracksSliceEql(high_state.tracks, high_prev.tracks);
+        // CSurf: Hash-based change detection (fallback path)
+        const temp_state = tracks.State{ .tracks = high_state.tracks };
+        const current_hash = temp_state.computeHash();
+        const hash_changed = current_hash != g_prev_tracks_hash;
+        const tracks_changed = hash_changed or csurf_track_dirty;
+
+        // Drift logging (same as subscription path)
+        if (csurf.enabled and hash_changed and !csurf_track_dirty) {
+            const now_ms = std.time.milliTimestamp();
+            if (now_ms - g_last_drift_log_time > 1000) {
+                logging.warn("Track state drift detected without dirty flag (undo/selection/FX drag?)", .{});
+                g_last_drift_log_time = now_ms;
+            }
+        }
+
         if (tracks_changed) {
-            const temp_state = tracks.State{ .tracks = high_state.tracks };
             const scratch = tiered.scratchAllocator();
             if (temp_state.toJsonWithTotalAlloc(scratch, null, total_tracks)) |json| {
                 shared_state.broadcast(json);
             } else |_| {}
+            g_prev_tracks_hash = current_hash;
         }
 
         // Broadcast separate meters event
@@ -785,7 +832,6 @@ fn doProcessing() !void {
 
     // Note: FX/sends are sparse counts populated during poll().
     // Full FX/sends data is fetched on-demand via track/getFx, track/getSends commands.
-
 
     // Poll toggle state subscriptions and broadcast changes (HIGH TIER - but only when subscribed)
     if (g_toggle_subs) |toggles| {
@@ -1426,9 +1472,8 @@ fn doProcessing() !void {
     // ========================================================================
     if (csurf.enabled and g_frame_counter % csurf_dirty.SAFETY_POLL_INTERVAL == 0) {
         if (g_dirty_flags) |flags| {
+            // Force re-broadcast even if hash unchanged - catches any accumulated drift
             flags.setAllTracksDirty();
-            // Note: Future phases will consume track_dirty bits during polling.
-            // For now this just ensures the flag is set for when that's implemented.
         }
     }
 
