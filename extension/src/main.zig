@@ -262,6 +262,12 @@ fn doInitialization() !void {
         state.setTimePreciseFn(time_fn);
     }
 
+    // Initialize DirtyFlags for CSurf push-based polling
+    // Must be created before CSurf registration so callbacks can access it
+    const dirty_flags = try g_allocator.create(csurf_dirty.DirtyFlags);
+    dirty_flags.* = .{};
+    g_dirty_flags = dirty_flags;
+
     // Generate session token and store in EXTSTATE
     var token_bytes: [16]u8 = undefined;
     std.crypto.random.bytes(&token_bytes);
@@ -280,6 +286,11 @@ fn doInitialization() !void {
                 g_allocator.destroy(cs);
                 return err;
             };
+
+            // Wire dirty flags and GUID cache to CSurf module BEFORE registration
+            // This allows callbacks to set dirty flags as soon as they start firing
+            csurf.setDirtyFlagsAndCache(g_dirty_flags, g_guid_cache);
+
             if (cs.register()) {
                 g_csurf = cs;
                 logging.info("CSurf registered for push-based callbacks", .{});
@@ -448,6 +459,43 @@ fn doProcessing() !void {
     var tiered = &(g_tiered orelse return error.TieredNotInitialized);
     try tiered.beginFrame(g_frame_counter);
 
+    // Create backend for state polling (needed early for skeleton rebuild)
+    var backend = reaper.RealBackend{ .inner = api };
+
+    // ========================================================================
+    // CONSUME DIRTY FLAGS (every frame, before any tier logic)
+    // CSurf callbacks set these flags; we consume and clear them here.
+    // This enables O(changes) polling instead of O(n) unconditional polling.
+    // ========================================================================
+    var force_skeleton = false;
+
+    if (csurf.enabled) {
+        if (g_dirty_flags) |flags| {
+            // Consume global dirty flags (reads and clears atomically)
+            // Note: transport/markers/tempo dirty handling deferred to Phase 4.5
+            // For now, just consume skeleton_dirty for immediate rebuild
+            force_skeleton = csurf_dirty.DirtyFlags.consumeGlobal(&flags.skeleton_dirty);
+        }
+    }
+
+    // ========================================================================
+    // IMMEDIATE SKELETON REBUILD (when dirty, not tier-bound)
+    // This minimizes the window where CSurf track callbacks are dropped
+    // because reverse_map is invalid (< 33ms vs up to 1s if tier-bound).
+    // ========================================================================
+    if (force_skeleton) {
+        if (g_guid_cache) |cache| {
+            cache.rebuild(&backend) catch |err| {
+                logging.err("CSurf skeleton rebuild failed: {s}", .{@errorName(err)});
+            };
+            // Mark reverse_map as valid so track callbacks work again
+            if (g_dirty_flags) |flags| {
+                flags.reverse_map_valid = true;
+            }
+            logging.debug("CSurf triggered skeleton rebuild", .{});
+        }
+    }
+
     // Deferred WebSocket server startup - wait a moment for REAPER UI to settle
     if (!g_ws_started and g_frame_counter >= WS_START_DELAY_FRAMES) {
         g_ws_started = true;
@@ -464,9 +512,6 @@ fn doProcessing() !void {
 
         logging.info("WebSocket server started on port {d}", .{g_port});
     }
-
-    // Create backend for state polling
-    var backend = reaper.RealBackend{ .inner = api };
 
     // Process pending commands from WebSocket clients
     while (shared_state.popCommand()) |cmd| {
@@ -1290,6 +1335,20 @@ fn doProcessing() !void {
         // Expire subscription grace periods (1Hz cleanup)
         if (g_track_subs) |track_subs| {
             track_subs.expireGracePeriods();
+        }
+    }
+
+    // ========================================================================
+    // HEARTBEAT SAFETY NET (every 2 seconds = 60 frames at 30Hz)
+    // CSurf can miss events (rapid changes, ReaScript, undo/redo).
+    // This forces full comparison of all subscribed state to catch drift.
+    // SWS-validated interval from research/REAPER_CSURF_API_BEHAVIOUR.md
+    // ========================================================================
+    if (csurf.enabled and g_frame_counter % csurf_dirty.SAFETY_POLL_INTERVAL == 0) {
+        if (g_dirty_flags) |flags| {
+            flags.setAllTracksDirty();
+            // Note: Future phases will consume track_dirty bits during polling.
+            // For now this just ensures the flag is set for when that's implemented.
         }
     }
 
