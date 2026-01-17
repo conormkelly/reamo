@@ -27,6 +27,7 @@ const peaks_generator = @import("peaks_generator.zig");
 const peaks_cache = @import("peaks_cache.zig");
 const track_skeleton = @import("track_skeleton.zig");
 const csurf = @import("csurf.zig");
+const csurf_dirty = @import("csurf_dirty.zig");
 const ztracy = @import("ztracy");
 
 // Use custom panic handler that flushes log ring buffer before aborting
@@ -51,6 +52,7 @@ var g_routing_subs: ?*routing_subscriptions.RoutingSubscriptions = null;
 var g_peaks_cache: ?*peaks_cache.PeaksCache = null;
 var g_csurf: ?*csurf.ControlSurface = null;
 var g_plugin_register: ?*const fn ([*:0]const u8, ?*anyopaque) callconv(.c) c_int = null;
+var g_dirty_flags: ?*csurf_dirty.DirtyFlags = null;
 
 // Track skeleton state for LOW tier change detection
 var g_last_skeleton: track_skeleton.State = .{};

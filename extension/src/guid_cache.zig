@@ -1,18 +1,21 @@
 /// GUID Cache - O(1) GUID → track pointer lookup for write commands.
 ///
-/// Rebuilt atomically when skeleton changes (detected in LOW tier at 1Hz).
+/// Rebuilt atomically when skeleton changes (detected in LOW tier at 1Hz,
+/// or immediately when CSurf SetTrackListChange fires).
 /// Used by GUID-based write commands (e.g., track/setVolume with trackGuid parameter).
 ///
 /// Design:
 /// - StringHashMap with owned GUID keys (duped into allocator)
 /// - Master track uses "master" literal, not REAPER's unreliable GUID
 /// - Generation counter for staleness detection if needed
+/// - Reverse map (track pointer → index) for CSurf callback resolution
 ///
 /// Usage:
 ///   var cache = GuidCache.init(allocator);
 ///   defer cache.deinit();
 ///   try cache.rebuild(&backend);
 ///   const track = cache.resolve("{XXXXXXXX-...}");
+///   const idx = cache.resolveToIndex(track_ptr);
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
@@ -26,6 +29,10 @@ pub const GuidCache = struct {
     /// Value is the opaque track pointer from REAPER.
     map: std.StringHashMap(*anyopaque),
 
+    /// Reverse map: track pointer → unified index (0 = master, 1+ = user tracks).
+    /// Used by CSurf callbacks to resolve MediaTrack* to track index for dirty flags.
+    reverse_map: std.AutoHashMap(*anyopaque, c_int),
+
     /// Incremented on each rebuild - allows staleness detection if needed.
     generation: u32,
 
@@ -36,6 +43,7 @@ pub const GuidCache = struct {
         return .{
             .allocator = allocator,
             .map = std.StringHashMap(*anyopaque).init(allocator),
+            .reverse_map = std.AutoHashMap(*anyopaque, c_int).init(allocator),
             .generation = 0,
             .master_track = null,
         };
@@ -48,10 +56,12 @@ pub const GuidCache = struct {
             self.allocator.free(key.*);
         }
         self.map.deinit();
+        self.reverse_map.deinit();
     }
 
     /// Rebuild entire cache from current REAPER state.
-    /// Called when skeleton changes (LOW tier detects track add/delete/reorder).
+    /// Called when skeleton changes (LOW tier detects track add/delete/reorder,
+    /// or CSurf SetTrackListChange fires).
     /// Uses anytype for backend abstraction (RealBackend or MockBackend).
     pub fn rebuild(self: *GuidCache, api: anytype) !void {
         // Clear existing entries (free owned strings)
@@ -60,6 +70,7 @@ pub const GuidCache = struct {
             self.allocator.free(key.*);
         }
         self.map.clearRetainingCapacity();
+        self.reverse_map.clearRetainingCapacity();
 
         // Cache master track
         self.master_track = api.masterTrack();
@@ -77,6 +88,8 @@ pub const GuidCache = struct {
                 // Dupe GUID string for owned storage
                 const owned_guid = try self.allocator.dupe(u8, guid);
                 try self.map.put(owned_guid, track);
+                // Also populate reverse map for CSurf callbacks
+                try self.reverse_map.put(track, idx);
             }
         }
 
@@ -92,6 +105,17 @@ pub const GuidCache = struct {
             return self.master_track;
         }
         return self.map.get(guid);
+    }
+
+    /// Resolve track pointer to unified index (0 = master, 1+ = user tracks).
+    /// Used by CSurf callbacks to map MediaTrack* to track index for dirty flags.
+    /// Returns null if track pointer not found (track was deleted or cache stale).
+    pub fn resolveToIndex(self: *const GuidCache, track: *anyopaque) ?c_int {
+        // Special case: master track → index 0
+        if (self.master_track) |master| {
+            if (track == master) return 0;
+        }
+        return self.reverse_map.get(track);
     }
 
     /// Get current generation for staleness checks.
@@ -188,4 +212,32 @@ test "GuidCache rebuild clears stale entries" {
     // Old GUIDs should be gone
     try std.testing.expect(cache.resolve("{00000000-0000-0000-0000-000000000002}") == null);
     try std.testing.expect(cache.resolve("{00000000-0000-0000-0000-000000000003}") == null);
+}
+
+test "GuidCache resolveToIndex" {
+    const reaper = @import("reaper.zig");
+    var mock = reaper.MockBackend{ .track_count = 2 };
+
+    var cache = GuidCache.init(std.testing.allocator);
+    defer cache.deinit();
+
+    try cache.rebuild(&mock);
+
+    // Get track pointers via GUID
+    const track1 = cache.resolve("{00000000-0000-0000-0000-000000000001}").?;
+    const track2 = cache.resolve("{00000000-0000-0000-0000-000000000002}").?;
+
+    // Resolve back to indices
+    try std.testing.expectEqual(@as(c_int, 1), cache.resolveToIndex(track1).?);
+    try std.testing.expectEqual(@as(c_int, 2), cache.resolveToIndex(track2).?);
+
+    // Master track resolves to index 0
+    if (cache.master_track) |master| {
+        try std.testing.expectEqual(@as(c_int, 0), cache.resolveToIndex(master).?);
+    }
+
+    // Unknown pointer returns null
+    var dummy: u8 = 99;
+    const unknown_ptr: *anyopaque = @ptrCast(&dummy);
+    try std.testing.expect(cache.resolveToIndex(unknown_ptr) == null);
 }
