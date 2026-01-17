@@ -7,6 +7,7 @@ This document captures implementation details, API quirks, and outstanding work 
 - [Quick Start](#quick-start)
 - [Architecture Overview](#architecture-overview)
 - [Data Flow](#data-flow)
+- [CSurf Push-Based Architecture](#csurf-push-based-architecture)
 - [Conventions](#conventions)
 - [REAPER API Critical Knowledge](#reaper-api-critical-knowledge) — Track indexing, colors, master track quirks, metering
 - [Frontend Conventions](#frontend-conventions) — Volume/color conversion, UI patterns, gestures, animation
@@ -440,6 +441,126 @@ ws.send({ command: "timeline/subscribe", timeRange: { start, end } });
 **Items (subscription required):** Requires `timeline/subscribe` with time range. Items overlapping the subscribed range are sent at 5Hz when changed.
 
 **Per-client change detection:** Each client has its own hash tracking for items. Events are only sent when the filtered data actually changes (or on initial subscription via `force_broadcast`).
+
+## CSurf Push-Based Architecture
+
+The extension uses REAPER's **IReaperControlSurface** (CSurf) API to receive push-based callbacks when state changes, reducing latency from polling intervals to near-instant (<33ms).
+
+### What CSurf Actually Achieves
+
+The original plan claimed 99% API call reduction — **this was not implemented** because research showed filtering polling by dirty flags is unsafe (callback gaps would cause missed updates). Instead, we kept full polling and use dirty flags for latency optimization.
+
+**Tangible benefits:**
+
+| Benefit | Before | After |
+|---------|--------|-------|
+| Marker/region change latency | 200ms (5Hz MEDIUM tier) | <33ms when callback fires |
+| Tempo change latency | 1000ms (1Hz LOW tier) | <33ms when callback fires |
+| Change detection | Fragile slice comparison | Robust hash comparison |
+| Debugging | Blind to missed updates | Drift logging shows callback gaps |
+
+**Foundation for future work:** The dirty flag infrastructure (per-track bitsets, reverse map) exists if we find safe optimizations. FX subscription is a candidate — see `features/ROADMAP.md`.
+
+### Why Hybrid, Not Pure Callbacks
+
+Research and production experience (SWS, MCU, HUI, ReaLearn) confirmed that pure callback-driven architectures don't work reliably. CSurf has documented gaps:
+
+- `OnTrackSelection()` doesn't fire for action/API-based selection
+- `CSURF_EXT_SETFXCHANGE` doesn't fire when dragging FX between tracks
+- Undo/redo has no dedicated callback
+- Project tab switching only triggers `SetTrackListChange()`
+
+**Solution:** Callback-primary with polling safety net. Trust callbacks for immediate response, use dirty flags for instant latency, run hash-based comparison to catch drift.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  REAPER IReaperControlSurface Callbacks                         │
+│  SetPlayState(), SetSurfaceVolume(), SetTrackListChange(), etc. │
+└────────────────────────────┬────────────────────────────────────┘
+                             │ Push (main thread)
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  C++ Shim (zig_control_surface.cpp)                             │
+│  Forwards virtual calls to Zig function pointers                │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  DirtyFlags (csurf_dirty.zig)                                   │
+│  - Per-track: track_dirty, fx_dirty, sends_dirty (BitSet 1024)  │
+│  - Global: transport_dirty, skeleton_dirty, markers_dirty       │
+│  - reverse_map_valid: guard against stale pointers              │
+└────────────────────────────┬────────────────────────────────────┘
+                             │ Consumed every frame
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Main Loop (doProcessing @ 30Hz)                                │
+│  1. Consume dirty flags → force immediate polling/broadcast     │
+│  2. Skeleton rebuild if dirty (before track flag consumption)   │
+│  3. Poll all subscribed tracks, hash-based change detection     │
+│  4. Broadcast if hash changed OR dirty flag set                 │
+│  5. 2-second heartbeat sets all_dirty (safety net)              │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Design Decisions
+
+1. **`csurf_inst` registration** — Uses `plugin_register("csurf_inst", ...)` not `"csurf"`. Surface auto-activates on plugin load, never appears in Preferences, requires zero user configuration.
+
+2. **Dirty flags, not direct broadcast** — Callbacks set flags; main loop consumes them. Avoids race conditions and maintains single source of truth (polling).
+
+3. **Poll ALL subscribed tracks, use flags for latency** — We do NOT filter polling by dirty bits. Callback gaps would cause missed updates. Instead, dirty flags force immediate broadcast even if hash unchanged.
+
+4. **Hash-based change detection** — Wyhash of all 19 track fields that appear in JSON. Catches any drift from missed callbacks. Cost: ~0.0008% CPU at 30Hz.
+
+5. **2-second heartbeat** — SWS-validated interval. Sets `all_tracks_dirty` to force full comparison, catching ReaScript changes and rapid undo/redo.
+
+6. **Reverse map validity guard** — Between `SetTrackListChange` and rebuild, track pointers are stale. Callbacks check `reverse_map_valid` and bail early if false.
+
+7. **Always return 0 from Extended()** — Per SWS best practice, never consume callbacks. Return value semantics are undocumented.
+
+### What Still Polls (No Callback Exists)
+
+| State | Polling Rate | Notes |
+|-------|--------------|-------|
+| Playhead position | 30Hz | Core transport display |
+| Peak meters | 30Hz | No CSurf metering callback |
+| Edit cursor / time selection | 30Hz | No callback |
+| Undo state | 5Hz | No callback |
+| Project length | 1Hz | Rarely changes |
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `zig_control_surface.cpp` | C++ shim implementing IReaperControlSurface |
+| `zig_control_surface.h` | Callback typedefs and struct |
+| `csurf.zig` | Zig module wiring callbacks to dirty flags |
+| `csurf_dirty.zig` | DirtyFlags struct with BitSet(1024) per-track granularity |
+| `guid_cache.zig` | Includes reverse_map (track pointer → index) for callback resolution |
+
+### Build Options
+
+CSurf is enabled by default. To disable for debugging:
+
+```bash
+zig build -Dcsurf=false    # Reverts to pure polling
+make extension             # Uses default (CSurf enabled)
+```
+
+### Debugging CSurf Issues
+
+**Drift logging:** When hash changes without a dirty flag, the extension logs a warning. This indicates a missed callback (common causes: undo/redo, action-based selection, FX drag).
+
+**Symptoms of callback gaps:**
+- State changes not reflected until 2-second heartbeat
+- Drift warnings in logs: `"Track drift without dirty flag"`
+
+**If CSurf causes issues:** Build with `-Dcsurf=false` to isolate. The extension gracefully falls back to pure time-based polling.
+
+See `docs/architecture/CSURF_MIGRATION.md` for full implementation plan and research references.
 
 ## Conventions
 

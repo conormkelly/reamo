@@ -309,69 +309,88 @@ Frontend UI to browse and add available FX plugins to tracks.
 
 Low-priority performance improvements to consider when scaling or if profiling indicates need.
 
-### CSurf Push-Based Architecture (Major Optimization)
-
-**Status:** Research complete. Ready to implement.
-
-**Research:** [research/ZIG_CONTROL_SURFACE.md](../research/ZIG_CONTROL_SURFACE.md)
-
-**Current State:** All state polling at 30Hz (transport, tracks, FX, markers, etc.)
-
-**With CSurf:** Push-based callbacks for most state, polling only for position/meters.
-
-| State | Current | With CSurf |
-|-------|---------|------------|
-| Transport play/pause/rec | 30Hz poll | **Instant** `SetPlayState()` |
-| Track volume/pan | 30Hz poll | **Instant** `SetSurfaceVolume/Pan()` |
-| Track mute/solo | 30Hz poll | **Instant** `SetSurfaceMute/Solo()` |
-| Track selection | 30Hz poll | **Instant** `SetSurfaceSelected()` |
-| Track list changes | 5Hz poll | **Instant** `SetTrackListChange()` |
-| FX parameters | 5Hz poll | **Instant** `Extended(SETFXPARAM)` |
-| FX bypass | 5Hz poll | **Instant** `Extended(SETFXENABLED)` |
-| Markers/regions | 5Hz poll | **Instant** `Extended(MARKERCHANGE)` |
-| Send volume/pan | 5Hz poll | **Instant** `Extended(SETSENDVOLUME)` |
-| Repeat state | 5Hz poll | **Instant** `SetRepeatState()` |
-| BPM/playrate | 5Hz poll | **Instant** `Extended(SETBPMANDPLAYRATE)` |
-| **Playhead position** | 30Hz poll | **Still poll** (no callback exists) |
-| **Peak metering** | 30Hz poll | **Still poll** (no callback exists) |
-| **Edit cursor** | 30Hz poll | **Still poll** |
-| **Time selection** | 30Hz poll | **Still poll** |
-| **Undo state** | 5Hz poll | **Still poll** |
-
-**Benefits:**
-- Instant state change notifications (~0ms vs ~33ms latency)
-- Reduced CPU (only poll what has no callback)
-- Timer can drop from 30Hz to ~10Hz (position/meters only)
-- Cleaner architecture (react to changes vs poll for them)
-
-**Implementation:**
-1. Add C++ shim (~100 lines) - forwards virtual calls to C function pointers
-2. Update build.zig to compile C++ and link with Zig
-3. Create Zig CSurf module implementing callbacks
-4. Merge instant callbacks into existing broadcast system
-5. Reduce timer to ~10Hz for position/meters only
-
-**Gotchas (from research):**
-- `SetSurfaceSelected` fires per-track - debounce before broadcasting
-- `CSURF_EXT_SETPROJECTMARKERCHANGE` has no details - must re-enumerate
-- Volume values are 0.0-1.0 normalized, not dB
-- All callbacks run on main thread (same as timer)
-
-**Effort:** M-L (C++ shim + Zig integration + refactor polling)
-
----
-
 ### WebSocket Compression (gzip)
 
 Per-message deflate for large payloads (action list ~985KB). Blocked on websocket.zig library update for Zig 0.15. Expected 10-15x compression for text payloads.
+
+### Dirty Flag Poll Deferral
+
+When CSurf dirty flags trigger an immediate poll, defer the next tier poll to avoid redundant API calls.
+
+**Current behavior:**
+- Frame N: Dirty flag fires → immediate poll (not on tier tick)
+- Frame N+3: Tier tick → polls AGAIN (redundant, hash prevents broadcast but API calls still made)
+
+**Proposed:** Track `last_poll_frame` per resource, skip tier poll if recently polled via dirty flag.
+
+**Applicable resources:**
+
+| Resource | Tier | Dirty Flag | Savings |
+|----------|------|------------|---------|
+| Markers/regions | MEDIUM (5Hz) | `markers_dirty` | Skip redundant 5Hz poll |
+| Tempo map | LOW (1Hz) | `tempo_dirty` | Skip redundant 1Hz poll |
+| FX details | MEDIUM (5Hz) | `fx_dirty` | Future (when subscription-based) |
+| Sends | MEDIUM (5Hz) | `sends_dirty` | Future (if subscription-based) |
+
+**Not applicable:** Transport/tracks (already 30Hz, no tier to defer), items/project notes (no CSurf callback).
+
+**Implementation:** ~20 lines per resource — track frame number, compare in tier poll.
 
 ### Diff-Based Events
 
 Only send changed fields instead of full state snapshots. Would reduce bandwidth for large track counts but adds complexity.
 
-### FX Polling Optimization
+### FX Details Subscription
 
-Poll FX state on-demand or on track selection change, not every 30ms. Could integrate with CSurf hybrid architecture (see `docs/architecture/CSURF_HYBRID.md`) for push-based FX change notifications.
+Make FX modal data subscription-based (like routing) instead of polling all FX state.
+
+**Current:** FX counts/names polled in MEDIUM tier for all tracks. FX detail modal polls parameters.
+
+**Proposed:** `fx/subscribe` and `fx/unsubscribe` commands using track GUID for stability.
+
+**Pattern:** Follow routing subscription model:
+- `fx/subscribe` with `trackGuid` parameter — subscribe to single track's FX chain
+- `fx/unsubscribe` — clear subscription for this client
+- Single-track per client (only one FX modal open at a time)
+- Returns full FX chain state: plugin names, bypass state, parameter values
+- CSurf `SETFXPARAM`/`SETFXENABLED` callbacks trigger immediate poll for subscribed track
+
+**Benefits:**
+- No FX detail polling when modal closed
+- Instant parameter updates via CSurf dirty flags
+- GUID-based addressing survives track reordering
+
+**REAPER API — Stable FX Addressing:**
+
+REAPER provides GUIDs at every level for reorder-resistant addressing:
+
+| Level | Stable Identifier | API |
+|-------|-------------------|-----|
+| Track | Track GUID | `GetTrackGUID()` |
+| FX | FX GUID | `TrackFX_GetFXGUID(track, fx_idx)` |
+| Parameter | Param Ident (string) | `TrackFX_GetParamIdent()` / `TrackFX_GetParamFromIdent()` |
+
+**Future: Pinned FX Controls**
+
+For a "pin FX parameter to toolbar" feature, store:
+```json
+{
+  "trackGuid": "{AAA-BBB-CCC}",
+  "fxGuid": "{DDD-EEE-FFF}",
+  "paramIdent": "wet_dry_mix"
+}
+```
+
+Runtime lookup:
+1. Track GUID → Track pointer (via `GuidCache`)
+2. Enumerate FX, compare GUIDs → FX index (build `FxGuidCache` similar to tracks)
+3. `TrackFX_GetParamFromIdent(track, fx_idx, ident)` → param index
+
+This survives track reordering, FX reordering, and is more stable than numeric indices.
+
+**Note:** No `TrackFX_GetByGUID` exists — must enumerate and compare, same pattern as track GUIDs.
+
+**Reference:** See [routing_subs.zig](../extension/src/commands/routing_subs.zig) for implementation pattern.
 
 ### Idle When No Clients
 
