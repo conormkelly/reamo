@@ -294,15 +294,19 @@ fn doInitialization() !void {
     if (csurf.enabled) {
         if (g_plugin_register) |plugin_register| {
             const cs = try g_allocator.create(csurf.ControlSurface);
-            cs.* = csurf.ControlSurface.init(state, plugin_register) catch |err| {
+
+            // Wire dirty flags and GUID cache to CSurf module BEFORE init
+            // This allows callbacks to set dirty flags as soon as they start firing
+            // (CSurf callbacks can fire during REAPER startup, before our timer runs)
+            csurf.setDirtyFlagsAndCache(g_dirty_flags, g_guid_cache);
+
+            // CRITICAL: init() takes *Self to ensure stable heap pointer for callbacks.
+            // Previously init() returned by value, causing a dangling stack pointer bug.
+            cs.init(plugin_register) catch |err| {
                 logging.err("Failed to create CSurf: {s}", .{@errorName(err)});
                 g_allocator.destroy(cs);
                 return err;
             };
-
-            // Wire dirty flags and GUID cache to CSurf module BEFORE registration
-            // This allows callbacks to set dirty flags as soon as they start firing
-            csurf.setDirtyFlagsAndCache(g_dirty_flags, g_guid_cache);
 
             if (cs.register()) {
                 g_csurf = cs;
