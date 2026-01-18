@@ -83,3 +83,7 @@ export {
   useCustomBanks,
   type UseCustomBanksReturn,
 } from './useCustomBanks';
+export {
+  useFolderHierarchy,
+  type UseFolderHierarchyReturn,
+} from './useFolderHierarchy';

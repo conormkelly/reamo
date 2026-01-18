@@ -325,11 +325,9 @@ export function TimelineView(): ReactElement {
         <BankSelector
           selectedBankId={selectedBankId}
           banks={customBanks}
-          skeleton={skeleton}
           onBankChange={setSelectedBankId}
           onAddBank={handleAddBank}
           onEditBank={handleEditBank}
-          isFiltered={isFiltered}
         />
         <TimelineModeToggle />
       </ViewHeader>
