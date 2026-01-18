@@ -67,7 +67,7 @@ export interface EventMessage {
   payload?: EventPayload; // Optional for events like 'reload' that have no payload
 }
 
-export type EventType = 'transport' | 'tt' | 'project' | 'trackSkeleton' | 'tracks' | 'meters' | 'markers' | 'regions' | 'items' | 'fx_state' | 'sends_state' | 'routing_state' | 'reload' | 'actionToggleState' | 'tempoMap' | 'projectNotesChanged' | 'playlist' | 'peaks';
+export type EventType = 'transport' | 'tt' | 'project' | 'trackSkeleton' | 'tracks' | 'meters' | 'markers' | 'regions' | 'items' | 'fx_state' | 'sends_state' | 'routing_state' | 'reload' | 'actionToggleState' | 'tempoMap' | 'projectNotesChanged' | 'playlist' | 'peaks' | 'trackFxChain' | 'trackFxParams' | 'trackFxParamsError';
 
 export type EventPayload =
   | TransportEventPayload
@@ -86,7 +86,10 @@ export type EventPayload =
   | TempoMapEventPayload
   | ProjectNotesChangedEventPayload
   | PlaylistEventPayload
-  | PeaksEventPayload;
+  | PeaksEventPayload
+  | FxChainEventPayload
+  | FxParamsEventPayload
+  | FxParamsErrorEventPayload;
 
 /** Lightweight transport tick event (position updates during playback) */
 export interface TransportTickEventPayload {
@@ -374,6 +377,46 @@ export interface RoutingStateEventPayload {
   sends: WSRoutingSend[];
   receives: WSRoutingReceive[];
   hwOutputs: WSRoutingHwOutput[];
+}
+
+// =============================================================================
+// FX Chain Subscription Event (per-client, pushed by backend at 30Hz)
+// =============================================================================
+
+/** Individual FX slot in chain subscription (richer than WSFxSlot from broadcast) */
+export interface WSFxChainSlot {
+  fxGuid: string;     // Stable identifier (survives FX reorder)
+  fxIndex: number;    // Position in track's FX chain
+  name: string;
+  presetName: string;
+  presetIndex: number; // -1 if no preset loaded
+  presetCount: number;
+  modified: boolean;   // Preset has been modified
+  enabled: boolean;
+}
+
+/** FX chain event payload (per-client, pushed by backend at 30Hz) */
+export interface FxChainEventPayload {
+  trackGuid: string;
+  fx: WSFxChainSlot[];
+}
+
+// =============================================================================
+// FX Parameter Subscription Events (per-client, pushed by backend at 30Hz)
+// =============================================================================
+
+/** FX parameters event payload (subscribed params only) */
+export interface FxParamsEventPayload {
+  trackGuid: string;
+  fxGuid: string;
+  paramCount: number;  // Total params (for skeleton invalidation)
+  nameHash: number;    // Hash of param names (for skeleton invalidation)
+  values: Record<string, [number, string]>; // "0": [normalized, formatted]
+}
+
+/** FX params error event (FX deleted while subscribed) */
+export interface FxParamsErrorEventPayload {
+  error: string; // "FX_NOT_FOUND"
 }
 
 // =============================================================================
@@ -714,4 +757,22 @@ export function isRoutingStateEvent(
   msg: EventMessage
 ): msg is EventMessage & { payload: RoutingStateEventPayload } {
   return msg.event === 'routing_state';
+}
+
+export function isFxChainEvent(
+  msg: EventMessage
+): msg is EventMessage & { payload: FxChainEventPayload } {
+  return msg.event === 'trackFxChain';
+}
+
+export function isFxParamsEvent(
+  msg: EventMessage
+): msg is EventMessage & { payload: FxParamsEventPayload } {
+  return msg.event === 'trackFxParams';
+}
+
+export function isFxParamsErrorEvent(
+  msg: EventMessage
+): msg is EventMessage & { payload: FxParamsErrorEventPayload } {
+  return msg.event === 'trackFxParamsError';
 }

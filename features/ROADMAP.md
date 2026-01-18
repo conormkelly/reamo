@@ -279,11 +279,11 @@ Single canvas for timeline content to fix browser compositing bugs.
 
 ---
 
-### Add FX Browser
+### Add FX Browser ✅
 
 Frontend UI to browse and add available FX plugins to tracks.
 
-**Backend Status:** ✅ Complete
+**Status:** ✅ Complete (Backend + Frontend)
 
 **API:**
 
@@ -293,18 +293,15 @@ Frontend UI to browse and add available FX plugins to tracks.
 **Implementation:**
 
 1. ~~Backend command `fxPlugin/getList` returns full plugin list (name + ident)~~ ✅
-2. Frontend shows searchable list (grouped by type: VST3/VST2/AU/JS)
-3. User taps plugin → sends `trackFx/add` with track GUID and ident
-4. Backend calls `TrackFX_AddByName(track, ident, false, -1)` — already implemented
+2. ~~Frontend shows searchable list (grouped by type: VST3/VST2/AU/JS)~~ ✅
+3. ~~User taps plugin → sends `trackFx/add` with track GUID and ident~~ ✅
+4. ~~Backend calls `TrackFX_AddByName(track, ident, false, -1)`~~ ✅
 
 **Notes:**
 
-- Ident format varies by plugin type:
-  - AU: `"AU: Plugin Name (Vendor)"`
-  - VST/VST3: Full path like `"/Library/Audio/Plug-Ins/VST3/Plugin.vst3"`
-  - JS: `"JS: Category/script_name"`
-- Type prefixes (AU:, VST3:, etc.) reliable for frontend filtering
-- Cache plugin list on frontend (rarely changes during session)
+- Plugin list format: `[displayName, ident]` tuples
+- Type prefix is in displayName (AU:, AUi:, VST3:, VST3i:, VST:, VSTi:, JS:)
+- Frontend caches plugin list (fetched once per session)
 
 ---
 
@@ -378,7 +375,7 @@ Follows routing subscription pattern — single track per client, GUID-based add
 
 **Remaining:**
 
-- [ ] Frontend: FX modal to use subscription instead of on-demand fetch
+- [x] Frontend: FX modal to use subscription instead of on-demand fetch
 - [ ] Consume CSurf `fx_dirty` flags for push-based updates
 
 **Reference:** [trackfx_subscriptions.zig](../extension/src/trackfx_subscriptions.zig)
@@ -405,8 +402,8 @@ Per-parameter subscriptions for FX detail modal with virtual scrolling support.
 
 **Remaining:**
 
-- [ ] Frontend: FX param modal to use subscription
-- [ ] Frontend: Virtual scrolling for large param lists
+- [x] Frontend: FX param modal to use subscription
+- [x] Frontend: Sparse index subscription for filtered param lists (replaces virtual scrolling)
 
 **REAPER API — Stable FX Addressing:**
 
