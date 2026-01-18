@@ -8,17 +8,19 @@ const types = @import("../types.zig");
 // =========================================================================
 // Constants
 // =========================================================================
+// Keep these small to avoid stack overflow and multi-GB debug binaries.
+// The nested arrays (tracks × fx × params) multiply exponentially.
 
-pub const MAX_TRACKS = 32;
-pub const MAX_ITEMS_PER_TRACK = 16;
+pub const MAX_TRACKS = 16;
+pub const MAX_ITEMS_PER_TRACK = 8;
 pub const MAX_TAKES_PER_ITEM = 4;
-pub const MAX_FX_PER_TRACK = 64;
-pub const MAX_PARAMS_PER_FX = 128;
-pub const MAX_SENDS_PER_TRACK = 16;
-pub const MAX_RECEIVES_PER_TRACK = 16;
-pub const MAX_HW_OUTPUTS_PER_TRACK = 8;
-pub const MAX_MARKERS = 64;
-pub const MAX_CALLS = 256;
+pub const MAX_FX_PER_TRACK = 8;
+pub const MAX_PARAMS_PER_FX = 16;
+pub const MAX_SENDS_PER_TRACK = 8;
+pub const MAX_RECEIVES_PER_TRACK = 8;
+pub const MAX_HW_OUTPUTS_PER_TRACK = 4;
+pub const MAX_MARKERS = 32;
+pub const MAX_CALLS = 128;
 
 // =========================================================================
 // Helper types
