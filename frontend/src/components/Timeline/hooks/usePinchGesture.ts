@@ -56,7 +56,7 @@
  * ```
  */
 
-import { useCallback, useRef, type RefObject } from 'react';
+import { useCallback, useRef, useState, type RefObject } from 'react';
 import type { TimeRange } from '../../../hooks/useViewport';
 
 /** Minimum visible duration (1 second - precision editing) */
@@ -87,6 +87,8 @@ export interface UsePinchGestureOptions {
 export interface UsePinchGestureResult {
   /** Ref to whether a pinch gesture is in progress (read .current for real-time value) */
   isPinchingRef: React.RefObject<boolean>;
+  /** State-based pinch indicator (triggers re-renders, use for conditional rendering) */
+  isPinching: boolean;
   /** Call on pointer down - returns true if pinch started */
   handlePointerDown: (e: React.PointerEvent) => boolean;
   /** Call on pointer move */
@@ -129,8 +131,9 @@ export function usePinchGesture({
   const initialDurationRef = useRef<number | null>(null);
   const initialCenterTimeRef = useRef<number | null>(null);
 
-  // Track if we're currently pinching
+  // Track if we're currently pinching (ref for real-time access, state for re-renders)
   const isPinchingRef = useRef(false);
+  const [isPinching, setIsPinching] = useState(false);
 
   // Convert client X to time
   const clientXToTime = useCallback(
@@ -170,6 +173,7 @@ export function usePinchGesture({
           initialCenterTimeRef.current = clientXToTime(midpoint.x);
 
           isPinchingRef.current = true;
+          setIsPinching(true);
           return true; // Pinch started
         }
       }
@@ -255,6 +259,7 @@ export function usePinchGesture({
     // If we were pinching and now have < 2 pointers, end pinch
     if (isPinchingRef.current && pointers.size < 2) {
       isPinchingRef.current = false;
+      setIsPinching(false);
       initialDistanceRef.current = null;
       initialDurationRef.current = null;
       initialCenterTimeRef.current = null;
@@ -263,6 +268,7 @@ export function usePinchGesture({
 
   return {
     isPinchingRef,
+    isPinching,
     handlePointerDown,
     handlePointerMove,
     handlePointerUp,

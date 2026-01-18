@@ -186,7 +186,7 @@ export function TimelineView(): ReactElement {
   // Shared viewport state (needed for peaks subscription)
   const viewport = useViewport({
     projectDuration,
-    initialRange: { start: 0, end: Math.min(30, projectDuration) },
+    initialRange: { start: 0, end: projectDuration }, // Default to full project (zoom-to-fit)
   });
 
   // Track timeline container width for adaptive peak resolution

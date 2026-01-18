@@ -125,7 +125,16 @@ export function usePeaksSubscription(
   // Calculate current LOD - only send updates when this changes
   const currentLOD = options?.viewport ? calculateLOD(options.viewport) : null;
 
+  // Use refs to access current values without adding to deps
+  // This prevents cleanup from running on every viewport/LOD change
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+  const currentLODRef = useRef(currentLOD);
+  currentLODRef.current = currentLOD;
+
   // Effect 1: Track subscription changes (immediate)
+  // IMPORTANT: Only depends on subscriptionKey and connected
+  // This prevents the cleanup from clearing peaks on viewport/LOD changes
   useEffect(() => {
     if (!connected) return;
 
@@ -142,36 +151,39 @@ export function usePeaksSubscription(
     prevSubscriptionRef.current = subscriptionKey;
 
     // Subscribe with new options or clear if null
-    if (options) {
-      const sampleCount = options.sampleCount ?? DEFAULT_SAMPLE_COUNT;
+    const currentOptions = optionsRef.current;
+    if (currentOptions) {
+      const sampleCount = currentOptions.sampleCount ?? DEFAULT_SAMPLE_COUNT;
 
-      if (options.range) {
-        setPeaksSubscriptionRange(options.range.start, options.range.end);
+      if (currentOptions.range) {
+        setPeaksSubscriptionRange(currentOptions.range.start, currentOptions.range.end);
         sendCommand(
           peaks.subscribe({
-            range: options.range,
+            range: currentOptions.range,
             sampleCount,
-            viewport: options.viewport, // Include current viewport on initial subscribe
+            viewport: currentOptions.viewport, // Include current viewport on initial subscribe
           })
         );
         // Track the LOD we sent with subscription
-        prevLODRef.current = currentLOD;
-      } else if (options.guids && options.guids.length > 0) {
-        setPeaksSubscriptionGuids(options.guids);
+        prevLODRef.current = currentLODRef.current;
+      } else if (currentOptions.guids && currentOptions.guids.length > 0) {
+        setPeaksSubscriptionGuids(currentOptions.guids);
         sendCommand(
           peaks.subscribe({
-            guids: options.guids,
+            guids: currentOptions.guids,
             sampleCount,
-            viewport: options.viewport,
+            viewport: currentOptions.viewport,
           })
         );
-        prevLODRef.current = currentLOD;
+        prevLODRef.current = currentLODRef.current;
       }
     } else {
       clearPeaksSubscription();
     }
 
-    // Cleanup on unmount
+    // Cleanup on unmount ONLY - not on every re-render
+    // This is critical: cleanup should only run when we're actually
+    // changing subscriptions or unmounting, not on viewport changes
     return () => {
       if (prevSubscriptionRef.current !== null) {
         sendCommand(peaks.unsubscribe());
@@ -181,13 +193,13 @@ export function usePeaksSubscription(
     };
   }, [
     subscriptionKey,
-    options,
+    // NOTE: options and currentLOD removed from deps - use refs instead
+    // This prevents cleanup (which clears peaks) from running on viewport/LOD changes
     connected,
     sendCommand,
     setPeaksSubscriptionRange,
     setPeaksSubscriptionGuids,
     clearPeaksSubscription,
-    currentLOD,
   ]);
 
   // Effect 2: Debounced viewport updates (ONLY when LOD changes)
