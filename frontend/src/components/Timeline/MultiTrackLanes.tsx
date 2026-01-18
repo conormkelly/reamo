@@ -43,6 +43,8 @@ export interface MultiTrackLanesProps {
   focusedTrackGuid?: string | null;
   /** Peaks data keyed by track index (from usePeaksSubscription) */
   peaksByTrack?: Map<number, Map<string, WSItemPeaks>>;
+  /** Whether a gesture (pan/pinch) is in progress - suppresses canvas redraws */
+  isGesturing?: boolean;
 }
 
 /** Get item color with fallback - same logic as ItemsDensityOverlay */
@@ -62,21 +64,33 @@ function isStereo(peaks: StereoPeak[] | MonoPeak[]): peaks is StereoPeak[] {
  * Note: We pass explicit pixel dimensions to avoid measuring issues with clipped elements.
  * When items are partially off-screen (parent has overflow:hidden), DOM measurement APIs
  * can return incorrect values, causing waveforms to render at wrong resolution.
+ *
+ * Gesture optimization: During pan/pinch gestures, we skip canvas redraws and let CSS
+ * scale the existing canvas content. This prevents 60+ fps flickering during gestures.
+ * Canvas redraws once when gesture ends.
  */
 function LaneWaveform({
   peaks,
   color,
   widthPx,
   heightPx,
+  isGesturing = false,
 }: {
   peaks: StereoPeak[] | MonoPeak[];
   color: string;
   widthPx: number;
   heightPx: number;
+  isGesturing?: boolean;
 }): ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Track the width at which the canvas was last drawn
+  const drawnWidthRef = useRef<number>(0);
 
   useEffect(() => {
+    // Skip redraw during gestures - CSS transform handles visual scaling
+    // Canvas will redraw when gesture ends (isGesturing changes to false)
+    if (isGesturing && drawnWidthRef.current > 0) return;
+
     const canvas = canvasRef.current;
     if (!canvas || peaks.length === 0 || widthPx === 0 || heightPx === 0) return;
 
@@ -127,7 +141,16 @@ function LaneWaveform({
 
       ctx.fillRect(x, adjustedTopY, Math.max(sampleWidth - 0.5, 1), height);
     });
-  }, [peaks, color, widthPx, heightPx]);
+
+    // Track the width we drew at
+    drawnWidthRef.current = widthPx;
+  }, [peaks, color, widthPx, heightPx, isGesturing]);
+
+  // During gestures: use the cached width + CSS transform for smooth scaling
+  // After gestures: use current widthPx directly (canvas will redraw at this size)
+  // This prevents the "stale ref" issue where displayWidth uses old value before effect updates it
+  const displayWidth = isGesturing && drawnWidthRef.current > 0 ? drawnWidthRef.current : widthPx;
+  const scaleX = isGesturing && drawnWidthRef.current > 0 ? widthPx / drawnWidthRef.current : 1;
 
   return (
     <canvas
@@ -135,8 +158,12 @@ function LaneWaveform({
       className="absolute inset-0"
       style={{
         pointerEvents: 'none',
-        width: widthPx,
+        width: displayWidth,
         height: heightPx,
+        transformOrigin: 'left center',
+        // GPU compositing hints for smoother scrolling + scaleX for zoom gestures
+        transform: scaleX !== 1 ? `scaleX(${scaleX}) translateZ(0)` : 'translateZ(0)',
+        willChange: isGesturing ? 'transform' : undefined,
       }}
     />
   );
@@ -158,6 +185,7 @@ export function MultiTrackLanes({
   height,
   focusedTrackGuid,
   peaksByTrack,
+  isGesturing = false,
 }: MultiTrackLanesProps): ReactElement | null {
   // Track container width for calculating item pixel dimensions
   const containerRef = useRef<HTMLDivElement>(null);
@@ -287,6 +315,7 @@ export function MultiTrackLanes({
                       color={waveformColor}
                       widthPx={(v.widthPercent / 100) * containerWidth}
                       heightPx={itemHeightPx}
+                      isGesturing={isGesturing}
                     />
                   )}
                 </div>

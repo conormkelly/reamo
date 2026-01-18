@@ -246,7 +246,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
   // Use external viewport if provided (shared state from TimelineSection), otherwise create own
   const internalViewport = useViewport({
     projectDuration: duration,
-    initialRange: { start: 0, end: Math.min(30, duration) }, // Default 30 seconds or full project
+    initialRange: { start: 0, end: duration }, // Default to full project (zoom-to-fit)
   });
   const viewport = externalViewport ?? internalViewport;
 
@@ -435,6 +435,11 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     projectDuration: duration,
     disabled: false, // Pinch always works
   });
+
+  // Combine gesture states to suppress waveform canvas redraws during gestures
+  // This prevents flickering caused by 60+ canvas redraws during pinch/pan
+  // Uses state-based indicators that trigger re-renders when gestures start/end
+  const isGesturing = panGesture.isPanning || panGesture.isMomentumActive || pinchGesture.isPinching;
 
   // Render-specific timeToPercent (uses VIEWPORT bounds for visible range)
   // Extends viewport during drag operations to show drag targets
@@ -1041,6 +1046,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
             height={height}
             focusedTrackGuid={viewFilterTrackGuid}
             peaksByTrack={peaksByTrack}
+            isGesturing={isGesturing}
           />
         )}
 
@@ -1178,16 +1184,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
           beatsPerBar={beatsPerBar}
           denominator={denominator}
         />
-
-
-        {/* Empty state - show only if no visible content */}
-        {visibleRegions.length === 0 && visibleMarkers.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center text-text-muted text-sm">
-            {displayRegions.length === 0 && markers.length === 0
-              ? 'No regions or markers'
-              : 'Pan to see content'}
-          </div>
-        )}
 
         {/* Syncing indicator */}
         {isSyncing && (
