@@ -23,6 +23,8 @@ const track_subscriptions = @import("track_subscriptions.zig");
 const peaks_subscriptions = @import("peaks_subscriptions.zig");
 const routing_subscriptions = @import("routing_subscriptions.zig");
 const routing_generator = @import("routing_generator.zig");
+const trackfx_subscriptions = @import("trackfx_subscriptions.zig");
+const trackfx_generator = @import("trackfx_generator.zig");
 const peaks_generator = @import("peaks_generator.zig");
 const peaks_cache = @import("peaks_cache.zig");
 const track_skeleton = @import("track_skeleton.zig");
@@ -49,6 +51,7 @@ var g_item_cache: ?*item_guid_cache.ItemGuidCache = null;
 var g_track_subs: ?*track_subscriptions.TrackSubscriptions = null;
 var g_peaks_subs: ?*peaks_subscriptions.PeaksSubscriptions = null;
 var g_routing_subs: ?*routing_subscriptions.RoutingSubscriptions = null;
+var g_trackfx_subs: ?*trackfx_subscriptions.TrackFxSubscriptions = null;
 var g_peaks_cache: ?*peaks_cache.PeaksCache = null;
 var g_csurf: ?*csurf.ControlSurface = null;
 var g_plugin_register: ?*const fn ([*:0]const u8, ?*anyopaque) callconv(.c) c_int = null;
@@ -229,6 +232,12 @@ fn doInitialization() !void {
     routing_subs.* = routing_subscriptions.RoutingSubscriptions.init(g_allocator);
     g_routing_subs = routing_subs;
     commands.g_ctx.routing_subs = routing_subs;
+
+    // Create track FX subscriptions state (per-track FX chain)
+    const trackfx_subs = try g_allocator.create(trackfx_subscriptions.TrackFxSubscriptions);
+    trackfx_subs.* = trackfx_subscriptions.TrackFxSubscriptions.init(g_allocator);
+    g_trackfx_subs = trackfx_subs;
+    commands.g_ctx.trackfx_subs = trackfx_subs;
 
     // Create peaks cache for LRU caching of waveform data
     const p_cache = try g_allocator.create(peaks_cache.PeaksCache);
@@ -590,6 +599,10 @@ fn doProcessing() !void {
             if (g_routing_subs) |routing_subs| {
                 routing_subs.removeClient(client_id);
             }
+            // Clean up track FX subscriptions
+            if (g_trackfx_subs) |trackfx_subs| {
+                trackfx_subs.removeClient(client_id);
+            }
         }
     }
 
@@ -934,6 +947,36 @@ fn doProcessing() !void {
                     // Check if changed using hash
                     const data_hash = routing_generator.hashRoutingState(json);
                     if (routing_subs.checkChanged(entry.slot, data_hash)) {
+                        shared_state.sendToClient(entry.client_id, json);
+                    }
+                }
+            }
+        }
+    }
+
+    // Poll track FX subscriptions and broadcast (HIGH TIER - per-client single-track)
+    // Broadcasts FX chain for each subscribed track
+    if (g_trackfx_subs) |trackfx_subs| {
+        if (trackfx_subs.hasSubscriptions()) {
+            const guid_cache_ptr = g_guid_cache orelse {
+                logging.err("GUID cache not initialized for track FX subscriptions", .{});
+                return error.GuidCacheNotInitialized;
+            };
+
+            var iter = trackfx_subs.activeSubscriptions();
+            while (iter.next()) |entry| {
+                const fx_scratch = tiered.scratchAllocator();
+
+                // Generate FX chain JSON for this client's subscribed track
+                if (trackfx_generator.generateTrackFxChain(
+                    fx_scratch,
+                    &backend,
+                    guid_cache_ptr,
+                    entry.guid,
+                )) |json| {
+                    // Check if changed using hash
+                    const data_hash = trackfx_generator.hashTrackFxChain(json);
+                    if (trackfx_subs.checkChanged(entry.slot, data_hash)) {
                         shared_state.sendToClient(entry.client_id, json);
                     }
                 }
@@ -1579,6 +1622,15 @@ fn shutdown() void {
         g_routing_subs = null;
     }
     logging.info("routing subscriptions cleaned up", .{});
+
+    if (g_trackfx_subs) |subs| {
+        logging.info("cleaning up track FX subscriptions", .{});
+        commands.g_ctx.trackfx_subs = null;
+        subs.deinit();
+        g_allocator.destroy(subs);
+        g_trackfx_subs = null;
+    }
+    logging.info("track FX subscriptions cleaned up", .{});
 
     if (g_peaks_cache) |p_cache| {
         logging.info("cleaning up peaks cache", .{});

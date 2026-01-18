@@ -556,6 +556,48 @@ pub const RealBackend = struct {
         self.inner.trackFxSetEnabled(track, fx_idx, enabled);
     }
 
+    /// Add an FX to a track by name.
+    /// name: FX name or filename. Prefix with "JS:" for JS effects, "VST:" for VST, etc.
+    /// recFX: true for recording FX chain, false for normal FX chain
+    /// position: -1 to add at end, or index to insert before
+    /// Returns: FX index on success, -1 on failure
+    pub fn trackFxAddByName(self: *const RealBackend, track: *anyopaque, name: [*:0]const u8, recFX: bool, position: c_int) c_int {
+        const func = self.inner.trackFX_AddByName orelse return -1;
+        return func(track, name, recFX, position);
+    }
+
+    /// Delete an FX from a track.
+    /// Returns true on success.
+    pub fn trackFxDelete(self: *const RealBackend, track: *anyopaque, fx_idx: c_int) bool {
+        const func = self.inner.trackFX_Delete orelse return false;
+        return func(track, fx_idx);
+    }
+
+    /// Copy or move FX to another position (or another track).
+    /// For reordering within same track: src_track == dest_track, is_move = true
+    /// dest_fx: destination index (-1 = end of chain)
+    pub fn trackFxCopyToTrack(self: *const RealBackend, src_track: *anyopaque, src_fx: c_int, dest_track: *anyopaque, dest_fx: c_int, is_move: bool) void {
+        const func = self.inner.trackFX_CopyToTrack orelse return;
+        func(src_track, src_fx, dest_track, dest_fx, is_move);
+    }
+
+    /// Get FX GUID as string into provided buffer.
+    /// Returns slice of the GUID string (38 chars), or empty string on failure.
+    pub fn trackFxGetGuid(self: *const RealBackend, track: *anyopaque, fx_idx: c_int, buf: []u8) []const u8 {
+        const getGuid = self.inner.trackFX_GetFXGUID orelse return "";
+        const toString = self.inner.guidToString_fn orelse return "";
+        if (buf.len < 64) return ""; // guidToString needs 64 bytes
+
+        const guid_ptr = getGuid(track, fx_idx) orelse return "";
+        toString(guid_ptr, buf.ptr);
+
+        // Find null terminator (GUID is 38 chars: {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX})
+        for (buf, 0..) |c, i| {
+            if (c == 0) return buf[0..i];
+        }
+        return buf[0..@min(38, buf.len)];
+    }
+
     // =========================================================================
     // Track Sends
     // =========================================================================

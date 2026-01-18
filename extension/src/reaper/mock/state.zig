@@ -217,6 +217,11 @@ pub const Method = enum {
     trackFxSetPresetByIndex,
     trackFxGetEnabled,
     trackFxSetEnabled,
+    // FX management
+    trackFxAddByName,
+    trackFxDelete,
+    trackFxCopyToTrack,
+    trackFxGetGuid,
     // Track Sends/Receives
     trackSendCount,
     trackReceiveCount,

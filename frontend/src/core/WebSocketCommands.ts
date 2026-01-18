@@ -772,32 +772,26 @@ export const hw = {
 };
 
 // =============================================================================
-// FX Commands
+// Track FX Commands
+// Uses trackFx/ prefix to match REAPER's TrackFX_* API family
 // =============================================================================
 
-export const fx = {
+export const trackFx = {
   /** Navigate to the next preset for a track FX */
   presetNext: (trackIdx: number, fxIdx: number): WSCommand => ({
-    command: 'fx/presetNext',
+    command: 'trackFx/presetNext',
     params: { trackIdx, fxIdx },
   }),
   /** Navigate to the previous preset for a track FX */
   presetPrev: (trackIdx: number, fxIdx: number): WSCommand => ({
-    command: 'fx/presetPrev',
+    command: 'trackFx/presetPrev',
     params: { trackIdx, fxIdx },
   }),
   /** Jump to a specific preset by index (-1 = default user, -2 = factory, 0+ = preset index) */
   presetSet: (trackIdx: number, fxIdx: number, presetIdx: number): WSCommand => ({
-    command: 'fx/presetSet',
+    command: 'trackFx/presetSet',
     params: { trackIdx, fxIdx, presetIdx },
   }),
-};
-
-// =============================================================================
-// Track FX Commands (per-FX operations)
-// =============================================================================
-
-export const trackFx = {
   /** Set FX enabled/bypassed state. Omit enabled to toggle. */
   setEnabled: (
     trackIdx: number,
@@ -812,7 +806,34 @@ export const trackFx = {
       ...(enabled !== undefined && { enabled }),
     },
   }),
+  /** Add an FX to a track by name. Returns { fxGuid, fxIndex } */
+  add: (trackGuid: string, fxName: string, position?: number): WSCommand => ({
+    command: 'trackFx/add',
+    params: { trackGuid, fxName, ...(position !== undefined && { position }) },
+  }),
+  /** Delete an FX from a track by GUID or index */
+  delete: (trackGuid: string, fx: { fxGuid?: string; fxIndex?: number }): WSCommand => ({
+    command: 'trackFx/delete',
+    params: { trackGuid, ...fx },
+  }),
+  /** Move an FX to a new position. Returns { newIndex } */
+  move: (trackGuid: string, fxGuid: string, toIndex: number): WSCommand => ({
+    command: 'trackFx/move',
+    params: { trackGuid, fxGuid, toIndex },
+  }),
+  /** Subscribe to FX chain updates for a track */
+  subscribe: (trackGuid: string): WSCommand => ({
+    command: 'trackFx/subscribe',
+    params: { trackGuid },
+  }),
+  /** Unsubscribe from FX chain updates */
+  unsubscribe: (): WSCommand => ({
+    command: 'trackFx/unsubscribe',
+  }),
 };
+
+/** @deprecated Use trackFx instead - fx/ commands renamed to trackFx/ */
+export const fx = trackFx;
 
 // =============================================================================
 // Project Notes Commands

@@ -10,6 +10,9 @@ pub const MAX_FX_NAME_LEN = constants.MAX_FX_NAME_LEN;
 // Maximum FX per project (soft limit for arena sizing)
 pub const MAX_FX: usize = 5000;
 
+// FX GUID length: {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX} = 38 chars
+pub const FX_GUID_LEN = 40;
+
 /// Single FX slot state in flattened model.
 /// Each FX instance is a separate entry with track_idx reference.
 pub const FxSlot = struct {
@@ -23,6 +26,9 @@ pub const FxSlot = struct {
     preset_count: c_int = 0,
     modified: bool = false, // True if params DON'T match preset
     enabled: bool = true, // FX bypass state
+    // FX GUID - stable across reorders/renames
+    guid: [FX_GUID_LEN]u8 = undefined,
+    guid_len: usize = 0,
 
     pub fn getName(self: *const FxSlot) []const u8 {
         return self.name[0..self.name_len];
@@ -30,6 +36,10 @@ pub const FxSlot = struct {
 
     pub fn getPresetName(self: *const FxSlot) []const u8 {
         return self.preset_name[0..self.preset_name_len];
+    }
+
+    pub fn getGuid(self: *const FxSlot) []const u8 {
+        return self.guid[0..self.guid_len];
     }
 
     pub fn eql(self: FxSlot, other: FxSlot) bool {
@@ -43,6 +53,9 @@ pub const FxSlot = struct {
         if (self.preset_count != other.preset_count) return false;
         if (self.modified != other.modified) return false;
         if (self.enabled != other.enabled) return false;
+        // Compare GUIDs
+        if (self.guid_len != other.guid_len) return false;
+        if (!std.mem.eql(u8, self.guid[0..self.guid_len], other.guid[0..other.guid_len])) return false;
         return true;
     }
 };
@@ -140,6 +153,13 @@ pub const State = struct {
                     // Get enabled state (FX bypass)
                     slot.enabled = api.trackFxGetEnabled(track, fx_idx);
 
+                    // Get FX GUID (stable identifier)
+                    var guid_buf: [64]u8 = undefined;
+                    const guid = api.trackFxGetGuid(track, fx_idx, &guid_buf);
+                    const guid_len = @min(guid.len, FX_GUID_LEN);
+                    @memcpy(slot.guid[0..guid_len], guid[0..guid_len]);
+                    slot.guid_len = guid_len;
+
                     slot_idx += 1;
                 }
             }
@@ -158,10 +178,12 @@ pub const State = struct {
 
         for (self.fx, 0..) |*slot, i| {
             if (i > 0) writer.writeByte(',') catch return null;
-            writer.print("{{\"trackIdx\":{d},\"fxIndex\":{d},\"name\":\"", .{
+            writer.print("{{\"trackIdx\":{d},\"fxIndex\":{d},\"fxGuid\":\"", .{
                 slot.track_idx,
                 slot.fx_index,
             }) catch return null;
+            protocol.writeJsonString(writer, slot.getGuid()) catch return null;
+            writer.writeAll("\",\"name\":\"") catch return null;
             protocol.writeJsonString(writer, slot.getName()) catch return null;
             writer.writeAll("\",\"presetName\":\"") catch return null;
             protocol.writeJsonString(writer, slot.getPresetName()) catch return null;

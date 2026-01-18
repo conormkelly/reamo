@@ -185,6 +185,11 @@ pub fn validateBackend(comptime T: type) void {
         "trackFxSetPresetByIndex",
         "trackFxGetEnabled",
         "trackFxSetEnabled",
+        // FX management
+        "trackFxAddByName",
+        "trackFxDelete",
+        "trackFxCopyToTrack",
+        "trackFxGetGuid",
 
         // Track Sends/Receives
         "trackSendCount",

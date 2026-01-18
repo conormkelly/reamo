@@ -196,6 +196,11 @@ pub const Api = struct {
     trackFX_SetPresetByIndex: ?*const fn (?*anyopaque, c_int, c_int) callconv(.c) bool = null,
     trackFX_GetEnabled: ?*const fn (?*anyopaque, c_int) callconv(.c) bool = null,
     trackFX_SetEnabled: ?*const fn (?*anyopaque, c_int, bool) callconv(.c) void = null,
+    // FX management
+    trackFX_AddByName: ?*const fn (?*anyopaque, [*:0]const u8, bool, c_int) callconv(.c) c_int = null,
+    trackFX_Delete: ?*const fn (?*anyopaque, c_int) callconv(.c) bool = null,
+    trackFX_CopyToTrack: ?*const fn (?*anyopaque, c_int, ?*anyopaque, c_int, bool) callconv(.c) void = null,
+    trackFX_GetFXGUID: ?*const fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque = null, // Returns GUID*
 
     // Track Sends
     getTrackNumSends: ?*const fn (?*anyopaque, c_int) callconv(.c) c_int = null,
@@ -366,6 +371,11 @@ pub const Api = struct {
             .trackFX_SetPresetByIndex = getFunc(info, "TrackFX_SetPresetByIndex", fn (?*anyopaque, c_int, c_int) callconv(.c) bool),
             .trackFX_GetEnabled = getFunc(info, "TrackFX_GetEnabled", fn (?*anyopaque, c_int) callconv(.c) bool),
             .trackFX_SetEnabled = getFunc(info, "TrackFX_SetEnabled", fn (?*anyopaque, c_int, bool) callconv(.c) void),
+            // FX management
+            .trackFX_AddByName = getFunc(info, "TrackFX_AddByName", fn (?*anyopaque, [*:0]const u8, bool, c_int) callconv(.c) c_int),
+            .trackFX_Delete = getFunc(info, "TrackFX_Delete", fn (?*anyopaque, c_int) callconv(.c) bool),
+            .trackFX_CopyToTrack = getFunc(info, "TrackFX_CopyToTrack", fn (?*anyopaque, c_int, ?*anyopaque, c_int, bool) callconv(.c) void),
+            .trackFX_GetFXGUID = getFunc(info, "TrackFX_GetFXGUID", fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque),
             // Track Sends
             .getTrackNumSends = getFunc(info, "GetTrackNumSends", fn (?*anyopaque, c_int) callconv(.c) c_int),
             .getTrackSendInfo_Value = getFunc(info, "GetTrackSendInfo_Value", fn (?*anyopaque, c_int, c_int, [*:0]const u8) callconv(.c) f64),
@@ -1354,6 +1364,48 @@ pub const Api = struct {
     pub fn trackFxSetEnabled(self: *const Api, track: *anyopaque, fx_idx: c_int, enabled: bool) void {
         const f = self.trackFX_SetEnabled orelse return;
         f(track, fx_idx, enabled);
+    }
+
+    /// Add an FX to a track by name.
+    /// name: FX name or filename. Prefix with "JS:" for JS effects, "VST:" for VST, etc.
+    /// recFX: true for recording FX chain, false for normal FX chain
+    /// position: -1 to add at end, or index to insert before
+    /// Returns: FX index on success, -1 on failure
+    pub fn trackFxAddByName(self: *const Api, track: *anyopaque, name: [*:0]const u8, recFX: bool, position: c_int) c_int {
+        const f = self.trackFX_AddByName orelse return -1;
+        return f(track, name, recFX, position);
+    }
+
+    /// Delete an FX from a track.
+    /// Returns true on success.
+    pub fn trackFxDelete(self: *const Api, track: *anyopaque, fx_idx: c_int) bool {
+        const f = self.trackFX_Delete orelse return false;
+        return f(track, fx_idx);
+    }
+
+    /// Copy or move FX to another position (or another track).
+    /// For reordering within same track: src_track == dest_track, is_move = true
+    /// dest_fx: destination index (-1 = end of chain)
+    pub fn trackFxCopyToTrack(self: *const Api, src_track: *anyopaque, src_fx: c_int, dest_track: *anyopaque, dest_fx: c_int, is_move: bool) void {
+        const f = self.trackFX_CopyToTrack orelse return;
+        f(src_track, src_fx, dest_track, dest_fx, is_move);
+    }
+
+    /// Get FX GUID as string into provided buffer.
+    /// Returns slice of the GUID string (38 chars), or empty string on failure.
+    pub fn trackFxGetGuid(self: *const Api, track: *anyopaque, fx_idx: c_int, buf: []u8) []const u8 {
+        const getGuid = self.trackFX_GetFXGUID orelse return "";
+        const toString = self.guidToString_fn orelse return "";
+        if (buf.len < 64) return ""; // guidToString needs 64 bytes
+
+        const guid_ptr = getGuid(track, fx_idx) orelse return "";
+        toString(guid_ptr, buf.ptr);
+
+        // Find null terminator (GUID is 38 chars: {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX})
+        for (buf, 0..) |c, i| {
+            if (c == 0) return buf[0..i];
+        }
+        return buf[0..@min(38, buf.len)];
     }
 
     // Track Send methods
