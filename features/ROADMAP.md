@@ -359,9 +359,18 @@ Follows routing subscription pattern — single track per client, GUID-based add
 **Remaining:**
 
 - [x] Frontend: FX modal to use subscription instead of on-demand fetch
-- [ ] Consume CSurf `fx_dirty` flags for push-based updates
 
 **Reference:** [trackfx_subscriptions.zig](../extension/src/trackfx_subscriptions.zig)
+
+### CSurf FX/Sends Dirty Flag Consumption ✅
+
+**Status:** Complete.
+
+The main loop now consumes `fx_dirty` and `sends_dirty` bitsets from CSurf callbacks to force immediate broadcast when FX params or send levels change. This provides instant latency response in addition to hash-based change detection.
+
+**Implementation:** Dirty flags are per-track. When a subscription's track has its dirty bit set, the broadcast is forced even if hash comparison would skip it.
+
+**Reference:** [CSURF_MIGRATION.md](../docs/architecture/CSURF_MIGRATION.md)
 
 ### FX Parameter Subscription ✅
 
