@@ -66,10 +66,10 @@ export interface UseViewportReturn {
 
 /**
  * Discrete zoom steps (seconds visible at each level)
- * Range from 5 seconds (detail) to 1 hour (overview)
- * Roughly 2x ratio between adjacent steps
+ * Range from 1 second (precision editing) to 1 hour (overview)
+ * Finer steps at close zoom for accurate cursor-based edits (trim to cursor, etc.)
  */
-export const ZOOM_STEPS = [5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600] as const;
+export const ZOOM_STEPS = [1, 2, 3, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600] as const;
 
 /** Default visible duration (30 seconds - good mobile default) */
 const DEFAULT_DURATION = 30;

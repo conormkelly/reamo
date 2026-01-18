@@ -190,11 +190,11 @@ describe('useViewport', () => {
       const { result } = renderHook(() =>
         useViewport({
           ...defaultOptions,
-          initialRange: { start: 0, end: 30 }, // 30s = index 3
+          initialRange: { start: 0, end: 30 }, // 30s = index 6 (after adding 1,2,3s steps)
         })
       );
 
-      expect(result.current.zoomLevel).toBe(3); // ZOOM_STEPS[3] = 30
+      expect(result.current.zoomLevel).toBe(6); // ZOOM_STEPS[6] = 30
     });
   });
 

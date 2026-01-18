@@ -6,7 +6,7 @@
  * - Continuous zoom (not discrete steps)
  * - Zoom centered on pinch midpoint
  * - Works alongside pan gesture (pinch takes priority)
- * - Min/max zoom limits (5s min, project duration max)
+ * - Min/max zoom limits (1s min for precision editing, project duration max)
  *
  * @example
  * ```tsx
@@ -59,8 +59,8 @@
 import { useCallback, useRef, type RefObject } from 'react';
 import type { TimeRange } from '../../../hooks/useViewport';
 
-/** Minimum visible duration (5 seconds - most zoomed in) */
-const MIN_DURATION = 5;
+/** Minimum visible duration (1 second - precision editing) */
+const MIN_DURATION = 1;
 
 /** Minimum distance between fingers to consider a pinch (pixels) */
 const MIN_PINCH_DISTANCE = 10;
