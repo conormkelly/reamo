@@ -894,6 +894,10 @@ pub const RealBackend = struct {
         return self.inner.getMediaSourceChannels(source);
     }
 
+    pub fn getMediaItemTakePeaks(self: *const RealBackend, take: *anyopaque, peakrate: f64, starttime: f64, numchannels: c_int, numsamplesperchannel: c_int, buf: []f64) c_int {
+        return self.inner.getMediaItemTakePeaks(take, peakrate, starttime, numchannels, numsamplesperchannel, buf);
+    }
+
     pub fn makeTakeAccessor(self: *const RealBackend, take: *anyopaque) ?*anyopaque {
         return self.inner.makeTakeAccessor(take);
     }

@@ -53,8 +53,53 @@ pub const ClientSubscription = struct {
     guid_lens: [MAX_GUIDS_PER_CLIENT]usize = [_]usize{0} ** MAX_GUIDS_PER_CLIENT,
     guid_count: usize = 0,
 
-    /// Number of peaks per item (typically 30 for timeline blobs)
+    /// Number of peaks per item (fallback when viewport not provided)
     sample_count: u32 = 30,
+
+    /// Viewport-aware peak generation (Phase 2)
+    /// When set, peakrate is calculated from viewport instead of fixed sample_count
+    viewport_start: f64 = 0, // Project time in seconds
+    viewport_end: f64 = 0, // Project time in seconds
+    viewport_width_px: u32 = 0, // Viewport width for peakrate calculation
+
+    /// Check if viewport is set (non-zero width)
+    pub fn hasViewport(self: *const ClientSubscription) bool {
+        return self.viewport_width_px > 0 and self.viewport_end > self.viewport_start;
+    }
+
+    /// Calculate peakrate from viewport (pixels per second)
+    /// **QUANTIZED TO LOD LEVELS** to prevent cache thrashing on small viewport changes.
+    /// This is critical - without quantization, every pan/zoom causes cache misses.
+    ///
+    /// LOD levels (from architecture doc):
+    /// - LOD 2 (Fine):   400 peaks/sec - for pixelsPerSecond > 200
+    /// - LOD 1 (Medium): 10 peaks/sec  - for pixelsPerSecond > 5
+    /// - LOD 0 (Coarse): 1 peak/sec    - for overview
+    pub fn viewportPeakrate(self: *const ClientSubscription) f64 {
+        if (!self.hasViewport()) return 10.0; // Fallback to medium LOD
+        const duration = self.viewport_end - self.viewport_start;
+        if (duration <= 0) return 10.0;
+
+        const raw_peakrate = @as(f64, @floatFromInt(self.viewport_width_px)) / duration;
+
+        // Quantize to 3 LOD levels to prevent cache thrashing
+        if (raw_peakrate > 200.0) return 400.0; // LOD 2: Fine detail
+        if (raw_peakrate > 5.0) return 10.0; // LOD 1: Medium
+        return 1.0; // LOD 0: Coarse overview
+    }
+
+    /// Get current LOD level (0-2) for cache keying
+    pub fn viewportLOD(self: *const ClientSubscription) u8 {
+        if (!self.hasViewport()) return 1; // Default medium
+        const duration = self.viewport_end - self.viewport_start;
+        if (duration <= 0) return 1;
+
+        const raw_peakrate = @as(f64, @floatFromInt(self.viewport_width_px)) / duration;
+
+        if (raw_peakrate > 200.0) return 2; // Fine
+        if (raw_peakrate > 5.0) return 1; // Medium
+        return 0; // Coarse
+    }
 
     /// Get stored GUID at index.
     pub fn getGuid(self: *const ClientSubscription, idx: usize) ?[]const u8 {
@@ -69,6 +114,9 @@ pub const ClientSubscription = struct {
         self.range_end = 0;
         self.guid_count = 0;
         self.sample_count = 30;
+        self.viewport_start = 0;
+        self.viewport_end = 0;
+        self.viewport_width_px = 0;
     }
 
     /// Check if subscription is active
@@ -154,6 +202,13 @@ pub const PeaksSubscriptions = struct {
         return slot;
     }
 
+    /// Viewport parameters for adaptive peak resolution
+    pub const ViewportParams = struct {
+        start: f64 = 0,
+        end: f64 = 0,
+        width_px: u32 = 0,
+    };
+
     /// Subscribe by range (unified indices). Replaces any existing subscription.
     /// Returns the number of tracks in the range.
     pub fn subscribeRange(
@@ -163,6 +218,18 @@ pub const PeaksSubscriptions = struct {
         end: c_int,
         sample_count: u32,
     ) !usize {
+        return self.subscribeRangeWithViewport(client_id, start, end, sample_count, null);
+    }
+
+    /// Subscribe by range with optional viewport for adaptive resolution.
+    pub fn subscribeRangeWithViewport(
+        self: *PeaksSubscriptions,
+        client_id: usize,
+        start: c_int,
+        end: c_int,
+        sample_count: u32,
+        viewport: ?ViewportParams,
+    ) !usize {
         const slot = self.getOrCreateSlot(client_id) orelse return error.TooManyClients;
         const client = &self.clients[slot];
 
@@ -170,6 +237,13 @@ pub const PeaksSubscriptions = struct {
         client.range_start = @max(0, start);
         client.range_end = @max(client.range_start, end);
         client.sample_count = sample_count;
+
+        // Set viewport if provided
+        if (viewport) |vp| {
+            client.viewport_start = vp.start;
+            client.viewport_end = vp.end;
+            client.viewport_width_px = vp.width_px;
+        }
 
         // Force broadcast to ensure new subscriber gets immediate data
         self.force_broadcast = true;
@@ -194,12 +268,30 @@ pub const PeaksSubscriptions = struct {
         guids: []const []const u8,
         sample_count: u32,
     ) !usize {
+        return self.subscribeGuidsWithViewport(client_id, guids, sample_count, null);
+    }
+
+    /// Subscribe by GUID list with optional viewport for adaptive resolution.
+    pub fn subscribeGuidsWithViewport(
+        self: *PeaksSubscriptions,
+        client_id: usize,
+        guids: []const []const u8,
+        sample_count: u32,
+        viewport: ?ViewportParams,
+    ) !usize {
         const slot = self.getOrCreateSlot(client_id) orelse return error.TooManyClients;
         const client = &self.clients[slot];
 
         client.mode = .guids;
         client.guid_count = 0;
         client.sample_count = sample_count;
+
+        // Set viewport if provided
+        if (viewport) |vp| {
+            client.viewport_start = vp.start;
+            client.viewport_end = vp.end;
+            client.viewport_width_px = vp.width_px;
+        }
 
         // Store GUIDs (resolution happens at poll time)
         for (guids) |guid| {
@@ -221,6 +313,31 @@ pub const PeaksSubscriptions = struct {
         });
 
         return client.guid_count;
+    }
+
+    /// Update viewport for an existing subscription (for pan/zoom without re-subscribing).
+    /// Returns true if client has an active subscription that was updated.
+    pub fn updateViewport(
+        self: *PeaksSubscriptions,
+        client_id: usize,
+        viewport: ViewportParams,
+    ) bool {
+        const slot = self.client_id_to_slot.get(client_id) orelse return false;
+        const client = &self.clients[slot];
+
+        if (client.mode == .none) return false;
+
+        client.viewport_start = viewport.start;
+        client.viewport_end = viewport.end;
+        client.viewport_width_px = viewport.width_px;
+
+        // NOTE: Do NOT set force_broadcast here!
+        // Viewport updates rely on LOD-based cache hits/misses for efficiency.
+        // Setting force_broadcast causes full regeneration = disco strobe effect.
+        // Only initial subscription should force broadcast, not viewport updates.
+        // The quantized LOD in viewportPeakrate() ensures cache stability.
+
+        return true;
     }
 
     /// Unsubscribe a client (clear their subscription).

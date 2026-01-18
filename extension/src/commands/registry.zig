@@ -258,6 +258,7 @@ pub const all = .{
     // Peaks Subscriptions (timeline waveforms)
     .{ "peaks/subscribe", peaks_subs.handleSubscribe },
     .{ "peaks/unsubscribe", peaks_subs.handleUnsubscribe },
+    .{ "peaks/updateViewport", peaks_subs.handleUpdateViewport },
 
     // Routing Subscriptions (per-track sends/receives/hw outputs)
     .{ "routing/subscribe", routing_subs.handleSubscribe },

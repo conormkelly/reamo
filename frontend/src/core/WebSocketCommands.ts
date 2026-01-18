@@ -957,14 +957,26 @@ export const playlist = {
 // Peaks Subscription Commands
 // =============================================================================
 
+/** Viewport parameters for adaptive peak resolution */
+export interface PeaksViewport {
+  /** Start time in seconds (project timeline position) */
+  start: number;
+  /** End time in seconds (project timeline position) */
+  end: number;
+  /** Viewport width in pixels (for peakrate calculation) */
+  widthPx: number;
+}
+
 /** Subscription parameters for peaks/subscribe command */
 export interface PeaksSubscribeParams {
   /** Range mode: subscribe to unified track indices [start, end] */
   range?: { start: number; end: number };
   /** GUID mode: subscribe to specific track GUIDs */
   guids?: string[];
-  /** Number of peak samples per item (default 30) */
+  /** Number of peak samples per item (default 30, used as fallback) */
   sampleCount?: number;
+  /** Viewport for adaptive resolution (Phase 2) */
+  viewport?: PeaksViewport;
 }
 
 export const peaks = {
@@ -979,7 +991,8 @@ export const peaks = {
    *
    * @param params.range - Track index range { start, end } (mutually exclusive with guids)
    * @param params.guids - Array of track GUIDs (mutually exclusive with range)
-   * @param params.sampleCount - Number of peak samples per item (default 30)
+   * @param params.sampleCount - Number of peak samples per item (default 30, fallback)
+   * @param params.viewport - Viewport for adaptive resolution (optional)
    */
   subscribe: (params: PeaksSubscribeParams): WSCommand => ({
     command: 'peaks/subscribe',
@@ -987,11 +1000,21 @@ export const peaks = {
       ...(params.range && { range: params.range }),
       ...(params.guids && { guids: params.guids }),
       ...(params.sampleCount !== undefined && { sampleCount: params.sampleCount }),
+      ...(params.viewport && { viewport: params.viewport }),
     },
   }),
   /** Unsubscribe from peaks updates. */
   unsubscribe: (): WSCommand => ({
     command: 'peaks/unsubscribe',
+  }),
+  /**
+   * Update viewport for adaptive peak resolution without re-subscribing.
+   * Use this when panning/zooming to request peaks at appropriate resolution.
+   * Requires an active subscription.
+   */
+  updateViewport: (viewport: PeaksViewport): WSCommand => ({
+    command: 'peaks/updateViewport',
+    params: { viewport },
   }),
 };
 

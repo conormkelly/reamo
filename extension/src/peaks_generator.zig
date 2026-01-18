@@ -19,10 +19,8 @@ const peaks_cache = @import("peaks_cache.zig");
 
 const Allocator = std.mem.Allocator;
 
-// Peak extraction constants (same as items.zig)
+// Peak extraction constants
 const MAX_PEAKS_PER_ITEM = 200;
-const PEAK_SAMPLE_RATE: c_int = 4410;
-const MAX_SAMPLE_BUF = 65536;
 
 /// Maximum items to process per track (safety limit)
 const MAX_ITEMS_PER_TRACK = 500;
@@ -135,7 +133,7 @@ pub fn generatePeaksForTrack(
         item_peaks.item_guid_len = guid_len;
 
         // Generate peaks using AudioAccessor
-        if (generatePeaksForItem(api, take, item_peaks.length, num_peaks, &item_peaks)) {
+        if (generatePeaksForItem(allocator, api, take, item_peaks.length, num_peaks, &item_peaks)) {
             items_peaks[valid_count] = item_peaks;
             valid_count += 1;
         }
@@ -265,7 +263,7 @@ pub fn generatePeaksForTrackCached(
                 cache_hits += 1;
             } else {
                 // Generate peaks and store in cache
-                if (generatePeaksForItem(api, take, item_peaks.length, num_peaks, &item_peaks)) {
+                if (generatePeaksForItem(allocator, api, take, item_peaks.length, num_peaks, &item_peaks)) {
                     c.put(
                         key,
                         item_peaks.peak_min[0 .. item_peaks.num_peaks * item_peaks.channels],
@@ -280,7 +278,7 @@ pub fn generatePeaksForTrackCached(
             }
         } else {
             // No cache, generate directly
-            if (!generatePeaksForItem(api, take, item_peaks.length, num_peaks, &item_peaks)) {
+            if (!generatePeaksForItem(allocator, api, take, item_peaks.length, num_peaks, &item_peaks)) {
                 continue;
             }
         }
@@ -374,7 +372,12 @@ pub fn generatePeaksForSubscription(
         return null;
     }
 
-    const num_peaks: usize = @min(@as(usize, sample_count), MAX_PEAKS_PER_ITEM);
+    // Viewport-aware peak generation:
+    // - With viewport: peakrate based on zoom level, num_peaks varies per item
+    // - Without viewport: fixed sample_count per item (legacy mode)
+    const use_viewport = sub.hasViewport();
+    const viewport_peakrate = if (use_viewport) sub.viewportPeakrate() else 0;
+    const fixed_num_peaks: usize = @min(@as(usize, sample_count), MAX_PEAKS_PER_ITEM);
 
     // Allocate output buffer for streaming JSON
     // Estimate: ~800 bytes per item, ~100 bytes overhead per track, max 64 items per track
@@ -430,7 +433,7 @@ pub fn generatePeaksForSubscription(
             // Skip MIDI items
             if (api.isTakeMIDI(take)) continue;
 
-            // Initialize item peaks
+            // Initialize item peaks (num_peaks calculated after getting item length)
             var item_peaks = ItemPeaks{
                 .item_guid = undefined,
                 .item_guid_len = 0,
@@ -440,7 +443,7 @@ pub fn generatePeaksForSubscription(
                 .length = 0,
                 .peak_min = [_]f64{1.0} ** (MAX_PEAKS_PER_ITEM * 2),
                 .peak_max = [_]f64{-1.0} ** (MAX_PEAKS_PER_ITEM * 2),
-                .num_peaks = num_peaks,
+                .num_peaks = 0, // Set after calculating item length
                 .channels = 1,
             };
 
@@ -450,6 +453,17 @@ pub fn generatePeaksForSubscription(
 
             // Validate length
             if (!ffi.isFinite(item_peaks.length) or item_peaks.length <= 0) continue;
+
+            // Calculate num_peaks for this item
+            // With viewport: based on item length and viewport peakrate (adaptive)
+            // Without viewport: fixed sample_count (legacy)
+            const num_peaks: usize = if (use_viewport)
+                @min(@as(usize, @intFromFloat(@ceil(item_peaks.length * viewport_peakrate))), MAX_PEAKS_PER_ITEM)
+            else
+                fixed_num_peaks;
+
+            // Update item_peaks with calculated num_peaks
+            item_peaks.num_peaks = num_peaks;
 
             // Get item GUID
             var item_guid_buf: [64]u8 = undefined;
@@ -465,12 +479,14 @@ pub fn generatePeaksForSubscription(
                 const start_offset = api.getTakeStartOffset(take);
                 const playrate = api.getTakePlayrate(take);
 
+                // CRITICAL: Use num_peaks (viewport-aware) for cache key, not sample_count (fixed).
+                // Each LOD level produces different num_peaks, and cache must key by that.
                 const key = peaks_cache.PeaksCacheKey.create(
                     take_guid,
                     start_offset,
                     playrate,
                     item_peaks.length,
-                    sample_count,
+                    @intCast(num_peaks),
                 );
 
                 if (c.get(key)) |cached| {
@@ -480,7 +496,7 @@ pub fn generatePeaksForSubscription(
                     item_peaks.num_peaks = cached.num_peaks;
                     item_peaks.channels = cached.channels;
                 } else {
-                    if (generatePeaksForItem(api, take, item_peaks.length, num_peaks, &item_peaks)) {
+                    if (generatePeaksForItem(allocator, api, take, item_peaks.length, num_peaks, &item_peaks)) {
                         c.put(
                             key,
                             item_peaks.peak_min[0 .. item_peaks.num_peaks * item_peaks.channels],
@@ -493,7 +509,7 @@ pub fn generatePeaksForSubscription(
                     }
                 }
             } else {
-                if (!generatePeaksForItem(api, take, item_peaks.length, num_peaks, &item_peaks)) {
+                if (!generatePeaksForItem(allocator, api, take, item_peaks.length, num_peaks, &item_peaks)) {
                     continue;
                 }
             }
@@ -564,92 +580,104 @@ pub fn generatePeaksForSubscription(
     return result[0..written.len];
 }
 
-/// Generate peaks for a single item using AudioAccessor.
+/// Generate peaks for a single item using REAPER's GetMediaItemTake_Peaks API.
+/// This uses REAPER's pre-computed .reapeaks mipmaps for faster peak retrieval.
+/// REAPER automatically selects the appropriate mipmap tier based on peakrate:
+///   - ~400 peaks/sec (finest)
+///   - ~10 peaks/sec (medium)
+///   - ~1 peak/sec (coarse)
+/// We request exactly what we need and let REAPER handle LOD selection.
 /// Populates peak_min, peak_max, and channels in item_peaks.
 /// Returns true on success.
 fn generatePeaksForItem(
+    allocator: Allocator,
     api: anytype,
     take: *anyopaque,
     length: f64,
     num_peaks: usize,
     item_peaks: *ItemPeaks,
 ) bool {
-    // Create audio accessor
-    const accessor = api.makeTakeAccessor(take) orelse {
-        logging.debug("peaks_generator: failed to create accessor", .{});
+    // Get source to determine channel count
+    const source = api.getTakeSource(take) orelse {
+        logging.warn("peaks_generator: failed to get take source", .{});
         return false;
     };
-    defer api.destroyTakeAccessor(accessor);
 
-    // Always request stereo (mono detection done by comparing L/R)
-    const num_channels: usize = 2;
-
-    // Calculate samples needed
-    const total_samples: usize = ffi.safeFloatToInt(usize, length * @as(f64, PEAK_SAMPLE_RATE)) catch {
+    // Get actual channel count from source (1=mono, 2=stereo, etc.)
+    const source_channels = api.getMediaSourceChannels(source);
+    if (source_channels <= 0) {
+        logging.debug("peaks_generator: invalid channel count {d}", .{source_channels});
         return false;
-    };
-    const samples_per_peak = @max(total_samples / num_peaks, 1);
-
-    // Read samples and compute peaks
-    var sample_buf: [MAX_SAMPLE_BUF]f64 = undefined;
-    var sample_idx: usize = 0;
-    var peak_idx: usize = 0;
-
-    while (sample_idx < total_samples and peak_idx < num_peaks) {
-        // Calculate how many samples to read this iteration
-        const remaining = total_samples - sample_idx;
-        const max_samples_per_chan = MAX_SAMPLE_BUF / num_channels;
-        const samples_to_read: usize = @min(remaining, max_samples_per_chan);
-
-        // Read samples
-        const start_time = @as(f64, @floatFromInt(sample_idx)) / @as(f64, PEAK_SAMPLE_RATE);
-        const rv = api.readAccessorSamples(
-            accessor,
-            PEAK_SAMPLE_RATE,
-            @intCast(num_channels),
-            start_time,
-            @intCast(samples_to_read),
-            sample_buf[0 .. samples_to_read * num_channels],
-        );
-
-        if (rv < 0) {
-            logging.warn("peaks_generator: readAccessorSamples error at {d}s", .{start_time});
-            break;
-        }
-        if (rv == 0) {
-            // No audio at this position, advance
-            sample_idx += samples_to_read;
-            continue;
-        }
-
-        // Process samples into peaks
-        for (0..samples_to_read) |j| {
-            const current_peak = (sample_idx + j) / samples_per_peak;
-            if (current_peak >= num_peaks) break;
-
-            // Update min/max for each channel
-            for (0..num_channels) |ch| {
-                const sample = sample_buf[j * num_channels + ch];
-                const idx = current_peak * num_channels + ch;
-                item_peaks.peak_max[idx] = @max(item_peaks.peak_max[idx], sample);
-                item_peaks.peak_min[idx] = @min(item_peaks.peak_min[idx], sample);
-            }
-        }
-
-        sample_idx += samples_to_read;
-        peak_idx = sample_idx / samples_per_peak;
     }
 
-    // Fix any peaks that weren't touched (still at init values)
-    for (0..num_peaks * num_channels) |idx| {
-        if (item_peaks.peak_max[idx] < item_peaks.peak_min[idx]) {
+    // Request up to 2 channels (we don't support more than stereo in the output)
+    const num_channels: usize = @min(@as(usize, @intCast(source_channels)), 2);
+
+    // Calculate peakrate to get exactly num_peaks covering the full item length.
+    // REAPER will automatically select the appropriate mipmap tier.
+    const peakrate: f64 = @as(f64, @floatFromInt(num_peaks)) / length;
+
+    // Buffer for REAPER's output (channel-interleaved within max/min blocks)
+    // Size = num_channels * num_peaks * 2 (max block + min block)
+    const buf_size = num_channels * num_peaks * 2;
+    const reaper_buf = allocator.alloc(f64, buf_size) catch {
+        logging.warn("peaks_generator: failed to allocate {d} bytes for peak buffer", .{buf_size * 8});
+        return false;
+    };
+    defer allocator.free(reaper_buf);
+
+    // GetMediaItemTake_Peaks expects starttime in PROJECT time (timeline position).
+    const item_position = item_peaks.position;
+
+    // Call REAPER's GetMediaItemTake_Peaks
+    const result = api.getMediaItemTakePeaks(
+        take,
+        peakrate,
+        item_position, // Project timeline position
+        @intCast(num_channels),
+        @intCast(num_peaks),
+        reaper_buf,
+    );
+
+    // Parse return value: sample_count in low 20 bits, mode in bits 20-23
+    const actual_peaks: usize = @intCast(result & 0xFFFFF);
+    // NOTE: mode=0 is VALID (interpolated data from coarser mipmap), NOT an error!
+    // mode=1+ means native resolution. Only check actual_peaks for failure.
+    _ = @as(u4, @intCast((result >> 20) & 0xF)); // mode (unused - both 0 and 1 are valid)
+
+    if (actual_peaks == 0) {
+        logging.debug("peaks_generator: no peaks returned from REAPER", .{});
+        return false;
+    }
+
+    // Debug: log request vs actual to verify coverage
+    if (actual_peaks >= 3) {
+        logging.debug("peaks_generator: requested {d} peaks at {d:.2}/sec, got {d}", .{
+            num_peaks,
+            peakrate,
+            actual_peaks,
+        });
+    }
+
+    // Parse REAPER's buffer directly - no downsampling needed
+    // REAPER format (channel-interleaved within blocks):
+    //   Block 1 (Maximums): [L_max_0, R_max_0, L_max_1, R_max_1, ...]
+    //   Block 2 (Minimums): [L_min_0, R_min_0, L_min_1, R_min_1, ...]
+    const peaks_to_use = @min(actual_peaks, num_peaks);
+    parseReaperPeaks(reaper_buf, peaks_to_use, num_channels, item_peaks);
+
+    // Zero out any remaining peaks if we got fewer than requested
+    for (peaks_to_use..num_peaks) |p| {
+        for (0..num_channels) |ch| {
+            const idx = p * num_channels + ch;
             item_peaks.peak_max[idx] = 0;
             item_peaks.peak_min[idx] = 0;
         }
     }
 
-    // Detect actual channel count by comparing L/R peaks
+    // Detect actual channel count by comparing L/R peaks (for mono detection)
     const detected_channels: usize = blk: {
+        if (num_channels == 1) break :blk 1;
         const epsilon = 0.0001;
         for (0..num_peaks) |p| {
             const max_l = item_peaks.peak_max[p * 2];
@@ -666,6 +694,31 @@ fn generatePeaksForItem(
     item_peaks.channels = detected_channels;
     item_peaks.num_peaks = num_peaks;
     return true;
+}
+
+/// Parse REAPER's peak buffer format into our ItemPeaks format.
+/// REAPER format (per GETMEDIAITEM_TAKE_PEAKS_API.md):
+///   Block 1 (Maximums): [ch0_max_0, ch1_max_0, ch0_max_1, ch1_max_1, ...] (channel-interleaved)
+///   Block 2 (Minimums): [ch0_min_0, ch1_min_0, ch0_min_1, ch1_min_1, ...] (channel-interleaved)
+/// Our format: peak_min[peak_idx * channels + ch], peak_max[peak_idx * channels + ch]
+fn parseReaperPeaks(
+    buf: []f64,
+    num_peaks: usize,
+    num_channels: usize,
+    item_peaks: *ItemPeaks,
+) void {
+    const block_size = num_peaks * num_channels;
+    for (0..num_peaks) |p| {
+        for (0..num_channels) |ch| {
+            const our_idx = p * num_channels + ch;
+            // REAPER layout: channels interleaved within each block
+            // Block 1 = maximums, Block 2 = minimums
+            const max_offset = p * num_channels + ch;
+            const min_offset = block_size + p * num_channels + ch;
+            item_peaks.peak_max[our_idx] = buf[max_offset];
+            item_peaks.peak_min[our_idx] = buf[min_offset];
+        }
+    }
 }
 
 /// Serialize peaks event to JSON.
@@ -805,4 +858,73 @@ test "serializePeaksEvent stereo" {
     try std.testing.expect(std.mem.indexOf(u8, json.?, "\"channels\":2") != null);
     try std.testing.expect(std.mem.indexOf(u8, json.?, "\"l\":[") != null);
     try std.testing.expect(std.mem.indexOf(u8, json.?, "\"r\":[") != null);
+}
+
+test "parseReaperPeaks mono" {
+    // REAPER format for mono (1 channel), 3 peaks:
+    // [max0, max1, max2, min0, min1, min2]
+    var reaper_buf = [_]f64{
+        0.8, 0.6, 0.4, // max values for channel 0
+        -0.3, -0.5, -0.2, // min values for channel 0
+    };
+
+    var item_peaks = ItemPeaks{
+        .item_guid = undefined,
+        .item_guid_len = 0,
+        .track_idx = 0,
+        .item_idx = 0,
+        .position = 0,
+        .length = 1.0,
+        .peak_min = [_]f64{1.0} ** (MAX_PEAKS_PER_ITEM * 2),
+        .peak_max = [_]f64{-1.0} ** (MAX_PEAKS_PER_ITEM * 2),
+        .num_peaks = 3,
+        .channels = 1,
+    };
+
+    parseReaperPeaks(&reaper_buf, 3, 1, &item_peaks);
+
+    // Our format: peak_max[peak_idx], peak_min[peak_idx]
+    try std.testing.expectApproxEqAbs(item_peaks.peak_max[0], 0.8, 0.001);
+    try std.testing.expectApproxEqAbs(item_peaks.peak_max[1], 0.6, 0.001);
+    try std.testing.expectApproxEqAbs(item_peaks.peak_max[2], 0.4, 0.001);
+    try std.testing.expectApproxEqAbs(item_peaks.peak_min[0], -0.3, 0.001);
+    try std.testing.expectApproxEqAbs(item_peaks.peak_min[1], -0.5, 0.001);
+    try std.testing.expectApproxEqAbs(item_peaks.peak_min[2], -0.2, 0.001);
+}
+
+test "parseReaperPeaks stereo" {
+    // REAPER format for stereo (2 channels), 2 peaks (per GETMEDIAITEM_TAKE_PEAKS_API.md):
+    // Block 1 (Maximums): [L_max0, R_max0, L_max1, R_max1] (channel-interleaved)
+    // Block 2 (Minimums): [L_min0, R_min0, L_min1, R_min1] (channel-interleaved)
+    var reaper_buf = [_]f64{
+        0.7, 0.9, 0.5, 0.6, // max values interleaved: L0, R0, L1, R1
+        -0.4, -0.8, -0.2, -0.5, // min values interleaved: L0, R0, L1, R1
+    };
+
+    var item_peaks = ItemPeaks{
+        .item_guid = undefined,
+        .item_guid_len = 0,
+        .track_idx = 0,
+        .item_idx = 0,
+        .position = 0,
+        .length = 1.0,
+        .peak_min = [_]f64{1.0} ** (MAX_PEAKS_PER_ITEM * 2),
+        .peak_max = [_]f64{-1.0} ** (MAX_PEAKS_PER_ITEM * 2),
+        .num_peaks = 2,
+        .channels = 2,
+    };
+
+    parseReaperPeaks(&reaper_buf, 2, 2, &item_peaks);
+
+    // Our format: peak_max[peak_idx * 2 + ch], peak_min[peak_idx * 2 + ch]
+    // Peak 0: L at [0], R at [1]
+    // Peak 1: L at [2], R at [3]
+    try std.testing.expectApproxEqAbs(item_peaks.peak_max[0], 0.7, 0.001); // Peak 0, L max
+    try std.testing.expectApproxEqAbs(item_peaks.peak_max[1], 0.9, 0.001); // Peak 0, R max
+    try std.testing.expectApproxEqAbs(item_peaks.peak_max[2], 0.5, 0.001); // Peak 1, L max
+    try std.testing.expectApproxEqAbs(item_peaks.peak_max[3], 0.6, 0.001); // Peak 1, R max
+    try std.testing.expectApproxEqAbs(item_peaks.peak_min[0], -0.4, 0.001); // Peak 0, L min
+    try std.testing.expectApproxEqAbs(item_peaks.peak_min[1], -0.8, 0.001); // Peak 0, R min
+    try std.testing.expectApproxEqAbs(item_peaks.peak_min[2], -0.2, 0.001); // Peak 1, L min
+    try std.testing.expectApproxEqAbs(item_peaks.peak_min[3], -0.5, 0.001); // Peak 1, R min
 }

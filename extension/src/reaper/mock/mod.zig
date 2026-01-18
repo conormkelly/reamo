@@ -402,6 +402,12 @@ pub const MockBackend = struct {
     pub const isTakeMIDI = tracks.TracksMethods.isTakeMIDI;
     pub const getTakeSource = tracks.TracksMethods.getTakeSource;
     pub const getMediaSourceChannels = tracks.TracksMethods.getMediaSourceChannels;
+    pub const getMediaItemTakePeaks = tracks.TracksMethods.getMediaItemTakePeaks;
+
+    // AudioAccessor (for fallback peak generation)
+    pub const makeTakeAccessor = tracks.TracksMethods.makeTakeAccessor;
+    pub const destroyTakeAccessor = tracks.TracksMethods.destroyTakeAccessor;
+    pub const readAccessorSamples = tracks.TracksMethods.readAccessorSamples;
 
     // =========================================================================
     // Metering (delegated)

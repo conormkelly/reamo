@@ -162,24 +162,82 @@ export function TimelineView(): ReactElement {
   const effectiveCanGoBack = isFiltered ? filterBankIndex > 0 : bank.canGoBack;
   const effectiveCanGoForward = isFiltered ? filterBankIndex < filteredTotalBanks - 1 : bank.canGoForward;
 
+  // Calculate project duration from content (needed for viewport)
+  const projectDuration = useMemo(() => {
+    let end = 0;
+
+    for (const region of regions) {
+      if (region.end > end) end = region.end;
+    }
+    for (const marker of markers) {
+      if (marker.position > end) end = marker.position;
+    }
+    for (const item of items) {
+      const itemEnd = item.position + item.length;
+      if (itemEnd > end) end = itemEnd;
+    }
+    // Include playhead position
+    if (positionSeconds > end) end = positionSeconds;
+
+    // Add 5% padding at the end, minimum 30 seconds
+    return Math.max(end * 1.05, 30);
+  }, [regions, markers, items, positionSeconds]);
+
+  // Shared viewport state (needed for peaks subscription)
+  const viewport = useViewport({
+    projectDuration,
+    initialRange: { start: 0, end: Math.min(30, projectDuration) },
+  });
+
+  // Track timeline container width for adaptive peak resolution
+  const timelineContainerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(400); // Default mobile width
+
+  useEffect(() => {
+    const container = timelineContainerRef.current;
+    if (!container) return;
+
+    // Initial measurement
+    setContainerWidth(container.clientWidth);
+
+    // Update on resize
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width);
+      }
+    });
+    resizeObserver.observe(container);
+
+    return () => resizeObserver.disconnect();
+  }, []);
+
   // Subscribe to peaks for waveform rendering
   // - Range mode for unfiltered (sequential bank navigation with prefetch)
   // - GUID mode for filtered (sparse track selection)
+  // - Viewport for adaptive peak resolution (more peaks when zoomed in)
   const peaksSubscriptionOptions = useMemo(() => {
     if (laneTracks.length === 0) return null;
+
+    // Viewport for adaptive peak resolution
+    const peaksViewport = {
+      start: viewport.visibleRange.start,
+      end: viewport.visibleRange.end,
+      widthPx: containerWidth,
+    };
 
     if (isFiltered) {
       // Filtered: subscribe by GUID (sparse tracks)
       const guids = laneTracks.map((t) => t.g);
-      return { guids, sampleCount: 30 };
+      return { guids, sampleCount: 30, viewport: peaksViewport };
     } else {
       // Unfiltered: subscribe by range with prefetch
       return {
         range: { start: bank.prefetchStart, end: bank.prefetchEnd },
         sampleCount: 30,
+        viewport: peaksViewport,
       };
     }
-  }, [isFiltered, laneTracks, bank.prefetchStart, bank.prefetchEnd]);
+  }, [isFiltered, laneTracks, bank.prefetchStart, bank.prefetchEnd, viewport.visibleRange, containerWidth]);
 
   const { peaksByTrack } = usePeaksSubscription(peaksSubscriptionOptions);
 
@@ -291,33 +349,6 @@ export function TimelineView(): ReactElement {
     showLabelsTemporarily();
   }, [isFiltered, bank, filteredTotalBanks, showLabelsTemporarily]);
 
-  // Calculate project duration from content
-  const projectDuration = useMemo(() => {
-    let end = 0;
-
-    for (const region of regions) {
-      if (region.end > end) end = region.end;
-    }
-    for (const marker of markers) {
-      if (marker.position > end) end = marker.position;
-    }
-    for (const item of items) {
-      const itemEnd = item.position + item.length;
-      if (itemEnd > end) end = itemEnd;
-    }
-    // Include playhead position
-    if (positionSeconds > end) end = positionSeconds;
-
-    // Add 5% padding at the end, minimum 30 seconds
-    return Math.max(end * 1.05, 30);
-  }, [regions, markers, items, positionSeconds]);
-
-  // Shared viewport state
-  const viewport = useViewport({
-    projectDuration,
-    initialRange: { start: 0, end: Math.min(30, projectDuration) },
-  });
-
   return (
     <div className="h-full bg-bg-app text-text-primary p-3 flex flex-col">
       {/* Header - bank selector, mode toggle */}
@@ -335,7 +366,7 @@ export function TimelineView(): ReactElement {
       {/* Main timeline area - takes available space */}
       <div className="flex-1 flex flex-col min-h-0 mt-2">
         {/* Timeline canvas with multi-track lanes */}
-        <div className="relative">
+        <div ref={timelineContainerRef} className="relative">
           <Timeline
             height={TIMELINE_HEIGHT}
             viewport={viewport}

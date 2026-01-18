@@ -121,7 +121,11 @@ function LaneWaveform({
       const topY = centerY - maxVal * centerY;
       const bottomY = centerY - minVal * centerY;
 
-      ctx.fillRect(x, topY, Math.max(sampleWidth - 0.5, 1), bottomY - topY);
+      // Ensure minimum 1px height so silent sections show as thin centered line (matches REAPER)
+      const height = Math.max(bottomY - topY, 1);
+      const adjustedTopY = height === 1 ? centerY - 0.5 : topY;
+
+      ctx.fillRect(x, adjustedTopY, Math.max(sampleWidth - 0.5, 1), height);
     });
   }, [peaks, color, widthPx, heightPx]);
 

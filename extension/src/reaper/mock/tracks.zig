@@ -611,6 +611,55 @@ pub const TracksMethods = struct {
         return self.tracks[info.track_idx].items[info.item_idx].takes[info.take_idx].channel_count;
     }
 
+    pub fn getMediaItemTakePeaks(self: anytype, take: *anyopaque, peakrate: f64, starttime: f64, numchannels: c_int, numsamplesperchannel: c_int, buf: []f64) c_int {
+        self.recordCall(.getMediaItemTakePeaks);
+        _ = take;
+        _ = peakrate;
+        _ = starttime;
+        // Fill buffer with mock peak data: alternating 0.5/-0.5 pattern
+        const num_peaks: usize = @intCast(numsamplesperchannel);
+        const num_chans: usize = @intCast(numchannels);
+        const total_values = num_chans * num_peaks * 2; // max + min per channel
+        if (buf.len >= total_values) {
+            for (0..total_values) |i| {
+                // Simple pattern: max values positive, min values negative
+                buf[i] = if (i < num_chans * num_peaks) 0.5 else -0.5;
+            }
+        }
+        // Return format: sample_count in low 20 bits, mode in bits 20-23 (mode 1 = ready)
+        return @as(c_int, numsamplesperchannel) | (1 << 20);
+    }
+
+    // AudioAccessor (mock for fallback peak generation)
+    pub fn makeTakeAccessor(self: anytype, take: *anyopaque) ?*anyopaque {
+        self.recordCall(.makeTakeAccessor);
+        // Return the take pointer as the accessor (simplifies mock)
+        return take;
+    }
+
+    pub fn destroyTakeAccessor(self: anytype, accessor: *anyopaque) void {
+        self.recordCall(.destroyTakeAccessor);
+        _ = accessor;
+    }
+
+    pub fn readAccessorSamples(self: anytype, accessor: *anyopaque, samplerate: c_int, numchannels: c_int, starttime_sec: f64, numsamplesperchannel: c_int, buf: []f64) c_int {
+        self.recordCall(.readAccessorSamples);
+        _ = accessor;
+        _ = samplerate;
+        _ = starttime_sec;
+        // Fill buffer with mock audio samples: sine wave pattern
+        const num_samples: usize = @intCast(numsamplesperchannel);
+        const num_chans: usize = @intCast(numchannels);
+        for (0..num_samples) |i| {
+            const phase = @as(f64, @floatFromInt(i)) / 100.0;
+            const sample = @sin(phase * 6.28318);
+            for (0..num_chans) |ch| {
+                buf[i * num_chans + ch] = sample * 0.5; // Interleaved
+            }
+        }
+        return 1; // Success
+    }
+
     // Metering
     pub fn getTrackPeakInfo(self: anytype, track: *anyopaque, channel: c_int) f64 {
         self.recordCall(.getTrackPeakInfo);

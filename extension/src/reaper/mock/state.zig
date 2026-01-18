@@ -182,6 +182,11 @@ pub const Method = enum {
     isTakeMIDI,
     getTakeSource,
     getMediaSourceChannels,
+    getMediaItemTakePeaks,
+    // AudioAccessor
+    makeTakeAccessor,
+    destroyTakeAccessor,
+    readAccessorSamples,
     // Markers
     markerCount,
     enumMarker,
