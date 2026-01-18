@@ -18,18 +18,20 @@ import {
   TrackInfoBar,
   RoutingModal,
   CreateTrackModal,
+  FolderNavSheet,
+  QuickFilterDropdown,
   isBuiltinBank,
   type CustomBank,
   type BuiltinBankId,
 } from '../../components/Mixer';
 import { Plus } from 'lucide-react';
 import { TrackFilter } from '../../components/Track';
-import { MixerLockButton } from '../../components/Actions';
 import {
   useResponsiveChannelCount,
   useBankNavigation,
   useTrackSkeleton,
   useCustomBanks,
+  useFolderHierarchy,
 } from '../../hooks';
 import { useReaper } from '../../components/ReaperProvider';
 import { track } from '../../core/WebSocketCommands';
@@ -75,6 +77,11 @@ export function MixerView(): ReactElement {
   // Custom banks from ProjExtState
   const { banks: customBanks, saveBank, deleteBank } = useCustomBanks();
   const [selectedBankId, setSelectedBankId] = useState<string | null>(null);
+
+  // Folder navigation state
+  const [folderPath, setFolderPath] = useState<string[]>([]);
+  const [folderSheetOpen, setFolderSheetOpen] = useState(false);
+  const { getChildren: getFolderChildren, validatePath } = useFolderHierarchy();
 
   // Bank editor modal state
   const [bankModalOpen, setBankModalOpen] = useState(false);
@@ -145,24 +152,34 @@ export function MixerView(): ReactElement {
     // Built-in bank filtering (uses skeleton filter fields)
     if (hasBuiltinBank) {
       const builtinId = selectedBankId as BuiltinBankId;
-      baseTracks = baseTracks.filter((t) => {
-        switch (builtinId) {
-          case 'builtin:muted':
-            return t.m === true;
-          case 'builtin:soloed':
-            return t.sl !== null && t.sl !== 0;
-          case 'builtin:armed':
-            return t.r === true;
-          case 'builtin:selected':
-            return t.sel === true;
-          case 'builtin:folders':
-            return t.fd === 1; // folder_depth 1 = parent folder
-          case 'builtin:with-sends':
-            return t.sc > 0;
-          default:
-            return true;
-        }
-      });
+
+      // Special handling for Folders bank with path navigation
+      if (builtinId === 'builtin:folders' && folderPath.length > 0) {
+        // Navigate into folder: show only direct children of current folder
+        const currentFolderGuid = folderPath[folderPath.length - 1];
+        const childIndices = new Set(getFolderChildren(currentFolderGuid));
+        baseTracks = baseTracks.filter((t) => childIndices.has(t.index));
+      } else {
+        // Standard bank filtering
+        baseTracks = baseTracks.filter((t) => {
+          switch (builtinId) {
+            case 'builtin:muted':
+              return t.m === true;
+            case 'builtin:soloed':
+              return t.sl !== null && t.sl !== 0;
+            case 'builtin:armed':
+              return t.r === true;
+            case 'builtin:selected':
+              return t.sel === true;
+            case 'builtin:folders':
+              return t.fd === 1; // folder_depth 1 = parent folder
+            case 'builtin:with-sends':
+              return t.sc > 0;
+            default:
+              return true;
+          }
+        });
+      }
     }
     // Custom bank filtering
     else if (selectedBank) {
@@ -184,7 +201,7 @@ export function MixerView(): ReactElement {
     }
 
     return baseTracks;
-  }, [isFiltered, skeleton, hasBuiltinBank, selectedBankId, selectedBank, hasTextFilter, filterQuery]);
+  }, [isFiltered, skeleton, hasBuiltinBank, selectedBankId, selectedBank, hasTextFilter, filterQuery, folderPath, getFolderChildren]);
 
   // Extract indices for display logic
   const allFilteredIndices = useMemo(
@@ -197,10 +214,38 @@ export function MixerView(): ReactElement {
     setFilterBankIndex(0);
   }, [filterQuery, selectedBankId]);
 
+  // Reset folder path when switching away from Folders bank
+  // Open folder sheet when switching TO Folders bank
+  useEffect(() => {
+    if (selectedBankId === 'builtin:folders') {
+      setFolderSheetOpen(true);
+    } else {
+      setFolderPath([]);
+      setFolderSheetOpen(false);
+    }
+  }, [selectedBankId]);
+
+  // Validate folder path when skeleton changes (in case folder was deleted)
+  useEffect(() => {
+    if (folderPath.length === 0) return;
+    const validPath = validatePath(folderPath);
+    if (validPath.length !== folderPath.length) {
+      setFolderPath(validPath);
+    }
+  }, [folderPath, validatePath]);
+
   // Calculate filtered banking
+  const filteredTotalBanks = Math.ceil(allFilteredIndices.length / channelCount);
+
+  // Clamp filter bank index when filtered results shrink (e.g., unmuting the last track on page 2)
+  useEffect(() => {
+    if (isFiltered && filterBankIndex > 0 && filterBankIndex >= filteredTotalBanks) {
+      setFilterBankIndex(Math.max(0, filteredTotalBanks - 1));
+    }
+  }, [isFiltered, filterBankIndex, filteredTotalBanks]);
+
   const filteredBankStart = filterBankIndex * channelCount;
   const filteredBankEnd = Math.min(filteredBankStart + channelCount, allFilteredIndices.length);
-  const filteredTotalBanks = Math.ceil(allFilteredIndices.length / channelCount);
 
   // Get the track indices to display
   const displayTrackIndices = useMemo(() => {
@@ -263,6 +308,23 @@ export function MixerView(): ReactElement {
   const handleShowRouting = useCallback((trackIdx: number) => {
     setRoutingTrackIdx(trackIdx);
     setRoutingModalOpen(true);
+  }, []);
+
+  // Folder click handler - open folder sheet and navigate to folder
+  const handleFolderClick = useCallback((folderGuid: string) => {
+    setSelectedBankId('builtin:folders');
+    setFolderPath([folderGuid]);
+    setFolderSheetOpen(true);
+  }, []);
+
+  // Handle track selection from folder sheet
+  const handleFolderSheetSelectTrack = useCallback((trackIndex: number) => {
+    setInfoSelectedTrackIdx(trackIndex);
+  }, []);
+
+  // Handle bank change
+  const handleBankChange = useCallback((bankId: string | null) => {
+    setSelectedBankId(bankId);
   }, []);
 
   const handleSaveBank = useCallback(
@@ -358,18 +420,22 @@ export function MixerView(): ReactElement {
       ref={containerRef}
       className="h-full bg-bg-app text-text-primary p-3 flex flex-col"
     >
-      {/* Header - settings, bank selector, lock, connection */}
+      {/* Header - settings, bank selector, quick filter, connection */}
       <ViewHeader currentView="mixer">
         <BankSelector
           selectedBankId={selectedBankId}
           banks={customBanks}
-          skeleton={skeleton}
-          onBankChange={setSelectedBankId}
+          onBankChange={handleBankChange}
           onAddBank={handleAddBank}
           onEditBank={handleEditBank}
-          isFiltered={isFiltered}
+          onFolderNavClick={() => setFolderSheetOpen(true)}
         />
-        <MixerLockButton />
+        <QuickFilterDropdown
+          selectedFilterId={hasBuiltinBank && selectedBankId !== 'builtin:folders' ? selectedBankId as BuiltinBankId : null}
+          skeleton={skeleton}
+          onFilterChange={(filterId) => setSelectedBankId(filterId)}
+          className="ml-1"
+        />
       </ViewHeader>
 
       {/* Main mixer area */}
@@ -441,6 +507,7 @@ export function MixerView(): ReactElement {
       <TrackInfoBar
         selectedTrackIdx={infoSelectedTrackIdx}
         onShowRouting={handleShowRouting}
+        onFolderClick={handleFolderClick}
         className="mt-2"
       />
 
@@ -497,6 +564,15 @@ export function MixerView(): ReactElement {
       <CreateTrackModal
         isOpen={createTrackModalOpen}
         onClose={() => setCreateTrackModalOpen(false)}
+      />
+
+      {/* Folder navigation sheet */}
+      <FolderNavSheet
+        isOpen={folderSheetOpen}
+        onClose={() => setFolderSheetOpen(false)}
+        folderPath={folderPath}
+        onNavigate={setFolderPath}
+        onSelectTrack={handleFolderSheetSelectTrack}
       />
     </div>
   );

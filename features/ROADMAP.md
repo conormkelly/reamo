@@ -85,59 +85,40 @@ Show folder hierarchy in mixer/track views via flat navigation with breadcrumb "
 - Child count badge on folder tracks: `Drums (8)`
 - "Folders" bank shows all folder tracks flat
 
-**TBD:** Make folder badge interactive once breadcrumb navigation is implemented (Phase 2).
+**Phase 2 (Folder Navigation):** ✅
 
-**Phase 2 (Breadcrumb Navigation):**
+Implemented via bottom sheet instead of inline breadcrumb (saves vertical space on mobile).
 
-- Compute folder hierarchy from skeleton (parent-child relationships)
-- Breadcrumb UI: `All Folders > [Drums ▾] > [Toms ▾]`
-- Each segment is a dropdown showing options at that level
-- Final segment shows available subfolders to drill deeper
-- Breadcrumb only visible when in folder navigation mode
+- `FolderNavSheet` bottom sheet with breadcrumb navigation and track list
+- Folder badge in TrackInfoBar is clickable → opens folder sheet and navigates to that folder
+- FolderOpen button appears in ViewHeader when Folders bank is selected
+- Breadcrumb in sheet: `All > Drums > Toms` with tap-to-navigate
+- Toggle between "Subfolders" and "All tracks" view modes
+- Path validation when skeleton changes (handles folder deletion)
 
-**Phase 3 (Folder Banks):**
+**Banks vs Filters (Two Dropdowns):** ✅
 
-- New bank type: "folder" — saved shortcut to specific folder
-- Auto-activates breadcrumb at that folder's level
-- Enables quick access to frequently used folder views
+Separated banks and filters into orthogonal controls:
 
-**Banks vs Filters (Two Dropdowns):**
+| Control | Purpose | Options |
+|---------|---------|---------|
+| Bank dropdown | Which tracks to show | All Tracks, Folders, Custom banks |
+| Filter button | Property filter | Muted, Soloed, Armed, Selected, With Sends |
 
-Banks and filters are orthogonal — banks define *which tracks*, filters define *what properties*. This requires restructuring the current "built-in banks" (Muted, Soloed, etc.) to be additive filters instead.
-
-| Dropdown | Purpose | Options |
-|----------|---------|---------|
-| Bank | Which tracks to show | All Tracks, Smart banks, Custom banks, Folder banks |
-| Filter | Property filter (additive) | None, Muted, Soloed, Armed, Selected, With Sends |
+- QuickFilterDropdown: compact filter icon + X button when active
+- Bank selector simplified: All Tracks and Folders as first-class options
+- Filters moved from "built-in banks" to dedicated dropdown with counts
 
 **Example Combinations:**
 
 - "Drums" folder + "Armed" filter = armed tracks in Drums folder
 - "All Tracks" + "Muted" = all muted tracks across project
-- "Vox" smart bank + "Selected" = selected tracks matching "Vox"
 
-**Bank Types:**
+**Phase 3 (Folder Banks) — Deferred:**
 
-| Type | Purpose | Example |
-|------|---------|---------|
-| Smart | Pattern match track names | "Vox" matches Vox Lead, Vox Harm |
-| Custom | Manual track selection | Hand-picked track GUIDs |
-| Folder | Saved folder shortcut | "Drums" folder → shows children + breadcrumb |
-
-**UX Flow:**
-
-1. Select "Folders" bank → shows top-level folders, breadcrumb appears with `[Select folder ▾]`
-2. Pick "Drums" from dropdown → view shows Drums' immediate children
-3. Breadcrumb updates: `All Folders > Drums > [▾]`
-4. If Toms is a subfolder, it appears in next dropdown to drill deeper
-5. Tap any breadcrumb segment to navigate back or switch laterally
-
-**Why Not Visual Nesting:**
-
-- Only 3 tracks visible at a time on mobile — indentation wastes precious space
-- Would need to conditionally show/hide nesting UI based on mode
-- Users would have to scroll through all tracks to find folders
-- Breadcrumb provides instant access to any folder level
+- New bank type: "folder" — saved shortcut to specific folder
+- Auto-opens folder sheet at that folder's level
+- Enables quick access to frequently used folder views
 
 ---
 

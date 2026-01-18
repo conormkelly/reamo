@@ -25,6 +25,8 @@ export interface TrackInfoBarProps {
   selectedTrackIdx: number | null;
   /** Callback when routing button is clicked */
   onShowRouting?: (trackIdx: number) => void;
+  /** Callback when folder badge is clicked (navigates into folder) */
+  onFolderClick?: (folderGuid: string) => void;
   className?: string;
 }
 
@@ -99,6 +101,7 @@ function RoutingIndicator({
 export function TrackInfoBar({
   selectedTrackIdx,
   onShowRouting,
+  onFolderClick,
   className = '',
 }: TrackInfoBarProps): ReactElement | null {
   const { sendCommand } = useReaper();
@@ -404,12 +407,16 @@ export function TrackInfoBar({
             </>
           )}
 
-          {/* Folder indicator with child count (top right) */}
-          {isFolder && (
-            <span className="flex items-center gap-1 text-text-muted/50 flex-shrink-0 ml-auto">
+          {/* Folder indicator with child count (top right) - clickable to navigate */}
+          {isFolder && trackData.guid && (
+            <button
+              onClick={() => onFolderClick?.(trackData.guid!)}
+              className="flex items-center gap-1 text-text-muted/50 hover:text-text-muted flex-shrink-0 ml-auto transition-colors"
+              title="View folder contents"
+            >
               <Folder size={16} />
               <span className="text-xs">({childCount})</span>
-            </span>
+            </button>
           )}
         </div>
 
