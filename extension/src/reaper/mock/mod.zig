@@ -419,6 +419,11 @@ pub const MockBackend = struct {
     pub const trackFxSetPresetByIndex = tracks.TracksMethods.trackFxSetPresetByIndex;
     pub const trackFxGetEnabled = tracks.TracksMethods.trackFxGetEnabled;
     pub const trackFxSetEnabled = tracks.TracksMethods.trackFxSetEnabled;
+    // FX management
+    pub const trackFxAddByName = tracks.TracksMethods.trackFxAddByName;
+    pub const trackFxDelete = tracks.TracksMethods.trackFxDelete;
+    pub const trackFxCopyToTrack = tracks.TracksMethods.trackFxCopyToTrack;
+    pub const trackFxGetGuid = tracks.TracksMethods.trackFxGetGuid;
 
     // =========================================================================
     // Track Sends/Receives (delegated)

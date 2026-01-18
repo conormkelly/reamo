@@ -734,6 +734,94 @@ pub const TracksMethods = struct {
     }
 
     // =========================================================================
+    // FX Management (mock implementations for testing)
+    // =========================================================================
+
+    /// Add an FX to a track by name (mock: always adds at end, returns new index).
+    pub fn trackFxAddByName(self: anytype, track: *anyopaque, name: [*:0]const u8, recFX: bool, position: c_int) c_int {
+        _ = recFX; // Mock ignores recFX
+        _ = position; // Mock always adds at end
+        self.recordCall(.trackFxAddByName);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return -1;
+        const fx_count = self.tracks[idx].fx_count;
+        if (fx_count >= state.MAX_FX_PER_TRACK) return -1;
+        const fx_idx: usize = @intCast(fx_count);
+        // Set FX name from input
+        const name_slice = std.mem.sliceTo(name, 0);
+        self.tracks[idx].fx[fx_idx].setName(name_slice);
+        self.tracks[idx].fx[fx_idx].enabled = true;
+        self.tracks[idx].fx_count += 1;
+        return fx_count;
+    }
+
+    /// Delete an FX from a track (mock: shifts remaining FX down).
+    pub fn trackFxDelete(self: anytype, track: *anyopaque, fx_idx: c_int) bool {
+        self.recordCall(.trackFxDelete);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        if (fx_idx < 0 or fx_idx >= self.tracks[idx].fx_count) return false;
+        const fx_usize: usize = @intCast(fx_idx);
+        // Shift FX down
+        const count: usize = @intCast(self.tracks[idx].fx_count);
+        var i: usize = fx_usize;
+        while (i + 1 < count) : (i += 1) {
+            self.tracks[idx].fx[i] = self.tracks[idx].fx[i + 1];
+        }
+        // Clear last slot
+        self.tracks[idx].fx[count - 1] = .{};
+        self.tracks[idx].fx_count -= 1;
+        return true;
+    }
+
+    /// Copy or move FX (mock: only supports move within same track).
+    pub fn trackFxCopyToTrack(self: anytype, src_track: *anyopaque, src_fx: c_int, dest_track: *anyopaque, dest_fx: c_int, is_move: bool) void {
+        _ = is_move; // Mock only supports move
+        self.recordCall(.trackFxCopyToTrack);
+        // Only support same-track reorder in mock
+        if (src_track != dest_track) return;
+        const idx = state.decodeTrackPtr(src_track);
+        if (idx >= state.MAX_TRACKS) return;
+        if (src_fx < 0 or src_fx >= self.tracks[idx].fx_count) return;
+        var effective_dest = dest_fx;
+        if (effective_dest < 0 or effective_dest >= self.tracks[idx].fx_count) {
+            effective_dest = self.tracks[idx].fx_count - 1;
+        }
+        if (src_fx == effective_dest) return;
+        // Swap-based move (simplified)
+        const src_usize: usize = @intCast(src_fx);
+        const dest_usize: usize = @intCast(effective_dest);
+        const temp = self.tracks[idx].fx[src_usize];
+        if (src_usize < dest_usize) {
+            // Shift left
+            var i: usize = src_usize;
+            while (i < dest_usize) : (i += 1) {
+                self.tracks[idx].fx[i] = self.tracks[idx].fx[i + 1];
+            }
+        } else {
+            // Shift right
+            var i: usize = src_usize;
+            while (i > dest_usize) : (i -= 1) {
+                self.tracks[idx].fx[i] = self.tracks[idx].fx[i - 1];
+            }
+        }
+        self.tracks[idx].fx[dest_usize] = temp;
+    }
+
+    /// Get FX GUID (mock: generates deterministic GUID from track+fx indices).
+    pub fn trackFxGetGuid(self: anytype, track: *anyopaque, fx_idx: c_int, buf: []u8) []const u8 {
+        self.recordCall(.trackFxGetGuid);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return "";
+        if (fx_idx < 0 or fx_idx >= self.tracks[idx].fx_count) return "";
+        if (buf.len < 38) return "";
+        // Generate deterministic mock GUID: {TTTTTTTT-FFFF-0000-0000-000000000000}
+        // where T = track index, F = fx index
+        const result = std.fmt.bufPrint(buf, "{{0000{d:0>4}-{d:0>4}-0000-0000-000000000000}}", .{ idx, @as(u32, @intCast(fx_idx)) }) catch return "";
+        return result;
+    }
+
+    // =========================================================================
     // Track Sends
     // =========================================================================
 

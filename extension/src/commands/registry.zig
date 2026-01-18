@@ -34,6 +34,7 @@ const debug = @import("debug.zig");
 const track_subs = @import("track_subs.zig");
 const peaks_subs = @import("peaks_subs.zig");
 const routing_subs = @import("routing_subs.zig");
+const trackfx_subs = @import("trackfx_subs.zig");
 const inputs = @import("inputs.zig");
 
 /// Comptime tuple of (command_name, handler_fn) pairs.
@@ -192,13 +193,14 @@ pub const all = .{
     .{ "projectNotes/get", project_notes.handleGet },
     .{ "projectNotes/set", project_notes.handleSet },
 
-    // FX Presets
-    .{ "fx/presetNext", fx.handlePresetNext },
-    .{ "fx/presetPrev", fx.handlePresetPrev },
-    .{ "fx/presetSet", fx.handlePresetSet },
-
-    // Track FX
+    // Track FX (using trackFx/ prefix to match REAPER's TrackFX_* API family)
+    .{ "trackFx/presetNext", fx.handlePresetNext },
+    .{ "trackFx/presetPrev", fx.handlePresetPrev },
+    .{ "trackFx/presetSet", fx.handlePresetSet },
     .{ "trackFx/setEnabled", fx.handleSetEnabled },
+    .{ "trackFx/add", fx.handleAdd },
+    .{ "trackFx/delete", fx.handleDelete },
+    .{ "trackFx/move", fx.handleMove },
 
     // Sends
     .{ "send/setVolume", send.handleSetVolume },
@@ -253,4 +255,8 @@ pub const all = .{
     // Routing Subscriptions (per-track sends/receives/hw outputs)
     .{ "routing/subscribe", routing_subs.handleSubscribe },
     .{ "routing/unsubscribe", routing_subs.handleUnsubscribe },
+
+    // Track FX Subscriptions (per-track FX chain)
+    .{ "trackFx/subscribe", trackfx_subs.handleSubscribe },
+    .{ "trackFx/unsubscribe", trackfx_subs.handleUnsubscribe },
 };
