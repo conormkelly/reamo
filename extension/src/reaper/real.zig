@@ -598,6 +598,16 @@ pub const RealBackend = struct {
         return buf[0..@min(38, buf.len)];
     }
 
+    /// Enumerate installed FX plugins (global, not per-track).
+    /// index: 0-based, increment until returns false.
+    /// name_out: receives plugin display name.
+    /// ident_out: receives identifier for TrackFX_AddByName.
+    /// Returns: true if valid, false when enumeration complete.
+    pub fn enumInstalledFX(self: *const RealBackend, index: c_int, name_out: *[*:0]const u8, ident_out: *[*:0]const u8) bool {
+        const f = self.inner.enumInstalledFX orelse return false;
+        return f(index, name_out, ident_out);
+    }
+
     // =========================================================================
     // Track Sends
     // =========================================================================

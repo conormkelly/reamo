@@ -108,6 +108,16 @@ pub const ProjectMethods = struct {
         return null;
     }
 
+    // FX plugin enumeration (global)
+    pub fn enumInstalledFX(self: anytype, index: c_int, name_out: *[*:0]const u8, ident_out: *[*:0]const u8) bool {
+        self.recordCall(.enumInstalledFX);
+        _ = index;
+        _ = name_out;
+        _ = ident_out;
+        // Mock returns empty list (index 0 returns false = end of list)
+        return false;
+    }
+
     // MIDI Editor - for section-specific action execution
     pub fn midiEditorGetActive(self: anytype) ?*anyopaque {
         self.recordCall(.midiEditorGetActive);

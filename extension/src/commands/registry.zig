@@ -25,6 +25,7 @@ const toggle_state = @import("toggle_state.zig");
 const midi = @import("midi.zig");
 const project_notes = @import("project_notes.zig");
 const fx = @import("fx.zig");
+const fx_plugin = @import("fx_plugin.zig");
 const send = @import("send.zig");
 const receive = @import("receive.zig");
 const hw_output = @import("hw_output.zig");
@@ -201,6 +202,9 @@ pub const all = .{
     .{ "trackFx/add", fx.handleAdd },
     .{ "trackFx/delete", fx.handleDelete },
     .{ "trackFx/move", fx.handleMove },
+
+    // FX Plugin Library (global plugin enumeration)
+    .{ "fxPlugin/getList", fx_plugin.handleGetList },
 
     // Sends
     .{ "send/setVolume", send.handleSetVolume },
