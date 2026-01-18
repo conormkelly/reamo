@@ -79,11 +79,13 @@ Show folder hierarchy in mixer/track views via flat navigation with breadcrumb "
 - Hierarchy computed client-side by walking track list with depth counter
 - "Folders" built-in bank already exists (`fd === 1`)
 
-**Phase 1 (MVP):**
+**Phase 1 (MVP):** ✅
 
-- Folder icon badge on tracks where `fd === 1`
+- Folder icon badge on tracks where `fd === 1` (TrackInfoBar)
 - Child count badge on folder tracks: `Drums (8)`
-- "Folders" bank shows all folder tracks flat (already works)
+- "Folders" bank shows all folder tracks flat
+
+**TBD:** Make folder badge interactive once breadcrumb navigation is implemented (Phase 2).
 
 **Phase 2 (Breadcrumb Navigation):**
 

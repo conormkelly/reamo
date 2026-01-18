@@ -7,7 +7,8 @@
  */
 
 import { useState, useRef, useEffect, useCallback, type ReactElement } from 'react';
-import { Copy, Trash2 } from 'lucide-react';
+import { Copy, Trash2, Folder } from 'lucide-react';
+import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
 import { useTrack } from '../../hooks/useTrack';
 import { track as trackCmd } from '../../core/WebSocketCommands';
@@ -102,6 +103,31 @@ export function TrackInfoBar({
 }: TrackInfoBarProps): ReactElement | null {
   const { sendCommand } = useReaper();
   const trackData = useTrack(selectedTrackIdx ?? -1);
+
+  // Get folder info from skeleton (fd === 1 means folder parent)
+  // Use separate selectors to avoid object creation on every render
+  const isFolder = useReaperStore((state) => {
+    if (selectedTrackIdx === null) return false;
+    return state.trackSkeleton[selectedTrackIdx]?.fd === 1;
+  });
+
+  const childCount = useReaperStore((state) => {
+    if (selectedTrackIdx === null) return 0;
+    const skeleton = state.trackSkeleton;
+    const track = skeleton[selectedTrackIdx];
+    if (!track || track.fd !== 1) return 0;
+
+    // Count children by walking forward until folder closes
+    let depth = 1;
+    let count = 0;
+    for (let i = selectedTrackIdx + 1; i < skeleton.length && depth > 0; i++) {
+      const fd = skeleton[i].fd;
+      if (fd > 0) depth += fd; // Nested folder opens
+      else if (fd < 0) depth += fd; // Folder closes (fd is negative)
+      count++;
+    }
+    return count;
+  });
 
   // State for name editing
   const [isEditingName, setIsEditingName] = useState(false);
@@ -376,6 +402,14 @@ export function TrackInfoBar({
                 {formatInputLabel(track.recInput)}
               </span>
             </>
+          )}
+
+          {/* Folder indicator with child count (top right) */}
+          {isFolder && (
+            <span className="flex items-center gap-1 text-text-muted/50 flex-shrink-0 ml-auto">
+              <Folder size={16} />
+              <span className="text-xs">({childCount})</span>
+            </span>
           )}
         </div>
 
