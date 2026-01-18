@@ -283,23 +283,28 @@ Single canvas for timeline content to fix browser compositing bugs.
 
 Frontend UI to browse and add available FX plugins to tracks.
 
-**API Discovery:**
+**Backend Status:** ✅ Complete
+
+**API:**
 
 - `EnumInstalledFX(index, &nameOut, &identOut)` — iterates all installed plugins
 - `TrackFX_AddByName(track, fxname, recFX, instantiate)` — adds FX by ident
 
 **Implementation:**
 
-1. Backend command `fx/enumInstalled` returns full plugin list (name + ident)
+1. ~~Backend command `fxPlugin/getList` returns full plugin list (name + ident)~~ ✅
 2. Frontend shows searchable list (grouped by type: VST3/VST2/AU/JS)
-3. User taps plugin → sends `fx/add` with track index and ident
-4. Backend calls `TrackFX_AddByName(track, ident, false, -1)`
+3. User taps plugin → sends `trackFx/add` with track GUID and ident
+4. Backend calls `TrackFX_AddByName(track, ident, false, -1)` — already implemented
 
 **Notes:**
 
-- `fxname` can have prefix: `VST3:`, `VST2:`, `AU:`, `JS:`, `DX:`
-- `instantiate=-1` always creates new instance
-- Could cache plugin list (rarely changes during session)
+- Ident format varies by plugin type:
+  - AU: `"AU: Plugin Name (Vendor)"`
+  - VST/VST3: Full path like `"/Library/Audio/Plug-Ins/VST3/Plugin.vst3"`
+  - JS: `"JS: Category/script_name"`
+- Type prefixes (AU:, VST3:, etc.) reliable for frontend filtering
+- Cache plugin list on frontend (rarely changes during session)
 
 ---
 

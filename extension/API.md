@@ -2123,6 +2123,60 @@ Enable or bypass a specific FX on a track. Toggles if no explicit value provided
 
 ---
 
+## FX Plugin Library Commands
+
+Commands for enumerating installed FX plugins globally (not per-track).
+
+### `fxPlugin/getList`
+
+Get all installed FX plugins. **Returns data.**
+
+```json
+{"type": "command", "command": "fxPlugin/getList", "id": "1"}
+```
+
+**Response:**
+
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": [
+    ["Pro-Q 3", "VST3: Pro-Q 3 (FabFilter)"],
+    ["ReaEQ", "VST: ReaEQ (Cockos)"],
+    ["JS: Utility/volume", "JS: Utility/volume"],
+    ["Limiter", "AU: Limiter (Apple)"]
+  ]
+}
+```
+
+**Array format:** `["name", "ident"]`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Plugin display name |
+| `ident` | string | Identifier for `trackFx/add` command |
+
+**Plugin format prefixes** (in `ident` field):
+
+| Prefix | Format |
+|--------|--------|
+| `VST3:` | VST3 plugin |
+| `VST:` | VST2 plugin (or generic VST) |
+| `AU:` | Audio Units (macOS) |
+| `JS:` | JSFX/ReaScript |
+| `CLAP:` | CLAP plugin |
+| `DX:` | DirectX (Windows) |
+
+**Notes:**
+- Same plugin may appear multiple times if available in multiple formats (e.g., VST2, VST3, AU)
+- Use the `ident` value when calling `trackFx/add` to add plugins to a track
+- Typical response size: 35-350KB depending on installed plugins
+- Frontend should cache this data in memory and filter by prefix client-side
+
+---
+
 ## Send Commands
 
 Control track send levels and mute states. Send state is included in the `tracks` event — see [tracks event](#tracks-event) for the `sends[]` array format.

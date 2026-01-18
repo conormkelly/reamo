@@ -94,6 +94,7 @@ pub const Method = enum {
     getSectionFromUniqueID,
     enumerateActions,
     reverseNamedCommandLookup,
+    enumInstalledFX,
     midiEditorGetActive,
     midiEditorOnCommand,
     isMetronomeEnabled,

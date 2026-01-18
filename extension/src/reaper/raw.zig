@@ -201,6 +201,8 @@ pub const Api = struct {
     trackFX_Delete: ?*const fn (?*anyopaque, c_int) callconv(.c) bool = null,
     trackFX_CopyToTrack: ?*const fn (?*anyopaque, c_int, ?*anyopaque, c_int, bool) callconv(.c) void = null,
     trackFX_GetFXGUID: ?*const fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque = null, // Returns GUID*
+    // FX plugin enumeration (global)
+    enumInstalledFX: ?*const fn (c_int, *[*:0]const u8, *[*:0]const u8) callconv(.c) bool = null,
 
     // Track Sends
     getTrackNumSends: ?*const fn (?*anyopaque, c_int) callconv(.c) c_int = null,
@@ -376,6 +378,8 @@ pub const Api = struct {
             .trackFX_Delete = getFunc(info, "TrackFX_Delete", fn (?*anyopaque, c_int) callconv(.c) bool),
             .trackFX_CopyToTrack = getFunc(info, "TrackFX_CopyToTrack", fn (?*anyopaque, c_int, ?*anyopaque, c_int, bool) callconv(.c) void),
             .trackFX_GetFXGUID = getFunc(info, "TrackFX_GetFXGUID", fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque),
+            // FX plugin enumeration (global)
+            .enumInstalledFX = getFunc(info, "EnumInstalledFX", fn (c_int, *[*:0]const u8, *[*:0]const u8) callconv(.c) bool),
             // Track Sends
             .getTrackNumSends = getFunc(info, "GetTrackNumSends", fn (?*anyopaque, c_int) callconv(.c) c_int),
             .getTrackSendInfo_Value = getFunc(info, "GetTrackSendInfo_Value", fn (?*anyopaque, c_int, c_int, [*:0]const u8) callconv(.c) f64),

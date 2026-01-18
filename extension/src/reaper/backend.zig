@@ -72,6 +72,7 @@ pub fn validateBackend(comptime T: type) void {
         "getSectionFromUniqueID",
         "enumerateActions",
         "reverseNamedCommandLookup",
+        "enumInstalledFX",
         "isMetronomeEnabled",
         "getMetronomeVolume",
         "setMetronomeVolume",
