@@ -1,6 +1,6 @@
 /**
- * ChordStrip Component
- * Individual vertical chord strip with inversion segments and bass notes
+ * ChordColumn Component
+ * Individual vertical chord column with inversion segments and bass notes
  * Top-to-bottom: Oct, 2nd, 1st, Root, then bass notes (R, 5, 8)
  * Supports vertical swipe to arpeggiate between inversions
  */
@@ -26,7 +26,7 @@ const INVERSION_LABELS = ['Root', '1st', '2nd', 'Oct'];
 /** Fixed velocity for bass buttons (too small for X-position mapping) */
 const BASS_FIXED_VELOCITY = 100;
 
-export interface ChordStripProps {
+export interface ChordColumnProps {
   /** Chord data with MIDI notes and display info */
   chord: Chord;
   /** Base octave for the chord (bass will be one octave below) */
@@ -43,7 +43,7 @@ export interface ChordStripProps {
   minVelocity?: number;
   /** Maximum velocity (right edge) - default 127 */
   maxVelocity?: number;
-  /** Whether this strip is currently active */
+  /** Whether this column is currently active */
   isActive?: boolean;
   /** Whether this chord is suggested as a next chord (progression hint) */
   isSuggestedNext?: boolean;
@@ -154,7 +154,7 @@ interface InversionSegmentDisplayProps {
   isLast: boolean;
   isActive: boolean;
   isSuggestedNext: boolean;
-  isStripActive: boolean;
+  isColumnActive: boolean;
   /** Chord name to display on top segment */
   chordName?: string;
   /** Roman numeral to display on top segment */
@@ -168,7 +168,7 @@ function InversionSegmentDisplay({
   isLast,
   isActive,
   isSuggestedNext,
-  isStripActive,
+  isColumnActive,
   chordName,
   romanNumeral,
 }: InversionSegmentDisplayProps): ReactElement {
@@ -183,7 +183,7 @@ function InversionSegmentDisplay({
         ${isFirst ? 'rounded-t-lg' : ''}
         ${isLast ? 'rounded-b-lg' : ''}
         ${isActive ? 'brightness-125' : ''}
-        ${isSuggestedNext && !isStripActive ? 'ring-2 ring-green-400/60 ring-inset' : ''}
+        ${isSuggestedNext && !isColumnActive ? 'ring-2 ring-green-400/60 ring-inset' : ''}
       `}
     >
       {/* Top segment shows chord name + roman numeral instead of inversion label */}
@@ -207,7 +207,7 @@ function InversionSegmentDisplay({
   );
 }
 
-export function ChordStrip({
+export function ChordColumn({
   chord,
   bassOctave,
   onNoteOn,
@@ -219,8 +219,8 @@ export function ChordStrip({
   isActive: externalIsActive,
   isSuggestedNext = false,
   className = '',
-}: ChordStripProps): ReactElement {
-  const isStripActive = externalIsActive ?? false;
+}: ChordColumnProps): ReactElement {
+  const isColumnActive = externalIsActive ?? false;
   const containerRef = useRef<HTMLDivElement>(null);
   const currentNotesRef = useRef<number[]>([]);
   const activeSegmentRef = useRef<number | null>(null);
@@ -372,7 +372,7 @@ export function ChordStrip({
             isLast={visualIdx === displayOrder.length - 1}
             isActive={activeSegment === inversionIndex}
             isSuggestedNext={isSuggestedNext}
-            isStripActive={isStripActive}
+            isColumnActive={isColumnActive}
             chordName={visualIdx === 0 ? chord.displayName : undefined}
             romanNumeral={visualIdx === 0 ? chord.romanNumeral : undefined}
           />

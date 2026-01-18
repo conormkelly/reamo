@@ -8,4 +8,4 @@ export {
   type RenamePlaylistModalProps,
   type DeletePlaylistModalProps,
   type RegionPickerModalProps,
-} from './CuesModals';
+} from './PlaylistModals';

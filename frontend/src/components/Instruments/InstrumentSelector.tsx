@@ -1,6 +1,6 @@
 /**
  * InstrumentSelector Component
- * Dropdown to select instrument type (Drum Pads, Piano, Chord Strips)
+ * Dropdown to select instrument type (Drum Pads, Piano, Chord Pads)
  */
 
 import type { ReactElement } from 'react';
@@ -12,7 +12,7 @@ export type InstrumentType = 'drums' | 'piano' | 'chords';
 const INSTRUMENT_META: Record<InstrumentType, { label: string }> = {
   drums: { label: 'Drum Pads' },
   piano: { label: 'Piano' },
-  chords: { label: 'Chord Strips' },
+  chords: { label: 'Chord Pads' },
 };
 
 /** All available instruments in display order */
