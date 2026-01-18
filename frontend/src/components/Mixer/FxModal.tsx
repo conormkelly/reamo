@@ -1,16 +1,18 @@
 /**
  * FxModal - View and control track FX chain
  * Shows FX list with preset navigation and bypass controls.
- * Fetches FX data on-demand via track/getFx command.
+ * Uses real-time subscription for instant updates when FX changes.
  * Uses BottomSheet for slide-up panel UX.
  */
 
-import { useState, useEffect, useCallback, type ReactElement } from 'react';
-import { ChevronLeft, ChevronRight, CircleDot, Loader2 } from 'lucide-react';
+import { useEffect, useCallback, type ReactElement } from 'react';
+import { ChevronLeft, ChevronRight, CircleDot, Plus } from 'lucide-react';
 import { BottomSheet } from '../Modal/BottomSheet';
 import { useTrack } from '../../hooks/useTrack';
 import { useReaper } from '../ReaperProvider';
+import { useReaperStore } from '../../store';
 import { fx as fxCmd, track as trackCmd, trackFx } from '../../core/WebSocketCommands';
+import type { WSFxChainSlot } from '../../core/WebSocketTypes';
 
 export interface FxModalProps {
   /** Whether the modal is open */
@@ -19,28 +21,15 @@ export interface FxModalProps {
   onClose: () => void;
   /** Track index to show FX for */
   trackIndex: number;
-}
-
-/** FX slot data from track/getFx response */
-interface FxSlot {
-  fxIndex: number;
-  name: string;
-  presetName: string;
-  presetIndex: number;
-  presetCount: number;
-  modified: boolean;
-  enabled: boolean;
-}
-
-/** Response type for track/getFx command */
-interface GetFxResponse {
-  success?: boolean;
-  payload?: { fx?: FxSlot[] };
-  error?: { message?: string };
+  /** Called when user wants to add FX */
+  onAddFx?: () => void;
+  /** Called when user taps an FX row to edit params */
+  onOpenFxParams?: (fxGuid: string, fxName: string) => void;
 }
 
 /**
  * Single FX row with preset navigation
+ * Now tappable to open FX param editor
  */
 function FxRow({
   trackIdx,
@@ -52,7 +41,7 @@ function FxRow({
   presetCount,
   modified,
   enabled,
-  onPresetChange,
+  onTap,
 }: {
   trackIdx: number;
   trackGuid?: string;
@@ -63,28 +52,28 @@ function FxRow({
   presetCount: number;
   modified: boolean;
   enabled: boolean;
-  onPresetChange: () => void;
+  onTap?: () => void;
 }): ReactElement {
   const { sendCommand } = useReaper();
 
-  const handlePrevPreset = useCallback(() => {
+  const handlePrevPreset = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation(); // Don't trigger row tap
     sendCommand(fxCmd.presetPrev(trackIdx, fxIndex));
-    // Refetch after a short delay to get updated preset info
-    setTimeout(onPresetChange, 100);
-  }, [sendCommand, trackIdx, fxIndex, onPresetChange]);
+    // No need to refetch - subscription updates automatically
+  }, [sendCommand, trackIdx, fxIndex]);
 
-  const handleNextPreset = useCallback(() => {
+  const handleNextPreset = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation(); // Don't trigger row tap
     sendCommand(fxCmd.presetNext(trackIdx, fxIndex));
-    // Refetch after a short delay to get updated preset info
-    setTimeout(onPresetChange, 100);
-  }, [sendCommand, trackIdx, fxIndex, onPresetChange]);
+    // No need to refetch - subscription updates automatically
+  }, [sendCommand, trackIdx, fxIndex]);
 
-  const handleToggleBypass = useCallback(() => {
+  const handleToggleBypass = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    e.stopPropagation(); // Don't trigger row tap
     // Toggle FX enabled state (undefined = toggle)
     sendCommand(trackFx.setEnabled(trackIdx, fxIndex, undefined, trackGuid));
-    // Refetch after a short delay to get updated state
-    setTimeout(onPresetChange, 100);
-  }, [sendCommand, trackIdx, fxIndex, trackGuid, onPresetChange]);
+    // No need to refetch - subscription updates automatically
+  }, [sendCommand, trackIdx, fxIndex, trackGuid]);
 
   // Display preset info
   const presetDisplay = presetName || '(no preset)';
@@ -93,8 +82,11 @@ function FxRow({
 
   return (
     <div
-      className={`flex items-center gap-3 py-3 px-3 rounded-lg ${
-        enabled ? 'bg-bg-surface' : 'bg-bg-surface/50 opacity-60'
+      onClick={onTap}
+      className={`flex items-center gap-3 py-3 px-3 rounded-lg cursor-pointer transition-colors ${
+        enabled
+          ? 'bg-bg-surface hover:bg-bg-elevated'
+          : 'bg-bg-surface/50 opacity-60 hover:bg-bg-surface/70'
       }`}
     >
       {/* FX number badge */}
@@ -130,6 +122,7 @@ function FxRow({
         type="checkbox"
         checked={enabled}
         onChange={handleToggleBypass}
+        onClick={(e) => e.stopPropagation()}
         className="w-5 h-5 accent-success cursor-pointer"
         title={enabled ? 'Bypass FX' : 'Enable FX'}
       />
@@ -163,56 +156,38 @@ export function FxModal({
   isOpen,
   onClose,
   trackIndex,
+  onAddFx,
+  onOpenFxParams,
 }: FxModalProps): ReactElement {
-  const { sendCommand, sendCommandAsync } = useReaper();
-  const { name: trackName, isFxDisabled, guid, fxCount } = useTrack(trackIndex);
+  const { sendCommand } = useReaper();
+  const { name: trackName, isFxDisabled, guid } = useTrack(trackIndex);
 
-  // Local FX data fetched on-demand
-  const [fxList, setFxList] = useState<FxSlot[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Use subscription-based FX chain data from store
+  const fxChainList = useReaperStore((s) => s.fxChainList);
+  const setFxChainSubscription = useReaperStore((s) => s.setFxChainSubscription);
+  const clearFxChainSubscription = useReaperStore((s) => s.clearFxChainSubscription);
 
-  // Fetch FX data when modal opens
-  const fetchFxData = useCallback(async () => {
-    if (!isOpen || fxCount === 0) {
-      setFxList([]);
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = (await sendCommandAsync(
-        trackCmd.getFx(trackIndex)
-      )) as GetFxResponse;
-      if (response.success && response.payload?.fx) {
-        setFxList(response.payload.fx);
-      } else {
-        setError(response.error?.message || 'Failed to fetch FX data');
-      }
-    } catch (err) {
-      setError('Failed to fetch FX data');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [isOpen, trackIndex, fxCount, sendCommandAsync]);
-
-  // Fetch on open and when track changes
+  // Subscribe on open, unsubscribe on close (like RoutingModal pattern)
   useEffect(() => {
-    if (isOpen) {
-      fetchFxData();
-    } else {
-      // Clear data when modal closes
-      setFxList([]);
-      setError(null);
+    if (isOpen && guid) {
+      setFxChainSubscription(guid);
+      sendCommand(trackFx.subscribe(guid));
+      return () => {
+        sendCommand(trackFx.unsubscribe());
+        clearFxChainSubscription();
+      };
     }
-  }, [isOpen, trackIndex, fetchFxData]);
+  }, [isOpen, guid, sendCommand, setFxChainSubscription, clearFxChainSubscription]);
 
   // Toggle track-level FX bypass
   const handleToggleBypass = useCallback(() => {
     sendCommand(trackCmd.setFxEnabled(trackIndex, undefined, guid));
   }, [sendCommand, trackIndex, guid]);
+
+  // Handle FX row tap to open params
+  const handleFxRowTap = useCallback((fx: WSFxChainSlot) => {
+    onOpenFxParams?.(fx.fxGuid, fx.name);
+  }, [onOpenFxParams]);
 
   return (
     <BottomSheet
@@ -245,32 +220,18 @@ export function FxModal({
 
         {/* Scrollable content area */}
         <div className="max-h-80 overflow-y-auto -mx-4 px-4">
-          {/* Loading state */}
-          {isLoading && (
-            <div className="py-8 flex justify-center">
-              <Loader2 size={24} className="animate-spin text-text-muted" />
-            </div>
-          )}
-
-          {/* Error state */}
-          {error && !isLoading && (
-            <div className="py-8 text-center text-error-text text-sm">
-              {error}
-            </div>
-          )}
-
           {/* FX list */}
-          {!isLoading && !error && fxList.length === 0 && (
+          {fxChainList.length === 0 && (
             <div className="py-8 text-center text-text-muted text-sm">
               No FX on this track
             </div>
           )}
 
-          {!isLoading && !error && fxList.length > 0 && (
+          {fxChainList.length > 0 && (
             <div className="space-y-2">
-              {fxList.map((fx) => (
+              {fxChainList.map((fx) => (
                 <FxRow
-                  key={`${trackIndex}-${fx.fxIndex}`}
+                  key={fx.fxGuid}
                   trackIdx={trackIndex}
                   trackGuid={guid}
                   fxIndex={fx.fxIndex}
@@ -280,19 +241,31 @@ export function FxModal({
                   presetCount={fx.presetCount}
                   modified={fx.modified}
                   enabled={fx.enabled}
-                  onPresetChange={fetchFxData}
+                  onTap={() => handleFxRowTap(fx)}
                 />
               ))}
             </div>
           )}
         </div>
 
-        {/* Footer summary */}
-        {!isLoading && !error && fxList.length > 0 && (
-          <div className="text-xs text-text-muted text-center mt-3 pt-3 border-t border-border-subtle">
-            {fxList.length} FX plugin{fxList.length !== 1 ? 's' : ''}
-          </div>
-        )}
+        {/* Footer with Add FX button */}
+        <div className="mt-3 pt-3 border-t border-border-subtle">
+          {fxChainList.length > 0 && (
+            <div className="text-xs text-text-muted text-center mb-3">
+              {fxChainList.length} FX plugin{fxChainList.length !== 1 ? 's' : ''}
+              <span className="text-text-tertiary ml-2">• Tap to edit params</span>
+            </div>
+          )}
+          {onAddFx && (
+            <button
+              onClick={onAddFx}
+              className="w-full py-3 flex items-center justify-center gap-2 rounded-lg bg-bg-surface hover:bg-bg-elevated text-text-secondary hover:text-text-primary transition-colors"
+            >
+              <Plus size={18} />
+              <span className="text-sm font-medium">Add FX</span>
+            </button>
+          )}
+        </div>
       </div>
     </BottomSheet>
   );

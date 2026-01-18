@@ -661,6 +661,18 @@ export const gesture = {
       ...(recvIdx !== undefined && { recvIdx }),
     },
   }),
+
+  // FX Parameter gestures have different signature
+  /** Start drag for FX parameter */
+  startFxParam: (trackGuid: string, fxGuid: string, paramIdx: number): WSCommand => ({
+    command: 'gesture/start',
+    params: { controlType: 'fxParam', trackGuid, fxGuid, paramIdx },
+  }),
+  /** End drag for FX parameter - triggers undo point creation */
+  endFxParam: (trackGuid: string, fxGuid: string, paramIdx: number): WSCommand => ({
+    command: 'gesture/end',
+    params: { controlType: 'fxParam', trackGuid, fxGuid, paramIdx },
+  }),
 };
 
 // =============================================================================
@@ -1002,5 +1014,61 @@ export const routing = {
   /** Unsubscribe from routing updates. */
   unsubscribe: (): WSCommand => ({
     command: 'routing/unsubscribe',
+  }),
+};
+
+// =============================================================================
+// FX Plugin Commands (for Add FX browser)
+// =============================================================================
+
+export const fxPlugin = {
+  /**
+   * Get list of all installed FX plugins.
+   * Returns: [["name", "ident"], ...] where ident is the identifier to pass to trackFx.add.
+   * Large response (~1MB) - cache on frontend.
+   */
+  getList: (): WSCommand => ({
+    command: 'fxPlugin/getList',
+  }),
+};
+
+// =============================================================================
+// FX Parameter Subscription Commands
+// =============================================================================
+
+export const trackFxParams = {
+  /**
+   * Get parameter skeleton (names) for an FX.
+   * One-time fetch - frontend caches in LRU.
+   * Returns: { params: ["Gain", "Frequency", "Q", ...] }
+   */
+  getParams: (trackGuid: string, fxGuid: string): WSCommand => ({
+    command: 'trackFx/getParams',
+    params: { trackGuid, fxGuid },
+  }),
+  /**
+   * Subscribe to parameter values for an FX.
+   * Supports range mode (for virtual scrolling) or indices mode (for filtered views).
+   * Pushes updates at 30Hz for subscribed params only.
+   */
+  subscribe: (
+    trackGuid: string,
+    fxGuid: string,
+    mode: { range: { start: number; end: number } } | { indices: number[] }
+  ): WSCommand => ({
+    command: 'trackFxParams/subscribe',
+    params: { trackGuid, fxGuid, ...mode },
+  }),
+  /** Unsubscribe from parameter updates. */
+  unsubscribe: (): WSCommand => ({
+    command: 'trackFxParams/unsubscribe',
+  }),
+  /**
+   * Set a parameter value.
+   * Use with gesture/start and gesture/end for undo coalescing.
+   */
+  set: (trackGuid: string, fxGuid: string, paramIdx: number, value: number): WSCommand => ({
+    command: 'trackFxParams/set',
+    params: { trackGuid, fxGuid, paramIdx, value },
   }),
 };

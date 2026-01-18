@@ -15,6 +15,8 @@ import { reaperColorToHex, hexToReaperColor, formatInputLabel } from '../../util
 import { DEFAULT_TRACK_COLOR } from '../../constants/colors';
 import { isRecordArmed } from '../../core/types';
 import { FxModal } from './FxModal';
+import { FxBrowserModal } from './FxBrowserModal';
+import { FxParamModal } from './FxParamModal';
 import { ColorPickerInput } from '../Toolbar/ColorPickerInput';
 
 export interface TrackInfoBarProps {
@@ -115,6 +117,12 @@ export function TrackInfoBar({
   const fxPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fxLongPressTriggeredRef = useRef(false);
 
+  // State for FX browser modal (opened from FxModal)
+  const [isFxBrowserOpen, setIsFxBrowserOpen] = useState(false);
+
+  // State for FX param modal (opened by tapping FX row in FxModal)
+  const [selectedFx, setSelectedFx] = useState<{ fxGuid: string; fxName: string } | null>(null);
+
   // Focus name input when editing starts
   useEffect(() => {
     if (isEditingName && nameInputRef.current) {
@@ -128,6 +136,8 @@ export function TrackInfoBar({
     setIsEditingName(false);
     setConfirmDelete(false);
     setIsFxModalOpen(false);
+    setIsFxBrowserOpen(false);
+    setSelectedFx(null);
 
     // Cleanup timeouts
     if (deleteTimeoutRef.current) {
@@ -247,9 +257,9 @@ export function TrackInfoBar({
     }
   }, [selectedTrackIdx, onShowRouting]);
 
-  // FX button handlers - tap to toggle, long-press to open modal
+  // FX button handlers - tap to toggle (if has FX), long-press to open modal (always)
   const handleFxPointerDown = useCallback(() => {
-    if (selectedTrackIdx === null || !trackData.exists || trackData.fxCount === 0) return;
+    if (selectedTrackIdx === null || !trackData.exists) return;
 
     fxLongPressTriggeredRef.current = false;
     fxPressTimerRef.current = setTimeout(() => {
@@ -257,7 +267,7 @@ export function TrackInfoBar({
       setIsFxModalOpen(true);
       fxPressTimerRef.current = null;
     }, 500);
-  }, [selectedTrackIdx, trackData.exists, trackData.fxCount]);
+  }, [selectedTrackIdx, trackData.exists]);
 
   const handleFxPointerUp = useCallback(() => {
     // Cancel long-press timer if still pending
@@ -276,12 +286,31 @@ export function TrackInfoBar({
       return;
     }
 
+    // Only toggle if track has FX - otherwise tap does nothing (hold to add FX)
+    if (trackData.fxCount === 0) return;
+
     // Toggle FX enabled state (undefined = toggle)
     sendCommand(trackCmd.setFxEnabled(selectedTrackIdx, undefined, trackData.guid));
-  }, [selectedTrackIdx, trackData.exists, trackData.guid, sendCommand]);
+  }, [selectedTrackIdx, trackData.exists, trackData.fxCount, trackData.guid, sendCommand]);
 
   const handleFxModalClose = useCallback(() => {
     setIsFxModalOpen(false);
+  }, []);
+
+  const handleAddFx = useCallback(() => {
+    setIsFxBrowserOpen(true);
+  }, []);
+
+  const handleFxBrowserClose = useCallback(() => {
+    setIsFxBrowserOpen(false);
+  }, []);
+
+  const handleOpenFxParams = useCallback((fxGuid: string, fxName: string) => {
+    setSelectedFx({ fxGuid, fxName });
+  }, []);
+
+  const handleFxParamClose = useCallback(() => {
+    setSelectedFx(null);
   }, []);
 
   // Don't render if no track selected
@@ -374,17 +403,16 @@ export function TrackInfoBar({
             onPointerUp={handleFxPointerUp}
             onPointerCancel={handleFxPointerUp}
             onPointerLeave={handleFxPointerUp}
-            disabled={trackData.fxCount === 0}
             className={`w-8 h-8 flex items-center justify-center rounded-lg border-2 transition-colors ${
               trackData.fxCount === 0
-                ? 'text-text-muted border-border-default cursor-default'
+                ? 'text-text-muted border-border-default hover:bg-bg-elevated hover:text-text-secondary'
                 : trackData.isFxDisabled
                   ? 'text-error-text border-error-text hover:bg-bg-elevated'
                   : 'text-success border-success hover:bg-bg-elevated'
             }`}
             title={
               trackData.fxCount === 0
-                ? 'No FX on track'
+                ? 'No FX - hold to add'
                 : trackData.isFxDisabled
                   ? `FX bypassed (${trackData.fxCount} FX) - tap to toggle, hold for details`
                   : `FX enabled (${trackData.fxCount} FX) - tap to toggle, hold for details`
@@ -441,6 +469,29 @@ export function TrackInfoBar({
           isOpen={isFxModalOpen}
           onClose={handleFxModalClose}
           trackIndex={selectedTrackIdx}
+          onAddFx={handleAddFx}
+          onOpenFxParams={handleOpenFxParams}
+        />
+      )}
+
+      {/* FX Browser Modal */}
+      {selectedTrackIdx !== null && trackData.guid && (
+        <FxBrowserModal
+          isOpen={isFxBrowserOpen}
+          onClose={handleFxBrowserClose}
+          trackGuid={trackData.guid}
+          trackName={trackData.name || `Track ${selectedTrackIdx + 1}`}
+        />
+      )}
+
+      {/* FX Param Modal */}
+      {selectedTrackIdx !== null && trackData.guid && selectedFx && (
+        <FxParamModal
+          isOpen={!!selectedFx}
+          onClose={handleFxParamClose}
+          trackGuid={trackData.guid}
+          fxGuid={selectedFx.fxGuid}
+          fxName={selectedFx.fxName}
         />
       )}
     </div>

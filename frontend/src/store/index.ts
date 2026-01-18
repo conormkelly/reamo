@@ -25,6 +25,9 @@ import { createUIPreferencesSlice, type UIPreferencesState } from './slices/uiPr
 import { createModalSlice, type ModalSlice } from './slices/modalSlice';
 import { createPeaksSlice, type PeaksSlice } from './slices/peaksSlice';
 import { createRoutingSlice, type RoutingSlice } from './slices/routingSlice';
+import { createFxChainSlice, type FxChainSlice } from './slices/fxChainSlice';
+import { createFxBrowserSlice, type FxBrowserSlice } from './slices/fxBrowserSlice';
+import { createFxParamSlice, type FxParamSlice } from './slices/fxParamSlice';
 import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
 import { ActionCommands, SWSCommands } from '../core/types';
 import type {
@@ -44,6 +47,9 @@ import type {
   PlaylistEventPayload,
   ActionToggleStateEventPayload,
   PeaksEventPayload,
+  FxChainEventPayload,
+  FxParamsEventPayload,
+  FxParamsErrorEventPayload,
 } from '../core/WebSocketTypes';
 import {
   isEventMessage,
@@ -65,13 +71,16 @@ import {
   isPlaylistEvent,
   isPeaksEvent,
   isClockSyncResponse,
+  isFxChainEvent,
+  isFxParamsEvent,
+  isFxParamsErrorEvent,
   type ProjectNotesChangedEventPayload,
 } from '../core/WebSocketTypes';
 import { transportEngine } from '../core/TransportAnimationEngine';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & ActionsSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & UIPreferencesState & ModalSlice & PeaksSlice & RoutingSlice & {
+export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & ActionsSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & UIPreferencesState & ModalSlice & PeaksSlice & RoutingSlice & FxChainSlice & FxBrowserSlice & FxParamSlice & {
   // Response handler action (legacy HTTP)
   handleResponses: (responses: ParsedResponse[]) => void;
   // WebSocket message handler
@@ -109,6 +118,9 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   ...createModalSlice(set, get, store),
   ...createPeaksSlice(set, get, store),
   ...createRoutingSlice(set, get, store),
+  ...createFxChainSlice(set, get, store),
+  ...createFxBrowserSlice(set, get, store),
+  ...createFxParamSlice(set, get, store),
 
   // Handle incoming responses from REAPER
   handleResponses: (responses: ParsedResponse[]) => {
@@ -370,6 +382,15 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
     } else if (isPeaksEvent(message)) {
       const p = message.payload as PeaksEventPayload;
       get().handlePeaksEvent(p);
+    } else if (isFxChainEvent(message)) {
+      const p = message.payload as FxChainEventPayload;
+      get().handleFxChainEvent(p);
+    } else if (isFxParamsEvent(message)) {
+      const p = message.payload as FxParamsEventPayload;
+      get().handleFxParamsEvent(p);
+    } else if (isFxParamsErrorEvent(message)) {
+      const p = message.payload as FxParamsErrorEventPayload;
+      get().handleFxParamsError(p);
     } else if (message.event === 'reload') {
       // Hot reload - extension detected file change
       console.log('[Store] Reload event received, refreshing page...');
@@ -407,6 +428,10 @@ export type { UIPreferencesState, FollowPlayheadReEnable } from './slices/uiPref
 export type { ModalSlice, ModalState } from './slices/modalSlice';
 export type { PeaksSlice } from './slices/peaksSlice';
 export type { RoutingSlice } from './slices/routingSlice';
+export type { FxChainSlice } from './slices/fxChainSlice';
+export type { FxBrowserSlice, FxPlugin, PluginType } from './slices/fxBrowserSlice';
+export { getPluginType } from './slices/fxBrowserSlice';
+export type { FxParamSlice, FxParam } from './slices/fxParamSlice';
 
 // Expose store on window for E2E tests (development only)
 if (import.meta.env.DEV) {
