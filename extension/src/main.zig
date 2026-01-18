@@ -500,6 +500,8 @@ fn doProcessing() !void {
 
     // CSurf: Track dirty flags for instant latency response
     var csurf_track_dirty = false;
+    var csurf_fx_dirty: csurf_dirty.TrackDirtyResult = .{ .bits = std.StaticBitSet(csurf_dirty.MAX_TRACKS).initEmpty(), .all = false };
+    var csurf_sends_dirty: csurf_dirty.TrackDirtyResult = .{ .bits = std.StaticBitSet(csurf_dirty.MAX_TRACKS).initEmpty(), .all = false };
 
     if (csurf.enabled) {
         if (g_dirty_flags) |flags| {
@@ -516,6 +518,10 @@ fn doProcessing() !void {
             // 2. Detect drift when hash changes without dirty flags (missed callback)
             const track_dirty_result = flags.consumeTrackDirty();
             csurf_track_dirty = track_dirty_result.all or track_dirty_result.bits.count() > 0;
+
+            // Consume FX and sends dirty flags for FX/routing subscriptions
+            csurf_fx_dirty = flags.consumeFxDirty();
+            csurf_sends_dirty = flags.consumeSendsDirty();
         }
     }
 
@@ -963,7 +969,16 @@ fn doProcessing() !void {
                 )) |json| {
                     // Check if changed using hash
                     const data_hash = routing_generator.hashRoutingState(json);
-                    if (routing_subs.checkChanged(entry.slot, data_hash)) {
+                    const hash_changed = routing_subs.checkChanged(entry.slot, data_hash);
+
+                    // CSurf: Force broadcast if this track's sends are dirty
+                    const sends_force = if (csurf_sends_dirty.all) true else blk: {
+                        const track = guid_cache_ptr.resolve(entry.guid) orelse break :blk false;
+                        const idx = guid_cache_ptr.resolveToIndex(track) orelse break :blk false;
+                        break :blk if (idx >= 0 and idx < csurf_dirty.MAX_TRACKS) csurf_sends_dirty.bits.isSet(@intCast(idx)) else false;
+                    };
+
+                    if (hash_changed or sends_force) {
                         shared_state.sendToClient(entry.client_id, json);
                     }
                 }
@@ -993,7 +1008,16 @@ fn doProcessing() !void {
                 )) |json| {
                     // Check if changed using hash
                     const data_hash = trackfx_generator.hashTrackFxChain(json);
-                    if (trackfx_subs.checkChanged(entry.slot, data_hash)) {
+                    const hash_changed = trackfx_subs.checkChanged(entry.slot, data_hash);
+
+                    // CSurf: Force broadcast if this track's FX is dirty
+                    const fx_force = if (csurf_fx_dirty.all) true else blk: {
+                        const track = guid_cache_ptr.resolve(entry.guid) orelse break :blk false;
+                        const idx = guid_cache_ptr.resolveToIndex(track) orelse break :blk false;
+                        break :blk if (idx >= 0 and idx < csurf_dirty.MAX_TRACKS) csurf_fx_dirty.bits.isSet(@intCast(idx)) else false;
+                    };
+
+                    if (hash_changed or fx_force) {
                         shared_state.sendToClient(entry.client_id, json);
                     }
                 }
@@ -1025,7 +1049,16 @@ fn doProcessing() !void {
                 )) |result| {
                     // Check if changed using hash
                     const data_hash = trackfxparam_generator.hashParamValues(result.json);
-                    if (trackfxparam_subs.checkChanged(entry.slot, data_hash)) {
+                    const hash_changed = trackfxparam_subs.checkChanged(entry.slot, data_hash);
+
+                    // CSurf: Force broadcast if this track's FX params are dirty
+                    const fx_force = if (csurf_fx_dirty.all) true else blk: {
+                        const track = guid_cache_ptr.resolve(entry.track_guid) orelse break :blk false;
+                        const idx = guid_cache_ptr.resolveToIndex(track) orelse break :blk false;
+                        break :blk if (idx >= 0 and idx < csurf_dirty.MAX_TRACKS) csurf_fx_dirty.bits.isSet(@intCast(idx)) else false;
+                    };
+
+                    if (hash_changed or fx_force) {
                         shared_state.sendToClient(entry.client_id, result.json);
                     }
                     // Reset failure count on successful generation
