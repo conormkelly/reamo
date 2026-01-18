@@ -161,6 +161,12 @@ pub fn validateBackend(comptime T: type) void {
         "isTakeMIDI",
         "getTakeSource",
         "getMediaSourceChannels",
+        "getMediaItemTakePeaks",
+
+        // AudioAccessor (for fallback peak generation)
+        "makeTakeAccessor",
+        "destroyTakeAccessor",
+        "readAccessorSamples",
 
         // Markers
         "markerCount",
