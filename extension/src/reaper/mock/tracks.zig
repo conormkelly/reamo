@@ -822,6 +822,83 @@ pub const TracksMethods = struct {
     }
 
     // =========================================================================
+    // FX Parameters
+    // =========================================================================
+
+    /// Get number of parameters for an FX.
+    pub fn trackFxGetNumParams(self: anytype, track: *anyopaque, fx_idx: c_int) c_int {
+        self.recordCall(.trackFxGetNumParams);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 0;
+        if (fx_idx < 0 or fx_idx >= self.tracks[idx].fx_count) return 0;
+        const fx_usize: usize = @intCast(fx_idx);
+        return self.tracks[idx].fx[fx_usize].param_count;
+    }
+
+    /// Get parameter name.
+    pub fn trackFxGetParamName(self: anytype, track: *anyopaque, fx_idx: c_int, param_idx: c_int, buf: []u8) []const u8 {
+        self.recordCall(.trackFxGetParamName);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return "";
+        if (fx_idx < 0 or fx_idx >= self.tracks[idx].fx_count) return "";
+        const fx_usize: usize = @intCast(fx_idx);
+        const fx = &self.tracks[idx].fx[fx_usize];
+        if (param_idx < 0 or param_idx >= fx.param_count) return "";
+        const param_usize: usize = @intCast(param_idx);
+        const name = fx.params[param_usize].getName();
+        if (buf.len == 0 or name.len == 0) return "";
+        const len = @min(name.len, buf.len - 1);
+        @memcpy(buf[0..len], name[0..len]);
+        buf[len] = 0;
+        return buf[0..len];
+    }
+
+    /// Get normalized parameter value.
+    pub fn trackFxGetParamNormalized(self: anytype, track: *anyopaque, fx_idx: c_int, param_idx: c_int) f64 {
+        self.recordCall(.trackFxGetParamNormalized);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 0.0;
+        if (fx_idx < 0 or fx_idx >= self.tracks[idx].fx_count) return 0.0;
+        const fx_usize: usize = @intCast(fx_idx);
+        const fx = &self.tracks[idx].fx[fx_usize];
+        if (param_idx < 0 or param_idx >= fx.param_count) return 0.0;
+        const param_usize: usize = @intCast(param_idx);
+        return fx.params[param_usize].value;
+    }
+
+    /// Set normalized parameter value.
+    pub fn trackFxSetParamNormalized(self: anytype, track: *anyopaque, fx_idx: c_int, param_idx: c_int, value: f64) bool {
+        self.recordCall(.trackFxSetParamNormalized);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        if (fx_idx < 0 or fx_idx >= self.tracks[idx].fx_count) return false;
+        const fx_usize: usize = @intCast(fx_idx);
+        const fx = &self.tracks[idx].fx[fx_usize];
+        if (param_idx < 0 or param_idx >= fx.param_count) return false;
+        const param_usize: usize = @intCast(param_idx);
+        self.tracks[idx].fx[fx_usize].params[param_usize].value = value;
+        return true;
+    }
+
+    /// Get formatted parameter value string.
+    pub fn trackFxGetFormattedParamValue(self: anytype, track: *anyopaque, fx_idx: c_int, param_idx: c_int, buf: []u8) []const u8 {
+        self.recordCall(.trackFxGetFormattedParamValue);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return "";
+        if (fx_idx < 0 or fx_idx >= self.tracks[idx].fx_count) return "";
+        const fx_usize: usize = @intCast(fx_idx);
+        const fx = &self.tracks[idx].fx[fx_usize];
+        if (param_idx < 0 or param_idx >= fx.param_count) return "";
+        const param_usize: usize = @intCast(param_idx);
+        const formatted = fx.params[param_usize].getFormatted();
+        if (buf.len == 0 or formatted.len == 0) return "";
+        const len = @min(formatted.len, buf.len - 1);
+        @memcpy(buf[0..len], formatted[0..len]);
+        buf[len] = 0;
+        return buf[0..len];
+    }
+
+    // =========================================================================
     // Track Sends
     // =========================================================================
 

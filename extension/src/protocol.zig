@@ -72,6 +72,18 @@ pub const CommandMessage = struct {
     pub fn getInt(self: CommandMessage, key: []const u8) ?c_int {
         return jsonGetInt(self.raw, key);
     }
+
+    // Get an integer array parameter from the message
+    pub fn getIntArray(
+        self: CommandMessage,
+        key: []const u8,
+        comptime max_items: usize,
+        out_values: *[max_items]c_int,
+    ) ?[]const c_int {
+        const count = jsonGetIntArray(self.raw, key, max_items, out_values) orelse return null;
+        if (count == 0) return null;
+        return out_values[0..count];
+    }
 };
 
 // Simple JSON field extraction (no allocations)
@@ -435,6 +447,62 @@ pub fn jsonGetStringArray(
         count += 1;
 
         pos += 1; // Skip closing quote
+    }
+
+    return count;
+}
+
+/// Get an integer array from JSON.
+/// E.g., for {"indices": [0, 5, 10]}, call jsonGetIntArray(data, "indices", ...)
+/// Returns the number of integers parsed, or null if the key is not found.
+pub fn jsonGetIntArray(
+    data: []const u8,
+    key: []const u8,
+    comptime max_items: usize,
+    out_values: *[max_items]c_int,
+) ?usize {
+    // Find the key
+    var pattern_buf: [64]u8 = undefined;
+    const pattern = std.fmt.bufPrint(&pattern_buf, "\"{s}\"", .{key}) catch return null;
+
+    const key_start = std.mem.indexOf(u8, data, pattern) orelse return null;
+    const after_key = key_start + pattern.len;
+
+    // Find the colon
+    const colon = std.mem.indexOfPos(u8, data, after_key, ":") orelse return null;
+
+    // Find opening bracket
+    const open_bracket = std.mem.indexOfPos(u8, data, colon + 1, "[") orelse return null;
+
+    // Find closing bracket
+    const close_bracket = std.mem.indexOfPos(u8, data, open_bracket + 1, "]") orelse return null;
+
+    // Parse integers within brackets
+    var count: usize = 0;
+    var pos = open_bracket + 1;
+
+    while (pos < close_bracket and count < max_items) {
+        // Skip whitespace and commas
+        while (pos < close_bracket and (data[pos] == ' ' or data[pos] == ',' or data[pos] == '\t' or data[pos] == '\n')) {
+            pos += 1;
+        }
+
+        if (pos >= close_bracket) break;
+
+        // Find start of number (handles negative)
+        const num_start = pos;
+        if (data[pos] == '-') pos += 1;
+
+        // Find end of number
+        while (pos < close_bracket and data[pos] >= '0' and data[pos] <= '9') {
+            pos += 1;
+        }
+
+        if (pos > num_start) {
+            const value = std.fmt.parseInt(c_int, data[num_start..pos], 10) catch continue;
+            out_values[count] = value;
+            count += 1;
+        }
     }
 
     return count;
@@ -858,5 +926,47 @@ test "jsonGetStringArray respects max_items" {
     var bufs: [2][64]u8 = undefined;
     var lens: [2]usize = undefined;
     const count = jsonGetStringArray(data, "guids", 2, 64, &bufs, &lens).?;
+    try std.testing.expectEqual(@as(usize, 2), count);
+}
+
+test "jsonGetIntArray basic" {
+    const data = "{\"indices\":[0, 5, 10, 15]}";
+    var values: [10]c_int = undefined;
+    const count = jsonGetIntArray(data, "indices", 10, &values).?;
+    try std.testing.expectEqual(@as(usize, 4), count);
+    try std.testing.expectEqual(@as(c_int, 0), values[0]);
+    try std.testing.expectEqual(@as(c_int, 5), values[1]);
+    try std.testing.expectEqual(@as(c_int, 10), values[2]);
+    try std.testing.expectEqual(@as(c_int, 15), values[3]);
+}
+
+test "jsonGetIntArray empty array" {
+    const data = "{\"indices\":[]}";
+    var values: [10]c_int = undefined;
+    const count = jsonGetIntArray(data, "indices", 10, &values).?;
+    try std.testing.expectEqual(@as(usize, 0), count);
+}
+
+test "jsonGetIntArray missing key" {
+    const data = "{\"other\":[1,2,3]}";
+    var values: [10]c_int = undefined;
+    try std.testing.expect(jsonGetIntArray(data, "indices", 10, &values) == null);
+}
+
+test "jsonGetIntArray with negative numbers" {
+    const data = "{\"values\":[-5, 0, 10, -20]}";
+    var values: [10]c_int = undefined;
+    const count = jsonGetIntArray(data, "values", 10, &values).?;
+    try std.testing.expectEqual(@as(usize, 4), count);
+    try std.testing.expectEqual(@as(c_int, -5), values[0]);
+    try std.testing.expectEqual(@as(c_int, 0), values[1]);
+    try std.testing.expectEqual(@as(c_int, 10), values[2]);
+    try std.testing.expectEqual(@as(c_int, -20), values[3]);
+}
+
+test "jsonGetIntArray respects max_items" {
+    const data = "{\"values\":[1, 2, 3, 4, 5]}";
+    var values: [2]c_int = undefined;
+    const count = jsonGetIntArray(data, "values", 2, &values).?;
     try std.testing.expectEqual(@as(usize, 2), count);
 }

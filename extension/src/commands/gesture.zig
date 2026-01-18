@@ -37,6 +37,10 @@ fn parseControlId(api: anytype, cmd: protocol.CommandMessage) ?gesture_state.Con
     } else if (std.mem.eql(u8, control_type_str, "hwOutputPan")) {
         const hw_idx = cmd.getInt("hwIdx") orelse return null;
         return gesture_state.ControlId.hwOutputPan(track_idx, hw_idx);
+    } else if (std.mem.eql(u8, control_type_str, "fxParam")) {
+        const fx_guid = cmd.getString("fxGuid") orelse return null;
+        const param_idx = cmd.getInt("paramIdx") orelse return null;
+        return gesture_state.ControlId.fxParam(track_idx, fx_guid, param_idx);
     }
     return null;
 }
@@ -63,12 +67,13 @@ pub fn handleStart(api: anytype, cmd: protocol.CommandMessage, response: *mod.Re
         response.client_id,
     });
 
-    // For hw output gestures, manage shared undo block (CSurf doesn't support category 1)
-    // All hw gestures share one undo block since REAPER doesn't support nested blocks.
-    if (is_new and gesture_state.GestureState.isHwOutputControl(control.control_type)) {
-        const should_open = gestures.beginHwUndoBlock();
+    // For manual-undo controls (hw outputs, FX params), manage shared undo block.
+    // CSurf doesn't support these categories. REAPER doesn't support nested blocks,
+    // so all manual-undo gestures share one block.
+    if (is_new and gesture_state.GestureState.needsManualUndo(control.control_type)) {
+        const should_open = gestures.beginManualUndoBlock(control.control_type);
         if (should_open) {
-            logging.debug("Opening shared HW undo block", .{});
+            logging.debug("Opening shared manual undo block for {s}", .{@tagName(control.control_type)});
             api.undoBeginBlock();
         }
     }
@@ -100,13 +105,13 @@ pub fn handleEnd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     });
 
     if (should_flush) {
-        // For hw output gestures, manage shared undo block (CSurf doesn't support category 1)
-        if (gesture_state.GestureState.isHwOutputControl(control.control_type)) {
-            const should_close = gestures.endHwUndoBlock();
+        // For manual-undo controls (hw outputs, FX params), manage shared undo block.
+        if (gesture_state.GestureState.needsManualUndo(control.control_type)) {
+            const should_close = gestures.endManualUndoBlock(control.control_type);
             if (should_close) {
-                logging.debug("Closing shared HW undo block", .{});
-                // Generic description since multiple hw controls may have been adjusted
-                api.undoEndBlock("REAmo: Adjust audio hardware outputs");
+                const undo_msg = gestures.getManualUndoMessage();
+                logging.debug("Closing shared manual undo block: {s}", .{undo_msg});
+                api.undoEndBlock(undo_msg);
             }
         } else {
             // For CSurf-based controls (track/send volume/pan), flush pending undo

@@ -25,6 +25,8 @@ const routing_subscriptions = @import("routing_subscriptions.zig");
 const routing_generator = @import("routing_generator.zig");
 const trackfx_subscriptions = @import("trackfx_subscriptions.zig");
 const trackfx_generator = @import("trackfx_generator.zig");
+const trackfxparam_subscriptions = @import("trackfxparam_subscriptions.zig");
+const trackfxparam_generator = @import("trackfxparam_generator.zig");
 const peaks_generator = @import("peaks_generator.zig");
 const peaks_cache = @import("peaks_cache.zig");
 const track_skeleton = @import("track_skeleton.zig");
@@ -52,6 +54,7 @@ var g_track_subs: ?*track_subscriptions.TrackSubscriptions = null;
 var g_peaks_subs: ?*peaks_subscriptions.PeaksSubscriptions = null;
 var g_routing_subs: ?*routing_subscriptions.RoutingSubscriptions = null;
 var g_trackfx_subs: ?*trackfx_subscriptions.TrackFxSubscriptions = null;
+var g_trackfxparam_subs: ?*trackfxparam_subscriptions.TrackFxParamSubscriptions = null;
 var g_peaks_cache: ?*peaks_cache.PeaksCache = null;
 var g_csurf: ?*csurf.ControlSurface = null;
 var g_plugin_register: ?*const fn ([*:0]const u8, ?*anyopaque) callconv(.c) c_int = null;
@@ -238,6 +241,12 @@ fn doInitialization() !void {
     trackfx_subs.* = trackfx_subscriptions.TrackFxSubscriptions.init(g_allocator);
     g_trackfx_subs = trackfx_subs;
     commands.g_ctx.trackfx_subs = trackfx_subs;
+
+    // Create track FX parameter subscriptions state (per-FX param values)
+    const trackfxparam_subs = try g_allocator.create(trackfxparam_subscriptions.TrackFxParamSubscriptions);
+    trackfxparam_subs.* = trackfxparam_subscriptions.TrackFxParamSubscriptions.init(g_allocator);
+    g_trackfxparam_subs = trackfxparam_subs;
+    commands.g_ctx.trackfxparam_subs = trackfxparam_subs;
 
     // Create peaks cache for LRU caching of waveform data
     const p_cache = try g_allocator.create(peaks_cache.PeaksCache);
@@ -606,6 +615,10 @@ fn doProcessing() !void {
             // Clean up track FX subscriptions
             if (g_trackfx_subs) |trackfx_subs| {
                 trackfx_subs.removeClient(client_id);
+            }
+            // Clean up track FX param subscriptions
+            if (g_trackfxparam_subs) |trackfxparam_subs| {
+                trackfxparam_subs.removeClient(client_id);
             }
         }
     }
@@ -982,6 +995,52 @@ fn doProcessing() !void {
                     const data_hash = trackfx_generator.hashTrackFxChain(json);
                     if (trackfx_subs.checkChanged(entry.slot, data_hash)) {
                         shared_state.sendToClient(entry.client_id, json);
+                    }
+                }
+            }
+        }
+    }
+
+    // Poll track FX parameter subscriptions and broadcast (HIGH TIER - per-client single-FX)
+    // Broadcasts param values for each subscribed FX
+    if (g_trackfxparam_subs) |trackfxparam_subs| {
+        if (trackfxparam_subs.hasSubscriptions()) {
+            const guid_cache_ptr = g_guid_cache orelse {
+                logging.err("GUID cache not initialized for track FX param subscriptions", .{});
+                return error.GuidCacheNotInitialized;
+            };
+
+            var iter = trackfxparam_subs.activeSubscriptions();
+            while (iter.next()) |entry| {
+                const param_scratch = tiered.scratchAllocator();
+
+                // Generate param values JSON for this client's subscribed FX
+                if (trackfxparam_generator.generateParamValues(
+                    param_scratch,
+                    &backend,
+                    guid_cache_ptr,
+                    entry.track_guid,
+                    entry.fx_guid,
+                    entry.client,
+                )) |result| {
+                    // Check if changed using hash
+                    const data_hash = trackfxparam_generator.hashParamValues(result.json);
+                    if (trackfxparam_subs.checkChanged(entry.slot, data_hash)) {
+                        shared_state.sendToClient(entry.client_id, result.json);
+                    }
+                    // Reset failure count on successful generation
+                    trackfxparam_subs.resetFailures(entry.client_id);
+                } else {
+                    // Track or FX not found - increment failure count
+                    if (trackfxparam_subs.recordFailure(entry.client_id)) {
+                        // Auto-unsubscribe after 3 failures (~100ms at 30Hz)
+                        logging.warn("trackfxparam: auto-unsubscribing client {d} after repeated failures", .{entry.client_id});
+
+                        // Send error event to client
+                        const error_json = "{\"type\":\"event\",\"event\":\"trackFxParamsError\",\"error\":\"FX_NOT_FOUND\"}";
+                        shared_state.sendToClient(entry.client_id, error_json);
+
+                        trackfxparam_subs.unsubscribe(entry.client_id);
                     }
                 }
             }
@@ -1635,6 +1694,15 @@ fn shutdown() void {
         g_trackfx_subs = null;
     }
     logging.info("track FX subscriptions cleaned up", .{});
+
+    if (g_trackfxparam_subs) |subs| {
+        logging.info("cleaning up track FX param subscriptions", .{});
+        commands.g_ctx.trackfxparam_subs = null;
+        subs.deinit();
+        g_allocator.destroy(subs);
+        g_trackfxparam_subs = null;
+    }
+    logging.info("track FX param subscriptions cleaned up", .{});
 
     if (g_peaks_cache) |p_cache| {
         logging.info("cleaning up peaks cache", .{});

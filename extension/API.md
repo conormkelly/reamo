@@ -2177,6 +2177,154 @@ Get all installed FX plugins. **Returns data.**
 
 ---
 
+## Track FX Parameter Commands
+
+Control and subscribe to individual FX parameter values. Use these commands to build custom FX parameter editors.
+
+### `trackFx/getParams`
+
+Get all parameter names for an FX (skeleton fetch). **Returns data.**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` | string | Yes | Track GUID |
+| `fxGuid` | string | Yes* | FX GUID |
+| `fxIndex` | int | Yes* | FX index (0-based) |
+
+*Either `fxGuid` or `fxIndex` is required. `fxGuid` is preferred as it's stable across FX reordering.
+
+```json
+{"type": "command", "command": "trackFx/getParams", "trackGuid": "{AAA}", "fxGuid": "{BBB}", "id": "1"}
+```
+
+**Response:**
+
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": {
+    "trackGuid": "{AAA}",
+    "fxGuid": "{BBB}",
+    "paramCount": 4,
+    "params": ["Gain", "Frequency", "Q", "Output"]
+  }
+}
+```
+
+**Notes:**
+- Frontend should cache this "skeleton" in an LRU cache
+- Refetch when `paramCount` or `nameHash` in subscription events differ from cached
+
+### `trackFxParams/subscribe`
+
+Subscribe to FX parameter value updates. Receives values at 30Hz when subscribed.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` | string | Yes | Track GUID |
+| `fxGuid` | string | Yes | FX GUID |
+| `rangeStart` | int | No | First param index to include (default: 0) |
+| `rangeEnd` | int | No | Last param index to include (default: 20) |
+| `indices` | int[] | No | Specific param indices (overrides range) |
+
+**Range mode** (for scrollable views):
+```json
+{"type": "command", "command": "trackFxParams/subscribe", "trackGuid": "{AAA}", "fxGuid": "{BBB}", "rangeStart": 0, "rangeEnd": 20, "id": "1"}
+```
+
+**Indices mode** (for filtered/pinned params):
+```json
+{"type": "command", "command": "trackFxParams/subscribe", "trackGuid": "{AAA}", "fxGuid": "{BBB}", "indices": [0, 5, 10, 15], "id": "1"}
+```
+
+**Notes:**
+- Each client can subscribe to one FX at a time; subscribing auto-unsubscribes from previous
+- After subscribing, receive `trackFxParams` events (see below)
+
+### `trackFxParams/unsubscribe`
+
+Unsubscribe from FX parameter updates.
+
+```json
+{"type": "command", "command": "trackFxParams/unsubscribe", "id": "1"}
+```
+
+### `trackFxParams/set`
+
+Set an FX parameter value. Uses gesture-based undo coalescing.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` | string | Yes | Track GUID |
+| `fxGuid` | string | Yes | FX GUID |
+| `paramIdx` | int | Yes | Parameter index |
+| `value` | float | Yes | Normalized value (0.0-1.0) |
+
+```json
+{"type": "command", "command": "trackFxParams/set", "trackGuid": "{AAA}", "fxGuid": "{BBB}", "paramIdx": 0, "value": 0.5}
+```
+
+**Gesture support:** For proper undo behavior during fader drags, wrap with `gesture/start` and `gesture/end`:
+
+```json
+// Start drag
+{"type": "command", "command": "gesture/start", "trackGuid": "{AAA}", "controlType": "fxParam", "fxGuid": "{BBB}", "paramIdx": 0}
+
+// During drag (many times)
+{"type": "command", "command": "trackFxParams/set", "trackGuid": "{AAA}", "fxGuid": "{BBB}", "paramIdx": 0, "value": 0.5}
+
+// End drag
+{"type": "command", "command": "gesture/end", "trackGuid": "{AAA}", "controlType": "fxParam", "fxGuid": "{BBB}", "paramIdx": 0}
+```
+
+### `trackFxParams` Event
+
+Sent to subscribed clients at 30Hz with current parameter values.
+
+```json
+{
+  "type": "event",
+  "event": "trackFxParams",
+  "payload": {
+    "trackGuid": "{AAA}",
+    "fxGuid": "{BBB}",
+    "paramCount": 50,
+    "nameHash": 3847291,
+    "values": {
+      "0": [0.5, "-6.0 dB"],
+      "5": [1.0, "On"],
+      "12": [0.25, "250 Hz"]
+    }
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `trackGuid` | string | Track GUID |
+| `fxGuid` | string | FX GUID |
+| `paramCount` | int | Total parameter count |
+| `nameHash` | int | Hash of param names (for skeleton invalidation) |
+| `values` | object | Map of param index to [normalized value, formatted string] |
+
+**Skeleton invalidation:** If `paramCount` or `nameHash` differs from cached skeleton, refetch with `trackFx/getParams`.
+
+### `trackFxParamsError` Event
+
+Sent when the subscribed FX can no longer be found (deleted, track removed, etc.). Client is auto-unsubscribed.
+
+```json
+{
+  "type": "event",
+  "event": "trackFxParamsError",
+  "error": "FX_NOT_FOUND"
+}
+```
+
+---
+
 ## Send Commands
 
 Control track send levels and mute states. Send state is included in the `tracks` event — see [tracks event](#tracks-event) for the `sends[]` array format.

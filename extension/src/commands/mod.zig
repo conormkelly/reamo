@@ -14,6 +14,7 @@ const track_subscriptions = @import("../track_subscriptions.zig");
 const peaks_subscriptions = @import("../peaks_subscriptions.zig");
 const routing_subscriptions = @import("../routing_subscriptions.zig");
 const trackfx_subscriptions = @import("../trackfx_subscriptions.zig");
+const trackfxparam_subscriptions = @import("../trackfxparam_subscriptions.zig");
 const tiered_state = @import("../tiered_state.zig");
 
 // Import domain-specific command modules
@@ -64,6 +65,7 @@ pub const CommandContext = struct {
     peaks_subs: ?*peaks_subscriptions.PeaksSubscriptions = null,
     routing_subs: ?*routing_subscriptions.RoutingSubscriptions = null,
     trackfx_subs: ?*trackfx_subscriptions.TrackFxSubscriptions = null,
+    trackfxparam_subs: ?*trackfxparam_subscriptions.TrackFxParamSubscriptions = null,
     tiered: ?*tiered_state.TieredArenas = null,
 };
 

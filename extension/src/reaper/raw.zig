@@ -201,6 +201,12 @@ pub const Api = struct {
     trackFX_Delete: ?*const fn (?*anyopaque, c_int) callconv(.c) bool = null,
     trackFX_CopyToTrack: ?*const fn (?*anyopaque, c_int, ?*anyopaque, c_int, bool) callconv(.c) void = null,
     trackFX_GetFXGUID: ?*const fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque = null, // Returns GUID*
+    // FX parameters
+    trackFX_GetNumParams: ?*const fn (?*anyopaque, c_int) callconv(.c) c_int = null,
+    trackFX_GetParamName: ?*const fn (?*anyopaque, c_int, c_int, [*]u8, c_int) callconv(.c) bool = null,
+    trackFX_GetParamNormalized: ?*const fn (?*anyopaque, c_int, c_int) callconv(.c) f64 = null,
+    trackFX_SetParamNormalized: ?*const fn (?*anyopaque, c_int, c_int, f64) callconv(.c) bool = null,
+    trackFX_GetFormattedParamValue: ?*const fn (?*anyopaque, c_int, c_int, [*]u8, c_int) callconv(.c) bool = null,
     // FX plugin enumeration (global)
     enumInstalledFX: ?*const fn (c_int, *[*:0]const u8, *[*:0]const u8) callconv(.c) bool = null,
 
@@ -378,6 +384,12 @@ pub const Api = struct {
             .trackFX_Delete = getFunc(info, "TrackFX_Delete", fn (?*anyopaque, c_int) callconv(.c) bool),
             .trackFX_CopyToTrack = getFunc(info, "TrackFX_CopyToTrack", fn (?*anyopaque, c_int, ?*anyopaque, c_int, bool) callconv(.c) void),
             .trackFX_GetFXGUID = getFunc(info, "TrackFX_GetFXGUID", fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque),
+            // FX parameters
+            .trackFX_GetNumParams = getFunc(info, "TrackFX_GetNumParams", fn (?*anyopaque, c_int) callconv(.c) c_int),
+            .trackFX_GetParamName = getFunc(info, "TrackFX_GetParamName", fn (?*anyopaque, c_int, c_int, [*]u8, c_int) callconv(.c) bool),
+            .trackFX_GetParamNormalized = getFunc(info, "TrackFX_GetParamNormalized", fn (?*anyopaque, c_int, c_int) callconv(.c) f64),
+            .trackFX_SetParamNormalized = getFunc(info, "TrackFX_SetParamNormalized", fn (?*anyopaque, c_int, c_int, f64) callconv(.c) bool),
+            .trackFX_GetFormattedParamValue = getFunc(info, "TrackFX_GetFormattedParamValue", fn (?*anyopaque, c_int, c_int, [*]u8, c_int) callconv(.c) bool),
             // FX plugin enumeration (global)
             .enumInstalledFX = getFunc(info, "EnumInstalledFX", fn (c_int, *[*:0]const u8, *[*:0]const u8) callconv(.c) bool),
             // Track Sends
@@ -1410,6 +1422,50 @@ pub const Api = struct {
             if (c == 0) return buf[0..i];
         }
         return buf[0..@min(38, buf.len)];
+    }
+
+    // FX Parameter methods
+
+    /// Get number of parameters for an FX
+    pub fn trackFxGetNumParams(self: *const Api, track: *anyopaque, fx_idx: c_int) c_int {
+        const f = self.trackFX_GetNumParams orelse return 0;
+        return f(track, fx_idx);
+    }
+
+    /// Get parameter name. Returns empty string on failure.
+    pub fn trackFxGetParamName(self: *const Api, track: *anyopaque, fx_idx: c_int, param_idx: c_int, buf: []u8) []const u8 {
+        const f = self.trackFX_GetParamName orelse return "";
+        if (buf.len == 0) return "";
+        if (!f(track, fx_idx, param_idx, buf.ptr, @intCast(buf.len))) return "";
+        // Find null terminator
+        for (buf, 0..) |c, i| {
+            if (c == 0) return buf[0..i];
+        }
+        return buf;
+    }
+
+    /// Get normalized parameter value (0.0 to 1.0). Returns 0.0 on failure or invalid index.
+    pub fn trackFxGetParamNormalized(self: *const Api, track: *anyopaque, fx_idx: c_int, param_idx: c_int) f64 {
+        const f = self.trackFX_GetParamNormalized orelse return 0.0;
+        return f(track, fx_idx, param_idx);
+    }
+
+    /// Set normalized parameter value. Returns false on failure.
+    pub fn trackFxSetParamNormalized(self: *const Api, track: *anyopaque, fx_idx: c_int, param_idx: c_int, value: f64) bool {
+        const f = self.trackFX_SetParamNormalized orelse return false;
+        return f(track, fx_idx, param_idx, value);
+    }
+
+    /// Get formatted parameter value string (e.g., "-6.0 dB", "250 Hz"). Returns empty string on failure.
+    pub fn trackFxGetFormattedParamValue(self: *const Api, track: *anyopaque, fx_idx: c_int, param_idx: c_int, buf: []u8) []const u8 {
+        const f = self.trackFX_GetFormattedParamValue orelse return "";
+        if (buf.len == 0) return "";
+        if (!f(track, fx_idx, param_idx, buf.ptr, @intCast(buf.len))) return "";
+        // Find null terminator
+        for (buf, 0..) |c, i| {
+            if (c == 0) return buf[0..i];
+        }
+        return buf;
     }
 
     // Track Send methods

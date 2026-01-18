@@ -2,7 +2,7 @@
 
 Consolidated from PLANNED_FEATURES.md, PENDING_ITEMS.md, research docs, and ongoing development.
 
-**Last updated:** 2026-01-16
+**Last updated:** 2026-01-18
 
 ---
 
@@ -383,16 +383,30 @@ Follows routing subscription pattern — single track per client, GUID-based add
 
 **Reference:** [trackfx_subscriptions.zig](../extension/src/trackfx_subscriptions.zig)
 
-### FX Parameter Subscription (Future)
+### FX Parameter Subscription ✅
+
+**Status:** Backend complete. Frontend integration pending.
 
 Per-parameter subscriptions for FX detail modal with virtual scrolling support.
 
-**Design:**
+**Implemented:**
 
-- `trackFx/getParams` — one-time skeleton fetch (param names), frontend caches in LRU
-- `trackFxParams/subscribe` — subscribe to visible param range or indices
-- `trackFxParams` events push values at 30Hz for subscribed indices only
-- Client searches cached skeleton locally for filter
+- `trackFx/getParams` — skeleton fetch (param names), frontend caches in LRU
+- `trackFxParams/subscribe` — subscribe to param range or specific indices
+- `trackFxParams/unsubscribe` — clear subscription
+- `trackFxParams/set` — set param value with gesture-based undo coalescing
+- `trackFxParams` events push values at 30Hz for subscribed range/indices
+- `trackFxParamsError` event on FX deletion (auto-unsubscribes client)
+- Skeleton invalidation via `paramCount` + `nameHash` in events
+
+**Gesture support:** `fxParam` control type added. Uses unified `ManualUndoState` with bitfield tracking for proper undo messages across HW outputs and FX params.
+
+**Reference:** [API.md - Track FX Parameter Commands](../extension/API.md#track-fx-parameter-commands)
+
+**Remaining:**
+
+- [ ] Frontend: FX param modal to use subscription
+- [ ] Frontend: Virtual scrolling for large param lists
 
 **REAPER API — Stable FX Addressing:**
 

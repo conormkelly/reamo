@@ -36,6 +36,8 @@ const track_subs = @import("track_subs.zig");
 const peaks_subs = @import("peaks_subs.zig");
 const routing_subs = @import("routing_subs.zig");
 const trackfx_subs = @import("trackfx_subs.zig");
+const trackfxparam_subs = @import("trackfxparam_subs.zig");
+const trackfxparam = @import("trackfxparam.zig");
 const inputs = @import("inputs.zig");
 
 /// Comptime tuple of (command_name, handler_fn) pairs.
@@ -202,6 +204,7 @@ pub const all = .{
     .{ "trackFx/add", fx.handleAdd },
     .{ "trackFx/delete", fx.handleDelete },
     .{ "trackFx/move", fx.handleMove },
+    .{ "trackFx/getParams", fx.handleGetParams },
 
     // FX Plugin Library (global plugin enumeration)
     .{ "fxPlugin/getList", fx_plugin.handleGetList },
@@ -263,4 +266,11 @@ pub const all = .{
     // Track FX Subscriptions (per-track FX chain)
     .{ "trackFx/subscribe", trackfx_subs.handleSubscribe },
     .{ "trackFx/unsubscribe", trackfx_subs.handleUnsubscribe },
+
+    // Track FX Parameter Subscriptions (individual FX param values)
+    .{ "trackFxParams/subscribe", trackfxparam_subs.handleSubscribe },
+    .{ "trackFxParams/unsubscribe", trackfxparam_subs.handleUnsubscribe },
+
+    // Track FX Parameter Control (set param values)
+    .{ "trackFxParams/set", trackfxparam.handleSetParam },
 };
