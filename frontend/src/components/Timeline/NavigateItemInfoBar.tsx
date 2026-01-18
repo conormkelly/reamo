@@ -350,7 +350,7 @@ export function NavigateItemInfoBar({
   const formattedPosition = singleItem ? formatBeats(singleItem.position) : '-';
 
   return (
-    <div data-testid="item-info-bar" className={`flex flex-col gap-1 px-3 py-1.5 bg-bg-surface/50 rounded-lg text-sm relative ${className}`}>
+    <div data-testid="item-info-bar" className={`flex flex-col gap-1.5 px-3 py-2 bg-bg-surface/50 rounded-lg text-sm relative ${className}`}>
       {/* Close button (X) - top right */}
       <button
         onClick={handleExitMode}
@@ -361,7 +361,7 @@ export function NavigateItemInfoBar({
         <X className="w-4 h-4" />
       </button>
 
-      {/* Row 1: Selection pill (shown when items selected) */}
+      {/* Row 1: Selection pill + take name (when single item with take name) */}
       <div className="flex items-center gap-3 min-w-0 pr-8">
         {selectedCount > 0 && (
           <button
@@ -373,6 +373,11 @@ export function NavigateItemInfoBar({
             <span data-testid="selection-count">{selectedCount}</span> selected
             <ChevronRight className="w-3 h-3" />
           </button>
+        )}
+        {singleItem?.activeTakeName && (
+          <span className="text-xs text-text-primary truncate" title={singleItem.activeTakeName}>
+            {singleItem.activeTakeName}
+          </span>
         )}
       </div>
 
@@ -396,14 +401,14 @@ export function NavigateItemInfoBar({
           <div className="w-px h-6 bg-bg-hover" />
 
           {/* Take navigation */}
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
             <button
               onClick={handlePrevTake}
               disabled={takeCount <= 1}
-              className="p-1 rounded hover:bg-bg-elevated disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-2 rounded hover:bg-bg-elevated disabled:opacity-30 disabled:cursor-not-allowed"
               title="Previous take"
             >
-              <ChevronLeft className="w-3 h-3" />
+              <ChevronLeft className="w-4 h-4" />
             </button>
             <span className="text-xs text-text-secondary min-w-[55px] text-center">
               Take {singleItem.activeTakeIdx + 1}/{takeCount}
@@ -411,10 +416,10 @@ export function NavigateItemInfoBar({
             <button
               onClick={handleNextTake}
               disabled={takeCount <= 1}
-              className="p-1 rounded hover:bg-bg-elevated disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-2 rounded hover:bg-bg-elevated disabled:opacity-30 disabled:cursor-not-allowed"
               title="Next take"
             >
-              <ChevronRight className="w-3 h-3" />
+              <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
@@ -502,9 +507,14 @@ export function NavigateItemInfoBar({
                       {i === singleItem.activeTakeIdx && (
                         <Check className="w-4 h-4 text-accent flex-shrink-0" />
                       )}
-                      <span className={i === singleItem.activeTakeIdx ? '' : 'ml-6'}>
-                        Take {i + 1}
-                      </span>
+                      <div className={`flex flex-col ${i === singleItem.activeTakeIdx ? '' : 'ml-6'}`}>
+                        <span>Take {i + 1}</span>
+                        {i === singleItem.activeTakeIdx && singleItem.activeTakeName && (
+                          <span className="text-xs text-text-muted truncate">
+                            {singleItem.activeTakeName}
+                          </span>
+                        )}
+                      </div>
                     </button>
                   ))}
                 </div>

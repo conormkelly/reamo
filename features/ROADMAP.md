@@ -45,14 +45,17 @@ Current item multi-select works but feels cluttered. Needs design rethink.
 
 Existing take switcher needs UX improvements:
 
-- [ ] Larger touch targets for prev/next
-- [ ] Show take name (if available) not just "Take 1/3"
-- [ ] Visual preview of take waveforms (mini thumbnails?)
-- [ ] Swipe gesture for take switching
+- [x] Larger touch targets for prev/next (p-2 padding, w-4 h-4 icons)
+- [x] Show take name (if available) not just "Take 1/3"
+- [ ] Visual preview of take waveforms (mini thumbnails?) — DEFERRED (requires fetching all takes' peaks)
+- [ ] Swipe gesture for take switching — DEFERRED (info bar conflicts with swipe)
 - [x] "Delete take" confirmation flow
 - [x] "Crop to active" quick action
 
-**Effort:** ~1 day
+**Implementation notes:**
+- `activeTakeName` added to backend Item struct and WSItem type
+- Take name shown below "Take X/Y" when available
+- InfoBar height increased (py-2.5) for better touch targets
 
 ---
 

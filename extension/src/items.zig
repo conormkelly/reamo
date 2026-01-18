@@ -1,6 +1,7 @@
 const std = @import("std");
 const reaper = @import("reaper.zig");
 const constants = @import("constants.zig");
+const protocol = @import("protocol.zig");
 
 // Re-export shared constants for backward compatibility
 pub const MAX_ITEMS = constants.MAX_ITEMS;
@@ -57,8 +58,16 @@ pub const Item = struct {
     has_notes: bool = false,
     take_count: u8 = 0,
 
+    // Active take info (for display in info bar)
+    active_take_name: [MAX_NAME_LEN]u8 = undefined,
+    active_take_name_len: usize = 0,
+
     pub fn getGUID(self: *const Item) []const u8 {
         return self.guid[0..self.guid_len];
+    }
+
+    pub fn getActiveTakeName(self: *const Item) []const u8 {
+        return self.active_take_name[0..self.active_take_name_len];
     }
 
     pub fn eql(self: *const Item, other: *const Item) bool {
@@ -75,6 +84,9 @@ pub const Item = struct {
         // Sparse fields
         if (self.has_notes != other.has_notes) return false;
         if (self.take_count != other.take_count) return false;
+        // Active take name
+        if (self.active_take_name_len != other.active_take_name_len) return false;
+        if (!std.mem.eql(u8, self.getActiveTakeName(), other.getActiveTakeName())) return false;
         return true;
     }
 };
@@ -193,6 +205,15 @@ pub const State = struct {
                 const take_count_raw = api.itemTakeCount(item_ptr);
                 item.take_count = if (take_count_raw >= 0) @intCast(@min(take_count_raw, 255)) else 0;
 
+                // Get active take name
+                item.active_take_name_len = 0;
+                if (api.getItemActiveTake(item_ptr)) |take| {
+                    const take_name = api.getTakeNameStr(take);
+                    const copy_len = @min(take_name.len, item.active_take_name.len);
+                    @memcpy(item.active_take_name[0..copy_len], take_name[0..copy_len]);
+                    item.active_take_name_len = copy_len;
+                }
+
                 total_count += 1;
             }
 
@@ -271,10 +292,12 @@ pub const State = struct {
             }
 
             // Sparse fields - full data fetched on-demand via item/getNotes, item/getTakes
-            w.print(",\"hasNotes\":{s},\"takeCount\":{d}}}", .{
+            w.print(",\"hasNotes\":{s},\"takeCount\":{d},\"activeTakeName\":\"", .{
                 if (item.has_notes) "true" else "false",
                 item.take_count,
             }) catch return null;
+            protocol.writeJsonString(w, item.getActiveTakeName()) catch return null;
+            w.writeAll("\"}") catch return null;
         }
 
         w.writeAll("]}}") catch return null;
@@ -371,6 +394,15 @@ pub const State = struct {
                 const take_count_raw = api.itemTakeCount(item_ptr);
                 item.take_count = if (take_count_raw >= 0) @intCast(@min(take_count_raw, 255)) else 0;
 
+                // Get active take name
+                item.active_take_name_len = 0;
+                if (api.getItemActiveTake(item_ptr)) |take| {
+                    const take_name = api.getTakeNameStr(take);
+                    const copy_len = @min(take_name.len, item.active_take_name.len);
+                    @memcpy(item.active_take_name[0..copy_len], take_name[0..copy_len]);
+                    item.active_take_name_len = copy_len;
+                }
+
                 write_idx += 1;
             }
             if (write_idx >= items.len) break;
@@ -395,6 +427,7 @@ pub const State = struct {
             hasher.update(std.mem.asBytes(&item.active_take_idx));
             hasher.update(std.mem.asBytes(&item.has_notes));
             hasher.update(std.mem.asBytes(&item.take_count));
+            hasher.update(item.active_take_name[0..item.active_take_name_len]);
         }
         return hasher.final();
     }
@@ -484,6 +517,7 @@ test "State items JSON output" {
     const item_guid = "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}";
 
     // Use a static buffer for testing
+    const take_name = "Test Take";
     var items_buffer: [1]Item = undefined;
     items_buffer[0] = .{
         .track_idx = 0,
@@ -498,6 +532,8 @@ test "State items JSON output" {
     };
     items_buffer[0].guid[0..item_guid.len].* = item_guid.*;
     items_buffer[0].guid_len = item_guid.len;
+    items_buffer[0].active_take_name[0..take_name.len].* = take_name.*;
+    items_buffer[0].active_take_name_len = take_name.len;
 
     const state = State{ .items = &items_buffer };
 
@@ -505,9 +541,9 @@ test "State items JSON output" {
     const json = state.itemsToJson(&buf).?;
 
     // trackIdx is unified: internal track_idx 0 becomes trackIdx 1 (0 = master, 1+ = user tracks)
-    // Sparse fields: hasNotes and takeCount instead of full notes/takes arrays
+    // Sparse fields: hasNotes, takeCount, and activeTakeName
     try std.testing.expectEqualStrings(
-        "{\"type\":\"event\",\"event\":\"items\",\"payload\":{\"items\":[{\"guid\":\"{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}\",\"trackIdx\":1,\"itemIdx\":0,\"position\":10.000,\"length\":5.000,\"color\":16711680,\"locked\":false,\"selected\":false,\"activeTakeIdx\":0,\"hasNotes\":true,\"takeCount\":2}]}}",
+        "{\"type\":\"event\",\"event\":\"items\",\"payload\":{\"items\":[{\"guid\":\"{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}\",\"trackIdx\":1,\"itemIdx\":0,\"position\":10.000,\"length\":5.000,\"color\":16711680,\"locked\":false,\"selected\":false,\"activeTakeIdx\":0,\"hasNotes\":true,\"takeCount\":2,\"activeTakeName\":\"Test Take\"}]}}",
         json,
     );
 }

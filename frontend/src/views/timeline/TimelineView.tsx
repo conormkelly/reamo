@@ -393,12 +393,13 @@ export function TimelineView(): ReactElement {
         </div>
 
         {/* Marker/Item Info - only shown in navigate mode */}
+        {/* Contextual: marker overlays item selection (marker takes precedence) */}
         {timelineMode === 'navigate' && (
           <section data-testid="navigate-info-section" className="mt-4 flex flex-col gap-2">
-            {/* Marker info bar - shown when a marker is selected */}
+            {/* Marker info bar - shown when a marker is selected (handles own visibility) */}
             <MarkerInfoBar />
-            {/* Item info bar - shown when in item selection mode */}
-            {itemSelectionModeActive && <NavigateItemInfoBar />}
+            {/* Item info bar - shown when NO marker selected and items are selected */}
+            {selectedMarkerId === null && itemSelectionModeActive && <NavigateItemInfoBar />}
             {/* Fallback when nothing is active */}
             {selectedMarkerId === null && !itemSelectionModeActive && (
               <div
