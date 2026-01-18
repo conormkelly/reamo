@@ -19,8 +19,9 @@ import type { WSTempoMarker } from '../core/WebSocketTypes';
 /**
  * Discrete zoom steps from useViewport
  * Used to snap visibleDuration to prevent threshold flipping during pan
+ * Includes fine steps (1-3s) for precision cursor-based editing
  */
-const ZOOM_STEPS = [5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600] as const;
+const ZOOM_STEPS = [1, 2, 3, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600] as const;
 
 /**
  * Snap a duration to the nearest zoom step
@@ -51,6 +52,8 @@ export interface TimelineTick {
   type: 'bar' | 'beat';
   /** Beat number within bar (only for beat type) */
   beat?: number;
+  /** Whether this tick should show a label (for ruler) */
+  showLabel: boolean;
   /** Unique key for React rendering */
   key: string;
 }
@@ -70,48 +73,72 @@ export interface TickGeneratorOptions {
   mode: 'ruler' | 'grid';
 }
 
+/** Target number of labels/gridlines per screen width */
+const TARGET_LABELS_RULER = 8; // Ruler needs more space for labels
+const TARGET_LABELS_GRID = 12; // Grid can be denser (just lines)
+
+/** Round to nearest "nice" bar step (powers of 2 for musical alignment) */
+const NICE_BAR_STEPS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096];
+
+function roundToNiceBarStep(rawStep: number): number {
+  // Find the nice step that's closest to (but >= ) the raw step
+  for (const step of NICE_BAR_STEPS) {
+    if (step >= rawStep) return step;
+  }
+  // For extremely large values, round to nearest power of 2
+  return Math.pow(2, Math.ceil(Math.log2(rawStep)));
+}
+
 /**
- * Calculate bar step size based on zoom level and mode
+ * Beat label display modes for close zoom levels
+ * - 'none': No beat ticks
+ * - 'ticks': Beat tick lines only (no labels)
+ * - 'labels': Beat labels with navigation (for precision editing)
+ */
+type BeatDisplayMode = 'none' | 'ticks' | 'labels';
+
+/**
+ * Calculate bar step size dynamically based on actual bars visible
  *
- * Important: Duration is snapped to the nearest ZOOM_STEP to prevent
- * threshold flipping when visibleDuration drifts slightly during panning
- * (e.g., 30.5 instead of 30 due to clamping at project bounds).
+ * Algorithm:
+ * 1. Use actual bars visible (calculated from tempo map)
+ * 2. Calculate raw bar step to achieve target label count
+ * 3. Round to nearest "nice" bar step (power of 2)
  *
- * Ruler (sparser - labels need more space):
- * - ≤10s: every bar with beat ticks
- * - ≤15s: every 2 bars
- * - ≤30s: every 4 bars
- * - ≤60s: every 8 bars
- * - ≤120s: every 16 bars
- * - >120s: every 32 bars
+ * This scales to any project length and adapts to actual tempo!
+ * A 60 BPM project shows half as many bars as 120 BPM for the same time range.
  *
- * Grid (denser - just lines):
- * - ≤15s: every bar with beat lines
- * - ≤60s: every bar
- * - ≤300s: every 4 bars
- * - >300s: every 8 bars
+ * Beat display modes:
+ * - ≤3 bars: Show all beat labels (precision editing)
+ * - ≤7 bars: Show beat tick lines only
+ * - >7 bars: No beat subdivision
  */
 function getBarStepAndBeats(
-  visibleDuration: number,
+  barsVisible: number,
   mode: 'ruler' | 'grid'
-): { barStep: number; showBeats: boolean } {
-  // Snap to nearest zoom step to prevent threshold flipping
-  const snappedDuration = snapToZoomStep(visibleDuration);
+): { barStep: number; beatMode: BeatDisplayMode } {
+  // Target label counts differ by mode
+  const targetLabels = mode === 'ruler' ? TARGET_LABELS_RULER : TARGET_LABELS_GRID;
 
-  if (mode === 'ruler') {
-    if (snappedDuration <= 10) return { barStep: 1, showBeats: true };
-    if (snappedDuration <= 15) return { barStep: 2, showBeats: false };
-    if (snappedDuration <= 30) return { barStep: 4, showBeats: false };
-    if (snappedDuration <= 60) return { barStep: 8, showBeats: false };
-    if (snappedDuration <= 120) return { barStep: 16, showBeats: false };
-    return { barStep: 32, showBeats: false };
-  } else {
-    // Grid mode
-    if (snappedDuration <= 15) return { barStep: 1, showBeats: true };
-    if (snappedDuration <= 60) return { barStep: 1, showBeats: false };
-    if (snappedDuration <= 300) return { barStep: 4, showBeats: false };
-    return { barStep: 8, showBeats: false };
+  // Calculate raw bar step needed to hit target
+  const rawBarStep = barsVisible / targetLabels;
+
+  // Round to nice bar step (minimum 1)
+  const barStep = Math.max(1, roundToNiceBarStep(rawBarStep));
+
+  // Beat display depends on zoom level
+  let beatMode: BeatDisplayMode = 'none';
+  if (barStep === 1) {
+    if (barsVisible <= 3) {
+      // Very close zoom (1-3s at 120bpm): show all beat labels
+      beatMode = 'labels';
+    } else if (barsVisible <= 7) {
+      // Close zoom: show beat tick lines only
+      beatMode = 'ticks';
+    }
   }
+
+  return { barStep, beatMode };
 }
 
 /**
@@ -134,8 +161,6 @@ export function generateTimelineTicks(options: TickGeneratorOptions): TimelineTi
     return [];
   }
 
-  const { barStep, showBeats } = getBarStepAndBeats(visibleDuration, mode);
-
   // Get time signature from first tempo marker (or default 4/4)
   const beatsPerBar = tempoMarkers[0]?.timesigNum ?? 4;
 
@@ -148,13 +173,19 @@ export function generateTimelineTicks(options: TickGeneratorOptions): TimelineTi
   const startBarBeat = timeToBarBeat(bufferedStart, tempoMarkers, barOffset);
   const startBar = startBarBeat.bar;
 
-  // Calculate first bar aligned to step boundary
-  // Works with negative bars: floor(-3/4)*4 = floor(-0.75)*4 = -1*4 = -4
-  const firstBar = Math.floor(startBar / barStep) * barStep;
-
   // Find bar at buffered end
   const endBarBeat = timeToBarBeat(bufferedEnd, tempoMarkers, barOffset);
   const endBar = endBarBeat.bar;
+
+  // Calculate actual bars visible using tempo map (not estimated!)
+  // This adapts to actual project tempo - 60 BPM shows half as many bars as 120 BPM
+  const barsVisible = Math.max(1, endBar - startBar);
+
+  const { barStep, beatMode } = getBarStepAndBeats(barsVisible, mode);
+
+  // Calculate first bar aligned to step boundary
+  // Works with negative bars: floor(-3/4)*4 = floor(-0.75)*4 = -1*4 = -4
+  const firstBar = Math.floor(startBar / barStep) * barStep;
 
   const ticks: TimelineTick[] = [];
 
@@ -169,15 +200,17 @@ export function generateTimelineTicks(options: TickGeneratorOptions): TimelineTi
     if (time > bufferedEnd) break;
 
     // Add bar tick - bar number is from REAPER (includes barOffset)
+    // Bar ticks always show labels
     ticks.push({
       time,
       bar,
       type: 'bar',
+      showLabel: true,
       key: `bar-${bar}`,
     });
 
     // Add beat subdivisions if enabled
-    if (showBeats) {
+    if (beatMode !== 'none') {
       for (let beat = 2; beat <= beatsPerBar; beat++) {
         const beatTime = barBeatToTime({ bar, beat, ticks: 0 }, tempoMarkers, barOffset);
 
@@ -189,6 +222,8 @@ export function generateTimelineTicks(options: TickGeneratorOptions): TimelineTi
           bar,
           type: 'beat',
           beat,
+          // Show labels at close zoom for precision navigation
+          showLabel: beatMode === 'labels',
           key: `beat-${bar}-${beat}`,
         });
       }
@@ -203,25 +238,40 @@ export function generateTimelineTicks(options: TickGeneratorOptions): TimelineTi
  * Precision adapts to zoom level:
  * - ≤15s: 3 decimal places (0:00.000)
  * - ≤30s: 2 decimal places (0:00.00)
- * - >30s: no decimals (0:00)
+ * - ≤600s (10min): minutes:seconds (0:00)
+ * - >600s: hours:minutes format (0h00m) for readability at large zooms
  *
  * Note: Duration is snapped to nearest ZOOM_STEP to prevent format flipping
  * when visibleDuration drifts (e.g., 30.5 vs 30).
  */
 export function formatRulerTime(seconds: number, visibleDuration: number): string {
-  const mins = Math.floor(Math.abs(seconds) / 60);
-  const secs = Math.abs(seconds) % 60;
+  const absSeconds = Math.abs(seconds);
   const sign = seconds < 0 ? '-' : '';
 
   // Snap to nearest zoom step to prevent format flipping
   const snappedDuration = snapToZoomStep(visibleDuration);
 
   if (snappedDuration <= 15) {
+    const mins = Math.floor(absSeconds / 60);
+    const secs = absSeconds % 60;
     return `${sign}${mins}:${secs.toFixed(3).padStart(6, '0')}`;
   } else if (snappedDuration <= 30) {
+    const mins = Math.floor(absSeconds / 60);
+    const secs = absSeconds % 60;
     return `${sign}${mins}:${secs.toFixed(2).padStart(5, '0')}`;
+  } else if (snappedDuration <= 600) {
+    // Up to 10min view: show minutes:seconds
+    const mins = Math.floor(absSeconds / 60);
+    const secs = Math.floor(absSeconds % 60);
+    return `${sign}${mins}:${secs.toString().padStart(2, '0')}`;
   } else {
-    return `${sign}${mins}:${Math.floor(secs).toString().padStart(2, '0')}`;
+    // Large zoom (30min+): show hours and minutes for readability
+    const hours = Math.floor(absSeconds / 3600);
+    const mins = Math.floor((absSeconds % 3600) / 60);
+    if (hours > 0) {
+      return `${sign}${hours}h${mins.toString().padStart(2, '0')}m`;
+    }
+    return `${sign}${mins}m`;
   }
 }
 

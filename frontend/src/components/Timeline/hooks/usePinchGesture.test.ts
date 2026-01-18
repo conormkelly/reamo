@@ -252,7 +252,7 @@ describe('usePinchGesture', () => {
   });
 
   describe('zoom limits', () => {
-    it('does not zoom below minimum duration (5 seconds)', () => {
+    it('does not zoom below minimum duration (1 second)', () => {
       const setVisibleRange = vi.fn();
       const { result } = renderHook(() =>
         usePinchGesture({
@@ -269,7 +269,7 @@ describe('usePinchGesture', () => {
         result.current.handlePointerDown(createPointerEvent(275, 50, 2));
       });
 
-      // Spread to 500px apart (10x = would be 1s duration)
+      // Spread to 500px apart (10x = would be 1s duration, clamps to 1s min)
       act(() => {
         result.current.handlePointerMove(createPointerEvent(0, 50, 1));
         result.current.handlePointerMove(createPointerEvent(500, 50, 2));
@@ -278,7 +278,7 @@ describe('usePinchGesture', () => {
       expect(setVisibleRange).toHaveBeenCalled();
       const lastCall = setVisibleRange.mock.calls[setVisibleRange.mock.calls.length - 1][0];
       const newDuration = lastCall.end - lastCall.start;
-      expect(newDuration).toBeGreaterThanOrEqual(5);
+      expect(newDuration).toBeGreaterThanOrEqual(1);
     });
 
     it('does not zoom above project duration', () => {
