@@ -307,20 +307,20 @@ The architectural approach (copying `routing_subscriptions` pattern, using CSurf
 
 ### Data Flow
 
-1. **Subscribe to FX** → Server returns **parameter skeleton** (all names, one-time)
+1. **Fetch skeleton** → One-time request returns parameter names (frontend caches in LRU)
 2. **Client caches skeleton** → Enables local search, knows total count for virtual scroll
 3. **Subscribe to range OR indices** → Server pushes values at 30Hz for subscribed params only
 4. **User drags param** → Gesture tracking for undo coalescing
 
 ### Commands
 
-**`trackFxParams/subscribe`** - Get skeleton + start subscription
+**`trackFx/getParams`** - One-time skeleton fetch (not a subscription)
 
 ```json
 // Request
-{"command": "trackFxParams/subscribe", "trackGuid": "{AAA}", "fxGuid": "{FFF}", "id": "1"}
+{"command": "trackFx/getParams", "trackGuid": "{AAA}", "fxGuid": "{FFF}", "id": "1"}
 
-// Response (skeleton is one-time, array index = param index)
+// Response (array index = param index, cache in frontend LRU)
 {
   "success": true,
   "payload": {
@@ -331,15 +331,15 @@ The architectural approach (copying `routing_subscriptions` pattern, using CSurf
 }
 ```
 
-**`trackFxParams/subscribeRange`** - Subscribe to parameter range (virtual scroll)
+**`trackFxParams/subscribe`** - Subscribe to parameter values (virtual scroll)
 
 ```json
 // Range mode - for scrolling through params in order
-{"command": "trackFxParams/subscribeRange", "trackGuid": "{AAA}", "fxGuid": "{FFF}",
+{"command": "trackFxParams/subscribe", "trackGuid": "{AAA}", "fxGuid": "{FFF}",
  "range": {"start": 0, "end": 39}}
 
 // Index set mode - for filtered views (disjoint indices)
-{"command": "trackFxParams/subscribeRange", "trackGuid": "{AAA}", "fxGuid": "{FFF}",
+{"command": "trackFxParams/subscribe", "trackGuid": "{AAA}", "fxGuid": "{FFF}",
  "indices": [0, 5, 12, 47, 89, 102]}
 ```
 
@@ -380,11 +380,11 @@ The architectural approach (copying `routing_subscriptions` pattern, using CSurf
 ### Frontend UX Flow
 
 1. User opens FX detail modal
-2. Client sends `trackFxParams/subscribe` → gets skeleton
+2. Client sends `trackFx/getParams` → gets skeleton (cached in LRU)
 3. Client renders virtual scroll (knows param count from skeleton length)
-4. Client sends `trackFxParams/subscribeRange` with visible range + buffer
+4. Client sends `trackFxParams/subscribe` with visible range + buffer
 5. Server pushes `trackFxParams` events at 30Hz when values change
-6. User scrolls → client updates range subscription
+6. User scrolls → client updates subscription range
 7. User types filter "freq" → client searches skeleton locally → switches to `indices` mode
 8. User clears filter → client switches back to `range` mode
 9. User drags parameter → gesture/start → setParam → gesture/end
@@ -414,7 +414,8 @@ Add new control type to existing gesture infrastructure:
 | File | Purpose |
 |------|---------|
 | `extension/src/trackfxparam_subscriptions.zig` | NEW - Per-client param subscription state |
-| `extension/src/commands/trackfxparam_subs.zig` | NEW - subscribe, subscribeRange, unsubscribe, set |
+| `extension/src/commands/trackfxparam_subs.zig` | NEW - subscribe, unsubscribe, set handlers |
+| `extension/src/commands/fx.zig` | Add `handleGetParams` for skeleton fetch |
 | `extension/src/gesture_state.zig` | Add `trackFxParam` control type |
 | `extension/src/commands/gesture.zig` | Parse trackFxParam control ID |
 

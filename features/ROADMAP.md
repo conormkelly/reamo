@@ -356,31 +356,40 @@ When CSurf dirty flags trigger an immediate poll, defer the next tier poll to av
 
 Only send changed fields instead of full state snapshots. Would reduce bandwidth for large track counts but adds complexity.
 
-### FX Details Subscription
+### FX Chain Subscription ✅
 
-Make FX modal data subscription-based (like routing) instead of polling all FX state.
+**Status:** Backend complete. Frontend integration pending.
 
-**Current:** FX counts/names polled in MEDIUM tier for all tracks. FX detail modal polls parameters.
+FX chain subscription via `trackFx/subscribe` and `trackFx/unsubscribe` commands.
+Follows routing subscription pattern — single track per client, GUID-based addressing.
 
-**Proposed:** `fx/subscribe` and `fx/unsubscribe` commands using track GUID for stability.
+**Implemented:**
 
-**Pattern:** Follow routing subscription model:
+- `trackFx/subscribe` with `trackGuid` — subscribe to single track's FX chain
+- `trackFx/unsubscribe` — clear subscription
+- `trackFxChain` events: fxGuid, name, presetName, presetIndex, presetCount, modified, enabled
+- Management: `trackFx/add`, `trackFx/delete`, `trackFx/move` with undo blocks
+- FX GUIDs exposed for stable addressing across reorders
 
-- `fx/subscribe` with `trackGuid` parameter — subscribe to single track's FX chain
-- `fx/unsubscribe` — clear subscription for this client
-- Single-track per client (only one FX modal open at a time)
-- Returns full FX chain state: plugin names, bypass state, parameter values
-- CSurf `SETFXPARAM`/`SETFXENABLED` callbacks trigger immediate poll for subscribed track
+**Remaining:**
 
-**Benefits:**
+- [ ] Frontend: FX modal to use subscription instead of on-demand fetch
+- [ ] Consume CSurf `fx_dirty` flags for push-based updates
 
-- No FX detail polling when modal closed
-- Instant parameter updates via CSurf dirty flags
-- GUID-based addressing survives track reordering
+**Reference:** [trackfx_subscriptions.zig](../extension/src/trackfx_subscriptions.zig)
+
+### FX Parameter Subscription (Future)
+
+Per-parameter subscriptions for FX detail modal with virtual scrolling support.
+
+**Design:**
+
+- `trackFx/getParams` — one-time skeleton fetch (param names), frontend caches in LRU
+- `trackFxParams/subscribe` — subscribe to visible param range or indices
+- `trackFxParams` events push values at 30Hz for subscribed indices only
+- Client searches cached skeleton locally for filter
 
 **REAPER API — Stable FX Addressing:**
-
-REAPER provides GUIDs at every level for reorder-resistant addressing:
 
 | Level | Stable Identifier | API |
 |-------|-------------------|-----|
@@ -400,17 +409,7 @@ For a "pin FX parameter to toolbar" feature, store:
 }
 ```
 
-Runtime lookup:
-
-1. Track GUID → Track pointer (via `GuidCache`)
-2. Enumerate FX, compare GUIDs → FX index (build `FxGuidCache` similar to tracks)
-3. `TrackFX_GetParamFromIdent(track, fx_idx, ident)` → param index
-
-This survives track reordering, FX reordering, and is more stable than numeric indices.
-
-**Note:** No `TrackFX_GetByGUID` exists — must enumerate and compare, same pattern as track GUIDs.
-
-**Reference:** See [routing_subs.zig](../extension/src/commands/routing_subs.zig) for implementation pattern.
+Runtime lookup: Track GUID → Track pointer → enumerate FX by GUID → `TrackFX_GetParamFromIdent`
 
 ### Idle When No Clients
 
