@@ -13,6 +13,7 @@ pub const MAX_TRACKS = 32;
 pub const MAX_ITEMS_PER_TRACK = 16;
 pub const MAX_TAKES_PER_ITEM = 4;
 pub const MAX_FX_PER_TRACK = 64;
+pub const MAX_PARAMS_PER_FX = 128;
 pub const MAX_SENDS_PER_TRACK = 16;
 pub const MAX_RECEIVES_PER_TRACK = 16;
 pub const MAX_HW_OUTPUTS_PER_TRACK = 8;
@@ -223,6 +224,12 @@ pub const Method = enum {
     trackFxDelete,
     trackFxCopyToTrack,
     trackFxGetGuid,
+    // FX Parameters
+    trackFxGetNumParams,
+    trackFxGetParamName,
+    trackFxGetParamNormalized,
+    trackFxSetParamNormalized,
+    trackFxGetFormattedParamValue,
     // Track Sends/Receives
     trackSendCount,
     trackReceiveCount,
@@ -394,6 +401,35 @@ pub const MockMarkerInfo = struct {
     }
 };
 
+/// Mock parameter for FX testing.
+pub const MockParam = struct {
+    name: [64]u8 = [_]u8{0} ** 64,
+    name_len: usize = 0,
+    value: f64 = 0.0, // Normalized 0.0 to 1.0
+    formatted: [64]u8 = [_]u8{0} ** 64,
+    formatted_len: usize = 0,
+
+    pub fn setName(self: *MockParam, param_name: []const u8) void {
+        const len = @min(param_name.len, self.name.len);
+        @memcpy(self.name[0..len], param_name[0..len]);
+        self.name_len = len;
+    }
+
+    pub fn getName(self: *const MockParam) []const u8 {
+        return self.name[0..self.name_len];
+    }
+
+    pub fn setFormatted(self: *MockParam, fmt: []const u8) void {
+        const len = @min(fmt.len, self.formatted.len);
+        @memcpy(self.formatted[0..len], fmt[0..len]);
+        self.formatted_len = len;
+    }
+
+    pub fn getFormatted(self: *const MockParam) []const u8 {
+        return self.formatted[0..self.formatted_len];
+    }
+};
+
 /// Mock FX slot for testing preset switching.
 pub const MockFx = struct {
     name: [128]u8 = [_]u8{0} ** 128,
@@ -404,6 +440,10 @@ pub const MockFx = struct {
     preset_count: c_int = 0,
     params_match_preset: bool = true, // True if params exactly match loaded preset
     enabled: bool = true, // True = enabled, false = bypassed
+
+    // FX Parameters
+    param_count: c_int = 0,
+    params: [MAX_PARAMS_PER_FX]MockParam = [_]MockParam{.{}} ** MAX_PARAMS_PER_FX,
 
     pub fn setName(self: *MockFx, fx_name: []const u8) void {
         const len = @min(fx_name.len, self.name.len);
@@ -423,6 +463,19 @@ pub const MockFx = struct {
 
     pub fn getPresetName(self: *const MockFx) []const u8 {
         return self.preset_name[0..self.preset_name_len];
+    }
+
+    /// Set up a parameter with name and initial value
+    pub fn setParam(self: *MockFx, param_idx: c_int, param_name: []const u8, value: f64, formatted: []const u8) void {
+        if (param_idx < 0 or param_idx >= MAX_PARAMS_PER_FX) return;
+        const idx: usize = @intCast(param_idx);
+        self.params[idx].setName(param_name);
+        self.params[idx].value = value;
+        self.params[idx].setFormatted(formatted);
+        // Update param_count if needed
+        if (param_idx >= self.param_count) {
+            self.param_count = param_idx + 1;
+        }
     }
 };
 

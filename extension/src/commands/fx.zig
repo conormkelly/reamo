@@ -312,6 +312,106 @@ pub fn handleMove(api: anytype, cmd: protocol.CommandMessage, response: *mod.Res
     response.success(resp_json);
 }
 
+/// Get all parameter names for an FX (skeleton fetch).
+/// Params: trackGuid, fxGuid OR fxIndex
+/// Response: { "trackGuid": "...", "fxGuid": "...", "paramCount": N, "params": ["name1", "name2", ...] }
+pub fn handleGetParams(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const resolution = tracks.resolveTrack(api, cmd) orelse {
+        logging.warn("trackFx/getParams: track not found", .{});
+        response.err("NOT_FOUND", "trackGuid required, or track not found");
+        return;
+    };
+
+    // Validate track pointer
+    if (resolution.idx != 0 and !api.validateTrackPtr(resolution.track)) {
+        logging.warn("trackFx/getParams: invalid track pointer", .{});
+        response.err("INVALID_TRACK", "Track no longer exists");
+        return;
+    }
+
+    // Resolve FX by GUID or index
+    const fx_idx = resolveFxIndex(api, resolution.track, cmd) orelse {
+        logging.warn("trackFx/getParams: FX not found", .{});
+        response.err("FX_NOT_FOUND", "fxGuid or fxIndex required, or FX not found");
+        return;
+    };
+
+    // Get FX GUID for response
+    var fx_guid_buf: [64]u8 = undefined;
+    const fx_guid = api.trackFxGetGuid(resolution.track, fx_idx, &fx_guid_buf);
+
+    // Get track GUID from command parameters (client must provide it)
+    const track_guid = cmd.getString("trackGuid") orelse {
+        response.err("MISSING_PARAM", "trackGuid required");
+        return;
+    };
+
+    // Get param count
+    const param_count = api.trackFxGetNumParams(resolution.track, fx_idx);
+
+    // Use scratch arena for JSON buffer (64KB supports ~1000 param names)
+    const tiered = mod.g_ctx.tiered orelse {
+        response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
+        return;
+    };
+    const scratch = tiered.scratchAllocator();
+    const buf = scratch.alloc(u8, 64 * 1024) catch {
+        response.err("ALLOC_FAILED", "Failed to allocate buffer");
+        return;
+    };
+
+    var stream = std.io.fixedBufferStream(buf);
+    var w = stream.writer();
+
+    // Write JSON header
+    w.print("{{\"trackGuid\":\"{s}\",\"fxGuid\":\"{s}\",\"paramCount\":{d},\"params\":[", .{ track_guid, fx_guid, param_count }) catch {
+        response.err("BUFFER_OVERFLOW", "Response too large");
+        return;
+    };
+
+    // Write param names
+    var name_buf: [256]u8 = undefined;
+    var i: c_int = 0;
+    while (i < param_count) : (i += 1) {
+        if (i > 0) w.writeByte(',') catch {
+            response.err("BUFFER_OVERFLOW", "Response too large");
+            return;
+        };
+
+        const name = api.trackFxGetParamName(resolution.track, fx_idx, i, &name_buf);
+
+        w.writeByte('"') catch {
+            response.err("BUFFER_OVERFLOW", "Response too large");
+            return;
+        };
+
+        // Escape JSON special characters in name
+        for (name) |c| {
+            switch (c) {
+                '"' => w.writeAll("\\\"") catch return,
+                '\\' => w.writeAll("\\\\") catch return,
+                '\n' => w.writeAll("\\n") catch return,
+                '\r' => w.writeAll("\\r") catch return,
+                '\t' => w.writeAll("\\t") catch return,
+                else => w.writeByte(c) catch return,
+            }
+        }
+
+        w.writeByte('"') catch {
+            response.err("BUFFER_OVERFLOW", "Response too large");
+            return;
+        };
+    }
+
+    w.writeAll("]}") catch {
+        response.err("BUFFER_OVERFLOW", "Response too large");
+        return;
+    };
+
+    logging.debug("trackFx/getParams: returning {d} params for track {s} fx {s}", .{ param_count, track_guid, fx_guid });
+    response.successLargePayload(stream.getWritten());
+}
+
 /// Helper: Resolve FX index from fxGuid or fxIndex parameter.
 fn resolveFxIndex(api: anytype, track: *anyopaque, cmd: protocol.CommandMessage) ?c_int {
     // Try fxGuid first
@@ -330,8 +430,8 @@ fn resolveFxIndex(api: anytype, track: *anyopaque, cmd: protocol.CommandMessage)
     return null;
 }
 
-/// Helper: Find FX index by GUID on a track.
-fn findFxByGuid(api: anytype, track: *anyopaque, target_guid: []const u8) ?c_int {
+/// Find FX index by GUID on a track. Public for use by other modules.
+pub fn findFxByGuid(api: anytype, track: *anyopaque, target_guid: []const u8) ?c_int {
     const fx_count = api.trackFxCount(track);
     var i: c_int = 0;
     while (i < fx_count) : (i += 1) {

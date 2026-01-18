@@ -598,6 +598,33 @@ pub const RealBackend = struct {
         return buf[0..@min(38, buf.len)];
     }
 
+    // FX Parameter methods
+
+    /// Get number of parameters for an FX
+    pub fn trackFxGetNumParams(self: *const RealBackend, track: *anyopaque, fx_idx: c_int) c_int {
+        return self.inner.trackFxGetNumParams(track, fx_idx);
+    }
+
+    /// Get parameter name. Returns empty string on failure.
+    pub fn trackFxGetParamName(self: *const RealBackend, track: *anyopaque, fx_idx: c_int, param_idx: c_int, buf: []u8) []const u8 {
+        return self.inner.trackFxGetParamName(track, fx_idx, param_idx, buf);
+    }
+
+    /// Get normalized parameter value (0.0 to 1.0). Returns 0.0 on failure or invalid index.
+    pub fn trackFxGetParamNormalized(self: *const RealBackend, track: *anyopaque, fx_idx: c_int, param_idx: c_int) f64 {
+        return self.inner.trackFxGetParamNormalized(track, fx_idx, param_idx);
+    }
+
+    /// Set normalized parameter value. Returns false on failure.
+    pub fn trackFxSetParamNormalized(self: *const RealBackend, track: *anyopaque, fx_idx: c_int, param_idx: c_int, value: f64) bool {
+        return self.inner.trackFxSetParamNormalized(track, fx_idx, param_idx, value);
+    }
+
+    /// Get formatted parameter value string (e.g., "-6.0 dB", "250 Hz"). Returns empty string on failure.
+    pub fn trackFxGetFormattedParamValue(self: *const RealBackend, track: *anyopaque, fx_idx: c_int, param_idx: c_int, buf: []u8) []const u8 {
+        return self.inner.trackFxGetFormattedParamValue(track, fx_idx, param_idx, buf);
+    }
+
     /// Enumerate installed FX plugins (global, not per-track).
     /// index: 0-based, increment until returns false.
     /// name_out: receives plugin display name.
