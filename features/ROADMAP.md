@@ -67,22 +67,26 @@ Show folder hierarchy in mixer/track views via flat navigation with breadcrumb "
 **Key Insight:** Most mobile DAW controllers ignore folders entirely. Avid Control's "spill" pattern (tap folder → see children only) is the gold standard. For mobile's limited screen space, externalize hierarchy to a flat bank-based navigation rather than visual nesting.
 
 **Design Principles:**
+
 - Folder tracks are normal tracks — no special tap behavior, just a folder icon badge
 - Breadcrumb is the *only* folder navigation control (not on the tracks themselves)
 - Folders bank + breadcrumb = fast folder discovery without scrolling through all tracks
 - Filters stack on top of folder view (e.g., Armed tracks in Drums folder)
 
 **Data Available:**
+
 - Skeleton sends `fd` (folder_depth): `1` = folder parent, `0` = normal, `-N` = closes N folders
 - Hierarchy computed client-side by walking track list with depth counter
 - "Folders" built-in bank already exists (`fd === 1`)
 
 **Phase 1 (MVP):**
+
 - Folder icon badge on tracks where `fd === 1`
 - Child count badge on folder tracks: `Drums (8)`
 - "Folders" bank shows all folder tracks flat (already works)
 
 **Phase 2 (Breadcrumb Navigation):**
+
 - Compute folder hierarchy from skeleton (parent-child relationships)
 - Breadcrumb UI: `All Folders > [Drums ▾] > [Toms ▾]`
 - Each segment is a dropdown showing options at that level
@@ -90,6 +94,7 @@ Show folder hierarchy in mixer/track views via flat navigation with breadcrumb "
 - Breadcrumb only visible when in folder navigation mode
 
 **Phase 3 (Folder Banks):**
+
 - New bank type: "folder" — saved shortcut to specific folder
 - Auto-activates breadcrumb at that folder's level
 - Enables quick access to frequently used folder views
@@ -104,11 +109,13 @@ Banks and filters are orthogonal — banks define *which tracks*, filters define
 | Filter | Property filter (additive) | None, Muted, Soloed, Armed, Selected, With Sends |
 
 **Example Combinations:**
+
 - "Drums" folder + "Armed" filter = armed tracks in Drums folder
 - "All Tracks" + "Muted" = all muted tracks across project
 - "Vox" smart bank + "Selected" = selected tracks matching "Vox"
 
 **Bank Types:**
+
 | Type | Purpose | Example |
 |------|---------|---------|
 | Smart | Pattern match track names | "Vox" matches Vox Lead, Vox Harm |
@@ -116,6 +123,7 @@ Banks and filters are orthogonal — banks define *which tracks*, filters define
 | Folder | Saved folder shortcut | "Drums" folder → shows children + breadcrumb |
 
 **UX Flow:**
+
 1. Select "Folders" bank → shows top-level folders, breadcrumb appears with `[Select folder ▾]`
 2. Pick "Drums" from dropdown → view shows Drums' immediate children
 3. Breadcrumb updates: `All Folders > Drums > [▾]`
@@ -123,6 +131,7 @@ Banks and filters are orthogonal — banks define *which tracks*, filters define
 5. Tap any breadcrumb segment to navigate back or switch laterally
 
 **Why Not Visual Nesting:**
+
 - Only 3 tracks visible at a time on mobile — indentation wastes precious space
 - Would need to conditionally show/hide nesting UI based on mode
 - Users would have to scroll through all tracks to find folders
@@ -137,6 +146,7 @@ Chord strips and scale-locked keyboard for songwriting workflow.
 **Status:** Drum Pads & Piano complete. Chord Strips next.
 
 **Research:**
+
 - [research/MIDI_TOUCH_INSTRUMENTS.md](../research/MIDI_TOUCH_INSTRUMENTS.md) - Latency analysis, StuffMIDIMessage API
 - [research/LOGIC_CHORD_STRIPS.md](../research/LOGIC_CHORD_STRIPS.md) - Logic Remote layout & UX analysis
 - [research/CHORD_STRIP_TECH_REFERENCE.md](../research/CHORD_STRIP_TECH_REFERENCE.md) - Scale bitmasks, chord generation algorithms
@@ -163,6 +173,7 @@ Chord strips and scale-locked keyboard for songwriting workflow.
 **Chord Strips Implementation Phases:**
 
 *Phase 1 (MVP):* ✅
+
 - 7 vertical diatonic chord strips (triads only) arranged horizontally
 - Key selector with enharmonic display (C# / Db) + Scale selector
 - Proper enharmonic spelling (Eb not D#, Bb not A#)
@@ -171,18 +182,21 @@ Chord strips and scale-locked keyboard for songwriting workflow.
 - Landscape only, fixed velocity (100)
 
 *Phase 1.5 (Polish) — NEEDS RESEARCH:*
+
 - Which scales make sense for chord strips? (pentatonic has 5 notes, blues has 6)
 - Double-sharp display symbol (𝄪 or x notation)
 - Should key selector prefer flats for flat keys? (currently always shows C#, user picks)
 - Consider restricting key selector to "practical" keys only
 
 *Phase 2 (Enhanced):* ✅
+
 - Vertical segments for inversions (Root, 1st, 2nd, Oct) - 4 segments matching Logic
 - X-position velocity mapping (left=soft, right=loud)
 - Octave up/down control in header
 - Chord name integrated into top segment (maximizes touch target height)
 
 *Phase 3 (Advanced):* ✅
+
 - Bass notes (R, 5, 8) as vertical segments below inversions (7 equal-height segments total)
 - Vertical swipe arpeggio between inversion segments
 - Adaptive voicing "Voice Lead" toggle (minimizes voice movement)
@@ -191,6 +205,7 @@ Chord strips and scale-locked keyboard for songwriting workflow.
 - All controls moved to ViewHeader for cleaner layout
 
 *Phase 4 (Customization) — Deferred:*
+
 - 7ths toggle
 - Hide/show specific chord strips (e.g., hide dim chord)
 - Custom chord editing per strip (replace chord with variant like 7sus4)
@@ -318,6 +333,7 @@ Per-message deflate for large payloads (action list ~985KB). Blocked on websocke
 When CSurf dirty flags trigger an immediate poll, defer the next tier poll to avoid redundant API calls.
 
 **Current behavior:**
+
 - Frame N: Dirty flag fires → immediate poll (not on tier tick)
 - Frame N+3: Tier tick → polls AGAIN (redundant, hash prevents broadcast but API calls still made)
 
@@ -349,6 +365,7 @@ Make FX modal data subscription-based (like routing) instead of polling all FX s
 **Proposed:** `fx/subscribe` and `fx/unsubscribe` commands using track GUID for stability.
 
 **Pattern:** Follow routing subscription model:
+
 - `fx/subscribe` with `trackGuid` parameter — subscribe to single track's FX chain
 - `fx/unsubscribe` — clear subscription for this client
 - Single-track per client (only one FX modal open at a time)
@@ -356,6 +373,7 @@ Make FX modal data subscription-based (like routing) instead of polling all FX s
 - CSurf `SETFXPARAM`/`SETFXENABLED` callbacks trigger immediate poll for subscribed track
 
 **Benefits:**
+
 - No FX detail polling when modal closed
 - Instant parameter updates via CSurf dirty flags
 - GUID-based addressing survives track reordering
@@ -373,6 +391,7 @@ REAPER provides GUIDs at every level for reorder-resistant addressing:
 **Future: Pinned FX Controls**
 
 For a "pin FX parameter to toolbar" feature, store:
+
 ```json
 {
   "trackGuid": "{AAA-BBB-CCC}",
@@ -382,6 +401,7 @@ For a "pin FX parameter to toolbar" feature, store:
 ```
 
 Runtime lookup:
+
 1. Track GUID → Track pointer (via `GuidCache`)
 2. Enumerate FX, compare GUIDs → FX index (build `FxGuidCache` similar to tracks)
 3. `TrackFX_GetParamFromIdent(track, fx_idx, ident)` → param index
