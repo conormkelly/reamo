@@ -67,10 +67,10 @@ const StubControlSurface = struct {
     const Self = @This();
 
     pub fn init(
-        _: *ws_server.SharedState,
+        self: *Self,
         _: *const fn ([*:0]const u8, ?*anyopaque) callconv(.c) c_int,
-    ) !Self {
-        return Self{};
+    ) !void {
+        self.* = Self{};
     }
 
     pub fn register(_: *Self) bool {
@@ -135,24 +135,27 @@ const RealControlSurface = struct {
 
     // Instance fields
     handle: ZigCSurfHandle,
-    shared_state: *ws_server.SharedState,
     plugin_register: PluginRegisterFn,
 
     const Self = @This();
 
-    /// Create a new control surface bridge
+    /// Initialize a control surface bridge.
+    /// CRITICAL: Takes *Self to ensure user_context points to stable heap memory.
+    /// The old pattern (returning Self by value) caused a dangling pointer bug:
+    /// the C++ shim stored a pointer to the stack-local Self, which became
+    /// invalid after init() returned, crashing when REAPER fired callbacks
+    /// during startup project load.
     pub fn init(
-        shared_state: *ws_server.SharedState,
+        self: *Self,
         plugin_register: *const fn ([*:0]const u8, ?*anyopaque) callconv(.c) c_int,
-    ) !Self {
-        var self = Self{
+    ) !void {
+        self.* = Self{
             .handle = null,
-            .shared_state = shared_state,
             .plugin_register = plugin_register,
         };
 
         const callbacks = ZigCSurfCallbacks{
-            .user_context = @ptrCast(&self),
+            .user_context = @ptrCast(self), // Now points to heap-allocated struct
             .get_type_string = getTypeString,
             .get_desc_string = getDescString,
             .run = null, // We use timer callback instead of Run()
@@ -175,8 +178,6 @@ const RealControlSurface = struct {
         if (self.handle == null) {
             return error.CSurfCreateFailed;
         }
-
-        return self;
     }
 
     /// Register with REAPER
@@ -225,14 +226,18 @@ const RealControlSurface = struct {
         }
     }
 
+    /// Called when repeat state changes.
+    /// Sets transport_dirty flag for main loop to poll and broadcast.
+    /// NOTE: Previously this broadcast directly, but that caused crashes because
+    /// CSurf callbacks fire during REAPER startup before SharedState is initialized.
     fn setRepeatState(ctx: ?*anyopaque, rep: bool) callconv(.c) void {
-        const self = getSelf(ctx) orelse return;
+        _ = ctx;
+        _ = rep;
 
-        var buf: [64]u8 = undefined;
-        const json = std.fmt.bufPrint(&buf, "{{\"type\":\"event\",\"event\":\"csurfRepeat\",\"repeat\":{}}}", .{rep}) catch return;
-        self.shared_state.broadcast(json);
-
-        logging.debug("CSurf: SetRepeatState repeat={}", .{rep});
+        // Set dirty flag - main loop will poll and broadcast actual state
+        if (g_dirty_flags) |flags| {
+            flags.transport_dirty = true;
+        }
     }
 
     /// Called when track list changes (add/remove/reorder).
@@ -385,10 +390,6 @@ const RealControlSurface = struct {
         // Don't set reverse_map_valid = false here - skeleton_dirty will trigger rebuild
     }
 
-    /// Helper to get self from context pointer
-    fn getSelf(ctx: ?*anyopaque) ?*Self {
-        return @as(?*Self, @ptrCast(@alignCast(ctx)));
-    }
 };
 
 test "ControlSurface basic" {

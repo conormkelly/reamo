@@ -9,6 +9,8 @@ class MediaTrack;
 
 // IReaperControlSurface interface
 // REAPER calls these virtual methods as push notifications when state changes
+// CRITICAL: Virtual method order defines vtable layout - must match official SDK exactly!
+// Source: github.com/justinfrankel/reaper-sdk/blob/main/sdk/reaper_plugin.h
 class IReaperControlSurface {
 public:
     IReaperControlSurface() {}
@@ -24,33 +26,36 @@ public:
     // PERIODIC CALLBACK - called ~30Hz for polling
     virtual void Run() {}
 
-    // TRANSPORT CALLBACKS
-    virtual void SetPlayState(bool play, bool pause, bool rec) {}
-    virtual void SetRepeatState(bool rep) {}
-
-    // TRACK LIST CALLBACK - fires on add/remove/reorder
+    // TRACK LIST CALLBACK - fires on add/remove/reorder (SLOT 6)
     virtual void SetTrackListChange() {}
 
-    // PER-TRACK STATE CALLBACKS
+    // PER-TRACK STATE CALLBACKS (SLOTS 7-12)
     virtual void SetSurfaceVolume(MediaTrack *trackid, double volume) {}
     virtual void SetSurfacePan(MediaTrack *trackid, double pan) {}
     virtual void SetSurfaceMute(MediaTrack *trackid, bool mute) {}
     virtual void SetSurfaceSelected(MediaTrack *trackid, bool selected) {}
     virtual void SetSurfaceSolo(MediaTrack *trackid, bool solo) {}
     virtual void SetSurfaceRecArm(MediaTrack *trackid, bool recarm) {}
+
+    // TRANSPORT CALLBACKS (SLOTS 13-14) - AFTER track callbacks!
+    virtual void SetPlayState(bool play, bool pause, bool rec) {}
+    virtual void SetRepeatState(bool rep) {}
+
     virtual void SetTrackTitle(MediaTrack *trackid, const char *title) {}
 
     // STATE QUERIES (REAPER asks surface)
     virtual bool GetTouchState(MediaTrack *trackid, int isPan) { return false; }
 
-    // AUTOMATION AND SELECTION
+    // AUTOMATION
     virtual void SetAutoMode(int mode) {}
+
+    // CACHE MANAGEMENT (SLOT 18) - before OnTrackSelection!
+    virtual void ResetCachedVolPanStates() {}
+
+    // SELECTION (SLOT 19)
     virtual void OnTrackSelection(MediaTrack *trackid) {}
 
     virtual bool IsKeyDown(int key) { return false; }
-
-    // CACHE MANAGEMENT
-    virtual void ResetCachedVolPanStates() {}
 
     // EXTENDED NOTIFICATIONS - handles many additional events
     virtual int Extended(int call, void *parm1, void *parm2, void *parm3) { return 0; }
