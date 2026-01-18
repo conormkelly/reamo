@@ -169,7 +169,7 @@ export interface Scale {
   degrees: number[];
 }
 
-/** Default octave for chord strips (C3-C4 range) */
+/** Default octave for Chord Pads (C3-C4 range) */
 export const DEFAULT_OCTAVE = 3;
 
 /** Default velocity for chord triggers */

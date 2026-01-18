@@ -6,7 +6,7 @@
 import { MixerView } from './views/mixer';
 import { TimelineView } from './views/timeline';
 import { ClockView } from './views/clock';
-import { CuesView } from './views/cues';
+import { PlaylistView } from './views/playlist';
 import { ActionsView } from './views/actions';
 import { NotesView } from './views/notes';
 import { InstrumentsView } from './views/instruments';
@@ -15,7 +15,7 @@ export const views = {
   mixer: MixerView,
   timeline: TimelineView,
   clock: ClockView,
-  cues: CuesView,
+  playlist: PlaylistView,
   actions: ActionsView,
   notes: NotesView, // Hidden from tab bar but still valid view
   instruments: InstrumentsView,
@@ -31,7 +31,7 @@ export const viewMeta: Record<ViewId, { label: string; shortLabel?: string }> = 
   mixer: { label: 'Mixer' },
   timeline: { label: 'Timeline' },
   clock: { label: 'Clock' },
-  cues: { label: 'Playlist' },
+  playlist: { label: 'Playlist' },
   actions: { label: 'Actions' },
   notes: { label: 'Notes' }, // Not shown in tab bar but needs metadata
   instruments: { label: 'Instruments', shortLabel: 'Inst' },

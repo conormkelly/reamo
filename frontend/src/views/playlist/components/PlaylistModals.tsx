@@ -1,5 +1,5 @@
 /**
- * CuesModals - Modal components for playlist management
+ * PlaylistModals - Modal components for playlist management
  */
 
 import { useMemo, type ReactElement } from 'react';

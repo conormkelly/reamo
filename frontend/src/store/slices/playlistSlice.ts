@@ -1,6 +1,6 @@
 /**
  * Playlist state slice
- * Manages playlists for cue list playback
+ * Manages playlists for region-based looped playback
  */
 
 import type { StateCreator } from 'zustand';

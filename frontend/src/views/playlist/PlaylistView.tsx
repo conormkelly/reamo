@@ -1,5 +1,5 @@
 /**
- * CuesView - Playlist management and playback
+ * PlaylistView - Playlist management and playback
  * Build playlists from regions with loop counts for live performance
  */
 
@@ -42,7 +42,7 @@ function getRegionById(regions: Region[], regionId: number): Region | undefined 
   return regions.find((r) => r.id === regionId);
 }
 
-export function CuesView(): ReactElement {
+export function PlaylistView(): ReactElement {
   const { sendCommand } = useReaper();
   const { showTabBar, showPersistentTransport } = useUIPreferences();
 
@@ -273,8 +273,8 @@ export function CuesView(): ReactElement {
   // No playlists empty state
   if (playlists.length === 0) {
     return (
-      <div data-view="cues" className="h-full bg-bg-app text-text-primary p-3 flex flex-col">
-        <ViewHeader currentView="cues" />
+      <div data-view="playlist" className="h-full bg-bg-app text-text-primary p-3 flex flex-col">
+        <ViewHeader currentView="playlist" />
         {/* Wrapper - position content at bottom with padding for footer bars */}
         <div
           className="flex-1 overflow-auto flex flex-col justify-end"
@@ -314,9 +314,9 @@ export function CuesView(): ReactElement {
   }
 
   return (
-    <div data-view="cues" className="h-full bg-bg-app text-text-primary p-3 flex flex-col">
+    <div data-view="playlist" className="h-full bg-bg-app text-text-primary p-3 flex flex-col">
       {/* Header */}
-      <ViewHeader currentView="cues">
+      <ViewHeader currentView="playlist">
         {/* Playlist selector */}
         <select
           value={selectedPlaylistIdx}

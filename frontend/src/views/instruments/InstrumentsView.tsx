@@ -1,6 +1,6 @@
 /**
  * InstrumentsView - Touch instruments for MIDI input
- * Supports: Drum Pads, Piano with mod/pitch wheels, Chord Strips
+ * Supports: Drum Pads, Piano with mod/pitch wheels, Chord Pads
  */
 
 import { useState, useEffect, useCallback, type ReactElement } from 'react';
@@ -16,7 +16,7 @@ import {
   OctaveSelector,
   KeySelector,
   ScaleSelector,
-  ChordStrips,
+  Chords,
   type InstrumentType,
 } from '../../components/Instruments';
 import { DEFAULT_OCTAVE, type NoteName, type ScaleType } from '@/lib/music-theory';
@@ -336,7 +336,7 @@ export function InstrumentsView(): ReactElement {
   const [pianoOctave, setPianoOctave] = useState<number>(loadPianoOctave);
   const [chordsChannel, setChordsChannel] = useState<number>(loadChordsChannel);
 
-  // Chord strip settings
+  // Chords settings
   const [chordsKey, setChordsKey] = useState<NoteName>(loadChordsKey);
   const [chordsScale, setChordsScale] = useState<ScaleType>(loadChordsScale);
   const [chordsOctave, setChordsOctave] = useState<number>(loadChordsOctave);
@@ -604,13 +604,13 @@ export function InstrumentsView(): ReactElement {
                   />
                 </svg>
                 <p className="text-lg font-medium">Rotate to landscape</p>
-                <p className="text-sm mt-1">Chord strips work best in landscape orientation</p>
+                <p className="text-sm mt-1">Chord Pads work best in landscape orientation</p>
               </div>
             </div>
           );
         }
         return (
-          <ChordStrips
+          <Chords
             channel={currentChannel}
             onNoteOn={handleNoteOn}
             rootKey={chordsKey}
@@ -628,7 +628,7 @@ export function InstrumentsView(): ReactElement {
     }
   };
 
-  // Settings popover state for chord strips
+  // Settings popover state for Chord Pads
   const [showChordsSettings, setShowChordsSettings] = useState(false);
 
   // Count active modes for badge

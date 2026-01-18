@@ -1,7 +1,7 @@
 /**
- * ChordStrips Component
- * Container for 7 diatonic chord strips (vertical columns)
- * Landscape orientation recommended - strips arranged horizontally
+ * Chords Component (Chord Pads)
+ * Container for 7 diatonic chord columns
+ * Landscape orientation recommended - columns arranged horizontally
  */
 
 import { useState, useMemo, useCallback, useRef, type ReactElement } from 'react';
@@ -12,7 +12,7 @@ import {
   type ScaleType,
   type Chord,
 } from '@/lib/music-theory';
-import { ChordStrip } from './ChordStrip';
+import { ChordColumn } from './ChordColumn';
 
 /**
  * Common chord progressions by degree (1-indexed)
@@ -28,7 +28,7 @@ const COMMON_PROGRESSIONS: Record<number, number[]> = {
   7: [1, 3],        // vii° → I, iii
 };
 
-export interface ChordStripsProps {
+export interface ChordsProps {
   /** MIDI channel (0-15) */
   channel: number;
   /** Callback to send note on */
@@ -50,7 +50,7 @@ export interface ChordStripsProps {
   className?: string;
 }
 
-export function ChordStrips({
+export function Chords({
   channel,
   onNoteOn,
   rootKey,
@@ -61,7 +61,7 @@ export function ChordStrips({
   strumEnabled,
   strumDelay,
   className = '',
-}: ChordStripsProps): ReactElement {
+}: ChordsProps): ReactElement {
   // Internal state
   const lastVoicingRef = useRef<number[]>([]);
   const currentNotesRef = useRef<number[]>([]); // Notes currently sounding (for correct note-off)
@@ -150,10 +150,10 @@ export function ChordStrips({
     <div
       className={`flex flex-row gap-2 p-3 overflow-hidden ${className}`}
       role="group"
-      aria-label="Chord strips"
+      aria-label="Chord Pads"
     >
       {chords.map((chord) => (
-        <ChordStrip
+        <ChordColumn
           key={`${chord.degree}-${chord.root}`}
           chord={chord}
           bassOctave={bassOctave}

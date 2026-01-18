@@ -9,6 +9,6 @@ export { PitchBendWheel, type PitchBendWheelProps } from './PitchBendWheel';
 export { OctaveSelector, type OctaveSelectorProps } from './OctaveSelector';
 export { KeySelector, type KeySelectorProps } from './KeySelector';
 export { ScaleSelector, type ScaleSelectorProps } from './ScaleSelector';
-export { ChordStrip, type ChordStripProps } from './ChordStrip';
-export { ChordStrips, type ChordStripsProps } from './ChordStrips';
+export { ChordColumn, type ChordColumnProps } from './ChordColumn';
+export { Chords, type ChordsProps } from './Chords';
 export { BassStrip, type BassStripProps } from './BassStrip';
