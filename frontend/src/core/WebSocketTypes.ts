@@ -291,6 +291,7 @@ export interface WSItem {
   // Sparse fields (full data fetched on-demand via item/getNotes, item/getTakes)
   hasNotes: boolean;
   takeCount: number;
+  activeTakeName: string; // Display name for active take
   activeTakeGuid: string; // For peaks cache invalidation
   activeTakeIsMidi: boolean; // Skip peaks for MIDI items
 }

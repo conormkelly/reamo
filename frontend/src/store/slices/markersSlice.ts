@@ -2,15 +2,13 @@
  * Markers state slice
  * Manages project markers for timeline display and navigation
  *
- * Mutual exclusion: selecting a marker clears item selection (and vice versa)
+ * Contextual info bar: Marker selection is a transient overlay.
+ * Item selection persists underneath - when marker is dismissed, item info restores.
+ * Tapping an item clears marker selection (handled in Timeline.tsx).
  */
 
 import type { StateCreator } from 'zustand';
 import type { Marker } from '../../core/types';
-import type { ItemsSlice } from './itemsSlice';
-
-// Combined slice type for mutual exclusion access
-type StoreWithItems = MarkersSlice & ItemsSlice;
 
 export interface PendingMarkerEdits {
   name?: string;
@@ -34,9 +32,8 @@ export interface MarkersSlice {
   setMarkerLocked: (locked: boolean) => void;
 }
 
-export const createMarkersSlice: StateCreator<StoreWithItems, [], [], MarkersSlice> = (
-  set,
-  get
+export const createMarkersSlice: StateCreator<MarkersSlice, [], [], MarkersSlice> = (
+  set
 ) => ({
   // Initial state
   markers: [],
@@ -48,10 +45,8 @@ export const createMarkersSlice: StateCreator<StoreWithItems, [], [], MarkersSli
   setMarkers: (markers) => set({ markers }),
   clearMarkers: () => set({ markers: [] }),
   setSelectedMarkerId: (id) => {
-    // Mutual exclusion: clear item selection when selecting a marker (if not null)
-    if (id !== null) {
-      get().clearItemSelection();
-    }
+    // Marker selection is a transient overlay - does NOT clear item selection
+    // Item selection persists underneath and is restored when marker is dismissed
     set({ selectedMarkerId: id });
   },
   setPendingMarkerEdits: (edits) => set({ pendingMarkerEdits: edits }),

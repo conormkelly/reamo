@@ -1,9 +1,10 @@
 /**
  * Marker/Item Selection E2E Tests
  *
- * Tests the mutual exclusion between marker and item selection in Navigate mode.
+ * Tests the contextual info bar behavior in Navigate mode.
+ * - Marker selection is a transient overlay (does NOT clear item selection)
  * - Tapping an item selects it and clears marker selection
- * - Tapping a marker selects it and clears item selection
+ * - When marker is dismissed, item info bar restores if items are still selected
  * - When nothing is selected, fallback message shows
  */
 
@@ -142,7 +143,7 @@ test.describe('Marker/Item Selection', () => {
     await expect(itemInfoBar).not.toBeVisible();
   });
 
-  test('tapping item blob selects item and shows ItemInfoBar', async ({ page }) => {
+  test('tapping item blob enters selection mode and shows ItemInfoBar', async ({ page }) => {
     // First verify nothing is selected
     await expect(page.locator('[data-testid="nothing-selected-message"]')).toBeVisible({ timeout: 5000 });
 
@@ -154,18 +155,23 @@ test.describe('Marker/Item Selection', () => {
     // Small wait for state update
     await page.waitForTimeout(100);
 
-    // Verify item is selected in store
-    const selectedItemKey = await page.evaluate(() => {
+    // Verify item selection mode is active
+    const state = await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
-      return store.getState().selectedItemKey;
+      const s = store.getState();
+      return {
+        itemSelectionModeActive: s.itemSelectionModeActive,
+        viewFilterTrackGuid: s.viewFilterTrackGuid,
+      };
     });
-    expect(selectedItemKey).toBe('0:0'); // trackIdx:itemIdx
+    expect(state.itemSelectionModeActive).toBe(true);
+    expect(state.viewFilterTrackGuid).toBeTruthy();
 
     // ItemInfoBar should be visible
     const itemInfoBar = page.locator('[data-testid="item-info-bar"]');
     await expect(itemInfoBar).toBeVisible({ timeout: 2000 });
 
-    // MarkerInfoBar should not be visible (mutual exclusion)
+    // MarkerInfoBar should not be visible
     const markerInfoBar = page.locator('[data-testid="marker-info-bar"]');
     await expect(markerInfoBar).not.toBeVisible();
 
@@ -174,21 +180,21 @@ test.describe('Marker/Item Selection', () => {
     await expect(nothingSelectedMsg).not.toBeVisible();
   });
 
-  test('selecting marker clears item selection', async ({ page }) => {
-    // First select an item via store
+  test('selecting marker overlays item selection (item selection persists)', async ({ page }) => {
+    // First enter item selection mode and select an item
     await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
-      store.getState().selectItem(0, 0);
+      store.getState().enterItemSelectionMode('{track-0-guid}');
+      // Simulate REAPER selecting the item
+      const items = [...store.getState().items];
+      items[0] = { ...items[0], selected: true };
+      store.getState().setItems(items);
     });
 
     await page.waitForTimeout(50);
 
-    // Verify item is selected
-    let selectedItemKey = await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__;
-      return store.getState().selectedItemKey;
-    });
-    expect(selectedItemKey).toBe('0:0');
+    // Verify item is selected and info bar shows
+    await expect(page.locator('[data-testid="item-info-bar"]')).toBeVisible({ timeout: 2000 });
 
     // Now select a marker via store (simulates tapping marker pill)
     await page.evaluate(() => {
@@ -198,26 +204,65 @@ test.describe('Marker/Item Selection', () => {
 
     await page.waitForTimeout(50);
 
-    // Verify marker is selected and item is cleared
+    // Verify marker is selected but item selection PERSISTS (contextual overlay)
     const state = await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
       const s = store.getState();
       return {
         selectedMarkerId: s.selectedMarkerId,
-        selectedItemKey: s.selectedItemKey,
+        itemSelectionModeActive: s.itemSelectionModeActive,
+        selectedItems: s.items.filter((i: any) => i.selected).length,
       };
     });
 
     expect(state.selectedMarkerId).toBe(1);
-    expect(state.selectedItemKey).toBeNull();
+    expect(state.itemSelectionModeActive).toBe(true); // Mode still active
+    expect(state.selectedItems).toBe(1); // Item still selected in REAPER
 
-    // MarkerInfoBar should be visible
+    // MarkerInfoBar should be visible (takes precedence)
     const markerInfoBar = page.locator('[data-testid="marker-info-bar"]');
     await expect(markerInfoBar).toBeVisible();
 
-    // ItemInfoBar should not be visible
+    // ItemInfoBar should NOT be visible (marker overlays it)
     const itemInfoBar = page.locator('[data-testid="item-info-bar"]');
     await expect(itemInfoBar).not.toBeVisible();
+  });
+
+  test('dismissing marker restores item info bar', async ({ page }) => {
+    // Enter item selection mode, select an item, then select a marker
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+      store.getState().enterItemSelectionMode('{track-0-guid}');
+      const items = [...store.getState().items];
+      items[0] = { ...items[0], selected: true };
+      store.getState().setItems(items);
+      store.getState().setSelectedMarkerId(1);
+    });
+
+    await page.waitForTimeout(50);
+
+    // Verify marker info is showing
+    await expect(page.locator('[data-testid="marker-info-bar"]')).toBeVisible();
+    await expect(page.locator('[data-testid="item-info-bar"]')).not.toBeVisible();
+
+    // Dismiss marker (clear selection)
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+      store.getState().setSelectedMarkerId(null);
+    });
+
+    await page.waitForTimeout(50);
+
+    // Item info bar should restore (item was still selected)
+    await expect(page.locator('[data-testid="marker-info-bar"]')).not.toBeVisible();
+    await expect(page.locator('[data-testid="item-info-bar"]')).toBeVisible();
+
+    // Item should still be selected
+    const selectedCount = await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+      return store.getState().items.filter((i: any) => i.selected).length;
+    });
+    expect(selectedCount).toBe(1);
   });
 
   test('selecting item clears marker selection', async ({ page }) => {
@@ -239,26 +284,36 @@ test.describe('Marker/Item Selection', () => {
     // MarkerInfoBar should be visible
     await expect(page.locator('[data-testid="marker-info-bar"]')).toBeVisible();
 
-    // Now select an item via store (simulates tapping item blob)
+    // Now simulate tapping an item (enter mode, select item, clear marker)
+    // In real app, Timeline.tsx clears marker when item is clicked
     await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
-      store.getState().selectItem(1, 0);
+      // Enter item selection mode
+      store.getState().enterItemSelectionMode('{track-1-guid}');
+      // Clear marker (done by Timeline.tsx on item click)
+      store.getState().setSelectedMarkerId(null);
+      // Simulate REAPER selecting the item
+      const items = [...store.getState().items];
+      items[1] = { ...items[1], selected: true };
+      store.getState().setItems(items);
     });
 
     await page.waitForTimeout(50);
 
-    // Verify item is selected and marker is cleared
+    // Verify marker is cleared and item selection mode active
     const state = await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
       const s = store.getState();
       return {
         selectedMarkerId: s.selectedMarkerId,
-        selectedItemKey: s.selectedItemKey,
+        itemSelectionModeActive: s.itemSelectionModeActive,
+        selectedItems: s.items.filter((i: any) => i.selected).length,
       };
     });
 
     expect(state.selectedMarkerId).toBeNull();
-    expect(state.selectedItemKey).toBe('1:0');
+    expect(state.itemSelectionModeActive).toBe(true);
+    expect(state.selectedItems).toBe(1);
 
     // ItemInfoBar should be visible
     const itemInfoBar = page.locator('[data-testid="item-info-bar"]');
