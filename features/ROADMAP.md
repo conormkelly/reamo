@@ -237,14 +237,64 @@ Parse existing SWS playlists from .RPP files for migration.
 
 ### Toolbar Component Redesign
 
-Current toolbar may need rework for better space utilization.
+Current toolbar is a simple button bar with text-sized buttons. Needs rework for better space utilization and user configurability.
 
-**Ideas:**
+**Status:** Research complete. See [research/MOBILE_TOOLBAR_UX.md](../research/MOBILE_TOOLBAR_UX.md)
 
-- Slot-based layout (buttons occupy 1-2 slots, auto-fit to width)
-- Paging with indicator when buttons overflow (e.g., "1/2")
-- Swipe navigation between pages on mobile
-- Variable padding (compact/normal modes)
+**Research:** [research/MOBILE_TOOLBAR_UX.md](../research/MOBILE_TOOLBAR_UX.md)
+
+**Prerequisites:**
+
+- [ ] **Track selection from timeline** — Tap empty area of track lane to select that track (clears other track selections). Matches REAPER behavior where clicking anywhere on a track's lane selects it. Item tap should also select the item's track. Multi-select items should update selected track to last touched, keeping all items selected. This consistency with REAPER behavior makes toolbar actions (which operate on selected tracks/items) more predictable.
+
+**Current Issues:**
+
+- No slot concept — buttons sized by text content, inconsistent widths
+- No overflow handling — buttons just squeeze together or clip
+- Padding not well thought out — items too close together
+- No way for user to resize buttons or organize layout
+
+**Design Direction (from research):**
+
+- **Uniform button sizes** — Variable widths prevent muscle memory; users remember position, not labels
+- **48-54pt touch targets** — Edge locations need larger targets than Apple's 44pt minimum
+- **4 buttons per row** — Fits small toolbar area with adequate touch targets
+- **Horizontal swipe paging** with numeric indicator (existing "1-4 / 11" pattern is good)
+- **Text + icon** as default — REAPER's thousands of actions can't be icon-only
+- **In-app editing only** — Users hate needing desktop software for configuration
+- **Pre-built defaults** with full customization — Users spend 5-15 min on setup if starting point is good
+
+**Default Actions:**
+
+Focus on **item editing operations** — transport, markers, and track operations are already covered by dedicated UI (transport bar, mixer view).
+
+| Page | Slot 1 | Slot 2 | Slot 3 | Slot 4 |
+|------|--------|--------|--------|--------|
+| 1 | Split | Glue | Delete | Add Marker |
+| 2 | Ripple ⟳ | Snap ⟳ | Duplicate | — |
+
+**Why these actions:**
+
+- **Split at cursor** — #1 most-used editing action across all REAPER workflows (forum consensus)
+- **Glue items** — Natural pair with split; consolidates edits into single item
+- **Delete items** — Completes the edit trio; backend `item/delete` exists but no dedicated button
+- **Add marker** — Quick annotation during playback/editing; transport has prev/next but not add
+- **Toggle ripple editing** — Critical for podcast/dialogue editing; users toggle constantly
+- **Toggle snap** — Constantly toggled during precision editing
+- **Duplicate items** — Common arrangement workflow (track duplicate already in mixer)
+
+**Not included (already covered):**
+
+- Undo/Redo, Metronome, Markers — Transport bar
+- Solo/Mute/Arm — Mixer view
+- Track create/duplicate — Mixer view
+- FX chain — Track detail modal
+
+**Configuration UX:**
+
+- Reset current page / all pages to defaults
+- Import/export toolbar configuration (JSON)
+- Long-press + explicit Edit button for customization
 
 ---
 
