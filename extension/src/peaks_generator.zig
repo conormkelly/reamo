@@ -616,6 +616,12 @@ pub fn generateTileViaAccessor(
         return null;
     }
 
+    // Check for invalid tile duration (can happen when tile extends past item end)
+    if (tile_duration <= 0) {
+        logging.info("genTileAccessor: skipping tile with invalid duration {d:.2}s at start {d:.2}s", .{ tile_duration, tile_start_time });
+        return null;
+    }
+
     // Create audio accessor for this take
     const accessor = api.makeTakeAccessor(take) orelse {
         logging.warn("genTileAccessor: failed to create accessor", .{});
@@ -1082,29 +1088,17 @@ pub fn generateTilesForSubscription(
                     const clamped_end = @min(tile_end_relative, item_length);
                     const tile_duration = clamped_end - tile_start_relative;
 
-                    // Route based on LOD level:
-                    // - LOD 0/1: Use GetMediaItemTake_Peaks (works with low peakrate)
-                    // - LOD 2: Use AudioAccessor (GetMediaItemTake_Peaks fails on ARM64 with high peakrate)
-                    // See docs/architecture/ADAPTIVE_WAVEFORM_ZOOM.md for details.
-                    const maybe_tile: ?peaks_tile.CachedTile = if (tile_range.lod == 2)
-                        generateTileViaAccessor(
-                            allocator,
-                            api,
-                            take,
-                            tile_start_relative, // Relative to item/take start
-                            tile_duration,
-                            config.peaks_per_tile,
-                        )
-                    else
-                        generateTileForTake(
-                            allocator,
-                            api,
-                            take,
-                            item_position,
-                            item_length,
-                            tile_range.lod,
-                            tile_idx,
-                        );
+                    // Use AudioAccessor for ALL LODs.
+                    // GetMediaItemTake_Peaks via GetFunc() is broken on ARM64 macOS -
+                    // even with low peakrate it returns 0 peaks. AudioAccessor works reliably.
+                    const maybe_tile: ?peaks_tile.CachedTile = generateTileViaAccessor(
+                        allocator,
+                        api,
+                        take,
+                        tile_start_relative, // Relative to item/take start
+                        tile_duration,
+                        config.peaks_per_tile,
+                    );
 
                     if (maybe_tile) |tile| {
                         tile_cache.put(

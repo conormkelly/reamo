@@ -778,6 +778,132 @@ Get full take list for a single item. Use for on-demand fetching when displaying
 
 ---
 
+## Peaks Subscription Commands
+
+Adaptive waveform peaks subscription for multi-track timeline views. The backend automatically selects the optimal Level of Detail (LOD) based on viewport parameters.
+
+### LOD System
+
+| LOD | Resolution | Tile Duration | Use Case |
+|-----|------------|---------------|----------|
+| 0 | 1 peak/sec | 64s | Overview (zoomed out) |
+| 1 | 10 peaks/sec | 8s | Normal editing |
+| 2 | 400 peaks/sec | 0.5s | Precision editing (zoomed in) |
+
+LOD is selected based on `widthPx / (end - start)`:
+- `> 200 px/sec` → LOD 2
+- `> 5 px/sec` → LOD 1
+- `≤ 5 px/sec` → LOD 0
+
+### `peaks/subscribe`
+
+Subscribe to peaks for multiple tracks. Returns tile-based peak data optimized for the current viewport.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `range` | object | Conditional | Track index range: `{start: int, end: int}` (end exclusive) |
+| `guids` | array | Conditional | Alternative: list of track GUIDs to subscribe |
+| `sampleCount` | int | No | Fallback peaks per item when no viewport (default: 30) |
+| `viewport` | object | No | Viewport params: `{start: float, end: float, widthPx: int}` |
+
+**Note:** Either `range` or `guids` must be provided, not both.
+
+```json
+{
+  "type": "command",
+  "command": "peaks/subscribe",
+  "range": {"start": 0, "end": 4},
+  "sampleCount": 30,
+  "viewport": {"start": 100.0, "end": 110.0, "widthPx": 800},
+  "id": "peaks1"
+}
+```
+
+**Response:**
+
+```json
+{
+  "type": "response",
+  "id": "peaks1",
+  "success": true,
+  "payload": {"subscribedCount": 4}
+}
+```
+
+**Peaks Event (broadcast after subscribe and on changes):**
+
+```json
+{
+  "type": "event",
+  "event": "peaks",
+  "payload": {
+    "tiles": [
+      {
+        "takeGuid": "{XXXX...}",
+        "epoch": 2355337060,
+        "lod": 1,
+        "tileIndex": 5,
+        "itemPosition": 100.0,
+        "startTime": 40.0,
+        "endTime": 48.0,
+        "channels": 2,
+        "peaks": [
+          {"l": [-0.5, 0.6], "r": [-0.4, 0.5]},
+          {"l": [-0.7, 0.8], "r": [-0.6, 0.7]}
+        ]
+      }
+    ]
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `takeGuid` | string | GUID of the take (for cache key) |
+| `epoch` | int | Cache epoch (changes when audio is re-rendered) |
+| `lod` | int | LOD level (0, 1, or 2) |
+| `tileIndex` | int | Tile index within item |
+| `itemPosition` | float | Item position in project time (seconds) |
+| `startTime` | float | Tile start time relative to item start |
+| `endTime` | float | Tile end time relative to item start |
+| `channels` | int | 1 = mono, 2 = stereo |
+| `peaks` | array | Peak data (stereo or mono format) |
+
+**Cache key:** `{takeGuid, epoch, lod, tileIndex}`
+
+### `peaks/updateViewport`
+
+Update viewport for an existing subscription. Use this for zoom/pan without re-subscribing.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `start` | float | Yes | Viewport start time (seconds) |
+| `end` | float | Yes | Viewport end time (seconds) |
+| `widthPx` | int | Yes | Viewport width in pixels |
+
+```json
+{
+  "type": "command",
+  "command": "peaks/updateViewport",
+  "start": 105.0,
+  "end": 115.0,
+  "widthPx": 800,
+  "id": "vp1"
+}
+```
+
+**Note:** The backend only sends new peak data when LOD changes. Panning at the same zoom level won't trigger new data - the frontend should slice from cached tiles.
+
+### `peaks/unsubscribe`
+
+Unsubscribe from peaks updates.
+
+```json
+{"type": "command", "command": "peaks/unsubscribe", "id": "1"}
+```
+
+---
+
 ## Take Commands
 
 These operate on currently **selected items**.
