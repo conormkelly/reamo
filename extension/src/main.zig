@@ -941,18 +941,33 @@ fn doProcessing() !void {
                 while (iter.next()) |entry| {
                     const peaks_scratch = tiered.scratchAllocator();
 
-                    // Generate tile-based peaks for this client's subscribed tracks
-                    if (peaks_generator.generateTilesForSubscription(
-                        peaks_scratch,
-                        &backend,
-                        guid_cache_ptr,
-                        tile_cache,
-                        entry.sub,
-                    )) |json| {
-                        logging.info("peaks: sending {} bytes to client {}", .{ json.len, entry.client_id });
-                        shared_state.sendToClient(entry.client_id, json);
+                    // Generate peaks for this client's subscribed tracks
+                    // Route based on viewport presence:
+                    // - With viewport: Use tile-based generation (LOD 2 uses AudioAccessor)
+                    // - Without viewport: Use full-item generation
+                    const json: ?[]const u8 = if (entry.sub.hasViewport())
+                        peaks_generator.generateTilesForSubscription(
+                            peaks_scratch,
+                            &backend,
+                            guid_cache_ptr,
+                            tile_cache,
+                            entry.sub,
+                        )
+                    else
+                        peaks_generator.generatePeaksForSubscription(
+                            peaks_scratch,
+                            &backend,
+                            guid_cache_ptr,
+                            g_peaks_cache,
+                            entry.sub,
+                            entry.sub.sample_count,
+                        );
+
+                    if (json) |j| {
+                        logging.info("peaks: sending {} bytes to client {}", .{ j.len, entry.client_id });
+                        shared_state.sendToClient(entry.client_id, j);
                     } else {
-                        logging.info("peaks: generateTilesForSubscription returned null for client {}", .{entry.client_id});
+                        logging.info("peaks: generation returned null for client {}", .{entry.client_id});
                     }
                 }
             }
