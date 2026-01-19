@@ -16,6 +16,7 @@ const logging = @import("logging.zig");
 const ffi = @import("ffi.zig");
 const guid_cache_mod = @import("guid_cache.zig");
 const peaks_cache = @import("peaks_cache.zig");
+const peaks_tile = @import("peaks_tile.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -570,6 +571,486 @@ pub fn generatePeaksForSubscription(
 
     if (tracks_written == 0) {
         logging.debug("peaks_generator: no tracks with audio items", .{});
+        allocator.free(buf);
+        return null;
+    }
+
+    // Shrink to actual size
+    const written = stream.getWritten();
+    const result = allocator.realloc(buf, written.len) catch buf;
+    return result[0..written.len];
+}
+
+// =============================================================================
+// Tile-Based Peak Generation
+// =============================================================================
+
+/// Generate a single tile for a take at specified LOD and tile index.
+/// Returns a CachedTile on success, null on failure.
+///
+/// Uses GetMediaItemTake_Peaks API per ADAPTIVE_WAVEFORM_ZOOM.md:
+/// - REAPER auto-selects mipmap tier based on peakrate
+/// - starttime is PROJECT TIME (item's D_POSITION + tile_offset)
+/// - Buffer layout is channel-interleaved: [LR_max...][LR_min...]
+pub fn generateTileForTake(
+    allocator: Allocator,
+    api: anytype,
+    take: *anyopaque,
+    item_position: f64, // Item's D_ON timeline (PROJECT TIME)
+    item_length: f64, // Item's D_LENGTH
+    lod_level: u2,
+    tile_index: u32,
+) ?peaks_tile.CachedTile {
+    const config = peaks_tile.TILE_CONFIGS[lod_level];
+
+    // DEBUG: Log entry with take pointer for tracing
+    logging.info("genTile: ENTRY take=0x{x} pos={d:.2} len={d:.2} lod={d} tile={d}", .{
+        @intFromPtr(take), item_position, item_length, lod_level, tile_index,
+    });
+
+    // DEBUG: Validate take pointer before using it (if the backend supports it)
+    const is_valid = if (@hasDecl(@TypeOf(api.*), "validateTakePtr"))
+        api.validateTakePtr(take)
+    else
+        true; // Mock backends don't have validateTakePtr
+
+    logging.info("genTile: validateTakePtr={}", .{is_valid});
+    if (!is_valid) {
+        logging.warn("genTile: STALE take pointer - returning null", .{});
+        return null;
+    }
+
+    // Calculate tile time range (relative to item start)
+    const tile_start_relative = @as(f64, @floatFromInt(tile_index)) * config.duration;
+    const tile_end_relative = tile_start_relative + config.duration;
+
+    // Clamp to item bounds
+    if (tile_start_relative >= item_length) {
+        logging.info("genTile: tile_start {d:.1} >= item_length {d:.1}", .{ tile_start_relative, item_length });
+        return null;
+    }
+    const clamped_end = @min(tile_end_relative, item_length);
+    const tile_duration = clamped_end - tile_start_relative;
+
+    if (tile_duration <= 0) {
+        logging.warn("genTile: tile duration <= 0", .{});
+        return null;
+    }
+
+    // Calculate number of peaks for this tile
+    const num_peaks: usize = @intFromFloat(@ceil(tile_duration * config.peakrate));
+    if (num_peaks == 0 or num_peaks > peaks_tile.MAX_PEAKS_PER_TILE) {
+        logging.warn("genTile: invalid num_peaks {d} (duration={d:.1}, peakrate={d:.1})", .{ num_peaks, tile_duration, config.peakrate });
+        return null;
+    }
+
+    // Calculate peakrate EXACTLY like the working generatePeaksForItem:
+    // peakrate = num_peaks / tile_duration (let REAPER handle LOD selection)
+    // This is what commit e8bb046 fixed - don't use fixed config.peakrate!
+    const peakrate: f64 = @as(f64, @floatFromInt(num_peaks)) / tile_duration;
+
+    // DEBUG: Check source is still valid
+    const take_source = api.getTakeSource(take);
+    if (take_source == null) {
+        logging.warn("genTile: getTakeSource returned null - source unavailable", .{});
+        return null;
+    }
+
+    // Get ROOT source (traverse parent chain) for correct channel count
+    // Section sources may not report channels correctly, but their PCM parent does
+    const root_source = if (@hasDecl(@TypeOf(api.*), "getRootSource"))
+        api.getRootSource(take_source.?)
+    else
+        take_source.?;
+
+    const source_channels = api.getMediaSourceChannels(root_source);
+    logging.info("genTile: take_source=0x{x} root_source=0x{x} source_channels={d}", .{
+        @intFromPtr(take_source.?), @intFromPtr(root_source), source_channels,
+    });
+
+    // Use actual source channel count, capped at 2 (like the working generatePeaksForItem)
+    const num_channels: usize = if (source_channels <= 0) 1 else @min(@as(usize, @intCast(source_channels)), 2);
+
+    // Allocate buffer: 2 blocks (max + min), each with interleaved channels
+    const buf_size = num_channels * num_peaks * 2;
+    const reaper_buf = allocator.alloc(f64, buf_size) catch {
+        logging.warn("genTile: failed to allocate {d} bytes", .{buf_size * 8});
+        return null;
+    };
+    defer allocator.free(reaper_buf);
+
+    // starttime = PROJECT TIME (per ADAPTIVE_WAVEFORM_ZOOM.md lines 76-94):
+    // "GetMediaItemTake_Peaks expects PROJECT time (absolute timeline position)"
+    // "The API automatically handles D_STARTOFFS (trim) and D_PLAYRATE internally"
+    // Don't manually add start_offset - REAPER does that for us!
+    const project_time = item_position + tile_start_relative;
+
+    // DEBUG: Log API call parameters
+    logging.info("genTile: CALLING API peakrate={d:.4} project_time={d:.2} (item_pos={d:.2} + tile_rel={d:.2}) ch={d} numPeaks={d}", .{
+        peakrate, project_time, item_position, tile_start_relative, num_channels, num_peaks,
+    });
+
+    // Call REAPER's GetMediaItemTake_Peaks
+    // peakrate = num_peaks / tile_duration (let REAPER handle LOD selection)
+    const result = api.getMediaItemTakePeaks(
+        take,
+        peakrate,
+        project_time, // PROJECT TIME (item's timeline position + tile offset)
+        @intCast(num_channels),
+        @intCast(num_peaks),
+        reaper_buf,
+    );
+
+    // Parse return value (per ADAPTIVE_WAVEFORM_ZOOM.md):
+    // bits 0-19: actual sample count
+    // bits 20-23: mode (0 = interpolated from coarser mipmap, 1+ = native)
+    // NOTE: mode=0 is VALID DATA, not an error! Only check actual_peaks for failure.
+    const actual_peaks: usize = @intCast(result & 0xFFFFF);
+    const mode = (result >> 20) & 0xF;
+
+    // DEBUG: Log result and first few buffer values
+    logging.info("genTile: API RESULT result={d} actual={d} mode={d}", .{ result, actual_peaks, mode });
+    if (reaper_buf.len >= 4) {
+        logging.info("genTile: BUFFER first 4 values: [{d:.4}, {d:.4}, {d:.4}, {d:.4}]", .{
+            reaper_buf[0], reaper_buf[1], reaper_buf[2], reaper_buf[3],
+        });
+    }
+
+    if (actual_peaks == 0) {
+        logging.warn("genTile: API returned 0 peaks for tile {d} at project_time={d:.2}", .{ tile_index, project_time });
+        return null;
+    }
+
+    // Parse buffer with CORRECT layout (channel-interleaved within blocks)
+    // Block 1 (max): [L_max_0, R_max_0, L_max_1, R_max_1, ...]
+    // Block 2 (min): [L_min_0, R_min_0, L_min_1, R_min_1, ...]
+    var tile = peaks_tile.CachedTile.empty();
+    const peaks_to_use = @min(actual_peaks, num_peaks);
+    const block_size = num_channels * peaks_to_use;
+
+    for (0..peaks_to_use) |p| {
+        for (0..num_channels) |ch| {
+            const our_idx = p * num_channels + ch;
+            // CORRECT indexing per ADAPTIVE_WAVEFORM_ZOOM.md:
+            const max_offset = p * num_channels + ch; // Within first block
+            const min_offset = block_size + p * num_channels + ch; // Within second block
+            tile.peak_max[our_idx] = reaper_buf[max_offset];
+            tile.peak_min[our_idx] = reaper_buf[min_offset];
+        }
+    }
+
+    // Detect mono vs stereo by comparing L/R peaks
+    const detected_channels: u8 = blk: {
+        const epsilon = 0.0001;
+        for (0..peaks_to_use) |p| {
+            const max_l = tile.peak_max[p * 2];
+            const max_r = tile.peak_max[p * 2 + 1];
+            const min_l = tile.peak_min[p * 2];
+            const min_r = tile.peak_min[p * 2 + 1];
+            if (@abs(max_l - max_r) > epsilon or @abs(min_l - min_r) > epsilon) {
+                break :blk 2; // Different L/R = true stereo
+            }
+        }
+        break :blk 1; // All L/R identical = mono
+    };
+
+    tile.num_peaks = @intCast(peaks_to_use);
+    tile.channels = detected_channels;
+
+    return tile;
+}
+
+/// Tile info for JSON serialization
+pub const TileInfo = struct {
+    take_guid: []const u8,
+    epoch: u32,
+    lod: u2,
+    tile_index: u32,
+    start_time: f64, // Relative to item start
+    end_time: f64, // Relative to item start
+    channels: u8,
+    num_peaks: u16,
+    peak_min: []const f64,
+    peak_max: []const f64,
+};
+
+/// Generate tiles for all items in a subscription's viewport.
+/// Returns a JSON event string with tile-based format.
+///
+/// Event format:
+/// {
+///   "type": "event",
+///   "event": "peaks",
+///   "payload": {
+///     "tiles": [
+///       { "takeGuid": "...", "epoch": 1, "lod": 2, "tileIndex": 5, ... }
+///     ]
+///   }
+/// }
+pub fn generateTilesForSubscription(
+    allocator: Allocator,
+    api: anytype,
+    guid_cache: *const guid_cache_mod.GuidCache,
+    tile_cache: *peaks_tile.TileCache,
+    sub: *const @import("peaks_subscriptions.zig").ClientSubscription,
+) ?[]const u8 {
+    // Must have viewport for tile-based generation
+    if (!sub.hasViewport()) {
+        logging.info("peaks_generator: no viewport for tile generation (start={d:.2}, end={d:.2}, width={d})", .{
+            sub.viewport_start,
+            sub.viewport_end,
+            sub.viewport_width_px,
+        });
+        return null;
+    }
+
+    // Calculate tile range from viewport
+    const tile_range = peaks_tile.tilesForViewport(
+        sub.viewport_start,
+        sub.viewport_end,
+        sub.viewport_width_px,
+        0.5, // 50% buffer each side
+    ) orelse {
+        logging.warn("peaks_generator: invalid viewport for tiles", .{});
+        return null;
+    };
+
+    // Collect track indices from subscription
+    var track_indices_buf: [MAX_TRACKS_PER_BROADCAST]c_int = undefined;
+    var track_count: usize = 0;
+
+    switch (sub.mode) {
+        .none => return null,
+        .range => {
+            const total_tracks = api.trackCount();
+            var idx = sub.range_start;
+            const end = @min(sub.range_end, total_tracks);
+            while (idx <= end and track_count < MAX_TRACKS_PER_BROADCAST) : (idx += 1) {
+                track_indices_buf[track_count] = idx;
+                track_count += 1;
+            }
+        },
+        .guids => {
+            for (0..sub.guid_count) |i| {
+                if (track_count >= MAX_TRACKS_PER_BROADCAST) break;
+                const guid = sub.getGuid(i) orelse continue;
+                const track = guid_cache.resolve(guid) orelse continue;
+                const idx = api.getTrackIdx(track);
+                if (idx >= 0) {
+                    track_indices_buf[track_count] = idx;
+                    track_count += 1;
+                }
+            }
+        },
+    }
+
+    if (track_count == 0) {
+        logging.info("peaks_generator: track_count is 0", .{});
+        return null;
+    }
+    logging.info("peaks_generator: processing {d} tracks, lod={d}", .{ track_count, tile_range.lod });
+
+    // Estimate buffer size for JSON
+    // Each tile is ~2-6KB depending on peak count. Start with reasonable fixed size.
+    // For a typical viewport with 10-50 tiles, 512KB is plenty.
+    // The scratch arena is ~10MB so we have headroom.
+    const initial_buf_size: usize = 512 * 1024; // 512KB
+    const buf = allocator.alloc(u8, initial_buf_size) catch {
+        logging.warn("peaks_generator: failed to allocate tile JSON buffer ({d} bytes)", .{initial_buf_size});
+        return null;
+    };
+    errdefer allocator.free(buf);
+
+    var stream = std.io.fixedBufferStream(buf);
+    var w = stream.writer();
+
+    // Write event envelope
+    w.writeAll("{\"type\":\"event\",\"event\":\"peaks\",\"payload\":{\"tiles\":[") catch {
+        logging.warn("peaks_generator: failed to write tile JSON header", .{});
+        return null;
+    };
+
+    var tiles_written: usize = 0;
+    const config = peaks_tile.TILE_CONFIGS[tile_range.lod];
+
+    // Process each track
+    var items_checked: usize = 0;
+    var items_in_viewport: usize = 0;
+    var tile_gen_attempts: usize = 0;
+    var tile_gen_failures: usize = 0;
+
+    for (track_indices_buf[0..track_count]) |track_idx| {
+        const track = api.getTrackByUnifiedIdx(track_idx) orelse {
+            logging.info("peaks_generator: track {} not found via getTrackByUnifiedIdx", .{track_idx});
+            continue;
+        };
+
+        const item_count_raw = api.trackItemCount(track);
+        if (item_count_raw <= 0) {
+            logging.info("peaks_generator: track {} has no items", .{track_idx});
+            continue;
+        }
+
+        const max_items: c_int = @min(item_count_raw, MAX_ITEMS_PER_TRACK_MULTITRACK);
+
+        // Process each item
+        var i: c_int = 0;
+        while (i < max_items) : (i += 1) {
+            const item = api.getItemByIdx(track, i) orelse continue;
+            const take = api.getItemActiveTake(item) orelse continue;
+
+            if (api.isTakeMIDI(take)) continue;
+
+            const item_position = api.getItemPosition(item);
+            const item_length = api.getItemLength(item);
+
+            if (!ffi.isFinite(item_length) or item_length <= 0) continue;
+
+            items_checked += 1;
+
+            // Check if item overlaps viewport (with buffer)
+            const buffer = (sub.viewport_end - sub.viewport_start) * 0.5;
+            const viewport_start_buffered = sub.viewport_start - buffer;
+            const viewport_end_buffered = sub.viewport_end + buffer;
+
+            if (item_position + item_length < viewport_start_buffered or
+                item_position > viewport_end_buffered)
+            {
+                continue; // Item outside viewport
+            }
+
+            items_in_viewport += 1;
+            logging.info("peaks_generator: item pos={d:.1} len={d:.1} in viewport [{d:.1},{d:.1}]", .{
+                item_position, item_length, viewport_start_buffered, viewport_end_buffered,
+            });
+
+            // Get take GUID for cache key
+            var take_guid_buf: [64]u8 = undefined;
+            const take_guid = api.getTakeGUID(take, &take_guid_buf);
+
+            // Get epoch for this take
+            const epoch = tile_cache.getEpoch(take_guid, api, take);
+
+            // Calculate which tiles cover this item within the viewport range
+            const item_start_tile: u32 = blk: {
+                if (item_position <= 0) break :blk 0;
+                const relative_start = @max(0.0, viewport_start_buffered - item_position);
+                break :blk @intFromFloat(@floor(relative_start / config.duration));
+            };
+
+            const item_end_tile: u32 = blk: {
+                const relative_end = @min(item_length, viewport_end_buffered - item_position);
+                if (relative_end <= 0) break :blk 0;
+                break :blk @intFromFloat(@ceil(relative_end / config.duration));
+            };
+
+            logging.info("peaks_generator: tile range [{d},{d}] for item, duration={d:.1}", .{
+                item_start_tile, item_end_tile, config.duration,
+            });
+
+            // Generate tiles for this item
+            var tile_idx = item_start_tile;
+            while (tile_idx <= item_end_tile and tile_idx < 10000) : (tile_idx += 1) {
+                const key = peaks_tile.TileCacheKey.create(take_guid, epoch, tile_range.lod, tile_idx);
+
+                // Try cache first
+                var tile_ptr: ?*peaks_tile.CachedTile = tile_cache.get(key);
+
+                // Generate if not cached
+                if (tile_ptr == null) {
+                    tile_gen_attempts += 1;
+                    if (generateTileForTake(
+                        allocator,
+                        api,
+                        take,
+                        item_position,
+                        item_length,
+                        tile_range.lod,
+                        tile_idx,
+                    )) |tile| {
+                        tile_cache.put(
+                            key,
+                            tile.peak_min[0 .. tile.num_peaks * tile.channels],
+                            tile.peak_max[0 .. tile.num_peaks * tile.channels],
+                            tile.num_peaks,
+                            tile.channels,
+                        );
+                        tile_ptr = tile_cache.get(key);
+                    } else {
+                        tile_gen_failures += 1;
+                    }
+                }
+
+                const tile = tile_ptr orelse continue;
+
+                // Write tile JSON
+                if (tiles_written > 0) w.writeByte(',') catch {
+                    logging.warn("peaks_generator: failed to write tile separator", .{});
+                    return null;
+                };
+
+                const tile_start = @as(f64, @floatFromInt(tile_idx)) * config.duration;
+                const tile_end = tile_start + config.duration;
+
+                w.print("{{\"takeGuid\":\"{s}\",\"epoch\":{d},\"lod\":{d},\"tileIndex\":{d}", .{
+                    take_guid,
+                    epoch,
+                    tile_range.lod,
+                    tile_idx,
+                }) catch {
+                    logging.warn("peaks_generator: failed to write tile header", .{});
+                    return null;
+                };
+
+                w.print(",\"itemPosition\":{d:.6},\"startTime\":{d:.6},\"endTime\":{d:.6}", .{
+                    item_position,
+                    tile_start,
+                    tile_end,
+                }) catch {
+                    logging.warn("peaks_generator: failed to write tile times", .{});
+                    return null;
+                };
+
+                w.print(",\"channels\":{d},\"peaks\":[", .{tile.channels}) catch {
+                    logging.warn("peaks_generator: failed to write tile channels", .{});
+                    return null;
+                };
+
+                // Write peaks array
+                for (0..tile.num_peaks) |p| {
+                    if (p > 0) w.writeByte(',') catch return null;
+
+                    if (tile.channels == 2) {
+                        const min_l = tile.peak_min[p * 2];
+                        const max_l = tile.peak_max[p * 2];
+                        const min_r = tile.peak_min[p * 2 + 1];
+                        const max_r = tile.peak_max[p * 2 + 1];
+                        w.print("{{\"l\":[{d:.4},{d:.4}],\"r\":[{d:.4},{d:.4}]}}", .{
+                            min_l, max_l, min_r, max_r,
+                        }) catch return null;
+                    } else {
+                        const min_val = tile.peak_min[p];
+                        const max_val = tile.peak_max[p];
+                        w.print("[{d:.4},{d:.4}]", .{ min_val, max_val }) catch return null;
+                    }
+                }
+
+                w.writeAll("]}") catch return null;
+                tiles_written += 1;
+            }
+        }
+    }
+
+    // Close JSON envelope
+    w.writeAll("]}}") catch {
+        logging.warn("peaks_generator: failed to close tile JSON", .{});
+        return null;
+    };
+
+    if (tiles_written == 0) {
+        logging.info("peaks_generator: tiles_written=0 (checked={d}, in_viewport={d}, gen_attempts={d}, gen_failures={d})", .{
+            items_checked, items_in_viewport, tile_gen_attempts, tile_gen_failures,
+        });
         allocator.free(buf);
         return null;
     }
