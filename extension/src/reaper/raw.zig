@@ -1916,9 +1916,33 @@ pub const Api = struct {
     /// buf: buffer for peak data (needs numchannels * numsamplesperchannel * 2 floats for min+max)
     /// Returns: sample_count in low 20 bits, mode in bits 20-23 (0=not yet ready, use previous)
     pub fn getMediaItemTakePeaks(self: *const Api, take: *anyopaque, peakrate: f64, starttime: f64, numchannels: c_int, numsamplesperchannel: c_int, buf: []f64) c_int {
-        const f = self.getMediaItemTake_Peaks orelse return 0;
-        const want_extra: c_int = 0; // We don't need extra info (source location)
-        return f(take, peakrate, starttime, numchannels, numsamplesperchannel, want_extra, buf.ptr);
+        const logging = @import("../logging.zig");
+        const f = self.getMediaItemTake_Peaks orelse {
+            logging.warn("raw: GetMediaItemTake_Peaks function NOT LOADED!", .{});
+            return 0;
+        };
+        const want_extra: c_int = 0;
+
+        // DEBUG: Log exact FFI parameters
+        logging.info("raw.getMediaItemTakePeaks: take=0x{x} peakrate={d:.4} starttime={d:.2} ch={d} samples={d} buf.ptr=0x{x} buf.len={d}", .{
+            @intFromPtr(take),
+            peakrate,
+            starttime,
+            numchannels,
+            numsamplesperchannel,
+            @intFromPtr(buf.ptr),
+            buf.len,
+        });
+
+        const result = f(take, peakrate, starttime, numchannels, numsamplesperchannel, want_extra, buf.ptr);
+
+        logging.info("raw.getMediaItemTakePeaks: result={d} (actual={d}, mode={d})", .{
+            result,
+            result & 0xFFFFF,
+            (result >> 20) & 0xF,
+        });
+
+        return result;
     }
 
     // AudioAccessor methods - for reading raw audio samples

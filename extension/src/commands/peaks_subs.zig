@@ -8,6 +8,7 @@ const std = @import("std");
 const protocol = @import("../protocol.zig");
 const mod = @import("mod.zig");
 const peaks_subscriptions = @import("../peaks_subscriptions.zig");
+const logging = @import("../logging.zig");
 
 const ViewportParams = peaks_subscriptions.PeaksSubscriptions.ViewportParams;
 
@@ -60,6 +61,11 @@ pub fn handleSubscribe(_: anytype, cmd: protocol.CommandMessage, response: *mod.
 
     // Parse optional viewport for adaptive resolution
     const viewport = parseViewport(cmd.raw);
+    if (viewport) |vp| {
+        logging.info("peaks_subs: parsed viewport start={d:.2}, end={d:.2}, width={d}", .{ vp.start, vp.end, vp.width_px });
+    } else {
+        logging.info("peaks_subs: no viewport parsed from command", .{});
+    }
 
     // Try range mode first
     const start = protocol.jsonGetIntFromObject(cmd.raw, "range", "start");

@@ -29,6 +29,7 @@ const trackfxparam_subscriptions = @import("trackfxparam_subscriptions.zig");
 const trackfxparam_generator = @import("trackfxparam_generator.zig");
 const peaks_generator = @import("peaks_generator.zig");
 const peaks_cache = @import("peaks_cache.zig");
+const peaks_tile = @import("peaks_tile.zig");
 const track_skeleton = @import("track_skeleton.zig");
 const csurf = @import("csurf.zig");
 const csurf_dirty = @import("csurf_dirty.zig");
@@ -56,6 +57,7 @@ var g_routing_subs: ?*routing_subscriptions.RoutingSubscriptions = null;
 var g_trackfx_subs: ?*trackfx_subscriptions.TrackFxSubscriptions = null;
 var g_trackfxparam_subs: ?*trackfxparam_subscriptions.TrackFxParamSubscriptions = null;
 var g_peaks_cache: ?*peaks_cache.PeaksCache = null;
+var g_tile_cache: ?*peaks_tile.TileCache = null;
 var g_csurf: ?*csurf.ControlSurface = null;
 var g_plugin_register: ?*const fn ([*:0]const u8, ?*anyopaque) callconv(.c) c_int = null;
 var g_dirty_flags: ?*csurf_dirty.DirtyFlags = null;
@@ -252,6 +254,11 @@ fn doInitialization() !void {
     const p_cache = try g_allocator.create(peaks_cache.PeaksCache);
     p_cache.* = peaks_cache.PeaksCache.init(g_allocator);
     g_peaks_cache = p_cache;
+
+    // Create tile cache for LOD-based waveform tiles
+    const t_cache = try g_allocator.create(peaks_tile.TileCache);
+    t_cache.* = peaks_tile.TileCache.init(g_allocator);
+    g_tile_cache = t_cache;
 
     // Count project entities and calculate arena sizes dynamically
     // This allows memory allocation to scale with project size
@@ -886,37 +893,40 @@ fn doProcessing() !void {
 
     // Poll peaks subscriptions and broadcast (HIGH TIER - per-client subscription)
     // Broadcasts when: force_broadcast is set (new subscription) OR track items changed
-    // Uses PeaksCache for LRU caching of individual item peaks
-    // Multi-track mode: sends track-keyed map with peaks for all subscribed tracks
+    // Uses tile-based LOD cache for efficient pan/zoom
+    // Tiles are fixed time-windows at each LOD level, enabling cache reuse when panning
     if (g_peaks_subs) |peaks_subs| {
         if (peaks_subs.hasSubscriptions()) {
             const guid_cache_ptr = g_guid_cache orelse {
                 logging.err("GUID cache not initialized for peaks subscriptions", .{});
                 return error.GuidCacheNotInitialized;
             };
-            const p_cache = g_peaks_cache orelse {
-                logging.err("Peaks cache not initialized", .{});
+            const tile_cache = g_tile_cache orelse {
+                logging.err("Tile cache not initialized", .{});
                 return error.GuidCacheNotInitialized;
             };
 
             // Tick the cache for LRU tracking
-            p_cache.tick();
+            tile_cache.tick();
 
             // Check if any subscription needs immediate data (new subscription)
             const force_broadcast = peaks_subs.consumeForceBroadcast();
+            if (force_broadcast) {
+                logging.info("peaks: force_broadcast triggered", .{});
+            }
 
             // Get all subscribed track indices across all clients
             var indices_buf: [128]c_int = undefined;
             const subscribed_indices = peaks_subs.getSubscribedIndices(guid_cache_ptr, &backend, &indices_buf);
 
-            // Check if any track has changes (items added/removed/modified)
+            // Check if any track has epoch changes (audio source modified)
             var any_track_changed = force_broadcast;
             if (!force_broadcast) {
                 for (subscribed_indices) |track_idx| {
                     const track = backend.getTrackByIdx(track_idx) orelse continue;
                     var guid_buf: [64]u8 = undefined;
                     const track_guid = backend.formatTrackGuid(track, &guid_buf);
-                    if (p_cache.trackChanged(track_guid, &backend, track)) {
+                    if (tile_cache.trackChanged(track_guid, &backend, track)) {
                         any_track_changed = true;
                         break;
                     }
@@ -925,22 +935,24 @@ fn doProcessing() !void {
 
             // Only broadcast if something changed
             if (any_track_changed) {
+                logging.info("peaks: broadcasting to clients (force={}, indices={})", .{ force_broadcast, subscribed_indices.len });
                 // Iterate active subscriptions and send to each client
                 var iter = peaks_subs.activeSubscriptions();
                 while (iter.next()) |entry| {
-                    const sample_count = entry.sub.sample_count;
                     const peaks_scratch = tiered.scratchAllocator();
 
-                    // Generate peaks for this client's subscribed tracks
-                    if (peaks_generator.generatePeaksForSubscription(
+                    // Generate tile-based peaks for this client's subscribed tracks
+                    if (peaks_generator.generateTilesForSubscription(
                         peaks_scratch,
                         &backend,
                         guid_cache_ptr,
-                        p_cache,
+                        tile_cache,
                         entry.sub,
-                        sample_count,
                     )) |json| {
+                        logging.info("peaks: sending {} bytes to client {}", .{ json.len, entry.client_id });
                         shared_state.sendToClient(entry.client_id, json);
+                    } else {
+                        logging.info("peaks: generateTilesForSubscription returned null for client {}", .{entry.client_id});
                     }
                 }
             }
@@ -1744,6 +1756,14 @@ fn shutdown() void {
         g_peaks_cache = null;
     }
     logging.info("peaks cache cleaned up", .{});
+
+    if (g_tile_cache) |t_cache| {
+        logging.info("cleaning up tile cache", .{});
+        t_cache.deinit();
+        g_allocator.destroy(t_cache);
+        g_tile_cache = null;
+    }
+    logging.info("tile cache cleaned up", .{});
 
     if (g_guid_cache) |cache| {
         logging.info("cleaning up GUID cache", .{});

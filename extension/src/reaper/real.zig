@@ -890,6 +890,10 @@ pub const RealBackend = struct {
         return self.inner.getTakeSource(take);
     }
 
+    pub fn getRootSource(self: *const RealBackend, source: *anyopaque) *anyopaque {
+        return self.inner.getRootSource(source);
+    }
+
     pub fn getMediaSourceChannels(self: *const RealBackend, source: *anyopaque) c_int {
         return self.inner.getMediaSourceChannels(source);
     }
