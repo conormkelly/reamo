@@ -585,6 +585,139 @@ pub fn generatePeaksForSubscription(
 // Tile-Based Peak Generation
 // =============================================================================
 
+/// Sample rate for AudioAccessor-based peak computation.
+/// 4000 Hz is sufficient for peak detection and 11x faster than 44100 Hz.
+/// For a 0.5s tile at 200 peaks: 2000 samples, 10 samples per peak.
+const ACCESSOR_SAMPLE_RATE: c_int = 4000;
+
+/// Generate a single tile using AudioAccessor (for LOD 2).
+/// This bypasses GetMediaItemTake_Peaks which fails on ARM64 macOS with high peakrate.
+/// See docs/architecture/PEAK_GENERATION.md for details on the ARM64 ABI issue.
+///
+/// Parameters:
+/// - allocator: For temporary sample buffer
+/// - api: Reaper backend
+/// - take: Take pointer
+/// - tile_start_time: Start time relative to ITEM start (not project time)
+/// - tile_duration: Duration of the tile in seconds
+/// - num_peaks: Number of peaks to compute for this tile
+///
+/// Returns CachedTile on success, null on failure.
+pub fn generateTileViaAccessor(
+    allocator: Allocator,
+    api: anytype,
+    take: *anyopaque,
+    tile_start_time: f64,
+    tile_duration: f64,
+    num_peaks: usize,
+) ?peaks_tile.CachedTile {
+    if (num_peaks == 0 or num_peaks > peaks_tile.MAX_PEAKS_PER_TILE) {
+        logging.warn("genTileAccessor: invalid num_peaks {d}", .{num_peaks});
+        return null;
+    }
+
+    // Create audio accessor for this take
+    const accessor = api.makeTakeAccessor(take) orelse {
+        logging.warn("genTileAccessor: failed to create accessor", .{});
+        return null;
+    };
+    defer api.destroyTakeAccessor(accessor);
+
+    // Calculate samples needed
+    // At 4000 Hz, a 0.5s tile = 2000 samples, giving 10 samples per peak for 200 peaks
+    const samples_needed: usize = @intFromFloat(@ceil(tile_duration * @as(f64, @floatFromInt(ACCESSOR_SAMPLE_RATE))));
+    if (samples_needed == 0) {
+        logging.warn("genTileAccessor: samples_needed is 0", .{});
+        return null;
+    }
+
+    const samples_per_peak = @max(samples_needed / num_peaks, 1);
+
+    // Always request stereo (2 channels) - detect mono by comparing L/R later
+    const num_channels: usize = 2;
+
+    // Allocate sample buffer on heap (stereo interleaved)
+    const sample_buf = allocator.alloc(f64, samples_needed * num_channels) catch {
+        logging.warn("genTileAccessor: failed to allocate {d} bytes for samples", .{samples_needed * num_channels * 8});
+        return null;
+    };
+    defer allocator.free(sample_buf);
+
+    // Read samples from accessor
+    // Note: AudioAccessor uses time relative to the TAKE start (handles trim/playrate internally)
+    const rv = api.readAccessorSamples(
+        accessor,
+        ACCESSOR_SAMPLE_RATE,
+        @intCast(num_channels),
+        tile_start_time, // Relative to take start
+        @intCast(samples_needed),
+        sample_buf,
+    );
+
+    // rv is a status indicator: <0 = error, 0 = no audio at position, >0 = has audio
+    // We iterate over samples_needed regardless of rv (the buffer is filled)
+    if (rv < 0) {
+        logging.warn("genTileAccessor: readAccessorSamples error {d} at time {d:.2}", .{ rv, tile_start_time });
+        return null;
+    }
+    if (rv == 0) {
+        // No audio at this position - return empty tile
+        logging.info("genTileAccessor: no audio at time {d:.2}", .{tile_start_time});
+        return null;
+    }
+
+    // Compute peaks from samples
+    var tile = peaks_tile.CachedTile.empty();
+
+    // Initialize min/max for accumulation
+    var peak_min: [peaks_tile.MAX_PEAKS_PER_TILE * 2]f64 = [_]f64{1.0} ** (peaks_tile.MAX_PEAKS_PER_TILE * 2);
+    var peak_max: [peaks_tile.MAX_PEAKS_PER_TILE * 2]f64 = [_]f64{-1.0} ** (peaks_tile.MAX_PEAKS_PER_TILE * 2);
+
+    // Process samples into peaks (iterate over requested samples_needed, not rv)
+    for (0..samples_needed) |s| {
+        const peak_idx = @min(s / samples_per_peak, num_peaks - 1);
+
+        for (0..num_channels) |ch| {
+            const sample = sample_buf[s * num_channels + ch];
+            const idx = peak_idx * num_channels + ch;
+            peak_max[idx] = @max(peak_max[idx], sample);
+            peak_min[idx] = @min(peak_min[idx], sample);
+        }
+    }
+
+    // Fix any peaks that weren't touched (still at init values)
+    for (0..num_peaks * num_channels) |i| {
+        if (peak_max[i] < peak_min[i]) {
+            peak_max[i] = 0;
+            peak_min[i] = 0;
+        }
+    }
+
+    // Detect mono vs stereo by comparing L/R peaks
+    const detected_channels: u8 = blk: {
+        const epsilon = 0.0001;
+        for (0..num_peaks) |p| {
+            const max_l = peak_max[p * 2];
+            const max_r = peak_max[p * 2 + 1];
+            const min_l = peak_min[p * 2];
+            const min_r = peak_min[p * 2 + 1];
+            if (@abs(max_l - max_r) > epsilon or @abs(min_l - min_r) > epsilon) {
+                break :blk 2; // Different L/R = true stereo
+            }
+        }
+        break :blk 1; // All L/R identical = mono
+    };
+
+    // Copy to tile
+    const copy_len = num_peaks * num_channels;
+    @memcpy(tile.peak_min[0..copy_len], peak_min[0..copy_len]);
+    @memcpy(tile.peak_max[0..copy_len], peak_max[0..copy_len]);
+    tile.num_peaks = @intCast(num_peaks);
+    tile.channels = detected_channels;
+
+    return tile;
+}
+
 /// Generate a single tile for a take at specified LOD and tile index.
 /// Returns a CachedTile on success, null on failure.
 ///
@@ -644,32 +777,15 @@ pub fn generateTileForTake(
         return null;
     }
 
-    // Calculate peakrate EXACTLY like the working generatePeaksForItem:
-    // peakrate = num_peaks / tile_duration (let REAPER handle LOD selection)
-    // This is what commit e8bb046 fixed - don't use fixed config.peakrate!
-    const peakrate: f64 = @as(f64, @floatFromInt(num_peaks)) / tile_duration;
+    // Use config.peakrate directly - this matches what Lua does successfully.
+    // The recalculated peakrate was producing wrong values (using item_length instead of tile_duration).
+    const peakrate: f64 = config.peakrate;
 
-    // DEBUG: Check source is still valid
-    const take_source = api.getTakeSource(take);
-    if (take_source == null) {
-        logging.warn("genTile: getTakeSource returned null - source unavailable", .{});
-        return null;
-    }
-
-    // Get ROOT source (traverse parent chain) for correct channel count
-    // Section sources may not report channels correctly, but their PCM parent does
-    const root_source = if (@hasDecl(@TypeOf(api.*), "getRootSource"))
-        api.getRootSource(take_source.?)
-    else
-        take_source.?;
-
-    const source_channels = api.getMediaSourceChannels(root_source);
-    logging.info("genTile: take_source=0x{x} root_source=0x{x} source_channels={d}", .{
-        @intFromPtr(take_source.?), @intFromPtr(root_source), source_channels,
-    });
-
-    // Use actual source channel count, capped at 2 (like the working generatePeaksForItem)
-    const num_channels: usize = if (source_channels <= 0) 1 else @min(@as(usize, @intCast(source_channels)), 2);
+    // WORKAROUND: GetMediaSourceNumChannels via GetFunc returns wrong value on ARM64 (always 1).
+    // Lua's API returns correct value (2 for stereo). Since we can't fix the API, always request
+    // 2 channels and detect mono by comparing L/R peaks later.
+    // See LATEST_FINDINGS.md for full investigation.
+    const num_channels: usize = 2;
 
     // Allocate buffer: 2 blocks (max + min), each with interleaved channels
     const buf_size = num_channels * num_peaks * 2;
@@ -959,15 +1075,38 @@ pub fn generateTilesForSubscription(
                 // Generate if not cached
                 if (tile_ptr == null) {
                     tile_gen_attempts += 1;
-                    if (generateTileForTake(
-                        allocator,
-                        api,
-                        take,
-                        item_position,
-                        item_length,
-                        tile_range.lod,
-                        tile_idx,
-                    )) |tile| {
+
+                    // Calculate tile time range (relative to item start)
+                    const tile_start_relative = @as(f64, @floatFromInt(tile_idx)) * config.duration;
+                    const tile_end_relative = tile_start_relative + config.duration;
+                    const clamped_end = @min(tile_end_relative, item_length);
+                    const tile_duration = clamped_end - tile_start_relative;
+
+                    // Route based on LOD level:
+                    // - LOD 0/1: Use GetMediaItemTake_Peaks (works with low peakrate)
+                    // - LOD 2: Use AudioAccessor (GetMediaItemTake_Peaks fails on ARM64 with high peakrate)
+                    // See docs/architecture/ADAPTIVE_WAVEFORM_ZOOM.md for details.
+                    const maybe_tile: ?peaks_tile.CachedTile = if (tile_range.lod == 2)
+                        generateTileViaAccessor(
+                            allocator,
+                            api,
+                            take,
+                            tile_start_relative, // Relative to item/take start
+                            tile_duration,
+                            config.peaks_per_tile,
+                        )
+                    else
+                        generateTileForTake(
+                            allocator,
+                            api,
+                            take,
+                            item_position,
+                            item_length,
+                            tile_range.lod,
+                            tile_idx,
+                        );
+
+                    if (maybe_tile) |tile| {
                         tile_cache.put(
                             key,
                             tile.peak_min[0 .. tile.num_peaks * tile.channels],
