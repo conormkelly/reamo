@@ -34,20 +34,24 @@ See [PEAK_GENERATION.md](PEAK_GENERATION.md) for full analysis. Summary:
 
 ---
 
-## Architecture: Hybrid LOD System
+## Architecture: Tile-Based LOD System via AudioAccessor
+
+**Update (Jan 2026)**: Testing revealed that `GetMediaItemTake_Peaks` via `GetFunc()` fails for ALL peakrates on ARM64 macOS, not just high peakrates. Even low peakrate (0.02) returns 0 peaks when called through the extension. We now use `AudioAccessor` for all LOD levels.
 
 ### LOD Levels
 
 | LOD | Resolution | Tile Duration | Peaks/Tile | Source | Use Case |
 |-----|------------|---------------|------------|--------|----------|
-| 0 | 1 peak/sec | Full item | varies | GetMediaItemTake_Peaks | Overview |
-| 1 | 10 peaks/sec | Full item | varies | GetMediaItemTake_Peaks | Normal editing |
-| 2 | 400 peaks/sec | 0.5s tiles | 200 | **AudioAccessor** | Precision editing |
+| 0 | 1 peak/sec | 64s | 64 | AudioAccessor | Overview (zoomed out) |
+| 1 | 10 peaks/sec | 8s | 80 | AudioAccessor | Normal editing |
+| 2 | 400 peaks/sec | 0.5s | 200 | AudioAccessor | Precision editing |
 
-### Why This Split?
+### Why AudioAccessor for Everything?
 
-- **LOD 0/1**: Low peakrate works via GetFunc(). Full-item fetch is simple and efficient.
-- **LOD 2**: Requires AudioAccessor because high peakrate fails via GetFunc().
+- `GetMediaItemTake_Peaks` via `GetFunc()` is completely broken on ARM64 macOS
+- `AudioAccessor` (via `GetAudioAccessorSamples`) works reliably
+- Tile-based approach enables efficient caching across all zoom levels
+- Unified code path is simpler to maintain
 
 ### LOD Selection
 
@@ -63,43 +67,9 @@ function selectLOD(viewportDuration: number, viewportPixels: number): number {
 
 ---
 
-## LOD 0/1: Full-Item via GetMediaItemTake_Peaks
+## Tile Generation via AudioAccessor
 
-Uses the **working** code path (low peakrate, starttime = item position).
-
-```zig
-fn generatePeaksForItem(take, length, num_peaks, item_peaks) bool {
-    const peakrate = num_peaks / length;  // e.g., 300/30s = 10 peaks/sec
-    const starttime = item_peaks.position; // Exact item position - WORKS!
-
-    const result = api.getMediaItemTakePeaks(
-        take, peakrate, starttime, channels, num_peaks, buf
-    );
-    // This works because peakrate is low and no time offset
-}
-```
-
-### Caching for LOD 0/1
-
-```
-Key: (take_guid, lod_level, epoch)
-Value: Full item peaks array
-```
-
-- One entry per item per LOD
-- Memory: ~30KB per hour at LOD 1, ~3KB at LOD 0
-
----
-
-## LOD 2: Tile-Based via AudioAccessor
-
-Since GetMediaItemTake_Peaks fails with tile parameters, use AudioAccessor to read raw samples and compute peaks.
-
-### Why AudioAccessor Works
-
-- Different API surface, cleaner function signature
-- SWS Extension uses this approach (battle-tested)
-- No casting issues on ARM64
+All LOD levels use the same tile-based approach with AudioAccessor.
 
 ### Implementation
 
@@ -181,16 +151,16 @@ For a 0.5s tile at 200 peaks:
 
 4000 Hz is sufficient for peak detection and 11x faster.
 
-### Caching for LOD 2
+### Tile Caching
 
 ```
-Key: (take_guid, lod_level=2, tile_index, epoch)
+Key: (take_guid, lod_level, tile_index, epoch)
 Value: CachedTile { peak_min[400], peak_max[400], num_peaks, channels }
 ```
 
-- 0.5s tiles, 200 peaks each
 - LRU eviction (500 entry limit)
-- Enables pan/zoom cache reuse
+- Same cache structure for all LODs
+- Enables pan/zoom cache reuse across all zoom levels
 
 ---
 
@@ -298,38 +268,25 @@ function getTilesToFetch(viewport, lod) {
 
 ## Files to Modify
 
-| File | Change |
-|------|--------|
-| `extension/src/peaks_generator.zig` | Add `generateTileViaAccessor()`, keep working full-item path |
-| `extension/src/peaks_tile.zig` | Already has tile cache infrastructure |
-| `extension/src/main.zig` | Route LOD 2 to AudioAccessor path |
-| `extension/src/peaks_subscriptions.zig` | Already has viewport support |
-
----
-
-## Reusable Code from Broken Tile Path
-
-The following can be kept from `generateTileForTake`:
-
-- **Tile boundary calculations** (clamping to item bounds)
-- **Mono/stereo detection** (comparing L/R peaks)
-- **TileInfo struct** (JSON serialization format)
-- **generateTilesForSubscription orchestration** (viewport-to-tiles logic)
-
-Replace only the API call with AudioAccessor approach.
+| File | Purpose |
+|------|---------|
+| `extension/src/peaks_generator.zig` | `generateTileViaAccessor()` for all LODs |
+| `extension/src/peaks_tile.zig` | Tile cache infrastructure, LOD configs |
+| `extension/src/main.zig` | Routes viewport requests to tile generation |
+| `extension/src/peaks_subscriptions.zig` | Viewport support, track subscription management |
 
 ---
 
 ## Summary
 
-| LOD | Source | Why |
-|-----|--------|-----|
-| 0 (1/sec) | GetMediaItemTake_Peaks | Low peakrate works via GetFunc() |
-| 1 (10/sec) | GetMediaItemTake_Peaks | Low peakrate works via GetFunc() |
-| 2 (400/sec) | **AudioAccessor** | High peakrate fails via GetFunc() on ARM64 |
+| LOD | Resolution | Tile Duration | Source |
+|-----|------------|---------------|--------|
+| 0 | 1 peak/sec | 64s | AudioAccessor |
+| 1 | 10 peaks/sec | 8s | AudioAccessor |
+| 2 | 400 peaks/sec | 0.5s | AudioAccessor |
 
-This hybrid approach:
-1. Uses working code paths where possible
-2. Falls back to AudioAccessor only when necessary (LOD 2)
-3. Maintains tile-based caching for efficient pan/zoom
-4. Keeps memory bounded with LRU eviction
+This unified approach:
+1. Uses `AudioAccessor` for all LODs (works reliably on ARM64 macOS)
+2. Tile-based caching enables efficient pan/zoom at any zoom level
+3. LRU eviction keeps memory bounded (~3.2 MB max)
+4. Simpler code with single generation path

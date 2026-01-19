@@ -942,9 +942,11 @@ fn doProcessing() !void {
                     const peaks_scratch = tiered.scratchAllocator();
 
                     // Generate peaks for this client's subscribed tracks
-                    // Route based on viewport presence:
-                    // - With viewport: Use tile-based generation (LOD 2 uses AudioAccessor)
-                    // - Without viewport: Use full-item generation
+                    // With viewport: Use tile-based generation via AudioAccessor (all LODs)
+                    // Without viewport: Use legacy full-item path with fixed sample_count
+                    //
+                    // NOTE: GetMediaItemTake_Peaks via GetFunc() is completely broken on ARM64 macOS
+                    // (returns 0 peaks even with low peakrate). AudioAccessor works reliably.
                     const json: ?[]const u8 = if (entry.sub.hasViewport())
                         peaks_generator.generateTilesForSubscription(
                             peaks_scratch,
