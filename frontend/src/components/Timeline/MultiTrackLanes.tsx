@@ -20,7 +20,7 @@
  */
 
 import { useMemo, useRef, useEffect, useState, type ReactElement } from 'react';
-import type { WSItem, SkeletonTrack, WSItemPeaks, StereoPeak, MonoPeak } from '../../core/WebSocketTypes';
+import type { WSItem, SkeletonTrack, StereoPeak, MonoPeak } from '../../core/WebSocketTypes';
 import { reaperColorToRgba, getContrastColor } from '../../utils';
 
 // Default item color when no color set - matches ItemsDensityOverlay
@@ -41,8 +41,14 @@ export interface MultiTrackLanesProps {
   height: number;
   /** Currently focused track GUID (shows highlight) */
   focusedTrackGuid?: string | null;
-  /** Peaks data keyed by track index (from usePeaksSubscription) */
-  peaksByTrack?: Map<number, Map<string, WSItemPeaks>>;
+  /** Function to assemble peaks for an item within the current viewport (tile-based) */
+  assemblePeaksForViewport?: (
+    takeGuid: string,
+    itemPosition: number,
+    itemLength: number
+  ) => StereoPeak[] | MonoPeak[] | null;
+  /** Function to check if tiles exist for a take */
+  hasTilesForTake?: (takeGuid: string) => boolean;
   /** Whether a gesture (pan/pinch) is in progress - suppresses canvas redraws */
   isGesturing?: boolean;
 }
@@ -184,7 +190,8 @@ export function MultiTrackLanes({
   timelineEnd,
   height,
   focusedTrackGuid,
-  peaksByTrack,
+  assemblePeaksForViewport,
+  hasTilesForTake: _hasTilesForTake, // Reserved for loading indicators
   isGesturing = false,
 }: MultiTrackLanesProps): ReactElement | null {
   // Track container width for calculating item pixel dimensions
@@ -283,9 +290,11 @@ export function MultiTrackLanes({
           >
             {/* Items - same rendering as ItemsDensityOverlay, with waveform overlay */}
             {visibleItems.map((v) => {
-              // Look up peaks for this item
-              const trackPeaks = peaksByTrack?.get(trackIdx);
-              const itemPeaks = trackPeaks?.get(v.item.guid);
+              // Assemble peaks for this item using tile-based API
+              // Skip MIDI items (no audio peaks) and items without active take
+              const itemPeaks = v.item.activeTakeGuid && !v.item.activeTakeIsMidi
+                ? assemblePeaksForViewport?.(v.item.activeTakeGuid, v.item.position, v.item.length)
+                : null;
               const bgColor = getItemColor(v.item);
               // Waveform color: contrast against item background
               const contrastBase = v.item.color ? getContrastColor(v.item.color) : 'white';
@@ -309,9 +318,9 @@ export function MultiTrackLanes({
                   }}
                 >
                   {/* Waveform overlay when peaks available */}
-                  {itemPeaks && itemPeaks.peaks.length > 0 && containerWidth > 0 && (
+                  {itemPeaks && itemPeaks.length > 0 && containerWidth > 0 && (
                     <LaneWaveform
-                      peaks={itemPeaks.peaks}
+                      peaks={itemPeaks}
                       color={waveformColor}
                       widthPx={(v.widthPercent / 100) * containerWidth}
                       heightPx={itemHeightPx}

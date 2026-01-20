@@ -51,8 +51,14 @@ export interface TimelineProps {
   multiTrackLanes?: SkeletonTrack[];
   /** Track indices corresponding to multiTrackLanes (1-based, from bank) */
   multiTrackIndices?: number[];
-  /** Peaks data for waveform rendering (keyed by track index) */
-  peaksByTrack?: Map<number, Map<string, import('../../core/WebSocketTypes').WSItemPeaks>>;
+  /** Function to assemble peaks for an item within the current viewport (tile-based) */
+  assemblePeaksForViewport?: (
+    takeGuid: string,
+    itemPosition: number,
+    itemLength: number
+  ) => import('../../core/WebSocketTypes').StereoPeak[] | import('../../core/WebSocketTypes').MonoPeak[] | null;
+  /** Function to check if tiles exist for a take */
+  hasTilesForTake?: (takeGuid: string) => boolean;
 }
 
 // Vertical distance to cancel gesture (drag off timeline)
@@ -61,7 +67,7 @@ const VERTICAL_CANCEL_THRESHOLD = 50;
 // Tap detection threshold (pixels) - movement less than this is considered a tap
 const TAP_THRESHOLD = 10;
 
-export function Timeline({ className = '', height = 120, isSyncing = false, viewport: externalViewport, multiTrackLanes, multiTrackIndices, peaksByTrack }: TimelineProps): ReactElement {
+export function Timeline({ className = '', height = 120, isSyncing = false, viewport: externalViewport, multiTrackLanes, multiTrackIndices, assemblePeaksForViewport, hasTilesForTake }: TimelineProps): ReactElement {
   const { sendCommand } = useReaper();
   const { positionSeconds } = useTransport();
   // Defensive selectors with stable fallbacks - state can be undefined briefly on mobile during hydration
@@ -1045,7 +1051,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
             timelineEnd={viewport.visibleRange.end}
             height={height}
             focusedTrackGuid={viewFilterTrackGuid}
-            peaksByTrack={peaksByTrack}
+            assemblePeaksForViewport={assemblePeaksForViewport}
+            hasTilesForTake={hasTilesForTake}
             isGesturing={isGesturing}
           />
         )}
