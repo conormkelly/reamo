@@ -16,6 +16,8 @@ export interface ConnectionSlice {
   retryCount: number;
   errorCount: number;
   lastError: string | null;
+  /** True when a new version is available (PWA cache busting) */
+  updateAvailable: boolean;
 
   // Actions
   setConnected: (connected: boolean) => void;
@@ -24,6 +26,7 @@ export interface ConnectionSlice {
   setErrorCount: (count: number) => void;
   setLastError: (error: string | null) => void;
   updateConnectionStatus: (connected: boolean, errorCount: number) => void;
+  setUpdateAvailable: (available: boolean) => void;
 }
 
 export const createConnectionSlice: StateCreator<ConnectionSlice> = (set) => ({
@@ -33,6 +36,7 @@ export const createConnectionSlice: StateCreator<ConnectionSlice> = (set) => ({
   retryCount: 0,
   errorCount: 0,
   lastError: null,
+  updateAvailable: false,
 
   // Actions
   setConnected: (connected) => set({ connected }),
@@ -42,4 +46,5 @@ export const createConnectionSlice: StateCreator<ConnectionSlice> = (set) => ({
   setLastError: (lastError) => set({ lastError }),
   updateConnectionStatus: (connected, errorCount) =>
     set({ connected, errorCount }),
+  setUpdateAvailable: (updateAvailable) => set({ updateAvailable }),
 });
