@@ -29,3 +29,5 @@ export {
   MultiTrackLanes,
   type MultiTrackLanesProps,
 } from './MultiTrackLanes';
+export { WaveformCanvas, type WaveformCanvasProps } from './WaveformCanvas';
+export { WaveformLayer, type WaveformLayerProps } from './WaveformLayer';
