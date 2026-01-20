@@ -581,11 +581,13 @@ pub fn generateTilesForSubscription(
     var tiles_written: usize = 0;
     const config = peaks_tile.TILE_CONFIGS[tile_range.lod];
 
-    // Process each track
+    // Metrics for cache performance and timing
     var items_checked: usize = 0;
     var items_in_viewport: usize = 0;
-    var tile_gen_attempts: usize = 0;
+    var cache_hits: usize = 0;
+    var cache_misses: usize = 0;
     var tile_gen_failures: usize = 0;
+    var gen_time_ns: u64 = 0; // Total time spent generating tiles
 
     for (track_indices_buf[0..track_count]) |track_idx| {
         const track = api.getTrackByUnifiedIdx(track_idx) orelse {
@@ -670,9 +672,11 @@ pub fn generateTilesForSubscription(
                 // Try cache first
                 var tile_ptr: ?*peaks_tile.CachedTile = tile_cache.get(key);
 
-                // Generate if not cached
-                if (tile_ptr == null) {
-                    tile_gen_attempts += 1;
+                if (tile_ptr != null) {
+                    cache_hits += 1;
+                } else {
+                    // Generate if not cached
+                    cache_misses += 1;
 
                     // Create accessor lazily on first cache miss
                     if (accessor == null) {
@@ -689,6 +693,9 @@ pub fn generateTilesForSubscription(
                     const clamped_end = @min(tile_end_relative, item_length);
                     const tile_duration = clamped_end - tile_start_relative;
 
+                    // Time the tile generation
+                    const gen_start = std.time.nanoTimestamp();
+
                     // Use AudioAccessor for ALL LODs.
                     // GetMediaItemTake_Peaks via GetFunc() is broken on ARM64 macOS -
                     // even with low peakrate it returns 0 peaks. AudioAccessor works reliably.
@@ -700,6 +707,9 @@ pub fn generateTilesForSubscription(
                         tile_duration,
                         config.peaks_per_tile,
                     );
+
+                    const gen_end = std.time.nanoTimestamp();
+                    gen_time_ns += @intCast(@max(0, gen_end - gen_start));
 
                     if (maybe_tile) |tile| {
                         tile_cache.put(
@@ -782,12 +792,28 @@ pub fn generateTilesForSubscription(
     };
 
     if (tiles_written == 0) {
-        logging.info("peaks_generator: tiles_written=0 (checked={d}, in_viewport={d}, gen_attempts={d}, gen_failures={d})", .{
-            items_checked, items_in_viewport, tile_gen_attempts, tile_gen_failures,
+        logging.info("peaks_generator: tiles_written=0 (checked={d}, in_viewport={d}, hits={d}, misses={d}, failures={d})", .{
+            items_checked, items_in_viewport, cache_hits, cache_misses, tile_gen_failures,
         });
         allocator.free(buf);
         return null;
     }
+
+    // Log performance metrics
+    const total_tiles = cache_hits + cache_misses;
+    const hit_rate: f64 = if (total_tiles > 0) @as(f64, @floatFromInt(cache_hits)) / @as(f64, @floatFromInt(total_tiles)) * 100.0 else 0.0;
+    const gen_time_ms = @as(f64, @floatFromInt(gen_time_ns)) / 1_000_000.0;
+    const avg_gen_ms = if (cache_misses > 0) gen_time_ms / @as(f64, @floatFromInt(cache_misses)) else 0.0;
+
+    logging.info("peaks_generator: LOD{d} tiles={d} hits={d} misses={d} ({d:.0}% hit rate) gen={d:.1}ms (avg {d:.2}ms/tile)", .{
+        tile_range.lod,
+        tiles_written,
+        cache_hits,
+        cache_misses,
+        hit_rate,
+        gen_time_ms,
+        avg_gen_ms,
+    });
 
     // Shrink to actual size
     const written = stream.getWritten();

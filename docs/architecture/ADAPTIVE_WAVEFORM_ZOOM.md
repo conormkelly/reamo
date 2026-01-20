@@ -203,25 +203,30 @@ When hash changes → re-fetch affected items.
 
 ## Request Flow
 
+All LODs use the same unified tile-based path with AudioAccessor.
+
 ```
 Client subscribes with viewport { start, end, width_px }
                 ↓
-viewportPeakrate() → selects LOD (1, 10, or 400 peaks/sec)
+tilesForViewport() → selects LOD based on pixels/sec
                 ↓
 ┌─────────────────────────────────────────┐
-│ LOD 0/1: Full-item path                 │
-│   - Check cache by (guid, lod, epoch)   │
-│   - If miss: GetMediaItemTake_Peaks     │
-│   - Return peaks for viewport slice     │
-├─────────────────────────────────────────┤
-│ LOD 2: Tile path                        │
+│ For each item overlapping viewport:     │
 │   - Calculate tile range for viewport   │
-│   - For each tile:                      │
+│   - Create AudioAccessor (lazy, once)   │
+│   - For each tile in range:             │
 │     - Check tile cache                  │
-│     - If miss: AudioAccessor → compute  │
-│   - Stitch tiles → return               │
+│     - If hit: use cached tile           │
+│     - If miss: generate via accessor    │
+│   - Destroy accessor                    │
+│   - Return tiles as JSON                │
 └─────────────────────────────────────────┘
 ```
+
+**Key optimizations:**
+- AudioAccessor created lazily (only on first cache miss)
+- Single accessor reused for all tiles of an item
+- 4000 Hz sample rate (11x faster than 44100 Hz)
 
 ---
 
