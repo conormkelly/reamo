@@ -21,6 +21,7 @@ import { createActor, type Subscription } from 'xstate';
 import { websocketMachine, getConnectionStatus, type ConnectionStatus, type WebSocketEvent } from './websocketMachine';
 import type { ServerMessage } from './WebSocketTypes';
 import { useReaperStore } from '../store';
+import { checkVersionMismatch, storeVersion, hardRefresh } from '../utils/versionStorage';
 
 // =============================================================================
 // Pending Responses Management
@@ -84,8 +85,10 @@ const actor = createActor(websocketMachine, {
 
 // Track current status for consumers
 let currentStatus: ConnectionStatus = 'idle';
+let previousStatus: ConnectionStatus = 'idle';
 let currentRetryCount = 0;
 let storeSubscription: Subscription | null = null;
+let versionCheckDone = false; // Only check version once per page load
 
 // Sync actor state to Zustand store
 function syncToStore(): void {
@@ -133,6 +136,35 @@ function syncToStore(): void {
       clearAllPendingResponses('Connection lost');
     }
   }
+
+  // Version check on first connect (PWA cache busting)
+  // Only check once per page load to avoid infinite reload loops
+  if (status === 'connected' && previousStatus !== 'connected' && !versionCheckDone) {
+    versionCheckDone = true;
+    const { extensionVersion, htmlMtime } = context;
+
+    if (extensionVersion && htmlMtime !== null) {
+      const result = checkVersionMismatch(extensionVersion, htmlMtime);
+
+      if (result === 'mismatch') {
+        // Version changed since last load - either auto-refresh or show banner
+        const autoUpdateEnabled = useReaperStore.getState().autoUpdateEnabled;
+        if (autoUpdateEnabled) {
+          // Silent hard refresh
+          hardRefresh();
+        } else {
+          // Show "Update available" banner
+          useReaperStore.getState().setUpdateAvailable(true);
+        }
+      } else {
+        // First load or same version - store for future comparison
+        storeVersion(extensionVersion, htmlMtime);
+      }
+    }
+  }
+
+  // Update previous status for next comparison
+  previousStatus = status;
 }
 
 // Subscribe to actor state changes

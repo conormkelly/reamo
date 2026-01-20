@@ -1,6 +1,7 @@
 export { ReaperProvider, useReaper, type ReaperProviderProps } from './ReaperProvider';
 export { ErrorBoundary } from './ErrorBoundary';
 export { ConnectionStatus, ConnectionBanner, type ConnectionStatusProps, type ConnectionBannerProps } from './ConnectionStatus';
+export { UpdateBanner, type UpdateBannerProps } from './UpdateBanner';
 export { MemoryWarningBar, type MemoryWarningBarProps } from './MemoryWarningBar';
 export { NetworkStatsModal, type NetworkStatsModalProps } from './NetworkStatsModal';
 export { ModalRoot } from './ModalRoot';

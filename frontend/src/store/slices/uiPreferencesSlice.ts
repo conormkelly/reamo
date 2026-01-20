@@ -17,6 +17,8 @@ export interface UIPreferencesState {
   notesFontSize: number;
   /** When to automatically re-enable follow playhead */
   followPlayheadReEnable: FollowPlayheadReEnable;
+  /** Auto-refresh when new version detected (PWA cache busting) */
+  autoUpdateEnabled: boolean;
 
   // Actions
   setShowTabBar: (show: boolean) => void;
@@ -28,6 +30,8 @@ export interface UIPreferencesState {
   setNotesFontSize: (size: number) => void;
   adjustNotesFontSize: (delta: number) => void;
   setFollowPlayheadReEnable: (mode: FollowPlayheadReEnable) => void;
+  setAutoUpdateEnabled: (enabled: boolean) => void;
+  toggleAutoUpdateEnabled: () => void;
   loadUIPrefsFromStorage: () => void;
 }
 
@@ -37,6 +41,7 @@ interface StoredPrefs {
   transportPosition?: 'left' | 'right';
   notesFontSize?: number;
   followPlayheadReEnable?: FollowPlayheadReEnable;
+  autoUpdateEnabled?: boolean;
 }
 
 const DEFAULT_PREFS = {
@@ -45,6 +50,7 @@ const DEFAULT_PREFS = {
   transportPosition: 'left' as const,
   notesFontSize: 16,
   followPlayheadReEnable: 'on-playback' as FollowPlayheadReEnable,
+  autoUpdateEnabled: true,
 };
 
 function saveToStorage(prefs: StoredPrefs): void {
@@ -66,6 +72,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       transportPosition: get().transportPosition,
       notesFontSize: get().notesFontSize,
       followPlayheadReEnable: get().followPlayheadReEnable,
+      autoUpdateEnabled: get().autoUpdateEnabled,
     });
   },
 
@@ -77,6 +84,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       transportPosition: get().transportPosition,
       notesFontSize: get().notesFontSize,
       followPlayheadReEnable: get().followPlayheadReEnable,
+      autoUpdateEnabled: get().autoUpdateEnabled,
     });
   },
 
@@ -88,6 +96,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       transportPosition: position,
       notesFontSize: get().notesFontSize,
       followPlayheadReEnable: get().followPlayheadReEnable,
+      autoUpdateEnabled: get().autoUpdateEnabled,
     });
   },
 
@@ -100,6 +109,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       transportPosition: get().transportPosition,
       notesFontSize: get().notesFontSize,
       followPlayheadReEnable: get().followPlayheadReEnable,
+      autoUpdateEnabled: get().autoUpdateEnabled,
     });
   },
 
@@ -112,6 +122,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       transportPosition: get().transportPosition,
       notesFontSize: get().notesFontSize,
       followPlayheadReEnable: get().followPlayheadReEnable,
+      autoUpdateEnabled: get().autoUpdateEnabled,
     });
   },
 
@@ -124,6 +135,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       transportPosition: newValue,
       notesFontSize: get().notesFontSize,
       followPlayheadReEnable: get().followPlayheadReEnable,
+      autoUpdateEnabled: get().autoUpdateEnabled,
     });
   },
 
@@ -136,6 +148,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       transportPosition: get().transportPosition,
       notesFontSize: clamped,
       followPlayheadReEnable: get().followPlayheadReEnable,
+      autoUpdateEnabled: get().autoUpdateEnabled,
     });
   },
 
@@ -148,6 +161,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       transportPosition: get().transportPosition,
       notesFontSize: newSize,
       followPlayheadReEnable: get().followPlayheadReEnable,
+      autoUpdateEnabled: get().autoUpdateEnabled,
     });
   },
 
@@ -159,6 +173,32 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       transportPosition: get().transportPosition,
       notesFontSize: get().notesFontSize,
       followPlayheadReEnable: mode,
+      autoUpdateEnabled: get().autoUpdateEnabled,
+    });
+  },
+
+  setAutoUpdateEnabled: (enabled) => {
+    set({ autoUpdateEnabled: enabled });
+    saveToStorage({
+      showTabBar: get().showTabBar,
+      showPersistentTransport: get().showPersistentTransport,
+      transportPosition: get().transportPosition,
+      notesFontSize: get().notesFontSize,
+      followPlayheadReEnable: get().followPlayheadReEnable,
+      autoUpdateEnabled: enabled,
+    });
+  },
+
+  toggleAutoUpdateEnabled: () => {
+    const newValue = !get().autoUpdateEnabled;
+    set({ autoUpdateEnabled: newValue });
+    saveToStorage({
+      showTabBar: get().showTabBar,
+      showPersistentTransport: get().showPersistentTransport,
+      transportPosition: get().transportPosition,
+      notesFontSize: get().notesFontSize,
+      followPlayheadReEnable: get().followPlayheadReEnable,
+      autoUpdateEnabled: newValue,
     });
   },
 
@@ -173,6 +213,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
           transportPosition: parsed.transportPosition ?? DEFAULT_PREFS.transportPosition,
           notesFontSize: parsed.notesFontSize ?? DEFAULT_PREFS.notesFontSize,
           followPlayheadReEnable: parsed.followPlayheadReEnable ?? DEFAULT_PREFS.followPlayheadReEnable,
+          autoUpdateEnabled: parsed.autoUpdateEnabled ?? DEFAULT_PREFS.autoUpdateEnabled,
         });
       }
     } catch (e) {

@@ -28,6 +28,8 @@ export function ViewHeader({ currentView, children }: ViewHeaderProps): ReactEle
     toggleTransportPosition,
   } = useUIPreferences();
 
+  const autoUpdateEnabled = useReaperStore((s) => s.autoUpdateEnabled);
+  const toggleAutoUpdateEnabled = useReaperStore((s) => s.toggleAutoUpdateEnabled);
   const showRecordingActions = useReaperStore((s) => s.showRecordingActions);
   const setShowRecordingActions = useReaperStore((s) => s.setShowRecordingActions);
   const pinMasterTrack = useReaperStore((s) => s.pinMasterTrack);
@@ -50,6 +52,8 @@ export function ViewHeader({ currentView, children }: ViewHeaderProps): ReactEle
         currentView={currentView}
         showRecordingActions={showRecordingActions}
         onToggleRecordingActions={() => setShowRecordingActions(!showRecordingActions)}
+        autoUpdateEnabled={autoUpdateEnabled}
+        onToggleAutoUpdateEnabled={toggleAutoUpdateEnabled}
         pinMasterTrack={pinMasterTrack}
         onTogglePinMasterTrack={() => setPinMasterTrack(!pinMasterTrack)}
         showAddTrackButton={showAddTrackButton}

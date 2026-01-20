@@ -11,6 +11,7 @@ import {
   TabBar,
   PersistentTransport,
   ConnectionBanner,
+  UpdateBanner,
   MemoryWarningBar,
   RecordingActionsBar,
   ErrorBoundary,
@@ -35,6 +36,7 @@ function AppContent() {
 
   const { showTabBar, showPersistentTransport, transportPosition } = useUIPreferences();
   const showRecordingActions = useReaperStore((s) => s.showRecordingActions);
+  const updateAvailable = useReaperStore((s) => s.updateAvailable);
   const { isRecording } = useTransport();
 
   // Calculate bottom offset for RecordingActionsBar (above tab bar + transport)
@@ -59,6 +61,9 @@ function AppContent() {
     <div className="flex flex-col h-screen-safe bg-bg-app overflow-hidden safe-area-top safe-area-x select-none">
       {/* Connection banner - shown at top when disconnected */}
       <ConnectionBanner />
+
+      {/* Update banner - shown when new version available (PWA cache busting) */}
+      {updateAvailable && <UpdateBanner />}
 
       {/* Memory warning bar - shown when arena utilization is high */}
       <MemoryWarningBar />
