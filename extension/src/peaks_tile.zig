@@ -293,10 +293,15 @@ pub const TileCache = struct {
     }
 
     /// Invalidate all tiles for a take (call when source audio changes).
+    /// Also invalidates the cached epoch so it will be recomputed.
     pub fn invalidateTake(self: *TileCache, take_guid: []const u8) void {
         self.epochs.invalidate(take_guid);
+        self.removeTilesForTake(take_guid);
+    }
 
-        // Remove all tiles for this take from cache
+    /// Remove all cached tiles for a take (without invalidating epoch).
+    /// Use this when epoch has already been updated via checkAndUpdate().
+    fn removeTilesForTake(self: *TileCache, take_guid: []const u8) void {
         var keys_to_remove: [MAX_CACHE_ENTRIES]TileCacheKey = undefined;
         var remove_count: usize = 0;
 
@@ -325,23 +330,30 @@ pub const TileCache = struct {
     }
 
     /// Check if track items have changed since last check.
-    /// Computes hash of all item properties that affect peaks.
-    /// Returns true if changed (or first time checking this track).
+    /// Checks both:
+    /// 1. Item property hash (position, length, playrate, etc.) - detects move/trim/stretch
+    /// 2. Source epochs for each take - detects audio edits (render, normalize, etc.)
+    /// Returns true if anything changed (or first time checking this track).
     pub fn trackChanged(
         self: *TileCache,
         track_guid: []const u8,
         api: anytype,
         track: *anyopaque,
     ) bool {
-        const current_hash = computeTrackItemsHash(api, track);
+        var changed = false;
 
+        // Check 1: Item property hash (structural changes)
+        const current_hash = computeTrackItemsHash(api, track);
         if (self.track_hashes.get(track_guid)) |prev_hash| {
-            if (prev_hash == current_hash) {
-                return false; // No change
+            if (prev_hash != current_hash) {
+                changed = true;
             }
+        } else {
+            // First time seeing this track
+            changed = true;
         }
 
-        // Store new hash (need to dupe key if new)
+        // Store/update hash
         if (!self.track_hashes.contains(track_guid)) {
             const owned_guid = self.allocator.dupe(u8, track_guid) catch {
                 logging.warn("peaks_tile: failed to store track hash key", .{});
@@ -352,11 +364,34 @@ pub const TileCache = struct {
                 return true;
             };
         } else {
-            // Update existing entry
             self.track_hashes.put(track_guid, current_hash) catch {};
         }
 
-        return true; // Changed
+        // Check 2: Source epochs for each take (audio content changes)
+        // This detects when source audio is edited (render, normalize, etc.)
+        const item_count = api.trackItemCount(track);
+        var i: c_int = 0;
+        while (i < item_count) : (i += 1) {
+            const item = api.getItemByIdx(track, i) orelse continue;
+            const take = api.getItemActiveTake(item) orelse continue;
+
+            // Skip MIDI
+            if (api.isTakeMIDI(take)) continue;
+
+            var take_guid_buf: [64]u8 = undefined;
+            const take_guid = api.getTakeGUID(take, &take_guid_buf);
+
+            // Check if epoch changed (source audio was edited)
+            if (self.epochs.checkAndUpdate(take_guid, api, take)) |new_epoch| {
+                // Epoch changed - remove cached tiles for this take
+                // Note: checkAndUpdate already stored the new epoch, so just remove tiles
+                logging.info("peaks_tile: epoch changed for take {s} (new epoch: {}), removing tiles", .{ take_guid, new_epoch });
+                self.removeTilesForTake(take_guid);
+                changed = true;
+            }
+        }
+
+        return changed;
     }
 
     /// Clear hash for a track (call when track is deleted or subscription removed).

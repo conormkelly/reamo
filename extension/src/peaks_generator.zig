@@ -1,16 +1,12 @@
-/// Peaks Generator - Generate waveform peaks for all items on a track.
+/// Peaks Generator - Generate waveform peaks for all items in a subscription.
 ///
 /// Used by the peaks subscription system to push peak data to subscribed clients.
-/// Reuses AudioAccessor-based peak extraction from items.zig.
-/// Supports optional caching via PeaksCache for performance.
+/// Uses AudioAccessor for reliable peak extraction on all platforms.
 ///
-/// Usage without caching:
-///   const json = try generatePeaksForTrack(allocator, api, guid_cache, track_guid, 30, null);
-///   defer allocator.free(json);
-///   shared_state.sendToClient(client_id, json);
-///
-/// Usage with caching:
-///   const json = try generatePeaksForTrackCached(allocator, api, guid_cache, peaks_cache, track_guid, 30, null);
+/// Primary APIs:
+/// - generatePeaksForSubscription: Legacy full-item peaks (no viewport)
+/// - generateTilesForSubscription: Tile-based LOD peaks (with viewport)
+/// - generateTileViaAccessor: Single tile generation using AudioAccessor
 const std = @import("std");
 const logging = @import("logging.zig");
 const ffi = @import("ffi.zig");
@@ -42,268 +38,6 @@ const ItemPeaks = struct {
     num_peaks: usize,
     channels: usize, // 1 for mono, 2 for stereo
 };
-
-/// Generate peaks for all audio items on a track.
-///
-/// Returns a JSON event string suitable for WebSocket broadcast.
-/// Caller must free the returned string with the same allocator.
-///
-/// Parameters:
-/// - allocator: Used for the returned JSON string
-/// - api: Reaper backend (anytype for mock/real abstraction)
-/// - cache: GuidCache for track resolution
-/// - track_guid: Track GUID to generate peaks for
-/// - sample_count: Number of peaks per item (typically 30)
-/// - track_idx_out: Output for the resolved track index (or null if not needed)
-///
-/// Returns null if:
-/// - Track not found
-/// - No audio items on track
-/// - All items are MIDI
-pub fn generatePeaksForTrack(
-    allocator: Allocator,
-    api: anytype,
-    cache: *const guid_cache_mod.GuidCache,
-    track_guid: []const u8,
-    sample_count: u32,
-    track_idx_out: ?*c_int,
-) ?[]const u8 {
-    // Resolve track GUID to pointer
-    const track = cache.resolve(track_guid) orelse {
-        logging.debug("peaks_generator: track not found for GUID {s}", .{track_guid});
-        return null;
-    };
-
-    // Get track index for response
-    const track_idx = api.getTrackIdx(track);
-    if (track_idx_out) |out| {
-        out.* = track_idx;
-    }
-
-    // Count items on track
-    const item_count = api.trackItemCount(track);
-    if (item_count <= 0) {
-        logging.debug("peaks_generator: no items on track {s}", .{track_guid});
-        return null;
-    }
-
-    // Cap items for safety
-    const max_items: c_int = @min(item_count, MAX_ITEMS_PER_TRACK);
-    const num_peaks: usize = @min(@as(usize, sample_count), MAX_PEAKS_PER_ITEM);
-
-    // Collect peaks for all audio items
-    var items_peaks: [MAX_ITEMS_PER_TRACK]ItemPeaks = undefined;
-    var valid_count: usize = 0;
-
-    var i: c_int = 0;
-    while (i < max_items) : (i += 1) {
-        const item = api.getItemByIdx(track, i) orelse continue;
-
-        // Get active take
-        const take = api.getItemActiveTake(item) orelse continue;
-
-        // Skip MIDI items
-        if (api.isTakeMIDI(take)) continue;
-
-        // Generate peaks for this item
-        var item_peaks = ItemPeaks{
-            .item_guid = undefined,
-            .item_guid_len = 0,
-            .track_idx = track_idx,
-            .item_idx = i,
-            .position = 0,
-            .length = 0,
-            .peak_min = [_]f64{1.0} ** (MAX_PEAKS_PER_ITEM * 2),
-            .peak_max = [_]f64{-1.0} ** (MAX_PEAKS_PER_ITEM * 2),
-            .num_peaks = num_peaks,
-            .channels = 1,
-        };
-
-        // Get item properties
-        item_peaks.position = api.getItemPosition(item);
-        item_peaks.length = api.getItemLength(item);
-
-        // Validate length
-        if (!ffi.isFinite(item_peaks.length) or item_peaks.length <= 0) continue;
-
-        // Get item GUID
-        var guid_buf: [64]u8 = undefined;
-        const guid = api.getItemGUID(item, &guid_buf);
-        const guid_len = @min(guid.len, 40);
-        @memcpy(item_peaks.item_guid[0..guid_len], guid[0..guid_len]);
-        item_peaks.item_guid_len = guid_len;
-
-        // Generate peaks using AudioAccessor
-        if (generatePeaksForItem(allocator, api, take, item_peaks.length, num_peaks, &item_peaks)) {
-            items_peaks[valid_count] = item_peaks;
-            valid_count += 1;
-        }
-    }
-
-    if (valid_count == 0) {
-        logging.debug("peaks_generator: no audio items with peaks on track {s}", .{track_guid});
-        return null;
-    }
-
-    // Serialize to JSON event
-    return serializePeaksEvent(allocator, track_guid, items_peaks[0..valid_count]);
-}
-
-/// Generate peaks for all audio items on a track with caching.
-///
-/// Same as generatePeaksForTrack but uses PeaksCache to avoid regenerating
-/// unchanged items. Cache keys are content-addressed based on take properties.
-///
-/// Parameters:
-/// - allocator: Used for the returned JSON string
-/// - api: Reaper backend (anytype for mock/real abstraction)
-/// - guid_cache: GuidCache for track resolution
-/// - cache: PeaksCache for caching peaks (pass null to disable caching)
-/// - track_guid: Track GUID to generate peaks for
-/// - sample_count: Number of peaks per item (typically 30)
-/// - track_idx_out: Output for the resolved track index (or null if not needed)
-pub fn generatePeaksForTrackCached(
-    allocator: Allocator,
-    api: anytype,
-    guid_cache: *const guid_cache_mod.GuidCache,
-    cache: ?*peaks_cache.PeaksCache,
-    track_guid: []const u8,
-    sample_count: u32,
-    track_idx_out: ?*c_int,
-) ?[]const u8 {
-    // Resolve track GUID to pointer
-    const track = guid_cache.resolve(track_guid) orelse {
-        logging.debug("peaks_generator: track not found for GUID {s}", .{track_guid});
-        return null;
-    };
-
-    // Get track index for response
-    const track_idx = api.getTrackIdx(track);
-    if (track_idx_out) |out| {
-        out.* = track_idx;
-    }
-
-    // Count items on track
-    const item_count = api.trackItemCount(track);
-    if (item_count <= 0) {
-        logging.debug("peaks_generator: no items on track {s}", .{track_guid});
-        return null;
-    }
-
-    // Cap items for safety
-    const max_items: c_int = @min(item_count, MAX_ITEMS_PER_TRACK);
-    const num_peaks: usize = @min(@as(usize, sample_count), MAX_PEAKS_PER_ITEM);
-
-    // Collect peaks for all audio items
-    var items_peaks: [MAX_ITEMS_PER_TRACK]ItemPeaks = undefined;
-    var valid_count: usize = 0;
-    var cache_hits: usize = 0;
-    var cache_misses: usize = 0;
-
-    var i: c_int = 0;
-    while (i < max_items) : (i += 1) {
-        const item = api.getItemByIdx(track, i) orelse continue;
-
-        // Get active take
-        const take = api.getItemActiveTake(item) orelse continue;
-
-        // Skip MIDI items
-        if (api.isTakeMIDI(take)) continue;
-
-        // Initialize item peaks struct
-        var item_peaks = ItemPeaks{
-            .item_guid = undefined,
-            .item_guid_len = 0,
-            .track_idx = track_idx,
-            .item_idx = i,
-            .position = 0,
-            .length = 0,
-            .peak_min = [_]f64{1.0} ** (MAX_PEAKS_PER_ITEM * 2),
-            .peak_max = [_]f64{-1.0} ** (MAX_PEAKS_PER_ITEM * 2),
-            .num_peaks = num_peaks,
-            .channels = 1,
-        };
-
-        // Get item properties
-        item_peaks.position = api.getItemPosition(item);
-        item_peaks.length = api.getItemLength(item);
-
-        // Validate length
-        if (!ffi.isFinite(item_peaks.length) or item_peaks.length <= 0) continue;
-
-        // Get item GUID
-        var item_guid_buf: [64]u8 = undefined;
-        const item_guid = api.getItemGUID(item, &item_guid_buf);
-        const item_guid_len = @min(item_guid.len, 40);
-        @memcpy(item_peaks.item_guid[0..item_guid_len], item_guid[0..item_guid_len]);
-        item_peaks.item_guid_len = item_guid_len;
-
-        // Try cache lookup
-        if (cache) |c| {
-            // Get take properties for cache key
-            var take_guid_buf: [64]u8 = undefined;
-            const take_guid = api.getTakeGUID(take, &take_guid_buf);
-            const start_offset = api.getTakeStartOffset(take);
-            const playrate = api.getTakePlayrate(take);
-
-            const key = peaks_cache.PeaksCacheKey.create(
-                take_guid,
-                start_offset,
-                playrate,
-                item_peaks.length,
-                sample_count,
-            );
-
-            if (c.get(key)) |cached| {
-                // Use cached peaks
-                const copy_len = @min(@as(usize, cached.num_peaks) * @as(usize, cached.channels), MAX_PEAKS_PER_ITEM * 2);
-                @memcpy(item_peaks.peak_min[0..copy_len], cached.peak_min[0..copy_len]);
-                @memcpy(item_peaks.peak_max[0..copy_len], cached.peak_max[0..copy_len]);
-                item_peaks.num_peaks = cached.num_peaks;
-                item_peaks.channels = cached.channels;
-                cache_hits += 1;
-            } else {
-                // Generate peaks and store in cache
-                if (generatePeaksForItem(allocator, api, take, item_peaks.length, num_peaks, &item_peaks)) {
-                    c.put(
-                        key,
-                        item_peaks.peak_min[0 .. item_peaks.num_peaks * item_peaks.channels],
-                        item_peaks.peak_max[0 .. item_peaks.num_peaks * item_peaks.channels],
-                        item_peaks.num_peaks,
-                        item_peaks.channels,
-                    );
-                    cache_misses += 1;
-                } else {
-                    continue;
-                }
-            }
-        } else {
-            // No cache, generate directly
-            if (!generatePeaksForItem(allocator, api, take, item_peaks.length, num_peaks, &item_peaks)) {
-                continue;
-            }
-        }
-
-        items_peaks[valid_count] = item_peaks;
-        valid_count += 1;
-    }
-
-    if (cache != null) {
-        logging.debug("peaks_generator: {d} items, {d} cache hits, {d} misses", .{
-            valid_count,
-            cache_hits,
-            cache_misses,
-        });
-    }
-
-    if (valid_count == 0) {
-        logging.debug("peaks_generator: no audio items with peaks on track {s}", .{track_guid});
-        return null;
-    }
-
-    // Serialize to JSON event
-    return serializePeaksEvent(allocator, track_guid, items_peaks[0..valid_count]);
-}
 
 /// Maximum tracks in a single subscription broadcast.
 const MAX_TRACKS_PER_BROADCAST = 32;
@@ -611,6 +345,37 @@ pub fn generateTileViaAccessor(
     tile_duration: f64,
     num_peaks: usize,
 ) ?peaks_tile.CachedTile {
+    // Create audio accessor for this take
+    const accessor = api.makeTakeAccessor(take) orelse {
+        logging.warn("genTileAccessor: failed to create accessor", .{});
+        return null;
+    };
+    defer api.destroyTakeAccessor(accessor);
+
+    return generateTileWithAccessor(allocator, api, accessor, tile_start_time, tile_duration, num_peaks);
+}
+
+/// Generate a single tile using a pre-existing AudioAccessor.
+/// Use this when generating multiple tiles for the same take to avoid
+/// creating/destroying the accessor for each tile.
+///
+/// Parameters:
+/// - allocator: For temporary sample buffer
+/// - api: Reaper backend
+/// - accessor: Pre-created AudioAccessor (caller manages lifetime)
+/// - tile_start_time: Start time relative to ITEM start (not project time)
+/// - tile_duration: Duration of the tile in seconds
+/// - num_peaks: Number of peaks to compute for this tile
+///
+/// Returns CachedTile on success, null on failure.
+fn generateTileWithAccessor(
+    allocator: Allocator,
+    api: anytype,
+    accessor: *anyopaque,
+    tile_start_time: f64,
+    tile_duration: f64,
+    num_peaks: usize,
+) ?peaks_tile.CachedTile {
     if (num_peaks == 0 or num_peaks > peaks_tile.MAX_PEAKS_PER_TILE) {
         logging.warn("genTileAccessor: invalid num_peaks {d}", .{num_peaks});
         return null;
@@ -621,13 +386,6 @@ pub fn generateTileViaAccessor(
         logging.info("genTileAccessor: skipping tile with invalid duration {d:.2}s at start {d:.2}s", .{ tile_duration, tile_start_time });
         return null;
     }
-
-    // Create audio accessor for this take
-    const accessor = api.makeTakeAccessor(take) orelse {
-        logging.warn("genTileAccessor: failed to create accessor", .{});
-        return null;
-    };
-    defer api.destroyTakeAccessor(accessor);
 
     // Calculate samples needed
     // At 4000 Hz, a 0.5s tile = 2000 samples, giving 10 samples per peak for 200 peaks
@@ -723,178 +481,6 @@ pub fn generateTileViaAccessor(
 
     return tile;
 }
-
-/// Generate a single tile for a take at specified LOD and tile index.
-/// Returns a CachedTile on success, null on failure.
-///
-/// Uses GetMediaItemTake_Peaks API per ADAPTIVE_WAVEFORM_ZOOM.md:
-/// - REAPER auto-selects mipmap tier based on peakrate
-/// - starttime is PROJECT TIME (item's D_POSITION + tile_offset)
-/// - Buffer layout is channel-interleaved: [LR_max...][LR_min...]
-pub fn generateTileForTake(
-    allocator: Allocator,
-    api: anytype,
-    take: *anyopaque,
-    item_position: f64, // Item's D_ON timeline (PROJECT TIME)
-    item_length: f64, // Item's D_LENGTH
-    lod_level: u2,
-    tile_index: u32,
-) ?peaks_tile.CachedTile {
-    const config = peaks_tile.TILE_CONFIGS[lod_level];
-
-    // DEBUG: Log entry with take pointer for tracing
-    logging.info("genTile: ENTRY take=0x{x} pos={d:.2} len={d:.2} lod={d} tile={d}", .{
-        @intFromPtr(take), item_position, item_length, lod_level, tile_index,
-    });
-
-    // DEBUG: Validate take pointer before using it (if the backend supports it)
-    const is_valid = if (@hasDecl(@TypeOf(api.*), "validateTakePtr"))
-        api.validateTakePtr(take)
-    else
-        true; // Mock backends don't have validateTakePtr
-
-    logging.info("genTile: validateTakePtr={}", .{is_valid});
-    if (!is_valid) {
-        logging.warn("genTile: STALE take pointer - returning null", .{});
-        return null;
-    }
-
-    // Calculate tile time range (relative to item start)
-    const tile_start_relative = @as(f64, @floatFromInt(tile_index)) * config.duration;
-    const tile_end_relative = tile_start_relative + config.duration;
-
-    // Clamp to item bounds
-    if (tile_start_relative >= item_length) {
-        logging.info("genTile: tile_start {d:.1} >= item_length {d:.1}", .{ tile_start_relative, item_length });
-        return null;
-    }
-    const clamped_end = @min(tile_end_relative, item_length);
-    const tile_duration = clamped_end - tile_start_relative;
-
-    if (tile_duration <= 0) {
-        logging.warn("genTile: tile duration <= 0", .{});
-        return null;
-    }
-
-    // Calculate number of peaks for this tile
-    const num_peaks: usize = @intFromFloat(@ceil(tile_duration * config.peakrate));
-    if (num_peaks == 0 or num_peaks > peaks_tile.MAX_PEAKS_PER_TILE) {
-        logging.warn("genTile: invalid num_peaks {d} (duration={d:.1}, peakrate={d:.1})", .{ num_peaks, tile_duration, config.peakrate });
-        return null;
-    }
-
-    // Use config.peakrate directly - this matches what Lua does successfully.
-    // The recalculated peakrate was producing wrong values (using item_length instead of tile_duration).
-    const peakrate: f64 = config.peakrate;
-
-    // WORKAROUND: GetMediaSourceNumChannels via GetFunc returns wrong value on ARM64 (always 1).
-    // Lua's API returns correct value (2 for stereo). Since we can't fix the API, always request
-    // 2 channels and detect mono by comparing L/R peaks later.
-    // See LATEST_FINDINGS.md for full investigation.
-    const num_channels: usize = 2;
-
-    // Allocate buffer: 2 blocks (max + min), each with interleaved channels
-    const buf_size = num_channels * num_peaks * 2;
-    const reaper_buf = allocator.alloc(f64, buf_size) catch {
-        logging.warn("genTile: failed to allocate {d} bytes", .{buf_size * 8});
-        return null;
-    };
-    defer allocator.free(reaper_buf);
-
-    // starttime = PROJECT TIME (per ADAPTIVE_WAVEFORM_ZOOM.md lines 76-94):
-    // "GetMediaItemTake_Peaks expects PROJECT time (absolute timeline position)"
-    // "The API automatically handles D_STARTOFFS (trim) and D_PLAYRATE internally"
-    // Don't manually add start_offset - REAPER does that for us!
-    const project_time = item_position + tile_start_relative;
-
-    // DEBUG: Log API call parameters
-    logging.info("genTile: CALLING API peakrate={d:.4} project_time={d:.2} (item_pos={d:.2} + tile_rel={d:.2}) ch={d} numPeaks={d}", .{
-        peakrate, project_time, item_position, tile_start_relative, num_channels, num_peaks,
-    });
-
-    // Call REAPER's GetMediaItemTake_Peaks
-    // peakrate = num_peaks / tile_duration (let REAPER handle LOD selection)
-    const result = api.getMediaItemTakePeaks(
-        take,
-        peakrate,
-        project_time, // PROJECT TIME (item's timeline position + tile offset)
-        @intCast(num_channels),
-        @intCast(num_peaks),
-        reaper_buf,
-    );
-
-    // Parse return value (per ADAPTIVE_WAVEFORM_ZOOM.md):
-    // bits 0-19: actual sample count
-    // bits 20-23: mode (0 = interpolated from coarser mipmap, 1+ = native)
-    // NOTE: mode=0 is VALID DATA, not an error! Only check actual_peaks for failure.
-    const actual_peaks: usize = @intCast(result & 0xFFFFF);
-    const mode = (result >> 20) & 0xF;
-
-    // DEBUG: Log result and first few buffer values
-    logging.info("genTile: API RESULT result={d} actual={d} mode={d}", .{ result, actual_peaks, mode });
-    if (reaper_buf.len >= 4) {
-        logging.info("genTile: BUFFER first 4 values: [{d:.4}, {d:.4}, {d:.4}, {d:.4}]", .{
-            reaper_buf[0], reaper_buf[1], reaper_buf[2], reaper_buf[3],
-        });
-    }
-
-    if (actual_peaks == 0) {
-        logging.warn("genTile: API returned 0 peaks for tile {d} at project_time={d:.2}", .{ tile_index, project_time });
-        return null;
-    }
-
-    // Parse buffer with CORRECT layout (channel-interleaved within blocks)
-    // Block 1 (max): [L_max_0, R_max_0, L_max_1, R_max_1, ...]
-    // Block 2 (min): [L_min_0, R_min_0, L_min_1, R_min_1, ...]
-    var tile = peaks_tile.CachedTile.empty();
-    const peaks_to_use = @min(actual_peaks, num_peaks);
-    const block_size = num_channels * peaks_to_use;
-
-    for (0..peaks_to_use) |p| {
-        for (0..num_channels) |ch| {
-            const our_idx = p * num_channels + ch;
-            // CORRECT indexing per ADAPTIVE_WAVEFORM_ZOOM.md:
-            const max_offset = p * num_channels + ch; // Within first block
-            const min_offset = block_size + p * num_channels + ch; // Within second block
-            tile.peak_max[our_idx] = reaper_buf[max_offset];
-            tile.peak_min[our_idx] = reaper_buf[min_offset];
-        }
-    }
-
-    // Detect mono vs stereo by comparing L/R peaks
-    const detected_channels: u8 = blk: {
-        const epsilon = 0.0001;
-        for (0..peaks_to_use) |p| {
-            const max_l = tile.peak_max[p * 2];
-            const max_r = tile.peak_max[p * 2 + 1];
-            const min_l = tile.peak_min[p * 2];
-            const min_r = tile.peak_min[p * 2 + 1];
-            if (@abs(max_l - max_r) > epsilon or @abs(min_l - min_r) > epsilon) {
-                break :blk 2; // Different L/R = true stereo
-            }
-        }
-        break :blk 1; // All L/R identical = mono
-    };
-
-    tile.num_peaks = @intCast(peaks_to_use);
-    tile.channels = detected_channels;
-
-    return tile;
-}
-
-/// Tile info for JSON serialization
-pub const TileInfo = struct {
-    take_guid: []const u8,
-    epoch: u32,
-    lod: u2,
-    tile_index: u32,
-    start_time: f64, // Relative to item start
-    end_time: f64, // Relative to item start
-    channels: u8,
-    num_peaks: u16,
-    peak_min: []const f64,
-    peak_max: []const f64,
-};
 
 /// Generate tiles for all items in a subscription's viewport.
 /// Returns a JSON event string with tile-based format.
@@ -1070,6 +656,12 @@ pub fn generateTilesForSubscription(
                 item_start_tile, item_end_tile, config.duration,
             });
 
+            // Create AudioAccessor ONCE for this take, reuse for all tiles.
+            // This is a significant optimization - creating an accessor is expensive.
+            // We create it lazily only if there are uncached tiles to generate.
+            var accessor: ?*anyopaque = null;
+            defer if (accessor) |acc| api.destroyTakeAccessor(acc);
+
             // Generate tiles for this item
             var tile_idx = item_start_tile;
             while (tile_idx <= item_end_tile and tile_idx < 10000) : (tile_idx += 1) {
@@ -1082,6 +674,15 @@ pub fn generateTilesForSubscription(
                 if (tile_ptr == null) {
                     tile_gen_attempts += 1;
 
+                    // Create accessor lazily on first cache miss
+                    if (accessor == null) {
+                        accessor = api.makeTakeAccessor(take);
+                        if (accessor == null) {
+                            logging.warn("peaks_generator: failed to create accessor for take", .{});
+                            break; // Skip remaining tiles for this item
+                        }
+                    }
+
                     // Calculate tile time range (relative to item start)
                     const tile_start_relative = @as(f64, @floatFromInt(tile_idx)) * config.duration;
                     const tile_end_relative = tile_start_relative + config.duration;
@@ -1091,10 +692,10 @@ pub fn generateTilesForSubscription(
                     // Use AudioAccessor for ALL LODs.
                     // GetMediaItemTake_Peaks via GetFunc() is broken on ARM64 macOS -
                     // even with low peakrate it returns 0 peaks. AudioAccessor works reliably.
-                    const maybe_tile: ?peaks_tile.CachedTile = generateTileViaAccessor(
+                    const maybe_tile: ?peaks_tile.CachedTile = generateTileWithAccessor(
                         allocator,
                         api,
-                        take,
+                        accessor.?,
                         tile_start_relative, // Relative to item/take start
                         tile_duration,
                         config.peaks_per_tile,
@@ -1335,144 +936,9 @@ fn parseReaperPeaks(
     }
 }
 
-/// Serialize peaks event to JSON.
-/// Returns allocated string or null on error.
-fn serializePeaksEvent(
-    allocator: Allocator,
-    track_guid: []const u8,
-    items: []const ItemPeaks,
-) ?[]const u8 {
-    // Estimate buffer size: ~500 bytes per item (with 30 peaks)
-    const estimated_size = 256 + items.len * 800;
-    const buf = allocator.alloc(u8, estimated_size) catch {
-        logging.warn("peaks_generator: failed to allocate {d} bytes for JSON", .{estimated_size});
-        return null;
-    };
-    errdefer allocator.free(buf);
-
-    var stream = std.io.fixedBufferStream(buf);
-    var w = stream.writer();
-
-    // Write event envelope (must include type:"event" for frontend compatibility)
-    w.writeAll("{\"type\":\"event\",\"event\":\"peaks\",\"payload\":{\"trackGuid\":\"") catch return null;
-    w.writeAll(track_guid) catch return null;
-    w.writeAll("\",\"items\":[") catch return null;
-
-    for (items, 0..) |item, item_i| {
-        if (item_i > 0) w.writeByte(',') catch return null;
-
-        // Write item object
-        w.writeAll("{\"itemGuid\":\"") catch return null;
-        w.writeAll(item.item_guid[0..item.item_guid_len]) catch return null;
-        w.print("\",\"trackIdx\":{d},\"itemIdx\":{d}", .{ item.track_idx, item.item_idx }) catch return null;
-        w.print(",\"position\":{d:.6},\"length\":{d:.6}", .{ item.position, item.length }) catch return null;
-        w.print(",\"channels\":{d},\"peaks\":[", .{item.channels}) catch return null;
-
-        // Write peaks array
-        for (0..item.num_peaks) |p| {
-            if (p > 0) w.writeByte(',') catch return null;
-
-            if (item.channels == 2) {
-                // Stereo: {"l":[min,max],"r":[min,max]}
-                const max_l = item.peak_max[p * 2];
-                const max_r = item.peak_max[p * 2 + 1];
-                const min_l = item.peak_min[p * 2];
-                const min_r = item.peak_min[p * 2 + 1];
-                w.print("{{\"l\":[{d:.4},{d:.4}],\"r\":[{d:.4},{d:.4}]}}", .{
-                    min_l, max_l, min_r, max_r,
-                }) catch return null;
-            } else {
-                // Mono: [min,max]
-                const max_val = item.peak_max[p];
-                const min_val = item.peak_min[p];
-                w.print("[{d:.4},{d:.4}]", .{ min_val, max_val }) catch return null;
-            }
-        }
-
-        w.writeAll("]}") catch return null;
-    }
-
-    w.writeAll("]}}") catch return null;
-
-    // Shrink to actual size
-    const written = stream.getWritten();
-    const result = allocator.realloc(buf, written.len) catch buf;
-    return result[0..written.len];
-}
-
 // =============================================================================
 // Tests
 // =============================================================================
-
-test "serializePeaksEvent basic" {
-    const allocator = std.testing.allocator;
-
-    var items: [1]ItemPeaks = undefined;
-    items[0] = ItemPeaks{
-        .item_guid = undefined,
-        .item_guid_len = 11,
-        .track_idx = 0,
-        .item_idx = 0,
-        .position = 1.5,
-        .length = 2.0,
-        .peak_min = [_]f64{1.0} ** (MAX_PEAKS_PER_ITEM * 2),
-        .peak_max = [_]f64{-1.0} ** (MAX_PEAKS_PER_ITEM * 2),
-        .num_peaks = 2,
-        .channels = 1,
-    };
-    @memcpy(items[0].item_guid[0..11], "{test-guid}");
-
-    // Set up mono peaks: peak 0 = [-0.5, 0.8], peak 1 = [-0.3, 0.6]
-    items[0].peak_min[0] = -0.5;
-    items[0].peak_max[0] = 0.8;
-    items[0].peak_min[1] = -0.3;
-    items[0].peak_max[1] = 0.6;
-
-    const json = serializePeaksEvent(allocator, "{track-guid}", &items);
-    try std.testing.expect(json != null);
-    defer allocator.free(json.?);
-
-    // Verify structure
-    try std.testing.expect(std.mem.indexOf(u8, json.?, "\"event\":\"peaks\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.?, "\"trackGuid\":\"{track-guid}\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.?, "\"itemGuid\":\"{test-guid}\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.?, "\"channels\":1") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.?, "\"position\":1.5") != null);
-}
-
-test "serializePeaksEvent stereo" {
-    const allocator = std.testing.allocator;
-
-    var items: [1]ItemPeaks = undefined;
-    items[0] = ItemPeaks{
-        .item_guid = undefined,
-        .item_guid_len = 11,
-        .track_idx = 1,
-        .item_idx = 2,
-        .position = 0.0,
-        .length = 1.0,
-        .peak_min = [_]f64{1.0} ** (MAX_PEAKS_PER_ITEM * 2),
-        .peak_max = [_]f64{-1.0} ** (MAX_PEAKS_PER_ITEM * 2),
-        .num_peaks = 1,
-        .channels = 2,
-    };
-    @memcpy(items[0].item_guid[0..11], "{item-guid}");
-
-    // Set up stereo peak: L=[-0.5, 0.5], R=[-0.8, 0.8]
-    items[0].peak_min[0] = -0.5; // L min
-    items[0].peak_max[0] = 0.5; // L max
-    items[0].peak_min[1] = -0.8; // R min
-    items[0].peak_max[1] = 0.8; // R max
-
-    const json = serializePeaksEvent(allocator, "{track-2}", &items);
-    try std.testing.expect(json != null);
-    defer allocator.free(json.?);
-
-    // Verify stereo format
-    try std.testing.expect(std.mem.indexOf(u8, json.?, "\"channels\":2") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.?, "\"l\":[") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json.?, "\"r\":[") != null);
-}
 
 test "parseReaperPeaks mono" {
     // REAPER format for mono (1 channel), 3 peaks:
