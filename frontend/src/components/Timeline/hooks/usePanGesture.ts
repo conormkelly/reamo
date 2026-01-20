@@ -15,13 +15,19 @@ import { useState, useCallback, useRef, useEffect, type RefObject } from 'react'
 const VERTICAL_CANCEL_THRESHOLD = 50;
 
 /** Friction coefficient per frame (60fps) - higher = more friction */
-const FRICTION = 0.965;
+const FRICTION = 0.95;
 
-/** Minimum velocity to continue momentum (seconds/frame) */
-const VELOCITY_THRESHOLD = 0.0005;
+/**
+ * Velocity constants as PERCENTAGE of viewport per frame.
+ * Tuned so 30-second zoom level feels optimal.
+ * At 30s: 0.015 ratio = 0.45 seconds/frame, 0.0002 ratio = 0.006 seconds/frame
+ */
 
-/** Maximum velocity cap to prevent runaway scrolling (seconds/frame) */
-const MAX_VELOCITY = 0.5;
+/** Minimum velocity to continue momentum (ratio of viewport per frame) */
+const VELOCITY_THRESHOLD_RATIO = 0.0002;
+
+/** Maximum velocity cap to prevent runaway scrolling (ratio of viewport per frame) */
+const MAX_VELOCITY_RATIO = 0.015;
 
 /** Number of recent events to track for velocity calculation */
 const VELOCITY_SAMPLE_COUNT = 5;
@@ -91,6 +97,7 @@ export function usePanGesture({
   // Refs to avoid stale closures in RAF loop
   const onPanRef = useRef(onPan);
   const disableMomentumRef = useRef(disableMomentum);
+  const visibleDurationRef = useRef(visibleDuration);
 
   useEffect(() => {
     onPanRef.current = onPan;
@@ -99,6 +106,10 @@ export function usePanGesture({
   useEffect(() => {
     disableMomentumRef.current = disableMomentum;
   }, [disableMomentum]);
+
+  useEffect(() => {
+    visibleDurationRef.current = visibleDuration;
+  }, [visibleDuration]);
 
   // Stop momentum animation
   const stopMomentum = useCallback(() => {
@@ -113,9 +124,11 @@ export function usePanGesture({
   // Momentum animation tick
   const momentumTick = useCallback(() => {
     const velocity = velocityRef.current;
+    const duration = visibleDurationRef.current;
 
-    // Stop if velocity is below threshold
-    if (Math.abs(velocity) < VELOCITY_THRESHOLD) {
+    // Stop if velocity is below threshold (viewport-relative)
+    const velocityThreshold = duration * VELOCITY_THRESHOLD_RATIO;
+    if (Math.abs(velocity) < velocityThreshold) {
       stopMomentum();
       return;
     }
@@ -161,8 +174,9 @@ export function usePanGesture({
     const velocityPerMs = -pixelsPerMs * secondsPerPixel;
     const velocityPerFrame = velocityPerMs * (1000 / 60); // ~16.67ms per frame
 
-    // Cap velocity to prevent runaway
-    return Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, velocityPerFrame));
+    // Cap velocity to prevent runaway (viewport-relative)
+    const maxVelocity = visibleDuration * MAX_VELOCITY_RATIO;
+    return Math.max(-maxVelocity, Math.min(maxVelocity, velocityPerFrame));
   }, [visibleDuration]);
 
   const handlePointerDown = useCallback(
@@ -266,11 +280,12 @@ export function usePanGesture({
       pointerSamplesRef.current = [];
       setIsPanning(false);
 
-      // Start momentum if not cancelled and velocity is significant
+      // Start momentum if not cancelled and velocity is significant (viewport-relative threshold)
+      const velocityThreshold = visibleDurationRef.current * VELOCITY_THRESHOLD_RATIO;
       if (
         !isCancelled &&
         !disableMomentumRef.current &&
-        Math.abs(velocity) >= VELOCITY_THRESHOLD
+        Math.abs(velocity) >= velocityThreshold
       ) {
         velocityRef.current = velocity;
         setIsMomentumActive(true);

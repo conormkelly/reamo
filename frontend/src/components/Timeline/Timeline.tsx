@@ -442,11 +442,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     disabled: false, // Pinch always works
   });
 
-  // Combine gesture states to suppress waveform canvas redraws during gestures
-  // This prevents flickering caused by 60+ canvas redraws during pinch/pan
-  // Uses state-based indicators that trigger re-renders when gestures start/end
-  const isGesturing = panGesture.isPanning || panGesture.isMomentumActive || pinchGesture.isPinching;
-
   // Render-specific timeToPercent (uses VIEWPORT bounds for visible range)
   // Extends viewport during drag operations to show drag targets
   const renderTimeToPercent = useCallback(
@@ -1053,7 +1048,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
             focusedTrackGuid={viewFilterTrackGuid}
             assemblePeaksForViewport={assemblePeaksForViewport}
             hasTilesForTake={hasTilesForTake}
-            isGesturing={isGesturing}
           />
         )}
 
