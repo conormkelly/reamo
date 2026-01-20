@@ -1,6 +1,8 @@
 /**
- * usePeaksSubscription Hook
- * Subscribes to peaks data for multiple tracks via WebSocket
+ * usePeaksSubscription Hook - TILE-BASED LOD VERSION
+ *
+ * Subscribes to tile-based peaks data for multiple tracks via WebSocket.
+ * Backend sends tiles at appropriate LOD based on viewport zoom level.
  *
  * Supports two subscription modes:
  * - Range mode: Subscribe to track indices [start, end] (for sequential bank navigation)
@@ -12,27 +14,28 @@
  *
  * @example
  * ```tsx
- * // Range mode (for timeline view)
- * function TimelineWaveforms({ range }: { range: { start: number; end: number } }) {
- *   const { peaksByTrack } = usePeaksSubscription({ range });
+ * function TimelineWaveforms({ range, viewport }: Props) {
+ *   const { assemblePeaksForViewport, hasTilesForTake, currentLod } = usePeaksSubscription({
+ *     range,
+ *     viewport,
+ *   });
  *
- *   // peaksByTrack is Map<trackIdx, Map<itemGuid, WSItemPeaks>>
- *   return <MultiTrackWaveforms peaksByTrack={peaksByTrack} />;
- * }
- *
- * // GUID mode (for filtered bank view)
- * function FilteredWaveforms({ guids }: { guids: string[] }) {
- *   const { peaksByTrack } = usePeaksSubscription({ guids });
- *   // ...
+ *   // For each item, get assembled peaks
+ *   const peaks = assemblePeaksForViewport(
+ *     item.activeTakeGuid,
+ *     item.position,
+ *     item.length
+ *   );
  * }
  * ```
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { useReaper } from '../components/ReaperProvider';
 import { useReaperStore } from '../store';
 import { peaks, type PeaksViewport } from '../core/WebSocketCommands';
-import type { WSItemPeaks } from '../core/WebSocketTypes';
+import type { LODLevel, StereoPeak, MonoPeak } from '../core/WebSocketTypes';
+import { calculateLODFromViewport } from '../core/WebSocketTypes';
 
 // Re-export for consumers
 export type { PeaksViewport };
@@ -42,26 +45,6 @@ const DEFAULT_SAMPLE_COUNT = 30;
 
 /** Debounce delay for viewport updates (ms) - per architecture doc */
 const VIEWPORT_DEBOUNCE_MS = 200;
-
-/**
- * Calculate LOD level from viewport (must match backend peaks_subscriptions.zig)
- * This prevents sending viewport updates when LOD hasn't actually changed.
- *
- * LOD levels:
- * - 2 (Fine):   peakrate > 200 px/sec
- * - 1 (Medium): peakrate > 5 px/sec
- * - 0 (Coarse): peakrate <= 5 px/sec
- */
-function calculateLOD(viewport: PeaksViewport): number {
-  const duration = viewport.end - viewport.start;
-  if (duration <= 0) return 1; // Default medium
-
-  const peakrate = viewport.widthPx / duration;
-
-  if (peakrate > 200) return 2; // Fine
-  if (peakrate > 5) return 1; // Medium
-  return 0; // Coarse
-}
 
 /** Subscription options */
 export interface UsePeaksSubscriptionOptions {
@@ -75,24 +58,41 @@ export interface UsePeaksSubscriptionOptions {
   viewport?: PeaksViewport;
 }
 
-/** Return value from usePeaksSubscription */
+/** Return value from usePeaksSubscription - TILE-BASED API */
 export interface UsePeaksSubscriptionResult {
-  /** Map from track index to (itemGuid -> peaks data) */
-  peaksByTrack: Map<number, Map<string, WSItemPeaks>>;
-  /** Get peaks for a specific track */
-  getPeaksForTrack: (trackIdx: number) => Map<string, WSItemPeaks> | undefined;
-  /** Get peaks for a specific item */
-  getPeaksForItem: (trackIdx: number, itemGuid: string) => WSItemPeaks | undefined;
+  /** Current LOD level (0=coarse, 1=medium, 2=fine) */
+  currentLod: LODLevel;
+
+  /**
+   * Assemble peaks for an item within the current viewport.
+   * Concatenates tiles that overlap the visible range.
+   * @param takeGuid - The active take GUID (from item.activeTakeGuid)
+   * @param itemPosition - Item start position in project time (seconds)
+   * @param itemLength - Item length (seconds)
+   * @returns Assembled peaks array, or null if no tiles available
+   */
+  assemblePeaksForViewport: (
+    takeGuid: string,
+    itemPosition: number,
+    itemLength: number
+  ) => StereoPeak[] | MonoPeak[] | null;
+
+  /**
+   * Check if any tiles exist for a take at the current LOD
+   * @param takeGuid - The active take GUID
+   * @returns true if tiles are cached for this take
+   */
+  hasTilesForTake: (takeGuid: string) => boolean;
+
+  /** Number of tiles in cache (for debugging/status) */
+  tileCacheSize: number;
 }
 
-// Empty map for stable reference when no data
-const EMPTY_PEAKS_MAP = new Map<number, Map<string, WSItemPeaks>>();
-
 /**
- * Hook to subscribe to peaks for multiple tracks
+ * Hook to subscribe to tile-based peaks for multiple tracks
  *
  * @param options - Subscription options (range or guids mode)
- * @returns Object with peaksByTrack map and helper functions
+ * @returns Object with tile-aware peak accessors
  */
 export function usePeaksSubscription(
   options: UsePeaksSubscriptionOptions | null
@@ -101,9 +101,10 @@ export function usePeaksSubscription(
   const setPeaksSubscriptionRange = useReaperStore((s) => s.setPeaksSubscriptionRange);
   const setPeaksSubscriptionGuids = useReaperStore((s) => s.setPeaksSubscriptionGuids);
   const clearPeaksSubscription = useReaperStore((s) => s.clearPeaksSubscription);
-  const peaksByTrack = useReaperStore((s) => s.peaksByTrack);
-  const getPeaksForTrack = useReaperStore((s) => s.getPeaksForTrack);
-  const getPeaksForItem = useReaperStore((s) => s.getPeaksForItem);
+  const currentLod = useReaperStore((s) => s.currentLod);
+  const tileCache = useReaperStore((s) => s.tileCache);
+  const storeHasTilesForTake = useReaperStore((s) => s.hasTilesForTake);
+  const storeAssemblePeaksForViewport = useReaperStore((s) => s.assemblePeaksForViewport);
 
   // Track previous subscription (excluding viewport - that's handled separately)
   const prevSubscriptionRef = useRef<string | null>(null);
@@ -122,19 +123,18 @@ export function usePeaksSubscription(
       })
     : null;
 
-  // Calculate current LOD - only send updates when this changes
-  const currentLOD = options?.viewport ? calculateLOD(options.viewport) : null;
+  // Calculate current LOD from viewport
+  const calculatedLOD = options?.viewport
+    ? calculateLODFromViewport(options.viewport.start, options.viewport.end, options.viewport.widthPx)
+    : null;
 
   // Use refs to access current values without adding to deps
-  // This prevents cleanup from running on every viewport/LOD change
   const optionsRef = useRef(options);
   optionsRef.current = options;
-  const currentLODRef = useRef(currentLOD);
-  currentLODRef.current = currentLOD;
+  const calculatedLODRef = useRef(calculatedLOD);
+  calculatedLODRef.current = calculatedLOD;
 
   // Effect 1: Track subscription changes (immediate)
-  // IMPORTANT: Only depends on subscriptionKey and connected
-  // This prevents the cleanup from clearing peaks on viewport/LOD changes
   useEffect(() => {
     if (!connected) return;
 
@@ -161,11 +161,10 @@ export function usePeaksSubscription(
           peaks.subscribe({
             range: currentOptions.range,
             sampleCount,
-            viewport: currentOptions.viewport, // Include current viewport on initial subscribe
+            viewport: currentOptions.viewport,
           })
         );
-        // Track the LOD we sent with subscription
-        prevLODRef.current = currentLODRef.current;
+        prevLODRef.current = calculatedLODRef.current;
       } else if (currentOptions.guids && currentOptions.guids.length > 0) {
         setPeaksSubscriptionGuids(currentOptions.guids);
         sendCommand(
@@ -175,15 +174,13 @@ export function usePeaksSubscription(
             viewport: currentOptions.viewport,
           })
         );
-        prevLODRef.current = currentLODRef.current;
+        prevLODRef.current = calculatedLODRef.current;
       }
     } else {
       clearPeaksSubscription();
     }
 
-    // Cleanup on unmount ONLY - not on every re-render
-    // This is critical: cleanup should only run when we're actually
-    // changing subscriptions or unmounting, not on viewport changes
+    // Cleanup on unmount
     return () => {
       if (prevSubscriptionRef.current !== null) {
         sendCommand(peaks.unsubscribe());
@@ -193,8 +190,6 @@ export function usePeaksSubscription(
     };
   }, [
     subscriptionKey,
-    // NOTE: options and currentLOD removed from deps - use refs instead
-    // This prevents cleanup (which clears peaks) from running on viewport/LOD changes
     connected,
     sendCommand,
     setPeaksSubscriptionRange,
@@ -203,16 +198,14 @@ export function usePeaksSubscription(
   ]);
 
   // Effect 2: Debounced viewport updates (ONLY when LOD changes)
-  // Pan at same zoom level doesn't send updates - only zoom that crosses LOD threshold
   useEffect(() => {
     // Skip if no active subscription or no viewport
     if (!connected || !options?.viewport || prevSubscriptionRef.current === null) {
       return;
     }
 
-    // Skip if LOD hasn't changed - this is the key optimization!
-    // Pan doesn't change LOD, so no updates sent during pan
-    if (prevLODRef.current === currentLOD) {
+    // Skip if LOD hasn't changed - key optimization
+    if (prevLODRef.current === calculatedLOD) {
       return;
     }
 
@@ -225,7 +218,7 @@ export function usePeaksSubscription(
     viewportDebounceRef.current = setTimeout(() => {
       if (options.viewport) {
         sendCommand(peaks.updateViewport(options.viewport));
-        prevLODRef.current = currentLOD;
+        prevLODRef.current = calculatedLOD;
       }
       viewportDebounceRef.current = null;
     }, VIEWPORT_DEBOUNCE_MS);
@@ -236,11 +229,27 @@ export function usePeaksSubscription(
         viewportDebounceRef.current = null;
       }
     };
-  }, [currentLOD, options?.viewport, connected, sendCommand]);
+  }, [calculatedLOD, options?.viewport, connected, sendCommand]);
+
+  // Wrap the store's assemblePeaksForViewport to include current viewport
+  const assemblePeaksForViewport = useCallback(
+    (takeGuid: string, itemPosition: number, itemLength: number) => {
+      if (!options?.viewport) return null;
+      return storeAssemblePeaksForViewport(
+        takeGuid,
+        itemPosition,
+        itemLength,
+        options.viewport.start,
+        options.viewport.end
+      );
+    },
+    [storeAssemblePeaksForViewport, options?.viewport]
+  );
 
   return {
-    peaksByTrack: peaksByTrack || EMPTY_PEAKS_MAP,
-    getPeaksForTrack,
-    getPeaksForItem,
+    currentLod,
+    assemblePeaksForViewport,
+    hasTilesForTake: storeHasTilesForTake,
+    tileCacheSize: tileCache.size,
   };
 }

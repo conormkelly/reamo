@@ -62,12 +62,21 @@ pub const Item = struct {
     active_take_name: [MAX_NAME_LEN]u8 = undefined,
     active_take_name_len: usize = 0,
 
+    // Active take GUID and MIDI flag (for peaks cache lookup)
+    active_take_guid: [GUID_LEN]u8 = undefined,
+    active_take_guid_len: usize = 0,
+    active_take_is_midi: bool = false,
+
     pub fn getGUID(self: *const Item) []const u8 {
         return self.guid[0..self.guid_len];
     }
 
     pub fn getActiveTakeName(self: *const Item) []const u8 {
         return self.active_take_name[0..self.active_take_name_len];
+    }
+
+    pub fn getActiveTakeGUID(self: *const Item) []const u8 {
+        return self.active_take_guid[0..self.active_take_guid_len];
     }
 
     pub fn eql(self: *const Item, other: *const Item) bool {
@@ -87,6 +96,10 @@ pub const Item = struct {
         // Active take name
         if (self.active_take_name_len != other.active_take_name_len) return false;
         if (!std.mem.eql(u8, self.getActiveTakeName(), other.getActiveTakeName())) return false;
+        // Active take GUID and MIDI flag
+        if (self.active_take_guid_len != other.active_take_guid_len) return false;
+        if (!std.mem.eql(u8, self.getActiveTakeGUID(), other.getActiveTakeGUID())) return false;
+        if (self.active_take_is_midi != other.active_take_is_midi) return false;
         return true;
     }
 };
@@ -205,13 +218,26 @@ pub const State = struct {
                 const take_count_raw = api.itemTakeCount(item_ptr);
                 item.take_count = if (take_count_raw >= 0) @intCast(@min(take_count_raw, 255)) else 0;
 
-                // Get active take name
+                // Get active take info (name, GUID, MIDI flag)
                 item.active_take_name_len = 0;
+                item.active_take_guid_len = 0;
+                item.active_take_is_midi = false;
                 if (api.getItemActiveTake(item_ptr)) |take| {
+                    // Name
                     const take_name = api.getTakeNameStr(take);
                     const copy_len = @min(take_name.len, item.active_take_name.len);
                     @memcpy(item.active_take_name[0..copy_len], take_name[0..copy_len]);
                     item.active_take_name_len = copy_len;
+
+                    // GUID (for peaks cache lookup)
+                    var take_guid_buf: [64]u8 = undefined;
+                    const take_guid = api.getTakeGUID(take, &take_guid_buf);
+                    const take_guid_copy_len = @min(take_guid.len, item.active_take_guid.len);
+                    @memcpy(item.active_take_guid[0..take_guid_copy_len], take_guid[0..take_guid_copy_len]);
+                    item.active_take_guid_len = take_guid_copy_len;
+
+                    // MIDI flag (skip peaks for MIDI items)
+                    item.active_take_is_midi = api.isTakeMIDI(take);
                 }
 
                 total_count += 1;
@@ -297,7 +323,12 @@ pub const State = struct {
                 item.take_count,
             }) catch return null;
             protocol.writeJsonString(w, item.getActiveTakeName()) catch return null;
-            w.writeAll("\"}") catch return null;
+            // Active take GUID and MIDI flag (for peaks cache lookup)
+            w.writeAll("\",\"activeTakeGuid\":\"") catch return null;
+            protocol.writeJsonString(w, item.getActiveTakeGUID()) catch return null;
+            w.print("\",\"activeTakeIsMidi\":{s}}}", .{
+                if (item.active_take_is_midi) "true" else "false",
+            }) catch return null;
         }
 
         w.writeAll("]}}") catch return null;
@@ -515,6 +546,7 @@ test "Item equality" {
 
 test "State items JSON output" {
     const item_guid = "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}";
+    const take_guid = "{11111111-2222-3333-4444-555555555555}";
 
     // Use a static buffer for testing
     const take_name = "Test Take";
@@ -529,11 +561,14 @@ test "State items JSON output" {
         .active_take_idx = 0,
         .has_notes = true,
         .take_count = 2,
+        .active_take_is_midi = false,
     };
     items_buffer[0].guid[0..item_guid.len].* = item_guid.*;
     items_buffer[0].guid_len = item_guid.len;
     items_buffer[0].active_take_name[0..take_name.len].* = take_name.*;
     items_buffer[0].active_take_name_len = take_name.len;
+    items_buffer[0].active_take_guid[0..take_guid.len].* = take_guid.*;
+    items_buffer[0].active_take_guid_len = take_guid.len;
 
     const state = State{ .items = &items_buffer };
 
@@ -541,9 +576,9 @@ test "State items JSON output" {
     const json = state.itemsToJson(&buf).?;
 
     // trackIdx is unified: internal track_idx 0 becomes trackIdx 1 (0 = master, 1+ = user tracks)
-    // Sparse fields: hasNotes, takeCount, and activeTakeName
+    // Sparse fields: hasNotes, takeCount, activeTakeName, activeTakeGuid, activeTakeIsMidi
     try std.testing.expectEqualStrings(
-        "{\"type\":\"event\",\"event\":\"items\",\"payload\":{\"items\":[{\"guid\":\"{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}\",\"trackIdx\":1,\"itemIdx\":0,\"position\":10.000,\"length\":5.000,\"color\":16711680,\"locked\":false,\"selected\":false,\"activeTakeIdx\":0,\"hasNotes\":true,\"takeCount\":2,\"activeTakeName\":\"Test Take\"}]}}",
+        "{\"type\":\"event\",\"event\":\"items\",\"payload\":{\"items\":[{\"guid\":\"{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}\",\"trackIdx\":1,\"itemIdx\":0,\"position\":10.000,\"length\":5.000,\"color\":16711680,\"locked\":false,\"selected\":false,\"activeTakeIdx\":0,\"hasNotes\":true,\"takeCount\":2,\"activeTakeName\":\"Test Take\",\"activeTakeGuid\":\"{11111111-2222-3333-4444-555555555555}\",\"activeTakeIsMidi\":false}]}}",
         json,
     );
 }

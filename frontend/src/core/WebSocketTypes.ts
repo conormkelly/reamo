@@ -504,10 +504,105 @@ export interface PlaylistEventPayload {
 }
 
 // =============================================================================
-// Peaks Subscription Event (per-client, pushed by backend)
+// Peaks Subscription Event (per-client, pushed by backend) - TILE-BASED LOD
 // =============================================================================
 
-/** Individual item's peaks from subscription */
+/** LOD level type (0=coarse, 1=medium, 2=fine) */
+export type LODLevel = 0 | 1 | 2;
+
+/** LOD configuration constants matching backend peaks_tile.zig */
+export const LOD_CONFIGS = {
+  0: { duration: 64, peakrate: 1, peaksPerTile: 64 },    // Coarse: 1 peak/sec, 64s tiles
+  1: { duration: 8, peakrate: 10, peaksPerTile: 80 },   // Medium: 10 peaks/sec, 8s tiles
+  2: { duration: 0.5, peakrate: 400, peaksPerTile: 200 } // Fine: 400 peaks/sec, 0.5s tiles
+} as const;
+
+/** Single tile of peaks data from backend */
+export interface PeaksTile {
+  takeGuid: string;          // Take GUID for cache key
+  epoch: number;             // Cache invalidation signal (changes when source audio edited)
+  lod: LODLevel;             // LOD level (0=coarse, 1=medium, 2=fine)
+  tileIndex: number;         // Position within item (0-indexed)
+  itemPosition: number;      // Item start position in project time (seconds)
+  startTime: number;         // Tile start time relative to item start (seconds)
+  endTime: number;           // Tile end time relative to item start (seconds)
+  channels: 1 | 2;
+  peaks: StereoPeak[] | MonoPeak[];
+}
+
+/** Cache key for tile lookup */
+export interface TileCacheKey {
+  takeGuid: string;
+  epoch: number;
+  lod: LODLevel;
+  tileIndex: number;
+}
+
+/** Peaks event payload - tile-based format
+ *
+ * Example:
+ * {
+ *   "tiles": [
+ *     {
+ *       "takeGuid": "{XXXX...}",
+ *       "epoch": 2355337060,
+ *       "lod": 1,
+ *       "tileIndex": 5,
+ *       "itemPosition": 100.0,
+ *       "startTime": 40.0,
+ *       "endTime": 48.0,
+ *       "channels": 2,
+ *       "peaks": [{"l": [-0.5, 0.6], "r": [-0.4, 0.5]}, ...]
+ *     }
+ *   ]
+ * }
+ */
+export interface PeaksEventPayload {
+  tiles: PeaksTile[];
+}
+
+// -----------------------------------------------------------------------------
+// DEPRECATED - Old item-based format (kept for backward compat with item/getPeaks)
+// -----------------------------------------------------------------------------
+
+/** Calculate LOD level from viewport (must match backend peaks_tile.zig logic) */
+export function calculateLODFromViewport(
+  viewportStart: number,
+  viewportEnd: number,
+  widthPx: number
+): LODLevel {
+  const duration = viewportEnd - viewportStart;
+  if (duration <= 0 || widthPx <= 0) return 1; // Default to medium
+  const pixelsPerSecond = widthPx / duration;
+
+  if (pixelsPerSecond > 200) return 2; // Fine: 400 peaks/sec
+  if (pixelsPerSecond > 5) return 1;   // Medium: 10 peaks/sec
+  return 0;                             // Coarse: 1 peak/sec
+}
+
+/** Create a tile cache key string for Map storage */
+export function makeTileCacheKeyString(key: TileCacheKey): string {
+  return `${key.takeGuid}:${key.epoch}:${key.lod}:${key.tileIndex}`;
+}
+
+/** Get tile indices that cover a time range at a given LOD */
+export function getTileRange(
+  startTime: number,
+  endTime: number,
+  lod: LODLevel
+): { start: number; end: number } {
+  const config = LOD_CONFIGS[lod];
+  return {
+    start: Math.max(0, Math.floor(startTime / config.duration)),
+    end: Math.ceil(endTime / config.duration),
+  };
+}
+
+// -----------------------------------------------------------------------------
+// DEPRECATED - Old item-based format (kept for backward compat with item/getPeaks)
+// -----------------------------------------------------------------------------
+
+/** @deprecated Use PeaksTile instead - individual item's peaks from old format */
 export interface WSItemPeaks {
   itemGuid: string;
   trackIdx: number;
@@ -518,27 +613,10 @@ export interface WSItemPeaks {
   peaks: StereoPeak[] | MonoPeak[];
 }
 
-/** Per-track peaks data in multi-track format */
+/** @deprecated Use PeaksEventPayload with tiles instead */
 export interface TrackPeaksData {
   guid: string;
   items: WSItemPeaks[];
-}
-
-/** Peaks event payload from subscription (track-keyed map format)
- *
- * The tracks object is keyed by track index (as string) for O(1) lookup.
- * Each track contains its GUID and array of item peaks.
- *
- * Example:
- * {
- *   "tracks": {
- *     "1": { "guid": "{AAA...}", "items": [...] },
- *     "5": { "guid": "{BBB...}", "items": [...] }
- *   }
- * }
- */
-export interface PeaksEventPayload {
-  tracks: Record<string, TrackPeaksData>;
 }
 
 // =============================================================================
