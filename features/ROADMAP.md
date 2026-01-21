@@ -1,65 +1,149 @@
-# Feature Priority List
+# REAmo Roadmap
 
-Consolidated from PLANNED_FEATURES.md, PENDING_ITEMS.md, research docs, and ongoing development.
-
-**Last updated:** 2026-01-18
+**Last updated:** 2026-01-21
 
 ---
 
-## P0 — Quick Wins (Low Effort, High Value)
+## v1.0 — Release Blockers
 
-### Time Format Cycling
+Two items remaining before public release.
 
-Tap time display to cycle: Bar.Beat → Seconds → SMPTE → Bar.Beat
+### Responsive Layout Refinement
 
-**Status:** DEFERRED until requested. Research complete: [research/SMPTE.md](../research/SMPTE.md)
+App works well on iOS phone PWA but needs polish across form factors. First impressions matter.
+
+**Test matrix:**
+
+| Device | Mode | Status |
+|--------|------|--------|
+| iPhone (PWA) | Portrait | ✅ Primary dev target |
+| iPhone (PWA) | Landscape | ⚠️ Needs testing |
+| iPhone (Safari) | Both | ⚠️ Needs testing |
+| iPad | Portrait | ⚠️ Needs testing |
+| iPad | Landscape | ⚠️ Needs testing |
+| Android phone | Chrome | ⚠️ Needs testing |
+| Android tablet | Chrome | ⚠️ Needs testing |
+| Desktop browser | - | ⚠️ Needs testing |
+
+**Known issues to check:**
+
+- Safe area insets (notch, home indicator) on different devices
+- Mixer fader count at different widths
+- Timeline track height at different heights
+- Touch target sizes on tablets (may want larger)
+- Orientation transitions (no layout jump)
+
+**Effort:** M (mostly testing + CSS tweaks)
+
+---
+
+### Toolbar Component Redesign
+
+Current toolbar is functional but needs polish for v1.
+
+**Current Issues:**
+
+- No slot concept — buttons sized by text content, inconsistent widths
+- No overflow handling — buttons just squeeze together or clip
+- Padding not well thought out — items too close together
+
+**Design Direction:**
+
+- Uniform 48-54pt touch targets
+- 4 buttons per row
+- Horizontal swipe paging (existing "1-4 / 11" pattern is good)
+
+**Effort:** S (half day)
+
+---
+
+## v2.0 — Future Development
+
+Features planned for post-release development.
+
+### Move Items
+
+Enable drag-to-move for selected items on timeline. First step towards full arrangement editing.
+
+**Why this matters:** Research identified "touch-enabled arrangement view with direct region manipulation" as the killer differentiator vs Logic Remote. Waveform display is complete — now items need to be movable.
+
+**Implementation approach:**
+
+1. **Horizontal move (time)** — Drag item left/right to change position
+2. **Vertical move (track)** — Drag item up/down to move to different track
+3. **Multi-item move** — Selected items move together
+4. **Snap behavior** — Respect REAPER's snap settings (grid, other items)
+
+**Backend:**
+
+- `item/setPosition` command with `itemGuid`, `position` (time), `trackGuid` (optional, for cross-track moves)
+- Gesture-based undo coalescing (same pattern as faders)
+
+**Frontend:**
+
+- Drag gesture on item (distinguish from pan gesture on empty space)
+- Ghost preview during drag showing destination
+- Visual feedback for snap points
+
+---
+
+### Add Send to Track
+
+Currently can view and adjust existing sends but not create new ones.
 
 **Implementation:**
 
-- Backend already sends `frameRate` and `dropFrame` in project event
-- Add `timeDisplayMode` to UIPreferences (localStorage)
-- Create `secondsToSMPTE()` helper — needs research for drop-frame edge cases (59.94fps, negative time)
-- Use semicolon separator for drop-frame (29.97/59.94 fps)
-
-**Effort:** TBD after research
+- `send/add` command with `sourceTrackGuid`, `destTrackGuid`
+- UI in track detail modal or dedicated sends view
+- Show available destination tracks (exclude self, existing destinations)
 
 ---
 
-## P2 — Feature Improvements (Larger Scope)
+### Automation Curve Editing
 
-### Item Selection UX Refinement
+Touch-based drawing of automation lanes.
+
+**From Logic Remote Analysis:**
+> "Touch is actually superior to mouse for drawing curves"
+
+---
+
+### MIDI Note Editing
+
+Piano roll view with touch editing.
+
+---
+
+### Time Format Cycling (SMPTE)
+
+Tap time display to cycle: Bar.Beat → Seconds → SMPTE → Bar.Beat
+
+**Research complete:** [research/SMPTE.md](../research/SMPTE.md)
+
+- Backend already sends `frameRate` and `dropFrame` in project event
+- Add `timeDisplayMode` to UIPreferences (localStorage)
+- Create `secondsToSMPTE()` helper
+
+---
+
+### Item Selection UX Polish
 
 Current item multi-select works but feels cluttered. Needs design rethink.
 
-**Issues:**
-
-- Info bar layouts clash (marker bar vs item bar - both can appear)
-- "Item selection mode" concept is awkward - mode mainly just shows/hides info bar
+- Info bar layouts clash (marker bar vs item bar)
+- "Item selection mode" concept is awkward
 - Batch operations UI needs polish
 
-**Needs:** Design session to simplify the UX flow.
+---
+
+### Take Waveform Previews
+
+Visual preview of take waveforms (mini thumbnails) in take switcher.
+Deferred — requires fetching all takes' peaks.
 
 ---
 
-### Take Switcher Polish
-
-Existing take switcher needs UX improvements:
-
-- [x] Larger touch targets for prev/next (p-2 padding, w-4 h-4 icons)
-- [x] Show take name (if available) not just "Take 1/3"
-- [ ] Visual preview of take waveforms (mini thumbnails?) — DEFERRED (requires fetching all takes' peaks)
-- [ ] Swipe gesture for take switching — DEFERRED (info bar conflicts with swipe)
-- [x] "Delete take" confirmation flow
-- [x] "Crop to active" quick action
-
-**Implementation notes:**
-- `activeTakeName` added to backend Item struct and WSItem type
-- Take name shown below "Take X/Y" when available
-- InfoBar height increased (py-2.5) for better touch targets
-
----
-
-## P3 — Future Features (Deferred)
+## v3.0+ — Long-term Ideas
 
 ### Folder Display
 
@@ -298,20 +382,124 @@ Focus on **item editing operations** — transport, markers, and track operation
 
 ---
 
-### Timeline Canvas Architecture
+### Timeline Canvas Architecture ✅
 
 Single canvas for timeline content to fix browser compositing bugs.
 
-**Status:** Research complete: [research/TIMELINE_CANVAS_ARCHITECTURE.md](../research/TIMELINE_CANVAS_ARCHITECTURE.md)
+**Status:** ✅ Complete
 
-**Key Finding:** Layered Canvas2D (not WebGL) with DOM playhead. Playhead is already DOM - main work is replacing per-item canvases with batched draws + ImageBitmap caching.
+**Research:** [research/TIMELINE_CANVAS_ARCHITECTURE.md](../research/TIMELINE_CANVAS_ARCHITECTURE.md)
 
-**Current issues:**
+**Implemented:**
 
-- Waveform brightness changes at viewport edges (per-item canvas compositing)
-- Waveform jitter during momentum scroll (cosmetic)
+- **TileBitmapCache:** Pre-renders waveform tiles to ImageBitmap via OffscreenCanvas, LRU eviction at 200 bitmaps (~50MB), calls `bitmap.close()` on evict
+- **Per-track canvases:** Replaced per-item canvases with single canvas per track lane — eliminates DOM overhead for projects with many items
+- **Never-clear rendering:** Track drawn regions, clear only item rects before redraw — fixes flash-to-black between render cycles
+- **Synchronous fallback:** Draw peaks directly when ImageBitmap not cached, with adjacent LOD scaling
+- **GPU-accelerated blitting:** `ctx.drawImage()` for hardware-accelerated tile compositing
+- **1x DPR rendering:** 4x memory savings vs retina resolution (waveforms don't need subpixel precision)
 
-**Size:** L (significant refactor, but patterns well-defined)
+**Fixed issues:**
+
+- ~~Waveform brightness changes at viewport edges~~ — per-item canvas compositing eliminated
+- ~~Waveform jitter during momentum scroll~~ — never-clear + sync fallback prevents blank frames
+
+---
+
+### Tile-Based Waveform System ✅
+
+Complete rewrite of waveform rendering with multi-level LOD tile caching.
+
+**Status:** ✅ Complete (Backend + Frontend)
+
+**Backend (Zig + Lua bridge):**
+
+- 8-level LOD system with 4x ratio between levels (was 3 levels with 10x/40x jumps)
+- LOD 7 (finest): 1024 peaks/sec, 0.5s tiles — LOD 0 (coarsest): 0.0625 peaks/sec, 4096s tiles
+- All peak fetching via Lua bridge (`reamo_internal_fetch_peaks.lua`) using `GetMediaItemTake_Peaks`
+- Root source traversal via `GetMediaSourceParent` loop — fixes wrapper sources returning 0 peaks for items with take offsets
+- Retry logic with `PCM_Source_BuildPeaks` fallback when initial fetch returns 0
+- Per-subscription viewport tracking with debounced broadcasts
+
+**Frontend (React + Canvas):**
+
+- Tile cache with 500-tile LRU eviction and `makeTileCacheKeyString()` keying
+- `assemblePeaksForViewport()` selector concatenates tiles for render
+- LOD selection based on viewport duration thresholds
+- 200ms debounce on viewport updates (prevents thrashing during pan/zoom)
+
+**Stereo rendering:**
+
+- Split lanes: L channel in top half, R channel in bottom half
+- Mono files continue as single centered waveform
+
+**Reference:** [research/ADAPTIVE_WAVEFORM_ZOOM.md](../research/ADAPTIVE_WAVEFORM_ZOOM.md)
+
+---
+
+### Viewport-Relative Pan & Zoom ✅
+
+Momentum scrolling and zoom behavior improvements.
+
+**Status:** ✅ Complete
+
+**Pan momentum:**
+
+- Velocity now viewport-relative (% of viewport/frame) not time-absolute (sec/frame)
+- Same physical gesture = same screen-percentage movement at any zoom level
+- Configurable friction (0.95) for faster decay, less settling time
+
+**Follow playhead zoom:**
+
+- With follow playhead enabled, zoom centers on playhead position (was: playhead drifted out of view)
+- Both button zoom and pinch-to-zoom respect follow playhead as zoom anchor
+- Makes toggle a "swiss army knife": find playhead, follow during playback, AND control zoom center
+
+---
+
+### Per-Device Layout Memory ✅
+
+Remember last-used view and settings per device.
+
+**Status:** ✅ Complete (localStorage)
+
+**Implemented:**
+
+- Last active view persisted and restored on load
+- UI preferences (banks, filters, viewport position) stored per-device
+- Instrument channel selection persisted per-instrument type
+
+---
+
+### Marker Navigation via Long-Press ✅
+
+Touch-hold on position display reveals marker jumplist.
+
+**Status:** ✅ Complete
+
+**Implementation:** Long-press (500ms) on transport time display opens marker sheet with tap-to-jump. Matches Logic Remote's LCD touch-hold pattern identified in competitive analysis.
+
+---
+
+### PWA Version Detection ✅
+
+Detect stale cache and prompt for update on iOS Safari.
+
+**Status:** ✅ Complete
+
+**Problem:** iOS Safari's aggressive dual-layer caching serves stale HTML/JS even after extension updates.
+
+**Solution:**
+
+- Compare stored `extensionVersion` + `htmlMtime` against server values on WebSocket connect
+- If mismatch + `autoUpdateEnabled` (default): silent hard refresh with cache bust
+- If mismatch + auto-update disabled: show "New version available" banner
+
+**Hard refresh:**
+
+- Clears Cache Storage and unregisters ServiceWorkers before navigate
+- Cache-busting query param ensures fresh fetch
+- Awaits cleanup to complete before page unload
 
 ---
 

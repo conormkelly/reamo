@@ -80,7 +80,13 @@ reaper_www_root/
 │       ├── gesture_state.zig  # Gesture tracking for undo coalescing
 │       ├── playlist.zig       # Playlist state (entries, loop counts)
 │       ├── ws_server.zig      # WebSocket server and client management
-│       └── commands/          # Command handlers (116 handlers in 28 files)
+│       ├── peaks_subscriptions.zig    # Per-client peak/waveform tile subscriptions
+│       ├── trackfx_subscriptions.zig  # Per-client FX chain subscriptions
+│       ├── trackfxparam_subscriptions.zig # Per-client FX param subscriptions
+│       ├── trackfxparam_generator.zig # FX param JSON generation with nameHash
+│       ├── csurf.zig          # CSurf callback → dirty flag wiring
+│       ├── csurf_dirty.zig    # DirtyFlags struct with BitSet(1024) per-track
+│       └── commands/          # Command handlers (120+ handlers in 30+ files)
 │           ├── mod.zig        # dispatch() with inline for, ResponseWriter
 │           ├── registry.zig   # Comptime tuple of all handlers
 │           ├── tracks.zig     # track/setVolume, track/setMute, etc.
@@ -96,11 +102,20 @@ reaper_www_root/
 │       │   └── WebSocketCommands.ts # Command builders
 │       ├── store/             # Zustand state management
 │       │   ├── index.ts       # Main store, WebSocket message handler
-│       │   └── slices/        # tracksSlice, transportSlice, etc.
+│       │   └── slices/        # State slices:
+│       │       ├── tracksSlice.ts      # Track state and metering
+│       │       ├── transportSlice.ts   # Transport state
+│       │       ├── peaksSlice.ts       # Tile cache with LRU eviction
+│       │       ├── fxChainSlice.ts     # FX chain subscription state
+│       │       ├── fxParamSlice.ts     # FX param state with skeleton cache
+│       │       ├── fxBrowserSlice.ts   # Installed plugin list cache
+│       │       └── ...
 │       ├── hooks/             # useTrack, useTracks, useTransport
 │       ├── components/        # React components
 │       │   └── Track/         # TrackStrip, LevelMeter, Fader, etc.
 │       └── utils/             # volume.ts, color.ts, pan.ts
+├── Scripts/Reamo/       # Lua scripts called by the Zig extension
+│   └── reamo_internal_fetch_peaks.lua  # Peak data fetching via GetMediaItemTake_Peaks
 ├── Makefile             # Build commands: make all, make extension, make frontend
 └── reamo.html           # Built frontend (single-file, copied from frontend/dist)
 ```
@@ -442,6 +457,151 @@ ws.send({ command: "timeline/subscribe", timeRange: { start, end } });
 
 **Per-client change detection:** Each client has its own hash tracking for items. Events are only sent when the filtered data actually changes (or on initial subscription via `force_broadcast`).
 
+### Tile-Based Peaks/Waveform System
+
+The waveform rendering system uses a **tile-based LOD architecture** with a Lua bridge for peak data fetching.
+
+**Architecture:**
+
+```
+┌─────────────────────┐     ┌──────────────────────┐     ┌───────────────────┐
+│  Frontend           │     │  Zig Extension       │     │  Lua Bridge       │
+│                     │     │                      │     │                   │
+│  peaks/subscribe    │────►│  peaks_subscriptions │────►│  Main_OnCommand   │
+│  with viewport      │     │  Tile generation     │     │  fetch_peaks.lua  │
+│                     │◄────│  JSON broadcast      │◄────│  GetMediaItemTake │
+│  TileBitmapCache    │     │  per-client state    │     │  _Peaks API       │
+└─────────────────────┘     └──────────────────────┘     └───────────────────┘
+```
+
+**8-Level LOD System:**
+
+| LOD | Peaks/sec | Tile Duration | Use Case |
+|-----|-----------|---------------|----------|
+| 7   | 1024      | 0.5s          | Finest zoom (1-3s viewport) |
+| 6   | 256       | 1s            | Close zoom |
+| 5   | 64        | 4s            | Medium zoom |
+| 4   | 16        | 16s           | Default view |
+| 3   | 4         | 64s           | Zoomed out |
+| 2   | 1         | 256s          | ~4 min view |
+| 1   | 0.25      | 1024s         | ~17 min view |
+| 0   | 0.0625    | 4096s         | Coarsest (~1hr+ viewport) |
+
+Adjacent LODs have a 4x ratio, enabling smooth fallback rendering when exact LOD tiles aren't cached.
+
+**Lua Bridge (`Scripts/Reamo/reamo_internal_fetch_peaks.lua`):**
+
+The Zig extension cannot directly call `GetMediaItemTake_Peaks` reliably on ARM64 macOS due to ABI issues with REAPER's function pointer casting. The workaround uses a Lua script called synchronously via `Main_OnCommand`:
+
+1. Zig sets request parameters via custom API functions (`Reamo_GetPeakRequest*`)
+2. Zig triggers the Lua script via `Main_OnCommand`
+3. Lua calls `GetMediaItemTake_Peaks` and packs results into binary
+4. Lua passes data back via `Reamo_ReceivePeakData`
+5. Zig signals completion via `Reamo_SetPeakRequestComplete`
+
+**Key implementation details:**
+
+- **Root source traversal:** Items with take offsets have wrapper sources that return 0 peaks. The Lua script traverses via `GetMediaSourceParent` to find the root source.
+- **Retry with BuildPeaks:** If initial fetch returns 0 peaks, tries `PCM_Source_BuildPeaks` then retries.
+- **Always request 2 channels:** `GetMediaSourceNumChannels` is unreliable on ARM64. Request stereo, detect mono by comparing L/R.
+- **Stereo rendering:** L channel in top half, R channel in bottom half. Mono files render centered.
+
+**Frontend tile caching:**
+
+- `TileBitmapCache`: Pre-renders tiles to `ImageBitmap` via `OffscreenCanvas`, LRU eviction at 200 bitmaps (~50MB)
+- Per-track canvases (not per-item) — eliminates DOM overhead for projects with many items
+- Never-clear rendering — only clear item rects before redraw to prevent flash-to-black
+- Synchronous fallback — draw peaks directly when `ImageBitmap` not cached
+- 1x DPR rendering — 4x memory savings vs retina (waveforms don't need subpixel precision)
+
+**Key files:**
+
+| File | Purpose |
+|------|---------|
+| `peaks_subscriptions.zig` | Per-client subscription state, tile generation orchestration |
+| `Scripts/Reamo/reamo_internal_fetch_peaks.lua` | Lua bridge for `GetMediaItemTake_Peaks` |
+| `frontend/src/store/slices/peaksSlice.ts` | Tile cache with LRU eviction, `assemblePeaksForViewport()` |
+| `frontend/src/components/Timeline/TileBitmapCache.ts` | ImageBitmap pre-rendering |
+| `frontend/src/components/Timeline/WaveformCanvas.tsx` | Per-track canvas rendering |
+
+**Reference:** [research/ADAPTIVE_WAVEFORM_ZOOM.md](research/ADAPTIVE_WAVEFORM_ZOOM.md)
+
+### FX Subscriptions
+
+Two subscription types for FX data, following the same per-client pattern as tracks and peaks.
+
+**FX Chain Subscription (`trackFx/subscribe`):**
+
+Subscribe to a track's FX chain to receive real-time updates when plugins are added, removed, reordered, or presets change.
+
+```json
+// Request
+{"type": "command", "command": "trackFx/subscribe", "trackGuid": "{...}", "id": "1"}
+
+// Event (pushed at 5Hz when changed)
+{
+  "type": "event",
+  "event": "trackFxChain",
+  "payload": {
+    "trackGuid": "{...}",
+    "fx": [
+      {"fxGuid": "{...}", "name": "ReaEQ", "presetName": "Default", "enabled": true}
+    ]
+  }
+}
+```
+
+**FX Parameter Subscription (`trackFxParams/subscribe`):**
+
+Subscribe to parameter values for a specific FX plugin. Supports two modes:
+
+- **Range mode:** Subscribe to parameter indices `[start, end]` for virtual scrolling
+- **Indices mode:** Subscribe to specific indices for filtered parameter lists
+
+```json
+// Range mode
+{"command": "trackFxParams/subscribe", "trackGuid": "{...}", "fxGuid": "{...}",
+ "range": {"start": 0, "end": 20}, "id": "1"}
+
+// Indices mode (sparse subscription)
+{"command": "trackFxParams/subscribe", "trackGuid": "{...}", "fxGuid": "{...}",
+ "indices": [0, 5, 12, 47], "id": "1"}
+```
+
+**Gesture support for FX params:** FX parameter changes use the same gesture wrapping as other continuous controls. Frontend sends `gesture/start` before drag, `gesture/end` after release. Undo coalesces into single "REAmo: Adjust FX parameters" entry.
+
+**Key files:**
+
+| File | Purpose |
+|------|---------|
+| `trackfx_subscriptions.zig` | FX chain subscription state |
+| `trackfxparam_subscriptions.zig` | FX param subscription state |
+| `trackfxparam_generator.zig` | JSON generation with nameHash for skeleton invalidation |
+| `commands/trackfx_subs.zig` | Chain subscribe/unsubscribe handlers |
+| `commands/trackfxparam_subs.zig` | Param subscribe/unsubscribe handlers |
+| `frontend/src/store/slices/fxChainSlice.ts` | FX chain state |
+| `frontend/src/store/slices/fxParamSlice.ts` | FX param state with LRU skeleton cache |
+
+### Routing Subscriptions
+
+The Routing Modal uses a subscription for real-time send/receive/hardware output updates during fader drags.
+
+**Commands:**
+- `routing/subscribe` — Subscribe to a track's routing state (sends, receives, hw outputs)
+- `routing/unsubscribe` — Clear subscription
+
+**Why subscription vs on-demand:** The previous approach of fetching after each change caused visible lag when dragging send faders. The subscription pushes updates at 30Hz, matching mixer fader responsiveness.
+
+**Hardware output gesture tracking:** CSurf doesn't support `category=1` (hardware outputs) — `CSurf_OnSendVolumeChange` only works for category=0 sends. Hardware output undo relies on gesture tracking with a shared undo block (see Common Pitfalls #22).
+
+**Key files:**
+
+| File | Purpose |
+|------|---------|
+| `routing_subscriptions.zig` | Per-client subscription state |
+| `routing_generator.zig` | JSON generator for routing_state events |
+| `frontend/src/store/slices/routingSlice.ts` | Routing subscription state |
+
 ## CSurf Push-Based Architecture
 
 The extension uses REAPER's **IReaperControlSurface** (CSurf) API to receive push-based callbacks when state changes, reducing latency from polling intervals to near-instant (<33ms).
@@ -459,7 +619,7 @@ The original plan claimed 99% API call reduction — **this was not implemented*
 | Change detection | Fragile slice comparison | Robust hash comparison |
 | Debugging | Blind to missed updates | Drift logging shows callback gaps |
 
-**Foundation for future work:** The dirty flag infrastructure (per-track bitsets, reverse map) exists if we find safe optimizations. FX subscription is a candidate — see `features/ROADMAP.md`.
+**FX and sends dirty flags:** The main loop now consumes `fx_dirty` and `sends_dirty` bitsets from CSurf callbacks (`SETFXPARAM`, `SETFXENABLED`, `SETSENDVOLUME`, etc.) to force immediate broadcast when FX params or send levels change. This provides instant latency response in addition to hash-based change detection.
 
 ### Why Hybrid, Not Pure Callbacks
 
@@ -665,9 +825,11 @@ Convert linear to dB: `dB = 20 * log10(linear)`
 
 ### Audio Peaks / Waveform Data
 
+**GetMediaItemTake_Peaks is unreliable via Zig FFI on ARM64 macOS** — The function works in Lua but fails intermittently when called via Zig's C FFI. This appears to be an ABI issue with how REAPER's `GetFunc()` casts function pointers on Apple Silicon. The workaround uses a Lua bridge script. See the Tile-Based Peaks System section for details.
+
 **GetMediaSourceNumChannels is unreliable** — returns 1 for stereo files in many cases. This is a known REAPER bug. Do NOT rely on it for mono/stereo detection.
 
-**Workaround:** Use `AudioAccessor` to read actual audio samples, then detect mono vs stereo by comparing L/R channel data:
+**Workaround:** Always request 2 channels and detect mono vs stereo by comparing L/R channel data:
 
 ```zig
 // Always request stereo from AudioAccessor
@@ -861,6 +1023,108 @@ return <div {...handlers}>Tap or hold me</div>;
 
 **Key implementation detail:** Touch devices fire both touch events AND synthesized mouse events. The hook tracks `isTouchRef` to ignore the synthetic mouse events that follow touch events, preventing double-triggers. After a touch interaction ends, there's a 300ms window where mouse events are blocked.
 
+### React Hooks Placement
+
+**All hooks must be called unconditionally before any early returns.** React requires hooks to be called in the same order on every render. Placing a `useEffect` after an early return causes React error #310: "Rendered more hooks than during the previous render."
+
+```tsx
+// BAD: Hook after early return
+function MyComponent({ mode }) {
+  if (mode === 'disabled') return null;  // Early return
+
+  useEffect(() => { /* cleanup */ }, []);  // ❌ Not called when disabled!
+  return <div>...</div>;
+}
+
+// GOOD: Hook before early return
+function MyComponent({ mode }) {
+  useEffect(() => { /* cleanup */ }, []);  // ✅ Always called
+
+  if (mode === 'disabled') return null;
+  return <div>...</div>;
+}
+```
+
+This is especially important for components that switch between modes (e.g., RegionInfoBar switching between navigate and regions mode).
+
+### Touch Instruments (MIDI Input)
+
+The Instruments view provides touch-based MIDI input via drum pads, piano keyboard, and chord strips.
+
+**Backend commands:**
+
+| Command | Parameters | Notes |
+|---------|------------|-------|
+| `midi/noteOn` | `channel`, `note`, `velocity` | Velocity 0 = note-off |
+| `midi/cc` | `channel`, `cc`, `value` | Continuous controller (e.g., mod wheel) |
+| `midi/pitchBend` | `channel`, `value` | 14-bit pitch bend (-8192 to 8191) |
+
+All MIDI commands use **VKB mode** (mode 0) which routes to the armed track's virtual keyboard input. This achieves 5-15ms latency, matching Logic Remote.
+
+**Pointer Events API for multi-touch:**
+
+Touch instruments use Pointer Events (not Touch Events) for unified mouse/touch handling with proper multi-touch support:
+
+```tsx
+const activePointers = useRef<Map<number, number>>(new Map()); // pointerId → note
+
+const handlePointerDown = (e: React.PointerEvent, note: number) => {
+  e.preventDefault();
+  (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  activePointers.current.set(e.pointerId, note);
+  sendCommand('midi/noteOn', { channel, note, velocity: 100 });
+};
+
+const handlePointerUp = (e: React.PointerEvent) => {
+  const note = activePointers.current.get(e.pointerId);
+  if (note !== undefined) {
+    sendCommand('midi/noteOn', { channel, note, velocity: 0 }); // Note-off
+    activePointers.current.delete(e.pointerId);
+  }
+};
+
+// On each pad element:
+<div
+  onPointerDown={(e) => handlePointerDown(e, note)}
+  onPointerUp={handlePointerUp}
+  onPointerCancel={handlePointerUp}
+  style={{ touchAction: 'none' }}  // Prevent browser gestures
+/>
+```
+
+**Key patterns:**
+
+- **`setPointerCapture()`** — Ensures pointer events continue to fire on the originating element even if finger slides off
+- **`touchAction: 'none'`** — Prevents browser scroll/zoom gestures from interfering
+- **`pointerId` tracking** — Maps each touch point to its note for correct note-off when released
+- **Velocity 0 for note-off** — Standard running status optimization, no separate `midi/noteOff` command needed
+
+**Orientation locking:**
+
+Some instruments work better in specific orientations:
+- Drum Pads: Portrait only (4x4 grid fits better)
+- Piano/Chord Strips: Landscape only (needs horizontal space)
+
+Components show a "rotate device" warning when in wrong orientation rather than rendering a cramped layout.
+
+**Per-instrument channel persistence:**
+
+Each instrument type remembers its own MIDI channel independently:
+```typescript
+localStorage.setItem('reamo_instruments_drums_channel', '9');  // Channel 10 (0-indexed)
+localStorage.setItem('reamo_instruments_piano_channel', '0');  // Channel 1
+```
+
+**Key files:**
+
+| File | Purpose |
+|------|---------|
+| `views/instruments/InstrumentsView.tsx` | Main view with instrument/channel selectors |
+| `components/Instruments/DrumPadGrid.tsx` | 4x4 drum grid with GM mapping |
+| `components/Instruments/PianoKeyboard.tsx` | 2-octave keyboard with expression |
+| `components/Instruments/ChordStrips.tsx` | Diatonic chord strips with inversions |
+| `extension/src/commands/midi.zig` | Backend MIDI command handlers |
+
 ### Transport Animation (60fps Interpolation)
 
 For smooth playhead and time display updates, we use client-side interpolation via `TransportAnimationEngine`. This avoids React re-renders for high-frequency position updates.
@@ -897,8 +1161,8 @@ The extension sends **two types of transport events** to minimize bandwidth whil
 
 | Event | Size | Trigger | Contains |
 |-------|------|---------|----------|
-| `transport` | ~350 bytes | State changes (play/pause/stop), seeks when stopped | Full transport state, track meters, loop points |
-| `tt` (tick) | ~140 bytes | Position changes during playback (~30Hz) | Position (seconds), beat position, BPM, time signature |
+| `transport` | ~350 bytes | State changes (play/pause/stop), seeks when stopped | Full transport state, loop points, project info |
+| `tt` (tick) | ~140 bytes | Position changes during playback (~30Hz) | Position (`p`), beat time (`b`), BPM, time sig (`ts`), bar.beat.ticks (`bbt`) |
 
 **Key insight:** During playback, only `tt` events are sent. If a component only listens to `transport` events, its display will update on play/pause/stop but freeze during playback.
 
@@ -1063,6 +1327,32 @@ The `timestamp` field enables RTT measurement for network quality monitoring.
 2. Expected: Brief "Reconnecting..." then connected within 1-2s
 3. Check Safari Web Inspector console for `[WS] Suspended for Xms` logs
 
+### PWA Auto-Update Detection
+
+iOS Safari's aggressive dual-layer caching can serve stale HTML/JS even after the extension updates. The app detects version mismatches and handles updates gracefully.
+
+**Detection:** On each WebSocket connect, the server sends `extensionVersion` and `htmlMtime` in the hello response. Frontend compares against stored values in localStorage.
+
+**Auto-update flow (default):**
+
+1. Version mismatch detected
+2. Clear Cache Storage and unregister ServiceWorkers
+3. Navigate with cache-busting query param (`?v=timestamp`)
+4. Fresh page load stores new version info
+
+**Manual update flow (if `autoUpdateEnabled=false`):**
+
+1. Version mismatch detected
+2. Show "New version available" banner
+3. User taps banner → triggers hard refresh
+
+**Key files:**
+
+- `frontend/src/utils/versionStorage.ts` — Version tracking and `hardRefresh()`
+- `frontend/src/components/UpdateBanner.tsx` — Tap-to-update UI
+- `frontend/src/store/slices/connectionSlice.ts` — `updateAvailable` state
+- `frontend/src/store/slices/uiPreferencesSlice.ts` — `autoUpdateEnabled` preference
+
 ### iOS Safari Cold Start Fix
 
 Safari's NSURLSession has a WebSocket lazy initialization bug: on cold start (PWA or browser), the WebSocket sits in `CONNECTING` state indefinitely with no `onopen`, `onerror`, or `onclose` events firing. A page refresh or navigate-away-and-back fixes it.
@@ -1140,6 +1430,8 @@ private async warmupViaIframe(wsUrl: string): Promise<void> {
     });
     ```
     Test mode prevents both WebSocket messages AND connection state changes from updating the store, allowing deterministic E2E tests regardless of whether REAPER is running.
+
+11. **MockBackend array sizes cause crashes and giant binaries** - If Zig tests crash with SIGILL or produce 600MB+ binaries, check `reaper/mock/state.zig` constants. Nested arrays (tracks × FX × params) that exceed ~250KB total will overflow the stack. See Common Pitfalls #24 for details.
 
 ## Extension Robustness
 
@@ -1429,6 +1721,22 @@ Use `make dev` to automate this cycle:
 4. Relaunches REAPER with stdout attached for debugging
 
 For rapid iteration after tests pass, use `make dev-notests`.
+
+### Tracy Profiler Integration
+
+The extension includes optional [Tracy](https://github.com/wolfpld/tracy) profiler support via [ztracy](https://github.com/ziglang/zig/wiki/ztracy) for diagnosing performance bottlenecks.
+
+```bash
+make tracy    # Build with Tracy enabled (requires ReleaseFast due to Zig 0.15 bug)
+```
+
+**Instrumented areas:**
+- `doProcessing()` — Frame markers for 30Hz timer visibility
+- `action/getActions` — Zone markers (identified as slow path, ~985KB JSON)
+
+**When disabled:** ztracy provides no-op stubs, so instrumentation has zero runtime overhead in normal builds.
+
+**Research:** See `research/REAPER_EXTENSION_OPTIMIZATION.md` for memory overhead analysis and `research/REAPER_TIMER_API.md` for timer reentrancy behavior.
 
 ## Debugging
 
@@ -1755,3 +2063,24 @@ if (elapsed_ns > 1_000_000) { // > 1ms
       ...(hwIdx !== undefined && { hwIdx }),
     }
     ```
+
+24. **MockBackend array sizes must stay small** - Tests using `MockBackend` will crash with SIGILL or produce 600MB-2GB binaries if array sizes are too large. Root cause: nested arrays like `32 tracks × 64 FX × 128 params` create ~31MB structs that overflow the 8MB stack limit. Also, Zig generates debug symbols for every type instantiation — 262,144 nested generic types explodes debug info to 4GB+.
+
+    **Solution:** Mock constants in `reaper/mock/state.zig` are intentionally small:
+    ```zig
+    pub const MAX_TRACKS = 16;           // Production: 1024
+    pub const MAX_FX_PER_TRACK = 8;      // Production: 64
+    pub const MAX_PARAMS_PER_FX = 16;    // Production: 128
+    ```
+
+    These only affect `MockBackend` — production uses constants from `constants.zig`.
+
+    **Symptoms of too-large mock arrays:**
+    - SIGILL (signal 4) crashes in tests
+    - Binaries >100MB (should be ~30MB)
+    - Compile time >30s per test file
+    - RAM usage >1GB during compilation
+
+25. **GetMediaItemTake_Peaks is unreliable on ARM64 macOS** - The native Zig FFI call to this function fails intermittently due to ABI issues when REAPER casts function pointers via `GetFunc()`. The workaround uses a Lua bridge script (`Scripts/Reamo/reamo_internal_fetch_peaks.lua`) called synchronously via `Main_OnCommand`. See the Tile-Based Peaks System section for architecture details.
+
+26. **Wrapper sources return 0 peaks** - Items with take offsets (e.g., trimmed start) have wrapper sources where `GetMediaItemTake_Source` returns a source with `length=0, samplerate=0`. Always traverse to the root source via `GetMediaSourceParent` loop before fetching peaks or other source properties.
