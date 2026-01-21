@@ -70,34 +70,50 @@ async function renderPeaksToBitmap(
 
   // Draw waveform
   ctx.fillStyle = color;
-  const centerY = height / 2;
   const sampleWidth = width / peaks.length;
+  const stereo = isStereo(peaks);
+
+  // For stereo: L in top half, R in bottom half
+  // For mono: centered waveform using full height
+  const laneHeight = stereo ? height / 2 : height;
+  const lCenterY = stereo ? height / 4 : height / 2;
+  const rCenterY = (3 * height) / 4;
 
   for (let i = 0; i < peaks.length; i++) {
     const peak = peaks[i];
-    let minVal: number;
-    let maxVal: number;
+    const x = i * sampleWidth;
+    const barWidth = Math.max(sampleWidth - 0.5, 1);
 
-    if (isStereo(peaks)) {
+    if (stereo) {
       const stereoPeak = peak as StereoPeak;
-      // Combine L+R into single peak (average) for cramped lanes
-      minVal = (stereoPeak.l[0] + stereoPeak.r[0]) / 2;
-      maxVal = (stereoPeak.l[1] + stereoPeak.r[1]) / 2;
+
+      // Left channel (top half)
+      const lMin = stereoPeak.l[0];
+      const lMax = stereoPeak.l[1];
+      const lTopY = lCenterY - lMax * (laneHeight / 2);
+      const lBottomY = lCenterY - lMin * (laneHeight / 2);
+      const lHeight = Math.max(lBottomY - lTopY, 1);
+      const lAdjustedTop = lHeight === 1 ? lCenterY - 0.5 : lTopY;
+      ctx.fillRect(x, lAdjustedTop, barWidth, lHeight);
+
+      // Right channel (bottom half)
+      const rMin = stereoPeak.r[0];
+      const rMax = stereoPeak.r[1];
+      const rTopY = rCenterY - rMax * (laneHeight / 2);
+      const rBottomY = rCenterY - rMin * (laneHeight / 2);
+      const rHeight = Math.max(rBottomY - rTopY, 1);
+      const rAdjustedTop = rHeight === 1 ? rCenterY - 0.5 : rTopY;
+      ctx.fillRect(x, rAdjustedTop, barWidth, rHeight);
     } else {
       const monoPeak = peak as MonoPeak;
-      minVal = monoPeak[0];
-      maxVal = monoPeak[1];
+      const minVal = monoPeak[0];
+      const maxVal = monoPeak[1];
+      const topY = lCenterY - maxVal * (laneHeight / 2);
+      const bottomY = lCenterY - minVal * (laneHeight / 2);
+      const peakHeight = Math.max(bottomY - topY, 1);
+      const adjustedTopY = peakHeight === 1 ? lCenterY - 0.5 : topY;
+      ctx.fillRect(x, adjustedTopY, barWidth, peakHeight);
     }
-
-    const x = i * sampleWidth;
-    const topY = centerY - maxVal * centerY;
-    const bottomY = centerY - minVal * centerY;
-
-    // Ensure minimum 1px height so silent sections show as thin centered line
-    const peakHeight = Math.max(bottomY - topY, 1);
-    const adjustedTopY = peakHeight === 1 ? centerY - 0.5 : topY;
-
-    ctx.fillRect(x, adjustedTopY, Math.max(sampleWidth - 0.5, 1), peakHeight);
   }
 
   // Convert to ImageBitmap for GPU-accelerated blitting
