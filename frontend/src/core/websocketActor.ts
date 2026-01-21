@@ -150,6 +150,8 @@ function syncToStore(): void {
         // Version changed since last load - either auto-refresh or show banner
         const autoUpdateEnabled = useReaperStore.getState().autoUpdateEnabled;
         if (autoUpdateEnabled) {
+          // Store new version BEFORE refresh to prevent infinite reload loop
+          storeVersion(extensionVersion, htmlMtime);
           // Silent hard refresh
           hardRefresh();
         } else {
