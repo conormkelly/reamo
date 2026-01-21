@@ -4,10 +4,20 @@
 /// across zoom/pan operations. Tiles enable cache reuse when panning and
 /// efficient prefetching.
 ///
-/// LOD Levels (matching REAPER's mipmap tiers):
-///   - LOD 0: 64s tiles, 1 peak/sec (~64 peaks/tile) - Overview
-///   - LOD 1: 8s tiles, 10 peaks/sec (~80 peaks/tile) - Normal editing
-///   - LOD 2: 0.5s tiles, 400 peaks/sec (~200 peaks/tile) - Precision editing
+/// LOD Levels (8 levels with 4x ratio, optimized for 1s-4hr viewport range):
+///   - LOD 0: 4096s tiles, 0.0625 peaks/sec (256 peaks/tile) - Multi-hour overview
+///   - LOD 1: 1024s tiles, 0.25 peaks/sec (256 peaks/tile)   - Hour+ views
+///   - LOD 2: 256s tiles,  1 peak/sec (256 peaks/tile)       - 20-80 min views
+///   - LOD 3: 64s tiles,   4 peaks/sec (256 peaks/tile)      - 5-20 min views
+///   - LOD 4: 16s tiles,   16 peaks/sec (256 peaks/tile)     - 75s-5min views
+///   - LOD 5: 4s tiles,    64 peaks/sec (256 peaks/tile)     - 20-75s views
+///   - LOD 6: 1s tiles,    256 peaks/sec (256 peaks/tile)    - 5-20s views
+///   - LOD 7: 0.5s tiles,  1024 peaks/sec (512 peaks/tile)   - 1-5s views (finest)
+///
+/// Design rationale (see docs/architecture/LOD_LEVELS.md):
+///   - 4x ratio between adjacent LODs for smooth fallback rendering
+///   - Target 2-4 peaks/pixel at 400px viewport width
+///   - LOD 7 uses 512 peaks/tile to reduce tile count by 50% at finest zoom
 ///
 /// Cache Key Format:
 ///   TileCacheKey { take_guid, epoch, lod_level, tile_index }
@@ -36,15 +46,24 @@ pub const TileConfig = struct {
     peaks_per_tile: usize, // Expected peaks per tile
 };
 
-/// LOD level configurations (indices 0, 1, 2)
-pub const TILE_CONFIGS = [3]TileConfig{
-    .{ .duration = 64.0, .peakrate = 1.0, .peaks_per_tile = 64 }, // LOD 0: Coarse
-    .{ .duration = 8.0, .peakrate = 10.0, .peaks_per_tile = 80 }, // LOD 1: Medium
-    .{ .duration = 0.5, .peakrate = 400.0, .peaks_per_tile = 200 }, // LOD 2: Fine
+/// LOD level configurations (indices 0-7, 4x ratio between adjacent levels)
+/// See docs/architecture/LOD_LEVELS.md for full rationale.
+pub const TILE_CONFIGS = [8]TileConfig{
+    .{ .duration = 4096.0, .peakrate = 0.0625, .peaks_per_tile = 256 }, // LOD 0: Multi-hour overview
+    .{ .duration = 1024.0, .peakrate = 0.25, .peaks_per_tile = 256 }, // LOD 1: Hour+ views
+    .{ .duration = 256.0, .peakrate = 1.0, .peaks_per_tile = 256 }, // LOD 2: 20-80 min views
+    .{ .duration = 64.0, .peakrate = 4.0, .peaks_per_tile = 256 }, // LOD 3: 5-20 min views
+    .{ .duration = 16.0, .peakrate = 16.0, .peaks_per_tile = 256 }, // LOD 4: 75s-5min views
+    .{ .duration = 4.0, .peakrate = 64.0, .peaks_per_tile = 256 }, // LOD 5: 20-75s views
+    .{ .duration = 1.0, .peakrate = 256.0, .peaks_per_tile = 256 }, // LOD 6: 5-20s views
+    .{ .duration = 0.5, .peakrate = 1024.0, .peaks_per_tile = 512 }, // LOD 7: 1-5s views (finest)
 };
 
-/// Maximum peaks per tile (matches LOD 2)
-pub const MAX_PEAKS_PER_TILE = 200;
+/// Number of LOD levels
+pub const LOD_COUNT = 8;
+
+/// Maximum peaks per tile (matches LOD 7 which has 512 for fewer tiles at fine zoom)
+pub const MAX_PEAKS_PER_TILE = 512;
 
 /// Maximum cache entries before LRU eviction
 pub const MAX_CACHE_ENTRIES = 500;
@@ -67,8 +86,8 @@ pub const TileCacheKey = struct {
     /// Increments when source audio is edited, invalidating cached tiles.
     epoch: u32,
 
-    /// LOD level (0-2)
-    lod_level: u2,
+    /// LOD level (0-7)
+    lod_level: u3,
 
     /// Tile index: floor(startTime / tileDuration)
     tile_index: u32,
@@ -77,7 +96,7 @@ pub const TileCacheKey = struct {
     pub fn create(
         take_guid: []const u8,
         epoch: u32,
-        lod_level: u2,
+        lod_level: u3,
         tile_index: u32,
     ) TileCacheKey {
         var key = TileCacheKey{
@@ -560,7 +579,7 @@ fn computeTrackItemsHash(api: anytype, track: *anyopaque) u64 {
 
 /// Range of tiles needed for a viewport
 pub const TileRange = struct {
-    lod: u2,
+    lod: u3,
     start_tile: u32,
     end_tile: u32, // Inclusive
 
@@ -590,14 +609,8 @@ pub fn tilesForViewport(
         return null;
     }
 
-    // Calculate LOD based on pixels per second
-    const pixels_per_second = @as(f64, @floatFromInt(viewport_width_px)) / duration;
-    const lod: u2 = if (pixels_per_second > 200.0)
-        2 // Fine
-    else if (pixels_per_second > 5.0)
-        1 // Medium
-    else
-        0; // Coarse
+    // Select LOD based on viewport duration (thresholds from docs/architecture/LOD_LEVELS.md)
+    const lod: u3 = lodFromViewportDuration(duration);
 
     const config = TILE_CONFIGS[lod];
 
@@ -617,11 +630,32 @@ pub fn tilesForViewport(
     };
 }
 
+/// Select LOD level based on viewport duration.
+/// Thresholds ensure >= 2 peaks/pixel at 400px viewport width.
+/// See docs/architecture/LOD_LEVELS.md for derivation.
+pub fn lodFromViewportDuration(duration: f64) u3 {
+    if (duration < 5.0) return 7; // 1024 peaks/sec, < 5s
+    if (duration < 20.0) return 6; // 256 peaks/sec, 5-20s
+    if (duration < 75.0) return 5; // 64 peaks/sec, 20-75s
+    if (duration < 300.0) return 4; // 16 peaks/sec, 75s-5min
+    if (duration < 1200.0) return 3; // 4 peaks/sec, 5-20min
+    if (duration < 4800.0) return 2; // 1 peak/sec, 20-80min
+    if (duration < 19200.0) return 1; // 0.25 peaks/sec, 80min-5hr
+    return 0; // 0.0625 peaks/sec, > 5hr
+}
+
 /// Get LOD level from pixels per second.
-pub fn lodFromPixelsPerSecond(pixels_per_second: f64) u2 {
-    if (pixels_per_second > 200.0) return 2; // Fine
-    if (pixels_per_second > 5.0) return 1; // Medium
-    return 0; // Coarse
+/// Alternative to lodFromViewportDuration when viewport width varies.
+/// See docs/architecture/LOD_LEVELS.md for threshold derivation.
+pub fn lodFromPixelsPerSecond(pixels_per_second: f64) u3 {
+    if (pixels_per_second > 160.0) return 7; // Fine detail
+    if (pixels_per_second > 40.0) return 6;
+    if (pixels_per_second > 10.0) return 5;
+    if (pixels_per_second > 2.5) return 4;
+    if (pixels_per_second > 0.625) return 3;
+    if (pixels_per_second > 0.156) return 2;
+    if (pixels_per_second > 0.039) return 1;
+    return 0; // Coarse overview
 }
 
 // =============================================================================
@@ -643,20 +677,20 @@ test "TileCacheKey hash and equality" {
 }
 
 test "TileCacheKey time calculations" {
-    // LOD 0: 64s tiles
+    // LOD 0: 4096s tiles (multi-hour overview)
     const key0 = TileCacheKey.create("{guid}", 1, 0, 2);
-    try std.testing.expectApproxEqAbs(@as(f64, 128.0), key0.startTime(), 0.001);
-    try std.testing.expectApproxEqAbs(@as(f64, 192.0), key0.endTime(), 0.001);
+    try std.testing.expectApproxEqAbs(@as(f64, 8192.0), key0.startTime(), 0.001);
+    try std.testing.expectApproxEqAbs(@as(f64, 12288.0), key0.endTime(), 0.001);
 
-    // LOD 1: 8s tiles
-    const key1 = TileCacheKey.create("{guid}", 1, 1, 5);
-    try std.testing.expectApproxEqAbs(@as(f64, 40.0), key1.startTime(), 0.001);
-    try std.testing.expectApproxEqAbs(@as(f64, 48.0), key1.endTime(), 0.001);
+    // LOD 4: 16s tiles
+    const key4 = TileCacheKey.create("{guid}", 1, 4, 5);
+    try std.testing.expectApproxEqAbs(@as(f64, 80.0), key4.startTime(), 0.001);
+    try std.testing.expectApproxEqAbs(@as(f64, 96.0), key4.endTime(), 0.001);
 
-    // LOD 2: 0.5s tiles
-    const key2 = TileCacheKey.create("{guid}", 1, 2, 10);
-    try std.testing.expectApproxEqAbs(@as(f64, 5.0), key2.startTime(), 0.001);
-    try std.testing.expectApproxEqAbs(@as(f64, 5.5), key2.endTime(), 0.001);
+    // LOD 7: 0.5s tiles (finest)
+    const key7 = TileCacheKey.create("{guid}", 1, 7, 10);
+    try std.testing.expectApproxEqAbs(@as(f64, 5.0), key7.startTime(), 0.001);
+    try std.testing.expectApproxEqAbs(@as(f64, 5.5), key7.endTime(), 0.001);
 }
 
 test "TileCache basic operations" {
@@ -706,34 +740,60 @@ test "TileCache LRU eviction" {
 }
 
 test "tilesForViewport LOD selection" {
-    // Fine LOD: > 200 px/sec
-    const fine = tilesForViewport(0.0, 1.0, 400, 0.0);
-    try std.testing.expect(fine != null);
-    try std.testing.expectEqual(@as(u2, 2), fine.?.lod);
+    // LOD 7: < 5s viewport
+    const lod7 = tilesForViewport(0.0, 2.0, 400, 0.0);
+    try std.testing.expect(lod7 != null);
+    try std.testing.expectEqual(@as(u3, 7), lod7.?.lod);
 
-    // Medium LOD: 5-200 px/sec
-    const medium = tilesForViewport(0.0, 30.0, 400, 0.0);
-    try std.testing.expect(medium != null);
-    try std.testing.expectEqual(@as(u2, 1), medium.?.lod);
+    // LOD 6: 5-20s viewport
+    const lod6 = tilesForViewport(0.0, 10.0, 400, 0.0);
+    try std.testing.expect(lod6 != null);
+    try std.testing.expectEqual(@as(u3, 6), lod6.?.lod);
 
-    // Coarse LOD: < 5 px/sec
-    const coarse = tilesForViewport(0.0, 300.0, 400, 0.0);
-    try std.testing.expect(coarse != null);
-    try std.testing.expectEqual(@as(u2, 0), coarse.?.lod);
+    // LOD 5: 20-75s viewport
+    const lod5 = tilesForViewport(0.0, 30.0, 400, 0.0);
+    try std.testing.expect(lod5 != null);
+    try std.testing.expectEqual(@as(u3, 5), lod5.?.lod);
+
+    // LOD 4: 75s-5min viewport
+    const lod4 = tilesForViewport(0.0, 120.0, 400, 0.0);
+    try std.testing.expect(lod4 != null);
+    try std.testing.expectEqual(@as(u3, 4), lod4.?.lod);
+
+    // LOD 3: 5-20min viewport
+    const lod3 = tilesForViewport(0.0, 600.0, 400, 0.0);
+    try std.testing.expect(lod3 != null);
+    try std.testing.expectEqual(@as(u3, 3), lod3.?.lod);
+
+    // LOD 2: 20-80min viewport
+    const lod2 = tilesForViewport(0.0, 3000.0, 400, 0.0);
+    try std.testing.expect(lod2 != null);
+    try std.testing.expectEqual(@as(u3, 2), lod2.?.lod);
+
+    // LOD 1: 80min-5hr viewport
+    const lod1 = tilesForViewport(0.0, 10000.0, 400, 0.0);
+    try std.testing.expect(lod1 != null);
+    try std.testing.expectEqual(@as(u3, 1), lod1.?.lod);
+
+    // LOD 0: > 5hr viewport
+    const lod0 = tilesForViewport(0.0, 25000.0, 400, 0.0);
+    try std.testing.expect(lod0 != null);
+    try std.testing.expectEqual(@as(u3, 0), lod0.?.lod);
 }
 
 test "tilesForViewport with buffer" {
-    // 10 second viewport at position 50-60, LOD 1 (8s tiles), 50% buffer
-    const range = tilesForViewport(50.0, 60.0, 100, 0.5);
+    // 10 second viewport at position 50-60 with 50% buffer
+    // 10s duration -> LOD 6 (1s tiles)
+    const range = tilesForViewport(50.0, 60.0, 400, 0.5);
     try std.testing.expect(range != null);
-    try std.testing.expectEqual(@as(u2, 1), range.?.lod); // Medium LOD
+    try std.testing.expectEqual(@as(u3, 6), range.?.lod);
 
     // Buffer: 5s each side, so 45-65 seconds
-    // LOD 1 tiles are 8s, so:
-    // start_tile = floor(45/8) = 5
-    // end_tile = ceil(65/8) - 1 = 9 - 1 = 8
-    try std.testing.expectEqual(@as(u32, 5), range.?.start_tile);
-    try std.testing.expectEqual(@as(u32, 8), range.?.end_tile);
+    // LOD 6 tiles are 1s, so:
+    // start_tile = floor(45/1) = 45
+    // end_tile = ceil(65/1) - 1 = 65 - 1 = 64
+    try std.testing.expectEqual(@as(u32, 45), range.?.start_tile);
+    try std.testing.expectEqual(@as(u32, 64), range.?.end_tile);
 }
 
 test "tilesForViewport invalid inputs" {

@@ -60,7 +60,7 @@ export interface UsePeaksSubscriptionOptions {
 
 /** Return value from usePeaksSubscription - TILE-BASED API */
 export interface UsePeaksSubscriptionResult {
-  /** Current LOD level (0=coarse, 1=medium, 2=fine) */
+  /** Current LOD level (0-7, see docs/architecture/LOD_LEVELS.md) */
   currentLod: LODLevel;
 
   /**

@@ -336,7 +336,7 @@ export function WaveformCanvas({
         // TRY 2: Adjacent LOD levels (scaled but no gap)
         for (const lodOffset of FALLBACK_LOD_OFFSETS) {
           const fallbackLod = (currentLod + lodOffset) as LODLevel;
-          if (fallbackLod < 0 || fallbackLod > 2) continue;
+          if (fallbackLod < 0 || fallbackLod > 7) continue;
 
           const fallbackKey: TileCacheKey = { ...tileKey, lod: fallbackLod };
           const fallbackBitmap = tileBitmapCache.get(fallbackKey, waveformColor, bitmapHeight);
