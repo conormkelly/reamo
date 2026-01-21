@@ -82,6 +82,11 @@ export interface UsePinchGestureOptions {
   projectDuration: number;
   /** Whether pinch gesture is disabled */
   disabled?: boolean;
+  /**
+   * Optional time to center zoom on instead of pinch midpoint.
+   * When set, zoom centers on this time (e.g., playhead position for follow mode).
+   */
+  centerOnTime?: number;
 }
 
 export interface UsePinchGestureResult {
@@ -122,6 +127,7 @@ export function usePinchGesture({
   setVisibleRange,
   projectDuration,
   disabled = false,
+  centerOnTime,
 }: UsePinchGestureOptions): UsePinchGestureResult {
   // Track active pointers (up to 2)
   const pointersRef = useRef<Map<number, ActivePointer>>(new Map());
@@ -220,17 +226,28 @@ export function usePinchGesture({
       // Clamp duration (min 5s, max = project duration so you can always zoom to see everything)
       newDuration = Math.max(MIN_DURATION, Math.min(projectDuration, newDuration));
 
-      // Calculate new range centered on the initial pinch midpoint
-      // The time at initialCenterTimeRef should stay at the same screen position
-      const midpoint = getMidpoint(p1, p2);
-      if (!containerRef.current) return;
+      // Calculate new range
+      let newStart: number;
+      let newEnd: number;
 
-      const rect = containerRef.current.getBoundingClientRect();
-      const centerPercent = (midpoint.x - rect.left) / rect.width;
+      if (centerOnTime !== undefined) {
+        // Center zoom on specified time (e.g., playhead in follow mode)
+        // Keep centerOnTime at the center of the viewport (50%)
+        newStart = centerOnTime - newDuration / 2;
+        newEnd = centerOnTime + newDuration / 2;
+      } else {
+        // Center on pinch midpoint (default behavior)
+        // The time at initialCenterTimeRef should stay at the same screen position
+        const midpoint = getMidpoint(p1, p2);
+        if (!containerRef.current) return;
 
-      // The center time should be at centerPercent of the new range
-      const newStart = initialCenterTimeRef.current - centerPercent * newDuration;
-      const newEnd = newStart + newDuration;
+        const rect = containerRef.current.getBoundingClientRect();
+        const centerPercent = (midpoint.x - rect.left) / rect.width;
+
+        // The center time should be at centerPercent of the new range
+        newStart = initialCenterTimeRef.current - centerPercent * newDuration;
+        newEnd = newStart + newDuration;
+      }
 
       // Clamp to project bounds
       let clampedStart = newStart;

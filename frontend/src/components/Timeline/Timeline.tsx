@@ -434,12 +434,14 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
   });
 
   // Pinch gesture for zooming (works in all modes)
+  // When following playhead, zoom centers on playhead instead of pinch midpoint
   const pinchGesture = usePinchGesture({
     containerRef,
     visibleRange: viewport.visibleRange,
     setVisibleRange: viewport.setVisibleRange,
     projectDuration: duration,
     disabled: false, // Pinch always works
+    centerOnTime: followPlayhead ? positionSeconds : undefined,
   });
 
   // Render-specific timeToPercent (uses VIEWPORT bounds for visible range)
@@ -547,7 +549,10 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
       const pinchStarted = pinchGesture.handlePointerDown(e);
       if (pinchStarted) {
         // isPinchingRef is already set to true inside the hook
-        pauseFollow(); // Don't follow playhead while user is zooming
+        // Don't pause follow when following playhead - zoom is already centered on it
+        if (!followPlayhead) {
+          pauseFollow();
+        }
         return; // Pinch takes priority
       }
 
@@ -577,7 +582,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
         (e.target as HTMLElement).setPointerCapture(e.pointerId);
       }
     },
-    [positionToTime, isDraggingPlayhead, timelineMode, handleRegionPointerDown, selectionModeActive, panGesture, pinchGesture, pauseFollow]
+    [positionToTime, isDraggingPlayhead, timelineMode, handleRegionPointerDown, selectionModeActive, panGesture, pinchGesture, pauseFollow, followPlayhead]
   );
 
   // Handle touch/mouse move
@@ -1247,10 +1252,10 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
           selectionModeActive={selectionModeActive}
           onSelectionModeToggle={() => setSelectionModeActive(!selectionModeActive)}
           onSelectionLongPress={openMakeSelectionModal}
-          // Zoom controls
+          // Zoom controls - center on playhead when following
           visibleDuration={viewport.visibleDuration}
-          onZoomIn={() => viewport.zoomIn()}
-          onZoomOut={() => viewport.zoomOut()}
+          onZoomIn={() => viewport.zoomIn(followPlayhead ? positionSeconds : undefined)}
+          onZoomOut={() => viewport.zoomOut(followPlayhead ? positionSeconds : undefined)}
           onFitToContent={() => viewport.fitToContent({ start: baseTimelineStart, end: baseTimelineStart + baseDuration })}
         />
       )}
