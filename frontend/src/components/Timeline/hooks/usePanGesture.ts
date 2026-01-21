@@ -20,14 +20,19 @@ const FRICTION = 0.95;
 /**
  * Velocity constants as PERCENTAGE of viewport per frame.
  * Tuned so 30-second zoom level feels optimal.
- * At 30s: 0.015 ratio = 0.45 seconds/frame, 0.0002 ratio = 0.006 seconds/frame
+ * At 30s: 0.015 ratio = 0.45 seconds/frame
  */
 
-/** Minimum velocity to continue momentum (ratio of viewport per frame) */
-const VELOCITY_THRESHOLD_RATIO = 0.0002;
+/** Minimum velocity to continue momentum (ratio of viewport per frame)
+ * Set higher to stop momentum earlier and avoid wobble from sub-pixel movements.
+ * 0.001 = 0.1% of viewport = 0.03s at 30s zoom = ~1px movement */
+const VELOCITY_THRESHOLD_RATIO = 0.001;
 
 /** Maximum velocity cap to prevent runaway scrolling (ratio of viewport per frame) */
 const MAX_VELOCITY_RATIO = 0.015;
+
+/** Minimum pixel movement to apply pan - prevents sub-pixel wobble */
+const MIN_PAN_PIXELS = 0.5;
 
 /** Number of recent events to track for velocity calculation */
 const VELOCITY_SAMPLE_COUNT = 5;
@@ -125,10 +130,21 @@ export function usePanGesture({
   const momentumTick = useCallback(() => {
     const velocity = velocityRef.current;
     const duration = visibleDurationRef.current;
+    const containerWidth = containerWidthRef.current;
 
     // Stop if velocity is below threshold (viewport-relative)
     const velocityThreshold = duration * VELOCITY_THRESHOLD_RATIO;
     if (Math.abs(velocity) < velocityThreshold) {
+      stopMomentum();
+      return;
+    }
+
+    // Calculate pixel movement this frame would cause
+    // velocity is in seconds, convert to pixels: (velocity / duration) * containerWidth
+    const pixelMovement = containerWidth > 0 ? Math.abs(velocity / duration) * containerWidth : 0;
+
+    // Stop if movement would be sub-pixel (prevents wobble)
+    if (pixelMovement < MIN_PAN_PIXELS) {
       stopMomentum();
       return;
     }

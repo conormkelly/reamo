@@ -10,22 +10,29 @@
  * - Single canvas per track lane (not per-item) - reduces DOM overhead
  * - Viewport-sized canvas (fixed size regardless of content)
  * - 1x DPR for waveforms (4x memory savings, acceptable for waveform detail)
- * - Skip rendering during gestures (CSS transform handles visual)
  * - GPU compositing via translateZ(0)
  * - ImageBitmap blitting is GPU-accelerated
+ * - NEVER-CLEAR rendering: clear only item regions, never entire canvas
+ * - Synchronous fallback: adjacent LOD or direct peaks when tile not cached
  *
  * Per research doc: "Pre-render waveforms to ImageBitmap for GPU-accelerated blitting"
  * ctx.drawImage(cachedBitmap, ...) is blazing fast compared to fillRect loops.
  */
 
 import { useRef, useEffect, useState, type ReactElement } from 'react';
-import type { WSItem, TileCacheKey, LODLevel } from '../../core/WebSocketTypes';
+import type { WSItem, TileCacheKey, LODLevel, StereoPeak, MonoPeak } from '../../core/WebSocketTypes';
 import { tileBitmapCache, TILE_RENDER_WIDTH } from '../../core/TileBitmapCache';
 import { reaperColorToRgba, getContrastColor } from '../../utils';
 import { useReaperStore } from '../../store';
 
+// Debug flag: set to true to visualize tile cache hits/misses
+const DEBUG_TILES = false;
+
 // Default item color when no color set
 const DEFAULT_ITEM_COLOR = 'rgba(129, 137, 137, 0.6)';
+
+// LOD levels to try as fallbacks (relative to current LOD)
+const FALLBACK_LOD_OFFSETS = [-1, 1, -2, 2] as const;
 
 export interface WaveformCanvasProps {
   /** Track index (1-based, for display purposes) */
@@ -66,6 +73,105 @@ function parseTileCacheKey(keyStr: string): TileCacheKey | null {
   };
 }
 
+/** Check if peaks are stereo */
+function isStereo(peaks: StereoPeak[] | MonoPeak[]): peaks is StereoPeak[] {
+  return peaks.length > 0 && typeof peaks[0] === 'object' && 'l' in peaks[0];
+}
+
+/**
+ * Draw peaks directly to canvas (synchronous fallback when no bitmap cached).
+ * Slower than ImageBitmap blitting but prevents visual gaps during cache misses.
+ */
+function drawPeaksDirect(
+  ctx: CanvasRenderingContext2D,
+  peaks: StereoPeak[] | MonoPeak[],
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  color: string
+): void {
+  if (peaks.length === 0) return;
+
+  ctx.fillStyle = color;
+  const centerY = y + height / 2;
+  const sampleWidth = width / peaks.length;
+
+  for (let i = 0; i < peaks.length; i++) {
+    const peak = peaks[i];
+    let minVal: number;
+    let maxVal: number;
+
+    if (isStereo(peaks)) {
+      const stereoPeak = peak as StereoPeak;
+      // Combine L+R into single peak (average)
+      minVal = (stereoPeak.l[0] + stereoPeak.r[0]) / 2;
+      maxVal = (stereoPeak.l[1] + stereoPeak.r[1]) / 2;
+    } else {
+      const monoPeak = peak as MonoPeak;
+      minVal = monoPeak[0];
+      maxVal = monoPeak[1];
+    }
+
+    const peakX = x + i * sampleWidth;
+    const topY = centerY - maxVal * (height / 2);
+    const bottomY = centerY - minVal * (height / 2);
+
+    // Ensure minimum 1px height
+    const peakHeight = Math.max(bottomY - topY, 1);
+    const adjustedTopY = peakHeight === 1 ? centerY - 0.5 : topY;
+
+    ctx.fillRect(peakX, adjustedTopY, Math.max(sampleWidth - 0.5, 1), peakHeight);
+  }
+}
+
+/** Drawn region tracker for never-clear rendering */
+interface DrawnRegion {
+  x: number;
+  width: number;
+}
+
+/**
+ * Clear canvas regions not covered by drawn items.
+ * Prevents stale waveforms from previous viewport positions.
+ */
+function clearUncoveredRegions(
+  ctx: CanvasRenderingContext2D,
+  drawnRegions: DrawnRegion[],
+  canvasWidth: number,
+  canvasHeight: number
+): void {
+  if (drawnRegions.length === 0) {
+    // No items drawn - clear entire canvas
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+    return;
+  }
+
+  // Sort regions by x position
+  const sorted = [...drawnRegions].sort((a, b) => a.x - b.x);
+
+  // Clear gap before first region
+  if (sorted[0].x > 0) {
+    ctx.clearRect(0, 0, sorted[0].x, canvasHeight);
+  }
+
+  // Clear gaps between regions
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const currentEnd = sorted[i].x + sorted[i].width;
+    const nextStart = sorted[i + 1].x;
+    if (nextStart > currentEnd) {
+      ctx.clearRect(currentEnd, 0, nextStart - currentEnd, canvasHeight);
+    }
+  }
+
+  // Clear gap after last region
+  const lastRegion = sorted[sorted.length - 1];
+  const lastEnd = lastRegion.x + lastRegion.width;
+  if (lastEnd < canvasWidth) {
+    ctx.clearRect(lastEnd, 0, canvasWidth - lastEnd, canvasHeight);
+  }
+}
+
 export function WaveformCanvas({
   trackIdx,
   width,
@@ -83,51 +189,66 @@ export function WaveformCanvas({
   const tilesByTake = useReaperStore((s) => s.tilesByTake);
 
   // Item layout constants (matches MultiTrackLanes)
+  // Round to whole pixels for consistent rendering
   const itemTopPercent = 10;
   const itemHeightPercent = 80;
-  const itemY = (itemTopPercent / 100) * height;
-  const itemHeight = (itemHeightPercent / 100) * height;
+  const itemY = Math.round((itemTopPercent / 100) * height);
+  const itemHeight = Math.round((itemHeightPercent / 100) * height);
 
   useEffect(() => {
     // Note: We MUST redraw on every viewport change (including during pan gestures)
-    // because items need to be at different pixel positions. The CSS scaleX transform
-    // only helps during pinch-zoom, not during pan. ImageBitmap blitting is fast enough
-    // for 60fps redraws.
+    // because items need to be at different pixel positions. ImageBitmap blitting is
+    // fast enough for 60fps redraws.
+    //
+    // NEVER-CLEAR RENDERING: We only clear individual item regions before drawing,
+    // not the entire canvas. This prevents visual holes when tiles aren't cached.
 
     const canvas = canvasRef.current;
     if (!canvas || width === 0 || height === 0) return;
 
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: true });
     if (!ctx) return;
 
-    // 1x DPR for waveforms (saves 4x memory, per architecture doc)
-    canvas.width = width;
-    canvas.height = height;
-
-    // Clear canvas
-    ctx.clearRect(0, 0, width, height);
+    // Set canvas size only if changed (1x DPR for waveforms - saves 4x memory)
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
 
     const viewportDuration = viewportEnd - viewportStart;
     if (viewportDuration <= 0) return;
 
+    // Track drawn regions for cleanup of stale areas
+    const drawnRegions: DrawnRegion[] = [];
     // Track pending bitmap renders for async re-render
     const pendingRenders: Promise<void>[] = [];
+
+    // Debug stats
+    let draws = 0;
+    let fallbacks = 0;
 
     // Render each item
     for (const item of items) {
       const itemStart = item.position;
       const itemEnd = item.position + item.length;
 
-      // Skip items completely outside viewport
-      if (itemEnd <= viewportStart || itemStart >= viewportEnd) continue;
+      // Skip items completely outside viewport (with small buffer)
+      if (itemEnd <= viewportStart - 0.1 || itemStart >= viewportEnd + 0.1) continue;
 
       // Calculate item screen position (clipped to viewport)
+      // IMPORTANT: Round to whole pixels to prevent sub-pixel shimmer at edges
       const leftRatio = Math.max(0, (itemStart - viewportStart) / viewportDuration);
       const rightRatio = Math.min(1, (itemEnd - viewportStart) / viewportDuration);
-      const itemX = leftRatio * width;
-      const itemWidth = (rightRatio - leftRatio) * width;
+      const itemX = Math.round(leftRatio * width);
+      const itemRight = Math.round(rightRatio * width);
+      const itemWidth = itemRight - itemX;
 
-      // Draw item background
+      if (itemWidth < 1) continue; // Too small to render
+
+      // PHASE 1: Clear ONLY this item's region, not entire canvas
+      ctx.clearRect(itemX, 0, itemWidth, height);
+
+      // Draw item background (always succeeds - provides base color even if tiles missing)
       ctx.fillStyle = getItemColor(item);
       ctx.fillRect(itemX, itemY, itemWidth, itemHeight);
 
@@ -137,6 +258,9 @@ export function WaveformCanvas({
         ctx.lineWidth = 2;
         ctx.strokeRect(itemX + 1, itemY + 1, itemWidth - 2, itemHeight - 2);
       }
+
+      // Track this region as drawn
+      drawnRegions.push({ x: itemX, width: itemWidth });
 
       // Skip MIDI items and items without take GUID
       if (item.activeTakeIsMidi || !item.activeTakeGuid) continue;
@@ -161,14 +285,20 @@ export function WaveformCanvas({
         if (tileAbsEnd <= viewportStart || tileAbsStart >= viewportEnd) continue;
 
         // Calculate tile screen position
+        // IMPORTANT: Round to whole pixels to prevent sub-pixel shimmer at edges
         const tileLeftRatio = (tileAbsStart - viewportStart) / viewportDuration;
         const tileRightRatio = (tileAbsEnd - viewportStart) / viewportDuration;
-        const tileX = tileLeftRatio * width;
-        const tileScreenWidth = (tileRightRatio - tileLeftRatio) * width;
+        const tileX = Math.round(tileLeftRatio * width);
+        const tileRight = Math.round(tileRightRatio * width);
+        const tileScreenWidth = tileRight - tileX;
+
+        // Skip tiles that round to zero width
+        if (tileScreenWidth <= 0) continue;
 
         // Clip tile to item bounds (tiles shouldn't extend past item visually)
+        // Use already-rounded itemX/itemRight for consistent pixel alignment
         const clippedX = Math.max(tileX, itemX);
-        const clippedRight = Math.min(tileX + tileScreenWidth, itemX + itemWidth);
+        const clippedRight = Math.min(tileRight, itemRight);
         const clippedWidth = clippedRight - clippedX;
 
         if (clippedWidth <= 0) continue;
@@ -177,39 +307,99 @@ export function WaveformCanvas({
         const tileKey = parseTileCacheKey(keyStr);
         if (!tileKey) continue;
 
-        // Try to get cached bitmap (sync path - fast)
+        // Calculate source rect for bitmap
+        const srcClipLeft = ((clippedX - tileX) / tileScreenWidth) * TILE_RENDER_WIDTH;
+        const srcClipWidth = (clippedWidth / tileScreenWidth) * TILE_RENDER_WIDTH;
+
+        // TRY 1: Exact cached bitmap (fast path - GPU-accelerated blit)
         const cachedBitmap = tileBitmapCache.get(tileKey, waveformColor, bitmapHeight);
 
         if (cachedBitmap) {
-          // GPU-accelerated blit! This is the fast path per architecture doc.
-          // Source rect: portion of bitmap that maps to clipped screen area
-          const srcClipLeft = ((clippedX - tileX) / tileScreenWidth) * TILE_RENDER_WIDTH;
-          const srcClipWidth = (clippedWidth / tileScreenWidth) * TILE_RENDER_WIDTH;
-
           ctx.drawImage(
             cachedBitmap,
-            srcClipLeft,
-            0,
-            srcClipWidth,
-            cachedBitmap.height, // source rect
-            clippedX,
-            itemY,
-            clippedWidth,
-            itemHeight // dest rect
+            srcClipLeft, 0, srcClipWidth, cachedBitmap.height, // source rect
+            clippedX, itemY, clippedWidth, itemHeight // dest rect
           );
-        } else {
-          // Async render bitmap, then trigger re-render
-          const renderPromise = tileBitmapCache
-            .getOrRender(tileKey, tile.peaks, waveformColor, bitmapHeight)
-            .then(() => {
-              // Bitmap now cached, will be blitted on next render
-            })
-            .catch((err) => {
-              console.warn('Failed to render tile bitmap:', err);
-            });
-          pendingRenders.push(renderPromise);
+          draws++;
+
+          if (DEBUG_TILES) {
+            ctx.strokeStyle = 'rgba(0, 255, 0, 0.8)'; // Green = cache hit
+            ctx.lineWidth = 1;
+            ctx.strokeRect(clippedX, itemY, clippedWidth, itemHeight);
+          }
+          continue;
+        }
+
+        // PHASE 2: Synchronous fallback rendering - never leave visual holes
+        let drewFallback = false;
+
+        // TRY 2: Adjacent LOD levels (scaled but no gap)
+        for (const lodOffset of FALLBACK_LOD_OFFSETS) {
+          const fallbackLod = (currentLod + lodOffset) as LODLevel;
+          if (fallbackLod < 0 || fallbackLod > 2) continue;
+
+          const fallbackKey: TileCacheKey = { ...tileKey, lod: fallbackLod };
+          const fallbackBitmap = tileBitmapCache.get(fallbackKey, waveformColor, bitmapHeight);
+
+          if (fallbackBitmap) {
+            // Draw scaled fallback - may look slightly different but NO FLICKER
+            ctx.drawImage(
+              fallbackBitmap,
+              srcClipLeft, 0, srcClipWidth, fallbackBitmap.height,
+              clippedX, itemY, clippedWidth, itemHeight
+            );
+            fallbacks++;
+            drewFallback = true;
+
+            if (DEBUG_TILES) {
+              ctx.strokeStyle = 'rgba(255, 255, 0, 0.8)'; // Yellow = LOD fallback
+              ctx.lineWidth = 1;
+              ctx.strokeRect(clippedX, itemY, clippedWidth, itemHeight);
+            }
+            break;
+          }
+        }
+
+        // TRY 3: Direct peak rendering (synchronous, slower but no gap)
+        if (!drewFallback && tile.peaks.length > 0) {
+          drawPeaksDirect(ctx, tile.peaks, clippedX, itemY, clippedWidth, itemHeight, waveformColor);
+          fallbacks++;
+          drewFallback = true;
+
+          if (DEBUG_TILES) {
+            ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)'; // Red = direct peaks
+            ctx.lineWidth = 1;
+            ctx.strokeRect(clippedX, itemY, clippedWidth, itemHeight);
+          }
+        }
+
+        // Queue async render for correct LOD (will improve quality next frame)
+        const renderPromise = tileBitmapCache
+          .getOrRender(tileKey, tile.peaks, waveformColor, bitmapHeight)
+          .then(() => {
+            // Bitmap now cached, will be blitted on next render
+          })
+          .catch((err) => {
+            console.warn('Failed to render tile bitmap:', err);
+          });
+        pendingRenders.push(renderPromise);
+
+        if (DEBUG_TILES) {
+          ctx.fillStyle = 'white';
+          ctx.font = '8px monospace';
+          ctx.fillText(`T${tileKey.tileIndex}`, clippedX + 2, itemY + 10);
         }
       }
+    }
+
+    // Clear canvas regions NOT covered by any item (prevents stale waveforms)
+    clearUncoveredRegions(ctx, drawnRegions, width, height);
+
+    // Debug logging
+    if (DEBUG_TILES && (draws > 0 || fallbacks > 0 || pendingRenders.length > 0)) {
+      console.log(
+        `[Track ${trackIdx}] Draws: ${draws}, Fallbacks: ${fallbacks}, Pending: ${pendingRenders.length}`
+      );
     }
 
     // If there were pending renders, trigger re-render when done
