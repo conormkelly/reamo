@@ -784,16 +784,28 @@ Adaptive waveform peaks subscription for multi-track timeline views. The backend
 
 ### LOD System
 
-| LOD | Resolution | Tile Duration | Use Case |
-|-----|------------|---------------|----------|
-| 0 | 1 peak/sec | 64s | Overview (zoomed out) |
-| 1 | 10 peaks/sec | 8s | Normal editing |
-| 2 | 400 peaks/sec | 0.5s | Precision editing (zoomed in) |
+8 LOD levels with 4x ratio between adjacent levels (see `docs/architecture/LOD_LEVELS.md`):
 
-LOD is selected based on `widthPx / (end - start)`:
-- `> 200 px/sec` → LOD 2
-- `> 5 px/sec` → LOD 1
-- `≤ 5 px/sec` → LOD 0
+| LOD | Peaks/sec | Tile Duration | Viewport Duration | Use Case |
+|-----|-----------|---------------|-------------------|----------|
+| 7 | 1024 | 0.5s | < 5s | Fine detail |
+| 6 | 256 | 1s | 5s - 20s | Precision editing |
+| 5 | 64 | 4s | 20s - 75s | Normal editing |
+| 4 | 16 | 16s | 75s - 5min | Wide view |
+| 3 | 4 | 64s | 5min - 20min | Overview |
+| 2 | 1 | 256s | 20min - 80min | Large project |
+| 1 | 0.25 | 1024s | 80min - 5hr | Multi-hour |
+| 0 | 0.0625 | 4096s | > 5hr | Extreme overview |
+
+LOD is selected based on viewport duration (`end - start`):
+- `< 5s` → LOD 7 (1024 peaks/sec)
+- `< 20s` → LOD 6 (256 peaks/sec)
+- `< 75s` → LOD 5 (64 peaks/sec)
+- `< 300s` → LOD 4 (16 peaks/sec)
+- `< 1200s` → LOD 3 (4 peaks/sec)
+- `< 4800s` → LOD 2 (1 peak/sec)
+- `< 19200s` → LOD 1 (0.25 peaks/sec)
+- `≥ 19200s` → LOD 0 (0.0625 peaks/sec)
 
 ### `peaks/subscribe`
 
@@ -841,11 +853,11 @@ Subscribe to peaks for multiple tracks. Returns tile-based peak data optimized f
       {
         "takeGuid": "{XXXX...}",
         "epoch": 2355337060,
-        "lod": 1,
-        "tileIndex": 5,
+        "lod": 6,
+        "tileIndex": 105,
         "itemPosition": 100.0,
-        "startTime": 40.0,
-        "endTime": 48.0,
+        "startTime": 105.0,
+        "endTime": 106.0,
         "channels": 2,
         "peaks": [
           {"l": [-0.5, 0.6], "r": [-0.4, 0.5]},
@@ -861,7 +873,7 @@ Subscribe to peaks for multiple tracks. Returns tile-based peak data optimized f
 |-------|------|-------------|
 | `takeGuid` | string | GUID of the take (for cache key) |
 | `epoch` | int | Cache epoch (changes when audio is re-rendered) |
-| `lod` | int | LOD level (0, 1, or 2) |
+| `lod` | int | LOD level (0-7, see LOD System above) |
 | `tileIndex` | int | Tile index within item |
 | `itemPosition` | float | Item position in project time (seconds) |
 | `startTime` | float | Tile start time relative to item start |

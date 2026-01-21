@@ -507,21 +507,31 @@ export interface PlaylistEventPayload {
 // Peaks Subscription Event (per-client, pushed by backend) - TILE-BASED LOD
 // =============================================================================
 
-/** LOD level type (0=coarse, 1=medium, 2=fine) */
-export type LODLevel = 0 | 1 | 2;
+/** LOD level type (0=coarsest overview, 7=finest detail)
+ * See docs/architecture/LOD_LEVELS.md for full configuration.
+ */
+export type LODLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
-/** LOD configuration constants matching backend peaks_tile.zig */
+/** LOD configuration constants matching backend peaks_tile.zig
+ * 8 levels with 4x ratio between adjacent levels.
+ * Optimized for 1s-4hr viewport range, targeting 2-4 peaks/pixel at 400px width.
+ */
 export const LOD_CONFIGS = {
-  0: { duration: 64, peakrate: 1, peaksPerTile: 64 },    // Coarse: 1 peak/sec, 64s tiles
-  1: { duration: 8, peakrate: 10, peaksPerTile: 80 },   // Medium: 10 peaks/sec, 8s tiles
-  2: { duration: 0.5, peakrate: 400, peaksPerTile: 200 } // Fine: 400 peaks/sec, 0.5s tiles
+  0: { duration: 4096, peakrate: 0.0625, peaksPerTile: 256 }, // > 5hr viewport
+  1: { duration: 1024, peakrate: 0.25, peaksPerTile: 256 },   // 80min - 5hr
+  2: { duration: 256, peakrate: 1, peaksPerTile: 256 },       // 20min - 80min
+  3: { duration: 64, peakrate: 4, peaksPerTile: 256 },        // 5min - 20min
+  4: { duration: 16, peakrate: 16, peaksPerTile: 256 },       // 75s - 5min
+  5: { duration: 4, peakrate: 64, peaksPerTile: 256 },        // 20s - 75s
+  6: { duration: 1, peakrate: 256, peaksPerTile: 256 },       // 5s - 20s
+  7: { duration: 0.5, peakrate: 1024, peaksPerTile: 512 },    // < 5s (finest)
 } as const;
 
 /** Single tile of peaks data from backend */
 export interface PeaksTile {
   takeGuid: string;          // Take GUID for cache key
   epoch: number;             // Cache invalidation signal (changes when source audio edited)
-  lod: LODLevel;             // LOD level (0=coarse, 1=medium, 2=fine)
+  lod: LODLevel;             // LOD level (0-7, see LOD_CONFIGS)
   tileIndex: number;         // Position within item (0-indexed)
   itemPosition: number;      // Item start position in project time (seconds)
   startTime: number;         // Tile start time relative to item start (seconds)
@@ -565,19 +575,25 @@ export interface PeaksEventPayload {
 // DEPRECATED - Old item-based format (kept for backward compat with item/getPeaks)
 // -----------------------------------------------------------------------------
 
-/** Calculate LOD level from viewport (must match backend peaks_tile.zig logic) */
+/** Calculate LOD level from viewport (must match backend peaks_tile.zig logic)
+ * Uses viewport duration thresholds - see docs/architecture/LOD_LEVELS.md
+ */
 export function calculateLODFromViewport(
   viewportStart: number,
   viewportEnd: number,
-  widthPx: number
+  _widthPx: number // Unused - thresholds based on duration, not pixels
 ): LODLevel {
   const duration = viewportEnd - viewportStart;
-  if (duration <= 0 || widthPx <= 0) return 1; // Default to medium
-  const pixelsPerSecond = widthPx / duration;
+  if (duration <= 0) return 5; // Default to LOD 5 (normal editing)
 
-  if (pixelsPerSecond > 200) return 2; // Fine: 400 peaks/sec
-  if (pixelsPerSecond > 5) return 1;   // Medium: 10 peaks/sec
-  return 0;                             // Coarse: 1 peak/sec
+  if (duration < 5) return 7;      // < 5s: finest detail
+  if (duration < 20) return 6;     // 5-20s: precision editing
+  if (duration < 75) return 5;     // 20-75s: normal editing
+  if (duration < 300) return 4;    // 75s-5min: wide view
+  if (duration < 1200) return 3;   // 5-20min: overview
+  if (duration < 4800) return 2;   // 20-80min: large project
+  if (duration < 19200) return 1;  // 80min-5hr: multi-hour
+  return 0;                         // > 5hr: extreme overview
 }
 
 /** Create a tile cache key string for Map storage */

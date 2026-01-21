@@ -319,10 +319,16 @@ pub fn generatePeaksForSubscription(
 // Tile-Based Peak Generation
 // =============================================================================
 
-/// Sample rate for AudioAccessor-based peak computation.
+/// Minimum samples per peak for accurate min/max detection.
+/// 10 samples per peak provides good resolution without excessive data.
+const SAMPLES_PER_PEAK: usize = 10;
+
+/// Maximum sample rate for AudioAccessor (caps memory for short tiles).
 /// 4000 Hz is sufficient for peak detection and 11x faster than 44100 Hz.
-/// For a 0.5s tile at 200 peaks: 2000 samples, 10 samples per peak.
-const ACCESSOR_SAMPLE_RATE: c_int = 4000;
+const MAX_ACCESSOR_SAMPLE_RATE: f64 = 4000.0;
+
+/// Minimum sample rate to ensure reasonable audio resolution.
+const MIN_ACCESSOR_SAMPLE_RATE: f64 = 1.0;
 
 /// Generate a single tile using AudioAccessor (for LOD 2).
 /// This bypasses GetMediaItemTake_Peaks which fails on ARM64 macOS with high peakrate.
@@ -387,34 +393,46 @@ fn generateTileWithAccessor(
         return null;
     }
 
-    // Calculate samples needed
-    // At 4000 Hz, a 0.5s tile = 2000 samples, giving 10 samples per peak for 200 peaks
-    const samples_needed: usize = @intFromFloat(@ceil(tile_duration * @as(f64, @floatFromInt(ACCESSOR_SAMPLE_RATE))));
-    if (samples_needed == 0) {
-        logging.warn("genTileAccessor: samples_needed is 0", .{});
+    // Calculate samples needed dynamically based on tile duration.
+    // For long tiles (e.g., 256s at LOD 2), we don't need 4000 Hz - just enough
+    // samples to compute the requested peaks with good resolution.
+    // This keeps memory bounded: 512 peaks × 10 samples × 2 channels × 8 bytes = 80KB max
+    const samples_needed: usize = num_peaks * SAMPLES_PER_PEAK;
+
+    // Calculate the effective sample rate for this tile
+    const effective_sample_rate = @min(
+        MAX_ACCESSOR_SAMPLE_RATE,
+        @max(MIN_ACCESSOR_SAMPLE_RATE, @as(f64, @floatFromInt(samples_needed)) / tile_duration),
+    );
+
+    // Recalculate actual samples based on clamped rate (for short tiles, may exceed samples_needed)
+    const actual_samples: usize = @intFromFloat(@ceil(tile_duration * effective_sample_rate));
+    if (actual_samples == 0) {
+        logging.warn("genTileAccessor: actual_samples is 0", .{});
         return null;
     }
 
-    const samples_per_peak = @max(samples_needed / num_peaks, 1);
+    const samples_per_peak = @max(actual_samples / num_peaks, 1);
 
     // Always request stereo (2 channels) - detect mono by comparing L/R later
     const num_channels: usize = 2;
 
     // Allocate sample buffer on heap (stereo interleaved)
-    const sample_buf = allocator.alloc(f64, samples_needed * num_channels) catch {
-        logging.warn("genTileAccessor: failed to allocate {d} bytes for samples", .{samples_needed * num_channels * 8});
+    const sample_buf = allocator.alloc(f64, actual_samples * num_channels) catch {
+        logging.warn("genTileAccessor: failed to allocate {d} bytes for samples", .{actual_samples * num_channels * 8});
         return null;
     };
     defer allocator.free(sample_buf);
 
     // Read samples from accessor
     // Note: AudioAccessor uses time relative to the TAKE start (handles trim/playrate internally)
+    const sample_rate_int: c_int = @intFromFloat(effective_sample_rate);
     const rv = api.readAccessorSamples(
         accessor,
-        ACCESSOR_SAMPLE_RATE,
+        sample_rate_int,
         @intCast(num_channels),
         tile_start_time, // Relative to take start
-        @intCast(samples_needed),
+        @intCast(actual_samples),
         sample_buf,
     );
 
@@ -437,8 +455,8 @@ fn generateTileWithAccessor(
     var peak_min: [peaks_tile.MAX_PEAKS_PER_TILE * 2]f64 = [_]f64{1.0} ** (peaks_tile.MAX_PEAKS_PER_TILE * 2);
     var peak_max: [peaks_tile.MAX_PEAKS_PER_TILE * 2]f64 = [_]f64{-1.0} ** (peaks_tile.MAX_PEAKS_PER_TILE * 2);
 
-    // Process samples into peaks (iterate over requested samples_needed, not rv)
-    for (0..samples_needed) |s| {
+    // Process samples into peaks (iterate over actual_samples read from accessor)
+    for (0..actual_samples) |s| {
         const peak_idx = @min(s / samples_per_peak, num_peaks - 1);
 
         for (0..num_channels) |ch| {
@@ -689,6 +707,13 @@ pub fn generateTilesForSubscription(
 
                     // Calculate tile time range (relative to item start)
                     const tile_start_relative = @as(f64, @floatFromInt(tile_idx)) * config.duration;
+
+                    // Skip tiles that start past the item end (can happen due to ceil in tile range calc)
+                    if (tile_start_relative >= item_length) {
+                        tile_gen_failures += 1;
+                        continue;
+                    }
+
                     const tile_end_relative = tile_start_relative + config.duration;
                     const clamped_end = @min(tile_end_relative, item_length);
                     const tile_duration = clamped_end - tile_start_relative;

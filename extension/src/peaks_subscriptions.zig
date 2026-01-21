@@ -21,6 +21,7 @@
 const std = @import("std");
 const logging = @import("logging.zig");
 const constants = @import("constants.zig");
+const peaks_tile = @import("peaks_tile.zig");
 const GuidCache = @import("guid_cache.zig").GuidCache;
 
 const Allocator = std.mem.Allocator;
@@ -71,34 +72,32 @@ pub const ClientSubscription = struct {
     /// **QUANTIZED TO LOD LEVELS** to prevent cache thrashing on small viewport changes.
     /// This is critical - without quantization, every pan/zoom causes cache misses.
     ///
-    /// LOD levels (from architecture doc):
-    /// - LOD 2 (Fine):   400 peaks/sec - for pixelsPerSecond > 200
-    /// - LOD 1 (Medium): 10 peaks/sec  - for pixelsPerSecond > 5
-    /// - LOD 0 (Coarse): 1 peak/sec    - for overview
+    /// LOD levels (from docs/architecture/LOD_LEVELS.md):
+    /// - LOD 7: 1024 peaks/sec - viewport < 5s
+    /// - LOD 6: 256 peaks/sec  - viewport 5-20s
+    /// - LOD 5: 64 peaks/sec   - viewport 20-75s
+    /// - LOD 4: 16 peaks/sec   - viewport 75s-5min
+    /// - LOD 3: 4 peaks/sec    - viewport 5-20min
+    /// - LOD 2: 1 peak/sec     - viewport 20-80min
+    /// - LOD 1: 0.25 peaks/sec - viewport 80min-5hr
+    /// - LOD 0: 0.0625 peaks/sec - viewport > 5hr
     pub fn viewportPeakrate(self: *const ClientSubscription) f64 {
-        if (!self.hasViewport()) return 10.0; // Fallback to medium LOD
+        if (!self.hasViewport()) return 64.0; // Fallback to LOD 5
         const duration = self.viewport_end - self.viewport_start;
-        if (duration <= 0) return 10.0;
+        if (duration <= 0) return 64.0;
 
-        const raw_peakrate = @as(f64, @floatFromInt(self.viewport_width_px)) / duration;
-
-        // Quantize to 3 LOD levels to prevent cache thrashing
-        if (raw_peakrate > 200.0) return 400.0; // LOD 2: Fine detail
-        if (raw_peakrate > 5.0) return 10.0; // LOD 1: Medium
-        return 1.0; // LOD 0: Coarse overview
+        // Select LOD based on viewport duration and return corresponding peakrate
+        const lod = peaks_tile.lodFromViewportDuration(duration);
+        return peaks_tile.TILE_CONFIGS[lod].peakrate;
     }
 
-    /// Get current LOD level (0-2) for cache keying
+    /// Get current LOD level (0-7) for cache keying
     pub fn viewportLOD(self: *const ClientSubscription) u8 {
-        if (!self.hasViewport()) return 1; // Default medium
+        if (!self.hasViewport()) return 5; // Default LOD 5
         const duration = self.viewport_end - self.viewport_start;
-        if (duration <= 0) return 1;
+        if (duration <= 0) return 5;
 
-        const raw_peakrate = @as(f64, @floatFromInt(self.viewport_width_px)) / duration;
-
-        if (raw_peakrate > 200.0) return 2; // Fine
-        if (raw_peakrate > 5.0) return 1; // Medium
-        return 0; // Coarse
+        return peaks_tile.lodFromViewportDuration(duration);
     }
 
     /// Get stored GUID at index.
