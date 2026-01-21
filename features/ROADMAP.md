@@ -667,3 +667,23 @@ Skip all polling when `clientCount() == 0`. One-line change in timer callback. T
 ### Per-Track Metering Subscriptions
 
 Currently all visible tracks get metered. Could subscribe per-track for large projects where only a few tracks are visible.
+
+---
+
+## Technical Debt
+
+### Installer Script Cleanup
+
+The `installer/` directory contains legacy Lua scripts. Now that runtime scripts are tracked in `extension/scripts/`, consolidate.
+
+**Current state:**
+
+- `installer/*.lua` — Legacy one-click installer scripts
+- `extension/scripts/reamo_internal_fetch_peaks.lua` — Now tracked (canonical source)
+- `Scripts/Reamo/*.lua` (runtime) — Other scripts not yet tracked
+
+**TODO:**
+
+- [ ] Move remaining runtime scripts to `extension/scripts/`
+- [ ] Update installer to copy from `extension/scripts/`
+- [ ] Remove duplicates from `installer/`
