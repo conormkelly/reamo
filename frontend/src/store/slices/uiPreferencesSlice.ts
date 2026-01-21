@@ -19,6 +19,8 @@ export interface UIPreferencesState {
   followPlayheadReEnable: FollowPlayheadReEnable;
   /** Auto-refresh when new version detected (PWA cache busting) */
   autoUpdateEnabled: boolean;
+  /** Number of track lanes to show in timeline view (1-8) */
+  timelineLaneCount: number;
 
   // Actions
   setShowTabBar: (show: boolean) => void;
@@ -32,6 +34,7 @@ export interface UIPreferencesState {
   setFollowPlayheadReEnable: (mode: FollowPlayheadReEnable) => void;
   setAutoUpdateEnabled: (enabled: boolean) => void;
   toggleAutoUpdateEnabled: () => void;
+  setTimelineLaneCount: (count: number) => void;
   loadUIPrefsFromStorage: () => void;
 }
 
@@ -42,6 +45,7 @@ interface StoredPrefs {
   notesFontSize?: number;
   followPlayheadReEnable?: FollowPlayheadReEnable;
   autoUpdateEnabled?: boolean;
+  timelineLaneCount?: number;
 }
 
 const DEFAULT_PREFS = {
@@ -51,6 +55,7 @@ const DEFAULT_PREFS = {
   notesFontSize: 16,
   followPlayheadReEnable: 'on-playback' as FollowPlayheadReEnable,
   autoUpdateEnabled: true,
+  timelineLaneCount: 4,
 };
 
 function saveToStorage(prefs: StoredPrefs): void {
@@ -73,6 +78,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       notesFontSize: get().notesFontSize,
       followPlayheadReEnable: get().followPlayheadReEnable,
       autoUpdateEnabled: get().autoUpdateEnabled,
+      timelineLaneCount: get().timelineLaneCount,
     });
   },
 
@@ -85,6 +91,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       notesFontSize: get().notesFontSize,
       followPlayheadReEnable: get().followPlayheadReEnable,
       autoUpdateEnabled: get().autoUpdateEnabled,
+      timelineLaneCount: get().timelineLaneCount,
     });
   },
 
@@ -97,6 +104,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       notesFontSize: get().notesFontSize,
       followPlayheadReEnable: get().followPlayheadReEnable,
       autoUpdateEnabled: get().autoUpdateEnabled,
+      timelineLaneCount: get().timelineLaneCount,
     });
   },
 
@@ -110,6 +118,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       notesFontSize: get().notesFontSize,
       followPlayheadReEnable: get().followPlayheadReEnable,
       autoUpdateEnabled: get().autoUpdateEnabled,
+      timelineLaneCount: get().timelineLaneCount,
     });
   },
 
@@ -123,6 +132,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       notesFontSize: get().notesFontSize,
       followPlayheadReEnable: get().followPlayheadReEnable,
       autoUpdateEnabled: get().autoUpdateEnabled,
+      timelineLaneCount: get().timelineLaneCount,
     });
   },
 
@@ -136,6 +146,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       notesFontSize: get().notesFontSize,
       followPlayheadReEnable: get().followPlayheadReEnable,
       autoUpdateEnabled: get().autoUpdateEnabled,
+      timelineLaneCount: get().timelineLaneCount,
     });
   },
 
@@ -149,6 +160,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       notesFontSize: clamped,
       followPlayheadReEnable: get().followPlayheadReEnable,
       autoUpdateEnabled: get().autoUpdateEnabled,
+      timelineLaneCount: get().timelineLaneCount,
     });
   },
 
@@ -162,6 +174,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       notesFontSize: newSize,
       followPlayheadReEnable: get().followPlayheadReEnable,
       autoUpdateEnabled: get().autoUpdateEnabled,
+      timelineLaneCount: get().timelineLaneCount,
     });
   },
 
@@ -174,6 +187,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       notesFontSize: get().notesFontSize,
       followPlayheadReEnable: mode,
       autoUpdateEnabled: get().autoUpdateEnabled,
+      timelineLaneCount: get().timelineLaneCount,
     });
   },
 
@@ -186,6 +200,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       notesFontSize: get().notesFontSize,
       followPlayheadReEnable: get().followPlayheadReEnable,
       autoUpdateEnabled: enabled,
+      timelineLaneCount: get().timelineLaneCount,
     });
   },
 
@@ -199,6 +214,21 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       notesFontSize: get().notesFontSize,
       followPlayheadReEnable: get().followPlayheadReEnable,
       autoUpdateEnabled: newValue,
+      timelineLaneCount: get().timelineLaneCount,
+    });
+  },
+
+  setTimelineLaneCount: (count) => {
+    const clamped = Math.max(1, Math.min(8, count));
+    set({ timelineLaneCount: clamped });
+    saveToStorage({
+      showTabBar: get().showTabBar,
+      showPersistentTransport: get().showPersistentTransport,
+      transportPosition: get().transportPosition,
+      notesFontSize: get().notesFontSize,
+      followPlayheadReEnable: get().followPlayheadReEnable,
+      autoUpdateEnabled: get().autoUpdateEnabled,
+      timelineLaneCount: clamped,
     });
   },
 
@@ -214,6 +244,7 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
           notesFontSize: parsed.notesFontSize ?? DEFAULT_PREFS.notesFontSize,
           followPlayheadReEnable: parsed.followPlayheadReEnable ?? DEFAULT_PREFS.followPlayheadReEnable,
           autoUpdateEnabled: parsed.autoUpdateEnabled ?? DEFAULT_PREFS.autoUpdateEnabled,
+          timelineLaneCount: parsed.timelineLaneCount ?? DEFAULT_PREFS.timelineLaneCount,
         });
       }
     } catch (e) {

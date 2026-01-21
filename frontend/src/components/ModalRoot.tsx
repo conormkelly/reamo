@@ -15,6 +15,7 @@ import { MarkerEditModal } from './Timeline/MarkerEditModal';
 import { DeleteRegionModal } from './Timeline/DeleteRegionModal';
 import { AddRegionModal } from './Timeline/AddRegionModal';
 import { MakeSelectionModal } from './Timeline/MakeSelectionModal';
+import { TimelineSettingsSheet } from './Modal';
 
 export function ModalRoot(): ReactElement | null {
   const { sendCommand } = useReaper();
@@ -75,6 +76,9 @@ export function ModalRoot(): ReactElement | null {
 
     case 'makeSelection':
       return <MakeSelectionModal isOpen onClose={closeModal} />;
+
+    case 'timelineSettings':
+      return <TimelineSettingsSheet isOpen onClose={closeModal} />;
 
     case 'none':
     default:

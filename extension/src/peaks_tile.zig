@@ -4,20 +4,21 @@
 /// across zoom/pan operations. Tiles enable cache reuse when panning and
 /// efficient prefetching.
 ///
-/// LOD Levels (8 levels with 4x ratio, optimized for 1s-4hr viewport range):
+/// LOD Levels (7 levels with 4x ratio, optimized for 1s-4hr viewport range):
 ///   - LOD 0: 4096s tiles, 0.0625 peaks/sec (256 peaks/tile) - Multi-hour overview
 ///   - LOD 1: 1024s tiles, 0.25 peaks/sec (256 peaks/tile)   - Hour+ views
 ///   - LOD 2: 256s tiles,  1 peak/sec (256 peaks/tile)       - 20-80 min views
 ///   - LOD 3: 64s tiles,   4 peaks/sec (256 peaks/tile)      - 5-20 min views
 ///   - LOD 4: 16s tiles,   16 peaks/sec (256 peaks/tile)     - 75s-5min views
 ///   - LOD 5: 4s tiles,    64 peaks/sec (256 peaks/tile)     - 20-75s views
-///   - LOD 6: 1s tiles,    256 peaks/sec (256 peaks/tile)    - 5-20s views
-///   - LOD 7: 0.5s tiles,  1024 peaks/sec (512 peaks/tile)   - 1-5s views (finest)
+///   - LOD 6: 1s tiles,    256 peaks/sec (256 peaks/tile)    - <20s views (finest)
+///
+/// Note: 256 peaks/sec at finest LOD is within REAPER's .reapeaks cache (~400 peaks/sec),
+/// enabling future optimization to read pre-computed peaks instead of AudioAccessor.
 ///
 /// Design rationale (see docs/architecture/LOD_LEVELS.md):
 ///   - 4x ratio between adjacent LODs for smooth fallback rendering
 ///   - Target 2-4 peaks/pixel at 400px viewport width
-///   - LOD 7 uses 512 peaks/tile to reduce tile count by 50% at finest zoom
 ///
 /// Cache Key Format:
 ///   TileCacheKey { take_guid, epoch, lod_level, tile_index }
@@ -46,24 +47,23 @@ pub const TileConfig = struct {
     peaks_per_tile: usize, // Expected peaks per tile
 };
 
-/// LOD level configurations (indices 0-7, 4x ratio between adjacent levels)
+/// LOD level configurations (indices 0-6, 4x ratio between adjacent levels)
 /// See docs/architecture/LOD_LEVELS.md for full rationale.
-pub const TILE_CONFIGS = [8]TileConfig{
+pub const TILE_CONFIGS = [7]TileConfig{
     .{ .duration = 4096.0, .peakrate = 0.0625, .peaks_per_tile = 256 }, // LOD 0: Multi-hour overview
     .{ .duration = 1024.0, .peakrate = 0.25, .peaks_per_tile = 256 }, // LOD 1: Hour+ views
     .{ .duration = 256.0, .peakrate = 1.0, .peaks_per_tile = 256 }, // LOD 2: 20-80 min views
     .{ .duration = 64.0, .peakrate = 4.0, .peaks_per_tile = 256 }, // LOD 3: 5-20 min views
     .{ .duration = 16.0, .peakrate = 16.0, .peaks_per_tile = 256 }, // LOD 4: 75s-5min views
     .{ .duration = 4.0, .peakrate = 64.0, .peaks_per_tile = 256 }, // LOD 5: 20-75s views
-    .{ .duration = 1.0, .peakrate = 256.0, .peaks_per_tile = 256 }, // LOD 6: 5-20s views
-    .{ .duration = 0.5, .peakrate = 1024.0, .peaks_per_tile = 512 }, // LOD 7: 1-5s views (finest)
+    .{ .duration = 1.0, .peakrate = 256.0, .peaks_per_tile = 256 }, // LOD 6: <20s views (finest)
 };
 
 /// Number of LOD levels
-pub const LOD_COUNT = 8;
+pub const LOD_COUNT = 7;
 
-/// Maximum peaks per tile (matches LOD 7 which has 512 for fewer tiles at fine zoom)
-pub const MAX_PEAKS_PER_TILE = 512;
+/// Maximum peaks per tile
+pub const MAX_PEAKS_PER_TILE = 256;
 
 /// Maximum cache entries before LRU eviction
 pub const MAX_CACHE_ENTRIES = 500;
@@ -234,6 +234,11 @@ pub const TileCache = struct {
         self.track_hashes.deinit();
         self.epochs.deinit();
         self.map.deinit();
+    }
+
+    /// Return the number of entries in the cache.
+    pub fn count(self: *const TileCache) usize {
+        return self.map.count();
     }
 
     /// Get cached tile if available. Updates last_used on hit.
@@ -512,8 +517,8 @@ pub const EpochTracker = struct {
 };
 
 /// Compute epoch from take's PCM_source properties.
-/// Hash: source_ptr ^ num_channels
-/// This changes when the source is replaced or re-rendered.
+/// Hash: source_ptr only (channel count API is unreliable on ARM64)
+/// This changes when the source is replaced.
 fn computeEpoch(api: anytype, take: *anyopaque) u32 {
     const source = api.getTakeSource(take) orelse {
         return 0; // No source
@@ -522,11 +527,9 @@ fn computeEpoch(api: anytype, take: *anyopaque) u32 {
     var hasher = std.hash.Wyhash.init(0);
 
     // Hash source pointer (changes if source replaced)
+    // Note: We intentionally don't hash channel count because GetMediaSourceNumChannels
+    // returns inconsistent values on ARM64 via GetFunc(), causing spurious epoch changes.
     hasher.update(std.mem.asBytes(&@intFromPtr(source)));
-
-    // Hash channel count (changes if source re-rendered with different settings)
-    const channels = api.getMediaSourceChannels(source);
-    hasher.update(std.mem.asBytes(&channels));
 
     // Truncate to u32
     return @truncate(hasher.final());
@@ -634,8 +637,7 @@ pub fn tilesForViewport(
 /// Thresholds ensure >= 2 peaks/pixel at 400px viewport width.
 /// See docs/architecture/LOD_LEVELS.md for derivation.
 pub fn lodFromViewportDuration(duration: f64) u3 {
-    if (duration < 5.0) return 7; // 1024 peaks/sec, < 5s
-    if (duration < 20.0) return 6; // 256 peaks/sec, 5-20s
+    if (duration < 20.0) return 6; // 256 peaks/sec, < 20s (finest)
     if (duration < 75.0) return 5; // 64 peaks/sec, 20-75s
     if (duration < 300.0) return 4; // 16 peaks/sec, 75s-5min
     if (duration < 1200.0) return 3; // 4 peaks/sec, 5-20min
@@ -648,8 +650,7 @@ pub fn lodFromViewportDuration(duration: f64) u3 {
 /// Alternative to lodFromViewportDuration when viewport width varies.
 /// See docs/architecture/LOD_LEVELS.md for threshold derivation.
 pub fn lodFromPixelsPerSecond(pixels_per_second: f64) u3 {
-    if (pixels_per_second > 160.0) return 7; // Fine detail
-    if (pixels_per_second > 40.0) return 6;
+    if (pixels_per_second > 40.0) return 6; // Fine detail (finest)
     if (pixels_per_second > 10.0) return 5;
     if (pixels_per_second > 2.5) return 4;
     if (pixels_per_second > 0.625) return 3;
@@ -687,10 +688,10 @@ test "TileCacheKey time calculations" {
     try std.testing.expectApproxEqAbs(@as(f64, 80.0), key4.startTime(), 0.001);
     try std.testing.expectApproxEqAbs(@as(f64, 96.0), key4.endTime(), 0.001);
 
-    // LOD 7: 0.5s tiles (finest)
-    const key7 = TileCacheKey.create("{guid}", 1, 7, 10);
-    try std.testing.expectApproxEqAbs(@as(f64, 5.0), key7.startTime(), 0.001);
-    try std.testing.expectApproxEqAbs(@as(f64, 5.5), key7.endTime(), 0.001);
+    // LOD 6: 1s tiles (finest)
+    const key6 = TileCacheKey.create("{guid}", 1, 6, 10);
+    try std.testing.expectApproxEqAbs(@as(f64, 10.0), key6.startTime(), 0.001);
+    try std.testing.expectApproxEqAbs(@as(f64, 11.0), key6.endTime(), 0.001);
 }
 
 test "TileCache basic operations" {
@@ -740,15 +741,15 @@ test "TileCache LRU eviction" {
 }
 
 test "tilesForViewport LOD selection" {
-    // LOD 7: < 5s viewport
-    const lod7 = tilesForViewport(0.0, 2.0, 400, 0.0);
-    try std.testing.expect(lod7 != null);
-    try std.testing.expectEqual(@as(u3, 7), lod7.?.lod);
-
-    // LOD 6: 5-20s viewport
+    // LOD 6: < 20s viewport (finest)
     const lod6 = tilesForViewport(0.0, 10.0, 400, 0.0);
     try std.testing.expect(lod6 != null);
     try std.testing.expectEqual(@as(u3, 6), lod6.?.lod);
+
+    // LOD 6 also for very short viewports
+    const lod6_short = tilesForViewport(0.0, 2.0, 400, 0.0);
+    try std.testing.expect(lod6_short != null);
+    try std.testing.expectEqual(@as(u3, 6), lod6_short.?.lod);
 
     // LOD 5: 20-75s viewport
     const lod5 = tilesForViewport(0.0, 30.0, 400, 0.0);

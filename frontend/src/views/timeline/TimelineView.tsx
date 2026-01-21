@@ -44,10 +44,9 @@ const BANK_SWITCH_LABEL_DURATION = 1000;
 /** Timeline height - taller to accommodate multi-track lanes */
 const TIMELINE_HEIGHT = 200;
 
-/** Number of track lanes to show per bank */
-const LANE_COUNT = 4;
-
 export function TimelineView(): ReactElement {
+  // Lane count from user preference (1-8)
+  const laneCount = useReaperStore((s) => s.timelineLaneCount);
   const timelineMode = useReaperStore((s) => s.timelineMode);
   const regions = useReaperStore((s) => s?.regions ?? EMPTY_REGIONS);
   const markers = useReaperStore((s) => s?.markers ?? EMPTY_MARKERS);
@@ -63,9 +62,9 @@ export function TimelineView(): ReactElement {
   // Get skeleton from hook (same pattern as Mixer)
   const { skeleton } = useTrackSkeleton();
 
-  // Bank navigation - pages through tracks in groups of LANE_COUNT
+  // Bank navigation - pages through tracks in groups of laneCount
   const bank = useBankNavigation({
-    channelCount: LANE_COUNT,
+    channelCount: laneCount,
     totalTracks,
     storageKey: 'reamo-timeline-bank',
   });
@@ -135,9 +134,9 @@ export function TimelineView(): ReactElement {
   }, [filterQuery, selectedBankId]);
 
   // Calculate filtered banking
-  const filteredBankStart = filterBankIndex * LANE_COUNT;
-  const filteredBankEnd = Math.min(filteredBankStart + LANE_COUNT, allFilteredIndices.length);
-  const filteredTotalBanks = Math.ceil(allFilteredIndices.length / LANE_COUNT);
+  const filteredBankStart = filterBankIndex * laneCount;
+  const filteredBankEnd = Math.min(filteredBankStart + laneCount, allFilteredIndices.length);
+  const filteredTotalBanks = Math.ceil(allFilteredIndices.length / laneCount);
 
   // Get the track indices to display (filtered or regular bank)
   const displayTrackIndices = useMemo(() => {

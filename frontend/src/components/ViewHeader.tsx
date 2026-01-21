@@ -38,6 +38,7 @@ export function ViewHeader({ currentView, children }: ViewHeaderProps): ReactEle
   const setShowAddTrackButton = useReaperStore((s) => s.setShowAddTrackButton);
   const actionsAutoCollapse = useReaperStore((s) => s.actionsAutoCollapse);
   const setActionsAutoCollapse = useReaperStore((s) => s.setActionsAutoCollapse);
+  const openTimelineSettingsModal = useReaperStore((s) => s.openTimelineSettingsModal);
 
   return (
     <div className="flex items-center gap-3 mb-3 min-h-[40px]">
@@ -60,6 +61,7 @@ export function ViewHeader({ currentView, children }: ViewHeaderProps): ReactEle
         onToggleShowAddTrackButton={() => setShowAddTrackButton(!showAddTrackButton)}
         actionsAutoCollapse={actionsAutoCollapse}
         onToggleActionsAutoCollapse={() => setActionsAutoCollapse(!actionsAutoCollapse)}
+        onOpenTimelineSettings={openTimelineSettingsModal}
       />
 
       {/* View-specific controls - fills remaining space, children control their own layout */}

@@ -160,6 +160,7 @@ pub fn validateBackend(comptime T: type) void {
         "getTakePlayrate",
         "isTakeMIDI",
         "getTakeSource",
+        "getRootSource",
         "getMediaSourceChannels",
         "getMediaItemTakePeaks",
 

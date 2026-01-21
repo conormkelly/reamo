@@ -242,6 +242,9 @@ pub const Api = struct {
     getMaxMidiInputs: ?*const fn () callconv(.c) c_int = null,
     getMIDIInputName: ?*const fn (c_int, [*]u8, c_int) callconv(.c) bool = null,
 
+    // Script management (for Lua bridge)
+    addRemoveReaScript: ?*const fn (c_int, c_int, [*:0]const u8, c_int) callconv(.c) c_int = null,
+
     // Load API from REAPER plugin info
     pub fn load(info: *PluginInfo) ?Api {
         const showConsoleMsg = getFunc(info, "ShowConsoleMsg", fn ([*:0]const u8) callconv(.c) void) orelse return null;
@@ -418,6 +421,8 @@ pub const Api = struct {
             .getInputChannelName = getFunc(info, "GetInputChannelName", fn (c_int) callconv(.c) ?[*:0]const u8),
             .getMaxMidiInputs = getFunc(info, "GetMaxMidiInputs", fn () callconv(.c) c_int),
             .getMIDIInputName = getFunc(info, "GetMIDIInputName", fn (c_int, [*]u8, c_int) callconv(.c) bool),
+            // Script management
+            .addRemoveReaScript = getFunc(info, "AddRemoveReaScript", fn (c_int, c_int, [*:0]const u8, c_int) callconv(.c) c_int),
         };
     }
 
@@ -968,6 +973,19 @@ pub const Api = struct {
 
     pub fn runCommand(self: *const Api, cmd: c_int) void {
         if (self.mainOnCommand) |f| f(cmd, 0);
+    }
+
+    /// Register or unregister a ReaScript (Lua/EEL/Python)
+    /// add: true to add, false to remove
+    /// section: 0 for main section
+    /// script_path: full path to the script file
+    /// commit: true to save to reaper-kb.ini, false for session-only (hidden from Actions)
+    /// Returns: command ID (>0) on success, 0 on failure
+    pub fn registerScript(self: *const Api, add: bool, section: c_int, script_path: [*:0]const u8, commit: bool) c_int {
+        if (self.addRemoveReaScript) |f| {
+            return f(if (add) 1 else 0, section, script_path, if (commit) 1 else 0);
+        }
+        return 0;
     }
 
     pub fn setCursorPos(self: *const Api, pos: f64) void {
@@ -1915,34 +1933,11 @@ pub const Api = struct {
     /// numsamplesperchannel: number of peak samples to get
     /// buf: buffer for peak data (needs numchannels * numsamplesperchannel * 2 floats for min+max)
     /// Returns: sample_count in low 20 bits, mode in bits 20-23 (0=not yet ready, use previous)
+    /// Returns -1 if function pointer not loaded (API unavailable)
     pub fn getMediaItemTakePeaks(self: *const Api, take: *anyopaque, peakrate: f64, starttime: f64, numchannels: c_int, numsamplesperchannel: c_int, buf: []f64) c_int {
-        const logging = @import("../logging.zig");
-        const f = self.getMediaItemTake_Peaks orelse {
-            logging.warn("raw: GetMediaItemTake_Peaks function NOT LOADED!", .{});
-            return 0;
-        };
+        const f = self.getMediaItemTake_Peaks orelse return -1; // -1 = not loaded
         const want_extra: c_int = 0;
-
-        // DEBUG: Log exact FFI parameters
-        logging.info("raw.getMediaItemTakePeaks: take=0x{x} peakrate={d:.4} starttime={d:.2} ch={d} samples={d} buf.ptr=0x{x} buf.len={d}", .{
-            @intFromPtr(take),
-            peakrate,
-            starttime,
-            numchannels,
-            numsamplesperchannel,
-            @intFromPtr(buf.ptr),
-            buf.len,
-        });
-
-        const result = f(take, peakrate, starttime, numchannels, numsamplesperchannel, want_extra, buf.ptr);
-
-        logging.info("raw.getMediaItemTakePeaks: result={d} (actual={d}, mode={d})", .{
-            result,
-            result & 0xFFFFF,
-            (result >> 20) & 0xF,
-        });
-
-        return result;
+        return f(take, peakrate, starttime, numchannels, numsamplesperchannel, want_extra, buf.ptr);
     }
 
     // AudioAccessor methods - for reading raw audio samples

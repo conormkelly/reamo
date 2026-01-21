@@ -197,15 +197,22 @@ export function usePeaksSubscription(
     clearPeaksSubscription,
   ]);
 
-  // Effect 2: Debounced viewport updates (ONLY when LOD changes)
+  // Viewport key for change detection (bounds + width)
+  const viewportKey = options?.viewport
+    ? `${options.viewport.start.toFixed(2)}-${options.viewport.end.toFixed(2)}-${options.viewport.widthPx}`
+    : null;
+  const prevViewportKeyRef = useRef<string | null>(null);
+
+  // Effect 2: Debounced viewport updates (on ANY viewport change, not just LOD)
+  // Backend needs updated bounds to generate tiles for expanded/shifted viewport.
   useEffect(() => {
     // Skip if no active subscription or no viewport
     if (!connected || !options?.viewport || prevSubscriptionRef.current === null) {
       return;
     }
 
-    // Skip if LOD hasn't changed - key optimization
-    if (prevLODRef.current === calculatedLOD) {
+    // Skip if viewport hasn't changed
+    if (prevViewportKeyRef.current === viewportKey) {
       return;
     }
 
@@ -214,10 +221,11 @@ export function usePeaksSubscription(
       clearTimeout(viewportDebounceRef.current);
     }
 
-    // Debounce viewport update (only sent when LOD changes)
+    // Debounce viewport update
     viewportDebounceRef.current = setTimeout(() => {
       if (options.viewport) {
         sendCommand(peaks.updateViewport(options.viewport));
+        prevViewportKeyRef.current = viewportKey;
         prevLODRef.current = calculatedLOD;
       }
       viewportDebounceRef.current = null;
@@ -229,7 +237,7 @@ export function usePeaksSubscription(
         viewportDebounceRef.current = null;
       }
     };
-  }, [calculatedLOD, options?.viewport, connected, sendCommand]);
+  }, [viewportKey, calculatedLOD, options?.viewport, connected, sendCommand]);
 
   // Wrap the store's assemblePeaksForViewport to include current viewport
   const assemblePeaksForViewport = useCallback(
