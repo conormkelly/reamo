@@ -4,7 +4,7 @@
  */
 
 import { useState, useRef, useEffect, type ReactElement } from 'react';
-import { Menu, X, Eye, EyeOff, ArrowLeftRight, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Menu, X, Eye, EyeOff, ArrowLeftRight, ToggleLeft, ToggleRight, ChevronRight } from 'lucide-react';
 import type { ViewId } from '../viewRegistry';
 
 export interface SettingsMenuProps {
@@ -28,6 +28,8 @@ export interface SettingsMenuProps {
   // Actions view settings
   actionsAutoCollapse: boolean;
   onToggleActionsAutoCollapse: () => void;
+  // Timeline view settings
+  onOpenTimelineSettings?: () => void;
   className?: string;
 }
 
@@ -49,6 +51,7 @@ export function SettingsMenu({
   onToggleShowAddTrackButton,
   actionsAutoCollapse,
   onToggleActionsAutoCollapse,
+  onOpenTimelineSettings,
   className = '',
 }: SettingsMenuProps): ReactElement {
   const [isOpen, setIsOpen] = useState(false);
@@ -159,6 +162,29 @@ export function SettingsMenu({
               {autoUpdateEnabled ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
             </span>
           </button>
+
+          {/* Timeline section - only shown in Timeline view */}
+          {currentView === 'timeline' && onOpenTimelineSettings && (
+            <>
+              <div className="my-2 border-t border-border-subtle" />
+
+              <div className="px-3 py-1.5 text-xs text-text-secondary uppercase tracking-wide">
+                Timeline
+              </div>
+
+              {/* Open Timeline Settings sheet */}
+              <button
+                onClick={() => {
+                  setIsOpen(false);
+                  onOpenTimelineSettings();
+                }}
+                className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
+              >
+                <span className="text-sm">Settings</span>
+                <ChevronRight size={16} className="text-text-muted" />
+              </button>
+            </>
+          )}
 
           {/* Mixer section - only shown in Mixer view */}
           {currentView === 'mixer' && (

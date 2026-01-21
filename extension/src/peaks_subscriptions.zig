@@ -63,6 +63,10 @@ pub const ClientSubscription = struct {
     viewport_end: f64 = 0, // Project time in seconds
     viewport_width_px: u32 = 0, // Viewport width for peakrate calculation
 
+    /// Track last broadcast LOD to detect LOD changes and trigger regeneration
+    /// 255 = unset (force broadcast on first viewport update)
+    last_broadcast_lod: u8 = 255,
+
     /// Check if viewport is set (non-zero width)
     pub fn hasViewport(self: *const ClientSubscription) bool {
         return self.viewport_width_px > 0 and self.viewport_end > self.viewport_start;
@@ -116,6 +120,7 @@ pub const ClientSubscription = struct {
         self.viewport_start = 0;
         self.viewport_end = 0;
         self.viewport_width_px = 0;
+        self.last_broadcast_lod = 255;
     }
 
     /// Check if subscription is active
@@ -242,6 +247,14 @@ pub const PeaksSubscriptions = struct {
             client.viewport_start = vp.start;
             client.viewport_end = vp.end;
             client.viewport_width_px = vp.width_px;
+            // Set initial LOD so we can detect changes
+            const duration = vp.end - vp.start;
+            client.last_broadcast_lod = if (duration > 0 and vp.width_px > 0)
+                peaks_tile.lodFromViewportDuration(duration)
+            else
+                5;
+        } else {
+            client.last_broadcast_lod = 255; // Unset
         }
 
         // Force broadcast to ensure new subscriber gets immediate data
@@ -290,6 +303,14 @@ pub const PeaksSubscriptions = struct {
             client.viewport_start = vp.start;
             client.viewport_end = vp.end;
             client.viewport_width_px = vp.width_px;
+            // Set initial LOD so we can detect changes
+            const duration = vp.end - vp.start;
+            client.last_broadcast_lod = if (duration > 0 and vp.width_px > 0)
+                peaks_tile.lodFromViewportDuration(duration)
+            else
+                5;
+        } else {
+            client.last_broadcast_lod = 255; // Unset
         }
 
         // Store GUIDs (resolution happens at poll time)
@@ -326,15 +347,34 @@ pub const PeaksSubscriptions = struct {
 
         if (client.mode == .none) return false;
 
+        // Calculate new LOD before updating viewport
+        const duration = viewport.end - viewport.start;
+        const new_lod = if (duration > 0 and viewport.width_px > 0)
+            peaks_tile.lodFromViewportDuration(duration)
+        else
+            5; // Default LOD 5
+
+        // Check if viewport changed (for logging, always broadcast on change)
+        const viewport_changed = client.viewport_start != viewport.start or
+            client.viewport_end != viewport.end or
+            client.viewport_width_px != viewport.width_px;
+
         client.viewport_start = viewport.start;
         client.viewport_end = viewport.end;
         client.viewport_width_px = viewport.width_px;
 
-        // NOTE: Do NOT set force_broadcast here!
-        // Viewport updates rely on LOD-based cache hits/misses for efficiency.
-        // Setting force_broadcast causes full regeneration = disco strobe effect.
-        // Only initial subscription should force broadcast, not viewport updates.
-        // The quantized LOD in viewportPeakrate() ensures cache stability.
+        // Always broadcast when viewport changes - tile cache prevents redundant work.
+        // Previously we only broadcast on LOD changes, but this meant zooming out
+        // within the same LOD (e.g., 1s → 5s, both LOD 6) didn't fetch new tiles.
+        if (viewport_changed) {
+            if (new_lod != client.last_broadcast_lod) {
+                logging.info("peaks_subscriptions: LOD changed {d} -> {d}, triggering broadcast", .{
+                    client.last_broadcast_lod, new_lod,
+                });
+            }
+            self.force_broadcast = true;
+            client.last_broadcast_lod = new_lod;
+        }
 
         return true;
     }

@@ -167,6 +167,8 @@ pub fn handleUpdateViewport(_: anytype, cmd: protocol.CommandMessage, response: 
         return;
     };
 
+    logging.info("peaks_subs: updateViewport received start={d:.2}, end={d:.2}, width={d}", .{ viewport.start, viewport.end, viewport.width_px });
+
     if (!subs.updateViewport(response.client_id, viewport)) {
         response.err("NOT_SUBSCRIBED", "No active peaks subscription");
         return;
