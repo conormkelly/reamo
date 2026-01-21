@@ -44,10 +44,10 @@ export interface UseViewportReturn {
   visibleDuration: number;
   /** Pan viewport by delta seconds (positive = forward in time) */
   pan: (deltaSeconds: number) => void;
-  /** Zoom in (show less time, more detail) */
-  zoomIn: () => void;
-  /** Zoom out (show more time, less detail) */
-  zoomOut: () => void;
+  /** Zoom in (show less time, more detail). Optional centerOn time to zoom toward. */
+  zoomIn: (centerOn?: number) => void;
+  /** Zoom out (show more time, less detail). Optional centerOn time to zoom toward. */
+  zoomOut: (centerOn?: number) => void;
   /** Set visible range directly */
   setVisibleRange: (range: TimeRange) => void;
   /** Reset to initial range */
@@ -156,40 +156,48 @@ export function useViewport(options: UseViewportOptions): UseViewportReturn {
   );
 
   // Zoom in (next smaller duration step)
-  const zoomIn = useCallback(() => {
-    setVisibleRangeInternal((prev) => {
-      const currentLevel = findZoomLevel(prev.end - prev.start);
-      const newLevel = Math.max(0, currentLevel - 1);
-      const newDuration = ZOOM_STEPS[newLevel];
+  // If centerOn is provided, zoom centers on that time; otherwise centers on current viewport center
+  const zoomIn = useCallback(
+    (centerOn?: number) => {
+      setVisibleRangeInternal((prev) => {
+        const currentLevel = findZoomLevel(prev.end - prev.start);
+        const newLevel = Math.max(0, currentLevel - 1);
+        const newDuration = ZOOM_STEPS[newLevel];
 
-      // Keep center point fixed during zoom
-      const center = (prev.start + prev.end) / 2;
-      const newRange = {
-        start: center - newDuration / 2,
-        end: center + newDuration / 2,
-      };
+        // Use provided center or keep current viewport center
+        const center = centerOn ?? (prev.start + prev.end) / 2;
+        const newRange = {
+          start: center - newDuration / 2,
+          end: center + newDuration / 2,
+        };
 
-      return clampRange(newRange, projectDuration);
-    });
-  }, [projectDuration]);
+        return clampRange(newRange, projectDuration);
+      });
+    },
+    [projectDuration]
+  );
 
   // Zoom out (next larger duration step)
-  const zoomOut = useCallback(() => {
-    setVisibleRangeInternal((prev) => {
-      const currentLevel = findZoomLevel(prev.end - prev.start);
-      const newLevel = Math.min(ZOOM_STEPS.length - 1, currentLevel + 1);
-      const newDuration = ZOOM_STEPS[newLevel];
+  // If centerOn is provided, zoom centers on that time; otherwise centers on current viewport center
+  const zoomOut = useCallback(
+    (centerOn?: number) => {
+      setVisibleRangeInternal((prev) => {
+        const currentLevel = findZoomLevel(prev.end - prev.start);
+        const newLevel = Math.min(ZOOM_STEPS.length - 1, currentLevel + 1);
+        const newDuration = ZOOM_STEPS[newLevel];
 
-      // Keep center point fixed during zoom
-      const center = (prev.start + prev.end) / 2;
-      const newRange = {
-        start: center - newDuration / 2,
-        end: center + newDuration / 2,
-      };
+        // Use provided center or keep current viewport center
+        const center = centerOn ?? (prev.start + prev.end) / 2;
+        const newRange = {
+          start: center - newDuration / 2,
+          end: center + newDuration / 2,
+        };
 
-      return clampRange(newRange, projectDuration);
-    });
-  }, [projectDuration]);
+        return clampRange(newRange, projectDuration);
+      });
+    },
+    [projectDuration]
+  );
 
   // Reset to initial range
   const reset = useCallback(() => {
