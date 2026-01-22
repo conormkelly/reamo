@@ -59,7 +59,7 @@ This document captures findings, discoveries, and notes from the responsive arch
 - `InstrumentsView.tsx:773` - Has it
 
 **Views needing audit in Phase 2**:
-- MixerView - Check flex chain
+- ~~MixerView - Check flex chain~~ **COMPLETE** - Now uses ViewLayout
 - PlaylistView - Check flex chain
 - ActionsView - Check flex chain
 - ClockView - Check flex chain
@@ -162,6 +162,65 @@ const TIMELINE_HEIGHT = isLandscape ? TIMELINE_HEIGHT_LANDSCAPE : TIMELINE_HEIGH
 | File | Changes |
 |------|---------|
 | `src/views/timeline/TimelineView.tsx` | Adopted ViewLayout, added responsive height, added useIsLandscape |
+## Phase 2: Mixer View (Complete)
+
+### Exploration Findings
+
+**Initial State Analysis:**
+- MixerView had manual `h-full flex flex-col` structure instead of ViewLayout
+- Main mixer area had `flex-1` but was **missing `min-h-0`** - critical pattern violation
+- No `shrink-0` on footer elements (TrackInfoBar, footer controls)
+- No z-index issues in MixerView (good baseline)
+
+**useResponsiveChannelCount Performance Note:**
+The hook at `src/hooks/useResponsiveChannelCount.ts` uses ResizeObserver without debouncing:
+```typescript
+const observer = new ResizeObserver(handleResize);
+observer.observe(containerRef.current);
+```
+Per Production Checklist §8, this could cause performance issues with rapid resize events. However, this is a shared hook (out of scope for Mixer agent) - flagged for future improvement.
+
+### Changes Made
+
+1. **ViewLayout Integration**: Wrapped MixerView in ViewLayout component
+   - `viewId="mixer"` for testing/styling hooks
+   - Header slot: ViewHeader with BankSelector, QuickFilterDropdown
+   - Footer slot: TrackInfoBar + filter/bank controls
+   - `scrollable={false}` since mixer uses banking, not scrolling
+
+2. **Flex Pattern Fixed**: ViewLayout automatically provides `flex-1 min-h-0` pattern for content area
+
+3. **Footer Elements**: Added `shrink-0` to:
+   - TrackInfoBar (line 446)
+   - Footer controls container (line 450)
+
+4. **Content Area**: Moved `containerRef` to main mixer content div for width measurement by useResponsiveChannelCount
+
+### Structure After Refactor
+
+```
+ViewLayout (h-full flex flex-col)
+├── header (shrink-0) → ViewHeader
+├── content (flex-1 min-h-0) → Main mixer area with containerRef
+│   ├── Master track (if pinned)
+│   ├── Channel strips
+│   ├── Empty states
+│   └── Modals
+└── footer (shrink-0) → TrackInfoBar + TrackFilter + BankNavigator
+```
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `src/views/mixer/MixerView.tsx` | Wrapped in ViewLayout, restructured header/content/footer, added shrink-0 |
+
+### Verification
+
+- [x] `npm run build` passes
+- [x] ViewLayout imported and used
+- [x] shrink-0 applied to footer elements
+- [x] flex-1 min-h-0 pattern via ViewLayout
 
 ---
 
