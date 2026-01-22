@@ -99,10 +99,3 @@ export {
   type ScrollDirection,
   type UseScrollDirectionReturn,
 } from './useScrollDirection';
-export {
-  useViewFooterConfig,
-  getViewFooterConfig,
-  getViewsWithConfig,
-  type FooterConfig,
-  type TransportVariant,
-} from './useViewFooterConfig';

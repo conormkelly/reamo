@@ -338,14 +338,22 @@ Refactored InstrumentsView to use responsive architecture patterns from Phase 1.
 - This ensures footer controls have `shrink-0` behavior
 - Textarea container uses `h-full flex flex-col` inside ViewLayout's scrollable area
 
-### Footer Config Integration Note
+### Per-View Footer Config: Removed (Design Decision)
 
-The `useViewFooterConfig` hook was created in Phase 1 but is NOT yet integrated at the App level (App.tsx was out of scope for this work). Views themselves don't call this hook - it's intended to be used by App.tsx to conditionally show/hide TabBar and PersistentTransport based on the current view.
+The `useViewFooterConfig` hook was created in Phase 1 to auto-hide TabBar/Transport on certain views (e.g., Clock → immersive, Instruments → more playing surface). After integration testing and UX research, **we removed this feature**.
 
-Future work: Integrate `useViewFooterConfig` into App.tsx to enable:
-- Clock view: hide TabBar (immersive mode)
-- Actions view: hide PersistentTransport (button grid is primary)
-- Landscape mode: more aggressive hiding on certain views
+**Research findings** (see `research/FRONTEND_NAVIGATION.md`):
+- All major music apps (Logic Remote, TouchOSC, Lemur, DAW remotes) keep navigation **always visible**
+- Hidden navigation reduces discoverability by ~20% and increases task completion time by 15-30%
+- Per-view auto-hide creates a "navigation trap" - if tab bar is hidden, how does user switch views?
+- Edge swipe gestures to reveal hidden chrome conflict with instrument interactions (piano glissando, drum pad drags)
+- Spotify's A/B test: visible bottom tabs → 30% more engagement vs hidden navigation
+
+**Decision**: Keep simple global toggles in the burger menu settings. Users who want more space can manually hide chrome and know how to get it back. No magic auto-hiding.
+
+**Files removed**:
+- `src/hooks/useViewFooterConfig.ts` - deleted
+- Export removed from `src/hooks/index.ts`
 
 ---
 
