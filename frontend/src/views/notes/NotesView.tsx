@@ -6,7 +6,7 @@
 import { useEffect, useCallback, type ReactElement } from 'react';
 import { useReaperStore, getNotesIsDirty, getNotesIsOverLimit, getNotesCanSave } from '../../store';
 import { useReaper } from '../../components/ReaperProvider';
-import { ViewHeader, TextSizeControl } from '../../components';
+import { ViewHeader, ViewLayout, TextSizeControl } from '../../components';
 import { useUIPreferences } from '../../hooks';
 import { projectNotes } from '../../core/WebSocketCommands';
 
@@ -149,20 +149,84 @@ export function NotesView(): ReactElement {
   // Show loading state
   if (isLoading && serverNotes === null) {
     return (
-      <div data-view="notes" className="h-full bg-bg-app text-text-primary p-3 flex flex-col">
-        <ViewHeader currentView="notes" />
-        <div className="flex-1 flex items-center justify-center">
+      <ViewLayout
+        viewId="notes"
+        header={<ViewHeader currentView="notes" />}
+        className="bg-bg-app text-text-primary p-3"
+      >
+        <div className="h-full flex items-center justify-center">
           <p className="text-text-secondary">Loading notes...</p>
         </div>
-      </div>
+      </ViewLayout>
     );
   }
 
+  // Build header
+  const headerContent = (
+    <ViewHeader currentView="notes">
+      <TextSizeControl value={notesFontSize} onChange={setNotesFontSize} />
+    </ViewHeader>
+  );
+
+  // Build footer with action buttons and optional external change warning
+  const footerContent = (
+    <>
+      {/* External change warning bar */}
+      {hasExternalChange && (
+        <div className="mb-4 p-3 bg-external-bar-bg border border-external-bar-border rounded-lg flex items-center justify-between gap-3">
+          <span className="text-external-bar-text">Notes edited elsewhere</span>
+          <div className="flex gap-2">
+            <button
+              onClick={handleReload}
+              className="px-3 py-1.5 bg-external-btn hover:bg-external-btn-hover rounded text-text-primary text-sm font-medium"
+            >
+              Reload
+            </button>
+            <button
+              onClick={handleIgnore}
+              className="px-3 py-1.5 bg-bg-elevated hover:bg-bg-hover rounded text-text-primary text-sm font-medium"
+            >
+              Ignore
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div className="flex gap-3">
+        <button
+          onClick={handleDiscard}
+          disabled={!isDirty && !hasExternalChange}
+          className={`flex-1 py-3 rounded-lg font-medium transition-colors ${
+            isDirty || hasExternalChange
+              ? 'bg-bg-surface hover:bg-bg-elevated text-text-primary'
+              : 'bg-bg-deep text-text-disabled cursor-not-allowed'
+          }`}
+        >
+          Discard
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={!canSave || isSaving}
+          className={`flex-1 py-3 rounded-lg font-medium transition-colors ${
+            canSave && !isSaving
+              ? 'bg-primary hover:bg-primary-hover text-text-on-primary'
+              : 'bg-bg-deep text-text-disabled cursor-not-allowed'
+          }`}
+        >
+          {isSaving ? 'Saving...' : 'Save'}
+        </button>
+      </div>
+    </>
+  );
+
   return (
-    <div data-view="notes" className="h-full bg-bg-app text-text-primary p-3 flex flex-col">
-      <ViewHeader currentView="notes">
-        <TextSizeControl value={notesFontSize} onChange={setNotesFontSize} />
-      </ViewHeader>
+    <ViewLayout
+      viewId="notes"
+      header={headerContent}
+      footer={footerContent}
+      className="bg-bg-app text-text-primary p-3"
+    >
       {/* Error display */}
       {notesError && (
         <div className="mb-4 p-3 bg-error-display-bg border border-error-display-border rounded-lg text-error-display-text">
@@ -171,7 +235,7 @@ export function NotesView(): ReactElement {
       )}
 
       {/* Textarea */}
-      <div className="flex-1 flex flex-col min-h-0">
+      <div className="h-full flex flex-col">
         <textarea
           className={`flex-1 w-full bg-bg-deep border rounded-lg p-3 text-text-primary resize-none focus:outline-none focus:ring-2 focus:ring-focus-ring ${
             hasExternalChange ? 'border-external-border bg-bg-deep/50' : 'border-border-subtle'
@@ -201,53 +265,6 @@ export function NotesView(): ReactElement {
           </div>
         )}
       </div>
-
-      {/* External change warning bar */}
-      {hasExternalChange && (
-        <div className="mt-4 p-3 bg-external-bar-bg border border-external-bar-border rounded-lg flex items-center justify-between gap-3">
-          <span className="text-external-bar-text">Notes edited elsewhere</span>
-          <div className="flex gap-2">
-            <button
-              onClick={handleReload}
-              className="px-3 py-1.5 bg-external-btn hover:bg-external-btn-hover rounded text-text-primary text-sm font-medium"
-            >
-              Reload
-            </button>
-            <button
-              onClick={handleIgnore}
-              className="px-3 py-1.5 bg-bg-elevated hover:bg-bg-hover rounded text-text-primary text-sm font-medium"
-            >
-              Ignore
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Action buttons */}
-      <div className="mt-4 flex gap-3">
-        <button
-          onClick={handleDiscard}
-          disabled={!isDirty && !hasExternalChange}
-          className={`flex-1 py-3 rounded-lg font-medium transition-colors ${
-            isDirty || hasExternalChange
-              ? 'bg-bg-surface hover:bg-bg-elevated text-text-primary'
-              : 'bg-bg-deep text-text-disabled cursor-not-allowed'
-          }`}
-        >
-          Discard
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={!canSave || isSaving}
-          className={`flex-1 py-3 rounded-lg font-medium transition-colors ${
-            canSave && !isSaving
-              ? 'bg-primary hover:bg-primary-hover text-text-on-primary'
-              : 'bg-bg-deep text-text-disabled cursor-not-allowed'
-          }`}
-        >
-          {isSaving ? 'Saving...' : 'Save'}
-        </button>
-      </div>
-    </div>
+    </ViewLayout>
   );
 }

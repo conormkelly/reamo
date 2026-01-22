@@ -309,6 +309,46 @@ Refactored InstrumentsView to use responsive architecture patterns from Phase 1.
 
 ---
 
+## Phase 2: Minor Views (Complete)
+
+### Views Migrated
+
+| View | Branch | Changes |
+|------|--------|---------|
+| ActionsView | `feature/responsive-minor-views` | ViewLayout wrapper, removed manual bottomOffset calculation |
+| ClockView | `feature/responsive-minor-views` | ViewLayout wrapper, uses z-elevated for header overlay |
+| NotesView | `feature/responsive-minor-views` | ViewLayout wrapper, footer prop for action buttons |
+
+### Patterns Applied
+
+**ActionsView**:
+- Removed `useUIPreferences` import and bottomOffset calculation
+- Header extracted as `headerContent` variable for cleaner JSX
+- Empty state and sections use `h-full` instead of `flex-1 overflow-auto`
+- ViewLayout handles the scrolling and flex behavior
+
+**ClockView**:
+- Special case: uses `scrollable={false}` because it's a full-screen immersive view
+- Absolute header overlay preserved (renders inside children, not via header prop)
+- Changed `z-10` to `z-elevated` for semantic z-index
+- `containerType: 'size'` preserved on inner container for cq units
+
+**NotesView**:
+- Footer prop used for action buttons (Discard/Save) and external change warning
+- This ensures footer controls have `shrink-0` behavior
+- Textarea container uses `h-full flex flex-col` inside ViewLayout's scrollable area
+
+### Footer Config Integration Note
+
+The `useViewFooterConfig` hook was created in Phase 1 but is NOT yet integrated at the App level (App.tsx was out of scope for this work). Views themselves don't call this hook - it's intended to be used by App.tsx to conditionally show/hide TabBar and PersistentTransport based on the current view.
+
+Future work: Integrate `useViewFooterConfig` into App.tsx to enable:
+- Clock view: hide TabBar (immersive mode)
+- Actions view: hide PersistentTransport (button grid is primary)
+- Landscape mode: more aggressive hiding on certain views
+
+---
+
 ## Open Questions
 
 1. **Should internal z-index values (z-10, z-20) within components be made semantic?**
