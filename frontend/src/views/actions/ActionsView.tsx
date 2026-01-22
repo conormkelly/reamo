@@ -14,8 +14,7 @@ import {
 } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../../components/ReaperProvider';
-import { ViewHeader } from '../../components';
-import { useUIPreferences } from '../../hooks';
+import { ViewHeader, ViewLayout } from '../../components';
 import { actionToggleState } from '../../core/WebSocketCommands';
 import { ActionsSection, SectionEditor } from './components';
 import { ToolbarEditor } from '../../components/Toolbar/ToolbarEditor';
@@ -26,18 +25,8 @@ import type {
   SizeOption,
 } from '../../store/slices/actionsViewSlice';
 
-// Fixed heights for bottom bar calculations (must match App.tsx)
-const TAB_BAR_HEIGHT = 48;
-const PERSISTENT_TRANSPORT_HEIGHT = 56;
-
 export function ActionsView(): ReactElement {
   const { sendCommand, sendAsync, connectionStatus } = useReaper();
-  const { showTabBar, showPersistentTransport } = useUIPreferences();
-
-  // Calculate bottom offset for footer bars
-  const bottomOffset =
-    (showTabBar ? TAB_BAR_HEIGHT : 0) +
-    (showPersistentTransport ? PERSISTENT_TRANSPORT_HEIGHT : 0);
 
   // Store selectors
   const sections = useReaperStore((s) => s.actionsSections);
@@ -199,70 +188,73 @@ export function ActionsView(): ReactElement {
         ? 'justify-end'
         : 'justify-start';
 
-  return (
-    <div className="h-full bg-bg-app text-text-primary flex flex-col p-3">
-      {/* Header with ViewHeader + edit controls */}
-      <ViewHeader currentView="actions">
-        {/* Vertical alignment buttons (edit mode only) */}
-        {editMode && (
-          <div className="flex items-center border border-border-default rounded overflow-hidden">
-            {(['top', 'center', 'bottom'] as VerticalAlign[]).map((align) => {
-              const Icon =
-                align === 'top'
-                  ? AlignVerticalJustifyStart
-                  : align === 'center'
-                    ? AlignVerticalJustifyCenter
-                    : AlignVerticalJustifyEnd;
-              return (
-                <button
-                  key={align}
-                  onClick={() => setVerticalAlign(align)}
-                  className={`p-1.5 transition-colors ${
-                    verticalAlign === align
-                      ? 'bg-primary text-text-on-primary'
-                      : 'bg-bg-elevated text-text-secondary hover:bg-bg-hover'
-                  }`}
-                  title={`Align sections ${align}`}
-                >
-                  <Icon size={16} />
-                </button>
-              );
-            })}
-          </div>
-        )}
+  // Build header content with edit controls
+  const headerContent = (
+    <ViewHeader currentView="actions">
+      {/* Vertical alignment buttons (edit mode only) */}
+      {editMode && (
+        <div className="flex items-center border border-border-default rounded overflow-hidden">
+          {(['top', 'center', 'bottom'] as VerticalAlign[]).map((align) => {
+            const Icon =
+              align === 'top'
+                ? AlignVerticalJustifyStart
+                : align === 'center'
+                  ? AlignVerticalJustifyCenter
+                  : AlignVerticalJustifyEnd;
+            return (
+              <button
+                key={align}
+                onClick={() => setVerticalAlign(align)}
+                className={`p-1.5 transition-colors ${
+                  verticalAlign === align
+                    ? 'bg-primary text-text-on-primary'
+                    : 'bg-bg-elevated text-text-secondary hover:bg-bg-hover'
+                }`}
+                title={`Align sections ${align}`}
+              >
+                <Icon size={16} />
+              </button>
+            );
+          })}
+        </div>
+      )}
 
-        {/* Add section button (edit mode only) */}
-        {editMode && (
-          <button
-            onClick={() => setIsAddingSection(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-success-action text-text-on-success rounded-lg hover:bg-success transition-colors"
-          >
-            <Plus size={16} />
-            <span className="text-sm">Section</span>
-          </button>
-        )}
-
-        {/* Edit mode toggle */}
+      {/* Add section button (edit mode only) */}
+      {editMode && (
         <button
-          onClick={() => setEditMode(!editMode)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
-            editMode
-              ? 'bg-primary text-text-on-primary'
-              : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
-          }`}
+          onClick={() => setIsAddingSection(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-success-action text-text-on-success rounded-lg hover:bg-success transition-colors"
         >
-          <Pencil size={16} />
-          <span className="text-sm">{editMode ? 'Done' : 'Edit'}</span>
+          <Plus size={16} />
+          <span className="text-sm">Section</span>
         </button>
-      </ViewHeader>
+      )}
 
+      {/* Edit mode toggle */}
+      <button
+        onClick={() => setEditMode(!editMode)}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
+          editMode
+            ? 'bg-primary text-text-on-primary'
+            : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
+        }`}
+      >
+        <Pencil size={16} />
+        <span className="text-sm">{editMode ? 'Done' : 'Edit'}</span>
+      </button>
+    </ViewHeader>
+  );
+
+  return (
+    <ViewLayout
+      viewId="actions"
+      header={headerContent}
+      className="bg-bg-app text-text-primary p-3"
+    >
       {/* Content */}
       {sections.length === 0 ? (
-        // Empty state - position at bottom with padding for footer bars
-        <div
-          className="flex-1 overflow-auto flex flex-col justify-end"
-          style={{ paddingBottom: `${bottomOffset + 24}px` }}
-        >
+        // Empty state - centered at bottom of available space
+        <div className="h-full flex flex-col justify-end pb-6">
           <div className="flex flex-col items-center text-center py-8">
             <LayoutGrid size={48} className="text-text-disabled mb-4" />
             <h2 className="text-xl font-medium text-text-tertiary mb-2">No Sections Yet</h2>
@@ -283,7 +275,7 @@ export function ActionsView(): ReactElement {
         </div>
       ) : (
         // Sections list - uses verticalAlign preference
-        <div className={`flex-1 overflow-auto p-4 pt-0 flex flex-col ${verticalAlignClass}`}>
+        <div className={`h-full flex flex-col p-4 pt-0 ${verticalAlignClass}`}>
           <div className="space-y-4">
             {sections.map((section, index) => (
               <ActionsSection
@@ -343,6 +335,6 @@ export function ActionsView(): ReactElement {
           }}
         />
       )}
-    </div>
+    </ViewLayout>
   );
 }
