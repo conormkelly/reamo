@@ -64,10 +64,11 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 | View | Description |
 |------|-------------|
 | **Studio** | All-in-one default view: transport, timeline, mixer in one screen |
-| **Mixer** | (Coming soon) Dedicated full-screen mixer |
+| **Mixer** | Dedicated full-screen mixer with faders, meters, and track controls |
 | **Clock** | Large transport display with big play/pause/stop/record buttons. Fully customizable: show/hide elements, resize, and reorder via edit mode |
 | **Cues** | Playlist manager for building setlists from regions |
 | **Actions** | User-configurable button grid for REAPER actions and MIDI |
+| **Instruments** | Touch instruments: drum pads, piano keyboard, and chord pads |
 | **Notes** | Project notes editor with external change detection |
 
 ---
@@ -93,12 +94,17 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 - Clip indicators (tap to clear)
 - Master track mono/stereo toggle
 - Mixer lock to prevent accidental changes
+- Track banks and filters (All, Folders, Armed, Muted, etc.)
+- Track detail modal with routing, FX chain, and input selection
 
 ### Timeline
 - Interactive timeline showing regions, markers, and playhead
+- Multi-track lanes with waveform display (stereo split view)
+- Pinch-to-zoom with smooth momentum scrolling
+- Follow playhead toggle (also serves as zoom anchor)
 - Time selection display with bar.beat notation
 - Tap regions/markers to navigate
-- Visual item density blobs showing where recordings exist
+- Tap items to select, with multi-select support
 
 ### Region Editing
 - Drag regions to reposition
@@ -132,6 +138,31 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 - Switch between takes on selected items
 - A/B compare takes without touching the computer
 - Delete active take, crop to active take
+
+### Touch Instruments
+- **Drum Pads** - 4x4 GM drum grid with multi-touch support (portrait mode)
+- **Piano Keyboard** - 2-octave keyboard with octave selector, mod wheel, pitch bend (landscape mode)
+- **Chord Pads** - Diatonic chords with key/scale selector, inversions, bass notes, strum mode, and voice leading (landscape mode)
+- Low-latency MIDI via WebSocket (5-15ms, matches Logic Remote)
+- Per-instrument MIDI channel selection
+
+### FX Control
+- Browse and add FX plugins (VST3, VST2, AU, JS) via searchable list
+- View and control FX parameters with real-time feedback
+- Preset browsing and selection
+- Enable/disable individual FX
+- Reorder FX chain via drag-and-drop
+
+### Track Routing
+- View sends, receives, and hardware outputs per track
+- Adjust send levels with gesture-based undo coalescing
+- Visual routing overview in track detail modal
+
+### Folder Navigation
+- Folder icon badges on folder tracks with child count
+- Folder navigation sheet with breadcrumb trail
+- Filter tracks by folder (tap folder badge to focus)
+- Combine folder view with property filters (Armed, Muted, etc.)
 
 ### Cue Lists (Playlists)
 - Build playlists from project regions
@@ -174,11 +205,10 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 
 Current limitations to be aware of:
 
-- **No waveform editing** - View waveforms but no split/glue/crossfade
+- **No waveform editing** - View waveforms but no split/glue/crossfade operations
 - **No MIDI editing** - Audio items only, MIDI items shown as blocks
 - **No comping lanes** - Basic take switching only
-- **No FX parameter control** - FX presets work but individual parameters are not exposed
-- **No send level UI** - Backend supports sends, frontend UI pending
+- **No automation editing** - View automation but no touch-based drawing yet
 - **Single user** - Designed for single-user home studio, not multi-user
 
 ---

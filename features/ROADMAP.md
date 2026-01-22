@@ -211,9 +211,9 @@ Separated banks and filters into orthogonal controls:
 
 ### Touch Instruments
 
-Chord strips and scale-locked keyboard for songwriting workflow.
+Chord pads and scale-locked keyboard for songwriting workflow.
 
-**Status:** Drum Pads & Piano complete. Chord Strips next.
+**Status:** Drum Pads & Piano complete. Chord Pads next.
 
 **Research:**
 
@@ -228,7 +228,7 @@ Chord strips and scale-locked keyboard for songwriting workflow.
 
 1. ~~**Drum Pads (MVP)**~~ ✅ - 4x4 GM drum grid with multi-touch, Pointer Events API, 20ms debounce
 2. ~~**Piano Keyboard**~~ ✅ - 2-octave keyboard with mod wheel, pitch bend, octave selector
-3. **Chord Strips** - Diatonic chords with key/scale selector (see phases below)
+3. **Chord Pads** - Diatonic chords with key/scale selector (see phases below)
 4. ~~**Expression**~~ ✅ - Mod wheel (CC1), pitch bend (14-bit)
 
 **Completed:**
@@ -240,11 +240,11 @@ Chord strips and scale-locked keyboard for songwriting workflow.
 - Multi-touch support via Pointer Events API with pointer ID tracking
 - Rate-limited continuous controllers: mod wheel 50Hz, pitch bend 120Hz with spring-back
 
-**Chord Strips Implementation Phases:**
+**Chord Pads Implementation Phases:**
 
 *Phase 1 (MVP):* ✅
 
-- 7 vertical diatonic chord strips (triads only) arranged horizontally
+- 7 vertical diatonic chord pads (triads only) arranged horizontally
 - Key selector with enharmonic display (C# / Db) + Scale selector
 - Proper enharmonic spelling (Eb not D#, Bb not A#)
 - Automatic flat conversion for problem keys (D# → Eb spelling, etc.)
@@ -253,7 +253,7 @@ Chord strips and scale-locked keyboard for songwriting workflow.
 
 *Phase 1.5 (Polish) — NEEDS RESEARCH:*
 
-- Which scales make sense for chord strips? (pentatonic has 5 notes, blues has 6)
+- Which scales make sense for chord pads? (pentatonic has 5 notes, blues has 6)
 - Double-sharp display symbol (𝄪 or x notation)
 - Should key selector prefer flats for flat keys? (currently always shows C#, user picks)
 - Consider restricting key selector to "practical" keys only
@@ -277,7 +277,7 @@ Chord strips and scale-locked keyboard for songwriting workflow.
 *Phase 4 (Customization) — Deferred:*
 
 - 7ths toggle
-- Hide/show specific chord strips (e.g., hide dim chord)
+- Hide/show specific chord pads (e.g., hide dim chord)
 - Custom chord editing per strip (replace chord with variant like 7sus4)
 - Configurable strip count (4-7 visible chords)
 - Per-strip quality override (force minor instead of diminished)
@@ -288,7 +288,7 @@ Chord strips and scale-locked keyboard for songwriting workflow.
 - Velocity from pressure/position (touch pressure API)
 - Aftertouch support
 
-**Size:** ~~Backend S, Drum Pads MVP M~~, ~~Piano M~~, Chord Strips MVP S-M
+**Size:** ~~Backend S, Drum Pads MVP M~~, ~~Piano M~~, Chord Pads MVP S-M
 
 ---
 
