@@ -102,17 +102,59 @@ These should be investigated separately.
 
 ---
 
-## Phase 2 Agent Notes
+## Phase 2: Instruments View (Complete)
+
+### Summary
+
+Refactored InstrumentsView to use responsive architecture patterns from Phase 1.
+
+**Key changes:**
+- Wrapped with `ViewLayout` component for consistent structure
+- Replaced local `useIsPortrait` hook with shared `useIsLandscape` from hooks
+- Removed hard orientation blocks (fullscreen "rotate" warnings)
+- Added soft `OrientationHint` banner (dismissible) for orientation suggestions
+- All instruments now work in both orientations
+
+### Orientation Strategies by Instrument
+
+| Instrument | Preferred | Portrait Layout | Landscape Layout |
+|------------|-----------|-----------------|------------------|
+| Drums | Portrait | 4x4 grid fills space | Square aspect, centered |
+| Piano | Landscape | Horizontal scroll, min-width 500px | Standard horizontal layout |
+| Chords | Landscape | Horizontal scroll, min-width 700px, snap | Standard 7-column layout |
+
+### Implementation Notes
+
+**DrumPadGrid in landscape:**
+- Container constrains grid to `aspect-square` within available height
+- Centered with flexbox for balanced appearance
+- Pads maintain square aspect naturally via CSS Grid
+
+**PianoKeyboard in portrait:**
+- Added `overflow-x-auto overscroll-x-contain` for horizontal scrolling
+- Set `min-width: 500px` to ensure keys are playable (44px+ touch targets)
+- Octave selector remains prominent for quick navigation
+- Mod/Pitch wheels use `shrink-0` to stay visible
+
+**Chords in portrait:**
+- Added `overflow-x-auto snap-x snap-mandatory` for swipeable columns
+- Set `min-width: 700px` to maintain column readability
+- Each ChordColumn already has `snap-center` behavior from existing code
+
+### File Modified
+
+| File | Changes |
+|------|---------|
+| `src/views/instruments/InstrumentsView.tsx` | Adopted ViewLayout, OrientationHint, useIsLandscape. Removed hard blocks. Added responsive layouts per instrument. |
+
+---
+
+## Phase 2 Agent Notes (Remaining)
 
 ### For Timeline Agent (Agent A)
 - TimelineView already has `flex-1 min-h-0` at line 366
 - Many z-10/z-20/z-30/z-40 values for internal layering of playhead, regions, markers
 - Consider whether these need semantic names or if numeric is fine for internal stacking
-
-### For Instruments Agent (Agent F)
-- InstrumentsView has `flex-1 min-h-0` at line 773
-- Has orientation-related code that needs to integrate with new `useIsLandscape` hook
-- `OrientationHint` component is ready for use
 
 ### For All Agents
 - Use `ViewLayout` component for consistent structure
