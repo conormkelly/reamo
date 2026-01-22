@@ -1,10 +1,18 @@
 /**
  * InstrumentsView - Touch instruments for MIDI input
  * Supports: Drum Pads, Piano with mod/pitch wheels, Chord Pads
+ *
+ * Phase 2 responsive refactor:
+ * - Uses ViewLayout for consistent structure
+ * - Soft OrientationHint instead of hard orientation blocks
+ * - All instruments work in both orientations
+ *
+ * @see docs/architecture/UX_GUIDELINES.md §9 (Instruments Orientation Strategy)
  */
 
 import { useState, useEffect, useCallback, type ReactElement } from 'react';
-import { ViewHeader } from '../../components';
+import { ViewHeader, ViewLayout, OrientationHint } from '../../components';
+import { useIsLandscape } from '../../hooks';
 import { useReaper } from '../../components/ReaperProvider';
 import {
   InstrumentSelector,
@@ -22,28 +30,12 @@ import {
 import { DEFAULT_OCTAVE, type NoteName, type ScaleType } from '@/lib/music-theory';
 import { midi } from '../../core/WebSocketCommands';
 
-/** Hook to detect portrait orientation */
-function useIsPortrait(): boolean {
-  const [isPortrait, setIsPortrait] = useState(
-    () => typeof window !== 'undefined' && window.innerHeight > window.innerWidth
-  );
-
-  useEffect(() => {
-    const checkOrientation = () => {
-      setIsPortrait(window.innerHeight > window.innerWidth);
-    };
-
-    window.addEventListener('resize', checkOrientation);
-    window.addEventListener('orientationchange', checkOrientation);
-
-    return () => {
-      window.removeEventListener('resize', checkOrientation);
-      window.removeEventListener('orientationchange', checkOrientation);
-    };
-  }, []);
-
-  return isPortrait;
-}
+/** Preferred orientation per instrument */
+const INSTRUMENT_PREFERENCES: Record<InstrumentType, 'landscape' | 'portrait'> = {
+  drums: 'portrait',
+  piano: 'landscape',
+  chords: 'landscape',
+};
 
 // localStorage keys for persistence
 const STORAGE_KEY_INSTRUMENT = 'reamo_instruments_selected';
@@ -327,7 +319,7 @@ function saveChordsStrumDelay(delay: number): void {
 
 export function InstrumentsView(): ReactElement {
   const { sendCommand } = useReaper();
-  const isPortrait = useIsPortrait();
+  const isLandscape = useIsLandscape();
 
   // State
   const [selectedInstrument, setSelectedInstrument] = useState<InstrumentType>(loadInstrument);
@@ -480,83 +472,34 @@ export function InstrumentsView(): ReactElement {
     [pianoChannel, handlePitchBend]
   );
 
-  // Render the current instrument
+  // Render the current instrument - works in both orientations
   const renderInstrument = () => {
     switch (selectedInstrument) {
       case 'drums':
-        // Show portrait warning in landscape mode
-        if (!isPortrait) {
-          return (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center text-text-secondary">
-                <svg
-                  className="w-16 h-16 mx-auto mb-4 text-text-muted"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M5 4h10a1 1 0 011 1v16a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1z"
-                  />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M19 12l2-2m-2 2l2 2"
-                  />
-                </svg>
-                <p className="text-lg font-medium">Rotate to portrait</p>
-                <p className="text-sm mt-1">Drum pads work best in portrait orientation</p>
-              </div>
+        // In landscape: constrain grid to square aspect ratio, centered
+        // In portrait: fills available space naturally
+        return isLandscape ? (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="h-full aspect-square max-w-full">
+              <DrumPadGrid channel={currentChannel} onNoteOn={handleNoteOn} className="h-full" />
             </div>
-          );
-        }
-        return (
+          </div>
+        ) : (
           <DrumPadGrid channel={currentChannel} onNoteOn={handleNoteOn} className="flex-1" />
         );
+
       case 'piano':
-        // Show landscape warning in portrait mode
-        if (isPortrait) {
-          return (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center text-text-secondary">
-                <svg
-                  className="w-16 h-16 mx-auto mb-4 text-text-muted"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M4 5h16a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1z"
-                  />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M12 19l-2 2m2-2l2 2"
-                  />
-                </svg>
-                <p className="text-lg font-medium">Rotate to landscape</p>
-                <p className="text-sm mt-1">Piano keyboard works best in landscape orientation</p>
-              </div>
-            </div>
-          );
-        }
+        // In portrait: horizontal scroll for keyboard, wheels on sides
+        // In landscape: standard horizontal layout
         return (
           <div className="flex-1 flex gap-2 overflow-visible">
             {/* Mod Wheel */}
-            <ModWheel onChange={handleModWheel} className="w-12 h-full" />
+            <ModWheel onChange={handleModWheel} className="w-12 h-full shrink-0" />
 
             {/* Piano Keyboard */}
-            <div className="flex-1 flex flex-col gap-2 overflow-visible">
-              {/* Octave selector */}
-              <div className="flex justify-center">
+            <div className="flex-1 min-w-0 flex flex-col gap-2 overflow-visible">
+              {/* Octave selector - more prominent in portrait */}
+              <div className="shrink-0 flex justify-center">
                 <OctaveSelector
                   octave={pianoOctave}
                   onOctaveChange={setPianoOctave}
@@ -564,52 +507,42 @@ export function InstrumentsView(): ReactElement {
                   maxOctave={7}
                 />
               </div>
-              {/* Keyboard */}
-              <PianoKeyboard
-                octave={pianoOctave}
-                numOctaves={2}
-                onNoteOn={handlePianoNoteOn}
-                onNoteOff={handlePianoNoteOff}
-                className="flex-1"
-              />
+              {/* Keyboard - scrollable container in portrait */}
+              <div className={`flex-1 min-h-0 ${!isLandscape ? 'overflow-x-auto overflow-y-hidden overscroll-x-contain' : 'overflow-visible'}`}>
+                <PianoKeyboard
+                  octave={pianoOctave}
+                  numOctaves={2}
+                  onNoteOn={handlePianoNoteOn}
+                  onNoteOff={handlePianoNoteOff}
+                  className={`h-full ${!isLandscape ? 'min-w-[500px]' : ''}`}
+                />
+              </div>
             </div>
 
             {/* Pitch Bend Wheel */}
-            <PitchBendWheel onChange={handlePitchBendWheel} className="w-12 h-full" />
+            <PitchBendWheel onChange={handlePitchBendWheel} className="w-12 h-full shrink-0" />
           </div>
         );
+
       case 'chords':
-        // Show landscape warning in portrait mode
-        if (isPortrait) {
-          return (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center text-text-secondary">
-                <svg
-                  className="w-16 h-16 mx-auto mb-4 text-text-muted"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M4 5h16a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1z"
-                  />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M12 19l-2 2m2-2l2 2"
-                  />
-                </svg>
-                <p className="text-lg font-medium">Rotate to landscape</p>
-                <p className="text-sm mt-1">Chord Pads work best in landscape orientation</p>
-              </div>
-            </div>
-          );
-        }
-        return (
+        // In portrait: horizontal scroll with snap
+        // In landscape: standard horizontal layout
+        return !isLandscape ? (
+          <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-mandatory">
+            <Chords
+              channel={currentChannel}
+              onNoteOn={handleNoteOn}
+              rootKey={chordsKey}
+              scaleType={chordsScale}
+              octave={chordsOctave}
+              showHints={chordsHints}
+              adaptiveVoicing={chordsVoiceLead}
+              strumEnabled={chordsStrum}
+              strumDelay={chordsStrumDelay}
+              className="h-full min-w-[700px]"
+            />
+          </div>
+        ) : (
           <Chords
             channel={currentChannel}
             onNoteOn={handleNoteOn}
@@ -623,6 +556,7 @@ export function InstrumentsView(): ReactElement {
             className="flex-1"
           />
         );
+
       default:
         return null;
     }
@@ -765,12 +699,32 @@ export function InstrumentsView(): ReactElement {
     );
   };
 
-  return (
-    <div data-view="instruments" className="h-full bg-bg-app text-text-primary flex flex-col">
-      <ViewHeader currentView="instruments">{renderHeaderControls()}</ViewHeader>
+  // Determine if we should show orientation hint
+  const preferredOrientation = INSTRUMENT_PREFERENCES[selectedInstrument];
+  const showOrientationHint =
+    (preferredOrientation === 'landscape' && !isLandscape) ||
+    (preferredOrientation === 'portrait' && isLandscape);
 
-      {/* Instrument content area */}
-      <div className="flex-1 min-h-0 flex flex-col p-2 overflow-visible">{renderInstrument()}</div>
-    </div>
+  return (
+    <ViewLayout
+      viewId="instruments"
+      className="bg-bg-app text-text-primary"
+      header={<ViewHeader currentView="instruments">{renderHeaderControls()}</ViewHeader>}
+      scrollable={false}
+    >
+      {/* Instrument content area with orientation hint */}
+      <div className="h-full flex flex-col p-2 overflow-visible relative">
+        {/* Soft orientation hint - dismissible */}
+        {showOrientationHint && (
+          <OrientationHint
+            preferred={preferredOrientation}
+            className="absolute top-2 left-2 right-2 z-elevated"
+          />
+        )}
+
+        {/* The actual instrument */}
+        {renderInstrument()}
+      </div>
+    </ViewLayout>
   );
 }
