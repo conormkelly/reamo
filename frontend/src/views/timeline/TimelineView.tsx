@@ -17,7 +17,7 @@
 
 import { useMemo, useState, useCallback, useRef, useEffect, type ReactElement } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { ViewHeader, Toolbar, ToolbarHeaderControls } from '../../components';
+import { ViewHeader, ViewLayout, Toolbar, ToolbarHeaderControls } from '../../components';
 import {
   Timeline,
   RegionInfoBar,
@@ -35,16 +35,31 @@ import {
 import { TrackFilter } from '../../components/Track';
 import { useReaperStore } from '../../store';
 import { EMPTY_REGIONS, EMPTY_MARKERS, EMPTY_ITEMS } from '../../store/stableRefs';
-import { useViewport, useTransport, useBankNavigation, useCustomBanks, useTrackSkeleton } from '../../hooks';
+import {
+  useViewport,
+  useTransport,
+  useBankNavigation,
+  useCustomBanks,
+  useTrackSkeleton,
+  useIsLandscape,
+} from '../../hooks';
 import { usePeaksSubscription } from '../../hooks/usePeaksSubscription';
 
 /** Duration to show track labels after bank switch (ms) */
 const BANK_SWITCH_LABEL_DURATION = 1000;
 
 /** Timeline height - taller to accommodate multi-track lanes */
-const TIMELINE_HEIGHT = 200;
+/** Responsive: taller in landscape to utilize horizontal screen space better */
+const TIMELINE_HEIGHT_PORTRAIT = 200;
+const TIMELINE_HEIGHT_LANDSCAPE = 240;
 
 export function TimelineView(): ReactElement {
+  // Responsive: detect landscape for layout adjustments
+  const isLandscape = useIsLandscape();
+
+  // Responsive timeline height - taller in landscape for better vertical utilization
+  const TIMELINE_HEIGHT = isLandscape ? TIMELINE_HEIGHT_LANDSCAPE : TIMELINE_HEIGHT_PORTRAIT;
+
   // Lane count from user preference (1-8)
   const laneCount = useReaperStore((s) => s.timelineLaneCount);
   const timelineMode = useReaperStore((s) => s.timelineMode);
@@ -348,144 +363,159 @@ export function TimelineView(): ReactElement {
     showLabelsTemporarily();
   }, [isFiltered, bank, filteredTotalBanks, showLabelsTemporarily]);
 
-  return (
-    <div className="h-full bg-bg-app text-text-primary p-3 flex flex-col">
-      {/* Header - bank selector, mode toggle */}
-      <ViewHeader currentView="timeline">
-        <BankSelector
-          selectedBankId={selectedBankId}
-          banks={customBanks}
-          onBankChange={setSelectedBankId}
-          onAddBank={handleAddBank}
-          onEditBank={handleEditBank}
+  // Header content
+  const headerContent = (
+    <ViewHeader currentView="timeline">
+      <BankSelector
+        selectedBankId={selectedBankId}
+        banks={customBanks}
+        onBankChange={setSelectedBankId}
+        onAddBank={handleAddBank}
+        onEditBank={handleEditBank}
+      />
+      <TimelineModeToggle />
+    </ViewHeader>
+  );
+
+  // Footer content - collapsible toolbar + filter + bank navigation
+  const footerContent = (
+    <div className="border-t border-border-subtle">
+      {/* Collapsible toolbar section */}
+      <div className="flex items-center justify-between py-1.5">
+        <button
+          onClick={() => setToolbarCollapsed(!toolbarCollapsed)}
+          className="flex items-center gap-1 text-xs font-medium text-text-secondary hover:text-text-tertiary transition-colors"
+        >
+          {toolbarCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          <span>Toolbar</span>
+        </button>
+        {/* Header controls - shown when expanded */}
+        {!toolbarCollapsed && <ToolbarHeaderControls />}
+      </div>
+      {/* Toolbar content - only rendered when expanded */}
+      {!toolbarCollapsed && <Toolbar size="sm" />}
+
+      {/* Filter + bank navigator row */}
+      <div className="flex items-center gap-3 pt-1.5 pb-1">
+        {/* Track filter on left - takes remaining space */}
+        <TrackFilter
+          value={filterQuery}
+          onChange={setFilterQuery}
+          placeholder="Filter..."
+          hideCount
+          className="flex-1"
         />
-        <TimelineModeToggle />
-      </ViewHeader>
 
-      {/* Main timeline area - takes available space */}
-      <div className="flex-1 flex flex-col min-h-0 mt-2">
-        {/* Timeline canvas with multi-track lanes */}
-        <div ref={timelineContainerRef} className="relative">
-          <Timeline
-            height={TIMELINE_HEIGHT}
-            viewport={viewport}
-            multiTrackLanes={laneTracks}
-            multiTrackIndices={displayTrackIndices}
-            assemblePeaksForViewport={assemblePeaksForViewport}
-            hasTilesForTake={hasTilesForTake}
-          />
+        {/* Bank navigator on right */}
+        <BankNavigator
+          bankDisplay={effectiveBankDisplay}
+          canGoBack={effectiveCanGoBack}
+          canGoForward={effectiveCanGoForward}
+          onBack={handleBankBack}
+          onForward={handleBankForward}
+          onHoldStart={handleHoldStart}
+          onHoldEnd={handleHoldEnd}
+        />
+      </div>
+    </div>
+  );
 
-          {/* Track labels overlay - shown when holding bank display or switching banks */}
-          {showTrackLabels && laneTracks.length > 0 && (
-            <div
-              className="absolute inset-0 pointer-events-none z-30"
-              style={{ top: 57 }} // Skip ruler (32px) + region labels bar (25px)
-            >
-              {laneTracks.map((track, laneIdx) => {
-                const trackIdx = displayTrackIndices[laneIdx];
-                const laneHeight = TIMELINE_HEIGHT / laneTracks.length;
-                return (
-                  <div
-                    key={track.g}
-                    className="absolute left-0 right-0 flex items-center justify-center"
-                    style={{
-                      top: laneIdx * laneHeight,
-                      height: laneHeight,
-                    }}
-                  >
-                    <div className="flex items-stretch rounded-lg overflow-hidden shadow-lg border-2 border-black/60">
-                      {/* Track number - rounded left, dark background for contrast */}
-                      <div className="bg-bg-deep px-3 py-1.5 flex items-center justify-center min-w-[36px] border-r border-black/40">
-                        <span className="text-xs font-bold text-text-primary tabular-nums">
-                          {trackIdx}
-                        </span>
-                      </div>
-                      {/* Track name */}
-                      <div className="bg-bg-surface/95 backdrop-blur-sm px-3 py-1.5 flex items-center">
-                        <span className="text-sm font-medium text-text-primary">
-                          {track.n}
-                        </span>
+  return (
+    <>
+      <ViewLayout
+        viewId="timeline"
+        className="bg-bg-app text-text-primary p-3"
+        header={headerContent}
+        footer={footerContent}
+        scrollable={false}
+      >
+        {/* Main timeline area - flex column for stacked content */}
+        <div className="flex flex-col h-full mt-2">
+          {/* Timeline canvas with multi-track lanes */}
+          <div ref={timelineContainerRef} className="relative shrink-0">
+            <Timeline
+              height={TIMELINE_HEIGHT}
+              viewport={viewport}
+              multiTrackLanes={laneTracks}
+              multiTrackIndices={displayTrackIndices}
+              assemblePeaksForViewport={assemblePeaksForViewport}
+              hasTilesForTake={hasTilesForTake}
+            />
+
+            {/* Track labels overlay - shown when holding bank display or switching banks */}
+            {showTrackLabels && laneTracks.length > 0 && (
+              <div
+                className="absolute inset-0 pointer-events-none z-30"
+                style={{ top: 57 }} // Skip ruler (32px) + region labels bar (25px)
+              >
+                {laneTracks.map((track, laneIdx) => {
+                  const trackIdx = displayTrackIndices[laneIdx];
+                  const laneHeight = TIMELINE_HEIGHT / laneTracks.length;
+                  return (
+                    <div
+                      key={track.g}
+                      className="absolute left-0 right-0 flex items-center justify-center"
+                      style={{
+                        top: laneIdx * laneHeight,
+                        height: laneHeight,
+                      }}
+                    >
+                      <div className="flex items-stretch rounded-lg overflow-hidden shadow-lg border-2 border-black/60">
+                        {/* Track number - rounded left, dark background for contrast */}
+                        <div className="bg-bg-deep px-3 py-1.5 flex items-center justify-center min-w-[36px] border-r border-black/40">
+                          <span className="text-xs font-bold text-text-primary tabular-nums">
+                            {trackIdx}
+                          </span>
+                        </div>
+                        {/* Track name */}
+                        <div className="bg-bg-surface/95 backdrop-blur-sm px-3 py-1.5 flex items-center">
+                          <span className="text-sm font-medium text-text-primary">
+                            {track.n}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Region info bar */}
-        <RegionInfoBar
-          className="mt-3"
-          onAddRegion={timelineMode === 'regions' ? openAddRegionModal : undefined}
-        />
-        <div className="mt-2">
-          <RegionEditActionBar />
-        </div>
-
-        {/* Marker/Item Info - only shown in navigate mode */}
-        {/* Contextual: marker overlays item selection (marker takes precedence) */}
-        {timelineMode === 'navigate' && (
-          <section data-testid="navigate-info-section" className="mt-4 flex flex-col gap-2">
-            {/* Marker info bar - shown when a marker is selected (handles own visibility) */}
-            <MarkerInfoBar />
-            {/* Item info bar - shown when NO marker selected and items are selected */}
-            {selectedMarkerId === null && itemSelectionModeActive && <NavigateItemInfoBar />}
-            {/* Fallback when nothing is active */}
-            {selectedMarkerId === null && !itemSelectionModeActive && (
-              <div
-                data-testid="nothing-selected-message"
-                className="px-3 py-2 text-text-muted text-sm text-center"
-              >
-                Tap a marker pill or item blob to select
+                  );
+                })}
               </div>
             )}
-          </section>
-        )}
-      </div>
+          </div>
 
-      {/* Footer - collapsible toolbar + filter + bank navigation */}
-      <div className="border-t border-border-subtle">
-        {/* Collapsible toolbar section */}
-        <div className="flex items-center justify-between py-1.5">
-          <button
-            onClick={() => setToolbarCollapsed(!toolbarCollapsed)}
-            className="flex items-center gap-1 text-xs font-medium text-text-secondary hover:text-text-tertiary transition-colors"
-          >
-            {toolbarCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            <span>Toolbar</span>
-          </button>
-          {/* Header controls - shown when expanded */}
-          {!toolbarCollapsed && <ToolbarHeaderControls />}
+          {/* Info bars section - can grow/scroll if needed */}
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            {/* Region info bar */}
+            <RegionInfoBar
+              className="mt-3"
+              onAddRegion={timelineMode === 'regions' ? openAddRegionModal : undefined}
+            />
+            <div className="mt-2">
+              <RegionEditActionBar />
+            </div>
+
+            {/* Marker/Item Info - only shown in navigate mode */}
+            {/* Contextual: marker overlays item selection (marker takes precedence) */}
+            {timelineMode === 'navigate' && (
+              <section data-testid="navigate-info-section" className="mt-4 flex flex-col gap-2">
+                {/* Marker info bar - shown when a marker is selected (handles own visibility) */}
+                <MarkerInfoBar />
+                {/* Item info bar - shown when NO marker selected and items are selected */}
+                {selectedMarkerId === null && itemSelectionModeActive && <NavigateItemInfoBar />}
+                {/* Fallback when nothing is active */}
+                {selectedMarkerId === null && !itemSelectionModeActive && (
+                  <div
+                    data-testid="nothing-selected-message"
+                    className="px-3 py-2 text-text-muted text-sm text-center"
+                  >
+                    Tap a marker pill or item blob to select
+                  </div>
+                )}
+              </section>
+            )}
+          </div>
         </div>
-        {/* Toolbar content - only rendered when expanded */}
-        {!toolbarCollapsed && <Toolbar size="sm" />}
+      </ViewLayout>
 
-        {/* Filter + bank navigator row */}
-        <div className="flex items-center gap-3 pt-1.5 pb-1">
-          {/* Track filter on left - takes remaining space */}
-          <TrackFilter
-            value={filterQuery}
-            onChange={setFilterQuery}
-            placeholder="Filter..."
-            hideCount
-            className="flex-1"
-          />
-
-          {/* Bank navigator on right */}
-          <BankNavigator
-            bankDisplay={effectiveBankDisplay}
-            canGoBack={effectiveCanGoBack}
-            canGoForward={effectiveCanGoForward}
-            onBack={handleBankBack}
-            onForward={handleBankForward}
-            onHoldStart={handleHoldStart}
-            onHoldEnd={handleHoldEnd}
-          />
-        </div>
-      </div>
-
-      {/* Bank editor modal */}
+      {/* Bank editor modal - rendered outside ViewLayout (uses portal) */}
       <BankEditorModal
         isOpen={bankModalOpen}
         onClose={handleCloseModal}
@@ -493,6 +523,6 @@ export function TimelineView(): ReactElement {
         onDelete={handleDeleteBank}
         editBank={editingBank}
       />
-    </div>
+    </>
   );
 }
