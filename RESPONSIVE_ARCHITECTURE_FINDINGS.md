@@ -102,12 +102,76 @@ These should be investigated separately.
 
 ---
 
+## Phase 2: Timeline View (Complete)
+
+### ViewLayout Adoption
+
+**Refactored TimelineView to use ViewLayout component**:
+
+```tsx
+<ViewLayout
+  viewId="timeline"
+  className="bg-bg-app text-text-primary p-3"
+  header={headerContent}
+  footer={footerContent}
+  scrollable={false}
+>
+  {/* Main timeline content */}
+</ViewLayout>
+```
+
+**Key structural changes**:
+1. Header (ViewHeader with BankSelector, TimelineModeToggle) extracted to `headerContent`
+2. Footer (Toolbar + Filter + BankNavigator) extracted to `footerContent`
+3. Main content properly structured with:
+   - Timeline canvas with `shrink-0` (fixed height)
+   - Info bars section with `flex-1 min-h-0 overflow-y-auto` (scrollable if needed)
+
+### Responsive Timeline Height
+
+**Added orientation-aware timeline height**:
+- Portrait: 200px (default)
+- Landscape: 240px (taller to utilize horizontal screen space)
+
+```tsx
+const TIMELINE_HEIGHT_PORTRAIT = 200;
+const TIMELINE_HEIGHT_LANDSCAPE = 240;
+
+const TIMELINE_HEIGHT = isLandscape ? TIMELINE_HEIGHT_LANDSCAPE : TIMELINE_HEIGHT_PORTRAIT;
+```
+
+### Responsive Waveform Density
+
+**Already implemented via containerWidth**:
+- ResizeObserver tracks timeline container width
+- `peaksSubscriptionOptions` includes viewport width for adaptive peak resolution
+- More peak samples requested when zoomed in (better detail)
+- Fewer samples when zoomed out (performance optimization)
+
+### Z-Index Decisions
+
+**Internal z-index values (z-10, z-20, z-30, z-40) kept as-is**:
+- These are internal stacking for playhead, regions, markers, track labels
+- They form a coherent local stacking context
+- No benefit to making them semantic since they don't interact with global layers
+
+**z-50 in RegionInfoBar.tsx (line 574)**: Used for dropdown popover, should be migrated to `z-popover` in future cleanup.
+
+### Files Modified in Phase 2 Timeline
+
+| File | Changes |
+|------|---------|
+| `src/views/timeline/TimelineView.tsx` | Adopted ViewLayout, added responsive height, added useIsLandscape |
+
+---
+
 ## Phase 2 Agent Notes
 
-### For Timeline Agent (Agent A)
-- TimelineView already has `flex-1 min-h-0` at line 366
-- Many z-10/z-20/z-30/z-40 values for internal layering of playhead, regions, markers
-- Consider whether these need semantic names or if numeric is fine for internal stacking
+### For Timeline Agent (Agent A) - COMPLETE
+- ✅ ViewLayout adopted
+- ✅ Responsive timeline height (landscape/portrait)
+- ✅ Waveform density already responsive via containerWidth
+- Internal z-index values kept numeric (per Phase 1 decision)
 
 ### For Instruments Agent (Agent F)
 - InstrumentsView has `flex-1 min-h-0` at line 773
