@@ -1049,7 +1049,7 @@ This is especially important for components that switch between modes (e.g., Reg
 
 ### Touch Instruments (MIDI Input)
 
-The Instruments view provides touch-based MIDI input via drum pads, piano keyboard, and chord strips.
+The Instruments view provides touch-based MIDI input via drum pads, piano keyboard, and chord pads.
 
 **Backend commands:**
 
@@ -1103,7 +1103,7 @@ const handlePointerUp = (e: React.PointerEvent) => {
 
 Some instruments work better in specific orientations:
 - Drum Pads: Portrait only (4x4 grid fits better)
-- Piano/Chord Strips: Landscape only (needs horizontal space)
+- Piano/Chord Pads: Landscape only (needs horizontal space)
 
 Components show a "rotate device" warning when in wrong orientation rather than rendering a cramped layout.
 
@@ -1122,7 +1122,7 @@ localStorage.setItem('reamo_instruments_piano_channel', '0');  // Channel 1
 | `views/instruments/InstrumentsView.tsx` | Main view with instrument/channel selectors |
 | `components/Instruments/DrumPadGrid.tsx` | 4x4 drum grid with GM mapping |
 | `components/Instruments/PianoKeyboard.tsx` | 2-octave keyboard with expression |
-| `components/Instruments/ChordStrips.tsx` | Diatonic chord strips with inversions |
+| `components/Instruments/ChordStrips.tsx` | Diatonic chord pads with inversions |
 | `extension/src/commands/midi.zig` | Backend MIDI command handlers |
 
 ### Transport Animation (60fps Interpolation)
