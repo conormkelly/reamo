@@ -264,7 +264,7 @@ export function usePinchGesture({
 
       setVisibleRange({ start: clampedStart, end: clampedEnd });
     },
-    [containerRef, projectDuration, setVisibleRange]
+    [containerRef, projectDuration, setVisibleRange, centerOnTime]
   );
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
