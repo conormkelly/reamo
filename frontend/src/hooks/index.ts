@@ -87,3 +87,22 @@ export {
   useFolderHierarchy,
   type UseFolderHierarchyReturn,
 } from './useFolderHierarchy';
+export {
+  useMediaQuery,
+  useIsLandscape,
+  useIsPortrait,
+  useIsPWA,
+} from './useMediaQuery';
+export { useContainerQuery } from './useContainerQuery';
+export {
+  useScrollDirection,
+  type ScrollDirection,
+  type UseScrollDirectionReturn,
+} from './useScrollDirection';
+export {
+  useViewFooterConfig,
+  getViewFooterConfig,
+  getViewsWithConfig,
+  type FooterConfig,
+  type TransportVariant,
+} from './useViewFooterConfig';

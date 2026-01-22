@@ -8,10 +8,21 @@ This plan establishes world-class responsive PWA architecture for REAmo. It's de
 
 - [docs/architecture/UX_GUIDELINES.md](../../../docs/architecture/UX_GUIDELINES.md) - Responsive patterns and architecture
 - [research/FRONTEND_PRODUCTION_REVIEW_CHECKLIST.md](../../../research/FRONTEND_PRODUCTION_REVIEW_CHECKLIST.md) - Production quality standards
+- [RESPONSIVE_ARCHITECTURE_FINDINGS.md](../../../RESPONSIVE_ARCHITECTURE_FINDINGS.md) - **Live findings document** - Discoveries from each phase
 
 ---
 
 ## Agent Operating Principles
+
+### 0. Update the Findings Document
+
+**MANDATORY**: Every agent must read and update [RESPONSIVE_ARCHITECTURE_FINDINGS.md](../../../RESPONSIVE_ARCHITECTURE_FINDINGS.md):
+
+1. **Before starting** - Read the findings document to understand discoveries from previous phases
+2. **After each subphase** - Add important findings that may be useful if context is lost
+3. **On completion** - Document any gotchas, patterns discovered, or remaining work for future agents
+
+This document preserves institutional knowledge across context windows and between agents.
 
 ### 1. Measure Twice, Cut Once
 
