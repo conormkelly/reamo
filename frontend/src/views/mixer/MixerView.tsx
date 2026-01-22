@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo, type ReactElement } from 'react';
-import { ViewHeader } from '../../components';
+import { ViewHeader, ViewLayout } from '../../components';
 import {
   MixerStrip,
   BankNavigator,
@@ -416,30 +416,68 @@ export function MixerView(): ReactElement {
   };
 
   return (
-    <div
-      ref={containerRef}
-      className="h-full bg-bg-app text-text-primary p-3 flex flex-col"
-    >
-      {/* Header - settings, bank selector, quick filter, connection */}
-      <ViewHeader currentView="mixer">
-        <BankSelector
-          selectedBankId={selectedBankId}
-          banks={customBanks}
-          onBankChange={handleBankChange}
-          onAddBank={handleAddBank}
-          onEditBank={handleEditBank}
-          onFolderNavClick={() => setFolderSheetOpen(true)}
-        />
-        <QuickFilterDropdown
-          selectedFilterId={hasBuiltinBank && selectedBankId !== 'builtin:folders' ? selectedBankId as BuiltinBankId : null}
-          skeleton={skeleton}
-          onFilterChange={(filterId) => setSelectedBankId(filterId)}
-          className="ml-1"
-        />
-      </ViewHeader>
+    <ViewLayout
+      viewId="mixer"
+      header={
+        <ViewHeader currentView="mixer">
+          <BankSelector
+            selectedBankId={selectedBankId}
+            banks={customBanks}
+            onBankChange={handleBankChange}
+            onAddBank={handleAddBank}
+            onEditBank={handleEditBank}
+            onFolderNavClick={() => setFolderSheetOpen(true)}
+          />
+          <QuickFilterDropdown
+            selectedFilterId={hasBuiltinBank && selectedBankId !== 'builtin:folders' ? selectedBankId as BuiltinBankId : null}
+            skeleton={skeleton}
+            onFilterChange={(filterId) => setSelectedBankId(filterId)}
+            className="ml-1"
+          />
+        </ViewHeader>
+      }
+      footer={
+        <>
+          {/* Track info bar - shows when a track is selected */}
+          <TrackInfoBar
+            selectedTrackIdx={infoSelectedTrackIdx}
+            onShowRouting={handleShowRouting}
+            onFolderClick={handleFolderClick}
+            className="shrink-0"
+          />
 
-      {/* Main mixer area */}
-      <div className="flex-1 flex items-center justify-center gap-2 overflow-hidden pb-2">
+          {/* Footer controls - filter and bank navigation inline */}
+          <div className="shrink-0 pt-2 border-t border-border-subtle">
+            <div className="flex items-center gap-3">
+              {/* Track filter on left - takes remaining space, pushes bank nav right */}
+              <TrackFilter
+                value={filterQuery}
+                onChange={setFilterQuery}
+                placeholder="Filter..."
+                hideCount
+                className="flex-1"
+              />
+
+              {/* Bank navigator on right */}
+              <BankNavigator
+                bankDisplay={effectiveBankDisplay}
+                canGoBack={effectiveCanGoBack}
+                canGoForward={effectiveCanGoForward}
+                onBack={handleBack}
+                onForward={handleForward}
+              />
+            </div>
+          </div>
+        </>
+      }
+      scrollable={false}
+      className="bg-bg-app text-text-primary p-3"
+    >
+      {/* Main mixer area - containerRef for width measurement */}
+      <div
+        ref={containerRef}
+        className="h-full flex items-center justify-center gap-2 relative"
+      >
         {/* Master track - pinned on left when enabled */}
         {pinMasterTrack && (
           <div className="border-r pr-2 border-border-subtle">
@@ -501,48 +539,17 @@ export function MixerView(): ReactElement {
             <Plus size={24} />
           </button>
         )}
-      </div>
 
-      {/* Track info bar - shows when a track is selected */}
-      <TrackInfoBar
-        selectedTrackIdx={infoSelectedTrackIdx}
-        onShowRouting={handleShowRouting}
-        onFolderClick={handleFolderClick}
-        className="mt-2"
-      />
-
-      {/* Footer controls - filter and bank navigation inline */}
-      <div className="pt-2 border-t border-border-subtle">
-        <div className="flex items-center gap-3">
-          {/* Track filter on left - takes remaining space, pushes bank nav right */}
-          <TrackFilter
-            value={filterQuery}
-            onChange={setFilterQuery}
-            placeholder="Filter..."
-            hideCount
-            className="flex-1"
-          />
-
-          {/* Bank navigator on right */}
-          <BankNavigator
-            bankDisplay={effectiveBankDisplay}
-            canGoBack={effectiveCanGoBack}
-            canGoForward={effectiveCanGoForward}
-            onBack={handleBack}
-            onForward={handleForward}
-          />
-        </div>
-      </div>
-
-      {/* Empty state */}
-      {totalTracks === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-text-muted text-center">
-            <p className="text-lg mb-2">No tracks in project</p>
-            <p className="text-sm">Add tracks in REAPER to see them here</p>
+        {/* Empty state - positioned absolutely within the content area */}
+        {totalTracks === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-text-muted text-center">
+              <p className="text-lg mb-2">No tracks in project</p>
+              <p className="text-sm">Add tracks in REAPER to see them here</p>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Bank editor modal */}
       <BankEditorModal
@@ -574,6 +581,6 @@ export function MixerView(): ReactElement {
         onNavigate={setFolderPath}
         onSelectTrack={handleFolderSheetSelectTrack}
       />
-    </div>
+    </ViewLayout>
   );
 }
