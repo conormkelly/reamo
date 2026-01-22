@@ -58,45 +58,39 @@ function AppContent() {
   const ViewComponent = views[currentView];
 
   return (
-    <div className="flex flex-col h-screen-safe bg-bg-app overflow-hidden safe-area-top safe-area-x select-none">
-      {/* Connection banner - shown at top when disconnected */}
-      <ConnectionBanner />
+    <div className="flex flex-col h-dvh bg-bg-app overflow-hidden safe-area-top safe-area-x select-none">
+      {/* Conditional banners - shrink-0 prevents compression */}
+      <ConnectionBanner className="shrink-0" />
+      {updateAvailable && <UpdateBanner className="shrink-0" />}
+      <MemoryWarningBar className="shrink-0" />
 
-      {/* Update banner - shown when new version available (PWA cache busting) */}
-      {updateAvailable && <UpdateBanner />}
-
-      {/* Memory warning bar - shown when arena utilization is high */}
-      <MemoryWarningBar />
-
-      {/* Active view area - each view renders its own header via ViewHeader */}
-      <main className="flex-1 min-h-0 overflow-auto">
+      {/* Main content area - THE CRITICAL PATTERN: flex-1 min-h-0 */}
+      <main className="flex-1 min-h-0 overflow-hidden">
         <ErrorBoundary>
           <ViewComponent />
         </ErrorBoundary>
       </main>
 
-      {/* Recording Actions Bar - shown globally when recording */}
+      {/* Recording Actions Bar - z-[310] is above other fixed chrome (z-fixed=300) */}
       {showRecordingActions && isRecording && (
         <div
-          className="fixed left-0 right-0 z-40 bg-bg-app pb-3"
+          className="fixed left-0 right-0 z-[310] bg-bg-app pb-3"
           style={{ bottom: `calc(${bottomOffset}px + env(safe-area-inset-bottom, 34px))` }}
         >
           <RecordingActionsBar />
         </div>
       )}
 
-      {/* Tab bar - toggleable, gets safe-area-bottom when it's the bottommost element */}
+      {/* Fixed footer chrome - z-fixed (300) */}
       {showTabBar && (
         <TabBar
           currentView={currentView}
           onViewChange={setCurrentView}
-          className={!showPersistentTransport ? 'safe-area-bottom' : ''}
+          className={`shrink-0 z-fixed ${!showPersistentTransport ? 'safe-area-bottom' : ''}`}
         />
       )}
-
-      {/* Persistent transport - toggleable with position, always bottommost when shown */}
       {showPersistentTransport && (
-        <PersistentTransport position={transportPosition} className="safe-area-bottom" />
+        <PersistentTransport position={transportPosition} className="shrink-0 z-fixed safe-area-bottom" />
       )}
 
       {/* Centralized modal rendering */}
@@ -123,7 +117,7 @@ function LoadingScreen() {
   const troubleState = elapsed >= 10 || gaveUp;
 
   return (
-    <div className="flex flex-col items-center justify-center h-screen-safe gap-6 bg-bg-app px-6 text-center">
+    <div className="flex flex-col items-center justify-center h-dvh gap-6 bg-bg-app px-6 text-center">
       {/* REAmo heading */}
       <h1 className="text-2xl font-semibold tracking-wide text-text-primary">REAmo</h1>
 

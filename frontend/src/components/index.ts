@@ -1,5 +1,7 @@
 export { ReaperProvider, useReaper, type ReaperProviderProps } from './ReaperProvider';
 export { ErrorBoundary } from './ErrorBoundary';
+export { ViewLayout, type ViewLayoutProps } from './ViewLayout';
+export { OrientationHint, type OrientationHintProps, type PreferredOrientation } from './OrientationHint';
 export { ConnectionStatus, ConnectionBanner, type ConnectionStatusProps, type ConnectionBannerProps } from './ConnectionStatus';
 export { UpdateBanner, type UpdateBannerProps } from './UpdateBanner';
 export { MemoryWarningBar, type MemoryWarningBarProps } from './MemoryWarningBar';
