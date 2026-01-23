@@ -199,6 +199,7 @@ Over scattering across `components/`, `hooks/`, etc.
 | `usePeakHold` | `hooks/usePeakHold.ts` | Meter peak hold with decay |
 | `useResponsiveChannelCount` | `hooks/useResponsiveChannelCount.ts` | Screen-width based channel count |
 | `useBankNavigation` | `hooks/useBankNavigation.ts` | Bank state with localStorage |
+| `usePortalPosition` | `hooks/usePortalPosition.ts` | Position portaled dropdowns relative to trigger |
 | `MARKER_COLORS` | `constants/colors.ts` | Preset marker palette |
 | `ITEM_COLORS` | `constants/colors.ts` | Preset item palette |
 
@@ -594,6 +595,138 @@ This pattern decouples modal rendering from the components that trigger them, al
 | Local state | View-specific modals (CuesView playlists, Settings) |
 | modalSlice | Modals triggered from multiple places (Timeline, RegionInfoBar) |
 | ModalRoot | Centralizes Timeline modals (Marker, Region, Selection) |
+
+### Portal Pattern for Overlays (CRITICAL)
+
+**All overlays must be portaled to `document.body`** to escape parent stacking contexts.
+
+#### Why Portals Are Required
+
+CSS stacking contexts are created by:
+- `isolation: isolate` (used at App root for z-index isolation)
+- `position` + `z-index` combinations
+- `transform`, `filter`, `will-change`, `opacity < 1`
+
+When a modal/dropdown is rendered inside a view component, even with `position: fixed` and `z-modal` (500), its z-index is evaluated **within the parent's stacking context**, not against the document root. This causes:
+- Modals appearing under footer elements
+- Dropdowns appearing behind faders
+- Color pickers appearing behind toolbars
+
+#### The Solution: Portal to Body
+
+```tsx
+import { createPortal } from 'react-dom';
+
+// BAD - inline rendering, trapped in stacking context
+function Dropdown({ isOpen }) {
+  return (
+    <div className="relative">
+      <button>Open</button>
+      {isOpen && (
+        <div className="absolute top-full z-dropdown">
+          Menu content
+        </div>
+      )}
+    </div>
+  );
+}
+
+// GOOD - portaled to body, escapes all stacking contexts
+function Dropdown({ isOpen }) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const { position } = usePortalPosition(triggerRef, isOpen);
+
+  return (
+    <div className="relative">
+      <button ref={triggerRef}>Open</button>
+      {isOpen && createPortal(
+        <div
+          className="fixed z-dropdown"
+          style={{ top: position.top, left: position.left }}
+        >
+          Menu content
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
+```
+
+#### usePortalPosition Hook
+
+For dropdowns/popovers that need to track a trigger element's position:
+
+```tsx
+import { usePortalPosition } from '../hooks/usePortalPosition';
+
+const triggerRef = useRef<HTMLButtonElement>(null);
+const { position } = usePortalPosition(triggerRef, isOpen, {
+  placement: 'bottom-start',  // 'bottom-start' | 'bottom-end' | 'top-start' | 'top-end'
+  offset: 4,                   // gap between trigger and dropdown
+});
+
+// position.top, position.left - absolute coordinates
+// position.triggerWidth, position.triggerHeight - for width matching
+```
+
+#### Components That Must Be Portaled
+
+| Type | Positioning | Components |
+|------|-------------|------------|
+| **Full-screen modals** | `fixed inset-0` (centered) | `Modal`, `BottomSheet`, `SectionEditor`, `ToolbarEditor`, `IconPicker`, `TapTempoButton` dialog, `MetronomeButton` dialog, `TimeSignatureButton` dialog, `MemoryWarningBar` modal |
+| **Dropdowns** | `fixed` + `usePortalPosition` | `SettingsMenu`, `QuickFilterDropdown`, `FolderBreadcrumb` |
+| **Popovers** | `fixed` + `usePortalPosition` | `MarkerInfoBar` color picker, `RegionInfoBar` color picker |
+
+**Note:** Full-screen modals don't need `usePortalPosition` since they use `fixed inset-0` for viewport-centered positioning. Only dropdowns/popovers that need to track a trigger element's position require the hook.
+
+#### Click-Outside Handling for Portaled Elements
+
+Since portaled elements are no longer DOM children of the trigger, click-outside detection needs both refs:
+
+```tsx
+const triggerRef = useRef<HTMLButtonElement>(null);
+const menuRef = useRef<HTMLDivElement>(null);
+
+useEffect(() => {
+  if (!isOpen) return;
+
+  const handleClickOutside = (e: MouseEvent) => {
+    const target = e.target as Node;
+    const clickedTrigger = triggerRef.current?.contains(target);
+    const clickedMenu = menuRef.current?.contains(target);
+    if (!clickedTrigger && !clickedMenu) {
+      setIsOpen(false);
+    }
+  };
+
+  document.addEventListener('mousedown', handleClickOutside);
+  return () => document.removeEventListener('mousedown', handleClickOutside);
+}, [isOpen]);
+```
+
+#### Accessibility for Portaled Dropdowns
+
+Maintain these ARIA attributes when portaling:
+
+```tsx
+// Trigger button
+<button
+  ref={triggerRef}
+  aria-expanded={isOpen}
+  aria-haspopup="listbox"  // or "true" for menus
+>
+
+// Portaled dropdown
+{isOpen && createPortal(
+  <div role="listbox">
+    <button role="option" aria-selected={isSelected}>
+      Option
+    </button>
+  </div>,
+  document.body
+)}
+```
 
 ---
 
@@ -1158,6 +1291,8 @@ This section documents actual bugs from recent commits to prevent recurrence.
 | Percentage children without overflow | Add `overflow-hidden` to container |
 | `select-none` on individual components | Single `select-none` at App root |
 | Magic numbers for thresholds | Constants from `constants/` |
+| Inline modals/dropdowns with `z-*` | Portal to `document.body` with `createPortal` |
+| `absolute` positioning for dropdowns | `fixed` + `usePortalPosition` when portaled |
 
 ---
 

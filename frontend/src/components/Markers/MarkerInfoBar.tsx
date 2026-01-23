@@ -3,13 +3,16 @@
  * Shows marker info in Navigate mode: ID, name, color, timestamp
  * Supports inline editing of name and color
  * Auto-advances to show the most recently passed marker during playback
+ *
+ * Color picker renders via portal to document.body to escape stacking contexts.
  */
 
 import { useState, useRef, useEffect, useCallback, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import { RotateCcw, X } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
-import { useCurrentMarker, useTimeFormatters } from '../../hooks';
+import { useCurrentMarker, useTimeFormatters, usePortalPosition } from '../../hooks';
 import { marker as markerCmd } from '../../core/WebSocketCommands';
 import { reaperColorToHex, hexToReaperColor } from '../../utils';
 import { DEFAULT_MARKER_COLOR, MARKER_COLORS } from '../../constants/colors';
@@ -33,8 +36,10 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
   const [isSaving, setIsSaving] = useState(false);
 
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const colorTriggerRef = useRef<HTMLButtonElement>(null);
   const colorPickerRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { position: colorPickerPosition } = usePortalPosition(colorTriggerRef, showColorPicker, { placement: 'bottom-start', offset: 8 });
 
   // Focus name input when editing starts
   useEffect(() => {
@@ -49,7 +54,10 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
     if (!showColorPicker) return;
 
     const handleClickOutside = (e: MouseEvent) => {
-      if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const clickedTrigger = colorTriggerRef.current?.contains(target);
+      const clickedPicker = colorPickerRef.current?.contains(target);
+      if (!clickedTrigger && !clickedPicker) {
         setShowColorPicker(false);
         setLocked(false);
       }
@@ -211,7 +219,7 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
                 onChange={(e) => setNameValue(e.target.value)}
                 onKeyDown={handleNameKeyDown}
                 onBlur={handleNameConfirm}
-                className="flex-1 min-w-0 px-1.5 py-0.5 bg-bg-elevated border border-focus-border rounded text-text-primary font-mono text-xs focus:outline-none focus:ring-1 focus:ring-focus-ring"
+                className="flex-1 min-w-0 px-1.5 py-0.5 bg-bg-elevated border border-focus-border rounded text-text-primary font-mono text-base focus:outline-none focus:ring-1 focus:ring-focus-ring"
               />
             ) : (
               <button
@@ -236,15 +244,19 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
           <div className="flex items-center gap-1.5 relative">
             <span className="text-text-secondary text-xs">Color:</span>
             <button
+              ref={colorTriggerRef}
               onClick={handleColorClick}
               className="w-6 h-6 rounded border-2 transition-colors border-border-default hover:border-text-secondary cursor-pointer"
               style={{ backgroundColor: currentColor }}
               title="Click to change color"
+              aria-expanded={showColorPicker}
+              aria-haspopup="true"
             />
-            {showColorPicker && (
+            {showColorPicker && createPortal(
               <div
                 ref={colorPickerRef}
-                className="absolute top-full left-0 mt-2 p-3 bg-bg-surface border border-border-default rounded-lg shadow-xl z-popover min-w-[200px]"
+                className="fixed p-3 bg-bg-surface border border-border-default rounded-lg shadow-xl z-popover min-w-[200px]"
+                style={{ top: colorPickerPosition.top, left: colorPickerPosition.left }}
               >
                 {/* Default + Project colors row */}
                 <div className="mb-3">
@@ -322,7 +334,8 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
                     }}
                   />
                 </div>
-              </div>
+              </div>,
+              document.body
             )}
           </div>
 

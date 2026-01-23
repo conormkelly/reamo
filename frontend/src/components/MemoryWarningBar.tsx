@@ -2,9 +2,12 @@
  * MemoryWarningBar Component
  * Shows a dismissable warning when arena memory utilization is high (> 80%)
  * Includes Info button to show detailed memory stats and explanation
+ *
+ * Modal renders via portal to document.body to escape stacking contexts.
  */
 
 import { useState, useCallback, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertTriangle, Info, X } from 'lucide-react';
 import { useReaperStore } from '../store';
 import { useReaper } from './ReaperProvider';
@@ -96,8 +99,8 @@ export function MemoryWarningBar({ className = '' }: MemoryWarningBarProps): Rea
         </button>
       </div>
 
-      {/* Info Modal */}
-      {showModal && (
+      {/* Info Modal - portaled to body to escape stacking contexts */}
+      {showModal && createPortal(
         <div
           className="fixed inset-0 bg-black/70 flex items-center justify-center z-modal"
           onClick={handleCloseModal}
@@ -152,7 +155,8 @@ export function MemoryWarningBar({ className = '' }: MemoryWarningBarProps): Rea
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );

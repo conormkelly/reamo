@@ -1,9 +1,12 @@
 /**
  * Time Signature Button Component
  * Displays current time signature and allows changing it via modal
+ *
+ * Dialog renders via portal to document.body to escape stacking contexts.
  */
 
 import { useState, useCallback, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import { Minus, Plus } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useTimeSignature } from '../../hooks';
@@ -116,8 +119,8 @@ export function TimeSignatureButton({
         {storeBeatsPerBar}/{storeDenominator}
       </button>
 
-      {/* Time Signature Dialog */}
-      {showDialog && (
+      {/* Time Signature Dialog - portaled to body */}
+      {showDialog && createPortal(
         <div
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-modal"
           onClick={handleOverlayClick}
@@ -192,7 +195,8 @@ export function TimeSignatureButton({
               ))}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );

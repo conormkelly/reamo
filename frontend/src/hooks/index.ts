@@ -99,3 +99,9 @@ export {
   type ScrollDirection,
   type UseScrollDirectionReturn,
 } from './useScrollDirection';
+export {
+  usePortalPosition,
+  type PortalPosition,
+  type PortalPlacement,
+  type UsePortalPositionOptions,
+} from './usePortalPosition';

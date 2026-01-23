@@ -1,8 +1,11 @@
 /**
  * SectionEditor - Modal for creating/editing/deleting sections
+ *
+ * Renders via portal to document.body to escape stacking contexts.
  */
 
 import { useState, useEffect, useCallback, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Trash2 } from 'lucide-react';
 import { LazyIconPicker } from '../../../components/Toolbar/LazyIconPicker';
 import { ColorPickerInput } from '../../../components/Toolbar/ColorPickerInput';
@@ -97,7 +100,8 @@ export function SectionEditor({
 
   const IconComponent = icon ? getIconComponent(icon) : null;
 
-  return (
+  // Portal to body to escape stacking contexts
+  return createPortal(
     <div
       className="fixed inset-0 bg-black/60 flex items-center justify-center z-modal p-4"
       onClick={onClose}
@@ -309,6 +313,7 @@ export function SectionEditor({
           />
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

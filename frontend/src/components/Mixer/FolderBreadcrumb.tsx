@@ -2,10 +2,14 @@
  * FolderBreadcrumb Component
  * Breadcrumb navigation for drilling into folder contents
  * Horizontally scrollable with gradient fades
+ *
+ * Dropdowns render via portal to document.body to escape stacking contexts.
  */
 
 import { useState, useRef, useEffect, useCallback, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import { Folder, FolderOpen, ChevronRight, ChevronDown } from 'lucide-react';
+import { usePortalPosition } from '../../hooks/usePortalPosition';
 import { useFolderHierarchy } from '../../hooks/useFolderHierarchy';
 import type { FolderNode } from '../../utils/folderHierarchy';
 
@@ -27,14 +31,19 @@ interface BreadcrumbSegmentProps {
 
 function BreadcrumbSegment({ folder, isLast, siblings, onSelect }: BreadcrumbSegmentProps): ReactElement {
   const [isOpen, setIsOpen] = useState(false);
-  const segmentRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const { position } = usePortalPosition(triggerRef, isOpen, { placement: 'bottom-start', offset: 4 });
 
   // Close dropdown on outside click
   useEffect(() => {
     if (!isOpen) return;
 
     function handleClickOutside(e: MouseEvent) {
-      if (segmentRef.current && !segmentRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const clickedTrigger = triggerRef.current?.contains(target);
+      const clickedMenu = menuRef.current?.contains(target);
+      if (!clickedTrigger && !clickedMenu) {
         setIsOpen(false);
       }
     }
@@ -48,23 +57,31 @@ function BreadcrumbSegment({ folder, isLast, siblings, onSelect }: BreadcrumbSeg
   const hasDropdown = siblings.length > 1 || folder === null;
 
   return (
-    <div ref={segmentRef} className="relative flex-shrink-0">
+    <div className="relative flex-shrink-0">
       <button
+        ref={triggerRef}
         onClick={() => hasDropdown && setIsOpen(!isOpen)}
         className={`
           flex items-center gap-1.5 px-2 py-1.5 rounded-md transition-colors min-h-[36px]
           ${isLast ? 'text-text-primary bg-bg-elevated' : 'text-text-secondary hover:text-text-primary hover:bg-bg-surface'}
           ${hasDropdown ? 'cursor-pointer' : 'cursor-default'}
         `}
+        aria-expanded={hasDropdown ? isOpen : undefined}
+        aria-haspopup={hasDropdown ? 'listbox' : undefined}
       >
         <Icon size={16} className="flex-shrink-0" />
         <span className="text-sm font-medium whitespace-nowrap">{label}</span>
         {hasDropdown && <ChevronDown size={14} className={`flex-shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />}
       </button>
 
-      {/* Dropdown menu */}
-      {isOpen && (
-        <div className="absolute top-full left-0 mt-1 min-w-[160px] max-w-[240px] bg-bg-surface rounded-lg shadow-xl border border-border-subtle py-1 z-dropdown">
+      {/* Dropdown menu - portaled to body */}
+      {isOpen && createPortal(
+        <div
+          ref={menuRef}
+          className="fixed min-w-[160px] max-w-[240px] bg-bg-surface rounded-lg shadow-xl border border-border-subtle py-1 z-dropdown"
+          style={{ top: position.top, left: position.left }}
+          role="listbox"
+        >
           {folder === null ? (
             // Root dropdown: show all root folders
             siblings.map((f) => (
@@ -75,6 +92,7 @@ function BreadcrumbSegment({ folder, isLast, siblings, onSelect }: BreadcrumbSeg
                   setIsOpen(false);
                 }}
                 className="w-full px-3 py-2 flex items-center gap-2 hover:bg-bg-elevated/50 transition-colors text-left"
+                role="option"
               >
                 <Folder size={14} className="flex-shrink-0 text-text-muted" />
                 <span className="text-sm truncate">{f.name}</span>
@@ -93,6 +111,8 @@ function BreadcrumbSegment({ folder, isLast, siblings, onSelect }: BreadcrumbSeg
                   w-full px-3 py-2 flex items-center gap-2 hover:bg-bg-elevated/50 transition-colors text-left
                   ${f.guid === folder.guid ? 'bg-bg-elevated/30' : ''}
                 `}
+                role="option"
+                aria-selected={f.guid === folder.guid}
               >
                 <Folder size={14} className="flex-shrink-0 text-text-muted" />
                 <span className="text-sm truncate">{f.name}</span>
@@ -100,7 +120,8 @@ function BreadcrumbSegment({ folder, isLast, siblings, onSelect }: BreadcrumbSeg
               </button>
             ))
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

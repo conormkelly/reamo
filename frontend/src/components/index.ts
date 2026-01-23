@@ -1,5 +1,6 @@
 export { ReaperProvider, useReaper, type ReaperProviderProps } from './ReaperProvider';
 export { ErrorBoundary } from './ErrorBoundary';
+export { Portal, type PortalProps } from './Portal';
 export { ViewLayout, type ViewLayoutProps } from './ViewLayout';
 export { OrientationHint, type OrientationHintProps, type PreferredOrientation } from './OrientationHint';
 export { ConnectionStatus, ConnectionBanner, type ConnectionStatusProps, type ConnectionBannerProps } from './ConnectionStatus';

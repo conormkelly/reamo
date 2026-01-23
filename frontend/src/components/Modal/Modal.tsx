@@ -7,6 +7,10 @@
  * - Focus management
  * - Consistent styling
  *
+ * Renders via portal to document.body to escape all stacking contexts.
+ * This ensures modals always appear above all other content regardless
+ * of where they are rendered in the component tree.
+ *
  * @example
  * <Modal isOpen={isOpen} onClose={handleClose} title="Edit Marker">
  *   <form>...</form>
@@ -14,6 +18,7 @@
  */
 
 import { useEffect, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 export interface ModalProps {
@@ -95,7 +100,9 @@ export function Modal({
 
   if (!isOpen) return null;
 
-  return (
+  // Render via portal to escape all stacking contexts
+  // This ensures the modal always appears above all other content
+  return createPortal(
     <div
       className="fixed inset-0 z-modal flex items-center justify-center bg-black/60 backdrop-blur-sm"
       onClick={handleBackdropClick}
@@ -130,7 +137,8 @@ export function Modal({
         {/* Content */}
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
