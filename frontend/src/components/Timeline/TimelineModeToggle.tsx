@@ -58,7 +58,7 @@ export function TimelineModeToggle(): ReactElement {
   };
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-3 ml-3">
       {/* Timeline Mode Toggle */}
       <div className="flex rounded-lg overflow-hidden border border-border-default">
         <button

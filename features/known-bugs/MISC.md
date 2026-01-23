@@ -1,0 +1,9 @@
+- folder nav doesnt do anything in timeline - it should work the same way as it does in mixer view
+- Add "Clipped" and "With items" to filter in mixer and timeline
+- Fx bottom sheet z index issues, can see controls below it, filter and navbar, it should overlay both - think this was introduced in the last few commits with the UX_GUIDELINES.md and @docs/architecture/FRONTEND_RESPONSIVE_ARCHITECTURE_PLAN.md impl that went on in last few commits / merges etc.
+- Same with routing bottomsheet except can just see navbar on it oddly
+- Add a feature where we can drag on ruler for selection, right now we have hold on ruler tick to move playhead there, so this is another shortcut
+- Revisit the tick density across zoom levels logic - way too dense at 5s
+- region and navigation toggle in timeline should have some left padding (or margin? idk the terms), its currently bunched up against the bank edit button
+- If one track shown in a bank nav (e.g. if showing 1 track on timeline, now possible via timeline settings) display 1 / 10 instead of redundant 1-1 / 10
+- Playlist vs actions placement in empty view state needs consistency - should fix Actions page to be the same as Playlist?
