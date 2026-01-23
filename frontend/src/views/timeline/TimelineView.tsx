@@ -151,6 +151,10 @@ export function TimelineView(): ReactElement {
               return t.fd === 1; // folder_depth 1 = parent folder
             case 'builtin:with-sends':
               return t.sc > 0;
+            case 'builtin:clipped':
+              return t.cl === true;
+            case 'builtin:with-items':
+              return t.ic > 0;
             default:
               return true;
           }

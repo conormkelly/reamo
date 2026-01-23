@@ -36,6 +36,8 @@ pub const SkeletonTrack = struct {
     folder_depth: c_int = 0, // 1=folder parent, 0=normal, -N=closes N folders
     send_count: u16 = 0,
     hw_output_count: u16 = 0,
+    clipped: bool = false, // Sticky clip flag (L or R channel exceeded 0dB)
+    item_count: u16 = 0, // Number of media items on track
 
     pub fn getName(self: *const SkeletonTrack) []const u8 {
         return self.name[0..self.name_len];
@@ -58,6 +60,8 @@ pub const SkeletonTrack = struct {
         if (self.folder_depth != other.folder_depth) return false;
         if (self.send_count != other.send_count) return false;
         if (self.hw_output_count != other.hw_output_count) return false;
+        if (self.clipped != other.clipped) return false;
+        if (self.item_count != other.item_count) return false;
         return true;
     }
 };
@@ -135,6 +139,15 @@ pub const State = struct {
                 t.send_count = if (send_c >= 0) @intCast(send_c) else 0;
                 const hw_c = api.trackHwOutputCount(track);
                 t.hw_output_count = if (hw_c >= 0) @intCast(hw_c) else 0;
+
+                // Clipped: check peak hold on L/R channels (sticky until cleared, use clear=false)
+                const hold_l = api.getTrackPeakHoldDB(track, 0, false);
+                const hold_r = api.getTrackPeakHoldDB(track, 1, false);
+                t.clipped = hold_l > 0.0 or hold_r > 0.0;
+
+                // Item count (master track can have items too)
+                const item_c = api.trackItemCount(track);
+                t.item_count = if (item_c >= 0) @intCast(item_c) else 0;
             }
             // If track disappeared, we keep default empty entry (will be filtered by len=0)
         }
@@ -144,7 +157,7 @@ pub const State = struct {
 
     /// Serialize to JSON event.
     /// Format: {"type":"event","event":"trackSkeleton","payload":{"tracks":[{...},...]}}
-    /// Keys: n=name, g=guid, m=mute, sl=solo, sel=selected, r=rec_arm, fd=folder_depth, sc=send_count, hc=hw_output_count
+    /// Keys: n=name, g=guid, m=mute, sl=solo, sel=selected, r=rec_arm, fd=folder_depth, sc=send_count, hc=hw_output_count, cl=clipped, ic=item_count
     pub fn toJson(self: *const State, buf: []u8) ?[]const u8 {
         var stream = std.io.fixedBufferStream(buf);
         const writer = stream.writer();
@@ -192,6 +205,12 @@ pub const State = struct {
 
             // hc=hw_output_count (int)
             writer.print(",\"hc\":{d}", .{t.hw_output_count}) catch return null;
+
+            // cl=clipped (bool)
+            writer.writeAll(if (t.clipped) ",\"cl\":true" else ",\"cl\":false") catch return null;
+
+            // ic=item_count (int)
+            writer.print(",\"ic\":{d}", .{t.item_count}) catch return null;
 
             writer.writeByte('}') catch return null;
         }

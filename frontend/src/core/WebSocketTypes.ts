@@ -172,6 +172,8 @@ export interface SkeletonTrack {
   fd: number; // folder_depth (1=folder parent, 0=normal, -N=closes N folders)
   sc: number; // send_count
   hc: number; // hw_output_count
+  cl: boolean; // clipped (sticky flag, L or R channel exceeded 0dB)
+  ic: number; // item_count (number of media items on track)
 }
 
 /** Track skeleton broadcast (1Hz, on structure change) */

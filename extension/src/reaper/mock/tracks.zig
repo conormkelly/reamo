@@ -126,6 +126,17 @@ pub const TracksMethods = struct {
         return self.master_soloed;
     }
 
+    /// Get peak hold in dB for a track channel. Returns > 0 if clipped.
+    pub fn getTrackPeakHoldDB(self: anytype, track: *anyopaque, channel: c_int, clear: bool) f64 {
+        self.recordCall(.getTrackPeakHoldDB);
+        _ = channel; // Mock returns same value for both channels
+        _ = clear; // Mock doesn't support clearing
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return -150.0;
+        // Return +1 dB if clipped (triggers skeleton.clipped = true), else -12 dB
+        return if (self.tracks[idx].clipped) 1.0 else -12.0;
+    }
+
     // Track setters
     pub fn setTrackVolume(self: anytype, track: *anyopaque, vol: f64) bool {
         self.recordCall(.setTrackVolume);
@@ -609,6 +620,12 @@ pub const TracksMethods = struct {
         if (info.item_idx >= state.MAX_ITEMS_PER_TRACK) return 0;
         if (info.take_idx >= state.MAX_TAKES_PER_ITEM) return 0;
         return self.tracks[info.track_idx].items[info.item_idx].takes[info.take_idx].channel_count;
+    }
+
+    /// Get root source - mock just returns the source itself (no parent chain)
+    pub fn getRootSource(self: anytype, source: *anyopaque) *anyopaque {
+        self.recordCall(.getRootSource);
+        return source;
     }
 
     pub fn getMediaItemTakePeaks(self: anytype, take: *anyopaque, peakrate: f64, starttime: f64, numchannels: c_int, numsamplesperchannel: c_int, buf: []f64) c_int {

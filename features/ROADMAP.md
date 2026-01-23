@@ -126,6 +126,25 @@ Tap time display to cycle: Bar.Beat → Seconds → SMPTE → Bar.Beat
 
 ---
 
+### Ruler Drag-to-Select
+
+Drag on timeline ruler to create time selection. Currently have long-press-to-seek on ruler ticks; this would add drag gesture for selection creation.
+
+**Deferred because:**
+- Snap points need to be zoom-level specific (different density at different zooms)
+- Edge cases: selecting beyond visible viewport, auto-scroll while dragging
+- Long-press-to-seek + MakeSelectionModal covers the use case adequately for v1
+
+**Implementation notes (when needed):**
+- Create `useRulerDragSelect` hook following `usePlayheadDrag` pattern
+- Pointer capture + vertical-cancel (50px threshold)
+- On commit: set time selection AND seek playhead to selection start
+- Snap to beats via `snapToGrid(time, bpm, 1)`
+
+**Status:** Implement if requested
+
+---
+
 ### Item Selection UX Polish
 
 Current item multi-select works but feels cluttered. Needs design rethink.

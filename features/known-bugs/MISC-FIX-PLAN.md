@@ -20,25 +20,30 @@ Investigation completed. Below is a detailed plan for each bug with root cause a
 
 ---
 
-## Bug 2: Add "Clipped" and "With Items" Filters
+## Bug 2: Add "Clipped" and "With Items" Filters ✅ FIXED
 
 **Bug:** Add "Clipped" and "With items" to filter in mixer and timeline
 
-**Status:** PENDING - may require backend changes
+**Status:** COMPLETED
 
-**Root Cause:**
-- QuickFilterDropdown uses `QUICK_FILTERS` array from BankSelector
-- Currently only has: Muted, Soloed, Armed, Selected, With Sends
-- Need to add two new filter types
+**Changes Made:**
 
-**Affected Files:**
-- [BankSelector.tsx](frontend/src/components/Mixer/BankSelector.tsx) - add to QUICK_FILTERS
-- [QuickFilterDropdown.tsx](frontend/src/components/Mixer/QuickFilterDropdown.tsx) - add count logic
-- [MixerView.tsx](frontend/src/views/mixer/MixerView.tsx) - add filter case
-- [TimelineView.tsx](frontend/src/views/timeline/TimelineView.tsx) - add filter case
-- Backend may need changes to provide `clipped` and `hasItems` fields in skeleton
+Backend (Zig):
+- Added `clipped: bool` and `item_count: u16` fields to `SkeletonTrack` struct in `track_skeleton.zig`
+- Polls clipping via `getTrackPeakHoldDB(track, channel, false)` — sticky until user clears
+- Polls item count via `trackItemCount(track)`
+- JSON serialization uses short keys: `cl` (clipped), `ic` (item_count)
+- Updated mock backend with `getTrackPeakHoldDB` method
 
-**Complexity:** Medium - may require backend changes for clipping detection
+Frontend (TypeScript):
+- Added `cl` and `ic` fields to `SkeletonTrack` interface in `WebSocketTypes.ts`
+- Added `'builtin:clipped'` and `'builtin:with-items'` to `BuiltinBankId` type
+- Added to `QUICK_FILTERS` array in `BankSelector.tsx`
+- Added count logic in `QuickFilterDropdown.tsx`
+- Added filter cases in `MixerView.tsx` and `TimelineView.tsx`
+
+Documentation:
+- Updated `extension/API.md` with new `trackSkeleton` event fields
 
 ---
 
@@ -54,21 +59,16 @@ Investigation completed. Below is a detailed plan for each bug with root cause a
 
 ---
 
-## Bug 5: Drag on Ruler for Selection
+## Bug 5: Drag on Ruler for Selection ⏸️ DEFERRED
 
 **Bug:** Add a feature where we can drag on ruler for selection (currently only long-press to seek)
 
-**Status:** PENDING - feature work
+**Status:** DEFERRED TO v2 - See [ROADMAP.md](../ROADMAP.md#ruler-drag-to-select)
 
-**Root Cause:**
-- TimelineRuler only implements long-press via `useLongPress` hook
-- No drag gesture implemented for time selection
-
-**Affected Files:**
-- [TimelineRuler.tsx](frontend/src/components/Timeline/TimelineRuler.tsx)
-- May need new store state for time selection range
-
-**Complexity:** Medium-High - needs careful gesture handling to not conflict with existing long-press
+**Reason for deferral:**
+- Snap points need to be zoom-level specific
+- Edge cases: selecting beyond visible viewport, auto-scroll while dragging
+- Long-press-to-seek + MakeSelectionModal covers the use case for v1
 
 ---
 
@@ -123,28 +123,28 @@ Investigation completed. Below is a detailed plan for each bug with root cause a
 
 ## Summary
 
-### Completed (7/9)
+### Completed (8/9)
 - ✅ Bug 1: Folder navigation in Timeline
+- ✅ Bug 2: "Clipped" and "With Items" filters
 - ✅ Bugs 3 & 4: Z-index issues
 - ✅ Bug 6: Tick density
 - ✅ Bug 7: Toggle padding
 - ✅ Bug 8: Bank display format
 - ✅ Bug 9: Empty state consistency
 
-### Remaining (2/9)
-- ⏳ Bug 2: "Clipped" and "With Items" filters (needs backend)
-- ⏳ Bug 5: Ruler drag for selection (new feature)
+### Deferred to v2 (1/9)
+- ⏸️ Bug 5: Ruler drag for selection (see [ROADMAP](../ROADMAP.md#ruler-drag-to-select))
 
 ---
 
 ## Testing Checklist
 
 - [x] Timeline folder navigation works same as Mixer
-- [ ] "Clipped" filter shows only tracks with clipping
-- [ ] "With Items" filter shows only tracks containing items
+- [x] "Clipped" filter shows only tracks with clipping
+- [x] "With Items" filter shows only tracks containing items
 - [x] FX bottom sheet fully overlays TabBar and filter controls
 - [x] Routing bottom sheet fully overlays TabBar and filter controls
-- [ ] Dragging on ruler creates time selection
+- [x] ~~Dragging on ruler creates time selection~~ (deferred)
 - [x] Tick density at 5s zoom is reasonable (not too dense)
 - [x] TimelineModeToggle has visible gap from BankSelector
 - [x] Bank nav shows "1 / 10" when single track visible

@@ -338,6 +338,7 @@ pub const MockBackend = struct {
     pub const setTrackColor = tracks.TracksMethods.setTrackColor;
     pub const isMasterMuted = tracks.TracksMethods.isMasterMuted;
     pub const isMasterSoloed = tracks.TracksMethods.isMasterSoloed;
+    pub const getTrackPeakHoldDB = tracks.TracksMethods.getTrackPeakHoldDB;
     pub const setTrackVolume = tracks.TracksMethods.setTrackVolume;
     pub const setTrackPan = tracks.TracksMethods.setTrackPan;
     pub const setTrackMute = tracks.TracksMethods.setTrackMute;
@@ -402,6 +403,7 @@ pub const MockBackend = struct {
     pub const isTakeMIDI = tracks.TracksMethods.isTakeMIDI;
     pub const getTakeSource = tracks.TracksMethods.getTakeSource;
     pub const getMediaSourceChannels = tracks.TracksMethods.getMediaSourceChannels;
+    pub const getRootSource = tracks.TracksMethods.getRootSource;
     pub const getMediaItemTakePeaks = tracks.TracksMethods.getMediaItemTakePeaks;
 
     // AudioAccessor (for fallback peak generation)
