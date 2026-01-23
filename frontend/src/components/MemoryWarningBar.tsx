@@ -99,7 +99,7 @@ export function MemoryWarningBar({ className = '' }: MemoryWarningBarProps): Rea
       {/* Info Modal */}
       {showModal && (
         <div
-          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-modal"
           onClick={handleCloseModal}
         >
           <div

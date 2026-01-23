@@ -64,7 +64,7 @@ function BreadcrumbSegment({ folder, isLast, siblings, onSelect }: BreadcrumbSeg
 
       {/* Dropdown menu */}
       {isOpen && (
-        <div className="absolute top-full left-0 mt-1 min-w-[160px] max-w-[240px] bg-bg-surface rounded-lg shadow-xl border border-border-subtle py-1 z-50">
+        <div className="absolute top-full left-0 mt-1 min-w-[160px] max-w-[240px] bg-bg-surface rounded-lg shadow-xl border border-border-subtle py-1 z-dropdown">
           {folder === null ? (
             // Root dropdown: show all root folders
             siblings.map((f) => (

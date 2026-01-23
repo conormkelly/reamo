@@ -183,7 +183,7 @@ export function TapTempoButton({
       {/* Tempo Input Dialog */}
       {showDialog && (
         <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-modal"
           onClick={handleOverlayClick}
         >
           <div className="bg-bg-surface rounded-lg p-4 shadow-xl border border-border-subtle">

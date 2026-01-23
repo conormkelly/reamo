@@ -4,6 +4,9 @@
  * A reusable bottom sheet that slides up from the bottom of the screen.
  * Used for quick actions, navigation lists, and other contextual panels.
  *
+ * Renders via portal to document.body to escape all stacking contexts.
+ * Multiple sheets stack naturally by DOM order (later sheets on top).
+ *
  * @example
  * <BottomSheet isOpen={isOpen} onClose={handleClose}>
  *   <div>Panel content</div>
@@ -11,6 +14,7 @@
  */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 export interface BottomSheetProps {
   /** Whether the bottom sheet is visible */
@@ -93,7 +97,9 @@ export function BottomSheet({
 
   if (!shouldRender) return null;
 
-  return (
+  // Render via portal to escape all stacking contexts
+  // Multiple sheets stack naturally by DOM order (later sheets on top)
+  return createPortal(
     <div
       className={`fixed inset-0 z-modal flex items-end justify-center transition-colors duration-200 ${
         isAnimating ? 'bg-black/60' : 'bg-black/0'
@@ -120,7 +126,8 @@ export function BottomSheet({
         {/* Content */}
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

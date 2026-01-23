@@ -244,7 +244,7 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
             {showColorPicker && (
               <div
                 ref={colorPickerRef}
-                className="absolute top-full left-0 mt-2 p-3 bg-bg-surface border border-border-default rounded-lg shadow-xl z-50 min-w-[200px]"
+                className="absolute top-full left-0 mt-2 p-3 bg-bg-surface border border-border-default rounded-lg shadow-xl z-popover min-w-[200px]"
               >
                 {/* Default + Project colors row */}
                 <div className="mb-3">
