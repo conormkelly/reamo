@@ -58,7 +58,7 @@ function AppContent() {
   const ViewComponent = views[currentView];
 
   return (
-    <div className="flex flex-col h-dvh bg-bg-app overflow-hidden safe-area-top safe-area-x select-none">
+    <div className="flex flex-col h-dvh bg-bg-app overflow-hidden safe-area-top safe-area-x select-none isolate">
       {/* Conditional banners - shrink-0 prevents compression */}
       <ConnectionBanner className="shrink-0" />
       {updateAvailable && <UpdateBanner className="shrink-0" />}

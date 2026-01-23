@@ -84,7 +84,7 @@ export function SettingsMenu({
 
       {/* Dropdown menu */}
       {isOpen && (
-        <div data-testid="settings-dropdown" className="absolute top-full mt-2 left-0 w-56 bg-bg-surface rounded-lg shadow-xl border border-border-subtle py-2 z-50">
+        <div data-testid="settings-dropdown" className="absolute top-full mt-2 left-0 w-56 bg-bg-surface rounded-lg shadow-xl border border-border-subtle py-2 z-dropdown">
           <div className="px-3 py-1.5 text-xs text-text-secondary uppercase tracking-wide">
             Global
           </div>

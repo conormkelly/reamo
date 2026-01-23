@@ -104,7 +104,7 @@ export function QuickFilterDropdown({
 
       {/* Dropdown menu */}
       {isOpen && (
-        <div className="absolute right-0 top-full mt-1 w-48 bg-bg-elevated border border-border-subtle rounded-lg shadow-lg z-50 overflow-hidden">
+        <div className="absolute right-0 top-full mt-1 w-48 bg-bg-elevated border border-border-subtle rounded-lg shadow-lg z-dropdown overflow-hidden">
           <div className="py-1">
             {QUICK_FILTERS.map((filter) => {
               const count = countTracksForFilter(skeleton, filter.id);
