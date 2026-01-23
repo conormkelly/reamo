@@ -10,9 +10,9 @@
  * @see docs/architecture/UX_GUIDELINES.md §9 (Instruments Orientation Strategy)
  */
 
-import { useState, useEffect, useCallback, type ReactElement } from 'react';
-import { ViewHeader, ViewLayout, OrientationHint } from '../../components';
-import { useIsLandscape } from '../../hooks';
+import { useState, useEffect, useCallback, useRef, useMemo, type ReactElement } from 'react';
+import { ViewHeader, ViewLayout, OrientationHint, type OverflowMenuItem } from '../../components';
+import { useIsLandscape, useContainerQuery } from '../../hooks';
 import { useReaper } from '../../components/ReaperProvider';
 import {
   InstrumentSelector,
@@ -27,7 +27,7 @@ import {
   Chords,
   type InstrumentType,
 } from '../../components/Instruments';
-import { DEFAULT_OCTAVE, type NoteName, type ScaleType } from '@/lib/music-theory';
+import { DEFAULT_OCTAVE, SCALE_TYPES, SCALE_DISPLAY_NAMES, type NoteName, type ScaleType } from '@/lib/music-theory';
 import { midi } from '../../core/WebSocketCommands';
 
 /** Preferred orientation per instrument */
@@ -337,6 +337,10 @@ export function InstrumentsView(): ReactElement {
   const [chordsStrum, setChordsStrum] = useState<boolean>(loadChordsStrum);
   const [chordsStrumDelay, setChordsStrumDelay] = useState<number>(loadChordsStrumDelay);
 
+  // Header responsive behavior - collapse controls to overflow menu on narrow viewports
+  const headerControlsRef = useRef<HTMLDivElement>(null);
+  const isHeaderNarrow = useContainerQuery(headerControlsRef, 400);
+
   // Persist instrument selection
   useEffect(() => {
     saveInstrument(selectedInstrument);
@@ -562,116 +566,178 @@ export function InstrumentsView(): ReactElement {
     }
   };
 
-  // Settings popover state for Chord Pads
+  // Settings popover state for Chord Pads (used in wide mode)
   const [showChordsSettings, setShowChordsSettings] = useState(false);
 
   // Count active modes for badge
   const activeModeCount = [chordsHints, chordsVoiceLead, chordsStrum].filter(Boolean).length;
 
+  // Build overflow items for Chords header when narrow
+  // Priority (last to collapse → first to collapse):
+  // 1. Key selector (most frequently changed) - always visible
+  // 2. Scale selector - collapses when narrow
+  // 3. Octave selector - collapses when narrow
+  // 4. Settings (hints, voice lead, strum) - collapses to overflow
+  const chordsOverflowItems = useMemo((): OverflowMenuItem[] => {
+    if (selectedInstrument !== 'chords' || !isHeaderNarrow) return [];
+
+    const items: OverflowMenuItem[] = [
+      // Scale options - cycle through scales
+      {
+        id: 'scale',
+        label: `Scale: ${SCALE_DISPLAY_NAMES[chordsScale]}`,
+        onSelect: () => {
+          const currentIdx = SCALE_TYPES.indexOf(chordsScale);
+          const nextIdx = (currentIdx + 1) % SCALE_TYPES.length;
+          setChordsScale(SCALE_TYPES[nextIdx]);
+        },
+      },
+      // Octave options - cycle through octaves
+      {
+        id: 'octave',
+        label: `Octave: ${chordsOctave}`,
+        onSelect: () => {
+          setChordsOctave(chordsOctave >= 5 ? 1 : chordsOctave + 1);
+        },
+      },
+      // Separator-like divider via label
+      {
+        id: 'hints',
+        label: `Hints ${chordsHints ? '✓' : ''}`,
+        isActive: chordsHints,
+        onSelect: () => setChordsHints(!chordsHints),
+      },
+      {
+        id: 'voicelead',
+        label: `Voice Lead ${chordsVoiceLead ? '✓' : ''}`,
+        isActive: chordsVoiceLead,
+        onSelect: () => setChordsVoiceLead(!chordsVoiceLead),
+      },
+      {
+        id: 'strum',
+        label: `Strum ${chordsStrum ? '✓' : ''}`,
+        isActive: chordsStrum,
+        onSelect: () => setChordsStrum(!chordsStrum),
+      },
+    ];
+
+    return items;
+  }, [selectedInstrument, isHeaderNarrow, chordsScale, chordsOctave, chordsHints, chordsVoiceLead, chordsStrum]);
+
   // Render header controls based on selected instrument
   const renderHeaderControls = () => {
     if (selectedInstrument === 'chords') {
       return (
-        <div className="flex items-center gap-2 w-full">
-          {/* Left side: Key, Scale, Octave, Settings gear */}
+        <div ref={headerControlsRef} className="flex items-center gap-2 w-full">
+          {/* Key selector - always visible (most frequently changed) */}
           <KeySelector selectedKey={chordsKey} onKeyChange={setChordsKey} />
-          <ScaleSelector selectedScale={chordsScale} onScaleChange={setChordsScale} />
-          <OctaveSelector
-            octave={chordsOctave}
-            onOctaveChange={setChordsOctave}
-            minOctave={1}
-            maxOctave={5}
-          />
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setShowChordsSettings(!showChordsSettings)}
-              className={`
-                p-1.5 rounded transition-colors relative
-                ${showChordsSettings
-                  ? 'bg-accent-primary text-white'
-                  : 'bg-bg-surface text-text-secondary border border-border-subtle hover:bg-bg-subtle'}
-              `}
-              aria-label="Chord settings"
-              aria-expanded={showChordsSettings}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-                />
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                />
-              </svg>
-              {activeModeCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-accent-primary text-white text-[10px] rounded-full flex items-center justify-center">
-                  {activeModeCount}
-                </span>
-              )}
-            </button>
 
-            {/* Settings popover */}
-            {showChordsSettings && (
-              <>
-                {/* Backdrop to close */}
-                <div
-                  className="fixed inset-0 z-10"
-                  onClick={() => setShowChordsSettings(false)}
-                />
-                <div className="absolute right-0 top-full mt-1 z-20 bg-bg-surface border border-border-subtle rounded-lg shadow-lg p-3 min-w-[180px]">
-                  <div className="flex flex-col gap-2">
-                    <label className="flex items-center justify-between gap-3 cursor-pointer">
-                      <span className="text-sm text-text-primary">Hints</span>
-                      <input
-                        type="checkbox"
-                        checked={chordsHints}
-                        onChange={(e) => setChordsHints(e.target.checked)}
-                        className="w-4 h-4 accent-accent-primary"
-                      />
-                    </label>
-                    <label className="flex items-center justify-between gap-3 cursor-pointer">
-                      <span className="text-sm text-text-primary">Voice Lead</span>
-                      <input
-                        type="checkbox"
-                        checked={chordsVoiceLead}
-                        onChange={(e) => setChordsVoiceLead(e.target.checked)}
-                        className="w-4 h-4 accent-accent-primary"
-                      />
-                    </label>
-                    <label className="flex items-center justify-between gap-3 cursor-pointer">
-                      <span className="text-sm text-text-primary">Strum</span>
-                      <input
-                        type="checkbox"
-                        checked={chordsStrum}
-                        onChange={(e) => setChordsStrum(e.target.checked)}
-                        className="w-4 h-4 accent-accent-primary"
-                      />
-                    </label>
-                    {chordsStrum && (
-                      <div className="flex items-center gap-2 pt-1 border-t border-border-subtle">
-                        <span className="text-xs text-text-secondary">Delay</span>
+          {/* Scale and Octave - hidden when narrow, moved to overflow menu */}
+          {!isHeaderNarrow && (
+            <>
+              <ScaleSelector selectedScale={chordsScale} onScaleChange={setChordsScale} />
+              <OctaveSelector
+                octave={chordsOctave}
+                onOctaveChange={setChordsOctave}
+                minOctave={1}
+                maxOctave={5}
+              />
+            </>
+          )}
+
+          {/* Settings gear - only visible when wide (in narrow mode, settings go to overflow) */}
+          {!isHeaderNarrow && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowChordsSettings(!showChordsSettings)}
+                className={`
+                  p-1.5 rounded transition-colors relative
+                  ${showChordsSettings
+                    ? 'bg-accent-primary text-white'
+                    : 'bg-bg-surface text-text-secondary border border-border-subtle hover:bg-bg-subtle'}
+                `}
+                aria-label="Chord settings"
+                aria-expanded={showChordsSettings}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
+                </svg>
+                {activeModeCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-accent-primary text-white text-[10px] rounded-full flex items-center justify-center">
+                    {activeModeCount}
+                  </span>
+                )}
+              </button>
+
+              {/* Settings popover */}
+              {showChordsSettings && (
+                <>
+                  {/* Backdrop to close */}
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={() => setShowChordsSettings(false)}
+                  />
+                  <div className="absolute right-0 top-full mt-1 z-20 bg-bg-surface border border-border-subtle rounded-lg shadow-lg p-3 min-w-[180px]">
+                    <div className="flex flex-col gap-2">
+                      <label className="flex items-center justify-between gap-3 cursor-pointer">
+                        <span className="text-sm text-text-primary">Hints</span>
                         <input
-                          type="range"
-                          min="10"
-                          max="100"
-                          value={chordsStrumDelay}
-                          onChange={(e) => setChordsStrumDelay(Number(e.target.value))}
-                          className="flex-1 h-1 accent-accent-primary"
+                          type="checkbox"
+                          checked={chordsHints}
+                          onChange={(e) => setChordsHints(e.target.checked)}
+                          className="w-4 h-4 accent-accent-primary"
                         />
-                        <span className="text-xs text-text-secondary w-8">{chordsStrumDelay}ms</span>
-                      </div>
-                    )}
+                      </label>
+                      <label className="flex items-center justify-between gap-3 cursor-pointer">
+                        <span className="text-sm text-text-primary">Voice Lead</span>
+                        <input
+                          type="checkbox"
+                          checked={chordsVoiceLead}
+                          onChange={(e) => setChordsVoiceLead(e.target.checked)}
+                          className="w-4 h-4 accent-accent-primary"
+                        />
+                      </label>
+                      <label className="flex items-center justify-between gap-3 cursor-pointer">
+                        <span className="text-sm text-text-primary">Strum</span>
+                        <input
+                          type="checkbox"
+                          checked={chordsStrum}
+                          onChange={(e) => setChordsStrum(e.target.checked)}
+                          className="w-4 h-4 accent-accent-primary"
+                        />
+                      </label>
+                      {chordsStrum && (
+                        <div className="flex items-center gap-2 pt-1 border-t border-border-subtle">
+                          <span className="text-xs text-text-secondary">Delay</span>
+                          <input
+                            type="range"
+                            min="10"
+                            max="100"
+                            value={chordsStrumDelay}
+                            onChange={(e) => setChordsStrumDelay(Number(e.target.value))}
+                            className="flex-1 h-1 accent-accent-primary"
+                          />
+                          <span className="text-xs text-text-secondary w-8">{chordsStrumDelay}ms</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </>
-            )}
-          </div>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Spacer pushes instrument/channel to right */}
           <div className="flex-1" />
@@ -709,7 +775,14 @@ export function InstrumentsView(): ReactElement {
     <ViewLayout
       viewId="instruments"
       className="bg-bg-app text-text-primary"
-      header={<ViewHeader currentView="instruments">{renderHeaderControls()}</ViewHeader>}
+      header={
+        <ViewHeader
+          currentView="instruments"
+          overflowItems={chordsOverflowItems}
+        >
+          {renderHeaderControls()}
+        </ViewHeader>
+      }
       scrollable={false}
     >
       {/* Instrument content area with orientation hint */}
