@@ -107,6 +107,7 @@ pub fn validateBackend(comptime T: type) void {
         "getSelectedTrackByIdx",
         "isMasterMuted",
         "isMasterSoloed",
+        "getTrackPeakHoldDB",
         "setTrackVolume",
         "setTrackPan",
         "setTrackMute",

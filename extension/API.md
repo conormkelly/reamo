@@ -3084,9 +3084,9 @@ Lightweight track list broadcast at 1Hz when structure changes (add/delete/renam
   "event": "trackSkeleton",
   "payload": {
     "tracks": [
-      {"n": "MASTER", "g": "master", "m": false, "sl": null, "sel": false, "r": false, "fd": 0, "sc": 0},
-      {"n": "Drums", "g": "{XXXXXXXX-...}", "m": false, "sl": null, "sel": true, "r": true, "fd": 0, "sc": 2},
-      {"n": "Bass", "g": "{YYYYYYYY-...}", "m": true, "sl": 2, "sel": false, "r": false, "fd": 0, "sc": 1}
+      {"n": "MASTER", "g": "master", "m": false, "sl": null, "sel": false, "r": false, "fd": 0, "sc": 0, "hc": 2, "cl": false, "ic": 0},
+      {"n": "Drums", "g": "{XXXXXXXX-...}", "m": false, "sl": null, "sel": true, "r": true, "fd": 0, "sc": 2, "hc": 0, "cl": true, "ic": 8},
+      {"n": "Bass", "g": "{YYYYYYYY-...}", "m": true, "sl": 2, "sel": false, "r": false, "fd": 0, "sc": 1, "hc": 0, "cl": false, "ic": 3}
     ]
   }
 }
@@ -3102,12 +3102,15 @@ Lightweight track list broadcast at 1Hz when structure changes (add/delete/renam
 | `payload.tracks[].r` | bool | Record-armed |
 | `payload.tracks[].fd` | int | Folder depth (`1`=folder parent, `0`=normal, `-N`=closes N folders) |
 | `payload.tracks[].sc` | int | Send count |
+| `payload.tracks[].hc` | int | Hardware output count |
+| `payload.tracks[].cl` | bool | Clipped (sticky flag, L or R channel exceeded 0dB since last clear) |
+| `payload.tracks[].ic` | int | Item count (number of media items on track) |
 
 **Notes:**
 - Sent on connect (snapshot) and whenever track structure or filter state changes
 - Array index = unified track index (0 = master, 1+ = user tracks)
 - ~120 bytes per track with JSON overhead (1000 tracks ≈ 120KB)
-- Filter fields enable built-in banks (Muted, Soloed, Armed, Selected, Folders, With Sends) without full track subscriptions
+- Filter fields enable built-in banks (Muted, Soloed, Armed, Selected, Folders, With Sends, Clipped, With Items) without full track subscriptions
 - Use GUIDs for `track/subscribe` GUID mode and `trackGuid` write command parameters
 
 ### `tracks` Event

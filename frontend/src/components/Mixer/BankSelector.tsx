@@ -28,7 +28,9 @@ export type BuiltinBankId =
   | 'builtin:armed'
   | 'builtin:selected'
   | 'builtin:folders'
-  | 'builtin:with-sends';
+  | 'builtin:with-sends'
+  | 'builtin:clipped'
+  | 'builtin:with-items';
 
 /** Built-in bank definitions (read-only, always available) */
 export const BUILTIN_BANKS: { id: BuiltinBankId; name: string }[] = [
@@ -42,6 +44,8 @@ export const QUICK_FILTERS: { id: BuiltinBankId; name: string; shortName: string
   { id: 'builtin:armed', name: 'Armed', shortName: 'R' },
   { id: 'builtin:selected', name: 'Selected', shortName: 'Sel' },
   { id: 'builtin:with-sends', name: 'With Sends', shortName: 'Snd' },
+  { id: 'builtin:clipped', name: 'Clipped', shortName: 'Clip' },
+  { id: 'builtin:with-items', name: 'With Items', shortName: 'Itm' },
 ];
 
 /** Check if a bank ID is a built-in bank */

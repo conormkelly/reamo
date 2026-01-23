@@ -32,6 +32,10 @@ function countTracksForFilter(skeleton: SkeletonTrack[], filterId: BuiltinBankId
       return userTracks.filter((t) => t.sel === true).length;
     case 'builtin:with-sends':
       return userTracks.filter((t) => t.sc > 0).length;
+    case 'builtin:clipped':
+      return userTracks.filter((t) => t.cl === true).length;
+    case 'builtin:with-items':
+      return userTracks.filter((t) => t.ic > 0).length;
     default:
       return 0;
   }

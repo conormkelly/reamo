@@ -131,6 +131,7 @@ pub const Method = enum {
     getSelectedTrackByIdx,
     isMasterMuted,
     isMasterSoloed,
+    getTrackPeakHoldDB,
     setTrackVolume,
     setTrackPan,
     setTrackMute,
@@ -182,6 +183,7 @@ pub const Method = enum {
     isTakeMIDI,
     getTakeSource,
     getMediaSourceChannels,
+    getRootSource,
     getMediaItemTakePeaks,
     // AudioAccessor
     makeTakeAccessor,
@@ -298,6 +300,7 @@ pub const MockTrack = struct {
     rec_input: c_int = -1, // I_RECINPUT value (-1 = no input)
     peak_left: f64 = 0.0,
     peak_right: f64 = 0.0,
+    clipped: bool = false, // Sticky clip flag for skeleton
 
     // Items for this track
     item_count: c_int = 0,
