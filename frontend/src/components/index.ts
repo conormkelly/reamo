@@ -11,6 +11,7 @@ export { TabBar, type TabBarProps } from './TabBar';
 export { PersistentTransport, type PersistentTransportProps } from './PersistentTransport';
 export { SettingsMenu, type SettingsMenuProps } from './SettingsMenu';
 export { ViewHeader, type ViewHeaderProps } from './ViewHeader';
+export { OverflowMenu, type OverflowMenuItem, type OverflowMenuProps } from './OverflowMenu';
 export { TextSizeControl, type TextSizeControlProps } from './TextSizeControl';
 export * from './Transport';
 export * from './Track';

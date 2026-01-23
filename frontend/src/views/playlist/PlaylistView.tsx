@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../../components/ReaperProvider';
-import { ViewHeader } from '../../components';
+import { ViewHeader, ViewLayout } from '../../components';
 import { playlist as playlistCmd } from '../../core/WebSocketCommands';
 import type { WSPlaylist } from '../../core/WebSocketTypes';
 import type { Region } from '../../core/types';
@@ -273,28 +273,25 @@ export function PlaylistView(): ReactElement {
   // No playlists empty state
   if (playlists.length === 0) {
     return (
-      <div data-view="playlist" className="h-full bg-bg-app text-text-primary p-3 flex flex-col">
-        <ViewHeader currentView="playlist" />
-        {/* Wrapper - position content at bottom with padding for footer bars */}
-        <div
-          className="flex-1 overflow-auto flex flex-col justify-end"
-          style={{ paddingBottom: `${bottomOffset + 24}px` }}
-        >
-          {/* Empty state content */}
-          <div className="flex flex-col items-center text-center py-8">
-            <ListMusic size={48} className="text-text-disabled mb-4" />
-            <h2 className="text-xl font-medium text-text-tertiary mb-2">No Playlists Yet</h2>
-            <p className="text-text-muted mb-6 max-w-xs">
-              Practice, perform, or explore new arrangements using project regions. Adjust loop counts per region on the fly.
-            </p>
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-primary text-text-on-primary rounded-lg hover:bg-primary-hover transition-colors"
-            >
-              <Plus size={18} />
-              <span>Create Playlist</span>
-            </button>
-          </div>
+      <ViewLayout
+        viewId="playlist"
+        className="bg-bg-app text-text-primary p-3"
+        header={<ViewHeader currentView="playlist" />}
+      >
+        {/* Empty state content - centered in available space */}
+        <div className="h-full flex flex-col items-center justify-center text-center">
+          <ListMusic size={48} className="text-text-disabled mb-4" />
+          <h2 className="text-xl font-medium text-text-tertiary mb-2">No Playlists Yet</h2>
+          <p className="text-text-muted mb-6 max-w-xs">
+            Practice, perform, or explore new arrangements using project regions. Adjust loop counts per region on the fly.
+          </p>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-primary text-text-on-primary rounded-lg hover:bg-primary-hover transition-colors"
+          >
+            <Plus size={18} />
+            <span>Create Playlist</span>
+          </button>
         </div>
 
         {/* Create Modal */}
@@ -309,78 +306,81 @@ export function PlaylistView(): ReactElement {
             }}
           />
         )}
-      </div>
+      </ViewLayout>
     );
   }
 
-  return (
-    <div data-view="playlist" className="h-full bg-bg-app text-text-primary p-3 flex flex-col">
-      {/* Header */}
-      <ViewHeader currentView="playlist">
-        {/* Playlist selector */}
-        <select
-          value={selectedPlaylistIdx}
-          onChange={(e) => {
-            setSelectedPlaylistIdx(Number(e.target.value));
-            setSelectedEntryIdx(null); // Clear selection when switching playlists
-          }}
-          className="flex-1 min-w-[120px] bg-bg-surface border border-border-subtle rounded-lg px-2 py-1.5 text-text-primary text-sm"
-        >
-          {playlists.map((pl, idx) => (
-            <option key={idx} value={idx}>
-              {pl.name}
-              {isPlaylistActive && activePlaylistIndex === idx ? ' ▶' : ''}
-            </option>
-          ))}
-        </select>
-
-        {/* Reorder mode toggle */}
-        <button
-          onClick={() => setReorderMode(!reorderMode)}
-          className={`p-1.5 rounded-lg transition-colors ${
-            reorderMode
-              ? 'bg-primary hover:bg-primary-hover text-text-on-primary'
-              : 'bg-bg-surface hover:bg-bg-elevated'
-          }`}
-          title={reorderMode ? 'Exit reorder mode' : 'Reorder entries'}
-        >
-          <Move size={18} />
-        </button>
-
-        {/* CRUD buttons */}
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="p-1.5 bg-bg-surface hover:bg-bg-elevated rounded-lg transition-colors"
-          title="Create playlist"
-        >
-          <Plus size={18} />
-        </button>
-        <button
-          onClick={() => {
-            setNewPlaylistName(currentPlaylist?.name ?? '');
-            setShowRenameModal(true);
-          }}
-          className="p-1.5 bg-bg-surface hover:bg-bg-elevated rounded-lg transition-colors"
-          title="Rename playlist"
-        >
-          <Pencil size={18} />
-        </button>
-        <button
-          onClick={() => setShowDeleteModal(true)}
-          className="p-1.5 bg-bg-surface hover:bg-error-action/20 rounded-lg transition-colors"
-          title="Delete playlist"
-        >
-          <Trash2 size={18} />
-        </button>
-      </ViewHeader>
-
-      {/* Entry list - add padding for fixed playback controls */}
-      <div
-        className="flex-1 overflow-auto"
-        style={{ paddingBottom: `${PLAYBACK_CONTROLS_HEIGHT}px` }}
+  // Header content with playlist controls
+  const headerContent = (
+    <ViewHeader currentView="playlist">
+      {/* Playlist selector */}
+      <select
+        value={selectedPlaylistIdx}
+        onChange={(e) => {
+          setSelectedPlaylistIdx(Number(e.target.value));
+          setSelectedEntryIdx(null); // Clear selection when switching playlists
+        }}
+        className="flex-1 min-w-[120px] bg-bg-surface border border-border-subtle rounded-lg px-2 py-1.5 text-text-primary text-sm"
       >
+        {playlists.map((pl, idx) => (
+          <option key={idx} value={idx}>
+            {pl.name}
+            {isPlaylistActive && activePlaylistIndex === idx ? ' ▶' : ''}
+          </option>
+        ))}
+      </select>
+
+      {/* Reorder mode toggle */}
+      <button
+        onClick={() => setReorderMode(!reorderMode)}
+        className={`p-1.5 rounded-lg transition-colors ${
+          reorderMode
+            ? 'bg-primary hover:bg-primary-hover text-text-on-primary'
+            : 'bg-bg-surface hover:bg-bg-elevated'
+        }`}
+        title={reorderMode ? 'Exit reorder mode' : 'Reorder entries'}
+      >
+        <Move size={18} />
+      </button>
+
+      {/* CRUD buttons */}
+      <button
+        onClick={() => setShowCreateModal(true)}
+        className="p-1.5 bg-bg-surface hover:bg-bg-elevated rounded-lg transition-colors"
+        title="Create playlist"
+      >
+        <Plus size={18} />
+      </button>
+      <button
+        onClick={() => {
+          setNewPlaylistName(currentPlaylist?.name ?? '');
+          setShowRenameModal(true);
+        }}
+        className="p-1.5 bg-bg-surface hover:bg-bg-elevated rounded-lg transition-colors"
+        title="Rename playlist"
+      >
+        <Pencil size={18} />
+      </button>
+      <button
+        onClick={() => setShowDeleteModal(true)}
+        className="p-1.5 bg-bg-surface hover:bg-error-action/20 rounded-lg transition-colors"
+        title="Delete playlist"
+      >
+        <Trash2 size={18} />
+      </button>
+    </ViewHeader>
+  );
+
+  return (
+    <ViewLayout
+      viewId="playlist"
+      className="bg-bg-app text-text-primary p-3"
+      header={headerContent}
+    >
+      {/* Entry list - padding at bottom for fixed playback controls */}
+      <div style={{ paddingBottom: `${PLAYBACK_CONTROLS_HEIGHT}px` }}>
         {currentPlaylist && currentPlaylist.entries.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center">
+          <div className="flex flex-col items-center justify-center h-full text-center py-16">
             <p className="text-text-secondary mb-4">This playlist is empty</p>
             <p className="text-text-muted text-sm mb-6">Add regions to build your setlist</p>
             <button
@@ -447,7 +447,7 @@ export function PlaylistView(): ReactElement {
 
       {/* Playback controls - fixed at bottom, above navbar/transport + safe area */}
       <div
-        className="fixed left-0 right-0 z-40 p-3 border-t border-border-muted bg-bg-deep safe-area-x"
+        className="fixed left-0 right-0 z-fixed p-3 border-t border-border-muted bg-bg-deep safe-area-x"
         style={{ bottom: `calc(${bottomOffset}px + env(safe-area-inset-bottom, 0px))` }}
       >
         <div className="flex items-center justify-center gap-3">
@@ -555,6 +555,6 @@ export function PlaylistView(): ReactElement {
           onClose={() => setShowRegionPicker(false)}
         />
       )}
-    </div>
+    </ViewLayout>
   );
 }

@@ -357,6 +357,100 @@ The `useViewFooterConfig` hook was created in Phase 1 to auto-hide TabBar/Transp
 
 ---
 
+## Phase 2: PlaylistView (Complete)
+
+### Changes Made
+
+1. **ViewLayout Integration**: Wrapped PlaylistView in ViewLayout component
+   - `viewId="playlist"` for testing/styling hooks
+   - Header slot: ViewHeader with playlist selector and CRUD buttons
+   - `scrollable={true}` (default) since playlist is a scrollable list
+
+2. **Z-Index Updated**: Changed playback controls from `z-40` to `z-fixed` (300) for semantic consistency
+
+3. **Header Content Extracted**: Moved header controls to `headerContent` variable for cleaner JSX
+
+### Structure After Refactor
+
+```
+ViewLayout (h-full flex flex-col)
+├── header (shrink-0) → ViewHeader with playlist selector, reorder mode, CRUD buttons
+├── content (flex-1 min-h-0 overflow-y-auto)
+│   ├── Empty state (when no entries)
+│   ├── PlaylistEntryRow items
+│   └── "Add Region" button
+└── [fixed] Playback controls (fixed position, bottom above app chrome)
+```
+
+**Note**: Playback controls remain fixed-positioned outside the normal flow, using `z-fixed` and `bottomOffset` calculation to sit above TabBar/Transport.
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `src/views/playlist/PlaylistView.tsx` | Adopted ViewLayout, extracted header content, updated z-40 to z-fixed |
+
+---
+
+## Phase 2: Header Overflow Pattern (Complete)
+
+### Components Created
+
+**OverflowMenu** (`src/components/OverflowMenu.tsx`):
+- Kebab icon button that opens a BottomSheet with menu items
+- Supports `isActive` state for toggle items
+- Returns `null` when items array is empty
+- Used for progressive disclosure when header controls need to collapse
+
+**ViewHeader Update** (`src/components/ViewHeader.tsx`):
+- Added optional `overflowItems?: OverflowMenuItem[]` prop
+- When items are provided and non-empty, renders OverflowMenu after children
+- Non-breaking change - existing views continue to work unchanged
+
+### Progressive Disclosure Implementation (InstrumentsView Chords)
+
+**useContainerQuery Integration**:
+- Added `headerControlsRef` to measure header width
+- `isHeaderNarrow = useContainerQuery(headerControlsRef, 400)` triggers at 400px
+
+**Collapse Priority** (per plan):
+1. Key selector - **always visible** (most frequently changed)
+2. Scale selector - collapses when narrow
+3. Octave selector - collapses when narrow
+4. Settings (hints, voice lead, strum) - collapse to overflow
+
+**Overflow Menu Items**:
+```tsx
+const chordsOverflowItems = useMemo((): OverflowMenuItem[] => {
+  if (selectedInstrument !== 'chords' || !isHeaderNarrow) return [];
+  return [
+    { id: 'scale', label: `Scale: ${SCALE_DISPLAY_NAMES[chordsScale]}`, onSelect: cycleScale },
+    { id: 'octave', label: `Octave: ${chordsOctave}`, onSelect: cycleOctave },
+    { id: 'hints', label: `Hints ${chordsHints ? '✓' : ''}`, isActive: chordsHints, onSelect: toggleHints },
+    { id: 'voicelead', label: `Voice Lead ${chordsVoiceLead ? '✓' : ''}`, isActive: chordsVoiceLead, onSelect: toggleVoiceLead },
+    { id: 'strum', label: `Strum ${chordsStrum ? '✓' : ''}`, isActive: chordsStrum, onSelect: toggleStrum },
+  ];
+}, [/* deps */]);
+```
+
+### Files Created/Modified
+
+| File | Changes |
+|------|---------|
+| `src/components/OverflowMenu.tsx` | **Created** - Kebab menu with BottomSheet |
+| `src/components/ViewHeader.tsx` | Added overflowItems prop, renders OverflowMenu |
+| `src/components/index.ts` | Export OverflowMenu, OverflowMenuItem, OverflowMenuProps |
+| `src/views/instruments/InstrumentsView.tsx` | Added useContainerQuery, progressive disclosure for Chords header |
+
+### Verification
+
+- [x] `npm run build` passes
+- [x] OverflowMenu renders when items provided
+- [x] ViewHeader backwards-compatible (existing views unchanged)
+- [x] Chords header collapses controls when narrow
+
+---
+
 ## Open Questions
 
 1. **Should internal z-index values (z-10, z-20) within components be made semantic?**
