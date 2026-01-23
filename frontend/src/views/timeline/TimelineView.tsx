@@ -30,7 +30,10 @@ import {
   BankNavigator,
   BankSelector,
   BankEditorModal,
+  FolderNavSheet,
+  isBuiltinBank,
   type CustomBank,
+  type BuiltinBankId,
 } from '../../components/Mixer';
 import { TrackFilter } from '../../components/Track';
 import { useReaperStore } from '../../store';
@@ -42,6 +45,7 @@ import {
   useCustomBanks,
   useTrackSkeleton,
   useIsLandscape,
+  useFolderHierarchy,
 } from '../../hooks';
 import { usePeaksSubscription } from '../../hooks/usePeaksSubscription';
 
@@ -92,22 +96,28 @@ export function TimelineView(): ReactElement {
   const [bankModalOpen, setBankModalOpen] = useState(false);
   const [editingBank, setEditingBank] = useState<CustomBank | null>(null);
 
+  // Folder navigation state (same as Mixer)
+  const [folderPath, setFolderPath] = useState<string[]>([]);
+  const [folderSheetOpen, setFolderSheetOpen] = useState(false);
+  const { getChildren: getFolderChildren, validatePath } = useFolderHierarchy();
+
   // Track filter state
   const [filterQuery, setFilterQuery] = useState('');
   const [filterBankIndex, setFilterBankIndex] = useState(0);
 
-  // Check if we have any active filtering (custom bank or text filter)
+  // Check if we have any active filtering (built-in bank, custom bank, or text filter)
   const hasTextFilter = filterQuery.trim().length > 0;
-  const hasCustomBank = selectedBankId !== null;
-  const isFiltered = hasTextFilter || hasCustomBank;
+  const hasBuiltinBank = isBuiltinBank(selectedBankId);
+  const hasCustomBank = selectedBankId !== null && !hasBuiltinBank;
+  const isFiltered = hasTextFilter || hasBuiltinBank || hasCustomBank;
 
-  // Get selected custom bank
+  // Get selected custom bank (not applicable for built-in banks)
   const selectedBank = useMemo(
-    () => (selectedBankId ? customBanks.find((b) => b.id === selectedBankId) : null),
-    [selectedBankId, customBanks]
+    () => (hasCustomBank ? customBanks.find((b) => b.id === selectedBankId) : null),
+    [hasCustomBank, selectedBankId, customBanks]
   );
 
-  // Filter tracks: first by bank (smart or custom), then by text query
+  // Filter tracks: first by bank (built-in, smart, or custom), then by text query
   // Uses skeleton - it has ALL tracks regardless of subscription state
   const allFilteredTracks = useMemo(() => {
     if (!isFiltered) return [];
@@ -115,8 +125,40 @@ export function TimelineView(): ReactElement {
     // Start with all tracks (exclude master at index 0)
     let baseTracks = skeleton.slice(1).map((t, i) => ({ ...t, index: i + 1 }));
 
-    // If bank selected, filter by bank type
-    if (selectedBank) {
+    // Built-in bank filtering (uses skeleton filter fields)
+    if (hasBuiltinBank) {
+      const builtinId = selectedBankId as BuiltinBankId;
+
+      // Special handling for Folders bank with path navigation
+      if (builtinId === 'builtin:folders' && folderPath.length > 0) {
+        // Navigate into folder: show only direct children of current folder
+        const currentFolderGuid = folderPath[folderPath.length - 1];
+        const childIndices = new Set(getFolderChildren(currentFolderGuid));
+        baseTracks = baseTracks.filter((t) => childIndices.has(t.index));
+      } else {
+        // Standard bank filtering
+        baseTracks = baseTracks.filter((t) => {
+          switch (builtinId) {
+            case 'builtin:muted':
+              return t.m === true;
+            case 'builtin:soloed':
+              return t.sl !== null && t.sl !== 0;
+            case 'builtin:armed':
+              return t.r === true;
+            case 'builtin:selected':
+              return t.sel === true;
+            case 'builtin:folders':
+              return t.fd === 1; // folder_depth 1 = parent folder
+            case 'builtin:with-sends':
+              return t.sc > 0;
+            default:
+              return true;
+          }
+        });
+      }
+    }
+    // Custom bank filtering
+    else if (selectedBank) {
       if (selectedBank.type === 'smart' && selectedBank.pattern) {
         // Smart bank: filter by pattern (case-insensitive substring match)
         const pattern = selectedBank.pattern.toLowerCase();
@@ -135,7 +177,7 @@ export function TimelineView(): ReactElement {
     }
 
     return baseTracks;
-  }, [isFiltered, skeleton, selectedBank, hasTextFilter, filterQuery]);
+  }, [isFiltered, skeleton, hasBuiltinBank, selectedBankId, selectedBank, hasTextFilter, filterQuery, folderPath, getFolderChildren]);
 
   // Extract indices for display logic
   const allFilteredIndices = useMemo(
@@ -147,6 +189,26 @@ export function TimelineView(): ReactElement {
   useEffect(() => {
     setFilterBankIndex(0);
   }, [filterQuery, selectedBankId]);
+
+  // Reset folder path when switching away from Folders bank
+  // Open folder sheet when switching TO Folders bank
+  useEffect(() => {
+    if (selectedBankId === 'builtin:folders') {
+      setFolderSheetOpen(true);
+    } else {
+      setFolderPath([]);
+      setFolderSheetOpen(false);
+    }
+  }, [selectedBankId]);
+
+  // Validate folder path when skeleton changes (in case folder was deleted)
+  useEffect(() => {
+    if (folderPath.length === 0) return;
+    const validPath = validatePath(folderPath);
+    if (validPath.length !== folderPath.length) {
+      setFolderPath(validPath);
+    }
+  }, [folderPath, validatePath]);
 
   // Calculate filtered banking
   const filteredBankStart = filterBankIndex * laneCount;
@@ -170,7 +232,9 @@ export function TimelineView(): ReactElement {
   const effectiveBankDisplay = isFiltered
     ? allFilteredIndices.length === 0
       ? '0 of 0'
-      : `${filteredBankStart + 1}-${filteredBankEnd} of ${allFilteredIndices.length}`
+      : filteredBankStart + 1 === filteredBankEnd
+        ? `${filteredBankStart + 1} / ${allFilteredIndices.length}`
+        : `${filteredBankStart + 1}-${filteredBankEnd} / ${allFilteredIndices.length}`
     : bank.bankDisplay;
 
   const effectiveCanGoBack = isFiltered ? filterBankIndex > 0 : bank.canGoBack;
@@ -372,6 +436,7 @@ export function TimelineView(): ReactElement {
         onBankChange={setSelectedBankId}
         onAddBank={handleAddBank}
         onEditBank={handleEditBank}
+        onFolderNavClick={() => setFolderSheetOpen(true)}
       />
       <TimelineModeToggle />
     </ViewHeader>
@@ -522,6 +587,14 @@ export function TimelineView(): ReactElement {
         onSave={handleSaveBank}
         onDelete={handleDeleteBank}
         editBank={editingBank}
+      />
+
+      {/* Folder navigation sheet - shown when Folders bank is selected */}
+      <FolderNavSheet
+        isOpen={folderSheetOpen}
+        onClose={() => setFolderSheetOpen(false)}
+        folderPath={folderPath}
+        onNavigate={setFolderPath}
       />
     </>
   );

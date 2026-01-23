@@ -253,9 +253,8 @@ export function ActionsView(): ReactElement {
     >
       {/* Content */}
       {sections.length === 0 ? (
-        // Empty state - centered at bottom of available space
-        <div className="h-full flex flex-col justify-end pb-6">
-          <div className="flex flex-col items-center text-center py-8">
+        // Empty state - centered in available space (matches PlaylistView)
+        <div className="h-full flex flex-col items-center justify-center text-center">
             <LayoutGrid size={48} className="text-text-disabled mb-4" />
             <h2 className="text-xl font-medium text-text-tertiary mb-2">No Sections Yet</h2>
             <p className="text-text-muted mb-6 max-w-xs">
@@ -271,7 +270,6 @@ export function ActionsView(): ReactElement {
               <Plus size={18} />
               <span>Create Section</span>
             </button>
-          </div>
         </div>
       ) : (
         // Sections list - uses verticalAlign preference

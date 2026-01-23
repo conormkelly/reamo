@@ -74,8 +74,8 @@ export interface TickGeneratorOptions {
 }
 
 /** Target number of labels/gridlines per screen width */
-const TARGET_LABELS_RULER = 8; // Ruler needs more space for labels
-const TARGET_LABELS_GRID = 12; // Grid can be denser (just lines)
+const TARGET_LABELS_RULER = 3; // Ruler needs more space for labels (sparser = less cluttered)
+const TARGET_LABELS_GRID = 6; // Grid can be denser (just lines)
 
 /** Round to nearest "nice" bar step (powers of 2 for musical alignment) */
 const NICE_BAR_STEPS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096];
@@ -127,13 +127,14 @@ function getBarStepAndBeats(
   const barStep = Math.max(1, roundToNiceBarStep(rawBarStep));
 
   // Beat display depends on zoom level
+  // Thresholds tuned to avoid excessive density at 5s zoom (~4 bars at 120 BPM)
   let beatMode: BeatDisplayMode = 'none';
   if (barStep === 1) {
-    if (barsVisible <= 3) {
-      // Very close zoom (1-3s at 120bpm): show all beat labels
+    if (barsVisible <= 2) {
+      // Very close zoom (1-2 bars): show all beat labels for precision
       beatMode = 'labels';
-    } else if (barsVisible <= 7) {
-      // Close zoom: show beat tick lines only
+    } else if (barsVisible <= 4) {
+      // Close zoom (3-4 bars): show beat tick lines only
       beatMode = 'ticks';
     }
   }

@@ -162,9 +162,12 @@ export function useBankNavigation(
     [totalBanks]
   );
 
-  // Display string - shows track index range
+  // Display string - shows track index range (or single number if only one track visible)
   const bankDisplay = useMemo(() => {
     if (trackableCount === 0) return 'No tracks';
+    if (bankStart === bankEnd) {
+      return `${bankStart} / ${trackableCount}`;
+    }
     return `${bankStart}-${bankEnd} / ${trackableCount}`;
   }, [bankStart, bankEnd, trackableCount]);
 

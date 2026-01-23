@@ -257,10 +257,13 @@ export function MixerView(): ReactElement {
 
   // Bank display and navigation for filtered vs unfiltered
   // When filtered, show range within filtered results: "1-6 of 10" (showing 1-6 of 10 matches)
+  // Single track: "1 / 10" instead of redundant "1-1 / 10"
   const effectiveBankDisplay = isFiltered
     ? allFilteredIndices.length === 0
       ? '0 of 0'
-      : `${filteredBankStart + 1}-${filteredBankEnd} of ${allFilteredIndices.length}`
+      : filteredBankStart + 1 === filteredBankEnd
+        ? `${filteredBankStart + 1} / ${allFilteredIndices.length}`
+        : `${filteredBankStart + 1}-${filteredBankEnd} / ${allFilteredIndices.length}`
     : bankDisplay;
 
   const effectiveCanGoBack = isFiltered ? filterBankIndex > 0 : canGoBack;
