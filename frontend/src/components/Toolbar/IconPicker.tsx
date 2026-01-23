@@ -3,9 +3,12 @@
  *
  * Uses the curated icon set (292 icons) instead of all 1663 Lucide icons.
  * Supports semantic search via iconSearchIndex (e.g., "record" finds Circle, Mic, Disc).
+ *
+ * Renders via portal to document.body to escape stacking contexts.
  */
 
 import { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { commonIcons, type CommonIconName } from '../../icons/commonIcons';
 import { searchIcons } from '../../icons/iconSearchIndex';
@@ -100,9 +103,10 @@ export function IconPicker({ value, onChange, onClose }: IconPickerProps) {
     return [...combined];
   }, [search]);
 
-  return (
+  // Portal to body to escape stacking contexts
+  return createPortal(
     <div
-      className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60]"
+      className="fixed inset-0 bg-black/60 flex items-center justify-center z-modal"
       onClick={onClose}
     >
       <div
@@ -175,6 +179,7 @@ export function IconPicker({ value, onChange, onClose }: IconPickerProps) {
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

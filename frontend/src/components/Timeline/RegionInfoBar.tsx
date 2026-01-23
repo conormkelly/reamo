@@ -3,12 +3,15 @@
  * Shows name, start/end position, length, and color when a region is selected
  * Fields are tappable to edit values directly
  * Includes "Add Region" button for creating new regions
+ *
+ * Color picker renders via portal to document.body to escape stacking contexts.
  */
 
 import { useState, useRef, useEffect, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import { Plus, Trash2, CopyPlus, RotateCcw } from 'lucide-react';
 import { useReaperStore } from '../../store';
-import { useTimeFormatters } from '../../hooks';
+import { useTimeFormatters, usePortalPosition } from '../../hooks';
 import { hexToReaperColor, reaperColorToHexWithFallback } from '../../utils';
 import type { Region } from '../../core/types';
 import { useReaper } from '../ReaperProvider';
@@ -120,7 +123,9 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
   // Cache of bar strings fetched for pending regions (keyed by "id:start:end")
   const [pendingBarStrings, setPendingBarStrings] = useState<Record<string, { startBars: string; endBars: string; lengthBars: string }>>({});
   const inputRef = useRef<HTMLInputElement>(null);
+  const colorTriggerRef = useRef<HTMLButtonElement>(null);
   const colorPickerRef = useRef<HTMLDivElement>(null);
+  const { position: colorPickerPosition } = usePortalPosition(colorTriggerRef, showColorPicker, { placement: 'bottom-start', offset: 8 });
 
   // Long-press handling for clone functionality
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -217,7 +222,10 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
     if (!showColorPicker) return;
 
     const handleClickOutside = (e: MouseEvent) => {
-      if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const clickedTrigger = colorTriggerRef.current?.contains(target);
+      const clickedPicker = colorPickerRef.current?.contains(target);
+      if (!clickedTrigger && !clickedPicker) {
         setShowColorPicker(false);
         setEditingField(null);
       }
@@ -563,15 +571,19 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
               <div className="flex items-center gap-1.5 relative">
                 <span className="text-text-secondary text-xs">Color:</span>
                 <button
+                  ref={colorTriggerRef}
                   onClick={() => handleFieldClick('color')}
                   className="w-6 h-6 rounded border-2 border-border-default hover:border-text-secondary transition-colors cursor-pointer"
                   style={{ backgroundColor: currentColor }}
                   title="Change color"
+                  aria-expanded={showColorPicker}
+                  aria-haspopup="true"
                 />
-                {showColorPicker && (
+                {showColorPicker && createPortal(
                   <div
                     ref={colorPickerRef}
-                    className="absolute top-full left-0 mt-2 p-3 bg-bg-surface border border-border-default rounded-lg shadow-xl z-popover min-w-[200px]"
+                    className="fixed p-3 bg-bg-surface border border-border-default rounded-lg shadow-xl z-popover min-w-[200px]"
+                    style={{ top: colorPickerPosition.top, left: colorPickerPosition.left }}
                   >
                     {/* Default + Project colors row */}
                     <div className="mb-3">
@@ -630,7 +642,8 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
                         }}
                       />
                     </div>
-                  </div>
+                  </div>,
+                  document.body
                 )}
               </div>
             </div>

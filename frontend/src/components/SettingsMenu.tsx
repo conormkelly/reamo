@@ -1,10 +1,14 @@
 /**
  * SettingsMenu Component
  * Hamburger menu for UI preferences (tab bar, transport visibility/position)
+ *
+ * Dropdown renders via portal to document.body to escape stacking contexts.
  */
 
 import { useState, useRef, useEffect, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import { Menu, X, Eye, EyeOff, ArrowLeftRight, ToggleLeft, ToggleRight, ChevronRight } from 'lucide-react';
+import { usePortalPosition } from '../hooks/usePortalPosition';
 import type { ViewId } from '../viewRegistry';
 
 export interface SettingsMenuProps {
@@ -55,12 +59,17 @@ export function SettingsMenu({
   className = '',
 }: SettingsMenuProps): ReactElement {
   const [isOpen, setIsOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const { position } = usePortalPosition(triggerRef, isOpen, { placement: 'bottom-start', offset: 8 });
 
   // Close menu when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const clickedTrigger = triggerRef.current?.contains(target);
+      const clickedDropdown = dropdownRef.current?.contains(target);
+      if (!clickedTrigger && !clickedDropdown) {
         setIsOpen(false);
       }
     }
@@ -72,19 +81,27 @@ export function SettingsMenu({
   }, [isOpen]);
 
   return (
-    <div ref={menuRef} className={`relative ${className}`}>
+    <div className={`relative ${className}`}>
       {/* Hamburger button */}
       <button
+        ref={triggerRef}
         onClick={() => setIsOpen(!isOpen)}
         className="p-2 rounded-lg bg-bg-surface/80 hover:bg-bg-elevated transition-colors"
         title="Settings"
+        aria-expanded={isOpen}
+        aria-haspopup="true"
       >
         {isOpen ? <X size={20} /> : <Menu size={20} />}
       </button>
 
-      {/* Dropdown menu */}
-      {isOpen && (
-        <div data-testid="settings-dropdown" className="absolute top-full mt-2 left-0 w-56 bg-bg-surface rounded-lg shadow-xl border border-border-subtle py-2 z-dropdown">
+      {/* Dropdown menu - portaled to body */}
+      {isOpen && createPortal(
+        <div
+          ref={dropdownRef}
+          data-testid="settings-dropdown"
+          className="fixed w-56 bg-bg-surface rounded-lg shadow-xl border border-border-subtle py-2 z-dropdown"
+          style={{ top: position.top, left: position.left }}
+        >
           <div className="px-3 py-1.5 text-xs text-text-secondary uppercase tracking-wide">
             Global
           </div>
@@ -246,7 +263,8 @@ export function SettingsMenu({
               </button>
             </>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

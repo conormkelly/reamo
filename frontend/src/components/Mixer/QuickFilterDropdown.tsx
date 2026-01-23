@@ -1,10 +1,14 @@
 /**
  * QuickFilterDropdown - Dropdown to filter tracks by state
  * Filters: Muted, Soloed, Armed, Selected, With Sends
+ *
+ * Dropdown renders via portal to document.body to escape stacking contexts.
  */
 
 import { useState, useRef, useEffect, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import { Filter, X } from 'lucide-react';
+import { usePortalPosition } from '../../hooks/usePortalPosition';
 import { QUICK_FILTERS, type BuiltinBankId } from './BankSelector';
 import type { SkeletonTrack } from '../../core/WebSocketTypes';
 
@@ -48,14 +52,19 @@ export function QuickFilterDropdown({
   className = '',
 }: QuickFilterDropdownProps): ReactElement {
   const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const { position } = usePortalPosition(triggerRef, isOpen, { placement: 'bottom-end', offset: 4 });
 
   // Close dropdown when clicking outside
   useEffect(() => {
     if (!isOpen) return;
 
     const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const clickedTrigger = triggerRef.current?.contains(target);
+      const clickedMenu = menuRef.current?.contains(target);
+      if (!clickedTrigger && !clickedMenu) {
         setIsOpen(false);
       }
     };
@@ -81,9 +90,9 @@ export function QuickFilterDropdown({
   };
 
   return (
-    <div ref={dropdownRef} className={`relative ${className}`}>
+    <div className={`relative ${className}`}>
       {/* Filter button - compact: just icon, or icon + X when active */}
-      <div className="flex items-center">
+      <div ref={triggerRef} className="flex items-center">
         <button
           onClick={() => setIsOpen(!isOpen)}
           className={`p-2 rounded-l transition-colors ${
@@ -92,6 +101,8 @@ export function QuickFilterDropdown({
               : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
           } ${isQuickFilter ? '' : 'rounded-r'}`}
           title={isQuickFilter ? `Filter: ${selectedFilter?.name}` : 'Quick filters'}
+          aria-expanded={isOpen}
+          aria-haspopup="listbox"
         >
           <Filter size={18} />
         </button>
@@ -106,9 +117,14 @@ export function QuickFilterDropdown({
         )}
       </div>
 
-      {/* Dropdown menu */}
-      {isOpen && (
-        <div className="absolute right-0 top-full mt-1 w-48 bg-bg-elevated border border-border-subtle rounded-lg shadow-lg z-dropdown overflow-hidden">
+      {/* Dropdown menu - portaled to body */}
+      {isOpen && createPortal(
+        <div
+          ref={menuRef}
+          className="fixed w-48 bg-bg-elevated border border-border-subtle rounded-lg shadow-lg z-dropdown overflow-hidden"
+          style={{ top: position.top, left: position.left, transform: 'translateX(-100%)' }}
+          role="listbox"
+        >
           <div className="py-1">
             {QUICK_FILTERS.map((filter) => {
               const count = countTracksForFilter(skeleton, filter.id);
@@ -123,6 +139,8 @@ export function QuickFilterDropdown({
                       ? 'bg-sends-muted/20 text-sends-muted'
                       : 'text-text-primary hover:bg-bg-surface'
                   }`}
+                  role="option"
+                  aria-selected={isSelected}
                 >
                   <span>{filter.name}</span>
                   <span className={`text-xs ${isSelected ? 'text-sends-muted' : 'text-text-muted'}`}>
@@ -132,7 +150,8 @@ export function QuickFilterDropdown({
               );
             })}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

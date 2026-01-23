@@ -2,9 +2,12 @@
  * Metronome Button with Long-Press Volume Control
  * - Tap: Toggle metronome on/off
  * - Long press: Open volume adjustment dialog with +/- buttons
+ *
+ * Dialog renders via portal to document.body to escape stacking contexts.
  */
 
 import { useState, useRef, useCallback, useEffect, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import { Gauge, Minus, Plus } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
@@ -136,8 +139,8 @@ export function MetronomeButton({
         <span className="align-middle">Click</span>
       </button>
 
-      {/* Volume Dialog */}
-      {showDialog && (
+      {/* Volume Dialog - portaled to body */}
+      {showDialog && createPortal(
         <div
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-modal"
           onClick={handleOverlayClick}
@@ -191,7 +194,8 @@ export function MetronomeButton({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );

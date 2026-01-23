@@ -2,9 +2,12 @@
  * Tap Tempo Button Component
  * Displays project BPM (calculated from BEATPOS) and allows tapping to set tempo
  * Long press opens a tempo input dialog
+ *
+ * Dialog renders via portal to document.body to escape stacking contexts.
  */
 
 import { useState, useRef, useCallback, useEffect, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import { Minus, Plus } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
@@ -180,8 +183,8 @@ export function TapTempoButton({
         {showLabel ? ' BPM' : ''}
       </button>
 
-      {/* Tempo Input Dialog */}
-      {showDialog && (
+      {/* Tempo Input Dialog - portaled to body */}
+      {showDialog && createPortal(
         <div
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-modal"
           onClick={handleOverlayClick}
@@ -214,7 +217,8 @@ export function TapTempoButton({
             </div>
             <div className="text-xs text-text-muted mt-2 text-center">BPM (2-960)</div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );

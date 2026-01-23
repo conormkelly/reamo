@@ -1,8 +1,11 @@
 /**
  * ToolbarEditor - Modal for adding/editing toolbar buttons
+ *
+ * Renders via portal to document.body to escape stacking contexts.
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Trash2, ToggleLeft } from 'lucide-react';
 import { LazyIconPicker } from './LazyIconPicker';
 import { ColorPickerInput } from './ColorPickerInput';
@@ -217,7 +220,7 @@ export function ToolbarEditor({
     }
   })();
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 bg-black/60 flex items-center justify-center z-modal"
       onClick={onClose}
@@ -531,6 +534,7 @@ export function ToolbarEditor({
           />
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
