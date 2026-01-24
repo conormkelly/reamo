@@ -193,7 +193,7 @@ export function SendFader({
         />
       </div>
       {showDbLabel && (
-        <span className={`text-[10px] font-mono whitespace-nowrap ${isMuted ? 'text-sends-primary/50 line-through' : 'text-sends-primary'}`}>
+        <span className={`text-[10px] font-mono whitespace-nowrap w-[52px] text-center ${isMuted ? 'text-sends-primary/50 line-through' : 'text-sends-primary'}`}>
           {volumeDb}
         </span>
       )}

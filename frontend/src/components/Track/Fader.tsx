@@ -221,7 +221,7 @@ export function Fader({
         )}
       </div>
       {showDbLabel && (
-        <span className="text-[10px] text-text-secondary font-mono whitespace-nowrap">{volumeDb}</span>
+        <span className="text-[10px] text-text-secondary font-mono whitespace-nowrap w-[52px] text-center">{volumeDb}</span>
       )}
     </div>
   );
