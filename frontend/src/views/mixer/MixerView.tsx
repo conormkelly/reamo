@@ -57,6 +57,7 @@ export function MixerView(): ReactElement {
   const tracks = useReaperStore((state) => state?.tracks ?? EMPTY_TRACKS);
   const pinMasterTrack = useReaperStore((state) => state.pinMasterTrack);
   const showAddTrackButton = useReaperStore((state) => state.showAddTrackButton);
+  const setSecondaryPanelExpanded = useReaperStore((state) => state.setSecondaryPanelExpanded);
 
   // Responsive height measurement - tracks container size and panel transitions
   const { availableHeight, isLandscape } = useAvailableContentHeight({
@@ -361,10 +362,16 @@ export function MixerView(): ReactElement {
     setFolderSheetOpen(true);
   }, []);
 
+  // Handle track selection for info panel - also expands panel if collapsed
+  const handleSelectForInfo = useCallback((trackIndex: number) => {
+    setInfoSelectedTrackIdx(trackIndex);
+    setSecondaryPanelExpanded('mixer', true);
+  }, [setSecondaryPanelExpanded]);
+
   // Handle track selection from folder sheet
   const handleFolderSheetSelectTrack = useCallback((trackIndex: number) => {
-    setInfoSelectedTrackIdx(trackIndex);
-  }, []);
+    handleSelectForInfo(trackIndex);
+  }, [handleSelectForInfo]);
 
   // Handle opening detail sheet (landscape mode)
   // Opens sheet if closed, or switches track if already open
@@ -548,7 +555,7 @@ export function MixerView(): ReactElement {
                   trackIndex={0}
                   faderHeight={faderHeight}
                   isInfoSelected={infoSelectedTrackIdx === 0}
-                  onSelectForInfo={setInfoSelectedTrackIdx}
+                  onSelectForInfo={handleSelectForInfo}
                   onOpenDetail={handleOpenDetail}
                 />
               ) : (
@@ -558,7 +565,7 @@ export function MixerView(): ReactElement {
                   faderHeight={faderHeight}
                   showDbLabel={true}
                   isInfoSelected={infoSelectedTrackIdx === 0}
-                  onSelectForInfo={setInfoSelectedTrackIdx}
+                  onSelectForInfo={handleSelectForInfo}
                 />
               )
             ) : (
@@ -572,7 +579,7 @@ export function MixerView(): ReactElement {
         )}
 
         {/* Channel strips */}
-        <div className="flex gap-2">
+        <div className="flex gap-3">
           {displayTrackIndices.map((trackIndex) => (
             <div key={trackIndex}>
               {hasTrackData(trackIndex) ? (
@@ -581,7 +588,7 @@ export function MixerView(): ReactElement {
                     trackIndex={trackIndex}
                     faderHeight={faderHeight}
                     isInfoSelected={infoSelectedTrackIdx === trackIndex}
-                    onSelectForInfo={setInfoSelectedTrackIdx}
+                    onSelectForInfo={handleSelectForInfo}
                     onOpenDetail={handleOpenDetail}
                   />
                 ) : (
@@ -591,7 +598,7 @@ export function MixerView(): ReactElement {
                     faderHeight={faderHeight}
                     showDbLabel={true}
                     isInfoSelected={infoSelectedTrackIdx === trackIndex}
-                    onSelectForInfo={setInfoSelectedTrackIdx}
+                    onSelectForInfo={handleSelectForInfo}
                   />
                 )
               ) : (

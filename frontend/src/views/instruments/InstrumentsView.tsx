@@ -11,7 +11,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef, useMemo, type ReactElement } from 'react';
-import { ViewHeader, ViewLayout, OrientationHint, type OverflowMenuItem } from '../../components';
+import { ViewHeader, ViewLayout, type OverflowMenuItem } from '../../components';
 import { useIsLandscape, useContainerQuery } from '../../hooks';
 import { useReaper } from '../../components/ReaperProvider';
 import {
@@ -29,13 +29,6 @@ import {
 } from '../../components/Instruments';
 import { DEFAULT_OCTAVE, SCALE_TYPES, SCALE_DISPLAY_NAMES, type NoteName, type ScaleType } from '@/lib/music-theory';
 import { midi } from '../../core/WebSocketCommands';
-
-/** Preferred orientation per instrument */
-const INSTRUMENT_PREFERENCES: Record<InstrumentType, 'landscape' | 'portrait'> = {
-  drums: 'portrait',
-  piano: 'landscape',
-  chords: 'landscape',
-};
 
 // localStorage keys for persistence
 const STORAGE_KEY_INSTRUMENT = 'reamo_instruments_selected';
@@ -765,12 +758,6 @@ export function InstrumentsView(): ReactElement {
     );
   };
 
-  // Determine if we should show orientation hint
-  const preferredOrientation = INSTRUMENT_PREFERENCES[selectedInstrument];
-  const showOrientationHint =
-    (preferredOrientation === 'landscape' && !isLandscape) ||
-    (preferredOrientation === 'portrait' && isLandscape);
-
   return (
     <ViewLayout
       viewId="instruments"
@@ -785,17 +772,8 @@ export function InstrumentsView(): ReactElement {
       }
       scrollable={false}
     >
-      {/* Instrument content area with orientation hint */}
-      <div className="h-full flex flex-col p-2 overflow-visible relative">
-        {/* Soft orientation hint - dismissible */}
-        {showOrientationHint && (
-          <OrientationHint
-            preferred={preferredOrientation}
-            className="absolute top-2 left-2 right-2 z-elevated"
-          />
-        )}
-
-        {/* The actual instrument */}
+      {/* Instrument content area */}
+      <div className="h-full flex flex-col p-2 overflow-visible">
         {renderInstrument()}
       </div>
     </ViewLayout>
