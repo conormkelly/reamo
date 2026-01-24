@@ -235,7 +235,7 @@ export function NotesView(): ReactElement {
       )}
 
       {/* Textarea */}
-      <div className="h-full flex flex-col">
+      <div className="h-full flex flex-col pb-4">
         <textarea
           className={`flex-1 w-full bg-bg-deep border rounded-lg p-3 text-text-primary resize-none focus:outline-none focus:ring-2 focus:ring-focus-ring ${
             hasExternalChange ? 'border-external-border bg-bg-deep/50' : 'border-border-subtle'
