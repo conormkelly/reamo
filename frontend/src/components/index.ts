@@ -22,3 +22,4 @@ export * from './Actions';
 export * from './Timeline';
 export * from './Toolbar';
 export * from './Mixer';
+export * from './SecondaryPanel';

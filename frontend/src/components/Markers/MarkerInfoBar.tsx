@@ -187,71 +187,70 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
   };
 
   return (
-    <div data-testid="marker-info-bar" className={`flex items-center gap-2 min-w-0 ${className}`}>
-      <div className="flex flex-col gap-1 px-3 py-1.5 bg-bg-surface/50 rounded-lg text-sm flex-1 min-w-0 relative">
-        {/* X close button - top right */}
-        <button
-          onClick={handleClose}
-          className="absolute top-1 right-1 p-1 text-text-muted hover:text-text-primary hover:bg-bg-elevated rounded transition-colors"
-          title="Close marker info"
-        >
-          <X size={14} />
-        </button>
+    <div data-testid="marker-info-bar" className={`flex flex-col gap-2 px-3 py-2 bg-bg-surface/50 rounded-lg text-sm relative ${className}`}>
+      {/* X close button - top right */}
+      <button
+        onClick={handleClose}
+        className="absolute top-1.5 right-1.5 p-1.5 text-text-muted hover:text-text-primary hover:bg-bg-elevated rounded transition-colors"
+        title="Close marker info"
+      >
+        <X size={16} />
+      </button>
 
-        {/* Line 1: Marker ID and Name */}
-        <div className="flex items-center gap-3 min-w-0">
-          {/* Marker ID */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-text-secondary text-xs">Marker:</span>
-            <span className="text-text-primary font-mono text-xs font-bold">{currentMarker.id}</span>
-          </div>
+      {/* Line 1: Marker ID and Name */}
+      <div className="flex items-center gap-3 min-w-0 pr-8">
+        {/* Marker ID */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-text-secondary text-xs">Marker:</span>
+          <span className="text-text-primary font-mono text-sm font-bold">{currentMarker.id}</span>
+        </div>
 
-          <div className="w-px h-4 bg-border-default flex-shrink-0" />
+        <div className="w-px h-5 bg-border-default flex-shrink-0" />
 
-          {/* Name (editable if script installed) */}
-          <div className="flex items-center gap-1.5 flex-1 min-w-0">
-            <span className="text-text-secondary text-xs flex-shrink-0">Name:</span>
-            {isEditingName ? (
-              <input
-                ref={nameInputRef}
-                type="text"
-                value={nameValue}
-                onChange={(e) => setNameValue(e.target.value)}
-                onKeyDown={handleNameKeyDown}
-                onBlur={handleNameConfirm}
-                className="flex-1 min-w-0 px-1.5 py-0.5 bg-bg-elevated border border-focus-border rounded text-text-primary font-mono text-base focus:outline-none focus:ring-1 focus:ring-focus-ring"
-              />
-            ) : (
-              <button
-                onClick={handleNameClick}
-                className="text-text-primary font-mono text-xs px-1.5 py-0.5 rounded transition-colors truncate min-w-0 hover:bg-bg-elevated cursor-pointer"
-                title="Click to edit name"
-              >
-                {currentMarker.name || '(unnamed)'}
-              </button>
-            )}
-          </div>
-
-          {/* Saving indicator */}
-          {isSaving && (
-            <span className="text-text-muted text-xs italic ml-auto">Saving...</span>
+        {/* Name (editable if script installed) */}
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+          <span className="text-text-secondary text-xs flex-shrink-0">Name:</span>
+          {isEditingName ? (
+            <input
+              ref={nameInputRef}
+              type="text"
+              value={nameValue}
+              onChange={(e) => setNameValue(e.target.value)}
+              onKeyDown={handleNameKeyDown}
+              onBlur={handleNameConfirm}
+              className="flex-1 min-w-0 px-1.5 py-0.5 bg-bg-elevated border border-focus-border rounded text-text-primary font-mono text-base focus:outline-none focus:ring-1 focus:ring-focus-ring"
+            />
+          ) : (
+            <button
+              onClick={handleNameClick}
+              className="text-text-primary font-mono text-sm px-1.5 py-0.5 rounded transition-colors truncate min-w-0 hover:bg-bg-elevated cursor-pointer"
+              title="Click to edit name"
+            >
+              {currentMarker.name || '(unnamed)'}
+            </button>
           )}
         </div>
 
-        {/* Line 2: Color and Position */}
-        <div className="flex items-center gap-3">
-          {/* Color indicator */}
-          <div className="flex items-center gap-1.5 relative">
-            <span className="text-text-secondary text-xs">Color:</span>
-            <button
-              ref={colorTriggerRef}
-              onClick={handleColorClick}
-              className="w-6 h-6 rounded border-2 transition-colors border-border-default hover:border-text-secondary cursor-pointer"
-              style={{ backgroundColor: currentColor }}
-              title="Click to change color"
-              aria-expanded={showColorPicker}
-              aria-haspopup="true"
-            />
+        {/* Saving indicator */}
+        {isSaving && (
+          <span className="text-text-muted text-xs italic ml-auto">Saving...</span>
+        )}
+      </div>
+
+      {/* Line 2: Color and Position */}
+      <div className="flex items-center gap-3">
+        {/* Color indicator */}
+        <div className="flex items-center gap-1.5 relative">
+          <span className="text-text-secondary text-xs">Color:</span>
+          <button
+            ref={colorTriggerRef}
+            onClick={handleColorClick}
+            className="w-7 h-7 rounded border-2 transition-colors border-border-default hover:border-text-secondary cursor-pointer"
+            style={{ backgroundColor: currentColor }}
+            title="Click to change color"
+            aria-expanded={showColorPicker}
+            aria-haspopup="true"
+          />
             {showColorPicker && createPortal(
               <div
                 ref={colorPickerRef}
@@ -339,17 +338,16 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
             )}
           </div>
 
-          <div className="w-px h-4 bg-border-default flex-shrink-0" />
+          <div className="w-px h-5 bg-border-default flex-shrink-0" />
 
           {/* Position - use server bar string if available */}
           <div className="flex items-center gap-1.5">
             <span className="text-text-secondary text-xs">At:</span>
-            <span className="text-info-muted font-mono text-xs">
+            <span className="text-info-muted font-mono text-sm">
               {currentMarker.positionBars ?? formatPosition(currentMarker.position)}
             </span>
           </div>
         </div>
-      </div>
     </div>
   );
 }

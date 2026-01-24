@@ -105,3 +105,8 @@ export {
   type PortalPlacement,
   type UsePortalPositionOptions,
 } from './usePortalPosition';
+export {
+  useAvailableContentHeight,
+  type UseAvailableContentHeightOptions,
+  type UseAvailableContentHeightReturn,
+} from './useAvailableContentHeight';

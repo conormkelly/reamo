@@ -1,4 +1,6 @@
 export { MixerStrip, type MixerStripProps, type MixerMode } from './MixerStrip';
+export { MixerStripCompact, type MixerStripCompactProps } from './MixerStripCompact';
+export { TrackDetailSheet, type TrackDetailSheetProps } from './TrackDetailSheet';
 export { BankNavigator, type BankNavigatorProps } from './BankNavigator';
 export { MixerModeSelector, type MixerModeSelectorProps } from './MixerModeSelector';
 export { SendFader, type SendFaderProps } from './SendFader';

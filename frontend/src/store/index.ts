@@ -28,6 +28,7 @@ import { createRoutingSlice, type RoutingSlice } from './slices/routingSlice';
 import { createFxChainSlice, type FxChainSlice } from './slices/fxChainSlice';
 import { createFxBrowserSlice, type FxBrowserSlice } from './slices/fxBrowserSlice';
 import { createFxParamSlice, type FxParamSlice } from './slices/fxParamSlice';
+import { createSecondaryPanelSlice, type SecondaryPanelSlice } from './slices/secondaryPanelSlice';
 import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
 import { ActionCommands, SWSCommands } from '../core/types';
 import type {
@@ -80,7 +81,7 @@ import { transportEngine } from '../core/TransportAnimationEngine';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & ActionsSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & UIPreferencesState & ModalSlice & PeaksSlice & RoutingSlice & FxChainSlice & FxBrowserSlice & FxParamSlice & {
+export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & ActionsSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & UIPreferencesState & ModalSlice & PeaksSlice & RoutingSlice & FxChainSlice & FxBrowserSlice & FxParamSlice & SecondaryPanelSlice & {
   // Response handler action (legacy HTTP)
   handleResponses: (responses: ParsedResponse[]) => void;
   // WebSocket message handler
@@ -121,6 +122,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   ...createFxChainSlice(set, get, store),
   ...createFxBrowserSlice(set, get, store),
   ...createFxParamSlice(set, get, store),
+  ...createSecondaryPanelSlice(set, get, store),
 
   // Handle incoming responses from REAPER
   handleResponses: (responses: ParsedResponse[]) => {
@@ -432,6 +434,7 @@ export type { FxChainSlice } from './slices/fxChainSlice';
 export type { FxBrowserSlice, FxPlugin, PluginType } from './slices/fxBrowserSlice';
 export { getPluginType } from './slices/fxBrowserSlice';
 export type { FxParamSlice, FxParam } from './slices/fxParamSlice';
+export type { SecondaryPanelSlice, SecondaryPanelViewId } from './slices/secondaryPanelSlice';
 
 // Expose store on window for E2E tests (development only)
 if (import.meta.env.DEV) {

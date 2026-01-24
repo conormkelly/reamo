@@ -345,10 +345,8 @@ export function TrackInfoBar({
   // Don't render if no track selected
   if (selectedTrackIdx === null || !trackData.exists) {
     return (
-      <div className={`flex items-center gap-2 min-w-0 ${className}`}>
-        <div className="flex flex-col gap-1 px-3 py-1.5 bg-bg-surface/50 rounded-lg text-sm flex-1 min-w-0">
-          <span className="text-text-muted text-sm italic">Select a track to view details</span>
-        </div>
+      <div className={`flex flex-col gap-1 px-3 py-1.5 bg-bg-surface/50 rounded-lg text-sm ${className}`}>
+        <span className="text-text-muted text-sm italic">Select a track to view details</span>
       </div>
     );
   }
@@ -356,8 +354,7 @@ export function TrackInfoBar({
   const isMaster = selectedTrackIdx === 0;
 
   return (
-    <div className={`flex items-center gap-2 min-w-0 ${className}`}>
-      <div className="flex flex-col gap-2 px-3 py-2 bg-bg-surface/50 rounded-lg text-sm flex-1 min-w-0">
+    <div className={`flex flex-col gap-2 px-3 py-2 bg-bg-surface/50 rounded-lg text-sm ${className}`}>
         {/* Line 1: Track # and Name */}
         <div className="flex items-center gap-3 min-w-0">
           {/* Track number */}
@@ -502,7 +499,6 @@ export function TrackInfoBar({
             </div>
           )}
         </div>
-      </div>
 
       {/* FX Modal */}
       {selectedTrackIdx !== null && (
