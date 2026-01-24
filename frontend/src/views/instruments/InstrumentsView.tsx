@@ -473,16 +473,18 @@ export function InstrumentsView(): ReactElement {
   const renderInstrument = () => {
     switch (selectedInstrument) {
       case 'drums':
-        // In landscape: constrain grid to square aspect ratio, centered
-        // In portrait: fills available space naturally
-        return isLandscape ? (
+        // Constrain grid to square aspect ratio, centered in both orientations
+        // Landscape: height-constrained, width derived
+        // Portrait: width-constrained, height derived
+        return (
           <div className="flex-1 flex items-center justify-center">
-            <div className="h-full aspect-square max-w-full">
-              <DrumPadGrid channel={currentChannel} onNoteOn={handleNoteOn} className="h-full" />
+            <div className={isLandscape
+              ? "h-full aspect-square max-w-full"
+              : "w-full aspect-square max-h-full"
+            }>
+              <DrumPadGrid channel={currentChannel} onNoteOn={handleNoteOn} className="h-full w-full" />
             </div>
           </div>
-        ) : (
-          <DrumPadGrid channel={currentChannel} onNoteOn={handleNoteOn} className="flex-1" />
         );
 
       case 'piano':
