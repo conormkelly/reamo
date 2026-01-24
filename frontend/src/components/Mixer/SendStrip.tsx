@@ -108,7 +108,8 @@ export function SendStrip({
       </button>
 
       {/* Main content area - meter + send fader */}
-      <div className="flex gap-1 px-1 pb-1">
+      {/* Grid with fixed columns prevents meter shift during fader drag */}
+      <div className="grid gap-1 px-1 pb-1" style={{ gridTemplateColumns: '12px 1fr' }}>
         {/* Level meter (still shows track level for reference) */}
         <LevelMeter
           trackIndex={trackIndex}

@@ -87,9 +87,11 @@ export function MixerStripCompact({
       </button>
 
       {/* Main content: Meter + Fader - tappable to open detail sheet */}
+      {/* Grid with fixed columns prevents meter shift during fader drag */}
       <button
         onClick={handleStripTap}
-        className="flex gap-1 px-1 pb-1 cursor-pointer"
+        className="grid gap-1 px-1 pb-1 cursor-pointer"
+        style={{ gridTemplateColumns: '12px 1fr' }}
       >
         <LevelMeter
           trackIndex={trackIndex}

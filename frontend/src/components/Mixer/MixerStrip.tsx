@@ -107,8 +107,8 @@ export function MixerStrip({
         {isMaster ? 'MASTER' : name || `Trk ${trackIndex}`}
       </button>
 
-      {/* Main content area */}
-      <div className="flex gap-1 px-1 pb-1">
+      {/* Main content area - grid with fixed columns prevents meter shift during fader drag */}
+      <div className="grid gap-1 px-1 pb-1" style={{ gridTemplateColumns: '12px 1fr' }}>
         {/* Level meter */}
         <LevelMeter
           trackIndex={trackIndex}
