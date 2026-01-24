@@ -29,8 +29,9 @@ Best practices, patterns, and conventions for the REAmo React frontend.
 16. [Testing](#16-testing)
 17. [Common Mistakes (Real Examples)](#17-common-mistakes-real-examples)
 18. [Anti-Patterns Checklist](#18-anti-patterns-checklist)
-19. [Centralized Constants](#19-centralized-constants)
-20. [Deferred/Future Work](#20-deferredfuture-work)
+19. [Layout Budget System](#19-layout-budget-system)
+20. [Centralized Constants](#20-centralized-constants)
+21. [Deferred/Future Work](#21-deferredfuture-work)
 
 ---
 
@@ -1296,7 +1297,115 @@ This section documents actual bugs from recent commits to prevent recurrence.
 
 ---
 
-## 19. Centralized Constants
+## 19. Layout Budget System
+
+The app is divided into discrete vertical sections, each with a **budget** of space. Content must fit within its budget — no overlap allowed.
+
+### App Layout Structure
+
+```
+┌─────────────────────────────────┐
+│     ViewHeader (~44px)          │  shrink-0, fixed
+├─────────────────────────────────┤
+│                                 │
+│     PRIMARY CONTENT             │  flex-1 (gets remaining)
+│     (faders, timeline canvas)   │
+│                                 │
+├─────────────────────────────────┤
+│     SECONDARY CONTENT           │  44-140px (collapsible)
+│     (SecondaryPanel)            │
+├─────────────────────────────────┤
+│     Tab Bar (~44px)             │  optional via settings
+├─────────────────────────────────┤
+│     PersistentTransport (~80px) │  optional via settings
+└─────────────────────────────────┘
+```
+
+### Budget Rules
+
+1. **Each section gets a fixed or flex budget** — no negotiation
+2. **Content must fit within its budget** — add `overflow-hidden` as safety net
+3. **Primary content maximizes within its budget** — faders/canvas fill available space
+4. **Padding/margins count against the budget** — must be subtracted from calculations
+
+### Responsive Height Calculation Pattern
+
+Use `useAvailableContentHeight` hook to measure container and calculate component heights:
+
+```typescript
+import { useAvailableContentHeight } from '../../hooks';
+import { STRIP_OVERHEAD_FULL, MIN_FADER_PORTRAIT, MAX_FADER_PERCENT, MIXER_CONTENT_PADDING } from '../../constants/layout';
+
+// 1. Measure available height via ResizeObserver
+const { availableHeight, isLandscape } = useAvailableContentHeight({
+  containerRef,
+  viewId: 'mixer',
+});
+
+// 2. Calculate component height within budget
+const faderHeight = useMemo(() => {
+  if (availableHeight === 0) return MIN_FADER_PORTRAIT;
+
+  // Budget = measured height - container padding
+  const stripBudget = availableHeight - MIXER_CONTENT_PADDING;
+  // Component height = budget - overhead (non-interactive elements)
+  const calculated = stripBudget - STRIP_OVERHEAD_FULL;
+
+  return Math.min(
+    Math.max(MIN_FADER_PORTRAIT, calculated), // Floor: touch usability
+    stripBudget * MAX_FADER_PERCENT           // Ceiling: prevent overflow
+  );
+}, [availableHeight]);
+```
+
+### Layout Constants
+
+Centralized in `constants/layout.ts`:
+
+```typescript
+// SecondaryPanel heights
+export const PANEL_HEIGHT_COLLAPSED = 44;
+export const PANEL_HEIGHT_EXPANDED = 140;
+export const PANEL_TRANSITION_MS = 200;
+
+// Mixer strip overhead (document the breakdown!)
+export const STRIP_OVERHEAD_FULL = 164;   // Color bar + name + pan + M/S + buttons + footer
+export const MIXER_CONTENT_PADDING = 32;  // Container padding + breathing room
+
+// Constraints
+export const MIN_FADER_PORTRAIT = 80;     // Touch usability floor
+export const MAX_FADER_PERCENT = 0.7;     // Prevent overflow ceiling
+```
+
+### Why This Matters
+
+- **Cross-device consistency**: Same mental model works on iPhone SE and iPad Pro
+- **No overlap bugs**: Each section stays in its lane
+- **Predictable behavior**: Expanding SecondaryPanel shrinks primary content predictably
+- **Easier debugging**: If something overflows, check if it exceeds its budget
+
+### Common Mistakes
+
+```typescript
+// BAD - hardcoded magic numbers
+const faderHeight = panelExpanded ? 140 : 220;
+
+// GOOD - calculated from measured budget
+const faderHeight = useMemo(() => {
+  const budget = availableHeight - MIXER_CONTENT_PADDING;
+  return Math.max(MIN_FADER_PORTRAIT, budget - STRIP_OVERHEAD_FULL);
+}, [availableHeight]);
+
+// BAD - no overflow protection
+<div className="h-full flex items-center">
+
+// GOOD - overflow-hidden as safety net
+<div className="h-full flex items-center overflow-hidden">
+```
+
+---
+
+## 20. Centralized Constants
 
 Magic numbers scattered across the codebase make behavior inconsistent and hard to tune. Centralize these values.
 
@@ -1333,24 +1442,22 @@ export const EDGE_SCROLL_ZONE = 50;         // Edge scroll activation zone
 export const EDGE_SCROLL_SPEED = 0.5;       // Seconds per frame at edge
 ```
 
-### Mixer Constants
+### Mixer/Layout Constants
 
-These should be in `constants/mixer.ts`:
+These are in `constants/layout.ts` (see §19 Layout Budget System):
 
 ```typescript
-export const BANK_SIZES = {
-  mobile: 2,
-  tablet: 4,
-  desktop: 8,
-} as const;
+// Strip overhead (document breakdown for maintainability)
+export const STRIP_OVERHEAD_FULL = 164;    // Sum of non-fader elements
+export const MIXER_CONTENT_PADDING = 32;   // Container padding + breathing room
 
-export const FADER_HEIGHT = 220;           // Fixed fader touch height
-export const CHANNEL_MIN_WIDTH = 80;       // Minimum channel strip width
-export const PREFETCH_BANKS = {
-  mobile: 4,
-  tablet: 2,
-  desktop: 1,
-} as const;
+// Fader constraints
+export const MIN_FADER_PORTRAIT = 80;      // Touch usability floor
+export const MIN_FADER_LANDSCAPE = 50;     // Compact mode minimum
+export const MAX_FADER_PERCENT = 0.7;      // Overflow prevention ceiling
+
+// Note: Fader height is now CALCULATED, not hardcoded
+// See useAvailableContentHeight hook and MixerView.tsx
 ```
 
 ### Why Centralize?
@@ -1362,7 +1469,7 @@ export const PREFETCH_BANKS = {
 
 ---
 
-## 20. Deferred/Future Work
+## 21. Deferred/Future Work
 
 Items intentionally not addressed yet:
 

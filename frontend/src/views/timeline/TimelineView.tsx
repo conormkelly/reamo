@@ -16,8 +16,8 @@
  */
 
 import { useMemo, useState, useCallback, useRef, useEffect, type ReactElement } from 'react';
-import { ChevronDown, ChevronUp } from 'lucide-react';
-import { ViewHeader, ViewLayout, Toolbar, ToolbarHeaderControls } from '../../components';
+import { Info, Wrench } from 'lucide-react';
+import { ViewHeader, ViewLayout, Toolbar, ToolbarHeaderControls, SecondaryPanel, type SecondaryPanelTabConfig, type BankNavProps, type SearchProps } from '../../components';
 import {
   Timeline,
   RegionInfoBar,
@@ -27,7 +27,6 @@ import {
   NavigateItemInfoBar,
 } from '../../components';
 import {
-  BankNavigator,
   BankSelector,
   BankEditorModal,
   FolderNavSheet,
@@ -35,7 +34,6 @@ import {
   type CustomBank,
   type BuiltinBankId,
 } from '../../components/Mixer';
-import { TrackFilter } from '../../components/Track';
 import { useReaperStore } from '../../store';
 import { EMPTY_REGIONS, EMPTY_MARKERS, EMPTY_ITEMS } from '../../store/stableRefs';
 import {
@@ -44,29 +42,53 @@ import {
   useBankNavigation,
   useCustomBanks,
   useTrackSkeleton,
-  useIsLandscape,
   useFolderHierarchy,
+  useAvailableContentHeight,
 } from '../../hooks';
 import { usePeaksSubscription } from '../../hooks/usePeaksSubscription';
+import {
+  TIMELINE_OVERHEAD_NAVIGATE,
+  TIMELINE_OVERHEAD_REGIONS,
+  TIMELINE_CONTENT_PADDING,
+  MIN_TIMELINE_HEIGHT,
+  MAX_TIMELINE_PERCENT,
+} from '../../constants/layout';
 
 /** Duration to show track labels after bank switch (ms) */
 const BANK_SWITCH_LABEL_DURATION = 1000;
 
-/** Timeline height - taller to accommodate multi-track lanes */
-/** Responsive: taller in landscape to utilize horizontal screen space better */
-const TIMELINE_HEIGHT_PORTRAIT = 200;
-const TIMELINE_HEIGHT_LANDSCAPE = 240;
-
 export function TimelineView(): ReactElement {
-  // Responsive: detect landscape for layout adjustments
-  const isLandscape = useIsLandscape();
-
-  // Responsive timeline height - taller in landscape for better vertical utilization
-  const TIMELINE_HEIGHT = isLandscape ? TIMELINE_HEIGHT_LANDSCAPE : TIMELINE_HEIGHT_PORTRAIT;
+  // Container ref for responsive height measurement
+  const contentContainerRef = useRef<HTMLDivElement>(null);
 
   // Lane count from user preference (1-8)
   const laneCount = useReaperStore((s) => s.timelineLaneCount);
   const timelineMode = useReaperStore((s) => s.timelineMode);
+
+  // Responsive height measurement - tracks container size and panel transitions
+  const { availableHeight } = useAvailableContentHeight({
+    containerRef: contentContainerRef,
+    viewId: 'timeline',
+  });
+
+  // Dynamic timeline height based on measured container height and mode
+  // Budget = availableHeight - container padding - timeline overhead
+  const timelineHeight = useMemo(() => {
+    // Overhead differs between navigate (has footer) and regions mode
+    const overhead = timelineMode === 'navigate'
+      ? TIMELINE_OVERHEAD_NAVIGATE
+      : TIMELINE_OVERHEAD_REGIONS;
+
+    if (availableHeight === 0) return MIN_TIMELINE_HEIGHT; // Initial render before measurement
+
+    // Available budget for timeline canvas = container height - padding - overhead
+    const canvasBudget = availableHeight - TIMELINE_CONTENT_PADDING - overhead;
+
+    return Math.min(
+      Math.max(MIN_TIMELINE_HEIGHT, canvasBudget), // Floor: minimum usable height
+      availableHeight * MAX_TIMELINE_PERCENT        // Ceiling: prevent overflow
+    );
+  }, [availableHeight, timelineMode]);
   const regions = useReaperStore((s) => s?.regions ?? EMPTY_REGIONS);
   const markers = useReaperStore((s) => s?.markers ?? EMPTY_MARKERS);
   const items = useReaperStore((s) => s?.items ?? EMPTY_ITEMS);
@@ -74,8 +96,6 @@ export function TimelineView(): ReactElement {
   const selectedMarkerId = useReaperStore((s) => s.selectedMarkerId);
   const itemSelectionModeActive = useReaperStore((s) => s.itemSelectionModeActive);
   const totalTracks = useReaperStore((s) => s?.totalTracks ?? 0);
-  const toolbarCollapsed = useReaperStore((s) => s.toolbarCollapsed);
-  const setToolbarCollapsed = useReaperStore((s) => s.setToolbarCollapsed);
   const { positionSeconds } = useTransport();
 
   // Get skeleton from hook (same pattern as Mixer)
@@ -446,47 +466,85 @@ export function TimelineView(): ReactElement {
     </ViewHeader>
   );
 
-  // Footer content - collapsible toolbar + filter + bank navigation
-  const footerContent = (
-    <div className="border-t border-border-subtle">
-      {/* Collapsible toolbar section */}
-      <div className="flex items-center justify-between py-1.5">
-        <button
-          onClick={() => setToolbarCollapsed(!toolbarCollapsed)}
-          className="flex items-center gap-1 text-xs font-medium text-text-secondary hover:text-text-tertiary transition-colors"
-        >
-          {toolbarCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          <span>Toolbar</span>
-        </button>
-        {/* Header controls - shown when expanded */}
-        {!toolbarCollapsed && <ToolbarHeaderControls />}
-      </div>
-      {/* Toolbar content - only rendered when expanded */}
-      {!toolbarCollapsed && <Toolbar size="sm" />}
+  // Info tab content - changes based on mode
+  const infoTabContent = useMemo(() => {
+    if (timelineMode === 'regions') {
+      // Regions mode: show RegionInfoBar + RegionEditActionBar
+      return (
+        <>
+          <RegionInfoBar onAddRegion={openAddRegionModal} />
+          <div className="mt-2">
+            <RegionEditActionBar />
+          </div>
+        </>
+      );
+    } else {
+      // Navigate mode: show marker/item info or fallback
+      return (
+        <section data-testid="navigate-info-section" className="flex flex-col gap-2">
+          <MarkerInfoBar />
+          {selectedMarkerId === null && itemSelectionModeActive && <NavigateItemInfoBar />}
+          {selectedMarkerId === null && !itemSelectionModeActive && (
+            <div
+              data-testid="nothing-selected-message"
+              className="px-3 py-2 bg-bg-surface/50 rounded-lg text-text-muted text-sm text-center"
+            >
+              Tap a marker pill or item
+            </div>
+          )}
+        </section>
+      );
+    }
+  }, [timelineMode, openAddRegionModal, selectedMarkerId, itemSelectionModeActive]);
 
-      {/* Filter + bank navigator row */}
-      <div className="flex items-center gap-3 pt-1.5 pb-1">
-        {/* Track filter on left - takes remaining space */}
-        <TrackFilter
-          value={filterQuery}
-          onChange={setFilterQuery}
-          placeholder="Filter..."
-          hideCount
-          className="flex-1"
-        />
-
-        {/* Bank navigator on right */}
-        <BankNavigator
-          bankDisplay={effectiveBankDisplay}
-          canGoBack={effectiveCanGoBack}
-          canGoForward={effectiveCanGoForward}
-          onBack={handleBankBack}
-          onForward={handleBankForward}
-          onHoldStart={handleHoldStart}
-          onHoldEnd={handleHoldEnd}
-        />
-      </div>
+  // Toolbar tab content
+  const toolbarTabContent = useMemo(() => (
+    <div className="flex flex-col gap-2 px-3">
+      <ToolbarHeaderControls />
+      <Toolbar size="sm" />
     </div>
+  ), []);
+
+  // Secondary panel tab configuration - Info and Toolbar (filter/nav now in header)
+  const secondaryTabs: SecondaryPanelTabConfig[] = useMemo(() => [
+    {
+      id: 'info',
+      icon: Info,
+      label: 'Info',
+      content: infoTabContent,
+    },
+    {
+      id: 'toolbar',
+      icon: Wrench,
+      label: 'Toolbar',
+      content: toolbarTabContent,
+    },
+  ], [infoTabContent, toolbarTabContent]);
+
+  // Bank navigation props for SecondaryPanel header
+  // Use filtered count when filtering, otherwise use bank total count
+  const effectiveTotalCount = isFiltered ? allFilteredIndices.length : bank.totalCount;
+  const bankNavProps: BankNavProps = useMemo(() => ({
+    bankDisplay: effectiveBankDisplay,
+    compactDisplay: String(effectiveTotalCount),
+    canGoBack: effectiveCanGoBack,
+    canGoForward: effectiveCanGoForward,
+    onBack: handleBankBack,
+    onForward: handleBankForward,
+    onHoldStart: handleHoldStart,
+    onHoldEnd: handleHoldEnd,
+  }), [effectiveBankDisplay, effectiveTotalCount, effectiveCanGoBack, effectiveCanGoForward, handleBankBack, handleBankForward, handleHoldStart, handleHoldEnd]);
+
+  // Search props for SecondaryPanel header
+  const searchProps: SearchProps = useMemo(() => ({
+    value: filterQuery,
+    onChange: setFilterQuery,
+    placeholder: 'Filter tracks...',
+  }), [filterQuery, setFilterQuery]);
+
+  // Footer content - SecondaryPanel with search and bank nav in header
+  const footerContent = (
+    <SecondaryPanel viewId="timeline" tabs={secondaryTabs} bankNav={bankNavProps} search={searchProps} />
   );
 
   return (
@@ -498,12 +556,12 @@ export function TimelineView(): ReactElement {
         footer={footerContent}
         scrollable={false}
       >
-        {/* Main timeline area - flex column for stacked content */}
-        <div className="flex flex-col h-full mt-2">
+        {/* Main timeline area - containerRef for height measurement */}
+        <div ref={contentContainerRef} className="flex flex-col h-full mt-2">
           {/* Timeline canvas with multi-track lanes */}
           <div ref={timelineContainerRef} className="relative shrink-0">
             <Timeline
-              height={TIMELINE_HEIGHT}
+              height={timelineHeight}
               viewport={viewport}
               multiTrackLanes={laneTracks}
               multiTrackIndices={displayTrackIndices}
@@ -519,7 +577,7 @@ export function TimelineView(): ReactElement {
               >
                 {laneTracks.map((track, laneIdx) => {
                   const trackIdx = displayTrackIndices[laneIdx];
-                  const laneHeight = TIMELINE_HEIGHT / laneTracks.length;
+                  const laneHeight = timelineHeight / laneTracks.length;
                   return (
                     <div
                       key={track.g}
@@ -547,38 +605,6 @@ export function TimelineView(): ReactElement {
                   );
                 })}
               </div>
-            )}
-          </div>
-
-          {/* Info bars section - can grow/scroll if needed */}
-          <div className="flex-1 min-h-0 overflow-y-auto">
-            {/* Region info bar */}
-            <RegionInfoBar
-              className="mt-3"
-              onAddRegion={timelineMode === 'regions' ? openAddRegionModal : undefined}
-            />
-            <div className="mt-2">
-              <RegionEditActionBar />
-            </div>
-
-            {/* Marker/Item Info - only shown in navigate mode */}
-            {/* Contextual: marker overlays item selection (marker takes precedence) */}
-            {timelineMode === 'navigate' && (
-              <section data-testid="navigate-info-section" className="mt-4 flex flex-col gap-2">
-                {/* Marker info bar - shown when a marker is selected (handles own visibility) */}
-                <MarkerInfoBar />
-                {/* Item info bar - shown when NO marker selected and items are selected */}
-                {selectedMarkerId === null && itemSelectionModeActive && <NavigateItemInfoBar />}
-                {/* Fallback when nothing is active */}
-                {selectedMarkerId === null && !itemSelectionModeActive && (
-                  <div
-                    data-testid="nothing-selected-message"
-                    className="px-3 py-2 text-text-muted text-sm text-center"
-                  >
-                    Tap a marker pill or item blob to select
-                  </div>
-                )}
-              </section>
             )}
           </div>
         </div>

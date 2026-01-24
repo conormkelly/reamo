@@ -32,6 +32,8 @@ export interface UseBankNavigationReturn {
   prefetchEnd: number;
   /** Total number of banks */
   totalBanks: number;
+  /** Total trackable count (used in display denominator) */
+  totalCount: number;
   /** Can navigate to previous bank */
   canGoBack: boolean;
   /** Can navigate to next bank */
@@ -179,6 +181,7 @@ export function useBankNavigation(
     prefetchStart,
     prefetchEnd,
     totalBanks,
+    totalCount: trackableCount,
     canGoBack,
     canGoForward,
     goBack,

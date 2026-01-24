@@ -258,7 +258,7 @@ export function ActionsView(): ReactElement {
             <LayoutGrid size={48} className="text-text-disabled mb-4" />
             <h2 className="text-xl font-medium text-text-tertiary mb-2">No Sections Yet</h2>
             <p className="text-text-muted mb-6 max-w-xs">
-              Add buttons that trigger REAPER actions or send MIDI. Organize them into named sections.
+              Add buttons that trigger REAPER actions or send MIDI control messages. Organize them into named sections.
             </p>
             <button
               onClick={() => {

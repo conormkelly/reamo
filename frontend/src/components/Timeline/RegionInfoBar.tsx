@@ -525,7 +525,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
     label: string,
     value: string,
     colorClass: string = 'text-text-primary',
-    inputWidth: string = 'w-20'
+    inputWidth: string = 'w-24'
   ) => {
     const isEditing = editingField === field;
 
@@ -540,12 +540,12 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
             onChange={(e) => setEditValue(e.target.value)}
             onKeyDown={handleKeyDown}
             onBlur={handleConfirm}
-            className={`${inputWidth} px-1.5 py-0.5 bg-bg-elevated border border-accent-region rounded text-text-primary font-mono text-xs focus:outline-none focus:ring-1 focus:ring-accent-region`}
+            className={`${inputWidth} px-1.5 py-0.5 bg-bg-elevated border border-accent-region rounded text-text-primary font-mono text-base focus:outline-none focus:ring-1 focus:ring-accent-region`}
           />
         ) : (
           <button
             onClick={() => handleFieldClick(field)}
-            className={`${colorClass} font-mono text-xs hover:bg-bg-elevated px-1.5 py-0.5 rounded transition-colors cursor-pointer truncate max-w-24`}
+            className={`${colorClass} font-mono text-sm hover:bg-bg-elevated px-1.5 py-0.5 rounded transition-colors cursor-pointer truncate max-w-28`}
           >
             {value}
           </button>
@@ -557,15 +557,15 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
   return (
     <div className={`flex items-center gap-2 ${className}`}>
       {/* Region info section */}
-      <div className="flex flex-col gap-1 px-3 py-1.5 bg-bg-surface/50 rounded-lg text-sm flex-1 min-w-0">
+      <div className="flex flex-col gap-2 px-3 py-2 bg-bg-surface/50 rounded-lg text-sm flex-1 min-w-0">
         {region ? (
           <>
             {/* Line 1: Name and Color */}
             <div className="flex items-center gap-3">
               {/* Name */}
-              {renderField('name', 'Name', region.name, 'text-text-primary font-medium', 'w-24')}
+              {renderField('name', 'Name', region.name, 'text-text-primary font-medium', 'w-28')}
 
-              <div className="w-px h-4 bg-border-default flex-shrink-0" />
+              <div className="w-px h-5 bg-border-default flex-shrink-0" />
 
               {/* Color */}
               <div className="flex items-center gap-1.5 relative">
@@ -573,7 +573,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
                 <button
                   ref={colorTriggerRef}
                   onClick={() => handleFieldClick('color')}
-                  className="w-6 h-6 rounded border-2 border-border-default hover:border-text-secondary transition-colors cursor-pointer"
+                  className="w-7 h-7 rounded border-2 border-border-default hover:border-text-secondary transition-colors cursor-pointer"
                   style={{ backgroundColor: currentColor }}
                   title="Change color"
                   aria-expanded={showColorPicker}
@@ -657,19 +657,19 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
                 displayStartBars
               )}
 
-              <div className="w-px h-4 bg-border-default flex-shrink-0" />
+              <div className="w-px h-5 bg-border-default flex-shrink-0" />
 
               {/* End position - display only (derived from start + length) */}
               <div className="flex items-center gap-1.5">
                 <span className="text-text-secondary text-xs">End:</span>
-                <span className="text-text-tertiary font-mono text-xs px-1.5 py-0.5">
+                <span className="text-text-tertiary font-mono text-sm px-1.5 py-0.5">
                   {displayEndBars}
                 </span>
               </div>
 
               {/* Length - inline on larger screens */}
               <div className="hidden sm:flex items-center gap-3">
-                <div className="w-px h-4 bg-border-default flex-shrink-0" />
+                <div className="w-px h-5 bg-border-default flex-shrink-0" />
                 {renderField(
                   'length',
                   'Length',
@@ -690,7 +690,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
             </div>
           </>
         ) : (
-          <span className="text-text-muted text-sm italic">Select a region to edit</span>
+          <span className="text-text-muted text-sm italic py-1">Select a region to edit</span>
         )}
       </div>
 
@@ -698,10 +698,10 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
       {region && (
         <button
           onClick={() => openDeleteRegionModal(region, region.id)}
-          className="flex items-center gap-1.5 px-3 py-2 h-10 bg-error-action/80 hover:bg-error text-text-on-error text-sm font-medium rounded-lg transition-colors flex-shrink-0"
+          className="flex items-center gap-1.5 px-3 py-2.5 bg-error-action/80 hover:bg-error text-text-on-error text-sm font-medium rounded-lg transition-colors flex-shrink-0"
           title="Delete selected region"
         >
-          <Trash2 size={16} />
+          <Trash2 size={18} />
           <span className="hidden sm:inline">Delete</span>
         </button>
       )}
@@ -715,14 +715,14 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
           onPointerMove={handleAddPointerMove}
           onPointerLeave={handleAddPointerLeave}
           onPointerCancel={handleAddPointerLeave}
-          className={`flex items-center gap-1.5 px-3 py-2 h-10 text-text-primary text-sm font-medium rounded-lg transition-colors flex-shrink-0 touch-none ${
+          className={`flex items-center gap-1.5 px-3 py-2.5 text-text-primary text-sm font-medium rounded-lg transition-colors flex-shrink-0 touch-none ${
             isCloneMode
               ? 'bg-success-action hover:bg-success'
               : 'bg-accent-region hover:bg-accent-region-hover'
           }`}
           title={region ? 'Tap to add, long-press to clone selected' : 'Add new region'}
         >
-          {isCloneMode ? <CopyPlus size={16} /> : <Plus size={16} />}
+          {isCloneMode ? <CopyPlus size={18} /> : <Plus size={18} />}
           <span className="hidden sm:inline">{isCloneMode ? 'Clone' : 'Add'}</span>
         </button>
       )}

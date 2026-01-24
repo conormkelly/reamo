@@ -9,10 +9,11 @@
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo, type ReactElement } from 'react';
-import { ViewHeader, ViewLayout } from '../../components';
+import { ViewHeader, ViewLayout, SecondaryPanel, type SecondaryPanelTabConfig, type BankNavProps, type SearchProps } from '../../components';
 import {
   MixerStrip,
-  BankNavigator,
+  MixerStripCompact,
+  TrackDetailSheet,
   BankSelector,
   BankEditorModal,
   TrackInfoBar,
@@ -24,25 +25,30 @@ import {
   type CustomBank,
   type BuiltinBankId,
 } from '../../components/Mixer';
-import { Plus } from 'lucide-react';
-import { TrackFilter } from '../../components/Track';
+import { Plus, Info } from 'lucide-react';
 import {
   useResponsiveChannelCount,
   useBankNavigation,
   useTrackSkeleton,
   useCustomBanks,
   useFolderHierarchy,
+  useAvailableContentHeight,
 } from '../../hooks';
 import { useReaper } from '../../components/ReaperProvider';
 import { track } from '../../core/WebSocketCommands';
 import { useReaperStore } from '../../store';
 import { EMPTY_TRACKS, EMPTY_STRING_ARRAY } from '../../store/stableRefs';
+import {
+  STRIP_OVERHEAD_FULL,
+  STRIP_OVERHEAD_COMPACT,
+  MIN_FADER_PORTRAIT,
+  MIN_FADER_LANDSCAPE,
+  MAX_FADER_PERCENT,
+  MIXER_CONTENT_PADDING,
+} from '../../constants/layout';
 
 /** Storage key for info-selected track */
 const INFO_SELECTED_STORAGE_KEY = 'reamo-mixer-info-selected';
-
-/** Fader height for volume mode */
-const FADER_HEIGHT = 220;
 
 export function MixerView(): ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -51,6 +57,32 @@ export function MixerView(): ReactElement {
   const tracks = useReaperStore((state) => state?.tracks ?? EMPTY_TRACKS);
   const pinMasterTrack = useReaperStore((state) => state.pinMasterTrack);
   const showAddTrackButton = useReaperStore((state) => state.showAddTrackButton);
+
+  // Responsive height measurement - tracks container size and panel transitions
+  const { availableHeight, isLandscape } = useAvailableContentHeight({
+    containerRef,
+    viewId: 'mixer',
+  });
+
+  // Dynamic fader height based on measured container height and orientation
+  // Budget = availableHeight - container padding - strip overhead
+  // The strip must fit entirely within this budget
+  const faderHeight = useMemo(() => {
+    const minFader = isLandscape ? MIN_FADER_LANDSCAPE : MIN_FADER_PORTRAIT;
+    const overhead = isLandscape ? STRIP_OVERHEAD_COMPACT : STRIP_OVERHEAD_FULL;
+
+    if (availableHeight === 0) return minFader; // Initial render before measurement
+
+    // Total budget for strip = container height minus padding
+    const stripBudget = availableHeight - MIXER_CONTENT_PADDING;
+    // Fader height = budget minus non-fader overhead
+    const calculated = stripBudget - overhead;
+
+    return Math.min(
+      Math.max(minFader, calculated), // Floor: touch usability minimum
+      stripBudget * MAX_FADER_PERCENT  // Ceiling: prevent overflow in edge cases
+    );
+  }, [availableHeight, isLandscape]);
 
   // Responsive channel count - accounts for pinned master taking space
   const { channelCount } = useResponsiveChannelCount({
@@ -68,6 +100,7 @@ export function MixerView(): ReactElement {
     goBack,
     goForward,
     bankDisplay,
+    totalCount,
   } = useBankNavigation({
     channelCount,
     totalTracks,
@@ -93,6 +126,10 @@ export function MixerView(): ReactElement {
 
   // Create track modal state
   const [createTrackModalOpen, setCreateTrackModalOpen] = useState(false);
+
+  // Track detail sheet state (landscape mode)
+  const [detailSheetTrackIdx, setDetailSheetTrackIdx] = useState<number | undefined>(undefined);
+  const [detailSheetOpen, setDetailSheetOpen] = useState(false);
 
   // Track filter state
   const [filterQuery, setFilterQuery] = useState('');
@@ -329,6 +366,56 @@ export function MixerView(): ReactElement {
     setInfoSelectedTrackIdx(trackIndex);
   }, []);
 
+  // Handle opening detail sheet (landscape mode)
+  // Opens sheet if closed, or switches track if already open
+  const handleOpenDetail = useCallback((trackIndex: number) => {
+    setDetailSheetTrackIdx(trackIndex);
+    setDetailSheetOpen(true);
+  }, []);
+
+  // Close detail sheet
+  const handleCloseDetail = useCallback(() => {
+    setDetailSheetOpen(false);
+  }, []);
+
+  // Info tab content
+  const infoTabContent = useMemo(() => (
+    <TrackInfoBar
+      selectedTrackIdx={infoSelectedTrackIdx}
+      onShowRouting={handleShowRouting}
+      onFolderClick={handleFolderClick}
+    />
+  ), [infoSelectedTrackIdx, handleShowRouting, handleFolderClick]);
+
+  // Secondary panel tab configuration - just Info tab (filter/nav now in header)
+  const secondaryTabs: SecondaryPanelTabConfig[] = useMemo(() => [
+    {
+      id: 'info',
+      icon: Info,
+      label: 'Track Info',
+      content: infoTabContent,
+    },
+  ], [infoTabContent]);
+
+  // Bank navigation props for SecondaryPanel header
+  // Use filtered count when filtering, otherwise use bank total count
+  const effectiveTotalCount = isFiltered ? allFilteredIndices.length : totalCount;
+  const bankNavProps: BankNavProps = useMemo(() => ({
+    bankDisplay: effectiveBankDisplay,
+    compactDisplay: String(effectiveTotalCount),
+    canGoBack: effectiveCanGoBack,
+    canGoForward: effectiveCanGoForward,
+    onBack: handleBack,
+    onForward: handleForward,
+  }), [effectiveBankDisplay, effectiveTotalCount, effectiveCanGoBack, effectiveCanGoForward, handleBack, handleForward]);
+
+  // Search props for SecondaryPanel header
+  const searchProps: SearchProps = useMemo(() => ({
+    value: filterQuery,
+    onChange: setFilterQuery,
+    placeholder: 'Filter tracks...',
+  }), [filterQuery, setFilterQuery]);
+
   // Handle bank change
   const handleBankChange = useCallback((bankId: string | null) => {
     setSelectedBankId(bankId);
@@ -443,65 +530,42 @@ export function MixerView(): ReactElement {
           />
         </ViewHeader>
       }
-      footer={
-        <>
-          {/* Track info bar - shows when a track is selected */}
-          <TrackInfoBar
-            selectedTrackIdx={infoSelectedTrackIdx}
-            onShowRouting={handleShowRouting}
-            onFolderClick={handleFolderClick}
-            className="shrink-0"
-          />
-
-          {/* Footer controls - filter and bank navigation inline */}
-          <div className="shrink-0 pt-2 border-t border-border-subtle">
-            <div className="flex items-center gap-3">
-              {/* Track filter on left - takes remaining space, pushes bank nav right */}
-              <TrackFilter
-                value={filterQuery}
-                onChange={setFilterQuery}
-                placeholder="Filter..."
-                hideCount
-                className="flex-1"
-              />
-
-              {/* Bank navigator on right */}
-              <BankNavigator
-                bankDisplay={effectiveBankDisplay}
-                canGoBack={effectiveCanGoBack}
-                canGoForward={effectiveCanGoForward}
-                onBack={handleBack}
-                onForward={handleForward}
-              />
-            </div>
-          </div>
-        </>
-      }
+      footer={<SecondaryPanel viewId="mixer" tabs={secondaryTabs} bankNav={bankNavProps} search={searchProps} />}
       scrollable={false}
       className="bg-bg-app text-text-primary p-3"
     >
-      {/* Main mixer area - containerRef for width measurement */}
+      {/* Main mixer area - containerRef for height/width measurement */}
       <div
         ref={containerRef}
-        className="h-full flex items-center justify-center gap-2 relative"
+        className="h-full flex items-center justify-center gap-2 relative overflow-hidden pb-3"
       >
         {/* Master track - pinned on left when enabled */}
         {pinMasterTrack && (
           <div className="border-r pr-2 border-border-subtle">
             {hasTrackData(0) ? (
-              <MixerStrip
-                trackIndex={0}
-                mode="volume"
-                faderHeight={FADER_HEIGHT}
-                showDbLabel={true}
-                isInfoSelected={infoSelectedTrackIdx === 0}
-                onSelectForInfo={setInfoSelectedTrackIdx}
-              />
+              isLandscape ? (
+                <MixerStripCompact
+                  trackIndex={0}
+                  faderHeight={faderHeight}
+                  isInfoSelected={infoSelectedTrackIdx === 0}
+                  onSelectForInfo={setInfoSelectedTrackIdx}
+                  onOpenDetail={handleOpenDetail}
+                />
+              ) : (
+                <MixerStrip
+                  trackIndex={0}
+                  mode="volume"
+                  faderHeight={faderHeight}
+                  showDbLabel={true}
+                  isInfoSelected={infoSelectedTrackIdx === 0}
+                  onSelectForInfo={setInfoSelectedTrackIdx}
+                />
+              )
             ) : (
               // Loading placeholder for master
               <div
                 className="bg-bg-surface/50 rounded-lg animate-pulse"
-                style={{ width: 80, height: FADER_HEIGHT + 100 }}
+                style={{ width: isLandscape ? 72 : 80, height: faderHeight + (isLandscape ? 40 : 100) }}
               />
             )}
           </div>
@@ -512,19 +576,29 @@ export function MixerView(): ReactElement {
           {displayTrackIndices.map((trackIndex) => (
             <div key={trackIndex}>
               {hasTrackData(trackIndex) ? (
-                <MixerStrip
-                  trackIndex={trackIndex}
-                  mode="volume"
-                  faderHeight={FADER_HEIGHT}
-                  showDbLabel={true}
-                  isInfoSelected={infoSelectedTrackIdx === trackIndex}
-                  onSelectForInfo={setInfoSelectedTrackIdx}
-                />
+                isLandscape ? (
+                  <MixerStripCompact
+                    trackIndex={trackIndex}
+                    faderHeight={faderHeight}
+                    isInfoSelected={infoSelectedTrackIdx === trackIndex}
+                    onSelectForInfo={setInfoSelectedTrackIdx}
+                    onOpenDetail={handleOpenDetail}
+                  />
+                ) : (
+                  <MixerStrip
+                    trackIndex={trackIndex}
+                    mode="volume"
+                    faderHeight={faderHeight}
+                    showDbLabel={true}
+                    isInfoSelected={infoSelectedTrackIdx === trackIndex}
+                    onSelectForInfo={setInfoSelectedTrackIdx}
+                  />
+                )
               ) : (
                 // Loading placeholder
                 <div
                   className="bg-bg-surface/50 rounded-lg animate-pulse"
-                  style={{ width: 80, height: FADER_HEIGHT + 100 }}
+                  style={{ width: isLandscape ? 72 : 80, height: faderHeight + (isLandscape ? 40 : 100) }}
                 />
               )}
             </div>
@@ -587,6 +661,13 @@ export function MixerView(): ReactElement {
         folderPath={folderPath}
         onNavigate={setFolderPath}
         onSelectTrack={handleFolderSheetSelectTrack}
+      />
+
+      {/* Track detail sheet (landscape mode) */}
+      <TrackDetailSheet
+        trackIndex={detailSheetTrackIdx}
+        isOpen={detailSheetOpen}
+        onClose={handleCloseDetail}
       />
     </ViewLayout>
   );
