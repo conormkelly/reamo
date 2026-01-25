@@ -1,13 +1,21 @@
 /**
  * Monitor Button Component
  * Cycle through record monitor states: Off → On → Auto
+ *
+ * Accessibility: Uses aria-label + live region instead of aria-pressed
+ * because aria-pressed is only appropriate for binary toggles.
  */
 
-import type { ReactElement } from 'react';
+import { useState, type ReactElement } from 'react';
 import { Headphones } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useTrack } from '../../hooks/useTrack';
 import { useReaperStore } from '../../store';
+import {
+  getInactiveClasses,
+  getLockedClasses,
+  trackControlBaseClasses,
+} from './trackControlStyles';
 
 export interface MonitorButtonProps {
   trackIndex: number;
@@ -15,6 +23,12 @@ export interface MonitorButtonProps {
   /** Whether parent track is selected (affects background) */
   isSelected?: boolean;
 }
+
+const stateLabels = {
+  off: 'Monitor Off',
+  on: 'Monitor On',
+  auto: 'Monitor Auto',
+} as const;
 
 export function MonitorButton({
   trackIndex,
@@ -25,15 +39,24 @@ export function MonitorButton({
   const { recordMonitorState, cycleRecordMonitor } = useTrack(trackIndex);
   const mixerLocked = useReaperStore((s) => s.mixerLocked);
 
+  // Live region announcement for screen readers
+  const [announcement, setAnnouncement] = useState('');
+
   const handleClick = () => {
     if (mixerLocked) return;
     sendCommand(cycleRecordMonitor());
+    // Announce the next state (what it's changing to)
+    const nextState =
+      recordMonitorState === 'off'
+        ? 'on'
+        : recordMonitorState === 'on'
+          ? 'auto'
+          : 'off';
+    setAnnouncement(`Monitor mode: ${stateLabels[nextState]}`);
   };
 
-  // Buttons always darker than track background for contrast
-  const offStyle = isSelected
-    ? 'bg-bg-surface text-text-tertiary hover:bg-bg-elevated'
-    : 'bg-bg-deep text-text-tertiary hover:bg-bg-surface';
+  const offStyle = getInactiveClasses(isSelected);
+  const lockedClasses = getLockedClasses(mixerLocked);
 
   const stateStyles = {
     off: offStyle,
@@ -41,22 +64,20 @@ export function MonitorButton({
     auto: 'bg-monitor-auto-bg text-monitor-auto-text',
   };
 
-  const stateLabels = {
-    off: 'Monitor Off',
-    on: 'Monitor On',
-    auto: 'Monitor Auto',
-  };
-
   return (
-    <button
-      onClick={handleClick}
-      aria-pressed={recordMonitorState !== 'off'}
-      title={stateLabels[recordMonitorState]}
-      className={`px-2 py-1 rounded text-sm font-medium transition-colors ${
-        mixerLocked ? 'opacity-50 cursor-not-allowed' : ''
-      } ${stateStyles[recordMonitorState]} ${className}`}
-    >
-      <Headphones size={14} className="inline-block" />
-    </button>
+    <>
+      <button
+        onClick={handleClick}
+        aria-label={stateLabels[recordMonitorState]}
+        title={stateLabels[recordMonitorState]}
+        className={`px-2 py-1 ${trackControlBaseClasses} ${lockedClasses} ${stateStyles[recordMonitorState]} ${className}`}
+      >
+        <Headphones size={14} className="inline-block" />
+      </button>
+      {/* Live region for screen reader announcements */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {announcement}
+      </span>
+    </>
   );
 }

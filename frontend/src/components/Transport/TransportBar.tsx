@@ -9,57 +9,13 @@ import { useReaper } from '../ReaperProvider';
 import { useTransport } from '../../hooks/useTransport';
 import { useReaperStore } from '../../store';
 import { transport, action } from '../../core/WebSocketCommands';
+import { CircularTransportButton } from './CircularTransportButton';
 
 // Hold duration threshold in ms
 const HOLD_THRESHOLD = 300;
 
 export interface TransportBarProps {
   className?: string;
-}
-
-interface TransportButtonProps {
-  onClick: () => void;
-  isActive?: boolean;
-  activeColor?: 'green' | 'red' | 'gray';
-  inactiveClass?: string;
-  title: string;
-  children: React.ReactNode;
-  pulse?: boolean;
-}
-
-function TransportButton({
-  onClick,
-  isActive = false,
-  activeColor = 'gray',
-  inactiveClass,
-  title,
-  children,
-  pulse = false,
-}: TransportButtonProps): ReactElement {
-  const colorClasses = {
-    green: 'bg-success',
-    red: 'bg-error',
-    gray: 'bg-bg-disabled',
-  };
-
-  const defaultInactiveClass = 'bg-bg-elevated hover:bg-bg-hover';
-
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      aria-label={title}
-      aria-pressed={isActive}
-      className={`
-        w-11 h-11 rounded-full flex items-center justify-center
-        transition-colors
-        ${isActive ? colorClasses[activeColor] : (inactiveClass || defaultInactiveClass)}
-        ${pulse ? 'animate-pulse' : ''}
-      `}
-    >
-      {children}
-    </button>
-  );
 }
 
 /**
@@ -147,49 +103,49 @@ export function TransportBar({ className = '' }: TransportBarProps): ReactElemen
       </span>
 
       {/* Skip to Start */}
-      <TransportButton onClick={handleSkipToStart} title="Skip to Start">
+      <CircularTransportButton onClick={handleSkipToStart} title="Skip to Start">
         <SkipBack size={20} />
-      </TransportButton>
+      </CircularTransportButton>
 
       {/* Play */}
-      <TransportButton
+      <CircularTransportButton
         onClick={handlePlay}
         isActive={isPlaying}
         activeColor="green"
         title="Play"
       >
         <Play size={20} fill={isPlaying ? 'currentColor' : 'none'} />
-      </TransportButton>
+      </CircularTransportButton>
 
       {/* Pause */}
-      <TransportButton
+      <CircularTransportButton
         onClick={handlePause}
         isActive={isPaused}
         activeColor="gray"
         title="Pause"
       >
         <Pause size={20} fill={isPaused ? 'currentColor' : 'none'} />
-      </TransportButton>
+      </CircularTransportButton>
 
       {/* Loop/Repeat */}
-      <TransportButton
+      <CircularTransportButton
         onClick={handleRepeat}
         isActive={isRepeat}
         activeColor="green"
         title="Toggle Loop"
       >
         <Repeat size={20} />
-      </TransportButton>
+      </CircularTransportButton>
 
       {/* Stop */}
-      <TransportButton
+      <CircularTransportButton
         onClick={handleStop}
         isActive={isStopped}
         activeColor="gray"
         title="Stop"
       >
         <Square size={18} fill={isStopped ? 'currentColor' : 'none'} />
-      </TransportButton>
+      </CircularTransportButton>
 
       {/* Record - with long-press for auto-punch toggle */}
       <button

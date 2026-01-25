@@ -289,6 +289,38 @@
   --spacing-meter-gap: 0.125rem;     /* 2px - meter segment gap */
   --spacing-channel-strip: 0.5rem;   /* 8px - mixer channel padding */
   --spacing-transport: 0.75rem;      /* 12px - transport control spacing */
+
+  /* =============================================================================
+   * CONTROL HEIGHT TOKENS
+   * Shared sizing for interactive controls (buttons, inputs, selects).
+   * Three-tier pattern: use these semantic tokens, NOT per-component tokens.
+   * Reference: Shopify Polaris, GitHub Primer control sizing systems.
+   * ============================================================================= */
+
+  /* --- Control Heights --- */
+  --size-control-sm: 2rem;           /* 32px - compact controls */
+  --size-control-md: 2.5rem;         /* 40px - default controls */
+  --size-control-lg: 2.75rem;        /* 44px - touch-friendly (Apple HIG minimum) */
+  --size-control-xl: 3rem;           /* 48px - large touch targets */
+
+  /* --- Touch Target Reference (Apple HIG) --- */
+  --size-touch-target-min: 2.75rem;  /* 44px - minimum for accessibility */
+
+  /* =============================================================================
+   * INTENT VARIANT TOKENS (Button Colors)
+   * Shared color semantics for action buttons across the app.
+   * Components reference these instead of defining their own variants.
+   * ============================================================================= */
+
+  /* Intent backgrounds */
+  --color-intent-primary-bg: var(--color-primary);
+  --color-intent-primary-hover: var(--color-primary-hover);
+  --color-intent-danger-bg: var(--color-error-action);
+  --color-intent-danger-hover: var(--color-error);
+  --color-intent-success-bg: var(--color-success-action);
+  --color-intent-success-hover: var(--color-success);
+  --color-intent-secondary-bg: var(--color-bg-elevated);
+  --color-intent-secondary-hover: var(--color-bg-hover);
 }
 
 :root {
