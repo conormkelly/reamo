@@ -152,7 +152,7 @@ export function NotesView(): ReactElement {
       <ViewLayout
         viewId="notes"
         header={<ViewHeader currentView="notes" />}
-        className="bg-bg-app text-text-primary p-3"
+        className="bg-bg-app text-text-primary p-view"
       >
         <div className="h-full flex items-center justify-center">
           <p className="text-text-secondary">Loading notes...</p>
@@ -225,7 +225,7 @@ export function NotesView(): ReactElement {
       viewId="notes"
       header={headerContent}
       footer={footerContent}
-      className="bg-bg-app text-text-primary p-3"
+      className="bg-bg-app text-text-primary p-view"
     >
       {/* Error display */}
       {notesError && (

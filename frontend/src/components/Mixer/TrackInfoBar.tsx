@@ -354,7 +354,7 @@ export function TrackInfoBar({
   const isMaster = selectedTrackIdx === 0;
 
   return (
-    <div className={`flex flex-col gap-2 px-3 py-2 bg-bg-surface/50 rounded-lg text-sm ${className}`}>
+    <div className={`flex flex-col gap-2 px-infobar-x py-infobar-y bg-bg-surface/50 rounded-lg text-sm ${className}`}>
         {/* Line 1: Track # and Name */}
         <div className="flex items-center gap-3 min-w-0">
           {/* Track number */}

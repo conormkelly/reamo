@@ -187,7 +187,7 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
   };
 
   return (
-    <div data-testid="marker-info-bar" className={`flex flex-col gap-2 px-3 py-2 bg-bg-surface/50 rounded-lg text-sm relative ${className}`}>
+    <div data-testid="marker-info-bar" className={`flex flex-col gap-2 px-infobar-x py-infobar-y bg-bg-surface/50 rounded-lg text-sm relative ${className}`}>
       {/* X close button - top right */}
       <button
         onClick={handleClose}

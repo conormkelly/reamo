@@ -275,7 +275,7 @@ export function PlaylistView(): ReactElement {
     return (
       <ViewLayout
         viewId="playlist"
-        className="bg-bg-app text-text-primary p-3"
+        className="bg-bg-app text-text-primary p-view"
         header={<ViewHeader currentView="playlist" />}
       >
         {/* Empty state content - centered in available space */}
@@ -374,7 +374,7 @@ export function PlaylistView(): ReactElement {
   return (
     <ViewLayout
       viewId="playlist"
-      className="bg-bg-app text-text-primary p-3"
+      className="bg-bg-app text-text-primary p-view"
       header={headerContent}
     >
       {/* Entry list - padding at bottom for fixed playback controls */}

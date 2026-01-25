@@ -350,7 +350,7 @@ export function NavigateItemInfoBar({
   const formattedPosition = singleItem ? formatBeats(singleItem.position) : '-';
 
   return (
-    <div data-testid="item-info-bar" className={`flex flex-col gap-2 px-3 py-2 bg-bg-surface/50 rounded-lg text-sm relative ${className}`}>
+    <div data-testid="item-info-bar" className={`flex flex-col gap-2 px-infobar-x py-infobar-y bg-bg-surface/50 rounded-lg text-sm relative ${className}`}>
       {/* Close button (X) - top right */}
       <button
         onClick={handleExitMode}
