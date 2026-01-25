@@ -1,13 +1,17 @@
-/// REAPER action for displaying network addresses.
-/// Registers "REAmo: Show Network Addresses" in the Actions list.
+/// REAPER actions for network connectivity.
 ///
-/// Users run this action to discover the URL for connecting their phone
+/// Provides two actions:
+/// - "REAmo: Show Network Addresses" - Lists all network interfaces with URLs
+/// - "REAmo: Show Connection QR Code" - Displays QR code for phone scanning
+///
+/// Users run these actions to discover the URL for connecting their phone
 /// via WiFi or USB tethering.
 
 const std = @import("std");
 const builtin = @import("builtin");
 const network_detect = @import("network_detect.zig");
 const logging = @import("logging.zig");
+const qr_window = @import("qr_window.zig");
 
 /// Host operating system for platform-specific troubleshooting messages
 const HostOS = enum {
@@ -132,6 +136,9 @@ pub const PluginRegisterFn = *const fn ([*:0]const u8, ?*anyopaque) callconv(.c)
 /// Function type for ShowMessageBox
 const ShowMessageBoxFn = *const fn ([*:0]const u8, [*:0]const u8, c_int) callconv(.c) c_int;
 
+/// Function type for GetMainHwnd
+const GetMainHwndFn = *const fn () callconv(.c) ?*anyopaque;
+
 // REAPER's custom_action_register_t structure
 // Strings are NOT copied - must be static/comptime
 const CustomActionRegister = extern struct {
@@ -144,11 +151,15 @@ const CustomActionRegister = extern struct {
 // Static strings - must remain valid for plugin lifetime
 const ACTION_ID: [*:0]const u8 = "REAMO_SHOW_NETWORKS";
 const ACTION_NAME: [*:0]const u8 = "REAmo: Show Network Addresses";
+const QR_ACTION_ID: [*:0]const u8 = "REAMO_SHOW_QR_CODE";
+const QR_ACTION_NAME: [*:0]const u8 = "REAmo: Show Connection QR Code";
 
 // Global state
 var g_cmd_show_networks: c_int = 0;
+var g_cmd_show_qr: c_int = 0;
 var g_plugin_register: ?PluginRegisterFn = null;
 var g_show_message_box: ?ShowMessageBoxFn = null;
+var g_get_main_hwnd: ?GetMainHwndFn = null;
 var g_resource_path: ?[]const u8 = null;
 var g_http_port: u16 = 8080; // Default, updated from reaper.ini
 
@@ -157,10 +168,12 @@ var g_http_port: u16 = 8080; // Default, updated from reaper.ini
 pub fn register(
     plugin_register: PluginRegisterFn,
     show_message_box: ?ShowMessageBoxFn,
+    get_main_hwnd: ?GetMainHwndFn,
     resource_path: ?[]const u8,
 ) bool {
     g_plugin_register = plugin_register;
     g_show_message_box = show_message_box;
+    g_get_main_hwnd = get_main_hwnd;
     g_resource_path = resource_path;
 
     // Try to read HTTP port from reaper.ini
@@ -169,7 +182,7 @@ pub fn register(
         logging.info("Network action: HTTP port = {d}", .{g_http_port});
     }
 
-    // Register the custom action
+    // Register the "Show Network Addresses" action
     var action = CustomActionRegister{
         .uniqueSectionId = 0, // Main section
         .idStr = ACTION_ID,
@@ -181,6 +194,22 @@ pub fn register(
     if (g_cmd_show_networks == 0) {
         logging.err("Network action: failed to register custom action", .{});
         return false;
+    }
+
+    // Register the "Show QR Code" action
+    var qr_action = CustomActionRegister{
+        .uniqueSectionId = 0,
+        .idStr = QR_ACTION_ID,
+        .name = QR_ACTION_NAME,
+        .extra = null,
+    };
+
+    g_cmd_show_qr = plugin_register("custom_action", @ptrCast(&qr_action));
+    if (g_cmd_show_qr == 0) {
+        logging.warn("Network action: failed to register QR action", .{});
+        // Continue anyway - the main action still works
+    } else {
+        logging.info("Network action: registered QR command ID {d}", .{g_cmd_show_qr});
     }
 
     // Register command handler
@@ -216,6 +245,10 @@ fn onAction(
     if (command == g_cmd_show_networks) {
         showNetworkAddresses();
         return true; // We handled it
+    }
+    if (command == g_cmd_show_qr and g_cmd_show_qr != 0) {
+        showQRCode();
+        return true;
     }
     return false; // Not our command
 }
@@ -288,6 +321,58 @@ fn showNetworkAddresses() void {
         }
         showNetworkAddresses();
     }
+}
+
+/// Display a QR code window with all available networks.
+/// User can navigate between networks using < > arrows.
+fn showQRCode() void {
+    // Re-read port in case user changed settings
+    if (g_resource_path) |res_path| {
+        g_http_port = getWebInterfacePort(res_path) orelse g_http_port;
+    }
+
+    // Detect networks
+    var networks: [16]network_detect.NetworkInfo = undefined;
+    const count = network_detect.detectNetworks(&networks);
+
+    if (count == 0) {
+        // No networks - show error via message box
+        if (g_show_message_box) |show_msg| {
+            _ = show_msg(
+                "No network interfaces found.\n\nCheck that your network connection is active.",
+                "REAmo QR Code",
+                0, // OK button only
+            );
+        }
+        return;
+    }
+
+    // Sort networks: USB first (preferred for venue use), then LAN
+    var sorted: [16]network_detect.NetworkInfo = undefined;
+    var sorted_count: usize = 0;
+
+    // First pass: USB networks
+    for (networks[0..count]) |n| {
+        if (n.network_type == .ios_usb or n.network_type == .android_usb) {
+            sorted[sorted_count] = n;
+            sorted_count += 1;
+        }
+    }
+    // Second pass: LAN networks
+    for (networks[0..count]) |n| {
+        if (n.network_type == .wifi_lan) {
+            sorted[sorted_count] = n;
+            sorted_count += 1;
+        }
+    }
+
+    // Get main window for parenting
+    const main_hwnd: ?*anyopaque = if (g_get_main_hwnd) |f| f() else null;
+
+    // Show QR window with all networks
+    qr_window.show(sorted[0..sorted_count], g_http_port, main_hwnd);
+
+    logging.info("Network action: showing QR window with {d} networks", .{sorted_count});
 }
 
 /// Parse reaper.ini to find the HTTP web interface port.
