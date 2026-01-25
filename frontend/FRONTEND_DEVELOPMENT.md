@@ -1801,25 +1801,73 @@ Items intentionally not addressed yet:
 | 24×24 color swatches | Rarely used during performance |
 | Frame rate monitoring | No Battery API on iOS |
 
-### ESLint Button Governance (Actionable TODO)
+### ESLint Governance & Pre-commit Hooks ✓
 
-**Goal:** Prevent button pattern drift through tooling.
+**Status:** Implemented. Enforces patterns from this document via custom ESLint rules and pre-commit hooks.
 
-**Proposed rule:** Warn when using raw `<button>` elements in component files.
+#### What's Automated
 
-```javascript
-// eslint-plugin-reamo (future)
-'reamo/prefer-design-system-button': 'warn'
+| Rule | Section | Detection |
+|------|---------|-----------|
+| `reamo/require-effect-cleanup` | §4 Memory Safety | Warns on useEffect with timers/listeners without cleanup |
+| `reamo/no-state-for-timer-ids` | §4 Memory Safety | Warns on useState for timer/RAF IDs (use useRef) |
+| `reamo/prefer-button-primitive` | §1a Button System | Warns on raw `<button>` (off by default) |
+| `no-restricted-syntax` | §5 React 19 | useRef<T>() without initial value |
+| `no-restricted-syntax` | §6 Zustand 5 | Array/object selectors without useShallow |
+| `no-restricted-syntax` | §6 Zustand 5 | Inline `?? {}` or `?? []` fallbacks |
+| `no-restricted-syntax` | §7 WebSocket | useReaperConnection() outside ReaperProvider |
+| `no-restricted-syntax` | §11 iOS Safari | h-screen without dvh |
+| `no-restricted-imports` | §14 Bundle Size | Barrel imports from lucide-react |
+
+#### Pre-commit Hook
+
+Runs automatically on staged `.ts`/`.tsx` files via Husky + lint-staged:
+
+```bash
+# Triggered by: git commit
+cd frontend && npx lint-staged
+# Runs: eslint --cache --fix --max-warnings=0
 ```
 
-This would encourage using `CircularTransportButton`, `ModalFooter`, track button patterns, etc. instead of ad-hoc button implementations.
+Commits are blocked if warnings remain after auto-fix.
 
-**Implementation steps:**
-1. Create custom ESLint plugin or use `eslint-plugin-react` with custom config
-2. Add pre-commit hook to run lint checks
-3. Document exceptions (e.g., Transport record buttons with custom pointer handlers)
+#### Known Limitations
 
-**Status:** Not yet implemented. Added as actionable item after Phase 3 cleanup - governance tooling should follow standardization work.
+1. **Conditional cleanup detection**: `require-effect-cleanup` cannot detect cleanup returns inside `if` blocks. Only top-level returns are recognized:
+   ```typescript
+   // ❌ Rule misses this valid cleanup
+   useEffect(() => {
+     if (condition) {
+       const id = setInterval(...);
+       return () => clearInterval(id);  // Not detected
+     }
+   }, []);
+   ```
+
+2. **AST selector limits**: `no-restricted-syntax` patterns match syntax, not semantics. Some edge cases may false-positive.
+
+#### Adding Exceptions
+
+For legitimate exceptions, add file-specific overrides in `eslint.config.js`:
+
+```javascript
+{
+  files: ['src/components/MyException.tsx'],
+  rules: {
+    'reamo/require-effect-cleanup': 'off',
+  },
+},
+```
+
+Always add a comment explaining why the exception is needed.
+
+#### Configuration Files
+
+- `eslint.config.js` - Rule definitions and file overrides
+- `eslint-rules/index.js` - Custom rule implementations
+- `lint-staged.config.js` - Pre-commit lint configuration
+- `.husky/pre-commit` - Git hook entry point
+- `docs/architecture/ESLINT_GOVERNANCE.md` - Full research and rationale
 
 ---
 

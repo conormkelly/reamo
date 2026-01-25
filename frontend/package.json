@@ -5,6 +5,7 @@
   "description": "A modern React-based web control surface for REAPER, designed for songwriting workflows",
   "type": "module",
   "scripts": {
+    "prepare": "cd .. && husky frontend/.husky",
     "dev": "vite",
     "build": "tsc -b && vite build && cp ./dist/index.html ../reamo.html",
     "deploy": "npm run build && cp ./dist/index.html ../reamo.html",
@@ -29,6 +30,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.0",
     "@playwright/test": "^1.57.0",
     "@tailwindcss/postcss": "^4.1.17",
     "@testing-library/jest-dom": "^6.9.1",
