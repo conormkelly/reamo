@@ -148,7 +148,7 @@ export function RegionPickerModal({
             No regions in this project. Create regions in REAPER to add them here.
           </p>
         </ModalContent>
-        <div className="px-4 py-3 border-t border-border-subtle">
+        <div className="px-modal-footer-x py-modal-footer-y border-t border-border-subtle">
           <button
             onClick={onClose}
             className="w-full py-2 bg-bg-elevated hover:bg-bg-hover rounded-lg transition-colors"

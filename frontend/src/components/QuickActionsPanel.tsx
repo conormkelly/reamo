@@ -129,7 +129,7 @@ export function QuickActionsPanel({ isOpen, onClose }: QuickActionsPanelProps): 
 
   return (
     <BottomSheet isOpen={isOpen} onClose={onClose} ariaLabel="Quick actions panel">
-      <div className="px-4 pb-6">
+      <div className="px-sheet-x pb-sheet-bottom">
         {/* Project Name Header */}
         <div className="text-center mb-4 pt-1">
           <h2 className="text-lg font-semibold text-text-primary truncate">

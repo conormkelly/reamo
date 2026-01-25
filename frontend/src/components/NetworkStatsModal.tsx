@@ -96,7 +96,7 @@ export function NetworkStatsModal({ isOpen, onClose }: NetworkStatsModalProps): 
       icon={<Activity size={20} className="text-info" />}
     >
       {/* Content */}
-      <div className="p-4 space-y-4">
+      <div className="p-modal space-y-4">
           {/* Status Section */}
           <div className="grid grid-cols-2 gap-3">
             <StatCard

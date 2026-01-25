@@ -230,7 +230,7 @@ export function ToolbarEditor({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border-subtle">
+        <div className="flex items-center justify-between p-modal border-b border-border-subtle">
           <h2 className="text-lg font-medium">
             {isNew ? `Add ${editorTitle}` : `Edit ${editorTitle}`}
           </h2>
@@ -243,7 +243,7 @@ export function ToolbarEditor({
         </div>
 
         {/* Content */}
-        <div className="p-4 space-y-4">
+        <div className="p-modal space-y-4">
           {/* Label */}
           <div>
             <label className="block text-sm text-text-secondary mb-1">Label</label>
@@ -485,7 +485,7 @@ export function ToolbarEditor({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between p-4 border-t border-border-subtle">
+        <div className="flex items-center justify-between p-modal border-t border-border-subtle">
           <div>
             {!isNew && (
               <button

@@ -94,7 +94,7 @@ export function TrackDetailSheet({
       </div>
 
       {/* Controls grid */}
-      <div className="px-4 pb-6 space-y-4">
+      <div className="px-sheet-x pb-sheet-bottom space-y-4">
         {/* Pan control - wider for better touch target */}
         <div className="flex justify-center">
           <PanKnob
