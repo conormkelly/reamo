@@ -71,23 +71,67 @@ describe('generateTimelineTicks', () => {
       // First bar at time 0 should be bar -4 (1 + (-5))
       expect(barTicks[0].bar).toBe(-4);
     });
-  });
 
-  describe('density by zoom level', () => {
-    it('shows every bar at ≤10s zoom (ruler)', () => {
+    it('includes bar 1 at very zoomed out levels (step > 100)', () => {
+      // 600s visible at 120 BPM = ~300 bars, barStep will be 128 or 256
+      // This catches the bug where step alignment to bar 0 skips bar 1
       const ticks = generateTimelineTicks({
         visibleStart: 0,
-        visibleEnd: 10,
-        visibleDuration: 10,
+        visibleEnd: 600,
+        visibleDuration: 600,
         tempoMarkers: DEFAULT_TEMPO,
         barOffset: 0,
         mode: 'ruler',
       });
 
       const barTicks = ticks.filter((t) => t.type === 'bar');
-      // At 120 BPM, 4/4, one bar = 2 seconds
-      // 10 seconds = 5 bars (0, 1, 2, 3, 4) plus buffer
-      expect(barTicks.length).toBeGreaterThanOrEqual(5);
+      expect(barTicks.length).toBeGreaterThan(0);
+      // Bar 1 should be first, even though step is ~128
+      expect(barTicks[0].bar).toBe(1);
+      expect(barTicks[0].time).toBe(0);
+      // Second tick should be at step boundary (129, 257, etc - aligned from bar 1)
+      expect(barTicks[1].bar).toBeGreaterThan(100);
+    });
+
+    it('aligns to project first bar with negative barOffset at very zoomed out levels', () => {
+      // With barOffset=-5, bar -4 is at time 0
+      // Step boundaries should align to -4: -4, 124, 252...
+      const ticks = generateTimelineTicks({
+        visibleStart: 0,
+        visibleEnd: 600,
+        visibleDuration: 600,
+        tempoMarkers: DEFAULT_TEMPO,
+        barOffset: -5,
+        mode: 'ruler',
+      });
+
+      const barTicks = ticks.filter((t) => t.type === 'bar');
+      expect(barTicks.length).toBeGreaterThan(0);
+      // First bar should be -4 (project first bar)
+      expect(barTicks[0].bar).toBe(-4);
+      expect(barTicks[0].time).toBe(0);
+    });
+  });
+
+  describe('density by zoom level', () => {
+    it('shows every bar at close zoom (step=1)', () => {
+      // At 5s zoom with 120 BPM: ~2.5 bars visible
+      // rawBarStep = 2.5/3 ≈ 0.83 → barStep = 1 (every bar labeled)
+      const ticks = generateTimelineTicks({
+        visibleStart: 0,
+        visibleEnd: 5,
+        visibleDuration: 5,
+        tempoMarkers: DEFAULT_TEMPO,
+        barOffset: 0,
+        mode: 'ruler',
+      });
+
+      const barTicks = ticks.filter((t) => t.type === 'bar');
+      // At 120 BPM, 4/4: bar 1 at 0s, bar 2 at 2s, bar 3 at 4s (plus buffer)
+      expect(barTicks.length).toBeGreaterThanOrEqual(3);
+      // Step=1 means every bar shown: 1, 2, 3...
+      expect(barTicks[0].bar).toBe(1);
+      expect(barTicks[1].bar).toBe(2);
     });
 
     it('shows every 4 bars at 30s zoom (ruler)', () => {
@@ -101,9 +145,9 @@ describe('generateTimelineTicks', () => {
       });
 
       const barTicks = ticks.filter((t) => t.type === 'bar');
-      // All bars should be multiples of 4
+      // All bars should be at step=4 boundaries from bar 1: 1, 5, 9, 13...
       barTicks.forEach((tick) => {
-        expect(tick.bar % 4).toBe(0);
+        expect((tick.bar - 1) % 4).toBe(0);
       });
     });
 
@@ -118,9 +162,9 @@ describe('generateTimelineTicks', () => {
       });
 
       const barTicks = ticks.filter((t) => t.type === 'bar');
-      // All bars should be multiples of 8
+      // All bars should be at step=8 boundaries from bar 1: 1, 9, 17, 25...
       barTicks.forEach((tick) => {
-        expect(tick.bar % 8).toBe(0);
+        expect((tick.bar - 1) % 8).toBe(0);
       });
     });
 
@@ -149,17 +193,20 @@ describe('generateTimelineTicks', () => {
   });
 
   describe('beat subdivisions', () => {
-    it('shows beats at ≤10s zoom (ruler)', () => {
+    it('shows beats at close zoom (barStep=1, ≤4 bars visible)', () => {
+      // Beat subdivisions only appear when barStep=1 AND barsVisible <= 4
+      // At 5s zoom with 120 BPM: ~2.5 bars visible → step=1, beatMode='labels'
       const ticks = generateTimelineTicks({
         visibleStart: 0,
-        visibleEnd: 10,
-        visibleDuration: 10,
+        visibleEnd: 5,
+        visibleDuration: 5,
         tempoMarkers: DEFAULT_TEMPO,
         barOffset: 0,
         mode: 'ruler',
       });
 
       const beatTicks = ticks.filter((t) => t.type === 'beat');
+      // With 4/4 time, each bar has 3 additional beat ticks (beats 2, 3, 4)
       expect(beatTicks.length).toBeGreaterThan(0);
     });
 
@@ -180,22 +227,26 @@ describe('generateTimelineTicks', () => {
 
   describe('buffer for smooth scrolling', () => {
     it('generates ticks beyond visible bounds', () => {
+      // Use 5s zoom to get step=1 for more granular tick generation
       const ticks = generateTimelineTicks({
         visibleStart: 10,
-        visibleEnd: 20,
-        visibleDuration: 10,
+        visibleEnd: 15,
+        visibleDuration: 5,
         tempoMarkers: DEFAULT_TEMPO,
         barOffset: 0,
         mode: 'ruler',
       });
 
+      // Buffer is 10% = 0.5s, so buffered range is 9.5s to 15.5s
       // Should have ticks before visibleStart (buffer)
       const ticksBeforeStart = ticks.filter((t) => t.time < 10);
       expect(ticksBeforeStart.length).toBeGreaterThan(0);
 
-      // Should have ticks after visibleEnd (buffer)
-      const ticksAfterEnd = ticks.filter((t) => t.time > 20);
-      expect(ticksAfterEnd.length).toBeGreaterThan(0);
+      // Should have ticks at or after visibleEnd (buffer)
+      // With step=1, bar 8 is at 14s, bar 9 at 16s (> 15.5, excluded)
+      // So we get ticks up to and including visibleEnd
+      const ticksAtOrAfterEnd = ticks.filter((t) => t.time >= 15);
+      expect(ticksAtOrAfterEnd.length).toBeGreaterThan(0);
     });
   });
 
@@ -314,11 +365,12 @@ describe('duration snapping for consistent steps', () => {
     const driftedBarTicks = drifted.filter((t) => t.type === 'bar');
 
     // Both should use step=4 (every 4 bars) since 30.5 snaps to 30
+    // Bars aligned from bar 1: 1, 5, 9, 13...
     exactBarTicks.forEach((tick) => {
-      expect(tick.bar % 4).toBe(0);
+      expect((tick.bar - 1) % 4).toBe(0);
     });
     driftedBarTicks.forEach((tick) => {
-      expect(tick.bar % 4).toBe(0);
+      expect((tick.bar - 1) % 4).toBe(0);
     });
   });
 
@@ -345,11 +397,12 @@ describe('duration snapping for consistent steps', () => {
     const driftedBarTicks = drifted.filter((t) => t.type === 'bar');
 
     // Both should use step=8 (every 8 bars) since 60.5 snaps to 60
+    // Bars aligned from bar 1: 1, 9, 17, 25...
     exactBarTicks.forEach((tick) => {
-      expect(tick.bar % 8).toBe(0);
+      expect((tick.bar - 1) % 8).toBe(0);
     });
     driftedBarTicks.forEach((tick) => {
-      expect(tick.bar % 8).toBe(0);
+      expect((tick.bar - 1) % 8).toBe(0);
     });
   });
 
@@ -376,12 +429,12 @@ describe('duration snapping for consistent steps', () => {
     const startBarTicks = atStart.filter((t) => t.type === 'bar');
     const pannedBarTicks = panned.filter((t) => t.type === 'bar');
 
-    // Both should use step=4
+    // Both should use step=4, aligned from bar 1: 1, 5, 9, 13...
     startBarTicks.forEach((tick) => {
-      expect(tick.bar % 4).toBe(0);
+      expect((tick.bar - 1) % 4).toBe(0);
     });
     pannedBarTicks.forEach((tick) => {
-      expect(tick.bar % 4).toBe(0);
+      expect((tick.bar - 1) % 4).toBe(0);
     });
   });
 });

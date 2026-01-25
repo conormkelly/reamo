@@ -127,14 +127,14 @@ function getBarStepAndBeats(
   const barStep = Math.max(1, roundToNiceBarStep(rawBarStep));
 
   // Beat display depends on zoom level
-  // Thresholds tuned to avoid excessive density at 5s zoom (~4 bars at 120 BPM)
+  // Only show beat labels at very close zoom for precision editing
   let beatMode: BeatDisplayMode = 'none';
   if (barStep === 1) {
-    if (barsVisible <= 2) {
-      // Very close zoom (1-2 bars): show all beat labels for precision
+    if (barsVisible <= 1.5) {
+      // Very close zoom (~1 bar, ~2-3s at 120 BPM): show beat labels for precision
       beatMode = 'labels';
-    } else if (barsVisible <= 4) {
-      // Close zoom (3-4 bars): show beat tick lines only
+    } else if (barsVisible <= 3) {
+      // Close zoom (2-3 bars, ~4-6s at 120 BPM): show beat tick lines only
       beatMode = 'ticks';
     }
   }
@@ -184,9 +184,12 @@ export function generateTimelineTicks(options: TickGeneratorOptions): TimelineTi
 
   const { barStep, beatMode } = getBarStepAndBeats(barsVisible, mode);
 
-  // Calculate first bar aligned to step boundary
-  // Works with negative bars: floor(-3/4)*4 = floor(-0.75)*4 = -1*4 = -4
-  const firstBar = Math.floor(startBar / barStep) * barStep;
+  // Calculate first bar aligned to step boundary from project's first bar
+  // With barOffset=0, projectFirstBar=1, so steps are: 1, 1+step, 1+2*step, ...
+  // With barOffset=-5, projectFirstBar=-4, so steps are: -4, -4+step, -4+2*step, ...
+  // This ensures the project's first bar is always on a step boundary
+  const projectFirstBar = 1 + barOffset;
+  const firstBar = Math.floor((startBar - projectFirstBar) / barStep) * barStep + projectFirstBar;
 
   const ticks: TimelineTick[] = [];
 
