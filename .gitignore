@@ -17,6 +17,7 @@ test-results
 releases
 frontend/bundle-stats.html
 frontend/coverage
+.eslintcache
 # Extension build artifacts (Zig)
 .zig-cache
 zig-out
