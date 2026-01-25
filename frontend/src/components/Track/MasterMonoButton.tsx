@@ -9,6 +9,7 @@ import { CircleSmall, Unlink2 } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
 import { master } from '../../core/WebSocketCommands';
+import { getInactiveClasses, trackControlBaseClasses } from './trackControlStyles';
 
 export interface MasterMonoButtonProps {
   className?: string;
@@ -28,12 +29,7 @@ export function MasterMonoButton({
     sendCommand(master.toggleMono());
   }, [sendCommand]);
 
-  // Buttons always darker than track background for contrast
-  const inactiveBg = isSelected
-    ? 'bg-bg-surface text-text-tertiary hover:bg-bg-elevated'
-    : 'bg-bg-deep text-text-tertiary hover:bg-bg-surface';
-
-  // Active state when mono is enabled
+  const inactiveBg = getInactiveClasses(isSelected);
   const activeClass = isMono ? 'bg-warning-bright text-text-primary' : inactiveBg;
 
   return (
@@ -41,7 +37,7 @@ export function MasterMonoButton({
       onClick={handleClick}
       aria-pressed={isMono}
       title={isMono ? 'Mono (L+R summed) - click for Stereo' : 'Stereo - click for Mono'}
-      className={`px-2 py-1 rounded text-sm font-medium transition-colors ${activeClass} ${className}`}
+      className={`px-2 py-1 ${trackControlBaseClasses} ${activeClass} ${className}`}
     >
       {isMono ? (
         <CircleSmall size={14} className="inline-block" />

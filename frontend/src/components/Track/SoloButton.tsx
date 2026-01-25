@@ -11,6 +11,11 @@ import { useTrack } from '../../hooks/useTrack';
 import { useReaperStore } from '../../store';
 import { useLongPress } from '../../hooks';
 import { track as trackCmd } from '../../core/WebSocketCommands';
+import {
+  getInactiveClasses,
+  getLockedClasses,
+  trackControlBaseClasses,
+} from './trackControlStyles';
 
 export interface SoloButtonProps {
   trackIndex: number;
@@ -47,19 +52,17 @@ export function SoloButton({
     duration: 400, // Slightly faster than default for responsiveness
   });
 
-  // Buttons always darker than track background for contrast
-  const inactiveBg = isSelected
-    ? 'bg-bg-surface text-text-tertiary hover:bg-bg-elevated'
-    : 'bg-bg-deep text-text-tertiary hover:bg-bg-surface';
+  const inactiveBg = getInactiveClasses(isSelected);
+  const lockedClasses = getLockedClasses(mixerLocked);
 
   return (
     <button
       {...handlers}
       aria-pressed={isSoloed}
       title={isSoloed ? 'Unsolo Track' : 'Solo Track (hold for exclusive)'}
-      className={`px-3 py-1 rounded text-sm font-medium transition-colors touch-none ${
-        mixerLocked ? 'opacity-50 cursor-not-allowed' : ''
-      } ${isSoloed ? 'bg-solo text-solo-text' : inactiveBg} ${className}`}
+      className={`px-3 py-1 ${trackControlBaseClasses} touch-none ${lockedClasses} ${
+        isSoloed ? 'bg-solo text-solo-text' : inactiveBg
+      } ${className}`}
     >
       S
     </button>

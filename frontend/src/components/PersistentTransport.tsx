@@ -15,6 +15,7 @@ import { useTransportAnimation, useDoubleTap, useLongPress } from '../hooks';
 import { formatTime } from '../utils';
 import { QuickActionsPanel } from './QuickActionsPanel';
 import { MarkerNavigationPanel } from './MarkerNavigationPanel';
+import { CircularTransportButton } from './Transport/CircularTransportButton';
 
 // Hold duration threshold in ms
 const HOLD_THRESHOLD = 300;
@@ -23,44 +24,6 @@ export interface PersistentTransportProps {
   className?: string;
   /** Position of transport buttons - 'left' (default) or 'right' */
   position?: 'left' | 'right';
-}
-
-interface MiniTransportButtonProps {
-  onClick: () => void;
-  isActive?: boolean;
-  activeColor?: 'green' | 'red' | 'gray';
-  title: string;
-  children: React.ReactNode;
-}
-
-function MiniTransportButton({
-  onClick,
-  isActive = false,
-  activeColor = 'gray',
-  title,
-  children,
-}: MiniTransportButtonProps): ReactElement {
-  const colorClasses = {
-    green: 'bg-success',
-    red: 'bg-error',
-    gray: 'bg-bg-hover',
-  };
-
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      aria-label={title}
-      aria-pressed={isActive}
-      className={`
-        w-10 h-10 rounded-full flex items-center justify-center
-        transition-colors
-        ${isActive ? colorClasses[activeColor] : 'bg-bg-elevated hover:bg-bg-hover'}
-      `}
-    >
-      {children}
-    </button>
-  );
 }
 
 export function PersistentTransport({ className = '', position = 'left' }: PersistentTransportProps): ReactElement {
@@ -172,36 +135,39 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
     <div className={`flex items-center justify-between bg-bg-deep border-t border-border-muted px-3 py-2 ${isRight ? 'flex-row-reverse' : ''} ${className}`}>
       {/* Transport buttons - compact row */}
       <div className="flex items-center gap-1.5">
-        <MiniTransportButton onClick={handleSkipToStart} title="Skip to Start">
+        <CircularTransportButton onClick={handleSkipToStart} title="Skip to Start" size="sm">
           <SkipBack size={16} />
-        </MiniTransportButton>
+        </CircularTransportButton>
 
-        <MiniTransportButton
+        <CircularTransportButton
           onClick={handlePlay}
           isActive={isPlaying}
           activeColor="green"
           title="Play"
+          size="sm"
         >
           <Play size={16} fill={isPlaying ? 'currentColor' : 'none'} />
-        </MiniTransportButton>
+        </CircularTransportButton>
 
-        <MiniTransportButton
+        <CircularTransportButton
           onClick={handlePause}
           isActive={isPaused}
           activeColor="gray"
           title="Pause"
+          size="sm"
         >
           <Pause size={16} fill={isPaused ? 'currentColor' : 'none'} />
-        </MiniTransportButton>
+        </CircularTransportButton>
 
-        <MiniTransportButton
+        <CircularTransportButton
           onClick={handleStop}
           isActive={isStopped}
           activeColor="gray"
           title="Stop"
+          size="sm"
         >
           <Square size={14} fill={isStopped ? 'currentColor' : 'none'} />
-        </MiniTransportButton>
+        </CircularTransportButton>
 
         {/* Record - with long-press for auto-punch toggle */}
         <button

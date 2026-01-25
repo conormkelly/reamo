@@ -11,6 +11,11 @@ import { useTrack } from '../../hooks/useTrack';
 import { useReaperStore } from '../../store';
 import { useLongPress } from '../../hooks/useLongPress';
 import { InputSelectionSheet } from '../Mixer';
+import {
+  getInactiveClasses,
+  getLockedClasses,
+  trackControlBaseClasses,
+} from './trackControlStyles';
 
 export interface RecordArmButtonProps {
   trackIndex: number;
@@ -44,10 +49,8 @@ export function RecordArmButton({
     duration: 400,
   });
 
-  // Buttons always darker than track background for contrast
-  const inactiveBg = isSelected
-    ? 'bg-bg-surface text-text-tertiary hover:bg-bg-elevated'
-    : 'bg-bg-deep text-text-tertiary hover:bg-bg-surface';
+  const inactiveBg = getInactiveClasses(isSelected);
+  const lockedClasses = getLockedClasses(mixerLocked);
 
   return (
     <>
@@ -55,9 +58,9 @@ export function RecordArmButton({
         {...handlers}
         aria-pressed={isRecordArmed}
         title={isRecordArmed ? 'Disarm Track (long-press for input)' : 'Arm Track for Recording (long-press for input)'}
-        className={`px-2 py-1 rounded text-sm font-medium transition-colors ${
-          mixerLocked ? 'opacity-50 cursor-not-allowed' : ''
-        } ${isRecordArmed ? 'bg-error-action text-text-on-error' : inactiveBg} ${className}`}
+        className={`px-2 py-1 ${trackControlBaseClasses} ${lockedClasses} ${
+          isRecordArmed ? 'bg-error-action text-text-on-error' : inactiveBg
+        } ${className}`}
       >
         <Circle size={14} className={`inline-block ${isRecordArmed ? 'fill-current' : ''}`} />
       </button>

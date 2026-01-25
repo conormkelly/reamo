@@ -12,6 +12,7 @@ Best practices, patterns, and conventions for the REAmo React frontend.
 ## Table of Contents
 
 1. [Design System (Design Tokens)](#1-design-system-design-tokens)
+1a. [Button System](#1a-button-system)
 2. [Code Organization](#2-code-organization)
 3. [Reusable Utilities](#3-reusable-utilities-check-before-creating)
 4. [Memory Safety](#4-memory-safety-critical-for-hour-long-sessions)
@@ -174,6 +175,114 @@ Following Shopify Polaris, GitHub Primer, Adobe Spectrum:
 - **Don't duplicate `layout.ts`** - Those are layout dimensions (heights, widths), not spacing tokens
 
 See: `FRONTEND_CLEANUP_PHASE_2_FINDINGS.md`, `research/FRONTEND_SPACING_DESIGN.md`
+
+---
+
+## 1a. Button System
+
+### Control Height Tokens
+
+All interactive controls (buttons, inputs, selects) use shared height tokens defined in `src/index.css`:
+
+| Token | Value | Use Case |
+|-------|-------|----------|
+| `--size-control-sm` | 32px | Compact density mode |
+| `--size-control-md` | 40px | Default controls |
+| `--size-control-lg` | 44px | Touch-friendly (Apple HIG minimum) |
+| `--size-control-xl` | 48px | Large touch targets |
+| `--size-touch-target-min` | 44px | Reference for accessibility audits |
+
+**Why shared tokens?** Buttons, inputs, and selects should align visually. Using `--size-control-md` everywhere ensures 40px buttons pair correctly with 40px inputs.
+
+### Button Categories
+
+| Category | Component | Usage |
+|----------|-----------|-------|
+| **Transport** | `CircularTransportButton` | Play, Stop, Pause, Record, Loop |
+| **Track Controls** | `MuteButton`, `SoloButton`, etc. | Mixer strip toggles |
+| **Modal Actions** | `ModalFooter` | Cancel/Confirm in dialogs |
+| **Toolbar** | `ToolbarButton` | User-configurable action buttons |
+
+### Intent Variants (Semantic Colors)
+
+Use intent tokens for button colors, not raw color tokens:
+
+```tsx
+// Good - semantic intent
+<button className="bg-intent-primary-bg hover:bg-intent-primary-hover">
+  Save
+</button>
+
+// Avoid - raw colors (unless for domain-specific meaning like solo=yellow)
+<button className="bg-primary hover:bg-primary-hover">
+  Save
+</button>
+```
+
+Intent tokens:
+- `--color-intent-primary-*` - Primary actions (save, confirm)
+- `--color-intent-danger-*` - Destructive actions (delete, cancel recording)
+- `--color-intent-success-*` - Positive actions (keep, approve)
+- `--color-intent-secondary-*` - Secondary/neutral actions
+
+**Exception:** Domain-specific buttons (Mute=blue, Solo=yellow, Arm=red) use their semantic color tokens directly as they have established DAW meanings.
+
+### Touch Targets
+
+**Minimum:** 44×44px (Apple HIG). Track control buttons are currently smaller for density; this is a known compromise documented for future accessibility work.
+
+**Best practice:** Use `min-h-[--size-touch-target-min]` or `min-h-11` for touchable elements.
+
+### Binary vs Tri-State Toggles
+
+**Binary toggles** (on/off states): Use `aria-pressed`
+
+```tsx
+<button aria-pressed={isActive}>
+  Toggle
+</button>
+```
+
+**Tri-state toggles** (3+ states): Do NOT use `aria-pressed`. Instead:
+
+```tsx
+// Use aria-label with current state
+<button aria-label={`Mode: ${currentState}`}>
+  <Icon />
+</button>
+
+// Announce changes with live region
+<span role="status" aria-live="polite" className="sr-only">
+  {stateChangeAnnouncement}
+</span>
+```
+
+Example: MonitorButton cycles Off → On → Auto. Using `aria-pressed` would be incorrect (screen readers wouldn't know the difference between On and Auto).
+
+### Track Control Button Utilities
+
+Track buttons share styling via `components/Track/trackControlStyles.ts`:
+
+```typescript
+import { getInactiveClasses, getLockedClasses, trackControlBaseClasses } from './trackControlStyles';
+
+const inactiveBg = getInactiveClasses(isSelected);  // Selection-aware background
+const lockedClasses = getLockedClasses(mixerLocked); // Disabled appearance when locked
+```
+
+### Creating New Buttons
+
+1. **Check existing components first** - Don't create a new button if an existing one fits
+2. **Use shared styling utilities** - Import from `trackControlStyles.ts` for track buttons
+3. **Follow the category pattern** - Transport? Use CircularTransportButton. Track control? Follow MuteButton pattern.
+4. **Add accessibility** - `aria-pressed` for binary, `aria-label` + live region for multi-state
+
+### DO NOT
+
+- Create one-off button styles without checking existing patterns
+- Use `aria-pressed` for toggles with more than 2 states
+- Rely solely on color to indicate state (add icons, labels, or shape differences)
+- Create buttons smaller than 32×32px (absolute minimum for any interactive element)
 
 ---
 
@@ -1059,16 +1168,34 @@ try {
 </div>
 ```
 
-### Button Accessibility
+### Toggle Button Patterns
+
+**Binary toggles** (on/off): Use `aria-pressed="true|false"`
 
 ```tsx
-<button
-  aria-label="Play"
-  aria-pressed={isPlaying}
->
-  <PlayIcon />
-</button>
+<button aria-pressed={isActive}>Mute</button>
 ```
+
+**Multi-state controls** (3+ states): Don't use `aria-pressed`. Use `aria-label` and live regions:
+
+```tsx
+<button aria-label={`Monitor: ${state}`}>...</button>
+<span role="status" aria-live="polite" className="sr-only">
+  Monitor changed to {state}
+</span>
+```
+
+See [Button System](#1a-button-system) for full patterns.
+
+### Non-Color Indicators
+
+Track buttons use domain-standard colors (mute=blue, solo=yellow, arm=red) which have accessibility concerns. Mitigations:
+
+- Mute/Solo buttons have text labels ("M", "S")
+- Position-based meaning (mute always leftmost)
+- Active state has visual difference beyond color (brightness, fill)
+
+**TODO:** Consider adding icons or shape indicators alongside color in future accessibility pass.
 
 ### Reduced Motion
 
@@ -1673,6 +1800,26 @@ Items intentionally not addressed yet:
 | Test coverage expansion | Current coverage adequate |
 | 24×24 color swatches | Rarely used during performance |
 | Frame rate monitoring | No Battery API on iOS |
+
+### ESLint Button Governance (Actionable TODO)
+
+**Goal:** Prevent button pattern drift through tooling.
+
+**Proposed rule:** Warn when using raw `<button>` elements in component files.
+
+```javascript
+// eslint-plugin-reamo (future)
+'reamo/prefer-design-system-button': 'warn'
+```
+
+This would encourage using `CircularTransportButton`, `ModalFooter`, track button patterns, etc. instead of ad-hoc button implementations.
+
+**Implementation steps:**
+1. Create custom ESLint plugin or use `eslint-plugin-react` with custom config
+2. Add pre-commit hook to run lint checks
+3. Document exceptions (e.g., Transport record buttons with custom pointer handlers)
+
+**Status:** Not yet implemented. Added as actionable item after Phase 3 cleanup - governance tooling should follow standardization work.
 
 ---
 
