@@ -96,3 +96,28 @@ export const PHONE_MAX_WIDTH = 550;
 
 /** Width threshold above which we consider the device "tablet-sized" */
 export const TABLET_MIN_WIDTH = 768;
+
+// =============================================================================
+// Dual-Rail Layout (Landscape-Constrained Mode)
+// =============================================================================
+
+/** Width of the nav rail (left side) - navigation tabs + transport */
+export const NAV_RAIL_WIDTH = 60;
+
+/** Width of the context rail (right side) - tabs, bank nav, search */
+export const CONTEXT_RAIL_WIDTH = 72;
+
+/** Width of the context panel when expanded (overlay) */
+export const CONTEXT_PANEL_WIDTH = 200;
+
+/** @deprecated Use NAV_RAIL_WIDTH instead */
+export const SIDE_RAIL_WIDTH = NAV_RAIL_WIDTH;
+
+/** Height threshold below which we switch to dual-rail layout (landscape phones) */
+export const HEIGHT_COMPACT_THRESHOLD = 480;
+
+/** Width threshold for medium size class (Material Design) */
+export const WIDTH_MEDIUM_THRESHOLD = 600;
+
+/** Width threshold for expanded size class (Material Design) */
+export const WIDTH_EXPANDED_THRESHOLD = 840;

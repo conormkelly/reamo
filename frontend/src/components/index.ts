@@ -23,3 +23,5 @@ export * from './Timeline';
 export * from './Toolbar';
 export * from './Mixer';
 export * from './SecondaryPanel';
+export * from './SideRail';
+export * from './ContextRail';

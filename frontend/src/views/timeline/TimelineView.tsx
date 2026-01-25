@@ -66,7 +66,8 @@ export function TimelineView(): ReactElement {
   const timelineMode = useReaperStore((s) => s.timelineMode);
 
   // Responsive height measurement - tracks container size and panel transitions
-  const { availableHeight } = useAvailableContentHeight({
+  // Also provides layout context for side rail mode detection
+  const { availableHeight, isLandscapeConstrained } = useAvailableContentHeight({
     containerRef: contentContainerRef,
     viewId: 'timeline',
   });
@@ -96,13 +97,27 @@ export function TimelineView(): ReactElement {
   const selectedMarkerId = useReaperStore((s) => s.selectedMarkerId);
   const itemSelectionModeActive = useReaperStore((s) => s.itemSelectionModeActive);
   const totalTracks = useReaperStore((s) => s?.totalTracks ?? 0);
+  const setSideRailBankNav = useReaperStore((s) => s.setSideRailBankNav);
+  const setSideRailBankNavCallbacks = useReaperStore((s) => s.setSideRailBankNavCallbacks);
+  const setSideRailInfo = useReaperStore((s) => s.setSideRailInfo);
   const { positionSeconds } = useTransport();
 
   // Get skeleton from hook (same pattern as Mixer)
   const { skeleton } = useTrackSkeleton();
 
   // Bank navigation - pages through tracks in groups of laneCount
-  const bank = useBankNavigation({
+  // Destructure to get stable function references (like MixerView does)
+  const {
+    trackIndices: bankTrackIndices,
+    prefetchStart,
+    prefetchEnd,
+    canGoBack,
+    canGoForward,
+    goBack,
+    goForward,
+    bankDisplay,
+    totalCount,
+  } = useBankNavigation({
     channelCount: laneCount,
     totalTracks,
     storageKey: 'reamo-timeline-bank',
@@ -244,8 +259,8 @@ export function TimelineView(): ReactElement {
     if (isFiltered) {
       return allFilteredIndices.slice(filteredBankStart, filteredBankEnd);
     }
-    return bank.trackIndices;
-  }, [isFiltered, allFilteredIndices, filteredBankStart, filteredBankEnd, bank.trackIndices]);
+    return bankTrackIndices;
+  }, [isFiltered, allFilteredIndices, filteredBankStart, filteredBankEnd, bankTrackIndices]);
 
   // Get tracks for current display (skeleton indices are 0-based, displayTrackIndices are 1-based)
   const laneTracks = useMemo(() => {
@@ -259,10 +274,10 @@ export function TimelineView(): ReactElement {
       : filteredBankStart + 1 === filteredBankEnd
         ? `${filteredBankStart + 1} / ${allFilteredIndices.length}`
         : `${filteredBankStart + 1}-${filteredBankEnd} / ${allFilteredIndices.length}`
-    : bank.bankDisplay;
+    : bankDisplay;
 
-  const effectiveCanGoBack = isFiltered ? filterBankIndex > 0 : bank.canGoBack;
-  const effectiveCanGoForward = isFiltered ? filterBankIndex < filteredTotalBanks - 1 : bank.canGoForward;
+  const effectiveCanGoBack = isFiltered ? filterBankIndex > 0 : canGoBack;
+  const effectiveCanGoForward = isFiltered ? filterBankIndex < filteredTotalBanks - 1 : canGoForward;
 
   // Calculate project duration from content (needed for viewport)
   const projectDuration = useMemo(() => {
@@ -334,12 +349,12 @@ export function TimelineView(): ReactElement {
     } else {
       // Unfiltered: subscribe by range with prefetch
       return {
-        range: { start: bank.prefetchStart, end: bank.prefetchEnd },
+        range: { start: prefetchStart, end: prefetchEnd },
         sampleCount: 30,
         viewport: peaksViewport,
       };
     }
-  }, [isFiltered, laneTracks, bank.prefetchStart, bank.prefetchEnd, viewport.visibleRange, containerWidth]);
+  }, [isFiltered, laneTracks, prefetchStart, prefetchEnd, viewport.visibleRange, containerWidth]);
 
   const { assemblePeaksForViewport, hasTilesForTake } = usePeaksSubscription(peaksSubscriptionOptions);
 
@@ -437,19 +452,19 @@ export function TimelineView(): ReactElement {
     if (isFiltered) {
       setFilterBankIndex((prev) => Math.max(0, prev - 1));
     } else {
-      bank.goBack();
+      goBack();
     }
     showLabelsTemporarily();
-  }, [isFiltered, bank, showLabelsTemporarily]);
+  }, [isFiltered, goBack, showLabelsTemporarily]);
 
   const handleBankForward = useCallback(() => {
     if (isFiltered) {
       setFilterBankIndex((prev) => Math.min(filteredTotalBanks - 1, prev + 1));
     } else {
-      bank.goForward();
+      goForward();
     }
     showLabelsTemporarily();
-  }, [isFiltered, bank, filteredTotalBanks, showLabelsTemporarily]);
+  }, [isFiltered, goForward, filteredTotalBanks, showLabelsTemporarily]);
 
   // Header content
   const headerContent = (
@@ -523,7 +538,7 @@ export function TimelineView(): ReactElement {
 
   // Bank navigation props for SecondaryPanel header
   // Use filtered count when filtering, otherwise use bank total count
-  const effectiveTotalCount = isFiltered ? allFilteredIndices.length : bank.totalCount;
+  const effectiveTotalCount = isFiltered ? allFilteredIndices.length : totalCount;
   const bankNavProps: BankNavProps = useMemo(() => ({
     bankDisplay: effectiveBankDisplay,
     compactDisplay: String(effectiveTotalCount),
@@ -534,6 +549,49 @@ export function TimelineView(): ReactElement {
     onHoldStart: handleHoldStart,
     onHoldEnd: handleHoldEnd,
   }), [effectiveBankDisplay, effectiveTotalCount, effectiveCanGoBack, effectiveCanGoForward, handleBankBack, handleBankForward, handleHoldStart, handleHoldEnd]);
+
+  // Sync bank nav state to side rail when in landscape-constrained mode
+  useEffect(() => {
+    if (isLandscapeConstrained) {
+      // Populate side rail with bank nav state
+      setSideRailBankNav({
+        bankDisplay: effectiveBankDisplay,
+        compactDisplay: String(effectiveTotalCount),
+        canGoBack: effectiveCanGoBack,
+        canGoForward: effectiveCanGoForward,
+      });
+      setSideRailBankNavCallbacks({
+        onBack: handleBankBack,
+        onForward: handleBankForward,
+      });
+      // Provide info content for side rail actions button
+      // Combine info and toolbar content for timeline
+      setSideRailInfo({
+        content: (
+          <div className="flex flex-col gap-4">
+            <div>
+              <h3 className="text-sm font-medium text-text-secondary mb-2">Info</h3>
+              {infoTabContent}
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-text-secondary mb-2">Toolbar</h3>
+              {toolbarTabContent}
+            </div>
+          </div>
+        ),
+        label: 'Timeline Info & Toolbar',
+      });
+    }
+
+    // Cleanup when unmounting or leaving landscape-constrained mode
+    return () => {
+      if (isLandscapeConstrained) {
+        setSideRailBankNav(null);
+        setSideRailBankNavCallbacks({ onBack: null, onForward: null });
+        setSideRailInfo(null);
+      }
+    };
+  }, [isLandscapeConstrained, effectiveBankDisplay, effectiveTotalCount, effectiveCanGoBack, effectiveCanGoForward, handleBankBack, handleBankForward, setSideRailBankNav, setSideRailBankNavCallbacks, setSideRailInfo, infoTabContent, toolbarTabContent]);
 
   // Search props for SecondaryPanel header
   const searchProps: SearchProps = useMemo(() => ({
@@ -553,7 +611,7 @@ export function TimelineView(): ReactElement {
         viewId="timeline"
         className="bg-bg-app text-text-primary p-3"
         header={headerContent}
-        footer={footerContent}
+        footer={isLandscapeConstrained ? undefined : footerContent}
         scrollable={false}
       >
         {/* Main timeline area - containerRef for height measurement */}

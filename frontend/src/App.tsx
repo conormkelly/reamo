@@ -3,7 +3,7 @@
  * Main application with view switching
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import './index.css';
 import {
   ReaperProvider,
@@ -16,10 +16,15 @@ import {
   RecordingActionsBar,
   ErrorBoundary,
   ModalRoot,
+  SideRail,
+  ContextRail,
+  type ContextRailTabConfig,
 } from './components';
-import { useUIPreferences, useTransport } from './hooks';
+import { Info } from 'lucide-react';
+import { useUIPreferences, useTransport, useLayoutContext } from './hooks';
 import { useReaperStore } from './store';
 import { views, type ViewId, VIEW_STORAGE_KEY, DEFAULT_VIEW } from './viewRegistry';
+import { NAV_RAIL_WIDTH, CONTEXT_RAIL_WIDTH } from './constants/layout';
 
 function AppContent() {
   // DEV FAILSAFE: Uncomment to clear all localStorage on init (useful when API changes break stored data)
@@ -39,12 +44,17 @@ function AppContent() {
   const updateAvailable = useReaperStore((s) => s.updateAvailable);
   const { isRecording } = useTransport();
 
+  // Layout context for responsive side rail
+  const { navPosition } = useLayoutContext();
+  const useSideRail = navPosition === 'side';
+
   // Calculate bottom offset for RecordingActionsBar (above tab bar + transport)
+  // In side rail mode, bottom chrome is moved to side, so offset is 0
   const TAB_BAR_HEIGHT = 48;
   const PERSISTENT_TRANSPORT_HEIGHT = 56;
-  const bottomOffset =
-    (showTabBar ? TAB_BAR_HEIGHT : 0) +
-    (showPersistentTransport ? PERSISTENT_TRANSPORT_HEIGHT : 0);
+  const bottomOffset = useSideRail
+    ? 0
+    : (showTabBar ? TAB_BAR_HEIGHT : 0) + (showPersistentTransport ? PERSISTENT_TRANSPORT_HEIGHT : 0);
 
   // Persist view selection
   useEffect(() => {
@@ -57,6 +67,107 @@ function AppContent() {
 
   const ViewComponent = views[currentView];
 
+  // Get context rail state from store (populated by views)
+  const sideRailBankNav = useReaperStore((s) => s.sideRailBankNav);
+  const sideRailBankNavCallbacks = useReaperStore((s) => s.sideRailBankNavCallbacks);
+  const sideRailInfo = useReaperStore((s) => s.sideRailInfo);
+
+  // Build context rail tabs from store state
+  const contextRailTabs: ContextRailTabConfig[] = useMemo(() => {
+    const tabs: ContextRailTabConfig[] = [];
+
+    // Info tab (always present for mixer/timeline)
+    if (sideRailInfo) {
+      tabs.push({
+        id: 'info',
+        icon: Info,
+        label: sideRailInfo.label,
+        content: sideRailInfo.content,
+      });
+    }
+
+    // Toolbar tab (only for timeline - identified by label containing "Toolbar")
+    if (sideRailInfo?.label.includes('Toolbar')) {
+      // Timeline provides combined content, so info tab already has toolbar
+      // No separate toolbar tab needed - it's included in the combined content
+    }
+
+    return tabs;
+  }, [sideRailInfo]);
+
+  // Build context rail bank nav props from store
+  const contextRailBankNav = useMemo(() => {
+    if (!sideRailBankNav) return null;
+    return {
+      bankDisplay: sideRailBankNav.bankDisplay,
+      canGoBack: sideRailBankNav.canGoBack,
+      canGoForward: sideRailBankNav.canGoForward,
+      onBack: sideRailBankNavCallbacks.onBack ?? (() => {}),
+      onForward: sideRailBankNavCallbacks.onForward ?? (() => {}),
+    };
+  }, [sideRailBankNav, sideRailBankNavCallbacks]);
+
+  // Check if current view supports context rail (has bank nav)
+  const showContextRail = useSideRail && (currentView === 'mixer' || currentView === 'timeline');
+
+  // Dual-rail mode: horizontal layout with NavRail on left, ContextRail on right
+  if (useSideRail) {
+    return (
+      <div className="flex flex-row h-dvh bg-bg-app overflow-hidden select-none isolate">
+        {/* Nav Rail (left) - view tabs + transport */}
+        <SideRail
+          currentView={currentView}
+          onViewChange={setCurrentView}
+          className="z-fixed"
+        />
+
+        {/* Main content column */}
+        <div className="flex flex-col flex-1 min-w-0 safe-area-top">
+          {/* Conditional banners */}
+          <ConnectionBanner className="shrink-0" />
+          {updateAvailable && <UpdateBanner className="shrink-0" />}
+          <MemoryWarningBar className="shrink-0" />
+
+          {/* Main content area */}
+          <main className="flex-1 min-h-0 overflow-hidden">
+            <ErrorBoundary>
+              <ViewComponent />
+            </ErrorBoundary>
+          </main>
+
+          {/* Recording Actions Bar - positioned between the two rails */}
+          {showRecordingActions && isRecording && (
+            <div
+              className="fixed z-[310] bg-bg-app pb-3"
+              style={{
+                // Account for safe areas: rail content width + safe area inset
+                left: `calc(${NAV_RAIL_WIDTH}px + env(safe-area-inset-left, 0px))`,
+                right: showContextRail ? `calc(${CONTEXT_RAIL_WIDTH}px + env(safe-area-inset-right, 0px))` : '0px',
+                bottom: 'env(safe-area-inset-bottom, 0px)',
+              }}
+            >
+              <RecordingActionsBar />
+            </div>
+          )}
+        </div>
+
+        {/* Context Rail (right) - tabs, bank nav, search */}
+        {showContextRail && contextRailTabs.length > 0 && (
+          <ContextRail
+            tabs={contextRailTabs}
+            bankNav={contextRailBankNav}
+            search={null} // TODO: Wire up search from views
+            className="z-fixed"
+          />
+        )}
+
+        {/* Centralized modal rendering */}
+        <ModalRoot />
+      </div>
+    );
+  }
+
+  // Bottom navigation mode: standard vertical layout (default)
   return (
     <div className="flex flex-col h-dvh bg-bg-app overflow-hidden safe-area-top safe-area-x select-none isolate">
       {/* Conditional banners - shrink-0 prevents compression */}

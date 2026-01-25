@@ -110,3 +110,10 @@ export {
   type UseAvailableContentHeightOptions,
   type UseAvailableContentHeightReturn,
 } from './useAvailableContentHeight';
+export {
+  useLayoutContext,
+  type LayoutContext,
+  type WidthClass,
+  type HeightClass,
+  type NavPosition,
+} from './useLayoutContext';
