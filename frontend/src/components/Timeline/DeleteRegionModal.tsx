@@ -67,7 +67,7 @@ export function DeleteRegionModal({
       width="lg"
     >
       {/* Body */}
-      <div className="p-4 space-y-4">
+      <div className="p-modal space-y-4">
           {/* Region info - simple inline with color accent */}
           <div className="flex items-center gap-3">
             <div
@@ -169,7 +169,7 @@ export function DeleteRegionModal({
         </div>
 
       {/* Footer */}
-      <div className="flex justify-end gap-2 px-4 py-3 border-t border-border-subtle">
+      <div className="flex justify-end gap-2 px-modal-footer-x py-modal-footer-y border-t border-border-subtle">
         <button
           onClick={onClose}
           className="px-4 py-2 text-sm font-medium text-text-tertiary hover:text-text-primary transition-colors"

@@ -472,7 +472,7 @@ export function NavigateItemInfoBar({
         ariaLabel="Item details"
       >
         {singleItem && (
-          <div className="px-4 pb-6">
+          <div className="px-sheet-x pb-sheet-bottom">
             {/* Header */}
             <div className="text-center mb-4 pt-1">
               <h2 className="text-lg font-semibold text-text-primary truncate">
@@ -668,7 +668,7 @@ export function NavigateItemInfoBar({
         onClose={() => setShowBatchSheet(false)}
         ariaLabel="Batch operations"
       >
-        <div className="px-4 pb-6">
+        <div className="px-sheet-x pb-sheet-bottom">
           {/* Header */}
           <div className="text-center mb-4 pt-1">
             <h2 className="text-lg font-semibold text-text-primary">
@@ -752,7 +752,7 @@ export function NavigateItemInfoBar({
         onClose={() => setShowSelectionSheet(false)}
         ariaLabel="Selected items"
       >
-        <div className="px-4 pb-6 max-h-[70vh] overflow-y-auto">
+        <div className="px-sheet-x pb-sheet-bottom max-h-[70vh] overflow-y-auto">
           {/* Header */}
           <div className="text-center mb-4 pt-1">
             <h2 className="text-lg font-semibold text-text-primary">

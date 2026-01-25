@@ -114,7 +114,7 @@ export function IconPicker({ value, onChange, onClose }: IconPickerProps) {
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border-subtle">
+        <div className="flex items-center justify-between p-modal border-b border-border-subtle">
           <h3 className="text-lg font-medium">Select Icon</h3>
           <button
             onClick={onClose}
@@ -125,7 +125,7 @@ export function IconPicker({ value, onChange, onClose }: IconPickerProps) {
         </div>
 
         {/* Search */}
-        <div className="p-4 border-b border-border-subtle">
+        <div className="p-modal border-b border-border-subtle">
           <input
             type="text"
             value={search}
@@ -137,7 +137,7 @@ export function IconPicker({ value, onChange, onClose }: IconPickerProps) {
         </div>
 
         {/* Icon Grid */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-modal">
           <div className="grid grid-cols-8 gap-1">
             {filteredIcons.map((name) => {
               const IconComponent = commonIcons[name];
@@ -170,7 +170,7 @@ export function IconPicker({ value, onChange, onClose }: IconPickerProps) {
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-border-subtle text-center text-sm text-text-muted">
+        <div className="p-modal border-t border-border-subtle text-center text-sm text-text-muted">
           {filteredIcons.length} icons
           {value && (
             <span className="ml-2">

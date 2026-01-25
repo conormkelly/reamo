@@ -111,7 +111,7 @@ export function SectionEditor({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border-subtle flex-shrink-0">
+        <div className="flex items-center justify-between p-modal border-b border-border-subtle flex-shrink-0">
           <h2 className="text-lg font-semibold text-text-primary">
             {isNew ? 'New Section' : 'Edit Section'}
           </h2>
@@ -124,7 +124,7 @@ export function SectionEditor({
         </div>
 
         {/* Form */}
-        <div className="p-4 space-y-4 overflow-y-auto flex-1">
+        <div className="p-modal space-y-4 overflow-y-auto flex-1">
           {/* Section Name */}
           <div>
             <label className="block text-sm font-medium text-text-tertiary mb-1">
@@ -264,7 +264,7 @@ export function SectionEditor({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between p-4 border-t border-border-subtle flex-shrink-0">
+        <div className="flex items-center justify-between p-modal border-t border-border-subtle flex-shrink-0">
           {/* Delete button (only for existing sections) */}
           {!isNew && onDelete && (
             <button

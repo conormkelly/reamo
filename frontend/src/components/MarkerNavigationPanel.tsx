@@ -81,7 +81,7 @@ export function MarkerNavigationPanel({ isOpen, onClose }: MarkerNavigationPanel
 
   return (
     <BottomSheet isOpen={isOpen} onClose={onClose} ariaLabel="Marker navigation">
-      <div className="px-4 pb-6">
+      <div className="px-sheet-x pb-sheet-bottom">
         {/* Header */}
         <div className="text-center mb-3 pt-1">
           <h2 className="text-lg font-semibold text-text-primary">Jump to...</h2>

@@ -146,7 +146,7 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Add Region" width="lg">
       {/* Body */}
-      <div className="p-4 space-y-4">
+      <div className="p-modal space-y-4">
           {/* Name */}
           <div>
             <label className="block text-sm font-medium text-text-tertiary mb-1">Name</label>

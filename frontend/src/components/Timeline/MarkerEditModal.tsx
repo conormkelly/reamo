@@ -170,7 +170,7 @@ export function MarkerEditModal({
       width="sm"
     >
       {/* Content */}
-      <div className="p-4 space-y-4">
+      <div className="p-modal space-y-4">
           {/* Name Input */}
           <div className="space-y-2">
             <label className="text-sm text-text-secondary">Name</label>

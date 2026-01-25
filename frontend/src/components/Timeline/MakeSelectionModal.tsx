@@ -262,7 +262,7 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Set Time Selection">
       {/* Body */}
-      <div className="p-4 space-y-4">
+      <div className="p-modal space-y-4">
           {/* Mode toggle */}
           <div className="flex rounded-lg bg-bg-elevated p-1">
             <button
@@ -326,7 +326,7 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
         </div>
 
       {/* Footer */}
-      <div className="flex justify-between px-4 py-3 border-t border-border-subtle">
+      <div className="flex justify-between px-modal-footer-x py-modal-footer-y border-t border-border-subtle">
         <button
           onClick={handleClear}
           className="px-4 py-2 text-sm font-medium text-text-secondary hover:text-error transition-colors"

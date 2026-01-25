@@ -151,7 +151,7 @@ export function FxBrowserModal({
       onClose={onClose}
       ariaLabel={`Add FX to ${trackName}`}
     >
-      <div className="px-4 pb-6">
+      <div className="px-sheet-x pb-sheet-bottom">
         {/* Header */}
         <div className="text-center mb-3 pt-1">
           <h2 className="text-lg font-semibold text-text-primary truncate">
