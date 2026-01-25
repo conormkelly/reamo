@@ -34,6 +34,9 @@ pub const Api = struct {
     showConsoleMsg: *const fn ([*:0]const u8) callconv(.c) void,
     register: *const fn ([*:0]const u8, ?*anyopaque) callconv(.c) c_int,
 
+    // UI dialogs
+    showMessageBox: ?*const fn ([*:0]const u8, [*:0]const u8, c_int) callconv(.c) c_int = null,
+
     // State
     setExtState: ?*const fn ([*:0]const u8, [*:0]const u8, [*:0]const u8, c_int) callconv(.c) void = null,
 
@@ -252,6 +255,7 @@ pub const Api = struct {
         return Api{
             .showConsoleMsg = showConsoleMsg,
             .register = info.Register,
+            .showMessageBox = getFunc(info, "ShowMessageBox", fn ([*:0]const u8, [*:0]const u8, c_int) callconv(.c) c_int),
             .setExtState = getFunc(info, "SetExtState", fn ([*:0]const u8, [*:0]const u8, [*:0]const u8, c_int) callconv(.c) void),
             .getPlayState = getFunc(info, "GetPlayState", fn () callconv(.c) c_int),
             .getPlayPosition = getFunc(info, "GetPlayPosition", fn () callconv(.c) f64),
