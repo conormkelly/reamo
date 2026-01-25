@@ -31,7 +31,8 @@ Best practices, patterns, and conventions for the REAmo React frontend.
 18. [Anti-Patterns Checklist](#18-anti-patterns-checklist)
 19. [Layout Budget System](#19-layout-budget-system)
 20. [Centralized Constants](#20-centralized-constants)
-21. [Deferred/Future Work](#21-deferredfuture-work)
+21. [Dual-Rail Responsive Layout](#21-dual-rail-responsive-layout-landscape-phones)
+22. [Deferred/Future Work](#22-deferredfuture-work)
 
 ---
 
@@ -1294,6 +1295,8 @@ This section documents actual bugs from recent commits to prevent recurrence.
 | Magic numbers for thresholds | Constants from `constants/` |
 | Inline modals/dropdowns with `z-*` | Portal to `document.body` with `createPortal` |
 | `absolute` positioning for dropdowns | `fixed` + `usePortalPosition` when portaled |
+| Whole hook object as useCallback dep | Infinite loops; `[bank]` recreates each render | Destructure stable fns: `const { goBack } = useBankNav()` |
+| Fixed rail width on notched device | 60px width - 34px notch = 26px content | `calc(60px + env(safe-area-inset-left))` |
 
 ---
 
@@ -1469,7 +1472,144 @@ export const MAX_FADER_PERCENT = 0.7;      // Overflow prevention ceiling
 
 ---
 
-## 21. Deferred/Future Work
+## 21. Dual-Rail Responsive Layout (Landscape Phones)
+
+When viewport height drops below 480px in landscape orientation, the app switches
+from bottom navigation to a dual-rail layout to reclaim vertical space.
+
+### Layout Modes
+
+| Mode | Condition | Navigation | Transport |
+|------|-----------|------------|-----------|
+| **Bottom** | Portrait OR height ≥ 480px | TabBar at bottom | PersistentTransport at bottom |
+| **Side Rail** | Landscape AND height < 480px | NavRail (left, 60px) | Integrated in NavRail |
+
+### Detection Hook: `useLayoutContext`
+
+```typescript
+const { navPosition, isLandscapeConstrained, widthClass, heightClass } = useLayoutContext();
+
+// Conditional rendering in App.tsx
+{navPosition === 'side' ? <SideRail /> : <TabBar />}
+
+// Hide SecondaryPanel when side rail active
+{!isLandscapeConstrained && <SecondaryPanel />}
+```
+
+### Component Architecture
+
+```
+┌──────┬───────────────────────┬──────┐
+│      │        Header         │      │
+│ NAV  ├───────────────────────┤CONTXT│
+│ RAIL │                       │ RAIL │
+│      │     Main Content      │      │
+│(60px)│   (faders/timeline)   │(72px)│
+│      │                       │      │
+│ Tabs │                       │ Tabs │
+│  +   │                       │ Bank │
+│Trans │                       │ Nav  │
+└──────┴───────────────────────┴──────┘
+```
+
+**Components:**
+- `SideRail` (NavRail): Left side - 7 view tabs + play/stop/record
+- `ContextRail`: Right side - info tabs + bank nav + search + expandable panel
+- `ContextRailTab`: Individual tab button with badge support
+- `ContextRailPanel`: Animated slide-in overlay for expanded content
+
+### View Integration Pattern
+
+Views must sync their bank navigation and info content to the side rail store
+when in landscape-constrained mode:
+
+```typescript
+// In MixerView / TimelineView
+const { isLandscapeConstrained } = useAvailableContentHeight({ containerRef, viewId });
+const setSideRailBankNav = useReaperStore((s) => s.setSideRailBankNav);
+const setSideRailBankNavCallbacks = useReaperStore((s) => s.setSideRailBankNavCallbacks);
+const setSideRailInfo = useReaperStore((s) => s.setSideRailInfo);
+
+useEffect(() => {
+  if (isLandscapeConstrained) {
+    setSideRailBankNav({ bankDisplay, canGoBack, canGoForward });
+    setSideRailBankNavCallbacks({ onBack: handleBack, onForward: handleForward });
+    setSideRailInfo({ content: infoTabContent, label: 'Track Info' });
+  }
+  return () => {
+    if (isLandscapeConstrained) {
+      setSideRailBankNav(null);
+      setSideRailBankNavCallbacks({ onBack: null, onForward: null });
+      setSideRailInfo(null);
+    }
+  };
+}, [isLandscapeConstrained, /* stable dependencies */]);
+```
+
+**Critical:** Destructure stable function references from hooks to avoid infinite loops:
+
+```typescript
+// BAD - bank is new object each render, triggers infinite effect loop
+const bank = useBankNavigation({ ... });
+const handleBack = useCallback(() => bank.goBack(), [bank]); // ← infinite loop!
+
+// GOOD - goBack is stable (memoized inside the hook)
+const { goBack, goForward } = useBankNavigation({ ... });
+const handleBack = useCallback(() => goBack(), [goBack]); // ← stable
+```
+
+### Safe Area Handling
+
+Rails must include device safe areas in their width calculations. The rail width
+equals content width PLUS safe area inset (not content INCLUDING safe area):
+
+```css
+/* NavRail (left) - 60px content + left inset */
+.nav-rail-width {
+  width: calc(60px + env(safe-area-inset-left, 0px));
+}
+
+/* ContextRail (right) - 72px content + right inset */
+.context-rail-width {
+  width: calc(72px + env(safe-area-inset-right, 0px));
+}
+
+/* PWA standalone mode with fallback for devices with notch */
+@media (display-mode: standalone) and (orientation: landscape) {
+  .nav-rail-width {
+    width: calc(60px + env(safe-area-inset-left, 34px));
+  }
+}
+```
+
+### Layout Constants
+
+All dual-rail dimensions are in `constants/layout.ts`:
+
+```typescript
+export const NAV_RAIL_WIDTH = 60;           // Left rail content width
+export const CONTEXT_RAIL_WIDTH = 72;       // Right rail content width
+export const CONTEXT_PANEL_WIDTH = 200;     // Expanded overlay width
+export const HEIGHT_COMPACT_THRESHOLD = 480; // Triggers side rail mode
+```
+
+### Common Pitfalls
+
+| Mistake | Consequence | Fix |
+|---------|-------------|-----|
+| Using whole `bank` object as dependency | Infinite render loop | Destructure: `const { goBack } = useBankNavigation()` |
+| Fixed rail width without safe area | Controls cut off on notched devices | Use `calc(Xpx + env(safe-area-inset-*))` |
+| Forgetting cleanup in sync effect | Stale state after orientation change | Return cleanup function that nulls state |
+| Not hiding SecondaryPanel | Duplicate controls, wasted space | Check `isLandscapeConstrained` before rendering |
+
+### Reference
+
+- Research: `docs/architecture/RESPONSIVE_FRONTEND_FINAL.md`
+- Implementation plans: `responsive-docs/RESPONSIVE_PLAN_V1.md`, `RESPONSIVE_PLAN_V2.md`
+
+---
+
+## 22. Deferred/Future Work
 
 Items intentionally not addressed yet:
 
@@ -1487,6 +1627,9 @@ Items intentionally not addressed yet:
 
 | Document | Purpose |
 |----------|---------|
+| `docs/architecture/RESPONSIVE_FRONTEND_FINAL.md` | Responsive design research and guidelines |
+| `responsive-docs/RESPONSIVE_PLAN_V1.md` | Initial side rail implementation plan |
+| `responsive-docs/RESPONSIVE_PLAN_V2.md` | Dual-rail layout refinement plan |
 | `research/FRONTEND_AUDIT_PROGRESS.md` | Audit completion tracking |
 | `research/FRONTEND_PRODUCTION_REVIEW_CHECKLIST.md` | Original checklist with grep patterns |
 | `research/css-var-refactor.md` | Design token system reference |
