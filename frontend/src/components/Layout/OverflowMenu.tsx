@@ -9,7 +9,7 @@
 
 import { useState, type ReactNode } from 'react';
 import { MoreVertical } from 'lucide-react';
-import { BottomSheet } from './Modal/BottomSheet';
+import { BottomSheet } from '../Modal/BottomSheet';
 
 export interface OverflowMenuItem {
   /** Unique identifier for the menu item */

@@ -7,10 +7,10 @@
 
 import { useCallback, useState, useRef, useEffect, type ReactElement } from 'react';
 import { Save, Undo2, Redo2, Gauge, Repeat, Minus, Plus } from 'lucide-react';
-import { BottomSheet } from './Modal/BottomSheet';
-import { useReaper } from './ReaperProvider';
-import { useReaperStore } from '../store';
-import { action, metronome, repeat, tempo } from '../core/WebSocketCommands';
+import { BottomSheet } from '../Modal/BottomSheet';
+import { useReaper } from '../ReaperProvider';
+import { useReaperStore } from '../../store';
+import { action, metronome, repeat, tempo } from '../../core/WebSocketCommands';
 
 export interface QuickActionsPanelProps {
   isOpen: boolean;

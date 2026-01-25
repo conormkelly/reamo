@@ -7,15 +7,15 @@
 import type { ReactElement } from 'react';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { SkipBack, Play, Pause, Square, Circle, RefreshCw } from 'lucide-react';
-import { useReaper } from './ReaperProvider';
-import { useTransport } from '../hooks/useTransport';
-import { useReaperStore } from '../store';
-import { transport, action } from '../core/WebSocketCommands';
-import { useTransportAnimation, useDoubleTap, useLongPress } from '../hooks';
-import { formatTime } from '../utils';
+import { useReaper } from '../ReaperProvider';
+import { useTransport } from '../../hooks/useTransport';
+import { useReaperStore } from '../../store';
+import { transport, action } from '../../core/WebSocketCommands';
+import { useTransportAnimation, useDoubleTap, useLongPress } from '../../hooks';
+import { formatTime } from '../../utils';
 import { QuickActionsPanel } from './QuickActionsPanel';
 import { MarkerNavigationPanel } from './MarkerNavigationPanel';
-import { CircularTransportButton } from './Transport/CircularTransportButton';
+import { CircularTransportButton } from '../Transport/CircularTransportButton';
 
 // Hold duration threshold in ms
 const HOLD_THRESHOLD = 300;

@@ -5,7 +5,7 @@
  */
 
 import { type ReactElement, useState, useRef, useEffect, useCallback } from 'react';
-import { type ViewId, viewMeta } from '../viewRegistry';
+import { type ViewId, viewMeta } from '../../viewRegistry';
 
 export interface TabBarProps {
   currentView: ViewId;

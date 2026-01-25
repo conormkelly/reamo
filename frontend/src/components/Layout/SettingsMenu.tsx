@@ -8,8 +8,8 @@
 import { useState, useRef, useEffect, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { Menu, X, Eye, EyeOff, ArrowLeftRight, ToggleLeft, ToggleRight, ChevronRight } from 'lucide-react';
-import { usePortalPosition } from '../hooks/usePortalPosition';
-import type { ViewId } from '../viewRegistry';
+import { usePortalPosition } from '../../hooks/usePortalPosition';
+import type { ViewId } from '../../viewRegistry';
 
 export interface SettingsMenuProps {
   showTabBar: boolean;

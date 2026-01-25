@@ -11,11 +11,11 @@
 
 import type { ReactElement, ReactNode } from 'react';
 import { SettingsMenu } from './SettingsMenu';
-import { ConnectionStatus } from './ConnectionStatus';
+import { ConnectionStatus } from '../ConnectionStatus';
 import { OverflowMenu, type OverflowMenuItem } from './OverflowMenu';
-import { useUIPreferences } from '../hooks';
-import { useReaperStore } from '../store';
-import type { ViewId } from '../viewRegistry';
+import { useUIPreferences } from '../../hooks';
+import { useReaperStore } from '../../store';
+import type { ViewId } from '../../viewRegistry';
 
 export interface ViewHeaderProps {
   /** Current view ID */

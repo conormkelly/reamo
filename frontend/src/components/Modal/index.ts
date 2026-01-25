@@ -21,3 +21,4 @@ export { ModalContent, type ModalContentProps } from './ModalContent';
 export { ModalFooter, type ModalFooterProps } from './ModalFooter';
 export { BottomSheet, type BottomSheetProps } from './BottomSheet';
 export { TimelineSettingsSheet, type TimelineSettingsSheetProps } from './TimelineSettingsSheet';
+export { ModalRoot } from './ModalRoot';

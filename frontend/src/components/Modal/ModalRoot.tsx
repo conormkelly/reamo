@@ -5,17 +5,17 @@
  */
 
 import { useCallback, type ReactElement } from 'react';
-import { useReaperStore } from '../store';
-import { useReaper } from './ReaperProvider';
-import { useTimeSignature, useBarOffset } from '../hooks';
-import { marker as markerCmd, action } from '../core/WebSocketCommands';
+import { useReaperStore } from '../../store';
+import { useReaper } from '../ReaperProvider';
+import { useTimeSignature, useBarOffset } from '../../hooks';
+import { marker as markerCmd, action } from '../../core/WebSocketCommands';
 
 // Import modals
-import { MarkerEditModal } from './Timeline/MarkerEditModal';
-import { DeleteRegionModal } from './Timeline/DeleteRegionModal';
-import { AddRegionModal } from './Timeline/AddRegionModal';
-import { MakeSelectionModal } from './Timeline/MakeSelectionModal';
-import { TimelineSettingsSheet } from './Modal';
+import { MarkerEditModal } from '../Timeline/MarkerEditModal';
+import { DeleteRegionModal } from '../Timeline/DeleteRegionModal';
+import { AddRegionModal } from '../Timeline/AddRegionModal';
+import { MakeSelectionModal } from '../Timeline/MakeSelectionModal';
+import { TimelineSettingsSheet } from '.';
 
 export function ModalRoot(): ReactElement | null {
   const { sendCommand } = useReaper();
