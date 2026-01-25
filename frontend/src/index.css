@@ -251,6 +251,44 @@
   --color-routing-sends: #C5A000;
   --color-routing-receives: #0077C5;
   --color-routing-disabled: #4A4A4A;
+
+  /* =============================================================================
+   * SPACING TOKENS
+   * Tailwind 4's --spacing-* namespace auto-generates utility classes.
+   * Usage: p-modal, px-infobar-x, gap-panel-gap, etc.
+   *
+   * Three-tier hierarchy (industry standard from Shopify Polaris, GitHub Primer):
+   * - Primitives: Raw scale values (use Tailwind's built-in p-1, p-2, etc.)
+   * - Semantic: Intent-based tokens defined below
+   * - Component: Audio-specific tokens for faders, meters, etc.
+   * ============================================================================= */
+
+  /* --- Semantic Layout Tokens --- */
+  --spacing-modal: 1rem;             /* 16px - modal content padding */
+  --spacing-modal-footer-x: 1rem;    /* 16px - modal footer horizontal */
+  --spacing-modal-footer-y: 0.75rem; /* 12px - modal footer vertical */
+  --spacing-sheet-x: 1rem;           /* 16px - bottom sheet horizontal */
+  --spacing-sheet-bottom: 1.5rem;    /* 24px - bottom sheet bottom padding */
+  --spacing-view: 0.75rem;           /* 12px - view container padding */
+
+  /* --- Semantic Component Tokens --- */
+  --spacing-infobar-x: 0.75rem;      /* 12px - info bar horizontal */
+  --spacing-infobar-y: 0.5rem;       /* 8px - info bar vertical */
+  --spacing-menu-item-x: 0.75rem;    /* 12px - menu item horizontal */
+  --spacing-menu-item-y: 0.5rem;     /* 8px - menu item vertical */
+  --spacing-control: 0.5rem;         /* 8px - form control padding */
+
+  /* --- Gap Tokens --- */
+  --spacing-panel-gap: 0.5rem;       /* 8px - gap between panel items */
+  --spacing-section-gap: 1rem;       /* 16px - gap between sections */
+  --spacing-inline-gap: 0.5rem;      /* 8px - inline element gap */
+  --spacing-tight-gap: 0.25rem;      /* 4px - tight groupings */
+
+  /* --- Audio-Specific Tokens --- */
+  --spacing-fader-track: 0.25rem;    /* 4px - fader track width */
+  --spacing-meter-gap: 0.125rem;     /* 2px - meter segment gap */
+  --spacing-channel-strip: 0.5rem;   /* 8px - mixer channel padding */
+  --spacing-transport: 0.75rem;      /* 12px - transport control spacing */
 }
 
 :root {

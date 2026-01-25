@@ -609,7 +609,7 @@ export function TimelineView(): ReactElement {
     <>
       <ViewLayout
         viewId="timeline"
-        className="bg-bg-app text-text-primary p-3"
+        className="bg-bg-app text-text-primary p-view"
         header={headerContent}
         footer={isLandscapeConstrained ? undefined : footerContent}
         scrollable={false}

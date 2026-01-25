@@ -557,7 +557,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
   return (
     <div className={`flex items-center gap-2 ${className}`}>
       {/* Region info section */}
-      <div className="flex flex-col gap-2 px-3 py-2 bg-bg-surface/50 rounded-lg text-sm flex-1 min-w-0">
+      <div className="flex flex-col gap-2 px-infobar-x py-infobar-y bg-bg-surface/50 rounded-lg text-sm flex-1 min-w-0">
         {region ? (
           <>
             {/* Line 1: Name and Color */}

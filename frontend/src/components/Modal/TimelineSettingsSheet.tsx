@@ -34,7 +34,7 @@ export function TimelineSettingsSheet({ isOpen, onClose }: TimelineSettingsSheet
 
   return (
     <BottomSheet isOpen={isOpen} onClose={onClose} ariaLabel="Timeline settings">
-      <div className="px-4 pb-6">
+      <div className="px-sheet-x pb-sheet-bottom">
         {/* Title */}
         <h2 className="text-lg font-semibold text-text-primary mb-4">Timeline Settings</h2>
 

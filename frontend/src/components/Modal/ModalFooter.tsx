@@ -55,7 +55,7 @@ export function ModalFooter({
   if (!hasButtons && !leftContent) return null;
 
   return (
-    <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border-subtle">
+    <div className="flex items-center justify-between gap-3 px-modal-footer-x py-modal-footer-y border-t border-border-subtle">
       {/* Left side content (e.g., error messages, additional actions) */}
       <div className="flex-1 min-w-0">
         {leftContent}

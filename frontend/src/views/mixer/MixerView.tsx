@@ -574,7 +574,7 @@ export function MixerView(): ReactElement {
       }
       footer={isLandscapeConstrained ? undefined : <SecondaryPanel viewId="mixer" tabs={secondaryTabs} bankNav={bankNavProps} search={searchProps} />}
       scrollable={false}
-      className="bg-bg-app text-text-primary p-3"
+      className="bg-bg-app text-text-primary p-view"
     >
       {/* Main mixer area - containerRef for height/width measurement */}
       <div

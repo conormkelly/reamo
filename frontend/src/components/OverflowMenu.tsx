@@ -83,7 +83,7 @@ export function OverflowMenu({
                 item.onSelect();
                 setIsOpen(false);
               }}
-              className={`flex items-center gap-3 px-4 py-3 hover:bg-bg-hover transition-colors text-left ${
+              className={`flex items-center gap-3 px-menu-item-x py-menu-item-y hover:bg-bg-hover transition-colors text-left ${
                 item.isActive ? 'bg-bg-surface text-accent-primary' : 'text-text-primary'
               }`}
             >

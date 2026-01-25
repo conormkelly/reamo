@@ -111,7 +111,7 @@ export function SettingsMenu({
             onClick={() => {
               onToggleTabBar();
             }}
-            className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
+            className="w-full px-menu-item-x py-menu-item-y flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
             data-testid="settings-tab-bar"
           >
             <span className="text-sm">Tab Bar</span>
@@ -126,7 +126,7 @@ export function SettingsMenu({
             onClick={() => {
               onTogglePersistentTransport();
             }}
-            className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
+            className="w-full px-menu-item-x py-menu-item-y flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
             data-testid="settings-transport-bar"
           >
             <span className="text-sm">Transport Bar</span>
@@ -141,7 +141,7 @@ export function SettingsMenu({
             onClick={() => {
               onToggleTransportPosition();
             }}
-            className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
+            className="w-full px-menu-item-x py-menu-item-y flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
             data-testid="settings-transport-position"
           >
             <span className="text-sm">Transport Position</span>
@@ -156,7 +156,7 @@ export function SettingsMenu({
             onClick={() => {
               onToggleRecordingActions();
             }}
-            className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
+            className="w-full px-menu-item-x py-menu-item-y flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
             data-testid="settings-rec-quick-actions"
           >
             <span className="text-sm">Recording Actions</span>
@@ -171,7 +171,7 @@ export function SettingsMenu({
             onClick={() => {
               onToggleAutoUpdateEnabled();
             }}
-            className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
+            className="w-full px-menu-item-x py-menu-item-y flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
             data-testid="settings-auto-update"
           >
             <span className="text-sm">Auto-Update</span>
@@ -195,7 +195,7 @@ export function SettingsMenu({
                   setIsOpen(false);
                   onOpenTimelineSettings();
                 }}
-                className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
+                className="w-full px-menu-item-x py-menu-item-y flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
               >
                 <span className="text-sm">Settings</span>
                 <ChevronRight size={16} className="text-text-muted" />
@@ -217,7 +217,7 @@ export function SettingsMenu({
                 onClick={() => {
                   onTogglePinMasterTrack();
                 }}
-                className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
+                className="w-full px-menu-item-x py-menu-item-y flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
               >
                 <span className="text-sm">Pin MASTER</span>
                 <span className={`flex items-center gap-1.5 text-xs ${pinMasterTrack ? 'text-success' : 'text-text-muted'}`}>
@@ -230,7 +230,7 @@ export function SettingsMenu({
                 onClick={() => {
                   onToggleShowAddTrackButton();
                 }}
-                className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
+                className="w-full px-menu-item-x py-menu-item-y flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
               >
                 <span className="text-sm">Add Track Button</span>
                 <span className={`flex items-center gap-1.5 text-xs ${showAddTrackButton ? 'text-success' : 'text-text-muted'}`}>
@@ -254,7 +254,7 @@ export function SettingsMenu({
                 onClick={() => {
                   onToggleActionsAutoCollapse();
                 }}
-                className="w-full px-3 py-2 flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
+                className="w-full px-menu-item-x py-menu-item-y flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
               >
                 <span className="text-sm">Auto-Collapse Others</span>
                 <span className={`flex items-center gap-1.5 text-xs ${actionsAutoCollapse ? 'text-success' : 'text-text-muted'}`}>

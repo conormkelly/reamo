@@ -122,6 +122,59 @@ These tokens were added after compliance audits found hardcoded colors:
 <div className="border-on-primary" />
 ```
 
+### Spacing Tokens (Phase 2)
+
+**Goal:** World-class consistency and responsiveness. Raw Tailwind spacing classes (`p-4`, `gap-2`) scattered across 45+ files make it impossible to maintain visual rhythm or adjust spacing system-wide.
+
+**Solution:** Semantic spacing tokens using Tailwind 4's `--spacing-*` namespace, which auto-generates utility classes.
+
+```css
+@theme {
+  --spacing-modal: 1rem;  /* Generates p-modal, m-modal, gap-modal, etc. */
+}
+```
+
+#### Spacing Token Categories
+
+| Category | Tokens | Purpose |
+|----------|--------|---------|
+| **Layout** | `modal`, `modal-footer-x/y`, `sheet-x`, `sheet-bottom`, `view` | Container padding for modals, sheets, views |
+| **Components** | `infobar-x/y`, `menu-item-x/y`, `control` | Consistent component padding |
+| **Gaps** | `panel-gap`, `section-gap`, `inline-gap`, `tight-gap` | Flex/grid gap standardization |
+| **Audio** | `fader-track`, `meter-gap`, `channel-strip`, `transport` | Mixer/timeline-specific spacing |
+
+#### Usage
+
+```tsx
+// Before - raw values with no semantic meaning
+<div className="p-4 space-y-4">Modal content</div>
+<div className="px-3 py-2">Info bar</div>
+
+// After - intent is clear, system-wide changes possible
+<div className="p-modal space-y-section-gap">Modal content</div>
+<div className="px-infobar-x py-infobar-y">Info bar</div>
+```
+
+#### Three-Tier Hierarchy (Industry Standard)
+
+Following Shopify Polaris, GitHub Primer, Adobe Spectrum:
+
+1. **Primitives** - Tailwind's built-in `p-1`, `p-2`, `gap-3`, etc. (rarely use directly)
+2. **Semantic** - Intent-based tokens like `--spacing-modal`, `--spacing-view` (primary layer)
+3. **Component** - Highly specific like `--spacing-fader-track` (when needed)
+
+#### When to Tokenize
+
+**Rule:** Tokenize spacing values used **three or more times** across files. Single-use values stay as raw Tailwind.
+
+#### Gotchas
+
+- **Cannot nest `@theme` in `@media`** - Use responsive variants instead: `p-modal-compact md:p-modal`
+- **CSS is source of truth** - If JS needs spacing values, read via `getComputedStyle()`
+- **Don't duplicate `layout.ts`** - Those are layout dimensions (heights, widths), not spacing tokens
+
+See: `FRONTEND_CLEANUP_PHASE_2_FINDINGS.md`, `research/FRONTEND_SPACING_DESIGN.md`
+
 ---
 
 ## 2. Code Organization

@@ -249,7 +249,7 @@ export function ActionsView(): ReactElement {
     <ViewLayout
       viewId="actions"
       header={headerContent}
-      className="bg-bg-app text-text-primary p-3"
+      className="bg-bg-app text-text-primary p-view"
     >
       {/* Content */}
       {sections.length === 0 ? (

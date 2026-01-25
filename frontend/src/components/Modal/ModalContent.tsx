@@ -26,7 +26,7 @@ export function ModalContent({
   spaced = true,
 }: ModalContentProps) {
   return (
-    <div className={`p-4 ${spaced ? 'space-y-4' : ''} ${className}`}>
+    <div className={`p-modal ${spaced ? 'space-y-4' : ''} ${className}`}>
       {children}
     </div>
   );
