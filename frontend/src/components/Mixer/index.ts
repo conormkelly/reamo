@@ -6,7 +6,6 @@ export { MixerModeSelector, type MixerModeSelectorProps } from './MixerModeSelec
 export { SendFader, type SendFaderProps } from './SendFader';
 export { SendMuteButton, type SendMuteButtonProps } from './SendMuteButton';
 export { SendDestinationSelector, type SendDestinationSelectorProps } from './SendDestinationSelector';
-export { SendStrip, type SendStripProps } from './SendStrip';
 export {
   BankSelector,
   type BankSelectorProps,

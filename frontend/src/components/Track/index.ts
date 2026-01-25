@@ -16,4 +16,3 @@ export { TrackStripWithMeter, type TrackStripWithMeterProps } from './TrackStrip
 
 // Track utilities
 export { LevelMeter, type LevelMeterProps } from './LevelMeter';
-export { TrackFilter, type TrackFilterProps } from './TrackFilter';
