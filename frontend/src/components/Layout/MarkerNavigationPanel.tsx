@@ -8,12 +8,12 @@
 
 import { useCallback, useMemo, type ReactElement } from 'react';
 import { MapPin, Layers } from 'lucide-react';
-import { BottomSheet } from './Modal/BottomSheet';
-import { useReaper } from './ReaperProvider';
-import { useReaperStore } from '../store';
-import { transport } from '../core/WebSocketCommands';
-import { formatTime, reaperColorToHexWithFallback } from '../utils';
-import type { Marker, Region } from '../core/types';
+import { BottomSheet } from '../Modal/BottomSheet';
+import { useReaper } from '../ReaperProvider';
+import { useReaperStore } from '../../store';
+import { transport } from '../../core/WebSocketCommands';
+import { formatTime, reaperColorToHexWithFallback } from '../../utils';
+import type { Marker, Region } from '../../core/types';
 
 export interface MarkerNavigationPanelProps {
   isOpen: boolean;

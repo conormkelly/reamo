@@ -1,17 +1,16 @@
+// Root-level components (framework-level concerns)
 export { ReaperProvider, useReaper, type ReaperProviderProps } from './ReaperProvider';
 export { ErrorBoundary } from './ErrorBoundary';
-export { ViewLayout, type ViewLayoutProps } from './ViewLayout';
 export { ConnectionStatus, ConnectionBanner, type ConnectionStatusProps, type ConnectionBannerProps } from './ConnectionStatus';
+export { NetworkStatsModal, type NetworkStatsModalProps } from './NetworkStatsModal';
 export { UpdateBanner, type UpdateBannerProps } from './UpdateBanner';
 export { MemoryWarningBar, type MemoryWarningBarProps } from './MemoryWarningBar';
-export { NetworkStatsModal, type NetworkStatsModalProps } from './NetworkStatsModal';
-export { ModalRoot } from './ModalRoot';
-export { TabBar, type TabBarProps } from './TabBar';
-export { PersistentTransport, type PersistentTransportProps } from './PersistentTransport';
-export { SettingsMenu, type SettingsMenuProps } from './SettingsMenu';
-export { ViewHeader, type ViewHeaderProps } from './ViewHeader';
-export { OverflowMenu, type OverflowMenuItem, type OverflowMenuProps } from './OverflowMenu';
-export { TextSizeControl, type TextSizeControlProps } from './TextSizeControl';
+
+// App chrome (Layout/)
+export * from './Layout';
+
+// Feature folders
+export * from './Modal';
 export * from './Transport';
 export * from './Track';
 export * from './Markers';
