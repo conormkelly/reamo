@@ -33,6 +33,7 @@ const peaks_tile = @import("peaks_tile.zig");
 const track_skeleton = @import("track_skeleton.zig");
 const csurf = @import("csurf.zig");
 const csurf_dirty = @import("csurf_dirty.zig");
+const network_action = @import("network_action.zig");
 const ztracy = @import("ztracy");
 
 // Use custom panic handler that flushes log ring buffer before aborting
@@ -756,6 +757,17 @@ fn doInitialization() !void {
     // Register Lua Peak Bridge API (works even without CSurf)
     if (g_plugin_register) |plugin_register| {
         LuaPeakBridge.register(plugin_register);
+    }
+
+    // Register network addresses action
+    if (g_plugin_register) |plugin_register| {
+        if (g_api) |*inner_api| {
+            if (network_action.register(plugin_register, inner_api.showMessageBox, inner_api.resourcePath())) {
+                logging.info("Network action registered", .{});
+            } else {
+                logging.warn("Failed to register network action", .{});
+            }
+        }
     }
 
     // Initialize Lua script for peak fetching (must be after API registration)
@@ -2116,6 +2128,9 @@ fn shutdown() void {
         g_csurf = null;
     }
     logging.info("CSurf cleaned up", .{});
+
+    // Unregister network action
+    network_action.unregister();
 
     if (g_server) |*server| {
         logging.info("stopping server", .{});
