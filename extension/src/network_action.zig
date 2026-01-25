@@ -5,8 +5,126 @@
 /// via WiFi or USB tethering.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const network_detect = @import("network_detect.zig");
 const logging = @import("logging.zig");
+
+/// Host operating system for platform-specific troubleshooting messages
+const HostOS = enum {
+    windows,
+    macos,
+    linux,
+
+    fn detect() HostOS {
+        return switch (builtin.os.tag) {
+            .windows => .windows,
+            .macos => .macos,
+            .linux => .linux,
+            else => .linux, // Fallback for other Unix-like
+        };
+    }
+};
+
+// =============================================================================
+// OS-specific troubleshooting messages
+// =============================================================================
+
+const msg_macos_ios =
+    \\No iOS USB network found.
+    \\
+    \\To use iPhone USB tethering:
+    \\1. Connect iPhone via USB cable
+    \\2. On iPhone: Settings > Personal Hotspot > Allow Others to Join
+    \\3. If prompted on iPhone, tap "Trust" this computer
+    \\4. Click Retry to scan again
+    \\
+;
+
+const msg_macos_android =
+    \\No Android USB network found.
+    \\
+    \\Note: Android USB tethering requires additional drivers on macOS.
+    \\
+    \\Recommended alternatives:
+    \\  * Use your Android as a WiFi hotspot instead
+    \\  * Connect both devices to the same WiFi network
+    \\
+    \\For advanced users: HoRNDIS driver (Intel Macs only, requires
+    \\disabling SIP on Apple Silicon - not recommended)
+    \\
+;
+
+const msg_windows_ios =
+    \\No iOS USB network found.
+    \\
+    \\To use iPhone USB tethering:
+    \\1. Install iTunes (or "Apple Devices" from Microsoft Store)
+    \\   - This installs required Apple Mobile Device drivers
+    \\2. Connect iPhone via USB cable
+    \\3. On iPhone: Settings > Personal Hotspot > Allow Others to Join
+    \\4. Click Retry to scan again
+    \\
+;
+
+const msg_windows_android =
+    \\No Android USB network found.
+    \\
+    \\To use Android USB tethering:
+    \\1. Connect Android phone via USB cable
+    \\2. On Android: Settings > Network > Hotspot & tethering > USB tethering
+    \\3. Windows may take a few seconds to recognize the device
+    \\4. Click Retry to scan again
+    \\
+;
+
+const msg_linux_usb =
+    \\No USB network found.
+    \\
+    \\For iPhone:
+    \\  * Ensure 'usbmuxd' service is running: systemctl status usbmuxd
+    \\  * Connect iPhone and enable Personal Hotspot
+    \\
+    \\For Android:
+    \\  * Connect Android and enable USB Tethering in settings
+    \\  * Interface should appear as usb0 or enp*s*u*
+    \\
+    \\Click Retry to scan again.
+    \\
+;
+
+const msg_generic =
+    \\No USB network detected.
+    \\
+    \\For iOS: Enable Personal Hotspot, then connect USB cable
+    \\For Android: Connect USB cable, then enable USB Tethering
+    \\
+;
+
+/// Get platform-specific troubleshooting message when USB network is missing
+fn getUsbTroubleshootingMessage(host_os: HostOS, has_ios: bool, has_android: bool) []const u8 {
+    // If we have one type, show help for the missing type
+    if (has_ios and !has_android) {
+        return switch (host_os) {
+            .macos => msg_macos_android,
+            .windows => msg_windows_android,
+            .linux => msg_linux_usb,
+        };
+    }
+    if (has_android and !has_ios) {
+        return switch (host_os) {
+            .macos => msg_macos_ios,
+            .windows => msg_windows_ios,
+            .linux => msg_linux_usb,
+        };
+    }
+
+    // No USB at all - show general help for the platform
+    return switch (host_os) {
+        .macos => msg_macos_ios, // iOS more likely to work on Mac
+        .windows => msg_windows_android, // Android more common on Windows
+        .linux => msg_linux_usb,
+    };
+}
 
 /// Function type for REAPER's plugin_register
 pub const PluginRegisterFn = *const fn ([*:0]const u8, ?*anyopaque) callconv(.c) c_int;
@@ -118,20 +236,19 @@ fn showNetworkAddresses() void {
     var fbs = std.io.fixedBufferStream(&msg_buf);
     const writer = fbs.writer();
 
-    // Count USB networks
-    var usb_count: usize = 0;
+    // Count USB networks by type
+    var has_ios_usb = false;
+    var has_android_usb = false;
     for (networks[0..count]) |n| {
-        if (n.network_type == .ios_usb or n.network_type == .android_usb) {
-            usb_count += 1;
-        }
+        if (n.network_type == .ios_usb) has_ios_usb = true;
+        if (n.network_type == .android_usb) has_android_usb = true;
     }
 
-    if (usb_count == 0 and count > 0) {
-        writer.print("No USB network detected.\n\n", .{}) catch {};
-        writer.print("For iOS: Enable Personal Hotspot, then\n", .{}) catch {};
-        writer.print("         connect USB cable\n\n", .{}) catch {};
-        writer.print("For Android: Connect USB cable, then\n", .{}) catch {};
-        writer.print("             enable USB Tethering\n\n", .{}) catch {};
+    // Show OS-specific troubleshooting if no USB network found
+    if (!has_ios_usb and !has_android_usb and count > 0) {
+        const host_os = HostOS.detect();
+        const help_msg = getUsbTroubleshootingMessage(host_os, has_ios_usb, has_android_usb);
+        writer.print("{s}\n", .{help_msg}) catch {};
     }
 
     // List all networks
