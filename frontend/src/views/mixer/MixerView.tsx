@@ -58,9 +58,13 @@ export function MixerView(): ReactElement {
   const pinMasterTrack = useReaperStore((state) => state.pinMasterTrack);
   const showAddTrackButton = useReaperStore((state) => state.showAddTrackButton);
   const setSecondaryPanelExpanded = useReaperStore((state) => state.setSecondaryPanelExpanded);
+  const setSideRailBankNav = useReaperStore((state) => state.setSideRailBankNav);
+  const setSideRailBankNavCallbacks = useReaperStore((state) => state.setSideRailBankNavCallbacks);
+  const setSideRailInfo = useReaperStore((state) => state.setSideRailInfo);
 
   // Responsive height measurement - tracks container size and panel transitions
-  const { availableHeight, isLandscape } = useAvailableContentHeight({
+  // Also provides layout context for side rail mode detection
+  const { availableHeight, isLandscape, isLandscapeConstrained } = useAvailableContentHeight({
     containerRef,
     viewId: 'mixer',
   });
@@ -416,6 +420,37 @@ export function MixerView(): ReactElement {
     onForward: handleForward,
   }), [effectiveBankDisplay, effectiveTotalCount, effectiveCanGoBack, effectiveCanGoForward, handleBack, handleForward]);
 
+  // Sync bank nav state to side rail when in landscape-constrained mode
+  useEffect(() => {
+    if (isLandscapeConstrained) {
+      // Populate side rail with bank nav state
+      setSideRailBankNav({
+        bankDisplay: effectiveBankDisplay,
+        compactDisplay: String(effectiveTotalCount),
+        canGoBack: effectiveCanGoBack,
+        canGoForward: effectiveCanGoForward,
+      });
+      setSideRailBankNavCallbacks({
+        onBack: handleBack,
+        onForward: handleForward,
+      });
+      // Provide info content for side rail actions button
+      setSideRailInfo({
+        content: infoTabContent,
+        label: 'Track Info',
+      });
+    }
+
+    // Cleanup when unmounting or leaving landscape-constrained mode
+    return () => {
+      if (isLandscapeConstrained) {
+        setSideRailBankNav(null);
+        setSideRailBankNavCallbacks({ onBack: null, onForward: null });
+        setSideRailInfo(null);
+      }
+    };
+  }, [isLandscapeConstrained, effectiveBankDisplay, effectiveTotalCount, effectiveCanGoBack, effectiveCanGoForward, handleBack, handleForward, setSideRailBankNav, setSideRailBankNavCallbacks, setSideRailInfo, infoTabContent]);
+
   // Search props for SecondaryPanel header
   const searchProps: SearchProps = useMemo(() => ({
     value: filterQuery,
@@ -537,7 +572,7 @@ export function MixerView(): ReactElement {
           />
         </ViewHeader>
       }
-      footer={<SecondaryPanel viewId="mixer" tabs={secondaryTabs} bankNav={bankNavProps} search={searchProps} />}
+      footer={isLandscapeConstrained ? undefined : <SecondaryPanel viewId="mixer" tabs={secondaryTabs} bankNav={bankNavProps} search={searchProps} />}
       scrollable={false}
       className="bg-bg-app text-text-primary p-3"
     >

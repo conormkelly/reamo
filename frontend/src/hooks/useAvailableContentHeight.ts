@@ -4,6 +4,9 @@
  * Uses ResizeObserver to track container height changes. Waits for panel
  * transitions to complete before reporting new values to avoid jank.
  *
+ * Also provides layout context (navPosition, isLandscapeConstrained) for views
+ * to adjust their behavior when side rail is active.
+ *
  * @see RESPONSIVE_TIMELINE_AND_MIXER.md for architecture decisions
  */
 
@@ -11,6 +14,7 @@ import { useState, useEffect, useRef, type RefObject } from 'react';
 import { useReaperStore } from '../store';
 import { useIsLandscape } from './useMediaQuery';
 import { useReducedMotion } from './useReducedMotion';
+import { useLayoutContext, type NavPosition } from './useLayoutContext';
 import { PANEL_TRANSITION_MS } from '../constants/layout';
 
 export interface UseAvailableContentHeightOptions {
@@ -27,6 +31,10 @@ export interface UseAvailableContentHeightReturn {
   isLandscape: boolean;
   /** True while panel is animating (heights may be stale) */
   isTransitioning: boolean;
+  /** Navigation position: 'side' when landscape-constrained, else 'bottom' */
+  navPosition: NavPosition;
+  /** True when side rail is active (phone in landscape with limited height) */
+  isLandscapeConstrained: boolean;
 }
 
 /**
@@ -52,6 +60,9 @@ export function useAvailableContentHeight(
   const panelExpanded = useReaperStore((s) => s.secondaryPanelExpanded[viewId]);
   const isLandscape = useIsLandscape();
   const prefersReducedMotion = useReducedMotion();
+
+  // Get layout context for side rail detection
+  const { navPosition, isLandscapeConstrained } = useLayoutContext();
 
   // Track previous panel state to detect changes
   const prevPanelExpandedRef = useRef(panelExpanded);
@@ -128,5 +139,7 @@ export function useAvailableContentHeight(
     availableHeight,
     isLandscape,
     isTransitioning,
+    navPosition,
+    isLandscapeConstrained,
   };
 }

@@ -7,27 +7,27 @@ Catalog of bugs and improvements discovered during frontend sweep. Grouped by ef
 
 ---
 
-## Small (S) - Quick Fixes
+## Small (S) - Quick Fixes ✅
 
 CSS tweaks, simple behavior changes. Each should take 15-30 minutes.
 
-### S1: Remove "Rotate for Best Experience" Messages
+### ~~S1: Remove "Rotate for Best Experience" Messages~~ ✅
 - **Location:** DrumPads, Piano, possibly others
 - **Issue:** Messages appear even on iPad where there's plenty of space
 - **Fix:** Remove the orientation warning components entirely
 - **Note:** Drum pads look fine in both orientations
 
-### S2: Track Strip Padding in Mixer
+### ~~S2: Track Strip Padding in Mixer~~ ✅
 - **Location:** MixerView / TrackStrip components
 - **Issue:** Strips too close together, dragging fader near meter boundary causes meters to shift left
 - **Fix:** Add more horizontal padding between strips
 
-### S3: Notes Page Margin/Padding
+### ~~S3: Notes Page Margin/Padding~~ ✅
 - **Location:** NotesView (project notes section)
 - **Issue:** Content bunched right up against Discard/Save buttons
 - **Fix:** Add responsive margin/padding to text content area
 
-### S4: Track Selector Button Opens Info Panel
+### ~~S4: Track Selector Button Opens Info Panel~~ ✅
 - **Location:** TrackStrip (bottom selector button)
 - **Issue:** Clicking selector has no visible effect unless Info panel is already open
 - **Fix:** Auto-open SecondaryPanel Info tab when selector button pressed
@@ -51,13 +51,13 @@ Require investigation or moderate refactoring. Each should take 1-3 hours.
 - **Root cause:** Layout budget calculation may not account for collapsed panel correctly
 - **Fix:** Audit fader height calculation in portrait with collapsed SecondaryPanel
 
-### M3: Fader Drag Causes Meter Shift
+### ~~M3: Fader Drag Causes Meter Shift~~ ✅
 - **Location:** TrackStrip components
 - **Issue:** Dragging fader to half-way meter line causes meters to move left
 - **Root cause:** Likely strip container needs fixed width or better containment
 - **Fix:** Ensure track strip internals don't resize during interaction
 
-### M4: Drum Pads Portrait Layout
+### ~~M4: Drum Pads Portrait Layout~~ ✅
 - **Location:** DrumPadGrid.tsx
 - **Issue:** Massive gaps between pads in portrait on phone - not centered or bunched
 - **Fix:** Center pads in available space, maximize pad size while maintaining grid

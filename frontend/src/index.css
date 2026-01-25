@@ -443,6 +443,22 @@ body {
   animation: slide-up 0.2s ease-out;
 }
 
+/* Context rail panel slide-in from right */
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.15s ease-out;
+}
+
 /* =============================================================================
  * REDUCED MOTION SUPPORT
  * Respects user's OS-level preference for reduced motion.
@@ -491,4 +507,66 @@ textarea {
 
 .scrollbar-hide::-webkit-scrollbar {
   display: none;             /* Chrome, Safari, Opera */
+}
+
+/* =============================================================================
+ * LANDSCAPE-CONSTRAINED MODE (Side Rail)
+ * Triggers when height < 480px AND landscape orientation (phone landscape).
+ * Used for side rail navigation to reclaim vertical space.
+ * ============================================================================= */
+
+@media (max-height: 480px) and (orientation: landscape) {
+  :root {
+    /* CSS custom property for JS/CSS coordination */
+    --layout-mode: landscape-constrained;
+  }
+}
+
+/* =============================================================================
+ * DUAL-RAIL LAYOUT (Landscape-Constrained Mode)
+ * NavRail (left) and ContextRail (right) need to account for safe areas
+ * The rail WIDTH must include safe area, not just internal padding
+ * ============================================================================= */
+
+/* Side rail safe area - notch may be on left in landscape */
+@media (orientation: landscape) {
+  .safe-area-left-landscape {
+    padding-left: env(safe-area-inset-left, 0px);
+  }
+}
+
+/* PWA standalone landscape - ensure notch is handled */
+@media (display-mode: standalone) and (orientation: landscape) {
+  .safe-area-left-landscape {
+    /* 34px fallback for devices with notch on left side */
+    padding-left: env(safe-area-inset-left, 34px);
+  }
+}
+
+/* NavRail (left) - width must include safe area inset */
+.nav-rail-width {
+  /* Content width is 60px, plus safe area */
+  width: calc(60px + env(safe-area-inset-left, 0px));
+  min-width: calc(60px + env(safe-area-inset-left, 0px));
+}
+
+@media (display-mode: standalone) and (orientation: landscape) {
+  .nav-rail-width {
+    width: calc(60px + env(safe-area-inset-left, 34px));
+    min-width: calc(60px + env(safe-area-inset-left, 34px));
+  }
+}
+
+/* ContextRail (right) - width must include safe area inset */
+.context-rail-width {
+  /* Content width is 72px, plus safe area */
+  width: calc(72px + env(safe-area-inset-right, 0px));
+  min-width: calc(72px + env(safe-area-inset-right, 0px));
+}
+
+@media (display-mode: standalone) and (orientation: landscape) {
+  .context-rail-width {
+    width: calc(72px + env(safe-area-inset-right, 34px));
+    min-width: calc(72px + env(safe-area-inset-right, 34px));
+  }
 }
