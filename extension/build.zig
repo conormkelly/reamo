@@ -59,6 +59,37 @@ pub fn build(b: *std.Build) void {
         lib.linkLibCpp();
     }
 
+    // QR code generation library (all platforms)
+    lib.addCSourceFile(.{
+        .file = b.path("lib/qrcodegen/qrcodegen.c"),
+        .flags = &.{"-std=c99"},
+    });
+    lib.root_module.addIncludePath(b.path("lib/qrcodegen"));
+
+    // SWELL bridge for native window support (macOS/Linux only)
+    // On Windows, swell.zig uses native Win32 APIs directly
+    if (target.result.os.tag == .macos) {
+        lib.addCSourceFile(.{
+            .file = b.path("src/zig_swell_bridge.mm"),
+            .flags = &.{
+                "-std=c++17",
+                "-fno-exceptions",
+                "-fno-rtti",
+            },
+        });
+        lib.linkFramework("Cocoa");
+    } else if (target.result.os.tag == .linux) {
+        lib.addCSourceFile(.{
+            .file = b.path("src/zig_swell_bridge.mm"),
+            .flags = &.{
+                "-std=c++17",
+                "-fno-exceptions",
+                "-fno-rtti",
+                "-x", "c++", // Compile as C++ on Linux (no ObjC)
+            },
+        });
+    }
+
     b.installArtifact(lib);
 
     // Unit tests - test modules that don't depend on websocket or parent imports
@@ -91,4 +122,20 @@ pub fn build(b: *std.Build) void {
         const run_tests = b.addRunArtifact(unit_tests);
         test_step.dependOn(&run_tests.step);
     }
+
+    // QR render tests - need qrcodegen C library linked
+    const qr_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/qr_render.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    qr_tests.addCSourceFile(.{
+        .file = b.path("lib/qrcodegen/qrcodegen.c"),
+        .flags = &.{"-std=c99"},
+    });
+    qr_tests.root_module.addIncludePath(b.path("lib/qrcodegen"));
+    const run_qr_tests = b.addRunArtifact(qr_tests);
+    test_step.dependOn(&run_qr_tests.step);
 }

@@ -762,7 +762,7 @@ fn doInitialization() !void {
     // Register network addresses action
     if (g_plugin_register) |plugin_register| {
         if (g_api) |*inner_api| {
-            if (network_action.register(plugin_register, inner_api.showMessageBox, inner_api.resourcePath())) {
+            if (network_action.register(plugin_register, inner_api.showMessageBox, inner_api.getMainHwnd_fn, inner_api.resourcePath())) {
                 logging.info("Network action registered", .{});
             } else {
                 logging.warn("Failed to register network action", .{});
