@@ -749,3 +749,35 @@ Deferred until side rail responsive design is finalized.
 - Text hierarchy audit
 - Loading/empty state consistency
 - Transition/animation polish
+
+---
+
+### Frontend Toggle Subscription Not Updating UI
+
+**Status:** Bug — Backend working, frontend not responding
+
+**Symptom:** Metronome button (and likely other toggle subscriptions) doesn't update when toggled from REAPER directly. User must refresh to see current state.
+
+**Verified via websocat (2026-01-26):**
+
+Backend correctly sends `actionToggleState` events when metronome is toggled:
+
+```
+Subscribe: {"type":"command","command":"actionToggleState/subscribe","actions":[{"c":40364,"s":0}],"id":"1"}
+Response:  {"type":"response","id":"1","success":true,"payload":{"states":[{"s":0,"c":40364,"v":0}],...}}
+Events:    {"type":"event","event":"actionToggleState","changes":[{"s":0,"c":40364,"v":1}]}  // ON
+           {"type":"event","event":"actionToggleState","changes":[{"s":0,"c":40364,"v":0}]}  // OFF
+```
+
+All toggle state changes broadcast correctly — 8 events received for 4 toggle cycles.
+
+**Root cause:** Frontend is not handling `actionToggleState` events, or the event handler isn't updating the relevant React state/store.
+
+**Investigation needed:**
+
+- [ ] Check if `actionToggleState` event listener exists in WebSocket message handler
+- [ ] Verify toggle state store is updated when event received
+- [ ] Check if MetronomeButton component subscribes to correct store state
+- [ ] May be a regression from recent refactoring
+
+**Related:** `extension/src/subscription_polling.zig` refactor (in progress on `refactor/responsive-frontend` branch)
