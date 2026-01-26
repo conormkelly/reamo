@@ -734,32 +734,22 @@ Deferred until side rail responsive design is finalized.
 
 ---
 
-### Frontend Toggle Subscription Not Updating UI
+### Frontend Toggle Subscription Not Updating UI ✅
 
-**Status:** Bug — Backend working, frontend not responding
+**Status:** Fixed (2026-01-26)
 
-**Symptom:** Metronome button (and likely other toggle subscriptions) doesn't update when toggled from REAPER directly. User must refresh to see current state.
+**Symptom:** Toolbar toggle buttons (and ActionsView toggles) didn't update when toggled from REAPER directly. User had to refresh to see current state.
 
-**Verified via websocat (2026-01-26):**
+**Root cause:** Backend event format mismatch. The backend was sending `changes` at the top level:
 
-Backend correctly sends `actionToggleState` events when metronome is toggled:
-
-```
-Subscribe: {"type":"command","command":"actionToggleState/subscribe","actions":[{"c":40364,"s":0}],"id":"1"}
-Response:  {"type":"response","id":"1","success":true,"payload":{"states":[{"s":0,"c":40364,"v":0}],...}}
-Events:    {"type":"event","event":"actionToggleState","changes":[{"s":0,"c":40364,"v":1}]}  // ON
-           {"type":"event","event":"actionToggleState","changes":[{"s":0,"c":40364,"v":0}]}  // OFF
+```json
+{"type":"event","event":"actionToggleState","changes":[{"s":0,"c":40364,"v":1}]}
 ```
 
-All toggle state changes broadcast correctly — 8 events received for 4 toggle cycles.
+But the frontend expected `changes` inside a `payload` wrapper (matching the documented API):
 
-**Root cause:** Frontend is not handling `actionToggleState` events, or the event handler isn't updating the relevant React state/store.
+```json
+{"type":"event","event":"actionToggleState","payload":{"changes":[{"s":0,"c":40364,"v":1}]}}
+```
 
-**Investigation needed:**
-
-- [ ] Check if `actionToggleState` event listener exists in WebSocket message handler
-- [ ] Verify toggle state store is updated when event received
-- [ ] Check if MetronomeButton component subscribes to correct store state
-- [ ] May be a regression from recent refactoring
-
-**Related:** `extension/src/subscription_polling.zig` refactor (in progress on `refactor/responsive-frontend` branch)
+**Fix:** Updated `changesToJson()` in `extension/src/subscriptions/toggle_subscriptions.zig` to wrap `changes` in a `payload` object, matching the documented API format and the frontend's expectation.
