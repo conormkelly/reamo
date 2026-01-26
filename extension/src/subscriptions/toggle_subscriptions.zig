@@ -273,14 +273,14 @@ pub const ToggleSubscriptions = struct {
     }
 
     /// Format changes as JSON event message with structured array format.
-    /// Output: {"type":"event","event":"actionToggleState","changes":[{"s":0,"c":40001,"v":1},...]}
+    /// Output: {"type":"event","event":"actionToggleState","payload":{"changes":[{"s":0,"c":40001,"v":1},...]}}
     pub fn changesToJson(changes: *const std.AutoHashMap(u64, i8), buf: []u8) ?[]const u8 {
         if (changes.count() == 0) return null;
 
         var stream = std.io.fixedBufferStream(buf);
         var writer = stream.writer();
 
-        writer.writeAll("{\"type\":\"event\",\"event\":\"actionToggleState\",\"changes\":[") catch return null;
+        writer.writeAll("{\"type\":\"event\",\"event\":\"actionToggleState\",\"payload\":{\"changes\":[") catch return null;
 
         var first = true;
         var iter = changes.iterator();
@@ -296,7 +296,7 @@ pub const ToggleSubscriptions = struct {
             }) catch return null;
         }
 
-        writer.writeAll("]}") catch return null;
+        writer.writeAll("]}}") catch return null;
 
         return stream.getWritten();
     }
@@ -480,7 +480,7 @@ test "changesToJson formats correctly with structured array" {
     const json = ToggleSubscriptions.changesToJson(&changes, &buf).?;
 
     try std.testing.expectEqualStrings(
-        "{\"type\":\"event\",\"event\":\"actionToggleState\",\"changes\":[{\"s\":0,\"c\":40001,\"v\":1}]}",
+        "{\"type\":\"event\",\"event\":\"actionToggleState\",\"payload\":{\"changes\":[{\"s\":0,\"c\":40001,\"v\":1}]}}",
         json,
     );
 }
@@ -498,7 +498,7 @@ test "changesToJson with multiple sections" {
     const json = ToggleSubscriptions.changesToJson(&changes, &buf).?;
 
     try std.testing.expectEqualStrings(
-        "{\"type\":\"event\",\"event\":\"actionToggleState\",\"changes\":[{\"s\":32060,\"c\":12345,\"v\":0}]}",
+        "{\"type\":\"event\",\"event\":\"actionToggleState\",\"payload\":{\"changes\":[{\"s\":32060,\"c\":12345,\"v\":0}]}}",
         json,
     );
 }
