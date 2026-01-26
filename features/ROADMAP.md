@@ -1,6 +1,6 @@
 # REAmo Roadmap
 
-**Last updated:** 2026-01-21
+**Last updated:** 2026-01-26
 
 ---
 
@@ -118,7 +118,7 @@ Piano roll view with touch editing.
 
 Tap time display to cycle: Bar.Beat → Seconds → SMPTE → Bar.Beat
 
-**Research complete:** [research/SMPTE.md](../research/SMPTE.md)
+**Research complete:** [research/archived/general/SMPTE.md](../research/archived/general/SMPTE.md)
 
 - Backend already sends `frameRate` and `dropFrame` in project event
 - Add `timeDisplayMode` to UIPreferences (localStorage)
@@ -168,7 +168,7 @@ Deferred — requires fetching all takes' peaks.
 
 Show folder hierarchy in mixer/track views via flat navigation with breadcrumb "spill" pattern.
 
-**Research:** [research/DAW_FOLDER_HIERARCHY_PATTERNS.md](../research/DAW_FOLDER_HIERARCHY_PATTERNS.md)
+**Research:** [research/archived/competitive-analysis/DAW_FOLDER_HIERARCHY_PATTERNS.md](../research/archived/competitive-analysis/DAW_FOLDER_HIERARCHY_PATTERNS.md)
 
 **Key Insight:** Most mobile DAW controllers ignore folders entirely. Avid Control's "spill" pattern (tap folder → see children only) is the gold standard. For mobile's limited screen space, externalize hierarchy to a flat bank-based navigation rather than visual nesting.
 
@@ -236,10 +236,10 @@ Chord pads and scale-locked keyboard for songwriting workflow.
 
 **Research:**
 
-- [research/MIDI_TOUCH_INSTRUMENTS.md](../research/MIDI_TOUCH_INSTRUMENTS.md) - Latency analysis, StuffMIDIMessage API
-- [research/LOGIC_CHORD_STRIPS.md](../research/LOGIC_CHORD_STRIPS.md) - Logic Remote layout & UX analysis
-- [research/CHORD_STRIP_TECH_REFERENCE.md](../research/CHORD_STRIP_TECH_REFERENCE.md) - Scale bitmasks, chord generation algorithms
-- [research/CHORD_STRIPS_PAIN_POINTS.md](../research/CHORD_STRIPS_PAIN_POINTS.md) - Logic Remote limitations & REAmo opportunities
+- [research/archived/competitive-analysis/MIDI_TOUCH_INSTRUMENTS.md](../research/archived/competitive-analysis/MIDI_TOUCH_INSTRUMENTS.md) - Latency analysis, StuffMIDIMessage API
+- [research/archived/competitive-analysis/LOGIC_CHORD_STRIPS.md](../research/archived/competitive-analysis/LOGIC_CHORD_STRIPS.md) - Logic Remote layout & UX analysis
+- [research/archived/competitive-analysis/CHORD_STRIP_TECH_REFERENCE.md](../research/archived/competitive-analysis/CHORD_STRIP_TECH_REFERENCE.md) - Scale bitmasks, chord generation algorithms
+- [research/archived/competitive-analysis/CHORD_STRIPS_PAIN_POINTS.md](../research/archived/competitive-analysis/CHORD_STRIPS_PAIN_POINTS.md) - Logic Remote limitations & REAmo opportunities
 
 **Key Finding:** WebSocket → StuffMIDIMessage achieves 5-15ms latency (matches Logic Remote). No WebMIDI complexity needed.
 
@@ -342,9 +342,9 @@ Parse existing SWS playlists from .RPP files for migration.
 
 Current toolbar is a simple button bar with text-sized buttons. Needs rework for better space utilization and user configurability.
 
-**Status:** Research complete. See [research/MOBILE_TOOLBAR_UX.md](../research/MOBILE_TOOLBAR_UX.md)
+**Status:** Research complete. See [research/archived/ui-ux/MOBILE_TOOLBAR_UX.md](../research/archived/ui-ux/MOBILE_TOOLBAR_UX.md)
 
-**Research:** [research/MOBILE_TOOLBAR_UX.md](../research/MOBILE_TOOLBAR_UX.md)
+**Research:** [research/archived/ui-ux/MOBILE_TOOLBAR_UX.md](../research/archived/ui-ux/MOBILE_TOOLBAR_UX.md)
 
 **Prerequisites:**
 
@@ -407,7 +407,7 @@ Single canvas for timeline content to fix browser compositing bugs.
 
 **Status:** ✅ Complete
 
-**Research:** [research/TIMELINE_CANVAS_ARCHITECTURE.md](../research/TIMELINE_CANVAS_ARCHITECTURE.md)
+**Research:** [research/archived/timeline-canvas/TIMELINE_CANVAS_ARCHITECTURE.md](../research/archived/timeline-canvas/TIMELINE_CANVAS_ARCHITECTURE.md)
 
 **Implemented:**
 
@@ -452,7 +452,7 @@ Complete rewrite of waveform rendering with multi-level LOD tile caching.
 - Split lanes: L channel in top half, R channel in bottom half
 - Mono files continue as single centered waveform
 
-**Reference:** [research/ADAPTIVE_WAVEFORM_ZOOM.md](../research/ADAPTIVE_WAVEFORM_ZOOM.md)
+**Reference:** [docs/architecture/timeline/ADAPTIVE_WAVEFORM_ZOOM.md](../docs/architecture/timeline/ADAPTIVE_WAVEFORM_ZOOM.md)
 
 ---
 
@@ -620,7 +620,7 @@ Follows routing subscription pattern — single track per client, GUID-based add
 
 - [x] Frontend: FX modal to use subscription instead of on-demand fetch
 
-**Reference:** [trackfx_subscriptions.zig](../extension/src/trackfx_subscriptions.zig)
+**Reference:** [trackfx_subscriptions.zig](../extension/src/subscriptions/trackfx_subscriptions.zig)
 
 ### CSurf FX/Sends Dirty Flag Consumption ✅
 
@@ -630,7 +630,7 @@ The main loop now consumes `fx_dirty` and `sends_dirty` bitsets from CSurf callb
 
 **Implementation:** Dirty flags are per-track. When a subscription's track has its dirty bit set, the broadcast is forced even if hash comparison would skip it.
 
-**Reference:** [CSURF_MIGRATION.md](../docs/architecture/CSURF_MIGRATION.md)
+**Reference:** [CSURF_MIGRATION.md](../docs/architecture/backend/csurf/CSURF_MIGRATION.md)
 
 ### FX Parameter Subscription ✅
 
@@ -690,24 +690,6 @@ Currently all visible tracks get metered. Could subscribe per-track for large pr
 ---
 
 ## Technical Debt
-
-### Installer Script Cleanup
-
-The `installer/` directory contains legacy Lua scripts. Now that runtime scripts are tracked in `extension/scripts/`, consolidate.
-
-**Current state:**
-
-- `installer/*.lua` — Legacy one-click installer scripts
-- `extension/scripts/reamo_internal_fetch_peaks.lua` — Now tracked (canonical source)
-- `Scripts/Reamo/*.lua` (runtime) — Other scripts not yet tracked
-
-**TODO:**
-
-- [ ] Move remaining runtime scripts to `extension/scripts/`
-- [ ] Update installer to copy from `extension/scripts/`
-- [ ] Remove duplicates from `installer/`
-
----
 
 ### Frontend Cleanup Deferred Items
 
