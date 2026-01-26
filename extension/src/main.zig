@@ -39,6 +39,7 @@ const lua_peak_bridge = @import("lua_peak_bridge.zig");
 const subscription_polling = @import("subscription_polling.zig");
 const tier_polling = @import("tier_polling.zig");
 const playlist_tick = @import("playlist_tick.zig");
+const client_management = @import("client_management.zig");
 
 // Use custom panic handler that flushes log ring buffer before aborting
 pub const panic = logging.panic;
@@ -410,31 +411,6 @@ comptime {
     }
 }
 
-// Static state storage for doProcessing() to avoid large stack allocations
-// Zig allocates ALL local variables at function entry, so we move large State
-// structs to static memory to prevent stack overflow in deep REAPER startup stacks
-const ProcessingState = struct {
-    // Snapshot states (used when sending initial state to new clients)
-    var snap_transport: transport.State = .{};
-    var snap_project: project.State = .{};
-    var snap_markers: markers.State = .{};
-    var snap_tracks: tracks.State = .{};
-    var snap_items: items.State = .{};
-    var snap_tempomap: tempomap.State = .{};
-
-    // Static backing buffers for snapshot pollInto (slice-based states)
-    var snap_tracks_buf: [tracks.MAX_TRACKS]tracks.Track = undefined;
-    var snap_items_buf: [items.MAX_ITEMS]items.Item = undefined;
-    var snap_markers_buf: [markers.MAX_MARKERS]markers.Marker = undefined;
-    var snap_regions_buf: [markers.MAX_REGIONS]markers.Region = undefined;
-
-    // Small utility arrays
-    var disconnected_buf: [16]usize = undefined;
-    var flush_buf: [16]gesture_state.ControlId = undefined;
-    var timeout_buf: [16]gesture_state.ControlId = undefined;
-    var snapshot_clients: [16]usize = undefined;
-};
-
 // Main processing timer - calls doProcessing() directly.
 // No warmup delays needed since pollInto() avoids large stack allocations.
 //
@@ -558,150 +534,41 @@ fn doProcessing() !void {
         commands.dispatch(&backend, command.client_id, command.data, shared_state, g_gesture_state, &g_playlist_state);
     }
 
-    // Clean up gestures and toggle subscriptions for disconnected clients
-    // Using ProcessingState.disconnected_buf to avoid stack allocation
-    const disconnected_count = shared_state.popDisconnectedClients(&ProcessingState.disconnected_buf);
-    if (disconnected_count > 0) {
-        for (ProcessingState.disconnected_buf[0..disconnected_count]) |client_id| {
-            // Clean up gestures
-            if (g_gesture_state) |gestures| {
-                const flush_count = gestures.removeClientFromAll(client_id, &ProcessingState.flush_buf);
-                if (flush_count > 0) {
-                    logging.info("Client {d} disconnected, flushing {d} gestures", .{ client_id, flush_count });
+    // ========================================================================
+    // CLIENT MANAGEMENT - Extracted to client_management.zig for testability
+    // ========================================================================
 
-                    // Check what types of gestures were flushed
-                    var had_csurf_gesture = false;
-                    for (ProcessingState.flush_buf[0..flush_count]) |control| {
-                        if (gesture_state.GestureState.isHwOutputControl(control.control_type)) {
-                            // Decrement hw count, close undo block if this was the last
-                            if (gestures.endHwUndoBlock()) {
-                                logging.info("Closing HW undo block (client disconnect)", .{});
-                                api.undoEndBlock("REAmo: Adjust audio hardware outputs");
-                            }
-                        } else {
-                            had_csurf_gesture = true;
-                        }
-                    }
+    // Build client context (once per frame)
+    const client_ctx = client_management.ClientContext{
+        .api = api,
+        .shared_state = shared_state,
+        .gestures = g_gesture_state,
+        .toggle_subs = g_toggle_subs,
+        .notes_subs = g_notes_subs,
+        .track_subs = g_track_subs,
+        .peaks_subs = g_peaks_subs,
+        .routing_subs = g_routing_subs,
+        .trackfx_subs = g_trackfx_subs,
+        .trackfxparam_subs = g_trackfxparam_subs,
+    };
 
-                    // Flush CSurf undo for non-hw gestures
-                    if (had_csurf_gesture) {
-                        api.csurfFlushUndo(true);
-                    }
-                }
-            }
-            // Clean up toggle subscriptions
-            if (g_toggle_subs) |toggles| {
-                toggles.removeClient(client_id);
-            }
-            // Clean up notes subscriptions
-            if (g_notes_subs) |notes| {
-                notes.removeClient(client_id);
-            }
-            // Clean up track subscriptions
-            if (g_track_subs) |track_subs| {
-                track_subs.removeClient(client_id);
-            }
-            // Clean up peaks subscriptions
-            if (g_peaks_subs) |peaks_subs| {
-                peaks_subs.removeClient(client_id);
-            }
-            // Clean up routing subscriptions
-            if (g_routing_subs) |routing_subs| {
-                routing_subs.removeClient(client_id);
-            }
-            // Clean up track FX subscriptions
-            if (g_trackfx_subs) |trackfx_subs| {
-                trackfx_subs.removeClient(client_id);
-            }
-            // Clean up track FX param subscriptions
-            if (g_trackfxparam_subs) |trackfxparam_subs| {
-                trackfxparam_subs.removeClient(client_id);
-            }
-        }
-    }
+    // Clean up disconnected clients
+    client_management.cleanupDisconnectedClients(&client_ctx);
 
-    // Check for gesture timeouts (safety net for missed gesture/end commands)
-    if (g_gesture_state) |gestures| {
-        const timeout_count = gestures.checkTimeouts(&ProcessingState.timeout_buf);
-        if (timeout_count > 0) {
-            logging.info("Flushing {d} timed-out gestures", .{timeout_count});
+    // Check for gesture timeouts
+    client_management.checkGestureTimeouts(&client_ctx);
 
-            // Check what types of gestures timed out
-            var had_csurf_gesture = false;
-            for (ProcessingState.timeout_buf[0..timeout_count]) |control| {
-                if (gesture_state.GestureState.isHwOutputControl(control.control_type)) {
-                    // Decrement hw count, close undo block if this was the last
-                    if (gestures.endHwUndoBlock()) {
-                        logging.info("Closing HW undo block (gesture timeout)", .{});
-                        api.undoEndBlock("REAmo: Adjust audio hardware outputs");
-                    }
-                } else {
-                    had_csurf_gesture = true;
-                }
-            }
+    // Build snapshot context
+    const snap_ctx = client_management.SnapshotContext{
+        .shared_state = shared_state,
+        .backend = &backend,
+        .tiered = tiered,
+        .playlist_state = &g_playlist_state,
+        .last_markers_regions = g_last_markers.regions,
+    };
 
-            // Flush CSurf undo for non-hw gestures
-            if (had_csurf_gesture) {
-                api.csurfFlushUndo(true);
-            }
-        }
-    }
-
-    // Send initial state snapshot to newly connected clients
-    // Using ProcessingState for all state structs to avoid stack overflow
-    const snapshot_count = shared_state.popClientsNeedingSnapshot(&ProcessingState.snapshot_clients);
-    if (snapshot_count > 0) {
-        // Get current state for all domains - use pollInto for large structs
-        ProcessingState.snap_transport = transport.State.poll(&backend); // Small
-        ProcessingState.snap_project = project.State.poll(&backend); // Small
-        ProcessingState.snap_markers.pollInto(&ProcessingState.snap_markers_buf, &ProcessingState.snap_regions_buf, &backend); // ~95KB
-        ProcessingState.snap_tempomap = tempomap.State.poll(&backend); // Small
-
-        // Poll track skeleton and items for snapshot
-        const scratch = tiered.scratchAllocator();
-        const snap_skeleton = track_skeleton.State.poll(scratch, &backend) catch null;
-        const snap_items = items.State.poll(scratch, &backend) catch null;
-
-        // Send to each new client
-        for (ProcessingState.snapshot_clients[0..snapshot_count]) |client_id| {
-            // Transport
-            if (ProcessingState.snap_transport.toJsonAlloc(scratch)) |json| {
-                shared_state.sendToClient(client_id, json);
-            } else |_| {}
-            // Project (undo/redo state)
-            if (ProcessingState.snap_project.toJsonAlloc(scratch)) |json| {
-                shared_state.sendToClient(client_id, json);
-            } else |_| {}
-            // Markers (broadcast - no subscription required)
-            if (ProcessingState.snap_markers.markersToJsonAlloc(scratch)) |json| {
-                shared_state.sendToClient(client_id, json);
-            } else |_| {}
-            // Regions (broadcast - no subscription required)
-            if (ProcessingState.snap_markers.regionsToJsonAlloc(scratch)) |json| {
-                shared_state.sendToClient(client_id, json);
-            } else |_| {}
-            // Items (broadcast - no subscription required)
-            if (snap_items) |item_state| {
-                if (item_state.itemsToJsonAlloc(scratch)) |json| {
-                    shared_state.sendToClient(client_id, json);
-                } else |_| {}
-            }
-            // Track skeleton (client must subscribe to receive full track data)
-            if (snap_skeleton) |skeleton| {
-                if (skeleton.toJsonAlloc(scratch)) |json| {
-                    shared_state.sendToClient(client_id, json);
-                } else |_| {}
-            }
-            // Tempo map
-            if (ProcessingState.snap_tempomap.toJsonAlloc(scratch)) |json| {
-                shared_state.sendToClient(client_id, json);
-            } else |_| {}
-            // Playlist (cue list)
-            if (g_playlist_state.toJsonAlloc(scratch, g_last_markers.regions)) |json| {
-                shared_state.sendToClient(client_id, json);
-            } else |_| {}
-        }
-    }
+    // Send snapshots to newly connected clients
+    client_management.sendSnapshotsToNewClients(&snap_ctx);
 
     // Increment frame counter for tiered polling
     g_frame_counter +%= 1;
@@ -1053,4 +920,5 @@ test {
     _ = @import("subscription_polling.zig");
     _ = @import("tier_polling.zig");
     _ = @import("playlist_tick.zig");
+    _ = @import("client_management.zig");
 }
