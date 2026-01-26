@@ -1,8 +1,8 @@
 const std = @import("std");
 const reaper = @import("../reaper.zig");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
-const logging = @import("../logging.zig");
+const logging = @import("../core/logging.zig");
 
 /// Build JSON response for ExtState value with proper escaping.
 /// Returns the JSON payload slice, or null if buffer too small.

@@ -9,7 +9,7 @@
 const std = @import("std");
 const raw = @import("raw.zig");
 const types = @import("types.zig");
-const ffi = @import("../ffi.zig");
+const ffi = @import("../core/ffi.zig");
 const backend = @import("backend.zig");
 
 pub const RealBackend = struct {

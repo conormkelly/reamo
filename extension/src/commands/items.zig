@@ -1,10 +1,10 @@
 const std = @import("std");
-const ffi = @import("../ffi.zig");
+const ffi = @import("../core/ffi.zig");
 const reaper = @import("../reaper.zig");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
-const logging = @import("../logging.zig");
-const item_guid_cache = @import("../item_guid_cache.zig");
+const logging = @import("../core/logging.zig");
+const item_guid_cache = @import("../state/item_guid_cache.zig");
 
 /// Helper to get item by track and item index from command
 /// Uses unified indexing: 0 = master, 1+ = user tracks

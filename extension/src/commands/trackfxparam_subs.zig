@@ -6,7 +6,7 @@
 ///
 /// Single FX per client - subscribing auto-unsubscribes from previous FX.
 const std = @import("std");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
 
 /// Subscribe to FX parameter value updates.

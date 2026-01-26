@@ -6,7 +6,7 @@
 ///
 /// Similar to routing subscriptions - single track per client.
 const std = @import("std");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
 
 /// Subscribe to FX chain updates for a track.

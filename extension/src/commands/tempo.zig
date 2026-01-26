@@ -1,9 +1,9 @@
 const std = @import("std");
 const reaper = @import("../reaper.zig");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
-const logging = @import("../logging.zig");
-const ffi = @import("../ffi.zig");
+const logging = @import("../core/logging.zig");
+const ffi = @import("../core/ffi.zig");
 
 // Set tempo (BPM)
 pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {

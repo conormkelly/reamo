@@ -1,21 +1,21 @@
 const std = @import("std");
 const reaper = @import("../reaper.zig");
-const protocol = @import("../protocol.zig");
-const ws_server = @import("../ws_server.zig");
-const gesture_state = @import("../gesture_state.zig");
-const playlist_mod = @import("../playlist.zig");
-const errors = @import("../errors.zig");
-const logging = @import("../logging.zig");
-const toggle_subscriptions = @import("../toggle_subscriptions.zig");
-const project_notes = @import("../project_notes.zig");
-const guid_cache = @import("../guid_cache.zig");
-const item_guid_cache = @import("../item_guid_cache.zig");
-const track_subscriptions = @import("../track_subscriptions.zig");
-const peaks_subscriptions = @import("../peaks_subscriptions.zig");
-const routing_subscriptions = @import("../routing_subscriptions.zig");
-const trackfx_subscriptions = @import("../trackfx_subscriptions.zig");
-const trackfxparam_subscriptions = @import("../trackfxparam_subscriptions.zig");
-const tiered_state = @import("../tiered_state.zig");
+const protocol = @import("../core/protocol.zig");
+const ws_server = @import("../server/ws_server.zig");
+const gesture_state = @import("../server/gesture_state.zig");
+const playlist_mod = @import("../state/playlist.zig");
+const errors = @import("../core/errors.zig");
+const logging = @import("../core/logging.zig");
+const toggle_subscriptions = @import("../subscriptions/toggle_subscriptions.zig");
+const project_notes = @import("../subscriptions/project_notes.zig");
+const guid_cache = @import("../state/guid_cache.zig");
+const item_guid_cache = @import("../state/item_guid_cache.zig");
+const track_subscriptions = @import("../subscriptions/track_subscriptions.zig");
+const peaks_subscriptions = @import("../subscriptions/peaks_subscriptions.zig");
+const routing_subscriptions = @import("../subscriptions/routing_subscriptions.zig");
+const trackfx_subscriptions = @import("../subscriptions/trackfx_subscriptions.zig");
+const trackfxparam_subscriptions = @import("../subscriptions/trackfxparam_subscriptions.zig");
+const tiered_state = @import("../server/tiered_state.zig");
 
 // Import domain-specific command modules
 const transport_cmds = @import("transport.zig");
@@ -297,8 +297,9 @@ test "dispatch handles unknown commands gracefully" {
     try std.testing.expectEqualStrings("unknown/command", cmd.?.command);
 }
 
-test "comptime registry contains expected commands" {
+test "registry contains expected commands" {
     // Spot-check that key commands from each domain are registered
+    // Uses runtime checks to avoid circular import issues during test compilation
     const expected = [_][]const u8{
         "transport/play",
         "transport/playPause",
@@ -312,16 +313,14 @@ test "comptime registry contains expected commands" {
         "debug/memoryStats",
     };
 
-    inline for (expected) |name| {
+    for (expected) |name| {
         var found = false;
         inline for (comptime_registry.all) |entry| {
             if (std.mem.eql(u8, name, entry[0])) {
                 found = true;
             }
         }
-        if (!found) {
-            @compileError("Missing command in registry: " ++ name);
-        }
+        try std.testing.expect(found);
     }
 }
 

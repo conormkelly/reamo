@@ -2,7 +2,7 @@
 const std = @import("std");
 const state = @import("state.zig");
 const types = @import("../types.zig");
-const ffi = @import("../../ffi.zig");
+const ffi = @import("../../core/ffi.zig");
 
 /// Track, item, and take method implementations for MockBackend.
 pub const TracksMethods = struct {

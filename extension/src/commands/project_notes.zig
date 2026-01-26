@@ -1,8 +1,8 @@
 const std = @import("std");
 const reaper = @import("../reaper.zig");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
-const project_notes = @import("../project_notes.zig");
+const project_notes = @import("../subscriptions/project_notes.zig");
 
 /// Subscribe to project notes updates.
 /// Returns current notes and hash.

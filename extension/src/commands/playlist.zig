@@ -1,9 +1,9 @@
 const std = @import("std");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
 const reaper = @import("../reaper.zig");
-const playlist_mod = @import("../playlist.zig");
-const logging = @import("../logging.zig");
+const playlist_mod = @import("../state/playlist.zig");
+const logging = @import("../core/logging.zig");
 
 /// Create a new playlist
 /// Params: name (string)

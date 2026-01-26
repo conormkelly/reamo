@@ -1,7 +1,7 @@
 const std = @import("std");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
-const logging = @import("../logging.zig");
+const logging = @import("../core/logging.zig");
 const tracks = @import("tracks.zig");
 
 /// Navigate to next preset for the specified FX

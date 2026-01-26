@@ -1,8 +1,8 @@
 const std = @import("std");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
 const tracks = @import("tracks.zig");
-const logging = @import("../logging.zig");
+const logging = @import("../core/logging.zig");
 
 // ============================================================================
 // I_RECINPUT Encoding/Decoding Constants

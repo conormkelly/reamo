@@ -1,8 +1,8 @@
 const std = @import("std");
 const reaper = @import("../reaper.zig");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
-const logging = @import("../logging.zig");
+const logging = @import("../core/logging.zig");
 
 pub fn handleRegionAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const start = cmd.getFloat("start") orelse {

@@ -1,8 +1,8 @@
 const std = @import("std");
 const reaper = @import("../reaper.zig");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
-const toggle_subscriptions = @import("../toggle_subscriptions.zig");
+const toggle_subscriptions = @import("../subscriptions/toggle_subscriptions.zig");
 const ActionKey = toggle_subscriptions.ActionKey;
 
 /// Subscribe to toggle states for a list of commandIds and/or named commands.

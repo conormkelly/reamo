@@ -4,9 +4,9 @@
 /// - track/subscribe: Subscribe to track updates (by range or GUID list)
 /// - track/unsubscribe: Clear track subscription for this client
 const std = @import("std");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
-const track_subscriptions = @import("../track_subscriptions.zig");
+const track_subscriptions = @import("../subscriptions/track_subscriptions.zig");
 
 /// Subscribe to track updates. Supports two mutually exclusive modes:
 ///

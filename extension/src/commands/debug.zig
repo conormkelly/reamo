@@ -1,8 +1,8 @@
 const std = @import("std");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
-const logging = @import("../logging.zig");
-const tiered_state = @import("../tiered_state.zig");
+const logging = @import("../core/logging.zig");
+const tiered_state = @import("../server/tiered_state.zig");
 
 /// Get memory usage statistics for all arenas.
 /// Input: {} (no parameters)
