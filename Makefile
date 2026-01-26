@@ -8,9 +8,7 @@ all: test frontend extension
 frontend:
 	@echo "Building frontend..."
 	cd frontend && npm run build
-	@echo "Copying to reamo.html..."
-	cp frontend/dist/index.html reamo.html
-	@echo "Frontend build complete: reamo.html"
+	@echo "Frontend build complete: reamo.html + icons + manifest.json"
 
 # Build and install Zig extension
 extension:
