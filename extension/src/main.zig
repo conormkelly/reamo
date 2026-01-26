@@ -37,6 +37,7 @@ const network_action = @import("network_action.zig");
 const ztracy = @import("ztracy");
 const lua_peak_bridge = @import("lua_peak_bridge.zig");
 const subscription_polling = @import("subscription_polling.zig");
+const tier_polling = @import("tier_polling.zig");
 
 // Use custom panic handler that flushes log ring buffer before aborting
 pub const panic = logging.panic;
@@ -103,8 +104,6 @@ const FILE_CHECK_INTERVAL: u32 = 60; // Check every ~2 seconds (60 * 33ms)
 var g_frame_counter: u32 = 0;
 var g_init_complete: bool = false; // Safety flag to prevent timer callback running before init
 var g_ws_started: bool = false; // Track if WebSocket server has been started
-const MEDIUM_TIER_INTERVAL: u32 = 6; // 30Hz / 6 = 5Hz
-const LOW_TIER_INTERVAL: u32 = 30; // 30Hz / 30 = 1Hz
 const WS_START_DELAY_FRAMES: u32 = 30; // Wait ~1 second before starting WebSocket server
 
 /// Broadcast an error event to all clients with rate limiting
@@ -456,51 +455,6 @@ fn tracksSliceEql(a: []const tracks.Track, b: []const tracks.Track) bool {
     return true;
 }
 
-// Helper to compare marker slices for change detection
-fn markersSliceEql(a: []const markers.Marker, b: []const markers.Marker) bool {
-    if (a.len != b.len) return false;
-    for (a, b) |*marker_a, *marker_b| {
-        if (!marker_a.eql(marker_b)) return false;
-    }
-    return true;
-}
-
-// Helper to compare region slices for change detection
-fn regionsSliceEql(a: []const markers.Region, b: []const markers.Region) bool {
-    if (a.len != b.len) return false;
-    for (a, b) |*region_a, *region_b| {
-        if (!region_a.eql(region_b)) return false;
-    }
-    return true;
-}
-
-// Helper to compare item slices for change detection
-fn itemsSliceEql(a: []const items.Item, b: []const items.Item) bool {
-    if (a.len != b.len) return false;
-    for (a, b) |*item_a, *item_b| {
-        if (!item_a.eql(item_b)) return false;
-    }
-    return true;
-}
-
-// Helper to compare FX slot slices for change detection
-fn fxSliceEql(a: []const fx.FxSlot, b: []const fx.FxSlot) bool {
-    if (a.len != b.len) return false;
-    for (a, b) |*fx_a, *fx_b| {
-        if (!fx_a.eql(fx_b.*)) return false;
-    }
-    return true;
-}
-
-// Helper to compare send slot slices for change detection
-fn sendsSliceEql(a: []const sends.SendSlot, b: []const sends.SendSlot) bool {
-    if (a.len != b.len) return false;
-    for (a, b) |*send_a, *send_b| {
-        if (!send_a.eql(send_b.*)) return false;
-    }
-    return true;
-}
-
 // The actual processing logic
 // IMPORTANT: This function uses ProcessingState and pollInto() to avoid stack overflow
 fn doProcessing() !void {
@@ -752,158 +706,39 @@ fn doProcessing() !void {
     g_frame_counter +%= 1;
 
     // ========================================================================
-    // HIGH TIER (30Hz) - Transport, Tracks, Metering
-    // These need real-time responsiveness for playhead and fader movements
-    // Uses arena allocation - no memcpy needed, arena swap handles it
+    // TIER POLLING - Extracted to tier_polling.zig for testability
     // ========================================================================
 
-    const high_state = tiered.high.currentState();
-    const high_prev = tiered.high.previousState();
+    // Build tier context (once per frame)
+    const tier_ctx = tier_polling.TierContext{
+        .tiered = tiered,
+        .backend = &backend,
+        .api = api,
+        .shared_state = shared_state,
+        .guid_cache_ptr = g_guid_cache,
+        .item_cache_ptr = g_item_cache,
+        .track_subs = g_track_subs,
+        .notes_subs = g_notes_subs,
+        .allocator = g_allocator,
+        .dirty_flags = g_dirty_flags,
+    };
 
-    // Poll transport state into arena
-    high_state.transport = transport.State.poll(&backend);
-    const current_transport = &high_state.transport;
+    // Build mutable state references
+    var mutable = tier_polling.MutableState{
+        .prev_tracks_hash = &g_prev_tracks_hash,
+        .last_drift_log_time = &g_last_drift_log_time,
+        .last_skeleton = &g_last_skeleton,
+        .last_skeleton_buf = &g_last_skeleton_buf,
+        .last_markers = &g_last_markers,
+        .last_markers_buf = &g_last_markers_buf,
+        .last_regions_buf = &g_last_regions_buf,
+        .last_playlist = &g_last_playlist,
+        .playlist_state = &g_playlist_state,
+    };
 
-    // Broadcast when changed OR when CSurf force flag set (ensures immediate response to callbacks)
-    if (force_transport or !current_transport.eql(high_prev.transport)) {
-        const state_changed = force_transport or !current_transport.stateOnlyEql(high_prev.transport);
-        const is_playing = transport.PlayState.isPlaying(current_transport.play_state);
-
-        const scratch = tiered.scratchAllocator();
-        if (state_changed) {
-            // State changed (play/pause, BPM, time sig, etc.) - send full transport
-            if (current_transport.toJsonAlloc(scratch)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-        } else if (is_playing) {
-            // Only position changed during playback - send lightweight tick
-            if (current_transport.toTickJsonAlloc(scratch)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-        } else {
-            // Stopped and only position changed (cursor moved) - send full transport
-            // This is infrequent so full context is fine
-            if (current_transport.toJsonAlloc(scratch)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-        }
-    }
-
-    // Poll tracks into HIGH tier arena - SUBSCRIPTION MODE ONLY
-    // Only poll tracks that clients have subscribed to (viewport-driven).
-    // This saves CPU on large projects (1000+ tracks) by not polling everything.
-    const high_alloc = tiered.high.currentAllocator();
-    const total_tracks: usize = @intCast(@max(0, backend.trackCount())); // User tracks only (master handled separately)
-
-    if (g_track_subs) |track_subs| {
-        if (track_subs.hasSubscriptions()) {
-            // Get subscribed track indices from all clients + grace period
-            const cache = g_guid_cache orelse {
-                logging.err("GUID cache not initialized for track subscriptions", .{});
-                return error.GuidCacheNotInitialized;
-            };
-            var subscribed_buf: [track_subscriptions.MAX_TRACKS_PER_CLIENT * track_subscriptions.MAX_CLIENTS]c_int = undefined;
-            const subscribed_indices = track_subs.getSubscribedIndices(cache, &backend, &subscribed_buf);
-
-            // Poll only subscribed tracks
-            const track_state = tracks.State.pollIndices(high_alloc, &backend, subscribed_indices) catch |err| {
-                logging.err("Failed to poll tracks: {s}", .{@errorName(err)});
-                return err;
-            };
-            high_state.tracks = track_state.tracks;
-
-            // Poll metering for subscribed tracks (same indices as track subscriptions)
-            high_state.metering.pollSubscribedInto(api, subscribed_indices);
-
-            // CSurf: Hash-based change detection with dirty flag force broadcast
-            // This replaces tracksSliceEql for more robust change detection.
-            const force_broadcast = track_subs.consumeForceBroadcast();
-            const temp_state = tracks.State{ .tracks = high_state.tracks };
-            const current_hash = temp_state.computeHash();
-            const hash_changed = current_hash != g_prev_tracks_hash;
-
-            // Combine all change signals:
-            // 1. hash_changed: actual state change detected via hash comparison
-            // 2. force_broadcast: new subscription needs immediate data
-            // 3. csurf_track_dirty: CSurf callback signaled a change (instant latency)
-            const tracks_changed = hash_changed or force_broadcast or csurf_track_dirty;
-
-            // Drift logging: hash changed but no dirty flag = missed callback
-            // Rate-limited to max 1/second to avoid spam during undo/redo bursts
-            if (csurf.enabled and hash_changed and !csurf_track_dirty and !force_broadcast) {
-                const now_ms = std.time.milliTimestamp();
-                if (now_ms - g_last_drift_log_time > 1000) {
-                    logging.warn("Track state drift detected without dirty flag (undo/selection/FX drag?)", .{});
-                    g_last_drift_log_time = now_ms;
-                }
-            }
-
-            if (tracks_changed) {
-                const scratch = tiered.scratchAllocator();
-                // Use toJsonWithTotalAlloc to include total track count for viewport scrollbar
-                if (temp_state.toJsonWithTotalAlloc(scratch, null, total_tracks)) |json| {
-                    shared_state.broadcast(json);
-                } else |_| {}
-                g_prev_tracks_hash = current_hash;
-            }
-
-            // Broadcast separate meters event (always at 30Hz when there are subscriptions)
-            if (high_state.metering.hasData()) {
-                const scratch = tiered.scratchAllocator();
-                if (high_state.metering.toJsonEventAlloc(scratch, high_state.tracks)) |json| {
-                    shared_state.broadcast(json);
-                } else |_| {}
-            }
-        } else {
-            // No track subscriptions - skip track polling entirely
-            high_state.tracks = &.{};
-            high_state.metering.count = 0;
-        }
-    } else {
-        // Track subscriptions not initialized - fall back to full polling (legacy/startup)
-        const track_state = tracks.State.poll(high_alloc, &backend) catch |err| {
-            logging.err("Failed to poll tracks: {s}", .{@errorName(err)});
-            return err;
-        };
-        high_state.tracks = track_state.tracks;
-
-        // Poll all meters when no subscription system
-        high_state.metering.pollInto(api);
-
-        // CSurf: Hash-based change detection (fallback path)
-        const temp_state = tracks.State{ .tracks = high_state.tracks };
-        const current_hash = temp_state.computeHash();
-        const hash_changed = current_hash != g_prev_tracks_hash;
-        const tracks_changed = hash_changed or csurf_track_dirty;
-
-        // Drift logging (same as subscription path)
-        if (csurf.enabled and hash_changed and !csurf_track_dirty) {
-            const now_ms = std.time.milliTimestamp();
-            if (now_ms - g_last_drift_log_time > 1000) {
-                logging.warn("Track state drift detected without dirty flag (undo/selection/FX drag?)", .{});
-                g_last_drift_log_time = now_ms;
-            }
-        }
-
-        if (tracks_changed) {
-            const scratch = tiered.scratchAllocator();
-            if (temp_state.toJsonWithTotalAlloc(scratch, null, total_tracks)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-            g_prev_tracks_hash = current_hash;
-        }
-
-        // Broadcast separate meters event
-        if (high_state.metering.hasData()) {
-            const meter_scratch = tiered.scratchAllocator();
-            if (high_state.metering.toJsonEventAlloc(meter_scratch, high_state.tracks)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-        }
-    }
-
-    // Note: FX/sends are sparse counts populated during poll().
-    // Full FX/sends data is fetched on-demand via track/getFx, track/getSends commands.
+    // HIGH tier (30Hz) - Transport, Tracks, Metering
+    const high_result = try tier_polling.pollHighTier(&tier_ctx, &mutable, force_transport, csurf_track_dirty);
+    const current_transport = high_result.transport_state;
 
     // ========================================================================
     // SUBSCRIPTION POLLING (30Hz) - Toggle, Peaks, Routing, TrackFx, TrackFxParam
@@ -1136,342 +971,11 @@ fn doProcessing() !void {
         }
     }
 
-    // ========================================================================
-    // IMMEDIATE MARKERS/REGIONS POLL (CSurf dirty flag triggered)
-    // When markers_dirty was set by CSurf callback, poll immediately instead
-    // of waiting for next MEDIUM tier interval. Skip if on medium tick to
-    // avoid double polling.
-    // ========================================================================
-    const medium_tick = g_frame_counter % MEDIUM_TIER_INTERVAL == 0;
-    if (force_markers and !medium_tick) {
-        const medium_alloc = tiered.medium.currentAllocator();
-        const medium_state = tiered.medium.currentState();
-        const medium_prev = tiered.medium.previousState();
-        const scratch = tiered.scratchAllocator();
+    // MEDIUM tier (5Hz) - includes immediate markers poll if force_markers
+    try tier_polling.pollMediumTier(&tier_ctx, &mutable, force_markers, g_frame_counter);
 
-        // Poll markers/regions into MEDIUM arena
-        const marker_state = markers.State.poll(medium_alloc, &backend) catch |err| {
-            logging.err("CSurf immediate markers poll failed: {s}", .{@errorName(err)});
-            return err;
-        };
-        medium_state.markers = marker_state.markers;
-        medium_state.regions = marker_state.regions;
-        medium_state.bar_offset = marker_state.bar_offset;
-
-        // Broadcast markers if changed
-        if (!markersSliceEql(medium_state.markers, medium_prev.markers)) {
-            const temp_marker_state = markers.State{
-                .markers = medium_state.markers,
-                .regions = medium_state.regions,
-                .bar_offset = medium_state.bar_offset,
-            };
-            if (temp_marker_state.markersToJsonAlloc(scratch)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-        }
-        // Broadcast regions if changed
-        if (!regionsSliceEql(medium_state.regions, medium_prev.regions)) {
-            const temp_marker_state = markers.State{
-                .markers = medium_state.markers,
-                .regions = medium_state.regions,
-                .bar_offset = medium_state.bar_offset,
-            };
-            if (temp_marker_state.regionsToJsonAlloc(scratch)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-        }
-
-        // Update g_last_markers cache for playlist engine
-        const cur_markers_len = medium_state.markers.len;
-        const cur_regions_len = medium_state.regions.len;
-        @memcpy(g_last_markers_buf[0..cur_markers_len], medium_state.markers);
-        @memcpy(g_last_regions_buf[0..cur_regions_len], medium_state.regions);
-        g_last_markers.markers = g_last_markers_buf[0..cur_markers_len];
-        g_last_markers.regions = g_last_regions_buf[0..cur_regions_len];
-        g_last_markers.bar_offset = medium_state.bar_offset;
-    }
-
-    // ========================================================================
-    // MEDIUM TIER (5Hz) - Project state, Markers, Regions, Items
-    // These change less frequently and don't need instant feedback
-    // Uses arena allocation - no memcpy needed for change detection
-    // ========================================================================
-    if (medium_tick) {
-        const medium_alloc = tiered.medium.currentAllocator();
-        const medium_state = tiered.medium.currentState();
-        const medium_prev = tiered.medium.previousState();
-
-        // Poll project state into arena
-        medium_state.project = project.State.poll(&backend);
-
-        // Set memory warning flag based on arena utilization (any tier > 80% peak usage)
-        medium_state.project.memory_warning = tiered.isMemoryWarning();
-
-        // Check for project identity change (tab switch or different file in same tab)
-        if (medium_prev.project.projectChanged(&medium_state.project)) {
-            logging.info("Project changed: {s}", .{
-                if (medium_state.project.projectName().len > 0) medium_state.project.projectName() else "(Unsaved)",
-            });
-
-            // Stop playlist engine if playing
-            if (g_playlist_state.engine.isActive()) {
-                _ = g_playlist_state.engine.stop();
-                backend.clearLoopPoints();
-                logging.info("Stopped playlist engine due to project change", .{});
-            }
-
-            // Resize arenas if new project has significantly different entity counts
-            const new_counts = tiered_state.EntityCounts.countFromApi(&backend);
-            const new_sizes = tiered_state.CalculatedSizes.fromCounts(new_counts);
-
-            // 25% threshold - only resize if allocation differs significantly
-            if (tiered.shouldResize(new_sizes, 25)) {
-                var counts_buf: [256]u8 = undefined;
-                var sizes_buf: [256]u8 = undefined;
-                if (new_counts.format(&counts_buf)) |counts_str| {
-                    logging.info("New project entities: {s}", .{counts_str});
-                }
-                if (new_sizes.format(&sizes_buf)) |sizes_str| {
-                    logging.info("Resizing arenas: {s}", .{sizes_str});
-                }
-
-                tiered.resize(g_allocator, new_sizes) catch |err| {
-                    logging.err("Failed to resize arenas: {s}", .{@errorName(err)});
-                    // Continue with existing arenas - graceful degradation
-                };
-                logging.info("Arena resize complete: {d}MB total", .{new_sizes.totalAllocated() >> 20});
-            }
-
-            // Flush any pending playlist changes to old project before loading new
-            if (g_playlist_state.dirty) {
-                g_playlist_state.saveAll(&backend);
-                g_playlist_state.dirty = false;
-            }
-
-            // Reload playlists from new project's ProjExtState
-            g_playlist_state.reset();
-            g_playlist_state.loadAll(&backend);
-            logging.info("Loaded {d} playlists from new project", .{g_playlist_state.playlist_count});
-
-            // Broadcast updated playlist state
-            // Note: regions not available yet, pass null - next tick will have accurate regions
-            const scratch = tiered.scratchAllocator();
-            if (g_playlist_state.toJsonAlloc(scratch, null)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-            g_last_playlist = g_playlist_state;
-        }
-
-        const scratch = tiered.scratchAllocator();
-        if (!medium_state.project.eql(&medium_prev.project)) {
-            if (medium_state.project.toJsonAlloc(scratch)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-        }
-
-        // Poll markers/regions into MEDIUM arena
-        const marker_state = markers.State.poll(medium_alloc, &backend) catch |err| {
-            logging.err("Failed to poll markers: {s}", .{@errorName(err)});
-            return err;
-        };
-        medium_state.markers = marker_state.markers;
-        medium_state.regions = marker_state.regions;
-        medium_state.bar_offset = marker_state.bar_offset;
-
-        // Broadcast markers if changed (no subscription required)
-        if (!markersSliceEql(medium_state.markers, medium_prev.markers)) {
-            const temp_marker_state = markers.State{
-                .markers = medium_state.markers,
-                .regions = medium_state.regions,
-                .bar_offset = medium_state.bar_offset,
-            };
-            if (temp_marker_state.markersToJsonAlloc(scratch)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-        }
-        // Broadcast regions if changed (no subscription required)
-        if (!regionsSliceEql(medium_state.regions, medium_prev.regions)) {
-            const temp_marker_state = markers.State{
-                .markers = medium_state.markers,
-                .regions = medium_state.regions,
-                .bar_offset = medium_state.bar_offset,
-            };
-            if (temp_marker_state.regionsToJsonAlloc(scratch)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-        }
-
-        // Update g_last_markers for playlist engine - required for cross-tier timing
-        // Playlist engine runs at 30Hz (HIGH) but regions poll at 5Hz (MEDIUM).
-        // This cache persists regions between MEDIUM polls for region lookups.
-        const cur_markers_len = medium_state.markers.len;
-        const cur_regions_len = medium_state.regions.len;
-        @memcpy(g_last_markers_buf[0..cur_markers_len], medium_state.markers);
-        @memcpy(g_last_regions_buf[0..cur_regions_len], medium_state.regions);
-        g_last_markers.markers = g_last_markers_buf[0..cur_markers_len];
-        g_last_markers.regions = g_last_regions_buf[0..cur_regions_len];
-        g_last_markers.bar_offset = medium_state.bar_offset;
-
-        // Poll items into MEDIUM arena (for playlist engine cross-tier access)
-        const item_state = items.State.poll(medium_alloc, &backend) catch |err| {
-            logging.err("Failed to poll items: {s}", .{@errorName(err)});
-            return err;
-        };
-        medium_state.items = item_state.items;
-
-        // Rebuild item GUID cache from polled items (O(1) lookup for commands)
-        if (g_item_cache) |icache| {
-            icache.rebuildFromItems(items, medium_state.items) catch |err| {
-                logging.warn("Failed to rebuild item cache: {s}", .{@errorName(err)});
-            };
-        }
-
-        // Broadcast items if changed (no subscription required - like markers/regions)
-        if (!itemsSliceEql(medium_state.items, medium_prev.items)) {
-            const temp_item_state = items.State{ .items = medium_state.items };
-            if (temp_item_state.itemsToJsonAlloc(scratch)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-        }
-
-        // Playlist state change detection
-        // (Playlist state is modified by commands, not polled from REAPER)
-        if (!g_playlist_state.eql(&g_last_playlist)) {
-            if (g_playlist_state.toJsonAlloc(scratch, medium_state.regions)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-            g_last_playlist = g_playlist_state;
-        }
-
-        // Deferred playlist persistence - flush dirty state to ProjExtState
-        // Debounces writes: immediate when not playing, 1s delay when playing
-        _ = g_playlist_state.flushIfNeeded(&backend, backend.timePrecise());
-
-        // Poll FX into MEDIUM arena (flat array with track_idx parent references)
-        const fx_state = fx.State.poll(medium_alloc, &backend) catch |err| {
-            logging.err("Failed to poll FX: {s}", .{@errorName(err)});
-            return err;
-        };
-        medium_state.fx_slots = fx_state.fx;
-
-        // Broadcast if FX changed
-        if (!fxSliceEql(medium_state.fx_slots, medium_prev.fx_slots)) {
-            const temp_fx_state = fx.State{ .fx = medium_state.fx_slots };
-            if (temp_fx_state.toJsonAlloc(scratch)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-        }
-
-        // Poll sends into MEDIUM arena (flat array with track_idx parent references)
-        const sends_state = sends.State.poll(medium_alloc, &backend) catch |err| {
-            logging.err("Failed to poll sends: {s}", .{@errorName(err)});
-            return err;
-        };
-        medium_state.send_slots = sends_state.sends;
-
-        // Broadcast if sends changed
-        if (!sendsSliceEql(medium_state.send_slots, medium_prev.send_slots)) {
-            const temp_sends_state = sends.State{ .sends = medium_state.send_slots };
-            if (temp_sends_state.toJsonAlloc(scratch)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-        }
-    }
-
-    // ========================================================================
-    // IMMEDIATE TEMPO POLL (CSurf dirty flag triggered)
-    // When tempo_dirty was set by CSurf callback (SETBPMANDPLAYRATE), poll
-    // immediately instead of waiting for next LOW tier interval.
-    // ========================================================================
-    const low_tick = g_frame_counter % LOW_TIER_INTERVAL == 0;
-    if (force_tempo and !low_tick) {
-        const low_state = tiered.low.currentState();
-        const low_prev = tiered.low.previousState();
-
-        // Poll tempo map into LOW tier state
-        low_state.tempomap = tempomap.State.poll(&backend);
-        if (low_state.tempomap.changed(&low_prev.tempomap)) {
-            const scratch = tiered.scratchAllocator();
-            if (low_state.tempomap.toJsonAlloc(scratch)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-        }
-    }
-
-    // ========================================================================
-    // LOW TIER (1Hz) - Tempomap, Project Notes, Track Skeleton
-    // These rarely change during normal operation
-    // Uses arena allocation for change detection
-    // ========================================================================
-    if (low_tick) {
-        const low_state = tiered.low.currentState();
-        const low_prev = tiered.low.previousState();
-        const low_alloc = tiered.low.currentAllocator();
-
-        // Poll tempo map into LOW tier state
-        low_state.tempomap = tempomap.State.poll(&backend);
-        if (low_state.tempomap.changed(&low_prev.tempomap)) {
-            const scratch = tiered.scratchAllocator();
-            if (low_state.tempomap.toJsonAlloc(scratch)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-        }
-
-        // Poll track skeleton for structure changes (add/delete/rename/reorder)
-        const current_skeleton = track_skeleton.State.poll(low_alloc, &backend) catch |err| {
-            logging.err("Failed to poll skeleton: {s}", .{@errorName(err)});
-            return err;
-        };
-
-        if (!current_skeleton.eql(&g_last_skeleton)) {
-            // Track structure changed - rebuild GUID cache and broadcast
-            if (g_guid_cache) |cache| {
-                cache.rebuild(&backend) catch |err| {
-                    logging.err("Failed to rebuild GUID cache: {s}", .{@errorName(err)});
-                };
-            }
-
-            // Broadcast skeleton event
-            const skel_scratch = tiered.scratchAllocator();
-            if (current_skeleton.toJsonAlloc(skel_scratch)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-
-            logging.info("Track skeleton changed: {d} tracks", .{current_skeleton.count()});
-        }
-
-        // Update persistent skeleton state for next comparison
-        // Copy to persistent buffer since arena will be swapped
-        if (current_skeleton.tracks.len <= tracks.MAX_TRACKS) {
-            // Ensure we have a buffer large enough
-            if (g_last_skeleton_buf.len < current_skeleton.tracks.len) {
-                // Reallocate if needed (shouldn't happen often)
-                if (g_last_skeleton_buf.len > 0) {
-                    g_allocator.free(g_last_skeleton_buf);
-                }
-                g_last_skeleton_buf = g_allocator.alloc(track_skeleton.SkeletonTrack, current_skeleton.tracks.len) catch &.{};
-            }
-            if (g_last_skeleton_buf.len >= current_skeleton.tracks.len) {
-                @memcpy(g_last_skeleton_buf[0..current_skeleton.tracks.len], current_skeleton.tracks);
-                g_last_skeleton.tracks = g_last_skeleton_buf[0..current_skeleton.tracks.len];
-            }
-        }
-
-        // Poll project notes and broadcast changes (only if subscribers)
-        if (g_notes_subs) |notes_subs| {
-            if (notes_subs.poll(api)) |change| {
-                // Notes changed externally - broadcast to all subscribers
-                if (commands.project_notes_cmds.formatChangedEvent(change.hash, &StaticBuffers.notes)) |json| {
-                    shared_state.broadcast(json);
-                }
-            }
-        }
-
-        // Expire subscription grace periods (1Hz cleanup)
-        if (g_track_subs) |track_subs| {
-            track_subs.expireGracePeriods();
-        }
-    }
+    // LOW tier (1Hz) - includes immediate tempo poll if force_tempo
+    try tier_polling.pollLowTier(&tier_ctx, &mutable, force_tempo, g_frame_counter, &StaticBuffers.notes);
 
     // ========================================================================
     // HEARTBEAT SAFETY NET (every 2 seconds = 60 frames at 30Hz)
@@ -1713,4 +1217,5 @@ test {
     _ = @import("gesture_state.zig");
     _ = @import("toggle_subscriptions.zig");
     _ = @import("subscription_polling.zig");
+    _ = @import("tier_polling.zig");
 }
