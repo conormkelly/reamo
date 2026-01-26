@@ -238,6 +238,22 @@
   --color-sends-border: rgba(245, 158, 11, 0.2);  /* amber-500/20 */
   --color-sends-ring: rgba(245, 158, 11, 0.5);    /* amber-500/50 */
 
+  /* === Receives Mode (Mixer) === */
+  --color-receives-primary: #3b82f6;   /* blue-500 */
+  --color-receives-hover: #2563eb;     /* blue-600 */
+  --color-receives-light: #bfdbfe;     /* blue-200 */
+  --color-receives-muted: #60a5fa;     /* blue-400 */
+  --color-receives-border: rgba(59, 130, 246, 0.5);  /* blue-500/50 */
+  --color-receives-ring: rgba(59, 130, 246, 0.5);    /* blue-500/50 */
+
+  /* === Hardware Outputs (Mixer) === */
+  --color-hardware-primary: #a855f7;   /* purple-500 */
+  --color-hardware-hover: #9333ea;     /* purple-600 */
+  --color-hardware-light: #e9d5ff;     /* purple-200 (was purple-300) */
+  --color-hardware-muted: #c084fc;     /* purple-400 */
+  --color-hardware-border: rgba(168, 85, 247, 0.5);  /* purple-500/50 */
+  --color-hardware-ring: rgba(168, 85, 247, 0.5);    /* purple-500/50 */
+
   /* === Fader Handle === */
   --color-fader-handle: white;
 

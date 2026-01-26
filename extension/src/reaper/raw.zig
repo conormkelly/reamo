@@ -1649,16 +1649,25 @@ pub const Api = struct {
         return self.getTrackNameStr(dest_track, buf);
     }
 
-    /// Set send volume using CSurf (with undo coalescing)
+    /// Set send volume using CSurf (with undo coalescing).
+    /// CSurf_OnSendVolumeChange uses unified indexing where HW outputs come first,
+    /// so we offset by hw_output_count to target the correct send.
     pub fn trackSendSetVolume(self: *const Api, track: *anyopaque, send_idx: c_int, volume: f64) f64 {
         const f = self.csurf_OnSendVolumeChange orelse return volume;
-        return f(track, send_idx, volume, false); // absolute, not relative
+        // CSurf unified index: HW outputs (0..hw_count-1), then sends (hw_count..)
+        const hw_count = self.trackHwOutputCount(track);
+        const unified_idx = hw_count + send_idx;
+        return f(track, unified_idx, volume, false);
     }
 
-    /// Toggle send mute state
+    /// Toggle send mute state.
+    /// ToggleTrackSendUIMute uses unified indexing where HW outputs come first.
     pub fn trackSendToggleMute(self: *const Api, track: *anyopaque, send_idx: c_int) bool {
         const f = self.toggleTrackSendUIMute orelse return false;
-        return f(track, send_idx);
+        // UI functions use unified index: HW outputs (0..hw_count-1), then sends (hw_count..)
+        const hw_count = self.trackHwOutputCount(track);
+        const unified_idx = hw_count + send_idx;
+        return f(track, unified_idx);
     }
 
     /// Set send mute state directly (when toggle isn't appropriate)
@@ -1673,10 +1682,15 @@ pub const Api = struct {
         return f(track, 0, send_idx, "D_PAN");
     }
 
-    /// Set send pan using CSurf (with undo coalescing)
+    /// Set send pan using CSurf (with undo coalescing).
+    /// CSurf_OnSendPanChange uses unified indexing where HW outputs come first,
+    /// so we offset by hw_output_count to target the correct send.
     pub fn trackSendSetPan(self: *const Api, track: *anyopaque, send_idx: c_int, pan: f64) f64 {
         const f = self.csurf_OnSendPanChange orelse return pan;
-        return f(track, send_idx, pan, false); // absolute, not relative
+        // CSurf unified index: HW outputs (0..hw_count-1), then sends (hw_count..)
+        const hw_count = self.trackHwOutputCount(track);
+        const unified_idx = hw_count + send_idx;
+        return f(track, unified_idx, pan, false);
     }
 
     /// Set send mode (0=post-fader, 1=pre-FX, 3=post-FX)
