@@ -38,6 +38,7 @@ const ztracy = @import("ztracy");
 const lua_peak_bridge = @import("lua_peak_bridge.zig");
 const subscription_polling = @import("subscription_polling.zig");
 const tier_polling = @import("tier_polling.zig");
+const playlist_tick = @import("playlist_tick.zig");
 
 // Use custom panic handler that flushes log ring buffer before aborting
 pub const panic = logging.panic;
@@ -785,191 +786,24 @@ fn doProcessing() !void {
         }
     }
 
-    // Sync playlist engine with external transport changes
-    // (user paused/stopped REAPER transport outside of our control)
-    if (g_playlist_state.engine.isActive()) {
-        const transport_playing = transport.PlayState.isPlaying(current_transport.play_state);
-        const transport_stopped = current_transport.play_state == transport.PlayState.STOPPED;
+    // ========================================================================
+    // PLAYLIST ENGINE TICK - Extracted to playlist_tick.zig for testability
+    // ========================================================================
 
-        if (g_playlist_state.engine.isPlaying() and !transport_playing) {
-            // Engine thinks it's playing but transport isn't
-            if (transport_stopped) {
-                _ = g_playlist_state.engine.stop();
-                backend.setRepeat(false);
-                backend.clearLoopPoints();
-                logging.debug("Stopped playlist engine - transport stopped externally", .{});
-            } else {
-                // Transport paused
-                _ = g_playlist_state.engine.pause();
-                logging.debug("Paused playlist engine - transport paused externally", .{});
-            }
-            // Broadcast state change
-            const scratch = tiered.scratchAllocator();
-            if (g_playlist_state.toJsonAlloc(scratch, g_last_markers.regions)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-        }
-    }
+    // Build playlist tick context
+    const playlist_ctx = playlist_tick.PlaylistTickContext{
+        .playlist_state = &g_playlist_state,
+        .transport_state = current_transport,
+        .regions = g_last_markers.regions,
+        .tiered = tiered,
+        .shared_state = shared_state,
+    };
 
-    // Playlist engine tick (when playing)
-    if (g_playlist_state.engine.isPlaying()) {
-        const current_pos = current_transport.play_position;
+    // Sync with external transport changes
+    _ = playlist_tick.syncWithTransport(&playlist_ctx, &backend);
 
-        // Get current entry's region info
-        if (g_playlist_state.getPlaylist(g_playlist_state.engine.playlist_idx)) |p| {
-            if (g_playlist_state.engine.entry_idx < p.entry_count) {
-                const entry = &p.entries[g_playlist_state.engine.entry_idx];
-
-                // Find region by ID in cached markers state
-                var region_start: f64 = 0;
-                var region_end: f64 = 0;
-                var region_found = false;
-                for (g_last_markers.regions) |*r| {
-                    if (r.id == entry.region_id) {
-                        region_start = r.start;
-                        region_end = r.end;
-                        region_found = true;
-                        break;
-                    }
-                }
-
-                if (region_found) {
-                    // Get next entry info if available
-                    const next_entry: ?playlist.NextEntryInfo = blk: {
-                        if (g_playlist_state.engine.entry_idx + 1 < p.entry_count) {
-                            const next = &p.entries[g_playlist_state.engine.entry_idx + 1];
-                            // Find next region's start and end
-                            for (g_last_markers.regions) |*r| {
-                                if (r.id == next.region_id) {
-                                    break :blk playlist.NextEntryInfo{
-                                        .loop_count = next.loop_count,
-                                        .region_start = r.start,
-                                        .region_end = r.end,
-                                    };
-                                }
-                            }
-                        }
-                        break :blk null;
-                    };
-
-                    // Calculate bar length for non-contiguous transition timing
-                    // bar_length = beats_per_bar * seconds_per_beat
-                    const bpm = current_transport.bpm;
-                    const beats_per_bar = current_transport.time_sig_num;
-                    const bar_length = if (bpm > 0) beats_per_bar * (60.0 / bpm) else 2.0;
-
-                    const action = g_playlist_state.engine.tick(
-                        current_pos,
-                        region_end,
-                        region_start,
-                        next_entry,
-                        p.entry_count,
-                        bar_length,
-                    );
-
-                    // Handle action
-                    switch (action) {
-                        .seek_to => |pos| {
-                            // Skip seek if already at target (contiguous regions)
-                            // This avoids audio hiccups when transitioning between
-                            // regions that share a boundary
-                            const distance = @abs(current_pos - pos);
-                            if (distance > 0.1) {
-                                backend.setCursorPos(pos);
-                            }
-                        },
-                        .setup_native_loop => |loop_info| {
-                            // Transition to new region with native looping
-                            // Check if this is a non-contiguous transition (needs seek)
-                            const approaching_contiguous = current_pos < loop_info.region_start and
-                                (loop_info.region_start - current_pos) < 0.2;
-                            const already_there = @abs(current_pos - loop_info.region_start) < 0.1;
-                            const needs_seek = !approaching_contiguous and !already_there;
-
-                            if (needs_seek) {
-                                // Non-contiguous transition - disable repeat first to prevent
-                                // REAPER from looping back to old region while we transition
-                                backend.setRepeat(false);
-                                backend.setCursorPos(loop_info.region_start);
-                            }
-                            // Set loop points to new region boundaries
-                            backend.setLoopPoints(loop_info.region_start, loop_info.region_end);
-                            // Enable repeat (re-enable after seek, or ensure it's on for contiguous)
-                            backend.setRepeat(true);
-                            // Note: Don't broadcast here - engine will broadcast when transition completes
-                        },
-                        .stop => {
-                            // Engine stopped - disable repeat and clear loop points
-                            backend.setRepeat(false);
-                            backend.clearLoopPoints();
-                            // Stop transport if playlist has stopAfterLast enabled
-                            if (p.stop_after_last) {
-                                backend.runCommand(reaper.Command.STOP);
-                            }
-                            // State will be broadcast via change detection
-                        },
-                        .broadcast_state => {
-                            // Immediate broadcast needed
-                            const scratch = tiered.scratchAllocator();
-                            if (g_playlist_state.toJsonAlloc(scratch, g_last_markers.regions)) |json| {
-                                shared_state.broadcast(json);
-                            } else |_| {}
-                        },
-                        .none => {},
-                    }
-                } else {
-                    // Current region was deleted - skip to next valid entry
-                    logging.debug("Region {d} deleted, finding next valid entry", .{entry.region_id});
-
-                    // Find next entry with a valid region
-                    var next_valid_idx: ?usize = null;
-                    var next_bounds: ?struct { start: f64, end: f64 } = null;
-                    var search_idx = g_playlist_state.engine.entry_idx + 1;
-                    while (search_idx < p.entry_count) : (search_idx += 1) {
-                        const candidate = &p.entries[search_idx];
-                        for (g_last_markers.regions) |*r| {
-                            if (r.id == candidate.region_id) {
-                                next_valid_idx = search_idx;
-                                next_bounds = .{ .start = r.start, .end = r.end };
-                                break;
-                            }
-                        }
-                        if (next_valid_idx != null) break;
-                    }
-
-                    if (next_valid_idx) |valid_idx| {
-                        // Advance to valid entry
-                        const next_entry_data = &p.entries[valid_idx];
-                        g_playlist_state.engine.entry_idx = valid_idx;
-                        g_playlist_state.engine.loops_remaining = next_entry_data.loop_count;
-                        g_playlist_state.engine.current_loop_iteration = 1;
-                        g_playlist_state.engine.advance_after_loop = false;
-                        g_playlist_state.engine.next_loop_pending = false;
-
-                        // Set up loop for valid region
-                        if (next_bounds) |bounds| {
-                            backend.setCursorPos(bounds.start);
-                            backend.setLoopPoints(bounds.start, bounds.end);
-                        }
-
-                        logging.debug("Skipped to entry {d}", .{valid_idx});
-                    } else {
-                        // No valid entries remaining - stop
-                        _ = g_playlist_state.engine.stop();
-                        backend.setRepeat(false);
-                        backend.clearLoopPoints();
-                        logging.debug("No valid entries remaining, stopped playlist", .{});
-                    }
-
-                    // Broadcast state change
-                    const scratch = tiered.scratchAllocator();
-                    if (g_playlist_state.toJsonAlloc(scratch, g_last_markers.regions)) |json| {
-                        shared_state.broadcast(json);
-                    } else |_| {}
-                }
-            }
-        }
-    }
+    // Advance playlist engine
+    playlist_tick.tick(&playlist_ctx, &backend);
 
     // MEDIUM tier (5Hz) - includes immediate markers poll if force_markers
     try tier_polling.pollMediumTier(&tier_ctx, &mutable, force_markers, g_frame_counter);
@@ -1218,4 +1052,5 @@ test {
     _ = @import("toggle_subscriptions.zig");
     _ = @import("subscription_polling.zig");
     _ = @import("tier_polling.zig");
+    _ = @import("playlist_tick.zig");
 }
