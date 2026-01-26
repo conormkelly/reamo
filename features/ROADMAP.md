@@ -706,3 +706,46 @@ The `installer/` directory contains legacy Lua scripts. Now that runtime scripts
 - [ ] Move remaining runtime scripts to `extension/scripts/`
 - [ ] Update installer to copy from `extension/scripts/`
 - [ ] Remove duplicates from `installer/`
+
+---
+
+### Frontend Cleanup Deferred Items
+
+Items identified during Jan 2025 frontend cleanup (Phases 1-6) but intentionally deferred.
+
+**Toast Re-integration**
+
+The Toast system (undo/redo feedback) was accidentally disconnected when legacy StudioView was removed. Component exists at `Toast/Toast.tsx` and works — just needs wiring.
+
+- [ ] Import `ToastContainer` and `useToast` in App.tsx
+- [ ] Wire undo/redo actions to show toast feedback
+
+**TimeSignatureButton Integration**
+
+`Actions/TimeSignatureButton.tsx` (203 LOC) has unique time signature editing functionality not available elsewhere. Keep for integration into QuickActionsPanel.
+
+- [ ] Add time signature editing to QuickActionsPanel
+- [ ] Remove standalone TimeSignatureButton after integration
+
+**Density Modes**
+
+Control height tokens (`--size-control-sm/md/lg/xl`) are now in place. This enables future density mode implementation where users can select Compact/Normal/Accessible button sizes.
+
+- [ ] Add density mode selector to settings
+- [ ] Apply control height tokens based on selected mode
+
+**Non-Color Indicators for Track Buttons**
+
+Track buttons (Mute, Solo, RecordArm) rely on domain-standard colors for state indication. Current mitigations: text labels, position-based meaning, brightness differences.
+
+- [ ] Accessibility audit to determine if icons/shapes needed alongside color
+- [ ] Consider colorblind simulation testing
+
+**Visual Polish (Phase 7)**
+
+Deferred until side rail responsive design is finalized.
+
+- Touch target verification on actual devices
+- Text hierarchy audit
+- Loading/empty state consistency
+- Transition/animation polish
