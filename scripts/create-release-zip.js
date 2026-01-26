@@ -24,11 +24,11 @@ const ZIP_FILE = path.join('releases', `${RELEASE_NAME}.zip`);
 
 // Files to include in the release
 const FILES = [
-  { src: 'installer/Install_Reamo.lua', dest: 'Install_Reamo.lua' },
-  { src: 'installer/Uninstall_Reamo.lua', dest: 'Uninstall_Reamo.lua' },
-  { src: 'installer/Reamo_Startup.lua', dest: 'Reamo_Startup.lua' },
-  { src: 'installer/README.txt', dest: 'README.txt' },
   { src: 'reamo.html', dest: 'reamo.html' },
+  { src: 'icon.svg', dest: 'icon.svg' },
+  { src: 'icon-192.png', dest: 'icon-192.png' },
+  { src: 'icon-512.png', dest: 'icon-512.png' },
+  { src: 'manifest.json', dest: 'manifest.json' },
 ];
 
 function main() {
