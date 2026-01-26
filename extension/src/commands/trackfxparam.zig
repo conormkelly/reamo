@@ -5,10 +5,10 @@
 ///
 /// Uses gesture-based undo coalescing for continuous control.
 const std = @import("std");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
-const gesture_state = @import("../gesture_state.zig");
-const logging = @import("../logging.zig");
+const gesture_state = @import("../server/gesture_state.zig");
+const logging = @import("../core/logging.zig");
 const tracks = @import("tracks.zig");
 const fx = @import("fx.zig");
 

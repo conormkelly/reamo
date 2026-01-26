@@ -5,10 +5,10 @@
 /// - peaks/unsubscribe: Clear peaks subscription for this client
 /// - peaks/updateViewport: Update viewport for adaptive peak resolution
 const std = @import("std");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
-const peaks_subscriptions = @import("../peaks_subscriptions.zig");
-const logging = @import("../logging.zig");
+const peaks_subscriptions = @import("../subscriptions/peaks_subscriptions.zig");
+const logging = @import("../core/logging.zig");
 
 const ViewportParams = peaks_subscriptions.PeaksSubscriptions.ViewportParams;
 

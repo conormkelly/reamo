@@ -1,8 +1,8 @@
 const std = @import("std");
 const reaper = @import("../reaper.zig");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
-const logging = @import("../logging.zig");
+const logging = @import("../core/logging.zig");
 
 // Set time signature (numerator/denominator)
 pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {

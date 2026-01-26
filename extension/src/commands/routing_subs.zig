@@ -7,7 +7,7 @@
 /// Unlike peaks/meters which may track multiple tracks, routing is always
 /// single-track per client (you can only have one routing modal open).
 const std = @import("std");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
 
 /// Subscribe to routing updates for a track.

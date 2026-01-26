@@ -1,8 +1,8 @@
 const std = @import("std");
 const reaper = @import("../reaper.zig");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
-const logging = @import("../logging.zig");
+const logging = @import("../core/logging.zig");
 
 pub fn handleTakeDelete(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     // Operates on selected items - uses REAPER's built-in command

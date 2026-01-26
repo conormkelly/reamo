@@ -1,8 +1,8 @@
 const std = @import("std");
 const reaper = @import("../reaper.zig");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
-const logging = @import("../logging.zig");
+const logging = @import("../core/logging.zig");
 
 // REAPER action: Master track: Toggle stereo/mono (L+R)
 const MASTER_MONO_ACTION: c_int = 40917;

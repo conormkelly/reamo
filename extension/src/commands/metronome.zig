@@ -1,8 +1,8 @@
 const std = @import("std");
 const reaper = @import("../reaper.zig");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
-const logging = @import("../logging.zig");
+const logging = @import("../core/logging.zig");
 
 // Toggle metronome (uses REAPER's built-in command)
 pub fn handleToggle(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {

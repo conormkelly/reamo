@@ -48,7 +48,7 @@ pub fn build(b: *std.Build) void {
     if (enable_csurf) {
         // Compile C++ shim for IReaperControlSurface
         lib.addCSourceFile(.{
-            .file = b.path("src/zig_control_surface.cpp"),
+            .file = b.path("src/reaper/zig_control_surface.cpp"),
             .flags = &.{
                 "-std=c++17",
                 "-fno-exceptions", // REAPER SDK doesn't use exceptions
@@ -70,7 +70,7 @@ pub fn build(b: *std.Build) void {
     // On Windows, swell.zig uses native Win32 APIs directly
     if (target.result.os.tag == .macos) {
         lib.addCSourceFile(.{
-            .file = b.path("src/zig_swell_bridge.mm"),
+            .file = b.path("src/platform/zig_swell_bridge.mm"),
             .flags = &.{
                 "-std=c++17",
                 "-fno-exceptions",
@@ -80,7 +80,7 @@ pub fn build(b: *std.Build) void {
         lib.linkFramework("Cocoa");
     } else if (target.result.os.tag == .linux) {
         lib.addCSourceFile(.{
-            .file = b.path("src/zig_swell_bridge.mm"),
+            .file = b.path("src/platform/zig_swell_bridge.mm"),
             .flags = &.{
                 "-std=c++17",
                 "-fno-exceptions",
@@ -92,21 +92,13 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(lib);
 
-    // Unit tests - test modules that don't depend on websocket or parent imports
+    // Unit tests - test modules that don't have parent (../) imports
+    // Note: state/ modules are tested via main.zig test block (they have ../ imports)
     // Note: commands/mod.zig tests run via library build (depends on ws_server)
     const test_modules = [_][]const u8{
-        "src/protocol.zig",
-        "src/transport.zig",
-        "src/markers.zig",
-        "src/items.zig",
-        "src/tracks.zig",
-        "src/fx.zig",
-        "src/sends.zig",
-        "src/frame_arena.zig",
-        "src/tiered_state.zig",
-        "src/peaks_cache.zig",
-        "src/peaks_subscriptions.zig",
-        // Note: commands/inputs.zig tests run via library build (depends on mod.zig)
+        "src/core/protocol.zig",
+        "src/server/frame_arena.zig",
+        // State/subscription modules with ../ imports are tested via main.zig test block
     };
 
     const test_step = b.step("test", "Run unit tests");
@@ -123,10 +115,67 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(&run_tests.step);
     }
 
+    // Main module tests - pulls in tests from all submodules via test block
+    // Requires websocket, ztracy, qrcodegen, CSurf C++, and SWELL bridge
+    const main_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "websocket", .module = websocket.module("websocket") },
+            },
+        }),
+    });
+    main_tests.root_module.addImport("ztracy", ztracy_dep.module("root"));
+    main_tests.root_module.addOptions("csurf_options", csurf_options);
+    // QR code generation library (required by platform/qr_render.zig)
+    main_tests.addCSourceFile(.{
+        .file = b.path("lib/qrcodegen/qrcodegen.c"),
+        .flags = &.{"-std=c99"},
+    });
+    main_tests.root_module.addIncludePath(b.path("lib/qrcodegen"));
+    // CSurf C++ shim (required by server/csurf.zig)
+    if (enable_csurf) {
+        main_tests.addCSourceFile(.{
+            .file = b.path("src/reaper/zig_control_surface.cpp"),
+            .flags = &.{
+                "-std=c++17",
+                "-fno-exceptions",
+                "-fno-rtti",
+            },
+        });
+        main_tests.linkLibCpp();
+    }
+    // SWELL bridge (required by platform/swell.zig on macOS/Linux)
+    if (target.result.os.tag == .macos) {
+        main_tests.addCSourceFile(.{
+            .file = b.path("src/platform/zig_swell_bridge.mm"),
+            .flags = &.{
+                "-std=c++17",
+                "-fno-exceptions",
+                "-fno-rtti",
+            },
+        });
+        main_tests.linkFramework("Cocoa");
+    } else if (target.result.os.tag == .linux) {
+        main_tests.addCSourceFile(.{
+            .file = b.path("src/platform/zig_swell_bridge.mm"),
+            .flags = &.{
+                "-std=c++17",
+                "-fno-exceptions",
+                "-fno-rtti",
+                "-x", "c++",
+            },
+        });
+    }
+    const run_main_tests = b.addRunArtifact(main_tests);
+    test_step.dependOn(&run_main_tests.step);
+
     // QR render tests - need qrcodegen C library linked
     const qr_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/qr_render.zig"),
+            .root_source_file = b.path("src/platform/qr_render.zig"),
             .target = target,
             .optimize = optimize,
         }),

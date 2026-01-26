@@ -1,8 +1,8 @@
 const std = @import("std");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
-const gesture_state = @import("../gesture_state.zig");
-const logging = @import("../logging.zig");
+const gesture_state = @import("../server/gesture_state.zig");
+const logging = @import("../core/logging.zig");
 
 /// Set send volume for the specified send
 /// Params: trackIdx (unified: 0=master, 1+=user tracks), sendIdx (0-based), volume (linear, 1.0 = 0dB)

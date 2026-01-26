@@ -1,6 +1,6 @@
 const std = @import("std");
 const reaper = @import("../reaper.zig");
-const protocol = @import("../protocol.zig");
+const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
 
 /// Send MIDI Control Change (dual-sends to VKB + Control paths)
