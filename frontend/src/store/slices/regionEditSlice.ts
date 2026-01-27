@@ -15,14 +15,19 @@ import type { Region } from '../../core/types';
 export type { TimelineMode, DragType, PendingRegionChange, RegionEditSlice, DisplayRegion } from './regionEditSlice.types';
 export type { DeleteMode, PendingChangesRecord, RegionEditHistorySnapshot, RegionEditSharedState } from './regionEditSlice.types';
 
+// Re-export pure helper functions for direct use by components
+// These allow components to call with explicit dependencies, satisfying ESLint exhaustive-deps
+export { computeDisplayRegions, computeDragPreview } from './regionDisplayHelpers';
+export type { DragState, DragPreviewResult } from './regionDisplayHelpers';
+
 import type { RegionEditSlice, RegionEditSharedState } from './regionEditSlice.types';
 import {
   calculateResizeRipple,
   calculateMoveRipple,
   calculateCreateRipple,
   calculateDeleteRipple,
-  calculateDragPreview,
 } from './regionEdit';
+import { computeDisplayRegions, computeDragPreview } from './regionDisplayHelpers';
 
 /** Combined store type for proper typing of get() - includes shared state from other slices */
 type RegionEditStore = RegionEditSharedState & RegionEditSlice;
@@ -419,83 +424,33 @@ export const createRegionEditSlice: StateCreator<RegionEditStore, [], [], Region
   hasPendingChanges: () => Object.keys(get().pendingChanges).length > 0,
 
   getDisplayRegions: (regions) => {
-    const pending = get().pendingChanges;
-    type LocalDisplayRegion = Region & { _isNew?: boolean };
-    const result: LocalDisplayRegion[] = [];
-
-    // Add existing regions, applying pending changes by region ID
-    for (const region of regions) {
-      const change = pending[region.id];  // Look up by region.id, not array index!
-      if (change) {
-        if (!change.isDeleted) {
-          result.push({
-            name: change.name,
-            id: region.id,
-            start: change.newStart,
-            end: change.newEnd,
-            color: change.color,
-          });
-        }
-        // If deleted, don't add to result
-      } else {
-        // No pending change - show original
-        result.push({ ...region });
-      }
-    }
-
-    // Add new regions (negative keys)
-    for (const key of Object.keys(pending)) {
-      const numKey = parseInt(key, 10);
-      if (numKey < 0) {
-        const change = pending[numKey];
-        if (change && change.isNew && !change.isDeleted) {
-          result.push({
-            name: change.name,
-            id: numKey,
-            start: change.newStart,
-            end: change.newEnd,
-            color: change.color,
-            _isNew: true,
-          });
-        }
-      }
-    }
-
-    return result.sort((a, b) => a.start - b.start);
+    // Delegate to pure function - store method exists for backwards compatibility
+    return computeDisplayRegions(regions, get().pendingChanges);
   },
 
   getPendingChange: (id) => get().pendingChanges[id],
 
   // Get preview regions during drag operation (shows live preview with ripple effects)
+  // Note: This store method has side effects (sets insertionPoint/resizeEdgePosition).
+  // For pure computation, use computeDragPreview() directly.
   getDragPreviewRegions: (regions) => {
     const state = get();
-    const { dragType, dragRegionId, dragStartTime, dragCurrentTime } = state;
 
-    // First get display regions (with pending changes applied)
-    const displayRegions = state.getDisplayRegions(regions);
+    // Delegate to pure function
+    const result = computeDragPreview(
+      regions,
+      state.pendingChanges,
+      {
+        dragType: state.dragType,
+        dragRegionId: state.dragRegionId,
+        dragStartTime: state.dragStartTime,
+        dragCurrentTime: state.dragCurrentTime,
+      },
+      state.bpm,
+      state.timeSignatureDenominator
+    );
 
-    // If not dragging, return display regions as-is
-    if (dragType === 'none' || dragRegionId === null || dragStartTime === null || dragCurrentTime === null) {
-      set({ insertionPoint: null });
-      return displayRegions;
-    }
-
-    const delta = dragCurrentTime - dragStartTime;
-    if (Math.abs(delta) < 0.01) {
-      set({ insertionPoint: null });
-      return displayRegions;
-    }
-
-    // Use the extracted drag preview calculation
-    const result = calculateDragPreview(displayRegions, {
-      dragType,
-      dragRegionId,
-      dragStartTime,
-      dragCurrentTime,
-      bpm: get().bpm,
-      denominator: get().timeSignatureDenominator,
-    });
-
+    // Side effect: update insertion point and resize edge position in store
     set({
       insertionPoint: result.insertionPoint,
       resizeEdgePosition: result.resizeEdgePosition,
