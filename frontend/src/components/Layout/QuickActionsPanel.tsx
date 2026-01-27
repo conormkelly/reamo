@@ -12,19 +12,27 @@ import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
 import { action, metronome, repeat, tempo } from '../../core/WebSocketCommands';
 
+interface UndoRedoResponse {
+  action: string | null;
+}
+
 export interface QuickActionsPanelProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
 export function QuickActionsPanel({ isOpen, onClose }: QuickActionsPanelProps): ReactElement {
-  const { sendCommand } = useReaper();
+  const { sendCommand, sendCommandAsync } = useReaper();
 
   // Project state
   const projectName = useReaperStore((s) => s.projectName);
   const isProjectDirty = useReaperStore((s) => s.isProjectDirty);
   const reaperCanUndo = useReaperStore((s) => s.reaperCanUndo);
   const reaperCanRedo = useReaperStore((s) => s.reaperCanRedo);
+
+  // Toast actions
+  const showUndoToast = useReaperStore((s) => s.showUndo);
+  const showRedoToast = useReaperStore((s) => s.showRedo);
 
   // Transport state
   const isMetronome = useReaperStore((s) => s.isMetronome);
@@ -45,17 +53,23 @@ export function QuickActionsPanel({ isOpen, onClose }: QuickActionsPanelProps): 
     }
   }, [sendCommand, isProjectDirty, onClose]);
 
-  const handleUndo = useCallback(() => {
+  const handleUndo = useCallback(async () => {
     if (reaperCanUndo) {
-      sendCommand({ command: 'undo/do' });
+      const response = await sendCommandAsync({ command: 'undo/do' }) as UndoRedoResponse;
+      if (response?.action) {
+        showUndoToast(response.action);
+      }
     }
-  }, [sendCommand, reaperCanUndo]);
+  }, [sendCommandAsync, reaperCanUndo, showUndoToast]);
 
-  const handleRedo = useCallback(() => {
+  const handleRedo = useCallback(async () => {
     if (reaperCanRedo) {
-      sendCommand({ command: 'redo/do' });
+      const response = await sendCommandAsync({ command: 'redo/do' }) as UndoRedoResponse;
+      if (response?.action) {
+        showRedoToast(response.action);
+      }
     }
-  }, [sendCommand, reaperCanRedo]);
+  }, [sendCommandAsync, reaperCanRedo, showRedoToast]);
 
   const handleMetronome = useCallback(() => {
     sendCommand(metronome.toggle());

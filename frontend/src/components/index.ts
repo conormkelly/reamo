@@ -21,3 +21,4 @@ export * from './Mixer';
 export * from './SecondaryPanel';
 export * from './SideRail';
 export * from './ContextRail';
+export * from './Toast';

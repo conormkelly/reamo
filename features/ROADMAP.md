@@ -695,12 +695,14 @@ Currently all visible tracks get metered. Could subscribe per-track for large pr
 
 Items identified during Jan 2025 frontend cleanup (Phases 1-6) but intentionally deferred.
 
-**Toast Re-integration**
+**Toast Re-integration** ✅
 
-The Toast system (undo/redo feedback) was accidentally disconnected when legacy StudioView was removed. Component exists at `Toast/Toast.tsx` and works — just needs wiring.
+The Toast system (undo/redo feedback) was re-integrated after being disconnected when legacy StudioView was removed.
 
-- [ ] Import `ToastContainer` and `useToast` in App.tsx
-- [ ] Wire undo/redo actions to show toast feedback
+- [x] Created `toastSlice.ts` for centralized toast state management
+- [x] Created `ToastRoot.tsx` with portal rendering (matches `ModalRoot` pattern)
+- [x] Added `ToastRoot` to App.tsx alongside `ModalRoot`
+- [x] Updated `QuickActionsPanel` to use `sendCommandAsync` for undo/redo and show toast with action description
 
 **TimeSignatureButton Integration**
 

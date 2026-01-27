@@ -16,6 +16,7 @@ import {
   RecordingActionsBar,
   ErrorBoundary,
   ModalRoot,
+  ToastRoot,
   SideRail,
   ContextRail,
   type ContextRailTabConfig,
@@ -163,6 +164,7 @@ function AppContent() {
 
         {/* Centralized modal rendering */}
         <ModalRoot />
+        <ToastRoot />
       </div>
     );
   }
@@ -206,6 +208,7 @@ function AppContent() {
 
       {/* Centralized modal rendering */}
       <ModalRoot />
+      <ToastRoot />
     </div>
   );
 }
