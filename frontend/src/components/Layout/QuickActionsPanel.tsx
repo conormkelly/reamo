@@ -6,11 +6,13 @@
  */
 
 import { useCallback, useState, useRef, useEffect, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import { Save, Undo2, Redo2, Gauge, Repeat, Minus, Plus } from 'lucide-react';
 import { BottomSheet } from '../Modal/BottomSheet';
 import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
-import { action, metronome, repeat, tempo } from '../../core/WebSocketCommands';
+import { useTimeSignature } from '../../hooks';
+import { action, metronome, repeat, tempo, timesig } from '../../core/WebSocketCommands';
 
 interface UndoRedoResponse {
   action: string | null;
@@ -39,6 +41,12 @@ export function QuickActionsPanel({ isOpen, onClose }: QuickActionsPanelProps): 
   const isRepeat = useReaperStore((s) => s.isRepeat);
   const bpm = useReaperStore((s) => s.bpm);
   const setBpm = useReaperStore((s) => s.setBpm);
+
+  // Time signature state
+  const { beatsPerBar, denominator: timeSigDenom } = useTimeSignature();
+  const [showTimeSigDialog, setShowTimeSigDialog] = useState(false);
+  const [editNumerator, setEditNumerator] = useState(4);
+  const [editDenominator, setEditDenominator] = useState(4);
 
   // Tempo input state
   const [showTempoInput, setShowTempoInput] = useState(false);
@@ -138,6 +146,34 @@ export function QuickActionsPanel({ isOpen, onClose }: QuickActionsPanelProps): 
     applyTempo(currentBpm - 1);
   }, [bpm, applyTempo]);
 
+  // Time signature handlers
+  const VALID_DENOMINATORS = [2, 4, 8, 16];
+  const TIME_SIG_PRESETS = [
+    { num: 3, denom: 4, label: '3/4' },
+    { num: 4, denom: 4, label: '4/4' },
+    { num: 6, denom: 8, label: '6/8' },
+  ];
+
+  const handleTimeSigClick = useCallback(() => {
+    setEditNumerator(beatsPerBar);
+    setEditDenominator(timeSigDenom);
+    setShowTimeSigDialog(true);
+  }, [beatsPerBar, timeSigDenom]);
+
+  const handleSetTimeSig = useCallback(
+    (num: number, denom: number) => {
+      sendCommand(timesig.set(num, denom));
+      setShowTimeSigDialog(false);
+    },
+    [sendCommand]
+  );
+
+  const handleTimeSigDialogClose = useCallback((e: React.MouseEvent) => {
+    if (e.target === e.currentTarget) {
+      setShowTimeSigDialog(false);
+    }
+  }, []);
+
   // Format display name
   const displayName = projectName || 'Untitled';
 
@@ -234,7 +270,7 @@ export function QuickActionsPanel({ isOpen, onClose }: QuickActionsPanelProps): 
         {/* Divider */}
         <div className="border-t border-border-subtle my-4" />
 
-        {/* Tempo Row */}
+        {/* Tempo & Time Signature Row */}
         <div className="flex justify-center items-center gap-3">
           <button
             onClick={handleTempoDecrement}
@@ -281,10 +317,111 @@ export function QuickActionsPanel({ isOpen, onClose }: QuickActionsPanelProps): 
           >
             Tap
           </button>
+
+          <span className="text-text-muted">•</span>
+
+          {/* Time Signature */}
+          <button
+            onClick={handleTimeSigClick}
+            title="Time Signature - tap to change"
+            className="h-12 px-4 rounded-xl bg-bg-elevated hover:bg-bg-hover active:bg-bg-disabled font-mono font-medium text-lg transition-colors"
+          >
+            {beatsPerBar}/{timeSigDenom}
+          </button>
         </div>
 
         <div className="text-xs text-text-muted text-center mt-2">BPM</div>
       </div>
+
+      {/* Time Signature Dialog - portaled to body */}
+      {showTimeSigDialog && createPortal(
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-modal"
+          onClick={handleTimeSigDialogClose}
+        >
+          <div className="bg-bg-surface rounded-lg p-4 shadow-xl border border-border-subtle min-w-[220px]">
+            <div className="text-sm text-text-secondary mb-4 text-center">Time Signature</div>
+
+            {/* Numerator */}
+            <div className="flex items-center justify-center gap-3 mb-2">
+              <button
+                onClick={() => setEditNumerator((n) => Math.max(1, n - 1))}
+                className="w-10 h-10 rounded bg-bg-elevated hover:bg-bg-hover active:bg-bg-disabled flex items-center justify-center"
+              >
+                <Minus size={20} />
+              </button>
+              <div className="w-12 h-12 flex items-center justify-center text-2xl font-mono font-bold">
+                {editNumerator}
+              </div>
+              <button
+                onClick={() => setEditNumerator((n) => Math.min(32, n + 1))}
+                className="w-10 h-10 rounded bg-bg-elevated hover:bg-bg-hover active:bg-bg-disabled flex items-center justify-center"
+              >
+                <Plus size={20} />
+              </button>
+            </div>
+
+            {/* Divider line */}
+            <div className="w-20 h-0.5 bg-bg-disabled mx-auto mb-2" />
+
+            {/* Denominator */}
+            <div className="flex items-center justify-center gap-3 mb-4">
+              <button
+                onClick={() => setEditDenominator((d) => {
+                  const idx = VALID_DENOMINATORS.indexOf(d);
+                  return idx > 0 ? VALID_DENOMINATORS[idx - 1] : d;
+                })}
+                className="w-10 h-10 rounded bg-bg-elevated hover:bg-bg-hover active:bg-bg-disabled flex items-center justify-center"
+              >
+                <Minus size={20} />
+              </button>
+              <div className="w-12 h-12 flex items-center justify-center text-2xl font-mono font-bold">
+                {editDenominator}
+              </div>
+              <button
+                onClick={() => setEditDenominator((d) => {
+                  const idx = VALID_DENOMINATORS.indexOf(d);
+                  return idx < VALID_DENOMINATORS.length - 1 ? VALID_DENOMINATORS[idx + 1] : d;
+                })}
+                className="w-10 h-10 rounded bg-bg-elevated hover:bg-bg-hover active:bg-bg-disabled flex items-center justify-center"
+              >
+                <Plus size={20} />
+              </button>
+            </div>
+
+            {/* Apply button */}
+            <button
+              onClick={() => handleSetTimeSig(editNumerator, editDenominator)}
+              className="w-full py-2 mb-4 rounded bg-primary hover:bg-primary-hover active:bg-primary-active font-medium transition-colors"
+            >
+              Apply {editNumerator}/{editDenominator}
+            </button>
+
+            {/* Presets */}
+            <div className="text-xs text-text-muted mb-2 text-center">Presets</div>
+            <div className="flex items-center justify-center gap-2">
+              {TIME_SIG_PRESETS.map((preset) => (
+                <button
+                  key={preset.label}
+                  onClick={() => {
+                    setEditNumerator(preset.num);
+                    setEditDenominator(preset.denom);
+                    handleSetTimeSig(preset.num, preset.denom);
+                  }}
+                  className={`px-3 py-1.5 rounded text-sm font-mono transition-colors ${
+                    editNumerator === preset.num && editDenominator === preset.denom
+                      ? 'bg-primary text-text-on-primary'
+                      : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </BottomSheet>
   );
 }

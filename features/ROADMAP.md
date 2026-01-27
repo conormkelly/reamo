@@ -1,6 +1,6 @@
 # REAmo Roadmap
 
-**Last updated:** 2026-01-26
+**Last updated:** 2026-01-27
 
 ---
 
@@ -704,12 +704,12 @@ The Toast system (undo/redo feedback) was re-integrated after being disconnected
 - [x] Added `ToastRoot` to App.tsx alongside `ModalRoot`
 - [x] Updated `QuickActionsPanel` to use `sendCommandAsync` for undo/redo and show toast with action description
 
-**TimeSignatureButton Integration**
+**TimeSignatureButton Integration** ✅
 
-`Actions/TimeSignatureButton.tsx` (203 LOC) has unique time signature editing functionality not available elsewhere. Keep for integration into QuickActionsPanel.
+Time signature editing integrated into QuickActionsPanel (2026-01-27). The standalone component was removed.
 
-- [ ] Add time signature editing to QuickActionsPanel
-- [ ] Remove standalone TimeSignatureButton after integration
+- [x] Add time signature editing to QuickActionsPanel
+- [x] Remove standalone TimeSignatureButton after integration
 
 **Density Modes**
 
