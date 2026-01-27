@@ -6,6 +6,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect, type ReactElement } from 'react';
 import { useReaperStore } from '../../store';
 import { EMPTY_REGIONS, EMPTY_MARKERS, EMPTY_ITEMS, EMPTY_SKELETON } from '../../store/stableRefs';
+import { computeDisplayRegions, computeDragPreview } from '../../store/slices/regionEditSlice';
 import type { WSItem } from '../../core/WebSocketTypes';
 import { useReaper } from '../ReaperProvider';
 import {
@@ -98,8 +99,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
   const isRegionSelected = useReaperStore((state) => state.isRegionSelected);
   const resizeRegion = useReaperStore((state) => state.resizeRegion);
   const moveRegion = useReaperStore((state) => state.moveRegion);
-  const getDisplayRegions = useReaperStore((state) => state.getDisplayRegions);
-  const getDragPreviewRegions = useReaperStore((state) => state.getDragPreviewRegions);
   const startDrag = useReaperStore((state) => state.startDrag);
   const updateDrag = useReaperStore((state) => state.updateDrag);
   const endDrag = useReaperStore((state) => state.endDrag);
@@ -140,24 +139,48 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
   }, [storedTimeSelection]);
 
   // Base display regions (with pending changes but WITHOUT drag preview) - used for snap calculations
+  // Uses pure function directly with explicit dependencies (no hidden store reads)
   const baseDisplayRegions = useMemo(() => {
     if (timelineMode === 'regions') {
-      return getDisplayRegions(regions);
+      return computeDisplayRegions(regions, pendingChanges);
     }
     return regions;
-  }, [timelineMode, regions, getDisplayRegions, pendingChanges]);
+  }, [timelineMode, regions, pendingChanges]);
 
   // Get regions to display (with pending changes and drag preview applied in region mode)
+  // Uses pure function directly with explicit dependencies (no hidden store reads)
+  const dragPreviewResult = useMemo(() => {
+    if (timelineMode === 'regions' && regionDragType !== 'none') {
+      return computeDragPreview(
+        regions,
+        pendingChanges,
+        { dragType: regionDragType, dragRegionId: regionDragId, dragStartTime, dragCurrentTime },
+        bpm,
+        denominator
+      );
+    }
+    return null;
+  }, [timelineMode, regions, pendingChanges, regionDragType, regionDragId, dragStartTime, dragCurrentTime, bpm, denominator]);
+
   const displayRegions = useMemo(() => {
     if (timelineMode === 'regions') {
       // Use drag preview when actively dragging, otherwise show pending changes
-      if (regionDragType !== 'none') {
-        return getDragPreviewRegions(regions);
+      if (dragPreviewResult) {
+        return dragPreviewResult.regions;
       }
       return baseDisplayRegions;
     }
     return regions;
-  }, [timelineMode, regions, baseDisplayRegions, getDragPreviewRegions, regionDragType, dragCurrentTime]);
+  }, [timelineMode, regions, baseDisplayRegions, dragPreviewResult]);
+
+  // Sync drag preview indicator positions to store (for rendering insertion point, resize edge)
+  // This effect runs after the pure computation, keeping the store in sync without hidden deps
+  useEffect(() => {
+    useReaperStore.setState({
+      insertionPoint: dragPreviewResult?.insertionPoint ?? null,
+      resizeEdgePosition: dragPreviewResult?.resizeEdgePosition ?? null,
+    });
+  }, [dragPreviewResult]);
 
   // Selected region IDs as a Set for efficient lookup
   // Now that we use ID-based keying, selectedRegionIds ARE the IDs we need
@@ -260,20 +283,12 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
   // Selection mode toggle state (pan mode vs selection mode in navigate)
   const [selectionModeActive, setSelectionModeActive] = useState(false);
 
-  // Follow playhead state
-  const [followPlayhead, setFollowPlayhead] = useState(true);
-  const followPlayheadReEnable = useReaperStore((s) => s.followPlayheadReEnable);
-  const playState = useReaperStore((s) => s.playState);
-  const isPlaying = playState === 1;
-  const wasPlayingRef = useRef(false);
-
-  // Re-enable follow on playback start (if preference allows)
-  useEffect(() => {
-    if (isPlaying && !wasPlayingRef.current && followPlayheadReEnable === 'on-playback') {
-      setFollowPlayhead(true);
-    }
-    wasPlayingRef.current = isPlaying;
-  }, [isPlaying, followPlayheadReEnable]);
+  // Follow playhead state - managed in store with auto-enable via subscription
+  // The auto-enable on playback start is handled by setupTimelineSubscriptions() in store/index.ts
+  // This avoids the "setState in effect" anti-pattern flagged by react-hooks/set-state-in-effect
+  const followPlayhead = useReaperStore((s) => s.followPlayhead);
+  const setFollowPlayhead = useReaperStore((s) => s.setFollowPlayhead);
+  const pauseFollowPlayhead = useReaperStore((s) => s.pauseFollowPlayhead);
 
   // Follow playhead using animation engine
   // Handles both smooth scrolling during playback AND jumps when stopped (marker nav, seeks)
@@ -326,12 +341,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     [followPlayhead, viewport, maxPlayheadPosition]
   );
 
-  // Pause follow when user pans
-  const pauseFollow = useCallback(() => {
-    if (followPlayhead) {
-      setFollowPlayhead(false);
-    }
-  }, [followPlayhead]);
+  // Pause follow when user pans - uses store action directly
+  const pauseFollow = pauseFollowPlayhead;
 
   // Convert time to percentage position (using base values for stability)
   const timeToPercent = useCallback(
