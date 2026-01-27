@@ -22,7 +22,7 @@ import {
   type MarkerClusterData,
   type UseViewportReturn,
 } from '../../hooks';
-import { transport, timeSelection as timeSelCmd, marker as markerCmd, action, item as itemCmd } from '../../core/WebSocketCommands';
+import { transport, timeSelection as timeSelCmd, marker as markerCmd, action, item as itemCmd, track as trackCmd } from '../../core/WebSocketCommands';
 import { usePlayheadDrag, useMarkerDrag, useRegionDrag, usePanGesture, usePinchGesture, useEdgeScroll } from './hooks';
 import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
 import { MultiTrackLanes } from './MultiTrackLanes';
@@ -117,6 +117,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
   // Item selection mode state
   const itemSelectionModeActive = useReaperStore((state) => state.itemSelectionModeActive);
   const enterItemSelectionMode = useReaperStore((state) => state.enterItemSelectionMode);
+  const setViewFilterTrack = useReaperStore((state) => state.setViewFilterTrack);
 
   // Helper: convert track GUID → trackIdx using skeleton
   const getTrackIdxFromGuid = useCallback(
@@ -698,11 +699,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
                 const isWithinItemStrip = relativeYInLane >= itemTopOffset &&
                                           relativeYInLane <= itemTopOffset + (laneHeight * itemHeightPercent);
 
-                if (!isWithinItemStrip) {
-                  panStartPositionRef.current = null;
-                  return;
-                }
-
                 // Find items at this time position ON THIS TRACK ONLY
                 const itemsAtTime = items.filter(
                   (item) =>
@@ -711,6 +707,24 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
                     item.position + item.length >= clickTime
                 );
 
+                // Tap on empty lane space (outside item strip OR no item at position)
+                // → Clear all selections, select only this track
+                if (!isWithinItemStrip || itemsAtTime.length === 0) {
+                  // Clear marker selection (mutual exclusion)
+                  setSelectedMarkerId(null);
+                  // Clear all track and item selections, then select this track only
+                  sendCommand(trackCmd.unselectAll());
+                  sendCommand(itemCmd.unselectAll());
+                  sendCommand(trackCmd.setSelected(clickedTrackIdx, 1));
+                  // Set visual highlight for the selected track
+                  if (clickedTrackGuid) {
+                    setViewFilterTrack(clickedTrackGuid);
+                  }
+                  panStartPositionRef.current = null;
+                  return;
+                }
+
+                // Tap on item → toggle item selection + select item's track
                 if (itemsAtTime.length > 0) {
                   // Clear marker selection (mutual exclusion)
                   setSelectedMarkerId(null);
@@ -723,6 +737,10 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
                   // Sort by position, take first (earliest) item and toggle selection
                   const firstItem = itemsAtTime.sort((a, b) => a.position - b.position)[0];
                   sendCommand(itemCmd.toggleSelect(firstItem.guid));
+
+                  // Select the item's track (clears other track selections)
+                  sendCommand(trackCmd.unselectAll());
+                  sendCommand(trackCmd.setSelected(clickedTrackIdx, 1));
                 }
               } else {
                 // Single-track mode: original logic
@@ -845,9 +863,12 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
       trackSkeleton,
       itemSelectionModeActive,
       enterItemSelectionMode,
+      setViewFilterTrack,
       viewFilterTrackGuid,
       getTrackIdxFromGuid,
       sendCommand,
+      multiTrackLanes,
+      multiTrackIndices,
     ]
   );
 
@@ -1042,7 +1063,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
         />
 
         {/* Items layer - multi-track lanes showing items across visible tracks */}
-        {timelineMode === 'navigate' && visibleItems.length > 0 && multiTrackLanes && multiTrackLanes.length > 0 && multiTrackIndices && (
+        {timelineMode === 'navigate' && multiTrackLanes && multiTrackLanes.length > 0 && multiTrackIndices && (
           <MultiTrackLanes
             tracks={multiTrackLanes}
             trackIndices={multiTrackIndices}

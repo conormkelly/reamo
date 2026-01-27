@@ -348,7 +348,7 @@ Current toolbar is a simple button bar with text-sized buttons. Needs rework for
 
 **Prerequisites:**
 
-- [ ] **Track selection from timeline** — Tap empty area of track lane to select that track (clears other track selections). Matches REAPER behavior where clicking anywhere on a track's lane selects it. Item tap should also select the item's track. Multi-select items should update selected track to last touched, keeping all items selected. This consistency with REAPER behavior makes toolbar actions (which operate on selected tracks/items) more predictable.
+- [x] **Track selection from timeline** ✅ — Tap empty area of track lane to select that track (clears other track selections). Matches REAPER behavior where clicking anywhere on a track's lane selects it. Item tap should also select the item's track. Multi-select items should update selected track to last touched, keeping all items selected. This consistency with REAPER behavior makes toolbar actions (which operate on selected tracks/items) more predictable.
 
 **Current Issues:**
 
