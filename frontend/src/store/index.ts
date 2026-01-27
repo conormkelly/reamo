@@ -30,6 +30,7 @@ import { createFxBrowserSlice, type FxBrowserSlice } from './slices/fxBrowserSli
 import { createFxParamSlice, type FxParamSlice } from './slices/fxParamSlice';
 import { createSecondaryPanelSlice, type SecondaryPanelSlice } from './slices/secondaryPanelSlice';
 import { createSideRailSlice, type SideRailSlice } from './slices/sideRailSlice';
+import { createToastSlice, type ToastSlice } from './slices/toastSlice';
 import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
 import { ActionCommands, SWSCommands } from '../core/types';
 import type {
@@ -82,7 +83,7 @@ import { transportEngine } from '../core/TransportAnimationEngine';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & ActionsSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & UIPreferencesState & ModalSlice & PeaksSlice & RoutingSlice & FxChainSlice & FxBrowserSlice & FxParamSlice & SecondaryPanelSlice & SideRailSlice & {
+export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & ActionsSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & UIPreferencesState & ModalSlice & PeaksSlice & RoutingSlice & FxChainSlice & FxBrowserSlice & FxParamSlice & SecondaryPanelSlice & SideRailSlice & ToastSlice & {
   // Response handler action (legacy HTTP)
   handleResponses: (responses: ParsedResponse[]) => void;
   // WebSocket message handler
@@ -125,6 +126,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   ...createFxParamSlice(set, get, store),
   ...createSecondaryPanelSlice(set, get, store),
   ...createSideRailSlice(set, get, store),
+  ...createToastSlice(set, get, store),
 
   // Handle incoming responses from REAPER
   handleResponses: (responses: ParsedResponse[]) => {
@@ -438,6 +440,7 @@ export { getPluginType } from './slices/fxBrowserSlice';
 export type { FxParamSlice, FxParam } from './slices/fxParamSlice';
 export type { SecondaryPanelSlice, SecondaryPanelViewId } from './slices/secondaryPanelSlice';
 export type { SideRailSlice, SideRailBankNavState, SideRailInfoState } from './slices/sideRailSlice';
+export type { ToastSlice, ToastMessage, ToastType } from './slices/toastSlice';
 
 // Expose store on window for E2E tests (development only)
 if (import.meta.env.DEV) {
