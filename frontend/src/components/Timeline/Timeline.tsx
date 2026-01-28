@@ -281,7 +281,9 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
   const viewport = externalViewport ?? internalViewport;
 
   // Selection mode toggle state (pan mode vs selection mode in navigate)
-  const [selectionModeActive, setSelectionModeActive] = useState(false);
+  // Persisted in store to survive view switches
+  const selectionModeActive = useReaperStore((s) => s.selectionModeActive);
+  const toggleSelectionMode = useReaperStore((s) => s.toggleSelectionMode);
 
   // Follow playhead state - managed in store with auto-enable via subscription
   // The auto-enable on playback start is handled by setupTimelineSubscriptions() in store/index.ts
@@ -1282,7 +1284,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
             setFollowPlayhead(!followPlayhead);
           }}
           selectionModeActive={selectionModeActive}
-          onSelectionModeToggle={() => setSelectionModeActive(!selectionModeActive)}
+          onSelectionModeToggle={toggleSelectionMode}
           onSelectionLongPress={openMakeSelectionModal}
           // Zoom controls - center on playhead when following
           visibleDuration={viewport.visibleDuration}

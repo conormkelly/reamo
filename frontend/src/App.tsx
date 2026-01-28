@@ -286,7 +286,8 @@ function AppWithLoading() {
   const [minTimePassed, setMinTimePassed] = useState(false);
   const loadUIPrefsFromStorage = useReaperStore((s) => s.loadUIPrefsFromStorage);
 
-  // Load UI preferences from localStorage on startup
+  // Load persisted UI preferences from localStorage on startup
+  // Note: View filters and timeline state are session-scoped (not persisted)
   useEffect(() => {
     loadUIPrefsFromStorage();
   }, [loadUIPrefsFromStorage]);

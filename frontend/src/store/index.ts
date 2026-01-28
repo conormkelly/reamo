@@ -32,6 +32,7 @@ import { createSecondaryPanelSlice, type SecondaryPanelSlice } from './slices/se
 import { createSideRailSlice, type SideRailSlice } from './slices/sideRailSlice';
 import { createToastSlice, type ToastSlice } from './slices/toastSlice';
 import { createTimelineViewSlice, setupTimelineSubscriptions, type TimelineViewSlice } from './slices/timelineViewSlice';
+import { createViewFilterSlice, setupViewFilterSubscriptions, type ViewFilterSlice } from './slices/viewFilterSlice';
 import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
 import { ActionCommands, SWSCommands } from '../core/types';
 import type {
@@ -84,7 +85,7 @@ import { transportEngine } from '../core/TransportAnimationEngine';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & ActionsSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & UIPreferencesState & ModalSlice & PeaksSlice & RoutingSlice & FxChainSlice & FxBrowserSlice & FxParamSlice & SecondaryPanelSlice & SideRailSlice & ToastSlice & TimelineViewSlice & {
+export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & ActionsSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & UIPreferencesState & ModalSlice & PeaksSlice & RoutingSlice & FxChainSlice & FxBrowserSlice & FxParamSlice & SecondaryPanelSlice & SideRailSlice & ToastSlice & TimelineViewSlice & ViewFilterSlice & {
   // Response handler action (legacy HTTP)
   handleResponses: (responses: ParsedResponse[]) => void;
   // WebSocket message handler
@@ -129,6 +130,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   ...createSideRailSlice(set, get, store),
   ...createToastSlice(set, get, store),
   ...createTimelineViewSlice(set, get, store),
+  ...createViewFilterSlice(set, get, store),
 
   // Handle incoming responses from REAPER
   handleResponses: (responses: ParsedResponse[]) => {
@@ -443,11 +445,14 @@ export type { FxParamSlice, FxParam } from './slices/fxParamSlice';
 export type { SecondaryPanelSlice, SecondaryPanelViewId } from './slices/secondaryPanelSlice';
 export type { SideRailSlice, SideRailBankNavState, SideRailInfoState } from './slices/sideRailSlice';
 export type { ToastSlice, ToastMessage, ToastType } from './slices/toastSlice';
-export type { TimelineViewSlice } from './slices/timelineViewSlice';
+export type { TimelineViewSlice, TimeRange } from './slices/timelineViewSlice';
+export type { ViewFilterSlice, ViewFilterState, FilterableViewId, MixerViewState } from './slices/viewFilterSlice';
 
-// Setup timeline subscriptions for auto-follow on playback start
-// This subscription watches playState and enables follow when playback starts
+// Setup store subscriptions for:
+// - Timeline: auto-follow on playback start, reload state on project change
+// - View filters: reload state on project change
 setupTimelineSubscriptions(useReaperStore);
+setupViewFilterSubscriptions(useReaperStore);
 
 // Expose store on window for E2E tests (development only)
 if (import.meta.env.DEV) {

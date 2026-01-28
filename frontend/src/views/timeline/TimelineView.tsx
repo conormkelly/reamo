@@ -100,6 +100,11 @@ export function TimelineView(): ReactElement {
   const setSideRailBankNav = useReaperStore((s) => s.setSideRailBankNav);
   const setSideRailBankNavCallbacks = useReaperStore((s) => s.setSideRailBankNavCallbacks);
   const setSideRailInfo = useReaperStore((s) => s.setSideRailInfo);
+
+  // Viewport persistence - restore saved viewport across view switches
+  const savedViewport = useReaperStore((s) => s.savedViewport);
+  const saveViewport = useReaperStore((s) => s.saveViewport);
+
   const { positionSeconds } = useTransport();
 
   // Get skeleton from hook (same pattern as Mixer)
@@ -125,20 +130,47 @@ export function TimelineView(): ReactElement {
 
   // Custom banks from ProjExtState (shared with Mixer)
   const { banks: customBanks, saveBank, deleteBank } = useCustomBanks();
-  const [selectedBankId, setSelectedBankId] = useState<string | null>(null);
+
+  // Filter state from store (persisted across view switches)
+  const viewFilters = useReaperStore((s) => s.viewFilters.timeline);
+  const setSelectedBankId = useReaperStore((s) => s.setSelectedBankId);
+  const setFilterQuery = useReaperStore((s) => s.setFilterQuery);
+  const setFilterBankIndex = useReaperStore((s) => s.setFilterBankIndex);
+  const setFolderPath = useReaperStore((s) => s.setFolderPath);
+
+  // Destructure for convenience
+  const { selectedBankId, filterQuery, filterBankIndex, folderPath } = viewFilters;
+
+  // Folder navigation state (sheet visibility is ephemeral, path is persisted)
+  // Declared before handleSetSelectedBankId which uses setFolderSheetOpen
+  const [folderSheetOpen, setFolderSheetOpen] = useState(false);
+  const { getChildren: getFolderChildren, validatePath } = useFolderHierarchy();
+
+  // Wrapped setters that bind viewId
+  // handleSetSelectedBankId also handles folder sheet side effects (open/close sheet, clear path)
+  const handleSetSelectedBankId = useCallback((bankId: string | null) => {
+    setSelectedBankId('timeline', bankId);
+    // Open folder sheet when switching TO Folders bank, close and clear path otherwise
+    if (bankId === 'builtin:folders') {
+      setFolderSheetOpen(true);
+    } else {
+      setFolderPath('timeline', []);
+      setFolderSheetOpen(false);
+    }
+  }, [setSelectedBankId, setFolderPath]);
+  const handleSetFilterQuery = useCallback((query: string) => {
+    setFilterQuery('timeline', query);
+  }, [setFilterQuery]);
+  const handleSetFilterBankIndex = useCallback((index: number) => {
+    setFilterBankIndex('timeline', index);
+  }, [setFilterBankIndex]);
+  const handleSetFolderPath = useCallback((path: string[]) => {
+    setFolderPath('timeline', path);
+  }, [setFolderPath]);
 
   // Bank editor modal state
   const [bankModalOpen, setBankModalOpen] = useState(false);
   const [editingBank, setEditingBank] = useState<CustomBank | null>(null);
-
-  // Folder navigation state (same as Mixer)
-  const [folderPath, setFolderPath] = useState<string[]>([]);
-  const [folderSheetOpen, setFolderSheetOpen] = useState(false);
-  const { getChildren: getFolderChildren, validatePath } = useFolderHierarchy();
-
-  // Track filter state
-  const [filterQuery, setFilterQuery] = useState('');
-  const [filterBankIndex, setFilterBankIndex] = useState(0);
 
   // Check if we have any active filtering (built-in bank, custom bank, or text filter)
   const hasTextFilter = filterQuery.trim().length > 0;
@@ -224,30 +256,17 @@ export function TimelineView(): ReactElement {
     [allFilteredTracks]
   );
 
-  // Reset filter bank when filter or bank changes
-  useEffect(() => {
-    setFilterBankIndex(0);
-  }, [filterQuery, selectedBankId]);
-
-  // Reset folder path when switching away from Folders bank
-  // Open folder sheet when switching TO Folders bank
-  useEffect(() => {
-    if (selectedBankId === 'builtin:folders') {
-      setFolderSheetOpen(true);
-    } else {
-      setFolderPath([]);
-      setFolderSheetOpen(false);
-    }
-  }, [selectedBankId]);
+  // Note: filterBankIndex reset on filter/bank change is now handled in viewFilterSlice
+  // Note: folder sheet open/close on bank change is handled in handleSetSelectedBankId
 
   // Validate folder path when skeleton changes (in case folder was deleted)
   useEffect(() => {
     if (folderPath.length === 0) return;
     const validPath = validatePath(folderPath);
     if (validPath.length !== folderPath.length) {
-      setFolderPath(validPath);
+      handleSetFolderPath(validPath);
     }
-  }, [folderPath, validatePath]);
+  }, [folderPath, validatePath, handleSetFolderPath]);
 
   // Calculate filtered banking
   const filteredBankStart = filterBankIndex * laneCount;
@@ -301,10 +320,23 @@ export function TimelineView(): ReactElement {
   }, [regions, markers, items, positionSeconds]);
 
   // Shared viewport state (needed for peaks subscription)
+  // Use saved viewport from store if available (persists across view switches)
+  const defaultViewport = useMemo(
+    () => ({ start: 0, end: projectDuration }),
+    [projectDuration]
+  );
   const viewport = useViewport({
     projectDuration,
-    initialRange: { start: 0, end: projectDuration }, // Default to full project (zoom-to-fit)
+    initialRange: savedViewport ?? defaultViewport, // Restore or fit-to-project
   });
+
+  // Persist viewport changes to store (debounced to avoid excessive writes)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      saveViewport(viewport.visibleRange);
+    }, 300); // 300ms debounce
+    return () => clearTimeout(timer);
+  }, [viewport.visibleRange, saveViewport]);
 
   // Track timeline container width for adaptive peak resolution
   const timelineContainerRef = useRef<HTMLDivElement>(null);
@@ -392,10 +424,10 @@ export function TimelineView(): ReactElement {
       await deleteBank(bankId);
       // If we're deleting the currently selected bank, go back to All Tracks
       if (selectedBankId === bankId) {
-        setSelectedBankId(null);
+        handleSetSelectedBankId(null);
       }
     },
-    [deleteBank, selectedBankId]
+    [deleteBank, selectedBankId, handleSetSelectedBankId]
   );
 
   // Track labels overlay state (hold bank display OR bank switch to show)
@@ -450,21 +482,21 @@ export function TimelineView(): ReactElement {
   // Wrap bank navigation to show labels (handles filtered vs unfiltered)
   const handleBankBack = useCallback(() => {
     if (isFiltered) {
-      setFilterBankIndex((prev) => Math.max(0, prev - 1));
+      handleSetFilterBankIndex(Math.max(0, filterBankIndex - 1));
     } else {
       goBack();
     }
     showLabelsTemporarily();
-  }, [isFiltered, goBack, showLabelsTemporarily]);
+  }, [isFiltered, goBack, showLabelsTemporarily, filterBankIndex, handleSetFilterBankIndex]);
 
   const handleBankForward = useCallback(() => {
     if (isFiltered) {
-      setFilterBankIndex((prev) => Math.min(filteredTotalBanks - 1, prev + 1));
+      handleSetFilterBankIndex(Math.min(filteredTotalBanks - 1, filterBankIndex + 1));
     } else {
       goForward();
     }
     showLabelsTemporarily();
-  }, [isFiltered, goForward, filteredTotalBanks, showLabelsTemporarily]);
+  }, [isFiltered, goForward, filteredTotalBanks, showLabelsTemporarily, filterBankIndex, handleSetFilterBankIndex]);
 
   // Header content
   const headerContent = (
@@ -472,7 +504,7 @@ export function TimelineView(): ReactElement {
       <BankSelector
         selectedBankId={selectedBankId}
         banks={customBanks}
-        onBankChange={setSelectedBankId}
+        onBankChange={handleSetSelectedBankId}
         onAddBank={handleAddBank}
         onEditBank={handleEditBank}
         onFolderNavClick={() => setFolderSheetOpen(true)}
@@ -596,9 +628,9 @@ export function TimelineView(): ReactElement {
   // Search props for SecondaryPanel header
   const searchProps: SearchProps = useMemo(() => ({
     value: filterQuery,
-    onChange: setFilterQuery,
+    onChange: handleSetFilterQuery,
     placeholder: 'Filter tracks...',
-  }), [filterQuery, setFilterQuery]);
+  }), [filterQuery, handleSetFilterQuery]);
 
   // Footer content - SecondaryPanel with search and bank nav in header
   const footerContent = (
@@ -677,12 +709,13 @@ export function TimelineView(): ReactElement {
         editBank={editingBank}
       />
 
-      {/* Folder navigation sheet - shown when Folders bank is selected */}
+      {/* Folder navigation sheet - derived open state ensures sheet closes on project change
+          (when store subscription resets selectedBankId to null) */}
       <FolderNavSheet
-        isOpen={folderSheetOpen}
+        isOpen={folderSheetOpen && selectedBankId === 'builtin:folders'}
         onClose={() => setFolderSheetOpen(false)}
         folderPath={folderPath}
-        onNavigate={setFolderPath}
+        onNavigate={handleSetFolderPath}
       />
     </>
   );
