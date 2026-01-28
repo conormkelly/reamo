@@ -114,12 +114,46 @@ export function MixerView(): ReactElement {
 
   // Custom banks from ProjExtState
   const { banks: customBanks, saveBank, deleteBank } = useCustomBanks();
-  const [selectedBankId, setSelectedBankId] = useState<string | null>(null);
 
-  // Folder navigation state
-  const [folderPath, setFolderPath] = useState<string[]>([]);
+  // Filter state from store (persisted across view switches)
+  const viewFilters = useReaperStore((s) => s.viewFilters.mixer);
+  const mixerViewState = useReaperStore((s) => s.mixerViewState);
+  const setSelectedBankId = useReaperStore((s) => s.setSelectedBankId);
+  const setFilterQuery = useReaperStore((s) => s.setFilterQuery);
+  const setFilterBankIndex = useReaperStore((s) => s.setFilterBankIndex);
+  const setFolderPath = useReaperStore((s) => s.setFolderPath);
+  const setDetailSheetTrackIdx = useReaperStore((s) => s.setDetailSheetTrackIdx);
+
+  // Destructure for convenience
+  const { selectedBankId, filterQuery, filterBankIndex, folderPath } = viewFilters;
+  const { detailSheetTrackIdx } = mixerViewState;
+
+  // Folder navigation state (sheet visibility is ephemeral, path is persisted)
+  // Declared before handleSetSelectedBankId which uses setFolderSheetOpen
   const [folderSheetOpen, setFolderSheetOpen] = useState(false);
   const { getChildren: getFolderChildren, validatePath } = useFolderHierarchy();
+
+  // Wrapped setters that bind viewId
+  // handleSetSelectedBankId also handles folder sheet side effects (open/close sheet, clear path)
+  const handleSetSelectedBankId = useCallback((bankId: string | null) => {
+    setSelectedBankId('mixer', bankId);
+    // Open folder sheet when switching TO Folders bank, close and clear path otherwise
+    if (bankId === 'builtin:folders') {
+      setFolderSheetOpen(true);
+    } else {
+      setFolderPath('mixer', []);
+      setFolderSheetOpen(false);
+    }
+  }, [setSelectedBankId, setFolderPath]);
+  const handleSetFilterQuery = useCallback((query: string) => {
+    setFilterQuery('mixer', query);
+  }, [setFilterQuery]);
+  const handleSetFilterBankIndex = useCallback((index: number) => {
+    setFilterBankIndex('mixer', index);
+  }, [setFilterBankIndex]);
+  const handleSetFolderPath = useCallback((path: string[]) => {
+    setFolderPath('mixer', path);
+  }, [setFolderPath]);
 
   // Bank editor modal state
   const [bankModalOpen, setBankModalOpen] = useState(false);
@@ -132,13 +166,8 @@ export function MixerView(): ReactElement {
   // Create track modal state
   const [createTrackModalOpen, setCreateTrackModalOpen] = useState(false);
 
-  // Track detail sheet state (landscape mode)
-  const [detailSheetTrackIdx, setDetailSheetTrackIdx] = useState<number | undefined>(undefined);
+  // Track detail sheet state (landscape mode) - open state is ephemeral, track idx is persisted
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
-
-  // Track filter state
-  const [filterQuery, setFilterQuery] = useState('');
-  const [filterBankIndex, setFilterBankIndex] = useState(0);
 
   // Track info selection state (which track shows in InfoBar) - persisted in localStorage
   const [infoSelectedTrackIdx, setInfoSelectedTrackIdx] = useState<number | null>(() => {
@@ -255,30 +284,17 @@ export function MixerView(): ReactElement {
     [allFilteredTracks]
   );
 
-  // Reset filter bank when filter or bank changes
-  useEffect(() => {
-    setFilterBankIndex(0);
-  }, [filterQuery, selectedBankId]);
-
-  // Reset folder path when switching away from Folders bank
-  // Open folder sheet when switching TO Folders bank
-  useEffect(() => {
-    if (selectedBankId === 'builtin:folders') {
-      setFolderSheetOpen(true);
-    } else {
-      setFolderPath([]);
-      setFolderSheetOpen(false);
-    }
-  }, [selectedBankId]);
+  // Note: filterBankIndex reset on filter/bank change is now handled in viewFilterSlice
+  // Note: folder sheet open/close on bank change is handled in handleSetSelectedBankId
 
   // Validate folder path when skeleton changes (in case folder was deleted)
   useEffect(() => {
     if (folderPath.length === 0) return;
     const validPath = validatePath(folderPath);
     if (validPath.length !== folderPath.length) {
-      setFolderPath(validPath);
+      handleSetFolderPath(validPath);
     }
-  }, [folderPath, validatePath]);
+  }, [folderPath, validatePath, handleSetFolderPath]);
 
   // Calculate filtered banking
   const filteredTotalBanks = Math.ceil(allFilteredIndices.length / channelCount);
@@ -286,9 +302,9 @@ export function MixerView(): ReactElement {
   // Clamp filter bank index when filtered results shrink (e.g., unmuting the last track on page 2)
   useEffect(() => {
     if (isFiltered && filterBankIndex > 0 && filterBankIndex >= filteredTotalBanks) {
-      setFilterBankIndex(Math.max(0, filteredTotalBanks - 1));
+      handleSetFilterBankIndex(Math.max(0, filteredTotalBanks - 1));
     }
-  }, [isFiltered, filterBankIndex, filteredTotalBanks]);
+  }, [isFiltered, filterBankIndex, filteredTotalBanks, handleSetFilterBankIndex]);
 
   const filteredBankStart = filterBankIndex * channelCount;
   const filteredBankEnd = Math.min(filteredBankStart + channelCount, allFilteredIndices.length);
@@ -317,19 +333,19 @@ export function MixerView(): ReactElement {
 
   const handleBack = useCallback(() => {
     if (isFiltered) {
-      setFilterBankIndex((prev) => Math.max(0, prev - 1));
+      handleSetFilterBankIndex(Math.max(0, filterBankIndex - 1));
     } else {
       goBack();
     }
-  }, [isFiltered, goBack]);
+  }, [isFiltered, goBack, filterBankIndex, handleSetFilterBankIndex]);
 
   const handleForward = useCallback(() => {
     if (isFiltered) {
-      setFilterBankIndex((prev) => Math.min(filteredTotalBanks - 1, prev + 1));
+      handleSetFilterBankIndex(Math.min(filteredTotalBanks - 1, filterBankIndex + 1));
     } else {
       goForward();
     }
-  }, [isFiltered, goForward, filteredTotalBanks]);
+  }, [isFiltered, goForward, filteredTotalBanks, filterBankIndex, handleSetFilterBankIndex]);
 
   // Bank management handlers
   const handleAddBank = useCallback(() => {
@@ -361,10 +377,10 @@ export function MixerView(): ReactElement {
 
   // Folder click handler - open folder sheet and navigate to folder
   const handleFolderClick = useCallback((folderGuid: string) => {
-    setSelectedBankId('builtin:folders');
-    setFolderPath([folderGuid]);
+    handleSetSelectedBankId('builtin:folders');
+    handleSetFolderPath([folderGuid]);
     setFolderSheetOpen(true);
-  }, []);
+  }, [handleSetSelectedBankId, handleSetFolderPath]);
 
   // Handle track selection for info panel - also expands panel if collapsed
   const handleSelectForInfo = useCallback((trackIndex: number) => {
@@ -380,9 +396,9 @@ export function MixerView(): ReactElement {
   // Handle opening detail sheet (landscape mode)
   // Opens sheet if closed, or switches track if already open
   const handleOpenDetail = useCallback((trackIndex: number) => {
-    setDetailSheetTrackIdx(trackIndex);
+    setDetailSheetTrackIdx(trackIndex);  // Store action - persists
     setDetailSheetOpen(true);
-  }, []);
+  }, [setDetailSheetTrackIdx]);
 
   // Close detail sheet
   const handleCloseDetail = useCallback(() => {
@@ -454,14 +470,12 @@ export function MixerView(): ReactElement {
   // Search props for SecondaryPanel header
   const searchProps: SearchProps = useMemo(() => ({
     value: filterQuery,
-    onChange: setFilterQuery,
+    onChange: handleSetFilterQuery,
     placeholder: 'Filter tracks...',
-  }), [filterQuery, setFilterQuery]);
+  }), [filterQuery, handleSetFilterQuery]);
 
-  // Handle bank change
-  const handleBankChange = useCallback((bankId: string | null) => {
-    setSelectedBankId(bankId);
-  }, []);
+  // Handle bank change - delegate to wrapped handler
+  const handleBankChange = handleSetSelectedBankId;
 
   const handleSaveBank = useCallback(
     async (bank: CustomBank) => {
@@ -475,10 +489,10 @@ export function MixerView(): ReactElement {
       await deleteBank(bankId);
       // If we're deleting the currently selected bank, go back to All Tracks
       if (selectedBankId === bankId) {
-        setSelectedBankId(null);
+        handleSetSelectedBankId(null);
       }
     },
-    [deleteBank, selectedBankId]
+    [deleteBank, selectedBankId, handleSetSelectedBankId]
   );
 
   // Calculate prefetch range for filtered results (same logic as useBankNavigation)
@@ -567,7 +581,7 @@ export function MixerView(): ReactElement {
           <QuickFilterDropdown
             selectedFilterId={hasBuiltinBank && selectedBankId !== 'builtin:folders' ? selectedBankId as BuiltinBankId : null}
             skeleton={skeleton}
-            onFilterChange={(filterId) => setSelectedBankId(filterId)}
+            onFilterChange={(filterId) => handleSetSelectedBankId(filterId)}
             className="ml-1"
           />
         </ViewHeader>
@@ -696,12 +710,13 @@ export function MixerView(): ReactElement {
         onClose={() => setCreateTrackModalOpen(false)}
       />
 
-      {/* Folder navigation sheet */}
+      {/* Folder navigation sheet - derived open state ensures sheet closes on project change
+          (when store subscription resets selectedBankId to null) */}
       <FolderNavSheet
-        isOpen={folderSheetOpen}
+        isOpen={folderSheetOpen && selectedBankId === 'builtin:folders'}
         onClose={() => setFolderSheetOpen(false)}
         folderPath={folderPath}
-        onNavigate={setFolderPath}
+        onNavigate={handleSetFolderPath}
         onSelectTrack={handleFolderSheetSelectTrack}
       />
 
