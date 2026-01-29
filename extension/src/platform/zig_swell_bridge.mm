@@ -11,6 +11,7 @@
 
 #ifdef __APPLE__
 #import <Cocoa/Cocoa.h>
+#import <dispatch/dispatch.h>
 #endif
 
 /* Global function pointer to SWELL's API lookup function */
@@ -38,6 +39,8 @@ static SWELL_CreateMemContextFn s_SWELL_CreateMemContext = nullptr;
 static SWELL_DeleteGfxContextFn s_SWELL_DeleteGfxContext = nullptr;
 static SWELL_GetCtxFrameBufferFn s_SWELL_GetCtxFrameBuffer = nullptr;
 static BitBltFn s_BitBlt = nullptr;
+static SetTimerFn s_SetTimer = nullptr;
+static KillTimerFn s_KillTimer = nullptr;
 
 #ifdef __APPLE__
 
@@ -183,3 +186,86 @@ SWELL_GetCtxFrameBufferFn zig_swell_get_SWELL_GetCtxFrameBuffer(void) {
 BitBltFn zig_swell_get_BitBlt(void) {
     GET_SWELL_FUNC(BitBlt, BitBltFn);
 }
+
+SetTimerFn zig_swell_get_SetTimer(void) {
+    GET_SWELL_FUNC(SetTimer, SetTimerFn);
+}
+
+KillTimerFn zig_swell_get_KillTimer(void) {
+    GET_SWELL_FUNC(KillTimer, KillTimerFn);
+}
+
+// =============================================================================
+// Native Fast Timer Implementation
+// macOS: Uses dispatch_source for precise timing with main thread callback
+// Linux: Falls back to SWELL SetTimer (if available)
+// =============================================================================
+
+#ifdef __APPLE__
+
+static dispatch_source_t s_fast_timer = nullptr;
+static FastTimerCallback s_fast_timer_callback = nullptr;
+
+bool zig_fast_timer_start(unsigned int interval_ms, FastTimerCallback callback) {
+    if (s_fast_timer) return true;  // Already running
+    if (!callback) return false;
+
+    s_fast_timer_callback = callback;
+
+    // Create timer on main queue (main thread)
+    s_fast_timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+    if (!s_fast_timer) return false;
+
+    // Set interval (converting ms to nanoseconds)
+    // Use 0 leeway for strictest timing (no coalescing with other timers)
+    uint64_t interval_ns = (uint64_t)interval_ms * NSEC_PER_MSEC;
+    dispatch_source_set_timer(s_fast_timer, dispatch_time(DISPATCH_TIME_NOW, 0), interval_ns, 0);
+
+    // Set event handler
+    dispatch_source_set_event_handler(s_fast_timer, ^{
+        if (s_fast_timer_callback) {
+            s_fast_timer_callback();
+        }
+    });
+
+    dispatch_resume(s_fast_timer);
+    return true;
+}
+
+void zig_fast_timer_stop(void) {
+    if (s_fast_timer) {
+        dispatch_source_cancel(s_fast_timer);
+        s_fast_timer = nullptr;
+    }
+    s_fast_timer_callback = nullptr;
+}
+
+bool zig_fast_timer_is_running(void) {
+    return s_fast_timer != nullptr;
+}
+
+#else /* Linux */
+
+// Linux: Use SWELL SetTimer with WM_TIMER if available
+// For now, return false to use fallback 30Hz timer
+static bool s_linux_timer_running = false;
+static FastTimerCallback s_fast_timer_callback = nullptr;
+
+bool zig_fast_timer_start(unsigned int interval_ms, FastTimerCallback callback) {
+    (void)interval_ms;
+    (void)callback;
+    // TODO: Implement Linux timer via SWELL + hidden window + WM_TIMER
+    // For now, fall back to 30Hz REAPER timer
+    return false;
+}
+
+void zig_fast_timer_stop(void) {
+    s_linux_timer_running = false;
+    s_fast_timer_callback = nullptr;
+}
+
+bool zig_fast_timer_is_running(void) {
+    return s_linux_timer_running;
+}
+
+#endif

@@ -60,6 +60,17 @@ typedef void (*SWELL_DeleteGfxContextFn)(SwellHDC ctx);
 typedef void* (*SWELL_GetCtxFrameBufferFn)(SwellHDC ctx);
 typedef void (*BitBltFn)(SwellHDC hdcOut, int x, int y, int w, int h, SwellHDC hdcIn, int xin, int yin, int mode);
 
+/* Timer functions (SWELL - may not be available) */
+typedef void (*SwellTIMERPROC)(SwellHWND hwnd, unsigned int msg, uintptr_t id, unsigned int time);
+typedef uintptr_t (*SetTimerFn)(SwellHWND hwnd, uintptr_t nIDEvent, unsigned int uElapse, SwellTIMERPROC lpTimerFunc);
+typedef int (*KillTimerFn)(SwellHWND hwnd, uintptr_t uIDEvent);
+
+/* Native fast timer (macOS: dispatch_source, Linux: SWELL SetTimer) */
+typedef void (*FastTimerCallback)(void);
+bool zig_fast_timer_start(unsigned int interval_ms, FastTimerCallback callback);
+void zig_fast_timer_stop(void);
+bool zig_fast_timer_is_running(void);
+
 /*
  * Initialize the SWELL bridge.
  * Must be called before any other bridge functions.
@@ -97,6 +108,8 @@ SWELL_CreateMemContextFn zig_swell_get_SWELL_CreateMemContext(void);
 SWELL_DeleteGfxContextFn zig_swell_get_SWELL_DeleteGfxContext(void);
 SWELL_GetCtxFrameBufferFn zig_swell_get_SWELL_GetCtxFrameBuffer(void);
 BitBltFn zig_swell_get_BitBlt(void);
+SetTimerFn zig_swell_get_SetTimer(void);
+KillTimerFn zig_swell_get_KillTimer(void);
 
 #ifdef __cplusplus
 }

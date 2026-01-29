@@ -34,6 +34,7 @@ const track_skeleton = @import("state/track_skeleton.zig");
 const csurf = @import("server/csurf.zig");
 const csurf_dirty = @import("server/csurf_dirty.zig");
 const network_action = @import("platform/network_action.zig");
+const fast_timer = @import("platform/fast_timer.zig");
 const ztracy = @import("ztracy");
 const lua_peak_bridge = @import("platform/lua_peak_bridge.zig");
 const subscription_polling = @import("server/subscription_polling.zig");
@@ -43,6 +44,11 @@ const client_management = @import("server/client_management.zig");
 
 // Use custom panic handler that flushes log ring buffer before aborting
 pub const panic = logging.panic;
+
+// Suppress websocket library debug spam - only show warnings and errors
+pub const std_options: std.Options = .{
+    .log_level = .warn,
+};
 
 // Configuration
 const DEFAULT_PORT: u16 = 9224;
@@ -91,6 +97,16 @@ var g_initialized: bool = false;
 
 // Error rate limiting for broadcast errors
 var g_error_limiter: errors.ErrorRateLimiter = .{};
+
+// Fast timer for 100Hz command queue processing (reduces latency from ~19ms to ~8ms)
+var g_fast_timer: fast_timer.FastTimer = .{};
+
+// Fast timer jitter tracking (for debugging)
+var g_fast_timer_last_tick: i64 = 0;
+var g_fast_timer_call_count: u64 = 0;
+var g_fast_timer_slip_count: u64 = 0; // Intervals > 15ms
+var g_fast_timer_max_interval: i64 = 0;
+var g_fast_timer_total_interval: i64 = 0; // For average calculation
 
 // Hot reload detection
 var g_html_path_buf: [512]u8 = undefined;
@@ -423,6 +439,54 @@ fn processTimerCallback() callconv(.c) void {
     };
 }
 
+/// 100Hz command queue timer callback
+/// Called directly by OS timer - runs on main thread.
+/// Drains ALL pending commands for reduced latency (~8ms vs ~19ms at 30Hz).
+///
+/// SAFETY: This is a C-callable entry point.
+fn commandQueueTimerCallback() callconv(.c) void {
+    // Jitter tracking
+    const now = std.time.milliTimestamp();
+    if (g_fast_timer_last_tick != 0) {
+        const delta = now - g_fast_timer_last_tick;
+        g_fast_timer_total_interval += delta;
+
+        if (delta > g_fast_timer_max_interval) {
+            g_fast_timer_max_interval = delta;
+        }
+
+        // Log slips (> 15ms when expecting 10ms)
+        if (delta > 15) {
+            g_fast_timer_slip_count += 1;
+            logging.debug("FastTimer slip: {}ms (slip #{}, call #{})", .{ delta, g_fast_timer_slip_count, g_fast_timer_call_count });
+        }
+    }
+    g_fast_timer_last_tick = now;
+    g_fast_timer_call_count += 1;
+
+    // Log stats every 1000 calls (~10 seconds at 100Hz)
+    if (g_fast_timer_call_count % 1000 == 0 and g_fast_timer_call_count > 0) {
+        const avg = @divTrunc(g_fast_timer_total_interval, @as(i64, @intCast(g_fast_timer_call_count)));
+        logging.debug("FastTimer stats: calls={}, slips={}, avg={}ms, max={}ms", .{
+            g_fast_timer_call_count,
+            g_fast_timer_slip_count,
+            avg,
+            g_fast_timer_max_interval,
+        });
+    }
+
+    const api = &(g_api orelse return);
+    const shared_state = g_shared_state orelse return;
+    var backend = reaper.RealBackend{ .inner = api };
+
+    // Drain all pending commands
+    while (shared_state.popCommand()) |cmd| {
+        var command = cmd;
+        defer command.deinit();
+        commands.dispatch(&backend, command.client_id, command.data, shared_state, g_gesture_state, &g_playlist_state);
+    }
+}
+
 // Helper to compare track slices for change detection
 fn tracksSliceEql(a: []const tracks.Track, b: []const tracks.Track) bool {
     if (a.len != b.len) return false;
@@ -525,13 +589,21 @@ fn doProcessing() !void {
         api.setExtStateStr("Reamo", "WebSocketPort", port_str);
 
         logging.info("WebSocket server started on port {d}", .{g_port});
+
+        // Start 100Hz command queue timer for reduced latency
+        g_fast_timer.start(&commandQueueTimerCallback) catch |err| {
+            logging.warn("FastTimer failed to start: {s} - falling back to 30Hz", .{@errorName(err)});
+        };
     }
 
-    // Process pending commands from WebSocket clients
-    while (shared_state.popCommand()) |cmd| {
-        var command = cmd;
-        defer command.deinit();
-        commands.dispatch(&backend, command.client_id, command.data, shared_state, g_gesture_state, &g_playlist_state);
+    // Process pending commands from WebSocket clients (fallback if fast timer not running)
+    // Normally the 100Hz timer drains the queue; this is defensive fallback
+    if (!g_fast_timer.isRunning()) {
+        while (shared_state.popCommand()) |cmd| {
+            var command = cmd;
+            defer command.deinit();
+            commands.dispatch(&backend, command.client_id, command.data, shared_state, g_gesture_state, &g_playlist_state);
+        }
     }
 
     // ========================================================================
@@ -718,10 +790,13 @@ fn doProcessing() !void {
 fn shutdown() void {
     logging.info("shutdown() called", .{});
 
+    // Stop fast timer first (before REAPER timer)
+    g_fast_timer.stop();
+
     if (g_api) |*api| {
         api.unregisterTimer(&processTimerCallback);
     }
-    logging.info("timer unregistered", .{});
+    logging.info("timers stopped", .{});
 
     // Unregister and clean up CSurf before other cleanup
     if (g_csurf) |cs| {
