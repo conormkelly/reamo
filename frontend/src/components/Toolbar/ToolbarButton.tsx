@@ -7,10 +7,13 @@ import { Pencil } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { action as actionCmd, midi as midiCmd } from '../../core/WebSocketCommands';
 import type { ToolbarAction, ToggleState } from '../../store/slices/toolbarSlice';
-import { getIconComponent } from './DynamicIcon';
+import { DynamicIcon } from './DynamicIcon';
 
-// Size variants for buttons
+// Size variants for buttons (used by ActionsGrid)
 type ButtonSize = 'xs' | 'sm' | 'md' | 'lg';
+
+// Layout modes for responsive toolbar
+export type ToolbarLayout = 'horizontal' | 'vertical' | 'grid';
 
 // Drag props from useListReorder hook
 interface DragItemProps {
@@ -29,19 +32,40 @@ interface ToolbarButtonProps {
   toggleState?: ToggleState;
   editMode: boolean;
   onEdit: () => void;
+  /** Layout mode - determines sizing strategy */
+  layout?: ToolbarLayout;
+  /** Optional size - only used when layout='grid' */
   size?: ButtonSize;
   // Drag and drop via useListReorder hook (preferred)
   dragProps?: DragItemProps;
   isDragTarget?: boolean;
 }
 
-// Size configurations
+// Size configurations (used when layout='grid' with size prop)
 const SIZE_CONFIG = {
   xs: { button: 'min-w-[32px] h-[32px] px-1.5 py-1', icon: 14, text: 'text-[9px]' },
   sm: { button: 'min-w-[48px] h-[48px] px-2 py-1.5', icon: 18, text: 'text-[10px]' },
   md: { button: 'min-w-[60px] h-[60px] px-3 py-2', icon: 24, text: 'text-xs' },
   lg: { button: 'min-w-[72px] h-[72px] px-4 py-2.5', icon: 28, text: 'text-sm' },
 };
+
+// Layout-aware sizing (for horizontal/vertical modes)
+const LAYOUT_CONFIG = {
+  horizontal: {
+    container: 'w-full h-full',  // Fill grid cell
+    icon: 20,
+    text: 'text-xs',
+  },
+  vertical: {
+    container: 'w-full h-12 min-h-[48px]',  // 48px height, full width
+    icon: 20,
+    text: 'text-xs',
+  },
+};
+
+/** Grid mode sizing (when layout='grid' without size prop) */
+const GRID_ICON_SIZE = 18;
+const GRID_TEXT_CLASS = 'text-[10px]';
 
 // Default colors (match CSS tokens)
 const DEFAULT_BG_COLOR = 'var(--color-bg-elevated)';
@@ -53,12 +77,22 @@ export function ToolbarButton({
   toggleState,
   editMode,
   onEdit,
-  size = 'md',
+  layout = 'grid',
+  size,
   dragProps,
   isDragTarget,
 }: ToolbarButtonProps) {
-  const sizeConfig = SIZE_CONFIG[size];
   const { sendCommand } = useReaper();
+
+  // Determine sizing based on layout mode
+  // - horizontal/vertical: use LAYOUT_CONFIG
+  // - grid: use SIZE_CONFIG (with size prop) or default grid sizing
+  const layoutConfig = layout !== 'grid' ? LAYOUT_CONFIG[layout] : null;
+  const sizeConfig = layout === 'grid' && size ? SIZE_CONFIG[size] : null;
+
+  const iconSize = layoutConfig?.icon ?? sizeConfig?.icon ?? GRID_ICON_SIZE;
+  const textClass = layoutConfig?.text ?? sizeConfig?.text ?? GRID_TEXT_CLASS;
+  const buttonClass = layoutConfig?.container ?? sizeConfig?.button ?? 'w-full h-full px-1 py-0.5';
 
   const handleClick = useCallback(() => {
     if (editMode) {
@@ -93,16 +127,13 @@ export function ToolbarButton({
   const textColor = action.textColor || DEFAULT_TEXT_COLOR;
   const iconColor = action.iconColor || DEFAULT_ICON_COLOR;
 
-  // Get icon component
-  const IconComponent = action.icon ? getIconComponent(action.icon) : null;
-
   return (
     <button
       onClick={handleClick}
       {...dragProps}
       className={`
         relative flex flex-col items-center justify-center
-        ${sizeConfig.button}
+        ${buttonClass}
         rounded-lg transition-all duration-100
         ${editMode ? 'ring-2 ring-edit-mode-ring cursor-grab active:cursor-grabbing' : ''}
         ${isDragTarget ? 'ring-2 ring-drag-target-ring scale-105' : ''}
@@ -113,17 +144,18 @@ export function ToolbarButton({
       title={action.label}
     >
       {/* Icon */}
-      {IconComponent && (
-        <IconComponent
-          size={sizeConfig.icon}
+      {action.icon && (
+        <DynamicIcon
+          name={action.icon}
+          size={iconSize}
           style={{ color: iconColor }}
-          className="mb-1"
+          className={layout === 'grid' ? 'mb-0.5 flex-shrink-0' : 'mb-1 flex-shrink-0'}
         />
       )}
 
       {/* Label */}
       <span
-        className={`${sizeConfig.text} font-medium truncate max-w-full`}
+        className={`${textClass} font-medium truncate max-w-full ${layout === 'grid' ? 'leading-tight' : ''}`}
         style={{ color: textColor }}
       >
         {action.label}

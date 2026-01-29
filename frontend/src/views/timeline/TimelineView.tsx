@@ -544,11 +544,23 @@ export function TimelineView(): ReactElement {
     }
   }, [timelineMode, openAddRegionModal, selectedMarkerId, itemSelectionModeActive]);
 
-  // Toolbar tab content
+  // Toolbar tab content (portrait footer - horizontal layout)
   const toolbarTabContent = useMemo(() => (
-    <div className="flex flex-col gap-2 px-3">
+    <div className="flex flex-col h-full">
+      <div className="px-3 py-1">
+        <ToolbarHeaderControls />
+      </div>
+      <div className="flex-1 min-h-0">
+        <Toolbar layout="horizontal" />
+      </div>
+    </div>
+  ), []);
+
+  // Toolbar content for side rail (landscape - vertical layout)
+  const sideRailToolbarContent = useMemo(() => (
+    <div className="flex flex-col h-full">
       <ToolbarHeaderControls />
-      <Toolbar size="sm" />
+      <Toolbar layout="vertical" />
     </div>
   ), []);
 
@@ -597,7 +609,7 @@ export function TimelineView(): ReactElement {
         onForward: handleBankForward,
       });
       // Provide info content for side rail actions button
-      // Combine info and toolbar content for timeline
+      // Combine info and toolbar content for timeline (vertical layout for side rail)
       setSideRailInfo({
         content: (
           <div className="flex flex-col gap-4">
@@ -607,7 +619,7 @@ export function TimelineView(): ReactElement {
             </div>
             <div>
               <h3 className="text-sm font-medium text-text-secondary mb-2">Toolbar</h3>
-              {toolbarTabContent}
+              {sideRailToolbarContent}
             </div>
           </div>
         ),
@@ -623,7 +635,7 @@ export function TimelineView(): ReactElement {
         setSideRailInfo(null);
       }
     };
-  }, [isLandscapeConstrained, effectiveBankDisplay, effectiveTotalCount, effectiveCanGoBack, effectiveCanGoForward, handleBankBack, handleBankForward, setSideRailBankNav, setSideRailBankNavCallbacks, setSideRailInfo, infoTabContent, toolbarTabContent]);
+  }, [isLandscapeConstrained, effectiveBankDisplay, effectiveTotalCount, effectiveCanGoBack, effectiveCanGoForward, handleBankBack, handleBankForward, setSideRailBankNav, setSideRailBankNavCallbacks, setSideRailInfo, infoTabContent, sideRailToolbarContent]);
 
   // Search props for SecondaryPanel header
   const searchProps: SearchProps = useMemo(() => ({

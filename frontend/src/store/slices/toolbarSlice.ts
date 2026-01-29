@@ -79,6 +79,7 @@ export interface ToolbarSlice {
   toolbarCollapsed: boolean;
   toolbarEditMode: boolean;
   toolbarAlign: ToolbarAlign;
+  toolbarCurrentPage: number; // 0-indexed page for paged grid view
 
   // Actions
   setToolbarActions: (actions: ToolbarAction[]) => void;
@@ -96,6 +97,7 @@ export interface ToolbarSlice {
   setToolbarCollapsed: (collapsed: boolean) => void;
   setToolbarEditMode: (editMode: boolean) => void;
   setToolbarAlign: (align: ToolbarAlign) => void;
+  setToolbarCurrentPage: (page: number) => void;
 
   // Persistence
   loadToolbarFromStorage: () => void;
@@ -108,6 +110,22 @@ export interface ToolbarSlice {
   };
 }
 
+/**
+ * Default toolbar actions for first-time users.
+ * Pre-populated with common item editing operations.
+ */
+const DEFAULT_TOOLBAR_ACTIONS: ToolbarAction[] = [
+  // Page 1: Item operations
+  { id: 'default-split', type: 'reaper_action', label: 'Split', actionId: '40012', sectionId: 0, icon: 'Scissors' },
+  { id: 'default-glue', type: 'reaper_action', label: 'Glue', actionId: '40362', sectionId: 0, icon: 'Combine' },
+  { id: 'default-delete', type: 'reaper_action', label: 'Delete', actionId: '40006', sectionId: 0, icon: 'Trash2' },
+  { id: 'default-marker', type: 'reaper_action', label: 'Marker', actionId: '40157', sectionId: 0, icon: 'MapPin' },
+  // Page 1 row 2: Toggles and more
+  { id: 'default-ripple', type: 'reaper_action', label: 'Ripple', actionId: '1162', sectionId: 0, icon: 'Waves' },
+  { id: 'default-snap', type: 'reaper_action', label: 'Snap', actionId: '1157', sectionId: 0, icon: 'Magnet' },
+  { id: 'default-duplicate', type: 'reaper_action', label: 'Dupe', actionId: '41295', sectionId: 0, icon: 'Copy' },
+];
+
 export const createToolbarSlice: StateCreator<ToolbarSlice> = (set, get) => ({
   // Initial state
   toolbarActions: [],
@@ -116,6 +134,7 @@ export const createToolbarSlice: StateCreator<ToolbarSlice> = (set, get) => ({
   toolbarCollapsed: false,
   toolbarEditMode: false,
   toolbarAlign: 'left' as ToolbarAlign,
+  toolbarCurrentPage: 0,
 
   // Actions
   setToolbarActions: (actions) => {
@@ -230,6 +249,7 @@ export const createToolbarSlice: StateCreator<ToolbarSlice> = (set, get) => ({
       console.error('Failed to save toolbar settings:', e);
     }
   },
+  setToolbarCurrentPage: (page) => set({ toolbarCurrentPage: page }),
 
   // Persistence
   loadToolbarFromStorage: () => {
@@ -239,6 +259,11 @@ export const createToolbarSlice: StateCreator<ToolbarSlice> = (set, get) => ({
       if (saved) {
         const actions = JSON.parse(saved) as ToolbarAction[];
         set({ toolbarActions: actions });
+      } else {
+        // First-time user: populate with default actions
+        set({ toolbarActions: DEFAULT_TOOLBAR_ACTIONS });
+        // Save defaults to storage so they persist
+        localStorage.setItem(TOOLBAR_STORAGE_KEY, JSON.stringify(DEFAULT_TOOLBAR_ACTIONS));
       }
       // Load settings
       const settings = localStorage.getItem(TOOLBAR_SETTINGS_KEY);
