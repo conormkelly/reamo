@@ -289,5 +289,13 @@ export default tseslint.config(
     rules: {
       'no-restricted-syntax': 'off',
     },
+  },
+
+  // Zustand store slices - ?? [] in actions is safe (run once on dispatch, not every render)
+  {
+    files: ['src/store/slices/*.ts'],
+    rules: {
+      'no-restricted-syntax': 'off',
+    },
   }
 );

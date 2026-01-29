@@ -17,7 +17,7 @@
  */
 
 import type { Track, Region, Marker } from '../core/types';
-import type { WSItem, SkeletonTrack } from '../core/WebSocketTypes';
+import type { WSItem, SkeletonTrack, WSSendSlot } from '../core/WebSocketTypes';
 
 /** Stable empty tracks record */
 export const EMPTY_TRACKS: Record<number, Track> = Object.freeze({});
@@ -39,3 +39,9 @@ export const EMPTY_GUID_MAP: ReadonlyMap<string, number> = Object.freeze(new Map
 
 /** Stable empty string array (for GUID lists, etc.) */
 export const EMPTY_STRING_ARRAY: readonly string[] = Object.freeze([]);
+
+/** Stable empty sends array */
+export const EMPTY_SENDS: readonly WSSendSlot[] = Object.freeze([]);
+
+/** Stable empty number array (for index lists, etc.) */
+export const EMPTY_NUMBER_ARRAY: readonly number[] = Object.freeze([]);

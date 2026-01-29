@@ -27,6 +27,10 @@ export const EMPTY_HIERARCHY: FolderHierarchy = {
   folderMap: new Map(),
 };
 
+/** Stable empty arrays for fallback values */
+const EMPTY_INDICES: readonly number[] = Object.freeze([]);
+const EMPTY_FOLDERS: readonly FolderNode[] = Object.freeze([]);
+
 /**
  * Build folder hierarchy from flat skeleton array
  * Walks the skeleton tracking depth via fd values
@@ -99,7 +103,7 @@ export function getChildIndices(
   }
 
   const folder = hierarchy.folderMap.get(folderGuid);
-  return folder?.childIndices ?? [];
+  return folder?.childIndices ?? (EMPTY_INDICES as number[]);
 }
 
 /**
@@ -136,7 +140,7 @@ export function getSiblingFolders(
   }
 
   const parent = hierarchy.folderMap.get(folder.parentGuid);
-  return parent?.childFolders ?? [];
+  return parent?.childFolders ?? (EMPTY_FOLDERS as FolderNode[]);
 }
 
 /**

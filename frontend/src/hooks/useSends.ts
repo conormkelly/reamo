@@ -6,6 +6,7 @@
 
 import { useMemo } from 'react';
 import { useReaperStore } from '../store';
+import { EMPTY_SENDS } from '../store/stableRefs';
 import { useTrackSkeleton } from './useTrackSkeleton';
 import type { WSSendSlot } from '../core/WebSocketTypes';
 
@@ -47,7 +48,7 @@ export interface UseSendsReturn {
  * ```
  */
 export function useSends(): UseSendsReturn {
-  const sends = useReaperStore((state) => state?.sends ?? []);
+  const sends = useReaperStore((state) => state?.sends ?? EMPTY_SENDS);
   const { skeleton } = useTrackSkeleton();
 
   // Build unique destinations list with track names

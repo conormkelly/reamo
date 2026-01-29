@@ -72,6 +72,7 @@ export function Chords({
   // Calculate suggested next chords based on active chord
   const suggestedDegrees = useMemo(() => {
     if (!activeChord || !showHints) return new Set<number>();
+    // eslint-disable-next-line no-restricted-syntax -- useMemo runs once per deps, not every render
     return new Set(COMMON_PROGRESSIONS[activeChord.degree] || []);
   }, [activeChord, showHints]);
 

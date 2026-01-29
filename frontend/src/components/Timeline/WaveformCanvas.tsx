@@ -24,6 +24,7 @@ import type { WSItem, TileCacheKey, LODLevel, StereoPeak, MonoPeak } from '../..
 import { tileBitmapCache, TILE_RENDER_WIDTH } from '../../core/TileBitmapCache';
 import { reaperColorToRgba, getContrastColor } from '../../utils';
 import { useReaperStore } from '../../store';
+import { EMPTY_STRING_ARRAY } from '../../store/stableRefs';
 
 // Debug flag: set to true to visualize tile cache hits/misses
 const DEBUG_TILES = false;
@@ -205,14 +206,14 @@ export function WaveformCanvas({
   const tileCache = useReaperStore((s) => s.tileCache);
   const tilesByTake = useReaperStore((s) => s.tilesByTake);
 
-  // Item layout constants (matches MultiTrackLanes)
-  // Round to whole pixels for consistent rendering
-  const itemTopPercent = 10;
-  const itemHeightPercent = 80;
-  const itemY = Math.round((itemTopPercent / 100) * height);
-  const itemHeight = Math.round((itemHeightPercent / 100) * height);
-
   useEffect(() => {
+    // Item layout constants (matches MultiTrackLanes)
+    // Round to whole pixels for consistent rendering
+    const itemTopPercent = 10;
+    const itemHeightPercent = 80;
+    const itemY = Math.round((itemTopPercent / 100) * height);
+    const itemHeight = Math.round((itemHeightPercent / 100) * height);
+
     // Note: We MUST redraw on every viewport change (including during pan gestures)
     // because items need to be at different pixel positions. ImageBitmap blitting is
     // fast enough for 60fps redraws.
@@ -283,7 +284,7 @@ export function WaveformCanvas({
       if (item.activeTakeIsMidi || !item.activeTakeGuid) continue;
 
       // Get tiles for this item's take at current LOD
-      const takeKeyStrings = tilesByTake.get(item.activeTakeGuid) ?? [];
+      const takeKeyStrings = tilesByTake.get(item.activeTakeGuid) ?? EMPTY_STRING_ARRAY;
       const waveformColor = getWaveformColor(item);
       const bitmapHeight = Math.round(itemHeight);
 
