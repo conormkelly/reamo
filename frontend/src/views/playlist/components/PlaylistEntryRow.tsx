@@ -6,7 +6,7 @@ import { useRef, useCallback, type ReactElement } from 'react';
 import {
   Minus,
   Plus,
-  Infinity,
+  Infinity as InfinityIcon,
   AlertTriangle,
   GripVertical,
   X,
@@ -223,7 +223,7 @@ export function PlaylistEntryRow({
             }`}
             title="Infinite loops"
           >
-            <Infinity size={16} />
+            <InfinityIcon size={16} />
           </button>
         </div>
 
