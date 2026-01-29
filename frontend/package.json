@@ -8,6 +8,7 @@
     "prepare": "cd .. && husky frontend/.husky",
     "dev": "vite",
     "build": "tsc -b && vite build && cp ./dist/index.html ../reamo.html && cp ./public/icon*.png ./public/icon.svg ./public/manifest.json ../",
+    "build:debug": "tsc -b && vite build --mode development && cp ./dist/index.html ../reamo.html && cp ./public/icon*.png ./public/icon.svg ./public/manifest.json ../",
     "deploy": "npm run build",
     "release": "npm run deploy && node scripts/create-release-zip.js",
     "analyze": "tsc -b && vite build --mode analyze",

@@ -72,6 +72,7 @@ export function DrumPadGrid({
       className={`
         grid grid-cols-4 gap-2 p-2
         w-full h-full
+        touch-none
         ${className}
       `}
       role="group"
