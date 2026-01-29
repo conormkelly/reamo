@@ -51,6 +51,11 @@ pub const WM_DESTROY: c_uint = 0x0002;
 pub const WM_SIZE: c_uint = 0x0005;
 pub const WM_KEYDOWN: c_uint = 0x0100;
 pub const WM_LBUTTONDOWN: c_uint = 0x0201;
+pub const WM_TIMER: c_uint = 0x0113;
+
+/// Timer callback function type (TIMERPROC)
+/// Parameters: hwnd, msg (WM_TIMER), timer_id, tick_count
+pub const TIMERPROC = *const fn (?*anyopaque, c_uint, usize, c_uint) callconv(.c) void;
 
 // ShowWindow commands
 pub const SW_HIDE: c_int = 0;
@@ -92,6 +97,8 @@ extern fn zig_swell_get_SWELL_CreateMemContext() ?*const fn (HDC, c_int, c_int) 
 extern fn zig_swell_get_SWELL_DeleteGfxContext() ?*const fn (HDC) callconv(.c) void;
 extern fn zig_swell_get_SWELL_GetCtxFrameBuffer() ?*const fn (HDC) callconv(.c) ?[*]u32;
 extern fn zig_swell_get_BitBlt() ?*const fn (HDC, c_int, c_int, c_int, c_int, HDC, c_int, c_int, c_int) callconv(.c) void;
+extern fn zig_swell_get_SetTimer() ?*const fn (HWND, usize, c_uint, ?TIMERPROC) callconv(.c) usize;
+extern fn zig_swell_get_KillTimer() ?*const fn (HWND, usize) callconv(.c) c_int;
 
 // =============================================================================
 // Public API
@@ -369,4 +376,39 @@ pub fn bitBlt(hdcOut: HDC, x: c_int, y: c_int, w: c_int, h: c_int, hdcIn: HDC, x
         return;
     };
     func(hdcOut, x, y, w, h, hdcIn, xin, yin, mode);
+}
+
+// =============================================================================
+// Timer functions
+// =============================================================================
+
+/// Create a timer that fires at the specified interval.
+/// If hwnd is null and callback is provided, uses TIMERPROC callback directly.
+/// Returns timer ID on success, 0 on failure.
+pub fn setTimer(hwnd: HWND, id: usize, interval_ms: c_uint, callback: ?TIMERPROC) usize {
+    if (comptime !is_swell_platform) {
+        // Windows: handled by fast_timer.zig directly
+        _ = .{ hwnd, id, interval_ms, callback };
+        return 0;
+    }
+    const func = zig_swell_get_SetTimer() orelse {
+        std.log.err("swell: SetTimer not loaded", .{});
+        return 0;
+    };
+    return func(hwnd, id, interval_ms, callback);
+}
+
+/// Destroy a timer created with setTimer.
+/// Returns true on success.
+pub fn killTimer(hwnd: HWND, id: usize) bool {
+    if (comptime !is_swell_platform) {
+        // Windows: handled by fast_timer.zig directly
+        _ = .{ hwnd, id };
+        return false;
+    }
+    const func = zig_swell_get_KillTimer() orelse {
+        std.log.err("swell: KillTimer not loaded", .{});
+        return false;
+    };
+    return func(hwnd, id) != 0;
 }
