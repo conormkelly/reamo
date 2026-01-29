@@ -217,12 +217,19 @@ export function isConnected(): boolean {
   return currentStatus === 'connected';
 }
 
+// Debug flag for MIDI timing analysis (enable via console: window.__debugMidi = true)
+const DEBUG_MIDI = () => (window as unknown as { __debugMidi?: boolean }).__debugMidi === true;
+let midiSendCounter = 0;
+
 /**
  * Send a command (fire-and-forget)
  */
 export function sendCommand(command: string, params?: Record<string, unknown>): void {
   const socket = (window as unknown as { __wsSocket?: WebSocket }).__wsSocket;
   if (!socket || socket.readyState !== WebSocket.OPEN) {
+    if (DEBUG_MIDI() && command.startsWith('midi/')) {
+      console.warn(`[WS] MIDI blocked - socket not ready (readyState=${socket?.readyState})`);
+    }
     return;
   }
 
@@ -231,7 +238,24 @@ export function sendCommand(command: string, params?: Record<string, unknown>): 
     command,
     ...params,
   };
-  socket.send(JSON.stringify(msg));
+
+  // Debug MIDI timing at the socket layer
+  if (DEBUG_MIDI() && command.startsWith('midi/')) {
+    const sendId = ++midiSendCounter;
+    const preStringify = performance.now();
+    const json = JSON.stringify(msg);
+    const postStringify = performance.now();
+    socket.send(json);
+    const postSend = performance.now();
+    console.log(
+      `[WS] MIDI #${sendId} ${command} @ ${postSend.toFixed(1)}ms | ` +
+      `stringify=${(postStringify - preStringify).toFixed(2)}ms, ` +
+      `send=${(postSend - postStringify).toFixed(2)}ms, ` +
+      `payload=${json.length}b`
+    );
+  } else {
+    socket.send(JSON.stringify(msg));
+  }
 }
 
 /**

@@ -7,3 +7,4 @@ export * from './gridLines';
 export * from './input';
 export * from './folderHierarchy';
 export * from './versionStorage';
+export * from './platform';
