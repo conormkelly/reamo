@@ -29,6 +29,16 @@ export interface SideRailInfoState {
   label: string;
 }
 
+/** Search/filter state for side rail */
+export interface SideRailSearchState {
+  /** Current search value */
+  value: string;
+  /** Called when value changes */
+  onChange: ((value: string) => void) | null;
+  /** Placeholder text */
+  placeholder?: string;
+}
+
 export interface SideRailSlice {
   /** Current bank navigation state from the active view */
   sideRailBankNav: SideRailBankNavState | null;
@@ -39,8 +49,14 @@ export interface SideRailSlice {
     onForward: (() => void) | null;
   };
 
-  /** Info content from the active view (shown in side rail actions) */
+  /** Info content from the active view (shown in side rail Info tab) */
   sideRailInfo: SideRailInfoState | null;
+
+  /** Toolbar content from the active view (shown in side rail Toolbar tab) */
+  sideRailToolbar: SideRailInfoState | null;
+
+  /** Search/filter state from the active view */
+  sideRailSearch: SideRailSearchState | null;
 
   /** Set bank navigation state (called by active view) */
   setSideRailBankNav: (state: SideRailBankNavState | null) => void;
@@ -53,6 +69,12 @@ export interface SideRailSlice {
 
   /** Set info content (called by active view) */
   setSideRailInfo: (info: SideRailInfoState | null) => void;
+
+  /** Set toolbar content (called by active view) */
+  setSideRailToolbar: (toolbar: SideRailInfoState | null) => void;
+
+  /** Set search state (called by active view) */
+  setSideRailSearch: (search: SideRailSearchState | null) => void;
 
   /** Navigate bank back */
   sideRailGoBack: () => void;
@@ -71,6 +93,10 @@ export const createSideRailSlice: StateCreator<SideRailSlice> = (set, get) => ({
 
   sideRailInfo: null,
 
+  sideRailToolbar: null,
+
+  sideRailSearch: null,
+
   setSideRailBankNav: (state) => {
     set({ sideRailBankNav: state });
   },
@@ -81,6 +107,14 @@ export const createSideRailSlice: StateCreator<SideRailSlice> = (set, get) => ({
 
   setSideRailInfo: (info) => {
     set({ sideRailInfo: info });
+  },
+
+  setSideRailToolbar: (toolbar) => {
+    set({ sideRailToolbar: toolbar });
+  },
+
+  setSideRailSearch: (search) => {
+    set({ sideRailSearch: search });
   },
 
   sideRailGoBack: () => {

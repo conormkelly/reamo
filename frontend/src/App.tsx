@@ -21,7 +21,7 @@ import {
   ContextRail,
   type ContextRailTabConfig,
 } from './components';
-import { Info } from 'lucide-react';
+import { Info, Wrench } from 'lucide-react';
 import { useUIPreferences, useTransport, useLayoutContext } from './hooks';
 import { useReaperStore } from './store';
 import { views, type ViewId, VIEW_STORAGE_KEY, DEFAULT_VIEW } from './viewRegistry';
@@ -72,12 +72,14 @@ function AppContent() {
   const sideRailBankNav = useReaperStore((s) => s.sideRailBankNav);
   const sideRailBankNavCallbacks = useReaperStore((s) => s.sideRailBankNavCallbacks);
   const sideRailInfo = useReaperStore((s) => s.sideRailInfo);
+  const sideRailToolbar = useReaperStore((s) => s.sideRailToolbar);
+  const sideRailSearch = useReaperStore((s) => s.sideRailSearch);
 
   // Build context rail tabs from store state
   const contextRailTabs: ContextRailTabConfig[] = useMemo(() => {
     const tabs: ContextRailTabConfig[] = [];
 
-    // Info tab (always present for mixer/timeline)
+    // Info tab (present when view provides info content)
     if (sideRailInfo) {
       tabs.push({
         id: 'info',
@@ -87,14 +89,18 @@ function AppContent() {
       });
     }
 
-    // Toolbar tab (only for timeline - identified by label containing "Toolbar")
-    if (sideRailInfo?.label.includes('Toolbar')) {
-      // Timeline provides combined content, so info tab already has toolbar
-      // No separate toolbar tab needed - it's included in the combined content
+    // Toolbar tab (present when view provides separate toolbar content)
+    if (sideRailToolbar) {
+      tabs.push({
+        id: 'toolbar',
+        icon: Wrench,
+        label: sideRailToolbar.label,
+        content: sideRailToolbar.content,
+      });
     }
 
     return tabs;
-  }, [sideRailInfo]);
+  }, [sideRailInfo, sideRailToolbar]);
 
   // Build context rail bank nav props from store
   const contextRailBankNav = useMemo(() => {
@@ -107,6 +113,16 @@ function AppContent() {
       onForward: sideRailBankNavCallbacks.onForward ?? (() => {}),
     };
   }, [sideRailBankNav, sideRailBankNavCallbacks]);
+
+  // Build context rail search props from store
+  const contextRailSearch = useMemo(() => {
+    if (!sideRailSearch) return null;
+    return {
+      value: sideRailSearch.value,
+      onChange: sideRailSearch.onChange ?? (() => {}),
+      placeholder: sideRailSearch.placeholder ?? 'Filter...',
+    };
+  }, [sideRailSearch]);
 
   // Check if current view supports context rail (has bank nav)
   const showContextRail = useSideRail && (currentView === 'mixer' || currentView === 'timeline');
@@ -157,7 +173,7 @@ function AppContent() {
           <ContextRail
             tabs={contextRailTabs}
             bankNav={contextRailBankNav}
-            search={null} // TODO: Wire up search from views
+            search={contextRailSearch}
             className="z-fixed"
           />
         )}

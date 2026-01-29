@@ -19,9 +19,11 @@ import { DEFAULT_MARKER_COLOR, MARKER_COLORS } from '../../constants/colors';
 
 interface MarkerInfoBarProps {
   className?: string;
+  /** Layout mode - 'horizontal' for SecondaryPanel, 'vertical' for ContextRail */
+  layout?: 'horizontal' | 'vertical';
 }
 
-export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElement | null {
+export function MarkerInfoBar({ className = '', layout = 'horizontal' }: MarkerInfoBarProps): ReactElement | null {
   const { sendCommand } = useReaper();
   const timelineMode = useReaperStore((s) => s.timelineMode);
   const markers = useReaperStore((s) => s.markers);
@@ -186,6 +188,164 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
     setSelectedMarkerId(null);
   };
 
+  // Color picker portal (shared by both layouts)
+  const colorPickerPortal = showColorPicker && createPortal(
+    <div
+      ref={colorPickerRef}
+      className="fixed p-3 bg-bg-surface border border-border-default rounded-lg shadow-xl z-popover min-w-[200px]"
+      style={{ top: colorPickerPosition.top, left: colorPickerPosition.left }}
+    >
+      {/* Default + Project colors row */}
+      <div className="mb-3">
+        <div className="flex gap-2 overflow-x-auto pb-1 max-w-[200px] items-center">
+          {/* Default (reset) color - always first */}
+          <button
+            onClick={handleColorReset}
+            className={`w-6 h-6 rounded border-2 transition-all flex-shrink-0 relative ${
+              isDefaultColor
+                ? 'border-white scale-110'
+                : 'border-transparent hover:border-text-secondary'
+            }`}
+            style={{ backgroundColor: DEFAULT_MARKER_COLOR }}
+            title="Reset to default"
+          >
+            <RotateCcw size={10} className="absolute inset-0 m-auto text-white/80" />
+          </button>
+
+          {/* Existing colors from project */}
+          {Array.from(existingColors).map((color) => (
+            <button
+              key={color}
+              onClick={() => handleColorSelect(color)}
+              className={`w-6 h-6 rounded border-2 transition-all flex-shrink-0 ${
+                !isDefaultColor && currentColor.toLowerCase() === color.toLowerCase()
+                  ? 'border-white scale-110'
+                  : 'border-transparent hover:border-text-secondary'
+              }`}
+              style={{ backgroundColor: color }}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Preset colors */}
+      <div className="mb-3">
+        <div className="text-xs text-text-secondary mb-1.5">Presets</div>
+        <div className="flex gap-2 flex-wrap">
+          {MARKER_COLORS.map((color) => (
+            <button
+              key={color}
+              onClick={() => handleColorSelect(color)}
+              className={`w-6 h-6 rounded border-2 transition-all ${
+                !isDefaultColor && currentColor.toLowerCase() === color.toLowerCase()
+                  ? 'border-white scale-110'
+                  : 'border-transparent hover:border-text-secondary'
+              }`}
+              style={{ backgroundColor: color }}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Color picker and hex input */}
+      <div className="text-xs text-text-secondary mb-1.5">Custom</div>
+      <div className="flex gap-2 items-center">
+        <input
+          type="color"
+          value={currentColor}
+          onChange={(e) => handleColorSelect(e.target.value)}
+          className="w-8 h-8 rounded border-2 border-border-default cursor-pointer bg-transparent"
+        />
+        <input
+          type="text"
+          placeholder="Default"
+          defaultValue={isDefaultColor ? '' : currentColor}
+          className="flex-1 px-2 py-1 bg-bg-elevated border border-border-default rounded text-text-primary text-xs font-mono focus:outline-none focus:border-focus-border"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              const val = (e.target as HTMLInputElement).value;
+              if (/^#?[0-9a-f]{6}$/i.test(val)) {
+                handleColorSelect(val.startsWith('#') ? val : `#${val}`);
+              }
+            }
+          }}
+        />
+      </div>
+    </div>,
+    document.body
+  );
+
+  // Vertical layout for ContextRail (one field per row)
+  if (layout === 'vertical') {
+    return (
+      <div data-testid="marker-info-bar" className={`flex flex-col gap-2.5 px-infobar-x py-infobar-y bg-bg-surface/50 rounded-lg text-sm relative ${className}`}>
+        {/* X close button - top right */}
+        <button
+          onClick={handleClose}
+          className="absolute top-1.5 right-1.5 p-1.5 text-text-muted hover:text-text-primary hover:bg-bg-elevated rounded transition-colors"
+          title="Close marker info"
+        >
+          <X size={16} />
+        </button>
+
+        {/* Marker ID row */}
+        <div className="flex items-center gap-2 pr-8">
+          <span className="text-text-secondary text-xs w-12 shrink-0">Marker:</span>
+          <span className="text-text-primary font-mono text-sm font-bold">{currentMarker.id}</span>
+        </div>
+
+        {/* Name row */}
+        <div className="flex items-center gap-2 pr-8">
+          <span className="text-text-secondary text-xs w-12 shrink-0">Name:</span>
+          {isEditingName ? (
+            <input
+              ref={nameInputRef}
+              type="text"
+              value={nameValue}
+              onChange={(e) => setNameValue(e.target.value)}
+              onKeyDown={handleNameKeyDown}
+              onBlur={handleNameConfirm}
+              className="flex-1 min-w-0 px-1.5 py-0.5 bg-bg-elevated border border-focus-border rounded text-text-primary font-mono text-sm focus:outline-none focus:ring-1 focus:ring-focus-ring"
+            />
+          ) : (
+            <button
+              onClick={handleNameClick}
+              className="text-text-primary font-mono text-sm px-1.5 py-0.5 rounded transition-colors truncate min-w-0 hover:bg-bg-elevated cursor-pointer text-left"
+              title="Click to edit name"
+            >
+              {currentMarker.name || '(unnamed)'}
+            </button>
+          )}
+          {isSaving && <span className="text-text-muted text-xs italic">...</span>}
+        </div>
+
+        {/* Color row */}
+        <div className="flex items-center gap-2">
+          <span className="text-text-secondary text-xs w-12 shrink-0">Color:</span>
+          <button
+            ref={colorTriggerRef}
+            onClick={handleColorClick}
+            className="w-7 h-7 rounded border-2 transition-colors border-border-default hover:border-text-secondary cursor-pointer"
+            style={{ backgroundColor: currentColor }}
+            title="Click to change color"
+            aria-expanded={showColorPicker}
+            aria-haspopup="true"
+          />
+          {colorPickerPortal}
+        </div>
+
+        {/* Position row */}
+        <div className="flex items-center gap-2">
+          <span className="text-text-secondary text-xs w-12 shrink-0">At:</span>
+          <span className="text-info-muted font-mono text-sm">
+            {currentMarker.positionBars ?? formatPosition(currentMarker.position)}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // Horizontal layout (default) for SecondaryPanel
   return (
     <div data-testid="marker-info-bar" className={`flex flex-col gap-2 px-infobar-x py-infobar-y bg-bg-surface/50 rounded-lg text-sm relative ${className}`}>
       {/* X close button - top right */}
@@ -251,103 +411,19 @@ export function MarkerInfoBar({ className = '' }: MarkerInfoBarProps): ReactElem
             aria-expanded={showColorPicker}
             aria-haspopup="true"
           />
-            {showColorPicker && createPortal(
-              <div
-                ref={colorPickerRef}
-                className="fixed p-3 bg-bg-surface border border-border-default rounded-lg shadow-xl z-popover min-w-[200px]"
-                style={{ top: colorPickerPosition.top, left: colorPickerPosition.left }}
-              >
-                {/* Default + Project colors row */}
-                <div className="mb-3">
-                  <div className="flex gap-2 overflow-x-auto pb-1 max-w-[200px] items-center">
-                    {/* Default (reset) color - always first */}
-                    <button
-                      onClick={handleColorReset}
-                      className={`w-6 h-6 rounded border-2 transition-all flex-shrink-0 relative ${
-                        isDefaultColor
-                          ? 'border-white scale-110'
-                          : 'border-transparent hover:border-text-secondary'
-                      }`}
-                      style={{ backgroundColor: DEFAULT_MARKER_COLOR }}
-                      title="Reset to default"
-                    >
-                      <RotateCcw size={10} className="absolute inset-0 m-auto text-white/80" />
-                    </button>
-
-                    {/* Existing colors from project */}
-                    {Array.from(existingColors).map((color) => (
-                      <button
-                        key={color}
-                        onClick={() => handleColorSelect(color)}
-                        className={`w-6 h-6 rounded border-2 transition-all flex-shrink-0 ${
-                          !isDefaultColor && currentColor.toLowerCase() === color.toLowerCase()
-                            ? 'border-white scale-110'
-                            : 'border-transparent hover:border-text-secondary'
-                        }`}
-                        style={{ backgroundColor: color }}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                {/* Preset colors */}
-                <div className="mb-3">
-                  <div className="text-xs text-text-secondary mb-1.5">Presets</div>
-                  <div className="flex gap-2 flex-wrap">
-                    {MARKER_COLORS.map((color) => (
-                      <button
-                        key={color}
-                        onClick={() => handleColorSelect(color)}
-                        className={`w-6 h-6 rounded border-2 transition-all ${
-                          !isDefaultColor && currentColor.toLowerCase() === color.toLowerCase()
-                            ? 'border-white scale-110'
-                            : 'border-transparent hover:border-text-secondary'
-                        }`}
-                        style={{ backgroundColor: color }}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                {/* Color picker and hex input */}
-                <div className="text-xs text-text-secondary mb-1.5">Custom</div>
-                <div className="flex gap-2 items-center">
-                  <input
-                    type="color"
-                    value={currentColor}
-                    onChange={(e) => handleColorSelect(e.target.value)}
-                    className="w-8 h-8 rounded border-2 border-border-default cursor-pointer bg-transparent"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Default"
-                    defaultValue={isDefaultColor ? '' : currentColor}
-                    className="flex-1 px-2 py-1 bg-bg-elevated border border-border-default rounded text-text-primary text-xs font-mono focus:outline-none focus:border-focus-border"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        const val = (e.target as HTMLInputElement).value;
-                        if (/^#?[0-9a-f]{6}$/i.test(val)) {
-                          handleColorSelect(val.startsWith('#') ? val : `#${val}`);
-                        }
-                      }
-                    }}
-                  />
-                </div>
-              </div>,
-              document.body
-            )}
-          </div>
-
-          <div className="w-px h-5 bg-border-default flex-shrink-0" />
-
-          {/* Position - use server bar string if available */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-text-secondary text-xs">At:</span>
-            <span className="text-info-muted font-mono text-sm">
-              {currentMarker.positionBars ?? formatPosition(currentMarker.position)}
-            </span>
-          </div>
+          {colorPickerPortal}
         </div>
+
+        <div className="w-px h-5 bg-border-default flex-shrink-0" />
+
+        {/* Position - use server bar string if available */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-text-secondary text-xs">At:</span>
+          <span className="text-info-muted font-mono text-sm">
+            {currentMarker.positionBars ?? formatPosition(currentMarker.position)}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
