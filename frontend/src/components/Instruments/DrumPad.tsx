@@ -22,7 +22,10 @@ export interface DrumPadProps {
 const DEFAULT_VELOCITY = 100;
 
 /** Minimum ms between triggers to debounce */
-const DEBOUNCE_MS = 20;
+const DEBOUNCE_MS = 10; // Reduced from 20ms for better responsiveness
+
+// Debug logging for touch issues
+const DEBUG_TOUCH = true;
 
 export function DrumPad({
   note,
@@ -43,15 +46,26 @@ export function DrumPad({
 
       // Debounce: ignore if triggered too recently
       const now = Date.now();
-      if (now - lastTriggerRef.current < DEBOUNCE_MS) {
+      const timeSinceLast = now - lastTriggerRef.current;
+
+      if (timeSinceLast < DEBOUNCE_MS) {
+        if (DEBUG_TOUCH) {
+          console.log(`[DrumPad ${label}] BLOCKED: ${timeSinceLast}ms since last (debounce=${DEBOUNCE_MS}ms)`);
+        }
         return;
       }
+
+      if (DEBUG_TOUCH) {
+        console.log(`[DrumPad ${label}] TRIGGERED: pointerType=${e.pointerType}, timeSinceLast=${timeSinceLast}ms`);
+      }
+
       lastTriggerRef.current = now;
 
-      setIsActive(true);
+      // Send MIDI first, then update visual state (prioritize responsiveness)
       onNoteOn(note, DEFAULT_VELOCITY);
+      setIsActive(true);
     },
-    [note, onNoteOn]
+    [note, onNoteOn, label]
   );
 
   // Handle pointer up - just clear visual state (no MIDI for drums)
@@ -79,6 +93,7 @@ export function DrumPad({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
       onPointerLeave={handlePointerUp}
+      onContextMenu={(e) => e.preventDefault()}
       aria-label={`${label} (MIDI note ${note})`}
     >
       <span className="truncate px-1">{label}</span>
