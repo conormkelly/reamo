@@ -4,27 +4,36 @@
  * Collapse is now handled by parent CollapsibleSection wrapper
  */
 
-import { useEffect, useCallback, useState, type ReactElement } from 'react';
-import { Plus, Pencil, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
+import { useEffect, useCallback, useState, useRef, type ReactElement } from 'react';
+import { Plus, Pencil } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
 import { useListReorder } from '../../hooks';
 import { actionToggleState } from '../../core/WebSocketCommands';
-import { ToolbarButton } from './ToolbarButton';
+import { ToolbarButton, type ToolbarLayout } from './ToolbarButton';
 import { ToolbarEditor } from './ToolbarEditor';
-import type { ToolbarAction, ToolbarAlign, ToggleStateEntry, NameToIdEntry } from '../../store/slices/toolbarSlice';
+import type { ToolbarAction, ToggleStateEntry, NameToIdEntry } from '../../store/slices/toolbarSlice';
 import { makeToggleKey } from '../../store/slices/toolbarSlice';
 
+/** Horizontal mode: single row with 4 slots per page */
+const HORIZONTAL_SLOTS = 4;
+/** Swipe threshold in pixels to trigger page change */
+const SWIPE_THRESHOLD = 50;
+
+interface ToolbarProps {
+  /** Layout mode - horizontal (footer), vertical (side rail), or grid (full screen) */
+  layout?: ToolbarLayout;
+}
+
 /**
- * Header controls for Toolbar section (Edit/Align/Add buttons)
+ * Header controls for Toolbar section (Edit/Add buttons)
  * Passed as headerControls to CollapsibleSection
+ * Note: Alignment options removed - fixed 4×2 grid doesn't need alignment
  */
 export function ToolbarHeaderControls(): ReactElement {
   const {
     toolbarEditMode,
-    toolbarAlign,
     setToolbarEditMode,
-    setToolbarAlign,
   } = useReaperStore();
 
   const handleToggleEditMode = useCallback(() => {
@@ -50,50 +59,23 @@ export function ToolbarHeaderControls(): ReactElement {
         {toolbarEditMode ? 'Done' : 'Edit'}
       </button>
       {toolbarEditMode && (
-        <>
-          {/* Alignment buttons */}
-          <div className="flex items-center border border-border-default rounded overflow-hidden">
-            {(['left', 'center', 'right'] as ToolbarAlign[]).map((align) => {
-              const Icon = align === 'left' ? AlignLeft : align === 'center' ? AlignCenter : AlignRight;
-              return (
-                <button
-                  key={align}
-                  onClick={() => setToolbarAlign(align)}
-                  className={`p-1.5 transition-colors ${
-                    toolbarAlign === align
-                      ? 'bg-primary text-text-on-primary'
-                      : 'bg-bg-elevated text-text-secondary hover:bg-bg-hover'
-                  }`}
-                  title={`Align ${align}`}
-                >
-                  <Icon size={14} />
-                </button>
-              );
-            })}
-          </div>
-          <button
-            onClick={handleAddClick}
-            className="px-2 py-1 text-xs bg-success-action hover:bg-success text-text-on-success rounded transition-colors flex items-center gap-1"
-          >
-            <Plus size={12} />
-            Add
-          </button>
-        </>
+        <button
+          onClick={handleAddClick}
+          className="px-2 py-1 text-xs bg-success-action hover:bg-success text-text-on-success rounded transition-colors flex items-center gap-1"
+        >
+          <Plus size={12} />
+          Add
+        </button>
       )}
     </div>
   );
 }
 
-interface ToolbarProps {
-  /** Button size variant */
-  size?: 'xs' | 'sm' | 'md' | 'lg';
-}
-
-export function Toolbar({ size = 'md' }: ToolbarProps): ReactElement {
+export function Toolbar({ layout = 'horizontal' }: ToolbarProps): ReactElement {
   const {
     toolbarActions,
     toolbarEditMode,
-    toolbarAlign,
+    toolbarCurrentPage,
     toggleStates,
     loadToolbarFromStorage,
     addToolbarAction,
@@ -101,11 +83,27 @@ export function Toolbar({ size = 'md' }: ToolbarProps): ReactElement {
     removeToolbarAction,
     reorderToolbarActions,
     updateToggleStates,
+    setToolbarCurrentPage,
   } = useReaperStore();
 
   const { sendCommand, sendAsync, connectionStatus } = useReaper();
   const [editingAction, setEditingAction] = useState<ToolbarAction | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
+
+  // Swipe handling for page navigation
+  const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
+  const isSwiping = useRef(false);
+
+  // Compute pagination - only for horizontal mode
+  // Vertical mode shows all actions in a scrollable list (no paging)
+  const slotsPerPage = layout === 'horizontal' ? HORIZONTAL_SLOTS : toolbarActions.length;
+  const totalPages = layout === 'vertical' ? 1 : Math.max(1, Math.ceil(toolbarActions.length / slotsPerPage));
+  const currentPage = Math.min(toolbarCurrentPage, totalPages - 1);
+  const startIndex = layout === 'vertical' ? 0 : currentPage * slotsPerPage;
+  const pageActions = layout === 'vertical'
+    ? toolbarActions
+    : toolbarActions.slice(startIndex, startIndex + slotsPerPage);
 
   // Drag and drop via unified hook
   const { getDragItemProps, isDragTarget } = useListReorder({
@@ -215,34 +213,170 @@ export function Toolbar({ size = 'md' }: ToolbarProps): ReactElement {
     [removeToolbarAction, handleEditorClose]
   );
 
+  // Swipe gesture handlers for page navigation (horizontal mode only)
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    // Don't capture swipe if we're in edit mode (allow drag reorder) or not horizontal
+    if (toolbarEditMode || layout !== 'horizontal') return;
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+    isSwiping.current = false;
+  }, [toolbarEditMode, layout]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (touchStartX.current === null || touchStartY.current === null) return;
+
+    const deltaX = e.touches[0].clientX - touchStartX.current;
+    const deltaY = e.touches[0].clientY - touchStartY.current;
+
+    // Only consider it a swipe if horizontal movement > vertical
+    if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 10) {
+      isSwiping.current = true;
+    }
+  }, []);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (touchStartX.current === null || !isSwiping.current) {
+      touchStartX.current = null;
+      touchStartY.current = null;
+      return;
+    }
+
+    const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+
+    if (Math.abs(deltaX) > SWIPE_THRESHOLD) {
+      if (deltaX < 0 && currentPage < totalPages - 1) {
+        // Swipe left → next page
+        setToolbarCurrentPage(currentPage + 1);
+      } else if (deltaX > 0 && currentPage > 0) {
+        // Swipe right → previous page
+        setToolbarCurrentPage(currentPage - 1);
+      }
+    }
+
+    touchStartX.current = null;
+    touchStartY.current = null;
+    isSwiping.current = false;
+  }, [currentPage, totalPages, setToolbarCurrentPage]);
+
+  // Page indicator click handler
+  const handlePageIndicatorClick = useCallback(() => {
+    // Cycle to next page
+    setToolbarCurrentPage((currentPage + 1) % totalPages);
+  }, [currentPage, totalPages, setToolbarCurrentPage]);
+
+  // Create slots array with actions + empty slots to fill grid (horizontal mode only)
+  // Vertical mode doesn't need empty slots (scrollable list)
+  const slots: (ToolbarAction | null)[] = [...pageActions];
+  if (layout === 'horizontal') {
+    while (slots.length < HORIZONTAL_SLOTS) {
+      slots.push(null);
+    }
+  }
+
+  // Render button with common props
+  const renderButton = (action: ToolbarAction, absoluteIndex: number) => (
+    <ToolbarButton
+      key={action.id}
+      action={action}
+      layout={layout}
+      toggleState={
+        action.type === 'reaper_action' && action.actionId
+          ? toggleStates.get(makeToggleKey(action.sectionId, action.actionId))
+          : undefined
+      }
+      editMode={toolbarEditMode}
+      onEdit={() => handleEditClick(action)}
+      dragProps={getDragItemProps(absoluteIndex)}
+      isDragTarget={isDragTarget(absoluteIndex)}
+    />
+  );
+
+  // Vertical layout: single column, scrollable
+  if (layout === 'vertical') {
+    return (
+      <>
+        <div className="flex flex-col gap-2 overflow-y-auto h-full p-1">
+          {toolbarActions.map((action, index) => renderButton(action, index))}
+
+          {/* Empty state message */}
+          {toolbarActions.length === 0 && (
+            <div className="flex items-center justify-center text-text-muted text-sm py-4">
+              {toolbarEditMode
+                ? 'Click "Add" to create buttons'
+                : 'Click "Edit" to add buttons'}
+            </div>
+          )}
+        </div>
+
+        {/* Editor Modal */}
+        {(editingAction || isAddingNew) && (
+          <ToolbarEditor
+            action={editingAction}
+            isNew={isAddingNew}
+            onClose={handleEditorClose}
+            onSave={handleEditorSave}
+            onDelete={handleEditorDelete}
+          />
+        )}
+      </>
+    );
+  }
+
+  // Horizontal layout: single row with 4 slots, swipe paging
   return (
     <>
-      {/* Toolbar content */}
-      <div className={`flex gap-1.5 overflow-x-auto ${size === 'xs' ? 'py-0.5' : 'p-1 pb-2'} ${
-        toolbarAlign === 'center' ? 'justify-center' :
-        toolbarAlign === 'right' ? 'justify-end' : ''
-      }`}>
-        {toolbarActions.map((action, index) => (
-          <ToolbarButton
-            key={action.id}
-            action={action}
-            toggleState={
-              action.type === 'reaper_action' && action.actionId
-                ? toggleStates.get(makeToggleKey(action.sectionId, action.actionId))
-                : undefined
+      <div
+        className="flex flex-col h-full"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        {/* Grid container - single row of 4 columns */}
+        <div
+          className="grid gap-1 flex-1 p-1"
+          style={{
+            gridTemplateColumns: `repeat(${HORIZONTAL_SLOTS}, 1fr)`,
+            gridTemplateRows: '1fr',  // Single row fills height
+          }}
+        >
+          {slots.map((action, slotIndex) => {
+            // Calculate absolute index for drag reorder
+            const absoluteIndex = startIndex + slotIndex;
+
+            if (action) {
+              return renderButton(action, absoluteIndex);
             }
-            editMode={toolbarEditMode}
-            onEdit={() => handleEditClick(action)}
-            size={size}
-            dragProps={getDragItemProps(index)}
-            isDragTarget={isDragTarget(index)}
-          />
-        ))}
+
+            // Empty slot
+            return (
+              <div
+                key={`empty-${slotIndex}`}
+                className={`rounded-lg ${
+                  toolbarEditMode
+                    ? 'border-2 border-dashed border-border-subtle'
+                    : ''
+                }`}
+              />
+            );
+          })}
+        </div>
+
+        {/* Page indicator (only show if multiple pages) */}
+        {totalPages > 1 && (
+          <button
+            onClick={handlePageIndicatorClick}
+            className="text-xs text-text-tertiary py-0.5 hover:text-text-secondary transition-colors"
+          >
+            {currentPage + 1}/{totalPages}
+          </button>
+        )}
+
+        {/* Empty state message */}
         {toolbarActions.length === 0 && (
-          <div className="text-text-muted text-sm py-4 px-2">
+          <div className="absolute inset-0 flex items-center justify-center text-text-muted text-sm">
             {toolbarEditMode
-              ? 'No toolbar buttons configured. Click "Add" to create one.'
-              : 'No toolbar buttons. Click "Edit" to add some.'}
+              ? 'Click "Add" to create buttons'
+              : 'Click "Edit" to add buttons'}
           </div>
         )}
       </div>
