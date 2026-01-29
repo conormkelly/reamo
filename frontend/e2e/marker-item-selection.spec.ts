@@ -116,12 +116,6 @@ async function clickAtPercent(page: Page, percent: number) {
   await timeline.click({ position: { x: relativeX, y: relativeY } });
 }
 
-// Get marker pills container (bottom bar below timeline)
-function getMarkerPillsBar(page: Page) {
-  // The marker pills are in a bar below the timeline canvas
-  return page.locator('.bg-bg-deep').filter({ hasText: /Intro|Verse/ }).first();
-}
-
 test.describe('Marker/Item Selection', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
@@ -275,7 +269,7 @@ test.describe('Marker/Item Selection', () => {
     await page.waitForTimeout(50);
 
     // Verify marker is selected
-    let selectedMarkerId = await page.evaluate(() => {
+    const selectedMarkerId = await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
       return store.getState().selectedMarkerId;
     });

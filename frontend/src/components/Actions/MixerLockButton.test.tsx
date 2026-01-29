@@ -14,7 +14,6 @@ const createMockState = (mixerLocked: boolean) => ({
   toggleMixerLock: mockToggleMixerLock,
 });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SelectorFn = (state: any) => any;
 
 vi.mock('../../store', () => ({

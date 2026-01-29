@@ -286,7 +286,7 @@ test.describe('Undo/Redo', () => {
     await actionBar.getByRole('button', { name: /undo/i }).click()
 
     // Should still have pending changes (from first move)
-    let hasPending = await page.evaluate(() => {
+    const hasPending = await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__
       return store.getState().hasPendingChanges()
     })
@@ -318,7 +318,7 @@ test.describe('Undo/Redo', () => {
     })
 
     // Verify history has 3 items
-    let historyLength = await page.evaluate(() => {
+    const historyLength = await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__
       return store.getState().historyStack.length
     })
@@ -382,7 +382,7 @@ test.describe('Undo/Redo', () => {
     })
 
     // Verify we can undo
-    let canUndo = await page.evaluate(() => {
+    const canUndo = await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__
       return store.getState().canUndo()
     })
