@@ -2,13 +2,15 @@
  * ContextRailPanel - Overlay panel for expanded context rail content
  *
  * Features:
- * - Slides in from right edge when expanded
+ * - Portaled to document.body to escape stacking contexts (fixes z-index issues)
+ * - Positioned to the left of the anchor rail
  * - Click outside to dismiss
  * - Contains active tab's content
  * - Animated entrance/exit with reduced-motion support
  */
 
-import { type ReactNode, useEffect, useRef } from 'react';
+import { type ReactNode, type RefObject, useEffect, useRef, useState, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { CONTEXT_PANEL_WIDTH } from '../../constants/layout';
 
@@ -21,6 +23,8 @@ export interface ContextRailPanelProps {
   title: string;
   /** Panel content */
   children: ReactNode;
+  /** Reference to the anchor element (ContextRail) for positioning */
+  anchorRef: RefObject<HTMLElement | null>;
   /** Additional CSS classes */
   className?: string;
 }
@@ -30,16 +34,40 @@ export function ContextRailPanel({
   onClose,
   title,
   children,
+  anchorRef,
   className = '',
 }: ContextRailPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ left: 0 });
 
-  // Handle click outside to close
+  // Calculate position based on anchor element
+  useLayoutEffect(() => {
+    if (!isOpen || !anchorRef.current) return;
+
+    const updatePosition = () => {
+      const anchorRect = anchorRef.current?.getBoundingClientRect();
+      if (anchorRect) {
+        // Panel appears to the LEFT of the anchor rail
+        setPosition({ left: anchorRect.left - CONTEXT_PANEL_WIDTH });
+      }
+    };
+
+    updatePosition();
+
+    // Update on resize/orientation change
+    window.addEventListener('resize', updatePosition);
+    return () => window.removeEventListener('resize', updatePosition);
+  }, [isOpen, anchorRef]);
+
+  // Handle click outside to close (must check both panel and anchor)
   useEffect(() => {
     if (!isOpen) return;
 
     const handleClickOutside = (event: MouseEvent | TouchEvent) => {
-      if (panelRef.current && !panelRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const clickedPanel = panelRef.current?.contains(target);
+      const clickedAnchor = anchorRef.current?.contains(target);
+      if (!clickedPanel && !clickedAnchor) {
         onClose();
       }
     };
@@ -55,7 +83,7 @@ export function ContextRailPanel({
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('touchstart', handleClickOutside);
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, anchorRef]);
 
   // Handle Escape key
   useEffect(() => {
@@ -73,19 +101,20 @@ export function ContextRailPanel({
 
   if (!isOpen) return null;
 
-  return (
+  // Portal to document.body to escape stacking contexts
+  return createPortal(
     <div
       ref={panelRef}
       className={`
-        absolute top-0 bottom-0 right-full
-        bg-bg-deep border-l border-border-subtle
+        fixed top-0 bottom-0
+        bg-bg-deep border-r border-border-subtle
         flex flex-col overflow-hidden
         animate-slide-in-right
         safe-area-top safe-area-bottom
-        z-dropdown
+        z-modal
         ${className}
       `}
-      style={{ width: CONTEXT_PANEL_WIDTH }}
+      style={{ left: position.left, width: CONTEXT_PANEL_WIDTH }}
       role="dialog"
       aria-label={title}
     >
@@ -105,6 +134,7 @@ export function ContextRailPanel({
       <div className="flex-1 overflow-y-auto overscroll-contain p-3">
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -88,7 +88,7 @@ export function MarkerNavigationPanel({ isOpen, onClose }: MarkerNavigationPanel
         </div>
 
         {hasItems ? (
-          <div className="max-h-80 overflow-y-auto -mx-4 px-4">
+          <div className="max-h-[min(20rem,50dvh)] overflow-y-auto -mx-4 px-4">
             <ul className="space-y-1" role="listbox" aria-label="Navigation points">
               {navigationItems.map((item) => (
                 <li key={`${item.type}-${item.id}`}>

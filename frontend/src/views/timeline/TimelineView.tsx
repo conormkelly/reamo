@@ -100,6 +100,8 @@ export function TimelineView(): ReactElement {
   const setSideRailBankNav = useReaperStore((s) => s.setSideRailBankNav);
   const setSideRailBankNavCallbacks = useReaperStore((s) => s.setSideRailBankNavCallbacks);
   const setSideRailInfo = useReaperStore((s) => s.setSideRailInfo);
+  const setSideRailToolbar = useReaperStore((s) => s.setSideRailToolbar);
+  const setSideRailSearch = useReaperStore((s) => s.setSideRailSearch);
 
   // Viewport persistence - restore saved viewport across view switches
   const savedViewport = useReaperStore((s) => s.savedViewport);
@@ -544,6 +546,37 @@ export function TimelineView(): ReactElement {
     }
   }, [timelineMode, openAddRegionModal, selectedMarkerId, itemSelectionModeActive]);
 
+  // Info content for side rail (landscape - vertical layout for MarkerInfoBar)
+  const sideRailInfoContent = useMemo(() => {
+    if (timelineMode === 'regions') {
+      // Regions mode: show RegionInfoBar + RegionEditActionBar
+      return (
+        <>
+          <RegionInfoBar onAddRegion={openAddRegionModal} />
+          <div className="mt-2">
+            <RegionEditActionBar />
+          </div>
+        </>
+      );
+    } else {
+      // Navigate mode: show marker/item info with vertical layout
+      return (
+        <section data-testid="navigate-info-section" className="flex flex-col gap-2">
+          <MarkerInfoBar layout="vertical" />
+          {selectedMarkerId === null && itemSelectionModeActive && <NavigateItemInfoBar />}
+          {selectedMarkerId === null && !itemSelectionModeActive && (
+            <div
+              data-testid="nothing-selected-message"
+              className="px-3 py-2 bg-bg-surface/50 rounded-lg text-text-muted text-sm text-center"
+            >
+              Tap a marker pill or item
+            </div>
+          )}
+        </section>
+      );
+    }
+  }, [timelineMode, openAddRegionModal, selectedMarkerId, itemSelectionModeActive]);
+
   // Toolbar tab content (portrait footer - horizontal layout)
   const toolbarTabContent = useMemo(() => (
     <div className="flex flex-col h-full">
@@ -608,22 +641,20 @@ export function TimelineView(): ReactElement {
         onBack: handleBankBack,
         onForward: handleBankForward,
       });
-      // Provide info content for side rail actions button
-      // Combine info and toolbar content for timeline (vertical layout for side rail)
+      // Separate info and toolbar tabs for side rail (vertical layout)
       setSideRailInfo({
-        content: (
-          <div className="flex flex-col gap-4">
-            <div>
-              <h3 className="text-sm font-medium text-text-secondary mb-2">Info</h3>
-              {infoTabContent}
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-text-secondary mb-2">Toolbar</h3>
-              {sideRailToolbarContent}
-            </div>
-          </div>
-        ),
-        label: 'Timeline Info & Toolbar',
+        content: sideRailInfoContent,
+        label: 'Info',
+      });
+      setSideRailToolbar({
+        content: sideRailToolbarContent,
+        label: 'Toolbar',
+      });
+      // Wire up search for track filtering
+      setSideRailSearch({
+        value: filterQuery,
+        onChange: handleSetFilterQuery,
+        placeholder: 'Filter tracks...',
       });
     }
 
@@ -633,9 +664,11 @@ export function TimelineView(): ReactElement {
         setSideRailBankNav(null);
         setSideRailBankNavCallbacks({ onBack: null, onForward: null });
         setSideRailInfo(null);
+        setSideRailToolbar(null);
+        setSideRailSearch(null);
       }
     };
-  }, [isLandscapeConstrained, effectiveBankDisplay, effectiveTotalCount, effectiveCanGoBack, effectiveCanGoForward, handleBankBack, handleBankForward, setSideRailBankNav, setSideRailBankNavCallbacks, setSideRailInfo, infoTabContent, sideRailToolbarContent]);
+  }, [isLandscapeConstrained, effectiveBankDisplay, effectiveTotalCount, effectiveCanGoBack, effectiveCanGoForward, handleBankBack, handleBankForward, setSideRailBankNav, setSideRailBankNavCallbacks, setSideRailInfo, setSideRailToolbar, setSideRailSearch, sideRailInfoContent, sideRailToolbarContent, filterQuery, handleSetFilterQuery]);
 
   // Search props for SecondaryPanel header
   const searchProps: SearchProps = useMemo(() => ({
