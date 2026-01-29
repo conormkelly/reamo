@@ -210,6 +210,7 @@ Current limitations to be aware of:
 - **No comping lanes** - Basic take switching only
 - **No automation editing** - View automation but no touch-based drawing yet
 - **Single user** - Designed for single-user home studio, not multi-user
+- **Touch instrument speed** - Rapid alternating touches (faster than 16th notes at 120 BPM) may miss triggers on iOS Safari due to browser gesture detection. This is a Safari limitation, not fixable in a PWA. For punching in ideas to quantize later, this is fine; for virtuoso drum performances, a native app would be needed
 
 ---
 
