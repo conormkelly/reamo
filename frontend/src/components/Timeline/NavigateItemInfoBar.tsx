@@ -303,6 +303,7 @@ export function NavigateItemInfoBar({
     const groups = new Map<number, WSItem[]>();
 
     for (const item of selectedItems) {
+      // eslint-disable-next-line no-restricted-syntax -- mutable array built inside useMemo
       const existing = groups.get(item.trackIdx) ?? [];
       existing.push(item);
       groups.set(item.trackIdx, existing);

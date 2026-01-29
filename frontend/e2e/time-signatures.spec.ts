@@ -34,7 +34,7 @@ async function setupWithTimeSignature(
   const fullBeatPosition = (positionSeconds * denominatorBpm) / 60
 
   await page.evaluate(
-    ({ numerator, denominator, bpm, fullBeatPosition, positionSeconds }) => {
+    ({ numerator, denominator, fullBeatPosition, positionSeconds }) => {
       const store = (window as any).__REAPER_STORE__
 
       // Set localStorage first so the TimelineModeToggle useEffect doesn't override our mode
@@ -94,7 +94,6 @@ async function setupWithTimeSignature(
     {
       numerator: timeSignature.numerator,
       denominator: timeSignature.denominator,
-      bpm,
       fullBeatPosition,
       positionSeconds,
     }

@@ -18,6 +18,7 @@
 
 import { useMemo, type ReactElement } from 'react';
 import type { WSItem, SkeletonTrack } from '../../core/WebSocketTypes';
+import { EMPTY_ITEMS } from '../../store/stableRefs';
 import { WaveformCanvas } from './WaveformCanvas';
 
 export interface WaveformLayerProps {
@@ -53,6 +54,7 @@ export function WaveformLayer({
   const itemsByTrackIdx = useMemo(() => {
     const map = new Map<number, WSItem[]>();
     for (const item of items) {
+      // eslint-disable-next-line no-restricted-syntax -- mutable array built inside useMemo
       const existing = map.get(item.trackIdx) ?? [];
       existing.push(item);
       map.set(item.trackIdx, existing);
@@ -73,7 +75,7 @@ export function WaveformLayer({
     >
       {tracks.map((track, laneIdx) => {
         const trackIdx = trackIndices[laneIdx];
-        const laneItems = itemsByTrackIdx.get(trackIdx) ?? [];
+        const laneItems = itemsByTrackIdx.get(trackIdx) ?? (EMPTY_ITEMS as WSItem[]);
         const isFocused = focusedTrackGuid === track.g;
 
         return (
