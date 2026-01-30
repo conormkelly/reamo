@@ -27,6 +27,7 @@ const trackfx_subscriptions = @import("subscriptions/trackfx_subscriptions.zig")
 const trackfx_generator = @import("subscriptions/trackfx_generator.zig");
 const trackfxparam_subscriptions = @import("subscriptions/trackfxparam_subscriptions.zig");
 const trackfxparam_generator = @import("subscriptions/trackfxparam_generator.zig");
+const tuner_subscriptions = @import("subscriptions/tuner_subscriptions.zig");
 const peaks_generator = @import("subscriptions/peaks_generator.zig");
 const peaks_cache = @import("subscriptions/peaks_cache.zig");
 const peaks_tile = @import("state/peaks_tile.zig");
@@ -68,6 +69,7 @@ var g_peaks_subs: ?*peaks_subscriptions.PeaksSubscriptions = null;
 var g_routing_subs: ?*routing_subscriptions.RoutingSubscriptions = null;
 var g_trackfx_subs: ?*trackfx_subscriptions.TrackFxSubscriptions = null;
 var g_trackfxparam_subs: ?*trackfxparam_subscriptions.TrackFxParamSubscriptions = null;
+var g_tuner_subs: ?*tuner_subscriptions.TunerSubscriptions = null;
 var g_peaks_cache: ?*peaks_cache.PeaksCache = null;
 var g_tile_cache: ?*peaks_tile.TileCache = null;
 var g_csurf: ?*csurf.ControlSurface = null;
@@ -269,6 +271,12 @@ fn doInitialization() !void {
     trackfxparam_subs.* = trackfxparam_subscriptions.TrackFxParamSubscriptions.init(g_allocator);
     g_trackfxparam_subs = trackfxparam_subs;
     commands.g_ctx.trackfxparam_subs = trackfxparam_subs;
+
+    // Create tuner subscriptions state (chromatic tuner via JSFX)
+    const tuner_subs = try g_allocator.create(tuner_subscriptions.TunerSubscriptions);
+    tuner_subs.* = tuner_subscriptions.TunerSubscriptions.init(g_allocator);
+    g_tuner_subs = tuner_subs;
+    commands.g_ctx.tuner_subs = tuner_subs;
 
     // Create peaks cache for LRU caching of waveform data
     const p_cache = try g_allocator.create(peaks_cache.PeaksCache);
@@ -622,6 +630,7 @@ fn doProcessing() !void {
         .routing_subs = g_routing_subs,
         .trackfx_subs = g_trackfx_subs,
         .trackfxparam_subs = g_trackfxparam_subs,
+        .tuner_subs = g_tuner_subs,
     };
 
     // Clean up disconnected clients
@@ -722,6 +731,11 @@ fn doProcessing() !void {
         // Poll track FX param subscriptions
         if (g_trackfxparam_subs) |trackfxparam_subs| {
             try subscription_polling.pollTrackFxParamSubscriptions(&poll_ctx, trackfxparam_subs);
+        }
+
+        // Poll tuner subscriptions (chromatic tuner via JSFX)
+        if (g_tuner_subs) |tuner_subs| {
+            try subscription_polling.pollTunerSubscriptions(&poll_ctx, tuner_subs);
         }
     }
 
@@ -889,6 +903,20 @@ fn shutdown() void {
         g_trackfxparam_subs = null;
     }
     logging.info("track FX param subscriptions cleaned up", .{});
+
+    if (g_tuner_subs) |subs| {
+        logging.info("cleaning up tuner subscriptions", .{});
+        commands.g_ctx.tuner_subs = null;
+        // Remove all clients (cleans up JSFXs)
+        if (g_api) |*api| {
+            var backend = reaper.RealBackend{ .inner = api };
+            subs.removeAllClients(&backend);
+        }
+        subs.deinit();
+        g_allocator.destroy(subs);
+        g_tuner_subs = null;
+    }
+    logging.info("tuner subscriptions cleaned up", .{});
 
     if (g_peaks_cache) |p_cache| {
         logging.info("cleaning up peaks cache", .{});

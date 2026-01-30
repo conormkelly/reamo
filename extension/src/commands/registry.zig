@@ -39,6 +39,7 @@ const trackfx_subs = @import("trackfx_subs.zig");
 const trackfxparam_subs = @import("trackfxparam_subs.zig");
 const trackfxparam = @import("trackfxparam.zig");
 const inputs = @import("inputs.zig");
+const tuner_subs = @import("tuner_subs.zig");
 
 /// Comptime tuple of (command_name, handler_fn) pairs.
 /// Used by dispatch() with inline for to call handlers with anytype.
@@ -274,4 +275,9 @@ pub const all = .{
 
     // Track FX Parameter Control (set param values)
     .{ "trackFxParams/set", trackfxparam.handleSetParam },
+
+    // Tuner Subscriptions (chromatic tuner via JSFX)
+    .{ "tuner/subscribe", tuner_subs.handleSubscribe },
+    .{ "tuner/unsubscribe", tuner_subs.handleUnsubscribe },
+    .{ "tuner/setParam", tuner_subs.handleSetParam },
 };

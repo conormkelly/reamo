@@ -24,12 +24,14 @@ const peaks_subscriptions = @import("../subscriptions/peaks_subscriptions.zig");
 const routing_subscriptions = @import("../subscriptions/routing_subscriptions.zig");
 const trackfx_subscriptions = @import("../subscriptions/trackfx_subscriptions.zig");
 const trackfxparam_subscriptions = @import("../subscriptions/trackfxparam_subscriptions.zig");
+const tuner_subscriptions = @import("../subscriptions/tuner_subscriptions.zig");
 
 // Generators
 const peaks_generator = @import("../subscriptions/peaks_generator.zig");
 const routing_generator = @import("../subscriptions/routing_generator.zig");
 const trackfx_generator = @import("../subscriptions/trackfx_generator.zig");
 const trackfxparam_generator = @import("../subscriptions/trackfxparam_generator.zig");
+const tuner_generator = @import("../subscriptions/tuner_generator.zig");
 
 // Caches
 const peaks_cache = @import("../subscriptions/peaks_cache.zig");
@@ -278,6 +280,69 @@ pub fn pollTrackFxParamSubscriptions(
                 ctx.shared_state.sendToClient(entry.client_id, error_json);
 
                 trackfxparam_subs.unsubscribe(entry.client_id);
+            }
+        }
+    }
+}
+
+/// Poll tuner subscriptions and broadcast pitch detection data.
+/// Per-client single-track subscriptions with auto-unsubscribe on failure.
+/// Reads JSFX slider values from Input FX chain.
+pub fn pollTunerSubscriptions(
+    ctx: *const PollingContext,
+    tuner_subs: *tuner_subscriptions.TunerSubscriptions,
+) !void {
+    if (!tuner_subs.hasSubscriptions()) return;
+
+    var iter = tuner_subs.activeSubscriptions();
+    while (iter.next()) |entry| {
+        const scratch = ctx.scratchAllocator();
+
+        // Get the track tuner for this subscription
+        const tuner = tuner_subs.getTrackTuner(entry.track_guid) orelse {
+            // Track tuner not found - increment failure count
+            if (tuner_subs.recordFailure(entry.client_id)) {
+                // Auto-unsubscribe after 3 failures (~100ms at 30Hz)
+                logging.warn("tuner: auto-unsubscribing client {d} after repeated failures", .{entry.client_id});
+
+                // Send error event to client
+                const error_json = "{\"type\":\"event\",\"event\":\"tunerError\",\"error\":\"TUNER_NOT_FOUND\"}";
+                ctx.shared_state.sendToClient(entry.client_id, error_json);
+
+                tuner_subs.unsubscribe(entry.client_id, ctx.backend);
+            }
+            continue;
+        };
+
+        // Generate tuner event JSON
+        // Pass FX GUID so generator can find current position (handles user reordering)
+        if (tuner_generator.generateTunerEvent(
+            scratch,
+            ctx.backend,
+            ctx.guid_cache_ptr,
+            entry.track_guid,
+            tuner.getFxGuid(),
+            tuner.reference_hz,
+        )) |json| {
+            // Check if changed using hash
+            const data_hash = tuner_generator.hashTunerEvent(json);
+            const hash_changed = tuner_subs.checkChanged(entry.slot, data_hash);
+
+            if (hash_changed) {
+                ctx.shared_state.sendToClient(entry.client_id, json);
+            }
+            // Reset failure count on successful generation
+            tuner_subs.resetFailures(entry.client_id);
+        } else {
+            // Generation failed - increment failure count
+            if (tuner_subs.recordFailure(entry.client_id)) {
+                // Auto-unsubscribe after 3 failures
+                logging.warn("tuner: auto-unsubscribing client {d} after repeated generation failures", .{entry.client_id});
+
+                const error_json = "{\"type\":\"event\",\"event\":\"tunerError\",\"error\":\"GENERATION_FAILED\"}";
+                ctx.shared_state.sendToClient(entry.client_id, error_json);
+
+                tuner_subs.unsubscribe(entry.client_id, ctx.backend);
             }
         }
     }
