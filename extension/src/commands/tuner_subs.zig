@@ -141,6 +141,7 @@ pub fn handleSetParam(api: anytype, cmd: protocol.CommandMessage, response: *mod
         switch (err) {
             error.NotSubscribed => response.err("NOT_SUBSCRIBED", "No active tuner for this track"),
             error.TrackNotFound => response.err("TRACK_NOT_FOUND", "Track GUID not found"),
+            error.FxNotFound => response.err("FX_NOT_FOUND", "Tuner plugin not found in FX chain"),
             error.InvalidParam => response.err("INVALID_PARAM", "Invalid parameter"),
         }
         return;

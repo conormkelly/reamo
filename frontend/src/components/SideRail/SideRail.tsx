@@ -27,6 +27,7 @@ import {
   StickyNote,
   Music,
   ChartBarBig,
+  AudioWaveform,
 } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useTransport } from '../../hooks/useTransport';
@@ -38,7 +39,7 @@ import { type ViewId, viewMeta } from '../../viewRegistry';
 // =============================================================================
 
 /** View order matching TabBar */
-const VIEW_ORDER: ViewId[] = ['timeline', 'mixer', 'clock', 'playlist', 'actions', 'notes', 'instruments'];
+const VIEW_ORDER: ViewId[] = ['timeline', 'mixer', 'clock', 'tuner', 'playlist', 'actions', 'notes', 'instruments'];
 
 /** Icons for each view */
 const VIEW_ICONS: Record<ViewId, typeof SlidersHorizontal> = {
@@ -49,6 +50,7 @@ const VIEW_ICONS: Record<ViewId, typeof SlidersHorizontal> = {
   actions: Zap,
   notes: StickyNote,
   instruments: Music,
+  tuner: AudioWaveform,
 };
 
 // Hold duration threshold for record button mode toggle

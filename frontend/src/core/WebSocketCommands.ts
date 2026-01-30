@@ -1059,6 +1059,44 @@ export const fxPlugin = {
 // FX Parameter Subscription Commands
 // =============================================================================
 
+// =============================================================================
+// Tuner Subscription Commands
+// =============================================================================
+
+export const tuner = {
+  /**
+   * Subscribe to tuner on a track. Inserts JSFX if first subscriber.
+   * Each client can only subscribe to one track at a time.
+   *
+   * @param trackGuid - GUID of the track to tune
+   */
+  subscribe: (trackGuid: string): WSCommand => ({
+    command: 'tuner/subscribe',
+    params: { trackGuid },
+  }),
+
+  /** Unsubscribe from tuner. Removes JSFX if last subscriber. */
+  unsubscribe: (): WSCommand => ({
+    command: 'tuner/unsubscribe',
+  }),
+
+  /**
+   * Set tuner parameter (reference frequency or silence threshold).
+   *
+   * @param trackGuid - GUID of the track
+   * @param param - "reference" (Hz, 400-480) or "threshold" (dB, -96 to 0)
+   * @param value - Parameter value
+   */
+  setParam: (trackGuid: string, param: 'reference' | 'threshold', value: number): WSCommand => ({
+    command: 'tuner/setParam',
+    params: { trackGuid, param, value },
+  }),
+};
+
+// =============================================================================
+// FX Parameter Subscription Commands
+// =============================================================================
+
 export const trackFxParams = {
   /**
    * Get parameter skeleton (names) for an FX.

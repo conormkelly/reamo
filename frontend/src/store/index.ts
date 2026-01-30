@@ -33,6 +33,7 @@ import { createSideRailSlice, type SideRailSlice } from './slices/sideRailSlice'
 import { createToastSlice, type ToastSlice } from './slices/toastSlice';
 import { createTimelineViewSlice, setupTimelineSubscriptions, type TimelineViewSlice } from './slices/timelineViewSlice';
 import { createViewFilterSlice, setupViewFilterSubscriptions, type ViewFilterSlice } from './slices/viewFilterSlice';
+import { createTunerSlice, type TunerSlice } from './slices/tunerSlice';
 import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
 import { ActionCommands, SWSCommands } from '../core/types';
 import type {
@@ -79,13 +80,16 @@ import {
   isFxChainEvent,
   isFxParamsEvent,
   isFxParamsErrorEvent,
+  isTunerEvent,
+  isTunerErrorEvent,
   type ProjectNotesChangedEventPayload,
+  type TunerEventPayload,
 } from '../core/WebSocketTypes';
 import { transportEngine } from '../core/TransportAnimationEngine';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & ActionsSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & UIPreferencesState & ModalSlice & PeaksSlice & RoutingSlice & FxChainSlice & FxBrowserSlice & FxParamSlice & SecondaryPanelSlice & SideRailSlice & ToastSlice & TimelineViewSlice & ViewFilterSlice & {
+export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & ActionsSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & UIPreferencesState & ModalSlice & PeaksSlice & RoutingSlice & FxChainSlice & FxBrowserSlice & FxParamSlice & SecondaryPanelSlice & SideRailSlice & ToastSlice & TimelineViewSlice & ViewFilterSlice & TunerSlice & {
   // Response handler action (legacy HTTP)
   handleResponses: (responses: ParsedResponse[]) => void;
   // WebSocket message handler
@@ -131,6 +135,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   ...createToastSlice(set, get, store),
   ...createTimelineViewSlice(set, get, store),
   ...createViewFilterSlice(set, get, store),
+  ...createTunerSlice(set, get, store),
 
   // Handle incoming responses from REAPER
   handleResponses: (responses: ParsedResponse[]) => {
@@ -401,6 +406,11 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
     } else if (isFxParamsErrorEvent(message)) {
       const p = message.payload as FxParamsErrorEventPayload;
       get().handleFxParamsError(p);
+    } else if (isTunerEvent(message)) {
+      const p = message.payload as TunerEventPayload;
+      get().handleTunerEvent(p);
+    } else if (isTunerErrorEvent(message)) {
+      get().handleTunerError(message.error);
     } else if (message.event === 'reload') {
       // Hot reload - extension detected file change
       console.log('[Store] Reload event received, refreshing page...');
@@ -447,6 +457,7 @@ export type { SideRailSlice, SideRailBankNavState, SideRailInfoState } from './s
 export type { ToastSlice, ToastMessage, ToastType } from './slices/toastSlice';
 export type { TimelineViewSlice, TimeRange } from './slices/timelineViewSlice';
 export type { ViewFilterSlice, ViewFilterState, FilterableViewId, MixerViewState } from './slices/viewFilterSlice';
+export type { TunerSlice } from './slices/tunerSlice';
 
 // Setup store subscriptions for:
 // - Timeline: auto-follow on playback start, reload state on project change

@@ -10,6 +10,7 @@ import { PlaylistView } from './views/playlist';
 import { ActionsView } from './views/actions';
 import { NotesView } from './views/notes';
 import { InstrumentsView } from './views/instruments';
+import { TunerView } from './views/tuner';
 
 export const views = {
   mixer: MixerView,
@@ -19,6 +20,7 @@ export const views = {
   actions: ActionsView,
   notes: NotesView, // Hidden from tab bar but still valid view
   instruments: InstrumentsView,
+  tuner: TunerView,
 } as const;
 
 export type ViewId = keyof typeof views;
@@ -35,4 +37,5 @@ export const viewMeta: Record<ViewId, { label: string; shortLabel?: string }> = 
   actions: { label: 'Actions' },
   notes: { label: 'Notes' }, // Not shown in tab bar but needs metadata
   instruments: { label: 'Instruments', shortLabel: 'Inst' },
+  tuner: { label: 'Tuner' },
 };
