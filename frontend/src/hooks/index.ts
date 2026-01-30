@@ -117,3 +117,7 @@ export {
   type HeightClass,
   type NavPosition,
 } from './useLayoutContext';
+export {
+  useTuner,
+  type UseTunerReturn,
+} from './useTuner';

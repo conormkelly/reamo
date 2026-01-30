@@ -316,13 +316,13 @@ pub fn pollTunerSubscriptions(
 
         // Generate tuner event JSON
         // Pass FX GUID so generator can find current position (handles user reordering)
+        // All values (including settings) read directly from JSFX for bidirectional sync
         if (tuner_generator.generateTunerEvent(
             scratch,
             ctx.backend,
             ctx.guid_cache_ptr,
             entry.track_guid,
             tuner.getFxGuid(),
-            tuner.reference_hz,
         )) |json| {
             // Check if changed using hash
             const data_hash = tuner_generator.hashTunerEvent(json);

@@ -26,14 +26,17 @@ pub const INPUT_FX_OFFSET: c_int = 0x1000000;
 /// JSFX identifier for the tuner plugin
 pub const TUNER_JSFX_NAME = "JS:REAmo/PitchDetect";
 
-/// Tuner parameter indices (slider numbers in JSFX)
+/// Tuner parameter indices - CONTIGUOUS mapping from JSFX sliders
+/// JSFX sliders with gaps (1-5, 10-11) map to contiguous param indices (0-6)
+/// slider1→0, slider2→1, slider3→2, slider4→3, slider5→4, slider10→5, slider11→6
 pub const TunerParam = enum(c_int) {
-    frequency = 0, // Read: detected frequency (Hz)
-    note = 1, // Read: MIDI note number
-    cents = 2, // Read: cents deviation from note
-    confidence = 3, // Read: detection confidence (0-1)
-    reference = 4, // Write: A4 reference frequency
-    threshold = 5, // Write: silence threshold (dB)
+    frequency = 0, // Read: detected frequency (Hz) - slider1
+    note = 1, // Read: MIDI note number - slider2
+    cents = 2, // Read: cents deviation from note - slider3
+    confidence = 3, // Read: detection confidence (0-1) - slider4
+    reference = 4, // Write: A4 reference frequency (400-480) - slider5
+    yin_threshold = 5, // slider10 (not used by frontend)
+    threshold = 6, // Write: silence threshold (dB, -90 to -30) - slider11
 };
 
 /// Result from subscribe operation
@@ -421,6 +424,7 @@ pub const TunerSubscriptions = struct {
     }
 
     /// Set a tuner parameter (reference or threshold).
+    /// Searches for FX by GUID to handle user reordering the FX chain.
     pub fn setParam(
         self: *TunerSubscriptions,
         track_guid: []const u8,
@@ -432,14 +436,36 @@ pub const TunerSubscriptions = struct {
         const tuner = self.findTrackTuner(track_guid) orelse return error.NotSubscribed;
         const track = guid_cache.resolve(track_guid) orelse return error.TrackNotFound;
 
+        // Search Input FX chain by GUID to find current index
+        // This handles when user has reordered the FX chain - CRITICAL for safety
+        const stored_fx_guid = tuner.getFxGuid();
+        const input_fx_count = api.trackFxRecCount(track);
+        var api_fx_idx: c_int = -1;
+        var fx_idx: c_int = 0;
+        while (fx_idx < input_fx_count) : (fx_idx += 1) {
+            var guid_buf: [64]u8 = undefined;
+            const current_guid = api.trackFxGetGuid(track, fx_idx + INPUT_FX_OFFSET, &guid_buf);
+            if (current_guid.len > 0 and std.mem.eql(u8, current_guid, stored_fx_guid)) {
+                api_fx_idx = fx_idx + INPUT_FX_OFFSET;
+                break;
+            }
+        }
+
+        if (api_fx_idx < 0) {
+            logging.debug("tuner: setParam failed - FX GUID not found in Input FX chain", .{});
+            return error.FxNotFound;
+        }
+
         switch (param) {
             .reference => {
                 tuner.reference_hz = value;
-                _ = api.trackFxSetParamNormalized(track, tuner.getApiFxIndex(), @intFromEnum(TunerParam.reference), @as(f64, value) / 480.0); // Normalize to 0-1 range assuming 400-480 range
+                // JSFX slider5: 400-480 Hz range → normalize to 0-1
+                _ = api.trackFxSetParamNormalized(track, api_fx_idx, @intFromEnum(TunerParam.reference), (@as(f64, value) - 400.0) / 80.0);
             },
             .threshold => {
                 tuner.silence_threshold = value;
-                _ = api.trackFxSetParamNormalized(track, tuner.getApiFxIndex(), @intFromEnum(TunerParam.threshold), (@as(f64, value) + 96.0) / 96.0); // Normalize -96..0 to 0..1
+                // JSFX slider11: -90 to -30 dB range → normalize to 0-1
+                _ = api.trackFxSetParamNormalized(track, api_fx_idx, @intFromEnum(TunerParam.threshold), (@as(f64, value) + 90.0) / 60.0);
             },
             else => return error.InvalidParam,
         }

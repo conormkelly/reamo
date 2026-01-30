@@ -13,7 +13,7 @@ export interface TabBarProps {
   className?: string;
 }
 
-const VIEW_ORDER: ViewId[] = ['timeline', 'mixer', 'clock', 'playlist', 'actions', 'notes', 'instruments'];
+const VIEW_ORDER: ViewId[] = ['timeline', 'mixer', 'clock', 'tuner', 'playlist', 'actions', 'notes', 'instruments'];
 
 export function TabBar({ currentView, onViewChange, className = '' }: TabBarProps): ReactElement {
   const scrollRef = useRef<HTMLDivElement>(null);

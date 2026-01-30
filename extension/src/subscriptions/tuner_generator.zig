@@ -29,15 +29,14 @@ pub const TunerData = struct {
 /// Generate tuner event JSON for a subscription.
 /// Returns null on error (track not found, FX not found, invalid slider values).
 /// Searches for FX by GUID each call to handle user reordering the chain.
+/// Reads ALL values (including settings) directly from JSFX for bidirectional sync.
 pub fn generateTunerEvent(
     allocator: Allocator,
     api: anytype,
     guid_cache: anytype,
     track_guid: []const u8,
     fx_guid: []const u8,
-    reference_hz: f32,
 ) ?[]const u8 {
-    _ = reference_hz; // Not used in event generation, only in JSFX config
 
     // Resolve track GUID to track pointer
     const track = guid_cache.resolve(track_guid) orelse {
@@ -64,16 +63,21 @@ pub fn generateTunerEvent(
         return null;
     }
 
-    // Read sliders 0-3 from Input FX using GetParam (actual values, not normalized)
+    // Read ALL sliders from Input FX using GetParam (actual values, not normalized)
+    // This includes settings (reference, threshold) for bidirectional sync -
+    // changes made directly in REAPER plugin UI propagate to all clients
     // REAPER can return NaN/Inf from slider reads - must validate
     const freq = api.trackFxGetParam(track, api_fx_idx, @intFromEnum(TunerParam.frequency));
     const note_f = api.trackFxGetParam(track, api_fx_idx, @intFromEnum(TunerParam.note));
     const cents = api.trackFxGetParam(track, api_fx_idx, @intFromEnum(TunerParam.cents));
     const conf = api.trackFxGetParam(track, api_fx_idx, @intFromEnum(TunerParam.confidence));
+    const reference_hz = api.trackFxGetParam(track, api_fx_idx, @intFromEnum(TunerParam.reference));
+    const threshold_db = api.trackFxGetParam(track, api_fx_idx, @intFromEnum(TunerParam.threshold));
 
     // Validate all values are finite (not NaN or Inf)
     if (!ffi.isFinite(freq) or !ffi.isFinite(note_f) or
-        !ffi.isFinite(cents) or !ffi.isFinite(conf))
+        !ffi.isFinite(cents) or !ffi.isFinite(conf) or
+        !ffi.isFinite(reference_hz) or !ffi.isFinite(threshold_db))
     {
         logging.debug("tuner_generator: Non-finite slider values from FX", .{});
         return null;
@@ -124,6 +128,10 @@ pub fn generateTunerEvent(
 
     // In tune
     w.writeAll(if (in_tune) ",\"inTune\":true" else ",\"inTune\":false") catch return null;
+
+    // Settings (for multi-client sync - other clients can see if someone changed them)
+    w.print(",\"referenceHz\":{d:.1}", .{reference_hz}) catch return null;
+    w.print(",\"thresholdDb\":{d:.0}", .{threshold_db}) catch return null;
 
     w.writeAll("}}") catch return null;
 

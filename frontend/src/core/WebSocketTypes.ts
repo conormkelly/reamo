@@ -67,7 +67,7 @@ export interface EventMessage {
   payload?: EventPayload; // Optional for events like 'reload' that have no payload
 }
 
-export type EventType = 'transport' | 'tt' | 'project' | 'trackSkeleton' | 'tracks' | 'meters' | 'markers' | 'regions' | 'items' | 'fx_state' | 'sends_state' | 'routing_state' | 'reload' | 'actionToggleState' | 'tempoMap' | 'projectNotesChanged' | 'playlist' | 'peaks' | 'trackFxChain' | 'trackFxParams' | 'trackFxParamsError';
+export type EventType = 'transport' | 'tt' | 'project' | 'trackSkeleton' | 'tracks' | 'meters' | 'markers' | 'regions' | 'items' | 'fx_state' | 'sends_state' | 'routing_state' | 'reload' | 'actionToggleState' | 'tempoMap' | 'projectNotesChanged' | 'playlist' | 'peaks' | 'trackFxChain' | 'trackFxParams' | 'trackFxParamsError' | 'tuner' | 'tunerError';
 
 export type EventPayload =
   | TransportEventPayload
@@ -89,7 +89,9 @@ export type EventPayload =
   | PeaksEventPayload
   | FxChainEventPayload
   | FxParamsEventPayload
-  | FxParamsErrorEventPayload;
+  | FxParamsErrorEventPayload
+  | TunerEventPayload
+  | TunerErrorEventPayload;
 
 /** Lightweight transport tick event (position updates during playback) */
 export interface TransportTickEventPayload {
@@ -420,6 +422,30 @@ export interface FxParamsEventPayload {
 /** FX params error event (FX deleted while subscribed) */
 export interface FxParamsErrorEventPayload {
   error: string; // "FX_NOT_FOUND"
+}
+
+// =============================================================================
+// Tuner Event (per-client, pushed by backend at 30Hz)
+// =============================================================================
+
+/** Tuner event payload with pitch detection data */
+export interface TunerEventPayload {
+  trackGuid: string;
+  freq: number;      // Detected frequency in Hz (0 = no signal)
+  note: number;      // MIDI note number (69 = A4)
+  noteName: string;  // "C", "C#", "D", etc.
+  octave: number;    // Octave number (4 for A4)
+  cents: number;     // Deviation from note (-50 to +50)
+  conf: number;      // Detection confidence (0-1)
+  inTune: boolean;   // True when |cents| < 2
+  // Settings (for multi-client sync)
+  referenceHz: number;  // A4 reference frequency (400-480)
+  thresholdDb: number;  // Silence threshold in dB (-90 to -30)
+}
+
+/** Tuner error event (track/tuner deleted while subscribed) */
+export interface TunerErrorEventPayload {
+  error: string;     // "TUNER_NOT_FOUND" | "GENERATION_FAILED"
 }
 
 // =============================================================================
@@ -872,4 +898,16 @@ export function isFxParamsErrorEvent(
   msg: EventMessage
 ): msg is EventMessage & { payload: FxParamsErrorEventPayload } {
   return msg.event === 'trackFxParamsError';
+}
+
+export function isTunerEvent(
+  msg: EventMessage
+): msg is EventMessage & { payload: TunerEventPayload } {
+  return msg.event === 'tuner';
+}
+
+export function isTunerErrorEvent(
+  msg: EventMessage
+): msg is EventMessage & { error: string } {
+  return msg.event === 'tunerError';
 }
