@@ -6,7 +6,7 @@
 
 ## v1.0 — Release Blockers
 
-One item remaining before public release.
+Two items remaining before public release.
 
 ### Responsive Layout Refinement
 
@@ -34,6 +34,24 @@ App works well on iOS phone PWA but needs polish across form factors. First impr
 - Orientation transitions (no layout jump)
 
 **Effort:** M (mostly testing + CSS tweaks)
+
+---
+
+### Accessibility Pass
+
+Review and improve accessibility before public release. REAPER + OSARA users represent an underserved audience.
+
+**Checklist:**
+
+- [ ] VoiceOver testing on iOS (navigate all views, verify announcements)
+- [ ] Audit aria-labels on interactive elements (buttons, sliders, modals)
+- [ ] Focus management in modals and sheets (trap focus, return on close)
+- [ ] Keyboard navigation for desktop browser users
+- [ ] Color contrast verification (WCAG AA minimum)
+- [ ] Reduced motion support (`prefers-reduced-motion` media query)
+- [ ] Screen reader announcements for state changes (play/stop, record, mute/solo)
+
+**Effort:** S-M (audit + targeted fixes)
 
 ---
 
@@ -139,6 +157,82 @@ Current item multi-select works but feels cluttered. Needs design rethink.
 
 Visual preview of take waveforms (mini thumbnails) in take switcher.
 Deferred — requires fetching all takes' peaks.
+
+---
+
+### Context-Aware Take/Item Coloring
+
+Make the color swatch in ItemNavigationInfoBar context-aware for quick take rating.
+
+**Behavior:**
+
+- **Single take (or no takes):** Tapping color swatch colors the item (current behavior)
+- **Multiple takes:** Tapping color swatch colors the active take
+
+**Why this matters:** Quick take rating during recording sessions. Tap to mark a take as keeper (green), maybe (yellow), or discard (red) without leaving the instrument. Colors visible in REAPER's take lanes for later comping.
+
+**Implementation:**
+
+- Backend: `take/setColor` command using `I_CUSTOMCOLOR` with `0x100000` flag
+- Frontend: Detect take count, route color picker to item or active take
+- Visual: Show take color in info bar when take is active
+
+**Effort:** S (backend command + frontend routing logic)
+
+---
+
+### REAPER Version Feature Flags
+
+Include REAPER version in connect/hello event for graceful feature degradation.
+
+**Why this matters:** Some features are version-specific (e.g., swipe comping, fixed track lanes are REAPER 7+ features). Rather than breaking on older versions, the frontend can disable unavailable features.
+
+**Implementation:**
+
+- Backend: Add `reaperVersion: "7.24"` to hello/project event payload
+- Frontend: Feature matrix mapping version → enabled features
+- UI: Hide or grey out unavailable features with "Requires REAPER 7+" tooltip
+
+**Example features needing version gates:**
+
+| Feature | Minimum Version | API |
+|---------|-----------------|-----|
+| Swipe comping | REAPER 7.0+ | TBD |
+| Fixed track lanes | REAPER 7.0+ | TBD |
+
+**Effort:** S (backend trivial, frontend feature matrix)
+
+---
+
+### Subtle Recording Indicator Option
+
+Settings toggle to reduce visual prominence of recording state for musicians with "red light fever."
+
+**Why this matters:** Research shows recording anxiety is a real barrier—the prominent red recording indicator triggers performance anxiety in many musicians. A subtle mode helps them stay in performer mindset.
+
+**Implementation:**
+
+- Settings toggle: "Subtle recording indicator"
+- When enabled: dim red to muted color, smaller indicator, no pulsing animation
+- Transport still shows recording state, just less aggressively
+
+**Effort:** XS (CSS toggle)
+
+---
+
+### Pre-roll Settings in Quick Actions
+
+Surface metronome pre-roll (count-in bars) more prominently for self-recording musicians.
+
+**Why this matters:** Pre-roll is essential for self-recording but currently buried in metronome settings. Musicians need quick access to "give me 2 bars before recording starts."
+
+**Implementation:**
+
+- Add pre-roll bar count to QuickActionsPanel (near metronome/click controls)
+- Simple stepper: 0, 1, 2, 4 bars
+- Visual indicator when pre-roll is active
+
+**Effort:** XS (frontend only, settings already exist)
 
 ---
 

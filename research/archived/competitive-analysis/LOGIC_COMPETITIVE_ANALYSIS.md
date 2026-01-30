@@ -110,13 +110,13 @@ The core insight for REAmo: **Logic Remote succeeds through deep integration ove
 
 ## C. Logic Remote's Top 5 Gaps (Opportunity Areas)
 
-### 1. No Arrangement View or Visual Timeline
+### 1. No Arrangement View or Visual Timeline ✅ ADDRESSED
 
 **The Complaint:** "There's still an awful lot Remote can't do. It doesn't give you any visual representation at all of the arrangement view" —MusicRadar
 
 **User Impact:** Cannot see song structure, region positions, or waveforms. Must constantly look at computer screen during arrangement work. Breaks the "control from anywhere in the room" promise.
 
-**REAmo Opportunity:** A web-based remote could render REAPER's arrangement view using Canvas/SVG. Show regions, items, track lanes, and allow direct manipulation. This would be a **major differentiator**.
+**REAmo Implementation:** Full timeline view with multi-track waveforms (stereo split), regions, markers, item selection, pinch-to-zoom, and momentum scrolling. Tile-based LOD system for smooth performance at any zoom level.
 
 ### 2. No MIDI/Automation Curve Editing
 
@@ -126,29 +126,29 @@ The core insight for REAmo: **Logic Remote succeeds through deep integration ove
 
 **REAmo Opportunity:** Implement touch-based MIDI piano roll and automation lane editor. Touch is actually superior for drawing curves vs. mouse. REAPER's MIDI editing API is accessible.
 
-### 3. Connection Reliability Issues (WiFi-Only Pain)
+### 3. Connection Reliability Issues (WiFi-Only Pain) ✅ ADDRESSED
 
 **The Complaint:** "Connection to desktop/laptop Logic Pro drops a lot and there's no way to troubleshoot." "I need to remote control Logic in a live concert situation where there IS NO WIFI."
 
 **User Impact:** Professionals cannot rely on Logic Remote for critical recording sessions or live performance. Constant reconnection wastes time and breaks flow.
 
-**REAmo Opportunity:** Web-based solution could use multiple fallbacks: WebSocket → WebRTC → local network. Implement visual connection status with auto-reconnect. Consider USB mode via local server.
+**REAmo Implementation:** USB tethering mode for wired connection (no WiFi required), visual connection status indicator, auto-reconnect with exponential backoff, and NTP-style clock sync diagnostics.
 
-### 4. No Mod Wheel or Assignable MIDI CCs
+### 4. No Mod Wheel or Assignable MIDI CCs ✅ ADDRESSED
 
 **The Complaint:** "What would make Logic Remote even better would be a 'mod wheel.'" "Logic Remote is really missing assignable MIDI CC faders."
 
 **User Impact:** Expression-heavy performances (strings, synths) are incomplete. Users must have hardware controller for mod wheel despite having full keyboard on iPad.
 
-**REAmo Opportunity:** Add configurable CC strip adjacent to keyboard. Include mod wheel, expression, breath, and custom CC assignments. Simple implementation, high value.
+**REAmo Implementation:** Piano keyboard includes mod wheel (CC1) and 14-bit pitch bend with spring-back. Rate-limited for smooth control (mod wheel 50Hz, pitch bend 120Hz).
 
-### 5. Update Compatibility Breaking Working Setups
+### 5. Update Compatibility Breaking Working Setups ✅ ADDRESSED
 
 **The Complaint:** "Logic Remote is not backwards compatible with Logic below 10.5. So, my 24-core Mac Pro is now 'old.'" "After OS update the app doesn't work—in the middle of recording sessions."
 
 **User Impact:** Auto-updates break working systems without warning. No way to download previous versions. Users with older but capable hardware left stranded.
 
-**REAmo Opportunity:** Web-based solution updates server-side, with clear version compatibility documentation. Can maintain backward compatibility more easily than native apps.
+**REAmo Implementation:** No App Store means no forced updates. Frontend bundled with extension ensures version sync. PWA version detection prompts (not forces) refresh. REAPER version flag in connect event enables graceful feature degradation—version-specific features (e.g., swipe comping, fixed lanes in REAPER 7+) can be disabled on older versions instead of breaking entirely.
 
 ---
 
@@ -346,23 +346,23 @@ The core insight for REAmo: **Logic Remote succeeds through deep integration ove
 
 ### Must-Have (P0)
 
-1. **Reliable WebSocket connection** with auto-reconnect and visual status indicator
-2. **Transport controls** with large touch targets (minimum 44×44px)
-3. **Mixer faders** with multi-touch support and double-tap reset
-4. **Responsive design** for tablets and phones
+1. ~~**Reliable WebSocket connection**~~ ✅ Auto-reconnect with visual status indicator
+2. ~~**Transport controls**~~ ✅ Large touch targets with full recording workflow
+3. ~~**Mixer faders**~~ ✅ Multi-touch support, double-tap reset, meters, pan
+4. ~~**Responsive design**~~ ✅ iPhone/iPad PWA support
 
 ### High-Priority (P1)
 
-5. **Chord strips** with customizable chords per project—major differentiator for songwriting
-2. **Timeline/arrangement view** rendering REAPER items—fills Logic Remote's biggest gap
-3. **Marker navigation** via long-press menu on position display
-4. **Scale-locked keyboard** with note bars for fail-safe melody input
+5. ~~**Chord strips**~~ ✅ Full implementation with inversions, bass notes, strum, voice leading
+2. ~~**Timeline/arrangement view**~~ ✅ Waveforms, regions, markers, item selection
+3. ~~**Marker navigation**~~ ✅ Long-press on position display
+4. ~~**Scale-locked keyboard**~~ ✅ Piano keyboard with scale modes
 
 ### Medium-Priority (P2)
 
-9. **Mod wheel / CC strips** assignable to any REAPER parameter
+9. ~~**Mod wheel / CC strips**~~ ✅ Piano keyboard includes mod wheel + pitch bend
 2. **Automation curve editing** via touch—superior to mouse for drawing
-3. **Sends on faders** mode with visual state indicator
+3. ~~**Sends on faders**~~ ✅ Addressed via routing modal/bottom sheet (sends, receives, HW outputs)
 4. **MIDI note editing** in piano roll view
 
 ### Lower-Priority (P3)
