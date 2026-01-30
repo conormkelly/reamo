@@ -12,7 +12,7 @@ import {
   AlignCenter,
   AlignRight,
 } from 'lucide-react';
-import { getIconComponent } from '../../../components/Toolbar/DynamicIcon';
+import { DynamicIcon } from '../../../components/Toolbar/DynamicIcon';
 import { ActionsGrid } from './ActionsGrid';
 import { useListReorder } from '../../../hooks';
 import type {
@@ -86,9 +86,6 @@ export function ActionsSection({
     onDragSectionEnd?.();
   }, [onDragSectionEnd]);
 
-  // Get icon component if specified
-  const IconComponent = section.icon ? getIconComponent(section.icon) : null;
-
   return (
     <div
       className={`bg-bg-deep rounded-lg overflow-hidden transition-all ${
@@ -124,8 +121,9 @@ export function ActionsSection({
               section.collapsed ? '-rotate-90' : ''
             }`}
           />
-          {IconComponent && (
-            <IconComponent
+          {section.icon && (
+            <DynamicIcon
+              name={section.icon}
               size={18}
               className="flex-shrink-0"
               style={{ color: section.color || 'var(--color-text-secondary)' }}

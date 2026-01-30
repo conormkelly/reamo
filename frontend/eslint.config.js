@@ -39,6 +39,19 @@ export default tseslint.config(
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
 
       // =========================================================================
+      // REACT COMPILER RULES - DISABLED
+      // These rules are designed for projects using React Compiler (babel-plugin-react-compiler).
+      // This project does not use React Compiler, so these rules produce false positives
+      // for valid patterns like "reset state when modal opens", "ref caching", or
+      // "self-referential callbacks for animation loops".
+      // Re-enable when/if React Compiler is adopted.
+      // =========================================================================
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/refs': 'off',
+      'react-hooks/immutability': 'off',
+      'react-hooks/static-components': 'off',
+
+      // =========================================================================
       // REAMO CUSTOM RULES
       // @see FRONTEND_DEVELOPMENT.md §4 Memory Safety
       // =========================================================================

@@ -67,16 +67,6 @@ export function useAvailableContentHeight(
   // Track previous panel state to detect changes
   const prevPanelExpandedRef = useRef(panelExpanded);
 
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (transitionTimerRef.current) {
-        clearTimeout(transitionTimerRef.current);
-        transitionTimerRef.current = null;
-      }
-    };
-  }, []);
-
   // Handle panel expand/collapse transitions
   useEffect(() => {
     // Skip if panel state hasn't changed
@@ -104,6 +94,14 @@ export function useAvailableContentHeight(
       transitionTimerRef.current = null;
       setIsTransitioning(false);
     }, PANEL_TRANSITION_MS);
+
+    // Cleanup on unmount or dependency change
+    return () => {
+      if (transitionTimerRef.current) {
+        clearTimeout(transitionTimerRef.current);
+        transitionTimerRef.current = null;
+      }
+    };
   }, [panelExpanded, prefersReducedMotion]);
 
   // ResizeObserver for container height measurement

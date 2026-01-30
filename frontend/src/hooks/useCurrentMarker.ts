@@ -65,46 +65,45 @@ export function useCurrentMarker(): UseCurrentMarkerReturn {
   const lastPositionRef = useRef<number>(positionSeconds);
   const isPlayingRef = useRef<boolean>(playState === 1 || playState === 5 || playState === 6);
 
-  /**
-   * Find a marker that's at the current position (within epsilon).
-   * Used for Prev/Next button navigation where playhead lands exactly on a marker.
-   */
-  const getMarkerAtPosition = (position: number): Marker | null => {
-    if (markers.length === 0) return null;
-
-    for (const marker of markers) {
-      if (Math.abs(marker.position - position) <= POSITION_EPSILON) {
-        return marker;
-      }
-    }
-    return null;
-  };
-
-  /**
-   * Find the marker that the playhead has most recently passed.
-   * Used for determining which marker to show during continuous playback.
-   */
-  const getActiveMarker = (): Marker | null => {
-    if (markers.length === 0) return null;
-
-    // Sort markers by position
-    const sortedMarkers = [...markers].sort((a, b) => a.position - b.position);
-
-    // Find the last marker before or at current position
-    let activeMarker: Marker | null = null;
-    for (const marker of sortedMarkers) {
-      if (marker.position <= positionSeconds + POSITION_EPSILON) {
-        activeMarker = marker;
-      } else {
-        break;
-      }
-    }
-
-    return activeMarker;
-  };
-
   // Update on playback position change (auto-advance)
   useEffect(() => {
+    /**
+     * Find a marker that's at the current position (within epsilon).
+     * Used for Prev/Next button navigation where playhead lands exactly on a marker.
+     */
+    const getMarkerAtPosition = (position: number): Marker | null => {
+      if (markers.length === 0) return null;
+
+      for (const marker of markers) {
+        if (Math.abs(marker.position - position) <= POSITION_EPSILON) {
+          return marker;
+        }
+      }
+      return null;
+    };
+
+    /**
+     * Find the marker that the playhead has most recently passed.
+     * Used for determining which marker to show during continuous playback.
+     */
+    const getActiveMarker = (): Marker | null => {
+      if (markers.length === 0) return null;
+
+      // Sort markers by position
+      const sortedMarkers = [...markers].sort((a, b) => a.position - b.position);
+
+      // Find the last marker before or at current position
+      let activeMarker: Marker | null = null;
+      for (const marker of sortedMarkers) {
+        if (marker.position <= positionSeconds + POSITION_EPSILON) {
+          activeMarker = marker;
+        } else {
+          break;
+        }
+      }
+
+      return activeMarker;
+    };
     const isPlaying = playState === 1 || playState === 5 || playState === 6;
     const wasPlaying = isPlayingRef.current;
     isPlayingRef.current = isPlaying;

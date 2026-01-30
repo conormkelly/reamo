@@ -65,6 +65,8 @@ export function SettingsMenu({
 
   // Close menu when clicking outside
   useEffect(() => {
+    if (!isOpen) return;
+
     function handleClickOutside(event: MouseEvent) {
       const target = event.target as Node;
       const clickedTrigger = triggerRef.current?.contains(target);
@@ -74,10 +76,8 @@ export function SettingsMenu({
       }
     }
 
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen]);
 
   return (
