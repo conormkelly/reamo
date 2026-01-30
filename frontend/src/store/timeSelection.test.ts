@@ -271,7 +271,7 @@ describe('Store timeSelection handling', () => {
 
       // REAPER sends high-precision floats
       const message = createTransportEvent({
-        timeSelection: { start: 13.333333333333314, end: 26.666666666666628 },
+        timeSelection: { start: 13.333333333333, end: 26.666666666666 },
         bpm: 120,
       });
 

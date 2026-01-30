@@ -41,17 +41,7 @@ export function ClockElementWrapper({
   onDragEnd,
   children,
 }: ClockElementWrapperProps): ReactElement | null {
-  // Always render wrapper but hide content if not visible (in non-edit mode)
-  // In edit mode, show everything so user can toggle visibility back on
-  if (!editMode && !visible) {
-    return null;
-  }
-
-  const canDecrease = scale > 0.5;
-  const canIncrease = scale < 2.0;
-  const step = 0.1;
-
-  // Touch drag support for iOS
+  // Touch drag support for iOS - hooks MUST be called before any early returns
   const isDraggingRef = useRef(false);
 
   const handleTouchStart = useCallback(
@@ -97,6 +87,16 @@ export function ClockElementWrapper({
     isDraggingRef.current = false;
     onDragEnd();
   }, [onDragEnd]);
+
+  // Early return AFTER all hooks are called
+  // In edit mode, show everything so user can toggle visibility back on
+  if (!editMode && !visible) {
+    return null;
+  }
+
+  const canDecrease = scale > 0.5;
+  const canIncrease = scale < 2.0;
+  const step = 0.1;
 
   return (
     <div
