@@ -38,6 +38,7 @@ pub const SkeletonTrack = struct {
     hw_output_count: u16 = 0,
     clipped: bool = false, // Sticky clip flag (L or R channel exceeded 0dB)
     item_count: u16 = 0, // Number of media items on track
+    input_type: u8 = 0, // 0=none, 1=audio, 2=midi (from I_RECINPUT)
 
     pub fn getName(self: *const SkeletonTrack) []const u8 {
         return self.name[0..self.name_len];
@@ -62,6 +63,7 @@ pub const SkeletonTrack = struct {
         if (self.hw_output_count != other.hw_output_count) return false;
         if (self.clipped != other.clipped) return false;
         if (self.item_count != other.item_count) return false;
+        if (self.input_type != other.input_type) return false;
         return true;
     }
 };
@@ -148,6 +150,21 @@ pub const State = struct {
                 // Item count (master track can have items too)
                 const item_c = api.trackItemCount(track);
                 t.item_count = if (item_c >= 0) @intCast(item_c) else 0;
+
+                // Input type: 0=none, 1=audio, 2=midi (from I_RECINPUT)
+                // Master track (idx 0) has no record input
+                if (idx == 0) {
+                    t.input_type = 0; // Master track has no input
+                } else {
+                    const rec_input = api.getTrackRecInput(track);
+                    if (rec_input < 0) {
+                        t.input_type = 0; // No input
+                    } else if ((rec_input & 0x1000) != 0) {
+                        t.input_type = 2; // MIDI (bit 12 set)
+                    } else {
+                        t.input_type = 1; // Audio
+                    }
+                }
             }
             // If track disappeared, we keep default empty entry (will be filtered by len=0)
         }
@@ -211,6 +228,9 @@ pub const State = struct {
 
             // ic=item_count (int)
             writer.print(",\"ic\":{d}", .{t.item_count}) catch return null;
+
+            // it=input_type (int: 0=none, 1=audio, 2=midi)
+            writer.print(",\"it\":{d}", .{t.input_type}) catch return null;
 
             writer.writeByte('}') catch return null;
         }

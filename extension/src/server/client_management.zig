@@ -36,6 +36,7 @@ const peaks_subscriptions = @import("../subscriptions/peaks_subscriptions.zig");
 const routing_subscriptions = @import("../subscriptions/routing_subscriptions.zig");
 const trackfx_subscriptions = @import("../subscriptions/trackfx_subscriptions.zig");
 const trackfxparam_subscriptions = @import("../subscriptions/trackfxparam_subscriptions.zig");
+const tuner_subscriptions = @import("../subscriptions/tuner_subscriptions.zig");
 
 // ============================================================================
 // Static Buffers (to avoid stack overflow in deep call stacks)
@@ -91,6 +92,8 @@ pub const ClientContext = struct {
     trackfx_subs: ?*trackfx_subscriptions.TrackFxSubscriptions,
     /// TrackFxParam subscriptions (optional)
     trackfxparam_subs: ?*trackfxparam_subscriptions.TrackFxParamSubscriptions,
+    /// Tuner subscriptions (optional)
+    tuner_subs: ?*tuner_subscriptions.TunerSubscriptions,
 };
 
 /// Context for sending snapshots to newly connected clients.
@@ -149,6 +152,11 @@ pub fn cleanupDisconnectedClients(ctx: *const ClientContext) void {
         if (ctx.routing_subs) |subs| subs.removeClient(client_id);
         if (ctx.trackfx_subs) |subs| subs.removeClient(client_id);
         if (ctx.trackfxparam_subs) |subs| subs.removeClient(client_id);
+        // Tuner subscriptions need API backend for JSFX cleanup
+        if (ctx.tuner_subs) |subs| {
+            var backend = reaper.RealBackend{ .inner = ctx.api };
+            subs.removeClient(client_id, &backend);
+        }
     }
 }
 

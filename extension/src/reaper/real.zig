@@ -528,6 +528,10 @@ pub const RealBackend = struct {
         return self.inner.trackFxCount(track);
     }
 
+    pub fn trackFxRecCount(self: *const RealBackend, track: *anyopaque) c_int {
+        return self.inner.trackFxRecCount(track);
+    }
+
     pub fn trackFxGetName(self: *const RealBackend, track: *anyopaque, fx_idx: c_int, buf: []u8) []const u8 {
         return self.inner.trackFxGetName(track, fx_idx, buf);
     }
@@ -613,6 +617,11 @@ pub const RealBackend = struct {
     /// Get normalized parameter value (0.0 to 1.0). Returns 0.0 on failure or invalid index.
     pub fn trackFxGetParamNormalized(self: *const RealBackend, track: *anyopaque, fx_idx: c_int, param_idx: c_int) f64 {
         return self.inner.trackFxGetParamNormalized(track, fx_idx, param_idx);
+    }
+
+    /// Get actual parameter value (not normalized). Returns 0.0 on failure.
+    pub fn trackFxGetParam(self: *const RealBackend, track: *anyopaque, fx_idx: c_int, param_idx: c_int) f64 {
+        return self.inner.trackFxGetParam(track, fx_idx, param_idx);
     }
 
     /// Set normalized parameter value. Returns false on failure.

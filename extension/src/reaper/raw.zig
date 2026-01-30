@@ -192,6 +192,7 @@ pub const Api = struct {
 
     // Track FX
     trackFX_GetCount: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
+    trackFX_GetRecCount: ?*const fn (?*anyopaque) callconv(.c) c_int = null, // Input FX count
     trackFX_GetFXName: ?*const fn (?*anyopaque, c_int, [*]u8, c_int) callconv(.c) bool = null,
     trackFX_GetPresetIndex: ?*const fn (?*anyopaque, c_int, *c_int) callconv(.c) c_int = null,
     trackFX_GetPreset: ?*const fn (?*anyopaque, c_int, [*]u8, c_int) callconv(.c) bool = null,
@@ -208,6 +209,7 @@ pub const Api = struct {
     trackFX_GetNumParams: ?*const fn (?*anyopaque, c_int) callconv(.c) c_int = null,
     trackFX_GetParamName: ?*const fn (?*anyopaque, c_int, c_int, [*]u8, c_int) callconv(.c) bool = null,
     trackFX_GetParamNormalized: ?*const fn (?*anyopaque, c_int, c_int) callconv(.c) f64 = null,
+    trackFX_GetParam: ?*const fn (?*anyopaque, c_int, c_int, ?*f64, ?*f64) callconv(.c) f64 = null, // Returns actual value, fills min/max
     trackFX_SetParamNormalized: ?*const fn (?*anyopaque, c_int, c_int, f64) callconv(.c) bool = null,
     trackFX_GetFormattedParamValue: ?*const fn (?*anyopaque, c_int, c_int, [*]u8, c_int) callconv(.c) bool = null,
     // FX plugin enumeration (global)
@@ -379,6 +381,7 @@ pub const Api = struct {
             .timeMapCurFrameRate = getFunc(info, "TimeMap_curFrameRate", fn (?*anyopaque, *bool) callconv(.c) f64),
             // Track FX
             .trackFX_GetCount = getFunc(info, "TrackFX_GetCount", fn (?*anyopaque) callconv(.c) c_int),
+            .trackFX_GetRecCount = getFunc(info, "TrackFX_GetRecCount", fn (?*anyopaque) callconv(.c) c_int),
             .trackFX_GetFXName = getFunc(info, "TrackFX_GetFXName", fn (?*anyopaque, c_int, [*]u8, c_int) callconv(.c) bool),
             .trackFX_GetPresetIndex = getFunc(info, "TrackFX_GetPresetIndex", fn (?*anyopaque, c_int, *c_int) callconv(.c) c_int),
             .trackFX_GetPreset = getFunc(info, "TrackFX_GetPreset", fn (?*anyopaque, c_int, [*]u8, c_int) callconv(.c) bool),
@@ -395,6 +398,7 @@ pub const Api = struct {
             .trackFX_GetNumParams = getFunc(info, "TrackFX_GetNumParams", fn (?*anyopaque, c_int) callconv(.c) c_int),
             .trackFX_GetParamName = getFunc(info, "TrackFX_GetParamName", fn (?*anyopaque, c_int, c_int, [*]u8, c_int) callconv(.c) bool),
             .trackFX_GetParamNormalized = getFunc(info, "TrackFX_GetParamNormalized", fn (?*anyopaque, c_int, c_int) callconv(.c) f64),
+            .trackFX_GetParam = getFunc(info, "TrackFX_GetParam", fn (?*anyopaque, c_int, c_int, ?*f64, ?*f64) callconv(.c) f64),
             .trackFX_SetParamNormalized = getFunc(info, "TrackFX_SetParamNormalized", fn (?*anyopaque, c_int, c_int, f64) callconv(.c) bool),
             .trackFX_GetFormattedParamValue = getFunc(info, "TrackFX_GetFormattedParamValue", fn (?*anyopaque, c_int, c_int, [*]u8, c_int) callconv(.c) bool),
             // FX plugin enumeration (global)
@@ -1350,6 +1354,12 @@ pub const Api = struct {
         return f(track);
     }
 
+    /// Get number of Input FX (recording FX) on a track
+    pub fn trackFxRecCount(self: *const Api, track: *anyopaque) c_int {
+        const f = self.trackFX_GetRecCount orelse return 0;
+        return f(track);
+    }
+
     /// Get FX name into buffer, returns slice of populated bytes
     pub fn trackFxGetName(self: *const Api, track: *anyopaque, fx_idx: c_int, buf: []u8) []const u8 {
         const f = self.trackFX_GetFXName orelse return "";
@@ -1470,6 +1480,12 @@ pub const Api = struct {
     pub fn trackFxGetParamNormalized(self: *const Api, track: *anyopaque, fx_idx: c_int, param_idx: c_int) f64 {
         const f = self.trackFX_GetParamNormalized orelse return 0.0;
         return f(track, fx_idx, param_idx);
+    }
+
+    /// Get actual parameter value (not normalized). Returns 0.0 on failure.
+    pub fn trackFxGetParam(self: *const Api, track: *anyopaque, fx_idx: c_int, param_idx: c_int) f64 {
+        const f = self.trackFX_GetParam orelse return 0.0;
+        return f(track, fx_idx, param_idx, null, null);
     }
 
     /// Set normalized parameter value. Returns false on failure.

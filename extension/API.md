@@ -2463,6 +2463,120 @@ Sent when the subscribed FX can no longer be found (deleted, track removed, etc.
 
 ---
 
+## Tuner Commands
+
+Chromatic tuner via JSFX pitch detection. Inserts a PitchDetect JSFX into a track's Input FX chain and polls slider values at 30Hz.
+
+### `tuner/subscribe`
+
+Subscribe to tuner on a track. Inserts JSFX if first subscriber to this track.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` | string | Yes | Track GUID |
+
+```json
+{"type": "command", "command": "tuner/subscribe", "trackGuid": "{AAA}", "id": "1"}
+```
+
+**Response:**
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": {
+    "trackGuid": "{AAA}",
+    "fxGuid": "{BBB}",
+    "trackName": "Guitar",
+    "reference": 440.0,
+    "threshold": -60.0
+  }
+}
+```
+
+**Notes:**
+- Each client can subscribe to one track's tuner at a time; subscribing auto-unsubscribes from previous
+- Multiple clients can share a single track's JSFX (ref-counted)
+- JSFX is inserted at position 0 in Input FX chain
+- After subscribing, receive `tuner` events at 30Hz (see below)
+
+### `tuner/unsubscribe`
+
+Unsubscribe from tuner. Removes JSFX if this was the last subscriber.
+
+```json
+{"type": "command", "command": "tuner/unsubscribe", "id": "1"}
+```
+
+### `tuner/setParam`
+
+Set tuner parameter (reference frequency or silence threshold).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` | string | Yes | Track GUID |
+| `param` | string | Yes | "reference" or "threshold" |
+| `value` | float | Yes | Parameter value |
+
+**Parameters:**
+- `reference`: A4 reference frequency in Hz (typically 400-480, default 440.0)
+- `threshold`: Silence threshold in dB (typically -96 to 0, default -60.0)
+
+```json
+{"type": "command", "command": "tuner/setParam", "trackGuid": "{AAA}", "param": "reference", "value": 442.0, "id": "1"}
+```
+
+### `tuner` Event
+
+Sent to subscribed clients at 30Hz with pitch detection data.
+
+```json
+{
+  "type": "event",
+  "event": "tuner",
+  "payload": {
+    "trackGuid": "{AAA}",
+    "freq": 440.0,
+    "note": 69,
+    "noteName": "A",
+    "octave": 4,
+    "cents": -2.5,
+    "conf": 0.95,
+    "inTune": false
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `trackGuid` | string | Track GUID |
+| `freq` | float | Detected frequency in Hz |
+| `note` | int | MIDI note number (69 = A4) |
+| `noteName` | string | Note name ("C", "C#", "D", etc.) |
+| `octave` | int | Octave number (4 for A4) |
+| `cents` | float | Deviation from note in cents (-50 to +50) |
+| `conf` | float | Detection confidence (0-1) |
+| `inTune` | bool | True if |cents| < 2 |
+
+**Notes:**
+- Events are only sent when data changes (hash-based change detection)
+- Low confidence values indicate weak or no signal
+
+### `tunerError` Event
+
+Sent when the tuner can no longer function (track deleted, JSFX removed, etc.). Client is auto-unsubscribed.
+
+```json
+{
+  "type": "event",
+  "event": "tunerError",
+  "error": "TUNER_NOT_FOUND"
+}
+```
+
+---
+
 ## Send Commands
 
 Control track send levels and mute states. Send state is included in the `tracks` event — see [tracks event](#tracks-event) for the `sends[]` array format.
