@@ -217,7 +217,7 @@ export function BankEditorModal({
     } finally {
       setSaving(false);
     }
-  }, [name, bankType, pattern, smartMatchedTracks, selectedGuids, currentTrackGuids, editBank, onSave, onClose]);
+  }, [name, bankType, pattern, selectedGuids, currentTrackGuids, editBank, onSave, onClose]);
 
   // Handle delete
   const handleDelete = useCallback(async () => {

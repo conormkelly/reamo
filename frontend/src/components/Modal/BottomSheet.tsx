@@ -65,7 +65,6 @@ export function BottomSheet({
     cancelTimers();
 
     if (isOpen) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional: must render DOM before animating
       setShouldRender(true);
       // Small delay to ensure DOM is ready before animating
       // Use nested RAF to wait for both layout and paint
