@@ -4,12 +4,12 @@
  * Renders via portal to document.body to escape stacking contexts.
  */
 
-import { useState, useEffect, useCallback, type ReactElement } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Trash2 } from 'lucide-react';
 import { LazyIconPicker } from '../../../components/Toolbar/LazyIconPicker';
 import { ColorPickerInput } from '../../../components/Toolbar/ColorPickerInput';
-import { getIconComponent } from '../../../components/Toolbar/DynamicIcon';
+import { DynamicIcon } from '../../../components/Toolbar/DynamicIcon';
 import type { ActionsSection, SizeOption } from '../../../store/slices/actionsViewSlice';
 
 // Default color (gray) - matches --color-bg-elevated token
@@ -43,12 +43,31 @@ export function SectionEditor({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const isNew = section === null;
 
+  // Timer ref for delete confirmation timeout (two-phase cleanup pattern)
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Reset confirm state after timeout
   useEffect(() => {
-    if (confirmingDelete) {
-      const timer = setTimeout(() => setConfirmingDelete(false), 3000);
-      return () => clearTimeout(timer);
+    // Clear any existing timer first
+    if (confirmTimerRef.current) {
+      clearTimeout(confirmTimerRef.current);
+      confirmTimerRef.current = null;
     }
+
+    if (confirmingDelete) {
+      confirmTimerRef.current = setTimeout(() => {
+        confirmTimerRef.current = null; // Self-clear on completion
+        setConfirmingDelete(false);
+      }, 3000);
+    }
+
+    // Cleanup on unmount or dependency change
+    return () => {
+      if (confirmTimerRef.current) {
+        clearTimeout(confirmTimerRef.current);
+        confirmTimerRef.current = null;
+      }
+    };
   }, [confirmingDelete]);
 
   // Close on Escape
@@ -97,8 +116,6 @@ export function SectionEditor({
     },
     [handleSave, showIconPicker]
   );
-
-  const IconComponent = icon ? getIconComponent(icon) : null;
 
   // Portal to body to escape stacking contexts
   return createPortal(
@@ -152,9 +169,9 @@ export function SectionEditor({
                 onClick={() => setShowIconPicker(true)}
                 className="w-full px-3 py-2 bg-bg-deep border border-border-default rounded-lg text-left flex items-center gap-2 hover:border-bg-hover transition-colors"
               >
-                {IconComponent ? (
+                {icon ? (
                   <>
-                    <IconComponent size={20} className="text-text-primary" />
+                    <DynamicIcon name={icon} size={20} className="text-text-primary" />
                     <span className="text-text-tertiary truncate">{icon}</span>
                   </>
                 ) : (
@@ -249,8 +266,9 @@ export function SectionEditor({
                   borderLeft: color ? `4px solid ${color}` : undefined,
                 }}
               >
-                {IconComponent && (
-                  <IconComponent
+                {icon && (
+                  <DynamicIcon
+                    name={icon}
                     size={18}
                     style={{ color: color || 'var(--color-text-secondary)' }}
                   />

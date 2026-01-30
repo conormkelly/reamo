@@ -32,7 +32,7 @@ const ALL_SECTIONS = -1;
  */
 function matchesWordSearch(target: string, queryWords: string[]): boolean {
   // Normalize target: lowercase, replace common separators with spaces
-  const normalizedTarget = target.toLowerCase().replace(/[/:_\-\.]/g, ' ');
+  const normalizedTarget = target.toLowerCase().replace(/[/:_\-.]/g, ' ');
 
   // Every query word must appear in the target
   return queryWords.every((word) => normalizedTarget.includes(word));
@@ -77,6 +77,7 @@ interface ActionSearchProps {
  * Get the stable action ID to store.
  * Uses namedId for SWS/scripts (stable), commandId as string for native actions.
  */
+// eslint-disable-next-line react-refresh/only-export-components -- Utility function co-located with component
 export function getStableActionId(action: ReaperAction): string {
   return action.namedId ?? String(action.commandId);
 }
@@ -156,6 +157,7 @@ export function ActionSearch({
   // Virtualizer setup
   const parentRef = useRef<HTMLDivElement>(null);
 
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual known limitation
   const virtualizer = useVirtualizer({
     count: filtered.length,
     getScrollElement: () => parentRef.current,

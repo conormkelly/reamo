@@ -297,5 +297,14 @@ export default tseslint.config(
     rules: {
       'no-restricted-syntax': 'off',
     },
+  },
+
+  // Transport sync library - plain TypeScript classes, not React components
+  // ?? {} in non-React code doesn't trigger re-renders
+  {
+    files: ['src/lib/transport-sync/*.ts'],
+    rules: {
+      'no-restricted-syntax': 'off',
+    },
   }
 );

@@ -13,7 +13,7 @@
  * </BottomSheet>
  */
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 export interface BottomSheetProps {
@@ -43,25 +43,49 @@ export function BottomSheet({
   const [isAnimating, setIsAnimating] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
 
+  // Timer refs for two-phase cleanup (see FRONTEND_DEVELOPMENT.md §4)
+  const rafRef = useRef<number | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cancel helper - prevents double-clear bugs
+  const cancelTimers = useCallback(() => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    if (closeTimerRef.current !== null) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  }, []);
+
   // Handle open/close with animation
   useEffect(() => {
+    // Cancel any pending timers before starting new ones
+    cancelTimers();
+
     if (isOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional: must render DOM before animating
       setShouldRender(true);
       // Small delay to ensure DOM is ready before animating
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
+      // Use nested RAF to wait for both layout and paint
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null; // Self-clear on completion
           setIsAnimating(true);
         });
       });
     } else {
       setIsAnimating(false);
       // Wait for exit animation before unmounting
-      const timer = setTimeout(() => {
+      closeTimerRef.current = setTimeout(() => {
+        closeTimerRef.current = null; // Self-clear on completion
         setShouldRender(false);
       }, 200); // Match transition duration
-      return () => clearTimeout(timer);
     }
-  }, [isOpen]);
+
+    return cancelTimers;
+  }, [isOpen, cancelTimers]);
 
   // Escape key handler
   useEffect(() => {
