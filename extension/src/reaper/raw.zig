@@ -96,6 +96,9 @@ pub const Api = struct {
     insertTrackAtIndex: ?*const fn (c_int, bool) callconv(.c) void = null,
     deleteTrack: ?*const fn (?*anyopaque) callconv(.c) void = null,
     setTrackColor: ?*const fn (?*anyopaque, c_int) callconv(.c) void = null,
+    // Track state chunks (for LANEREC access)
+    getTrackStateChunk: ?*const fn (?*anyopaque, [*]u8, c_int, bool) callconv(.c) bool = null,
+    setTrackStateChunk: ?*const fn (?*anyopaque, [*]const u8, bool) callconv(.c) bool = null,
 
     // Items
     countTrackMediaItems: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
@@ -303,6 +306,9 @@ pub const Api = struct {
             .insertTrackAtIndex = getFunc(info, "InsertTrackAtIndex", fn (c_int, bool) callconv(.c) void),
             .deleteTrack = getFunc(info, "DeleteTrack", fn (?*anyopaque) callconv(.c) void),
             .setTrackColor = getFunc(info, "SetTrackColor", fn (?*anyopaque, c_int) callconv(.c) void),
+            // Track state chunks
+            .getTrackStateChunk = getFunc(info, "GetTrackStateChunk", fn (?*anyopaque, [*]u8, c_int, bool) callconv(.c) bool),
+            .setTrackStateChunk = getFunc(info, "SetTrackStateChunk", fn (?*anyopaque, [*]const u8, bool) callconv(.c) bool),
             // Items
             .countTrackMediaItems = getFunc(info, "CountTrackMediaItems", fn (?*anyopaque) callconv(.c) c_int),
             .getTrackMediaItem = getFunc(info, "GetTrackMediaItem", fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque),
@@ -1344,6 +1350,121 @@ pub const Api = struct {
     pub fn resetTrackColor(self: *const Api, track: *anyopaque) bool {
         const f = self.setMediaTrackInfo_Value orelse return false;
         return f(track, "I_CUSTOMCOLOR", 0);
+    }
+
+    // Fixed Lanes methods (for swipe comping)
+
+    /// Get number of fixed lanes on track (I_NUMFIXEDLANES)
+    pub fn getNumFixedLanes(self: *const Api, track: *anyopaque) c_int {
+        const f = self.getMediaTrackInfo_Value orelse return 0;
+        return @intFromFloat(f(track, "I_NUMFIXEDLANES"));
+    }
+
+    /// Get track free mode (I_FREEMODE): 0=normal, 1=free positioning, 2=fixed lanes
+    pub fn getTrackFreeMode(self: *const Api, track: *anyopaque) c_int {
+        const f = self.getMediaTrackInfo_Value orelse return 0;
+        return @intFromFloat(f(track, "I_FREEMODE"));
+    }
+
+    /// Set track free mode (I_FREEMODE): 0=normal, 1=free positioning, 2=fixed lanes
+    pub fn setTrackFreeMode(self: *const Api, track: *anyopaque, mode: c_int) bool {
+        const f = self.setMediaTrackInfo_Value orelse return false;
+        return f(track, "I_FREEMODE", @floatFromInt(mode));
+    }
+
+    /// Get lane play state at track level (C_LANEPLAYS:N): 0=off, 1=exclusive, 2=layered
+    /// lane_idx: 0-based lane index
+    pub fn getTrackLanePlays(self: *const Api, track: *anyopaque, lane_idx: c_int) c_int {
+        const f = self.getMediaTrackInfo_Value orelse return 0;
+        var param_buf: [32]u8 = undefined;
+        const param = std.fmt.bufPrint(&param_buf, "C_LANEPLAYS:{d}", .{lane_idx}) catch return 0;
+        param_buf[param.len] = 0;
+        return @intFromFloat(f(track, param_buf[0..param.len :0]));
+    }
+
+    /// Set lane play state at track level (C_LANEPLAYS:N): 0=off, 1=exclusive, 2=layered
+    pub fn setTrackLanePlays(self: *const Api, track: *anyopaque, lane_idx: c_int, plays: c_int) bool {
+        const f = self.setMediaTrackInfo_Value orelse return false;
+        var param_buf: [32]u8 = undefined;
+        const param = std.fmt.bufPrint(&param_buf, "C_LANEPLAYS:{d}", .{lane_idx}) catch return false;
+        param_buf[param.len] = 0;
+        return f(track, param_buf[0..param.len :0], @floatFromInt(plays));
+    }
+
+    /// Get C_ALLLANESPLAY: 0=none, 1=all, 2=some
+    pub fn getAllLanesPlay(self: *const Api, track: *anyopaque) c_int {
+        const f = self.getMediaTrackInfo_Value orelse return 0;
+        return @intFromFloat(f(track, "C_ALLLANESPLAY"));
+    }
+
+    /// Set razor edits string (P_RAZOREDITS_EXT) - for targeting specific lanes
+    /// Format: "startTime endTime envelopeGUID topY bottomY" (comma separated for multiple)
+    pub fn setRazorEditsExt(self: *const Api, track: *anyopaque, razor_str: []const u8) bool {
+        const f = self.getSetMediaTrackInfo_String orelse return false;
+        var buf: [1024]u8 = undefined;
+        const len = @min(razor_str.len, buf.len - 1);
+        @memcpy(buf[0..len], razor_str[0..len]);
+        buf[len] = 0;
+        return f(track, "P_RAZOREDITS_EXT", &buf, true);
+    }
+
+    /// Clear razor edits on track
+    pub fn clearRazorEdits(self: *const Api, track: *anyopaque) bool {
+        const f = self.getSetMediaTrackInfo_String orelse return false;
+        var buf: [1]u8 = .{0};
+        return f(track, "P_RAZOREDITS_EXT", &buf, true);
+    }
+
+    /// Get track state chunk into buffer. Returns slice of chunk or empty on failure.
+    /// isundo: false for normal operations
+    pub fn getTrackStateChunkStr(self: *const Api, track: *anyopaque, buf: []u8, isundo: bool) []const u8 {
+        const f = self.getTrackStateChunk orelse return "";
+        if (buf.len == 0) return "";
+        const success = f(track, buf.ptr, @intCast(buf.len), isundo);
+        if (!success) return "";
+        const len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
+        return buf[0..len];
+    }
+
+    /// Set track state chunk. Caller provides null-terminated slice.
+    /// This is zero-copy - the chunk.ptr is passed directly to REAPER.
+    /// isundo: false for normal operations
+    pub fn setTrackStateChunkStr(self: *const Api, track: *anyopaque, chunk: [:0]const u8, isundo: bool) bool {
+        const f = self.setTrackStateChunk orelse return false;
+        return f(track, chunk.ptr, isundo);
+    }
+
+    /// Get item's fixed lane index (I_FIXEDLANE)
+    pub fn getItemFixedLane(self: *const Api, item: *anyopaque) c_int {
+        const f = self.getMediaItemInfo_Value orelse return 0;
+        return @intFromFloat(f(item, "I_FIXEDLANE"));
+    }
+
+    /// Get item's lane play state (C_LANEPLAYS): 0=off, 1=exclusive, 2=layered, -1=hidden
+    pub fn getItemLanePlays(self: *const Api, item: *anyopaque) c_int {
+        const f = self.getMediaItemInfo_Value orelse return 0;
+        return @intFromFloat(f(item, "C_LANEPLAYS"));
+    }
+
+    /// Get lane name (P_LANENAME:N) - returns slice of name or empty string
+    pub fn getLaneName(self: *const Api, track: *anyopaque, lane_idx: c_int, buf: []u8) []const u8 {
+        const f = self.getSetMediaTrackInfo_String orelse return "";
+        if (buf.len == 0) return "";
+
+        // Build parameter name "P_LANENAME:N" with null terminator
+        var param_buf: [32]u8 = undefined;
+        const param = std.fmt.bufPrint(&param_buf, "P_LANENAME:{d}", .{lane_idx}) catch return "";
+        param_buf[param.len] = 0; // null terminate
+
+        // GetSetMediaTrackInfo_String with setnewvalue=false reads into the buffer
+        // Use sentinel-terminated slice to get correct pointer type for C ABI
+        const param_ptr: [*:0]const u8 = param_buf[0..param.len :0];
+        const success = f(track, param_ptr, buf.ptr, false);
+        if (!success) return "";
+
+        // Find null terminator
+        const len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
+        return buf[0..len];
     }
 
     // Track FX methods

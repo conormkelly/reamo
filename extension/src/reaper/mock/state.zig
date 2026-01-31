@@ -19,6 +19,7 @@ pub const MAX_PARAMS_PER_FX = 16;
 pub const MAX_SENDS_PER_TRACK = 8;
 pub const MAX_RECEIVES_PER_TRACK = 8;
 pub const MAX_HW_OUTPUTS_PER_TRACK = 4;
+pub const MAX_LANES_PER_TRACK = 8;
 pub const MAX_MARKERS = 32;
 pub const MAX_CALLS = 128;
 
@@ -284,6 +285,20 @@ pub const Method = enum {
     midiInputName,
     getTrackRecInput,
     setTrackRecInput,
+    // Fixed Lanes (swipe comping)
+    getNumFixedLanes,
+    getTrackFreeMode,
+    setTrackFreeMode,
+    getTrackLanePlays,
+    setTrackLanePlays,
+    getAllLanesPlay,
+    setRazorEditsExt,
+    clearRazorEdits,
+    getTrackStateChunkStr,
+    setTrackStateChunkStr,
+    getItemFixedLane,
+    getItemLanePlays,
+    getLaneName,
 };
 
 pub const MockTrack = struct {
@@ -324,6 +339,17 @@ pub const MockTrack = struct {
     hw_output_count: c_int = 0,
     hw_outputs: [MAX_HW_OUTPUTS_PER_TRACK]MockHwOutput = [_]MockHwOutput{.{}} ** MAX_HW_OUTPUTS_PER_TRACK,
 
+    // Fixed lanes for this track
+    num_fixed_lanes: c_int = 0,
+    free_mode: c_int = 0, // 0=normal, 1=free positioning, 2=fixed lanes
+    lane_plays: [MAX_LANES_PER_TRACK]c_int = [_]c_int{0} ** MAX_LANES_PER_TRACK,
+    lane_names: [MAX_LANES_PER_TRACK][64]u8 = [_][64]u8{[_]u8{0} ** 64} ** MAX_LANES_PER_TRACK,
+    lane_name_lens: [MAX_LANES_PER_TRACK]usize = [_]usize{0} ** MAX_LANES_PER_TRACK,
+    razor_edits: [512]u8 = [_]u8{0} ** 512,
+    razor_edits_len: usize = 0,
+    state_chunk: [2048]u8 = [_]u8{0} ** 2048,
+    state_chunk_len: usize = 0,
+
     pub fn setName(self: *MockTrack, name: []const u8) void {
         const len = @min(name.len, self.name.len);
         @memcpy(self.name[0..len], name[0..len]);
@@ -332,6 +358,34 @@ pub const MockTrack = struct {
 
     pub fn getName(self: *const MockTrack) []const u8 {
         return self.name[0..self.name_len];
+    }
+
+    pub fn setRazorEdits(self: *MockTrack, razor_str: []const u8) void {
+        const len = @min(razor_str.len, self.razor_edits.len);
+        @memcpy(self.razor_edits[0..len], razor_str[0..len]);
+        self.razor_edits_len = len;
+    }
+
+    pub fn getStateChunk(self: *const MockTrack) []const u8 {
+        return self.state_chunk[0..self.state_chunk_len];
+    }
+
+    pub fn setStateChunk(self: *MockTrack, chunk: []const u8) void {
+        const len = @min(chunk.len, self.state_chunk.len);
+        @memcpy(self.state_chunk[0..len], chunk[0..len]);
+        self.state_chunk_len = len;
+    }
+
+    pub fn setLaneName(self: *MockTrack, lane_idx: usize, name: []const u8) void {
+        if (lane_idx >= MAX_LANES_PER_TRACK) return;
+        const len = @min(name.len, self.lane_names[lane_idx].len);
+        @memcpy(self.lane_names[lane_idx][0..len], name[0..len]);
+        self.lane_name_lens[lane_idx] = len;
+    }
+
+    pub fn getLaneName(self: *const MockTrack, lane_idx: usize) []const u8 {
+        if (lane_idx >= MAX_LANES_PER_TRACK) return "";
+        return self.lane_names[lane_idx][0..self.lane_name_lens[lane_idx]];
     }
 };
 
@@ -346,6 +400,9 @@ pub const MockItem = struct {
     notes_len: usize = 0,
     guid: [40]u8 = [_]u8{0} ** 40,
     guid_len: usize = 0,
+    // Fixed lanes
+    fixed_lane: c_int = 0, // I_FIXEDLANE - which lane this item is in
+    lane_plays: c_int = 0, // C_LANEPLAYS - 0=off, 1=exclusive, 2=layered, -1=hidden
 
     // Takes for this item
     take_count: c_int = 0,

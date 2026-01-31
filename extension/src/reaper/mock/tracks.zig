@@ -1340,4 +1340,132 @@ pub const TracksMethods = struct {
         self.tracks[idx].hw_outputs[hw_usize].mode = mode;
         return true;
     }
+
+    // =========================================================================
+    // Fixed Lanes (swipe comping)
+    // =========================================================================
+
+    pub fn getNumFixedLanes(self: anytype, track: *anyopaque) c_int {
+        self.recordCall(.getNumFixedLanes);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 0;
+        return self.tracks[idx].num_fixed_lanes;
+    }
+
+    pub fn getTrackFreeMode(self: anytype, track: *anyopaque) c_int {
+        self.recordCall(.getTrackFreeMode);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 0;
+        return self.tracks[idx].free_mode;
+    }
+
+    pub fn setTrackFreeMode(self: anytype, track: *anyopaque, mode: c_int) bool {
+        self.recordCall(.setTrackFreeMode);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        self.tracks[idx].free_mode = mode;
+        return true;
+    }
+
+    pub fn getTrackLanePlays(self: anytype, track: *anyopaque, lane_idx: c_int) c_int {
+        self.recordCall(.getTrackLanePlays);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 0;
+        if (lane_idx < 0 or lane_idx >= self.tracks[idx].num_fixed_lanes) return 0;
+        const lane_usize: usize = @intCast(lane_idx);
+        if (lane_usize >= state.MAX_LANES_PER_TRACK) return 0;
+        return self.tracks[idx].lane_plays[lane_usize];
+    }
+
+    pub fn setTrackLanePlays(self: anytype, track: *anyopaque, lane_idx: c_int, plays: c_int) bool {
+        self.recordCall(.setTrackLanePlays);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        if (lane_idx < 0) return false;
+        const lane_usize: usize = @intCast(lane_idx);
+        if (lane_usize >= state.MAX_LANES_PER_TRACK) return false;
+        self.tracks[idx].lane_plays[lane_usize] = plays;
+        return true;
+    }
+
+    pub fn getAllLanesPlay(self: anytype, track: *anyopaque) c_int {
+        self.recordCall(.getAllLanesPlay);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return 0;
+        // Return 0=none, 1=all, 2=some based on lane_plays
+        var playing: c_int = 0;
+        var total: c_int = 0;
+        for (0..@intCast(self.tracks[idx].num_fixed_lanes)) |i| {
+            total += 1;
+            if (self.tracks[idx].lane_plays[i] != 0) playing += 1;
+        }
+        if (playing == 0) return 0;
+        if (playing == total) return 1;
+        return 2;
+    }
+
+    pub fn setRazorEditsExt(self: anytype, track: *anyopaque, razor_str: []const u8) bool {
+        self.recordCall(.setRazorEditsExt);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        self.tracks[idx].setRazorEdits(razor_str);
+        return true;
+    }
+
+    pub fn clearRazorEdits(self: anytype, track: *anyopaque) bool {
+        self.recordCall(.clearRazorEdits);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        self.tracks[idx].setRazorEdits("");
+        return true;
+    }
+
+    pub fn getTrackStateChunkStr(self: anytype, track: *anyopaque, buf: []u8, isundo: bool) []const u8 {
+        self.recordCall(.getTrackStateChunkStr);
+        _ = isundo;
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return "";
+        const chunk = self.tracks[idx].getStateChunk();
+        const len = @min(chunk.len, buf.len);
+        @memcpy(buf[0..len], chunk[0..len]);
+        return buf[0..len];
+    }
+
+    pub fn setTrackStateChunkStr(self: anytype, track: *anyopaque, chunk: [:0]const u8, isundo: bool) bool {
+        self.recordCall(.setTrackStateChunkStr);
+        _ = isundo;
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        // [:0]const u8 coerces to []const u8 for the internal mock storage
+        self.tracks[idx].setStateChunk(chunk);
+        return true;
+    }
+
+    pub fn getItemFixedLane(self: anytype, item: *anyopaque) c_int {
+        self.recordCall(.getItemFixedLane);
+        const info = state.decodeItemPtr(item);
+        if (info.track_idx >= state.MAX_TRACKS) return 0;
+        if (info.item_idx >= state.MAX_ITEMS_PER_TRACK) return 0;
+        return self.tracks[info.track_idx].items[info.item_idx].fixed_lane;
+    }
+
+    pub fn getItemLanePlays(self: anytype, item: *anyopaque) c_int {
+        self.recordCall(.getItemLanePlays);
+        const info = state.decodeItemPtr(item);
+        if (info.track_idx >= state.MAX_TRACKS) return 0;
+        if (info.item_idx >= state.MAX_ITEMS_PER_TRACK) return 0;
+        return self.tracks[info.track_idx].items[info.item_idx].lane_plays;
+    }
+
+    pub fn getLaneName(self: anytype, track: *anyopaque, lane_idx: c_int, buf: []u8) []const u8 {
+        self.recordCall(.getLaneName);
+        const track_idx = state.decodeTrackPtr(track);
+        if (track_idx >= state.MAX_TRACKS) return "";
+        if (lane_idx < 0 or lane_idx >= state.MAX_LANES_PER_TRACK) return "";
+        const name = self.tracks[track_idx].getLaneName(@intCast(lane_idx));
+        const len = @min(name.len, buf.len);
+        @memcpy(buf[0..len], name[0..len]);
+        if (len < buf.len) buf[len] = 0;
+        return buf[0..len];
+    }
 };

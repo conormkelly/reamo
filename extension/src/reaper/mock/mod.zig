@@ -549,6 +549,23 @@ pub const MockBackend = struct {
     pub const midiInputName = inputs.InputsMethods.midiInputName;
     pub const getTrackRecInput = inputs.InputsMethods.getTrackRecInput;
     pub const setTrackRecInput = inputs.InputsMethods.setTrackRecInput;
+
+    // =========================================================================
+    // Fixed Lanes (swipe comping) (delegated)
+    // =========================================================================
+    pub const getNumFixedLanes = tracks.TracksMethods.getNumFixedLanes;
+    pub const getTrackFreeMode = tracks.TracksMethods.getTrackFreeMode;
+    pub const setTrackFreeMode = tracks.TracksMethods.setTrackFreeMode;
+    pub const getTrackLanePlays = tracks.TracksMethods.getTrackLanePlays;
+    pub const setTrackLanePlays = tracks.TracksMethods.setTrackLanePlays;
+    pub const getAllLanesPlay = tracks.TracksMethods.getAllLanesPlay;
+    pub const setRazorEditsExt = tracks.TracksMethods.setRazorEditsExt;
+    pub const clearRazorEdits = tracks.TracksMethods.clearRazorEdits;
+    pub const getTrackStateChunkStr = tracks.TracksMethods.getTrackStateChunkStr;
+    pub const setTrackStateChunkStr = tracks.TracksMethods.setTrackStateChunkStr;
+    pub const getItemFixedLane = tracks.TracksMethods.getItemFixedLane;
+    pub const getItemLanePlays = tracks.TracksMethods.getItemLanePlays;
+    pub const getLaneName = tracks.TracksMethods.getLaneName;
 };
 
 // Validate at comptime that MockBackend has all required methods

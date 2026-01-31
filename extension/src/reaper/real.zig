@@ -1093,6 +1093,62 @@ pub const RealBackend = struct {
         const f = self.inner.setMediaTrackInfo_Value orelse return false;
         return f(track, "I_RECINPUT", @floatFromInt(value));
     }
+
+    // =========================================================================
+    // Fixed Lanes (swipe comping)
+    // =========================================================================
+
+    pub fn getNumFixedLanes(self: *const RealBackend, track: *anyopaque) c_int {
+        return self.inner.getNumFixedLanes(track);
+    }
+
+    pub fn getTrackFreeMode(self: *const RealBackend, track: *anyopaque) c_int {
+        return self.inner.getTrackFreeMode(track);
+    }
+
+    pub fn setTrackFreeMode(self: *const RealBackend, track: *anyopaque, mode: c_int) bool {
+        return self.inner.setTrackFreeMode(track, mode);
+    }
+
+    pub fn getTrackLanePlays(self: *const RealBackend, track: *anyopaque, lane_idx: c_int) c_int {
+        return self.inner.getTrackLanePlays(track, lane_idx);
+    }
+
+    pub fn setTrackLanePlays(self: *const RealBackend, track: *anyopaque, lane_idx: c_int, plays: c_int) bool {
+        return self.inner.setTrackLanePlays(track, lane_idx, plays);
+    }
+
+    pub fn getAllLanesPlay(self: *const RealBackend, track: *anyopaque) c_int {
+        return self.inner.getAllLanesPlay(track);
+    }
+
+    pub fn setRazorEditsExt(self: *const RealBackend, track: *anyopaque, razor_str: []const u8) bool {
+        return self.inner.setRazorEditsExt(track, razor_str);
+    }
+
+    pub fn clearRazorEdits(self: *const RealBackend, track: *anyopaque) bool {
+        return self.inner.clearRazorEdits(track);
+    }
+
+    pub fn getTrackStateChunkStr(self: *const RealBackend, track: *anyopaque, buf: []u8, isundo: bool) []const u8 {
+        return self.inner.getTrackStateChunkStr(track, buf, isundo);
+    }
+
+    pub fn setTrackStateChunkStr(self: *const RealBackend, track: *anyopaque, chunk: [:0]const u8, isundo: bool) bool {
+        return self.inner.setTrackStateChunkStr(track, chunk, isundo);
+    }
+
+    pub fn getItemFixedLane(self: *const RealBackend, item: *anyopaque) c_int {
+        return self.inner.getItemFixedLane(item);
+    }
+
+    pub fn getItemLanePlays(self: *const RealBackend, item: *anyopaque) c_int {
+        return self.inner.getItemLanePlays(item);
+    }
+
+    pub fn getLaneName(self: *const RealBackend, track: *anyopaque, lane_idx: c_int, buf: []u8) []const u8 {
+        return self.inner.getLaneName(track, lane_idx, buf);
+    }
 };
 
 // Validate at comptime that RealBackend has all required methods
