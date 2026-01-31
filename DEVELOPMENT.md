@@ -1,5 +1,7 @@
 # REAmo Development Guide
 
+> **Writing Zig code?** Start with **[ZIG_GUIDE.md](ZIG_GUIDE.md)** — a concise guide covering memory safety, FFI correctness, and common pitfalls. This document is the comprehensive reference; the guide is the quick-start.
+
 This document captures implementation details, API quirks, and outstanding work for the REAmo REAPER web controller.
 
 ## Table of Contents
