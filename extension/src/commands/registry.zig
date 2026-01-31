@@ -40,6 +40,7 @@ const trackfxparam_subs = @import("trackfxparam_subs.zig");
 const trackfxparam = @import("trackfxparam.zig");
 const inputs = @import("inputs.zig");
 const tuner_subs = @import("tuner_subs.zig");
+const lanes = @import("lanes.zig");
 
 /// Comptime tuple of (command_name, handler_fn) pairs.
 /// Used by dispatch() with inline for to call handlers with anytype.
@@ -280,4 +281,14 @@ pub const all = .{
     .{ "tuner/subscribe", tuner_subs.handleSubscribe },
     .{ "tuner/unsubscribe", tuner_subs.handleUnsubscribe },
     .{ "tuner/setParam", tuner_subs.handleSetParam },
+
+    // Fixed Lanes / Swipe Comping
+    .{ "lanes/getState", lanes.handleGetState },
+    .{ "lanes/swipeComp", lanes.handleSwipeComp },
+    .{ "lanes/setCompTarget", lanes.handleSetCompTarget },
+    .{ "lanes/setLanePlays", lanes.handleSetLanePlays },
+    .{ "lanes/createCompLane", lanes.handleCreateCompLane },
+    .{ "lanes/moveCompUp", lanes.handleMoveCompUp },
+    .{ "lanes/moveCompDown", lanes.handleMoveCompDown },
+    .{ "lanes/deleteCompArea", lanes.handleDeleteCompArea },
 };

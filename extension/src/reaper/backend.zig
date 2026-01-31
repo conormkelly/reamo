@@ -269,6 +269,21 @@ pub fn validateBackend(comptime T: type) void {
         "midiInputName",
         "getTrackRecInput",
         "setTrackRecInput",
+
+        // Fixed Lanes (swipe comping)
+        "getNumFixedLanes",
+        "getTrackFreeMode",
+        "setTrackFreeMode",
+        "getTrackLanePlays",
+        "setTrackLanePlays",
+        "getAllLanesPlay",
+        "setRazorEditsExt",
+        "clearRazorEdits",
+        "getTrackStateChunkStr",
+        "setTrackStateChunkStr",
+        "getItemFixedLane",
+        "getItemLanePlays",
+        "getLaneName",
     };
 
     inline for (required_methods) |method| {

@@ -54,6 +54,9 @@ pub const Item = struct {
     selected: ?bool = false,
     active_take_idx: ?c_int = 0,
 
+    // Fixed lanes
+    fixed_lane: c_int = 0, // I_FIXEDLANE - which lane this item is in (0-based)
+
     // Sparse fields - full data fetched on-demand via item/getNotes, item/getTakes commands
     has_notes: bool = false,
     take_count: u8 = 0,
@@ -90,6 +93,7 @@ pub const Item = struct {
         if (self.locked != other.locked) return false;
         if (self.selected != other.selected) return false;
         if (self.active_take_idx != other.active_take_idx) return false;
+        if (self.fixed_lane != other.fixed_lane) return false;
         // Sparse fields
         if (self.has_notes != other.has_notes) return false;
         if (self.take_count != other.take_count) return false;
@@ -208,6 +212,7 @@ pub const State = struct {
                 item.locked = api.getItemLocked(item_ptr) catch null;
                 item.selected = api.getItemSelected(item_ptr) catch null;
                 item.active_take_idx = api.getItemActiveTakeIdx(item_ptr) catch null;
+                item.fixed_lane = api.getItemFixedLane(item_ptr);
 
                 // Sparse fields - check if notes exist (non-empty), count takes
                 // Full data fetched on-demand via item/getNotes, item/getTakes commands
@@ -317,6 +322,9 @@ pub const State = struct {
                 w.writeAll("null") catch return null;
             }
 
+            // Fixed lane (for swipe comping)
+            w.print(",\"fixedLane\":{d}", .{item.fixed_lane}) catch return null;
+
             // Sparse fields - full data fetched on-demand via item/getNotes, item/getTakes
             w.print(",\"hasNotes\":{s},\"takeCount\":{d},\"activeTakeName\":\"", .{
                 if (item.has_notes) "true" else "false",
@@ -416,6 +424,7 @@ pub const State = struct {
                 item.locked = api.getItemLocked(item_ptr) catch null;
                 item.selected = api.getItemSelected(item_ptr) catch null;
                 item.active_take_idx = api.getItemActiveTakeIdx(item_ptr) catch null;
+                item.fixed_lane = api.getItemFixedLane(item_ptr);
 
                 // Sparse fields
                 var notes_buf: [1024]u8 = undefined;
@@ -456,6 +465,7 @@ pub const State = struct {
             hasher.update(std.mem.asBytes(&item.locked));
             hasher.update(std.mem.asBytes(&item.selected));
             hasher.update(std.mem.asBytes(&item.active_take_idx));
+            hasher.update(std.mem.asBytes(&item.fixed_lane));
             hasher.update(std.mem.asBytes(&item.has_notes));
             hasher.update(std.mem.asBytes(&item.take_count));
             hasher.update(item.active_take_name[0..item.active_take_name_len]);
@@ -577,8 +587,9 @@ test "State items JSON output" {
 
     // trackIdx is unified: internal track_idx 0 becomes trackIdx 1 (0 = master, 1+ = user tracks)
     // Sparse fields: hasNotes, takeCount, activeTakeName, activeTakeGuid, activeTakeIsMidi
+    // Fixed lane for swipe comping
     try std.testing.expectEqualStrings(
-        "{\"type\":\"event\",\"event\":\"items\",\"payload\":{\"items\":[{\"guid\":\"{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}\",\"trackIdx\":1,\"itemIdx\":0,\"position\":10.000,\"length\":5.000,\"color\":16711680,\"locked\":false,\"selected\":false,\"activeTakeIdx\":0,\"hasNotes\":true,\"takeCount\":2,\"activeTakeName\":\"Test Take\",\"activeTakeGuid\":\"{11111111-2222-3333-4444-555555555555}\",\"activeTakeIsMidi\":false}]}}",
+        "{\"type\":\"event\",\"event\":\"items\",\"payload\":{\"items\":[{\"guid\":\"{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}\",\"trackIdx\":1,\"itemIdx\":0,\"position\":10.000,\"length\":5.000,\"color\":16711680,\"locked\":false,\"selected\":false,\"activeTakeIdx\":0,\"fixedLane\":0,\"hasNotes\":true,\"takeCount\":2,\"activeTakeName\":\"Test Take\",\"activeTakeGuid\":\"{11111111-2222-3333-4444-555555555555}\",\"activeTakeIsMidi\":false}]}}",
         json,
     );
 }

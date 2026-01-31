@@ -32,6 +32,7 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 - [Receive](#receive-commands) — setVolume, setMute, setPan, setMode
 - [Hardware Output](#hardware-output-commands) — setVolume, setMute, setPan, setMode, getHwOutputs
 - [Playlist](#playlist-commands) — create, delete, rename, addEntry, removeEntry, play, stop, next, prev
+- [Lanes](#lanes-commands) — getState, swipeComp, setCompTarget, setLanePlays, createCompLane, moveCompUp, moveCompDown, deleteCompArea
 - [Preferences](#preferences-commands) — getSeekSettings, setSeekSettings
 - [Debug](#debug-commands) — memoryStats
 
@@ -3009,6 +3010,201 @@ Set whether transport stops after the final region's last loop completes. Per-pl
 
 ---
 
+## Lanes Commands
+
+Fixed lanes / swipe comping commands for REAPER's multi-take comping system. Tracks must have fixed lanes enabled (`I_NUMFIXEDLANES > 0`) for these commands to work.
+
+### `lanes/getState`
+
+Get the lane state for a track. **Returns data.**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` | string | One required | Track GUID |
+| `trackIdx` | int | One required | Track index (1+ = user tracks) |
+
+```json
+{"type": "command", "command": "lanes/getState", "trackGuid": "{AAA}", "id": "1"}
+```
+
+**Response:**
+
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": {
+    "numLanes": 3,
+    "freeMode": 2,
+    "compTargetLane": 0,
+    "lanes": [
+      {"lane": 0, "plays": 1, "name": "C1"},
+      {"lane": 1, "plays": 0, "name": ""},
+      {"lane": 2, "plays": 0, "name": ""}
+    ]
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `numLanes` | int | Number of fixed lanes on the track |
+| `freeMode` | int | Lane mode (0=normal, 1=free positioning, 2=fixed lanes) |
+| `compTargetLane` | int | Lane index that receives comp operations (from LANEREC v2) |
+| `lanes` | array | Per-lane info |
+| `lanes[].lane` | int | Lane index (0-based) |
+| `lanes[].plays` | int | Play state: 0=off, 1=exclusive, 2=layered |
+| `lanes[].name` | string | Lane name (P_LANENAME:N), may be empty |
+
+### `lanes/swipeComp`
+
+Create a comp area from a source lane using razor edits. This is the core "swipe comping" operation that promotes content from a source lane to the comp lane.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` | string | One required | Track GUID |
+| `trackIdx` | int | One required | Track index (1+ = user tracks) |
+| `sourceLane` | int | Yes | Lane index to comp from (0-based) |
+| `startTime` | float | Yes | Start time in seconds |
+| `endTime` | float | Yes | End time in seconds |
+
+```json
+{"type": "command", "command": "lanes/swipeComp", "trackGuid": "{AAA}", "sourceLane": 1, "startTime": 10.0, "endTime": 15.0, "id": "1"}
+```
+
+**Notes:**
+- Uses `P_RAZOREDITS_EXT` to target the specific lane, then invokes REAPER's "Create fixed lane comp area" action (42475)
+- Creates proper comp metadata that REAPER understands
+- Razor edit is cleared after the comp area is created
+
+**Errors:**
+- `MISSING_SOURCE_LANE` - sourceLane parameter not provided
+- `MISSING_START_TIME` - startTime parameter not provided
+- `MISSING_END_TIME` - endTime parameter not provided
+- `INVALID_TIME_RANGE` - startTime >= endTime
+- `INVALID_LANE` - sourceLane out of range
+- `RAZOR_EDIT_FAILED` - Failed to set razor edit on track
+
+### `lanes/setCompTarget`
+
+Set the comp target lane for a track. Modifies the LANEREC field in the track state chunk.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` | string | One required | Track GUID |
+| `trackIdx` | int | One required | Track index (1+ = user tracks) |
+| `laneIndex` | int | Yes | Target lane index (0 = top lane) |
+
+```json
+{"type": "command", "command": "lanes/setCompTarget", "trackGuid": "{AAA}", "laneIndex": 0, "id": "1"}
+```
+
+**Errors:**
+- `MISSING_LANE_INDEX` - laneIndex parameter not provided
+- `CHUNK_READ_FAILED` - Failed to read track state chunk
+- `NO_LANEREC` - Track has no LANEREC field (not in fixed lanes mode)
+- `CHUNK_SET_FAILED` - Failed to set track state chunk
+
+### `lanes/setLanePlays`
+
+Set the play state for a lane at the track level.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` | string | One required | Track GUID |
+| `trackIdx` | int | One required | Track index (1+ = user tracks) |
+| `laneIndex` | int | Yes | Lane index (0-based) |
+| `plays` | int | Yes | Play state: 0=off, 1=exclusive, 2=layered |
+
+```json
+{"type": "command", "command": "lanes/setLanePlays", "trackGuid": "{AAA}", "laneIndex": 1, "plays": 1, "id": "1"}
+```
+
+**Play states:**
+- `0` - Lane is muted/off
+- `1` - Exclusive (only this lane plays)
+- `2` - Layered (lane plays along with others)
+
+**Errors:**
+- `MISSING_LANE_INDEX` - laneIndex parameter not provided
+- `MISSING_PLAYS` - plays parameter not provided
+- `SET_LANE_PLAYS_FAILED` - Failed to set lane play state
+
+### `lanes/createCompLane`
+
+Create a new comp lane on the track.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` | string | One required | Track GUID |
+| `trackIdx` | int | One required | Track index (1+ = user tracks) |
+
+```json
+{"type": "command", "command": "lanes/createCompLane", "trackGuid": "{AAA}", "id": "1"}
+```
+
+**Notes:**
+- Selects the track and runs REAPER's "Insert new comp lane" action (42797)
+
+### `lanes/moveCompUp`
+
+Move the selected comp area up (to the previous source lane).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` | string | One required | Track GUID |
+| `trackIdx` | int | One required | Track index (1+ = user tracks) |
+
+```json
+{"type": "command", "command": "lanes/moveCompUp", "trackGuid": "{AAA}", "id": "1"}
+```
+
+**Notes:**
+- Runs REAPER's "Move comp area up" action (42707)
+- Operates on the currently selected comp area
+
+### `lanes/moveCompDown`
+
+Move the selected comp area down (to the next source lane).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` | string | One required | Track GUID |
+| `trackIdx` | int | One required | Track index (1+ = user tracks) |
+
+```json
+{"type": "command", "command": "lanes/moveCompDown", "trackGuid": "{AAA}", "id": "1"}
+```
+
+**Notes:**
+- Runs REAPER's "Move comp area down" action (42708)
+- Operates on the currently selected comp area
+
+### `lanes/deleteCompArea`
+
+Delete a comp area (preserves source media in the original lane).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` | string | One required | Track GUID |
+| `trackIdx` | int | One required | Track index (1+ = user tracks) |
+| `itemIdx` | int | Yes | Item index within the track |
+
+```json
+{"type": "command", "command": "lanes/deleteCompArea", "trackGuid": "{AAA}", "itemIdx": 0, "id": "1"}
+```
+
+**Notes:**
+- Selects the item and runs REAPER's "Delete comp area" action (42642)
+- Original source media is preserved in the source lane
+
+**Errors:**
+- `MISSING_ITEM` - itemIdx parameter not provided
+- `ITEM_NOT_FOUND` - Item not found at specified index
+
+---
+
 ## Preferences Commands
 
 Read and write REAPER preference/configuration values. Currently focused on seek settings for playlist engine integration.
@@ -3439,6 +3635,7 @@ Sent when items change. Broadcast to all connected clients (no subscription requ
         "locked": false,
         "selected": false,
         "activeTakeIdx": 0,
+        "fixedLane": 0,
         "hasNotes": true,
         "takeCount": 2
       }
@@ -3458,6 +3655,7 @@ Sent when items change. Broadcast to all connected clients (no subscription requ
 | `items[].locked` | bool\|null | True if item is locked, null if corrupt |
 | `items[].selected` | bool\|null | True if item is selected, null if corrupt |
 | `items[].activeTakeIdx` | int\|null | Index of active take (0-based), null if corrupt |
+| `items[].fixedLane` | int | Fixed lane index (I_FIXEDLANE, 0-based) for swipe comping |
 | `items[].hasNotes` | bool | True if item has notes (use `item/getNotes` for content) |
 | `items[].takeCount` | int | Number of takes (use `item/getTakes` for full details) |
 

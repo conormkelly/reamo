@@ -161,11 +161,74 @@ Extended P_RAZOREDITS_EXT: "startTime endTime envelopeGUID topY bottomY"
 |----|--------|-----|
 | **42475** | Razor edit: Create fixed lane comp area | **Primary swipe comp action** |
 | **42642** | Fixed lane comp area: Delete comp area | Delete selected comp area (preserves source items) |
+| **42707** | Fixed lane comp area: Move comp area up | **Shift selected segment to previous source** |
+| **42708** | Fixed lane comp area: Move comp area down | **Shift selected segment to next source** |
+| **42797** | Track lanes: Insert new comp lane | Create new empty comp lane |
 | 42652 | Track lanes: Add comp areas for selected items | Creates/replaces comp (not incremental) |
 | 40289 | Item: Unselect all items | Safety before razor operations |
 | 40006 | Item: Remove items | Delete selected items |
-| 42707 | Fixed lane comp area: Move comp area up | Adjust existing comp |
-| 42708 | Fixed lane comp area: Move comp area down | Adjust existing comp |
+
+---
+
+## Setting Comp Target Lane Programmatically
+
+The comp target lane (yellow square highlight in REAPER UI) determines which lane receives new swipe comp operations. This can be read and **set** via the track state chunk.
+
+### LANEREC Field
+
+The `LANEREC` field in the track state chunk controls comp target:
+
+```
+LANEREC v1 v2 v3 v4
+```
+
+| Field | Meaning |
+|-------|---------|
+| v1 | Unknown (observed: -1) |
+| **v2** | **Comp target lane index** (0-based) |
+| v3 | Related to v2 (typically inverse for lanes 0/1) |
+| v4 | 1 if play lane == comp target, else 0 |
+
+### Reading Comp Target
+
+```lua
+local retval, chunk = reaper.GetTrackStateChunk(track, "", false)
+local v1, v2, v3, v4 = chunk:match("LANEREC ([%-%d]+) ([%-%d]+) ([%-%d]+) ([%-%d]+)")
+local compTargetLane = tonumber(v2)  -- This is the comp target lane index
+```
+
+### Setting Comp Target
+
+```lua
+function setCompTargetLane(track, newTargetLane)
+    local retval, chunk = reaper.GetTrackStateChunk(track, "", false)
+    if not retval then return false end
+
+    local v1, v2, v3, v4 = chunk:match("LANEREC ([%-%d]+) ([%-%d]+) ([%-%d]+) ([%-%d]+)")
+    if not v1 then return false end
+
+    -- Build new LANEREC
+    local newV2 = tostring(newTargetLane)
+    local newV3 = (newTargetLane == 0) and "1" or "0"
+    local newV4 = "0"
+
+    local newLanerec = string.format("LANEREC %s %s %s %s", v1, newV2, newV3, newV4)
+    local newChunk = chunk:gsub("LANEREC [%-%d]+ [%-%d]+ [%-%d]+ [%-%d]+", newLanerec)
+
+    reaper.Undo_BeginBlock()
+    local success = reaper.SetTrackStateChunk(track, newChunk, false)
+    reaper.UpdateArrange()  -- Recommended for safety
+    reaper.Undo_EndBlock("Set comp target lane", -1)
+
+    return success
+end
+```
+
+### Backend Command
+
+```
+lanes/setCompTarget → { trackGuid, laneIndex } → modifies LANEREC via state chunk
+```
 
 ---
 
@@ -263,14 +326,36 @@ end
 
 ## Zig Backend Commands
 
-```
-lanes/getState       → { trackGuid } → lane count, names, items per lane, play states
-lanes/swipeComp      → { trackGuid, targetLane, startTime, endTime } → razor + 42475
-lanes/getCompMapping → { trackGuid } → which source lane each comp segment came from
-lanes/setLanePlays   → { trackGuid, laneIndex, plays } → set track-level C_LANEPLAYS:N
-lanes/moveCompUp     → { trackGuid } → action 42707 on selected items
-lanes/moveCompDown   → { trackGuid } → action 42708 on selected items
-```
+See [SWIPE_COMPING_UI.md](SWIPE_COMPING_UI.md) for frontend usage context.
+
+### Core Commands
+
+| Command | Parameters | Response/Action |
+|---------|------------|-----------------|
+| `lanes/getState` | trackGuid | numLanes, compTargetLane, playingLane, lanes[] with items |
+| `lanes/swipeComp` | trackGuid, sourceLane, startTime, endTime | P_RAZOREDITS_EXT + action 42475 |
+
+### Lane Control
+
+| Command | Parameters | Action |
+|---------|------------|--------|
+| `lanes/setCompTarget` | trackGuid, laneIndex | Modify LANEREC via state chunk |
+| `lanes/setLanePlays` | trackGuid, laneIndex | Set track-level C_LANEPLAYS:N |
+| `lanes/createCompLane` | trackGuid | Action 42797 (create new comp lane) |
+
+### Comp Segment Operations
+
+| Command | Parameters | Action |
+|---------|------------|--------|
+| `lanes/moveCompUp` | trackGuid | Action 42707 — shift selected segment to previous source |
+| `lanes/moveCompDown` | trackGuid | Action 42708 — shift selected segment to next source |
+| `lanes/deleteCompArea` | trackGuid, itemGuid | Select item + action 42642 |
+
+### Optional
+
+| Command | Parameters | Action |
+|---------|------------|--------|
+| `lanes/getCompMapping` | trackGuid | Infer source lanes from audio file matching |
 
 ### Zig Implementation Sketch
 
