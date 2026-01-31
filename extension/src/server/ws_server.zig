@@ -367,6 +367,11 @@ pub const Client = struct {
             return true;
         }
 
+        // Link-local: 169.254.x.x (used for direct device-to-device connections)
+        if (std.mem.startsWith(u8, host, "169.254.")) {
+            return true;
+        }
+
         // Private network: 172.16.x.x - 172.31.x.x
         if (std.mem.startsWith(u8, host, "172.")) {
             // Extract second octet to check 16-31 range
