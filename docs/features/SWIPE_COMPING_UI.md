@@ -375,6 +375,4 @@ To show orange overlays on source lanes, we need to know which source each comp 
 
 - **Waveform zoom:** Pinch to zoom timeline
 - **Crossfade adjustment:** Drag comp boundaries to adjust crossfades
-- **A/B compare:** Quick toggle between comp and individual sources
-- **Undo/redo:** Dedicated buttons for comp-specific undo
 - **Markers:** Show arrangement markers for navigation context
