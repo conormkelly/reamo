@@ -200,6 +200,8 @@ Deferred — requires fetching all takes' peaks.
 
 ### Context-Aware Take/Item Coloring
 
+**Branch:** `feature/context-aware-item-take-color`
+
 Make the color swatch in ItemNavigationInfoBar context-aware for quick take rating.
 
 **Behavior:**
@@ -209,11 +211,21 @@ Make the color swatch in ItemNavigationInfoBar context-aware for quick take rati
 
 **Why this matters:** Quick take rating during recording sessions. Tap to mark a take as keeper (green), maybe (yellow), or discard (red) without leaving the instrument. Colors visible in REAPER's take lanes for later comping.
 
-**Implementation:**
+**Status:** Implementation complete, needs testing.
 
-- Backend: `take/setColor` command using `I_CUSTOMCOLOR` with `0x100000` flag
-- Frontend: Detect take count, route color picker to item or active take
-- Visual: Show take color in info bar when take is active
+**Backend (complete):**
+
+- `take/setColor` command using `I_CUSTOMCOLOR` with `0x01000000` flag
+- `getTakeColor`/`setTakeColor` FFI wrappers in raw.zig, real.zig, mock
+- `activeTakeColor` field added to item state and JSON payload
+
+**Frontend (complete):**
+
+- `take.setColor()` command in WebSocketCommands
+- NavigateItemInfoBar routes color changes based on `takeCount`
+- Displays active take's color in swatch when multiple takes exist
+- "Take" indicator label when in take coloring mode (need to remove this)
+- Batch mode unchanged (always colors items)
 
 **Effort:** S (backend command + frontend routing logic)
 
