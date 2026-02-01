@@ -37,6 +37,44 @@ App works well on iOS phone PWA but needs polish across form factors. First impr
 
 ---
 
+## Deferred — WIP Branch
+
+### Swipe Comping
+
+**Branch:** `feature/swipe-comping`
+
+Touch-based take comping for fixed lane mode. Swipe across waveform to select which take plays for each time region — the mobile equivalent of REAPER's mouse-based swipe comping.
+
+**Why deferred:** Frontend complexity was growing; returning to stabilize v1.0 features first.
+
+**Backend (working):**
+
+- `lanes/swipeComp` creates razor edits and promotes selection to comp lane
+- `lanes/getState` returns lane metadata (numLanes, freeMode, compTargetLane)
+- `lanes/setLanePlays`, `lanes/setCompTarget`, `lanes/moveCompUp/Down` commands
+- `broadcastLanesEvent` sends real-time updates after lane operations
+- Track skeleton includes `I_FREEMODE` for detecting fixed lanes mode
+
+**Frontend (partial, needs iteration):**
+
+- `compSlice` manages comp mode state, lane data, segments
+- Comp mode renders lanes as virtual tracks in Timeline
+- `WaveformLayer` filters items by fixedLane for per-lane rendering
+- `CompControlsBar` with play matrix (in BottomSheet)
+- `SwipeCompOverlay` handles swipe gestures and segment visualization
+- `TimelineFooter` shows in comp mode with swipe/scroll toggle
+- WebSocket protocol extended with `lanes` event type
+
+**Known issues to address:**
+
+- Segment visualization and tap-to-switch needs refinement
+- Frontend state sync between segments and actual REAPER items
+- UI polish for comp controls layout
+
+**Requires:** REAPER 7.0+ (fixed track lanes API)
+
+---
+
 ### Accessibility Pass
 
 Review and improve accessibility before public release. REAPER + OSARA users represent an underserved audience.
@@ -195,10 +233,10 @@ Include REAPER version in connect/hello event for graceful feature degradation.
 
 **Example features needing version gates:**
 
-| Feature | Minimum Version | API |
-|---------|-----------------|-----|
-| Swipe comping | REAPER 7.0+ | TBD |
-| Fixed track lanes | REAPER 7.0+ | TBD |
+| Feature | Minimum Version | Status |
+|---------|-----------------|--------|
+| Swipe comping | REAPER 7.0+ | Backend ready, frontend WIP (`feature/swipe-comping`) |
+| Fixed track lanes | REAPER 7.0+ | Backend ready (part of swipe comping) |
 
 **Effort:** S (backend trivial, frontend feature matrix)
 
