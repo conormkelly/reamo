@@ -176,6 +176,7 @@ export interface SkeletonTrack {
   hc: number; // hw_output_count
   cl: boolean; // clipped (sticky flag, L or R channel exceeded 0dB)
   ic: number; // item_count (number of media items on track)
+  fm: number; // free_mode (0=normal, 1=free positioning, 2=fixed lanes)
 }
 
 /** Track skeleton broadcast (1Hz, on structure change) */

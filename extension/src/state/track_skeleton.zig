@@ -39,6 +39,7 @@ pub const SkeletonTrack = struct {
     clipped: bool = false, // Sticky clip flag (L or R channel exceeded 0dB)
     item_count: u16 = 0, // Number of media items on track
     input_type: u8 = 0, // 0=none, 1=audio, 2=midi (from I_RECINPUT)
+    free_mode: u8 = 0, // 0=normal, 1=free positioning, 2=fixed lanes (for comping)
 
     pub fn getName(self: *const SkeletonTrack) []const u8 {
         return self.name[0..self.name_len];
@@ -64,6 +65,7 @@ pub const SkeletonTrack = struct {
         if (self.clipped != other.clipped) return false;
         if (self.item_count != other.item_count) return false;
         if (self.input_type != other.input_type) return false;
+        if (self.free_mode != other.free_mode) return false;
         return true;
     }
 };
@@ -151,6 +153,15 @@ pub const State = struct {
                 const item_c = api.trackItemCount(track);
                 t.item_count = if (item_c >= 0) @intCast(item_c) else 0;
 
+                // Free mode: 0=normal, 1=free positioning, 2=fixed lanes
+                // Master track (idx 0) doesn't support free mode
+                if (idx == 0) {
+                    t.free_mode = 0;
+                } else {
+                    const free_mode = api.getTrackFreeMode(track) catch 0;
+                    t.free_mode = if (free_mode >= 0 and free_mode <= 2) @intCast(free_mode) else 0;
+                }
+
                 // Input type: 0=none, 1=audio, 2=midi (from I_RECINPUT)
                 // Master track (idx 0) has no record input
                 if (idx == 0) {
@@ -174,7 +185,7 @@ pub const State = struct {
 
     /// Serialize to JSON event.
     /// Format: {"type":"event","event":"trackSkeleton","payload":{"tracks":[{...},...]}}
-    /// Keys: n=name, g=guid, m=mute, sl=solo, sel=selected, r=rec_arm, fd=folder_depth, sc=send_count, hc=hw_output_count, cl=clipped, ic=item_count
+    /// Keys: n=name, g=guid, m=mute, sl=solo, sel=selected, r=rec_arm, fd=folder_depth, sc=send_count, hc=hw_output_count, cl=clipped, ic=item_count, it=input_type, fm=free_mode
     pub fn toJson(self: *const State, buf: []u8) ?[]const u8 {
         var stream = std.io.fixedBufferStream(buf);
         const writer = stream.writer();
@@ -231,6 +242,9 @@ pub const State = struct {
 
             // it=input_type (int: 0=none, 1=audio, 2=midi)
             writer.print(",\"it\":{d}", .{t.input_type}) catch return null;
+
+            // fm=free_mode (int: 0=normal, 1=free positioning, 2=fixed lanes)
+            writer.print(",\"fm\":{d}", .{t.free_mode}) catch return null;
 
             writer.writeByte('}') catch return null;
         }
