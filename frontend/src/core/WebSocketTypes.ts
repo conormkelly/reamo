@@ -298,6 +298,7 @@ export interface WSItem {
   activeTakeName: string; // Display name for active take
   activeTakeGuid: string; // For peaks cache invalidation
   activeTakeIsMidi: boolean; // Skip peaks for MIDI items
+  activeTakeColor: number | null; // Custom color of active take (null = no custom color)
 }
 
 export interface ItemsEventPayload {

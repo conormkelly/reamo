@@ -114,7 +114,8 @@ pub const Api = struct {
     getActiveTake: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque = null,
     getTakeName: ?*const fn (?*anyopaque) callconv(.c) ?[*:0]const u8 = null,
     getSetMediaItemTakeInfo_String: ?*const fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool = null,
-    getSetMediaItemTakeInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8, f64, bool) callconv(.c) f64 = null,
+    getMediaItemTakeInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8) callconv(.c) f64 = null,
+    setMediaItemTakeInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8, f64) callconv(.c) bool = null,
     takeIsMIDI: ?*const fn (?*anyopaque) callconv(.c) bool = null,
     getMediaItemTake_Source: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque = null,
     getMediaSourceNumChannels: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
@@ -322,7 +323,8 @@ pub const Api = struct {
             .getActiveTake = getFunc(info, "GetActiveTake", fn (?*anyopaque) callconv(.c) ?*anyopaque),
             .getTakeName = getFunc(info, "GetTakeName", fn (?*anyopaque) callconv(.c) ?[*:0]const u8),
             .getSetMediaItemTakeInfo_String = getFunc(info, "GetSetMediaItemTakeInfo_String", fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool),
-            .getSetMediaItemTakeInfo_Value = getFunc(info, "GetSetMediaItemTakeInfo_Value", fn (?*anyopaque, [*:0]const u8, f64, bool) callconv(.c) f64),
+            .getMediaItemTakeInfo_Value = getFunc(info, "GetMediaItemTakeInfo_Value", fn (?*anyopaque, [*:0]const u8) callconv(.c) f64),
+            .setMediaItemTakeInfo_Value = getFunc(info, "SetMediaItemTakeInfo_Value", fn (?*anyopaque, [*:0]const u8, f64) callconv(.c) bool),
             .takeIsMIDI = getFunc(info, "TakeIsMIDI", fn (?*anyopaque) callconv(.c) bool),
             .getMediaItemTake_Source = getFunc(info, "GetMediaItemTake_Source", fn (?*anyopaque) callconv(.c) ?*anyopaque),
             .getMediaSourceNumChannels = getFunc(info, "GetMediaSourceNumChannels", fn (?*anyopaque) callconv(.c) c_int),
@@ -2043,14 +2045,29 @@ pub const Api = struct {
 
     /// Get take start offset in seconds (D_STARTOFFS)
     pub fn getTakeStartOffset(self: *const Api, take: *anyopaque) f64 {
-        const f = self.getSetMediaItemTakeInfo_Value orelse return 0;
-        return f(take, "D_STARTOFFS", 0, false); // set_val=false for get
+        const f = self.getMediaItemTakeInfo_Value orelse return 0;
+        return f(take, "D_STARTOFFS");
     }
 
     /// Get take playback rate (D_PLAYRATE, 1.0 = normal)
     pub fn getTakePlayrate(self: *const Api, take: *anyopaque) f64 {
-        const f = self.getSetMediaItemTakeInfo_Value orelse return 1.0;
-        return f(take, "D_PLAYRATE", 0, false); // set_val=false for get
+        const f = self.getMediaItemTakeInfo_Value orelse return 1.0;
+        return f(take, "D_PLAYRATE");
+    }
+
+    /// Get take custom color (I_CUSTOMCOLOR).
+    /// Returns f64 - caller must use ffi.safeFloatToInt for safe conversion.
+    /// 0 = no custom color, otherwise color value with 0x01000000 flag.
+    pub fn getTakeColor(self: *const Api, take: *anyopaque) f64 {
+        const f = self.getMediaItemTakeInfo_Value orelse return 0;
+        return f(take, "I_CUSTOMCOLOR");
+    }
+
+    /// Set take custom color (I_CUSTOMCOLOR).
+    /// Pass color with 0x01000000 flag for custom color, or 0 to reset to theme default.
+    pub fn setTakeColor(self: *const Api, take: *anyopaque, color: c_int) bool {
+        const f = self.setMediaItemTakeInfo_Value orelse return false;
+        return f(take, "I_CUSTOMCOLOR", @floatFromInt(color));
     }
 
     /// Check if take is MIDI (as opposed to audio)

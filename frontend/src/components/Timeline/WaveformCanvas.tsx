@@ -50,15 +50,22 @@ export interface WaveformCanvasProps {
   items: WSItem[];
 }
 
+/** Get effective color: active take color if set, otherwise item color */
+function getEffectiveColor(item: WSItem): number | null {
+  return item.activeTakeColor ?? (item.color || null);
+}
+
 /** Get item color with fallback */
 function getItemColor(item: WSItem, opacity: number = 0.6): string {
-  if (!item.color) return DEFAULT_ITEM_COLOR;
-  return reaperColorToRgba(item.color, opacity) ?? DEFAULT_ITEM_COLOR;
+  const color = getEffectiveColor(item);
+  if (!color) return DEFAULT_ITEM_COLOR;
+  return reaperColorToRgba(color, opacity) ?? DEFAULT_ITEM_COLOR;
 }
 
 /** Get waveform color that contrasts with item background */
 function getWaveformColor(item: WSItem): string {
-  const contrastBase = item.color ? getContrastColor(item.color) : 'white';
+  const color = getEffectiveColor(item);
+  const contrastBase = color ? getContrastColor(color) : 'white';
   return contrastBase === 'white' ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)';
 }
 

@@ -126,10 +126,26 @@ const success = c_func(track, param_ptr, ...);
 
 | Layer | Responsibility |
 |-------|----------------|
-| `raw.zig` | Pure C bindings. Returns exactly what REAPER returns. No allocation. |
-| `real.zig` | Validation layer. Wraps raw with `ffi.safeFloatToInt()`, NaN/Inf checks. |
+| `raw.zig` | Pure C bindings. Returns exactly what REAPER returns (f64 for numeric getters). No allocation, no conversion. |
+| `real.zig` | Validation layer. Converts raw f64 to typed values using `ffi.safeFloatToInt()`. Returns `ffi.FFIError!T`. |
 
-**Principle:** Push allocation to callers (command handlers). Keep FFI layers allocation-free.
+**Principle:** `raw.zig` never uses `@intFromFloat` on REAPER return values — it returns the raw `f64`. `real.zig` applies `ffi.safeFloatToInt()` and surfaces the error union. Callers handle the error (typically `catch 0`). Push allocation to callers (command handlers). Keep FFI layers allocation-free.
+
+```zig
+// raw.zig — returns raw REAPER f64, no conversion
+pub fn getTakeColor(self: *const Api, take: *anyopaque) f64 {
+    const f = self.getMediaItemTakeInfo_Value orelse return 0;
+    return f(take, "I_CUSTOMCOLOR");
+}
+
+// real.zig — safe conversion, surfaces error
+pub fn getTakeColor(self: *const RealBackend, take: *anyopaque) ffi.FFIError!c_int {
+    return ffi.safeFloatToInt(c_int, self.inner.getTakeColor(take));
+}
+
+// caller — handles error
+const color = api.getTakeColor(take) catch 0;
+```
 
 ---
 
@@ -378,7 +394,7 @@ test "handler calls correct API method" {
 | `var buf: [65536]u8 = undefined;` | `scratch.alloc(u8, 65536)` |
 | `catch return;` | `catch { logging.warn(...); return; }` |
 | `@ptrCast(&buf)` for C strings | `buf[0..len :0]` sentinel slice |
-| `@intFromFloat(api.getValue())` | `ffi.safeFloatToInt(i32, val)` |
+| `@intFromFloat(api.getValue())` in raw.zig | raw returns `f64`, real wraps with `ffi.safeFloatToInt()` |
 | `value = parse(...) catch 0;` | `value = parse(...) catch \|err\| { log; 0 };` |
 | Forget registry.zig | Always add new handlers to registry |
 | `1.0 / count` without check | Guard `count <= 0` first |
@@ -499,12 +515,24 @@ const track = api.getTrackByUnifiedIdx(track_idx) orelse {
 
 `@intFromFloat` panics on NaN, Inf, or out-of-range values. REAPER APIs can return garbage.
 
-```zig
-// BAD: Will panic on corrupt data
-const x = @as(i32, @intFromFloat(api.getValue()));
+**`raw.zig` must never use `@intFromFloat` on REAPER return values.** Return the raw `f64` and let `real.zig` do the safe conversion (see [section 2: raw.zig vs real.zig Boundary](#2-ffiabi-correctness)).
 
-// GOOD: Validated conversion
-const x = ffi.safeFloatToInt(i32, api.getValue()) catch 0;
+```zig
+// BAD (in raw.zig): bare @intFromFloat on REAPER value — will panic on corrupt data
+pub fn getFoo(self: *const Api, track: *anyopaque) c_int {
+    return @intFromFloat(f(track, "I_FOO"));
+}
+
+// GOOD (raw.zig returns f64, real.zig converts):
+// raw.zig
+pub fn getFoo(self: *const Api, track: *anyopaque) f64 {
+    const f = self.getMediaTrackInfo_Value orelse return 0;
+    return f(track, "I_FOO");
+}
+// real.zig
+pub fn getFoo(self: *const RealBackend, track: *anyopaque) ffi.FFIError!c_int {
+    return ffi.safeFloatToInt(c_int, self.inner.getFoo(track));
+}
 
 // For display values (beats, ticks) - round first
 const tick = ffi.roundFloatToInt(i32, api.getTick()) catch 0;

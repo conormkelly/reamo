@@ -891,6 +891,14 @@ pub const RealBackend = struct {
         return self.inner.getTakePlayrate(take);
     }
 
+    pub fn getTakeColor(self: *const RealBackend, take: *anyopaque) ffi.FFIError!c_int {
+        return ffi.safeFloatToInt(c_int, self.inner.getTakeColor(take));
+    }
+
+    pub fn setTakeColor(self: *const RealBackend, take: *anyopaque, color: c_int) bool {
+        return self.inner.setTakeColor(take, color);
+    }
+
     pub fn isTakeMIDI(self: *const RealBackend, take: *anyopaque) bool {
         return self.inner.isTakeMIDI(take);
     }

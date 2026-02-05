@@ -121,13 +121,28 @@ export function NavigateItemInfoBar({
   }, [singleItem, sendCommand]);
 
   // Color picker handler (single item)
+  // Context-aware: colors the active take if multiple takes, otherwise colors the item
   const handleColorChange = useCallback(
     (color: string) => {
       if (!singleItem) return;
       const reaperColor = hexToReaperColor(color);
-      sendCommand(
-        itemCmd.setColor(singleItem.trackIdx, singleItem.itemIdx, reaperColor)
-      );
+
+      if (singleItem.takeCount > 1) {
+        // Multiple takes: color the active take
+        sendCommand(
+          takeCmd.setColor(
+            singleItem.trackIdx,
+            singleItem.itemIdx,
+            singleItem.activeTakeIdx,
+            reaperColor
+          )
+        );
+      } else {
+        // Single/no takes: color the item (existing behavior)
+        sendCommand(
+          itemCmd.setColor(singleItem.trackIdx, singleItem.itemIdx, reaperColor)
+        );
+      }
     },
     [singleItem, sendCommand]
   );
@@ -264,6 +279,15 @@ export function NavigateItemInfoBar({
     [selectedItems]
   );
 
+  // Context-aware coloring: show take color when multiple takes, otherwise item color
+  const currentColor = useMemo(() => {
+    if (!singleItem) return DEFAULT_ITEM_COLOR;
+    if (singleItem.takeCount > 1 && singleItem.activeTakeColor) {
+      return reaperColorToHexWithFallback(singleItem.activeTakeColor, DEFAULT_ITEM_COLOR);
+    }
+    return reaperColorToHexWithFallback(singleItem.color, DEFAULT_ITEM_COLOR);
+  }, [singleItem]);
+
   // ========== Common Handlers ==========
 
   // Exit mode handler
@@ -344,9 +368,6 @@ export function NavigateItemInfoBar({
   if (!itemSelectionModeActive) return null;
 
   // Format values for single item display
-  const currentColor = singleItem?.color
-    ? reaperColorToHexWithFallback(singleItem.color, DEFAULT_ITEM_COLOR)
-    : DEFAULT_ITEM_COLOR;
   const takeCount = singleItem?.takeCount ?? 1;
   const formattedPosition = singleItem ? formatBeats(singleItem.position) : '-';
 

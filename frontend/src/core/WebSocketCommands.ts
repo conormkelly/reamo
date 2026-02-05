@@ -403,6 +403,11 @@ export const take = {
   prev: (): WSCommand => ({ command: 'take/prev' }),
   delete: (): WSCommand => ({ command: 'take/delete' }),
   cropToActive: (): WSCommand => ({ command: 'take/cropToActive' }),
+  /** Set color for a specific take. Pass 0 to reset to theme default. */
+  setColor: (trackIdx: number, itemIdx: number, takeIdx: number, color: number): WSCommand => ({
+    command: 'take/setColor',
+    params: { trackIdx, itemIdx, takeIdx, color },
+  }),
 };
 
 // =============================================================================

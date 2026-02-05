@@ -597,6 +597,25 @@ pub const TracksMethods = struct {
         return self.tracks[info.track_idx].items[info.item_idx].takes[info.take_idx].playrate;
     }
 
+    pub fn getTakeColor(self: anytype, take: *anyopaque) ffi.FFIError!c_int {
+        self.recordCall(.getTakeColor);
+        const info = state.decodeTakePtr(take);
+        if (info.track_idx >= state.MAX_TRACKS) return 0;
+        if (info.item_idx >= state.MAX_ITEMS_PER_TRACK) return 0;
+        if (info.take_idx >= state.MAX_TAKES_PER_ITEM) return 0;
+        return self.tracks[info.track_idx].items[info.item_idx].takes[info.take_idx].color;
+    }
+
+    pub fn setTakeColor(self: anytype, take: *anyopaque, color: c_int) bool {
+        self.recordCall(.setTakeColor);
+        const info = state.decodeTakePtr(take);
+        if (info.track_idx >= state.MAX_TRACKS) return false;
+        if (info.item_idx >= state.MAX_ITEMS_PER_TRACK) return false;
+        if (info.take_idx >= state.MAX_TAKES_PER_ITEM) return false;
+        self.tracks[info.track_idx].items[info.item_idx].takes[info.take_idx].color = color;
+        return true;
+    }
+
     pub fn isTakeMIDI(self: anytype, take: *anyopaque) bool {
         self.recordCall(.isTakeMIDI);
         const info = state.decodeTakePtr(take);
