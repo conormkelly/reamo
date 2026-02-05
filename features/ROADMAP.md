@@ -1,6 +1,6 @@
 # REAmo Roadmap
 
-**Last updated:** 2026-01-29
+**Last updated:** 2026-02-04
 
 ---
 
@@ -283,6 +283,188 @@ Surface metronome pre-roll (count-in bars) more prominently for self-recording m
 - Visual indicator when pre-roll is active
 
 **Effort:** XS (frontend only, settings already exist)
+
+---
+
+### Haptic Click
+
+Haptic feedback as metronome. Phone vibrates on beat for silent click track.
+
+**Why this matters:** Musicians practicing with headphones can feel the beat without audio bleed. Useful for quiet practice, recording in shared spaces, or when audio click interferes with performance.
+
+**Implementation:**
+
+- Use Vibration API (`navigator.vibrate()`) synced to beat
+- Pattern options: downbeat only, all beats, subdivisions
+- Intensity control (where hardware supports)
+- Settings toggle: "Haptic metronome" (off by default)
+
+**Challenges:**
+
+- Latency compensation — vibration must anticipate beat
+- iOS limitations (Vibration API not supported, may need Web Audio workaround)
+- Battery impact at high BPM
+
+**Effort:** S-M (sync timing is the tricky part)
+
+---
+
+### Mix Monitoring (Sonobus-style)
+
+Monitor mix audio on phone while playing. Hear the DAW output through phone speakers/headphones.
+
+**Why this matters:** Self-recording musicians can hear their mix without being tethered to studio monitors. Walk around the room while monitoring, or use phone as a "how does it sound on small speakers" check.
+
+**Implementation approaches:**
+
+1. **WebRTC stream** — REAPER sends audio via WebRTC peer connection
+2. **Network audio** — Stream compressed audio over WebSocket (high latency)
+3. **ReaStream plugin** — Leverage existing REAPER network audio plugin
+
+**Challenges:**
+
+- Latency must be low enough for monitoring (sub-100ms ideal)
+- Audio routing complexity in REAPER (master output to network)
+- Codec selection (Opus for quality/latency balance)
+- Sync with video/waveform display
+
+**Reference:** Sonobus uses Opus codec over custom UDP protocol for ~20ms latency.
+
+**Effort:** L (significant audio streaming infrastructure)
+
+---
+
+### Practice Tools
+
+Metronome modes that build internal timing and speed, not just keep time.
+
+**Gap-Click Metronome:**
+
+Click plays for N bars, then goes silent for N bars. Forces musicians to maintain internal time without dependency on the click. Based on Benny Greb's practice method (Time Guru app).
+
+- Configurable gap length: 1, 2, 4, 8 bars
+- Visual beat indicator continues during silence (shows if you drifted)
+- Progressive mode: gaps get longer as you succeed
+- Randomized gap option for advanced training
+
+**Accelerating Metronome:**
+
+Tempo increases gradually over time for speed-building practice.
+
+- Start tempo → target tempo over N minutes
+- Small increments (1-2 BPM) to avoid conscious awareness of change
+- Optional "plateau" periods (stay at tempo for 30s before next bump)
+- Visual progress indicator
+
+**Why this matters:** Positions REAmo as a practice tool, not just a recording remote. Musicians would open it even when not recording.
+
+**Implementation:** Leverages beat-accurate time sync; can control REAPER's metronome and tempo via actions.
+
+**Effort:** M (requires beat-sync logic and UI)
+
+---
+
+### Sandbox Tools
+
+Creative playgrounds that give permission to just play. Low-pressure modes for experimentation and jamming.
+
+**Cues/Playlist** — Already implemented. Arrange regions into setlists, test song structures without duplicating audio.
+
+**Looper Mode:**
+
+Live looping surface for jamming. Record a phrase, it loops, layer on top, play along.
+
+- Record loop of N bars (synced to tempo)
+- Overdub layers
+- Undo last layer
+- Clear and restart
+- Classic guitarist workflow — iPad as a loop pedal
+
+**Design consideration:** How this maps to REAPER's actual looping/overdub modes needs exploration. Could use dedicated looper track with pre-configured FX, or leverage REAPER's native loop recording.
+
+**Timebox Challenge:**
+
+Gamified creation mode — random constraints, time limit, no pressure.
+
+- Generates random key + song title (or user provides)
+- Creates blank project from template with user's track setup
+- Auto-generates song structure via regions (Intro, Verse, Chorus, Bridge, Outro)
+- 15-30 minute soft limit with timer display
+- When time's up: notification + automatic playback of what you made
+- Add notes/markers in real-time during playback review
+- Explicitly "just for fun" — permission to be imperfect
+
+**Why this matters:** Directly attacks perfectionism paralysis. Random constraints prevent overthinking. Time limit forces momentum. Auto-generated structure eliminates blank canvas anxiety. The playback reveal makes it feel like a game.
+
+**Implementation:** Project template system + region creation + timer. Relatively straightforward given existing capabilities.
+
+**Effort:** M (Looper needs design work; Timebox is mostly UI/project creation)
+
+---
+
+### Lyric/Chord Teleprompter
+
+ChordPro import with timeline-synced display for performers.
+
+**Core features:**
+
+- Import lyrics + chords from ChordPro format, Ultimate Guitar, or plain text
+- Display scrolls with REAPER playhead position
+- Section markers from REAPER regions highlight current section
+- Large, readable text designed for viewing from instrument position
+- Transposition control
+
+**Advanced features:**
+
+- Annotation layer that saves with project
+- Practice mode: loop current section with tempo reduction
+- Performer view: full-screen teleprompter, minimal controls
+
+**Use cases:**
+
+- Singer-songwriters tracking vocals with lyrics visible
+- Cover bands / worship bands with setlists
+- Session musicians sight-reading charts
+
+**Why this matters:** OnSong and ForScore are beloved because they combine lyrics, chords, and playback. REAmo can do this with native REAPER integration — charts live with the project, sync is automatic.
+
+**Implementation:** Text rendering + ChordPro parsing + region sync. Substantial but well-defined.
+
+**Effort:** M-L (parsing, rendering, sync logic)
+
+---
+
+### Session Stats
+
+Recording activity visualization — tucked-away info screen for motivation and self-awareness.
+
+**Metrics:**
+
+- Recording streak: consecutive days with any recording activity
+- Monthly summary: takes recorded, time spent, sessions count
+- Personal records: longest session, most productive day
+- Trend graphs: consistency over time
+
+**Implementation:** Query REAPER project history and modification dates; persistent storage tracks session metadata.
+
+**Effort:** S (mostly UI, minimal REAPER integration)
+
+---
+
+### Project Notes Reminder
+
+Gentle nudge to document what you're doing.
+
+**Behavior:**
+
+- Toggleable setting: remind to add project notes every N minutes when not recording
+- Non-intrusive notification (not a modal — subtle indicator)
+- Leverage phone's native speech-to-text for quick voice notes
+- Markers already easy to add/edit; this just prompts the habit
+
+**Why this matters:** Musicians forget setup details, performance notes, and what worked. A gentle reminder builds the documentation habit without friction.
+
+**Effort:** XS (timer + notification, settings toggle)
 
 ---
 
