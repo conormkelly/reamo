@@ -33,8 +33,8 @@ pub fn handleGetState(api: anytype, cmd: protocol.CommandMessage, response: *mod
         return;
     };
 
-    const num_lanes = api.getNumFixedLanes(resolution.track);
-    const free_mode = api.getTrackFreeMode(resolution.track);
+    const num_lanes = api.getNumFixedLanes(resolution.track) catch 0;
+    const free_mode = api.getTrackFreeMode(resolution.track) catch 0;
 
     // Get comp target lane from LANEREC in track state chunk
     var comp_target_lane: i32 = 0;
@@ -81,7 +81,7 @@ pub fn handleGetState(api: anytype, cmd: protocol.CommandMessage, response: *mod
     // Add lane info with play states and names
     var i: c_int = 0;
     while (i < num_lanes and i < 32) : (i += 1) {
-        const plays = api.getTrackLanePlays(resolution.track, i);
+        const plays = api.getTrackLanePlays(resolution.track, i) catch 0;
         if (i > 0) {
             if (offset < buf.len) {
                 buf[offset] = ',';
@@ -176,7 +176,7 @@ pub fn handleSwipeComp(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     }
 
-    const num_lanes = api.getNumFixedLanes(resolution.track);
+    const num_lanes = api.getNumFixedLanes(resolution.track) catch 0;
     if (num_lanes <= 0) {
         response.err("NO_FIXED_LANES", "Track has no fixed lanes enabled");
         return;

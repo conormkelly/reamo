@@ -72,7 +72,7 @@ export function ColorPickerInput({
   return (
     <div className={compact ? 'flex items-center gap-1.5' : ''}>
       <label className={compact ? 'text-xs text-text-secondary' : 'block text-xs text-text-secondary mb-1'}>
-        {label}{compact ? ':' : ''}
+        {label}{compact && label ? ':' : ''}
       </label>
       <div
         onMouseDown={handleMouseDown}

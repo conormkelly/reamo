@@ -181,6 +181,8 @@ pub const Method = enum {
     getTakeGUID,
     getTakeStartOffset,
     getTakePlayrate,
+    getTakeColor,
+    setTakeColor,
     isTakeMIDI,
     getTakeSource,
     getMediaSourceChannels,
@@ -424,6 +426,7 @@ pub const MockTake = struct {
     playrate: f64 = 1.0,
     is_midi: bool = false,
     channel_count: c_int = 2,
+    color: c_int = 0, // I_CUSTOMCOLOR: 0=theme default, or color|0x01000000 for custom
 
     pub fn setName(self: *MockTake, name: []const u8) void {
         const len = @min(name.len, self.name.len);

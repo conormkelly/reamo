@@ -114,7 +114,8 @@ pub const Api = struct {
     getActiveTake: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque = null,
     getTakeName: ?*const fn (?*anyopaque) callconv(.c) ?[*:0]const u8 = null,
     getSetMediaItemTakeInfo_String: ?*const fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool = null,
-    getSetMediaItemTakeInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8, f64, bool) callconv(.c) f64 = null,
+    getMediaItemTakeInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8) callconv(.c) f64 = null,
+    setMediaItemTakeInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8, f64) callconv(.c) bool = null,
     takeIsMIDI: ?*const fn (?*anyopaque) callconv(.c) bool = null,
     getMediaItemTake_Source: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque = null,
     getMediaSourceNumChannels: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
@@ -322,7 +323,8 @@ pub const Api = struct {
             .getActiveTake = getFunc(info, "GetActiveTake", fn (?*anyopaque) callconv(.c) ?*anyopaque),
             .getTakeName = getFunc(info, "GetTakeName", fn (?*anyopaque) callconv(.c) ?[*:0]const u8),
             .getSetMediaItemTakeInfo_String = getFunc(info, "GetSetMediaItemTakeInfo_String", fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool),
-            .getSetMediaItemTakeInfo_Value = getFunc(info, "GetSetMediaItemTakeInfo_Value", fn (?*anyopaque, [*:0]const u8, f64, bool) callconv(.c) f64),
+            .getMediaItemTakeInfo_Value = getFunc(info, "GetMediaItemTakeInfo_Value", fn (?*anyopaque, [*:0]const u8) callconv(.c) f64),
+            .setMediaItemTakeInfo_Value = getFunc(info, "SetMediaItemTakeInfo_Value", fn (?*anyopaque, [*:0]const u8, f64) callconv(.c) bool),
             .takeIsMIDI = getFunc(info, "TakeIsMIDI", fn (?*anyopaque) callconv(.c) bool),
             .getMediaItemTake_Source = getFunc(info, "GetMediaItemTake_Source", fn (?*anyopaque) callconv(.c) ?*anyopaque),
             .getMediaSourceNumChannels = getFunc(info, "GetMediaSourceNumChannels", fn (?*anyopaque) callconv(.c) c_int),
@@ -1218,12 +1220,11 @@ pub const Api = struct {
         f(track);
     }
 
-    /// Get track folder depth (I_FOLDERDEPTH)
+    /// Get track folder depth (I_FOLDERDEPTH) - raw f64, convert in real.zig
     /// Returns: 1 = folder parent, 0 = normal, -N = closes N folder levels
-    pub fn getTrackFolderDepth(self: *const Api, track: *anyopaque) c_int {
+    pub fn getTrackFolderDepth(self: *const Api, track: *anyopaque) f64 {
         const f = self.getMediaTrackInfo_Value orelse return 0;
-        const val = f(track, "I_FOLDERDEPTH");
-        return @intFromFloat(val);
+        return f(track, "I_FOLDERDEPTH");
     }
 
     // Track control methods
@@ -1354,16 +1355,16 @@ pub const Api = struct {
 
     // Fixed Lanes methods (for swipe comping)
 
-    /// Get number of fixed lanes on track (I_NUMFIXEDLANES)
-    pub fn getNumFixedLanes(self: *const Api, track: *anyopaque) c_int {
+    /// Get number of fixed lanes on track (I_NUMFIXEDLANES) - raw f64, convert in real.zig
+    pub fn getNumFixedLanes(self: *const Api, track: *anyopaque) f64 {
         const f = self.getMediaTrackInfo_Value orelse return 0;
-        return @intFromFloat(f(track, "I_NUMFIXEDLANES"));
+        return f(track, "I_NUMFIXEDLANES");
     }
 
-    /// Get track free mode (I_FREEMODE): 0=normal, 1=free positioning, 2=fixed lanes
-    pub fn getTrackFreeMode(self: *const Api, track: *anyopaque) c_int {
+    /// Get track free mode (I_FREEMODE): 0=normal, 1=free positioning, 2=fixed lanes - raw f64, convert in real.zig
+    pub fn getTrackFreeMode(self: *const Api, track: *anyopaque) f64 {
         const f = self.getMediaTrackInfo_Value orelse return 0;
-        return @intFromFloat(f(track, "I_FREEMODE"));
+        return f(track, "I_FREEMODE");
     }
 
     /// Set track free mode (I_FREEMODE): 0=normal, 1=free positioning, 2=fixed lanes
@@ -1373,13 +1374,13 @@ pub const Api = struct {
     }
 
     /// Get lane play state at track level (C_LANEPLAYS:N): 0=off, 1=exclusive, 2=layered
-    /// lane_idx: 0-based lane index
-    pub fn getTrackLanePlays(self: *const Api, track: *anyopaque, lane_idx: c_int) c_int {
+    /// lane_idx: 0-based lane index - raw f64, convert in real.zig
+    pub fn getTrackLanePlays(self: *const Api, track: *anyopaque, lane_idx: c_int) f64 {
         const f = self.getMediaTrackInfo_Value orelse return 0;
         var param_buf: [32]u8 = undefined;
         const param = std.fmt.bufPrint(&param_buf, "C_LANEPLAYS:{d}", .{lane_idx}) catch return 0;
         param_buf[param.len] = 0;
-        return @intFromFloat(f(track, param_buf[0..param.len :0]));
+        return f(track, param_buf[0..param.len :0]);
     }
 
     /// Set lane play state at track level (C_LANEPLAYS:N): 0=off, 1=exclusive, 2=layered
@@ -1391,10 +1392,10 @@ pub const Api = struct {
         return f(track, param_buf[0..param.len :0], @floatFromInt(plays));
     }
 
-    /// Get C_ALLLANESPLAY: 0=none, 1=all, 2=some
-    pub fn getAllLanesPlay(self: *const Api, track: *anyopaque) c_int {
+    /// Get C_ALLLANESPLAY: 0=none, 1=all, 2=some - raw f64, convert in real.zig
+    pub fn getAllLanesPlay(self: *const Api, track: *anyopaque) f64 {
         const f = self.getMediaTrackInfo_Value orelse return 0;
-        return @intFromFloat(f(track, "C_ALLLANESPLAY"));
+        return f(track, "C_ALLLANESPLAY");
     }
 
     /// Set razor edits string (P_RAZOREDITS_EXT) - for targeting specific lanes
@@ -1434,16 +1435,16 @@ pub const Api = struct {
         return f(track, chunk.ptr, isundo);
     }
 
-    /// Get item's fixed lane index (I_FIXEDLANE)
-    pub fn getItemFixedLane(self: *const Api, item: *anyopaque) c_int {
+    /// Get item's fixed lane index (I_FIXEDLANE) - raw f64, convert in real.zig
+    pub fn getItemFixedLane(self: *const Api, item: *anyopaque) f64 {
         const f = self.getMediaItemInfo_Value orelse return 0;
-        return @intFromFloat(f(item, "I_FIXEDLANE"));
+        return f(item, "I_FIXEDLANE");
     }
 
-    /// Get item's lane play state (C_LANEPLAYS): 0=off, 1=exclusive, 2=layered, -1=hidden
-    pub fn getItemLanePlays(self: *const Api, item: *anyopaque) c_int {
+    /// Get item's lane play state (C_LANEPLAYS): 0=off, 1=exclusive, 2=layered, -1=hidden - raw f64, convert in real.zig
+    pub fn getItemLanePlays(self: *const Api, item: *anyopaque) f64 {
         const f = self.getMediaItemInfo_Value orelse return 0;
-        return @intFromFloat(f(item, "C_LANEPLAYS"));
+        return f(item, "C_LANEPLAYS");
     }
 
     /// Get lane name (P_LANENAME:N) - returns slice of name or empty string
@@ -2043,14 +2044,29 @@ pub const Api = struct {
 
     /// Get take start offset in seconds (D_STARTOFFS)
     pub fn getTakeStartOffset(self: *const Api, take: *anyopaque) f64 {
-        const f = self.getSetMediaItemTakeInfo_Value orelse return 0;
-        return f(take, "D_STARTOFFS", 0, false); // set_val=false for get
+        const f = self.getMediaItemTakeInfo_Value orelse return 0;
+        return f(take, "D_STARTOFFS");
     }
 
     /// Get take playback rate (D_PLAYRATE, 1.0 = normal)
     pub fn getTakePlayrate(self: *const Api, take: *anyopaque) f64 {
-        const f = self.getSetMediaItemTakeInfo_Value orelse return 1.0;
-        return f(take, "D_PLAYRATE", 0, false); // set_val=false for get
+        const f = self.getMediaItemTakeInfo_Value orelse return 1.0;
+        return f(take, "D_PLAYRATE");
+    }
+
+    /// Get take custom color (I_CUSTOMCOLOR).
+    /// Returns f64 - caller must use ffi.safeFloatToInt for safe conversion.
+    /// 0 = no custom color, otherwise color value with 0x01000000 flag.
+    pub fn getTakeColor(self: *const Api, take: *anyopaque) f64 {
+        const f = self.getMediaItemTakeInfo_Value orelse return 0;
+        return f(take, "I_CUSTOMCOLOR");
+    }
+
+    /// Set take custom color (I_CUSTOMCOLOR).
+    /// Pass color with 0x01000000 flag for custom color, or 0 to reset to theme default.
+    pub fn setTakeColor(self: *const Api, take: *anyopaque, color: c_int) bool {
+        const f = self.setMediaItemTakeInfo_Value orelse return false;
+        return f(take, "I_CUSTOMCOLOR", @floatFromInt(color));
     }
 
     /// Check if take is MIDI (as opposed to audio)

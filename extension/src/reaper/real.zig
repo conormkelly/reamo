@@ -426,8 +426,8 @@ pub const RealBackend = struct {
         self.inner.deleteTrackPtr(track);
     }
 
-    pub fn getTrackFolderDepth(self: *const RealBackend, track: *anyopaque) c_int {
-        return self.inner.getTrackFolderDepth(track);
+    pub fn getTrackFolderDepth(self: *const RealBackend, track: *anyopaque) ffi.FFIError!c_int {
+        return ffi.safeFloatToInt(c_int, self.inner.getTrackFolderDepth(track));
     }
 
     /// Format track GUID as string into provided buffer.
@@ -891,6 +891,14 @@ pub const RealBackend = struct {
         return self.inner.getTakePlayrate(take);
     }
 
+    pub fn getTakeColor(self: *const RealBackend, take: *anyopaque) ffi.FFIError!c_int {
+        return ffi.safeFloatToInt(c_int, self.inner.getTakeColor(take));
+    }
+
+    pub fn setTakeColor(self: *const RealBackend, take: *anyopaque, color: c_int) bool {
+        return self.inner.setTakeColor(take, color);
+    }
+
     pub fn isTakeMIDI(self: *const RealBackend, take: *anyopaque) bool {
         return self.inner.isTakeMIDI(take);
     }
@@ -1098,28 +1106,28 @@ pub const RealBackend = struct {
     // Fixed Lanes (swipe comping)
     // =========================================================================
 
-    pub fn getNumFixedLanes(self: *const RealBackend, track: *anyopaque) c_int {
-        return self.inner.getNumFixedLanes(track);
+    pub fn getNumFixedLanes(self: *const RealBackend, track: *anyopaque) ffi.FFIError!c_int {
+        return ffi.safeFloatToInt(c_int, self.inner.getNumFixedLanes(track));
     }
 
-    pub fn getTrackFreeMode(self: *const RealBackend, track: *anyopaque) c_int {
-        return self.inner.getTrackFreeMode(track);
+    pub fn getTrackFreeMode(self: *const RealBackend, track: *anyopaque) ffi.FFIError!c_int {
+        return ffi.safeFloatToInt(c_int, self.inner.getTrackFreeMode(track));
     }
 
     pub fn setTrackFreeMode(self: *const RealBackend, track: *anyopaque, mode: c_int) bool {
         return self.inner.setTrackFreeMode(track, mode);
     }
 
-    pub fn getTrackLanePlays(self: *const RealBackend, track: *anyopaque, lane_idx: c_int) c_int {
-        return self.inner.getTrackLanePlays(track, lane_idx);
+    pub fn getTrackLanePlays(self: *const RealBackend, track: *anyopaque, lane_idx: c_int) ffi.FFIError!c_int {
+        return ffi.safeFloatToInt(c_int, self.inner.getTrackLanePlays(track, lane_idx));
     }
 
     pub fn setTrackLanePlays(self: *const RealBackend, track: *anyopaque, lane_idx: c_int, plays: c_int) bool {
         return self.inner.setTrackLanePlays(track, lane_idx, plays);
     }
 
-    pub fn getAllLanesPlay(self: *const RealBackend, track: *anyopaque) c_int {
-        return self.inner.getAllLanesPlay(track);
+    pub fn getAllLanesPlay(self: *const RealBackend, track: *anyopaque) ffi.FFIError!c_int {
+        return ffi.safeFloatToInt(c_int, self.inner.getAllLanesPlay(track));
     }
 
     pub fn setRazorEditsExt(self: *const RealBackend, track: *anyopaque, razor_str: []const u8) bool {
@@ -1138,12 +1146,12 @@ pub const RealBackend = struct {
         return self.inner.setTrackStateChunkStr(track, chunk, isundo);
     }
 
-    pub fn getItemFixedLane(self: *const RealBackend, item: *anyopaque) c_int {
-        return self.inner.getItemFixedLane(item);
+    pub fn getItemFixedLane(self: *const RealBackend, item: *anyopaque) ffi.FFIError!c_int {
+        return ffi.safeFloatToInt(c_int, self.inner.getItemFixedLane(item));
     }
 
-    pub fn getItemLanePlays(self: *const RealBackend, item: *anyopaque) c_int {
-        return self.inner.getItemLanePlays(item);
+    pub fn getItemLanePlays(self: *const RealBackend, item: *anyopaque) ffi.FFIError!c_int {
+        return ffi.safeFloatToInt(c_int, self.inner.getItemLanePlays(item));
     }
 
     pub fn getLaneName(self: *const RealBackend, track: *anyopaque, lane_idx: c_int, buf: []u8) []const u8 {

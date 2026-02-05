@@ -255,7 +255,7 @@ pub const State = struct {
                 t.rec_mon = api.getTrackRecMon(track) catch null;
                 t.fx_enabled = api.getTrackFxEnabled(track);
                 t.selected = api.getTrackSelected(track);
-                t.folder_depth = api.getTrackFolderDepth(track);
+                t.folder_depth = api.getTrackFolderDepth(track) catch 0;
                 // Sparse counts - full data fetched on-demand via track/getFx, track/getSends
                 const fx_c = api.trackFxCount(track);
                 t.fx_count = if (fx_c >= 0) @intCast(fx_c) else 0;
@@ -335,7 +335,7 @@ pub const State = struct {
                 t.rec_mon = api.getTrackRecMon(track) catch null;
                 t.fx_enabled = api.getTrackFxEnabled(track);
                 t.selected = api.getTrackSelected(track);
-                t.folder_depth = api.getTrackFolderDepth(track);
+                t.folder_depth = api.getTrackFolderDepth(track) catch 0;
 
                 const fx_c = api.trackFxCount(track);
                 t.fx_count = if (fx_c >= 0) @intCast(fx_c) else 0;

@@ -96,6 +96,7 @@ pub const all = .{
     .{ "take/cropToActive", takes.handleTakeCropToActive },
     .{ "take/next", takes.handleTakeNext },
     .{ "take/prev", takes.handleTakePrev },
+    .{ "take/setColor", takes.handleSetColor },
 
     // Time Selection
     .{ "timeSelection/set", time_sel.handleSet },
