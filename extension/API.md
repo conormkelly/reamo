@@ -3411,9 +3411,9 @@ Lightweight track list broadcast at 1Hz when structure changes (add/delete/renam
   "event": "trackSkeleton",
   "payload": {
     "tracks": [
-      {"n": "MASTER", "g": "master", "m": false, "sl": null, "sel": false, "r": false, "fd": 0, "sc": 0, "hc": 2, "cl": false, "ic": 0},
-      {"n": "Drums", "g": "{XXXXXXXX-...}", "m": false, "sl": null, "sel": true, "r": true, "fd": 0, "sc": 2, "hc": 0, "cl": true, "ic": 8},
-      {"n": "Bass", "g": "{YYYYYYYY-...}", "m": true, "sl": 2, "sel": false, "r": false, "fd": 0, "sc": 1, "hc": 0, "cl": false, "ic": 3}
+      {"n": "MASTER", "g": "master", "m": false, "sl": null, "sel": false, "r": false, "fd": 0, "sc": 0, "hc": 2, "cl": false, "ic": 0, "fm": 0},
+      {"n": "Drums", "g": "{XXXXXXXX-...}", "m": false, "sl": null, "sel": true, "r": true, "fd": 0, "sc": 2, "hc": 0, "cl": true, "ic": 8, "fm": 2},
+      {"n": "Bass", "g": "{YYYYYYYY-...}", "m": true, "sl": 2, "sel": false, "r": false, "fd": 0, "sc": 1, "hc": 0, "cl": false, "ic": 3, "fm": 0}
     ]
   }
 }
@@ -3432,6 +3432,7 @@ Lightweight track list broadcast at 1Hz when structure changes (add/delete/renam
 | `payload.tracks[].hc` | int | Hardware output count |
 | `payload.tracks[].cl` | bool | Clipped (sticky flag, L or R channel exceeded 0dB since last clear) |
 | `payload.tracks[].ic` | int | Item count (number of media items on track) |
+| `payload.tracks[].fm` | int | Free mode (`0`=normal, `1`=free item positioning, `2`=fixed lanes) |
 
 **Notes:**
 - Sent on connect (snapshot) and whenever track structure or filter state changes
