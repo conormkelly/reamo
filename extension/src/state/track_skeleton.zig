@@ -136,7 +136,7 @@ pub const State = struct {
                 }
                 t.selected = api.getTrackSelected(track);
                 t.rec_arm = api.getTrackRecArm(track);
-                t.folder_depth = api.getTrackFolderDepth(track);
+                t.folder_depth = api.getTrackFolderDepth(track) catch 0;
                 const send_c = api.trackSendCount(track);
                 t.send_count = if (send_c >= 0) @intCast(send_c) else 0;
                 const hw_c = api.trackHwOutputCount(track);

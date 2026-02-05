@@ -217,7 +217,7 @@ pub const State = struct {
                 item.locked = api.getItemLocked(item_ptr) catch null;
                 item.selected = api.getItemSelected(item_ptr) catch null;
                 item.active_take_idx = api.getItemActiveTakeIdx(item_ptr) catch null;
-                item.fixed_lane = api.getItemFixedLane(item_ptr);
+                item.fixed_lane = api.getItemFixedLane(item_ptr) catch 0;
 
                 // Sparse fields - check if notes exist (non-empty), count takes
                 // Full data fetched on-demand via item/getNotes, item/getTakes commands
@@ -442,7 +442,7 @@ pub const State = struct {
                 item.locked = api.getItemLocked(item_ptr) catch null;
                 item.selected = api.getItemSelected(item_ptr) catch null;
                 item.active_take_idx = api.getItemActiveTakeIdx(item_ptr) catch null;
-                item.fixed_lane = api.getItemFixedLane(item_ptr);
+                item.fixed_lane = api.getItemFixedLane(item_ptr) catch 0;
 
                 // Sparse fields
                 var notes_buf: [1024]u8 = undefined;

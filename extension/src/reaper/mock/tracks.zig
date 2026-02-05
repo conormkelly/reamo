@@ -243,7 +243,7 @@ pub const TracksMethods = struct {
         }
     }
 
-    pub fn getTrackFolderDepth(self: anytype, track: *anyopaque) c_int {
+    pub fn getTrackFolderDepth(self: anytype, track: *anyopaque) ffi.FFIError!c_int {
         self.recordCall(.getTrackFolderDepth);
         const idx = state.decodeTrackPtr(track);
         if (idx >= state.MAX_TRACKS) return 0;
@@ -1364,14 +1364,14 @@ pub const TracksMethods = struct {
     // Fixed Lanes (swipe comping)
     // =========================================================================
 
-    pub fn getNumFixedLanes(self: anytype, track: *anyopaque) c_int {
+    pub fn getNumFixedLanes(self: anytype, track: *anyopaque) ffi.FFIError!c_int {
         self.recordCall(.getNumFixedLanes);
         const idx = state.decodeTrackPtr(track);
         if (idx >= state.MAX_TRACKS) return 0;
         return self.tracks[idx].num_fixed_lanes;
     }
 
-    pub fn getTrackFreeMode(self: anytype, track: *anyopaque) c_int {
+    pub fn getTrackFreeMode(self: anytype, track: *anyopaque) ffi.FFIError!c_int {
         self.recordCall(.getTrackFreeMode);
         const idx = state.decodeTrackPtr(track);
         if (idx >= state.MAX_TRACKS) return 0;
@@ -1386,7 +1386,7 @@ pub const TracksMethods = struct {
         return true;
     }
 
-    pub fn getTrackLanePlays(self: anytype, track: *anyopaque, lane_idx: c_int) c_int {
+    pub fn getTrackLanePlays(self: anytype, track: *anyopaque, lane_idx: c_int) ffi.FFIError!c_int {
         self.recordCall(.getTrackLanePlays);
         const idx = state.decodeTrackPtr(track);
         if (idx >= state.MAX_TRACKS) return 0;
@@ -1407,7 +1407,7 @@ pub const TracksMethods = struct {
         return true;
     }
 
-    pub fn getAllLanesPlay(self: anytype, track: *anyopaque) c_int {
+    pub fn getAllLanesPlay(self: anytype, track: *anyopaque) ffi.FFIError!c_int {
         self.recordCall(.getAllLanesPlay);
         const idx = state.decodeTrackPtr(track);
         if (idx >= state.MAX_TRACKS) return 0;
@@ -1460,7 +1460,7 @@ pub const TracksMethods = struct {
         return true;
     }
 
-    pub fn getItemFixedLane(self: anytype, item: *anyopaque) c_int {
+    pub fn getItemFixedLane(self: anytype, item: *anyopaque) ffi.FFIError!c_int {
         self.recordCall(.getItemFixedLane);
         const info = state.decodeItemPtr(item);
         if (info.track_idx >= state.MAX_TRACKS) return 0;
@@ -1468,7 +1468,7 @@ pub const TracksMethods = struct {
         return self.tracks[info.track_idx].items[info.item_idx].fixed_lane;
     }
 
-    pub fn getItemLanePlays(self: anytype, item: *anyopaque) c_int {
+    pub fn getItemLanePlays(self: anytype, item: *anyopaque) ffi.FFIError!c_int {
         self.recordCall(.getItemLanePlays);
         const info = state.decodeItemPtr(item);
         if (info.track_idx >= state.MAX_TRACKS) return 0;
