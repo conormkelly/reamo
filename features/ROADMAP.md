@@ -198,36 +198,27 @@ Deferred — requires fetching all takes' peaks.
 
 ---
 
-### Context-Aware Take/Item Coloring
+### Context-Aware Take/Item Coloring ✅
 
-**Branch:** `feature/context-aware-item-take-color`
+**Status:** Complete (merged to main 2026-02-05)
 
-Make the color swatch in ItemNavigationInfoBar context-aware for quick take rating.
+Quick take rating during recording sessions. Tap to mark a take as keeper (green), maybe (yellow), or discard (red) without leaving the instrument. Colors visible in REAPER's take lanes for later comping.
 
-**Behavior:**
+**Behavior (two separate controls):**
 
-- **Single take (or no takes):** Tapping color swatch colors the item (current behavior)
-- **Multiple takes:** Tapping color swatch colors the active take
+- **Info bar swatch:** Always colors the active take. Displays take color with item color fallback (matches REAPER's render priority)
+- **Bottom sheet "Item Color":** Always colors the item container
+- **Batch mode:** Colors items (not takes)
 
-**Why this matters:** Quick take rating during recording sessions. Tap to mark a take as keeper (green), maybe (yellow), or discard (red) without leaving the instrument. Colors visible in REAPER's take lanes for later comping.
+**REAPER color priority chain (confirmed via Lua testing):**
 
-**Status:** Implementation complete, needs testing.
+1. Take custom color (`I_CUSTOMCOLOR` on `MediaItem_Take`) — wins if set
+2. Item color (`I_CUSTOMCOLOR` on `MediaItem`) — fallback for uncolored takes
+3. Theme default — if neither has custom color
 
-**Backend (complete):**
+**Platform note:** macOS REAPER stores colors as `0x01RRGGBB` (RGB). Windows uses `0x01BBGGRR` (COLORREF/BGR). Frontend `color.ts` treats values as RGB — correct for macOS. Cross-platform will need a conversion layer in the Zig backend if Windows support is added.
 
-- `take/setColor` command using `I_CUSTOMCOLOR` with `0x01000000` flag
-- `getTakeColor`/`setTakeColor` FFI wrappers in raw.zig, real.zig, mock
-- `activeTakeColor` field added to item state and JSON payload
-
-**Frontend (complete):**
-
-- `take.setColor()` command in WebSocketCommands
-- NavigateItemInfoBar routes color changes based on `takeCount`
-- Displays active take's color in swatch when multiple takes exist
-- "Take" indicator label when in take coloring mode (need to remove this)
-- Batch mode unchanged (always colors items)
-
-**Effort:** S (backend command + frontend routing logic)
+**Also shipped:** Removed position label from info bar (declutter), take nav round-robin wrap-around, fixed bare colon in ColorPickerInput when label is empty
 
 ---
 
