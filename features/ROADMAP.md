@@ -384,21 +384,101 @@ Live looping surface for jamming. Record a phrase, it loops, layer on top, play 
 
 **Timebox Challenge:**
 
-Gamified creation mode — random constraints, time limit, no pressure.
+Constraint-based creation mode — random musical constraints, time limit, automatic closure. Research-validated approach to breaking perfectionism paralysis.
 
-- Generates random key + song title (or user provides)
-- Creates blank project from template with user's track setup
-- Auto-generates song structure via regions (Intro, Verse, Chorus, Bridge, Outro)
-- 15-30 minute soft limit with timer display
-- When time's up: notification + automatic playback of what you made
-- Add notes/markers in real-time during playback review
-- Explicitly "just for fun" — permission to be imperfect
+**Research validation:**
 
-**Why this matters:** Directly attacks perfectionism paralysis. Random constraints prevent overthinking. Time limit forces momentum. Auto-generated structure eliminates blank canvas anxiety. The playback reveal makes it feel like a game.
+- Constrained creative work scores **23% higher on originality** than unconstrained work (Haught-Tromp, large effect size η²p = .53)
+- Moderate time pressure preserves creativity; high pressure kills it — 45% less creative thinking on high-pressure days (Amabile, 12,000 diary entries)
+- Constraints work by forcing exploration of unexpected territory, overriding default patterns
+- The "carryover effect": constraint-based practice builds lasting creative capacity
+- ~10% of output will be genuinely great — but only if you make enough (Jonathan Mann, 5,000+ consecutive songs)
 
-**Implementation:** Project template system + region creation + timer. Relatively straightforward given existing capabilities.
+**Core experience flow:**
 
-**Effort:** M (Looper needs design work; Timebox is mostly UI/project creation)
+1. **Challenge reveal** — Full-screen display of three constraints with reroll options
+2. **Project auto-creation** — REAPER project with tempo set, regions marking song structure
+3. **Recording phase** — Hidden timer with audio-only notifications
+4. **Playback reveal** — 5-second countdown, then automatic playback from start
+5. **Closure prompt** — Three equal options: Save / Mark for Later / Let It Go
+
+**Three focusing constraints (v1):**
+
+Research shows focusing constraints ("include this") outperform exclusionary ("avoid this"). Three constraints fit working memory — users can recall all without checking a reference.
+
+| Constraint | Implementation |
+|------------|----------------|
+| **Key** | All 12 major/minor, weighted toward common keys with occasional wild cards |
+| **Tempo** | Named ranges: Chill (60-80), Moderate (80-110), Energetic (110-140), Intense (140-180) |
+| **Title** | Evocative phrases suggesting mood/imagery without dictating genre: "The Space Between Wanting", "Copper and Glass", "2AM Parking Lot" |
+
+**Reroll essential:** Allow individual constraint rerolls (tap key to regenerate just key) and full regeneration. Random works, but needs escape valves.
+
+**Time parameters:**
+
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| Default duration | **20 minutes** | Amabile's "low-to-moderate" pressure zone |
+| Selectable presets | 10 / 15 / 20 / 30 / 45 min | 10 = Kenny Beats extreme; 45 = deep focus (~23 min to reach flow) |
+| Timer visibility | **Hidden by default** | Research: visible countdown creates anxiety; audio cues preserve urgency |
+| 2-minute warning | Gentle chime | Mental preparation for closure |
+| Completion | Distinct sound | Clear "done" signal |
+| Stop type | **Soft stop** | "I'm in flow, give me 5 more minutes" extend option respects flow states |
+
+**Song structure auto-generation:**
+
+Removes blank canvas anxiety. Regions created in REAPER project:
+
+```
+Intro:    4 bars
+Verse:    8 bars
+Chorus:   8 bars
+Verse 2:  8 bars
+Chorus 2: 8 bars
+Bridge:   8 bars
+```
+
+User can modify structure before starting (preserves autonomy). Tempo-adaptive: faster tempos get shorter bar counts.
+
+**Closure options (equal prominence):**
+
+- **Save to Library** — Archives with metadata (key, tempo, title, date)
+- **Mark for Later** — Flag for revisiting/developing
+- **Let It Go** — Explicit permission to not care; moves to "completed" without saving
+
+Avoid elaborate reflection prompts ("What did you learn?") — the goal is permission to move on, not homework.
+
+**The solo musician problem:**
+
+Every successful constraint challenge (FAWM, NaNoWriMo, game jams) has community accountability. Solo home recording musicians don't. Mitigations:
+
+- **"On This Day"** — Surface completed timeboxes from 30/90/365 days ago. Creates temporal community with past self.
+- **Session stats** — Volume celebration: "This month you created 12 pieces totaling 47 minutes of original music"
+- **Streak forgiveness** — Missing one day doesn't break streak if you complete one the next day
+- **First sessions critical** — NaNoWriMo dropouts happen in week 1. First 3-5 timeboxes must feel achievable.
+
+**V1 scope (ship the core loop fast):**
+
+- Three-constraint generation (key, tempo, title)
+- Duration presets (10/15/20/30/45)
+- Individual + full reroll
+- REAPER project auto-creation with tempo and regions
+- Hidden timer with audio cues
+- Automatic playback on completion
+- Save / Mark / Let It Go options
+- Basic library of completed timeboxes
+
+**V2+ additions:**
+
+- Difficulty levels (Beginner: 2 constraints, 30 min; Challenge: 4 constraints, 15 min)
+- Light achievement system (volume milestones, not competition)
+- "On This Day" feature
+- Session statistics and monthly summaries
+- Mood/genre as optional fourth constraint
+- Time signature constraints (3/4, 6/8, 5/4)
+- Musician-type templates (drummer, vocalist, producer)
+
+**Effort:** M (v1 is project creation + timer + UI; v2 adds persistence and stats)
 
 ---
 
