@@ -953,6 +953,23 @@ Delete all takes except the active one from selected items.
 {"type": "command", "command": "take/cropToActive"}
 ```
 
+### `take/setColor`
+
+Set a take's custom color.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | Yes | Track index (unified: 0=master, 1+=user tracks) |
+| `itemIdx` | int | Yes | Item index on track |
+| `takeIdx` | int | Yes | Take index within item |
+| `color` | int | Yes | OS-native color with 0x01000000 flag, or 0 to reset to theme default |
+
+**Color Format**: Use `ColorToNative(r,g,b) | 0x01000000` for custom colors. Pass `0` to remove custom color (use theme default).
+
+```json
+{"type": "command", "command": "take/setColor", "trackIdx": 1, "itemIdx": 0, "takeIdx": 0, "color": 17711680}
+```
+
 ---
 
 ## Track Commands
@@ -3637,7 +3654,11 @@ Sent when items change. Broadcast to all connected clients (no subscription requ
         "activeTakeIdx": 0,
         "fixedLane": 0,
         "hasNotes": true,
-        "takeCount": 2
+        "takeCount": 2,
+        "activeTakeName": "Take 1.wav",
+        "activeTakeGuid": "{YYYYYYYY-YYYY-YYYY-YYYY-YYYYYYYYYYYY}",
+        "activeTakeIsMidi": false,
+        "activeTakeColor": null
       }
     ]
   }
@@ -3658,6 +3679,10 @@ Sent when items change. Broadcast to all connected clients (no subscription requ
 | `items[].fixedLane` | int | Fixed lane index (I_FIXEDLANE, 0-based) for swipe comping |
 | `items[].hasNotes` | bool | True if item has notes (use `item/getNotes` for content) |
 | `items[].takeCount` | int | Number of takes (use `item/getTakes` for full details) |
+| `items[].activeTakeName` | string | Display name of active take (usually filename) |
+| `items[].activeTakeGuid` | string | GUID of active take (for peaks cache lookup) |
+| `items[].activeTakeIsMidi` | bool | True if active take is MIDI (skip peaks rendering) |
+| `items[].activeTakeColor` | int\|null | Custom color of active take (native OS format with 0x01000000 flag), null if no custom color |
 
 **Notes:**
 - Sent on connect (snapshot) and on change at 5Hz (MEDIUM tier)

@@ -70,6 +70,9 @@ pub const Item = struct {
     active_take_guid_len: usize = 0,
     active_take_is_midi: bool = false,
 
+    // Active take color (for context-aware coloring - show take color when multiple takes)
+    active_take_color: ?c_int = null,
+
     pub fn getGUID(self: *const Item) []const u8 {
         return self.guid[0..self.guid_len];
     }
@@ -104,6 +107,8 @@ pub const Item = struct {
         if (self.active_take_guid_len != other.active_take_guid_len) return false;
         if (!std.mem.eql(u8, self.getActiveTakeGUID(), other.getActiveTakeGUID())) return false;
         if (self.active_take_is_midi != other.active_take_is_midi) return false;
+        // Active take color
+        if (self.active_take_color != other.active_take_color) return false;
         return true;
     }
 };
@@ -223,10 +228,11 @@ pub const State = struct {
                 const take_count_raw = api.itemTakeCount(item_ptr);
                 item.take_count = if (take_count_raw >= 0) @intCast(@min(take_count_raw, 255)) else 0;
 
-                // Get active take info (name, GUID, MIDI flag)
+                // Get active take info (name, GUID, MIDI flag, color)
                 item.active_take_name_len = 0;
                 item.active_take_guid_len = 0;
                 item.active_take_is_midi = false;
+                item.active_take_color = null;
                 if (api.getItemActiveTake(item_ptr)) |take| {
                     // Name
                     const take_name = api.getTakeNameStr(take);
@@ -243,6 +249,13 @@ pub const State = struct {
 
                     // MIDI flag (skip peaks for MIDI items)
                     item.active_take_is_midi = api.isTakeMIDI(take);
+
+                    // Color (for context-aware coloring)
+                    const take_color = api.getTakeColor(take) catch 0;
+                    // Only set if custom color is active (has 0x01000000 flag)
+                    if (take_color != 0) {
+                        item.active_take_color = take_color;
+                    }
                 }
 
                 total_count += 1;
@@ -331,12 +344,17 @@ pub const State = struct {
                 item.take_count,
             }) catch return null;
             protocol.writeJsonString(w, item.getActiveTakeName()) catch return null;
-            // Active take GUID and MIDI flag (for peaks cache lookup)
+            // Active take GUID, MIDI flag, and color (for peaks cache lookup and context-aware coloring)
             w.writeAll("\",\"activeTakeGuid\":\"") catch return null;
             protocol.writeJsonString(w, item.getActiveTakeGUID()) catch return null;
-            w.print("\",\"activeTakeIsMidi\":{s}}}", .{
+            w.print("\",\"activeTakeIsMidi\":{s},\"activeTakeColor\":", .{
                 if (item.active_take_is_midi) "true" else "false",
             }) catch return null;
+            if (item.active_take_color) |c| {
+                w.print("{d}}}", .{c}) catch return null;
+            } else {
+                w.writeAll("null}") catch return null;
+            }
         }
 
         w.writeAll("]}}") catch return null;
@@ -434,13 +452,33 @@ pub const State = struct {
                 const take_count_raw = api.itemTakeCount(item_ptr);
                 item.take_count = if (take_count_raw >= 0) @intCast(@min(take_count_raw, 255)) else 0;
 
-                // Get active take name
+                // Get active take info (name, GUID, color)
                 item.active_take_name_len = 0;
+                item.active_take_guid_len = 0;
+                item.active_take_is_midi = false;
+                item.active_take_color = null;
                 if (api.getItemActiveTake(item_ptr)) |take| {
+                    // Name
                     const take_name = api.getTakeNameStr(take);
                     const copy_len = @min(take_name.len, item.active_take_name.len);
                     @memcpy(item.active_take_name[0..copy_len], take_name[0..copy_len]);
                     item.active_take_name_len = copy_len;
+
+                    // GUID
+                    var take_guid_buf: [64]u8 = undefined;
+                    const take_guid = api.getTakeGUID(take, &take_guid_buf);
+                    const take_guid_copy_len = @min(take_guid.len, item.active_take_guid.len);
+                    @memcpy(item.active_take_guid[0..take_guid_copy_len], take_guid[0..take_guid_copy_len]);
+                    item.active_take_guid_len = take_guid_copy_len;
+
+                    // MIDI flag
+                    item.active_take_is_midi = api.isTakeMIDI(take);
+
+                    // Color (for context-aware coloring)
+                    const take_color = api.getTakeColor(take) catch 0;
+                    if (take_color != 0) {
+                        item.active_take_color = take_color;
+                    }
                 }
 
                 write_idx += 1;
@@ -469,6 +507,7 @@ pub const State = struct {
             hasher.update(std.mem.asBytes(&item.has_notes));
             hasher.update(std.mem.asBytes(&item.take_count));
             hasher.update(item.active_take_name[0..item.active_take_name_len]);
+            hasher.update(std.mem.asBytes(&item.active_take_color));
         }
         return hasher.final();
     }
@@ -586,10 +625,10 @@ test "State items JSON output" {
     const json = state.itemsToJson(&buf).?;
 
     // trackIdx is unified: internal track_idx 0 becomes trackIdx 1 (0 = master, 1+ = user tracks)
-    // Sparse fields: hasNotes, takeCount, activeTakeName, activeTakeGuid, activeTakeIsMidi
+    // Sparse fields: hasNotes, takeCount, activeTakeName, activeTakeGuid, activeTakeIsMidi, activeTakeColor
     // Fixed lane for swipe comping
     try std.testing.expectEqualStrings(
-        "{\"type\":\"event\",\"event\":\"items\",\"payload\":{\"items\":[{\"guid\":\"{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}\",\"trackIdx\":1,\"itemIdx\":0,\"position\":10.000,\"length\":5.000,\"color\":16711680,\"locked\":false,\"selected\":false,\"activeTakeIdx\":0,\"fixedLane\":0,\"hasNotes\":true,\"takeCount\":2,\"activeTakeName\":\"Test Take\",\"activeTakeGuid\":\"{11111111-2222-3333-4444-555555555555}\",\"activeTakeIsMidi\":false}]}}",
+        "{\"type\":\"event\",\"event\":\"items\",\"payload\":{\"items\":[{\"guid\":\"{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}\",\"trackIdx\":1,\"itemIdx\":0,\"position\":10.000,\"length\":5.000,\"color\":16711680,\"locked\":false,\"selected\":false,\"activeTakeIdx\":0,\"fixedLane\":0,\"hasNotes\":true,\"takeCount\":2,\"activeTakeName\":\"Test Take\",\"activeTakeGuid\":\"{11111111-2222-3333-4444-555555555555}\",\"activeTakeIsMidi\":false,\"activeTakeColor\":null}]}}",
         json,
     );
 }
