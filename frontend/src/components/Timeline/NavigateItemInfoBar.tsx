@@ -107,42 +107,50 @@ export function NavigateItemInfoBar({
 
   // Take navigation (only for single item)
   const handlePrevTake = useCallback(() => {
-    if (!singleItem || singleItem.activeTakeIdx <= 0) return;
+    if (!singleItem || singleItem.takeCount <= 1) return;
+    const prevIdx = singleItem.activeTakeIdx <= 0
+      ? singleItem.takeCount - 1
+      : singleItem.activeTakeIdx - 1;
     sendCommand(
-      itemCmd.setActiveTake(singleItem.trackIdx, singleItem.itemIdx, singleItem.activeTakeIdx - 1)
+      itemCmd.setActiveTake(singleItem.trackIdx, singleItem.itemIdx, prevIdx)
     );
   }, [singleItem, sendCommand]);
 
   const handleNextTake = useCallback(() => {
-    if (!singleItem || singleItem.activeTakeIdx >= singleItem.takeCount - 1) return;
+    if (!singleItem || singleItem.takeCount <= 1) return;
+    const nextIdx = singleItem.activeTakeIdx >= singleItem.takeCount - 1
+      ? 0
+      : singleItem.activeTakeIdx + 1;
     sendCommand(
-      itemCmd.setActiveTake(singleItem.trackIdx, singleItem.itemIdx, singleItem.activeTakeIdx + 1)
+      itemCmd.setActiveTake(singleItem.trackIdx, singleItem.itemIdx, nextIdx)
     );
   }, [singleItem, sendCommand]);
 
-  // Color picker handler (single item)
-  // Context-aware: colors the active take if multiple takes, otherwise colors the item
-  const handleColorChange = useCallback(
+  // Info bar color picker: always colors the active take
+  const handleTakeColorChange = useCallback(
     (color: string) => {
       if (!singleItem) return;
       const reaperColor = hexToReaperColor(color);
+      sendCommand(
+        takeCmd.setColor(
+          singleItem.trackIdx,
+          singleItem.itemIdx,
+          singleItem.activeTakeIdx,
+          reaperColor
+        )
+      );
+    },
+    [singleItem, sendCommand]
+  );
 
-      if (singleItem.takeCount > 1) {
-        // Multiple takes: color the active take
-        sendCommand(
-          takeCmd.setColor(
-            singleItem.trackIdx,
-            singleItem.itemIdx,
-            singleItem.activeTakeIdx,
-            reaperColor
-          )
-        );
-      } else {
-        // Single/no takes: color the item (existing behavior)
-        sendCommand(
-          itemCmd.setColor(singleItem.trackIdx, singleItem.itemIdx, reaperColor)
-        );
-      }
+  // Bottom sheet color picker: always colors the item
+  const handleItemColorChange = useCallback(
+    (color: string) => {
+      if (!singleItem) return;
+      const reaperColor = hexToReaperColor(color);
+      sendCommand(
+        itemCmd.setColor(singleItem.trackIdx, singleItem.itemIdx, reaperColor)
+      );
     },
     [singleItem, sendCommand]
   );
@@ -280,11 +288,18 @@ export function NavigateItemInfoBar({
   );
 
   // Context-aware coloring: show take color when multiple takes, otherwise item color
-  const currentColor = useMemo(() => {
+  // Take color for info bar swatch: take color if set, else item color (matches REAPER's render priority)
+  const currentTakeColor = useMemo(() => {
     if (!singleItem) return DEFAULT_ITEM_COLOR;
-    if (singleItem.takeCount > 1 && singleItem.activeTakeColor) {
+    if (singleItem.activeTakeColor) {
       return reaperColorToHexWithFallback(singleItem.activeTakeColor, DEFAULT_ITEM_COLOR);
     }
+    return reaperColorToHexWithFallback(singleItem.color, DEFAULT_ITEM_COLOR);
+  }, [singleItem]);
+
+  // Item color for bottom sheet
+  const currentItemColor = useMemo(() => {
+    if (!singleItem) return DEFAULT_ITEM_COLOR;
     return reaperColorToHexWithFallback(singleItem.color, DEFAULT_ITEM_COLOR);
   }, [singleItem]);
 
@@ -412,16 +427,6 @@ export function NavigateItemInfoBar({
       ) : selectedCount === 1 && singleItem ? (
         // Single item selected - show full controls
         <div className="flex items-center gap-3">
-          {/* Position */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-text-secondary text-xs">At:</span>
-            <span className="text-info-muted font-mono text-sm">
-              {formattedPosition}
-            </span>
-          </div>
-
-          <div className="w-px h-6 bg-border-default flex-shrink-0" />
-
           {/* Take navigation */}
           <div className="flex items-center gap-1.5">
             <button
@@ -447,11 +452,11 @@ export function NavigateItemInfoBar({
 
           <div className="w-px h-6 bg-border-default flex-shrink-0" />
 
-          {/* Color picker */}
+          {/* Color picker - take color */}
           <ColorPickerInput
             label=""
-            value={currentColor}
-            onChange={handleColorChange}
+            value={currentTakeColor}
+            onChange={handleTakeColorChange}
             defaultValue={DEFAULT_ITEM_COLOR}
             compact
           />
@@ -645,12 +650,12 @@ export function NavigateItemInfoBar({
               )}
             </div>
 
-            {/* Color section */}
+            {/* Item color section */}
             <div className="mb-4">
               <ColorPickerInput
-                label="Color"
-                value={currentColor}
-                onChange={handleColorChange}
+                label="Item Color"
+                value={currentItemColor}
+                onChange={handleItemColorChange}
                 defaultValue={DEFAULT_ITEM_COLOR}
               />
             </div>
