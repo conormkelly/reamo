@@ -35,6 +35,8 @@ const track_skeleton = @import("state/track_skeleton.zig");
 const csurf = @import("server/csurf.zig");
 const csurf_dirty = @import("server/csurf_dirty.zig");
 const network_action = @import("platform/network_action.zig");
+const menu = @import("platform/menu.zig");
+const swell = @import("platform/swell.zig");
 const fast_timer = @import("platform/fast_timer.zig");
 const ztracy = @import("ztracy");
 const lua_peak_bridge = @import("platform/lua_peak_bridge.zig");
@@ -368,15 +370,9 @@ fn doInitialization() !void {
         lua_peak_bridge.LuaPeakBridge.register(plugin_register);
     }
 
-    // Register network addresses action
-    if (g_plugin_register) |plugin_register| {
-        if (g_api) |*inner_api| {
-            if (network_action.register(plugin_register, inner_api.showMessageBox, inner_api.getMainHwnd_fn, inner_api.resourcePath())) {
-                logging.info("Network action registered", .{});
-            } else {
-                logging.warn("Failed to register network action", .{});
-            }
-        }
+    // Initialize network action handlers (state only — menu registration already done in ReaperPluginEntry)
+    if (g_api) |*inner_api| {
+        network_action.init(inner_api.showMessageBox, inner_api.getMainHwnd_fn, inner_api.resourcePath());
     }
 
     // Initialize Lua script for peak fetching (must be after API registration)
@@ -822,8 +818,8 @@ fn shutdown() void {
     }
     logging.info("CSurf cleaned up", .{});
 
-    // Unregister network action
-    network_action.unregister();
+    // Unregister extension menu
+    menu.unregister();
 
     if (g_server) |*server| {
         logging.info("stopping server", .{});
@@ -998,6 +994,22 @@ export fn ReaperPluginEntry(hInstance: ?*anyopaque, rec: ?*reaper.PluginInfo) ca
 
     // Save plugin_register for CSurf integration
     g_plugin_register = info.Register;
+
+    // Initialize SWELL bridge before menu registration.
+    // Menu building (flag=0 callback) needs SWELL functions like CreatePopupMenu.
+    // SWELLAPI_GetFunc must be obtained before any SWELL calls work.
+    _ = swell.init();
+
+    // Register Extensions menu NOW (before returning 1).
+    // hookcustommenu flag=0 fires once when the menu is first created —
+    // if SWS already called AddExtensionsMainMenu(), the flag=0 event fires
+    // during plugin loading. Deferring this to a timer would miss it.
+    if (g_api.?.addExtensionsMainMenu) |add_ext_menu| {
+        if (menu.register(info.Register, add_ext_menu)) {
+            // Menu items won't be dispatched until network_action.init() runs
+            // in doInitialization(), but that's fine — user can't click them yet.
+        }
+    }
 
     // Register deferred initialization timer
     g_api.?.registerTimer(&initTimerCallback);

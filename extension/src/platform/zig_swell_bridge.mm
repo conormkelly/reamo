@@ -41,6 +41,14 @@ static SWELL_GetCtxFrameBufferFn s_SWELL_GetCtxFrameBuffer = nullptr;
 static BitBltFn s_BitBlt = nullptr;
 static SetTimerFn s_SetTimer = nullptr;
 static KillTimerFn s_KillTimer = nullptr;
+static CreatePopupMenuFn s_CreatePopupMenu = nullptr;
+static DestroyMenuFn s_DestroyMenu = nullptr;
+static SWELL_InsertMenuFn s_SWELL_InsertMenu = nullptr;
+static GetMenuItemCountFn s_GetMenuItemCount = nullptr;
+static GetSubMenuFn s_GetSubMenu = nullptr;
+static GetMenuItemIDFn s_GetMenuItemID = nullptr;
+static CheckMenuItemFn s_CheckMenuItem = nullptr;
+static EnableMenuItemFn s_EnableMenuItem = nullptr;
 
 #ifdef __APPLE__
 
@@ -193,6 +201,40 @@ SetTimerFn zig_swell_get_SetTimer(void) {
 
 KillTimerFn zig_swell_get_KillTimer(void) {
     GET_SWELL_FUNC(KillTimer, KillTimerFn);
+}
+
+/* Menu function getters */
+
+CreatePopupMenuFn zig_swell_get_CreatePopupMenu(void) {
+    GET_SWELL_FUNC(CreatePopupMenu, CreatePopupMenuFn);
+}
+
+DestroyMenuFn zig_swell_get_DestroyMenu(void) {
+    GET_SWELL_FUNC(DestroyMenu, DestroyMenuFn);
+}
+
+SWELL_InsertMenuFn zig_swell_get_SWELL_InsertMenu(void) {
+    GET_SWELL_FUNC(SWELL_InsertMenu, SWELL_InsertMenuFn);
+}
+
+GetMenuItemCountFn zig_swell_get_GetMenuItemCount(void) {
+    GET_SWELL_FUNC(GetMenuItemCount, GetMenuItemCountFn);
+}
+
+GetSubMenuFn zig_swell_get_GetSubMenu(void) {
+    GET_SWELL_FUNC(GetSubMenu, GetSubMenuFn);
+}
+
+GetMenuItemIDFn zig_swell_get_GetMenuItemID(void) {
+    GET_SWELL_FUNC(GetMenuItemID, GetMenuItemIDFn);
+}
+
+CheckMenuItemFn zig_swell_get_CheckMenuItem(void) {
+    GET_SWELL_FUNC(CheckMenuItem, CheckMenuItemFn);
+}
+
+EnableMenuItemFn zig_swell_get_EnableMenuItem(void) {
+    GET_SWELL_FUNC(EnableMenuItem, EnableMenuItemFn);
 }
 
 // =============================================================================

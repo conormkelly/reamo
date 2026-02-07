@@ -254,6 +254,9 @@ pub const Api = struct {
     // Script management (for Lua bridge)
     addRemoveReaScript: ?*const fn (c_int, c_int, [*:0]const u8, c_int) callconv(.c) c_int = null,
 
+    // Extensions menu
+    addExtensionsMainMenu: ?*const fn () callconv(.c) bool = null,
+
     // Load API from REAPER plugin info
     pub fn load(info: *PluginInfo) ?Api {
         const showConsoleMsg = getFunc(info, "ShowConsoleMsg", fn ([*:0]const u8) callconv(.c) void) orelse return null;
@@ -439,6 +442,8 @@ pub const Api = struct {
             .getMIDIInputName = getFunc(info, "GetMIDIInputName", fn (c_int, [*]u8, c_int) callconv(.c) bool),
             // Script management
             .addRemoveReaScript = getFunc(info, "AddRemoveReaScript", fn (c_int, c_int, [*:0]const u8, c_int) callconv(.c) c_int),
+            // Extensions menu
+            .addExtensionsMainMenu = getFunc(info, "AddExtensionsMainMenu", fn () callconv(.c) bool),
         };
     }
 
