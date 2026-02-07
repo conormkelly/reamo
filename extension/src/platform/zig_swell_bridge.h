@@ -71,6 +71,9 @@ typedef int (*GetMenuItemIDFn)(SwellHMENU menu, int pos);
 typedef bool (*CheckMenuItemFn)(SwellHMENU menu, int idx, int chk);
 typedef bool (*EnableMenuItemFn)(SwellHMENU menu, int idx, int en);
 
+/* Window geometry */
+typedef bool (*GetWindowRectFn)(SwellHWND hwnd, int* rect);
+
 /* Timer functions (SWELL - may not be available) */
 typedef void (*SwellTIMERPROC)(SwellHWND hwnd, unsigned int msg, uintptr_t id, unsigned int time);
 typedef uintptr_t (*SetTimerFn)(SwellHWND hwnd, uintptr_t nIDEvent, unsigned int uElapse, SwellTIMERPROC lpTimerFunc);
@@ -121,6 +124,7 @@ SWELL_GetCtxFrameBufferFn zig_swell_get_SWELL_GetCtxFrameBuffer(void);
 BitBltFn zig_swell_get_BitBlt(void);
 SetTimerFn zig_swell_get_SetTimer(void);
 KillTimerFn zig_swell_get_KillTimer(void);
+GetWindowRectFn zig_swell_get_GetWindowRect(void);
 CreatePopupMenuFn zig_swell_get_CreatePopupMenu(void);
 DestroyMenuFn zig_swell_get_DestroyMenu(void);
 SWELL_InsertMenuFn zig_swell_get_SWELL_InsertMenu(void);

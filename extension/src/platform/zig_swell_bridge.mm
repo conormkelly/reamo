@@ -41,6 +41,7 @@ static SWELL_GetCtxFrameBufferFn s_SWELL_GetCtxFrameBuffer = nullptr;
 static BitBltFn s_BitBlt = nullptr;
 static SetTimerFn s_SetTimer = nullptr;
 static KillTimerFn s_KillTimer = nullptr;
+static GetWindowRectFn s_GetWindowRect = nullptr;
 static CreatePopupMenuFn s_CreatePopupMenu = nullptr;
 static DestroyMenuFn s_DestroyMenu = nullptr;
 static SWELL_InsertMenuFn s_SWELL_InsertMenu = nullptr;
@@ -201,6 +202,10 @@ SetTimerFn zig_swell_get_SetTimer(void) {
 
 KillTimerFn zig_swell_get_KillTimer(void) {
     GET_SWELL_FUNC(KillTimer, KillTimerFn);
+}
+
+GetWindowRectFn zig_swell_get_GetWindowRect(void) {
+    GET_SWELL_FUNC(GetWindowRect, GetWindowRectFn);
 }
 
 /* Menu function getters */
