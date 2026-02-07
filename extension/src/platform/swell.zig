@@ -146,9 +146,10 @@ pub fn createDialogParam(resid: usize, parent: HWND, dlgProc: DlgProc, param: is
 }
 
 /// Create a floating window without dialog resources.
-/// Uses special resid 0x400001 which creates a titled, resizable window.
+/// Uses special resid 0x400008: titled, closable, minimizable, non-resizable.
+/// Bit 3 forces top-level without setting bit 0 (resizable).
 pub fn createFloatingWindow(parent: HWND, dlgProc: DlgProc) HWND {
-    return createDialogParam(0x400001, parent, dlgProc, 0);
+    return createDialogParam(0x400008, parent, dlgProc, 0);
 }
 
 /// Begin painting a window. Must be paired with endPaint().
