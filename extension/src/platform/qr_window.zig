@@ -36,6 +36,26 @@ var g_network_count: usize = 0;
 var g_current_index: usize = 0;
 var g_http_port: u16 = 8080;
 
+/// Saved parent handle for centering in WM_INITDIALOG
+var g_parent: swell.HWND = null;
+
+/// Calculate window position centered on the parent window.
+/// Falls back to (100, 100) if parent rect can't be obtained.
+fn centerOnParent(parent: swell.HWND) [2]c_int {
+    if (parent != null) {
+        var rect: [4]c_int = undefined;
+        if (swell.getWindowRect(parent, &rect)) {
+            const parent_cx = @divTrunc(rect[0] + rect[2], 2);
+            const parent_cy = @divTrunc(rect[1] + rect[3], 2);
+            return .{
+                parent_cx - @divTrunc(WINDOW_WIDTH, 2),
+                parent_cy - @divTrunc(WINDOW_HEIGHT, 2),
+            };
+        }
+    }
+    return .{ 100, 100 };
+}
+
 /// Show a QR code window for detected networks.
 /// If a window is already open, it will be destroyed and recreated.
 pub fn show(networks: []const network_detect.NetworkInfo, http_port: u16, parent: swell.HWND) void {
@@ -51,6 +71,9 @@ pub fn show(networks: []const network_detect.NetworkInfo, http_port: u16, parent
         std.log.err("qr_window: failed to initialize SWELL", .{});
         return;
     }
+
+    // Save parent for centering
+    g_parent = parent;
 
     // Copy networks to our static buffer
     g_network_count = @min(networks.len, g_networks.len);
@@ -70,9 +93,10 @@ pub fn show(networks: []const network_detect.NetworkInfo, http_port: u16, parent
         return;
     }
 
-    // Set window title and size
+    // Set window title and size, centered on parent window
     updateWindowTitle();
-    swell.setWindowPos(g_hwnd, null, 100, 100, WINDOW_WIDTH, WINDOW_HEIGHT, 0);
+    const pos = centerOnParent(parent);
+    swell.setWindowPos(g_hwnd, null, pos[0], pos[1], WINDOW_WIDTH, WINDOW_HEIGHT, 0);
 
     // Make window float above others on macOS
     if (comptime swell.is_swell_platform) {
@@ -218,7 +242,8 @@ fn dlgProc(hwnd: swell.HWND, msg: c_uint, wParam: usize, lParam: isize) callconv
     switch (msg) {
         swell.WM_INITDIALOG => {
             updateWindowTitle();
-            swell.setWindowPos(hwnd, null, 100, 100, WINDOW_WIDTH, WINDOW_HEIGHT, swell.SWP_NOZORDER);
+            const pos = centerOnParent(g_parent);
+            swell.setWindowPos(hwnd, null, pos[0], pos[1], WINDOW_WIDTH, WINDOW_HEIGHT, swell.SWP_NOZORDER);
 
             if (comptime swell.is_swell_platform) {
                 if (swell.isMacOS()) {

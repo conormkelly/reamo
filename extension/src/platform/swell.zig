@@ -100,6 +100,9 @@ extern fn zig_swell_get_BitBlt() ?*const fn (HDC, c_int, c_int, c_int, c_int, HD
 extern fn zig_swell_get_SetTimer() ?*const fn (HWND, usize, c_uint, ?TIMERPROC) callconv(.c) usize;
 extern fn zig_swell_get_KillTimer() ?*const fn (HWND, usize) callconv(.c) c_int;
 
+// Window geometry
+extern fn zig_swell_get_GetWindowRect() ?*const fn (?*anyopaque, *[4]c_int) callconv(.c) bool;
+
 // Menu functions
 extern fn zig_swell_get_CreatePopupMenu() ?*const fn () callconv(.c) ?*anyopaque;
 extern fn zig_swell_get_DestroyMenu() ?*const fn (?*anyopaque) callconv(.c) void;
@@ -248,6 +251,17 @@ pub fn setWindowPos(hwnd: HWND, insertAfter: HWND, x: c_int, y: c_int, cx: c_int
 
     const func = zig_swell_get_SetWindowPos() orelse return;
     _ = func(hwnd, insertAfter, x, y, cx, cy, flags);
+}
+
+/// Get the screen-space rectangle of a window. Returns false on failure.
+/// rect is [left, top, right, bottom].
+pub fn getWindowRect(hwnd: HWND, rect: *[4]c_int) bool {
+    if (comptime !is_swell_platform) {
+        _ = .{ hwnd, rect };
+        return false;
+    }
+    const func = zig_swell_get_GetWindowRect() orelse return false;
+    return func(hwnd, rect);
 }
 
 /// Default window procedure - handles unprocessed messages.
