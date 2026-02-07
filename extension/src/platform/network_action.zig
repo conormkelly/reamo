@@ -130,48 +130,25 @@ fn getUsbTroubleshootingMessage(host_os: HostOS, has_ios: bool, has_android: boo
     };
 }
 
-/// Function type for REAPER's plugin_register
-pub const PluginRegisterFn = *const fn ([*:0]const u8, ?*anyopaque) callconv(.c) c_int;
-
 /// Function type for ShowMessageBox
 const ShowMessageBoxFn = *const fn ([*:0]const u8, [*:0]const u8, c_int) callconv(.c) c_int;
 
 /// Function type for GetMainHwnd
 const GetMainHwndFn = *const fn () callconv(.c) ?*anyopaque;
 
-// REAPER's custom_action_register_t structure
-// Strings are NOT copied - must be static/comptime
-const CustomActionRegister = extern struct {
-    uniqueSectionId: c_int, // 0 = Main section
-    idStr: [*:0]const u8, // Unique identifier across ALL extensions
-    name: [*:0]const u8, // Display name in Actions list
-    extra: ?*anyopaque, // Reserved, set to null
-};
-
-// Static strings - must remain valid for plugin lifetime
-const ACTION_ID: [*:0]const u8 = "REAMO_SHOW_NETWORKS";
-const ACTION_NAME: [*:0]const u8 = "REAmo: Show Network Addresses";
-const QR_ACTION_ID: [*:0]const u8 = "REAMO_SHOW_QR_CODE";
-const QR_ACTION_NAME: [*:0]const u8 = "REAmo: Show Connection QR Code";
-
 // Global state
-var g_cmd_show_networks: c_int = 0;
-var g_cmd_show_qr: c_int = 0;
-var g_plugin_register: ?PluginRegisterFn = null;
 var g_show_message_box: ?ShowMessageBoxFn = null;
 var g_get_main_hwnd: ?GetMainHwndFn = null;
 var g_resource_path: ?[]const u8 = null;
 var g_http_port: u16 = 8080; // Default, updated from reaper.ini
 
-/// Register the network addresses action with REAPER.
-/// Call during plugin initialization.
-pub fn register(
-    plugin_register: PluginRegisterFn,
+/// Initialize network action state.
+/// Called during plugin initialization. Action registration is handled by menu.zig.
+pub fn init(
     show_message_box: ?ShowMessageBoxFn,
     get_main_hwnd: ?GetMainHwndFn,
     resource_path: ?[]const u8,
-) bool {
-    g_plugin_register = plugin_register;
+) void {
     g_show_message_box = show_message_box;
     g_get_main_hwnd = get_main_hwnd;
     g_resource_path = resource_path;
@@ -181,80 +158,11 @@ pub fn register(
         g_http_port = getWebInterfacePort(res_path) orelse 8080;
         logging.info("Network action: HTTP port = {d}", .{g_http_port});
     }
-
-    // Register the "Show Network Addresses" action
-    var action = CustomActionRegister{
-        .uniqueSectionId = 0, // Main section
-        .idStr = ACTION_ID,
-        .name = ACTION_NAME,
-        .extra = null,
-    };
-
-    g_cmd_show_networks = plugin_register("custom_action", @ptrCast(&action));
-    if (g_cmd_show_networks == 0) {
-        logging.err("Network action: failed to register custom action", .{});
-        return false;
-    }
-
-    // Register the "Show QR Code" action
-    var qr_action = CustomActionRegister{
-        .uniqueSectionId = 0,
-        .idStr = QR_ACTION_ID,
-        .name = QR_ACTION_NAME,
-        .extra = null,
-    };
-
-    g_cmd_show_qr = plugin_register("custom_action", @ptrCast(&qr_action));
-    if (g_cmd_show_qr == 0) {
-        logging.warn("Network action: failed to register QR action", .{});
-        // Continue anyway - the main action still works
-    } else {
-        logging.info("Network action: registered QR command ID {d}", .{g_cmd_show_qr});
-    }
-
-    // Register command handler
-    const result = plugin_register("hookcommand2", @constCast(@ptrCast(&onAction)));
-    if (result == 0) {
-        logging.err("Network action: failed to register hookcommand2", .{});
-        return false;
-    }
-
-    logging.info("Network action: registered command ID {d}", .{g_cmd_show_networks});
-    return true;
 }
 
-/// Unregister the action on plugin unload.
-pub fn unregister() void {
-    if (g_plugin_register) |plugin_register| {
-        _ = plugin_register("-hookcommand2", @constCast(@ptrCast(&onAction)));
-        logging.info("Network action: unregistered", .{});
-    }
-}
-
-/// Command handler callback - receives ALL action triggers
-fn onAction(
-    section: ?*anyopaque,
-    command: c_int,
-    val: c_int,
-    val2hw: c_int,
-    relmode: c_int,
-    hwnd: ?*anyopaque,
-) callconv(.c) bool {
-    _ = .{ section, val, val2hw, relmode, hwnd };
-
-    if (command == g_cmd_show_networks) {
-        showNetworkAddresses();
-        return true; // We handled it
-    }
-    if (command == g_cmd_show_qr and g_cmd_show_qr != 0) {
-        showQRCode();
-        return true;
-    }
-    return false; // Not our command
-}
-
-/// Display the network addresses dialog
-fn showNetworkAddresses() void {
+/// Display the network addresses dialog.
+/// Called from menu.zig dispatch.
+pub fn showNetworkAddresses() void {
     const show_msg = g_show_message_box orelse {
         logging.err("Network action: ShowMessageBox not available", .{});
         return;
@@ -325,7 +233,8 @@ fn showNetworkAddresses() void {
 
 /// Display a QR code window with all available networks.
 /// User can navigate between networks using < > arrows.
-fn showQRCode() void {
+/// Called from menu.zig dispatch.
+pub fn showQRCode() void {
     // Re-read port in case user changed settings
     if (g_resource_path) |res_path| {
         g_http_port = getWebInterfacePort(res_path) orelse g_http_port;

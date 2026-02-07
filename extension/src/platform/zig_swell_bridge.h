@@ -60,6 +60,17 @@ typedef void (*SWELL_DeleteGfxContextFn)(SwellHDC ctx);
 typedef void* (*SWELL_GetCtxFrameBufferFn)(SwellHDC ctx);
 typedef void (*BitBltFn)(SwellHDC hdcOut, int x, int y, int w, int h, SwellHDC hdcIn, int xin, int yin, int mode);
 
+/* Menu functions */
+typedef void* SwellHMENU;
+typedef void* (*CreatePopupMenuFn)(void);
+typedef void (*DestroyMenuFn)(SwellHMENU menu);
+typedef void (*SWELL_InsertMenuFn)(SwellHMENU menu, int pos, unsigned int flags, uintptr_t idx, const char* text);
+typedef int (*GetMenuItemCountFn)(SwellHMENU menu);
+typedef SwellHMENU (*GetSubMenuFn)(SwellHMENU menu, int pos);
+typedef int (*GetMenuItemIDFn)(SwellHMENU menu, int pos);
+typedef bool (*CheckMenuItemFn)(SwellHMENU menu, int idx, int chk);
+typedef bool (*EnableMenuItemFn)(SwellHMENU menu, int idx, int en);
+
 /* Timer functions (SWELL - may not be available) */
 typedef void (*SwellTIMERPROC)(SwellHWND hwnd, unsigned int msg, uintptr_t id, unsigned int time);
 typedef uintptr_t (*SetTimerFn)(SwellHWND hwnd, uintptr_t nIDEvent, unsigned int uElapse, SwellTIMERPROC lpTimerFunc);
@@ -110,6 +121,14 @@ SWELL_GetCtxFrameBufferFn zig_swell_get_SWELL_GetCtxFrameBuffer(void);
 BitBltFn zig_swell_get_BitBlt(void);
 SetTimerFn zig_swell_get_SetTimer(void);
 KillTimerFn zig_swell_get_KillTimer(void);
+CreatePopupMenuFn zig_swell_get_CreatePopupMenu(void);
+DestroyMenuFn zig_swell_get_DestroyMenu(void);
+SWELL_InsertMenuFn zig_swell_get_SWELL_InsertMenu(void);
+GetMenuItemCountFn zig_swell_get_GetMenuItemCount(void);
+GetSubMenuFn zig_swell_get_GetSubMenu(void);
+GetMenuItemIDFn zig_swell_get_GetMenuItemID(void);
+CheckMenuItemFn zig_swell_get_CheckMenuItem(void);
+EnableMenuItemFn zig_swell_get_EnableMenuItem(void);
 
 #ifdef __cplusplus
 }

@@ -68,6 +68,23 @@ This is REAmo's headline feature — the single most differentiating workflow. I
 
 **Effort:** S (testing + edge case fixes)
 
+### Cross-Platform Extension Validation (Windows)
+
+Extension builds and runs on macOS. Windows support compiles (Zig cross-compilation) but has not been validated on a real Windows REAPER instance.
+
+**Blocked features on Windows:**
+
+- [ ] Extensions menu (SWELL wrappers currently no-op on Windows — need Win32 `extern "user32"` implementations for ~8 menu functions)
+- [ ] QR code window (SWELL window/GDI calls — same pattern, need Win32 equivalents)
+- [ ] Network detection (platform-specific socket calls — needs Windows `GetAdaptersAddresses` path)
+
+**Not blocked (platform-agnostic):**
+
+- WebSocket server, state polling, command dispatch, all subscription systems
+- These use REAPER C API which is identical across platforms
+
+**Effort:** S-M (menu wrappers are small; QR window and network detection need more work)
+
 ### Connection Reliability Testing
 
 WiFi unreliability is the #1 complaint about every DAW remote app. REAmo's USB tethering is a killer advantage — but it must work.
@@ -506,6 +523,7 @@ Completed features, kept for historical reference.
 
 | Feature | Completed | Notes |
 |---------|-----------|-------|
+| Extensions Menu System | 2026-02-07 | Declarative menu under Extensions > REAmo. SWELL bridge for macOS/Linux. **Windows: needs validation** — Win32 branches stub out, need `extern "user32"` calls. |
 | Context-Aware Take/Item Coloring | 2026-02-05 | Take rating via color (green/orange/red). REAPER color priority chain: take > item > theme. |
 | Toolbar Component Redesign | 2026-01-29 | Slot-based paged grid, swipe paging, 48-54pt targets, in-app edit mode. |
 | Timeline Canvas Architecture | 2026-01 | Per-track canvases, never-clear rendering, TileBitmapCache with LRU eviction. |

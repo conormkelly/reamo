@@ -100,6 +100,16 @@ extern fn zig_swell_get_BitBlt() ?*const fn (HDC, c_int, c_int, c_int, c_int, HD
 extern fn zig_swell_get_SetTimer() ?*const fn (HWND, usize, c_uint, ?TIMERPROC) callconv(.c) usize;
 extern fn zig_swell_get_KillTimer() ?*const fn (HWND, usize) callconv(.c) c_int;
 
+// Menu functions
+extern fn zig_swell_get_CreatePopupMenu() ?*const fn () callconv(.c) ?*anyopaque;
+extern fn zig_swell_get_DestroyMenu() ?*const fn (?*anyopaque) callconv(.c) void;
+extern fn zig_swell_get_SWELL_InsertMenu() ?*const fn (?*anyopaque, c_int, c_uint, usize, [*:0]const u8) callconv(.c) void;
+extern fn zig_swell_get_GetMenuItemCount() ?*const fn (?*anyopaque) callconv(.c) c_int;
+extern fn zig_swell_get_GetSubMenu() ?*const fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque;
+extern fn zig_swell_get_GetMenuItemID() ?*const fn (?*anyopaque, c_int) callconv(.c) c_int;
+extern fn zig_swell_get_CheckMenuItem() ?*const fn (?*anyopaque, c_int, c_int) callconv(.c) bool;
+extern fn zig_swell_get_EnableMenuItem() ?*const fn (?*anyopaque, c_int, c_int) callconv(.c) bool;
+
 // =============================================================================
 // Public API
 // =============================================================================
@@ -411,4 +421,120 @@ pub fn killTimer(hwnd: HWND, id: usize) bool {
         return false;
     };
     return func(hwnd, id) != 0;
+}
+
+// =============================================================================
+// Menu functions
+// =============================================================================
+
+/// Menu handle (HMENU — NSMenu* on macOS, opaque pointer)
+pub const HMENU = ?*anyopaque;
+
+// SWELL MIIM_* constants (NOT Win32 values — completely reshuffled!)
+pub const MIIM_ID = 1;
+pub const MIIM_STATE = 2;
+pub const MIIM_TYPE = 4;
+pub const MIIM_SUBMENU = 8;
+pub const MIIM_DATA = 16;
+
+// MF_* constants (same as Win32)
+pub const MF_STRING: c_uint = 0;
+pub const MF_GRAYED: c_uint = 1;
+pub const MF_CHECKED: c_uint = 8;
+pub const MF_POPUP: c_uint = 0x10;
+pub const MF_BYCOMMAND: c_uint = 0;
+pub const MF_BYPOSITION: c_uint = 0x400;
+pub const MF_SEPARATOR: c_uint = 0x800;
+pub const MF_ENABLED: c_uint = 0;
+
+/// Create an empty popup menu. Returns null on failure.
+pub fn createPopupMenu() HMENU {
+    if (comptime !is_swell_platform) return null;
+    const func = zig_swell_get_CreatePopupMenu() orelse return null;
+    return func();
+}
+
+/// Destroy a menu handle.
+pub fn destroyMenu(menu: HMENU) void {
+    if (comptime !is_swell_platform) return;
+    const func = zig_swell_get_DestroyMenu() orelse return;
+    func(menu);
+}
+
+/// Append a text menu item. Uses SWELL_InsertMenu with pos=-1 (append).
+pub fn insertMenuItem(menu: HMENU, pos: c_int, cmd_id: c_int, text: [*:0]const u8) void {
+    if (comptime !is_swell_platform) {
+        _ = .{ menu, pos, cmd_id, text };
+        return;
+    }
+    const func = zig_swell_get_SWELL_InsertMenu() orelse return;
+    func(menu, pos, MF_STRING, @intCast(@as(c_uint, @bitCast(cmd_id))), text);
+}
+
+/// Append a separator. Uses SWELL_InsertMenu with MF_SEPARATOR.
+pub fn insertMenuSeparator(menu: HMENU, pos: c_int) void {
+    if (comptime !is_swell_platform) {
+        _ = .{ menu, pos };
+        return;
+    }
+    const func = zig_swell_get_SWELL_InsertMenu() orelse return;
+    func(menu, pos, MF_SEPARATOR, 0, "");
+}
+
+/// Append a submenu. Uses SWELL_InsertMenu with MF_POPUP | MF_STRING.
+pub fn insertSubMenu(parent: HMENU, pos: c_int, submenu: HMENU, text: [*:0]const u8) void {
+    if (comptime !is_swell_platform) {
+        _ = .{ parent, pos, submenu, text };
+        return;
+    }
+    const func = zig_swell_get_SWELL_InsertMenu() orelse return;
+    const sub_ptr = submenu orelse return;
+    func(parent, pos, MF_POPUP | MF_STRING, @intFromPtr(sub_ptr), text);
+}
+
+/// Get the number of items in a menu.
+pub fn getMenuItemCount(menu: HMENU) c_int {
+    if (comptime !is_swell_platform) return 0;
+    const func = zig_swell_get_GetMenuItemCount() orelse return 0;
+    return func(menu);
+}
+
+/// Get submenu at a given position. Returns null if not a submenu.
+pub fn getSubMenu(menu: HMENU, pos: c_int) HMENU {
+    if (comptime !is_swell_platform) {
+        _ = .{ menu, pos };
+        return null;
+    }
+    const func = zig_swell_get_GetSubMenu() orelse return null;
+    return func(menu, pos);
+}
+
+/// Get the command ID of a menu item at a given position.
+pub fn getMenuItemID(menu: HMENU, pos: c_int) c_int {
+    if (comptime !is_swell_platform) {
+        _ = .{ menu, pos };
+        return 0;
+    }
+    const func = zig_swell_get_GetMenuItemID() orelse return 0;
+    return func(menu, pos);
+}
+
+/// Set or clear the checkmark on a menu item (by position).
+pub fn checkMenuItem(menu: HMENU, idx: c_int, checked: bool) void {
+    if (comptime !is_swell_platform) {
+        _ = .{ menu, idx, checked };
+        return;
+    }
+    const func = zig_swell_get_CheckMenuItem() orelse return;
+    _ = func(menu, idx, if (checked) @as(c_int, MF_BYPOSITION | MF_CHECKED) else @as(c_int, @bitCast(MF_BYPOSITION)));
+}
+
+/// Enable or gray out a menu item (by position).
+pub fn enableMenuItem(menu: HMENU, idx: c_int, enabled: bool) void {
+    if (comptime !is_swell_platform) {
+        _ = .{ menu, idx, enabled };
+        return;
+    }
+    const func = zig_swell_get_EnableMenuItem() orelse return;
+    _ = func(menu, idx, if (enabled) @as(c_int, @bitCast(MF_BYPOSITION | MF_ENABLED)) else @as(c_int, @bitCast(MF_BYPOSITION | MF_GRAYED)));
 }
