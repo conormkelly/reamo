@@ -115,6 +115,7 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 
 ### Marker Management
 - Navigate between markers
+- Long-press time display to open marker sheet with tap-to-jump navigation
 - Add markers at cursor position
 - Inline name and color editing
 - Auto-advance to next marker during playback (optional)
@@ -138,6 +139,8 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 - Switch between takes on selected items
 - A/B compare takes without touching the computer
 - Delete active take, crop to active take
+- Color-based take rating: mark takes as good (green), maybe (orange), or bad (red)
+- Colors follow REAPER's priority chain (take color > item color > theme default)
 
 ### Touch Instruments
 - **Drum Pads** - 4x4 GM drum grid with multi-touch support (portrait mode)
@@ -180,7 +183,8 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 - MIDI CC and Program Change output for hardware control
 - Customizable icons (from lucide-react library) and colors
 - Toggle actions show current state
-- Multiple sections for organization
+- Swipe between toolbar pages for organization
+- In-app edit mode: add, remove, and rearrange buttons without leaving REAmo
 
 ### Project Notes
 - View and edit REAPER project notes
@@ -192,12 +196,18 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 - Long-press for context actions
 - Responsive layout for iPhone and iPad
 - Collapsible sections to maximize screen space
+- Per-device layout memory: remembers your active view, bank selection, filters, viewport position, and instrument channels separately for each device
 
 ### Network Sync
 - NTP-style clock synchronization for accurate beat display
 - Achieves ±15ms visual accuracy over WiFi
 - Real-time sync diagnostics (long-press connection indicator)
 - Manual offset adjustment for perceived sync issues
+
+### Auto-Update
+- Automatic version detection compares installed frontend against extension version
+- Silent update on version mismatch: hard refresh + cache cleanup with no user intervention
+- Ensures PWA users always run the matching frontend version
 
 ---
 
