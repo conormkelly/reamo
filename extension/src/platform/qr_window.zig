@@ -21,8 +21,11 @@ const MARGIN: c_int = 20;
 const NAV_HEIGHT: c_int = 40;
 
 /// Total window size
-const WINDOW_WIDTH: c_int = 240; // 200 + 20 + 20
+const WINDOW_WIDTH: c_int = 300; // 200 QR + 50 margin each side
 const WINDOW_HEIGHT: c_int = 320; // QR + margins + nav area + title bar
+
+/// Horizontal offset to center QR code in window
+const QR_X: c_int = @divTrunc(WINDOW_WIDTH - @as(c_int, QR_SIZE), 2);
 
 /// Static buffer for QR rendering (reused across window instances)
 var g_qr_buffer: [QR_SIZE * QR_SIZE]u32 = [_]u32{0xFFFFFFFF} ** (QR_SIZE * QR_SIZE);
@@ -176,23 +179,23 @@ fn updateWindowTitle() void {
     var ip_buf: [16]u8 = undefined;
     const ip_str = net.ipString(&ip_buf);
 
-    // Format: "WiFi: 192.168.1.50 (1/3)" or just "USB: 172.20.10.2"
-    var title_buf: [64:0]u8 = undefined;
+    // Format: "REAmo - WiFi: 192.168.1.50 (1/3)" or just "REAmo - USB: 172.20.10.2"
+    var title_buf: [72:0]u8 = undefined;
     const type_name = net.network_type.label();
 
     if (g_network_count > 1) {
-        const title = std.fmt.bufPrintZ(&title_buf, "{s}: {s} ({d}/{d})", .{
+        const title = std.fmt.bufPrintZ(&title_buf, "REAmo - {s}: {s} ({d}/{d})", .{
             type_name,
             ip_str,
             g_current_index + 1,
             g_network_count,
-        }) catch "Scan to Connect";
+        }) catch "REAmo - Scan to Connect";
         swell.setWindowText(g_hwnd, title);
     } else {
-        const title = std.fmt.bufPrintZ(&title_buf, "{s}: {s}", .{
+        const title = std.fmt.bufPrintZ(&title_buf, "REAmo - {s}: {s}", .{
             type_name,
             ip_str,
-        }) catch "Scan to Connect";
+        }) catch "REAmo - Scan to Connect";
         swell.setWindowText(g_hwnd, title);
     }
 }
@@ -232,8 +235,8 @@ fn drawNavigation(hdc: swell.HDC) void {
     if (gray_brush) |brush| {
         // Left arrow at x=30
         drawTriangle(hdc, 30, arrow_y, arrow_size, false, brush);
-        // Right arrow at x=210
-        drawTriangle(hdc, 210, arrow_y, arrow_size, true, brush);
+        // Right arrow at x=WINDOW_WIDTH-30
+        drawTriangle(hdc, WINDOW_WIDTH - 30, arrow_y, arrow_size, true, brush);
     }
 }
 
@@ -271,7 +274,7 @@ fn dlgProc(hwnd: swell.HWND, msg: c_uint, wParam: usize, lParam: isize) callconv
                 if (mem_dc != null) {
                     if (swell.getCtxFrameBuffer(mem_dc)) |frame_buffer| {
                         @memcpy(frame_buffer[0 .. QR_SIZE * QR_SIZE], &g_qr_buffer);
-                        swell.bitBlt(hdc, MARGIN, MARGIN, @as(c_int, QR_SIZE), @as(c_int, QR_SIZE), mem_dc, 0, 0, swell.SRCCOPY);
+                        swell.bitBlt(hdc, QR_X, MARGIN, @as(c_int, QR_SIZE), @as(c_int, QR_SIZE), mem_dc, 0, 0, swell.SRCCOPY);
                     }
                     swell.deleteGfxContext(mem_dc);
                 }
@@ -299,8 +302,8 @@ fn dlgProc(hwnd: swell.HWND, msg: c_uint, wParam: usize, lParam: isize) callconv
                     prevNetwork();
                     return 0;
                 }
-                // Right arrow zone (x > 180)
-                if (x > 180) {
+                // Right arrow zone (x > WINDOW_WIDTH - 60)
+                if (x > WINDOW_WIDTH - 60) {
                     nextNetwork();
                     return 0;
                 }
