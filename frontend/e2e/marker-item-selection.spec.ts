@@ -49,11 +49,12 @@ async function setupTestFixtures(page: Page) {
         { id: 0, name: 'Full', start: 0, end: 30, color: 0x0000ff },
       ],
 
-      // Test items: one item from 3s-7s on track 0 (overlaps marker 1 at 5s)
-      // Another item from 10s-14s on track 1 (no marker overlap)
+      // Test items: one item from 3s-7s on track 1 (overlaps marker 1 at 5s)
+      // Another item from 10s-14s on track 2 (no marker overlap)
+      // trackIdx uses unified indexing: 0=master, 1+=user tracks
       items: [
         {
-          trackIdx: 0,
+          trackIdx: 1,
           itemIdx: 0,
           position: 3,
           length: 4,
@@ -62,9 +63,10 @@ async function setupTestFixtures(page: Page) {
           takeCount: 1,
           takeName: 'Item 1',
           color: 0x888888,
+          selected: false,
         },
         {
-          trackIdx: 1,
+          trackIdx: 2,
           itemIdx: 0,
           position: 10,
           length: 4,
@@ -73,6 +75,7 @@ async function setupTestFixtures(page: Page) {
           takeCount: 1,
           takeName: 'Item 2',
           color: 0x999999,
+          selected: false,
         },
       ],
 
@@ -82,12 +85,19 @@ async function setupTestFixtures(page: Page) {
         1: { index: 1, name: 'Track 2', guid: '{track-1-guid}', color: 0x555555 },
       },
 
+      // Track skeleton for multi-track lane rendering
+      trackSkeleton: [
+        { n: 'Master', g: '{master-guid}' },
+        { n: 'Track 1', g: '{track-0-guid}' },
+        { n: 'Track 2', g: '{track-1-guid}' },
+      ],
+      totalTracks: 2,
+
       // Set position away from markers initially
       positionSeconds: 0,
 
       // Reset selection state - NOTHING selected initially
       selectedMarkerId: null,
-      selectedItemKey: null,
       isMarkerLocked: false,
     });
 
@@ -105,13 +115,14 @@ async function getTimelineContainer(page: Page) {
 }
 
 // Click at a percentage position in the timeline
-async function clickAtPercent(page: Page, percent: number) {
+// yPercent defaults to 25 (center of top lane in 2-lane layout)
+async function clickAtPercent(page: Page, percent: number, yPercent: number = 25) {
   const timeline = await getTimelineContainer(page);
   const box = await timeline.boundingBox();
   if (!box) throw new Error('Timeline container not found');
 
   const relativeX = (box.width * percent) / 100;
-  const relativeY = box.height / 2;
+  const relativeY = (box.height * yPercent) / 100;
 
   await timeline.click({ position: { x: relativeX, y: relativeY } });
 }
@@ -123,10 +134,10 @@ test.describe('Marker/Item Selection', () => {
   });
 
   test('shows "nothing selected" message when nothing is selected', async ({ page }) => {
-    // Initially nothing should be selected (we set selectedMarkerId: null, selectedItemKey: null)
+    // Initially nothing should be selected (selectedMarkerId: null, no items selected)
     const nothingSelectedMsg = page.locator('[data-testid="nothing-selected-message"]');
     await expect(nothingSelectedMsg).toBeVisible({ timeout: 5000 });
-    await expect(nothingSelectedMsg).toContainText('Tap a marker pill or item blob');
+    await expect(nothingSelectedMsg).toContainText('Tap a marker pill or item');
 
     // MarkerInfoBar should not be visible
     const markerInfoBar = page.locator('[data-testid="marker-info-bar"]');
@@ -319,10 +330,14 @@ test.describe('Marker/Item Selection', () => {
   });
 
   test('tapping empty area in timeline does not affect selection', async ({ page }) => {
-    // First select an item
+    // First enter item selection mode and select an item
     await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
-      store.getState().selectItem(0, 0);
+      store.getState().enterItemSelectionMode('{track-0-guid}');
+      // Simulate REAPER selecting the item
+      const items = [...store.getState().items];
+      items[0] = { ...items[0], selected: true };
+      store.getState().setItems(items);
     });
 
     await page.waitForTimeout(50);
@@ -335,22 +350,21 @@ test.describe('Marker/Item Selection', () => {
 
     await page.waitForTimeout(100);
 
-    // Item should still be selected (tapping empty space doesn't deselect)
-    // Actually this behavior may vary - let's check what happens
-    const selectedItemKey = await page.evaluate(() => {
+    // Item should still be selected in local state (tapping empty space sends
+    // unselectAll command to REAPER, but local state doesn't change without REAPER)
+    const selectedCount = await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
-      return store.getState().selectedItemKey;
+      return store.getState().items.filter((i: any) => i.selected).length;
     });
 
-    // Note: The current implementation doesn't clear selection on empty tap
-    // This test documents the current behavior
-    expect(selectedItemKey).toBe('0:0');
+    // Selection persists in local state (no REAPER to process the command)
+    expect(selectedCount).toBe(1);
   });
 
-  test('item density overlay renders with testid', async ({ page }) => {
-    // The density overlay should be visible when items exist
-    const densityOverlay = page.locator('[data-testid="item-density-overlay"]');
-    await expect(densityOverlay).toBeVisible({ timeout: 5000 });
+  test('multi-track lanes render with testid', async ({ page }) => {
+    // The multi-track lanes component should be visible when items exist
+    const multiTrackLanes = page.locator('[data-testid="multi-track-lanes"]');
+    await expect(multiTrackLanes).toBeVisible({ timeout: 5000 });
   });
 
   test('info section renders with testid in navigate mode', async ({ page }) => {
@@ -371,7 +385,6 @@ test.describe('Marker/Item overlap', () => {
       const store = (window as any).__REAPER_STORE__;
       store.setState({
         selectedMarkerId: null,
-        selectedItemKey: null,
         isMarkerLocked: false,
       });
     });
@@ -394,19 +407,19 @@ test.describe('Marker/Item overlap', () => {
 
     await page.waitForTimeout(200);
 
-    // Check store state - marker should be selected, not item
+    // Check store state - marker should be selected, no items selected
     const state = await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
       const s = store.getState();
       return {
         selectedMarkerId: s.selectedMarkerId,
-        selectedItemKey: s.selectedItemKey,
+        selectedItemCount: s.items.filter((i: any) => i.selected).length,
       };
     });
 
-    // EXPECTED: Marker selected, item NOT selected
+    // EXPECTED: Marker selected, no items selected
     expect(state.selectedMarkerId).toBe(1);
-    expect(state.selectedItemKey).toBeNull();
+    expect(state.selectedItemCount).toBe(0);
 
     // MarkerInfoBar should be visible
     await expect(page.locator('[data-testid="marker-info-bar"]')).toBeVisible();
@@ -415,13 +428,12 @@ test.describe('Marker/Item overlap', () => {
     await expect(page.locator('[data-testid="item-info-bar"]')).not.toBeVisible();
   });
 
-  test('clicking item blob when marker exists at same position selects item (not marker)', async ({ page }) => {
+  test('clicking item when marker exists at same position enters item mode (not marker)', async ({ page }) => {
     // Reset selection
     await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
       store.setState({
         selectedMarkerId: null,
-        selectedItemKey: null,
         isMarkerLocked: false,
       });
     });
@@ -430,22 +442,25 @@ test.describe('Marker/Item overlap', () => {
 
     // Click on the timeline at 16% (around 4.8s) where item 1 exists (3-7s)
     // This is also near marker 1 at 5s
-    await clickAtPercent(page, 16);
+    // yPercent=25 to click in the center of lane 0 (Track 1) in 2-lane layout
+    await clickAtPercent(page, 16, 25);
 
     await page.waitForTimeout(200);
 
-    // Check store state - item should be selected, not marker
+    // Check store state - item selection mode should be active, marker cleared
     const state = await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
       const s = store.getState();
       return {
         selectedMarkerId: s.selectedMarkerId,
-        selectedItemKey: s.selectedItemKey,
+        itemSelectionModeActive: s.itemSelectionModeActive,
+        viewFilterTrackGuid: s.viewFilterTrackGuid,
       };
     });
 
-    // EXPECTED: Item selected, marker cleared
-    expect(state.selectedItemKey).toBe('0:0');
+    // EXPECTED: Item selection mode entered, marker cleared
+    expect(state.itemSelectionModeActive).toBe(true);
+    expect(state.viewFilterTrackGuid).toBeTruthy();
     expect(state.selectedMarkerId).toBeNull();
   });
 });
@@ -456,13 +471,14 @@ test.describe('Item tap Y-bounds', () => {
     await setupTestFixtures(page);
   });
 
-  test('tapping below item blob (but at same X) should NOT select item', async ({ page }) => {
+  test('tapping outside item strip (but at same X) should NOT enter item mode', async ({ page }) => {
     // Reset selection
     await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
       store.setState({
         selectedMarkerId: null,
-        selectedItemKey: null,
+        itemSelectionModeActive: false,
+        viewFilterTrackGuid: null,
       });
     });
 
@@ -473,33 +489,35 @@ test.describe('Item tap Y-bounds', () => {
     const box = await timeline.boundingBox();
     if (!box) throw new Error('Timeline not found');
 
-    // Item 1 is at position 3-7s out of ~30s = 10-23% of timeline
-    // Click at 16% horizontally (within item's time range)
-    // But click at the BOTTOM of the timeline (Y = 90% of height)
-    // This should NOT select the item because it's outside the blob's vertical bounds
-    const clickX = box.width * 0.16;
-    const clickY = box.height * 0.9; // Bottom of timeline, outside blob area
+    // In multi-track mode with 2 lanes, each lane is 50% of height.
+    // Item strip is 60% of lane height, centered.
+    // Lane 0: Y [0, 50%), item strip at [10%, 40%] of total height
+    // Lane 1: Y [50%, 100%), item strip at [60%, 90%] of total height
+    // Clicking at Y=48% is at the very bottom of lane 0, outside the item strip.
+    const clickX = box.width * 0.16; // 16% = ~4.8s, within item 1 (3-7s)
+    const clickY = box.height * 0.48; // Bottom edge of lane 0, outside item strip
 
     await timeline.click({ position: { x: clickX, y: clickY } });
 
     await page.waitForTimeout(100);
 
-    // Item should NOT be selected - we clicked below the blob
-    const selectedItemKey = await page.evaluate(() => {
+    // Should NOT have entered item selection mode - click was outside the item strip
+    const state = await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
-      return store.getState().selectedItemKey;
+      return store.getState().itemSelectionModeActive;
     });
 
-    expect(selectedItemKey).toBeNull();
+    expect(state).toBe(false);
   });
 
-  test('tapping ON item blob (center Y) SHOULD select item', async ({ page }) => {
+  test('tapping ON item (center of lane) SHOULD enter item selection mode', async ({ page }) => {
     // Reset selection
     await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
       store.setState({
         selectedMarkerId: null,
-        selectedItemKey: null,
+        itemSelectionModeActive: false,
+        viewFilterTrackGuid: null,
       });
     });
 
@@ -509,22 +527,27 @@ test.describe('Item tap Y-bounds', () => {
     const box = await timeline.boundingBox();
     if (!box) throw new Error('Timeline not found');
 
-    // Click at 16% horizontally (within item's time range)
-    // Click at CENTER of timeline (Y = 50% of height) - where the blob IS
+    // Click at 16% horizontally (within item's time range, 3-7s)
+    // Click at Y=25% (center of lane 0 in 2-lane layout) - within the item strip
     const clickX = box.width * 0.16;
-    const clickY = box.height * 0.5; // Center of timeline, ON the blob
+    const clickY = box.height * 0.25; // Center of lane 0, ON the item
 
     await timeline.click({ position: { x: clickX, y: clickY } });
 
     await page.waitForTimeout(100);
 
-    // Item SHOULD be selected - we clicked on the blob
-    const selectedItemKey = await page.evaluate(() => {
+    // Item selection mode SHOULD be active - we clicked on the item
+    const state = await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
-      return store.getState().selectedItemKey;
+      const s = store.getState();
+      return {
+        itemSelectionModeActive: s.itemSelectionModeActive,
+        viewFilterTrackGuid: s.viewFilterTrackGuid,
+      };
     });
 
-    expect(selectedItemKey).toBe('0:0');
+    expect(state.itemSelectionModeActive).toBe(true);
+    expect(state.viewFilterTrackGuid).toBeTruthy();
   });
 });
 
@@ -534,14 +557,15 @@ test.describe('Item tap detection', () => {
     await setupTestFixtures(page);
   });
 
-  test('clicking on item blob at correct position selects item', async ({ page }) => {
+  test('clicking on item at correct position enters item selection mode', async ({ page }) => {
     // Reset to ensure nothing selected
     await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
       store.setState({
         selectedMarkerId: null,
-        selectedItemKey: null,
         isMarkerLocked: false,
+        itemSelectionModeActive: false,
+        viewFilterTrackGuid: null,
       });
     });
 
@@ -552,8 +576,8 @@ test.describe('Item tap detection', () => {
 
     // Item 1 is at position 3-7s (out of ~30s visible)
     // That's roughly 10-23% of the timeline
-    // Click in the middle of item 1 at ~16%
-    await clickAtPercent(page, 16);
+    // Click in the middle of item 1 at ~16%, Y=25% (center of lane 0)
+    await clickAtPercent(page, 16, 25);
 
     await page.waitForTimeout(200);
 
@@ -562,72 +586,82 @@ test.describe('Item tap detection', () => {
       const store = (window as any).__REAPER_STORE__;
       const s = store.getState();
       return {
-        selectedItemKey: s.selectedItemKey,
+        itemSelectionModeActive: s.itemSelectionModeActive,
+        viewFilterTrackGuid: s.viewFilterTrackGuid,
         selectedMarkerId: s.selectedMarkerId,
       };
     });
 
-    // Item should be selected
-    expect(state.selectedItemKey).toBe('0:0');
+    // Item selection mode should be active
+    expect(state.itemSelectionModeActive).toBe(true);
+    expect(state.viewFilterTrackGuid).toBeTruthy();
     expect(state.selectedMarkerId).toBeNull();
   });
 
-  test('clicking between items does not select anything new', async ({ page }) => {
+  test('clicking between items does not enter item selection mode', async ({ page }) => {
     // Reset selection
     await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
       store.setState({
         selectedMarkerId: null,
-        selectedItemKey: null,
+        itemSelectionModeActive: false,
+        viewFilterTrackGuid: null,
       });
     });
 
     await page.waitForTimeout(50);
 
     // Click at 28% (~8.4s) - between item 1 (3-7s) and item 2 (10-14s)
-    await clickAtPercent(page, 28);
+    // Y=25% to click in center of lane 0
+    await clickAtPercent(page, 28, 25);
 
     await page.waitForTimeout(200);
 
-    // Should still have nothing selected (no item at this position)
+    // Should not have entered item selection mode (no item at this position)
     const state = await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
       const s = store.getState();
       return {
-        selectedItemKey: s.selectedItemKey,
+        itemSelectionModeActive: s.itemSelectionModeActive,
         selectedMarkerId: s.selectedMarkerId,
       };
     });
 
-    expect(state.selectedItemKey).toBeNull();
+    expect(state.itemSelectionModeActive).toBe(false);
   });
 
-  test('clicking second item selects it', async ({ page }) => {
+  test('clicking second item enters item selection mode on correct track', async ({ page }) => {
     // Reset selection
     await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
       store.setState({
         selectedMarkerId: null,
-        selectedItemKey: null,
+        itemSelectionModeActive: false,
+        viewFilterTrackGuid: null,
       });
     });
 
     await page.waitForTimeout(50);
 
-    // Item 2 is at position 10-14s (out of ~30s visible)
+    // Item 2 is at position 10-14s on track 2 (out of ~30s visible)
     // That's roughly 33-47% of the timeline
-    // Click in the middle at ~40%
-    await clickAtPercent(page, 40);
+    // Click in the middle at ~40%, Y=75% (center of lane 1 = Track 2 in 2-lane layout)
+    await clickAtPercent(page, 40, 75);
 
     await page.waitForTimeout(200);
 
-    const selectedItemKey = await page.evaluate(() => {
+    const state = await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
-      return store.getState().selectedItemKey;
+      const s = store.getState();
+      return {
+        itemSelectionModeActive: s.itemSelectionModeActive,
+        viewFilterTrackGuid: s.viewFilterTrackGuid,
+      };
     });
 
-    // Item 2 should be selected (trackIdx 1, itemIdx 0)
-    expect(selectedItemKey).toBe('1:0');
+    // Item selection mode should be active with Track 2's GUID
+    expect(state.itemSelectionModeActive).toBe(true);
+    expect(state.viewFilterTrackGuid).toBe('{track-1-guid}');
   });
 });
 
@@ -668,10 +702,11 @@ test.describe('Item Selection Mode', () => {
         regions: [],
 
         // Multiple items on multiple tracks
+        // trackIdx uses unified indexing: 0=master, 1+=user tracks
         items: [
-          // Track 0: 3 items
+          // Track 1 (idx 1): 3 items
           {
-            trackIdx: 0,
+            trackIdx: 1,
             itemIdx: 0,
             position: 2,
             length: 3,
@@ -683,7 +718,7 @@ test.describe('Item Selection Mode', () => {
             selected: false,
           },
           {
-            trackIdx: 0,
+            trackIdx: 1,
             itemIdx: 1,
             position: 7,
             length: 3,
@@ -695,7 +730,7 @@ test.describe('Item Selection Mode', () => {
             selected: false,
           },
           {
-            trackIdx: 0,
+            trackIdx: 1,
             itemIdx: 2,
             position: 12,
             length: 3,
@@ -706,9 +741,9 @@ test.describe('Item Selection Mode', () => {
             color: 0xaaaaaa,
             selected: false,
           },
-          // Track 1: 2 items
+          // Track 2 (idx 2): 2 items
           {
-            trackIdx: 1,
+            trackIdx: 2,
             itemIdx: 0,
             position: 4,
             length: 4,
@@ -720,7 +755,7 @@ test.describe('Item Selection Mode', () => {
             selected: false,
           },
           {
-            trackIdx: 1,
+            trackIdx: 2,
             itemIdx: 1,
             position: 15,
             length: 5,
@@ -733,11 +768,13 @@ test.describe('Item Selection Mode', () => {
           },
         ],
 
-        // Track skeleton with GUIDs
+        // Track skeleton with GUIDs (index 0 = master)
         trackSkeleton: [
+          { n: 'Master', g: '{master-guid}' },
           { n: 'Track 1', g: '{track-0-guid}' },
           { n: 'Track 2', g: '{track-1-guid}' },
         ],
+        totalTracks: 2,
 
         tracks: {
           0: { index: 0, name: 'Track 1', guid: '{track-0-guid}', color: 0x444444 },
@@ -763,10 +800,10 @@ test.describe('Item Selection Mode', () => {
     await setupItemSelectionTestFixtures(page);
   });
 
-  test('aggregate blobs shown initially, no item info bar', async ({ page }) => {
-    // Aggregate blobs should be visible
-    const densityOverlay = page.locator('[data-testid="item-density-overlay"]');
-    await expect(densityOverlay).toBeVisible({ timeout: 5000 });
+  test('multi-track lanes shown initially, no item info bar', async ({ page }) => {
+    // Multi-track lanes should be visible when items exist
+    const multiTrackLanes = page.locator('[data-testid="multi-track-lanes"]');
+    await expect(multiTrackLanes).toBeVisible({ timeout: 5000 });
 
     // Item info bar should NOT be visible (not in item selection mode)
     const itemInfoBar = page.locator('[data-testid="item-info-bar"]');
@@ -791,9 +828,9 @@ test.describe('Item Selection Mode', () => {
     const box = await timeline.boundingBox();
     if (!box) throw new Error('Timeline not found');
 
-    // Click at center of timeline (where blobs are) at 12% (~3.6s, within first item)
+    // Click at center of lane 0 (Y=25% in 2-lane layout) at 12% (~3.6s, within first item on Track 1)
     await timeline.click({
-      position: { x: box.width * 0.12, y: box.height * 0.5 },
+      position: { x: box.width * 0.12, y: box.height * 0.25 },
     });
 
     await page.waitForTimeout(150);
@@ -989,7 +1026,7 @@ test.describe('Item Selection Mode', () => {
     expect(selectedCount).toBe(0);
   });
 
-  test('selected items show inset blue border', async ({ page }) => {
+  test('selected items are tracked in store and reflected in info bar', async ({ page }) => {
     // Enter mode and select an item
     await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
@@ -1002,8 +1039,17 @@ test.describe('Item Selection Mode', () => {
 
     await page.waitForTimeout(100);
 
-    // Check that item blob has data-selected="true"
-    const selectedBlob = page.locator('[data-testid="item-blob-0-0"]');
-    await expect(selectedBlob).toHaveAttribute('data-selected', 'true');
+    // Items are now rendered on canvas (no individual DOM elements per item).
+    // Verify selection state via store and that the info bar reflects it.
+    const selectedCount = await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+      return store.getState().items.filter((i: any) => i.selected).length;
+    });
+    expect(selectedCount).toBe(1);
+
+    // Selection pill should show in the info bar
+    const selectionPill = page.locator('[data-testid="selection-pill"]');
+    await expect(selectionPill).toBeVisible({ timeout: 2000 });
+    await expect(page.locator('[data-testid="selection-count"]')).toHaveText('1');
   });
 });
