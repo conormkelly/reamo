@@ -5,12 +5,10 @@
 
 import { useState, useRef, useCallback, useMemo, useEffect, type ReactElement } from 'react';
 import { useReaperStore } from '../../store';
-import { EMPTY_REGIONS, EMPTY_MARKERS, EMPTY_ITEMS, EMPTY_SKELETON } from '../../store/stableRefs';
 import { computeDisplayRegions, computeDragPreview } from '../../store/slices/regionEditSlice';
 import type { WSItem } from '../../core/WebSocketTypes';
 import { useReaper } from '../ReaperProvider';
 import {
-  useTransport,
   useTransportAnimation,
   useTimeSignature,
   useBarOffset,
@@ -24,7 +22,7 @@ import {
   type UseViewportReturn,
 } from '../../hooks';
 import { transport, timeSelection as timeSelCmd, marker as markerCmd, action, item as itemCmd, track as trackCmd } from '../../core/WebSocketCommands';
-import { usePlayheadDrag, useMarkerDrag, useRegionDrag, usePanGesture, usePinchGesture, useEdgeScroll } from './hooks';
+import { usePlayheadDrag, useMarkerDrag, useRegionDrag, usePanGesture, usePinchGesture, useEdgeScroll, useTimelineSelectors } from './hooks';
 import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
 import { MultiTrackLanes } from './MultiTrackLanes';
 import type { SkeletonTrack } from '../../core/WebSocketTypes';
@@ -70,16 +68,21 @@ const TAP_THRESHOLD = 10;
 
 export function Timeline({ className = '', height = 120, isSyncing = false, viewport: externalViewport, multiTrackLanes, multiTrackIndices, assemblePeaksForViewport, hasTilesForTake }: TimelineProps): ReactElement {
   const { sendCommand } = useReaper();
-  const { positionSeconds } = useTransport();
-  // Defensive selectors with stable fallbacks - state can be undefined briefly on mobile during hydration
-  const regions = useReaperStore((state) => state?.regions ?? EMPTY_REGIONS);
-  const markers = useReaperStore((state) => state?.markers ?? EMPTY_MARKERS);
-  const items = useReaperStore((state) => state?.items ?? EMPTY_ITEMS);
-  const trackSkeleton = useReaperStore((state) => state?.trackSkeleton ?? EMPTY_SKELETON);
-  const bpm = useReaperStore((state) => state.bpm);
-  const tempoMarkers = useReaperStore((state) => state.tempoMarkers);
-  const storedTimeSelection = useReaperStore((state) => state.timeSelection);
-  const setStoredTimeSelection = useReaperStore((state) => state.setTimeSelection);
+  const {
+    positionSeconds, regions, markers, items, trackSkeleton, bpm, tempoMarkers,
+    storedTimeSelection, setStoredTimeSelection,
+    timelineMode, selectedRegionIds, pendingChanges, hasPendingChanges,
+    selectRegion, deselectRegion, clearSelection, isRegionSelected,
+    resizeRegion, moveRegion, startDrag, updateDrag, endDrag, cancelDrag,
+    regionDragType, regionDragId, dragCurrentTime, dragStartTime,
+    insertionPoint, resizeEdgePosition,
+    viewFilterTrackGuid, itemSelectionModeActive, enterItemSelectionMode, setViewFilterTrack,
+    setSelectedMarkerId,
+    openMarkerEditModal, openMakeSelectionModal,
+    selectionModeActive, toggleSelectionMode,
+    followPlayhead, setFollowPlayhead, pauseFollowPlayhead,
+    setMarkerLocked,
+  } = useTimelineSelectors();
 
   // Time signature and bar offset from hooks
   const { beatsPerBar, denominator } = useTimeSignature();
@@ -88,37 +91,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
   // Accessibility: reduced motion preference
   const prefersReducedMotion = useReducedMotion();
 
-  // Region editing state
-  const timelineMode = useReaperStore((state) => state.timelineMode);
-  const selectedRegionIds = useReaperStore((state) => state.selectedRegionIds);
-  const pendingChanges = useReaperStore((state) => state.pendingChanges);
-  const hasPendingChanges = useReaperStore((state) => state.hasPendingChanges);
-  const selectRegion = useReaperStore((state) => state.selectRegion);
-  const deselectRegion = useReaperStore((state) => state.deselectRegion);
-  const clearSelection = useReaperStore((state) => state.clearSelection);
-  const isRegionSelected = useReaperStore((state) => state.isRegionSelected);
-  const resizeRegion = useReaperStore((state) => state.resizeRegion);
-  const moveRegion = useReaperStore((state) => state.moveRegion);
-  const startDrag = useReaperStore((state) => state.startDrag);
-  const updateDrag = useReaperStore((state) => state.updateDrag);
-  const endDrag = useReaperStore((state) => state.endDrag);
-  const cancelDrag = useReaperStore((state) => state.cancelDrag);
-  const regionDragType = useReaperStore((state) => state.dragType);
-  const regionDragId = useReaperStore((state) => state.dragRegionId);
-  const dragCurrentTime = useReaperStore((state) => state.dragCurrentTime);
-  const dragStartTime = useReaperStore((state) => state.dragStartTime);
-  const insertionPoint = useReaperStore((state) => state.insertionPoint);
-  const resizeEdgePosition = useReaperStore((state) => state.resizeEdgePosition);
-
-  // Focused track GUID for highlight in multi-track lanes
-  const viewFilterTrackGuid = useReaperStore((state) => state.viewFilterTrackGuid);
-
-  // Item selection mode state
-  const itemSelectionModeActive = useReaperStore((state) => state.itemSelectionModeActive);
-  const enterItemSelectionMode = useReaperStore((state) => state.enterItemSelectionMode);
-  const setViewFilterTrack = useReaperStore((state) => state.setViewFilterTrack);
-
-  // Helper: convert track GUID → trackIdx using skeleton
+  // Helper: convert track GUID → trackIdx using skeleton (moves in Phase 3)
   const getTrackIdxFromGuid = useCallback(
     (guid: string): number | null => {
       const idx = trackSkeleton.findIndex((t) => t.g === guid);
@@ -126,9 +99,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     },
     [trackSkeleton]
   );
-
-  // Marker selection action (needed for mutual exclusion with item selection)
-  const setSelectedMarkerId = useReaperStore((state) => state.setSelectedMarkerId);
 
   // Filter out invalid 0-width selections
   const timeSelectionSeconds = useMemo(() => {
@@ -222,10 +192,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     return () => resizeObserver.disconnect();
   }, []);
 
-  // Modal actions from store (modals rendered by ModalRoot)
-  const openMarkerEditModal = useReaperStore((s) => s.openMarkerEditModal);
-  const openMakeSelectionModal = useReaperStore((s) => s.openMakeSelectionModal);
-
   // Marker navigation callbacks
   const handlePrevMarker = useCallback(() => {
     sendCommand(action.execute(40172)); // Go to previous marker/project start
@@ -279,18 +245,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     initialRange: { start: 0, end: duration }, // Default to full project (zoom-to-fit)
   });
   const viewport = externalViewport ?? internalViewport;
-
-  // Selection mode toggle state (pan mode vs selection mode in navigate)
-  // Persisted in store to survive view switches
-  const selectionModeActive = useReaperStore((s) => s.selectionModeActive);
-  const toggleSelectionMode = useReaperStore((s) => s.toggleSelectionMode);
-
-  // Follow playhead state - managed in store with auto-enable via subscription
-  // The auto-enable on playback start is handled by setupTimelineSubscriptions() in store/index.ts
-  // This avoids the "setState in effect" anti-pattern flagged by react-hooks/set-state-in-effect
-  const followPlayhead = useReaperStore((s) => s.followPlayhead);
-  const setFollowPlayhead = useReaperStore((s) => s.setFollowPlayhead);
-  const pauseFollowPlayhead = useReaperStore((s) => s.pauseFollowPlayhead);
 
   // Follow playhead using animation engine
   // Handles both smooth scrolling during playback AND jumps when stopped (marker nav, seeks)
@@ -892,9 +846,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     },
     [sendCommand]
   );
-  // Get marker lock action from store (setSelectedMarkerId already declared above)
-  const setMarkerLocked = useReaperStore((state) => state.setMarkerLocked);
-
   // Cluster tap handler - zoom to expand or show popover
   const handleClusterTap = useCallback(
     (cluster: MarkerClusterData) => {

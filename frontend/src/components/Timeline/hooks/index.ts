@@ -15,3 +15,5 @@ export type { UseEdgeScrollOptions, UseEdgeScrollResult } from './useEdgeScroll'
 
 export { usePinchGesture } from './usePinchGesture';
 export type { UsePinchGestureOptions, UsePinchGestureResult } from './usePinchGesture';
+
+export { useTimelineSelectors } from './useTimelineSelectors';
