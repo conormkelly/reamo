@@ -52,6 +52,43 @@ async function getTimeline(page: Page) {
   return page.locator('[data-testid="timeline-canvas"]');
 }
 
+/**
+ * Open the zoom popover (required before clicking zoom in/out buttons).
+ * The zoom controls are behind a popover triggered by [aria-label="Open zoom controls"].
+ */
+async function openZoomPopover(page: Page) {
+  await page.click('[aria-label="Open zoom controls"]');
+  // Wait for the popover to render
+  await page.waitForSelector('[aria-label="Zoom in"]', { timeout: 5000 });
+}
+
+/**
+ * Click "Zoom in" button (opens popover first if needed).
+ */
+async function clickZoomIn(page: Page) {
+  // If the popover isn't open, open it
+  const zoomInButton = page.locator('[aria-label="Zoom in"]');
+  if ((await zoomInButton.count()) === 0) {
+    await openZoomPopover(page);
+  }
+  await zoomInButton.click();
+}
+
+/**
+ * Click "Zoom out" button (opens popover first if needed).
+ */
+async function clickZoomOut(page: Page) {
+  const zoomOutButton = page.locator('[aria-label="Zoom out"]');
+  if ((await zoomOutButton.count()) === 0) {
+    await openZoomPopover(page);
+  }
+  await zoomOutButton.click();
+}
+
+/**
+ * Drag the timeline using pointer events.
+ * The component uses onPointerDown/Move/Up (not mouse events).
+ */
 async function dragTimeline(page: Page, fromPercent: number, toPercent: number) {
   const timeline = await getTimeline(page);
   const box = await timeline.boundingBox();
@@ -67,6 +104,23 @@ async function dragTimeline(page: Page, fromPercent: number, toPercent: number) 
   await page.mouse.up();
 }
 
+/**
+ * Zoom in to create a viewport smaller than the full project.
+ * The viewport initializes to show the full project (~122s), so panning has
+ * no effect until we zoom in first (clampRange prevents scrolling when
+ * visibleDuration >= projectDuration).
+ */
+async function zoomInForPan(page: Page) {
+  // Zoom in several times to create a meaningfully smaller viewport
+  await openZoomPopover(page);
+  for (let i = 0; i < 3; i++) {
+    await page.click('[aria-label="Zoom in"]');
+    await page.waitForTimeout(50);
+  }
+  // Wait for viewport to settle
+  await page.waitForTimeout(100);
+}
+
 // ============================================
 // Pan Gesture Tests
 // ============================================
@@ -80,6 +134,10 @@ test.describe('Viewport Pan Gestures', () => {
   });
 
   test('drag left pans viewport forward in time', async ({ page }) => {
+    // Must zoom in first -- at full zoom the viewport covers the entire project
+    // and clampRange prevents panning beyond project bounds
+    await zoomInForPan(page);
+
     const timeline = await getTimeline(page);
     const initialScrollX = await timeline.getAttribute('data-scroll-x');
 
@@ -90,7 +148,8 @@ test.describe('Viewport Pan Gestures', () => {
   });
 
   test('drag right pans viewport backward in time', async ({ page }) => {
-    // First pan forward to have room to pan back
+    // Zoom in and pan forward first to have room to pan back
+    await zoomInForPan(page);
     await dragTimeline(page, 50, 25);
     await page.waitForTimeout(50);
 
@@ -104,6 +163,9 @@ test.describe('Viewport Pan Gestures', () => {
   });
 
   test('pan respects project bounds (no negative start)', async ({ page }) => {
+    // Zoom in first so panning is possible
+    await zoomInForPan(page);
+
     // Try to pan backward past start (drag right)
     await dragTimeline(page, 25, 90);
 
@@ -113,6 +175,9 @@ test.describe('Viewport Pan Gestures', () => {
   });
 
   test('vertical drag cancels pan gesture', async ({ page }) => {
+    // Zoom in so pan would normally work
+    await zoomInForPan(page);
+
     const timeline = await getTimeline(page);
     const box = await timeline.boundingBox();
     if (!box) throw new Error('Timeline not found');
@@ -149,17 +214,21 @@ test.describe('Viewport Zoom Controls', () => {
     const timeline = await getTimeline(page);
     const initialDuration = await timeline.getAttribute('data-visible-duration');
 
-    await page.click('[aria-label="Zoom in"]');
+    await clickZoomIn(page);
 
     const newDuration = await timeline.getAttribute('data-visible-duration');
     expect(parseFloat(newDuration!)).toBeLessThan(parseFloat(initialDuration!));
   });
 
   test('zoom out increases visible duration', async ({ page }) => {
+    // Zoom in first so there's room to zoom out
+    await clickZoomIn(page);
+    await page.waitForTimeout(50);
+
     const timeline = await getTimeline(page);
     const initialDuration = await timeline.getAttribute('data-visible-duration');
 
-    await page.click('[aria-label="Zoom out"]');
+    await clickZoomOut(page);
 
     const newDuration = await timeline.getAttribute('data-visible-duration');
     expect(parseFloat(newDuration!)).toBeGreaterThan(parseFloat(initialDuration!));
@@ -167,35 +236,58 @@ test.describe('Viewport Zoom Controls', () => {
 
   test('fit-to-content shows full project', async ({ page }) => {
     // Zoom in first
-    await page.click('[aria-label="Zoom in"]');
-    await page.click('[aria-label="Zoom in"]');
+    await clickZoomIn(page);
+    await clickZoomIn(page);
 
     // Then fit to content
     await page.click('[aria-label="Fit to content"]');
 
     const timeline = await getTimeline(page);
     const duration = await timeline.getAttribute('data-visible-duration');
-    // Should show most of the ~122s project (120s + 5% padding)
+    // Should show most of the ~122s project (120s + padding)
     expect(parseFloat(duration!)).toBeGreaterThanOrEqual(100);
   });
 
-  test('zoom buttons disable at limits', async ({ page }) => {
-    // Zoom in repeatedly until disabled
+  test('zoom reaches minimum level and stops changing', async ({ page }) => {
+    // Zoom in repeatedly until the visible duration stops decreasing
+    await openZoomPopover(page);
+
+    let previousDuration = Infinity;
     for (let i = 0; i < 15; i++) {
-      const zoomIn = page.locator('[aria-label="Zoom in"]');
-      if (await zoomIn.isDisabled()) break;
-      await zoomIn.click();
+      await page.click('[aria-label="Zoom in"]');
       await page.waitForTimeout(50);
+
+      const timeline = await getTimeline(page);
+      const currentDuration = parseFloat(
+        (await timeline.getAttribute('data-visible-duration')) || '0'
+      );
+
+      // If duration stopped changing, we've hit the limit
+      if (currentDuration === previousDuration) break;
+      previousDuration = currentDuration;
     }
 
-    await expect(page.locator('[aria-label="Zoom in"]')).toBeDisabled();
+    // At the minimum zoom step (1 second), further zoom-ins should not change the duration
+    const timeline = await getTimeline(page);
+    const durationAtLimit = parseFloat(
+      (await timeline.getAttribute('data-visible-duration')) || '0'
+    );
+
+    await page.click('[aria-label="Zoom in"]');
+    await page.waitForTimeout(50);
+
+    const durationAfterExtraClick = parseFloat(
+      (await timeline.getAttribute('data-visible-duration')) || '0'
+    );
+
+    expect(durationAfterExtraClick).toBe(durationAtLimit);
   });
 
   test('zoom level attribute updates correctly', async ({ page }) => {
     const timeline = await getTimeline(page);
     const initialLevel = await timeline.getAttribute('data-zoom-level');
 
-    await page.click('[aria-label="Zoom in"]');
+    await clickZoomIn(page);
 
     const newLevel = await timeline.getAttribute('data-zoom-level');
     // Zoom in = smaller duration = lower zoom level index
@@ -278,6 +370,10 @@ test.describe('Selection Mode Toggle', () => {
     const toggle = page.locator('[data-testid="selection-toggle"]');
     await expect(toggle).toHaveAttribute('aria-pressed', 'false');
 
+    // Must zoom in first -- at full zoom the viewport covers the entire project
+    // and clampRange prevents panning beyond project bounds
+    await zoomInForPan(page);
+
     const timeline = await getTimeline(page);
     const initialScrollX = await timeline.getAttribute('data-scroll-x');
 
@@ -331,8 +427,8 @@ test.describe('Accessibility: Reduced Motion', () => {
       (await timeline.getAttribute('data-visible-duration')) || '0'
     );
 
-    // Click zoom in and immediately check the duration changed
-    await page.click('[aria-label="Zoom in"]');
+    // Click zoom in (must open popover first)
+    await clickZoomIn(page);
 
     // With reduced motion, zoom should be instant (no animation delay)
     // Check immediately - no need to wait for animation

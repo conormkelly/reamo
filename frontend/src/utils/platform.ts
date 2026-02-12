@@ -28,6 +28,7 @@ export const isIOSSafari = isIOS && isSafari;
  * PWAs have different behavior than in-browser for some Safari bugs
  */
 export const isPWA = typeof window !== 'undefined' &&
+  typeof window.matchMedia === 'function' &&
   window.matchMedia('(display-mode: standalone)').matches;
 
 /**

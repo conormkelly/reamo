@@ -193,9 +193,9 @@ test.describe('Timeline gestures', () => {
     // Drag from 15% to 50%
     await dragPercent(page, 15, 50)
 
-    // Should have pending changes - region edit Save button visible (green one with text "Save")
-    // Not the project Save button (blue with floppy icon)
-    await expect(page.getByRole('button', { name: 'Save' }).nth(1)).toBeVisible({ timeout: 2000 })
+    // Should have pending changes - region edit Save button visible in the RegionEditActionBar
+    const actionBar = getRegionEditActionBar(page)
+    await expect(actionBar.getByRole('button', { name: 'Save' })).toBeVisible({ timeout: 2000 })
   })
 
   test('cancel reverts pending changes', async ({ page }) => {
@@ -523,11 +523,13 @@ test.describe('Time selection', () => {
   })
 
   test('drag creates time selection (navigate mode)', async ({ page }) => {
-    // Clear any existing selection
+    // Clear any existing selection and enable selection mode
+    // (navigate mode defaults to pan mode; selection mode must be active for drag-to-select)
     await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__
-      store.setState({ timeSelection: null, bpm: 120 })
+      store.setState({ timeSelection: null, bpm: 120, selectionModeActive: true })
     })
+    await page.waitForTimeout(50)
 
     // Drag from 20% to 60% of timeline
     await dragPercent(page, 20, 60)
