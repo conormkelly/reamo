@@ -1,11 +1,11 @@
 /**
  * useTimelinePointerEvents — Gesture routing for the timeline canvas
  *
- * Extracts handlePointerDown, handlePointerMove, handlePointerUp and their
- * shared state (dragStart, dragEnd, isCancelled, panStartPositionRef) from
- * Timeline.tsx. Also includes the selectionPreview memo.
- *
- * Phase 4 of the Timeline.tsx decomposition (see TIMELINE_REFACTOR.md).
+ * Manages handlePointerDown, handlePointerMove, handlePointerUp and their
+ * shared state (dragStart, dragEnd, isCancelled, panStartPositionRef).
+ * Routes pointer events to the correct handler based on timeline mode:
+ * pinch (always), region editing, pan/tap (navigate), or selection drag.
+ * Also computes the selectionPreview bounds during active selection drags.
  */
 
 import { useState, useRef, useCallback, useMemo, type RefObject } from 'react';

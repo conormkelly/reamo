@@ -2,7 +2,6 @@
  * InstrumentsView - Touch instruments for MIDI input
  * Supports: Drum Pads, Piano with mod/pitch wheels, Chord Pads
  *
- * Phase 2 responsive refactor:
  * - Uses ViewLayout for consistent structure
  * - Soft OrientationHint instead of hard orientation blocks
  * - All instruments work in both orientations
