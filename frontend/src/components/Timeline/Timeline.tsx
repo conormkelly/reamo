@@ -6,7 +6,6 @@
 import { useState, useRef, useCallback, useMemo, useEffect, type ReactElement } from 'react';
 import { useReaperStore } from '../../store';
 import { computeDisplayRegions, computeDragPreview } from '../../store/slices/regionEditSlice';
-import type { WSItem } from '../../core/WebSocketTypes';
 import { useReaper } from '../ReaperProvider';
 import {
   useTransportAnimation,
@@ -21,8 +20,8 @@ import {
   type MarkerClusterData,
   type UseViewportReturn,
 } from '../../hooks';
-import { transport, timeSelection as timeSelCmd, marker as markerCmd, action, item as itemCmd, track as trackCmd } from '../../core/WebSocketCommands';
-import { usePlayheadDrag, useMarkerDrag, useRegionDrag, usePanGesture, usePinchGesture, useEdgeScroll, useTimelineSelectors } from './hooks';
+import { transport, timeSelection as timeSelCmd, marker as markerCmd, action } from '../../core/WebSocketCommands';
+import { usePlayheadDrag, useMarkerDrag, useRegionDrag, usePanGesture, usePinchGesture, useEdgeScroll, useTimelineSelectors, useItemTapHandler } from './hooks';
 import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
 import { MultiTrackLanes } from './MultiTrackLanes';
 import type { SkeletonTrack } from '../../core/WebSocketTypes';
@@ -90,15 +89,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
 
   // Accessibility: reduced motion preference
   const prefersReducedMotion = useReducedMotion();
-
-  // Helper: convert track GUID → trackIdx using skeleton (moves in Phase 3)
-  const getTrackIdxFromGuid = useCallback(
-    (guid: string): number | null => {
-      const idx = trackSkeleton.findIndex((t) => t.g === guid);
-      return idx >= 0 ? idx : null;
-    },
-    [trackSkeleton]
-  );
 
   // Filter out invalid 0-width selections
   const timeSelectionSeconds = useMemo(() => {
@@ -597,6 +587,22 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     [dragStart, positionToTime, timelineMode, handleRegionPointerMove, selectionModeActive, panGesture, pinchGesture]
   );
 
+  // Item tap detection (extracted in Phase 3)
+  const handleItemTap = useItemTapHandler({
+    containerRef,
+    viewport,
+    items,
+    trackSkeleton,
+    multiTrackLanes,
+    multiTrackIndices,
+    viewFilterTrackGuid,
+    itemSelectionModeActive,
+    enterItemSelectionMode,
+    setViewFilterTrack,
+    setSelectedMarkerId,
+    sendCommand,
+  });
+
   // Handle touch/mouse end
   const handlePointerUp = useCallback(
     (e: React.PointerEvent) => {
@@ -625,142 +631,12 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
           panGesture.handlePointerUp(e);
 
           // Check if it was a tap (minimal movement) - if so, check for item hit
-          if (panStartPositionRef.current && containerRef.current) {
+          if (panStartPositionRef.current) {
             const dx = Math.abs(e.clientX - panStartPositionRef.current.x);
             const dy = Math.abs(e.clientY - panStartPositionRef.current.y);
 
             if (dx < TAP_THRESHOLD && dy < TAP_THRESHOLD) {
-              // It was a tap - check for item at this position
-              const rect = containerRef.current.getBoundingClientRect();
-              const clickPercent = (e.clientX - rect.left) / rect.width;
-              const clickTime =
-                viewport.visibleRange.start +
-                clickPercent * (viewport.visibleRange.end - viewport.visibleRange.start);
-              const containerHeight = rect.height;
-              const relativeY = e.clientY - rect.top;
-
-              // Multi-track lanes mode: determine which lane was clicked
-              if (multiTrackLanes && multiTrackLanes.length > 0 && multiTrackIndices && multiTrackIndices.length > 0) {
-                const laneCount = multiTrackLanes.length;
-                const laneHeight = containerHeight / laneCount;
-                const laneIdx = Math.floor(relativeY / laneHeight);
-
-                // Validate lane index
-                if (laneIdx < 0 || laneIdx >= laneCount) {
-                  panStartPositionRef.current = null;
-                  return;
-                }
-
-                // Use passed track indices directly (slot-based for sequential banks)
-                const clickedTrackGuid = multiTrackLanes[laneIdx]?.g;
-                const clickedTrackIdx = multiTrackIndices[laneIdx];
-                if (clickedTrackIdx === undefined) {
-                  panStartPositionRef.current = null;
-                  return;
-                }
-
-                // Check if click is within item strip in this lane (60% height, centered)
-                const itemHeightPercent = 0.6;
-                const itemTopOffset = laneHeight * (1 - itemHeightPercent) / 2;
-                const relativeYInLane = relativeY - (laneIdx * laneHeight);
-                const isWithinItemStrip = relativeYInLane >= itemTopOffset &&
-                                          relativeYInLane <= itemTopOffset + (laneHeight * itemHeightPercent);
-
-                // Find items at this time position ON THIS TRACK ONLY
-                const itemsAtTime = items.filter(
-                  (item) =>
-                    item.trackIdx === clickedTrackIdx &&
-                    item.position <= clickTime &&
-                    item.position + item.length >= clickTime
-                );
-
-                // Tap on empty lane space (outside item strip OR no item at position)
-                // → Clear all selections, select only this track
-                if (!isWithinItemStrip || itemsAtTime.length === 0) {
-                  // Clear marker selection (mutual exclusion)
-                  setSelectedMarkerId(null);
-                  // Clear all track and item selections, then select this track only
-                  sendCommand(trackCmd.unselectAll());
-                  sendCommand(itemCmd.unselectAll());
-                  sendCommand(trackCmd.setSelected(clickedTrackIdx, 1));
-                  // Set visual highlight for the selected track
-                  if (clickedTrackGuid) {
-                    setViewFilterTrack(clickedTrackGuid);
-                  }
-                  panStartPositionRef.current = null;
-                  return;
-                }
-
-                // Tap on item → toggle item selection + select item's track
-                if (itemsAtTime.length > 0) {
-                  // Clear marker selection (mutual exclusion)
-                  setSelectedMarkerId(null);
-
-                  // Enter item selection mode if not already active
-                  if (!itemSelectionModeActive && clickedTrackGuid) {
-                    enterItemSelectionMode(clickedTrackGuid);
-                  }
-
-                  // Sort by position, take first (earliest) item and toggle selection
-                  const firstItem = itemsAtTime.sort((a, b) => a.position - b.position)[0];
-                  sendCommand(itemCmd.toggleSelect(firstItem.guid));
-
-                  // Select the item's track (clears other track selections)
-                  sendCommand(trackCmd.unselectAll());
-                  sendCommand(trackCmd.setSelected(clickedTrackIdx, 1));
-                }
-              } else {
-                // Single-track mode: original logic
-                // Check if tap is within item blob vertical bounds (25% height, centered)
-                const blobHeight = containerHeight * 0.25;
-                const topOffset = (containerHeight - blobHeight) / 2;
-                const isWithinBlobYBounds = relativeY >= topOffset && relativeY <= topOffset + blobHeight;
-
-                if (!isWithinBlobYBounds) {
-                  panStartPositionRef.current = null;
-                  return;
-                }
-
-                // Find items at this time position
-                const itemsAtTime = items.filter(
-                  (item) =>
-                    item.position <= clickTime && item.position + item.length >= clickTime
-                );
-
-                if (itemsAtTime.length > 0) {
-                  // Group by track, find first track (lowest index) with items
-                  const byTrack = new Map<number, WSItem[]>();
-                  itemsAtTime.forEach((item) => {
-                    if (!byTrack.has(item.trackIdx)) byTrack.set(item.trackIdx, []);
-                    byTrack.get(item.trackIdx)!.push(item);
-                  });
-
-                  // Get first track (lowest index)
-                  const firstTrackIdx = Math.min(...byTrack.keys());
-                  const trackGuid = trackSkeleton[firstTrackIdx]?.g;
-
-                  // Clear marker selection (mutual exclusion)
-                  setSelectedMarkerId(null);
-
-                  if (!itemSelectionModeActive) {
-                    // Not in item selection mode yet - enter it
-                    if (trackGuid) {
-                      enterItemSelectionMode(trackGuid);
-                    }
-                  } else {
-                    // Already in item selection mode - only select items on the FILTERED track
-                    const filterTrackIdx = viewFilterTrackGuid
-                      ? getTrackIdxFromGuid(viewFilterTrackGuid)
-                      : null;
-
-                    if (filterTrackIdx !== null && byTrack.has(filterTrackIdx)) {
-                      const trackItemsAtTime = byTrack.get(filterTrackIdx)!;
-                      const firstItem = trackItemsAtTime.sort((a, b) => a.position - b.position)[0];
-                      sendCommand(itemCmd.toggleSelect(firstItem.guid));
-                    }
-                  }
-                }
-              }
+              handleItemTap(e.clientX, e.clientY);
             }
           }
 
@@ -824,18 +700,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
       selectionModeActive,
       panGesture,
       pinchGesture,
-      items,
-      setSelectedMarkerId,
-      viewport,
-      trackSkeleton,
-      itemSelectionModeActive,
-      enterItemSelectionMode,
-      setViewFilterTrack,
-      viewFilterTrackGuid,
-      getTrackIdxFromGuid,
-      sendCommand,
-      multiTrackLanes,
-      multiTrackIndices,
+      handleItemTap,
     ]
   );
 
