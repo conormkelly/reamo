@@ -22,3 +22,6 @@ export { useItemTapHandler } from './useItemTapHandler';
 
 export { useTimelineViewport } from './useTimelineViewport';
 export type { UseTimelineViewportParams, UseTimelineViewportReturn } from './useTimelineViewport';
+
+export { useTimelinePointerEvents } from './useTimelinePointerEvents';
+export type { UseTimelinePointerEventsParams, UseTimelinePointerEventsReturn } from './useTimelinePointerEvents';
