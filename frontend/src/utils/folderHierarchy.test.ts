@@ -32,6 +32,7 @@ function track(
     hc: 0,
     cl: false,
     ic: 0,
+    fm: 0,
   };
 }
 
