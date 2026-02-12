@@ -3,7 +3,7 @@
  * Visual timeline showing regions and markers for navigation and selection
  */
 
-import { useState, useRef, useCallback, useMemo, useEffect, type ReactElement } from 'react';
+import { useRef, useCallback, useMemo, useEffect, type ReactElement } from 'react';
 import { useReaperStore } from '../../store';
 import { computeDisplayRegions, computeDragPreview } from '../../store/slices/regionEditSlice';
 import { useReaper } from '../ReaperProvider';
@@ -19,7 +19,7 @@ import {
   type UseViewportReturn,
 } from '../../hooks';
 import { transport, timeSelection as timeSelCmd, marker as markerCmd, action } from '../../core/WebSocketCommands';
-import { usePlayheadDrag, useMarkerDrag, useRegionDrag, useEdgeScroll, useTimelineSelectors, useItemTapHandler, useTimelineViewport } from './hooks';
+import { usePlayheadDrag, useMarkerDrag, useRegionDrag, useEdgeScroll, useTimelineSelectors, useItemTapHandler, useTimelineViewport, useTimelinePointerEvents } from './hooks';
 import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
 import { MultiTrackLanes } from './MultiTrackLanes';
 import type { SkeletonTrack } from '../../core/WebSocketTypes';
@@ -56,12 +56,6 @@ export interface TimelineProps {
   /** Function to check if tiles exist for a take */
   hasTilesForTake?: (takeGuid: string) => boolean;
 }
-
-// Vertical distance to cancel gesture (drag off timeline)
-const VERTICAL_CANCEL_THRESHOLD = 50;
-
-// Tap detection threshold (pixels) - movement less than this is considered a tap
-const TAP_THRESHOLD = 10;
 
 export function Timeline({ className = '', height = 120, isSyncing = false, viewport: externalViewport, multiTrackLanes, multiTrackIndices, assemblePeaksForViewport, hasTilesForTake }: TimelineProps): ReactElement {
   const { sendCommand } = useReaper();
@@ -149,15 +143,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
   // The ID of the region being dragged (already an ID, not an index)
   const draggedRegionId = regionDragId;
 
-  // Gesture state (navigate mode)
-  // Simplified: tap = seek, horizontal drag = select, vertical drag off = cancel
-  const [dragStart, setDragStart] = useState<number | null>(null);
-  const [dragEnd, setDragEnd] = useState<number | null>(null);
-  const [isCancelled, setIsCancelled] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  // Track pan gesture start position for tap detection
-  const panStartPositionRef = useRef<{ x: number; y: number } | null>(null);
 
   // Viewport, follow-playhead, coordinate conversion, pan/pinch gestures
   const {
@@ -343,93 +329,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     [regions, markers, positionSeconds]
   );
 
-  // Handle touch/mouse start
-  const handlePointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      // Always track pinch pointers (works in all modes)
-      const pinchStarted = pinchGesture.handlePointerDown(e);
-      if (pinchStarted) {
-        // isPinchingRef is already set to true inside the hook
-        // Don't pause follow when following playhead - zoom is already centered on it
-        if (!followPlayhead) {
-          pauseFollow();
-        }
-        return; // Pinch takes priority
-      }
-
-      // Don't start timeline selection if dragging playhead
-      if (isDraggingPlayhead) return;
-
-      // Region editing mode - delegate to hook
-      if (timelineMode === 'regions') {
-        handleRegionPointerDown(e);
-        return;
-      }
-
-      // Navigate mode
-      if (timelineMode === 'navigate') {
-        if (!selectionModeActive) {
-          // Pan mode (default) - track start position for tap detection, then delegate
-          panStartPositionRef.current = { x: e.clientX, y: e.clientY };
-          panGesture.handlePointerDown(e);
-          return;
-        }
-        // Selection mode - time selection gesture
-        const time = positionToTime(e.clientX);
-        setDragStart(time);
-        setDragEnd(time);
-        setIsCancelled(false);
-        // Capture pointer for drag events
-        (e.target as HTMLElement).setPointerCapture(e.pointerId);
-      }
-    },
-    [positionToTime, isDraggingPlayhead, timelineMode, handleRegionPointerDown, selectionModeActive, panGesture, pinchGesture, pauseFollow, followPlayhead]
-  );
-
-  // Handle touch/mouse move
-  const handlePointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      // Always update pinch pointers (even if not pinching yet, to track second finger)
-      pinchGesture.handlePointerMove(e);
-
-      // If pinching, skip other gesture handling
-      if (pinchGesture.isPinchingRef.current) return;
-
-      // Region editing mode - delegate to hook
-      if (timelineMode === 'regions') {
-        handleRegionPointerMove(e);
-        return;
-      }
-
-      // Navigate mode
-      if (timelineMode === 'navigate') {
-        if (!selectionModeActive) {
-          // Pan mode - delegate to pan gesture
-          panGesture.handlePointerMove(e);
-          return;
-        }
-        // Selection mode - time selection gesture
-        if (dragStart === null || !containerRef.current) return;
-
-        const time = positionToTime(e.clientX);
-        setDragEnd(time);
-
-        // Check if dragged off timeline (vertical cancel)
-        const rect = containerRef.current.getBoundingClientRect();
-        const isOutsideVertically =
-          e.clientY < rect.top - VERTICAL_CANCEL_THRESHOLD ||
-          e.clientY > rect.bottom + VERTICAL_CANCEL_THRESHOLD;
-
-        if (isOutsideVertically) {
-          setIsCancelled(true);
-        } else {
-          setIsCancelled(false);
-        }
-      }
-    },
-    [dragStart, positionToTime, timelineMode, handleRegionPointerMove, selectionModeActive, panGesture, pinchGesture]
-  );
-
   // Item tap detection (extracted in Phase 3)
   const handleItemTap = useItemTapHandler({
     containerRef,
@@ -446,106 +345,26 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     sendCommand,
   });
 
-  // Handle touch/mouse end
-  const handlePointerUp = useCallback(
-    (e: React.PointerEvent) => {
-      // Check if we were pinching BEFORE processing the pointer up
-      const wasPinching = pinchGesture.isPinchingRef.current;
-
-      // Always track pinch pointer removal
-      pinchGesture.handlePointerUp(e);
-
-      // If we were pinching, don't process as tap/other gesture
-      // This handles both "still pinching" (2+ fingers) and "pinch just ended" (1 finger lifted)
-      if (wasPinching) {
-        return;
-      }
-
-      // Region editing mode - delegate to hook
-      if (timelineMode === 'regions') {
-        handleRegionPointerUp(e);
-        return;
-      }
-
-      // Navigate mode
-      if (timelineMode === 'navigate') {
-        if (!selectionModeActive) {
-          // Pan mode - delegate to pan gesture
-          panGesture.handlePointerUp(e);
-
-          // Check if it was a tap (minimal movement) - if so, check for item hit
-          if (panStartPositionRef.current) {
-            const dx = Math.abs(e.clientX - panStartPositionRef.current.x);
-            const dy = Math.abs(e.clientY - panStartPositionRef.current.y);
-
-            if (dx < TAP_THRESHOLD && dy < TAP_THRESHOLD) {
-              handleItemTap(e.clientX, e.clientY);
-            }
-          }
-
-          // Clear start position
-          panStartPositionRef.current = null;
-          return;
-        }
-
-        // Selection mode - time selection gesture
-        if (dragStart === null) return;
-
-        const endTime = positionToTime(e.clientX);
-        const wasDraggingHorizontally = Math.abs(endTime - dragStart) > 0.1;
-
-        // Check final cancel state
-        const rect = containerRef.current?.getBoundingClientRect();
-        const isOutsideVertically = rect && (
-          e.clientY < rect.top - VERTICAL_CANCEL_THRESHOLD ||
-          e.clientY > rect.bottom + VERTICAL_CANCEL_THRESHOLD
-        );
-
-        if (isCancelled || isOutsideVertically) {
-          // Cancelled - do nothing
-        } else if (wasDraggingHorizontally) {
-          // Horizontal drag = create time selection
-          let selStart = Math.min(dragStart, endTime);
-          let selEnd = Math.max(dragStart, endTime);
-
-          // Snap to boundaries
-          selStart = findNearestBoundary(selStart);
-          selEnd = findNearestBoundary(selEnd);
-
-          setTimeSelection(selStart, selEnd);
-        } else {
-          // Tap (no horizontal movement) = navigate to nearest boundary
-          navigateTo(findNearestBoundary(dragStart));
-        }
-
-        // Reset state
-        setDragStart(null);
-        setDragEnd(null);
-        setIsCancelled(false);
-
-        // Release pointer capture (may already be released on pointercancel)
-        try {
-          (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-        } catch {
-          // Pointer capture already released
-        }
-      }
-    },
-    [
-      dragStart,
-      isCancelled,
-      positionToTime,
-      findNearestBoundary,
-      setTimeSelection,
-      navigateTo,
+  // Pointer event routing (extracted in Phase 4)
+  const { handlePointerDown, handlePointerMove, handlePointerUp, selectionPreview } =
+    useTimelinePointerEvents({
+      containerRef,
       timelineMode,
-      handleRegionPointerUp,
       selectionModeActive,
       panGesture,
       pinchGesture,
+      isDraggingPlayhead,
+      handleRegionPointerDown,
+      handleRegionPointerMove,
+      handleRegionPointerUp,
       handleItemTap,
-    ]
-  );
+      positionToTime,
+      followPlayhead,
+      pauseFollow,
+      setTimeSelection,
+      navigateTo,
+      findNearestBoundary,
+    });
 
   // Marker drag hook
   const handleMarkerMoveFromDrag = useCallback(
@@ -646,23 +465,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     },
     [handleMarkerPointerUp, edgeScroll]
   );
-
-  // Calculate selection preview bounds
-  const selectionPreview = useMemo(() => {
-    if (dragStart === null || dragEnd === null) return null;
-    // Don't show if cancelled or no horizontal movement
-    if (isCancelled) return null;
-    if (Math.abs(dragEnd - dragStart) <= 0.1) return null;
-
-    let start = Math.min(dragStart, dragEnd);
-    let end = Math.max(dragStart, dragEnd);
-
-    // Snap to boundaries for preview
-    start = findNearestBoundary(start);
-    end = findNearestBoundary(end);
-
-    return { start, end };
-  }, [dragStart, dragEnd, isCancelled, findNearestBoundary]);
 
   return (
     <div className={`${className}`}>
