@@ -1,5 +1,5 @@
 /**
- * useItemTapHandler — Item hit-testing extracted from handlePointerUp
+ * useItemTapHandler — Item hit-testing for timeline taps
  *
  * Handles tap detection on multi-track lanes and single-track item blobs.
  * Given a (clientX, clientY) tap position, determines whether an item or

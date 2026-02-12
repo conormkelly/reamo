@@ -12,8 +12,8 @@
  * - Selection count pill (opens selection refinement sheet)
  * - Group icon (2+ selected) opens batch operations sheet
  *
- * Note: Track filter dropdown removed in Phase 2.5 - items are now visible
- * across all tracks in multi-track lanes, no need for single-track filtering.
+ * Note: Track filter dropdown was removed — items are now visible across all
+ * tracks in multi-track lanes, so single-track filtering is unnecessary.
  */
 
 import {

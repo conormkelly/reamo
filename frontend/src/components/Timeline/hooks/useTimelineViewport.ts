@@ -1,11 +1,12 @@
 /**
  * useTimelineViewport — Viewport, follow-playhead, and coordinate conversion
  *
- * Extracts timeline bounds calculation, internal/external viewport merging,
+ * Manages timeline bounds calculation, internal/external viewport merging,
  * follow-playhead animation, coordinate conversion utilities, and pan/pinch
- * gesture hooks from Timeline.tsx.
+ * gesture setup.
  *
- * containerRef is passed IN from Timeline (Option B — see TIMELINE_REFACTOR.md).
+ * containerRef is passed in from Timeline — the ref is a DOM concern of the
+ * component, not a viewport concern, so Timeline owns it and passes it down.
  */
 
 import { useState, useRef, useCallback, useMemo, useEffect, type RefObject } from 'react';

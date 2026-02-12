@@ -3,9 +3,6 @@
  *
  * "Arrangement view for touch" - see and edit project structure (items, regions, markers)
  *
- * Phase 3: Multi-track lanes with bank navigation
- * Phase 3.5: Filter and BankSelector (consistent with Mixer)
- *
  * Layout (from vision doc):
  * - Bank controls (prev/next, display)
  * - Region labels bar

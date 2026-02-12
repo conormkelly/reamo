@@ -1,8 +1,8 @@
 /**
  * useTimelineSelectors — Consolidated store selectors for Timeline
  *
- * Extracts all useReaperStore() selector calls + useTransport() from Timeline.tsx
- * into a single hook. Each selector remains an individual useReaperStore() call
+ * Groups all useReaperStore() selector calls + useTransport() used by the
+ * Timeline component. Each selector remains an individual useReaperStore() call
  * to preserve Zustand's referential equality optimisation.
  */
 

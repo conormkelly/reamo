@@ -41,7 +41,7 @@ export interface TimelineProps {
   /** External viewport state (if provided, uses this instead of creating own) */
   viewport?: UseViewportReturn;
   /**
-   * Tracks to show as multi-track lanes (Phase 2).
+   * Tracks to show as multi-track lanes.
    * When provided, renders multiple track lanes instead of single-track item density overlay.
    */
   multiTrackLanes?: SkeletonTrack[];
@@ -329,7 +329,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     [regions, markers, positionSeconds]
   );
 
-  // Item tap detection (extracted in Phase 3)
+  // Item tap detection
   const handleItemTap = useItemTapHandler({
     containerRef,
     viewport,
@@ -345,7 +345,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     sendCommand,
   });
 
-  // Pointer event routing (extracted in Phase 4)
+  // Pointer event routing
   const { handlePointerDown, handlePointerMove, handlePointerUp, selectionPreview } =
     useTimelinePointerEvents({
       containerRef,
