@@ -46,6 +46,9 @@ const mockViewport: UseViewportReturn = {
   reset: vi.fn(),
   fitToContent: vi.fn(),
   timeToPercent: (t: number) => (t / 100) * 100,
+  percentToTime: (p: number) => (p / 100) * 100,
+  isInView: () => true,
+  zoomSteps: [10, 30, 60, 100] as readonly number[],
 };
 
 function makeSkeleton(count: number): SkeletonTrack[] {
@@ -78,6 +81,7 @@ function makeItem(overrides: Partial<WSItem> & { trackIdx: number; position: num
     activeTakeName: 'Take 1',
     activeTakeGuid: 'take-guid',
     activeTakeIsMidi: false,
+    activeTakeColor: null,
     ...overrides,
   };
 }
