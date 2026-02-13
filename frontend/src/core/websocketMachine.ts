@@ -168,7 +168,7 @@ const discoveryActor = fromPromise<
   const isPWA = window.matchMedia('(display-mode: standalone)').matches;
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
 
-  // Safari PWA cold start workarounds
+  // Safari PWA cold start workarounds (ALWAYS run regardless of serving mode)
   if (isSafari && isPWA) {
     // Focus cycle to initialize WebSocket stack
     // Safari PWA's network stack may not be ready immediately after launch
@@ -177,6 +177,29 @@ const discoveryActor = fromPromise<
     window.focus();
     await new Promise(r => setTimeout(r, 50));
   }
+
+  // Same-origin detection: if served from extension HTTP server,
+  // the token is in a <meta> tag and port is our origin.
+  // Skip EXTSTATE fetch (would 404 on extension server) but keep Safari workarounds.
+  const metaEl = document.querySelector('meta[name="reamo-token"]');
+  if (metaEl) {
+    const token = metaEl.getAttribute('content');
+    const port = parseInt(window.location.port, 10) || null;
+    console.log(`[WS] Same-origin mode: port=${port}`);
+
+    // iOS Safari: iframe warmup even in same-origin mode
+    // HTTP loading doesn't guarantee WebSocket stack is ready
+    if (isIOS && isSafari) {
+      const wsPort = port ?? DEFAULT_PORT;
+      const host = window.location.hostname || 'localhost';
+      await warmupViaIframe(`ws://${host}:${wsPort}/ws`);
+    }
+
+    return { port, token };
+  }
+
+  // Legacy mode: served from REAPER's built-in HTTP server.
+  // Discover port and token from EXTSTATE API.
 
   const fetchExtState = async (section: string, key: string): Promise<string | null> => {
     try {
@@ -211,7 +234,7 @@ const discoveryActor = fromPromise<
   if (isIOS && isSafari) {
     const wsPort = port ?? DEFAULT_PORT;
     const host = window.location.hostname || 'localhost';
-    await warmupViaIframe(`ws://${host}:${wsPort}/`);
+    await warmupViaIframe(`ws://${host}:${wsPort}/ws`);
   }
 
   return { port, token };
@@ -245,7 +268,7 @@ const websocketActor = fromCallback<
   }
 >(({ input }) => {
   const host = window.location.hostname || 'localhost';
-  const url = `ws://${host}:${input.port}/`;
+  const url = `ws://${host}:${input.port}/ws`;
 
   let socket: WebSocket;
 
