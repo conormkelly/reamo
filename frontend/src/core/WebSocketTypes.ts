@@ -910,6 +910,6 @@ export function isTunerEvent(
 
 export function isTunerErrorEvent(
   msg: EventMessage
-): msg is EventMessage & { error: string } {
+): msg is EventMessage & { payload: TunerErrorEventPayload } {
   return msg.event === 'tunerError';
 }
