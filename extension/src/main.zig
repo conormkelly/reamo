@@ -10,6 +10,7 @@ const fx = @import("state/fx.zig");
 const sends = @import("state/sends.zig");
 const commands = @import("commands/mod.zig");
 const ws_server = @import("server/ws_server.zig");
+const http_server = @import("server/http_server.zig");
 const gesture_state = @import("server/gesture_state.zig");
 const toggle_subscriptions = @import("subscriptions/toggle_subscriptions.zig");
 const project_notes = @import("subscriptions/project_notes.zig");
@@ -85,7 +86,7 @@ var g_last_skeleton_buf: []track_skeleton.SkeletonTrack = &.{};
 // CSurf: Hash-based track change detection
 var g_prev_tracks_hash: u64 = 0;
 var g_last_drift_log_time: i64 = 0; // Rate-limit drift warnings (max 1/sec)
-var g_server: ?ws_server.Server = null;
+var g_http_server: ?http_server.HttpServer = null;
 var g_port: u16 = 0;
 var g_tiered: ?tiered_state.TieredArenas = null;
 
@@ -385,9 +386,9 @@ fn doInitialization() !void {
         }
     }
 
-    // WebSocket server will be started in processTimerCallback after startup completes
+    // HTTP+WS server will be started in processTimerCallback after startup completes
     // This avoids stack overflow when REAPER shows modal dialogs during startup
-    g_server = null;
+    g_http_server = null;
     g_port = 0;
 
     // Store port in REAPER's extension state for discovery
@@ -578,21 +579,42 @@ fn doProcessing() !void {
         }
     }
 
-    // Deferred WebSocket server startup - wait a moment for REAPER UI to settle
+    // Deferred HTTP+WS server startup - wait a moment for REAPER UI to settle
     if (!g_ws_started and g_frame_counter >= WS_START_DELAY_FRAMES) {
         g_ws_started = true;
-        logging.info("Starting WebSocket server (deferred)...", .{});
+        logging.info("Starting HTTP+WS server (deferred)...", .{});
 
-        const result = try ws_server.startWithPortRetry(g_allocator, shared_state, DEFAULT_PORT, MAX_PORT_ATTEMPTS);
-        g_server = result.server;
-        g_port = result.port;
+        // Try ports 9224-9233
+        var attempt: u8 = 0;
+        var started = false;
+        while (attempt < MAX_PORT_ATTEMPTS) : (attempt += 1) {
+            const port = DEFAULT_PORT + @as(u16, attempt);
+            var srv = http_server.HttpServer.init(g_allocator, shared_state, port, g_html_path) catch |err| {
+                logging.debug("http_server: port {d} init failed: {s}", .{ port, @errorName(err) });
+                continue;
+            };
+            srv.start() catch |err| {
+                logging.debug("http_server: port {d} listen failed: {s}", .{ port, @errorName(err) });
+                srv.deinit();
+                continue;
+            };
+            g_http_server = srv;
+            g_port = port;
+            started = true;
+            break;
+        }
+
+        if (!started) {
+            logging.err("http_server: all ports {d}-{d} failed", .{ DEFAULT_PORT, DEFAULT_PORT + MAX_PORT_ATTEMPTS - 1 });
+            return error.AllPortsFailed;
+        }
 
         // Update port in REAPER's extension state
         var port_buf: [8]u8 = undefined;
         const port_str = std.fmt.bufPrint(&port_buf, "{d}", .{g_port}) catch "9224";
         api.setExtStateStr("Reamo", "WebSocketPort", port_str);
 
-        logging.info("WebSocket server started on port {d}", .{g_port});
+        logging.info("HTTP+WS server started on port {d}", .{g_port});
 
         // Start 100Hz command queue timer for reduced latency
         g_fast_timer.start(&commandQueueTimerCallback) catch |err| {
@@ -821,11 +843,10 @@ fn shutdown() void {
     // Unregister extension menu
     menu.unregister();
 
-    if (g_server) |*server| {
+    if (g_http_server) |*server| {
         logging.info("stopping server", .{});
-        server.stop();
         server.deinit();
-        g_server = null;
+        g_http_server = null;
     }
     logging.info("server stopped", .{});
 
