@@ -4,13 +4,13 @@
     .fingerprint = 0x8924e6b0cb02f313,
     .minimum_zig_version = "0.15.0",
     .dependencies = .{
-        .websocket = .{
-            .url = "https://github.com/karlseguin/websocket.zig/archive/refs/heads/master.tar.gz",
-            .hash = "websocket-0.1.0-ZPISdRNzAwAGszh62EpRtoQxu8wb1MSMVI6Ow0o2dmyJ",
-        },
         .ztracy = .{
             .url = "https://github.com/zig-gamedev/ztracy/archive/refs/heads/master.tar.gz",
             .hash = "ztracy-0.14.0-dev-zHJSqzUHGQAmhJybhlwtl1QKevUBw4M5YKZqPfWx2y99",
+        },
+        .httpz = .{
+            .url = "https://github.com/karlseguin/http.zig/archive/refs/heads/master.tar.gz",
+            .hash = "httpz-0.0.0-PNVzrIowBwAFr_kqBN1W4KBMC2Ofutasj2ZfNAIcfTzF",
         },
     },
     .paths = .{

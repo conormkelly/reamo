@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) void {
     // Tracy profiler option - must use ReleaseFast due to Zig 0.15 bug
     const enable_tracy = b.option(bool, "tracy", "Enable Tracy profiler") orelse false;
 
-    const websocket = b.dependency("websocket", .{
+    const httpz = b.dependency("httpz", .{
         .target = target,
         .optimize = optimize,
     });
@@ -20,7 +20,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .imports = &.{
-                .{ .name = "websocket", .module = websocket.module("websocket") },
+                .{ .name = "httpz", .module = httpz.module("httpz") },
             },
         }),
     });
@@ -98,6 +98,7 @@ pub fn build(b: *std.Build) void {
     const test_modules = [_][]const u8{
         "src/core/protocol.zig",
         "src/server/frame_arena.zig",
+        "src/server/host_validation.zig",
         // State/subscription modules with ../ imports are tested via main.zig test block
     };
 
@@ -116,14 +117,14 @@ pub fn build(b: *std.Build) void {
     }
 
     // Main module tests - pulls in tests from all submodules via test block
-    // Requires websocket, ztracy, qrcodegen, CSurf C++, and SWELL bridge
+    // Requires httpz, ztracy, qrcodegen, CSurf C++, and SWELL bridge
     const main_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
-                .{ .name = "websocket", .module = websocket.module("websocket") },
+                .{ .name = "httpz", .module = httpz.module("httpz") },
             },
         }),
     });

@@ -1,0 +1,337 @@
+const std = @import("std");
+const httpz = @import("httpz");
+const websocket = httpz.websocket;
+const host_validation = @import("host_validation.zig");
+const ws_server = @import("ws_server.zig");
+const protocol = @import("../core/protocol.zig");
+const logging = @import("../core/logging.zig");
+
+const Allocator = std.mem.Allocator;
+const Thread = std.Thread;
+
+const ServerType = httpz.Server(Handler);
+
+/// HTTP + WebSocket server built on httpz.
+/// Serves the app HTML on GET / and upgrades /ws to WebSocket.
+pub const HttpServer = struct {
+    allocator: Allocator,
+    state: *ws_server.SharedState,
+    server: *ServerType,
+    listen_thread: ?Thread = null,
+    port: u16,
+    index_html: ?[]const u8, // Cached HTML with token meta tag injected
+
+    /// Initialize the HTTP server. Reads and caches HTML file with token injection.
+    /// Does NOT start listening — call `start()` for that.
+    pub fn init(allocator: Allocator, state: *ws_server.SharedState, port: u16, html_path: ?[]const u8) !HttpServer {
+        // Read and cache HTML with token injected
+        const cached_html = if (html_path) |path| blk: {
+            const html = std.fs.cwd().readFileAlloc(allocator, path, 4 * 1024 * 1024) catch |err| {
+                logging.warn("http_server: could not read HTML file '{s}': {s}", .{ path, @errorName(err) });
+                break :blk null;
+            };
+
+            // Inject token meta tag before </head>
+            const injected = injectTokenMeta(allocator, html, state) catch |err| {
+                logging.warn("http_server: token injection failed: {s}", .{@errorName(err)});
+                break :blk html; // Serve without token if injection fails
+            };
+
+            if (injected.ptr != html.ptr) {
+                allocator.free(html);
+            }
+            break :blk injected;
+        } else null;
+
+        const handler = Handler{ .state = state, .index_html = cached_html };
+
+        // httpz.Server.init returns by value; we need a heap-stable pointer
+        // because listenInNewThread takes *Self
+        var server = try allocator.create(ServerType);
+        errdefer allocator.destroy(server);
+        server.* = try ServerType.init(allocator, .{
+            .port = port,
+            .address = "0.0.0.0",
+        }, handler);
+
+        var router = try server.router(.{});
+        router.get("/", serveIndex, .{});
+        router.get("/ws", serveWsUpgrade, .{});
+
+        return .{
+            .allocator = allocator,
+            .state = state,
+            .server = server,
+            .port = port,
+            .index_html = cached_html,
+        };
+    }
+
+    /// Start the server in a background thread. Returns once listening.
+    pub fn start(self: *HttpServer) !void {
+        self.listen_thread = try self.server.listenInNewThread();
+    }
+
+    /// Stop the server and clean up.
+    pub fn stop(self: *HttpServer) void {
+        self.server.stop();
+        if (self.listen_thread) |t| {
+            t.join();
+            self.listen_thread = null;
+        }
+    }
+
+    pub fn deinit(self: *HttpServer) void {
+        self.stop();
+        self.server.deinit();
+        self.allocator.destroy(self.server);
+        if (self.index_html) |html| {
+            self.allocator.free(html);
+            self.index_html = null;
+        }
+    }
+
+    /// Re-read and cache HTML file with token injection (for hot reload).
+    pub fn reloadHtml(self: *HttpServer, html_path: []const u8) void {
+        const html = std.fs.cwd().readFileAlloc(self.allocator, html_path, 4 * 1024 * 1024) catch |err| {
+            logging.warn("http_server: hot reload failed to read '{s}': {s}", .{ html_path, @errorName(err) });
+            return;
+        };
+
+        const injected = injectTokenMeta(self.allocator, html, self.state) catch {
+            // Use raw HTML if injection fails
+            if (self.index_html) |old| self.allocator.free(old);
+            self.index_html = html;
+            self.server.handler.index_html = html;
+            return;
+        };
+
+        if (injected.ptr != html.ptr) {
+            self.allocator.free(html);
+        }
+        if (self.index_html) |old| self.allocator.free(old);
+        self.index_html = injected;
+        self.server.handler.index_html = injected;
+    }
+};
+
+// ── Handler ────────────────────────────────────────────────────────
+
+/// httpz Handler — provides shared context and declares WebsocketHandler.
+const Handler = struct {
+    state: *ws_server.SharedState,
+    index_html: ?[]const u8 = null,
+
+    pub const WebsocketHandler = WsHandler;
+};
+
+// ── HTTP Route Handlers ────────────────────────────────────────────
+
+fn serveIndex(handler: Handler, req: *httpz.Request, res: *httpz.Response) !void {
+    // Host header validation (DNS rebinding protection)
+    const host = req.header("host") orelse {
+        res.status = 403;
+        res.body = "Forbidden: missing Host header";
+        return;
+    };
+    if (!host_validation.isValidLocalHost(host)) {
+        res.status = 403;
+        res.body = "Forbidden: invalid Host header";
+        return;
+    }
+
+    setSecurityHeaders(res);
+
+    if (handler.index_html) |html| {
+        res.content_type = .HTML;
+        res.body = html;
+    } else {
+        res.status = 503;
+        res.body = "Application not ready";
+    }
+}
+
+fn serveWsUpgrade(handler: Handler, req: *httpz.Request, res: *httpz.Response) !void {
+    // Host validation
+    const host = req.header("host") orelse {
+        res.status = 403;
+        res.body = "Forbidden: missing Host header";
+        return;
+    };
+    if (!host_validation.isValidLocalHost(host)) {
+        res.status = 403;
+        res.body = "Forbidden: invalid Host header";
+        return;
+    }
+
+    // Origin validation (CSRF protection for WebSocket upgrade)
+    const origin = req.header("origin");
+    if (!host_validation.isValidOrigin(origin, host)) {
+        res.status = 403;
+        res.body = "Forbidden: invalid Origin header";
+        return;
+    }
+
+    const ctx = WsHandler.Context{ .state = handler.state };
+    if (try httpz.upgradeWebsocket(WsHandler, req, res, &ctx) == false) {
+        res.status = 400;
+        res.body = "WebSocket upgrade failed";
+    }
+}
+
+// ── WebSocket Handler ──────────────────────────────────────────────
+
+/// WebSocket handler for httpz. Mirrors the old ws_server.Client logic.
+const WsHandler = struct {
+    id: usize,
+    conn: *websocket.Conn,
+    state: *ws_server.SharedState,
+    authenticated: bool = false,
+
+    const Context = struct {
+        state: *ws_server.SharedState,
+    };
+
+    pub fn init(conn: *websocket.Conn, ctx: *const Context) !WsHandler {
+        const id = ctx.state.addClient(conn) orelse {
+            conn.close(.{ .code = 4500, .reason = "Server at capacity" }) catch {};
+            return error.OutOfMemory;
+        };
+
+        return .{
+            .id = id,
+            .conn = conn,
+            .state = ctx.state,
+        };
+    }
+
+    pub fn clientMessage(self: *WsHandler, allocator: Allocator, data: []const u8) !void {
+        _ = allocator;
+
+        const msg_type = protocol.MessageType.parse(data);
+
+        switch (msg_type) {
+            .hello => {
+                const hello = protocol.HelloMessage.parse(data);
+
+                if (!self.state.validateToken(hello.token)) {
+                    try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"INVALID_TOKEN\",\"message\":\"Invalid or missing authentication token\"}}");
+                    self.conn.close(.{ .code = 4001, .reason = "Invalid token" }) catch {};
+                    return;
+                }
+
+                if (hello.protocol_version) |client_version| {
+                    if (client_version != protocol.PROTOCOL_VERSION) {
+                        var buf: [128]u8 = undefined;
+                        const err_json = std.fmt.bufPrint(&buf, "{{\"type\":\"error\",\"error\":{{\"code\":\"PROTOCOL_MISMATCH\",\"message\":\"Expected protocol version {d}\"}}}}", .{protocol.PROTOCOL_VERSION}) catch {
+                            logging.warn("http_server: protocol mismatch response buffer overflow", .{});
+                            return;
+                        };
+                        try self.conn.writeText(err_json);
+                        self.conn.close(.{ .code = 4002, .reason = "Protocol mismatch" }) catch {};
+                        return;
+                    }
+                }
+
+                self.authenticated = true;
+                var buf: [256]u8 = undefined;
+                const response = protocol.buildHelloResponse(&buf, self.state.getHtmlMtime());
+                try self.conn.writeText(response);
+
+                self.state.markNeedsSnapshot(self.id);
+            },
+            .clockSync => {
+                const t1 = self.state.timePreciseMs();
+
+                if (!self.authenticated and self.state.token_set.load(.acquire)) {
+                    try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"NOT_AUTHENTICATED\",\"message\":\"Send hello message first\"}}");
+                    return;
+                }
+
+                const t0 = protocol.jsonGetFloat(data, "t0") orelse {
+                    try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"MISSING_T0\",\"message\":\"t0 is required for clock sync\"}}");
+                    return;
+                };
+
+                const t2 = self.state.timePreciseMs();
+
+                var buf: [256]u8 = undefined;
+                const response = std.fmt.bufPrint(&buf, "{{\"type\":\"clockSyncResponse\",\"t0\":{d:.3},\"t1\":{d:.3},\"t2\":{d:.3}}}", .{ t0, t1, t2 }) catch {
+                    logging.warn("http_server: clockSync response buffer overflow", .{});
+                    return;
+                };
+                try self.conn.writeText(response);
+            },
+            .ping => {
+                if (!self.authenticated and self.state.token_set.load(.acquire)) {
+                    try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"NOT_AUTHENTICATED\",\"message\":\"Send hello message first\"}}");
+                    return;
+                }
+
+                const timestamp = protocol.jsonGetFloat(data, "timestamp");
+
+                var buf: [128]u8 = undefined;
+                const response = if (timestamp) |ts|
+                    std.fmt.bufPrint(&buf, "{{\"type\":\"pong\",\"timestamp\":{d:.0}}}", .{ts}) catch {
+                        logging.warn("http_server: ping response buffer overflow", .{});
+                        return;
+                    }
+                else
+                    "{\"type\":\"pong\"}";
+                try self.conn.writeText(response);
+            },
+            .command => {
+                if (!self.authenticated and self.state.token_set.load(.acquire)) {
+                    try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"NOT_AUTHENTICATED\",\"message\":\"Send hello message first\"}}");
+                    return;
+                }
+
+                if (!self.state.pushCommand(self.id, data)) {
+                    try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"QUEUE_FULL\",\"message\":\"Command queue full\"}}");
+                }
+            },
+            .unknown => {
+                try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"UNKNOWN_MESSAGE\",\"message\":\"Unknown message type\"}}");
+            },
+        }
+    }
+
+    pub fn close(self: *WsHandler) void {
+        self.state.removeClient(self.id);
+    }
+};
+
+// ── Security Headers ───────────────────────────────────────────────
+
+fn setSecurityHeaders(res: *httpz.Response) void {
+    // Prevent framing (clickjacking)
+    res.header("X-Frame-Options", "DENY");
+    // CSP: Phase 1-2 allows unsafe-inline for viteSingleFile build
+    res.header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:; font-src 'self' data:");
+    // Prevent MIME sniffing
+    res.header("X-Content-Type-Options", "nosniff");
+    // No caching for dynamic content
+    res.header("Cache-Control", "no-store");
+    // Cross-Origin isolation
+    res.header("Cross-Origin-Resource-Policy", "same-origin");
+    res.header("Cross-Origin-Opener-Policy", "same-origin");
+}
+
+// ── Token Injection ────────────────────────────────────────────────
+
+/// Inject `<meta name="reamo-token" content="TOKEN">` before `</head>`.
+/// Returns new allocation if injected, or the original slice if `</head>` not found.
+fn injectTokenMeta(allocator: Allocator, html: []const u8, state: *ws_server.SharedState) ![]const u8 {
+    const token = state.getToken() orelse return html;
+    const needle = "</head>";
+    const pos = std.mem.indexOf(u8, html, needle) orelse return html;
+
+    const meta_tag = try std.fmt.allocPrint(allocator, "<meta name=\"reamo-token\" content=\"{s}\">\n", .{token});
+    defer allocator.free(meta_tag);
+
+    const result = try allocator.alloc(u8, html.len + meta_tag.len);
+    @memcpy(result[0..pos], html[0..pos]);
+    @memcpy(result[pos .. pos + meta_tag.len], meta_tag);
+    @memcpy(result[pos + meta_tag.len ..], html[pos..]);
+    return result;
+}
