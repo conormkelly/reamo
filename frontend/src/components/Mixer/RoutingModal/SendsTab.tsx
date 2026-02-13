@@ -50,12 +50,9 @@ function SendRow({
       label={label}
       colorScheme="send"
       onVolumeChange={(volume) => {
-        const cmd = sendCmd.setVolume(trackIndex, sendIndex, volume);
-        console.log('[SendsTab] setVolume:', { trackIndex, sendIndex, volume, cmd });
-        sendCommand(cmd);
+        sendCommand(sendCmd.setVolume(trackIndex, sendIndex, volume));
       }}
       onVolumeGestureStart={() => {
-        console.log('[SendsTab] gestureStart:', { trackIndex, guid, sendIndex });
         if (!guid) return;
         sendCommand(gesture.start('send', trackIndex, guid, sendIndex));
       }}
