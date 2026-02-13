@@ -1,6 +1,9 @@
 /**
  * MixerStripCompact - Minimal strip for landscape mode
  *
+ * WIP: Needs design/polish pass as part of Responsive Layout Refinement (see ROADMAP.md).
+ * Missing selected-track name styling parity with MixerStrip.
+ *
  * Shows only fader + meter + track name + selection footer.
  * All other controls (pan, M/S, arm/monitor) are accessed via
  * TrackDetailSheet when tapping the strip.
