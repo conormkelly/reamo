@@ -34,6 +34,7 @@ App works well on iOS phone PWA but needs polish across form factors.
 - Timeline track height at different heights
 - Touch target sizes on tablets (may want larger)
 - Orientation transitions (no layout jump)
+- `MixerStripCompact` (landscape phone mixer) — WIP, needs design/polish pass. Missing selected-track name styling parity with `MixerStrip`, no `data-selected`/`data-master` attributes for testing
 
 **Effort:** M (mostly testing + CSS tweaks)
 

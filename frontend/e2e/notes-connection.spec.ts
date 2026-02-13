@@ -40,8 +40,8 @@ async function setupTestMode(page: Page) {
     });
   });
 
-  // Wait for the app to fully render
-  await page.waitForSelector('[data-view="studio"]', { state: 'visible' });
+  // Wait for the app to fully render (default view is timeline)
+  await page.waitForSelector('[data-view="timeline"]', { state: 'visible' });
 }
 
 // Helper to get connection state
@@ -77,10 +77,10 @@ test.describe('Notes View - Connection State Stability', () => {
     expect(await getConnectionState(page)).toBe(true);
     await expect(banner).not.toBeVisible();
 
-    // Navigate back to Studio
-    const studioTab = page.getByRole('button', { name: /studio/i });
-    await studioTab.click();
-    await page.waitForSelector('[data-view="studio"]', { state: 'visible' });
+    // Navigate back to Timeline (default view)
+    const timelineTab = page.getByRole('button', { name: /timeline/i });
+    await timelineTab.click();
+    await page.waitForSelector('[data-view="timeline"]', { state: 'visible' });
 
     // CRITICAL: Connection state should still be true after leaving Notes view
     // Bug: NotesView's second connection cleanup would set connected=false
@@ -90,7 +90,7 @@ test.describe('Notes View - Connection State Stability', () => {
 
   test('multiple Notes view visits do not cause connection state oscillation', async ({ page }) => {
     const notesTab = page.getByRole('button', { name: /notes/i });
-    const studioTab = page.getByRole('button', { name: /studio/i });
+    const timelineTab = page.getByRole('button', { name: /timeline/i });
     const banner = page.locator('[data-testid="connection-banner"]');
 
     // Track all state changes during navigation
@@ -102,8 +102,8 @@ test.describe('Notes View - Connection State Stability', () => {
       await page.waitForSelector('[data-view="notes"]', { state: 'visible' });
       stateChanges.push(await getConnectionState(page));
 
-      await studioTab.click();
-      await page.waitForSelector('[data-view="studio"]', { state: 'visible' });
+      await timelineTab.click();
+      await page.waitForSelector('[data-view="timeline"]', { state: 'visible' });
       stateChanges.push(await getConnectionState(page));
     }
 
@@ -116,16 +116,16 @@ test.describe('Notes View - Connection State Stability', () => {
 
   test('rapid Notes navigation does not cause state corruption', async ({ page }) => {
     const notesTab = page.getByRole('button', { name: /notes/i });
-    const studioTab = page.getByRole('button', { name: /studio/i });
+    const timelineTab = page.getByRole('button', { name: /timeline/i });
 
     // Rapidly navigate between views without waiting
     for (let i = 0; i < 5; i++) {
       await notesTab.click();
-      await studioTab.click();
+      await timelineTab.click();
     }
 
     // Wait for all navigation to settle
-    await page.waitForSelector('[data-view="studio"]', { state: 'visible' });
+    await page.waitForSelector('[data-view="timeline"]', { state: 'visible' });
     await page.waitForTimeout(100);
 
     // Connection state should still be true
