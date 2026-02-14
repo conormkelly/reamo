@@ -7,11 +7,11 @@
  */
 
 import { useCallback, useMemo, type ReactElement } from 'react';
-import { MapPin, Layers } from 'lucide-react';
+import { MapPin, Layers, ArrowLeftToLine, ArrowRightToLine } from 'lucide-react';
 import { BottomSheet } from '../Modal/BottomSheet';
 import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
-import { transport } from '../../core/WebSocketCommands';
+import { transport, action } from '../../core/WebSocketCommands';
 import { formatTime, reaperColorToHexWithFallback } from '../../utils';
 import type { Marker, Region } from '../../core/types';
 
@@ -77,6 +77,15 @@ export function MarkerNavigationPanel({ isOpen, onClose }: MarkerNavigationPanel
     [sendCommand, onClose]
   );
 
+  // Handle action command (project start/end)
+  const handleActionClick = useCallback(
+    (commandId: number) => {
+      sendCommand(action.execute(commandId));
+      onClose();
+    },
+    [sendCommand, onClose]
+  );
+
   const hasItems = navigationItems.length > 0;
 
   return (
@@ -85,6 +94,24 @@ export function MarkerNavigationPanel({ isOpen, onClose }: MarkerNavigationPanel
         {/* Header */}
         <div className="text-center mb-3 pt-1">
           <h2 className="text-lg font-semibold text-text-primary">Jump to...</h2>
+        </div>
+
+        {/* Pinned project navigation */}
+        <div className="space-y-1 mb-3">
+          <button
+            onClick={() => handleActionClick(40042)}
+            className="w-full flex items-center gap-3 px-3 py-3 rounded-xl bg-bg-elevated hover:bg-bg-hover active:bg-bg-disabled transition-colors text-left"
+          >
+            <ArrowLeftToLine size={16} className="text-accent flex-shrink-0" />
+            <span className="flex-1 text-text-primary">Start of Project</span>
+          </button>
+          <button
+            onClick={() => handleActionClick(40043)}
+            className="w-full flex items-center gap-3 px-3 py-3 rounded-xl bg-bg-elevated hover:bg-bg-hover active:bg-bg-disabled transition-colors text-left"
+          >
+            <ArrowRightToLine size={16} className="text-accent flex-shrink-0" />
+            <span className="flex-1 text-text-primary">End of Project</span>
+          </button>
         </div>
 
         {hasItems ? (
