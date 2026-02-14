@@ -8,7 +8,7 @@
  * - Safari/iOS workarounds (CONNECTING timeout, visibility change)
  * - Async command handling
  *
- * Uses mocked WebSocket, fetch, and timers for deterministic testing.
+ * Uses mocked WebSocket and timers for deterministic testing.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
@@ -82,16 +82,21 @@ class MockWebSocket implements MockWebSocketInstance {
 }
 
 // =============================================================================
-// Mock fetch for EXTSTATE discovery
+// Helpers for same-origin <meta> tag discovery
 // =============================================================================
 
-function createMockFetch(responses: Record<string, string> = {}) {
-  return vi.fn((url: string) => {
-    const body = responses[url] || '';
-    return Promise.resolve({
-      text: () => Promise.resolve(body),
-    });
-  });
+function setMetaToken(token: string) {
+  let meta = document.querySelector('meta[name="reamo-token"]');
+  if (!meta) {
+    meta = document.createElement('meta');
+    meta.setAttribute('name', 'reamo-token');
+    document.head.appendChild(meta);
+  }
+  meta.setAttribute('content', token);
+}
+
+function clearMetaToken() {
+  document.querySelector('meta[name="reamo-token"]')?.remove();
 }
 
 // =============================================================================
@@ -100,14 +105,11 @@ function createMockFetch(responses: Record<string, string> = {}) {
 
 describe('WebSocketConnection', () => {
   let originalWebSocket: typeof WebSocket;
-  let originalFetch: typeof fetch;
   let originalMatchMedia: typeof window.matchMedia;
-  let mockFetch: MockInstance;
 
   beforeEach(() => {
     // Store originals
     originalWebSocket = globalThis.WebSocket;
-    originalFetch = globalThis.fetch;
     originalMatchMedia = window.matchMedia;
 
     // Reset mock instances
@@ -115,13 +117,6 @@ describe('WebSocketConnection', () => {
 
     // Mock WebSocket with our class
     (globalThis as unknown as { WebSocket: typeof MockWebSocket }).WebSocket = MockWebSocket;
-
-    // Mock fetch for EXTSTATE discovery
-    mockFetch = createMockFetch({
-      '/_/GET/EXTSTATE/Reamo/WebSocketPort': 'EXTSTATE\tReamo\tWebSocketPort\t9224',
-      '/_/GET/EXTSTATE/Reamo/SessionToken': 'EXTSTATE\tReamo\tSessionToken\ttest-token-123',
-    });
-    globalThis.fetch = mockFetch as unknown as typeof fetch;
 
     // Mock matchMedia (for PWA detection)
     window.matchMedia = vi.fn().mockReturnValue({ matches: false }) as unknown as typeof matchMedia;
@@ -133,8 +128,8 @@ describe('WebSocketConnection', () => {
   afterEach(() => {
     // Restore originals
     globalThis.WebSocket = originalWebSocket;
-    globalThis.fetch = originalFetch;
     window.matchMedia = originalMatchMedia;
+    clearMetaToken();
 
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -152,11 +147,11 @@ describe('WebSocketConnection', () => {
       // Start connection
       const startPromise = conn.start();
 
-      // Should immediately be connecting (set before async fetch)
+      // Should immediately be connecting
       await vi.advanceTimersByTimeAsync(0);
       expect(onStateChange).toHaveBeenCalledWith('connecting', undefined);
 
-      // Let EXTSTATE fetches complete
+      // Let async setup complete
       await vi.advanceTimersByTimeAsync(100);
       await startPromise;
 
@@ -183,18 +178,12 @@ describe('WebSocketConnection', () => {
       expect(onStateChange).toHaveBeenCalledWith('connected', undefined);
     });
 
-    it('should use discovered port and token from EXTSTATE', async () => {
-      mockFetch = createMockFetch({
-        '/_/GET/EXTSTATE/Reamo/WebSocketPort': 'EXTSTATE\tReamo\tWebSocketPort\t8888',
-        '/_/GET/EXTSTATE/Reamo/SessionToken': 'EXTSTATE\tReamo\tSessionToken\tmy-secret-token',
-      });
-      globalThis.fetch = mockFetch as unknown as typeof fetch;
+    it('should use token from meta tag in hello message', async () => {
+      setMetaToken('my-secret-token');
 
       const conn = new WebSocketConnection();
       await conn.start();
       await vi.advanceTimersByTimeAsync(100);
-
-      expect(mockWebSocketInstances[0].url).toBe('ws://localhost:8888/');
 
       // Check that token was included in hello
       mockWebSocketInstances[0].simulateOpen();
@@ -203,10 +192,8 @@ describe('WebSocketConnection', () => {
       expect(helloMsg.token).toBe('my-secret-token');
     });
 
-    it('should fall back to default port if EXTSTATE fetch fails', async () => {
-      mockFetch = vi.fn(() => Promise.reject(new Error('Network error')));
-      globalThis.fetch = mockFetch as unknown as typeof fetch;
-
+    it('should fall back to option port when no meta tag is present', async () => {
+      // No meta tag — discoveredPort will be null, falls back to options.port
       const conn = new WebSocketConnection({ port: 9999 });
       await conn.start();
       await vi.advanceTimersByTimeAsync(100);

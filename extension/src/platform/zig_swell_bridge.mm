@@ -50,6 +50,8 @@ static GetSubMenuFn s_GetSubMenu = nullptr;
 static GetMenuItemIDFn s_GetMenuItemID = nullptr;
 static CheckMenuItemFn s_CheckMenuItem = nullptr;
 static EnableMenuItemFn s_EnableMenuItem = nullptr;
+static SWELL_SetMenuItemTextFn s_SWELL_SetMenuItemText = nullptr;
+static SetMenuItemInfoFn s_SetMenuItemInfo = nullptr;
 
 #ifdef __APPLE__
 
@@ -240,6 +242,14 @@ CheckMenuItemFn zig_swell_get_CheckMenuItem(void) {
 
 EnableMenuItemFn zig_swell_get_EnableMenuItem(void) {
     GET_SWELL_FUNC(EnableMenuItem, EnableMenuItemFn);
+}
+
+SWELL_SetMenuItemTextFn zig_swell_get_SWELL_SetMenuItemText(void) {
+    GET_SWELL_FUNC(SWELL_SetMenuItemText, SWELL_SetMenuItemTextFn);
+}
+
+SetMenuItemInfoFn zig_swell_get_SetMenuItemInfo(void) {
+    GET_SWELL_FUNC(SetMenuItemInfo, SetMenuItemInfoFn);
 }
 
 // =============================================================================

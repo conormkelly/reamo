@@ -84,7 +84,6 @@ const DEFAULT_PORT = 9224;
 const DEFAULT_MAX_RETRIES = 10;
 
 // Timeouts (in ms)
-const DISCOVERY_TIMEOUT = 2000;    // EXTSTATE fetch timeout (iOS PWA cold start)
 const CONNECT_TIMEOUT = 5000;      // Safari: detect stuck CONNECTING state (must match old code)
 const HELLO_TIMEOUT = 5000;        // Wait for hello response
 const PONG_TIMEOUT = 3000;         // Per API.md: pong must arrive within 3s
@@ -100,51 +99,33 @@ const MAX_RETRY_DELAY = 30000;
 // =============================================================================
 
 /**
- * iOS Safari workaround: Create hidden iframe that attempts WebSocket first.
- * Safari's NSURLSession has lazy WebSocket initialization - the iframe's connection
- * attempt warms the shared network context, allowing the main connection to succeed.
- * Returns a Promise that resolves when warmup completes (success, error, or timeout).
+ * iOS Safari workaround: Open a throwaway WebSocket to prime Safari's networking.
+ * Safari's NSURLSession has lazy WebSocket initialization — the first connection
+ * attempt in a new page context often fails. This warmup connection triggers the
+ * internal initialization so subsequent connections succeed.
+ *
+ * Previously used a srcdoc iframe, but srcdoc origins are "null" which the server's
+ * Origin validation rejects (403). A direct warmup from the main page uses the
+ * correct same-origin header.
  */
-function warmupViaIframe(wsUrl: string): Promise<void> {
+function warmupWebSocket(wsUrl: string): Promise<void> {
   return new Promise((resolve) => {
     try {
-      const iframe = document.createElement('iframe');
-      iframe.style.display = 'none';
-      iframe.srcdoc = `
-        <script>
-          try {
-            const ws = new WebSocket('${wsUrl}');
-            ws.onopen = () => { ws.close(); parent.postMessage('warmup-done', '*'); };
-            ws.onerror = () => { parent.postMessage('warmup-done', '*'); };
-            setTimeout(() => { parent.postMessage('warmup-done', '*'); }, 2000);
-          } catch (e) {
-            parent.postMessage('warmup-done', '*');
-          }
-        </script>
-      `;
-
-      const cleanup = () => {
-        window.removeEventListener('message', handler);
-        if (document.body.contains(iframe)) {
-          document.body.removeChild(iframe);
-        }
-      };
-
-      const handler = (e: MessageEvent) => {
-        if (e.data === 'warmup-done') {
-          cleanup();
-          resolve();
-        }
-      };
-
-      window.addEventListener('message', handler);
-      document.body.appendChild(iframe);
-
-      // Fallback timeout (longer than iframe's internal timeout)
-      setTimeout(() => {
-        cleanup();
+      const ws = new WebSocket(wsUrl);
+      const timer = setTimeout(() => {
+        try { ws.close(); } catch { /* ignore */ }
         resolve();
       }, 3000);
+
+      ws.onopen = () => {
+        clearTimeout(timer);
+        try { ws.close(); } catch { /* ignore */ }
+        resolve();
+      };
+      ws.onerror = () => {
+        clearTimeout(timer);
+        resolve();
+      };
     } catch {
       resolve();
     }
@@ -156,13 +137,13 @@ function warmupViaIframe(wsUrl: string): Promise<void> {
 // =============================================================================
 
 /**
- * Discovery actor - fetches port and token from EXTSTATE
+ * Discovery actor - reads port and token from same-origin <meta> tag
  * Also handles Safari PWA workarounds for WebSocket initialization
  */
 const discoveryActor = fromPromise<
   { port: number | null; token: string | null },
-  { timeout: number }
->(async ({ input }) => {
+  void
+>(async () => {
   // Detect Safari and PWA mode
   const isSafari = navigator.userAgent.includes('Safari') && !navigator.userAgent.includes('Chrome');
   const isPWA = window.matchMedia('(display-mode: standalone)').matches;
@@ -178,63 +159,33 @@ const discoveryActor = fromPromise<
     await new Promise(r => setTimeout(r, 50));
   }
 
-  // Same-origin detection: if served from extension HTTP server,
-  // the token is in a <meta> tag and port is our origin.
-  // Skip EXTSTATE fetch (would 404 on extension server) but keep Safari workarounds.
+  // Read token from <meta> tag injected by extension HTTP server
   const metaEl = document.querySelector('meta[name="reamo-token"]');
-  if (metaEl) {
-    const token = metaEl.getAttribute('content');
-    const port = parseInt(window.location.port, 10) || null;
-    console.log(`[WS] Same-origin mode: port=${port}`);
+  const token = metaEl?.getAttribute('content') ?? null;
+  const port = parseInt(window.location.port, 10) || null;
+  console.log(`[WS] Same-origin mode: port=${port}`);
 
-    // iOS Safari: iframe warmup even in same-origin mode
-    // HTTP loading doesn't guarantee WebSocket stack is ready
-    if (isIOS && isSafari) {
-      const wsPort = port ?? DEFAULT_PORT;
-      const host = window.location.hostname || 'localhost';
-      await warmupViaIframe(`ws://${host}:${wsPort}/ws`);
+  // Safari network warmup: fetch a lightweight HTTP endpoint before WebSocket.
+  // Safari's network stack is lazy — the page's initial HTTP load isn't always
+  // enough to prepare WebSocket connections. Previously the EXTSTATE fetches
+  // provided this warmup accidentally. Without it, WebSocket attempts fail
+  // on first try and require retries.
+  if (isSafari) {
+    try {
+      await fetch('/api/ping');
+      console.log('[WS] Safari: ping warmup complete');
+    } catch {
+      console.log('[WS] Safari: ping warmup failed (server may not be ready)');
     }
-
-    return { port, token };
   }
 
-  // Legacy mode: served from REAPER's built-in HTTP server.
-  // Discover port and token from EXTSTATE API.
-
-  const fetchExtState = async (section: string, key: string): Promise<string | null> => {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), input.timeout);
-
-      const response = await fetch(`/_/GET/EXTSTATE/${section}/${key}`, {
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-
-      const text = await response.text();
-      const parts = text.trim().split('\t');
-      if (parts.length >= 4 && parts[0] === 'EXTSTATE') {
-        return parts[3] || null;
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  };
-
-  // Parallel fetch for port and token
-  const [portStr, token] = await Promise.all([
-    fetchExtState('Reamo', 'WebSocketPort'),
-    fetchExtState('Reamo', 'SessionToken'),
-  ]);
-
-  const port = portStr ? parseInt(portStr, 10) : null;
-
-  // iOS Safari: Await iframe warmup to ensure network stack is ready
+  // iOS Safari: iframe warmup to ensure WebSocket stack is ready.
+  // This is a separate issue from the HTTP warmup above — Safari's NSURLSession
+  // has lazy WebSocket initialization that the iframe's connection primes.
   if (isIOS && isSafari) {
     const wsPort = port ?? DEFAULT_PORT;
     const host = window.location.hostname || 'localhost';
-    await warmupViaIframe(`ws://${host}:${wsPort}/ws`);
+    await warmupWebSocket(`ws://${host}:${wsPort}/ws`);
   }
 
   return { port, token };
@@ -576,7 +527,6 @@ export const websocketMachine = setup({
     discovering: {
       invoke: {
         src: 'discovery',
-        input: { timeout: DISCOVERY_TIMEOUT },
         onDone: {
           target: 'connecting',
           actions: [

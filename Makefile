@@ -8,7 +8,7 @@ all: test frontend extension
 frontend:
 	@echo "Building frontend..."
 	cd frontend && npm run build
-	@echo "Frontend build complete: reamo.html + icons + manifest.json"
+	@echo "Frontend build complete: index.html + icons + manifest.json"
 
 # Build and install Zig extension
 extension:
@@ -48,7 +48,7 @@ csurf:
 clean:
 	@echo "Cleaning frontend..."
 	rm -rf frontend/dist frontend/node_modules
-	rm -f reamo.html
+	rm -f index.html
 	@echo "Cleaning extension..."
 	rm -rf extension/.zig-cache extension/zig-out
 	@echo "Clean complete."

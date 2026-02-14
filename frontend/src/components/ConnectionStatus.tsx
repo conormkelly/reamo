@@ -13,7 +13,7 @@ import { NetworkStatsModal } from './NetworkStatsModal';
 import type { NetworkQuality } from '../lib/transport-sync';
 
 // Grace period before showing banner on initial connection
-// PWA cold start: bundle parse (1-2s) + 200ms init delay + EXTSTATE fetch + WebSocket handshake
+// PWA cold start: bundle parse (1-2s) + 200ms init delay + WebSocket handshake
 // User expects loading screen for at least 2 seconds
 const INITIAL_CONNECT_GRACE_MS = 2500;
 

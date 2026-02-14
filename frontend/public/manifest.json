@@ -2,7 +2,7 @@
   "name": "REAmo",
   "short_name": "REAmo",
   "description": "REAPER remote control",
-  "start_url": "/reamo.html",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#1a1a1a",
   "theme_color": "#1a1a1a",

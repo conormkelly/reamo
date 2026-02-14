@@ -36,6 +36,7 @@ pub const Api = struct {
 
     // UI dialogs
     showMessageBox: ?*const fn ([*:0]const u8, [*:0]const u8, c_int) callconv(.c) c_int = null,
+    getUserInputs: ?*const fn ([*:0]const u8, c_int, [*:0]const u8, [*]u8, c_int) callconv(.c) bool = null,
 
     // State
     setExtState: ?*const fn ([*:0]const u8, [*:0]const u8, [*:0]const u8, c_int) callconv(.c) void = null,
@@ -265,6 +266,7 @@ pub const Api = struct {
             .showConsoleMsg = showConsoleMsg,
             .register = info.Register,
             .showMessageBox = getFunc(info, "ShowMessageBox", fn ([*:0]const u8, [*:0]const u8, c_int) callconv(.c) c_int),
+            .getUserInputs = getFunc(info, "GetUserInputs", fn ([*:0]const u8, c_int, [*:0]const u8, [*]u8, c_int) callconv(.c) bool),
             .setExtState = getFunc(info, "SetExtState", fn ([*:0]const u8, [*:0]const u8, [*:0]const u8, c_int) callconv(.c) void),
             .getPlayState = getFunc(info, "GetPlayState", fn () callconv(.c) c_int),
             .getPlayPosition = getFunc(info, "GetPlayPosition", fn () callconv(.c) f64),
@@ -487,6 +489,26 @@ pub const Api = struct {
             buf[msg.len] = 0;
             self.showConsoleMsg(@ptrCast(&buf));
         }
+    }
+
+    /// Show a single-input dialog and return the user's input, or null if cancelled.
+    /// `title`: dialog title, `caption`: field label, `default_val`: pre-filled value.
+    /// Result is written into `buf` and returned as a slice, or null if cancelled.
+    pub fn promptUserInput(self: *const Api, title: [*:0]const u8, caption: [*:0]const u8, default_val: []const u8, buf: []u8) ?[]const u8 {
+        const f = self.getUserInputs orelse return null;
+        if (buf.len < 2) return null;
+
+        // Pre-fill buffer with default value, null-terminated
+        const copy_len = @min(default_val.len, buf.len - 1);
+        @memcpy(buf[0..copy_len], default_val[0..copy_len]);
+        buf[copy_len] = 0;
+
+        if (f(title, 1, caption, buf.ptr, @intCast(buf.len))) {
+            // Find null terminator to get result length
+            const result_len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
+            return buf[0..result_len];
+        }
+        return null; // User cancelled
     }
 
     pub fn setExtStateStr(self: *const Api, section: [*:0]const u8, key: [*:0]const u8, value: []const u8) void {

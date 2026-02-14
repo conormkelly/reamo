@@ -29,6 +29,8 @@ pub const items = [_]MenuItem{
     // ── Connection ──
     .{ .action_id = "REAMO_SHOW_QR_CODE", .label = "Show Connection QR Code...", .group = .connection },
     .{ .action_id = "REAMO_SHOW_NETWORKS", .label = "Show Network Addresses...", .group = .connection },
+    // ── Settings ──
+    .{ .action_id = "REAMO_CHANGE_PORT", .label = "Change Server Port...", .group = .settings },
     // ── Top-level (no group) ──
     .{ .action_id = "REAMO_ABOUT", .label = "About REAmo" },
 };

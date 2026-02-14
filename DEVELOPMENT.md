@@ -26,12 +26,12 @@ This document captures implementation details, API quirks, and outstanding work 
 ## Quick Start
 
 ```bash
-make frontend    # Build frontend → reamo.html (auto-reloads on iPad)
+make frontend    # Build frontend → index.html (auto-reloads on iPad)
 make extension   # Build extension → REAPER UserPlugins (restart REAPER to load)
 make test        # Run all tests before committing
 ```
 
-**Frontend changes** are visible immediately — the web UI auto-reloads when `reamo.html` is updated.
+**Frontend changes** are visible immediately — the web UI auto-reloads when the HTML file is updated.
 
 **Extension changes** require restarting REAPER to load the new plugin.
 
@@ -119,7 +119,7 @@ reaper_www_root/
 ├── Scripts/Reamo/       # Lua scripts called by the Zig extension
 │   └── reamo_internal_fetch_peaks.lua  # Peak data fetching via GetMediaItemTake_Peaks
 ├── Makefile             # Build commands: make all, make extension, make frontend
-└── reamo.html           # Built frontend (single-file, copied from frontend/dist)
+└── index.html           # Built frontend (single-file, served by extension HTTP server)
 ```
 
 ### Threading Model
@@ -1276,7 +1276,7 @@ iOS aggressively suspends PWAs after ~5 seconds in background, killing WebSocket
 | Suspension detection | Tracks `lastActiveTime`, forces reconnect after >10s hidden |
 | Application heartbeat | Ping/pong every 10s to detect zombie connections |
 | PWA init delay | 200ms delay on cold start for network stack readiness |
-| EXTSTATE fetch timeout | 2s timeout prevents hanging if network not ready |
+| Same-origin detection | Reads token from `<meta>` tag, port from `window.location` |
 | Visibility handler | Forces health check or reconnect on every page visible event |
 | Online/offline events | Safari bug fallback + network change detection |
 
@@ -1291,7 +1291,7 @@ PWA_INIT_DELAY_MS = 200           // Delay initial connection in standalone mode
 
 **Connection banner grace period:**
 
-The `ConnectionBanner` component has a 500ms grace period before showing "Disconnected" on initial load. This accounts for PWA cold start timing (200ms init delay + EXTSTATE fetch + WebSocket handshake).
+The `ConnectionBanner` component has a 500ms grace period before showing "Disconnected" on initial load. This accounts for PWA cold start timing (200ms init delay + WebSocket handshake).
 
 **Visibility change flow:**
 
@@ -1662,14 +1662,11 @@ Server → Client:
 | Client protocol > Server | Client shows "Please update REAPER extension" |
 | Server protocol > Client | Server sends error, close with 4002 |
 
-### EXTSTATE Discovery
+### Same-Origin Connection
 
-Client discovers WebSocket port via HTTP:
-
-```bash
-curl -s "http://localhost:8099/_/GET/EXTSTATE/REAmo/WebsocketPort"
-curl -s "http://localhost:8099/_/GET/EXTSTATE/REAmo/SessionToken"
-```
+The frontend is served by the extension's built-in HTTP server (same origin). Connection params are discovered automatically:
+- **Token**: injected via `<meta name="reamo-token" content="...">` in the HTML
+- **Port**: read from `window.location.port` (same as the HTTP server)
 
 ## Extension Configuration
 
@@ -1680,7 +1677,8 @@ Non-technical musicians should never see error dialogs or need to configure port
 - Default port: 9224
 - Max attempts: 10 (ports 9224-9233)
 - No error dialogs on failure — just a console message
-- Stores successful port in EXTSTATE for client discovery
+- Port configurable via **Extensions > REAmo > Change Server Port...**
+- Configured port persisted in ExtState("Reamo", "ServerPort") across REAPER restarts
 
 **Never show `MB_OK` error dialogs.** Musicians don't want modal popups interrupting their session.
 
@@ -1699,7 +1697,7 @@ make test-e2e         # Playwright E2E tests
 make test-extension   # Zig unit tests
 
 # Build without tests
-make frontend         # Build frontend (copies to reamo.html)
+make frontend         # Build frontend (index.html + static assets)
 make extension        # Build extension (installs to REAPER UserPlugins)
 
 # Development
@@ -1764,13 +1762,8 @@ Log rotation: 1MB max, keeps last 3 files.
 ### WebSocket Testing
 
 ```bash
-# Get token and port
-curl -s "http://localhost:8099/_/GET/EXTSTATE/REAmo/SessionToken"
-curl -s "http://localhost:8099/_/GET/EXTSTATE/REAmo/WebsocketPort"
-
-# Connect with websocat
-TOKEN="<token>"
-echo '{"type":"hello","clientVersion":"1.0.0","protocolVersion":1,"token":"'$TOKEN'"}' | \
+# Connect with websocat (token from <meta> tag in HTML, or use any string for testing)
+echo '{"type":"hello","clientVersion":"1.0.0","protocolVersion":1,"token":"test"}' | \
   websocat ws://localhost:9224
 
 # Send a command

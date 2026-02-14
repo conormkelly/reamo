@@ -112,6 +112,8 @@ extern fn zig_swell_get_GetSubMenu() ?*const fn (?*anyopaque, c_int) callconv(.c
 extern fn zig_swell_get_GetMenuItemID() ?*const fn (?*anyopaque, c_int) callconv(.c) c_int;
 extern fn zig_swell_get_CheckMenuItem() ?*const fn (?*anyopaque, c_int, c_int) callconv(.c) bool;
 extern fn zig_swell_get_EnableMenuItem() ?*const fn (?*anyopaque, c_int, c_int) callconv(.c) bool;
+extern fn zig_swell_get_SWELL_SetMenuItemText() ?*const fn (?*anyopaque, c_int, [*:0]const u8) callconv(.c) void;
+extern fn zig_swell_get_SetMenuItemInfo() ?*const fn (?*anyopaque, c_int, c_int, *const MenuItemInfo) callconv(.c) c_int;
 
 // =============================================================================
 // Public API
@@ -445,6 +447,22 @@ pub fn killTimer(hwnd: HWND, id: usize) bool {
 /// Menu handle (HMENU — NSMenu* on macOS, opaque pointer)
 pub const HMENU = ?*anyopaque;
 
+/// MENUITEMINFO — matches SWELL's struct layout (swell-types.h)
+pub const MenuItemInfo = extern struct {
+    cbSize: c_uint = @sizeOf(MenuItemInfo),
+    fMask: c_uint = 0,
+    fType: c_uint = 0,
+    fState: c_uint = 0,
+    wID: c_uint = 0,
+    hSubMenu: HMENU = null,
+    hbmpChecked: ?*anyopaque = null,
+    hbmpUnchecked: ?*anyopaque = null,
+    dwItemData: usize = 0,
+    dwTypeData: ?[*:0]u8 = null,
+    cch: c_int = 0,
+    hbmpItem: ?*anyopaque = null,
+};
+
 // SWELL MIIM_* constants (NOT Win32 values — completely reshuffled!)
 pub const MIIM_ID = 1;
 pub const MIIM_STATE = 2;
@@ -552,4 +570,30 @@ pub fn enableMenuItem(menu: HMENU, idx: c_int, enabled: bool) void {
     }
     const func = zig_swell_get_EnableMenuItem() orelse return;
     _ = func(menu, idx, if (enabled) @as(c_int, @bitCast(MF_BYPOSITION | MF_ENABLED)) else @as(c_int, @bitCast(MF_BYPOSITION | MF_GRAYED)));
+}
+
+/// Set the text of a menu item (by position).
+pub fn setMenuItemText(menu: HMENU, idx: c_int, text: [*:0]const u8) void {
+    if (comptime !is_swell_platform) {
+        _ = .{ menu, idx, text };
+        return;
+    }
+    const func = zig_swell_get_SWELL_SetMenuItemText() orelse return;
+    func(menu, idx, text);
+}
+
+/// Set menu item text by position using SetMenuItemInfo (proven SWS approach).
+/// This works for both regular items and submenu items, unlike SWELL_SetMenuItemText.
+pub fn setMenuItemTextByPos(menu: HMENU, pos: c_int, text: [*:0]u8) void {
+    if (comptime !is_swell_platform) {
+        _ = .{ menu, pos, text };
+        return;
+    }
+    const func = zig_swell_get_SetMenuItemInfo() orelse return;
+    var mi = MenuItemInfo{
+        .fMask = MIIM_TYPE,
+        .fType = MF_STRING,
+        .dwTypeData = text,
+    };
+    _ = func(menu, pos, 1, &mi); // byPos=true
 }
