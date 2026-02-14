@@ -127,27 +127,9 @@ Review and improve accessibility. REAPER + OSARA users represent an underserved 
 
 **Effort:** S-M (audit + targeted fixes)
 
-### Subtle Recording Indicator Option
+### View Customization — Presets & Onboarding
 
-Settings toggle to reduce visual prominence of recording state for musicians with "red light fever."
-
-"As soon as that little red light is flashing, anxiety bubbles up from the stomach and into the throat." — TalkBass user
-
-- Settings toggle: "Subtle recording indicator"
-- When enabled: dim red to muted color, smaller indicator, no pulsing animation
-- Transport still shows recording state, just less aggressively
-
-**Effort:** XS (CSS toggle)
-
-### View Customization (Hide/Show Tabs)
-
-Let users hide views they don't need. A VO artist wants Timeline, Mixer, Actions, Clock — not Instruments, Tuner, or Notes. A worship leader wants Cues, Mixer, Clock. Strip it down, and every user gets an app that feels purpose-built.
-
-**Core:**
-
-- Settings toggle per view: show/hide
-- Hidden views removed from tab bar entirely (not greyed out)
-- Persisted in localStorage per device
+Core toggle + reorder shipped (see Shipped table). Remaining work:
 
 **Named presets:**
 
@@ -164,7 +146,7 @@ Let users hide views they don't need. A VO artist wants Timeline, Mixer, Actions
 
 **Marketing angle:** Landing page can show "REAmo for Voiceover" / "REAmo for Musicians" / "REAmo for Worship" — same app, different screenshots, each showing only the relevant tabs.
 
-**Effort:** S (settings UI + tab bar filter + localStorage)
+**Effort:** S
 
 ### Pre-roll Settings in Quick Actions
 
@@ -512,6 +494,12 @@ Currently all visible tracks get metered. Could subscribe per-track for large pr
 
 Control height tokens (`--size-control-sm/md/lg/xl`) are in place. Needs density mode selector in settings to apply them.
 
+### Theme Customization
+
+User-selectable color themes. All UI colors are already CSS custom properties — swapping themes is a `[data-theme]` attribute on the root + a block of variable overrides. Subsumes the shelved "Subtle Recording Indicator" idea (a calmer theme naturally uses muted reds). Could ship with 2-3 presets (Default, Low-Key, High Contrast) before opening up full customization.
+
+**Effort:** S-M (CSS variable overrides + settings UI + localStorage)
+
 ### Non-Color Indicators for Track Buttons
 
 Track buttons (Mute, Solo, RecordArm) rely on domain-standard colors. Current mitigations: text labels, position-based meaning, brightness differences. Needs accessibility audit + colorblind simulation testing.
@@ -524,6 +512,7 @@ Completed features, kept for historical reference.
 
 | Feature | Completed | Notes |
 |---------|-----------|-------|
+| View Customization (Hide/Show/Reorder) | 2026-02-14 | Per-view show/hide toggles + drag-to-reorder in bottom sheet. Tab bar and side rail filter by visibility/order. Persisted to localStorage. Presets/onboarding deferred to v1.1. |
 | Extensions Menu System | 2026-02-07 | Declarative menu under Extensions > REAmo. SWELL bridge for macOS/Linux. **Windows: needs validation** — Win32 branches stub out, need `extern "user32"` calls. |
 | Context-Aware Take/Item Coloring | 2026-02-05 | Take rating via color (green/orange/red). REAPER color priority chain: take > item > theme. |
 | Toolbar Component Redesign | 2026-01-29 | Slot-based paged grid, swipe paging, 48-54pt targets, in-app edit mode. |
