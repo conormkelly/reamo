@@ -36,6 +36,7 @@ export function useUIPreferences() {
   const showPersistentTransport = useReaperStore((s) => s.showPersistentTransport);
   const transportPosition = useReaperStore((s) => s.transportPosition);
   const notesFontSize = useReaperStore((s) => s.notesFontSize);
+  const hiddenViews = useReaperStore((s) => s.hiddenViews);
   const setShowTabBar = useReaperStore((s) => s.setShowTabBar);
   const setShowPersistentTransport = useReaperStore((s) => s.setShowPersistentTransport);
   const setTransportPosition = useReaperStore((s) => s.setTransportPosition);
@@ -44,12 +45,14 @@ export function useUIPreferences() {
   const toggleTransportPosition = useReaperStore((s) => s.toggleTransportPosition);
   const setNotesFontSize = useReaperStore((s) => s.setNotesFontSize);
   const adjustNotesFontSize = useReaperStore((s) => s.adjustNotesFontSize);
+  const toggleViewVisibility = useReaperStore((s) => s.toggleViewVisibility);
 
   return {
     showTabBar,
     showPersistentTransport,
     transportPosition,
     notesFontSize,
+    hiddenViews,
     setShowTabBar,
     setShowPersistentTransport,
     setTransportPosition,
@@ -58,5 +61,6 @@ export function useUIPreferences() {
     toggleTransportPosition,
     setNotesFontSize,
     adjustNotesFontSize,
+    toggleViewVisibility,
   };
 }

@@ -124,7 +124,7 @@ export function BottomSheet({
   // Multiple sheets stack naturally by DOM order (later sheets on top)
   return createPortal(
     <div
-      className={`fixed inset-0 z-modal flex items-end justify-center transition-colors duration-200 ${
+      className={`fixed inset-0 z-modal flex items-end justify-center select-none transition-colors duration-200 ${
         isAnimating ? 'bg-black/60' : 'bg-black/0'
       }`}
       onClick={handleBackdropClick}

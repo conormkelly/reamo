@@ -34,13 +34,6 @@ import { useTransport } from '../../hooks/useTransport';
 import { useReaperStore } from '../../store';
 import { type ViewId, viewMeta } from '../../viewRegistry';
 
-// =============================================================================
-// Constants
-// =============================================================================
-
-/** View order matching TabBar */
-const VIEW_ORDER: ViewId[] = ['timeline', 'mixer', 'clock', 'tuner', 'playlist', 'actions', 'notes', 'instruments'];
-
 /** Icons for each view */
 const VIEW_ICONS: Record<ViewId, typeof SlidersHorizontal> = {
   timeline: ChartBarBig,
@@ -74,6 +67,9 @@ export function SideRail({ currentView, onViewChange, className = '' }: SideRail
   const { sendCommand } = useReaper();
   const { isPlaying, isPaused, isStopped, isRecording, play, pause, stop, record } = useTransport();
   const isAutoPunch = useReaperStore((state) => state.isAutoPunch);
+  const hiddenViews = useReaperStore((s) => s.hiddenViews);
+  const viewOrder = useReaperStore((s) => s.viewOrder);
+  const visibleViews = viewOrder.filter(v => !hiddenViews.includes(v));
 
   // Long-press state for Record button
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -136,7 +132,7 @@ export function SideRail({ currentView, onViewChange, className = '' }: SideRail
     >
       {/* View navigation tabs - icons only, vertical */}
       <div className="flex-1 flex flex-col items-center py-2 gap-1 overflow-y-auto scrollbar-hide">
-        {VIEW_ORDER.map((viewId) => {
+        {visibleViews.map((viewId) => {
           const meta = viewMeta[viewId];
           const Icon = VIEW_ICONS[viewId];
           const isActive = currentView === viewId;
