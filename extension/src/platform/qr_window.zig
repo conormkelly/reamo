@@ -160,7 +160,7 @@ fn renderCurrentNetwork() void {
     const ip_str = net.ipString(&ip_buf);
 
     var url_buf: [128:0]u8 = undefined;
-    const url = std.fmt.bufPrintZ(&url_buf, "http://{s}:{d}/reamo.html", .{ ip_str, g_http_port }) catch {
+    const url = std.fmt.bufPrintZ(&url_buf, "http://{s}:{d}/", .{ ip_str, g_http_port }) catch {
         std.log.err("qr_window: URL too long", .{});
         return;
     };

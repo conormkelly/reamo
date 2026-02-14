@@ -57,6 +57,7 @@ pub const HttpServer = struct {
 
         var router = try server.router(.{});
         router.get("/", serveIndex, .{});
+        router.get("/api/ping", servePing, .{});
         router.get("/ws", serveWsUpgrade, .{});
         router.get("/*", serveStatic, .{});
 
@@ -156,6 +157,15 @@ fn serveIndex(handler: Handler, req: *httpz.Request, res: *httpz.Response) !void
         res.status = 503;
         res.body = "Application not ready";
     }
+}
+
+/// Lightweight ping endpoint for Safari network stack warmup.
+/// The frontend fetches this before opening a WebSocket to ensure Safari's
+/// lazy networking layer is initialized (replaces the accidental warmup
+/// that EXTSTATE fetches previously provided).
+fn servePing(_: Handler, _: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+    res.body = "{\"ok\":true}";
 }
 
 fn serveWsUpgrade(handler: Handler, req: *httpz.Request, res: *httpz.Response) !void {
@@ -387,17 +397,35 @@ const WsHandler = struct {
 // ── Security Headers ───────────────────────────────────────────────
 
 fn setSecurityHeaders(res: *httpz.Response) void {
-    // Prevent framing (clickjacking)
+    // CSP: strict allow-list, no unsafe-inline anywhere.
+    // React inline style={{}} uses CSSOM (element.style.prop = value), not setAttribute,
+    // so style-src 'self' is sufficient without 'unsafe-inline'.
+    res.header("Content-Security-Policy",
+        "default-src 'none'" ++
+        "; script-src 'self'" ++
+        "; style-src 'self'" ++
+        "; img-src 'self' data:" ++
+        "; font-src 'self' data:" ++
+        "; connect-src 'self' ws: wss:" ++
+        "; manifest-src 'self'" ++
+        "; base-uri 'self'" ++
+        "; form-action 'none'" ++
+        "; frame-ancestors 'none'" ++
+        "; object-src 'none'",
+    );
+    // Prevent framing (clickjacking) — belt-and-suspenders with frame-ancestors
     res.header("X-Frame-Options", "DENY");
-    // CSP: strict policy — no unsafe-inline (code-split build serves external JS/CSS)
-    res.header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; font-src 'self' data:");
     // Prevent MIME sniffing
     res.header("X-Content-Type-Options", "nosniff");
-    // No caching for dynamic content
+    // No caching for dynamic content (overridden per-route for assets)
     res.header("Cache-Control", "no-store");
     // Cross-Origin isolation
     res.header("Cross-Origin-Resource-Policy", "same-origin");
     res.header("Cross-Origin-Opener-Policy", "same-origin");
+    // Don't leak URLs to other origins
+    res.header("Referrer-Policy", "no-referrer");
+    // Disable unused browser features
+    res.header("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=()");
 }
 
 // ── Token Injection ────────────────────────────────────────────────

@@ -122,7 +122,7 @@ pub fn renderSliceToBGRA(text: [:0]const u8, buffer: []u32, size: usize) RenderE
 
 test "render simple URL" {
     var buffer: [100 * 100]u32 = undefined;
-    const qr_size = try renderSliceToBGRA("http://192.168.1.50:8080/reamo.html", &buffer, 100);
+    const qr_size = try renderSliceToBGRA("http://192.168.1.50:9224/", &buffer, 100);
 
     // URL of this length should produce a version 3-4 QR code (29-33 modules)
     try std.testing.expect(qr_size >= 21 and qr_size <= 41);

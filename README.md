@@ -2,6 +2,16 @@
 
 A modern web control surface for [REAPER](https://www.reaper.fm/), designed for songwriting workflows. Control transport, tracks, and more from your iPad or tablet while staying at your instrument.
 
+## Quick Start
+
+1. **Install** REAmo ([see Installation](#installation))
+2. **Restart REAPER**
+3. Go to **Extensions > REAmo > Show QR Code**
+4. **Scan the QR code** with your phone or tablet
+5. **Add to Home Screen** for a full-screen app experience
+
+That's it. Your phone and computer just need to be on the same WiFi network.
+
 ## Installation
 
 ### Automatic (Recommended)
@@ -12,15 +22,7 @@ A modern web control surface for [REAPER](https://www.reaper.fm/), designed for 
 4. Search for and run: **"ReaScript: Run ReaScript (EEL, Lua, or Python)..."** (Action ID: 41060)
 5. Select `Install_REAmo.lua` from the extracted folder
 6. **Follow the prompts** to complete installation
-
-After installation, enable REAPER's web server:
-
-1. Go to **Preferences > Web interface** (or **Control/OSC/Web** on older versions)
-2. Check **Enable**
-3. Set port (default: 8080)
-4. Restart REAPER
-
-Access REAmo at `http://localhost:8080/reamo.html` (or your computer's IP for other devices).
+7. **Restart REAPER**
 
 ### Uninstall
 
@@ -33,27 +35,42 @@ Run `Uninstall_REAmo.lua` from the original extracted folder using the same "Run
 
 If the automatic installer doesn't work:
 
-1. Copy `reamo.html` to your REAPER www folder:
+1. Copy the REAmo extension (`.dylib`/`.dll`/`.so`) to your REAPER UserPlugins folder:
+   - **macOS**: `~/Library/Application Support/REAPER/UserPlugins/`
+   - **Windows**: `%APPDATA%\REAPER\UserPlugins\`
+   - **Linux**: `~/.config/REAPER/UserPlugins/`
+
+2. Copy the frontend files to your REAPER www root folder:
    - **macOS**: `~/Library/Application Support/REAPER/reaper_www_root/`
    - **Windows**: `%APPDATA%\REAPER\reaper_www_root\`
    - **Linux**: `~/.config/REAPER/reaper_www_root/`
 
-2. Enable REAPER's web server (see below)
+3. Restart REAPER
 
 </details>
 
-### REAPER Web Server Setup
+## Connecting Your Device
 
-1. Open **REAPER**
-2. Go to **Options** > **Preferences** (or press `Cmd+,` / `Ctrl+,`)
-3. Navigate to **Control/OSC/Web** in the left sidebar
-4. Click **Add** and select **Web browser interface**
-5. Configure:
-   - **Port**: 8080 (or choose another)
-   - **Default interface**: Set to `reamo.html`
-6. Click **OK** to save
-7. Find your computer's IP address (System Preferences > Network on macOS, or `ipconfig` on Windows)
-8. On your tablet, open: `http://YOUR-IP:8080/reamo.html`
+The easiest way to connect is the **QR code**: go to **Extensions > REAmo > Show QR Code** and scan it with your phone or tablet's camera.
+
+You can also use **Extensions > REAmo > Show Network Addresses** to see all available URLs.
+
+The **Extensions > REAmo** menu also shows the current server port next to "Change Server Port...".
+
+<details>
+<summary>Advanced: Manual connection and configuration</summary>
+
+REAmo runs its own HTTP server on your computer (default port 9224). Any device on the same network can connect by opening the URL in a browser.
+
+**On the same computer:** `http://localhost:9224/`
+
+**From another device:** Find your computer's IP address and open `http://YOUR-IP:9224/` in a browser. Your IP is shown in the QR code dialog and the Network Addresses dialog.
+
+**Changing the port:** Go to **Extensions > REAmo > Change Server Port...** to pick a different port. The server restarts immediately and the new port is remembered across REAPER sessions.
+
+**USB tethering:** For the lowest latency or when no WiFi is available, connect your phone via USB cable. REAmo detects USB network interfaces automatically. See the Network Addresses dialog for platform-specific setup instructions.
+
+</details>
 
 ---
 
@@ -268,7 +285,7 @@ npm run dev          # Dev server with hot reload
 make all             # Run tests, build extension + frontend
 make test            # Run all test suites
 make extension       # Build Zig extension (installs to REAPER)
-make frontend        # Build frontend (outputs reamo.html)
+make frontend        # Build frontend (outputs index.html)
 ```
 
 ### Architecture

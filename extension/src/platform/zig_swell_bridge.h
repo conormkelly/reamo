@@ -70,6 +70,20 @@ typedef SwellHMENU (*GetSubMenuFn)(SwellHMENU menu, int pos);
 typedef int (*GetMenuItemIDFn)(SwellHMENU menu, int pos);
 typedef bool (*CheckMenuItemFn)(SwellHMENU menu, int idx, int chk);
 typedef bool (*EnableMenuItemFn)(SwellHMENU menu, int idx, int en);
+typedef void (*SWELL_SetMenuItemTextFn)(SwellHMENU menu, int idx, const char* text);
+
+/* MENUITEMINFO for SetMenuItemInfo (matching SWELL's struct layout) */
+typedef struct {
+    unsigned int cbSize, fMask, fType, fState, wID;
+    SwellHMENU hSubMenu;
+    void* hbmpChecked;
+    void* hbmpUnchecked;
+    uintptr_t dwItemData;
+    char* dwTypeData;
+    int cch;
+    void* hbmpItem;
+} SwellMENUITEMINFO;
+typedef int (*SetMenuItemInfoFn)(SwellHMENU menu, int pos, int byPos, const SwellMENUITEMINFO* mi);
 
 /* Window geometry */
 typedef bool (*GetWindowRectFn)(SwellHWND hwnd, int* rect);
@@ -133,6 +147,8 @@ GetSubMenuFn zig_swell_get_GetSubMenu(void);
 GetMenuItemIDFn zig_swell_get_GetMenuItemID(void);
 CheckMenuItemFn zig_swell_get_CheckMenuItem(void);
 EnableMenuItemFn zig_swell_get_EnableMenuItem(void);
+SWELL_SetMenuItemTextFn zig_swell_get_SWELL_SetMenuItemText(void);
+SetMenuItemInfoFn zig_swell_get_SetMenuItemInfo(void);
 
 #ifdef __cplusplus
 }

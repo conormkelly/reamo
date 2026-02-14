@@ -55,8 +55,9 @@ pub const std_options: std.Options = .{
 };
 
 // Configuration
-const DEFAULT_PORT: u16 = 9224;
+const FALLBACK_PORT: u16 = 9224;
 const MAX_PORT_ATTEMPTS: u8 = 10;
+var g_configured_port: u16 = FALLBACK_PORT; // Updated from ExtState on startup
 
 // Global state - minimized to essentials
 var g_api: ?reaper.Api = null;
@@ -332,12 +333,11 @@ fn doInitialization() !void {
     dirty_flags.* = .{};
     g_dirty_flags = dirty_flags;
 
-    // Generate session token and store in EXTSTATE
+    // Generate session token (injected into HTML via <meta> tag by HTTP server)
     var token_bytes: [16]u8 = undefined;
     std.crypto.random.bytes(&token_bytes);
     const token_hex = std.fmt.bytesToHex(token_bytes, .lower);
     state.setToken(&token_hex);
-    api.setExtStateStr("Reamo", "SessionToken", &token_hex);
     logging.info("Session token generated", .{});
 
     // Initialize CSurf (Control Surface) for push-based callbacks
@@ -377,7 +377,7 @@ fn doInitialization() !void {
 
     // Initialize network action handlers (state only — menu registration already done in ReaperPluginEntry)
     if (g_api) |*inner_api| {
-        network_action.init(inner_api.showMessageBox, inner_api.getMainHwnd_fn, inner_api.resourcePath());
+        network_action.init(inner_api.showMessageBox, inner_api.getMainHwnd_fn, inner_api.getUserInputs, inner_api.setExtState, inner_api.resourcePath());
     }
 
     // Initialize Lua script for peak fetching (must be after API registration)
@@ -390,15 +390,20 @@ fn doInitialization() !void {
         }
     }
 
+    // Read configured port from ExtState (persisted across sessions)
+    if (api.getExtStateValue("Reamo", "ServerPort")) |port_str| {
+        if (std.fmt.parseInt(u16, port_str, 10)) |port| {
+            if (port >= 1024) {
+                g_configured_port = port;
+                logging.info("Configured port from ExtState: {d}", .{port});
+            }
+        } else |_| {}
+    }
+
     // HTTP+WS server will be started in processTimerCallback after startup completes
     // This avoids stack overflow when REAPER shows modal dialogs during startup
     g_http_server = null;
     g_port = 0;
-
-    // Store port in REAPER's extension state for discovery
-    var port_buf: [8]u8 = undefined;
-    const port_str = std.fmt.bufPrint(&port_buf, "{d}", .{g_port}) catch "9224";
-    api.setExtStateStr("Reamo", "WebSocketPort", port_str);
 
     // Initialize g_last_markers for playlist engine - it needs regions across tier boundaries
     // The playlist engine runs at 30Hz (HIGH tier) but regions are polled at 5Hz (MEDIUM tier).
@@ -592,7 +597,7 @@ fn doProcessing() !void {
         var attempt: u8 = 0;
         var started = false;
         while (attempt < MAX_PORT_ATTEMPTS) : (attempt += 1) {
-            const port = DEFAULT_PORT + @as(u16, attempt);
+            const port = g_configured_port + @as(u16, attempt);
             var srv = http_server.HttpServer.init(g_allocator, shared_state, port, g_html_path, g_web_dir) catch |err| {
                 logging.debug("http_server: port {d} init failed: {s}", .{ port, @errorName(err) });
                 continue;
@@ -609,14 +614,13 @@ fn doProcessing() !void {
         }
 
         if (!started) {
-            logging.err("http_server: all ports {d}-{d} failed", .{ DEFAULT_PORT, DEFAULT_PORT + MAX_PORT_ATTEMPTS - 1 });
+            logging.err("http_server: all ports {d}-{d} failed", .{ g_configured_port, g_configured_port + MAX_PORT_ATTEMPTS - 1 });
             return error.AllPortsFailed;
         }
 
-        // Update port in REAPER's extension state
-        var port_buf: [8]u8 = undefined;
-        const port_str = std.fmt.bufPrint(&port_buf, "{d}", .{g_port}) catch "9224";
-        api.setExtStateStr("Reamo", "WebSocketPort", port_str);
+        // Update network action module with actual port and wire restart callback
+        network_action.setPort(g_port);
+        network_action.setRestartCallback(&restartServer);
 
         logging.info("HTTP+WS server started on port {d}", .{g_port});
 
@@ -824,6 +828,37 @@ fn doProcessing() !void {
             }
         }
     }
+}
+
+/// Restart the HTTP server on a new port.
+/// Called from network_action when user changes port via menu.
+fn restartServer(new_port: u16) void {
+    const shared_state = g_shared_state orelse return;
+
+    // Stop existing server
+    if (g_http_server) |*server| {
+        logging.info("Restarting server: stopping on port {d}...", .{g_port});
+        server.deinit();
+        g_http_server = null;
+    }
+
+    // Start on new port
+    var srv = http_server.HttpServer.init(g_allocator, shared_state, new_port, g_html_path, g_web_dir) catch |err| {
+        logging.err("restartServer: init failed on port {d}: {s}", .{ new_port, @errorName(err) });
+        return;
+    };
+    srv.start() catch |err| {
+        logging.err("restartServer: listen failed on port {d}: {s}", .{ new_port, @errorName(err) });
+        srv.deinit();
+        return;
+    };
+
+    g_http_server = srv;
+    g_port = new_port;
+    g_configured_port = new_port;
+    network_action.setPort(new_port);
+
+    logging.info("Server restarted on port {d}", .{new_port});
 }
 
 // Shutdown - called when REAPER unloads the extension

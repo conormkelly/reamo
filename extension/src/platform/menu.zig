@@ -32,6 +32,7 @@ const CustomActionRegister = extern struct {
 var g_cmd_ids: [menu_items.items.len]c_int = [_]c_int{0} ** menu_items.items.len;
 
 var g_plugin_register: ?PluginRegisterFn = null;
+var g_submenu: swell.HMENU = null;
 
 /// Register the Extensions menu and hook callback.
 /// Called from main.zig during doInitialization().
@@ -112,7 +113,7 @@ fn menuHook(menuidstr: [*:0]const u8, menu_handle: ?*anyopaque, flag: c_int) cal
         // INIT (once): Build default menu structure
         buildMenu(menu_handle);
     } else if (flag == 1) {
-        // DISPLAY (every open): Update checked/enabled state
+        // DISPLAY (every open): Update dynamic state (port in menu text, checkmarks)
         updateMenuState(menu_handle);
     }
 }
@@ -183,6 +184,7 @@ fn buildMenu(hMenu: HMENU) void {
     }
 
     // Add "REAmo" submenu to Extensions menu (pos=-1 = append)
+    g_submenu = submenu;
     swell.insertSubMenu(hMenu, -1, submenu, "REAmo");
 }
 
@@ -190,7 +192,8 @@ fn buildMenu(hMenu: HMENU) void {
 // Menu state update (flag=1: called every time menu opens)
 // =============================================================================
 
-/// Update checked/enabled state by recursing through menu items.
+/// Update dynamic menu item text and checked/enabled state.
+/// Recurses through menu items. Updates "Change Server Port..." to show current port.
 fn updateMenuState(hMenu: HMENU) void {
     const count = swell.getMenuItemCount(hMenu);
     var i: c_int = 0;
@@ -202,6 +205,13 @@ fn updateMenuState(hMenu: HMENU) void {
             const wID = swell.getMenuItemID(hMenu, i);
             for (&menu_items.items, 0..) |*item, idx| {
                 if (wID == g_cmd_ids[idx] and g_cmd_ids[idx] != 0) {
+                    // Update "Change Server Port..." to show current port
+                    if (std.mem.eql(u8, std.mem.span(item.action_id), "REAMO_CHANGE_PORT")) {
+                        var text_buf: [64]u8 = undefined;
+                        const port = network_action.getPort();
+                        const text = std.fmt.bufPrintZ(&text_buf, "Change Server Port... ({d})", .{port}) catch break;
+                        swell.setMenuItemTextByPos(hMenu, i, text);
+                    }
                     if (item.is_toggle) {
                         // TODO: query toggle state and update checkmark
                         // swell.checkMenuItem(hMenu, i, queryToggleState(g_cmd_ids[idx]));
@@ -227,6 +237,8 @@ fn dispatchAction(index: usize) void {
         network_action.showQRCode();
     } else if (std.mem.eql(u8, action_id, "REAMO_SHOW_NETWORKS")) {
         network_action.showNetworkAddresses();
+    } else if (std.mem.eql(u8, action_id, "REAMO_CHANGE_PORT")) {
+        network_action.showChangePort();
     } else if (std.mem.eql(u8, action_id, "REAMO_ABOUT")) {
         // TODO: implement About dialog
         logging.info("menu: About REAmo (not yet implemented)", .{});

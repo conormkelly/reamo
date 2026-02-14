@@ -136,28 +136,54 @@ const ShowMessageBoxFn = *const fn ([*:0]const u8, [*:0]const u8, c_int) callcon
 /// Function type for GetMainHwnd
 const GetMainHwndFn = *const fn () callconv(.c) ?*anyopaque;
 
+/// Function type for GetUserInputs
+const GetUserInputsFn = *const fn ([*:0]const u8, c_int, [*:0]const u8, [*]u8, c_int) callconv(.c) bool;
+
+/// Function type for SetExtState
+const SetExtStateFn = *const fn ([*:0]const u8, [*:0]const u8, [*:0]const u8, c_int) callconv(.c) void;
+
+/// Callback for requesting a server restart on a new port
+const RestartServerFn = *const fn (u16) void;
+
 // Global state
 var g_show_message_box: ?ShowMessageBoxFn = null;
 var g_get_main_hwnd: ?GetMainHwndFn = null;
+var g_get_user_inputs: ?GetUserInputsFn = null;
+var g_set_ext_state: ?SetExtStateFn = null;
+var g_restart_server: ?RestartServerFn = null;
 var g_resource_path: ?[]const u8 = null;
-var g_http_port: u16 = 8080; // Default, updated from reaper.ini
+var g_server_port: u16 = 9224; // Extension's HTTP server port
+
+/// Update the server port (called from main.zig after server starts or port changes).
+pub fn setPort(port: u16) void {
+    g_server_port = port;
+}
+
+/// Get the current server port (used by menu.zig for dynamic title).
+pub fn getPort() u16 {
+    return g_server_port;
+}
+
+
+/// Set the callback for restarting the server on a new port.
+pub fn setRestartCallback(cb: RestartServerFn) void {
+    g_restart_server = cb;
+}
 
 /// Initialize network action state.
 /// Called during plugin initialization. Action registration is handled by menu.zig.
 pub fn init(
     show_message_box: ?ShowMessageBoxFn,
     get_main_hwnd: ?GetMainHwndFn,
+    get_user_inputs: ?GetUserInputsFn,
+    set_ext_state: ?SetExtStateFn,
     resource_path: ?[]const u8,
 ) void {
     g_show_message_box = show_message_box;
     g_get_main_hwnd = get_main_hwnd;
+    g_get_user_inputs = get_user_inputs;
+    g_set_ext_state = set_ext_state;
     g_resource_path = resource_path;
-
-    // Try to read HTTP port from reaper.ini
-    if (resource_path) |res_path| {
-        g_http_port = getWebInterfacePort(res_path) orelse 8080;
-        logging.info("Network action: HTTP port = {d}", .{g_http_port});
-    }
 }
 
 /// Display the network addresses dialog.
@@ -200,13 +226,12 @@ pub fn showNetworkAddresses() void {
         const type_label = n.network_type.label();
 
         writer.print("{s} ({s}):\n", .{ type_label, iface_name }) catch {};
-        writer.print("http://{s}:{d}/reamo.html\n\n", .{ ip_str, g_http_port }) catch {};
+        writer.print("http://{s}:{d}/\n\n", .{ ip_str, g_server_port }) catch {};
     }
 
     if (count == 0) {
         writer.print("No network interfaces found.\n\n", .{}) catch {};
-        writer.print("Check that REAPER's web interface is enabled\n", .{}) catch {};
-        writer.print("in Preferences > Control/OSC/Web.\n", .{}) catch {};
+        writer.print("Check that your network connection is active.\n", .{}) catch {};
     }
 
     // Null-terminate
@@ -223,10 +248,6 @@ pub fn showNetworkAddresses() void {
 
     if (result == 4) {
         // Retry clicked - rescan
-        // Re-read port in case user changed settings
-        if (g_resource_path) |res_path| {
-            g_http_port = getWebInterfacePort(res_path) orelse g_http_port;
-        }
         showNetworkAddresses();
     }
 }
@@ -235,11 +256,6 @@ pub fn showNetworkAddresses() void {
 /// User can navigate between networks using < > arrows.
 /// Called from menu.zig dispatch.
 pub fn showQRCode() void {
-    // Re-read port in case user changed settings
-    if (g_resource_path) |res_path| {
-        g_http_port = getWebInterfacePort(res_path) orelse g_http_port;
-    }
-
     // Detect networks
     var networks: [16]network_detect.NetworkInfo = undefined;
     const count = network_detect.detectNetworks(&networks);
@@ -279,62 +295,76 @@ pub fn showQRCode() void {
     const main_hwnd: ?*anyopaque = if (g_get_main_hwnd) |f| f() else null;
 
     // Show QR window with all networks
-    qr_window.show(sorted[0..sorted_count], g_http_port, main_hwnd);
+    qr_window.show(sorted[0..sorted_count], g_server_port, main_hwnd);
 
     logging.info("Network action: showing QR window with {d} networks", .{sorted_count});
 }
 
-/// Parse reaper.ini to find the HTTP web interface port.
-/// Format: csurf_N=HTTP 0 {port} '{username}' '{default_page}' {flags} '{password}'
-fn getWebInterfacePort(resource_path: []const u8) ?u16 {
-    // Build path to reaper.ini
-    var path_buf: [512]u8 = undefined;
-    const ini_path = std.fmt.bufPrint(&path_buf, "{s}/reaper.ini", .{resource_path}) catch return null;
+/// Show dialog to change the server port.
+/// Persists new port in ExtState and restarts the server immediately.
+pub fn showChangePort() void {
+    const get_input = g_get_user_inputs orelse {
+        logging.err("Network action: GetUserInputs not available", .{});
+        return;
+    };
 
-    // Read the file
-    const file = std.fs.cwd().openFile(ini_path, .{}) catch return null;
-    defer file.close();
+    // Format current port as default value
+    var default_buf: [8]u8 = undefined;
+    const default_str = std.fmt.bufPrint(&default_buf, "{d}", .{g_server_port}) catch "9224";
 
-    var buf: [64 * 1024]u8 = undefined;
-    const bytes_read = file.readAll(&buf) catch return null;
-    const content = buf[0..bytes_read];
+    // GetUserInputs writes result into this buffer (null-terminated CSV)
+    var input_buf: [32]u8 = undefined;
+    @memcpy(input_buf[0..default_str.len], default_str);
+    input_buf[default_str.len] = 0;
 
-    // Find [reaper] section and csurf entries
-    var in_reaper_section = false;
-    var lines = std.mem.splitScalar(u8, content, '\n');
-
-    while (lines.next()) |line| {
-        const trimmed = std.mem.trim(u8, line, " \t\r");
-
-        // Check for section headers
-        if (trimmed.len >= 2 and trimmed[0] == '[') {
-            in_reaper_section = std.mem.eql(u8, trimmed, "[reaper]");
-            continue;
-        }
-
-        if (!in_reaper_section) continue;
-
-        // Look for csurf_N=HTTP ...
-        if (std.mem.startsWith(u8, trimmed, "csurf_")) {
-            if (std.mem.indexOf(u8, trimmed, "=")) |eq_pos| {
-                const value = trimmed[eq_pos + 1 ..];
-                if (std.mem.startsWith(u8, value, "HTTP ")) {
-                    // Parse: HTTP 0 {port} ...
-                    var parts = std.mem.splitScalar(u8, value, ' ');
-                    _ = parts.next(); // "HTTP"
-                    _ = parts.next(); // "0"
-                    if (parts.next()) |port_str| {
-                        return std.fmt.parseInt(u16, port_str, 10) catch null;
-                    }
-                }
-            }
-        }
+    if (!get_input("REAmo Server Port", 1, "Port (1024-65535):", &input_buf, input_buf.len)) {
+        return; // User cancelled
     }
 
-    return null;
+    // Parse the input
+    const input_len = std.mem.indexOfScalar(u8, &input_buf, 0) orelse input_buf.len;
+    const input_str = input_buf[0..input_len];
+    const new_port = std.fmt.parseInt(u16, input_str, 10) catch {
+        if (g_show_message_box) |show_msg| {
+            _ = show_msg("Invalid port number.", "REAmo", 0);
+        }
+        return;
+    };
+
+    if (new_port < 1024) {
+        if (g_show_message_box) |show_msg| {
+            _ = show_msg("Port must be 1024 or higher.", "REAmo", 0);
+        }
+        return;
+    }
+
+    if (new_port == g_server_port) {
+        return; // No change
+    }
+
+    // Persist the new port in ExtState
+    if (g_set_ext_state) |set_state| {
+        var port_z: [8]u8 = undefined;
+        const port_str = std.fmt.bufPrint(&port_z, "{d}", .{new_port}) catch "9224";
+        port_z[port_str.len] = 0;
+        set_state("Reamo", "ServerPort", @ptrCast(&port_z), 1); // persist=true
+    }
+
+    // Restart the server on the new port
+    if (g_restart_server) |restart| {
+        restart(new_port);
+
+        // Show confirmation
+        if (g_show_message_box) |show_msg| {
+            var msg_buf: [128]u8 = undefined;
+            var fbs = std.io.fixedBufferStream(&msg_buf);
+            fbs.writer().print("Server restarted on port {d}.\nClients should reconnect.", .{new_port}) catch {};
+            const written = fbs.getWritten();
+            if (written.len < msg_buf.len) {
+                msg_buf[written.len] = 0;
+            }
+            _ = show_msg(@ptrCast(&msg_buf), "REAmo", 0);
+        }
+    }
 }
 
-// Tests
-test "getWebInterfacePort parses HTTP entry" {
-    // This test would need a mock file - skip for now
-}

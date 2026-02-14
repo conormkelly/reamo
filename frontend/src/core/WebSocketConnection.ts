@@ -15,9 +15,9 @@ import {
 } from './WebSocketTypes';
 
 export interface WebSocketConnectionOptions {
-  /** WebSocket port (default: 9224, or auto-discover from EXTSTATE) */
+  /** WebSocket port (default: from same-origin) */
   port?: number;
-  /** Auth token (optional - will auto-fetch from EXTSTATE if not provided) */
+  /** Auth token (optional - read from <meta> tag if not provided) */
   token?: string;
   /** Called when connection state changes */
   onStateChange?: (state: ConnectionState, error?: string) => void;
@@ -27,37 +27,6 @@ export interface WebSocketConnectionOptions {
   onGaveUp?: () => void;
   /** Max retry attempts before giving up (default: 10) */
   maxRetries?: number;
-}
-
-/**
- * Fetch EXTSTATE value from REAPER's HTTP control surface
- * Assumes we're served from the same origin (REAPER's web root)
- *
- * CRITICAL: Has a 2s timeout to prevent hanging on PWA cold start.
- * On iOS PWA, the network stack may not be ready immediately after launch,
- * causing fetch() to hang indefinitely. Without timeout, discoverAndConnect()
- * never completes and the WebSocket connection is never attempted.
- */
-async function fetchExtState(section: string, key: string): Promise<string | null> {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2000); // 2s timeout
-
-    const response = await fetch(`/_/GET/EXTSTATE/${section}/${key}`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
-    const text = await response.text();
-    const parts = text.trim().split('\t');
-    if (parts.length >= 4 && parts[0] === 'EXTSTATE') {
-      return parts[3] || null;
-    }
-    return null;
-  } catch {
-    // Timeout, network error, or abort - all return null (use defaults)
-    return null;
-  }
 }
 
 // Reconnection settings
@@ -170,104 +139,74 @@ export class WebSocketConnection {
 
   /** Discover connection params and connect */
   private async discoverAndConnect(): Promise<void> {
-    // Signal connecting state BEFORE fetches (fixes 2s black screen on iOS PWA cold start)
+    // Signal connecting state BEFORE discovery (fixes 2s black screen on iOS PWA cold start)
     this.setState('connecting');
 
-    // Always refresh port and token from EXTSTATE (handles REAPER restart)
-    // Run both fetches in parallel to minimize startup time
-    console.log('[WS] Discovering connection params from EXTSTATE...');
-
-    const [port, token] = await Promise.all([
-      fetchExtState('Reamo', 'WebSocketPort'),
-      fetchExtState('Reamo', 'SessionToken'),
-    ]);
-
-    if (port) {
-      this.discoveredPort = parseInt(port, 10);
-      console.log(`[WS] Discovered port: ${this.discoveredPort}`);
-    }
-    if (token) {
-      this.discoveredToken = token;
-      console.log('[WS] Discovered session token');
+    // Same-origin mode: read token from <meta> tag injected by extension HTTP server
+    const metaEl = document.querySelector('meta[name="reamo-token"]');
+    if (metaEl) {
+      const token = metaEl.getAttribute('content');
+      if (token) {
+        this.discoveredToken = token;
+      }
+      this.discoveredPort = parseInt(window.location.port, 10) || null;
+      console.log(`[WS] Same-origin mode: port=${this.discoveredPort}`);
     }
 
-    // iOS Safari: Try iframe pre-connection to warm network stack before real connection
-    // Safari's NSURLSession has lazy WebSocket initialization on cold start
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    // Safari network warmup: HTTP ping before WebSocket to initialize lazy network stack.
+    // Previously EXTSTATE fetches provided this warmup accidentally.
     const isSafari = navigator.userAgent.includes('Safari') && !navigator.userAgent.includes('Chrome');
+    if (isSafari) {
+      try {
+        await fetch('/api/ping');
+      } catch { /* server may not be ready */ }
+    }
+
+    // iOS Safari: warmup WebSocket to prime Safari's NSURLSession
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     if (isIOS && isSafari) {
       const wsPort = this.discoveredPort ?? this.options.port ?? 9224;
       const host = window.location.hostname || 'localhost';
-      const wsUrl = `ws://${host}:${wsPort}/`;
-      await this.warmupViaIframe(wsUrl);
+      await this.warmupWebSocket(`ws://${host}:${wsPort}/ws`);
     }
 
     this.connect();
   }
 
   /**
-   * iOS Safari workaround: Create hidden iframe that attempts WebSocket first.
-   * Safari's NSURLSession has lazy WebSocket initialization - the iframe's connection
-   * attempt warms the shared network context, allowing the main connection to succeed.
+   * iOS Safari workaround: Open a throwaway WebSocket to prime Safari's networking.
+   * Safari's NSURLSession has lazy WebSocket initialization — the first connection
+   * in a new page context often fails. This warmup triggers the internal init.
+   *
+   * Previously used a srcdoc iframe, but srcdoc origins are "null" which the
+   * server's Origin validation rejects (403), and CSP blocks the inline script.
    */
-  private async warmupViaIframe(wsUrl: string): Promise<void> {
-    console.log('[WS] iOS Safari: Attempting iframe pre-warmup');
+  private async warmupWebSocket(wsUrl: string): Promise<void> {
+    console.log('[WS] iOS Safari: Attempting WebSocket warmup');
 
     return new Promise((resolve) => {
-      const iframe = document.createElement('iframe');
-      iframe.style.display = 'none';
-      iframe.srcdoc = `
-        <script>
-          try {
-            const ws = new WebSocket('${wsUrl}');
-            ws.onopen = () => {
-              console.log('[iframe] WebSocket opened');
-              ws.close();
-              parent.postMessage('warmup-done', '*');
-            };
-            ws.onerror = () => {
-              console.log('[iframe] WebSocket error');
-              parent.postMessage('warmup-done', '*');
-            };
-            ws.onclose = () => {
-              console.log('[iframe] WebSocket closed');
-            };
-            // Timeout fallback
-            setTimeout(() => {
-              console.log('[iframe] Timeout - posting done');
-              parent.postMessage('warmup-done', '*');
-            }, 2000);
-          } catch (e) {
-            console.log('[iframe] Exception:', e);
-            parent.postMessage('warmup-done', '*');
-          }
-        </script>
-      `;
-
-      const cleanup = () => {
-        window.removeEventListener('message', handler);
-        if (document.body.contains(iframe)) {
-          document.body.removeChild(iframe);
-        }
-      };
-
-      const handler = (e: MessageEvent) => {
-        if (e.data === 'warmup-done') {
-          console.log('[WS] Iframe warmup completed');
-          cleanup();
+      try {
+        const ws = new WebSocket(wsUrl);
+        const timer = setTimeout(() => {
+          console.log('[WS] Warmup timeout (fallback)');
+          try { ws.close(); } catch { /* ignore */ }
           resolve();
-        }
-      };
+        }, 3000);
 
-      window.addEventListener('message', handler);
-      document.body.appendChild(iframe);
-
-      // Fallback timeout (longer than iframe's internal timeout)
-      setTimeout(() => {
-        console.log('[WS] Iframe warmup timeout (fallback)');
-        cleanup();
+        ws.onopen = () => {
+          console.log('[WS] Warmup connection opened');
+          clearTimeout(timer);
+          try { ws.close(); } catch { /* ignore */ }
+          resolve();
+        };
+        ws.onerror = () => {
+          console.log('[WS] Warmup connection error');
+          clearTimeout(timer);
+          resolve();
+        };
+      } catch {
         resolve();
-      }, 3000);
+      }
     });
   }
 
