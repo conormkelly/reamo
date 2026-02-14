@@ -240,8 +240,7 @@ fn dispatchAction(index: usize) void {
     } else if (std.mem.eql(u8, action_id, "REAMO_CHANGE_PORT")) {
         network_action.showChangePort();
     } else if (std.mem.eql(u8, action_id, "REAMO_ABOUT")) {
-        // TODO: implement About dialog
-        logging.info("menu: About REAmo (not yet implemented)", .{});
+        network_action.showAbout();
     } else {
         logging.warn("menu: no handler for action {s}", .{action_id});
     }

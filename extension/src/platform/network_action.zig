@@ -6,11 +6,11 @@
 ///
 /// Users run these actions to discover the URL for connecting their phone
 /// via WiFi or USB tethering.
-
 const std = @import("std");
 const builtin = @import("builtin");
 const network_detect = @import("network_detect.zig");
 const logging = @import("../core/logging.zig");
+const protocol = @import("../core/protocol.zig");
 const qr_window = @import("qr_window.zig");
 
 /// Host operating system for platform-specific troubleshooting messages
@@ -164,7 +164,6 @@ pub fn getPort() u16 {
     return g_server_port;
 }
 
-
 /// Set the callback for restarting the server on a new port.
 pub fn setRestartCallback(cb: RestartServerFn) void {
     g_restart_server = cb;
@@ -300,6 +299,21 @@ pub fn showQRCode() void {
     logging.info("Network action: showing QR window with {d} networks", .{sorted_count});
 }
 
+/// Display the About REAmo dialog.
+pub fn showAbout() void {
+    const show_msg = g_show_message_box orelse {
+        logging.err("Network action: ShowMessageBox not available", .{});
+        return;
+    };
+
+    _ = show_msg(
+        "Remote control for REAPER." ++
+            "\nhttps://www.reamo.com",
+        "REAmo v" ++ protocol.EXTENSION_VERSION,
+        0, // OK button only
+    );
+}
+
 /// Show dialog to change the server port.
 /// Persists new port in ExtState and restarts the server immediately.
 pub fn showChangePort() void {
@@ -367,4 +381,3 @@ pub fn showChangePort() void {
         }
     }
 }
-
