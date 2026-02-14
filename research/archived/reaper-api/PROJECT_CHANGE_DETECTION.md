@@ -36,12 +36,14 @@ pub fn projectChanged(self: *const State, other: *const State) bool {
 ## Why This Works
 
 ### `GetProjectStateChangeCount()` Behavior
+
 - **Increments** on every edit, undo, redo, save, save-as
 - **Resets to low value** when a different project is loaded into the tab
 
 If the count *decreased*, the project was replaced. If it stayed same or increased, it's the same project session.
 
 ### `ReaProject*` Pointer Behavior
+
 - Each project **tab** has a unique pointer
 - Pointer persists when opening different file in same tab
 - Different tabs have different pointers
@@ -69,5 +71,6 @@ The backend resets internal state when needed. The frontend just compares paths.
 ## Implementation
 
 See `extension/src/project.zig`:
+
 - `State.projectChanged()` - Two-check detection logic
 - Tests covering tab switch, file replacement, Save As, and normal editing

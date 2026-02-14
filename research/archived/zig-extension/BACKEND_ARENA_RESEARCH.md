@@ -19,6 +19,7 @@ Arenas are actually a *fantastic* fit for our polling architecture. Here's why.
 ### The Insight: Our State Has Frame-Based Lifetimes
 
 Every 33ms we:
+
 1. Poll REAPER → build complete state snapshot
 2. Diff against previous frame
 3. Serialize to JSON, broadcast
@@ -157,6 +158,7 @@ fn timerCallback() void {
 ### Sizing the Arena
 
 Back-of-envelope for current limits:
+
 ```zig
 const TRACK_SIZE = @sizeOf(Track) + (64 * @sizeOf(FX)) + (16 * @sizeOf(Send));  // ~20KB
 const ITEM_SIZE = @sizeOf(Item) + (8 * @sizeOf(Take));  // ~1KB
@@ -175,6 +177,7 @@ const ARENA_SIZE = 64 * 1024 * 1024;
 ```
 
 That sounds like a lot, but:
+
 1. It's allocated once at plugin init
 2. It's virtual memory — OS only commits pages you touch
 3. Small projects only touch a fraction of it
@@ -471,6 +474,7 @@ The arena doesn't care *why* it's a certain size — we compute the size from co
 Given REAPER's philosophy of "audio production without limits," adopting arena-based allocation with user-configurable limits aligns our control surface with that ethos. Users with massive orchestral templates (1000+ tracks) can increase limits; users on constrained devices can decrease them. The architecture handles both gracefully.
 
 **Next steps:**
+
 1. Prototype `DoubleBufferedState` with arena allocators
 2. Add `Config` struct with `arenaSize()` calculation
 3. Implement REAPER ExtState persistence for config

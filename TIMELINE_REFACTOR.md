@@ -99,6 +99,7 @@ Phases are ordered by risk (lowest first) and dependency (each phase's dependenc
 **Why Phase 3 before Phase 2:** Phase 3 extracts a self-contained block from within `handlePointerUp` — it's a pure function-like extraction with clear inputs/outputs and no cross-cutting state management. Phase 2 involves moving `containerRef` ownership decisions, `useTransportAnimation`, and the follow-playhead animation loop — all with subtler timing dependencies. Doing Phase 3 first proves the callback extraction pattern works before tackling the more stateful Phase 2.
 
 **Dependency graph:**
+
 ```
 Phase 1 (selectors) ─────┬──→ Phase 3 (item tap)
                           │           │
@@ -120,6 +121,7 @@ Total: ~710 lines extracted, Timeline.tsx drops to ~350-400 lines.
 ### What moves
 
 Lines 72-131 of Timeline.tsx — the 30+ individual `useReaperStore()` calls. Also scattered selectors at other locations:
+
 - Lines 226-227: `openMarkerEditModal`, `openMakeSelectionModal`
 - Lines 285-286: `selectionModeActive`, `toggleSelectionMode`
 - Lines 291-293: `followPlayhead`, `setFollowPlayhead`, `pauseFollowPlayhead`
@@ -213,6 +215,7 @@ None required — Vitest provides complete coverage for this phase.
 ```
 git revert <commit>
 ```
+
 Or manually: restore `Timeline.tsx`, delete `useTimelineSelectors.ts`, revert `hooks/index.ts`.
 
 ---
@@ -228,6 +231,7 @@ This is the highest-value extraction. The multi-track lane hit-testing (lines 68
 ### What moves
 
 The item tap detection logic currently inlined in `handlePointerUp`:
+
 - Multi-track lane index calculation
 - Item filtering by track and time position
 - Track selection commands
@@ -266,6 +270,7 @@ type ItemTapHandler = (clientX: number, clientY: number) => boolean;
 
 1. Create the hook. Implement as a `useCallback` returning the handler function.
 2. In `handlePointerUp`, replace the 130-line block with:
+
    ```ts
    if (dx < TAP_THRESHOLD && dy < TAP_THRESHOLD) {
      handleItemTap(e.clientX, e.clientY);
@@ -273,6 +278,7 @@ type ItemTapHandler = (clientX: number, clientY: number) => boolean;
    panStartPositionRef.current = null;
    return;
    ```
+
 3. Move `getTrackIdxFromGuid` into the hook (it's only used here).
 4. Run verification protocol.
 
@@ -298,6 +304,7 @@ The extraction boundary is clean, but there are zero Vitest-level tests for this
 ```
 git revert <commit>
 ```
+
 Or manually: restore `Timeline.tsx`, delete `useItemTapHandler.ts`, revert `hooks/index.ts`.
 
 ---
@@ -311,6 +318,7 @@ Or manually: restore `Timeline.tsx`, delete `useItemTapHandler.ts`, revert `hook
 ### What moves
 
 Lines 240-370 of Timeline.tsx:
+
 - `maxPlayheadPosition` state + setter
 - `baseTimelineStart` / `baseDuration` memo (timeline bounds calculation)
 - `timelineStart` / `duration` aliases
@@ -366,6 +374,7 @@ interface UseTimelineViewportReturn {
 ### Dependency note
 
 `containerRef` is passed IN from Timeline (Option B). The hook uses it for:
+
 - `positionToTime` (getBoundingClientRect)
 - `containerWidth` ResizeObserver
 - `usePanGesture` / `usePinchGesture` (passed through)
@@ -401,6 +410,7 @@ interface UseTimelineViewportReturn {
 ```
 git revert <commit>
 ```
+
 Or manually: restore `Timeline.tsx`, delete `useTimelineViewport.ts`, revert `hooks/index.ts`.
 
 ---
@@ -418,6 +428,7 @@ After phases 1-3, the three pointer handlers are much smaller. Extract them as a
 Lines 560-886: `handlePointerDown`, `handlePointerMove`, `handlePointerUp` (minus the item tap logic already extracted in Phase 3).
 
 Also:
+
 - Lines 991-1006: `selectionPreview` memo (derived from drag state used only in rendering)
 - Lines 196-198: `dragStart`, `dragEnd`, `isCancelled` local state
 - Line 203: `panStartPositionRef`
@@ -502,6 +513,7 @@ interface UseTimelinePointerEventsReturn {
 ```
 git revert <commit>
 ```
+
 Or manually: restore `Timeline.tsx`, delete `useTimelinePointerEvents.ts`, revert `hooks/index.ts`. Note: reverting only Timeline.tsx without removing the hook file would leave dangling imports.
 
 ---
@@ -525,6 +537,7 @@ useTimelineViewport → returns positionToTime, containerRef
 ```
 
 Options if extraction is desired after Phases 1-4:
+
 - **Option A**: Leave inline in Timeline (~35 lines, not a problem).
 - **Option B**: Extract as its own trivial `useRenderTimeToPercent` hook called after `useRegionDrag`, receiving all deps as parameters.
 

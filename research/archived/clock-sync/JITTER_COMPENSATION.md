@@ -234,6 +234,7 @@ class ClockSync {
 ```
 
 **Resync triggers (in priority order):**
+
 1. Device wake from sleep (via `visibilitychange` event)
 2. Network change (via `navigator.connection` change event)
 3. Drift exceeds 50ms threshold
@@ -471,22 +472,26 @@ class NetworkStateManager {
 The research across professional tools (Dante, Ableton Link, VoIP systems) reveals a consistent pattern: **automatic configuration with optional expert override**.
 
 **Automatic (90% of users):**
+
 - All timing parameters adapt automatically
 - Network quality detected and compensated
 - No user action required
 
 **Visible status (all users):**
+
 - Sync status indicator (subtle, non-intrusive)
 - "Reconnecting" message when appropriate
 - "Network too slow" warning at threshold
 
 **Advanced settings (power users via menu/config):**
+
 - Latency/smoothness slider (affects blend factor and buffer target)
 - Force resync button
 - Show detailed timing stats (RTT, jitter, offset)
 - Manual offset adjustment (±50ms) for edge cases
 
 **Not exposed:**
+
 - Buffer sizing algorithm parameters
 - Histogram forget factors
 - Clock sync sample counts
@@ -558,6 +563,7 @@ tc qdisc add dev lo root netem delay 2000ms
 ## Implementation priorities for maximum impact
 
 **Phase 1 - MVP for good networks (Week 1):**
+
 1. NTP-style clock sync (8 samples, min-RTT selection)
 2. Basic beat prediction from tempo + elapsed time
 3. Smooth exponential blending to display position

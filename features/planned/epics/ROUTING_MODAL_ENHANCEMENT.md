@@ -301,6 +301,7 @@ function SendModeToggle({ mode, onToggle, disabled }: SendModeToggleProps) {
 File: `frontend/src/components/Mixer/RoutingModal.tsx`
 
 Add to HorizontalSendFader row:
+
 - Mode toggle badge (left of mute button)
 - MiniPanControl (between fader and dB readout)
 
@@ -554,6 +555,7 @@ export const hwOutput = {
 File: `frontend/src/components/Mixer/HardwareOutputRow.tsx` (NEW)
 
 Same structure as HorizontalSendFader:
+
 - Mode badge
 - Mute button
 - Output name (e.g., "HW Out 1/2")

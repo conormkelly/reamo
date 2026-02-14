@@ -102,6 +102,7 @@ Lives in SecondaryPanel footer (portrait) or ContextRail (landscape).
 | **[+ New]** | Create new comp lane |
 
 **Key distinction:**
+
 - "Comp" = where swipes go (yellow square in REAPER) — single selection
 - "Play" = what you hear during playback (yellow radio in REAPER) — **multi-select**
 - These are **independent** - you can listen to C2 while comping into C1
@@ -184,10 +185,12 @@ When a comp segment is selected:
 | **▼** | Replace segment source with next lane | Action 42708 (moveCompDown) |
 
 **Prerequisites:**
+
 - All source takes must be time-aligned (same item positions)
 - A comp segment must be selected (tapped) first
 
 **Visual Feedback:**
+
 - Selected segment highlights
 - Orange overlay on source lanes updates in real-time
 - Waveform in comp lane updates to show new source
@@ -255,11 +258,13 @@ Source:  [Item A][Item B][Item C][Item D]
 **Why multi-select?**
 
 REAPER's fixed lanes support three play states per lane:
+
 - `0` = Off (muted)
 - `1` = Exclusive (standard comp playback)
 - `2` = Layered (plays alongside other lanes)
 
 Use cases for multi-lane playback:
+
 - **A/B comparison:** Play comp lane + a source lane to compare
 - **Layered takes:** Blend multiple performances (harmonies, doubles)
 - **Debugging:** Verify which audio is coming from where

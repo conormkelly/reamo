@@ -26,6 +26,7 @@ Research shows diminishing returns above **20mm (~75px)** for users without moto
 A 10% width touch target produces **32px on a 320px phone** (dangerously small) but **256px on a 2560px display** (absurdly large). Human fingers don't scale with viewport dimensions. The `clamp()` function solves this by enforcing pixel-based floors and ceilings while allowing fluid scaling between breakpoints.
 
 **Recommended CSS pattern for all touch controls:**
+
 ```css
 .touch-control {
   min-width: clamp(44px, 10vw, 72px);
@@ -115,6 +116,7 @@ For DAW remotes where recording workflow is primary, **transport must remain alw
 ### Recommended chrome strategy for your architecture
 
 **Portrait mode (height ≥ 600px):**
+
 ```
 ┌─────────────────────────┐
 │ ViewHeader (44px)       │ ← fixed top
@@ -133,6 +135,7 @@ For DAW remotes where recording workflow is primary, **transport must remain alw
 ```
 
 **Landscape mode (height < 480px):**
+
 ```
 ┌──────┬──────────────────┐
 │      │ Compact Header   │ ← reduced to 36px

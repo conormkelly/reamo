@@ -26,6 +26,7 @@ Use `PointerEvent.width` and `PointerEvent.height` instead. Touchscreens physica
 | Mouse | Returns 1 (single point) |
 
 Typical values:
+
 - Light tap: ~15-25px
 - Medium press: ~30-40px  
 - Hard press: ~45-60px
@@ -186,6 +187,7 @@ Without this, users can't calibrate effectively.
 #### 5. Per-Instrument Override (Hidden by Default)
 
 Expandable section. Each instrument shows:
+
 - **Use global** (default, checkmark)
 - **Custom** → reveals same controls (curve, range, test pad)
 
@@ -196,11 +198,13 @@ Expandable section. Each instrument shows:
 ## Mobile UI Layout
 
 ### Collapsed (in settings list)
+
 ```
 Touch Sensitivity              [On] >
 ```
 
 ### Expanded (dedicated screen)
+
 ```
 ← Touch Sensitivity
 
@@ -236,6 +240,7 @@ Velocity Range
 ```
 
 ### When Sensitivity is OFF
+
 ```
 ← Touch Sensitivity
 
@@ -329,6 +334,7 @@ function getEffectiveSettings(
 ## Integration Points
 
 ### Drum Pads
+
 ```typescript
 function handleDrumPadHit(e: PointerEvent, padId: string) {
   const settings = getEffectiveSettings(state, 'drums');
@@ -341,6 +347,7 @@ function handleDrumPadHit(e: PointerEvent, padId: string) {
 ```
 
 ### Piano Keys
+
 ```typescript
 function handlePianoKeyDown(e: PointerEvent, note: number) {
   const settings = getEffectiveSettings(state, 'piano');
@@ -353,6 +360,7 @@ function handlePianoKeyDown(e: PointerEvent, note: number) {
 ```
 
 ### Chord Pads
+
 ```typescript
 function handleChordPadHit(e: PointerEvent, chordNotes: number[]) {
   const settings = getEffectiveSettings(state, 'chordPads');

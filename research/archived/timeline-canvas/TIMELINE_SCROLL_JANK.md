@@ -95,6 +95,7 @@ if (tileAbsEnd <= viewportStart || tileAbsStart >= viewportEnd) continue;
 ```
 
 When panning, new tiles enter the viewport but aren't in cache, causing:
+
 1. First frame: tile not rendered (cache miss)
 2. Async render triggered
 3. Subsequent frame: tile appears

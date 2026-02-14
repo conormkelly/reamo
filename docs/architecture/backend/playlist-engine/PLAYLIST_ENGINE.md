@@ -303,11 +303,13 @@ api.clearLoopPoints();
 ### Contiguous vs Non-Contiguous Transitions
 
 **Contiguous regions** (R1 ends at 10.0, R2 starts at 10.0):
+
 - Just change loop points proactively
 - REAPER seamlessly continues into new region
 - No seek needed
 
 **Non-contiguous regions** (R1 ends at 10.0, R2 starts at 15.0):
+
 - Use smooth seek timing (final measure + buffer)
 - Set new loop points AND seek to new region
 - REAPER's "play to end of N measures" setting handles the transition
@@ -512,6 +514,7 @@ var g_last_playlist: playlist.State = .{};  // For change detection
 ```
 
 **Why static?** Playlist state is:
+
 1. Modified by commands (not polled from REAPER)
 2. Needs to persist across arena swaps
 3. Relatively small (~50KB for 16 playlists × 64 entries)
@@ -714,6 +717,7 @@ Broadcast on state changes (entry add/remove, playback state change, etc.):
 ```
 
 **Notes:**
+
 - `deleted: true` appears when an entry's region no longer exists
 - `loopsRemaining: null` for infinite loops
 - `activePlaylistIndex: null` when no playlist is active
@@ -736,6 +740,7 @@ Timer loop (5Hz):
 ```
 
 **Benefits:**
+
 - Immediate persistence when not playing (changes saved within 200ms)
 - Debounced 1-second delay during playback (reduces disk I/O)
 - Flush before project change (no data loss)
@@ -767,6 +772,7 @@ pub fn flushIfNeeded(self: *State, api: anytype, current_time: f64) bool {
 The engine maintains `entry_idx` pointing to the current entry. When entries are modified during playback, the index is automatically adjusted:
 
 **Removal (handleRemoveEntry):**
+
 ```zig
 if (state.engine.isActive() and state.engine.playlist_idx == playlist_idx_usize) {
     if (entry_idx_usize < state.engine.entry_idx) {
@@ -786,6 +792,7 @@ if (state.engine.isActive() and state.engine.playlist_idx == playlist_idx_usize)
 ```
 
 **Insertion (handleAddEntry with atIdx):**
+
 ```zig
 if (state.engine.isActive() and
     state.engine.playlist_idx == playlist_idx_usize and
@@ -796,6 +803,7 @@ if (state.engine.isActive() and
 ```
 
 **Reorder (handleReorderEntry):**
+
 ```zig
 if (current_entry_idx == from_idx_usize) {
     state.engine.entry_idx = to_idx_usize;  // Follow the moved entry
@@ -834,6 +842,7 @@ if (state.engine.isPlaying() and
 ```
 
 **Examples:**
+
 - User on loop 3 of 4, changes to 6 → `loops_remaining` = 4 (6 - 2 completed)
 - User on loop 2 of 2, changes to 1 → `loops_remaining` = 1 (graceful: finish current loop)
 - User sets to 0 (skip) → `loops_remaining` = 1 (finish current, then advance; not 0 which would hang)
@@ -843,6 +852,7 @@ if (state.engine.isPlaying() and
 #### Memory Allocation Pattern
 
 **Playlist State:** Static storage (NOT arena-allocated)
+
 ```zig
 // main.zig - lives for entire extension lifetime
 var g_playlist_state: playlist.State = .{};  // ~10KB static
@@ -851,6 +861,7 @@ var g_playlist_state: playlist.State = .{};  // ~10KB static
 **Why not arena?** Playlists are modified by commands (not polled), must persist across arena swaps, and are small enough that static allocation is simpler.
 
 **JSON Serialization:**
+
 ```zig
 pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator, regions: ?[]const markers.Region) ![]const u8 {
     // Allocate from arena based on actual content size
@@ -867,6 +878,7 @@ pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator, regions: ?[
 #### Region Lookup Efficiency
 
 **Current: O(n) linear scan at 30Hz**
+
 ```zig
 // main.zig tick loop - runs twice per tick (current + next entry)
 for (g_last_markers.regions) |*r| {
@@ -879,6 +891,7 @@ for (g_last_markers.regions) |*r| {
 ```
 
 **Cost analysis:**
+
 - MAX_REGIONS = 256
 - 2 scans per tick × 30Hz = 60 scans/second
 - Each scan: up to 256 comparisons
@@ -887,6 +900,7 @@ for (g_last_markers.regions) |*r| {
 **Is this a problem?** No. Integer comparisons are extremely fast (~1 CPU cycle each). Even at 256 regions, this is negligible compared to other work in the tick loop.
 
 **If it became a problem:** Build a hashmap from region_id → region on MEDIUM tier poll:
+
 ```zig
 var g_region_lookup: std.AutoHashMap(i32, *const markers.Region) = undefined;
 // Rebuild at 5Hz when regions change
@@ -897,6 +911,7 @@ But this adds complexity for minimal gain. Linear scan is fine for <= 256 region
 #### Deleted Region Detection in JSON
 
 **Current: O(entries × regions) nested loop**
+
 ```zig
 for (0..p.entry_count) |j| {
     const is_deleted = if (regions) |regs| blk: {
@@ -911,11 +926,13 @@ for (0..p.entry_count) |j| {
 **Worst case:** 16 playlists × 64 entries × 256 regions = 262,144 comparisons per JSON serialization.
 
 **Is this a problem?** Only if JSON is generated frequently. Currently:
+
 - On command (occasional) ✓
 - On state change via `eql()` check (occasional) ✓
 - NOT at 30Hz ✓
 
 **Optimization if needed:** Pre-build a region ID set:
+
 ```zig
 var region_exists: std.AutoHashMap(i32, void) = undefined;
 for (regions) |r| region_exists.put(r.id, {});
@@ -940,6 +957,7 @@ for (regions) |r| region_exists.put(r.id, {});
 #### Large Region Count Handling
 
 The design handles large region counts well:
+
 - Region cache is fixed-size: `[MAX_REGIONS]Region` where MAX_REGIONS = 256
 - Playlist entries reference regions by ID, not pointer (survives cache refresh)
 - Linear scans are bounded by MAX_REGIONS, not unbounded

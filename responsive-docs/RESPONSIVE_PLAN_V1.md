@@ -8,6 +8,7 @@
 ## Problem Statement
 
 Phone landscape viewport (~390px height) loses 38% to bottom chrome:
+
 - TabBar: 48px
 - PersistentTransport: 56px
 - SecondaryPanel: 44-140px
@@ -35,9 +36,11 @@ Phone landscape viewport (~390px height) loses 38% to bottom chrome:
 ### Phase 1: Core Infrastructure
 
 **1.1 Create `useLayoutContext` hook**
+
 ```
 File: frontend/src/hooks/useLayoutContext.ts
 ```
+
 - Returns: `{ widthClass, heightClass, navPosition, isLandscapeConstrained, viewport }`
 - Width classes: `compact` (<600px), `medium` (600-839px), `expanded` (≥840px)
 - Height classes: `compact` (<480px), `regular` (≥480px)
@@ -45,19 +48,24 @@ File: frontend/src/hooks/useLayoutContext.ts
 - Debounced resize + orientationchange listeners
 
 **1.2 Add layout constants**
+
 ```
 File: frontend/src/constants/layout.ts
 ```
+
 Add:
+
 - `SIDE_RAIL_WIDTH = 72`
 - `HEIGHT_COMPACT_THRESHOLD = 480`
 - `WIDTH_MEDIUM_THRESHOLD = 600`
 - `WIDTH_EXPANDED_THRESHOLD = 840`
 
 **1.3 Add CSS utilities**
+
 ```
 File: frontend/src/index.css
 ```
+
 - Height media query: `@media (max-height: 480px) and (orientation: landscape)`
 - Side rail safe area: `.safe-area-left` for notch handling
 - Z-index token for side rail
@@ -67,11 +75,13 @@ File: frontend/src/index.css
 ### Phase 2: SideRail Component
 
 **2.1 Create SideRail component**
+
 ```
 File: frontend/src/components/SideRail/SideRail.tsx
 ```
 
 **Structure (72px wide):**
+
 ```
 ┌──────────┐
 │ View Tabs │  ← 7 tabs, vertical scroll if needed
@@ -87,6 +97,7 @@ File: frontend/src/components/SideRail/SideRail.tsx
 ```
 
 **Key features:**
+
 - View navigation: 7 tab icons vertically stacked (reuse TabBar logic)
 - Bank navigation: Compact display from `useBankNavigation` hook
 - Actions/Info: Quick access button that opens BottomSheet with current view's controls
@@ -94,17 +105,21 @@ File: frontend/src/components/SideRail/SideRail.tsx
 - Safe area: `padding-left: env(safe-area-inset-left)` for notch
 
 **2.2 Create SideRailBankNav subcomponent**
+
 ```
 File: frontend/src/components/SideRail/SideRailBankNav.tsx
 ```
+
 - Compact bank indicator: "3/12"
 - Prev/Next arrows
 - Uses existing `useBankNavigation` hook
 
 **2.3 Create SideRailActions subcomponent**
+
 ```
 File: frontend/src/components/SideRail/SideRailActions.tsx
 ```
+
 - Icon button that opens view-specific BottomSheet
 - Mixer: TrackInfoBar in BottomSheet
 - Timeline: Info/Toolbar tabs in BottomSheet
@@ -115,11 +130,13 @@ File: frontend/src/components/SideRail/SideRailActions.tsx
 ### Phase 3: App Layout Integration
 
 **3.1 Modify App.tsx**
+
 ```
 File: frontend/src/App.tsx
 ```
 
 Changes:
+
 - Import `useLayoutContext` and `SideRail`
 - Conditional layout based on `navPosition`:
 
@@ -150,26 +167,32 @@ Views using ViewLayout don't need changes - they measure container which will be
 ### Phase 4: View Integration (Mixer + Timeline)
 
 **4.1 Update useAvailableContentHeight**
+
 ```
 File: frontend/src/hooks/useAvailableContentHeight.ts
 ```
+
 - Add `navPosition` and `isLandscapeConstrained` to return type
 - Container measurement already works (ResizeObserver measures actual container)
 - Views use these flags to adjust their internal behavior
 
 **4.2 MixerView adjustments**
+
 ```
 File: frontend/src/views/mixer/MixerView.tsx
 ```
+
 - When `isLandscapeConstrained`:
   - Hide SecondaryPanel (functionality moved to side rail)
   - Keep using MixerStripCompact (faders will be taller with reclaimed space)
   - TrackDetailSheet still available via side rail "info" button
 
 **4.3 TimelineView adjustments**
+
 ```
 File: frontend/src/views/timeline/TimelineView.tsx
 ```
+
 - When `isLandscapeConstrained`:
   - Hide SecondaryPanel (functionality in side rail)
   - Canvas gets more vertical space
@@ -218,6 +241,7 @@ File: frontend/src/views/timeline/TimelineView.tsx
 ## Testing Checklist
 
 **Manual Testing:**
+
 - [ ] iPhone SE landscape (568×320) - triggers side rail
 - [ ] iPhone 14 Pro landscape (852×393) - triggers side rail
 - [ ] iPhone 14 Pro Max landscape (932×430) - triggers side rail
@@ -229,6 +253,7 @@ File: frontend/src/views/timeline/TimelineView.tsx
 - [ ] Transport controls work in side rail
 
 **E2E Tests:**
+
 ```typescript
 test('shows side rail when height < 480px and landscape', async ({ page }) => {
   await page.setViewportSize({ width: 850, height: 400 });
@@ -242,6 +267,7 @@ test('shows side rail when height < 480px and landscape', async ({ page }) => {
 ## iPad Extension (Future Phase)
 
 The infrastructure scales to iPad without rework:
+
 - iPad heights are always `regular` (well above 480px)
 - `navPosition` stays `'bottom'` on iPad
 - Future: When `widthClass === 'expanded'`, could show permanent side rail + bottom transport
@@ -262,6 +288,7 @@ The infrastructure scales to iPad without rework:
 ## Space Savings Analysis
 
 **Current phone landscape (390px viewport):**
+
 ```
 Header:           44px
 Content:         ~100px (!)
@@ -272,6 +299,7 @@ Safe area:       ~34px
 ```
 
 **With side rail (same 390px):**
+
 ```
 Header:           44px
 Content:         ~312px (3x more!)

@@ -353,21 +353,21 @@ The core insight for REAmo: **Logic Remote succeeds through deep integration ove
 
 ### High-Priority (P1)
 
-5. ~~**Chord strips**~~ ✅ Full implementation with inversions, bass notes, strum, voice leading
+1. ~~**Chord strips**~~ ✅ Full implementation with inversions, bass notes, strum, voice leading
 2. ~~**Timeline/arrangement view**~~ ✅ Waveforms, regions, markers, item selection
 3. ~~**Marker navigation**~~ ✅ Long-press on position display
 4. ~~**Scale-locked keyboard**~~ ✅ Piano keyboard with scale modes
 
 ### Medium-Priority (P2)
 
-9. ~~**Mod wheel / CC strips**~~ ✅ Piano keyboard includes mod wheel + pitch bend
+1. ~~**Mod wheel / CC strips**~~ ✅ Piano keyboard includes mod wheel + pitch bend
 2. **Automation curve editing** via touch—superior to mouse for drawing
 3. ~~**Sends on faders**~~ ✅ Addressed via routing modal/bottom sheet (sends, receives, HW outputs)
 4. **MIDI note editing** in piano roll view
 
 ### Lower-Priority (P3)
 
-13. **Multi-device coordination** for collaborative sessions
+1. **Multi-device coordination** for collaborative sessions
 2. **Offline mode** with sync on reconnection
 3. **Custom key command pages** like Logic Remote's layout editor
 

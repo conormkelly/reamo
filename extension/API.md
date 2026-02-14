@@ -5,10 +5,12 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 ## Table of Contents
 
 **Protocol**
+
 - [Protocol Overview](#protocol-overview) — Connection flow, message format, hello handshake
 - [Clock Sync](#clock-sync) — NTP-style clock synchronization for beat display
 
 **Commands**
+
 - [Transport](#transport-commands) — play, stop, pause, record, seek
 - [Time Selection](#time-selection-commands) — set, setByBars, goStart, goEnd, clear
 - [Repeat](#repeat-commands) — set, toggle
@@ -37,9 +39,11 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 - [Debug](#debug-commands) — memoryStats
 
 **Events**
+
 - [Events (Broadcast)](#events-broadcast) — transport, trackSkeleton, tracks, markers, regions, items, project
 
 **Reference**
+
 - [Limits](#limits)
 - [Error Responses](#error-responses)
 - [Implementation Notes](#implementation-notes)
@@ -145,6 +149,7 @@ NTP-style clock synchronization for accurate beat display over WiFi. Achieves ±
 | `t2` | float | Server send time (ms, high-precision) |
 
 The client calculates clock offset using NTP formula:
+
 - RTT = (t3 - t0) - (t2 - t1)
 - Offset = ((t1 - t0) + (t2 - t3)) / 2
 
@@ -177,6 +182,7 @@ Application-level heartbeat for detecting zombie connections. Essential for iOS 
 | `timestamp` | float | Optional. Client timestamp echoed back for RTT measurement |
 
 **Behavior:**
+
 - Ping bypasses the command queue (like clockSync) for immediate response
 - If no pong received within timeout (typically 3s), connection is assumed dead
 - Client should force-reconnect after pong timeout
@@ -404,6 +410,7 @@ Update an existing marker. Uses PATCH semantics - omitted fields preserve curren
 | `color` | int | No | New color: omit to preserve, `0` to reset to default red |
 
 **Color behavior:**
+
 - Omitted → preserve current color
 - `0` → reset to REAPER's default marker color (red)
 - Non-zero → set to that color value
@@ -658,6 +665,7 @@ Toggle selection of a single item. Does NOT affect other items' selection state 
 **Response:** `{ "success": true }`
 
 **Errors:**
+
 - `MISSING_GUID` - No GUID provided
 - `NOT_FOUND` - Item not found (may have been deleted)
 - `CORRUPT_DATA` - Cannot read item selection state
@@ -699,11 +707,13 @@ Get waveform peak data for an item's active take. Use for waveform visualization
 ```
 
 **Peak format:**
+
 - Stereo: `{"l": [min, max], "r": [min, max]}`
 - Mono: `[min, max]`
 - Values normalized to -1.0 to 1.0
 
 **Errors:**
+
 - `NOT_FOUND` - Item not found at trackIdx/itemIdx
 - `NO_TAKE` - Item has no active take
 - `MIDI_ITEM` - Item contains MIDI, not audio
@@ -799,6 +809,7 @@ Adaptive waveform peaks subscription for multi-track timeline views. The backend
 | 0 | 0.0625 | 4096s | > 5hr | Extreme overview |
 
 LOD is selected based on viewport duration (`end - start`):
+
 - `< 5s` → LOD 7 (1024 peaks/sec)
 - `< 20s` → LOD 6 (256 peaks/sec)
 - `< 75s` → LOD 5 (64 peaks/sec)
@@ -977,6 +988,7 @@ Set a take's custom color.
 Tracks are identified by unified index (0=master, 1+=user tracks) OR by GUID.
 
 **Track Identification:**
+
 - `trackIdx` — Positional index. Simple but shifts when tracks reorder.
 - `trackGuid` — Stable GUID from `trackSkeleton` event. Use during gestures (fader drags) to avoid targeting wrong track if user reorders mid-gesture. Master track uses `"master"` as GUID.
 
@@ -1337,10 +1349,12 @@ Subscribe to track updates. Replaces any previous subscription for this client. 
 ```
 
 **Errors:**
+
 - `TOO_MANY_CLIENTS` — Maximum client limit reached (16 clients)
 - `INVALID_PARAMS` — Neither range nor guids parameter provided
 
 **Notes:**
+
 - Subscribing immediately triggers a `tracks` event — new subscribers receive data on the next poll cycle without waiting for track state to change
 - Subscriptions include a 500ms grace period — when tracks leave the viewport, they continue being polled briefly for smoother scroll UX
 - New clients receive a `trackSkeleton` event on connect (names + GUIDs for all tracks) to enable filtering and subscription
@@ -1916,6 +1930,7 @@ Begin a gesture on a continuous control.
 | `hwIdx` | int | For hw outputs | Hardware output index (required for `"hwOutputVolume"`, `"hwOutputPan"`) |
 
 **Control types:**
+
 - `"volume"` — Track volume fader
 - `"pan"` — Track pan knob
 - `"send"` — Send volume fader
@@ -1981,6 +1996,7 @@ Response:
 State values: `1` = on, `0` = off, `-1` = not a toggle action.
 
 **Errors:**
+
 - `NOT_FOUND` - Named command doesn't exist (e.g., SWS not installed)
 
 ### `action/getActions`
@@ -2028,6 +2044,7 @@ Get all REAPER actions across all sections, including SWS, ReaPack, and custom s
 | `32063` | Media Explorer |
 
 **Notes:**
+
 - Returns all actions including SWS, ReaPack, and custom scripts (if installed)
 - Response size: ~1.2 MB — cache on client side
 - **Important:** For SWS/ReaPack/scripts, use `namedId` for storage (not `commandId`) as numeric IDs can change on restart. Native REAPER action IDs are stable.
@@ -2048,10 +2065,12 @@ Execute a REAPER action by command ID.
 ```
 
 **Section-specific execution:**
+
 - Main sections (0, 100, 32063): Uses `Main_OnCommand` — works for most actions
 - MIDI Editor sections (32060-32062): Uses `MIDIEditor_OnCommand` — requires MIDI editor to be active
 
 **Errors:**
+
 - `NO_MIDI_EDITOR` - MIDI Editor action requested but no MIDI editor window is active
 
 ### `action/executeByName`
@@ -2069,6 +2088,7 @@ Execute a REAPER action by named command identifier. Use this for SWS, ReaPack, 
 ```
 
 **Errors:**
+
 - `NOT_FOUND` - Named command doesn't exist (e.g., SWS not installed)
 - `NO_MIDI_EDITOR` - MIDI Editor action requested but no MIDI editor window is active
 
@@ -2092,6 +2112,7 @@ Subscribe to toggle state changes for a list of actions. **Returns data.**
 \* At least one of `actions` or `namedActions` is required. Both can be provided together.
 
 **Section IDs:**
+
 - `0` - Main section
 - `100` - Main section (alt)
 - `32060` - MIDI Editor
@@ -2326,6 +2347,7 @@ Get all installed FX plugins. **Returns data.**
 | `DX:` | DirectX (Windows) |
 
 **Notes:**
+
 - Same plugin may appear multiple times if available in multiple formats (e.g., VST2, VST3, AU)
 - Use the `ident` value when calling `trackFx/add` to add plugins to a track
 - Typical response size: 35-350KB depending on installed plugins
@@ -2370,6 +2392,7 @@ Get all parameter names for an FX (skeleton fetch). **Returns data.**
 ```
 
 **Notes:**
+
 - Frontend should cache this "skeleton" in an LRU cache
 - Refetch when `paramCount` or `nameHash` in subscription events differ from cached
 
@@ -2386,16 +2409,19 @@ Subscribe to FX parameter value updates. Receives values at 30Hz when subscribed
 | `indices` | int[] | No | Specific param indices (overrides range) |
 
 **Range mode** (for scrollable views):
+
 ```json
 {"type": "command", "command": "trackFxParams/subscribe", "trackGuid": "{AAA}", "fxGuid": "{BBB}", "rangeStart": 0, "rangeEnd": 20, "id": "1"}
 ```
 
 **Indices mode** (for filtered/pinned params):
+
 ```json
 {"type": "command", "command": "trackFxParams/subscribe", "trackGuid": "{AAA}", "fxGuid": "{BBB}", "indices": [0, 5, 10, 15], "id": "1"}
 ```
 
 **Notes:**
+
 - Each client can subscribe to one FX at a time; subscribing auto-unsubscribes from previous
 - After subscribing, receive `trackFxParams` events (see below)
 
@@ -2498,6 +2524,7 @@ Subscribe to tuner on a track. Inserts JSFX if first subscriber to this track.
 ```
 
 **Response:**
+
 ```json
 {
   "type": "response",
@@ -2514,6 +2541,7 @@ Subscribe to tuner on a track. Inserts JSFX if first subscriber to this track.
 ```
 
 **Notes:**
+
 - Each client can subscribe to one track's tuner at a time; subscribing auto-unsubscribes from previous
 - Multiple clients can share a single track's JSFX (ref-counted)
 - JSFX is inserted at position 0 in Input FX chain
@@ -2538,6 +2566,7 @@ Set tuner parameter (reference frequency or silence threshold).
 | `value` | float | Yes | Parameter value |
 
 **Parameters:**
+
 - `reference`: A4 reference frequency in Hz (typically 400-480, default 440.0)
 - `threshold`: Silence threshold in dB (typically -96 to 0, default -60.0)
 
@@ -2578,6 +2607,7 @@ Sent to subscribed clients at 30Hz with pitch detection data.
 | `inTune` | bool | True if |cents| < 2 |
 
 **Notes:**
+
 - Events are only sent when data changes (hash-based change detection)
 - Low confidence values indicate weak or no signal
 
@@ -3091,11 +3121,13 @@ Create a comp area from a source lane using razor edits. This is the core "swipe
 ```
 
 **Notes:**
+
 - Uses `P_RAZOREDITS_EXT` to target the specific lane, then invokes REAPER's "Create fixed lane comp area" action (42475)
 - Creates proper comp metadata that REAPER understands
 - Razor edit is cleared after the comp area is created
 
 **Errors:**
+
 - `MISSING_SOURCE_LANE` - sourceLane parameter not provided
 - `MISSING_START_TIME` - startTime parameter not provided
 - `MISSING_END_TIME` - endTime parameter not provided
@@ -3118,6 +3150,7 @@ Set the comp target lane for a track. Modifies the LANEREC field in the track st
 ```
 
 **Errors:**
+
 - `MISSING_LANE_INDEX` - laneIndex parameter not provided
 - `CHUNK_READ_FAILED` - Failed to read track state chunk
 - `NO_LANEREC` - Track has no LANEREC field (not in fixed lanes mode)
@@ -3139,11 +3172,13 @@ Set the play state for a lane at the track level.
 ```
 
 **Play states:**
+
 - `0` - Lane is muted/off
 - `1` - Exclusive (only this lane plays)
 - `2` - Layered (lane plays along with others)
 
 **Errors:**
+
 - `MISSING_LANE_INDEX` - laneIndex parameter not provided
 - `MISSING_PLAYS` - plays parameter not provided
 - `SET_LANE_PLAYS_FAILED` - Failed to set lane play state
@@ -3162,6 +3197,7 @@ Create a new comp lane on the track.
 ```
 
 **Notes:**
+
 - Selects the track and runs REAPER's "Insert new comp lane" action (42797)
 
 ### `lanes/moveCompUp`
@@ -3178,6 +3214,7 @@ Move the selected comp area up (to the previous source lane).
 ```
 
 **Notes:**
+
 - Runs REAPER's "Move comp area up" action (42707)
 - Operates on the currently selected comp area
 
@@ -3195,6 +3232,7 @@ Move the selected comp area down (to the next source lane).
 ```
 
 **Notes:**
+
 - Runs REAPER's "Move comp area down" action (42708)
 - Operates on the currently selected comp area
 
@@ -3213,10 +3251,12 @@ Delete a comp area (preserves source media in the original lane).
 ```
 
 **Notes:**
+
 - Selects the item and runs REAPER's "Delete comp area" action (42642)
 - Original source media is preserved in the source lane
 
 **Errors:**
+
 - `MISSING_ITEM` - itemIdx parameter not provided
 - `ITEM_NOT_FOUND` - Item not found at specified index
 
@@ -3313,12 +3353,14 @@ Get memory usage statistics for all tiered arenas. Use for monitoring memory con
 | `frameCount` | int | Total frames processed since startup |
 
 **Arena stats fields:**
+
 - `used` - Bytes currently allocated in this frame
 - `capacity` - Total arena capacity in bytes
 - `peak` - High water mark (max bytes used in any frame)
 - `utilization` - Peak usage as percentage of capacity
 
 **Errors:**
+
 - `NOT_INITIALIZED` - Tiered arenas not yet initialized
 
 ---
@@ -3394,10 +3436,12 @@ Lightweight transport tick event sent during playback when only position changes
 | `bbt` | string | Pre-computed bar.beat.ticks (e.g., "23.1.00") |
 
 **When sent:**
+
 - During playback when only position has changed (no state/tempo/time-sig changes)
 - Full `transport` events are sent on state changes (play/pause/stop) or tempo/time-sig changes
 
 **Frontend usage:**
+
 - `TransportSyncEngine` uses `tt` events for clock-synchronized beat display
 - `TransportAnimationEngine` uses the `p` field to correct client-side interpolation after seeks
 
@@ -3435,6 +3479,7 @@ Lightweight track list broadcast at 1Hz when structure changes (add/delete/renam
 | `payload.tracks[].fm` | int | Free mode (`0`=normal, `1`=free item positioning, `2`=fixed lanes) |
 
 **Notes:**
+
 - Sent on connect (snapshot) and whenever track structure or filter state changes
 - Array index = unified track index (0 = master, 1+ = user tracks)
 - ~120 bytes per track with JSON overhead (1000 tracks ≈ 120KB)
@@ -3520,6 +3565,7 @@ Broadcast when track data changes for subscribed tracks. Clients must call `trac
 | `tracks[].sends[].mode` | int | Send mode (0=post-fader, 1=pre-FX, 3=post-FX) |
 
 **Notes:**
+
 - Clients must call `track/subscribe` to receive tracks events — no subscription means no track data
 - Only subscribed tracks are included in the `tracks` array
 - `total` is user track count only (excludes master) for virtual scrollbar sizing
@@ -3552,6 +3598,7 @@ Broadcast at 30Hz for subscribed tracks. Meter data is tied to track subscriptio
 | `m[guid].c` | bool | Clip indicator (sticky until cleared via `meter/clearClip`) |
 
 **Notes:**
+
 - Sent at 30Hz (every frame) when there are track subscriptions
 - Map keys are track GUIDs (`"master"` for master track) — enables O(1) lookup in frontend
 - Compact keys (`i`, `l`, `r`, `c`) minimize bandwidth (~80 bytes per track)
@@ -3584,6 +3631,7 @@ Broadcast to all clients when markers change. No subscription required.
 | `markers[].color` | int | Color (native OS format, 0=default) |
 
 **Notes:**
+
 - Sent on connect (snapshot) and on change at 5Hz (MEDIUM tier)
 - Contains all markers in the project
 - Broadcast to all connected clients
@@ -3629,6 +3677,7 @@ Broadcast to all clients when regions change. No subscription required.
 | `regions[].color` | int | Color (native OS format, 0=default) |
 
 **Notes:**
+
 - Sent on connect (snapshot) and on change at 5Hz (MEDIUM tier)
 - Contains all regions in the project
 - Broadcast to all connected clients
@@ -3686,6 +3735,7 @@ Sent when items change. Broadcast to all connected clients (no subscription requ
 | `items[].activeTakeColor` | int\|null | Custom color of active take (native OS format with 0x01000000 flag), null if no custom color |
 
 **Notes:**
+
 - Sent on connect (snapshot) and on change at 5Hz (MEDIUM tier)
 - Contains all items in the project
 - Broadcast to all connected clients

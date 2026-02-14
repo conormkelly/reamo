@@ -1050,6 +1050,7 @@ pub fn handleCommand(msg: []const u8) void {
 ### Debug Tools
 
 Add a "debug mode" toggle that shows:
+
 - Raw frequency value
 - YIN confidence value  
 - Current buffer size
@@ -1061,27 +1062,35 @@ Add a "debug mode" toggle that shows:
 ## Part 6: Future Enhancements
 
 ### Strobe Mode
+
 Implement a visual strobe animation where rotation direction/speed indicates sharp/flat:
+
 - Stationary = in tune
 - Rotating right = sharp
 - Rotating left = flat
 - Rotation speed = how far off
 
 ### Alternate Tunings
+
 Presets for common alternate tunings with target notes displayed:
+
 - Drop D
 - DADGAD  
 - Open G
 - Half-step down
 
 ### Polyphonic Mode
+
 Detect all 6 guitar strings simultaneously (requires significantly more DSP):
+
 - Show all strings at once
 - Indicate which strings need adjustment
 - TC Electronic PolyTune-style display
 
 ### Calibration
+
 Allow users to calibrate to a reference note from another source:
+
 - "Play reference A" → measures → adjusts reference pitch
 - Useful for matching to keyboards or other instruments
 

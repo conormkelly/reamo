@@ -7,6 +7,7 @@ Logic Remote's chord strips provide a powerful touch-based interface for playing
 Logic Remote displays **8 chord strips** on standard iPads and **12 chord strips** on iPad Pro (increased from 8 in version 1.3). Each strip is arranged **vertically** with the chord name displayed prominently (e.g., "Am", "F", "G7"). The strips are positioned horizontally across the screen, creating a row of touchable columns.
 
 Each chord strip contains **8 segments divided into two functional zones**:
+
 - **5 upper segments**: Play chords at different voicings/inversions (highest voicing at top, lowest at bottom)
 - **3 lower segments**: Play bass notes—root note (top), fifth (middle), and root octave (bottom)
 
@@ -27,6 +28,7 @@ For Smart Strings specifically, Apple's documentation states: "Wherever in the c
 ## Touch behavior follows note-on/note-off with instrument-specific gestures
 
 **Core touch behavior** follows standard MIDI conventions:
+
 - **Touch-down**: Triggers note-on immediately (chord sounds)
 - **Touch-up**: Triggers note-off (chord releases)
 - **Exception**: Smart Strings pizzicato mode plays on finger lift, not touch-down
@@ -34,12 +36,14 @@ For Smart Strings specifically, Apple's documentation states: "Wherever in the c
 **Keyboard chord strips** respond to simple taps—tap upper segments for chords, lower segments for bass, or both simultaneously for combined chord-and-bass voicings using multi-touch.
 
 **Guitar/Bass chord strips** support more expressive gestures:
+
 - Tap individual strings for single notes
 - Swipe across strings to strum (direction affects strum direction)
 - Tap the top of a strip for instant full-chord strum
 - Touch and hold the fretboard area left of strips to mute strings
 
 **Smart Strings chord strips** offer the most sophisticated control:
+
 - Glide finger across strips for swelling, pressure-reactive dynamics
 - Touch-hold with vertical swipes for sustained bowing
 - Quick swipes trigger marcato bowing
@@ -50,6 +54,7 @@ For Smart Strings specifically, Apple's documentation states: "Wherever in the c
 ## Velocity sensitivity exists but has notable limitations
 
 Logic Remote provides a **global Velocity Range slider** accessible via the Settings button. Users can:
+
 - Drag the slider to shift the overall velocity range up or down
 - Pinch with two fingers to expand or contract the velocity range
 
@@ -64,6 +69,7 @@ Chord strips **automatically synchronize with the project's key signature** set 
 For scale-based playing beyond chord strips, Logic Remote offers a **Scale button** that switches the keyboard to show note bars locked to a specific scale. Available scales include standard options like Major, Minor, and various modes, though the complete list isn't exhaustively documented. Version 1.1 "adds more scale choices for Touch Instruments."
 
 **Custom scales cannot be defined** within Logic Remote—users are limited to Apple's preset scales. However, the **Edit Chords feature** allows substantial customization:
+
 1. Access via Settings → Edit Chords
 2. Select the chord strip to modify
 3. Use **Chord wheels** to set root note, chord quality (major, minor, 7th, dim, aug), and extensions (9th, 11th, 13th)
@@ -83,6 +89,7 @@ Arpeggiator parameters—note order, octave range, pattern type—are adjusted i
 Guitar and Bass chord strips simulate strumming through swipe gestures across the virtual strings. Swipe speed affects the strum timing—faster swipes produce quicker, more aggressive strums while slower swipes create gentler, rolled chord effects. The direction of the swipe influences the strum direction.
 
 Smart Strings provide articulation control through gesture variation:
+
 - Sustained finger glides with up/down movement for bowing
 - Quick swipes for staccato/marcato effects
 - Taps for pizzicato (plays on release)

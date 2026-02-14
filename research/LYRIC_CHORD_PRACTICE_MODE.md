@@ -57,6 +57,7 @@ The worship band market is substantial: the church presentation software segment
 **CCLI SongSelect** provides legal access to **230,000+ worship songs** with ChordPro-formatted chord charts (Premium tier), transposable in any key. Integration requires OAuth login with CCLI Profile credentials; apps must display copyright notices *with* the song during performance (not just at the end). Activity requirement: integrations disable after 60 days of inactivity.
 
 Worship leaders specifically need:
+
 - **Multiple keys per song** for different vocalists (rotating worship leaders are common)
 - **Real-time "spontaneous worship" access** to entire library, not just planned setlist
 - **Song usage tracking** for CCLI reporting requirements
@@ -73,6 +74,7 @@ Worship leaders specifically need:
 **Anytune** consistently earns top recommendations across musician forums for practice features. Its "Step-It-Up Trainer" implementation represents the gold standard: configure starting tempo, ending tempo, number of steps, repeats per step, and end action—the app automatically increases tempo after each loop iteration. Users describe it as a "game changer" that "moves everything out of your way."
 
 **Tempo adjustment UX patterns** that work best combine multiple input methods:
+
 - **Large slider** for quick rough adjustment
 - **Preset buttons** (25%, 50%, 75%, 100%, 125%) for common speeds
 - **+/- fine adjustment buttons** (+1 BPM or +1%) for precision
@@ -82,6 +84,7 @@ Worship leaders specifically need:
 **Loop controls**: A-B loop points should be settable during playback via tap (not pause-and-scrub). Anytune's waveform shows loop portion in different color (orange). Critical UX detail: "Use the waveform to help position sliders in a valley for smoother loop"—visual guidance for loop point selection. **Loop delay/lead-in** (1-bar countdown before restart) is essential for musicians preparing to play.
 
 **Gradual tempo increase** implementations follow this pattern:
+
 ```
 Start: 60 BPM → End: 120 BPM
 Steps: 6 (60→70→80→90→100→110→120)
@@ -100,6 +103,7 @@ End action: Hold at final tempo / Loop back / Stop
 **LRC format** (standard since 1998) provides the simplest timing approach: `[mm:ss.xx]` timestamps at centisecond (10ms) precision for line-level timing. **Enhanced LRC** adds word-level timing using angle brackets: `<00:00.16> the <00:00.82> truth`. For REAmo's REAPER-native approach, timing can derive directly from markers and regions.
 
 **Human perception thresholds** for audio-visual synchronization:
+
 - Detectable delay: **~20ms** in controlled conditions
 - Acceptable tolerance: **-60ms to +40ms** (EBU R37 standard)
 - Noticeable desync: **>50-100ms**
@@ -110,6 +114,7 @@ For lyric display specifically, **line-level timing with ~50ms precision** is ad
 **Latency compensation** is critical: Bluetooth headphones add 40-300ms delay, USB audio devices up to 200ms. Implementation must use **audio clock** (not wall clock) for timing, with user-adjustable global offset. The LRC `[offset:+/-ms]` tag provides this.
 
 **Scrolling best practices**:
+
 - Keep current line at consistent vertical position (typically 1/3 from top)
 - Show 2-4 upcoming lines visible
 - Use ease-in/ease-out for smooth visual experience
@@ -126,6 +131,7 @@ For lyric display specifically, **line-level timing with ~50ms precision** is ad
 **Dark mode** is essential—white/light text on black/dark background works best under stage lighting. Red-on-black (night vision mode) exists in specialized astronomy applications but is uncommon in music apps.
 
 **Multi-device sync** approaches vary:
+
 - **OnSong Connect**: Leader device acts as web server on local WiFi; tested with 24 devices simultaneously
 - **BandHelper**: Cloud-based account sync across iOS, Android, Mac, web
 - **SongBook "Play Together"**: Bluetooth/WiFi peer-to-peer where any device can control others
@@ -174,6 +180,7 @@ Research across Trustpilot, App Store reviews, and musician forums reveals consi
 **Hidden customer support**: "There is absolutely NO PHONE SUPPORT at all... there is no excuse for not having a person you can speak to" and "THERE IS NOWHERE ON THEIR WEBSITE TO ACTUALLY CONTACT SUPPORT!"
 
 **Key anti-patterns to avoid in REAmo**:
+
 - Crashes or freezes during playback (career-ending for live use)
 - Autoscroll without section/marker awareness
 - Requiring ChordPro formatting for copy-pasted text
@@ -186,6 +193,7 @@ Research across Trustpilot, App Store reviews, and musician forums reveals consi
 REAmo's REAPER-native architecture—using tracks, items, markers, and regions—offers genuine competitive advantages over database-dependent competitors. Lyrics and chords stored in item notes with timing derived from markers enables section-aware scrolling, visual waveform navigation, and seamless integration with REAPER's existing looping and tempo features.
 
 **High priority features** for initial implementation:
+
 1. ChordPro parsing and display with transpose slider
 2. Dark mode with 36-48pt fonts for stage visibility  
 3. A-B looping with visual waveform and loop lead-in
@@ -194,6 +202,7 @@ REAmo's REAPER-native architecture—using tracks, items, markers, and regions�
 6. Section-aware scrolling using REAPER markers
 
 **Medium priority features** for subsequent releases:
+
 1. Planning Center Services API integration
 2. Word-level karaoke highlighting
 3. CCLI SongSelect import with copyright notice generation

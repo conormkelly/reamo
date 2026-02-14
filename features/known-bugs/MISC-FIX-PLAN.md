@@ -11,6 +11,7 @@ Investigation completed. Below is a detailed plan for each bug with root cause a
 **Status:** COMPLETED
 
 **Changes Made:**
+
 - Added `FolderNavSheet`, `isBuiltinBank`, `BuiltinBankId`, `useFolderHierarchy` imports
 - Added folder navigation state (`folderPath`, `folderSheetOpen`)
 - Updated filter logic to handle all built-in banks (muted, soloed, armed, selected, folders, with-sends)
@@ -29,6 +30,7 @@ Investigation completed. Below is a detailed plan for each bug with root cause a
 **Changes Made:**
 
 Backend (Zig):
+
 - Added `clipped: bool` and `item_count: u16` fields to `SkeletonTrack` struct in `track_skeleton.zig`
 - Polls clipping via `getTrackPeakHoldDB(track, channel, false)` — sticky until user clears
 - Polls item count via `trackItemCount(track)`
@@ -36,6 +38,7 @@ Backend (Zig):
 - Updated mock backend with `getTrackPeakHoldDB` method
 
 Frontend (TypeScript):
+
 - Added `cl` and `ic` fields to `SkeletonTrack` interface in `WebSocketTypes.ts`
 - Added `'builtin:clipped'` and `'builtin:with-items'` to `BuiltinBankId` type
 - Added to `QUICK_FILTERS` array in `BankSelector.tsx`
@@ -43,6 +46,7 @@ Frontend (TypeScript):
 - Added filter cases in `MixerView.tsx` and `TimelineView.tsx`
 
 Documentation:
+
 - Updated `extension/API.md` with new `trackSkeleton` event fields
 
 ---
@@ -54,6 +58,7 @@ Documentation:
 **Status:** COMPLETED (by user)
 
 **Changes Made:**
+
 - Added `isolate` class to main App container to create predictable stacking context
 - Changed `z-50` to `z-dropdown` in QuickFilterDropdown for semantic z-index
 
@@ -66,6 +71,7 @@ Documentation:
 **Status:** DEFERRED TO v2 - See [ROADMAP.md](../ROADMAP.md#ruler-drag-to-select)
 
 **Reason for deferral:**
+
 - Snap points need to be zoom-level specific
 - Edge cases: selecting beyond visible viewport, auto-scroll while dragging
 - Long-press-to-seek + MakeSelectionModal covers the use case for v1
@@ -79,6 +85,7 @@ Documentation:
 **Status:** COMPLETED
 
 **Changes Made:**
+
 - Reduced `TARGET_LABELS_RULER` from 8 to 3 (sparser ruler)
 - Reduced `TARGET_LABELS_GRID` from 12 to 6 (sparser grid)
 - Reduced beat display thresholds:
@@ -94,6 +101,7 @@ Documentation:
 **Status:** COMPLETED
 
 **Changes Made:**
+
 - Added `ml-3` to TimelineModeToggle's outer div
 
 ---
@@ -105,6 +113,7 @@ Documentation:
 **Status:** COMPLETED
 
 **Changes Made:**
+
 - Updated `useBankNavigation.ts` to show single number when `bankStart === bankEnd`
 - Updated `effectiveBankDisplay` in both TimelineView and MixerView for filtered mode consistency
 
@@ -117,6 +126,7 @@ Documentation:
 **Status:** COMPLETED
 
 **Changes Made:**
+
 - Changed ActionsView empty state from `justify-end pb-6` to `justify-center` to match PlaylistView
 
 ---
@@ -124,6 +134,7 @@ Documentation:
 ## Summary
 
 ### Completed (8/9)
+
 - ✅ Bug 1: Folder navigation in Timeline
 - ✅ Bug 2: "Clipped" and "With Items" filters
 - ✅ Bugs 3 & 4: Z-index issues
@@ -133,6 +144,7 @@ Documentation:
 - ✅ Bug 9: Empty state consistency
 
 ### Deferred to v2 (1/9)
+
 - ⏸️ Bug 5: Ruler drag for selection (see [ROADMAP](../ROADMAP.md#ruler-drag-to-select))
 
 ---

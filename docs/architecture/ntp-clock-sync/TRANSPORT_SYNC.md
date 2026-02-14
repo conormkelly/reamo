@@ -73,6 +73,7 @@ They get away with it because users typically look at the DAW screen, not the co
 The Zig extension broadcasts transport state at ~30Hz. Add server timestamp to every message.
 
 **New format:**
+
 ```json
 {"t":1704067200123.456,"b":24.5,"bpm":120.0,"p":1,"r":0,"ts_n":4,"ts_d":4}
 ```
@@ -96,11 +97,13 @@ New message type for clock synchronization.
 > **Implementation Note:** Clock sync **bypasses the command queue** and is handled directly in `ws_server.zig` when the message arrives. This ensures `t1` (receive time) is recorded at actual message arrival, not when dequeued. The command queue adds 0-33ms variable latency that would defeat clock sync accuracy.
 
 **Client request:**
+
 ```json
 {"type":"clockSync","t0":1704067200000.123}
 ```
 
 **Server response (sent immediately, no queue):**
+
 ```json
 {"type":"clockSyncResponse","t0":1704067200000.123,"t1":1704067200005.456,"t2":1704067200005.789}
 ```
@@ -112,6 +115,7 @@ New message type for clock synchronization.
 | `t2` | Server send time |
 
 The client calculates offset using NTP formula:
+
 ```
 RTT = (t3 - t0) - (t2 - t1)
 offset = ((t1 - t0) + (t2 - t3)) / 2
@@ -162,7 +166,7 @@ fn createTransportMessage() TransportMessage {
 }
 ```
 
-2. **Handle clock sync requests**
+1. **Handle clock sync requests**
 
 ```zig
 fn handleClockSyncRequest(msg: ClockSyncRequest) ClockSyncResponse {
@@ -179,7 +183,7 @@ fn handleClockSyncRequest(msg: ClockSyncRequest) ClockSyncResponse {
 }
 ```
 
-3. **Immediate broadcast on transport state changes** (if using C-Surface callbacks)
+1. **Immediate broadcast on transport state changes** (if using C-Surface callbacks)
 
 ```zig
 // C-Surface callback - fires immediately on transport change
@@ -1332,11 +1336,13 @@ describe('BeatPredictor', () => {
 #### macOS (Primary Development Platform)
 
 **Option 1: Network Link Conditioner** (Recommended)
+
 - Part of Xcode Additional Tools (download from Apple Developer)
 - GUI-based, easy to toggle profiles
 - Simulates latency, bandwidth limits, packet loss
 
 **Option 2: dnctl + pfctl** (Command line)
+
 ```bash
 # Create a dummynet pipe with 100ms delay and 10% packet loss
 sudo dnctl pipe 1 config delay 100ms plr 0.1
@@ -1382,6 +1388,7 @@ All sync classes must be designed for testability:
 | **Isolated units** | Each class testable without network, DOM, or React |
 
 **Required test coverage:**
+
 - `ClockSync`: NTP calculation, min-RTT selection, slew vs step, drift detection
 - `JitterMeasurement`: histogram updates, quantile calculation, forgetting
 - `AdaptiveBuffer`: buffer sizing, underrun handling, quality assessment
@@ -1533,11 +1540,11 @@ Minimum viable sync for typical home WiFi:
 
 Handle network variability:
 
-7. Implement `JitterMeasurement` (relative delay histogram)
-8. Implement `AdaptiveBuffer` (35-150ms range)
-9. Add transport state change handling (100ms+ disable)
-10. Implement `NetworkState` (OPTIMAL/DEGRADED/RECONNECTING)
-11. Add network quality indicator to UI
+1. Implement `JitterMeasurement` (relative delay histogram)
+2. Implement `AdaptiveBuffer` (35-150ms range)
+3. Add transport state change handling (100ms+ disable)
+4. Implement `NetworkState` (OPTIMAL/DEGRADED/RECONNECTING)
+5. Add network quality indicator to UI
 
 **Exit criteria:** Smooth display on moderate WiFi (RTT 30-80ms, 10-30ms jitter)
 
@@ -1545,11 +1552,11 @@ Handle network variability:
 
 Graceful degradation:
 
-12. Add prediction runaway prevention (2s freeze)
-13. Implement clock drift detection and automatic resync
-14. Add sleep/wake recovery (visibility change handler)
-15. Implement reconnection with exponential backoff
-16. Add "Reconnecting..." overlay
+1. Add prediction runaway prevention (2s freeze)
+2. Implement clock drift detection and automatic resync
+3. Add sleep/wake recovery (visibility change handler)
+4. Implement reconnection with exponential backoff
+5. Add "Reconnecting..." overlay
 
 **Exit criteria:** Graceful degradation on poor WiFi (RTT >80ms, >30ms jitter)
 
@@ -1557,15 +1564,16 @@ Graceful degradation:
 
 Production readiness:
 
-17. ✅ Add metrics collection (RTT histogram, prediction error)
-18. ✅ Implement advanced settings panel (NetworkStatsModal)
-19. ✅ Add manual offset adjustment (±50ms) with localStorage persistence
-20. ⏳ Performance optimization (ensure <2% CPU) — needs profiling
-21. ✅ Comprehensive test coverage (72 unit tests)
+1. ✅ Add metrics collection (RTT histogram, prediction error)
+2. ✅ Implement advanced settings panel (NetworkStatsModal)
+3. ✅ Add manual offset adjustment (±50ms) with localStorage persistence
+4. ⏳ Performance optimization (ensure <2% CPU) — needs profiling
+5. ✅ Comprehensive test coverage (72 unit tests)
 
 **Exit criteria:** All acceptance criteria met, ready for production use
 
 **Implementation notes:**
+
 - NetworkStatsModal accessible via long-press on ConnectionStatus dot
 - Shows real-time RTT, jitter, buffer, offset, network status/quality
 - Manual offset slider (±50ms) persists to localStorage
@@ -1607,6 +1615,7 @@ Achieving these indicates a best-in-class implementation:
 Before declaring "production ready," run this validation:
 
 **1. Accuracy Test (Automated)**
+
 ```typescript
 // Log prediction error over time
 const errors: number[] = [];
@@ -1625,12 +1634,14 @@ const p99 = percentile(errors, 0.99);
 ```
 
 **2. Jitter Test (Visual)**
+
 - Play transport at 120 BPM for 5 minutes
 - Record screen at 120fps (if available) or 60fps
 - Analyze beat indicator timing vs metronome reference
 - Pass: No visible stutter or drift
 
 **3. Long Session Test (Automated)**
+
 ```bash
 # Run for 8 hours, log metrics every minute
 node scripts/long-session-test.js --duration=8h --log-interval=60s
@@ -1640,6 +1651,7 @@ node scripts/long-session-test.js --duration=8h --log-interval=60s
 ```
 
 **4. Network Stress Test**
+
 ```bash
 # Simulate various conditions, verify graceful degradation
 for condition in "good" "moderate" "poor" "hiccup"; do
@@ -1652,6 +1664,7 @@ done
 ```
 
 **5. User Perception Test**
+
 - 5 musicians use the app while playing along
 - Ask: "Does the beat indicator feel in sync with what you hear?"
 - Pass: 4/5 users report "yes" or "mostly yes"
@@ -1681,8 +1694,6 @@ If WebSocket + prediction can't meet targets:
 The research strongly suggests WebSocket + prediction will meet targets. Escape hatches are documented for completeness but unlikely to be needed.
 
 ---
-
-
 
 This specification is based on research into:
 

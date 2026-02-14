@@ -7,6 +7,7 @@
 Command handlers use inconsistent error code styles across the codebase:
 
 **Specific codes** (newer pattern, used in routing-related handlers):
+
 ```zig
 // send.zig, hw_output.zig
 response.err("MISSING_TRACK_IDX", "trackIdx is required");
@@ -16,6 +17,7 @@ response.err("INVALID_MODE", "mode must be 0, 1, or 3");
 ```
 
 **Generic codes** (older pattern, used in tracks.zig and others):
+
 ```zig
 // tracks.zig older handlers
 response.err("INVALID_PARAMS", "trackIdx is required");
@@ -31,10 +33,12 @@ response.err("INVALID_PARAMS", "Missing required parameter");
 ## Files Affected
 
 **Specific codes:**
+
 - `commands/send.zig` — `MISSING_TRACK_IDX`, `MISSING_SEND_IDX`, `MISSING_VOLUME`, etc.
 - `commands/hw_output.zig` — `MISSING_TRACK_IDX`, `MISSING_HW_IDX`, `MISSING_VOLUME`, etc.
 
 **Generic codes:**
+
 - `commands/tracks.zig` — `INVALID_PARAMS` for various missing parameters
 - `commands/items.zig` — mixed usage
 - Various other handlers
@@ -49,6 +53,7 @@ Standardize on specific error codes codebase-wide:
 4. **Operation failures:** `{OPERATION}_FAILED` (e.g., `SET_FAILED`)
 
 This allows frontend to handle errors programmatically:
+
 ```typescript
 if (error.code === 'MISSING_TRACK_IDX') {
   // Handle missing track index specifically

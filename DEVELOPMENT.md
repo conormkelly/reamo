@@ -186,11 +186,13 @@ The extension uses **comptime duck typing via `anytype`** to enable mock injecti
 **Principle: `raw.zig` returns exactly what REAPER's C API returns.** All validation and type conversion happens in `RealBackend`.
 
 This separation ensures:
+
 1. **raw.zig stays simple** — direct passthrough to C, no error handling
 2. **Validation is testable** — MockBackend can inject errors to test caller handling
 3. **Single source of truth** — all NaN/Inf checks happen in one place
 
 **Example — getTrackSolo:**
+
 ```zig
 // raw.zig — pure binding, returns what REAPER returns
 pub fn getTrackSolo(self: *const Api, track: *anyopaque) f64 {
@@ -211,6 +213,7 @@ pub fn getTrackSolo(self: *const Tracks, track: *anyopaque) ffi.FFIError!c_int {
 ```
 
 **Caller pattern — graceful degradation with nullable fields:**
+
 ```zig
 // tracks.zig — uses catch null to propagate corrupt data
 t.color = api.getTrackColor(track) catch null;  // ?c_int
@@ -250,6 +253,7 @@ if (!ffi.isFinite(length) or length <= 0) {
 ```
 
 **FFI validation files:**
+
 - `src/reaper/raw.zig` — Pure C bindings, returns `f64` from REAPER
 - `src/reaper/real.zig` — `RealBackend` with `ffi.safeFloatToInt()` validation
 - `src/reaper/mock/tracks.zig` — `inject_*_error` fields for testing error paths
@@ -361,6 +365,7 @@ test "transport/play runs correct command" {
    - Compares with previous state for change detection
 
 2. **Extension broadcasts JSON** via WebSocket (two separate events)
+
    ```json
    // tracks event (only when data changes)
    {
@@ -442,10 +447,12 @@ Large projects (1000+ tracks) cannot poll all tracks at 30Hz — the JSON alone 
 Timeline subscriptions provide **per-client filtering** for items based on time range. Markers and regions are **broadcast to all clients** (no subscription required).
 
 **Commands:**
+
 - `timeline/subscribe` — Subscribe to items for a time range, receive filtered `items` events at 5Hz
 - `timeline/unsubscribe` — Clear items subscription for this client
 
 **Frontend-calculated buffer:** The frontend specifies the exact range it wants, including any buffer:
+
 ```javascript
 const buffer = viewportEnd - viewportStart;  // 100% of visible duration
 const start = Math.max(0, viewportStart - buffer);
@@ -589,6 +596,7 @@ Subscribe to parameter values for a specific FX plugin. Supports two modes:
 The Routing Modal uses a subscription for real-time send/receive/hardware output updates during fader drags.
 
 **Commands:**
+
 - `routing/subscribe` — Subscribe to a track's routing state (sends, receives, hw outputs)
 - `routing/unsubscribe` — Clear subscription
 
@@ -717,6 +725,7 @@ make extension             # Uses default (CSurf enabled)
 **Drift logging:** When hash changes without a dirty flag, the extension logs a warning. This indicates a missed callback (common causes: undo/redo, action-based selection, FX drag).
 
 **Symptoms of callback gaps:**
+
 - State changes not reflected until 2-second heartbeat
 - Drift warnings in logs: `"Track drift without dirty flag"`
 
@@ -739,6 +748,7 @@ api.undoEndBlock("REAmo: Adjust time signature");
 ### Command Naming
 
 WebSocket commands use `domain/action` format:
+
 - `track/setVolume`, `track/setMute`, `track/setSelected`
 - `transport/play`, `transport/stop`, `transport/seek`
 - `meter/clearClip`
@@ -801,6 +811,7 @@ Without this check, you get garbage theme colors (e.g., 0x00C04000 orange-red) i
 `GetMediaTrackInfo_Value(track, "B_MUTE")` and `I_SOLO` are **unreliable for the master track**. They often return stale or incorrect values.
 
 **For reading:** Use `GetMasterMuteSoloFlags()` which returns a bitmask:
+
 - `&1` = master muted
 - `&2` = master soloed
 
@@ -853,6 +864,7 @@ const detected_channels: usize = blk: {
 **GetMediaItemTake_Peaks** also has issues — returns all zeros for some source types. We use `AudioAccessor` (`CreateTakeAudioAccessor` / `GetAudioAccessorSamples`) instead, which reads actual audio samples reliably.
 
 **AudioAccessor approach:**
+
 1. `CreateTakeAudioAccessor(take)` - create accessor
 2. `GetAudioAccessorSamples(accessor, samplerate, numchannels, starttime, numsamplespersec, samplebuffer)` - read raw samples
 3. Compute min/max peaks from sample windows
@@ -861,6 +873,7 @@ const detected_channels: usize = blk: {
 ### Track Selection
 
 To get/set track selection:
+
 ```c
 // Get: returns 1.0 if selected, 0.0 if not
 double selected = GetMediaTrackInfo_Value(track, "I_SELECTED");
@@ -894,6 +907,7 @@ getContrastColor(color)     // → "black" or "white" for text
 ### Track Flags
 
 The `Track.flags` bitfield (built from WebSocket booleans):
+
 ```typescript
 const TrackFlags = {
   FOLDER: 1,
@@ -942,6 +956,7 @@ const [mixerCollapsed, setMixerCollapsed] = useState(false);
 Studio view uses a unified collapsible sections pattern with state managed in Zustand. All sections (Project, Toolbar, Timeline, Mixer) are wrapped in `<CollapsibleSection>` components.
 
 **State Management:**
+
 ```typescript
 // Zustand store (studioLayoutSlice)
 interface SectionConfig {
@@ -958,6 +973,7 @@ sections: {
 ```
 
 **Component Pattern:**
+
 ```tsx
 import { CollapsibleSection } from './components/Studio';
 
@@ -976,12 +992,14 @@ const { sections, toggleSection } = useReaperStore();
 ```
 
 **Mobile Defaults:**
+
 - On first load with viewport ≤768px, only Timeline section is expanded
 - Other sections (Project, Toolbar, Mixer) default to collapsed
 - Desktop: all sections expanded by default
 - State persisted to localStorage per device
 
 **Reordering:**
+
 - Sections can be reordered via Settings → Studio → Reorder Sections
 - Modal with drag-and-drop (desktop) and touch support (mobile)
 - Order persisted to localStorage
@@ -1104,6 +1122,7 @@ const handlePointerUp = (e: React.PointerEvent) => {
 **Orientation locking:**
 
 Some instruments work better in specific orientations:
+
 - Drum Pads: Portrait only (4x4 grid fits better)
 - Piano/Chord Pads: Landscape only (needs horizontal space)
 
@@ -1112,6 +1131,7 @@ Components show a "rotate device" warning when in wrong orientation rather than 
 **Per-instrument channel persistence:**
 
 Each instrument type remembers its own MIDI channel independently:
+
 ```typescript
 localStorage.setItem('reamo_instruments_drums_channel', '9');  // Channel 10 (0-indexed)
 localStorage.setItem('reamo_instruments_piano_channel', '0');  // Channel 1
@@ -1151,6 +1171,7 @@ function SmoothPosition() {
 ```
 
 **Key files:**
+
 - `core/TransportAnimationEngine.ts` - Singleton engine, receives server updates, interpolates at 60fps
 - `hooks/useTransportAnimation.ts` - Hook to subscribe to engine updates
 - `TimelinePlayhead.tsx`, `TimeDisplay.tsx` - Components using this pattern
@@ -1424,6 +1445,7 @@ private async warmupViaIframe(wsUrl: string): Promise<void> {
 9. **Test initial load with non-zero positions** - Animation/interpolation systems may work during playback but fail on initial load when state hasn't synced yet. The playhead visibility tests in `Timeline.test.tsx` demonstrate this pattern.
 
 10. **Use `_testMode` for E2E connection state control** - Enable test mode early in E2E tests to prevent the real WebSocket from overwriting store state:
+
     ```typescript
     await page.evaluate(() => {
       const store = (window as any).__REAPER_STORE__;
@@ -1431,6 +1453,7 @@ private async warmupViaIframe(wsUrl: string): Promise<void> {
       store.setState({ connected: true, ... }); // Then set state
     });
     ```
+
     Test mode prevents both WebSocket messages AND connection state changes from updating the store, allowing deterministic E2E tests regardless of whether REAPER is running.
 
 11. **MockBackend array sizes cause crashes and giant binaries** - If Zig tests crash with SIGILL or produce 600MB+ binaries, check `reaper/mock/state.zig` constants. Nested arrays (tracks × FX × params) that exceed ~250KB total will overflow the stack. See Common Pitfalls #24 for details.
@@ -1636,6 +1659,7 @@ See `tiered_state.zig` for implementation and `research/BACKEND_ARENA_RESEARCH.m
 ### Hello Handshake
 
 Client → Server (on connect):
+
 ```json
 {
   "type": "hello",
@@ -1646,6 +1670,7 @@ Client → Server (on connect):
 ```
 
 Server → Client:
+
 ```json
 {
   "type": "hello",
@@ -1665,6 +1690,7 @@ Server → Client:
 ### Same-Origin Connection
 
 The frontend is served by the extension's built-in HTTP server (same origin). Connection params are discovered automatically:
+
 - **Token**: injected via `<meta name="reamo-token" content="...">` in the HTML
 - **Port**: read from `window.location.port` (same as the HTTP server)
 
@@ -1715,6 +1741,7 @@ make dev-notests      # Quick cycle without tests (for rapid iteration)
 **The only safe workflow is: rebuild → restart REAPER → test.**
 
 Use `make dev` to automate this cycle:
+
 1. Runs all tests (extension + frontend)
 2. Kills REAPER
 3. Builds and installs extension
@@ -1731,6 +1758,7 @@ make tracy    # Build with Tracy enabled (requires ReleaseFast due to Zig 0.15 b
 ```
 
 **Instrumented areas:**
+
 - `doProcessing()` — Frame markers for 30Hz timer visibility
 - `action/getActions` — Zone markers (identified as slow path, ~985KB JSON)
 
@@ -1743,6 +1771,7 @@ make tracy    # Build with Tracy enabled (requires ReleaseFast due to Zig 0.15 b
 ### Log Files
 
 Extension logs are written to:
+
 ```
 ~/Library/Application Support/REAPER/Logs/reamo.log  (macOS)
 %APPDATA%\REAPER\Logs\reamo.log                      (Windows)
@@ -1789,6 +1818,7 @@ The shell environment may not handle subshells `(...)` directly. Wrap in `/bin/b
 ```
 
 **Key escaping rules inside `/bin/bash -c '...'`:**
+
 - Use `\"` for JSON quotes (not single quotes, since outer command uses them)
 - Variables like `$TOKEN` expand normally
 - Newlines between `echo` statements are fine
@@ -1796,6 +1826,7 @@ The shell environment may not handle subshells `(...)` directly. Wrap in `/bin/b
 ### Enable Debug Logging
 
 In `extension/src/reaper.zig`:
+
 ```zig
 pub const DEBUG_LOGGING = true;  // Set to true for console output
 ```
@@ -1811,6 +1842,7 @@ The `action/getActions` command returns ~985KB of JSON (15,619 actions across 6 
 websocket.zig library has per-message deflate disabled for Zig 0.15. Library author noted: "Compression is disabled as part of the 0.15 upgrade. I do hope to re-enable it soon."
 
 **When library supports it:**
+
 ```zig
 .compression = .{
     .write_threshold = 256, // Only compress messages > 256 bytes
@@ -1868,6 +1900,7 @@ if (elapsed_ns > 1_000_000) { // > 1ms
 10. **New backend methods need both RealBackend and MockBackend** - If a handler needs a new REAPER API method, add it to both `reaper/real.zig` and `reaper/mock/mod.zig` (or the appropriate mock subdomain file). The `validateBackend()` check will catch missing methods at compile time.
 
 11. **Floating-point precision loss when extracting beat.ticks** - When converting a float like `6.7565` to beat=6, ticks=76, don't divide then modulo. The division `676/100.0 = 6.76` looks correct, but `@mod(6.76, 1.0)` returns `0.7599999998` due to IEEE 754 representation, giving ticks=75 instead of 76. Scale to integer first:
+
    ```zig
    // BAD: "6.6.75" displayed instead of "6.6.76"
    const rounded = @round(val * 100.0) / 100.0;  // 6.76 (looks fine)
@@ -1880,16 +1913,16 @@ if (elapsed_ns > 1_000_000) { // > 1ms
    const frac = scaled % 100;   // 76 (exact)
    ```
 
-12. **FFI validation happens in RealBackend, not raw.zig** - `raw.zig` returns exactly what REAPER's C API returns (e.g., `f64`). All NaN/Inf validation happens in `RealBackend` via `ffi.safeFloatToInt()`. Methods returning `FFIError!T` require `catch` handling in callers — use `catch null` for nullable fields to propagate corrupt data as JSON nulls.
+1. **FFI validation happens in RealBackend, not raw.zig** - `raw.zig` returns exactly what REAPER's C API returns (e.g., `f64`). All NaN/Inf validation happens in `RealBackend` via `ffi.safeFloatToInt()`. Methods returning `FFIError!T` require `catch` handling in callers — use `catch null` for nullable fields to propagate corrupt data as JSON nulls.
 
-13. **Use CSurf APIs for continuous controls (faders/knobs)** - For controls users drag continuously (volume, pan, send levels), use CSurf APIs (`CSurf_OnVolumeChange`, `CSurf_OnPanChange`, `CSurf_OnSendVolumeChange`) instead of `SetMediaTrackInfo_Value`. CSurf APIs provide:
+2. **Use CSurf APIs for continuous controls (faders/knobs)** - For controls users drag continuously (volume, pan, send levels), use CSurf APIs (`CSurf_OnVolumeChange`, `CSurf_OnPanChange`, `CSurf_OnSendVolumeChange`) instead of `SetMediaTrackInfo_Value`. CSurf APIs provide:
     - Automatic undo coalescing (one undo point per gesture, not per value change)
     - Gang control support (`allowGang=true` respects track grouping)
     - Proper master track handling
 
     For toggles (mute, solo), CSurf is optional but recommended for consistency.
 
-14. **Gesture tracking requires both backend and frontend coordination** - For proper undo coalescing:
+3. **Gesture tracking requires both backend and frontend coordination** - For proper undo coalescing:
     - **Backend**: Handler calls `gestures.recordActivity(ControlId)` on each value change
     - **Frontend**: Sends `gesture/start` before drag, `gesture/end` after release
     - **Safety nets**: 500ms timeout auto-flushes abandoned gestures; client disconnect cleans up
@@ -1900,7 +1933,8 @@ if (elapsed_ns > 1_000_000) { // > 1ms
     3. Command handler - Call `gestures.recordActivity()`
     4. `API.md` - Document the new controlType
 
-15. **Compound control IDs need sub_idx** - Controls like sends and hardware outputs require both track index AND send/hw index. The `ControlId` struct has `sub_idx` for this:
+4. **Compound control IDs need sub_idx** - Controls like sends and hardware outputs require both track index AND send/hw index. The `ControlId` struct has `sub_idx` for this:
+
     ```zig
     // Track volume: only needs track_idx
     ControlId.volume(track_idx)
@@ -1914,15 +1948,16 @@ if (elapsed_ns > 1_000_000) { // > 1ms
     ControlId.hwOutputPan(track_idx, hw_idx)
     ```
 
-16. **Not all controls have CSurf equivalents** - Some controls lack CSurf APIs:
+5. **Not all controls have CSurf equivalents** - Some controls lack CSurf APIs:
     - **Hardware outputs**: `CSurf_OnSendVolumeChange` only works for category 0 (sends), not category 1 (hardware outputs) — its signature `(track, send_idx, volume, relative)` has no category parameter. Use `SetTrackSendInfo_Value(track, 1, hw_idx, "D_VOL", value)` directly; undo coalescing relies on gesture tracking.
     - **Send mute**: Use `SetTrackSendInfo_Value(track, 0, idx, "B_MUTE", value)` since there's no `CSurf_OnSendMuteChange`.
 
     Always check `docs/reaper_plugin_functions.h` for available CSurf functions before assuming one doesn't exist — e.g., `CSurf_OnFXChange` exists for FX chain enable and we do use it.
 
-17. **ResponseWriter buffer sizes** - `ResponseWriter.success()` uses a 512-byte buffer, which silently fails (via `catch return`) for large payloads. For commands returning user content (project notes, item peaks, etc.), use `successLargePayload()` which heap-allocates a 128KB buffer per call. This avoids both stack overflow and shared-state issues between concurrent commands. Heap allocation is safe for timer callbacks since they run on the main thread (see `research/ZIG_MEMORY_MANAGEMENT.md`). The silent failure in `success()` causes frontend timeouts with no error in logs — a subtle bug. Rule of thumb: if the response includes user-generated content that could exceed ~400 chars, use `successLargePayload()`.
+6. **ResponseWriter buffer sizes** - `ResponseWriter.success()` uses a 512-byte buffer, which silently fails (via `catch return`) for large payloads. For commands returning user content (project notes, item peaks, etc.), use `successLargePayload()` which heap-allocates a 128KB buffer per call. This avoids both stack overflow and shared-state issues between concurrent commands. Heap allocation is safe for timer callbacks since they run on the main thread (see `research/ZIG_MEMORY_MANAGEMENT.md`). The silent failure in `success()` causes frontend timeouts with no error in logs — a subtle bug. Rule of thumb: if the response includes user-generated content that could exceed ~400 chars, use `successLargePayload()`.
 
-18. **Never use silent `catch return null` or `catch return;`** - These patterns silently swallow errors, making debugging extremely difficult. When a buffer overflow or serialization error occurs, the frontend sees no response (timeout) and there's nothing in the logs. Always add logging before returning:
+7. **Never use silent `catch return null` or `catch return;`** - These patterns silently swallow errors, making debugging extremely difficult. When a buffer overflow or serialization error occurs, the frontend sees no response (timeout) and there's nothing in the logs. Always add logging before returning:
+
     ```zig
     // BAD: Silent failure - impossible to debug
     const payload = std.fmt.bufPrint(&buf, "...", .{...}) catch return;
@@ -1947,7 +1982,8 @@ if (elapsed_ns > 1_000_000) { // > 1ms
 
     See `PENDING_ITEMS.md` for remaining items.
 
-19. **Use `toJsonAlloc` with scratch arena for JSON serialization** - All production JSON serialization should use the scratch arena via `toJsonAlloc` rather than fixed stack buffers. This supports extreme projects (3000+ tracks) without buffer overflow:
+8. **Use `toJsonAlloc` with scratch arena for JSON serialization** - All production JSON serialization should use the scratch arena via `toJsonAlloc` rather than fixed stack buffers. This supports extreme projects (3000+ tracks) without buffer overflow:
+
     ```zig
     // BAD: Fixed buffer - will fail on large projects
     var buf: [65536]u8 = undefined;
@@ -1963,6 +1999,7 @@ if (elapsed_ns > 1_000_000) { // > 1ms
     ```
 
     The scratch arena is sized dynamically based on entity counts (see `tiered_state.zig`). Pattern for adding `toJsonAlloc` to a module:
+
     ```zig
     pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
         // Estimate size: base overhead + per-item bytes
@@ -1973,7 +2010,8 @@ if (elapsed_ns > 1_000_000) { // > 1ms
     }
     ```
 
-20. **`@ptrCast` for u8 arrays doesn't need `@alignCast`** - When casting u8 array pointers to `[*:0]const u8` for C strings, `@alignCast` is unnecessary because u8 has alignment 1 (always valid). Add a SAFETY comment to prevent future audit flags:
+9. **`@ptrCast` for u8 arrays doesn't need `@alignCast`** - When casting u8 array pointers to `[*:0]const u8` for C strings, `@alignCast` is unnecessary because u8 has alignment 1 (always valid). Add a SAFETY comment to prevent future audit flags:
+
     ```zig
     var buf: [256]u8 = undefined;
     @memcpy(buf[0..len], str[0..len]);
@@ -1982,7 +2020,7 @@ if (elapsed_ns > 1_000_000) { // > 1ms
     const c_str: [*:0]const u8 = @ptrCast(&buf);
     ```
 
-21. **Store string IDs for SWS/script actions, numeric IDs for native actions** - REAPER action IDs have different stability guarantees:
+10. **Store string IDs for SWS/script actions, numeric IDs for native actions** - REAPER action IDs have different stability guarantees:
 
     | Action Type | Numeric ID Stable? | String ID | Storage Strategy |
     |-------------|-------------------|-----------|------------------|
@@ -1994,6 +2032,7 @@ if (elapsed_ns > 1_000_000) { // > 1ms
     **Why this matters:** SWS/ReaPack/script action numeric IDs are assigned dynamically at REAPER startup and change between sessions. Storing the numeric ID means the wrong action executes after restart. Always use `ReverseNamedCommandLookup` to get the stable string identifier for non-native actions.
 
     **API quirk:** `ReverseNamedCommandLookup` returns the string **without** the leading underscore. Prepend `_` when storing:
+
     ```zig
     const raw_id = api.reverseNamedCommandLookup(cmd_id);
     if (raw_id) |id| {
@@ -2004,6 +2043,7 @@ if (elapsed_ns > 1_000_000) { // > 1ms
     ```
 
     **Frontend pattern:** Check `actionId.startsWith('_')` to determine execution method:
+
     ```typescript
     if (action.actionId.startsWith('_')) {
       sendCommand(actionCmd.executeByName(action.actionId, action.sectionId));
@@ -2014,11 +2054,12 @@ if (elapsed_ns > 1_000_000) { // > 1ms
 
     **Buffer size:** 128 bytes is safe for all action string IDs (SWS-established limit `SNM_MAX_ACTION_CUSTID_LEN`). Longest observed in practice: 47 characters.
 
-22. **REAPER doesn't support nested undo blocks** - Calling `Undo_BeginBlock2()` twice before `Undo_EndBlock2()` corrupts REAPER's undo state. This matters when multiple clients gesture simultaneously on different controls. See `research/REAPER_UNDO_BLOCKS.md` for detailed findings.
+11. **REAPER doesn't support nested undo blocks** - Calling `Undo_BeginBlock2()` twice before `Undo_EndBlock2()` corrupts REAPER's undo state. This matters when multiple clients gesture simultaneously on different controls. See `research/REAPER_UNDO_BLOCKS.md` for detailed findings.
 
     **For CSurf-based controls** (track volume/pan, send volume/pan): No problem — CSurf handles undo coalescing internally.
 
     **For non-CSurf continuous controls** (hardware outputs): All gestures must share a single undo block:
+
     ```zig
     // In gesture.zig handleStart - open block on FIRST hw gesture
     if (is_new and gesture_state.GestureState.isHwOutputControl(control.control_type)) {
@@ -2043,7 +2084,8 @@ if (elapsed_ns > 1_000_000) { // > 1ms
     3. Update `isHwOutputControl()` or add similar helper
     4. Handle cleanup in `main.zig` disconnect and timeout paths
 
-23. **Gesture commands must accept trackGuid for reorder safety** - During a fader gesture, the user might reorder tracks in REAPER. If the frontend sends `trackIdx` and the track moved, the gesture end closes the wrong track's undo. Always use `trackGuid` in gesture commands and resolve via `tracks.resolveTrack()`:
+12. **Gesture commands must accept trackGuid for reorder safety** - During a fader gesture, the user might reorder tracks in REAPER. If the frontend sends `trackIdx` and the track moved, the gesture end closes the wrong track's undo. Always use `trackGuid` in gesture commands and resolve via `tracks.resolveTrack()`:
+
     ```zig
     // gesture.zig parseControlId - accepts EITHER trackIdx or trackGuid
     const resolution = tracks.resolveTrack(api, cmd) orelse return null;
@@ -2051,6 +2093,7 @@ if (elapsed_ns > 1_000_000) { // > 1ms
     ```
 
     Frontend sends `trackGuid` when available (preferred), falls back to `trackIdx`:
+
     ```typescript
     params: {
       controlType,
@@ -2059,9 +2102,10 @@ if (elapsed_ns > 1_000_000) { // > 1ms
     }
     ```
 
-24. **MockBackend array sizes must stay small** - Tests using `MockBackend` will crash with SIGILL or produce 600MB-2GB binaries if array sizes are too large. Root cause: nested arrays like `32 tracks × 64 FX × 128 params` create ~31MB structs that overflow the 8MB stack limit. Also, Zig generates debug symbols for every type instantiation — 262,144 nested generic types explodes debug info to 4GB+.
+13. **MockBackend array sizes must stay small** - Tests using `MockBackend` will crash with SIGILL or produce 600MB-2GB binaries if array sizes are too large. Root cause: nested arrays like `32 tracks × 64 FX × 128 params` create ~31MB structs that overflow the 8MB stack limit. Also, Zig generates debug symbols for every type instantiation — 262,144 nested generic types explodes debug info to 4GB+.
 
     **Solution:** Mock constants in `reaper/mock/state.zig` are intentionally small:
+
     ```zig
     pub const MAX_TRACKS = 16;           // Production: 1024
     pub const MAX_FX_PER_TRACK = 8;      // Production: 64
@@ -2076,6 +2120,6 @@ if (elapsed_ns > 1_000_000) { // > 1ms
     - Compile time >30s per test file
     - RAM usage >1GB during compilation
 
-25. **GetMediaItemTake_Peaks is unreliable on ARM64 macOS** - The native Zig FFI call to this function fails intermittently due to ABI issues when REAPER casts function pointers via `GetFunc()`. The workaround uses a Lua bridge script (`Scripts/Reamo/reamo_internal_fetch_peaks.lua`) called synchronously via `Main_OnCommand`. See the Tile-Based Peaks System section for architecture details.
+14. **GetMediaItemTake_Peaks is unreliable on ARM64 macOS** - The native Zig FFI call to this function fails intermittently due to ABI issues when REAPER casts function pointers via `GetFunc()`. The workaround uses a Lua bridge script (`Scripts/Reamo/reamo_internal_fetch_peaks.lua`) called synchronously via `Main_OnCommand`. See the Tile-Based Peaks System section for architecture details.
 
-26. **Wrapper sources return 0 peaks** - Items with take offsets (e.g., trimmed start) have wrapper sources where `GetMediaItemTake_Source` returns a source with `length=0, samplerate=0`. Always traverse to the root source via `GetMediaSourceParent` loop before fetching peaks or other source properties.
+15. **Wrapper sources return 0 peaks** - Items with take offsets (e.g., trimmed start) have wrapper sources where `GetMediaItemTake_Source` returns a source with `length=0, samplerate=0`. Always traverse to the root source via `GetMediaSourceParent` loop before fetching peaks or other source properties.

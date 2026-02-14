@@ -336,6 +336,7 @@ Both `*RealBackend` and `*MockBackend` satisfy the duck-typed interface.
 When a handler needs a new REAPER API method:
 
 1. **raw.zig** — Add pure C binding
+
    ```zig
    pub fn newMethod(self: *const Api, param: c_int) f64 {
        const f = self.someReaperFunction orelse return 0;
@@ -344,6 +345,7 @@ When a handler needs a new REAPER API method:
    ```
 
 2. **real.zig** — Add validated wrapper
+
    ```zig
    pub fn newMethod(self: *const RealBackend, param: c_int) ffi.FFIError!i32 {
        return ffi.safeFloatToInt(i32, self.inner.newMethod(param));
@@ -351,6 +353,7 @@ When a handler needs a new REAPER API method:
    ```
 
 3. **mock/relevant_file.zig** — Add mock implementation
+
    ```zig
    pub fn newMethod(self: *MockTracks, param: c_int) ffi.FFIError!i32 {
        self.recordCall(.newMethod);
@@ -359,6 +362,7 @@ When a handler needs a new REAPER API method:
    ```
 
 4. **backend.zig** — Add to `validateBackend` required methods
+
    ```zig
    const required_methods = [_][]const u8{
        // ... existing ...
@@ -424,7 +428,7 @@ buf[len] = 0;
 const sentinel: [:0]const u8 = buf[0..len :0];
 ```
 
-### Files to Modify When Adding...
+### Files to Modify When Adding
 
 | Adding | Files |
 |--------|-------|
@@ -605,6 +609,7 @@ response.successLargePayload(large_json_string);
 ```
 
 **When to use `successLargePayload()`:**
+
 - Project notes (user content)
 - Item peaks
 - State chunks
@@ -732,16 +737,16 @@ test "handleFoo validates input" {
 
 ### REAPER API Rules
 
-6. **Master track**: idx=0 in our API, use `getTrackByUnifiedIdx()`, not `GetTrack(proj, 0)`
-7. **Master mute/solo**: Use `getMasterMuteFlags()`, not `GetMediaTrackInfo_Value()`
-8. **Pointer validation**: Validate before use — tracks can be deleted mid-operation
-9. **Undo blocks**: Prefix with `"REAmo: "`, never nest
+1. **Master track**: idx=0 in our API, use `getTrackByUnifiedIdx()`, not `GetTrack(proj, 0)`
+2. **Master mute/solo**: Use `getMasterMuteFlags()`, not `GetMediaTrackInfo_Value()`
+3. **Pointer validation**: Validate before use — tracks can be deleted mid-operation
+4. **Undo blocks**: Prefix with `"REAmo: "`, never nest
 
 ### Architecture Rules
 
-10. **Threading**: All REAPER API calls on main thread only
-11. **Registry**: Always add handlers to registry.zig
-12. **Backend pattern**: raw → real → mock, validateBackend catches errors
-13. **Response size**: Use `successLargePayload()` for anything potentially >500 bytes
+1. **Threading**: All REAPER API calls on main thread only
+2. **Registry**: Always add handlers to registry.zig
+3. **Backend pattern**: raw → real → mock, validateBackend catches errors
+4. **Response size**: Use `successLargePayload()` for anything potentially >500 bytes
 
 When in doubt, grep for existing patterns in `actions.zig`, `fx.zig`, `inputs.zig`.

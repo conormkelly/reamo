@@ -419,6 +419,7 @@ function scaleIndexToMidiNote(
 ### Keyboard Transformation
 
 When scale lock is **off**:
+
 ```
 ┌─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┐
 │ │█│ │█│ │ │█│ │█│ │█│ │   ← standard piano layout
@@ -430,6 +431,7 @@ When scale lock is **off**:
 ```
 
 When scale lock is **on** (e.g., C Major):
+
 ```
 ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
 │   │   │   │   │   │   │   │   │   │   │   │   │   │   │
@@ -446,6 +448,7 @@ When scale lock is **on** (e.g., C Major):
 ### Pentatonic Example (5 notes = wider keys)
 
 C Pentatonic Minor locked:
+
 ```
 ┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐
 │     │     │     │     │     │     │     │     │     │     │
@@ -485,6 +488,7 @@ When scale lock is active, show in piano header:
 ```
 
 Or more compact:
+
 ```
 ┌──────────────────────────────────────┐
 │  C Maj 🔒                  ⚙️  Oct 4  │
@@ -501,6 +505,7 @@ Only 2 unique whole tone scales exist (C and C♯ cover all 12 roots). Display a
 ### Scale Changes Mid-Performance
 
 If user changes scale while notes are held:
+
 1. **Option A**: Let held notes continue, new presses use new scale
 2. **Option B**: Force note-off on all held notes, then apply new scale
 
@@ -509,6 +514,7 @@ Recommend **Option A** — less disruptive during performance.
 ### Octave Range
 
 When locked, how many octaves to show? Options:
+
 - Fixed 2-3 octaves (simpler)
 - User-adjustable (current behavior, keep it)
 - Auto-fit based on note count (pentatonic = more octaves since keys are wider)
@@ -549,6 +555,7 @@ Your existing 12 scales map directly:
 | `locrian` | Modes → Locrian |
 
 **New scales to add (4):**
+
 - `hirajoshi`
 - `phrygian_dominant`
 - `hungarian_minor`

@@ -75,6 +75,7 @@ This is the most important gotcha: `ReaProject*` is stable per **project tab**, 
 - `IsProjectDirty(proj)` returns non-zero if any changes exist
 
 To detect an unsaved project:
+
 ```c
 char filename[4096];
 EnumProjects(-1, filename, sizeof(filename));
@@ -92,6 +93,7 @@ bool is_unsaved = (filename[0] == '\0');
 **`EnumProjects(idx, projfn, size)`** returns the **full path including filename** in the `projfn` buffer—the most direct way to get complete path information.
 
 For display purposes, combine functions:
+
 ```c
 char name[256], path[2048], full_path[4096];
 GetProjectName(proj, name, sizeof(name));
@@ -142,6 +144,7 @@ For your playlist engine with in-memory state and ProjExtState persistence:
 2. **Register a timer** for polling with combined pointer+path comparison as a safety net
 
 3. **Track both pointer AND path**:
+
 ```c
 typedef struct {
     ReaProject* project;
@@ -150,15 +153,15 @@ typedef struct {
 } ProjectIdentity;
 ```
 
-4. **On project change detection**:
+1. **On project change detection**:
    - Call `GetProjectStateChangeCount()` to get baseline
    - Clear in-memory engine state
    - Load fresh state from `GetProjExtState()`
    - Update your cached ProjectIdentity
 
-5. **Handle NULL project parameter**: When passing to REAPER API functions, `NULL` means "current/active project"—equivalent to `EnumProjects(-1, ...)`. For multi-tab-aware code, always store and pass explicit `ReaProject*` pointers.
+2. **Handle NULL project parameter**: When passing to REAPER API functions, `NULL` means "current/active project"—equivalent to `EnumProjects(-1, ...)`. For multi-tab-aware code, always store and pass explicit `ReaProject*` pointers.
 
-6. **Cleanup closed tabs periodically**: Like SWS, enumerate all open projects and remove cached state for tabs that no longer exist.
+3. **Cleanup closed tabs periodically**: Like SWS, enumerate all open projects and remove cached state for tabs that no longer exist.
 
 ## Conclusion
 

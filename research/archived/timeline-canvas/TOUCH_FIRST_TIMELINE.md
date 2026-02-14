@@ -108,6 +108,7 @@ Research across **seven major DAWs** reveals consistent patterns. Logic Pro X of
 | **DaVinci Resolve** | Varies by page | Manual navigation | Timeline View Options | Menu icon |
 
 For touch-first interfaces, **these gestures should disable auto-follow**:
+
 - Horizontal pan/scroll gesture
 - Tap on timeline ruler (not playhead)
 - Tap on marker
@@ -115,6 +116,7 @@ For touch-first interfaces, **these gestures should disable auto-follow**:
 - Any touch-hold editing gesture
 
 **Re-enabling should require explicit action**, not happen automatically. The recommended approach:
+
 1. **Dedicated toggle button** in transport area (most intuitive)
 2. **Tap-on-playhead** gesture as quick shortcut
 3. **Optional**: Re-enable on playback start (user preference)

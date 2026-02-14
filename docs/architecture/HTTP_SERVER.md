@@ -56,6 +56,7 @@ This creates three problems:
 ### Key implementation details
 
 **WebSocket server** ([ws_server.zig](../../extension/src/server/ws_server.zig)):
+
 - Uses `karlseguin/websocket.zig` directly (dependency in [build.zig.zon](../../extension/build.zig.zon))
 - `websocket.Server(Client)` generic — `Client` struct handles per-connection state
 - `startWithPortRetry()` tries ports 9224–9233, stores chosen port in EXTSTATE
@@ -63,17 +64,20 @@ This creates three problems:
 - SharedState provides thread-safe communication: command ring buffer (mutex), client map (rwlock), atomics for token/mtime
 
 **Frontend connection** ([WebSocketConnection.ts](../../frontend/src/core/WebSocketConnection.ts)):
+
 - Fetches `/_/GET/EXTSTATE/Reamo/WebSocketPort` and `SessionToken` from REAPER's HTTP API
 - 2-second timeout on EXTSTATE fetch (iOS PWA cold start can hang)
 - Safari-specific workarounds: iframe pre-warmup, focus cycle, CONNECTING timeout
 - Connects to `ws://${window.location.hostname}:${discoveredPort}/`
 
 **Build pipeline** ([vite.config.ts](../../frontend/vite.config.ts), [package.json](../../frontend/package.json)):
+
 - `viteSingleFile` plugin inlines all JS/CSS/assets into single HTML
 - Build script: `vite build && cp dist/index.html ../reamo.html && cp assets ../`
 - Output placed in REAPER's `reaper_www_root/` for its HTTP server to find
 
 **Existing security** ([ws_server.zig](../../extension/src/server/ws_server.zig)):
+
 - `isValidLocalHost()` validates Host header on WebSocket connections (DNS rebinding defense)
 - Session token (16 random bytes, hex-encoded) validated in hello handshake
 - Token stored in EXTSTATE, frontend fetches it via REAPER's HTTP API
@@ -111,6 +115,7 @@ REAPER's built-in web server is no longer needed. Users don't touch Preferences 
 ### Key API patterns
 
 **Server init + listen:**
+
 ```zig
 const Handler = struct {
     pub const WebsocketHandler = WsClient;  // Required for WS support
@@ -135,6 +140,7 @@ const thread = try server.listenInNewThread();
 ```
 
 **WebSocket upgrade:**
+
 ```zig
 fn wsUpgrade(handler: *Handler, req: *httpz.Request, res: *httpz.Response) !void {
     // Validate Origin header here (before upgrade)
@@ -153,6 +159,7 @@ fn wsUpgrade(handler: *Handler, req: *httpz.Request, res: *httpz.Response) !void
 ```
 
 **Headers and response control:**
+
 ```zig
 fn serveIndex(handler: *Handler, req: *httpz.Request, res: *httpz.Response) !void {
     // httpz auto-lowercases header names
@@ -169,6 +176,7 @@ fn serveIndex(handler: *Handler, req: *httpz.Request, res: *httpz.Response) !voi
 ```
 
 **Middleware:**
+
 ```zig
 const HostValidation = struct {
     pub fn execute(self: *const @This(), req: *httpz.Request, res: *httpz.Response, executor: anytype) !void {
@@ -206,6 +214,7 @@ const HostValidation = struct {
 **Goal:** Extension serves the existing `reamo.html` via httpz on port 9224. REAPER's HTTP server still works on 8080. Both paths functional.
 
 **Backend changes:**
+
 1. Replace `websocket` dependency with `httpz` in `build.zig.zon` (httpz includes websocket.zig)
 2. Update `build.zig` imports accordingly
 3. Create `extension/src/server/http_server.zig`:
@@ -224,11 +233,13 @@ const HostValidation = struct {
 8. Keep port retry logic (try 9224–9233)
 
 **Testing (Phase 1):**
+
 1. `host_validation.zig` unit tests — pure logic, easy to test. Cover: RFC1918 ranges, loopback, link-local, `0.0.0.0` rejection, port stripping, hostname/mDNS matching
 2. Playwright E2E test — one test that fetches `http://localhost:9224/` and asserts security response headers are present (CSP, X-Frame-Options, CORP, COOP, etc.)
 3. Manual smoke test with websocat — `websocat ws://localhost:9224/ws` → send hello JSON → verify handshake response
 
 **What stays the same:**
+
 - SharedState, command ring buffer, client management — unchanged
 - All message protocol — unchanged
 - Main thread timer loop, tiered polling, broadcast — unchanged
@@ -246,14 +257,17 @@ Both WebSocket implementations must be updated — `WebSocketConnection.ts` (dir
 
 1. In both `WebSocketConnection.ts` and `websocketMachine.ts`: if served from the extension's HTTP server (detect by absence of REAPER's `/_/` API), connect to `ws://${window.location.host}/ws` directly
 2. Read CSRF token from `<meta name="reamo-token">` tag (injected by server into HTML) instead of fetching from EXTSTATE:
+
    ```typescript
    const token = document.querySelector('meta[name="reamo-token"]')?.getAttribute('content');
    ```
+
 3. Send token in hello message (already does this when token is available)
 4. Remove or gate the EXTSTATE fetch behind a "legacy mode" check in both implementations
 5. The iOS Safari iframe pre-warmup and focus cycle workarounds may no longer be needed (same-origin WS is more reliable) — test and remove if confirmed
 
 **Backend changes:**
+
 1. `serveIndex` injects `<meta name="reamo-token" content="${token}">` into the HTML `<head>` before serving. This avoids inline scripts entirely, keeping CSP `script-src 'self'` clean (industry standard pattern — Rails/Django both use `<meta>` for CSRF tokens).
 2. Token no longer needs to be stored in EXTSTATE (but keep it there for backwards compat during transition)
 
@@ -264,6 +278,7 @@ Both WebSocket implementations must be updated — `WebSocketConnection.ts` (dir
 **Goal:** Frontend builds to separate HTML + JS + CSS files. Proper CSP. Content-hashed caching.
 
 **Frontend changes:**
+
 1. Remove `vite-plugin-singlefile` from vite.config.ts and package.json
 2. Remove `assetsInlineLimit: 100000000` and `cssCodeSplit: false`
 3. Configure Vite to output `dist/index.html` + `dist/assets/*.js` + `dist/assets/*.css`
@@ -271,6 +286,7 @@ Both WebSocket implementations must be updated — `WebSocketConnection.ts` (dir
 5. Update build script: copy `dist/` contents to a known location the extension can find
 
 **Backend changes:**
+
 1. Add `serveAssets` route handler: `GET /assets/*` → serve files from the frontend build output directory
    - Set `Content-Type` based on file extension (httpz has `ContentType.forFile()`)
    - Content-hashed filenames get `Cache-Control: public, max-age=31536000, immutable`
@@ -298,6 +314,7 @@ Research confirmed ReaPack's `@provides` tag supports distributing directories o
 **Goal:** Clean up all code that references REAPER's built-in web server.
 
 **Changes:**
+
 1. Remove `getWebInterfacePort()` from `network_action.zig` (no longer reads `reaper.ini` for HTTP port)
 2. Update QR code / network address display to show `http://<ip>:9224/` (just the extension's port)
 3. Remove EXTSTATE writes for `WebSocketPort` and `SessionToken` (no longer needed for frontend discovery)
@@ -356,6 +373,7 @@ Research confirmed ReaPack's `@provides` tag supports distributing directories o
 The biggest code change is adapting the current `Client` struct to httpz's `WebsocketHandler` interface. The current websocket.zig standalone API and the httpz-wrapped API use the same underlying pattern, but the init signature changes.
 
 **Current (websocket.zig standalone):**
+
 ```zig
 pub const Client = struct {
     id: usize,
@@ -380,6 +398,7 @@ pub const Client = struct {
 ```
 
 **Target (httpz WebSocket handler):**
+
 ```zig
 pub const WsClient = struct {
     id: usize,
@@ -426,12 +445,14 @@ httpz has no built-in static file serving. We need to implement route handlers.
 ### Approach: read from disk, cache in memory
 
 On server startup:
+
 1. Scan the `www/` directory for all files
 2. Read each file into a hash map: `path → { content, content_type, etag }`
 3. For `index.html`: inject `<meta name="reamo-token" content="...">` into `<head>` before caching
 4. Serve from memory — zero disk I/O per request
 
 On file change (dev mode only):
+
 - Optional: watch `www/` directory, reload changed files
 - Or: restart extension to pick up changes (acceptable for dev)
 
@@ -515,6 +536,7 @@ Cross-Origin-Resource-Policy: same-origin
 ```
 
 CSP note: This CSP has **no `'unsafe-inline'` for scripts or styles**. This is achievable because:
+
 - **Scripts:** CSRF token is delivered via `<meta>` tag, not inline `<script>`. All JS is external (code-split by Vite).
 - **Styles:** Tailwind CSS v4 is zero-runtime — all utility CSS emits as external `.css` files. The loading skeleton `<style>` tag in `index.html` is extracted to an external CSS file in Phase 3.
 - **`style-src-attr 'unsafe-inline'`:** Allows React's `style={{ color: trackColor }}` inline style *attributes* (used for dynamic REAPER track colors) while still blocking injected `<style>` *tags*. `style-src-attr` is supported in Chrome 75+, Firefox 105+, Safari 16.1+ — all within Tailwind v4's browser target. If we later confirm no component library injects inline style attributes, `style-src-attr` can be dropped entirely.
@@ -633,6 +655,7 @@ Tailwind CSS v4 is zero-runtime: all utility CSS emits as external `.css` files 
 ### During migration (phases 1–2)
 
 Both servers run simultaneously:
+
 - REAPER HTTP on 8080 → serves old single-file HTML
 - Extension httpz on 9224 → serves same HTML + WS
 
@@ -649,6 +672,7 @@ Developers can test both paths. Frontend has a "legacy mode" fallback.
 ### Build pipeline changes
 
 **Before:**
+
 ```bash
 # Frontend
 vite build → dist/index.html → cp to reamo.html in www_root
@@ -658,6 +682,7 @@ zig build → install .dylib to UserPlugins
 ```
 
 **After:**
+
 ```bash
 # Frontend
 vite build → dist/index.html + dist/assets/* → cp to <resource>/Data/REAmo/web/

@@ -41,6 +41,7 @@ First, calculate the ramp duration: `Δt = 120·100/(100+200) = 40 seconds`. Thi
 **`fullbeats` are always quarter notes.** Forum user confirmed: "In reaper tempo is specified in quarters per minute (even though it's labeled as bpm)." Proof: changing time signature from 4/4 to 8/8 to 2/2 while keeping tempo at 120 BPM always puts measure 2 at exactly 2.000 seconds. The `cdenomOutOptional` parameter tells you the current time signature denominator for display conversion.
 
 **Known edge cases:**
+
 - `timesig_num/denom = 0` means "inherit from previous marker"
 - When setting tempo markers via API, explicitly set time signature even if unchanged to fix grid alignment issues
 - Linear tempo manipulation has "problematic corner cases" per SWS documentation—square markers are easier to manipulate programmatically
@@ -62,11 +63,13 @@ This hybrid approach lets you achieve sub-15ms visual accuracy because the clien
 ## Client-side prediction mathematics
 
 **During constant tempo regions:**
+
 ```
 beat_new = beat_current + (bpm / 60) · elapsed_seconds
 ```
 
 **During linear tempo ramps (REAPER's time-linear model):**
+
 ```
 // Given: current beat b_c, current time t_c, ramp parameters (t₀, b₀, BPM₀, m)
 // Predict 30ms ahead:
@@ -76,6 +79,7 @@ b_new = b₀ + (BPM₀·(t_new - t₀))/60 + m·(t_new - t₀)²/120
 ```
 
 For practical implementation with small Δt (30ms), you can use a Taylor expansion approximation that's faster to compute:
+
 ```
 current_bpm = BPM₀ + m·(t_current - t₀)
 Δbeat ≈ (current_bpm/60)·Δt + (m/120)·Δt²
@@ -88,6 +92,7 @@ The quadratic term `(m/120)·Δt²` is tiny for 30ms—at your maximum slope (~2
 All major REAPER extensions (SWS, ReaLearn, OSC bridges) perform tempo computation server-side. However, they're plugins running in-process, not remote clients. For your networked case:
 
 **From SWS BR_Tempo.cpp:**
+
 ```cpp
 // Square tempo: offset += (t0 + (240*beatCount) / (den * b0)) - t1;
 // Linear tempo: offset += (t0 + (480*beatCount) / (den * (b0 + b1))) - t1;
@@ -158,6 +163,7 @@ Almost! One catch: `TimeMap2_GetDividedBpmAtTime` returns BPM **scaled to the ti
 You have a few options:
 
 **Option A: Send raw BPM + time sig (recommended)**
+
 ```json
 {
   "type": "event",
@@ -175,6 +181,7 @@ You have a few options:
 Get raw BPM by undividing: `rawBpm = dividedBpm * (4 / denom)` on server, or send `ts` and let client do display math. You need time sig anyway for beat indicator animation (knowing when beat 1 hits).
 
 **Option B: Send both BPMs**
+
 ```json
 {
   "payload": {

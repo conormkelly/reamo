@@ -138,6 +138,7 @@ Extended P_RAZOREDITS_EXT: "startTime endTime envelopeGUID topY bottomY"
 | `P_RAZOREDITS_EXT` | string | R/W | **Key parameter** — razor edits with lane Y bounds |
 
 **C_LANESETTINGS bitfield:**
+
 - `&1` = Auto-remove empty lanes at bottom
 - `&2` = Do NOT auto-comp new recording
 - `&4` = Newly recorded lanes play exclusively
@@ -257,6 +258,7 @@ lanes/setCompTarget → { trackGuid, laneIndex } → modifies LANEREC via state 
 ### Recommended Resize Strategy
 
 For extending comp areas:
+
 ```lua
 -- 1. Select the comp item to resize
 reaper.SetMediaItemSelected(compItem, true)

@@ -55,6 +55,7 @@ Understanding Safari's hard limits is essential for avoiding silent failures:
 **Total canvas memory budget: ~384MB across all canvases**. Each canvas costs `width × height × 4 bytes` (RGBA). A 2048×1536 physical canvas (common iPad viewport at 2x DPR) consumes ~12.5MB. With 4 canvas layers plus tile caches, memory accumulates quickly.
 
 **Critical memory release pattern**—Safari holds canvas memory even after dereferencing:
+
 ```javascript
 function releaseCanvas(canvas) {
   canvas.width = 1;

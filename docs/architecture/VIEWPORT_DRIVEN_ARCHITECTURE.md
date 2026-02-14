@@ -20,6 +20,7 @@ We're moving from "broadcast everything" to "viewport-driven subscriptions" to s
 ### Original Assumptions (No Longer Valid)
 
 The polling system assumed small-to-medium projects:
+
 - 20-50 tracks
 - ~200 items
 - "Poll everything" was fast enough
@@ -29,11 +30,13 @@ The polling system assumed small-to-medium projects:
 ### Why Pagination Is Hard
 
 REAPER is not a database. Tracks/items are:
+
 - Indexed by position (track 0, track 1, ...)
 - Subject to insertion/deletion at any time
 - Reordered by user actions (drag track up/down)
 
 **Example failure with offset-based pagination:**
+
 ```
 Frame 1: Poll tracks 50-100 (offset=50, limit=50)
          User deletes track 30
@@ -45,6 +48,7 @@ Frame 2: Poll tracks 100-150 (offset=100, limit=50)
 ### The Solution: Slots Not Entities (for Reads)
 
 The viewport subscription is about **index slots**, not stable entity IDs:
+
 - "Give me tracks 20-30" = "whatever is in slots 20-30 right now"
 - If track 25 gets deleted, slot 25 now contains what was track 26
 - Next 30Hz poll shows the new reality
@@ -84,6 +88,7 @@ This simplifies reads. Write commands use GUIDs for stability (see [Write Comman
 - **GUIDs included** — Client uses for write command targeting
 
 **Polling vs Broadcasting:**
+
 - **Poll at 5Hz** — Safe even with 2000 tracks (count + names + guids)
 - **Broadcast only on change** — Most frames, nothing changes
 - **Change detection:**
@@ -93,6 +98,7 @@ This simplifies reads. Write commands use GUIDs for stability (see [Write Comman
 - **On client connect** — Send current skeleton immediately (before any `tracks` events, so client has GUIDs for write commands)
 
 **Search flow:**
+
 1. User types "Guitar"
 2. Client filters: `skeleton.filter(t => t.n.includes("Guitar")).map((t, i) => i)` → `[5, 23, 67]`
 3. Client subscribes to `[5, 23, 67]`
@@ -180,6 +186,7 @@ GUID-based is correct here. The filter is semantic — "show me all guitar track
 Filtered views still use virtual scrolling. You never subscribe to all 140 — only what's visible.
 
 **Key distinction:**
+
 - **Skeleton**: Client has ALL track names/GUIDs locally (for filtering, showing "140 matches")
 - **Subscription**: Client only subscribes to VISIBLE tracks (for live data: volume, meters)
 
@@ -389,6 +396,7 @@ Write commands use track GUID instead of index:
 ```
 
 **Why this works:**
+
 - GUIDs are stable — assigned on track creation, survive undo/redo, persist in .RPP file
 - Duplicated tracks get new GUIDs (they're distinct entities)
 - Commands target the intended track regardless of index shifts
@@ -516,6 +524,7 @@ Tiers are configurable, not hardcoded:
 | LOW | 1Hz | Skeleton, tempo map |
 
 **Tuning guidelines:**
+
 - If 1Hz skeleton feels laggy on reorders, bump to 5Hz
 - Use `total` canary for immediate structural change detection
 - 65KB skeleton sent only on change — typical bandwidth near zero, worst case (rapid renames) ~65KB/sec
@@ -525,16 +534,19 @@ Tiers are configurable, not hardcoded:
 ## Migration Path
 
 ### Phase 1: Add skeleton broadcast (non-breaking)
+
 - Add `trackSkeleton` event at LOW tier
 - Existing clients ignore unknown events
 - New clients can use for search
 
 ### Phase 2: Add track subscriptions (opt-in)
+
 - Add `track/subscribe` command handler
 - Clients that subscribe get filtered `tracks` events
 - Clients that don't subscribe get everything (backwards compatible)
 
 ### Phase 3: Require subscriptions
+
 - After all clients updated, make subscription required
 - Unsubscribed clients get no `tracks` events
 - Skeleton always broadcast regardless
@@ -554,6 +566,7 @@ Priority order for viewport-driven implementation:
 | FX/Sends | Expanded track state | Future |
 
 Items and markers use time-range viewport instead of index-based:
+
 ```typescript
 { "type": "item/subscribe", "timeRange": { "start": 0.0, "end": 120.0 } }
 ```
@@ -563,17 +576,20 @@ Items and markers use time-range viewport instead of index-based:
 ## Key Insights from Research
 
 ### What Figma/Miro Do (and why we can't)
+
 - Full-document sync: clients download complete files, filter locally
 - Works because documents are small (< 10MB)
 - REAmo can't do this: 1000+ tracks with waveforms/automation is too large
 
 ### What Game Engines Do (our inspiration)
+
 - Interest management: only send entities within player's "area of interest"
 - Distance-based update frequency tiers
 - Adaptive frequency based on change rate
 - This maps directly to our tiered polling + viewport subscriptions
 
 ### Mobile Safari Gotchas
+
 - Momentum scroll doesn't fire events during inertial scrolling
 - Need `requestAnimationFrame` polling during scroll
 - Memory limit: 2-4GB regardless of device RAM

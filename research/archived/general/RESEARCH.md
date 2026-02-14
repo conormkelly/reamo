@@ -171,6 +171,7 @@ Standard guidelines aren't sufficient for professional audio contexts where user
 Based on cross-referencing user needs, competitive gaps, and implementation feasibility:
 
 ### Must-have for launch
+
 1. **Transport controls** — Play, Stop, Record, Rewind, Fast-forward with 80pt+ buttons
 2. **Basic mixer** — 8-channel view with faders, pan, solo/mute, meters, bank navigation
 3. **Big Clock display** — BPM, bar:beat position, large transport
@@ -179,6 +180,7 @@ Based on cross-referencing user needs, competitive gaps, and implementation feas
 6. **Dark mode default** — Professional studio appearance
 
 ### High priority (v1.5)
+
 1. **Quick Actions toolbar** — User-configurable buttons triggering any REAPER action
 2. **Track arm/disarm** — Visible track state with remote arming
 3. **Take management** — "Delete last take," "Keep take," take navigation
@@ -186,6 +188,7 @@ Based on cross-referencing user needs, competitive gaps, and implementation feas
 5. **Per-device layout memory** — iPad opens to last-used view
 
 ### Differentiators (v2)
+
 1. **SMPTE timecode display** — For film scoring segment
 2. **Waveform overview** — Visual timeline with playhead position
 3. **Notes view** — Project notes, session metadata, lyrics
@@ -215,18 +218,21 @@ Based on cross-referencing user needs, competitive gaps, and implementation feas
 ## Key sources informing this research
 
 **Forums and communities:**
+
 - Cockos Forums (forum.cockos.com) — REAPER-specific discussions on remote control, OSC setup, web interface customization
 - Reddit r/Reaper, r/WeAreTheMusicMakers, r/audioengineering — User pain points and workflow discussions
 - Gearspace — Professional mixing and control surface perspectives
 - VI-Control — Film scoring and composition workflows
 
 **Products and documentation:**
+
 - TouchOSC documentation (hexler.net) — Template creation and REAPER integration
 - ReaLearn project (helgoboss.org) — Advanced controller mapping
 - AbleSet (ableset.app) — Setlist and live performance paradigm
 - REAPER OSC documentation (reaper.fm/sdk/osc)
 
 **UX guidelines:**
+
 - Apple Human Interface Guidelines — Touch target sizing, navigation patterns
 - Google Material Design — Accessibility contrast ratios
 - MIT Touch Lab research — Finger size ergonomics

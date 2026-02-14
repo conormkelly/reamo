@@ -62,6 +62,7 @@ Detection must check both `172.20.10.x` and `192.0.0.x` ranges for full iOS comp
 | Android | Linux | ✅ Zero-config | Native `rndis_host` / `cdc_ether` modules |
 
 **Practical recommendations:**
+
 - iPhone + Mac: Perfect, just works
 - iPhone + Windows: Install iTunes first (or Apple Device Support standalone)
 - Android + Windows/Linux: Perfect, just works
@@ -81,6 +82,7 @@ Detection must check both `172.20.10.x` and `192.0.0.x` ranges for full iOS comp
 ### Dialog Design
 
 **When networks detected:**
+
 ```
 ┌─────────────────────────────────────────────┐
 │  REAmo Network Addresses                    │
@@ -103,6 +105,7 @@ Detection must check both `172.20.10.x` and `192.0.0.x` ranges for full iOS comp
 ```
 
 **When no USB network detected:**
+
 ```
 ┌─────────────────────────────────────────────┐
 │  REAmo Network Addresses                    │
@@ -194,6 +197,7 @@ fn detectNetworks(allocator: Allocator) ![]NetworkInfo {
 ### Windows Adapter Descriptions
 
 Windows provides human-readable descriptions that help classification:
+
 - `"Apple Mobile Device Ethernet Adapter"` → iOS USB
 - `"Remote NDIS Compatible Device"` → Android USB (RNDIS)
 - `"USB Ethernet/RNDIS Gadget"` → Android USB variant
@@ -326,12 +330,14 @@ fn showNetworkAddresses() void {
 ```
 
 **Registration flow:**
+
 1. `plugin_register("custom_action", ...)` - registers action, returns command ID
 2. `plugin_register("hookcommand2", callback)` - receives triggers for ALL actions
 3. Callback checks `command == g_cmd_show_networks` to identify our action
 4. On plugin unload (rec == NULL), use `"-hookcommand2"` to unregister
 
 **Why `custom_action` not `gaccel`:**
+
 - `custom_action`: No default keybinding, REAPER assigns command ID
 - `gaccel`: Provides default keybinding, you provide command ID
 - Users can assign their own shortcuts via Actions list - no default needed
@@ -341,6 +347,7 @@ fn showNetworkAddresses() void {
 ### Interface Not Yet Ready
 
 USB tethering can take 1-2 seconds to get DHCP. If user runs action immediately after connecting:
+
 - Show "No USB network detected" with setup instructions
 - They run action again after a moment
 
@@ -351,6 +358,7 @@ User might have WiFi + Ethernet. Show all with interface name hints so they can 
 ### Android OEM Subnet Variance
 
 Some manufacturers modify the `192.168.42.0/24` default. Fallback heuristic:
+
 - Interface name contains `usb`, `rndis`, or `ncm`
 - Is a private IP
 - Not in typical home WiFi ranges (`192.168.0.x`, `192.168.1.x`, `10.0.0.x`)
@@ -358,6 +366,7 @@ Some manufacturers modify the `192.168.42.0/24` default. Fallback heuristic:
 ### macOS Firewall
 
 First time REAPER opens a listening socket, macOS may prompt "Allow incoming connections?"
+
 - If user clicks Deny, connections fail silently
 - Document this in setup instructions
 - Code-signing the extension gives cleaner prompts
@@ -391,6 +400,7 @@ fn getHostOS() HostOS {
 When no USB network is detected, show platform-specific guidance:
 
 **macOS - No iOS detected:**
+
 ```
 No iOS USB network found.
 
@@ -404,6 +414,7 @@ To use iPhone USB tethering:
 ```
 
 **macOS - No Android detected:**
+
 ```
 No Android USB network found.
 
@@ -420,6 +431,7 @@ disabling SIP on Apple Silicon - not recommended)
 ```
 
 **Windows - No iOS detected:**
+
 ```
 No iOS USB network found.
 
@@ -434,6 +446,7 @@ To use iPhone USB tethering:
 ```
 
 **Windows - No Android detected:**
+
 ```
 No Android USB network found.
 
@@ -447,6 +460,7 @@ To use Android USB tethering:
 ```
 
 **Linux - No USB detected:**
+
 ```
 No USB network found.
 
@@ -495,6 +509,7 @@ fn formatNoUsbMessage(buf: []u8, host_os: HostOS, detected_networks: []const Net
 ### Retry Flow
 
 The Retry/Cancel dialog allows users to:
+
 1. Follow the troubleshooting steps
 2. Click Retry to rescan without reopening Actions menu
 3. Repeat until connection works or they give up
@@ -526,6 +541,7 @@ Instead of user typing URL, show a QR code they can scan with phone camera.
 ### Cached IP Fallback
 
 PWA could cache the last working IP and try it on reconnect failure:
+
 ```typescript
 // In WebSocketConnection.ts
 const cachedUsbIp = localStorage.getItem('reamo_usb_ip');
@@ -541,6 +557,7 @@ Settings UI with manual IP override field for edge cases where auto-detection fa
 ### USB Subnet Probing
 
 Since iOS subnet is only 13 IPs, PWA could probe them all in parallel:
+
 ```typescript
 const iosUsbIps = Array.from({length: 13}, (_, i) => `172.20.10.${i + 2}`);
 const results = await Promise.allSettled(

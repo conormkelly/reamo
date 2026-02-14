@@ -572,7 +572,7 @@ rg "useEffect\(\(\) =>" --type tsx src/ -A10 | rg -B10 "^\s*\}\s*\);" | rg -v "r
 
 ## Pre-Release Checklist
 
-### Before every release:
+### Before every release
 
 - [ ] `npm run build` succeeds with no TypeScript errors
 - [ ] Bundle size hasn't grown unexpectedly (track over time)
@@ -581,14 +581,14 @@ rg "useEffect\(\(\) =>" --type tsx src/ -A10 | rg -B10 "^\s*\}\s*\);" | rg -v "r
 - [ ] Run for 30+ minutes monitoring memory in Safari Web Inspector
 - [ ] Verify WebSocket reconnects within 1 second of foreground
 
-### iOS Safari specific:
+### iOS Safari specific
 
 - [ ] Test in Low Power Mode (30fps throttle)
 - [ ] Test PWA from cold start (not in recents)
 - [ ] Verify safe areas render correctly in portrait AND landscape
 - [ ] Check swipe-back doesn't cause data loss
 
-### Performance targets:
+### Performance targets
 
 - [ ] 30Hz updates: <33ms processing time
 - [ ] 60fps animations: only transform/opacity animated

@@ -25,6 +25,7 @@
 | `ApplyNudge(proj, flag, what, units, val, rev, copies)` | Move selected items | Yes | Yes | Yes |
 
 **ApplyNudge parameters for position moves:**
+
 ```c
 // Move selected items by `delta` seconds:
 ApplyNudge(nullptr, 0, 0, 1, delta, false, 0);
@@ -43,6 +44,7 @@ It handles ripple, snap, and groups automatically. Since REAmo already selects i
 ### 1.2 Reading User Settings
 
 **Ripple mode** (`projripedit` ConfigVar):
+
 - `0` = Off
 - `1` = Per-track (items on same track shift)
 - `2` = All tracks (items on all tracks shift)
@@ -53,6 +55,7 @@ int* val = (int*)get_config_var("projripedit", &size);
 ```
 
 **Snap enabled** (action 1157):
+
 ```c
 bool snapEnabled = GetToggleCommandState(1157) == 1;
 ```
@@ -62,6 +65,7 @@ REAmo already has toolbar buttons for ripple (action 1162) and snap (action 1157
 ### 1.3 Take Properties (Clarification)
 
 Moving an item (`D_POSITION`) does **not** affect:
+
 - `D_STARTOFFS` (take source offset)
 - `D_LENGTH` (item length)
 - `D_PLAYRATE` (playback rate)
@@ -78,6 +82,7 @@ No take-level updates needed for simple moves.
 Instead of real-time drag gestures, implement discrete move operations with full time/beats support (similar to MarkerEditModal):
 
 **Relative move (nudge):**
+
 ```json
 {"type": "command", "command": "item/nudge", "delta": 2.0, "unit": "beats"}
 {"type": "command", "command": "item/nudge", "delta": -1.0, "unit": "bars"}
@@ -85,11 +90,13 @@ Instead of real-time drag gestures, implement discrete move operations with full
 ```
 
 **Absolute move (time-based):**
+
 ```json
 {"type": "command", "command": "item/moveTo", "position": 16.5}
 ```
 
 **Absolute move (bar.beat-based):**
+
 ```json
 {"type": "command", "command": "item/moveTo", "bar": 5, "beat": 1}
 {"type": "command", "command": "item/moveTo", "bar": 5, "beat": 2.5}
@@ -102,6 +109,7 @@ Both commands operate on REAPER's current item selection (already set via tap).
 **New command: `item/nudge`**
 
 Parameters:
+
 - `delta` (float, required): Amount to move (positive = forward, negative = backward)
 - `unit` (string, optional): `"seconds"` (default), `"beats"`, or `"bars"`
 
@@ -139,6 +147,7 @@ pub fn handleItemNudge(api: anytype, cmd: protocol.CommandMessage, response: *mo
 **New command: `item/moveTo`**
 
 Parameters:
+
 - `position` (float, optional): Target position in seconds
 - `bar` (int, optional): Target bar number (1-based)
 - `beat` (float, optional): Target beat within bar (1-based, can be fractional)
@@ -191,6 +200,7 @@ pub fn handleItemMoveTo(api: anytype, cmd: protocol.CommandMessage, response: *m
 ```
 
 **Required backend additions:**
+
 1. Wrap REAPER's `ApplyNudge` function in the API abstraction
 2. Add `beatsToTime(beats)` - convert quarter-note beats to seconds at current tempo
 3. Add `barsToTime(bars)` - convert bar count to seconds
@@ -202,11 +212,13 @@ pub fn handleItemMoveTo(api: anytype, cmd: protocol.CommandMessage, response: *m
 **Location:** NavigateItemInfoBar's existing "More" BottomSheet, plus quick-nudge buttons in the info bar itself.
 
 **Pattern to follow:** MarkerEditModal (`frontend/src/components/Timeline/MarkerEditModal.tsx`)
+
 - Mode toggle: `'time' | 'beats'`
 - Existing utilities: `formatTime`, `secondsToBeats`, `beatsToSeconds`, `formatBeatsToBarBeatTicks`, `parseBarBeatTicksToBeats`
 - Time signature awareness: `beatsPerBar`, `denominator`, `barOffset`
 
 **Quick nudge buttons (in info bar, always visible):**
+
 ```
 [Selected: "Vocals 01"]  [◀ beat] [beat ▶]  [◀ bar] [bar ▶]  [Move...]
 ```
@@ -214,6 +226,7 @@ pub fn handleItemMoveTo(api: anytype, cmd: protocol.CommandMessage, response: *m
 These send `item/nudge` with delta ±1 beat or ±1 bar. Tap-tap-tap workflow without opening anything.
 
 **Move modal (opened via "Move..." button):**
+
 ```
 ┌─────────────────────────────────────────────────┐
 │  Move Item                                 [x]  │
@@ -237,6 +250,7 @@ These send `item/nudge` with delta ±1 beat or ±1 bar. Tap-tap-tap workflow wit
 ```
 
 **UI State:**
+
 - `editMode: 'time' | 'beats'` - toggle between input modes
 - `timeValue: string` - editable time string (MM:SS.ms)
 - `beatsValue: string` - editable bar.beat string (e.g., "5.1.00")
@@ -244,6 +258,7 @@ These send `item/nudge` with delta ±1 beat or ±1 bar. Tap-tap-tap workflow wit
 - Parse and validate on Move button click
 
 **Conversion notes:**
+
 - For absolute moves, frontend converts input to the appropriate command params
 - Time mode: `item/moveTo` with `position` in seconds
 - Bar.Beat mode: `item/moveTo` with `bar` and `beat` params
@@ -324,6 +339,7 @@ const handleMove = useCallback(() => {
 ```
 
 **Utilities to reuse** (from `frontend/src/utils/`):
+
 - `formatTime(seconds, options)` - format for display
 - `secondsToBeats(seconds, bpm)` - convert to quarter-note beats
 - `beatsToSeconds(beats, bpm)` - convert back
@@ -335,6 +351,7 @@ const handleMove = useCallback(() => {
 **File:** `frontend/src/components/Timeline/Timeline.tsx` (lines 740-810)
 
 Tapping an item calls:
+
 ```typescript
 sendCommand(itemCmd.toggleSelect(firstItem.guid));
 ```
@@ -346,6 +363,7 @@ This selects/deselects items in REAPER. The selection state is polled back via i
 **File:** `frontend/src/components/Timeline/NavigateItemInfoBar.tsx`
 
 Current structure:
+
 - Shows selected item info (name, position, length)
 - Take navigation buttons
 - Color picker
@@ -358,6 +376,7 @@ Add quick nudge buttons inline, and "Move..." button that opens ItemMoveModal.
 **File:** `extension/src/commands/tempo.zig`
 
 Existing commands for tempo-aware operations:
+
 - `tempo/snap` - snap time to grid
 - `tempo/barsToTime` - convert bar.beat to seconds
 - `tempo/timeToBeats` - convert seconds to beats with bar string
@@ -381,6 +400,7 @@ These can inform the new helper functions needed for item/nudge and item/moveTo.
 **Answer:** ApplyNudge moves all selected items together by the same delta. If user taps multiple items (multi-select), nudge moves them all.
 
 **Edge case to document:** For `item/moveTo`, the delta is calculated from the **first selected item's position**. If items are at bar 1 and bar 5, and user says "move to bar 3":
+
 - Delta = bar 3 - bar 1 = +2 bars
 - Item at bar 1 → bar 3
 - Item at bar 5 → bar 7
@@ -492,6 +512,7 @@ void OnDragEnd() {
 ```
 
 WebSocket protocol for drag:
+
 ```json
 {"type": "command", "command": "item/drag_start", "trackIdx": 0, "itemIdx": 0}
 {"type": "command", "command": "item/drag_update", "position": 15.0}
@@ -504,8 +525,8 @@ WebSocket protocol for drag:
 
 ## References
 
-- REAPER API: https://www.reaper.fm/sdk/reascript/reascripthelp.html
-- REAPER Config Variables: https://mespotin.uber.space/Ultraschall/Reaper_Config_Variables.html
+- REAPER API: <https://www.reaper.fm/sdk/reascript/reascripthelp.html>
+- REAPER Config Variables: <https://mespotin.uber.space/Ultraschall/Reaper_Config_Variables.html>
 - Existing item commands: `extension/src/commands/items.zig`
 - NavigateItemInfoBar: `frontend/src/components/Timeline/NavigateItemInfoBar.tsx`
 - BottomSheet component: `frontend/src/components/Modal/BottomSheet.tsx`

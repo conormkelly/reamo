@@ -26,6 +26,7 @@ The `IReaperControlSurface::Extended()` method receives these recording-relevant
 Since the API cannot provide recording items, you must calculate them yourself by capturing start time and polling position:
 
 **Recording start detection** requires storing position when `SetPlayState(true, false, true)` fires:
+
 ```cpp
 void SetPlayState(bool play, bool pause, bool rec) {
     if (rec && !m_wasRecording) {
@@ -38,6 +39,7 @@ void SetPlayState(bool play, bool pause, bool rec) {
 ```
 
 **Position polling** happens in `Run()` at ~30Hz:
+
 ```cpp
 void Run() {
     if (GetPlayState() & 4) {  // Recording active
@@ -61,6 +63,7 @@ void Run() {
 ## Handling punch-in, pre-roll, and loop recording edge cases
 
 **Punch-in recording** starts at the time selection, not the cursor position. Query this with:
+
 ```cpp
 double punchStart, punchEnd;
 GetSet_LoopTimeRange2(nullptr, false, false, &punchStart, &punchEnd, false);
@@ -70,6 +73,7 @@ GetSet_LoopTimeRange2(nullptr, false, false, &punchStart, &punchEnd, false);
 The time selection (with `isLoop=false`) controls punch points, while loop points (with `isLoop=true`) control repeat behavior. When both exist, recording may start at `punchStart` rather than `GetPlayPosition2()` at the moment `SetPlayState` fires.
 
 **Pre-roll and count-in** have no direct API. The workaround is detecting when actual recording begins by comparing positions:
+
 - Store `GetCursorPosition()` when user initiates recording
 - In `Run()`, check if `GetPlayPosition2()` is advancing past cursor position
 - Count-in causes a delay before position advances; pre-roll causes position to be before cursor

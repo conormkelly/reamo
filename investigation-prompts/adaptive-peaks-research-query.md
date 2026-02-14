@@ -11,6 +11,7 @@ We're building a REAPER extension in Zig that needs adaptive-resolution waveform
 ## What We're Building
 
 A WebSocket-based extension that streams waveform peak data to a web client. The client needs:
+
 - **LOD 0** (overview): ~1 peak/sec for full-project navigation
 - **LOD 1** (editing): ~10 peaks/sec for normal arrangement view
 - **LOD 2** (precision): ~400 peaks/sec for detailed editing
@@ -22,6 +23,7 @@ Original plan: Tile-based caching where each tile is a fixed time window (64s/8s
 ## The Bug: GetFunc() vs Lua API Discrepancy
 
 ### What Works (via GetFunc in Zig)
+
 ```
 peakrate = 0.02 (30 peaks / 1434s item length)
 starttime = 1894.0 (exact item position on timeline)
@@ -31,6 +33,7 @@ channels = 2
 ```
 
 ### What Fails (via GetFunc in Zig) - Same API, Different Params
+
 ```
 peakrate = 400.0 (tile-like high resolution)
 starttime = 2016.0 (item_position + 122s offset into item)
@@ -40,6 +43,7 @@ channels = 1 (API returns wrong channel count, but that's separate bug)
 ```
 
 ### What Works in Lua (identical parameters to failing Zig call)
+
 ```lua
 -- TEST 6 from our isolation script
 reaper.GetMediaItemTake_Peaks(take, 400.0, 2016.0, 2, 200, 0, buf)
@@ -84,6 +88,7 @@ This is annoying but workable - we hardcode to 2 channels and detect mono by com
 ## Current Architecture
 
 ### API Layer (extension/src/reaper/raw.zig)
+
 ```zig
 // Function pointer obtained via GetFunc()
 getMediaItemTakePeaks: ?*const fn (
@@ -100,6 +105,7 @@ self.getMediaItemTakePeaks = @ptrCast(getFunc("GetMediaItemTake_Peaks"));
 ```
 
 ### Working Code Path (generates full-item peaks)
+
 ```zig
 fn generatePeaksForItem(take, length, num_peaks, item_peaks) {
     const peakrate = num_peaks / length;  // e.g., 30/1434 = 0.02
@@ -111,6 +117,7 @@ fn generatePeaksForItem(take, length, num_peaks, item_peaks) {
 ```
 
 ### Broken Code Path (generates tile-based peaks)
+
 ```zig
 fn generateTileForTake(take, item_position, lod_level, tile_index) {
     const peakrate = 400.0;  // LOD 2 tile resolution
@@ -127,6 +134,7 @@ fn generateTileForTake(take, item_position, lod_level, tile_index) {
 ## Existing Infrastructure We Have
 
 ### AudioAccessor API (already wrapped)
+
 ```zig
 // In raw.zig - these function pointers exist
 createTakeAudioAccessor: fn(take) -> accessor
@@ -135,12 +143,14 @@ getAudioAccessorSamples: fn(accessor, samplerate, numchannels, starttime, numsam
 ```
 
 **Working usage example** in `commands/items.zig:392-560`:
+
 - Creates accessor for take
 - Reads raw samples at 44100 Hz
 - Computes peaks from samples (min/max per window)
 - Detects mono vs stereo
 
 ### Tile Cache (ready to use)
+
 ```zig
 // In peaks_tile.zig
 TileCacheKey { take_guid, epoch, lod_level, tile_index }
@@ -149,6 +159,7 @@ TileCache with LRU eviction (500 entries max)
 ```
 
 ### Subscription System
+
 ```zig
 // Client subscribes with viewport
 viewport: { start: f64, end: f64, width_px: u32 }
@@ -173,12 +184,14 @@ Given that `GetMediaItemTake_Peaks` fails with tile parameters via GetFunc(), is
 ### 2. Full-Item Fetch + Server-Side Slicing
 
 If AudioAccessor also has issues, we could:
+
 1. Fetch full-item peaks using the **working** low-peakrate API
 2. At higher resolution for each LOD level (e.g., fetch at 10 peaks/sec for LOD 1)
 3. Slice the result into tiles in our code
 4. Cache tiles for pan/zoom efficiency
 
 **Questions**:
+
 - Is there a practical limit on num_peaks in a single GetMediaItemTake_Peaks call?
 - For a 5-minute item at 400 peaks/sec, that's 120,000 peaks (~4MB). Feasible?
 - How to efficiently downsample from high-res to lower LODs?
@@ -188,14 +201,17 @@ If AudioAccessor also has issues, we could:
 Given the constraints, what's the best caching architecture?
 
 **Option A**: Cache by (take_guid, LOD_level) - store full-item peaks per LOD
+
 - Pro: Simple, uses working API
 - Con: Large cache entries for long items, no pan-reuse at high LOD
 
 **Option B**: Cache by (take_guid, LOD_level, tile_index) - tile-based but computed from full-item
+
 - Pro: Pan/zoom cache reuse, bounded tile size
 - Con: Requires slicing logic, more cache entries
 
 **Option C**: Hybrid - full-item for LOD 0/1, tiles for LOD 2
+
 - Pro: Balances memory vs cache hit rate
 - Con: Two code paths
 
@@ -208,10 +224,12 @@ Given the constraints, what's the best caching architecture?
 ### 5. Lua Bridge (Last Resort)
 
 If all native approaches fail, we could:
+
 1. Have a Lua script fetch peaks and write to ExtState
 2. Extension reads from ExtState
 
 **Concerns**:
+
 - ExtState has size limits
 - Latency from polling
 - Complexity of synchronization
