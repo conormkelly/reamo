@@ -22,12 +22,14 @@ Main plan: `docs/architecture/CSURF_MIGRATION.md`
 The CSurf push-based architecture is mostly complete. Callbacks from REAPER set dirty flags, and the main loop consumes global dirty flags (transport, markers, tempo, skeleton) for immediate polling outside tier intervals.
 
 **What's working:**
+
 - CSurf callbacks set `track_dirty`, `fx_dirty`, `sends_dirty` bitsets
 - Global flags (`transport_dirty`, `markers_dirty`, `tempo_dirty`, `skeleton_dirty`) are consumed and trigger immediate polling
 - Heartbeat every 2 seconds sets `all_tracks_dirty` for safety net
 - Skeleton rebuilds immediately when `skeleton_dirty` is set (minimizes stale pointer window)
 
 **What's NOT yet integrated:**
+
 - Per-track dirty bitsets (`track_dirty`, `fx_dirty`, `sends_dirty`) are SET by callbacks but NOT YET CONSUMED by the main loop
 - Track polling still polls all subscribed tracks every frame (30Hz)
 
@@ -53,6 +55,7 @@ if (tracks_changed or force_broadcast) {
 ### Why Filtering Breaks This
 
 If we filter indices by dirty bits:
+
 - Frame N: poll tracks [1,2,3,4,5] → `high_state.tracks` has 5 elements
 - Frame N+1: only track 3 dirty → poll tracks [3] → `high_state.tracks` has 1 element
 - `tracksSliceEql` compares 5-element slice vs 1-element slice → **always "changed"**
@@ -61,6 +64,7 @@ If we filter indices by dirty bits:
 ## Candidate Approaches
 
 ### Option A: Latency-only optimization (simpler, lower risk)
+
 - Keep polling all subscribed tracks (no change to pollIndices)
 - Use dirty flags to FORCE broadcast even when change detection says "same"
 - CPU savings: Minimal for track polling (already subscription-filtered)
@@ -68,6 +72,7 @@ If we filter indices by dirty bits:
 - ~15 lines of code, no architectural risk
 
 ### Option B-1: Hash-based change detection
+
 - Always poll all subscribed tracks
 - Compute hash of track state after polling (like markers/items already do)
 - Compare hash with previous frame
@@ -75,6 +80,7 @@ If we filter indices by dirty bits:
 - Con: Still polls all tracks (no API call reduction)
 
 ### Option B-2: Dirty-flag-driven broadcast (no change detection)
+
 - If CSurf enabled and any subscribed track has dirty bit → poll dirty tracks → broadcast
 - If no dirty bits → don't poll, don't broadcast
 - Heartbeat sets `all_tracks_dirty` for safety
@@ -82,6 +88,7 @@ If we filter indices by dirty bits:
 - Con: Requires refactoring change detection; dirty flags become sole source of truth
 
 ### Option B-3: Per-track hash with index-keyed comparison
+
 - Store prev state in HashMap keyed by track index (not slice)
 - When polling subset, only compare tracks we polled
 - Pro: Works with partial polling
@@ -90,6 +97,7 @@ If we filter indices by dirty bits:
 ## Existing Codebase Patterns
 
 The codebase already uses hash-based change detection in several places:
+
 - `markers.zig` - `computeHash()` for markers and regions
 - `items.zig` - `computeHash()` for items
 - `routing_subscriptions.zig` - per-client `prev_hash` with `checkChanged()`
@@ -111,10 +119,12 @@ This is a well-established pattern. The `routing_subscriptions.zig` approach (pe
 ## CPU Savings Context
 
 The plan claims:
+
 - 100 tracks idle: 3000 polls/s → 30 polls/s (99% reduction)
 - This assumes we STOP polling tracks that aren't dirty
 
 With current subscription-based filtering:
+
 - 32-track viewport × 30Hz = 960 API calls/sec (already reduced from 3000)
 - Full optimization would reduce to ~10-50 calls/sec during activity
 
@@ -415,6 +425,7 @@ Review from another Claude instance raised these points:
 ## After Phase 4.6
 
 Only one phase remains:
+
 - **Phase 6**: Make CSurf the default (flip `orelse false` to `orelse true` in build.zig) - trivial, one line
 
 **Soak test before Phase 6**: Run CSurf-enabled build in daily use for 1 week minimum. Monitor drift logs for unexpected patterns. Only flip default after confidence is high.

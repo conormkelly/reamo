@@ -3,6 +3,7 @@
 Best practices, patterns, and conventions for the REAmo React frontend.
 
 **Quick Reference:**
+
 - Build: `make frontend` (auto-reloads on iPad)
 - Test: `npm run test` / `npm run test:e2e`
 - Bundle target: ≤1,050 kB
@@ -90,6 +91,7 @@ These tokens were added after compliance audits found hardcoded colors:
 | **Selection** | `selection-overlay-bg`, `selection-overlay-border`, `selection-overlay-text` | Timeline selection overlays |
 
 **When adding a new feature with distinct colors:**
+
 1. Add semantic tokens to `src/index.css` under `@theme`
 2. Use descriptive names: `feature-purpose` (e.g., `sends-mute-hover`)
 3. Reference via Tailwind: `bg-sends-primary`, `text-routing-master`
@@ -220,6 +222,7 @@ Use intent tokens for button colors, not raw color tokens:
 ```
 
 Intent tokens:
+
 - `--color-intent-primary-*` - Primary actions (save, confirm)
 - `--color-intent-danger-*` - Destructive actions (delete, cancel recording)
 - `--color-intent-success-*` - Positive actions (keep, approve)
@@ -432,6 +435,7 @@ useEffect(() => cancelTimer, []);
 ```
 
 **Why null after clear?**
+
 - Prevents accidental double-clearing
 - Makes "is timer active?" checks reliable (`if (timerRef.current)`)
 - Prevents stale closures from accessing dead timers
@@ -448,7 +452,7 @@ const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 This was a real bug fixed in `ConnectionStatus.tsx` - using useState for timer IDs caused unnecessary re-renders and cleanup issues.
 
-### Components with this pattern (reference):
+### Components with this pattern (reference)
 
 - `useLongPress`, `useDoubleTap`, `useMarkerDrag`
 - `TransportBar`, `PersistentTransport`, `TapTempoButton`
@@ -624,12 +628,14 @@ try {
 ```
 
 **Key behaviors:**
+
 - Rejects immediately if not connected
 - Automatically times out after 5 seconds
 - Response matched via unique message ID
 - Pending responses cleared on disconnect/reconnect
 
 **When to use:**
+
 | Scenario | Method |
 |----------|--------|
 | Fire-and-forget actions | `sendCommand()` |
@@ -735,6 +741,7 @@ closeModal();
 ```
 
 Available actions:
+
 - `openMarkerEditModal(marker)` - Edit marker position/color
 - `openDeleteRegionModal(region, regionId)` - Confirm region deletion
 - `openAddRegionModal()` - Create new region
@@ -767,11 +774,13 @@ This pattern decouples modal rendering from the components that trigger them, al
 #### Why Portals Are Required
 
 CSS stacking contexts are created by:
+
 - `isolation: isolate` (used at App root for z-index isolation)
 - `position` + `z-index` combinations
 - `transform`, `filter`, `will-change`, `opacity < 1`
 
 When a modal/dropdown is rendered inside a view component, even with `position: fixed` and `z-modal` (500), its z-index is evaluated **within the parent's stacking context**, not against the document root. This causes:
+
 - Modals appearing under footer elements
 - Dropdowns appearing behind faders
 - Color pickers appearing behind toolbars
@@ -992,6 +1001,7 @@ const handleMouseDown = (e: React.MouseEvent) => { ... };
 ```
 
 **Why PointerEvent?**
+
 - Single API for touch, mouse, pen
 - Built-in pointer capture
 - Better performance (no synthetic events)
@@ -1271,11 +1281,13 @@ npm run analyze
 Icons are curated in `src/icons/commonIcons.ts` instead of importing all 1,663 from lucide-react. This saves ~400 kB.
 
 **Files:**
+
 - `src/icons/commonIcons.ts` - 305 curated DAW-relevant icons
 - `src/icons/iconSearchIndex.ts` - Semantic search (e.g., "record" → Circle, Mic, Disc)
 - `scripts/analyze-icons.ts` - Maintenance script to regenerate (requires REAPER running)
 
 **To add new icons:**
+
 1. Add to `ADDITIONAL_DAW_ICONS` array in `scripts/analyze-icons.ts`
 2. Add synonyms to `SYNONYMS` object if semantic search needed
 3. Run `npx tsx scripts/analyze-icons.ts` (needs REAPER + REAmo extension)
@@ -1384,6 +1396,7 @@ This section documents actual bugs from recent commits to prevent recurrence.
 **Fix:** Added `sends-*`, `routing-*`, `fader-*` tokens and migrated 9 components.
 
 **Prevention:** Before using any color class, check:
+
 1. Does a semantic token exist? → Use it
 2. Is this feature-specific? → Create a token in `index.css`
 3. Is this truly arbitrary? → Only then use Tailwind defaults
@@ -1693,6 +1706,7 @@ const { navPosition, isLandscapeConstrained, widthClass, heightClass } = useLayo
 ```
 
 **Components:**
+
 - `SideRail` (NavRail): Left side - 7 view tabs + play/stop/record
 - `ContextRail`: Right side - info tabs + bank nav + search + expandable panel
 - `ContextRailTab`: Individual tab button with badge support
@@ -1834,6 +1848,7 @@ Commits are blocked if warnings remain after auto-fix.
 #### Known Limitations
 
 1. **Conditional cleanup detection**: `require-effect-cleanup` cannot detect cleanup returns inside `if` blocks. Only top-level returns are recognized:
+
    ```typescript
    // ❌ Rule misses this valid cleanup
    useEffect(() => {

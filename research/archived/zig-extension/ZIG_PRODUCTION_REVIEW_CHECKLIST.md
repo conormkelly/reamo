@@ -467,7 +467,7 @@ fn samplesToSeconds(samples: SamplePosition, sample_rate: u32) f64 {
 | **High** | Time calculations use `f64` internally, convert to `f32` only for output | Precision loss |
 | **High** | BPM and sample rate clamped to minimum values before division | Div by zero |
 | **Medium** | Denormal protection for any filter/decay code | CPU performance |
-| **Medium** | Saturating operators (`+|`, `*|`) for audio sample math | Clipping vs crash |
+| **Medium** | Saturating operators (`+|`,`*|`) for audio sample math | Clipping vs crash |
 
 ### Safe numeric conversion library
 

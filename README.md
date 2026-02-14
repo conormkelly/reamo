@@ -95,17 +95,20 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 ## Features
 
 ### Transport Control
+
 - Play, pause, stop, record with visual feedback
 - Seek to position via timeline tap or time display input
 - Go to start/end of project or time selection
 
 ### Recording Workflow
+
 - **Scrap** - Delete the current take and continue (removes bad takes instantly)
 - **Retake** - Delete the current take and restart recording from the same position
 - **Keep** - Stop recording and keep the take
 - Quick actions bar visible during recording (toggleable in settings)
 
 ### Track Mixer
+
 - Volume faders with dB readout
 - Pan knobs
 - Mute, solo, record arm, input monitoring buttons
@@ -117,6 +120,7 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 - Track detail modal with routing, FX chain, and input selection
 
 ### Timeline
+
 - Interactive timeline showing regions, markers, and playhead
 - Multi-track lanes with waveform display (stereo split view)
 - Pinch-to-zoom with smooth momentum scrolling
@@ -126,6 +130,7 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 - Tap items to select, with multi-select support
 
 ### Region Editing
+
 - Drag regions to reposition
 - Resize regions by dragging edges
 - Ripple editing (subsequent regions shift automatically)
@@ -133,6 +138,7 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 - Full undo/redo support
 
 ### Marker Management
+
 - Navigate between markers
 - Long-press time display to open marker sheet with tap-to-jump navigation
 - Add markers at cursor position
@@ -140,21 +146,25 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 - Auto-advance to next marker during playback (optional)
 
 ### Time Selection
+
 - Set precise start/end points
 - Bar.beat notation input
 - Quick clear option
 - Visual highlight on timeline
 
 ### Tempo and Time Signature
+
 - Display and set BPM (2-960 range)
 - Tap tempo with visual feedback
 - Time signature control (numerator: 1-32, denominator: 2/4/8/16)
 
 ### Auto-Punch Recording
+
 - Set time selection for punch-in/punch-out boundaries
 - Visual indicators for punch region
 
 ### Take Management
+
 - Switch between takes on selected items
 - A/B compare takes without touching the computer
 - Delete active take, crop to active take
@@ -162,6 +172,7 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 - Colors follow REAPER's priority chain (take color > item color > theme default)
 
 ### Touch Instruments
+
 - **Drum Pads** - 4x4 GM drum grid with multi-touch support (portrait mode)
 - **Piano Keyboard** - 2-octave keyboard with octave selector, mod wheel, pitch bend (landscape mode)
 - **Chord Pads** - Diatonic chords with key/scale selector, inversions, bass notes, strum mode, and voice leading (landscape mode)
@@ -169,6 +180,7 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 - Per-instrument MIDI channel selection
 
 ### FX Control
+
 - Browse and add FX plugins (VST3, VST2, AU, JS) via searchable list
 - View and control FX parameters with real-time feedback
 - Preset browsing and selection
@@ -176,17 +188,20 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 - Reorder FX chain via drag-and-drop
 
 ### Track Routing
+
 - View sends, receives, and hardware outputs per track
 - Adjust send levels with gesture-based undo coalescing
 - Visual routing overview in track detail modal
 
 ### Folder Navigation
+
 - Folder icon badges on folder tracks with child count
 - Folder navigation sheet with breadcrumb trail
 - Filter tracks by folder (tap folder badge to focus)
 - Combine folder view with property filters (Armed, Muted, etc.)
 
 ### Cue Lists (Playlists)
+
 - Build playlists from project regions
 - Set loop count per entry (1x, 2x, infinite)
 - Drag to reorder entries
@@ -197,6 +212,7 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 - Playlists persist with the project file
 
 ### Custom Toolbar
+
 - User-configurable buttons for any REAPER action
 - Support for native actions, SWS actions, and custom scripts
 - MIDI CC and Program Change output for hardware control
@@ -206,11 +222,13 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 - In-app edit mode: add, remove, and rearrange buttons without leaving REAmo
 
 ### Project Notes
+
 - View and edit REAPER project notes
 - External change detection (warns if notes edited in REAPER)
 - Character limit with counter (5000 chars)
 
 ### Touch-Optimized
+
 - Gesture support for mobile/tablet control surfaces
 - Long-press for context actions
 - Responsive layout for iPhone and iPad
@@ -218,12 +236,14 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 - Per-device layout memory: remembers your active view, bank selection, filters, viewport position, and instrument channels separately for each device
 
 ### Network Sync
+
 - NTP-style clock synchronization for accurate beat display
 - Achieves ±15ms visual accuracy over WiFi
 - Real-time sync diagnostics (long-press connection indicator)
 - Manual offset adjustment for perceived sync issues
 
 ### Auto-Update
+
 - Automatic version detection compares installed frontend against extension version
 - Silent update on version mismatch: hard refresh + cache cleanup with no user intervention
 - Ensures PWA users always run the matching frontend version

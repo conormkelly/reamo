@@ -119,6 +119,7 @@ flowchart TB
 ```
 
 **Current Performance Characteristics:**
+
 - **CPU**: O(n) polling where n = subscribed tracks × properties
 - **100 tracks**: ~3000 API calls/sec for track data alone
 - **Latency**: Up to 33ms for transport, 200ms for markers, 1s for skeleton
@@ -272,6 +273,7 @@ flowchart TB
 ```
 
 **End-State Performance Characteristics:**
+
 - **CPU**: O(subscribed) polling with hash-based change detection (not O(changes) - see research findings below)
 - **Latency**: <33ms for callback-driven changes (dirty flags force immediate broadcast)
 - **Reliability**: Hash catches callback gaps (undo, selection, FX drag) - no 2s wait
@@ -283,11 +285,13 @@ flowchart TB
 ## Current State
 
 **3-Tier Polling Architecture:**
+
 - HIGH (30Hz): Transport, subscribed tracks, metering, toggles, peaks, routing
 - MEDIUM (5Hz): Markers, regions, items, FX counts, sends, project state
 - LOW (1Hz): Tempomap, track skeleton, project notes, undo state
 
 **CSurf Integration (already built):**
+
 - C++ shim in `zig_control_surface.cpp` using `csurf_inst` (zero-config auto-activation)
 - Zig module in `csurf.zig` with conditional compilation (`-Dcsurf=true`)
 - Working: Transport, repeat, track list, tempo, FX chain, markers
@@ -300,6 +304,7 @@ flowchart TB
 ### Core Principle: CSurf for Detection, Polling for Data
 
 CSurf callbacks signal *what* changed via dirty flags. The main loop polls *current values* only for dirty state. This maintains:
+
 - Single source of truth (polling)
 - Existing event formats (no frontend changes)
 - Fallback when CSurf disabled
@@ -316,6 +321,7 @@ CSurf callbacks signal *what* changed via dirty flags. The main loop polls *curr
 | Full state | Every 60 frames | Sets all_dirty | Safety net for missed callbacks |
 
 **Key insights:**
+
 1. We poll ALL subscribed tracks every frame (not filtering by dirty bits)
 2. Dirty flags provide **instant latency** - force broadcast even if hash unchanged
 3. Hash comparison catches **callback gaps** (undo, selection, FX drag)
@@ -790,6 +796,7 @@ fn doProcessing() !void {
 ```
 
 **Critical ordering:**
+
 1. Consume global dirty flags FIRST (every frame)
 2. Skeleton rebuild IMMEDIATELY when dirty (before track flag consumption)
 3. HIGH tier: Poll ALL subscribed tracks, use hash + dirty flags for broadcast decision
@@ -875,6 +882,7 @@ void ResetCachedVolPanStates() override {
 **What we're NOT doing:** The original plan claimed 99% API call reduction by filtering subscribed_indices by dirty bits. Research showed this is risky - callback gaps would cause missed updates.
 
 **Actual polling behavior:**
+
 | State | Polling Rate | Change Detection |
 |-------|--------------|------------------|
 | Track data | 30Hz (all subscribed) | Hash + dirty flag force |
@@ -888,6 +896,7 @@ void ResetCachedVolPanStates() override {
 ## Testing Checklist
 
 **Core Functionality:**
+
 - [ ] Rapid fader movement - no events lost
 - [ ] Multi-track selection - batched, not per-track spam
 - [ ] Project load - clean state, no stale events
@@ -896,12 +905,14 @@ void ResetCachedVolPanStates() override {
 - [ ] Tab switch - dirty flags cleared
 
 **Race Condition Prevention:**
+
 - [ ] Track list change during fader move - callback fires, fader move ignored (not crash), then caught on heartbeat
 - [ ] 1000+ tracks project - bounds checking works, no silent drops
 - [ ] Rapid undo/redo - ResetCachedVolPanStates triggers full refresh
 - [ ] FX parameter automation playback - dirty flags coalesce (43-187 callbacks/s per param handled gracefully)
 
 **SWS-Derived Patterns:**
+
 - [ ] Extended() always returns 0
 - [ ] SetTrackListChange doesn't rebuild immediately - waits for callback burst
 - [ ] 2-second heartbeat catches missed callbacks
@@ -935,6 +946,7 @@ External research was conducted to validate the implementation approach. Key fin
 All production CSurf implementations (MCU, HUI, SWS, CSI, ReaLearn) use callback + polling. Pure callbacks are insufficient.
 
 **2. Documented callback gaps**
+
 - `OnTrackSelection()` - doesn't fire for action/API-based selection
 - `CSURF_EXT_SETFXCHANGE` - doesn't fire when dragging FX between tracks
 - Undo/redo - no dedicated callback

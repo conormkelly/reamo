@@ -210,6 +210,7 @@ In `commands/fx.zig`:
 - `handleMove` - use `TrackFX_CopyToTrack` with same track
 
 **Defensive programming requirements:**
+
 - Call `validateTrackPtr()` after GUID resolution
 - Use descriptive undo strings: `"REAmo: Add FX: {fx_name}"`, `"REAmo: Delete FX"`, `"REAmo: Move FX"`
 - Log errors before returning: `logging.warn("trackFx/add: {reason}", .{...})`

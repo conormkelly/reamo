@@ -3,6 +3,7 @@
 ## Problem Statement
 
 The toolbar needs to work in three distinct layout contexts:
+
 1. **Portrait footer** (SecondaryPanel): 96px height → horizontal strip
 2. **Landscape side rail** (ContextRail): 200px width → vertical stack
 3. **ActionsView**: Full screen → flex-wrap grid
@@ -53,6 +54,7 @@ ToolbarButton (adapts to parent layout)
 | `frontend/src/views/timeline/TimelineView.tsx` | Pass `layout="horizontal"` to footer, `layout="vertical"` to side rail |
 
 **No changes needed:**
+
 - `toolbarSlice.ts` - state management unchanged
 - `ActionsView.tsx` / `ActionsGrid.tsx` - keep flex-wrap pattern
 - `ToolbarEditor.tsx` - works as-is
@@ -74,6 +76,7 @@ const HORIZONTAL_SLOTS = 4;
 ```
 
 **Horizontal layout (portrait footer):**
+
 ```tsx
 <div className="grid gap-1 h-full" style={{
   gridTemplateColumns: 'repeat(4, 1fr)',
@@ -84,6 +87,7 @@ const HORIZONTAL_SLOTS = 4;
 ```
 
 **Vertical layout (side rail):**
+
 ```tsx
 <div className="flex flex-col gap-2 overflow-y-auto">
   {toolbarActions.map(action => (
@@ -140,6 +144,7 @@ const sideRailToolbarContent = useMemo(() => (
 ## Height/Width Calculations
 
 ### Horizontal (Portrait Footer)
+
 ```
 SecondaryPanel CONTENT_HEIGHT: 96px
 - Header controls: ~32px
@@ -149,6 +154,7 @@ SecondaryPanel CONTENT_HEIGHT: 96px
 ```
 
 ### Vertical (Side Rail)
+
 ```
 ContextRail expanded: 200px width
 - Padding: ~16px
@@ -167,6 +173,7 @@ ContextRail expanded: 200px width
 ## Default Actions
 
 With 4 slots per page in horizontal mode:
+
 - Page 1: Split, Glue, Delete, Marker
 - Page 2: Ripple, Snap, Dupe, (empty)
 
@@ -175,22 +182,26 @@ Vertical mode shows all 7 actions in scrollable list.
 ## Testing Checklist
 
 **Horizontal mode (portrait footer):**
+
 - [ ] Single row of 4 buttons in 96px panel
 - [ ] Buttons ≥48px height
 - [ ] Swipe paging works
 - [ ] Page indicator shows "1/2"
 
 **Vertical mode (side rail):**
+
 - [ ] Single column, 48px per button
 - [ ] Scrollable when many buttons
 - [ ] No swipe paging (scroll instead)
 - [ ] Works in 200px expanded panel
 
 **Grid mode (ActionsView):**
+
 - [ ] Unchanged flex-wrap behavior
 - [ ] Size prop still works (sm/md/lg)
 
 **Transitions:**
+
 - [ ] Portrait → landscape switch updates layout
 - [ ] State preserved across layout changes
 

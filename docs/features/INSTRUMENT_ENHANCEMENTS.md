@@ -112,11 +112,13 @@ Row 4 (Kicks):    Kick (36)  | Kick2 (35) | Pedal (44)   | Floor (41)
 #### Expressive Controllers
 
 **Mod Wheel (CC1)**:
+
 - Vertical strip, Y-position → 0-127
 - Rate-limited to 50Hz (20ms)
 - Spring-back not implemented (stays where released)
 
 **Pitch Bend Wheel**:
+
 - Vertical strip, Y-position → 0-16383 (center=8192)
 - Rate-limited to 60Hz (16ms)
 - Spring-back to center on release (150ms ease-out cubic)
@@ -144,6 +146,7 @@ Row 4 (Kicks):    Kick (36)  | Kick2 (35) | Pedal (44)   | Floor (41)
 #### Music Theory Engine
 
 **Scales Supported** (12 types):
+
 - Diatonic: major, natural_minor, harmonic_minor, melodic_minor
 - Modes: dorian, phrygian, lydian, mixolydian, locrian
 - Pentatonic: pentatonic_major, pentatonic_minor, blues
@@ -171,6 +174,7 @@ Row 4 (Kicks):    Kick (36)  | Kick2 (35) | Pedal (44)   | Floor (41)
 - **Landscape**: All 7 columns visible, full control set in header
 
 **Known Issues (Portrait)**:
+
 - Thin scrollbar visible between tab nav bar and chord pads
 - ViewHeader overflowing and clipped off
 - Needs responsive redesign similar to mixer view approach
@@ -186,6 +190,7 @@ Row 4 (Kicks):    Kick (36)  | Kick2 (35) | Pedal (44)   | Floor (41)
 **Problem**: Current GM mapping is hardcoded and may not match user's drum kit or workflow.
 
 **Proposed Features**:
+
 - Edit individual pad color
 - Edit pad label text
 - Change MIDI note number per pad
@@ -193,6 +198,7 @@ Row 4 (Kicks):    Kick (36)  | Kick2 (35) | Pedal (44)   | Floor (41)
 - Save/load named layouts to localStorage
 
 **UI Concept**:
+
 - Gear icon in header enters dedicated editor view (similar to Actions or Clock view)
 - NOT long-press (conflicts with hold-to-sustain trigger mode)
 - Tap pad in edit mode to open configuration popover
@@ -202,11 +208,13 @@ Row 4 (Kicks):    Kick (36)  | Kick2 (35) | Pedal (44)   | Floor (41)
 #### 1.2 MIDI Note Length / Note Off
 
 **Problem**: Currently no note-off is sent. This causes issues when:
+
 - Recording MIDI loops (double-trigger when loop wraps around)
 - Triggering samples with release behavior
 - Working with sustaining drum sounds
 
 **Proposed Solution**:
+
 - Configurable note length per pad or global
 - Options: "One-shot" (no note-off), or tempo-synced lengths (1/4, 1/8, 1/16, 1/32)
 - Tempo-synced requires reading current BPM from REAPER
@@ -217,6 +225,7 @@ Row 4 (Kicks):    Kick (36)  | Kick2 (35) | Pedal (44)   | Floor (41)
 **Research Needed**: Debouncing and retriggering behavior — what happens when a pad is hit again before the previous note-off fires? Cancel previous timer? Stack? Need to investigate best practices. Particularly important for snare rolls and rapid retriggering scenarios.
 
 **Research Needed**: Touch pressure/Force Touch detection — can we detect pressure on supported devices? If so:
+
 - How to detect availability (not all devices support it)
 - Should it auto-enable when available, or be a setting?
 - Do we need velocity curves for pressure-to-velocity mapping?
@@ -229,6 +238,7 @@ Row 4 (Kicks):    Kick (36)  | Kick2 (35) | Pedal (44)   | Floor (41)
 **Problem**: 4×4 GM layout doesn't suit all workflows (e.g., finger drumming, sample launching, custom kits).
 
 **Proposed Features**:
+
 - Multiple saved layouts (banks) - switchable via bank selector
 - Layout editor: drag to rearrange pads, resize grid (4×4, 4×2, 8×2, etc.)
 - Import/export layouts (JSON file or shareable URL)
@@ -245,6 +255,7 @@ Row 4 (Kicks):    Kick (36)  | Kick2 (35) | Pedal (44)   | Floor (41)
 **Problem**: Playing wrong notes is easy; users want to stay in key.
 
 **Proposed Features**:
+
 - Toggle "lock to scale" mode
 - Only in-scale notes are playable (GarageBand "replacement" approach — keys transform to uniform note bars)
 - Reuse existing scale infrastructure from chord pads
@@ -259,6 +270,7 @@ Row 4 (Kicks):    Kick (36)  | Kick2 (35) | Pedal (44)   | Floor (41)
 **Problem**: Sliding finger across keys doesn't trigger intermediate notes—only the start and end notes play.
 
 **Proposed Behavior**:
+
 - When pointer moves across keys, trigger note-on for each new key entered
 - Previous note gets note-off when leaving that key
 - Creates smooth glissando effect
@@ -273,6 +285,7 @@ Row 4 (Kicks):    Kick (36)  | Kick2 (35) | Pedal (44)   | Floor (41)
 **Problem**: Portrait piano looks like a "barcode"—keys too narrow to play.
 
 **Proposed Solution** (following UX_GUIDELINES.md patterns):
+
 - Show fewer octaves in portrait (1 octave default)
 - Larger, playable key width (minimum 44px for touch targets)
 - Horizontal scroll with momentum scrolling
@@ -287,6 +300,7 @@ Row 4 (Kicks):    Kick (36)  | Kick2 (35) | Pedal (44)   | Floor (41)
 **Problem**: No visual indication of position within full keyboard range.
 
 **Proposed Features**:
+
 - Mini scroll indicator at top showing viewport position within full range
 - Tap-to-jump: tap on scroll bar to jump to that octave
 - Octave labels on each C key (C1, C2, C3, etc.)
@@ -296,6 +310,7 @@ Row 4 (Kicks):    Kick (36)  | Kick2 (35) | Pedal (44)   | Floor (41)
 **Problem**: Hard to know which octave you're in without looking at settings.
 
 **Proposed Solution**:
+
 - Label "C" keys with octave number (C3, C4, C5)
 - Subtle, doesn't interfere with playing
 - Highlight middle C (C4) specially
@@ -309,6 +324,7 @@ Row 4 (Kicks):    Kick (36)  | Kick2 (35) | Pedal (44)   | Floor (41)
 **Problem**: Users want their own chord progressions, not just diatonic chords in one key.
 
 **Proposed Features**:
+
 - Create custom banks with any chords (not limited to diatonic)
 - Name banks ("Verse", "Chorus", "Jazz Voicings", etc.)
 - Arbitrary number of chords per bank (not fixed 7)
@@ -320,6 +336,7 @@ Row 4 (Kicks):    Kick (36)  | Kick2 (35) | Pedal (44)   | Floor (41)
 **Problem**: Users want to transpose their custom banks to different keys.
 
 **Proposed Features**:
+
 - Global transpose slider/selector (+/- semitones or select key)
 - Per-chord "absolute" flag: chord stays fixed during transpose (e.g., a signature chord)
 - Enharmonic-aware display: show F# vs Gb correctly based on key context
@@ -332,6 +349,7 @@ Row 4 (Kicks):    Kick (36)  | Kick2 (35) | Pedal (44)   | Floor (41)
 **Problem**: Roman numerals may not be meaningful; users want custom labels.
 
 **Proposed Features**:
+
 - Edit chord display name (e.g., "Cmaj7" → "Home", "Verse Start")
 - Custom color per chord column
 - Bass note button labels customizable
@@ -342,6 +360,7 @@ Row 4 (Kicks):    Kick (36)  | Kick2 (35) | Pedal (44)   | Floor (41)
 **Problem**: Fixed 3 bass notes (Root, 5th, Octave) doesn't suit all workflows; users may want fewer buttons or different notes for slash chords.
 
 **Proposed Features**:
+
 - Choose number of bass notes per chord column: 1, 2, or 3
 - Pad sizes adjust automatically based on count
 - Custom label for each bass note (not just R/5/8)
@@ -354,12 +373,14 @@ Row 4 (Kicks):    Kick (36)  | Kick2 (35) | Pedal (44)   | Floor (41)
 **Problem**: Instead of inversions in different octaves, users might want chord variations.
 
 **Proposed Alternative Layout Option**:
+
 - Instead of Root/1st/2nd/Oct inversions, allow:
   - Chord variations: maj → maj7 → add9 → sus4
   - Or user-defined variations per chord column
 - Keep original inversion mode as an option
 
 **Example**:
+
 ```
 Default mode (inversions):     Variation mode:
   Oct                           sus4
@@ -393,6 +414,7 @@ Research conducted across 15+ apps (iOS, Android, desktop) plus user feedback fr
 ### Drum Pads: Industry Patterns
 
 **Trigger Modes** (BeatMaker 3 gold standard):
+
 - **One-Shot**: Plays full sample regardless of finger lift
 - **Hold**: Plays only while pressed (note-off on release)
 - **On-Release**: Triggers on finger lift
@@ -405,6 +427,7 @@ Research conducted across 15+ apps (iOS, Android, desktop) plus user feedback fr
 ### Piano: Industry Patterns
 
 **Glissando Modes** (GarageBand):
+
 1. **Glissando**: Sliding triggers each key passed
 2. **Scroll**: Sliding moves keyboard position without triggering
 3. **Pitch/Portamento**: Smooth pitch bend between notes (synths only)
@@ -412,12 +435,14 @@ Research conducted across 15+ apps (iOS, Android, desktop) plus user feedback fr
 No rate-limiting observed in apps during glissando—they trigger at touch sample rate.
 
 **Scale Lock** (two approaches):
+
 - **Replacement** (GarageBand): Keyboard transforms to uniform note bars, out-of-scale keys removed entirely. Wrong notes impossible.
 - **Highlighting** (Yousician, Simply Piano): All keys visible, target notes color-coded. Feedback on incorrect notes rather than prevention.
 
 Recommendation: Replacement approach is better for performance-focused remote control.
 
 **Portrait Piano**:
+
 - Reduced key count (1-2 octaves)
 - Octave navigation buttons (Up/Down/Reset)
 - Key width presets (Small/Medium/Large)
@@ -428,6 +453,7 @@ Recommendation: Replacement approach is better for performance-focused remote co
 ### Chord Pads: Industry Patterns
 
 **Custom Banks**:
+
 | App | Chords per Bank | Arbitrary Chords | Custom Names | Custom Colors |
 |-----|-----------------|------------------|--------------|---------------|
 | ChordPolyPad | 128 (8×16) | Yes | Yes | No |
@@ -439,17 +465,20 @@ Recommendation: Replacement approach is better for performance-focused remote co
 **Notably Absent**: Ability to "pin" specific chords while transposing others. This is a potential differentiator for REAmo.
 
 **Variations vs Inversions**:
+
 - Inversions: Dropdown or +/- control per chord
 - Variations (maj7, sus4, add9): Scaler 2 shows in "Colors Page" by harmonic distance. Chord Prism uses black keys as real-time modifiers.
 
 ### User Pain Points (Forums/Reviews)
 
 **Critical issues**:
+
 1. **Latency** is #1 complaint across all platforms
 2. **MIDI mapping persistence failures** generate significant frustration
 3. **System gesture conflicts** (iOS 3-finger gestures) interrupt creative flow
 
 **Common requests**:
+
 - Pressure sensitivity on iPad (never got 3D Touch)
 - Larger controls ("fiddly" small touch targets)
 - Better discoverability (Koala praised for immediate usability)
@@ -463,17 +492,20 @@ Codebase exploration to determine implementation feasibility.
 ### Tempo/BPM Access: Fully Available
 
 BPM is in the Redux transport slice, accessible via:
+
 ```typescript
 const bpm = useReaperStore((state) => state.bpm);
 ```
 
 **Source files**:
+
 - `frontend/src/store/slices/transportSlice.ts` (lines 29, 48, 65, 116)
 - `frontend/src/core/WebSocketTypes.ts` (lines 94-101)
 
 **Available commands**: `tempo.set()`, `tempo.tap()`, `tempo.getBarDuration()`, `tempo.timeToBeats()`
 
 **Implication**: Tempo-synced note repeat and note lengths are straightforward:
+
 ```typescript
 const noteLengthMs = (60 / bpm) * (4 / subdivision) * 1000;
 // At 120 BPM: 1/16 = 125ms, 1/32 = 62.5ms
@@ -482,10 +514,12 @@ const noteLengthMs = (60 / bpm) * (4 / subdivision) * 1000;
 ### Grid Layout Flexibility: Trivial to Parameterize
 
 **Current state** (`DrumPadGrid.tsx`):
+
 - Grid is `grid-cols-4` (hardcoded)
 - 16 pads defined in `DEFAULT_PADS` constant (flat array)
 
 **To support 4×2, 8×2, etc.**:
+
 1. Add `columns` prop
 2. Accept custom `pads` array
 3. Adjust container aspect ratio
@@ -495,16 +529,19 @@ No structural refactoring needed—just prop parameterization.
 ### Chord System: Needs Extension for Variations
 
 **Current capabilities** (`lib/music-theory/`):
+
 - `ChordQuality` type includes: major, minor, diminished, augmented, major7, minor7, dominant7, diminished7, half_diminished7
 - `buildDiatonicChord()` generates chords by stacking scale degrees (3rds only)
 - `detectChordQuality()` identifies chord type from interval patterns
 
 **Missing for chord variations**:
+
 - No `ChordQuality` entries for: sus2, sus4, add9, add11, 6, 9, 11, 13
 - No interval-based chord builder (current system only builds diatonic from scales)
 - No function like `buildChordFromIntervals(root, intervals)`
 
 **To add variations**:
+
 1. Extend `ChordQuality` type
 2. Add suffix mappings to `CHORD_QUALITY_SUFFIX`
 3. Create `buildChordFromIntervals()` function
@@ -515,15 +552,18 @@ No structural refactoring needed—just prop parameterization.
 ### Portrait Piano: Hook Exists, Not Used
 
 **Current state** (`PianoKeyboard.tsx`, `InstrumentsView.tsx:509-518`):
+
 - Hardcoded `min-w-[500px]` with horizontal scroll
 - No container queries on piano itself
 - `useIsLandscape()` hook controls layout branch
 
 **Available infrastructure**:
+
 - `useContainerQuery` hook exists at `frontend/src/hooks/useContainerQuery.ts`
 - CSS `@container` queries supported
 
 **To fix portrait**:
+
 1. Use `useContainerQuery` to detect narrow containers
 2. Reduce `numOctaves` or scale keys based on width
 3. Add octave navigation buttons
@@ -535,12 +575,14 @@ No structural refactoring needed—just prop parameterization.
 **Two patterns exist**:
 
 1. **Individual keys** (InstrumentsView.tsx):
+
    ```typescript
    const STORAGE_KEY_DRUMS_CHANNEL = 'reamo_instruments_drums_channel';
    localStorage.setItem(key, String(value));
    ```
 
 2. **JSON object** (uiPreferencesSlice.ts):
+
    ```typescript
    const UI_PREFS_KEY = 'reamo_ui_preferences';
    localStorage.setItem(key, JSON.stringify(prefs));
@@ -586,29 +628,29 @@ These have no blockers and address the most common user complaints:
 
 ### Phase 2: Layout & Customization (Medium Effort)
 
-6. **Drums: Grid size options** — Support 4×4, 4×2, 8×2. Just prop parameterization of existing component.
+1. **Drums: Grid size options** — Support 4×4, 4×2, 8×2. Just prop parameterization of existing component.
 
-7. **Drums: Custom pad colors/labels/notes** — Edit mode UI to configure individual pads. Save to localStorage as JSON.
+2. **Drums: Custom pad colors/labels/notes** — Edit mode UI to configure individual pads. Save to localStorage as JSON.
 
-8. **Drums: Bank switching** — 4 banks (A/B/C/D) following Koala Sampler pattern.
+3. **Drums: Bank switching** — 4 banks (A/B/C/D) following Koala Sampler pattern.
 
-9. **Piano: Responsive portrait layout** — Use existing `useContainerQuery` hook. Reduce octaves, increase key width, add octave nav buttons.
+4. **Piano: Responsive portrait layout** — Use existing `useContainerQuery` hook. Reduce octaves, increase key width, add octave nav buttons.
 
-10. **Chords: Global transpose** — Semitone +/- control. Table-stakes feature for chord tools.
+5. **Chords: Global transpose** — Semitone +/- control. Table-stakes feature for chord tools.
 
-11. **Chords: Custom labels & colors** — Edit chord display names and colors.
+6. **Chords: Custom labels & colors** — Edit chord display names and colors.
 
 ### Phase 3: Advanced Chord Features (Higher Effort)
 
 Requires extending the music-theory type system:
 
-12. **Chords: Custom chord banks** — Arbitrary chords (not just diatonic). Requires new `buildChordFromIntervals()` function.
+1. **Chords: Custom chord banks** — Arbitrary chords (not just diatonic). Requires new `buildChordFromIntervals()` function.
 
-13. **Chords: Extended chord qualities** — Add sus2, sus4, add9, 6, 9, 11, 13 to `ChordQuality` type.
+2. **Chords: Extended chord qualities** — Add sus2, sus4, add9, 6, 9, 11, 13 to `ChordQuality` type.
 
-14. **Chords: Chord variations mode** — Alternative to inversions (maj → maj7 → add9 → sus4).
+3. **Chords: Chord variations mode** — Alternative to inversions (maj → maj7 → add9 → sus4).
 
-15. **Chords: Pinned chord transposition** — Mark specific chords as "absolute" during transpose. Unique differentiator not found in competitors.
+4. **Chords: Pinned chord transposition** — Mark specific chords as "absolute" during transpose. Unique differentiator not found in competitors.
 
 ### Deferred / Needs Validation
 
@@ -623,9 +665,11 @@ Requires extending the music-theory type system:
 1. **Piano scale lock — scale list**: Which scales to include? GarageBand only offers 6. Curate a "greatest hits" list at implementation time. Also consider "custom scale" option where user can select/deselect specific notes.
 
 **Resolved:**
+
 - **Progressive disclosure**: Moderate — settings in popovers, edit mode separate from play mode
 
 **Resolved:**
+
 - **Shared scale state**: Independent — piano and chords each have their own scale selection, but from the same curated list of available scales
 - **MIDI channel routing**: Single channel per instrument for now. MPE exploration deferred.
 - **Layout sharing**: Import/export via file picker (JSON files). No server needed. Pattern should extend to Actions and other user-configurable features.

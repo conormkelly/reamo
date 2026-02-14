@@ -9,6 +9,7 @@ The IReaperControlSurface API is **minimally documented by design**—Cockos pro
 **Practical frequency bounds:** Based on audio block sizes, expect **43-187 callbacks per second per animated parameter** (1024-sample blocks at 44.1kHz = ~43Hz; 256-sample blocks at 48kHz = ~187Hz). With 10 automated parameters, design for **400-2000 callbacks/second** peak during playback.
 
 **Testing methodology:**
+
 ```cpp
 // Instrument Extended() with high-resolution timing
 static std::atomic<uint64_t> s_setfxparam_count{0};
@@ -24,9 +25,11 @@ int Extended(int call, void* p1, void* p2, void* p3) {
     return 0;
 }
 ```
+
 Create a test project with sine LFO automation on multiple FX parameters, vary buffer sizes (64-2048), and measure callback frequency.
 
 **Defensive pattern (from SWS):**
+
 ```cpp
 // Never do heavy work in Extended()—set async flag, process in Run()
 bool m_bFxParamDirty = false;
@@ -59,6 +62,7 @@ void Run() {
 **Definitive answer:** This function is **completely undocumented**. No SDK comments, no forum discussions, and no SWS code comments explain when REAPER calls it. The function `CSurf_ResetAllCachedVolPanStates()` exists in `reaper_plugin_functions.h` with zero documentation.
 
 **Empirical testing methodology:**
+
 ```cpp
 void ResetCachedVolPanStates() override {
     static int s_call_count = 0;
@@ -73,6 +77,7 @@ void ResetCachedVolPanStates() override {
 ```
 
 **Test these trigger conditions systematically:**
+
 - Undo/redo operations (`Main_OnCommand(40029, 0)` / `40030`)
 - Project load, close, tab switch
 - "Reset track pan/vol to default" actions
@@ -81,6 +86,7 @@ void ResetCachedVolPanStates() override {
 - API calls: `SetMediaTrackInfo_Value()` for vol/pan
 
 **Defensive pattern:**
+
 ```cpp
 void ResetCachedVolPanStates() override {
     // Treat as "invalidate everything" signal
@@ -102,6 +108,7 @@ void Run() {
 **Definitive answer:** The ordering is **not formally documented**, but SWS source code reveals critical empirical knowledge: `SetTrackListChange()` triggers `NumTracks + 1` subsequent `SetTrackTitle()` calls. This strongly suggests `SetTrackListChange()` fires first when track topology changes, with detail callbacks following.
 
 **From sws_extension.cpp:**
+
 ```cpp
 // For every SetTrackListChange we get NumTracks+1 SetTrackTitle calls, but we only
 // want to call AutoColorRun once, so ignore those n+1.
@@ -121,6 +128,7 @@ void SetTrackTitle(MediaTrack* tr, const char* c) {
 **Critical insight:** Callbacks are **synchronous within the main thread**—one completes before the next fires. However, do not assume all FX callbacks for a duplicated track arrive atomically; they may interleave with other operations.
 
 **Defensive pattern for TrackPtr→Index maps:**
+
 ```cpp
 std::unordered_map<MediaTrack*, int> m_trackIndex;
 bool m_trackListDirty = false;
@@ -180,6 +188,7 @@ int Extended(int call, void *parm1, void *parm2, void *parm3) {
 ```
 
 **Testing methodology:**
+
 ```cpp
 // Register two surfaces, have first return 1, check if second receives callback
 class TestSurface1 : public IReaperControlSurface {
@@ -198,6 +207,7 @@ class TestSurface2 : public IReaperControlSurface {
 ```
 
 **Defensive recommendation:**
+
 ```cpp
 int Extended(int call, void* p1, void* p2, void* p3) override {
     // Process your logic here...
@@ -209,12 +219,14 @@ int Extended(int call, void* p1, void* p2, void* p3) override {
 ## Hybrid polling at 1-5 seconds catches CSurf edge cases
 
 **When CSurf misses callbacks:** SWS developers discovered that IReaperControlSurface "cannot handle everything you might want to get notified about." Specific gaps include:
+
 - Preference changes
 - Some UI state (focused FX window, mixer scroll position)
 - External project modifications
 - Rapid undo/redo sequences
 
 **SWS timing constants reveal battle-tested intervals:**
+
 ```cpp
 #define SNM_CSURF_RUN_TICK_MS      27.0  // ~37Hz observed Run() frequency
 #define SNM_MKR_RGN_UPDATE_FREQ    500   // Markers/regions: 0.5s "gentle value"
@@ -223,6 +235,7 @@ int Extended(int call, void* p1, void* p2, void* p3) override {
 ```
 
 **Recommended hybrid architecture:**
+
 ```cpp
 class MyExtension : public IReaperControlSurface {
     DWORD m_lastFullSync = 0;
@@ -256,11 +269,13 @@ class MyExtension : public IReaperControlSurface {
 **Definitive answer:** Yes, REAPER calls `SetSurfaceVolume()`/`SetSurfacePan()` **during automation envelope playback**. Forum discussion confirmed: "Having the transport stopped does not mean that automation should stop working"—parameters are continuously sent to maintain sync.
 
 **Callback characteristics:**
+
 - Called at approximately Run() frequency (~30Hz) during playback
 - No built-in debouncing—you receive every update
 - The `ignoresurf` parameter in `CSurf_SetSurfaceVolume()` confirms broadcast to all surfaces except initiator
 
 **Testing methodology:**
+
 ```cpp
 void SetSurfaceVolume(MediaTrack* tr, double volume) override {
     static double s_lastVol = -1;
@@ -278,6 +293,7 @@ void SetSurfaceVolume(MediaTrack* tr, double volume) override {
 ```
 
 **Defensive pattern for WebSocket UI:**
+
 ```cpp
 struct TrackVolPanState {
     double volume = 0.0;
@@ -320,6 +336,7 @@ void Run() override {
 **Extended() propagation:** Based on SWS always returning 0 and no forum evidence of propagation stopping, the safest assumption is that **Extended() return values do not affect propagation**—all surfaces receive all Extended() calls regardless of return values.
 
 **Defensive patterns:**
+
 ```cpp
 // 1. Track which changes you initiated to avoid feedback loops
 void OnUserFaderMove(MediaTrack* tr, double newVol) {
@@ -350,12 +367,14 @@ GUID GetTrackGUID(MediaTrack* tr) {
 Given your environment (REAPER 7.x, macOS ARM64, Zig with C++ shim, WebSocket UI, 30Hz timer):
 
 **Architecture recommendations:**
+
 1. **CSurf callbacks → atomic dirty flags** (lock-free, audio-thread safe)
 2. **30Hz Run() → collect dirty state, batch to pending queue**
 3. **WebSocket thread → consume queue, serialize JSON deltas**
 4. **2-second safety poll → validate full state, detect drift**
 
 **Key constants:**
+
 ```cpp
 constexpr int CSURF_RUN_HZ = 30;           // Expected Run() frequency
 constexpr int WEBSOCKET_BATCH_HZ = 30;     // Match your timer
@@ -366,6 +385,7 @@ constexpr int MAX_FX_PARAMS_PER_FRAME = 50; // Throttle FX param floods
 ```
 
 **Track pointer safety (critical for your reverse map):**
+
 ```cpp
 // ALWAYS validate before dereferencing MediaTrack*
 bool IsTrackValid(MediaTrack* tr) {

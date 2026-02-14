@@ -109,6 +109,7 @@ JSON output:
 ```
 
 **Encoding:**
+
 - `0` = No input (I_RECINPUT < 0)
 - `1` = Audio input (bit 12 NOT set)
 - `2` = MIDI input (bit 12 set, 0x1000 mask)
@@ -247,10 +248,12 @@ pub const TunerSubscriptions = struct {
 | `tuner/setParam` | `trackGuid, param, value` | `{success: true}` | Set tuner param (reference or threshold) |
 
 **Parameters for `tuner/setParam`:**
+
 - `param`: `"reference"` (A4 Hz, default 440) or `"threshold"` (silence dB, default -60)
 - `value`: float value
 
 **Error responses (command failures):**
+
 ```json
 {"type": "response", "id": "123", "success": false, "error": "TRACK_NOT_FOUND", "message": "Track GUID not found in cache"}
 ```
@@ -334,6 +337,7 @@ pub fn hashTunerEvent(json: []const u8) u64 {
 ```
 
 **Event format:**
+
 ```json
 {
   "type": "event",
@@ -358,17 +362,20 @@ Note: `noteName`, `octave`, and `inTune` computed server-side. `inTune` is `|cen
 The tuner follows the established subscription pattern in `main.zig`. Key integration points:
 
 **1. Global state variable** (add near line 70):
+
 ```zig
 var g_tuner_subs: ?*tuner_subscriptions.TunerSubscriptions = null;
 ```
 
 **2. Import** (add near line 28):
+
 ```zig
 const tuner_subscriptions = @import("subscriptions/tuner_subscriptions.zig");
 const tuner_generator = @import("subscriptions/tuner_generator.zig");
 ```
 
 **3. Initialization** in `doInitialization()` (add after trackfxparam_subs block ~line 272):
+
 ```zig
 // Create tuner subscriptions state
 const tuner_subs = try g_allocator.create(tuner_subscriptions.TunerSubscriptions);
@@ -378,6 +385,7 @@ commands.g_ctx.tuner_subs = tuner_subs;
 ```
 
 **4. Client context** in `ClientContext` struct (client_management.zig):
+
 ```zig
 tuner_subs: ?*tuner_subscriptions.TunerSubscriptions,
 ```
@@ -399,6 +407,7 @@ const tuner_generator = @import("../subscriptions/tuner_generator.zig");
 ```
 
 **6. Shutdown cleanup** (add before peaks_cache cleanup ~line 893):
+
 ```zig
 if (g_tuner_subs) |subs| {
     logging.info("cleaning up tuner subscriptions", .{});
@@ -468,6 +477,7 @@ pub fn pollTunerSubscriptions(
 ```
 
 **Call site** in `doProcessing()` (after trackfxparam polling ~line 724):
+
 ```zig
 // Poll tuner subscriptions
 if (g_tuner_subs) |tuner_subs| {
@@ -637,6 +647,7 @@ const armedAudioTracks = useMemo(() =>
 ```
 
 **Colors:**
+
 - In tune (|cents| < 2): Green (`--color-success`)
 - Close (|cents| < 10): Yellow (`--color-warning`)
 - Out of tune: Red (`--color-error`)
@@ -664,6 +675,7 @@ const armedAudioTracks = useMemo(() =>
 ```
 
 **Strobe behavior:**
+
 - **Stationary** = In tune
 - **Moving right** = Sharp (pitch too high)
 - **Moving left** = Flat (pitch too low)
@@ -693,6 +705,7 @@ Shown when `conf < 0.3` or `freq === 0`.
 ## Implementation Sequence
 
 ### Wave 1: Backend Foundation
+
 1. Add `it` field to track_skeleton.zig
 2. Create tuner_subscriptions.zig (following trackfxparam_subscriptions pattern)
 3. Create tuner_generator.zig
@@ -702,6 +715,7 @@ Shown when `conf < 0.3` or `freq === 0`.
 7. Update API.md
 
 ### Wave 2: Frontend Core
+
 1. Add tuner event type to WebSocketTypes
 2. Create tunerSlice
 3. Add event handler in store
@@ -709,12 +723,14 @@ Shown when `conf < 0.3` or `freq === 0`.
 5. Register in viewRegistry, TabBar, SideRail
 
 ### Wave 3: Frontend UI
+
 1. NoteDisplay component
 2. CentsMeter component
 3. TrackSelector component
 4. NoSignalState component
 
 ### Wave 4: Polish
+
 1. StrobeMeter component with CSS animation
 2. TunerSettings component (reference Hz, threshold)
 3. Mode toggle in ViewHeader or settings
@@ -771,6 +787,7 @@ From [TUNER.md](./TUNER.md):
 Unit tests should cover the following scenarios (in `tuner_subscriptions_test.zig`):
 
 ### Subscription Lifecycle
+
 - `init` and `deinit` without leaks
 - `subscribe` creates TrackTuner with ref_count=1
 - `subscribe` same track increments ref_count
@@ -780,24 +797,28 @@ Unit tests should cover the following scenarios (in `tuner_subscriptions_test.zi
 - `removeAllClients` removes all JSFXs on shutdown
 
 ### Multi-Client Scenarios
+
 - Two clients subscribe to same track → shared JSFX, ref_count=2
 - One client unsubscribes → JSFX remains, ref_count=1
 - Second client unsubscribes → JSFX removed
 - Two clients subscribe to different tracks → separate JSFXs
 
 ### Error Handling
+
 - Subscribe to non-existent track GUID returns error
 - FX insert failure (JSFX not installed) returns error
 - `setParam` on non-subscribed track returns error
 - Consecutive failures trigger auto-unsubscribe
 
 ### Generator Tests
+
 - Valid slider values produce correct JSON
 - NaN/Inf slider values return null
 - Note name computation (A4=69, C4=60, etc.)
 - `inTune` flag set correctly for |cents| < 2
 
 ### Change Detection
+
 - Same data produces same hash (no spurious broadcasts)
 - Different data produces different hash
 - `force_broadcast` triggers send even if hash unchanged

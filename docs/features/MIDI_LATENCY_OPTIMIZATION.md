@@ -243,7 +243,7 @@ fn commandQueueTimerCallback(_: ?*anyopaque, _: c_uint, _: usize, _: c_uint) cal
 }
 ```
 
-2. Start timer after WebSocket server starts (in `doProcessing`):
+1. Start timer after WebSocket server starts (in `doProcessing`):
 
 ```zig
 // After WebSocket server starts successfully
@@ -254,7 +254,7 @@ if (!g_fast_timer.isRunning()) {
 }
 ```
 
-3. Keep fallback drain in 30Hz timer:
+1. Keep fallback drain in 30Hz timer:
 
 ```zig
 // In doProcessing() - fallback only if fast timer not running
@@ -267,7 +267,7 @@ if (!g_fast_timer.isRunning()) {
 }
 ```
 
-4. Stop timer during shutdown:
+1. Stop timer during shutdown:
 
 ```zig
 fn shutdown() void {
@@ -297,11 +297,13 @@ fn commandQueueTimerCallback(_: ?*anyopaque, _: c_uint, _: usize, _: c_uint) cal
 ```
 
 **Test on**:
+
 - macOS (ARM64 + Intel)
 - Windows 10/11
 - Linux (if available)
 
 **Validate**:
+
 - Timer fires at ~10ms intervals (or ~15ms on Windows without timeBeginPeriod)
 - No timer slips under normal load
 - No impact on UI responsiveness
@@ -325,6 +327,7 @@ The timer interval (10,000,000ns) dwarfs the queue operation time. Lock-free is 
 ## Rollback Plan
 
 If issues arise:
+
 1. Fast timer fails to start → automatic fallback to 30Hz (built-in)
 2. Runtime issues → call `g_fast_timer.stop()` to disable
 3. No user-visible change except latency returns to current levels

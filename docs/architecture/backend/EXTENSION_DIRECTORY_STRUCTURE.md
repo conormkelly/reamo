@@ -296,10 +296,12 @@ When adding new files, remember to add them to this test block or they won't run
 | `reaper_csurf.h` | `reaper/reaper_csurf.h` |
 
 **Files that stay at root:**
+
 - `main.zig` — Entry point
 - `reaper.zig` — Root aggregator (re-exports)
 
 **Directories unchanged:**
+
 - `commands/` — Already organized
 - `reaper/` — Keep existing structure, add C++ files
 

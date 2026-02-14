@@ -433,6 +433,7 @@ pub fn enableMenuItem(menu: HMENU, idx: c_int, enabled: bool) void { ... }
 ```
 
 Note: `insertMenuItem`, `insertMenuSeparator`, and `insertSubMenu` are Zig wrappers around `SWELL_InsertMenu` (with `pos=-1` for append). They compose the raw function with appropriate `MF_*` flags:
+
 - `insertMenuItem(menu, -1, id, text)` → `SWELL_InsertMenu(menu, -1, MF_STRING, id, text)`
 - `insertMenuSeparator(menu, -1)` → `SWELL_InsertMenu(menu, -1, MF_SEPARATOR, 0, "")`
 - `insertSubMenu(parent, -1, sub, text)` → `SWELL_InsertMenu(parent, -1, MF_POPUP|MF_STRING, @intFromPtr(sub), text)`
@@ -490,6 +491,7 @@ Position among other extensions' items depends on plugin load order (alphabetica
 To add a new menu item:
 
 1. Add an entry to `menu_items.zig`:
+
    ```zig
    .{ .action_id = "REAMO_MY_FEATURE", .label = "My Feature...", .group = .settings },
    ```
@@ -521,23 +523,27 @@ No changes needed to `main.zig`, SWELL bindings, or the menu hook — it's all d
 ## Implementation Plan
 
 ### Phase 1: SWELL Menu Bindings
+
 - Add menu-related function pointer getters to `zig_swell_bridge.mm/.h`
 - Add `MenuItemInfo` extern struct and SWELL-specific `MIIM_*`/`MF_*` constants to `swell.zig`
 - Add Zig wrapper functions in `swell.zig`
 - Verify `CreatePopupMenu` etc. load successfully at plugin init
 
 ### Phase 2: Menu Core
+
 - Create `menu.zig` with registration, hook callback, command dispatch
 - Create `menu_items.zig` with initial item table
 - Add `AddExtensionsMainMenu` to `raw.zig` API loading
 - Wire into `main.zig` init/shutdown
 
 ### Phase 3: Migrate Existing Actions
+
 - Move QR code and network address action registration from `network_action.zig` into the menu system
 - Keep handler functions in `network_action.zig` (it becomes a handler-only module)
 - Remove `network_action.register()` / `.unregister()` calls from `main.zig`
 
 ### Phase 4: New Menu Items
+
 - Add Settings dialog menu item
 - Add License Key entry menu item
 - Add About dialog menu item

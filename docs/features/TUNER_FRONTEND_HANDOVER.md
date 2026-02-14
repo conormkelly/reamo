@@ -33,6 +33,7 @@ Subscribe to tuner on a track. Inserts JSFX if first subscriber.
 ```
 
 **Response:**
+
 ```json
 {
   "type": "response",
@@ -49,6 +50,7 @@ Subscribe to tuner on a track. Inserts JSFX if first subscriber.
 ```
 
 **Behavior:**
+
 - Each client can subscribe to ONE track's tuner at a time
 - Subscribing auto-unsubscribes from previous track
 - Multiple clients can share a single track's JSFX (ref-counted)
@@ -134,6 +136,7 @@ Sent when the tuner can no longer function. Client is auto-unsubscribed.
 ```
 
 Error codes:
+
 - `TUNER_NOT_FOUND` - Track or tuner JSFX no longer exists
 - `GENERATION_FAILED` - Failed to read pitch data
 
@@ -250,6 +253,7 @@ export const createTunerSlice: StateCreator<TunerSlice, [], [], TunerSlice> = (s
 ```
 
 **Don't forget to:**
+
 1. Add `TunerSlice` to the combined store type in `store/index.ts`
 2. Import and spread `createTunerSlice(set, get, store)` in the store creation
 
@@ -389,6 +393,7 @@ For the track selector UI, use `BottomSheet` from `components/Modal/BottomSheet.
 The tuner MUST work in both portrait and landscape orientations. Follow [UX_GUIDELINES.md](../../docs/architecture/frontend/UX_GUIDELINES.md).
 
 #### Portrait Layout
+
 ```
 ┌─────────────────────────────┐
 │        [Track Name]         │
@@ -409,6 +414,7 @@ The tuner MUST work in both portrait and landscape orientations. Follow [UX_GUID
 ```
 
 #### Landscape Layout
+
 ```
 ┌───────────────────────────────────────────────────────┐
 │  [Track]  │           A 4           │    Settings    │
@@ -425,6 +431,7 @@ The tuner MUST work in both portrait and landscape orientations. Follow [UX_GUID
 To add the tuner as a navigable view:
 
 **1. Add to `frontend/src/viewRegistry.ts`:**
+
 ```typescript
 import { TunerView } from './views/tuner';
 
@@ -440,6 +447,7 @@ export const viewMeta: Record<ViewId, { label: string; shortLabel?: string }> = 
 ```
 
 **2. Add to `TabBar.tsx` VIEW_ORDER:**
+
 ```typescript
 const VIEW_ORDER: ViewId[] = ['timeline', 'mixer', 'clock', 'playlist', 'actions', 'notes', 'instruments', 'tuner'];
 ```
@@ -482,11 +490,13 @@ export function TunerView() {
 ### Visual States
 
 #### No Signal (freq = 0)
+
 - Show "Waiting for signal..." with guitar icon
 - Muted colors, subtle animation
 - Display track name so user knows which track is monitored
 
 #### Signal Detected
+
 - Large note name (96px+ portrait, 72px+ landscape)
 - Octave number (smaller, beside note)
 - Cents meter with color-coded indicator:
@@ -495,6 +505,7 @@ export function TunerView() {
   - **Red** (`|cents| >= 10`): Out of tune
 
 #### In Tune Celebration
+
 - Brief visual feedback when `inTune` becomes true
 - Consider haptic feedback: `navigator.vibrate?.(10)`
 - Don't be too flashy - musicians need to focus
@@ -523,6 +534,7 @@ className={cn(
 ## Implementation Checklist
 
 ### Phase 1: Core Functionality
+
 - [ ] Create tunerSlice in Zustand store
 - [ ] Add WebSocket event handlers
 - [ ] Implement useTuner hook (subscribe/unsubscribe lifecycle)
@@ -530,17 +542,20 @@ className={cn(
 - [ ] Add route/tab for tuner view
 
 ### Phase 2: UI Polish
+
 - [ ] TunerMeter component with smooth animation
 - [ ] TunerNote with responsive sizing
 - [ ] No-signal state with helpful messaging
 - [ ] In-tune celebration feedback
 
 ### Phase 3: Settings & Track Selection
+
 - [ ] TunerTrackSelector with armed track preference
 - [ ] Reference Hz adjustment (440 default, common: 432, 442, 443)
 - [ ] Remember last selected track in localStorage
 
 ### Phase 4: Responsive Testing
+
 - [ ] Test portrait on iPhone SE (smallest)
 - [ ] Test portrait on iPhone 14 Pro Max
 - [ ] Test landscape on all devices
@@ -566,6 +581,7 @@ Before implementing custom components, check if these existing patterns apply:
 | Slice pattern | `routingSlice` | `store/slices/routingSlice.ts` |
 
 **Color tokens for tuner states:**
+
 - In-tune: `bg-success`, `text-on-success`
 - Close: `bg-warning`, `text-on-warning`
 - Out of tune: `bg-error`, `text-on-error`
@@ -642,6 +658,7 @@ useEffect(() => {
 ### 2. Handle track deletion gracefully
 
 The backend auto-unsubscribes and sends `tunerError`. UI should:
+
 - Show error state briefly
 - Fall back to track selector
 - Don't crash if track no longer exists
@@ -651,6 +668,7 @@ The backend auto-unsubscribes and sends `tunerError`. UI should:
 Cents meter updates at 30Hz. Use CSS transitions OR ref-based DOM updates, not React state for position.
 
 **Pattern 1: CSS transitions (simplest for tuner meter)**
+
 ```tsx
 // Good - CSS handles animation, React just updates style prop
 <div
@@ -677,6 +695,7 @@ return <span ref={timeRef}>0:00.0</span>;
 ```
 
 **Bad - triggers 30 re-renders/second:**
+
 ```tsx
 const [position, setPosition] = useState(50);
 useEffect(() => setPosition(50 + cents), [cents]);
@@ -723,6 +742,7 @@ You'll see tuner events streaming at 30Hz with pitch data.
 ## Questions?
 
 If anything is unclear, check:
+
 1. The API.md tuner section
 2. TUNER.md specification
 3. Existing subscription implementations (peaks, trackFx, routing) for patterns

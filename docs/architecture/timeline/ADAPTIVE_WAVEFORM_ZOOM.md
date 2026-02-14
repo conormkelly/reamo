@@ -224,6 +224,7 @@ tilesForViewport() → selects LOD based on pixels/sec
 ```
 
 **Key optimizations:**
+
 - AudioAccessor created lazily (only on first cache miss)
 - Single accessor reused for all tiles of an item
 - 4000 Hz sample rate (11x faster than 44100 Hz)
@@ -291,6 +292,7 @@ function getTilesToFetch(viewport, lod) {
 | 2 | 400 peaks/sec | 0.5s | AudioAccessor |
 
 This unified approach:
+
 1. Uses `AudioAccessor` for all LODs (works reliably on ARM64 macOS)
 2. Tile-based caching enables efficient pan/zoom at any zoom level
 3. LRU eviction keeps memory bounded (~3.2 MB max)

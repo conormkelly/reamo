@@ -106,6 +106,7 @@ Cache-Control: no-store
 **`Cross-Origin-Opener-Policy: same-origin`** isolates REAmo's browsing context, preventing other windows or tabs (including attacker pages) from obtaining a reference to it. **`Cross-Origin-Resource-Policy: same-origin`** prevents any other origin from loading REAmo's resources via `<script>`, `<img>`, etc., mitigating Spectre-style side-channel attacks.
 
 If the build is migrated to emit separate asset files with content-hashed filenames, those can use different caching:
+
 ```http
 X-Content-Type-Options: nosniff
 Cross-Origin-Resource-Policy: same-origin

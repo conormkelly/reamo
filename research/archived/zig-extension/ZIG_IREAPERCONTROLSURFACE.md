@@ -244,7 +244,7 @@ const AudioHookRegister = extern struct {
 | Works fine | Same 30Hz for `Run()` | Smooth 60fps display |
 | Simple Zig code | C++ shim complexity | ±15ms achieved via math, not polling |
 
-**Recommendation**: 
+**Recommendation**:
 
 1. **Keep your current timer** — it's already at the maximum useful rate
 2. **Add client interpolation** — this is how professional timecode displays work

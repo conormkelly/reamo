@@ -59,6 +59,7 @@ Have Lua fetch peaks (which works), transfer to Zig via binary-packed strings.
 ### Key Implementation Details
 
 **Zig APIs registered for Lua** (`main.zig` LuaPeakBridge):
+
 - `Reamo_GetPeakRequestValid()` - Check if request pending
 - `Reamo_GetPeakRequestTrackIdx()` - Get track index
 - `Reamo_GetPeakRequestItemIdx()` - Get item index
@@ -72,10 +73,12 @@ Have Lua fetch peaks (which works), transfer to Zig via binary-packed strings.
 C strings are null-terminated. A packed struct with `track_idx=0` contains null bytes, which truncates the string when passed to Lua. Individual getter functions avoid this issue.
 
 **Vararg wrapper gotchas (ARM64 PAC):**
+
 - Integer args: Use `@truncate(@as(isize, @bitCast(@intFromPtr(arglist[N]))))`
 - Double return values: Use static storage, return pointer to real memory (not `@ptrFromInt(bits)` - PAC rejects fake pointers)
 
 **LOD change detection** (`peaks_subscriptions.zig`):
+
 - Track `last_broadcast_lod` per client
 - On `updateViewport`: if LOD changed → set `force_broadcast = true`
 - Without this, viewport updates wouldn't trigger new tile generation
@@ -97,6 +100,7 @@ Well under the 16.7ms frame budget. Typical full generation cycle: 5-15ms.
 ### Files Modified
 
 **Zig Extension:**
+
 - `extension/src/main.zig` - LuaPeakBridge with 8 API functions + vararg wrappers
 - `extension/src/peaks_generator.zig` - Viewport-based fetching (only fetch tiles in view)
 - `extension/src/peaks_subscriptions.zig` - LOD change detection, `last_broadcast_lod` tracking
@@ -105,9 +109,11 @@ Well under the 16.7ms frame budget. Typical full generation cycle: 5-15ms.
 - `extension/src/commands/peaks_subs.zig` - Logging for `updateViewport`
 
 **Lua Script:**
+
 - `Scripts/Reamo/reamo_internal_fetch_peaks.lua` - Peak fetching script
 
 **Frontend:**
+
 - `frontend/src/hooks/usePeaksSubscription.ts` - Effect 2 sends `updateViewport` on LOD change
 - `frontend/src/core/lod.ts` - `calculateLODFromViewport()` for LOD selection
 
@@ -153,6 +159,7 @@ All LODs use 256 peaks per tile. LOD selection based on viewport duration ensure
 ## Integration Checklist
 
 **Zig APIs:**
+
 - [x] `Reamo_ReceivePeakData` API
 - [x] `Reamo_GetPeakCount` API
 - [x] `Reamo_ClearPeakBuffer` API
@@ -165,6 +172,7 @@ All LODs use 256 peaks per tile. LOD selection based on viewport duration ensure
 - [x] `Reamo_SetPeakRequestComplete` callback
 
 **Lua Script:**
+
 - [x] Batched `string.pack` optimization (BATCH=1000)
 - [x] Create `Scripts/Reamo/reamo_internal_fetch_peaks.lua`
 - [x] Debug logging for 0-peak cases
@@ -172,12 +180,14 @@ All LODs use 256 peaks per tile. LOD selection based on viewport duration ensure
 - [ ] Test graceful degradation when script missing
 
 **Integration:**
+
 - [x] Wire into `peaks_generator.zig`
 - [x] Viewport-based fetching (only tiles in view)
 - [x] LOD change detection triggers broadcast
 - [ ] Validate take pointer before reading buffer
 
 **Validation:**
+
 - [x] Test stereo items - renders as split L/R lanes
 - [x] Test long items (>1 hour) - works with 69-minute project
 - [x] Validate on ARM64 macOS at LOD levels 2-6

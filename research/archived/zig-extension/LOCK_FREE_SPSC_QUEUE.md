@@ -272,6 +272,7 @@ Consider migrating if any of these become true:
 Lock-free code is notoriously hard to test because bugs depend on specific thread interleavings. Here's a comprehensive approach:
 
 **1. Sequence integrity test (essential)**
+
 ```zig
 test "SPSC maintains FIFO order" {
     var queue = SPSCQueue(u64, 1024){};
@@ -293,11 +294,13 @@ test "SPSC maintains FIFO order" {
 ```
 
 **2. Boundary conditions**
+
 - Test with capacity = 1 (edge case that breaks some implementations)
 - Test rapid full→empty→full transitions
 - Test exact capacity pushes followed by exact capacity pops
 
 **3. Extended stress test**
+
 - Run for 200+ seconds with random push/pop rates
 - Verify no data loss, no corruption, no hangs
 
@@ -319,6 +322,7 @@ Zig's TSAN integration is experimental. Workaround: write a C test harness that 
 **For your REAPER extension at 30Hz**: Keep your mutex-protected ring buffer. It's simpler, debuggable, and performance-equivalent for your workload. Safety matters more than micro-optimization.
 
 **If you want lock-free anyway**:
+
 1. **Easiest**: Add `freref/spsc-queue` as a Zig package dependency
 2. **Educational**: Use the implementation above as a starting point
 3. **Maximum performance**: Enable power-of-2 capacity for bitwise modulo

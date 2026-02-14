@@ -8,11 +8,13 @@
 ## Problem Statement (Updated)
 
 The initial side rail implementation (72px) crams too much into one vertical strip:
+
 - 7 view tabs + bank nav + info button + 3 transport buttons = ~562px demand
 - Available height on landscape phone: ~393px
 - Result: Cramped controls, lost feature discoverability, inconsistent with portrait UX
 
 **Solution:** Split into two rails:
+
 - **Left Rail (60px):** Navigation tabs + Transport (global controls)
 - **Right Rail (72px):** Bank nav + Tabs + Search (contextual tools, matches SecondaryPanel)
 
@@ -44,6 +46,7 @@ The initial side rail implementation (72px) crams too much into one vertical str
 ```
 
 **Space Budget (iPhone 14 Pro, 852×393):**
+
 - Left rail: 60px
 - Right rail: 72px
 - Content area: 720px (room for 6+ mixer strips)
@@ -58,22 +61,26 @@ The initial side rail implementation (72px) crams too much into one vertical str
 **Goal:** Extract transport + nav into a minimal 60px rail.
 
 **1.1 Rename and simplify SideRail → NavRail**
+
 ```
 File: frontend/src/components/SideRail/SideRail.tsx → NavRail.tsx
 ```
 
 Changes:
+
 - Remove: SideRailBankNav, SideRailActions imports and usage
 - Keep: View tabs (7 icons) + Transport controls (Play/Stop/Record)
 - Reduce width: 72px → 60px
 - Simplify: No bank nav state syncing needed
 
 **1.2 Update layout constants**
+
 ```
 File: frontend/src/constants/layout.ts
 ```
 
 Add:
+
 ```typescript
 export const NAV_RAIL_WIDTH = 60;
 export const CONTEXT_RAIL_WIDTH = 72;
@@ -81,6 +88,7 @@ export const CONTEXT_PANEL_WIDTH = 200; // Expanded overlay width
 ```
 
 **1.3 Delete unused subcomponents (defer until Phase 2 complete)**
+
 ```
 Files to eventually remove:
 - frontend/src/components/SideRail/SideRailBankNav.tsx
@@ -94,11 +102,13 @@ Files to eventually remove:
 **Goal:** New right-side rail that mirrors SecondaryPanel behavior.
 
 **2.1 Create ContextRail component**
+
 ```
 File: frontend/src/components/ContextRail/ContextRail.tsx
 ```
 
 Structure (72px wide, right edge):
+
 ```
 ┌──────────┐
 │ Tab: Info│  ← Icon button, active state
@@ -118,6 +128,7 @@ Structure (72px wide, right edge):
 ```
 
 Props:
+
 ```typescript
 interface ContextRailProps {
   viewId: 'mixer' | 'timeline';
@@ -129,6 +140,7 @@ interface ContextRailProps {
 ```
 
 **2.2 Create ContextRailTab subcomponent**
+
 ```
 File: frontend/src/components/ContextRail/ContextRailTab.tsx
 ```
@@ -138,6 +150,7 @@ File: frontend/src/components/ContextRail/ContextRailTab.tsx
 - Matches SecondaryPanelTab styling
 
 **2.3 Create ContextRailPanel (overlay)**
+
 ```
 File: frontend/src/components/ContextRail/ContextRailPanel.tsx
 ```
@@ -149,6 +162,7 @@ File: frontend/src/components/ContextRail/ContextRailPanel.tsx
 - Animated entrance/exit
 
 **2.4 Create barrel export**
+
 ```
 File: frontend/src/components/ContextRail/index.ts
 ```
@@ -160,11 +174,13 @@ Export: ContextRail, ContextRailTab, ContextRailPanel
 ### Phase 3: App Layout Integration
 
 **3.1 Update App.tsx for dual-rail layout**
+
 ```
 File: frontend/src/App.tsx
 ```
 
 Change landscape layout from:
+
 ```tsx
 <div className="flex flex-row h-dvh">
   <SideRail ... />
@@ -173,6 +189,7 @@ Change landscape layout from:
 ```
 
 To:
+
 ```tsx
 <div className="flex flex-row h-dvh">
   <NavRail currentView={...} onViewChange={...} />
@@ -184,10 +201,12 @@ To:
 **3.2 Context rail state management**
 
 Option A: Pass props from App (simpler, recommended for now)
+
 - App reads from view-specific hooks or store
 - Passes bankNav/search/tabs props to ContextRail
 
 Option B: Store-based (like current sideRailSlice)
+
 - Views populate store with their context
 - ContextRail reads from store
 - More decoupled but more complex
@@ -197,6 +216,7 @@ Option B: Store-based (like current sideRailSlice)
 **3.3 Handle ContextRail for non-Mixer/Timeline views**
 
 For views without bank nav (Clock, Playlist, Actions, Notes, Instruments):
+
 - ContextRail shows simplified version OR
 - ContextRail hidden entirely (just NavRail)
 
@@ -207,26 +227,31 @@ Decision: Hide ContextRail for views that don't need it. They have full width.
 ### Phase 4: View Integration
 
 **4.1 Update MixerView**
+
 ```
 File: frontend/src/views/mixer/MixerView.tsx
 ```
 
 Changes:
+
 - Remove: Side rail state syncing (setSideRailBankNav, setSideRailInfo, etc.)
 - Export: bankNavProps, searchProps, infoTabContent for App to pass to ContextRail
 - OR: Create useMixerContextRail() hook that returns these
 
 **4.2 Update TimelineView**
+
 ```
 File: frontend/src/views/timeline/TimelineView.tsx
 ```
 
 Changes:
+
 - Remove: Side rail state syncing
 - Export: bankNavProps, searchProps, tabs (info + toolbar) for ContextRail
 - OR: Create useTimelineContextRail() hook
 
 **4.3 Create context rail hooks (cleaner approach)**
+
 ```
 File: frontend/src/hooks/useContextRailConfig.ts
 ```
@@ -253,25 +278,30 @@ function useContextRailConfig(viewId: ViewId): ContextRailConfig | null {
 ### Phase 5: Polish & Edge Cases
 
 **5.1 Safe area handling**
+
 - NavRail: `safe-area-left` for notch on left
 - ContextRail: `safe-area-right` for notch on right (rare but possible)
 - Both: `safe-area-top`, `safe-area-bottom`
 
 **5.2 Orientation transition**
+
 - Smooth transition when rotating device
 - ContextRail panel should close on orientation change
 - State should persist (which tab was active, etc.)
 
 **5.3 Search behavior**
+
 - Tap search icon → opens BottomSheet with search input
 - OR: Inline expansion in rail (may be too narrow at 72px)
 - Recommendation: BottomSheet for search, keeps rail simple
 
 **5.4 Bank nav hold behavior**
+
 - Timeline: Hold bank display to show track labels overlay
 - Should work identically to SecondaryPanel behavior
 
 **5.5 RecordingActionsBar positioning**
+
 - Currently positioned above bottom safe area
 - With dual rails: position between the two rails
 - `left: 60px; right: 72px; bottom: safe-area`
@@ -323,6 +353,7 @@ function useContextRailConfig(viewId: ViewId): ContextRailConfig | null {
 ## Testing Checklist
 
 **Manual Testing:**
+
 - [ ] iPhone SE landscape (568×320) - dual rails fit
 - [ ] iPhone 14 Pro landscape (852×393) - primary target
 - [ ] iPhone 14 Pro Max landscape (932×430) - extra width
@@ -338,6 +369,7 @@ function useContextRailConfig(viewId: ViewId): ContextRailConfig | null {
 - [ ] RecordingActionsBar positioned correctly
 
 **E2E Tests:**
+
 ```typescript
 test('dual rail layout in landscape', async ({ page }) => {
   await page.setViewportSize({ width: 850, height: 400 });
@@ -358,6 +390,7 @@ test('context rail bank navigation', async ({ page }) => {
 ## Visual Reference
 
 **Portrait (unchanged):**
+
 ```
 ┌─────────────────────────────┐
 │         Header              │
@@ -375,6 +408,7 @@ test('context rail bank navigation', async ({ page }) => {
 ```
 
 **Landscape (new dual-rail):**
+
 ```
 ┌──────┬───────────────────────┬──────┐
 │      │        Header         │      │

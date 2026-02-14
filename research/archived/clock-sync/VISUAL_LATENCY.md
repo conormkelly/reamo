@@ -282,6 +282,7 @@ fn SetPlayState(play: bool, pause: bool, rec: bool) void {
 For the tightest possible sync, **Ableton Link** provides microsecond-accurate beat/phase alignment. REAPER supports it via the **ReaBlink** extension (github.com/ak5k/reablink). The catch: Link uses UDP multicast, which browsers cannot access directly.
 
 **Architecture with Link**:
+
 1. ReaBlink joins Link session from REAPER
 2. Your Zig extension or a Node.js bridge also joins the Link session
 3. Bridge relays Link state (beat, phase, tempo) over WebSocket to browser
@@ -361,6 +362,7 @@ With clock sync + prediction implemented correctly:
 | Very poor (RTT >100ms) | ±50-100ms | Degraded but functional |
 
 **Graceful degradation strategy**:
+
 - Monitor RTT continuously; show network quality indicator to user
 - When jitter exceeds threshold, increase jitter buffer automatically
 - If clock sync fails repeatedly, fall back to raw server values with warning

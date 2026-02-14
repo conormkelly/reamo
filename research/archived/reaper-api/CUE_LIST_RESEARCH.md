@@ -42,6 +42,7 @@ The **moveview** parameter is `true` (scrolls arrange view), while **seekplay** 
 **There is no crossfade or smoothing** on region transitions by default. The "smooth seek" feature (`S&M_PLAYLIST_OPT_SMOOTHSEEK_ON`) does not add audio crossfading—it simply delays the seek until the current region finishes playing, respecting REAPER's "play to end of current region" seeking preference.
 
 For smooth seek to function correctly:
+
 1. Enable REAPER preference: Audio → Seeking → "Do not change playback position immediately"
 2. Enable SWS option: `S&M_PLAYLIST_OPT_TGL_SMOOTHSEEK`
 
@@ -105,6 +106,7 @@ REAPER provides **no built-in locking mechanism** for extensions. The OSC and MI
 
 1. **Last-write-wins (simplest)**: Accept concurrent edits, broadcast changes to all clients, let UI handle conflicts visually
 2. **Optimistic locking via ExtState**:
+
    ```c
    // Check lock before editing
    if (strlen(GetExtState("MyExt", "playlist_lock")) == 0) {
@@ -113,6 +115,7 @@ REAPER provides **no built-in locking mechanism** for extensions. The OSC and MI
        SetExtState("MyExt", "playlist_lock", "", false);
    }
    ```
+
 3. **Version numbers**: Include a version counter in your playlist state, reject edits with stale versions
 
 **Practical recommendation**: Start with last-write-wins and broadcast all changes. Implement locking only if real-world usage reveals destructive conflicts. Most control surface use cases (live performance, studio mixing) involve a single operator at any moment.
@@ -131,7 +134,8 @@ Based on the research, here's a suggested design for your Zig extension:
 | **Client synchronization** | Broadcast state changes via WebSocket, last-write-wins |
 | **Settings persistence** | Global prefs in ExtState with `persist=true`, per-project in ProjExtState |
 
-**Key source files to examine** in the SWS repository (clone from https://github.com/reaper-oss/sws):
+**Key source files to examine** in the SWS repository (clone from <https://github.com/reaper-oss/sws>):
+
 - `SnM/SnM_RegionPlaylist.cpp` — Main playlist implementation
 - `SnM/SnM_RegionPlaylist.h` — Data structures and class definitions
 - `SnM/SnM.cpp` — Action registration including `PlaylistSeekPrevNext`, `PlaylistPlay`

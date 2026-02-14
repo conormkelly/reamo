@@ -631,6 +631,7 @@ const foo = useReaperStore((s) => s.foo);
 ```
 
 **Grep patterns:**
+
 ```bash
 # setTimeout without cleanup tracking
 grep -rn "setTimeout" --include="*.ts" --include="*.tsx" | grep -v "useRef\|clearTimeout"
@@ -668,12 +669,14 @@ useTransportAnimation((state) => {
 ```
 
 **Questions:**
+
 1. Which components select entire `tracks` object unnecessarily?
 2. Are there selectors that re-run on every meter update?
 3. Any cargo-cult useMemo/useCallback that adds overhead without benefit?
 4. Any missing memoization causing cascading re-renders?
 
 **Grep patterns:**
+
 ```bash
 # Components selecting entire objects
 grep -rn "useReaperStore.*=> state\." --include="*.tsx"
@@ -688,6 +691,7 @@ grep -rn "style={{" --include="*.tsx"
 ### 3. WebSocket Lifecycle Edge Cases
 
 **Covered scenarios:**
+
 - Reconnect with exponential backoff
 - iOS Safari zombie socket detection
 - PWA cold start workarounds
@@ -695,12 +699,14 @@ grep -rn "style={{" --include="*.tsx"
 - Online/offline events
 
 **Questions to audit:**
+
 - What happens if message arrives during reconnect?
 - `pendingResponses` Map - cleared on disconnect? Timeout handling?
 - `sendAsync()` has 5s timeout - but what if WS closes before timeout?
 - Clock sync state on reconnect - is resync() sufficient?
 
 **Grep patterns:**
+
 ```bash
 # Pending response handling
 grep -rn "pendingResponses" --include="*.ts"
@@ -729,6 +735,7 @@ tracks: Record<number, Track>
 ```
 
 **Grep patterns:**
+
 ```bash
 # Type assertions
 grep -rn " as " --include="*.ts" --include="*.tsx" | grep -v "import"
@@ -753,12 +760,14 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
 ```
 
 **Potential issues:**
+
 - Stale closures in callbacks that capture `get()` results
 - Manual localStorage sync (not persist middleware) - race conditions?
 - Map objects in state don't trigger re-renders on internal mutation
 - Slice interdependencies - can one slice break another?
 
 **Grep patterns:**
+
 ```bash
 # get() usage in action definitions (closure risk)
 grep -rn "get()\." --include="*Slice.ts"
@@ -773,12 +782,14 @@ grep -rn "\.set(" --include="*Slice.ts"
 ### 6. Touch/Gesture Correctness
 
 **iOS Safari quirks to check:**
+
 - `preventDefault()` on touchstart - does this block scroll?
 - 300ms delay to block synthesized mouse events - correct?
 - `setPointerCapture` - iOS Safari support confirmed?
 - `passive: false` for touch listeners - performance impact?
 
 **Grep patterns:**
+
 ```bash
 # preventDefault usage
 grep -rn "preventDefault" --include="*.ts" --include="*.tsx"
@@ -793,12 +804,14 @@ grep -rn "setPointerCapture\|releasePointerCapture" --include="*.ts" --include="
 ### 7. PWA Production Issues
 
 **Current handling:**
+
 - Service worker: **NOT present in codebase**
 - Manifest: Referenced in HTML but file location unclear
 - Standalone mode detection: `window.matchMedia('(display-mode: standalone)')`
 - Safe area handling: Comprehensive CSS utilities
 
 **Questions:**
+
 - What's the caching strategy without service worker?
 - App update flow? (Currently: HTML mtime check on reconnect → reload)
 - iOS standalone mode limitations being hit?
@@ -807,11 +820,13 @@ grep -rn "setPointerCapture\|releasePointerCapture" --include="*.ts" --include="
 ### 8. Error Boundaries
 
 **Current state:**
+
 - No `ErrorBoundary` components found in codebase
 - Console errors but no user-facing recovery
 - What happens when a slice throws?
 
 **Grep patterns:**
+
 ```bash
 # Error boundary usage
 grep -rn "ErrorBoundary\|componentDidCatch" --include="*.tsx"
@@ -823,6 +838,7 @@ grep -rn "window.onerror\|unhandledrejection" --include="*.ts"
 ### 9. Testing Gaps
 
 **Current coverage:**
+
 - Unit tests: Pure functions (tempoUtils, time, rippleOperations)
 - Store tests: Slice behavior (transportSlice, regionEditSlice)
 - Hook tests: useCurrentMarker, usePeakHold
@@ -830,6 +846,7 @@ grep -rn "window.onerror\|unhandledrejection" --include="*.ts"
 - E2E: Playwright setup
 
 **Hard-to-test areas:**
+
 - WebSocket reconnection flows (multi-step state machine)
 - 30Hz real-time update handling
 - Touch gesture sequences on iOS
@@ -854,6 +871,7 @@ import { Play, Pause, Square } from 'lucide-react';
 - No lazy loading possible with single-file output
 
 **Grep patterns:**
+
 ```bash
 # Large imports that might not tree-shake
 grep -rn "from 'lucide-react'" --include="*.ts" --include="*.tsx"
@@ -865,6 +883,7 @@ grep -rn "import(" --include="*.ts" --include="*.tsx"
 ### 11. Accessibility
 
 **Current gaps:**
+
 - Touch-optimized but keyboard navigation unclear
 - No `aria-live` regions for real-time updates
 - `prefers-reduced-motion`: Not referenced
@@ -872,6 +891,7 @@ grep -rn "import(" --include="*.ts" --include="*.tsx"
 - Screen reader announcements for transport state?
 
 **Grep patterns:**
+
 ```bash
 # ARIA attributes
 grep -rn "aria-" --include="*.tsx"
@@ -984,6 +1004,7 @@ const specificTrack = useReaperStore((s) => s.tracks[trackIndex]);
 ### 4. Questions to ask during review
 
 For each section, include 3-5 questions like:
+
 - When exactly does this cleanup run?
 - What happens if the component unmounts during the async operation?
 - Is this selector stable across re-renders?
@@ -991,12 +1012,13 @@ For each section, include 3-5 questions like:
 ### 5. React 19 / Zustand 5 specific gotchas
 
 Include any breaking changes or new patterns specific to:
+
 - React 19 concurrent features
 - React 19 automatic batching
 - Zustand 5 API changes from v4
 - TypeScript 5.9 strict mode implications
 
-### Focus areas for this specific codebase:
+### Focus areas for this specific codebase
 
 1. **Silent failures during hour-long sessions** - memory leaks, stale subscriptions
 2. **Memory growth that compounds** - Map/Set growth, uncleaned refs, cached data

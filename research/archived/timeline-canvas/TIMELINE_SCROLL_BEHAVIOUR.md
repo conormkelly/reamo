@@ -75,19 +75,22 @@ When loop/repeat mode is enabled, the end-of-project problem largely disappears�
 For REAmo's touch-optimized interface with 30Hz position updates, implement a hybrid of Options B and C:
 
 **Phase 1: Normal scrolling** (0% to ~85% of approach to end)
+
 - Playhead maintains fixed position at 1/3 from left edge
 - Timeline scrolls smoothly at normal rate
 - Standard behavior, no special handling
 
 **Phase 2: Transition zone** (~85% to 100%)
+
 - **Trigger**: When `remaining_scrollable_distance < (visible_width × 0.5)`
 - **Duration**: Typically 1-3 seconds depending on zoom level
-- **Behavior**: 
+- **Behavior**:
   - Scroll velocity multiplied by ease-out factor: `velocity × (remaining_percent²)`
   - Playhead position simultaneously drifts rightward from 1/3 toward final position
   - Result: Smooth deceleration with playhead arriving at actual end position naturally
 
 **Phase 3: End hold** (project complete)
+
 - Scrolling stops completely
 - Playhead at actual project end position (right side of content)
 - No empty space visible—view shows final section of project
@@ -163,6 +166,7 @@ Transitions:
 ### Frame rate and timing considerations
 
 At 30Hz position updates:
+
 - Each frame represents ~33ms
 - Transition calculations should be time-based, not frame-based
 - Use elapsed time since last update for velocity calculations
@@ -183,11 +187,13 @@ Research from IMG.LY's mobile video editor development indicates that phone and 
 ## Accessibility requirements
 
 **prefers-reduced-motion**: Must be respected. When enabled:
+
 - Disable the smooth transition—use instant snap to end position
 - Replace deceleration with binary behavior (scrolling → stopped)
 - Maintain functional correctness without animation
 
 **Implementation**:
+
 ```swift
 // iOS/SwiftUI
 @Environment(\.accessibilityReduceMotion) var reduceMotion
@@ -203,6 +209,7 @@ const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').match
 Given the constraint of no manual view control in V1, a single well-tuned behavior is superior to user configuration. However, consider exposing one preference:
 
 **Scroll behavior at project end**:
+
 - "Smooth landing" (default) — gradual deceleration with playhead drift
 - "Stop scrolling" — abrupt stop, playhead travels through static view
 
@@ -305,28 +312,33 @@ class TimelineScrollController {
 ## Key references and sources
 
 **Official Documentation**
+
 - Apple Final Cut Pro User Guide: "Scroll the Final Cut Pro for Mac timeline continuously during playback" — explicitly documents "scrolling will stop when there's no more available clip data"
 - Adobe Premiere Pro Help: Timeline Playback Auto-Scrolling preferences (Edit > Preferences > Timeline)
 - Steinberg Cubase Documentation: Auto-Scroll and Stationary Cursor mode descriptions
 - REAPER Wiki: Continuous scrolling behavior and "Play past end of project" preference
 
 **UX Research**
+
 - "DRAGON: Direct manipulation for frame-accurate navigation" — 19-42% task completion improvement with direct manipulation
 - "Data-Driven Interaction Techniques for Educational Video Navigation" (UIST 2014) — non-linear timeline scrubbing research
 - IMG.LY: "Building a Mobile Video Editor" — comprehensive mobile timeline UX case study with gesture handling guidance
 
 **Forum Discussions**
+
 - Gearspace thread on Logic Pro "Catch Playhead" frustrations and user preferences
 - PreSonus Community feature request for Studio One continuous scroll
 - Cockos REAPER Forums on scroll behavior and the apostrophe (') resync shortcut
 - Adobe Community discussion showing user preference split between smooth and page scroll
 
 **Accessibility Standards**
+
 - WCAG 2.1 Success Criterion 2.3.3: Animation from Interactions
 - WCAG 2.1 Success Criterion 2.2.2: Pause, Stop, Hide
 - prefers-reduced-motion CSS media query specification
 
 **Technical Implementation**
+
 - Chrome Scroll-Driven Animations API documentation (animation-timeline, animation-range)
 - iOS scroll physics analysis: momentum decay factor of 0.95 per frame
 - Unity Timeline documentation: Wrap Mode settings (Hold, Loop, None) and extrapolation behavior

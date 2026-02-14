@@ -105,6 +105,7 @@ const CleanupContext = struct {
 REAPER does not document stack size limits for extension callbacks, but **512KB on stack is extremely risky**. Default thread stack sizes are typically 1MB on Linux and 512KB on macOS secondary threads. Timer callbacks likely run on REAPER's main thread with unknown stack constraints.
 
 **Recommendation**: Move large buffers to heap allocation:
+
 - Audio peaks (512KB): Allocate once at startup, reuse
 - Notes buffer (64KB): Use arena allocator per request
 - JSON buffer (32KB): Use `ArrayList` with pre-reserved capacity
@@ -127,6 +128,7 @@ Professional projects can be massive: orchestral templates reach **1,000-2,000 t
 Silent truncation is problematic—it hides the issue and causes mysterious behavior. SQL Server 2019 explicitly added detailed truncation messages because silent truncation was a major developer pain point.
 
 **Recommended approach**:
+
 - Increase limits to reasonable maximums: **2,000 tracks**, **10,000 items**, **1,000 markers**
 - Log warnings when approaching limits (e.g., at 80% capacity)
 - Return explicit errors to WebSocket clients when limits are exceeded, including current count and maximum

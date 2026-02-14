@@ -130,6 +130,7 @@ When semantic tokens reference primitives using `var()`, use Tailwind 4's `inlin
 Your project already maintains layout constants in TypeScript for JavaScript calculations (panel heights, fader limits). The key question is source of truth—and for Tailwind 4 projects, **CSS should be authoritative** with TypeScript consuming those values.
 
 **Pattern 1: Read CSS variables at runtime**
+
 ```typescript
 const getSpacingToken = (tokenName: string): number => {
   const value = getComputedStyle(document.documentElement)

@@ -390,6 +390,7 @@ pub fn hash(self: ControlId) u64 {
 ```
 
 Then update `GestureState.gestures` to use context-aware hash map:
+
 ```zig
 gestures: std.HashMap(ControlId, ActiveGesture, ControlId.HashContext, std.hash_map.default_max_load_percentage),
 ```
@@ -491,6 +492,7 @@ param_subs: ?*TrackFxParamSubscriptions = null,
    - For each subscription, generate param values JSON
    - Check hash with `std.hash.Wyhash.hash(0, json_bytes)`, broadcast if changed
 3. **Cleanup** on client disconnect — Mirror `track_subscriptions.zig:295-315` pattern:
+
    ```zig
    pub fn removeClient(self: *TrackFxParamSubscriptions, client_id: usize) void {
        const slot = self.client_id_to_slot.get(client_id) orelse return;
@@ -509,6 +511,7 @@ param_subs: ?*TrackFxParamSubscriptions = null,
        logging.debug("trackfxparam_subscriptions: client {d} removed", .{client_id});
    }
    ```
+
 4. **Deinit** on shutdown
 
 ---

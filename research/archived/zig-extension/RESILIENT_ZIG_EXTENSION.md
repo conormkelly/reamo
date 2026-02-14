@@ -430,6 +430,7 @@ const useStaleIndicator = (lastUpdate: number, thresholdMs = 1000) => {
 ```
 
 **Visual treatment:**
+
 - **Fresh**: Normal rendering
 - **Stale**: 80% opacity, yellow timestamp badge showing "3s ago"
 - **Disconnected**: 60% opacity, "Reconnecting..." banner, last-known-good values displayed
@@ -460,6 +461,7 @@ The complete error flow:
 6. **React client** → Renders last-known-good with staleness indicators, reports to Sentry
 
 **Key invariants maintained:**
+
 - No heap allocation in error paths (stack buffers, pre-allocated ring)
 - No blocking on main thread (circuit breakers fail fast)
 - No crashes from bad C data (validation at boundary)

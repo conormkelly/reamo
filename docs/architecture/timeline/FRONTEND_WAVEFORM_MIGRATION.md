@@ -43,6 +43,7 @@ export interface TileCacheKey {
 ```
 
 **Also add:** LOD config constants matching backend `peaks_tile.zig`:
+
 ```typescript
 export const LOD_CONFIGS = {
   0: { duration: 64, peakrate: 1, peaksPerTile: 64 },    // Coarse
@@ -87,6 +88,7 @@ interface PeaksSlice {
 ### 1.3 Update Event Handler (`frontend/src/store/index.ts`)
 
 Update `handleWebSocketMessage` to parse new tile format:
+
 - Call `handlePeaksEvent` with new payload structure
 - Tiles stored in cache, indexed by take GUID
 
@@ -198,6 +200,7 @@ export const tileBitmapCache = new TileBitmapCache();
 ### 3.3 Create Waveform Components
 
 **`WaveformCanvas.tsx`** - Per-track canvas that renders all items:
+
 ```tsx
 interface WaveformCanvasProps {
   trackIdx: number;
@@ -211,6 +214,7 @@ interface WaveformCanvasProps {
 ```
 
 Key features:
+
 - Canvas sized to viewport (NOT item width)
 - No DPR scaling for waveforms (1x)
 - Blits cached ImageBitmaps for tiles
@@ -218,6 +222,7 @@ Key features:
 - Uses CSS `transform: translateZ(0)` for GPU compositing
 
 **`WaveformLayer.tsx`** - Container for all track canvases:
+
 ```tsx
 interface WaveformLayerProps {
   tracks: SkeletonTrack[];
@@ -326,12 +331,14 @@ vs Current: 72MB+ for per-item canvases → **50%+ reduction**
 ## File Summary
 
 ### New Files
+
 - `frontend/src/core/TileCache.ts`
 - `frontend/src/core/TileBitmapCache.ts`
 - `frontend/src/components/Timeline/WaveformCanvas.tsx`
 - `frontend/src/components/Timeline/WaveformLayer.tsx`
 
 ### Modified Files
+
 - `frontend/src/core/WebSocketTypes.ts`
 - `frontend/src/store/slices/peaksSlice.ts`
 - `frontend/src/store/index.ts`
@@ -340,6 +347,7 @@ vs Current: 72MB+ for per-item canvases → **50%+ reduction**
 - `frontend/src/components/Timeline/index.ts`
 
 ### Reference Files (read-only)
+
 - `extension/API.md` (lines 781-903) - Tile format spec
 - `extension/src/peaks_tile.zig` - Backend LOD configs
 - `research/TIMELINE_CANVAS_ARCHITECTURE.md` - Architecture guidance
