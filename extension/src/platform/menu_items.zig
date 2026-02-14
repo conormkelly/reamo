@@ -31,6 +31,7 @@ pub const items = [_]MenuItem{
     .{ .action_id = "REAMO_SHOW_NETWORKS", .label = "Show Network Addresses...", .group = .connection },
     // ── Settings ──
     .{ .action_id = "REAMO_CHANGE_PORT", .label = "Change Server Port...", .group = .settings },
+    .{ .action_id = "REAMO_ALLOWED_HOSTS", .label = "Allowed Hosts...", .group = .settings },
     // ── Top-level (no group) ──
     .{ .action_id = "REAMO_ABOUT", .label = "About REAmo" },
 };

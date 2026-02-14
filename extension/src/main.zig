@@ -35,6 +35,7 @@ const peaks_tile = @import("state/peaks_tile.zig");
 const track_skeleton = @import("state/track_skeleton.zig");
 const csurf = @import("server/csurf.zig");
 const csurf_dirty = @import("server/csurf_dirty.zig");
+const host_validation = @import("server/host_validation.zig");
 const network_action = @import("platform/network_action.zig");
 const menu = @import("platform/menu.zig");
 const swell = @import("platform/swell.zig");
@@ -398,6 +399,44 @@ fn doInitialization() !void {
                 logging.info("Configured port from ExtState: {d}", .{port});
             }
         } else |_| {}
+    }
+
+    // Auto-detect machine hostname and add to allowed hosts for DNS rebinding protection.
+    // Also allows any .local hostname (mDNS = LAN-only by definition).
+    // Users can add custom hostnames (Tailscale, VPN) via ExtState "Reamo/AllowedHosts".
+    {
+        var hostname_buf: [std.posix.HOST_NAME_MAX]u8 = undefined;
+        const hostname = std.posix.gethostname(&hostname_buf) catch null;
+        if (hostname) |name| {
+            _ = host_validation.addAllowedHost(name);
+            logging.info("Auto-detected hostname: {s}", .{name});
+
+            // Also add hostname.local for mDNS (redundant with .local suffix match,
+            // but makes getAllowedHosts() output clearer for the user dialog)
+            var local_buf: [std.posix.HOST_NAME_MAX + 6]u8 = undefined;
+            if (name.len + 6 <= local_buf.len) {
+                @memcpy(local_buf[0..name.len], name);
+                @memcpy(local_buf[name.len..][0..6], ".local");
+                _ = host_validation.addAllowedHost(local_buf[0 .. name.len + 6]);
+            }
+        }
+    }
+
+    // Read user-configured allowed hosts from ExtState (comma-separated)
+    if (api.getExtStateValue("Reamo", "AllowedHosts")) |hosts_str| {
+        if (hosts_str.len > 0) {
+            var iter = std.mem.splitScalar(u8, hosts_str, ',');
+            while (iter.next()) |entry| {
+                const trimmed = std.mem.trim(u8, entry, " ");
+                if (trimmed.len > 0) {
+                    if (!host_validation.addAllowedHost(trimmed)) {
+                        logging.warn("Allowed hosts list full, skipping: {s}", .{trimmed});
+                        break;
+                    }
+                }
+            }
+            logging.info("Loaded {d} allowed hosts from ExtState", .{host_validation.getAllowedHostCount()});
+        }
     }
 
     // HTTP+WS server will be started in processTimerCallback after startup completes
