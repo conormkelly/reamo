@@ -148,17 +148,14 @@ Core toggle + reorder shipped (see Shipped table). Remaining work:
 
 **Effort:** S
 
-### Pre-roll Settings in Quick Actions
+### Pre-roll & Count-In Settings — Measure Counts
 
-Surface metronome pre-roll (count-in bars) more prominently for self-recording musicians.
+Toggle controls shipped (see Shipped table). Remaining work:
 
-Pre-roll is essential for self-recording but currently buried in metronome settings.
+- Measure count steppers for count-in bars and pre-roll bars
+- Requires discovering REAPER config var names for count-in measure count and pre-roll measure count (not exposed via SWS or known API docs)
 
-- Add pre-roll bar count to QuickActionsPanel (near metronome/click controls)
-- Simple stepper: 0, 1, 2, 4 bars
-- Visual indicator when pre-roll is active
-
-**Effort:** XS (frontend only, settings already exist)
+**Effort:** XS (once config var names known)
 
 ### REAPER Version Feature Flags
 
@@ -512,6 +509,7 @@ Completed features, kept for historical reference.
 
 | Feature | Completed | Notes |
 |---------|-----------|-------|
+| Count-In & Pre-Roll Toggles | 2026-02-14 | 4 toggles in QuickActionsPanel: count-in play/rec + pre-roll play/rec. Count-in uses native `projmetroen` config var (no SWS dep). Pre-roll uses REAPER actions 41818/41819. State via project event polling. |
 | View Customization (Hide/Show/Reorder) | 2026-02-14 | Per-view show/hide toggles + drag-to-reorder in bottom sheet. Tab bar and side rail filter by visibility/order. Persisted to localStorage. Presets/onboarding deferred to v1.1. |
 | Extensions Menu System | 2026-02-07 | Declarative menu under Extensions > REAmo. SWELL bridge for macOS/Linux. **Windows: needs validation** — Win32 branches stub out, need `extern "user32"` calls. |
 | Context-Aware Take/Item Coloring | 2026-02-05 | Take rating via color (green/orange/red). REAPER color priority chain: take > item > theme. |
