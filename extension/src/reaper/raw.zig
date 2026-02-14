@@ -2249,6 +2249,56 @@ pub const Api = struct {
         return self.setMetronomeVolume(dbToLinear(db));
     }
 
+    // Count-in methods (projmetroen bitfield: bit 3 = count-in playback, bit 4 = count-in record)
+
+    /// Read the projmetroen config var as an int pointer (null if unavailable)
+    fn getProjMetroEnPtr(self: *const Api) ?*c_int {
+        const getoffs = self.projectconfig_var_getoffs orelse return null;
+        const getaddr = self.projectconfig_var_addr orelse return null;
+
+        var sz: c_int = 0;
+        const offs = getoffs("projmetroen", &sz);
+        if (offs < 0) return null;
+        if (sz != 4) return null; // sizeof(c_int)
+
+        const ptr = getaddr(null, offs) orelse return null;
+        return @ptrCast(@alignCast(ptr));
+    }
+
+    /// Get count-in before playback state
+    pub fn getCountInPlayback(self: *const Api) bool {
+        const ptr = self.getProjMetroEnPtr() orelse return false;
+        return (ptr.* & 8) != 0;
+    }
+
+    /// Get count-in before recording state
+    pub fn getCountInRecord(self: *const Api) bool {
+        const ptr = self.getProjMetroEnPtr() orelse return false;
+        return (ptr.* & 16) != 0;
+    }
+
+    /// Toggle count-in before playback (XOR bit 3)
+    pub fn toggleCountInPlayback(self: *const Api) void {
+        const ptr = self.getProjMetroEnPtr() orelse return;
+        ptr.* ^= 8;
+    }
+
+    /// Toggle count-in before recording (XOR bit 4)
+    pub fn toggleCountInRecord(self: *const Api) void {
+        const ptr = self.getProjMetroEnPtr() orelse return;
+        ptr.* ^= 16;
+    }
+
+    // Pre-roll state (native REAPER actions: 41818 = play, 41819 = record)
+
+    pub fn isPreRollPlay(self: *const Api) bool {
+        return self.getCommandStateEx(0, Command.PRE_ROLL_PLAY_TOGGLE) == 1;
+    }
+
+    pub fn isPreRollRecord(self: *const Api) bool {
+        return self.getCommandStateEx(0, Command.PRE_ROLL_RECORD_TOGGLE) == 1;
+    }
+
     // Time signature methods (using project config variables like REAPER's Project Settings dialog)
 
     /// Get project bar offset (e.g., -4 means display starts at bar -4, time 0 = bar 1)
@@ -2525,6 +2575,10 @@ pub const Command = struct {
 
     // Metronome
     pub const METRONOME_TOGGLE: c_int = 40364; // Toggle metronome
+
+    // Pre-roll
+    pub const PRE_ROLL_PLAY_TOGGLE: c_int = 41818; // Toggle pre-roll on play
+    pub const PRE_ROLL_RECORD_TOGGLE: c_int = 41819; // Toggle pre-roll on record
 
     // Tempo
     pub const TAP_TEMPO: c_int = 1134; // Tap tempo

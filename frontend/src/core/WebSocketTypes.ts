@@ -149,6 +149,14 @@ export interface ProjectEventPayload {
     volume: number; // linear 0-4
     volumeDb: number; // dB
   };
+  countIn: {
+    playback: boolean;
+    recording: boolean;
+  };
+  preRoll: {
+    playback: boolean;
+    recording: boolean;
+  };
   master: {
     stereoEnabled: boolean; // true = stereo, false = mono (L+R summed)
   };

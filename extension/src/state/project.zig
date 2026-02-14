@@ -26,6 +26,10 @@ pub const State = struct {
     repeat: bool = false,
     metronome_enabled: bool = false,
     metronome_volume: f64 = 1.0, // Linear amplitude (0.0-4.0)
+    count_in_playback: bool = false,
+    count_in_record: bool = false,
+    pre_roll_play: bool = false,
+    pre_roll_record: bool = false,
     bar_offset: c_int = 0, // Project bar offset (e.g., -4 means time 0 = bar 1, display starts at -4)
     master_stereo: bool = true, // Master track stereo mode (false = mono L+R summed)
     is_dirty: bool = false, // Project has unsaved changes
@@ -92,6 +96,10 @@ pub const State = struct {
         if (self.repeat != other.repeat) return false;
         if (self.metronome_enabled != other.metronome_enabled) return false;
         if (@abs(self.metronome_volume - other.metronome_volume) > 0.001) return false;
+        if (self.count_in_playback != other.count_in_playback) return false;
+        if (self.count_in_record != other.count_in_record) return false;
+        if (self.pre_roll_play != other.pre_roll_play) return false;
+        if (self.pre_roll_record != other.pre_roll_record) return false;
         if (@abs(self.project_length - other.project_length) > 0.001) return false;
         if (self.bar_offset != other.bar_offset) return false;
         if (self.master_stereo != other.master_stereo) return false;
@@ -120,6 +128,10 @@ pub const State = struct {
             .repeat = api.getRepeat(),
             .metronome_enabled = api.isMetronomeEnabled(),
             .metronome_volume = api.getMetronomeVolume(),
+            .count_in_playback = api.getCountInPlayback(),
+            .count_in_record = api.getCountInRecord(),
+            .pre_roll_play = api.isPreRollPlay(),
+            .pre_roll_record = api.isPreRollRecord(),
             .bar_offset = api.getBarOffset(),
             .master_stereo = master_mono_state != 1, // 1 = mono, so stereo = not mono
             .is_dirty = api.isDirty(),
@@ -210,12 +222,16 @@ pub const State = struct {
         }
 
         // Write remaining fields
-        writer.print(",\"stateChangeCount\":{d},\"repeat\":{s},\"metronome\":{{\"enabled\":{s},\"volume\":{d:.4},\"volumeDb\":{d:.2}}},\"master\":{{\"stereoEnabled\":{s}}},\"projectLength\":{d:.3},\"barOffset\":{d},\"isDirty\":{s},\"frameRate\":{d:.4},\"dropFrame\":{s},\"memoryWarning\":{s}}}}}", .{
+        writer.print(",\"stateChangeCount\":{d},\"repeat\":{s},\"metronome\":{{\"enabled\":{s},\"volume\":{d:.4},\"volumeDb\":{d:.2}}},\"countIn\":{{\"playback\":{s},\"recording\":{s}}},\"preRoll\":{{\"playback\":{s},\"recording\":{s}}},\"master\":{{\"stereoEnabled\":{s}}},\"projectLength\":{d:.3},\"barOffset\":{d},\"isDirty\":{s},\"frameRate\":{d:.4},\"dropFrame\":{s},\"memoryWarning\":{s}}}}}", .{
             self.state_change_count,
             if (self.repeat) "true" else "false",
             if (self.metronome_enabled) "true" else "false",
             self.metronome_volume,
             metro_vol_db,
+            if (self.count_in_playback) "true" else "false",
+            if (self.count_in_record) "true" else "false",
+            if (self.pre_roll_play) "true" else "false",
+            if (self.pre_roll_record) "true" else "false",
             if (self.master_stereo) "true" else "false",
             project_length,
             self.bar_offset,

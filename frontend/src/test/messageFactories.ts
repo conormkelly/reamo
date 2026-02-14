@@ -102,6 +102,8 @@ const PROJECT_DEFAULTS: ProjectEventPayload = {
   projectName: 'Test Project.rpp',
   repeat: false,
   metronome: { enabled: false, volume: 0.25, volumeDb: -12 },
+  countIn: { playback: false, recording: false },
+  preRoll: { playback: false, recording: false },
   master: { stereoEnabled: true },
   projectLength: 300,
   barOffset: 0,

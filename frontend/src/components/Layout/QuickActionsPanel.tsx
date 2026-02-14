@@ -12,7 +12,7 @@ import { BottomSheet } from '../Modal/BottomSheet';
 import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
 import { useTimeSignature } from '../../hooks';
-import { action, metronome, repeat, tempo, timesig } from '../../core/WebSocketCommands';
+import { action, metronome, countIn, repeat, tempo, timesig } from '../../core/WebSocketCommands';
 
 interface UndoRedoResponse {
   action: string | null;
@@ -39,6 +39,10 @@ export function QuickActionsPanel({ isOpen, onClose }: QuickActionsPanelProps): 
   // Transport state
   const isMetronome = useReaperStore((s) => s.isMetronome);
   const isRepeat = useReaperStore((s) => s.isRepeat);
+  const isCountInPlayback = useReaperStore((s) => s.isCountInPlayback);
+  const isCountInRecord = useReaperStore((s) => s.isCountInRecord);
+  const isPreRollPlay = useReaperStore((s) => s.isPreRollPlay);
+  const isPreRollRecord = useReaperStore((s) => s.isPreRollRecord);
   const bpm = useReaperStore((s) => s.bpm);
   const setBpm = useReaperStore((s) => s.setBpm);
 
@@ -85,6 +89,22 @@ export function QuickActionsPanel({ isOpen, onClose }: QuickActionsPanelProps): 
 
   const handleRepeat = useCallback(() => {
     sendCommand(repeat.toggle());
+  }, [sendCommand]);
+
+  const handleCountInPlayback = useCallback(() => {
+    sendCommand(countIn.togglePlayback());
+  }, [sendCommand]);
+
+  const handleCountInRecord = useCallback(() => {
+    sendCommand(countIn.toggleRecord());
+  }, [sendCommand]);
+
+  const handlePreRollPlay = useCallback(() => {
+    sendCommand(action.execute(41818)); // Pre-roll: Toggle pre-roll on play
+  }, [sendCommand]);
+
+  const handlePreRollRecord = useCallback(() => {
+    sendCommand(action.execute(41819)); // Pre-roll: Toggle pre-roll on record
   }, [sendCommand]);
 
   const handleTapTempo = useCallback(() => {
@@ -265,6 +285,71 @@ export function QuickActionsPanel({ isOpen, onClose }: QuickActionsPanelProps): 
             <Repeat size={20} />
             <span>Loop</span>
           </button>
+        </div>
+
+        {/* Count-In & Pre-Roll Toggles */}
+        <div className="flex justify-center gap-2 mb-4">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-text-muted mr-0.5">Count-In</span>
+            <button
+              onClick={handleCountInPlayback}
+              title="Count-in before playback"
+              aria-pressed={isCountInPlayback}
+              className={`flex items-center justify-center gap-1 px-3 h-9 rounded-lg text-sm font-medium transition-colors ${
+                isCountInPlayback
+                  ? 'bg-primary/20 text-primary'
+                  : 'bg-bg-elevated text-text-muted hover:bg-bg-hover'
+              }`}
+            >
+              <span className="text-[10px]">&#9654;</span>
+              Play
+            </button>
+            <button
+              onClick={handleCountInRecord}
+              title="Count-in before recording"
+              aria-pressed={isCountInRecord}
+              className={`flex items-center justify-center gap-1 px-3 h-9 rounded-lg text-sm font-medium transition-colors ${
+                isCountInRecord
+                  ? 'bg-record-dim-50 text-record-text'
+                  : 'bg-bg-elevated text-text-muted hover:bg-bg-hover'
+              }`}
+            >
+              <span className="text-[10px]">&#9679;</span>
+              Rec
+            </button>
+          </div>
+
+          <span className="text-text-muted self-center">·</span>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-text-muted mr-0.5">Pre-Roll</span>
+            <button
+              onClick={handlePreRollPlay}
+              title="Pre-roll before playback"
+              aria-pressed={isPreRollPlay}
+              className={`flex items-center justify-center gap-1 px-3 h-9 rounded-lg text-sm font-medium transition-colors ${
+                isPreRollPlay
+                  ? 'bg-primary/20 text-primary'
+                  : 'bg-bg-elevated text-text-muted hover:bg-bg-hover'
+              }`}
+            >
+              <span className="text-[10px]">&#9654;</span>
+              Play
+            </button>
+            <button
+              onClick={handlePreRollRecord}
+              title="Pre-roll before recording"
+              aria-pressed={isPreRollRecord}
+              className={`flex items-center justify-center gap-1 px-3 h-9 rounded-lg text-sm font-medium transition-colors ${
+                isPreRollRecord
+                  ? 'bg-record-dim-50 text-record-text'
+                  : 'bg-bg-elevated text-text-muted hover:bg-bg-hover'
+              }`}
+            >
+              <span className="text-[10px]">&#9679;</span>
+              Rec
+            </button>
+          </div>
         </div>
 
         {/* Divider */}

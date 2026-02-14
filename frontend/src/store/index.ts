@@ -35,7 +35,7 @@ import { createTimelineViewSlice, setupTimelineSubscriptions, type TimelineViewS
 import { createViewFilterSlice, setupViewFilterSubscriptions, type ViewFilterSlice } from './slices/viewFilterSlice';
 import { createTunerSlice, type TunerSlice } from './slices/tunerSlice';
 import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
-import { ActionCommands, SWSCommands } from '../core/types';
+import { ActionCommands } from '../core/types';
 import type {
   ServerMessage,
   TransportEventPayload,
@@ -207,10 +207,6 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
             get().setMetronome(cmdState.state === 1);
           } else if (cmdState.commandId === ActionCommands.AUTO_PUNCH) {
             get().setAutoPunch(cmdState.state === 1);
-          } else if (cmdState.commandId === SWSCommands.COUNT_IN_RECORD) {
-            get().setCountInRecord(cmdState.state === 1);
-          } else if (cmdState.commandId === SWSCommands.COUNT_IN_PLAYBACK) {
-            get().setCountInPlayback(cmdState.state === 1);
           }
           break;
         }
@@ -286,6 +282,10 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
         isRepeat: p.repeat,
         isMetronome: p.metronome.enabled,
         metronomeVolume: p.metronome.volume,
+        isCountInPlayback: p.countIn.playback,
+        isCountInRecord: p.countIn.recording,
+        isPreRollPlay: p.preRoll.playback,
+        isPreRollRecord: p.preRoll.recording,
         masterStereo: p.master.stereoEnabled,
         barOffset: p.barOffset,
       });
