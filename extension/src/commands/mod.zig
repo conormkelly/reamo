@@ -30,6 +30,7 @@ const track_cmds = @import("tracks.zig");
 const tempo_cmds = @import("tempo.zig");
 const timesig_cmds = @import("timesig.zig");
 const metronome_cmds = @import("metronome.zig");
+const count_in_cmds = @import("count_in.zig");
 const master_cmds = @import("master.zig");
 const extstate_cmds = @import("extstate.zig");
 const undo_cmds = @import("undo.zig");
@@ -373,6 +374,7 @@ test {
     _ = tempo_cmds;
     _ = timesig_cmds;
     _ = metronome_cmds;
+    _ = count_in_cmds;
     _ = master_cmds;
     _ = extstate_cmds;
     _ = undo_cmds;

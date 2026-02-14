@@ -16,6 +16,7 @@ const tracks = @import("tracks.zig");
 const tempo = @import("tempo.zig");
 const timesig = @import("timesig.zig");
 const metronome = @import("metronome.zig");
+const count_in = @import("count_in.zig");
 const master = @import("master.zig");
 const extstate = @import("extstate.zig");
 const undo = @import("undo.zig");
@@ -156,6 +157,10 @@ pub const all = .{
     .{ "metronome/toggle", metronome.handleToggle },
     .{ "metronome/getVolume", metronome.handleGetVolume },
     .{ "metronome/setVolume", metronome.handleSetVolume },
+
+    // Count-In
+    .{ "countIn/togglePlayback", count_in.handleTogglePlayback },
+    .{ "countIn/toggleRecord", count_in.handleToggleRecord },
 
     // Master
     .{ "master/toggleMono", master.handleToggleMono },

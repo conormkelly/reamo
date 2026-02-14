@@ -24,6 +24,8 @@ export interface TransportSlice {
   isAutoPunch: boolean;
   isCountInRecord: boolean;
   isCountInPlayback: boolean;
+  isPreRollPlay: boolean;
+  isPreRollRecord: boolean;
   metronomeVolume: number;
   masterStereo: boolean; // Master track stereo mode (false = mono)
   bpm: number | null;
@@ -43,6 +45,8 @@ export interface TransportSlice {
   setAutoPunch: (autoPunch: boolean) => void;
   setCountInRecord: (enabled: boolean) => void;
   setCountInPlayback: (enabled: boolean) => void;
+  setPreRollPlay: (enabled: boolean) => void;
+  setPreRollRecord: (enabled: boolean) => void;
   setMetronomeVolume: (volume: number) => void;
   setMasterStereo: (stereo: boolean) => void;
   setBpm: (bpm: number | null) => void;
@@ -60,6 +64,8 @@ export const createTransportSlice: StateCreator<TransportSlice> = (set, get) => 
   isAutoPunch: false,
   isCountInRecord: false,
   isCountInPlayback: false,
+  isPreRollPlay: false,
+  isPreRollRecord: false,
   metronomeVolume: 0.25, // Default ~-12dB
   masterStereo: true, // Default is stereo
   bpm: null,
@@ -111,6 +117,8 @@ export const createTransportSlice: StateCreator<TransportSlice> = (set, get) => 
   setAutoPunch: (isAutoPunch) => set({ isAutoPunch }),
   setCountInRecord: (isCountInRecord) => set({ isCountInRecord }),
   setCountInPlayback: (isCountInPlayback) => set({ isCountInPlayback }),
+  setPreRollPlay: (isPreRollPlay) => set({ isPreRollPlay }),
+  setPreRollRecord: (isPreRollRecord) => set({ isPreRollRecord }),
   setMetronomeVolume: (metronomeVolume) => set({ metronomeVolume }),
   setMasterStereo: (masterStereo) => set({ masterStereo }),
   setBpm: (bpm) => set({ bpm }),

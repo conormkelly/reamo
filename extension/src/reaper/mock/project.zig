@@ -148,6 +148,36 @@ pub const ProjectMethods = struct {
         self.metronome_volume = vol;
     }
 
+    pub fn getCountInPlayback(self: anytype) bool {
+        self.recordCall(.getCountInPlayback);
+        return self.count_in_playback;
+    }
+
+    pub fn getCountInRecord(self: anytype) bool {
+        self.recordCall(.getCountInRecord);
+        return self.count_in_record;
+    }
+
+    pub fn toggleCountInPlayback(self: anytype) void {
+        self.recordCall(.toggleCountInPlayback);
+        self.count_in_playback = !self.count_in_playback;
+    }
+
+    pub fn toggleCountInRecord(self: anytype) void {
+        self.recordCall(.toggleCountInRecord);
+        self.count_in_record = !self.count_in_record;
+    }
+
+    pub fn isPreRollPlay(self: anytype) bool {
+        self.recordCall(.isPreRollPlay);
+        return self.getCommandStateEx(0, 41818) == 1;
+    }
+
+    pub fn isPreRollRecord(self: anytype) bool {
+        self.recordCall(.isPreRollRecord);
+        return self.getCommandStateEx(0, 41819) == 1;
+    }
+
     // =========================================================================
     // Undo/Redo
     // =========================================================================

@@ -192,12 +192,6 @@ export const ActionCommands = {
   AUTO_PUNCH: 40076,
 } as const;
 
-// SWS extension action IDs (string-based, stable across sessions)
-export const SWSCommands = {
-  COUNT_IN_RECORD: '_SWS_AWCOUNTRECTOG',
-  COUNT_IN_PLAYBACK: '_SWS_AWCOUNTPLAYTOG',
-} as const;
-
 // =============================================================================
 // Input Selection Types
 // =============================================================================

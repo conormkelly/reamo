@@ -467,6 +467,15 @@ export const metronome = {
 };
 
 // =============================================================================
+// Count-In Commands
+// =============================================================================
+
+export const countIn = {
+  togglePlayback: (): WSCommand => ({ command: 'countIn/togglePlayback' }),
+  toggleRecord: (): WSCommand => ({ command: 'countIn/toggleRecord' }),
+};
+
+// =============================================================================
 // Master Track Commands
 // =============================================================================
 

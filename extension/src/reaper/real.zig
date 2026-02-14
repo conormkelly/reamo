@@ -260,6 +260,30 @@ pub const RealBackend = struct {
         return self.inner.setMetronomeVolume(vol);
     }
 
+    pub fn getCountInPlayback(self: *const RealBackend) bool {
+        return self.inner.getCountInPlayback();
+    }
+
+    pub fn getCountInRecord(self: *const RealBackend) bool {
+        return self.inner.getCountInRecord();
+    }
+
+    pub fn toggleCountInPlayback(self: *const RealBackend) void {
+        self.inner.toggleCountInPlayback();
+    }
+
+    pub fn toggleCountInRecord(self: *const RealBackend) void {
+        self.inner.toggleCountInRecord();
+    }
+
+    pub fn isPreRollPlay(self: *const RealBackend) bool {
+        return self.inner.isPreRollPlay();
+    }
+
+    pub fn isPreRollRecord(self: *const RealBackend) bool {
+        return self.inner.isPreRollRecord();
+    }
+
     // =========================================================================
     // Undo/Redo
     // =========================================================================

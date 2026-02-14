@@ -123,6 +123,8 @@ pub const MockBackend = struct {
     // =========================================================================
     metronome_enabled: bool = false,
     metronome_volume: f64 = 1.0,
+    count_in_playback: bool = false,
+    count_in_record: bool = false,
     command_states: [16]state.CommandStateEntry = [_]state.CommandStateEntry{.{}} ** 16,
     command_state_count: usize = 0,
 
@@ -514,6 +516,12 @@ pub const MockBackend = struct {
     pub const isMetronomeEnabled = project.ProjectMethods.isMetronomeEnabled;
     pub const getMetronomeVolume = project.ProjectMethods.getMetronomeVolume;
     pub const setMetronomeVolume = project.ProjectMethods.setMetronomeVolume;
+    pub const getCountInPlayback = project.ProjectMethods.getCountInPlayback;
+    pub const getCountInRecord = project.ProjectMethods.getCountInRecord;
+    pub const toggleCountInPlayback = project.ProjectMethods.toggleCountInPlayback;
+    pub const toggleCountInRecord = project.ProjectMethods.toggleCountInRecord;
+    pub const isPreRollPlay = project.ProjectMethods.isPreRollPlay;
+    pub const isPreRollRecord = project.ProjectMethods.isPreRollRecord;
     pub const canUndo = project.ProjectMethods.canUndo;
     pub const canRedo = project.ProjectMethods.canRedo;
     pub const doUndo = project.ProjectMethods.doUndo;
