@@ -53,6 +53,13 @@ pub const HttpServer = struct {
         server.* = try ServerType.init(allocator, .{
             .port = port,
             .address = "0.0.0.0",
+            .timeout = .{
+                .request = 5, // 5s header read timeout (Slowloris defense)
+                .keepalive = 30, // 30s keepalive (LAN latency is <1ms)
+            },
+            .workers = .{
+                .max_conn = 64, // Home studio: phone + tablet + laptop, not 8192
+            },
         }, handler);
 
         var router = try server.router(.{});

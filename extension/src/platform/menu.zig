@@ -239,6 +239,8 @@ fn dispatchAction(index: usize) void {
         network_action.showNetworkAddresses();
     } else if (std.mem.eql(u8, action_id, "REAMO_CHANGE_PORT")) {
         network_action.showChangePort();
+    } else if (std.mem.eql(u8, action_id, "REAMO_ALLOWED_HOSTS")) {
+        network_action.showAllowedHosts();
     } else if (std.mem.eql(u8, action_id, "REAMO_ABOUT")) {
         network_action.showAbout();
     } else {

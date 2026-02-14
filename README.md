@@ -70,6 +70,8 @@ REAmo runs its own HTTP server on your computer (default port 9224). Any device 
 
 **USB tethering:** For the lowest latency or when no WiFi is available, connect your phone via USB cable. REAmo detects USB network interfaces automatically. See the Network Addresses dialog for platform-specific setup instructions.
 
+**Allowed hosts (Tailscale, VPN, custom DNS):** REAmo protects against DNS rebinding attacks by only accepting connections from private IP addresses (127.x, 10.x, 192.168.x, etc.) and `.local` mDNS hostnames. If you connect via a Tailscale network, VPN, or custom DNS hostname, you may need to add your hostname to the allow list. Go to **Extensions > REAmo > Allowed Hosts...** and add your hostname (e.g., `mypc.tailnet.ts.net`). Multiple hostnames can be comma-separated. Your computer's hostname is added automatically.
+
 </details>
 
 ---

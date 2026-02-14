@@ -9,6 +9,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const network_detect = @import("network_detect.zig");
+const host_validation = @import("../server/host_validation.zig");
 const logging = @import("../core/logging.zig");
 const protocol = @import("../core/protocol.zig");
 const qr_window = @import("qr_window.zig");
@@ -379,5 +380,132 @@ pub fn showChangePort() void {
             }
             _ = show_msg(@ptrCast(&msg_buf), "REAmo", 0);
         }
+    }
+}
+
+/// Show dialog to view/edit allowed hostnames for DNS rebinding protection.
+/// Users with Tailscale, VPNs, or custom DNS can add their hostnames here.
+/// Private IPs (127.x, 10.x, 192.168.x, etc.) and .local names are always allowed.
+pub fn showAllowedHosts() void {
+    const get_input = g_get_user_inputs orelse {
+        logging.err("Network action: GetUserInputs not available", .{});
+        return;
+    };
+
+    // Build current hosts as comma-separated default value
+    var host_slices: [16][]const u8 = undefined;
+    const count = host_validation.getAllowedHosts(&host_slices);
+
+    var default_buf: [512]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&default_buf);
+    const writer = fbs.writer();
+    for (0..count) |i| {
+        if (i > 0) writer.writeAll(",") catch {};
+        writer.writeAll(host_slices[i]) catch {};
+    }
+    const default_written = fbs.getWritten();
+
+    // GetUserInputs writes result into this buffer
+    var input_buf: [512]u8 = undefined;
+    @memcpy(input_buf[0..default_written.len], default_written);
+    input_buf[default_written.len] = 0;
+
+    if (!get_input(
+        "REAmo Allowed Hosts",
+        1,
+        "Hostnames (comma-separated):",
+        &input_buf,
+        input_buf.len,
+    )) {
+        return; // User cancelled
+    }
+
+    // Parse input
+    const input_len = std.mem.indexOfScalar(u8, &input_buf, 0) orelse input_buf.len;
+    const input_str = input_buf[0..input_len];
+
+    // Clear and rebuild the allowed hosts list
+    host_validation.clearAllowedHosts();
+
+    // Re-add auto-detected hostname (always present)
+    {
+        var hostname_buf: [std.posix.HOST_NAME_MAX]u8 = undefined;
+        const hostname = std.posix.gethostname(&hostname_buf) catch null;
+        if (hostname) |name| {
+            _ = host_validation.addAllowedHost(name);
+            var local_buf: [std.posix.HOST_NAME_MAX + 6]u8 = undefined;
+            if (name.len + 6 <= local_buf.len) {
+                @memcpy(local_buf[0..name.len], name);
+                @memcpy(local_buf[name.len..][0..6], ".local");
+                _ = host_validation.addAllowedHost(local_buf[0 .. name.len + 6]);
+            }
+        }
+    }
+
+    // Get auto-detected hostname once for filtering
+    var auto_hostname_buf: [std.posix.HOST_NAME_MAX]u8 = undefined;
+    const auto_hostname = std.posix.gethostname(&auto_hostname_buf) catch null;
+    var auto_local_buf: [std.posix.HOST_NAME_MAX + 6]u8 = undefined;
+    const auto_local: ?[]const u8 = if (auto_hostname) |name| blk: {
+        if (name.len + 6 <= auto_local_buf.len) {
+            @memcpy(auto_local_buf[0..name.len], name);
+            @memcpy(auto_local_buf[name.len..][0..6], ".local");
+            break :blk auto_local_buf[0 .. name.len + 6];
+        }
+        break :blk null;
+    } else null;
+
+    // Add user entries
+    var user_hosts_buf: [512]u8 = undefined;
+    var user_fbs = std.io.fixedBufferStream(&user_hosts_buf);
+    const user_writer = user_fbs.writer();
+    var user_count: usize = 0;
+
+    var iter = std.mem.splitScalar(u8, input_str, ',');
+    while (iter.next()) |entry| {
+        const trimmed = std.mem.trim(u8, entry, " ");
+        if (trimmed.len == 0) continue;
+
+        // Skip auto-detected entries (already re-added above) for ExtState persistence
+        const is_auto = if (auto_hostname) |name|
+            std.mem.eql(u8, trimmed, name) or
+                (if (auto_local) |local| std.mem.eql(u8, trimmed, local) else false)
+        else
+            false;
+
+        _ = host_validation.addAllowedHost(trimmed);
+
+        // Only persist non-auto entries to ExtState
+        if (!is_auto) {
+            if (user_count > 0) user_writer.writeAll(",") catch {};
+            user_writer.writeAll(trimmed) catch {};
+            user_count += 1;
+        }
+    }
+
+    // Persist user-configured hosts (not auto-detected ones) to ExtState
+    if (g_set_ext_state) |set_state| {
+        const user_hosts = user_fbs.getWritten();
+        var persist_buf: [512]u8 = undefined;
+        if (user_hosts.len < persist_buf.len) {
+            @memcpy(persist_buf[0..user_hosts.len], user_hosts);
+            persist_buf[user_hosts.len] = 0;
+            set_state("Reamo", "AllowedHosts", @ptrCast(&persist_buf), 1);
+        }
+    }
+
+    // Show confirmation
+    if (g_show_message_box) |show_msg| {
+        var msg_buf: [256]u8 = undefined;
+        var msg_fbs = std.io.fixedBufferStream(&msg_buf);
+        msg_fbs.writer().print(
+            "Allowed hosts updated ({d} total).\n\nPrivate IPs and .local names are always allowed.",
+            .{host_validation.getAllowedHostCount()},
+        ) catch {};
+        const msg_written = msg_fbs.getWritten();
+        if (msg_written.len < msg_buf.len) {
+            msg_buf[msg_written.len] = 0;
+        }
+        _ = show_msg(@ptrCast(&msg_buf), "REAmo", 0);
     }
 }
