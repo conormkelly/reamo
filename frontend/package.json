@@ -7,8 +7,8 @@
   "scripts": {
     "prepare": "cd .. && husky frontend/.husky",
     "dev": "vite",
-    "build": "tsc -b && vite build && cp ./dist/index.html ../reamo.html && cp ./public/icon*.png ./public/icon.svg ./public/manifest.json ../",
-    "build:debug": "tsc -b && vite build --mode development && cp ./dist/index.html ../reamo.html && cp ./public/icon*.png ./public/icon.svg ./public/manifest.json ../",
+    "build": "tsc -b && vite build && rm -rf ../web && cp -r ./dist ../web && cp ./public/icon*.png ./public/icon.svg ./public/manifest.json ../web/",
+    "build:debug": "tsc -b && vite build --mode development && rm -rf ../web && cp -r ./dist ../web && cp ./public/icon*.png ./public/icon.svg ./public/manifest.json ../web/",
     "deploy": "npm run build",
     "release": "npm run deploy && node scripts/create-release-zip.js",
     "analyze": "tsc -b && vite build --mode analyze",
@@ -31,8 +31,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
-    "husky": "^9.1.7",
-    "lint-staged": "^15.5.0",
     "@playwright/test": "^1.57.0",
     "@tailwindcss/postcss": "^4.1.17",
     "@testing-library/jest-dom": "^6.9.1",
@@ -49,14 +47,15 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
+    "husky": "^9.1.7",
     "jsdom": "^27.3.0",
+    "lint-staged": "^15.5.0",
     "postcss": "^8.5.6",
     "rollup-plugin-visualizer": "^6.0.5",
     "tailwindcss": "^4.1.17",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
     "vite": "^7.2.4",
-    "vite-plugin-singlefile": "^2.3.0",
     "vitest": "^4.0.16",
     "ws": "^8.19.0"
   }

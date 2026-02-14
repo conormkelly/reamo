@@ -20,10 +20,11 @@ pub const HttpServer = struct {
     listen_thread: ?Thread = null,
     port: u16,
     index_html: ?[]const u8, // Cached HTML with token meta tag injected
+    web_dir: ?[]const u8, // Directory containing web assets (index.html, assets/, etc.)
 
     /// Initialize the HTTP server. Reads and caches HTML file with token injection.
     /// Does NOT start listening — call `start()` for that.
-    pub fn init(allocator: Allocator, state: *ws_server.SharedState, port: u16, html_path: ?[]const u8) !HttpServer {
+    pub fn init(allocator: Allocator, state: *ws_server.SharedState, port: u16, html_path: ?[]const u8, web_dir: ?[]const u8) !HttpServer {
         // Read and cache HTML with token injected
         const cached_html = if (html_path) |path| blk: {
             const html = std.fs.cwd().readFileAlloc(allocator, path, 4 * 1024 * 1024) catch |err| {
@@ -43,7 +44,7 @@ pub const HttpServer = struct {
             break :blk injected;
         } else null;
 
-        const handler = Handler{ .state = state, .index_html = cached_html };
+        const handler = Handler{ .state = state, .index_html = cached_html, .web_dir = web_dir };
 
         // httpz.Server.init returns by value; we need a heap-stable pointer
         // because listenInNewThread takes *Self
@@ -57,6 +58,7 @@ pub const HttpServer = struct {
         var router = try server.router(.{});
         router.get("/", serveIndex, .{});
         router.get("/ws", serveWsUpgrade, .{});
+        router.get("/*", serveStatic, .{});
 
         return .{
             .allocator = allocator,
@@ -64,6 +66,7 @@ pub const HttpServer = struct {
             .server = server,
             .port = port,
             .index_html = cached_html,
+            .web_dir = web_dir,
         };
     }
 
@@ -92,6 +95,10 @@ pub const HttpServer = struct {
     }
 
     /// Re-read and cache HTML file with token injection (for hot reload).
+    /// NOTE: Intentionally does NOT free the old index_html. httpz worker threads
+    /// may still be writing it to an in-flight HTTP response. Freeing it races with
+    /// response.Response.write → memmove → segfault. The leak is ~2KB per rebuild,
+    /// only during development, cleaned up when REAPER exits.
     pub fn reloadHtml(self: *HttpServer, html_path: []const u8) void {
         const html = std.fs.cwd().readFileAlloc(self.allocator, html_path, 4 * 1024 * 1024) catch |err| {
             logging.warn("http_server: hot reload failed to read '{s}': {s}", .{ html_path, @errorName(err) });
@@ -100,7 +107,6 @@ pub const HttpServer = struct {
 
         const injected = injectTokenMeta(self.allocator, html, self.state) catch {
             // Use raw HTML if injection fails
-            if (self.index_html) |old| self.allocator.free(old);
             self.index_html = html;
             self.server.handler.index_html = html;
             return;
@@ -109,7 +115,7 @@ pub const HttpServer = struct {
         if (injected.ptr != html.ptr) {
             self.allocator.free(html);
         }
-        if (self.index_html) |old| self.allocator.free(old);
+        // Old index_html intentionally leaked — see doc comment above
         self.index_html = injected;
         self.server.handler.index_html = injected;
     }
@@ -121,6 +127,7 @@ pub const HttpServer = struct {
 const Handler = struct {
     state: *ws_server.SharedState,
     index_html: ?[]const u8 = null,
+    web_dir: ?[]const u8 = null,
 
     pub const WebsocketHandler = WsHandler;
 };
@@ -179,6 +186,71 @@ fn serveWsUpgrade(handler: Handler, req: *httpz.Request, res: *httpz.Response) !
     }
 }
 
+fn serveStatic(handler: Handler, req: *httpz.Request, res: *httpz.Response) !void {
+    const host = req.header("host") orelse {
+        res.status = 403;
+        res.body = "Forbidden: missing Host header";
+        return;
+    };
+    if (!host_validation.isValidLocalHost(host)) {
+        res.status = 403;
+        res.body = "Forbidden: invalid Host header";
+        return;
+    }
+
+    const web_dir = handler.web_dir orelse {
+        res.status = 404;
+        res.body = "Not found";
+        return;
+    };
+    const path = req.url.path;
+
+    // Security: reject directory traversal
+    if (std.mem.indexOf(u8, path, "..") != null) {
+        res.status = 403;
+        res.body = "Forbidden";
+        return;
+    }
+
+    // Strip leading / to get relative path
+    const relative = if (path.len > 0 and path[0] == '/') path[1..] else path;
+    if (relative.len == 0) {
+        res.status = 404;
+        res.body = "Not found";
+        return;
+    }
+
+    // Build file path: web_dir/relative
+    var buf: [1024]u8 = undefined;
+    const file_path = std.fmt.bufPrint(&buf, "{s}/{s}", .{ web_dir, relative }) catch {
+        res.status = 500;
+        res.body = "Internal error";
+        return;
+    };
+
+    // Read file using per-request arena (auto-freed after response)
+    const content = std.fs.cwd().readFileAlloc(res.arena, file_path, 4 * 1024 * 1024) catch {
+        res.status = 404;
+        res.body = "Not found";
+        return;
+    };
+
+    // Content-Type from file extension
+    const ct = httpz.ContentType.forFile(relative);
+    if (ct != .UNKNOWN) res.content_type = ct;
+
+    // Cache headers: content-hashed assets get immutable caching, everything else no-store
+    if (std.mem.startsWith(u8, relative, "assets/")) {
+        res.header("Cache-Control", "public, max-age=31536000, immutable");
+    } else {
+        res.header("Cache-Control", "no-store");
+    }
+
+    res.header("X-Content-Type-Options", "nosniff");
+    res.header("Cross-Origin-Resource-Policy", "same-origin");
+    res.body = content;
+}
+
 // ── WebSocket Handler ──────────────────────────────────────────────
 
 /// WebSocket handler for httpz. Mirrors the old ws_server.Client logic.
@@ -187,6 +259,7 @@ const WsHandler = struct {
     conn: *websocket.Conn,
     state: *ws_server.SharedState,
     authenticated: bool = false,
+    closed: bool = false,
 
     const Context = struct {
         state: *ws_server.SharedState,
@@ -305,6 +378,8 @@ const WsHandler = struct {
     }
 
     pub fn close(self: *WsHandler) void {
+        if (self.closed) return;
+        self.closed = true;
         self.state.removeClient(self.id);
     }
 };
@@ -314,8 +389,8 @@ const WsHandler = struct {
 fn setSecurityHeaders(res: *httpz.Response) void {
     // Prevent framing (clickjacking)
     res.header("X-Frame-Options", "DENY");
-    // CSP: Phase 1-2 allows unsafe-inline for viteSingleFile build
-    res.header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:; font-src 'self' data:");
+    // CSP: strict policy — no unsafe-inline (code-split build serves external JS/CSS)
+    res.header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; font-src 'self' data:");
     // Prevent MIME sniffing
     res.header("X-Content-Type-Options", "nosniff");
     // No caching for dynamic content

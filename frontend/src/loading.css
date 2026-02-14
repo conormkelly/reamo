@@ -1,0 +1,35 @@
+/* Loading skeleton - shows immediately before bundle parses */
+body {
+  margin: 0;
+  background: #1a1a1a;
+  color: #fff;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+#loading-skeleton {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  height: 100dvh;
+  gap: 16px;
+}
+#loading-skeleton .icon {
+  width: 80px;
+  height: 80px;
+}
+#loading-skeleton .title {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  margin: 0;
+}
+#loading-skeleton .spinner {
+  width: 24px;
+  height: 24px;
+  margin-top: 8px;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
