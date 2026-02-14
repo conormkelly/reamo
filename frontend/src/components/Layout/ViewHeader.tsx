@@ -50,6 +50,7 @@ export function ViewHeader({ currentView, children, overflowItems }: ViewHeaderP
   const actionsAutoCollapse = useReaperStore((s) => s.actionsAutoCollapse);
   const setActionsAutoCollapse = useReaperStore((s) => s.setActionsAutoCollapse);
   const openTimelineSettingsModal = useReaperStore((s) => s.openTimelineSettingsModal);
+  const openViewCustomizationModal = useReaperStore((s) => s.openViewCustomizationModal);
 
   return (
     <div className="flex items-center gap-3 mb-3 min-h-[40px]">
@@ -72,6 +73,7 @@ export function ViewHeader({ currentView, children, overflowItems }: ViewHeaderP
         onToggleShowAddTrackButton={() => setShowAddTrackButton(!showAddTrackButton)}
         actionsAutoCollapse={actionsAutoCollapse}
         onToggleActionsAutoCollapse={() => setActionsAutoCollapse(!actionsAutoCollapse)}
+        onOpenViewCustomization={openViewCustomizationModal}
         onOpenTimelineSettings={openTimelineSettingsModal}
       />
 

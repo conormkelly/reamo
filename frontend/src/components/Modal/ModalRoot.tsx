@@ -16,6 +16,7 @@ import { DeleteRegionModal } from '../Timeline/DeleteRegionModal';
 import { AddRegionModal } from '../Timeline/AddRegionModal';
 import { MakeSelectionModal } from '../Timeline/MakeSelectionModal';
 import { TimelineSettingsSheet } from '.';
+import { ViewCustomizationSheet } from '.';
 
 export function ModalRoot(): ReactElement | null {
   const { sendCommand } = useReaper();
@@ -79,6 +80,9 @@ export function ModalRoot(): ReactElement | null {
 
     case 'timelineSettings':
       return <TimelineSettingsSheet isOpen onClose={closeModal} />;
+
+    case 'viewCustomization':
+      return <ViewCustomizationSheet isOpen onClose={closeModal} />;
 
     case 'none':
     default:

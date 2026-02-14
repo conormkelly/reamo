@@ -6,6 +6,7 @@
 
 import { type ReactElement, useState, useRef, useEffect, useCallback } from 'react';
 import { type ViewId, viewMeta } from '../../viewRegistry';
+import { useReaperStore } from '../../store';
 
 export interface TabBarProps {
   currentView: ViewId;
@@ -13,9 +14,11 @@ export interface TabBarProps {
   className?: string;
 }
 
-const VIEW_ORDER: ViewId[] = ['timeline', 'mixer', 'clock', 'tuner', 'playlist', 'actions', 'notes', 'instruments'];
-
 export function TabBar({ currentView, onViewChange, className = '' }: TabBarProps): ReactElement {
+  const hiddenViews = useReaperStore((s) => s.hiddenViews);
+  const viewOrder = useReaperStore((s) => s.viewOrder);
+  const visibleViews = viewOrder.filter(v => !hiddenViews.includes(v));
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showLeftFade, setShowLeftFade] = useState(false);
   const [showRightFade, setShowRightFade] = useState(false);
@@ -58,7 +61,7 @@ export function TabBar({ currentView, onViewChange, className = '' }: TabBarProp
         ref={scrollRef}
         className="flex overflow-x-auto scrollbar-hide"
       >
-        {VIEW_ORDER.map((viewId) => {
+        {visibleViews.map((viewId) => {
           const meta = viewMeta[viewId];
           const isActive = currentView === viewId;
 

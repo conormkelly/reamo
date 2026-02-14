@@ -14,7 +14,8 @@ export type ModalState =
   | { type: 'deleteRegion'; region: Region; regionId: number }
   | { type: 'addRegion' }
   | { type: 'makeSelection' }
-  | { type: 'timelineSettings' };
+  | { type: 'timelineSettings' }
+  | { type: 'viewCustomization' };
 
 export interface ModalSlice {
   // State
@@ -26,6 +27,7 @@ export interface ModalSlice {
   openAddRegionModal: () => void;
   openMakeSelectionModal: () => void;
   openTimelineSettingsModal: () => void;
+  openViewCustomizationModal: () => void;
   closeModal: () => void;
 }
 
@@ -39,5 +41,6 @@ export const createModalSlice: StateCreator<ModalSlice> = (set) => ({
   openAddRegionModal: () => set({ modal: { type: 'addRegion' } }),
   openMakeSelectionModal: () => set({ modal: { type: 'makeSelection' } }),
   openTimelineSettingsModal: () => set({ modal: { type: 'timelineSettings' } }),
+  openViewCustomizationModal: () => set({ modal: { type: 'viewCustomization' } }),
   closeModal: () => set({ modal: { type: 'none' } }),
 });

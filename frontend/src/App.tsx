@@ -41,6 +41,8 @@ function AppContent() {
   });
 
   const { showTabBar, showPersistentTransport, transportPosition } = useUIPreferences();
+  const hiddenViews = useReaperStore((s) => s.hiddenViews);
+  const viewOrder = useReaperStore((s) => s.viewOrder);
   const showRecordingActions = useReaperStore((s) => s.showRecordingActions);
   const updateAvailable = useReaperStore((s) => s.updateAvailable);
   const { isRecording } = useTransport();
@@ -65,6 +67,14 @@ function AppContent() {
       // Ignore quota exceeded errors on iOS
     }
   }, [currentView]);
+
+  // Redirect to first visible view if current view was hidden
+  useEffect(() => {
+    if (hiddenViews.includes(currentView)) {
+      const firstVisible = viewOrder.find(v => !hiddenViews.includes(v));
+      if (firstVisible) setCurrentView(firstVisible);
+    }
+  }, [hiddenViews, viewOrder, currentView]);
 
   const ViewComponent = views[currentView];
 

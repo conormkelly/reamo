@@ -4,6 +4,7 @@
  */
 
 import type { StateCreator } from 'zustand';
+import { type ViewId, VIEW_ORDER } from '../../viewRegistry';
 
 const UI_PREFS_KEY = 'reamo_ui_preferences';
 
@@ -21,6 +22,10 @@ export interface UIPreferencesState {
   autoUpdateEnabled: boolean;
   /** Number of track lanes to show in timeline view (1-8) */
   timelineLaneCount: number;
+  /** Views hidden from tab bar and side rail */
+  hiddenViews: ViewId[];
+  /** Custom view order for tab bar and side rail */
+  viewOrder: ViewId[];
 
   // Actions
   setShowTabBar: (show: boolean) => void;
@@ -35,6 +40,8 @@ export interface UIPreferencesState {
   setAutoUpdateEnabled: (enabled: boolean) => void;
   toggleAutoUpdateEnabled: () => void;
   setTimelineLaneCount: (count: number) => void;
+  toggleViewVisibility: (viewId: ViewId) => void;
+  reorderView: (fromIndex: number, toIndex: number) => void;
   loadUIPrefsFromStorage: () => void;
 }
 
@@ -46,6 +53,8 @@ interface StoredPrefs {
   followPlayheadReEnable?: FollowPlayheadReEnable;
   autoUpdateEnabled?: boolean;
   timelineLaneCount?: number;
+  hiddenViews?: ViewId[];
+  viewOrder?: ViewId[];
 }
 
 const DEFAULT_PREFS = {
@@ -56,11 +65,25 @@ const DEFAULT_PREFS = {
   followPlayheadReEnable: 'on-playback' as FollowPlayheadReEnable,
   autoUpdateEnabled: true,
   timelineLaneCount: 4,
+  hiddenViews: [] as ViewId[],
+  viewOrder: [...VIEW_ORDER],
 };
 
-function saveToStorage(prefs: StoredPrefs): void {
+/** Snapshot all preferences from current state and persist to localStorage */
+function saveToStorage(get: () => UIPreferencesState): void {
   try {
-    localStorage.setItem(UI_PREFS_KEY, JSON.stringify(prefs));
+    const s = get();
+    localStorage.setItem(UI_PREFS_KEY, JSON.stringify({
+      showTabBar: s.showTabBar,
+      showPersistentTransport: s.showPersistentTransport,
+      transportPosition: s.transportPosition,
+      notesFontSize: s.notesFontSize,
+      followPlayheadReEnable: s.followPlayheadReEnable,
+      autoUpdateEnabled: s.autoUpdateEnabled,
+      timelineLaneCount: s.timelineLaneCount,
+      hiddenViews: s.hiddenViews,
+      viewOrder: s.viewOrder,
+    } satisfies StoredPrefs));
   } catch (e) {
     console.warn('Failed to save UI preferences:', e);
   }
@@ -71,165 +94,80 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
 
   setShowTabBar: (show) => {
     set({ showTabBar: show });
-    saveToStorage({
-      showTabBar: show,
-      showPersistentTransport: get().showPersistentTransport,
-      transportPosition: get().transportPosition,
-      notesFontSize: get().notesFontSize,
-      followPlayheadReEnable: get().followPlayheadReEnable,
-      autoUpdateEnabled: get().autoUpdateEnabled,
-      timelineLaneCount: get().timelineLaneCount,
-    });
+    saveToStorage(get);
   },
 
   setShowPersistentTransport: (show) => {
     set({ showPersistentTransport: show });
-    saveToStorage({
-      showTabBar: get().showTabBar,
-      showPersistentTransport: show,
-      transportPosition: get().transportPosition,
-      notesFontSize: get().notesFontSize,
-      followPlayheadReEnable: get().followPlayheadReEnable,
-      autoUpdateEnabled: get().autoUpdateEnabled,
-      timelineLaneCount: get().timelineLaneCount,
-    });
+    saveToStorage(get);
   },
 
   setTransportPosition: (position) => {
     set({ transportPosition: position });
-    saveToStorage({
-      showTabBar: get().showTabBar,
-      showPersistentTransport: get().showPersistentTransport,
-      transportPosition: position,
-      notesFontSize: get().notesFontSize,
-      followPlayheadReEnable: get().followPlayheadReEnable,
-      autoUpdateEnabled: get().autoUpdateEnabled,
-      timelineLaneCount: get().timelineLaneCount,
-    });
+    saveToStorage(get);
   },
 
   toggleTabBar: () => {
-    const newValue = !get().showTabBar;
-    set({ showTabBar: newValue });
-    saveToStorage({
-      showTabBar: newValue,
-      showPersistentTransport: get().showPersistentTransport,
-      transportPosition: get().transportPosition,
-      notesFontSize: get().notesFontSize,
-      followPlayheadReEnable: get().followPlayheadReEnable,
-      autoUpdateEnabled: get().autoUpdateEnabled,
-      timelineLaneCount: get().timelineLaneCount,
-    });
+    set({ showTabBar: !get().showTabBar });
+    saveToStorage(get);
   },
 
   togglePersistentTransport: () => {
-    const newValue = !get().showPersistentTransport;
-    set({ showPersistentTransport: newValue });
-    saveToStorage({
-      showTabBar: get().showTabBar,
-      showPersistentTransport: newValue,
-      transportPosition: get().transportPosition,
-      notesFontSize: get().notesFontSize,
-      followPlayheadReEnable: get().followPlayheadReEnable,
-      autoUpdateEnabled: get().autoUpdateEnabled,
-      timelineLaneCount: get().timelineLaneCount,
-    });
+    set({ showPersistentTransport: !get().showPersistentTransport });
+    saveToStorage(get);
   },
 
   toggleTransportPosition: () => {
-    const newValue = get().transportPosition === 'left' ? 'right' : 'left';
-    set({ transportPosition: newValue });
-    saveToStorage({
-      showTabBar: get().showTabBar,
-      showPersistentTransport: get().showPersistentTransport,
-      transportPosition: newValue,
-      notesFontSize: get().notesFontSize,
-      followPlayheadReEnable: get().followPlayheadReEnable,
-      autoUpdateEnabled: get().autoUpdateEnabled,
-      timelineLaneCount: get().timelineLaneCount,
-    });
+    set({ transportPosition: get().transportPosition === 'left' ? 'right' : 'left' });
+    saveToStorage(get);
   },
 
   setNotesFontSize: (size) => {
-    const clamped = Math.max(8, Math.min(48, size));
-    set({ notesFontSize: clamped });
-    saveToStorage({
-      showTabBar: get().showTabBar,
-      showPersistentTransport: get().showPersistentTransport,
-      transportPosition: get().transportPosition,
-      notesFontSize: clamped,
-      followPlayheadReEnable: get().followPlayheadReEnable,
-      autoUpdateEnabled: get().autoUpdateEnabled,
-      timelineLaneCount: get().timelineLaneCount,
-    });
+    set({ notesFontSize: Math.max(8, Math.min(48, size)) });
+    saveToStorage(get);
   },
 
   adjustNotesFontSize: (delta) => {
-    const newSize = Math.max(8, Math.min(48, get().notesFontSize + delta));
-    set({ notesFontSize: newSize });
-    saveToStorage({
-      showTabBar: get().showTabBar,
-      showPersistentTransport: get().showPersistentTransport,
-      transportPosition: get().transportPosition,
-      notesFontSize: newSize,
-      followPlayheadReEnable: get().followPlayheadReEnable,
-      autoUpdateEnabled: get().autoUpdateEnabled,
-      timelineLaneCount: get().timelineLaneCount,
-    });
+    set({ notesFontSize: Math.max(8, Math.min(48, get().notesFontSize + delta)) });
+    saveToStorage(get);
   },
 
   setFollowPlayheadReEnable: (mode) => {
     set({ followPlayheadReEnable: mode });
-    saveToStorage({
-      showTabBar: get().showTabBar,
-      showPersistentTransport: get().showPersistentTransport,
-      transportPosition: get().transportPosition,
-      notesFontSize: get().notesFontSize,
-      followPlayheadReEnable: mode,
-      autoUpdateEnabled: get().autoUpdateEnabled,
-      timelineLaneCount: get().timelineLaneCount,
-    });
+    saveToStorage(get);
   },
 
   setAutoUpdateEnabled: (enabled) => {
     set({ autoUpdateEnabled: enabled });
-    saveToStorage({
-      showTabBar: get().showTabBar,
-      showPersistentTransport: get().showPersistentTransport,
-      transportPosition: get().transportPosition,
-      notesFontSize: get().notesFontSize,
-      followPlayheadReEnable: get().followPlayheadReEnable,
-      autoUpdateEnabled: enabled,
-      timelineLaneCount: get().timelineLaneCount,
-    });
+    saveToStorage(get);
   },
 
   toggleAutoUpdateEnabled: () => {
-    const newValue = !get().autoUpdateEnabled;
-    set({ autoUpdateEnabled: newValue });
-    saveToStorage({
-      showTabBar: get().showTabBar,
-      showPersistentTransport: get().showPersistentTransport,
-      transportPosition: get().transportPosition,
-      notesFontSize: get().notesFontSize,
-      followPlayheadReEnable: get().followPlayheadReEnable,
-      autoUpdateEnabled: newValue,
-      timelineLaneCount: get().timelineLaneCount,
-    });
+    set({ autoUpdateEnabled: !get().autoUpdateEnabled });
+    saveToStorage(get);
   },
 
   setTimelineLaneCount: (count) => {
-    const clamped = Math.max(1, Math.min(8, count));
-    set({ timelineLaneCount: clamped });
-    saveToStorage({
-      showTabBar: get().showTabBar,
-      showPersistentTransport: get().showPersistentTransport,
-      transportPosition: get().transportPosition,
-      notesFontSize: get().notesFontSize,
-      followPlayheadReEnable: get().followPlayheadReEnable,
-      autoUpdateEnabled: get().autoUpdateEnabled,
-      timelineLaneCount: clamped,
-    });
+    set({ timelineLaneCount: Math.max(1, Math.min(8, count)) });
+    saveToStorage(get);
+  },
+
+  toggleViewVisibility: (viewId) => {
+    const current = get().hiddenViews;
+    const newHidden = current.includes(viewId)
+      ? current.filter(v => v !== viewId)
+      : [...current, viewId];
+    set({ hiddenViews: newHidden });
+    saveToStorage(get);
+  },
+
+  reorderView: (fromIndex, toIndex) => {
+    const order = [...get().viewOrder];
+    const clamped = Math.max(0, Math.min(order.length - 1, toIndex));
+    const [moved] = order.splice(fromIndex, 1);
+    order.splice(clamped, 0, moved);
+    set({ viewOrder: order });
+    saveToStorage(get);
   },
 
   loadUIPrefsFromStorage: () => {
@@ -237,6 +175,12 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
       const stored = localStorage.getItem(UI_PREFS_KEY);
       if (stored) {
         const parsed = JSON.parse(stored) as StoredPrefs;
+        // Validate stored viewOrder contains all views (handles added/removed views across versions)
+        let viewOrder = DEFAULT_PREFS.viewOrder;
+        if (parsed.viewOrder && parsed.viewOrder.length === VIEW_ORDER.length &&
+            VIEW_ORDER.every(v => parsed.viewOrder!.includes(v))) {
+          viewOrder = parsed.viewOrder;
+        }
         set({
           showTabBar: parsed.showTabBar ?? DEFAULT_PREFS.showTabBar,
           showPersistentTransport: parsed.showPersistentTransport ?? DEFAULT_PREFS.showPersistentTransport,
@@ -245,6 +189,8 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
           followPlayheadReEnable: parsed.followPlayheadReEnable ?? DEFAULT_PREFS.followPlayheadReEnable,
           autoUpdateEnabled: parsed.autoUpdateEnabled ?? DEFAULT_PREFS.autoUpdateEnabled,
           timelineLaneCount: parsed.timelineLaneCount ?? DEFAULT_PREFS.timelineLaneCount,
+          hiddenViews: parsed.hiddenViews ?? DEFAULT_PREFS.hiddenViews,
+          viewOrder,
         });
       }
     } catch (e) {

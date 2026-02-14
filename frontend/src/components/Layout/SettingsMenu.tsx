@@ -32,6 +32,8 @@ export interface SettingsMenuProps {
   // Actions view settings
   actionsAutoCollapse: boolean;
   onToggleActionsAutoCollapse: () => void;
+  // View customization
+  onOpenViewCustomization: () => void;
   // Timeline view settings
   onOpenTimelineSettings?: () => void;
   className?: string;
@@ -55,6 +57,7 @@ export function SettingsMenu({
   onToggleShowAddTrackButton,
   actionsAutoCollapse,
   onToggleActionsAutoCollapse,
+  onOpenViewCustomization,
   onOpenTimelineSettings,
   className = '',
 }: SettingsMenuProps): ReactElement {
@@ -178,6 +181,18 @@ export function SettingsMenu({
             <span className={`flex items-center gap-1.5 text-xs ${autoUpdateEnabled ? 'text-success' : 'text-text-muted'}`}>
               {autoUpdateEnabled ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
             </span>
+          </button>
+
+          {/* Customize Views - opens bottom sheet */}
+          <button
+            onClick={() => {
+              setIsOpen(false);
+              onOpenViewCustomization();
+            }}
+            className="w-full px-menu-item-x py-menu-item-y flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
+          >
+            <span className="text-sm">Customize Views</span>
+            <ChevronRight size={16} className="text-text-muted" />
           </button>
 
           {/* Timeline section - only shown in Timeline view */}
