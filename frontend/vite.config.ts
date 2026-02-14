@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { viteSingleFile } from 'vite-plugin-singlefile'
 import { visualizer } from 'rollup-plugin-visualizer'
 import { resolve } from 'path'
 
@@ -8,7 +7,6 @@ import { resolve } from 'path'
 export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
-    viteSingleFile(),
     mode === 'analyze' && visualizer({
       open: true,
       filename: 'bundle-stats.html',
@@ -18,11 +16,7 @@ export default defineConfig(({ mode }) => ({
   ].filter(Boolean),
   build: {
     target: 'esnext',
-    // Output to dist folder
     outDir: 'dist',
-    // Inline all assets
-    assetsInlineLimit: 100000000,
-    cssCodeSplit: false,
     rollupOptions: {
       input: {
         // Main entry point (can be used for dev)

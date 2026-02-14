@@ -116,6 +116,8 @@ var g_fast_timer_total_interval: i64 = 0; // For average calculation
 // Hot reload detection
 var g_html_path_buf: [512]u8 = undefined;
 var g_html_path: ?[]const u8 = null;
+var g_web_dir_buf: [512]u8 = undefined;
+var g_web_dir: ?[]const u8 = null;
 var g_html_mtime: i128 = 0;
 var g_file_check_counter: u32 = 0;
 const FILE_CHECK_INTERVAL: u32 = 60; // Check every ~2 seconds (60 * 33ms)
@@ -195,7 +197,9 @@ fn doInitialization() !void {
     // Initialize hot reload file path
     if (api.resourcePath()) |res_path| {
         logging.debug("Resource path: {s}", .{res_path});
-        const written = std.fmt.bufPrint(&g_html_path_buf, "{s}/reaper_www_root/reamo.html", .{res_path}) catch null;
+        const web_dir = std.fmt.bufPrint(&g_web_dir_buf, "{s}/reaper_www_root/web", .{res_path}) catch null;
+        g_web_dir = web_dir;
+        const written = std.fmt.bufPrint(&g_html_path_buf, "{s}/reaper_www_root/web/index.html", .{res_path}) catch null;
         if (written) |path| {
             g_html_path = path;
             logging.debug("Watching: {s}", .{path});
@@ -589,7 +593,7 @@ fn doProcessing() !void {
         var started = false;
         while (attempt < MAX_PORT_ATTEMPTS) : (attempt += 1) {
             const port = DEFAULT_PORT + @as(u16, attempt);
-            var srv = http_server.HttpServer.init(g_allocator, shared_state, port, g_html_path) catch |err| {
+            var srv = http_server.HttpServer.init(g_allocator, shared_state, port, g_html_path, g_web_dir) catch |err| {
                 logging.debug("http_server: port {d} init failed: {s}", .{ port, @errorName(err) });
                 continue;
             };
@@ -808,6 +812,10 @@ fn doProcessing() !void {
                     logging.debug("HTML changed: mtime {} -> {}", .{ g_html_mtime, stat.mtime });
                     g_html_mtime = stat.mtime;
                     shared_state.setHtmlMtime(stat.mtime);
+                    // Refresh cached HTML in HTTP server so next request gets new content
+                    if (g_http_server) |*server| {
+                        server.reloadHtml(path);
+                    }
                     shared_state.broadcast("{\"type\":\"event\",\"event\":\"reload\"}");
                     logging.debug("Broadcast reload event", .{});
                 }
