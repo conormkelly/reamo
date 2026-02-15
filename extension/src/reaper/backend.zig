@@ -150,6 +150,7 @@ pub fn validateBackend(comptime T: type) void {
         "setItemNotes",
         "setItemActiveTake",
         "deleteItem",
+        "moveItemToTrack",
 
         // Takes
         "itemTakeCount",

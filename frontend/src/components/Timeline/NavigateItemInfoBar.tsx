@@ -38,15 +38,25 @@ import {
   ChevronDown,
   Group,
   Palette,
+  Move,
 } from 'lucide-react';
 import { BottomSheet } from '../Modal/BottomSheet';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
 import { useTimeFormatters } from '../../hooks';
 import { item as itemCmd, take as takeCmd } from '../../core/WebSocketCommands';
-import { hexToReaperColor, reaperColorToHexWithFallback, formatTime } from '../../utils';
+import {
+  hexToReaperColor,
+  reaperColorToHexWithFallback,
+  formatTime,
+  secondsToBeats,
+  beatsToSeconds,
+  formatBeatsToBarBeatTicks,
+  parseBarBeatTicksToBeats,
+} from '../../utils';
 import { DEFAULT_ITEM_COLOR } from '../../constants/colors';
 import { ColorPickerInput } from '../Toolbar/ColorPickerInput';
+import { TrackPicker } from '../Mixer/RoutingModal/TrackPicker';
 import { EMPTY_SKELETON, EMPTY_ITEMS } from '../../store/stableRefs';
 import type { SkeletonTrack, WSItem } from '../../core/WebSocketTypes';
 
@@ -66,7 +76,7 @@ export function NavigateItemInfoBar({
   className = '',
 }: NavigateItemInfoBarProps): ReactElement | null {
   const { sendCommand, sendAsync, connected } = useReaper();
-  const { formatBeats, formatDuration } = useTimeFormatters();
+  const { formatBeats, formatDuration, bpm, beatsPerBar, denominator, barOffset } = useTimeFormatters();
 
   // Store state
   const items = useReaperStore((s) => s?.items ?? EMPTY_ITEMS);
@@ -94,6 +104,14 @@ export function NavigateItemInfoBar({
   const [notesValue, setNotesValue] = useState('');
   const [notesLoading, setNotesLoading] = useState(false);
   const notesInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Move item state
+  const [showMoveUI, setShowMoveUI] = useState(false);
+  const [showTrackPicker, setShowTrackPicker] = useState(false);
+  const [moveEditMode, setMoveEditMode] = useState<'time' | 'beats'>('beats');
+  const [moveTimeValue, setMoveTimeValue] = useState('');
+  const [moveBeatsValue, setMoveBeatsValue] = useState('');
+  const [movePosError, setMovePosError] = useState<string | null>(null);
 
   // Get track name from skeleton
   const getTrackNameFromSkeleton = useCallback(
@@ -221,6 +239,96 @@ export function NavigateItemInfoBar({
       notesInputRef.current.focus();
     }
   }, [isEditingNotes, notesLoading]);
+
+  // ========== Move Item Handlers ==========
+
+  // Compute nudge amounts in seconds from BPM
+  const beatDurationSeconds = bpm ? 60 / bpm : 0.5;
+  const barDurationSeconds = beatDurationSeconds * beatsPerBar;
+
+  // Parse time string (MM:SS.ms or SS.ms) to seconds
+  const parseTime = useCallback((timeStr: string): number | null => {
+    const trimmed = timeStr.trim();
+    const colonMatch = trimmed.match(/^(\d+):(\d+(?:\.\d*)?)$/);
+    if (colonMatch) {
+      const mins = parseInt(colonMatch[1], 10);
+      const secs = parseFloat(colonMatch[2]);
+      return mins * 60 + secs;
+    }
+    const num = parseFloat(trimmed);
+    if (!isNaN(num) && num >= 0) return num;
+    return null;
+  }, []);
+
+  // Initialize move values when move UI opens or position changes
+  const singleItemPosition = singleItem?.position ?? null;
+  useEffect(() => {
+    if (showMoveUI && singleItemPosition !== null && bpm) {
+      setMoveTimeValue(formatTime(singleItemPosition, { precision: 3 }));
+      const quarterNoteBeats = secondsToBeats(singleItemPosition, bpm);
+      const denominatorBeats = quarterNoteBeats * (denominator / 4);
+      setMoveBeatsValue(formatBeatsToBarBeatTicks(denominatorBeats, beatsPerBar, true, barOffset));
+      setMovePosError(null);
+    }
+  }, [showMoveUI, singleItemPosition, bpm, beatsPerBar, denominator, barOffset]);
+
+  // Reset move UI when item changes or sheet closes
+  useEffect(() => {
+    setShowMoveUI(false);
+    setShowTrackPicker(false);
+  }, [singleItem?.guid]);
+
+  useEffect(() => {
+    if (!showItemSheet) {
+      setShowMoveUI(false);
+      setShowTrackPicker(false);
+    }
+  }, [showItemSheet]);
+
+  // Set position from input
+  const handleSetPosition = useCallback(() => {
+    if (!singleItem) return;
+    let newPositionSeconds: number | null = null;
+
+    if (moveEditMode === 'time') {
+      newPositionSeconds = parseTime(moveTimeValue);
+    } else {
+      const denominatorBeats = parseBarBeatTicksToBeats(moveBeatsValue, beatsPerBar, barOffset);
+      if (denominatorBeats !== null) {
+        const quarterNoteBeats = denominatorBeats * (4 / denominator);
+        const beats = quarterNoteBeats >= 0 ? quarterNoteBeats : 0;
+        newPositionSeconds = beatsToSeconds(beats, bpm!);
+      }
+    }
+
+    if (newPositionSeconds === null || newPositionSeconds < 0) {
+      setMovePosError('Invalid position');
+      return;
+    }
+
+    setMovePosError(null);
+    sendCommand(itemCmd.moveByGuid(singleItem.guid, newPositionSeconds));
+  }, [singleItem, moveEditMode, moveTimeValue, moveBeatsValue, bpm, beatsPerBar, denominator, barOffset, sendCommand, parseTime]);
+
+  // Nudge position by delta seconds
+  const handleNudge = useCallback(
+    (deltaSeconds: number) => {
+      if (!singleItem) return;
+      const newPos = Math.max(0, singleItem.position + deltaSeconds);
+      sendCommand(itemCmd.moveByGuid(singleItem.guid, newPos));
+    },
+    [singleItem, sendCommand]
+  );
+
+  // Move item to a different track
+  const handleMoveToTrack = useCallback(
+    (trackGuid: string) => {
+      if (!singleItem) return;
+      sendCommand(itemCmd.moveByGuid(singleItem.guid, undefined, trackGuid));
+      setShowTrackPicker(false);
+    },
+    [singleItem, sendCommand]
+  );
 
   // ========== Batch Operation Handlers ==========
 
@@ -666,17 +774,117 @@ export function NavigateItemInfoBar({
                 Position & Length
               </h3>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="bg-bg-surface rounded-lg p-2">
-                  <div className="text-text-muted text-xs mb-1">Position</div>
+                {/* Position - tappable to enter move mode */}
+                <button
+                  onClick={() => setShowMoveUI(!showMoveUI)}
+                  className="bg-bg-surface rounded-lg p-2 text-left hover:ring-1 hover:ring-accent-primary/50 transition-all"
+                >
+                  <div className="text-text-muted text-xs mb-1 flex items-center gap-1">
+                    Position
+                    <Move className="w-3 h-3 opacity-50" />
+                  </div>
                   <div className="font-mono text-text-primary">{formattedPosition}</div>
                   <div className="font-mono text-text-secondary text-xs">{formatTime(singleItem.position)}</div>
-                </div>
+                </button>
+                {/* Length - read-only */}
                 <div className="bg-bg-surface rounded-lg p-2">
                   <div className="text-text-muted text-xs mb-1">Length</div>
                   <div className="font-mono text-text-primary">{formatDuration(singleItem.length)}</div>
                   <div className="font-mono text-text-secondary text-xs">{formatTime(singleItem.length)}</div>
                 </div>
               </div>
+
+              {/* Move UI - shown when position is tapped */}
+              {showMoveUI && !showTrackPicker && (
+                <div className="mt-3 space-y-3">
+                  {/* Time / Bar.Beat toggle */}
+                  <div className="flex rounded-lg overflow-hidden border border-border-default">
+                    <button
+                      onClick={() => setMoveEditMode('time')}
+                      className={`flex-1 px-3 py-1.5 text-sm font-medium transition-colors ${
+                        moveEditMode === 'time'
+                          ? 'bg-primary text-text-on-primary'
+                          : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
+                      }`}
+                    >
+                      Time
+                    </button>
+                    <button
+                      onClick={() => setMoveEditMode('beats')}
+                      className={`flex-1 px-3 py-1.5 text-sm font-medium transition-colors ${
+                        moveEditMode === 'beats'
+                          ? 'bg-primary text-text-on-primary'
+                          : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
+                      }`}
+                    >
+                      Bar.Beat
+                    </button>
+                  </div>
+
+                  {/* Position input */}
+                  <input
+                    type="text"
+                    value={moveEditMode === 'time' ? moveTimeValue : moveBeatsValue}
+                    onChange={(e) =>
+                      moveEditMode === 'time'
+                        ? setMoveTimeValue(e.target.value)
+                        : setMoveBeatsValue(e.target.value)
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSetPosition();
+                    }}
+                    className="w-full px-3 py-2 bg-bg-deep border border-border-default rounded text-text-primary text-sm font-mono focus:outline-none focus:border-focus-border"
+                    placeholder={moveEditMode === 'time' ? 'MM:SS.ms (e.g. 1:30.000)' : 'Bar.Beat.Ticks (e.g. 5.3.00)'}
+                  />
+
+                  {/* Error message */}
+                  {movePosError && <p className="text-error-text text-xs">{movePosError}</p>}
+
+                  {/* Set Position button */}
+                  <button
+                    onClick={handleSetPosition}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded font-medium transition-colors bg-primary hover:bg-primary-hover text-text-on-primary text-sm"
+                  >
+                    <Move size={14} />
+                    Set Position
+                  </button>
+
+                  {/* Nudge buttons */}
+                  <div className="flex gap-1 justify-center flex-wrap">
+                    <button onClick={() => handleNudge(-barDurationSeconds)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">-1 bar</button>
+                    <button onClick={() => handleNudge(-beatDurationSeconds)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">-1 beat</button>
+                    <button onClick={() => handleNudge(-0.1)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">-0.1s</button>
+                    <button onClick={() => handleNudge(0.1)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">+0.1s</button>
+                    <button onClick={() => handleNudge(beatDurationSeconds)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">+1 beat</button>
+                    <button onClick={() => handleNudge(barDurationSeconds)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">+1 bar</button>
+                  </div>
+
+                  {/* Move to track (hidden if only 1 user track) */}
+                  {trackSkeleton.length > 2 && (
+                    <button
+                      onClick={() => setShowTrackPicker(true)}
+                      className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-bg-surface hover:bg-bg-elevated text-sm transition-colors"
+                    >
+                      <span className="text-text-muted">Track</span>
+                      <span className="text-text-primary">
+                        {getTrackNameFromSkeleton(singleItem.trackIdx) || `Track ${singleItem.trackIdx}`}
+                      </span>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Track picker (replaces move UI when active) */}
+              {showMoveUI && showTrackPicker && (
+                <div className="mt-3">
+                  <TrackPicker
+                    onSelect={handleMoveToTrack}
+                    onCancel={() => setShowTrackPicker(false)}
+                    excludeGuid={trackSkeleton[singleItem.trackIdx]?.g ?? ''}
+                    prompt="Move to track"
+                  />
+                </div>
+              )}
             </div>
 
             {/* MIDI indicator */}

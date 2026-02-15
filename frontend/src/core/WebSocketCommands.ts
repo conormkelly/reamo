@@ -316,6 +316,19 @@ export const item = {
     command: 'item/move',
     params: { trackIdx, itemIdx, position },
   }),
+  /** Move item by GUID (stable across reordering) - position and/or track change */
+  moveByGuid: (
+    guid: string,
+    position?: number,
+    destTrackGuid?: string
+  ): WSCommand => ({
+    command: 'item/moveByGuid',
+    params: {
+      guid,
+      ...(position !== undefined && { position }),
+      ...(destTrackGuid !== undefined && { destTrackGuid }),
+    },
+  }),
   setColor: (trackIdx: number, itemIdx: number, color: number): WSCommand => ({
     command: 'item/setColor',
     params: { trackIdx, itemIdx, color },
