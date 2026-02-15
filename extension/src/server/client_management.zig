@@ -37,6 +37,7 @@ const routing_subscriptions = @import("../subscriptions/routing_subscriptions.zi
 const trackfx_subscriptions = @import("../subscriptions/trackfx_subscriptions.zig");
 const trackfxparam_subscriptions = @import("../subscriptions/trackfxparam_subscriptions.zig");
 const tuner_subscriptions = @import("../subscriptions/tuner_subscriptions.zig");
+const audio_stream_mod = @import("../audio/stream.zig");
 
 // ============================================================================
 // Static Buffers (to avoid stack overflow in deep call stacks)
@@ -94,6 +95,8 @@ pub const ClientContext = struct {
     trackfxparam_subs: ?*trackfxparam_subscriptions.TrackFxParamSubscriptions,
     /// Tuner subscriptions (optional)
     tuner_subs: ?*tuner_subscriptions.TunerSubscriptions,
+    /// Audio stream manager (optional)
+    audio_stream: ?*audio_stream_mod.AudioStreamManager = null,
 };
 
 /// Context for sending snapshots to newly connected clients.
@@ -157,6 +160,8 @@ pub fn cleanupDisconnectedClients(ctx: *const ClientContext) void {
             var backend = reaper.RealBackend{ .inner = ctx.api };
             subs.removeClient(client_id, &backend);
         }
+        // Audio stream subscription cleanup
+        if (ctx.audio_stream) |mgr| mgr.removeClient(client_id);
     }
 }
 

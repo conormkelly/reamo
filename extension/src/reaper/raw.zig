@@ -28,6 +28,22 @@ pub const PluginInfo = extern struct {
     GetFunc: *const fn ([*:0]const u8) callconv(.c) ?*anyopaque,
 };
 
+/// REAPER audio hook registration struct.
+/// Mirrors C `audio_hook_register_t` from reaper_plugin.h (line 1181).
+/// Must be extern struct to match C ABI layout exactly.
+pub const AudioHookRegister = extern struct {
+    /// Called twice per audio buffer: isPost=false (before processing), isPost=true (after).
+    /// REAL-TIME THREAD — no allocations, no locks, no I/O.
+    OnAudioBuffer: *const fn (isPost: bool, len: c_int, srate: f64, reg: *AudioHookRegister) callconv(.c) void,
+    userdata1: ?*anyopaque = null,
+    userdata2: ?*anyopaque = null,
+    /// Set by host — number of input/output channels available.
+    input_nch: c_int = 0,
+    output_nch: c_int = 0,
+    /// Set by host — get buffer for channel idx. Only call from within OnAudioBuffer!
+    GetBuffer: ?*const fn (isOutput: bool, idx: c_int) callconv(.c) ?[*]f64 = null,
+};
+
 // REAPER API - loaded at runtime from plugin info
 pub const Api = struct {
     // Core
@@ -256,6 +272,10 @@ pub const Api = struct {
     getMaxMidiInputs: ?*const fn () callconv(.c) c_int = null,
     getMIDIInputName: ?*const fn (c_int, [*]u8, c_int) callconv(.c) bool = null,
 
+    // Audio monitoring (hardware hook for capturing master output)
+    audioRegHardwareHook: ?*const fn (bool, *AudioHookRegister) callconv(.c) c_int = null,
+    audioIsRunning: ?*const fn () callconv(.c) c_int = null,
+
     // Script management (for Lua bridge)
     addRemoveReaScript: ?*const fn (c_int, c_int, [*:0]const u8, c_int) callconv(.c) c_int = null,
 
@@ -450,6 +470,9 @@ pub const Api = struct {
             .getOutputChannelName = getFunc(info, "GetOutputChannelName", fn (c_int) callconv(.c) ?[*:0]const u8),
             .getMaxMidiInputs = getFunc(info, "GetMaxMidiInputs", fn () callconv(.c) c_int),
             .getMIDIInputName = getFunc(info, "GetMIDIInputName", fn (c_int, [*]u8, c_int) callconv(.c) bool),
+            // Audio monitoring
+            .audioRegHardwareHook = getFunc(info, "Audio_RegHardwareHook", fn (bool, *AudioHookRegister) callconv(.c) c_int),
+            .audioIsRunning = getFunc(info, "Audio_IsRunning", fn () callconv(.c) c_int),
             // Script management
             .addRemoveReaScript = getFunc(info, "AddRemoveReaScript", fn (c_int, c_int, [*:0]const u8, c_int) callconv(.c) c_int),
             // Extensions menu
@@ -2559,6 +2582,22 @@ pub const Api = struct {
     pub fn audioOutputName(self: *const Api, channel: c_int) ?[*:0]const u8 {
         const f = self.getOutputChannelName orelse return null;
         return f(channel);
+    }
+
+    /// Register an audio hardware hook. Returns true on success.
+    /// The hook's OnAudioBuffer will be called on the audio thread.
+    pub fn registerAudioHook(self: *const Api, reg: *AudioHookRegister) bool {
+        return if (self.audioRegHardwareHook) |f| f(true, reg) != 0 else false;
+    }
+
+    /// Unregister a previously registered audio hardware hook.
+    pub fn unregisterAudioHook(self: *const Api, reg: *AudioHookRegister) void {
+        if (self.audioRegHardwareHook) |f| _ = f(false, reg);
+    }
+
+    /// Check if the audio engine is currently running.
+    pub fn isAudioRunning(self: *const Api) bool {
+        return if (self.audioIsRunning) |f| f() != 0 else false;
     }
 
     /// Get maximum MIDI input device index (iterate 0..maxMidiInputs()-1).

@@ -6,6 +6,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import { TrackStripWithMeter } from './TrackStripWithMeter';
 
+// Vitest 4.x: setup.ts pre-caches modules before vi.mock can intercept.
+// resetModules forces re-evaluation so mocks apply to transitive imports.
+vi.hoisted(() => vi.resetModules());
+
 // Mock dependencies
 vi.mock('./LevelMeter', () => ({
   LevelMeter: vi.fn(({ trackIndex, height }) => (

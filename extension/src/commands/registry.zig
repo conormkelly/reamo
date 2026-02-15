@@ -42,6 +42,7 @@ const trackfxparam = @import("trackfxparam.zig");
 const inputs = @import("inputs.zig");
 const tuner_subs = @import("tuner_subs.zig");
 const lanes = @import("lanes.zig");
+const audio_cmds = @import("../audio/commands.zig");
 
 /// Comptime tuple of (command_name, handler_fn) pairs.
 /// Used by dispatch() with inline for to call handlers with anytype.
@@ -295,6 +296,11 @@ pub const all = .{
     .{ "tuner/subscribe", tuner_subs.handleSubscribe },
     .{ "tuner/unsubscribe", tuner_subs.handleUnsubscribe },
     .{ "tuner/setParam", tuner_subs.handleSetParam },
+
+    // Audio monitoring (binary WebSocket PCM streaming)
+    .{ "audio/startStream", audio_cmds.handleStartStream },
+    .{ "audio/stopStream", audio_cmds.handleStopStream },
+    .{ "audio/status", audio_cmds.handleStatus },
 
     // Fixed Lanes / Swipe Comping
     .{ "lanes/getState", lanes.handleGetState },

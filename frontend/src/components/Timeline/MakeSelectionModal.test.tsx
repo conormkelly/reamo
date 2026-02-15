@@ -7,6 +7,10 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import { MakeSelectionModal } from './MakeSelectionModal';
 import { useReaperStore } from '../../store';
 
+// Vitest 4.x: setup.ts pre-caches modules before vi.mock can intercept.
+// resetModules forces re-evaluation so mocks apply to transitive imports.
+vi.hoisted(() => vi.resetModules());
+
 // Mock the ReaperProvider
 vi.mock('../ReaperProvider', () => ({
   useReaper: () => ({ send: vi.fn() }),
