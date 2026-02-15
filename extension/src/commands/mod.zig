@@ -17,6 +17,7 @@ const trackfx_subscriptions = @import("../subscriptions/trackfx_subscriptions.zi
 const trackfxparam_subscriptions = @import("../subscriptions/trackfxparam_subscriptions.zig");
 const tuner_subscriptions = @import("../subscriptions/tuner_subscriptions.zig");
 const tiered_state = @import("../server/tiered_state.zig");
+const audio_stream_mod = @import("../audio/stream.zig");
 
 // Import domain-specific command modules
 const transport_cmds = @import("transport.zig");
@@ -70,6 +71,7 @@ pub const CommandContext = struct {
     trackfxparam_subs: ?*trackfxparam_subscriptions.TrackFxParamSubscriptions = null,
     tuner_subs: ?*tuner_subscriptions.TunerSubscriptions = null,
     tiered: ?*tiered_state.TieredArenas = null,
+    audio_stream: ?*audio_stream_mod.AudioStreamManager = null,
 };
 
 /// Global command context - initialized by main.zig

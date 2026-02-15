@@ -7,6 +7,10 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import { ConnectionStatus, ConnectionBanner } from './ConnectionStatus';
 import type { UseReaperConnectionReturn } from '../hooks/useReaperConnection';
 
+// Vitest 4.x: setup.ts pre-caches modules before vi.mock can intercept.
+// resetModules forces re-evaluation so mocks apply to transitive imports.
+vi.hoisted(() => vi.resetModules());
+
 // Mock dependencies
 const mockRetry = vi.fn();
 const mockStart = vi.fn();

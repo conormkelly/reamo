@@ -225,6 +225,7 @@ const websocketActor = fromCallback<
 
   try {
     socket = new WebSocket(url);
+    socket.binaryType = 'arraybuffer'; // Enable binary frame reception (audio streaming)
   } catch {
     sendEvent({ type: 'SOCKET_ERROR', error: 'Failed to create WebSocket' });
     return () => {};
@@ -243,6 +244,13 @@ const websocketActor = fromCallback<
   };
 
   socket.onmessage = (event) => {
+    // Binary frame → audio pipeline (avoid JSON parse overhead)
+    if (event.data instanceof ArrayBuffer) {
+      const handler = (window as unknown as { __wsBinaryHandler?: (data: ArrayBuffer) => void }).__wsBinaryHandler;
+      if (handler) handler(event.data);
+      return;
+    }
+
     try {
       const msg = JSON.parse(event.data);
 

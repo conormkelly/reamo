@@ -1187,3 +1187,14 @@ export const trackFxParams = {
     params: { trackGuid, fxGuid, paramIdx, value },
   }),
 };
+
+// =============================================================================
+// Audio Monitoring Commands
+// =============================================================================
+
+export const audio = {
+  /** Start receiving binary PCM audio frames. Response includes { sampleRate }. */
+  startStream: (): WSCommand => ({ command: 'audio/startStream' }),
+  /** Stop receiving binary PCM audio frames. */
+  stopStream: (): WSCommand => ({ command: 'audio/stopStream' }),
+};

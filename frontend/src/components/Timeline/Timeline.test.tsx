@@ -34,6 +34,10 @@ import {
 // Mocks
 // ============================================================================
 
+// Vitest 4.x: setup.ts pre-caches modules before vi.mock can intercept.
+// resetModules forces re-evaluation so mocks apply to transitive imports.
+vi.hoisted(() => vi.resetModules());
+
 // Mock useReaper hook
 vi.mock('../ReaperProvider', () => ({
   useReaper: () => ({

@@ -32,6 +32,9 @@ export interface SettingsMenuProps {
   // Actions view settings
   actionsAutoCollapse: boolean;
   onToggleActionsAutoCollapse: () => void;
+  // Audio monitoring
+  audioMonitorActive: boolean;
+  onToggleAudioMonitor: () => void;
   // View customization
   onOpenViewCustomization: () => void;
   // Timeline view settings
@@ -57,6 +60,8 @@ export function SettingsMenu({
   onToggleShowAddTrackButton,
   actionsAutoCollapse,
   onToggleActionsAutoCollapse,
+  audioMonitorActive,
+  onToggleAudioMonitor,
   onOpenViewCustomization,
   onOpenTimelineSettings,
   className = '',
@@ -166,6 +171,20 @@ export function SettingsMenu({
             <span className={`flex items-center gap-1.5 text-xs ${showRecordingActions ? 'text-success' : 'text-text-muted'}`}>
               {showRecordingActions ? <Eye size={14} /> : <EyeOff size={14} />}
               {showRecordingActions ? 'Visible' : 'Hidden'}
+            </span>
+          </button>
+
+          {/* Audio Monitor toggle */}
+          <button
+            onClick={() => {
+              onToggleAudioMonitor();
+            }}
+            className="w-full px-menu-item-x py-menu-item-y flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
+            data-testid="settings-audio-monitor"
+          >
+            <span className="text-sm">Audio Monitor</span>
+            <span className={`flex items-center gap-1.5 text-xs ${audioMonitorActive ? 'text-success' : 'text-text-muted'}`}>
+              {audioMonitorActive ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
             </span>
           </button>
 

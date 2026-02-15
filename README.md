@@ -179,6 +179,16 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 - Low-latency MIDI via WebSocket (5-15ms, matches Logic Remote)
 - Per-instrument MIDI channel selection
 
+### Mix Monitoring
+
+- Stream REAPER's master output to your phone speakers or headphones
+- Hear your mix from the listening position without headphone cables
+- Quick A/B checks: flip the mute switch, listen on phone, flip back
+- Works over WiFi (typical latency: 80-150ms) and USB tethering (50-100ms)
+- Automatic reconnection when backgrounding/foregrounding the app
+- **Note:** Latency is too high for real-time monitoring while recording. This is designed for mix checks and playback review, not live cue mixes
+- **iPhone users:** Make sure the silent/ring switch on the side of your phone is set to ring (orange not visible). The mute switch silences all Web Audio output and there is no on-screen indicator
+
 ### FX Control
 
 - Browse and add FX plugins (VST3, VST2, AU, JS) via searchable list

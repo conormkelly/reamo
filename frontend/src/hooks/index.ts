@@ -121,3 +121,7 @@ export {
   useTuner,
   type UseTunerReturn,
 } from './useTuner';
+export {
+  useAudioMonitor,
+  type UseAudioMonitorReturn,
+} from './useAudioMonitor';

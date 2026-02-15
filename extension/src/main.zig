@@ -46,6 +46,8 @@ const subscription_polling = @import("server/subscription_polling.zig");
 const tier_polling = @import("server/tier_polling.zig");
 const playlist_tick = @import("server/playlist_tick.zig");
 const client_management = @import("server/client_management.zig");
+const audio_stream = @import("audio/stream.zig");
+const audio_hook = @import("audio/audio_hook.zig");
 
 // Use custom panic handler that flushes log ring buffer before aborting
 pub const panic = logging.panic;
@@ -104,6 +106,9 @@ var g_initialized: bool = false;
 
 // Error rate limiting for broadcast errors
 var g_error_limiter: errors.ErrorRateLimiter = .{};
+
+// Audio monitoring (binary WebSocket PCM streaming)
+var g_audio_stream: ?*audio_stream.AudioStreamManager = null;
 
 // Fast timer for 100Hz command queue processing (reduces latency from ~19ms to ~8ms)
 var g_fast_timer: fast_timer.FastTimer = .{};
@@ -286,6 +291,14 @@ fn doInitialization() !void {
     tuner_subs.* = tuner_subscriptions.TunerSubscriptions.init(g_allocator);
     g_tuner_subs = tuner_subs;
     commands.g_ctx.tuner_subs = tuner_subs;
+
+    // Create audio stream manager (binary WebSocket PCM streaming)
+    const audio_mgr = try g_allocator.create(audio_stream.AudioStreamManager);
+    audio_mgr.* = .{};
+    audio_mgr.shared_state = state;
+    audio_mgr.api = api;
+    g_audio_stream = audio_mgr;
+    commands.g_ctx.audio_stream = audio_mgr;
 
     // Create peaks cache for LRU caching of waveform data
     const p_cache = try g_allocator.create(peaks_cache.PeaksCache);
@@ -696,6 +709,7 @@ fn doProcessing() !void {
         .trackfx_subs = g_trackfx_subs,
         .trackfxparam_subs = g_trackfxparam_subs,
         .tuner_subs = g_tuner_subs,
+        .audio_stream = g_audio_stream,
     };
 
     // Clean up disconnected clients
@@ -921,6 +935,32 @@ fn shutdown() void {
         g_csurf = null;
     }
     logging.info("CSurf cleaned up", .{});
+
+    // Stop audio streaming (joins network thread, unregisters audio hook)
+    if (g_audio_stream) |mgr| {
+        logging.info("cleaning up audio stream", .{});
+        // Stop thread if running (will also unregister audio hook)
+        if (mgr.hasSubscribers()) {
+            // Force unsubscribe all to trigger stopStreaming
+            mgr.mutex.lock();
+            mgr.client_count.store(0, .release);
+            mgr.mutex.unlock();
+        }
+        // Ensure thread is stopped
+        mgr.should_stop.store(true, .release);
+        if (mgr.thread) |t| {
+            t.join();
+            mgr.thread = null;
+        }
+        // Unregister hook if still registered
+        if (g_api) |*api| {
+            audio_hook.unregister(api);
+        }
+        commands.g_ctx.audio_stream = null;
+        g_allocator.destroy(mgr);
+        g_audio_stream = null;
+    }
+    logging.info("audio stream cleaned up", .{});
 
     // Unregister extension menu
     menu.unregister();

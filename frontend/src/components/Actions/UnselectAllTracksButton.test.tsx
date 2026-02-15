@@ -6,6 +6,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { UnselectAllTracksButton } from './UnselectAllTracksButton';
 
+// Vitest 4.x: setup.ts pre-caches modules before vi.mock can intercept.
+// resetModules forces re-evaluation so mocks apply to transitive imports.
+vi.hoisted(() => vi.resetModules());
+
 // Mock dependencies
 const mockSendCommand = vi.fn();
 

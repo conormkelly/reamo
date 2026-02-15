@@ -13,7 +13,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { SettingsMenu } from './SettingsMenu';
 import { ConnectionStatus } from '../ConnectionStatus';
 import { OverflowMenu, type OverflowMenuItem } from './OverflowMenu';
-import { useUIPreferences } from '../../hooks';
+import { useUIPreferences, useAudioMonitor } from '../../hooks';
 import { useReaperStore } from '../../store';
 import type { ViewId } from '../../viewRegistry';
 
@@ -52,6 +52,8 @@ export function ViewHeader({ currentView, children, overflowItems }: ViewHeaderP
   const openTimelineSettingsModal = useReaperStore((s) => s.openTimelineSettingsModal);
   const openViewCustomizationModal = useReaperStore((s) => s.openViewCustomizationModal);
 
+  const { isActive: audioMonitorActive, isRequested: audioMonitorRequested, startMonitoring, stopMonitoring } = useAudioMonitor();
+
   return (
     <div className="flex items-center gap-3 mb-3 min-h-[40px]">
       {/* Burger menu - left */}
@@ -73,6 +75,8 @@ export function ViewHeader({ currentView, children, overflowItems }: ViewHeaderP
         onToggleShowAddTrackButton={() => setShowAddTrackButton(!showAddTrackButton)}
         actionsAutoCollapse={actionsAutoCollapse}
         onToggleActionsAutoCollapse={() => setActionsAutoCollapse(!actionsAutoCollapse)}
+        audioMonitorActive={audioMonitorActive || audioMonitorRequested}
+        onToggleAudioMonitor={() => audioMonitorRequested ? stopMonitoring() : startMonitoring()}
         onOpenViewCustomization={openViewCustomizationModal}
         onOpenTimelineSettings={openTimelineSettingsModal}
       />

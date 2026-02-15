@@ -37,12 +37,12 @@ const mockActionExecute = vi.fn((id: number) => ({ command: 'action/execute', pa
 
 vi.mock('../../core/WebSocketCommands', () => ({
   action: {
-    execute: (...args: any[]) => mockActionExecute(...args),
+    execute: (...args: unknown[]) => mockActionExecute(...(args as [number])),
   },
   metronome: { toggle: vi.fn(() => ({ command: 'metronome/toggle' })) },
   countIn: {
-    togglePlayback: (...args: any[]) => mockCountInTogglePlayback(...args),
-    toggleRecord: (...args: any[]) => mockCountInToggleRecord(...args),
+    togglePlayback: () => mockCountInTogglePlayback(),
+    toggleRecord: () => mockCountInToggleRecord(),
   },
   repeat: { toggle: vi.fn(() => ({ command: 'repeat/toggle' })) },
   tempo: {

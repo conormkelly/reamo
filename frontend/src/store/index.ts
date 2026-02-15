@@ -34,6 +34,7 @@ import { createToastSlice, type ToastSlice } from './slices/toastSlice';
 import { createTimelineViewSlice, setupTimelineSubscriptions, type TimelineViewSlice } from './slices/timelineViewSlice';
 import { createViewFilterSlice, setupViewFilterSubscriptions, type ViewFilterSlice } from './slices/viewFilterSlice';
 import { createTunerSlice, type TunerSlice } from './slices/tunerSlice';
+import { createAudioMonitorSlice, type AudioMonitorSlice } from './slices/audioMonitorSlice';
 import type { ParsedResponse, Region, Marker, CommandState } from '../core/types';
 import { ActionCommands } from '../core/types';
 import type {
@@ -89,7 +90,7 @@ import { transportEngine } from '../core/TransportAnimationEngine';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
 
 // Combined store type
-export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & ActionsSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & UIPreferencesState & ModalSlice & PeaksSlice & RoutingSlice & FxChainSlice & FxBrowserSlice & FxParamSlice & SecondaryPanelSlice & SideRailSlice & ToastSlice & TimelineViewSlice & ViewFilterSlice & TunerSlice & {
+export type ReaperStore = ConnectionSlice & TransportSlice & ProjectSlice & TracksSlice & RegionsSlice & MarkersSlice & RegionEditSlice & ItemsSlice & ToolbarSlice & ActionsSlice & StudioLayoutState & NotesSlice & PlaylistSlice & ActionsViewSlice & ClockViewSlice & FxStateSlice & SendsStateSlice & UIPreferencesState & ModalSlice & PeaksSlice & RoutingSlice & FxChainSlice & FxBrowserSlice & FxParamSlice & SecondaryPanelSlice & SideRailSlice & ToastSlice & TimelineViewSlice & ViewFilterSlice & TunerSlice & AudioMonitorSlice & {
   // Response handler action (legacy HTTP)
   handleResponses: (responses: ParsedResponse[]) => void;
   // WebSocket message handler
@@ -136,6 +137,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
   ...createTimelineViewSlice(set, get, store),
   ...createViewFilterSlice(set, get, store),
   ...createTunerSlice(set, get, store),
+  ...createAudioMonitorSlice(set, get, store),
 
   // Handle incoming responses from REAPER
   handleResponses: (responses: ParsedResponse[]) => {

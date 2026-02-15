@@ -155,6 +155,8 @@ function syncToStore(): void {
           // Silent hard refresh
           hardRefresh();
         } else {
+          // Store new version so banner doesn't re-trigger on every reconnect
+          storeVersion(extensionVersion, htmlMtime);
           // Show "Update available" banner
           useReaperStore.getState().setUpdateAvailable(true);
         }

@@ -371,14 +371,6 @@ Live looping surface for jamming. Record a phrase, it loops, layer on top, play 
 
 **Design consideration:** How this maps to REAPER's actual looping/overdub modes needs exploration.
 
-### Mix Monitoring (Sonobus-style)
-
-Monitor mix audio on phone while playing. Hear the DAW output through phone speakers/headphones.
-
-**Approaches:** WebRTC stream, compressed audio over WebSocket, or ReaStream plugin. **Reference:** Sonobus uses Opus codec over custom UDP protocol for ~20ms latency.
-
-**Effort:** L (significant audio streaming infrastructure)
-
 ### Haptic Click
 
 Haptic feedback as metronome. Phone vibrates on beat for silent click track.
@@ -503,6 +495,7 @@ Completed features, kept for historical reference.
 
 | Feature | Completed | Notes |
 |---------|-----------|-------|
+| Mix Monitoring (Audio Streaming) | 2026-02-15 | Stream REAPER master output as raw 16-bit PCM over binary WebSocket to phone. AudioWorklet (secure contexts) + AudioBufferSourceNode scheduling (insecure HTTP over LAN). 80ms jitter buffer, iOS gesture unlock, foreground-only. ~80-150ms latency on WiFi. [Architecture doc](../docs/architecture/AUDIO_MONITORING.md) |
 | Routing Create/Delete (Sends, Receives, HW Outputs) | 2026-02-15 | Add/remove sends, receives, and hardware outputs from routing bottom sheet. Track picker for send/receive destinations. HW output channel picker with stereo pairs + mono. Two-tap delete confirmation. `CreateTrackSend`/`RemoveTrackSend` bindings, `hw/listOutputs` for channel enumeration. |
 | Count-In & Pre-Roll Toggles | 2026-02-14 | 4 toggles in QuickActionsPanel: count-in play/rec + pre-roll play/rec. Count-in uses native `projmetroen` config var (no SWS dep). Pre-roll uses REAPER actions 41818/41819. State via project event polling. |
 | View Customization (Hide/Show/Reorder) | 2026-02-14 | Per-view show/hide toggles + drag-to-reorder in bottom sheet. Tab bar and side rail filter by visibility/order. Persisted to localStorage. Presets/onboarding deferred to v1.1. |

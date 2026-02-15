@@ -27,6 +27,8 @@ export interface WebSocketConnectionOptions {
   onGaveUp?: () => void;
   /** Max retry attempts before giving up (default: 10) */
   maxRetries?: number;
+  /** Called when a binary frame is received (for audio streaming) */
+  onBinaryMessage?: (data: ArrayBuffer) => void;
 }
 
 // Reconnection settings
@@ -325,6 +327,7 @@ export class WebSocketConnection {
 
     try {
       this.ws = new WebSocket(url);
+      this.ws.binaryType = 'arraybuffer'; // Enable binary frame reception (audio streaming)
     } catch (err) {
       console.error('[WS] Failed to create WebSocket:', err);
       this.scheduleRetry();
@@ -360,7 +363,13 @@ export class WebSocketConnection {
     };
 
     this.ws.onmessage = (event) => {
-      this.handleMessage(event.data);
+      if (event.data instanceof ArrayBuffer) {
+        // Binary frame → audio pipeline (avoid JSON parse overhead)
+        this.options.onBinaryMessage?.(event.data);
+      } else {
+        // Text frame → existing JSON handler
+        this.handleMessage(event.data);
+      }
     };
 
     this.ws.onerror = () => {
