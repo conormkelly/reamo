@@ -300,11 +300,9 @@ User can modify before starting. Tempo-adaptive bar counts.
 
 **Effort:** M (project creation + timer + UI)
 
-### Move Items
+### Move Items — Drag on Timeline
 
-Enable drag-to-move for selected items on timeline.
-
-**Why this matters:** "Touch-enabled arrangement view with direct region manipulation" was identified as the killer differentiator vs Logic Remote. Waveform display is complete — now items need to be movable.
+Backend and sheet-based move UI shipped (see Shipped table). Remaining work is direct drag-to-move on the timeline canvas.
 
 **Implementation:**
 
@@ -313,7 +311,7 @@ Enable drag-to-move for selected items on timeline.
 3. Multi-item move — Selected items move together
 4. Snap behavior — Respect REAPER's snap settings
 
-**Backend:** `item/setPosition` with `itemGuid`, `position`, `trackGuid`. Gesture-based undo coalescing.
+**Backend:** Done — `item/moveByGuid` with GUID-based resolution, position + destTrackGuid.
 
 **Frontend:** Drag gesture on item (distinguish from pan on empty space), ghost preview, snap feedback.
 
@@ -495,6 +493,7 @@ Completed features, kept for historical reference.
 
 | Feature | Completed | Notes |
 |---------|-----------|-------|
+| Move Item (Set Position / Change Track) | 2026-02-15 | Set position or change track from item details bottom sheet. `item/moveByGuid` backend command with GUID-based resolution. Time/Bar.Beat toggle input, nudge buttons (±0.1s, ±1 beat, ±1 bar), track picker. Drag-to-move on timeline canvas remains in v2.0. |
 | Mix Monitoring (Audio Streaming) | 2026-02-15 | Stream REAPER master output as raw 16-bit PCM over binary WebSocket to phone. AudioWorklet (secure contexts) + AudioBufferSourceNode scheduling (insecure HTTP over LAN). 80ms jitter buffer, iOS gesture unlock, foreground-only. ~80-150ms latency on WiFi. [Architecture doc](../docs/architecture/AUDIO_MONITORING.md) |
 | Routing Create/Delete (Sends, Receives, HW Outputs) | 2026-02-15 | Add/remove sends, receives, and hardware outputs from routing bottom sheet. Track picker for send/receive destinations. HW output channel picker with stereo pairs + mono. Two-tap delete confirmation. `CreateTrackSend`/`RemoveTrackSend` bindings, `hw/listOutputs` for channel enumeration. |
 | Count-In & Pre-Roll Toggles | 2026-02-14 | 4 toggles in QuickActionsPanel: count-in play/rec + pre-roll play/rec. Count-in uses native `projmetroen` config var (no SWS dep). Pre-roll uses REAPER actions 41818/41819. State via project event polling. |
@@ -506,6 +505,7 @@ Completed features, kept for historical reference.
 | Tile-Based Waveform System | 2026-01 | 8-level LOD, Lua bridge for peak fetching, stereo split rendering. |
 | Viewport-Relative Pan & Zoom | 2026-01 | Viewport-relative momentum, follow-playhead zoom anchor. |
 | Per-Device Layout Memory | 2026-01 | Last view, banks, filters, viewport, instrument channels in localStorage. |
+| Project Start/End Navigation | 2026-02-10 | Pinned "Start of Project" and "End of Project" actions at top of long-press marker navigation panel. Always visible regardless of markers/regions. |
 | Marker Navigation via Long-Press | 2025 | 500ms on time display → marker sheet with tap-to-jump. |
 | PWA Version Detection | 2025 | EXTSTATE version compare, silent hard refresh, Cache Storage cleanup. |
 | Add FX Browser | 2025 | Searchable plugin list (VST3/VST2/AU/JS), `TrackFX_AddByName`. |
