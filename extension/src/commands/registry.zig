@@ -222,18 +222,26 @@ pub const all = .{
     .{ "send/setMute", send.handleSetMute },
     .{ "send/setPan", send.handleSetPan },
     .{ "send/setMode", send.handleSetMode },
+    .{ "send/add", send.handleAdd },
+    .{ "send/remove", send.handleRemove },
 
     // Receives
     .{ "receive/setVolume", receive.handleSetVolume },
     .{ "receive/setMute", receive.handleSetMute },
     .{ "receive/setPan", receive.handleSetPan },
     .{ "receive/setMode", receive.handleSetMode },
+    .{ "receive/add", receive.handleAdd },
+    .{ "receive/remove", receive.handleRemove },
 
     // Hardware Outputs
     .{ "hw/setVolume", hw_output.handleSetVolume },
     .{ "hw/setMute", hw_output.handleSetMute },
     .{ "hw/setPan", hw_output.handleSetPan },
     .{ "hw/setMode", hw_output.handleSetMode },
+    .{ "hw/add", hw_output.handleAdd },
+    .{ "hw/remove", hw_output.handleRemove },
+    .{ "hw/setDestChannel", hw_output.handleSetDestChannel },
+    .{ "hw/listOutputs", hw_output.handleListOutputs },
 
     // Playlists (Cue List)
     .{ "playlist/create", playlist_cmds.handleCreate },

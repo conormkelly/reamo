@@ -808,6 +808,22 @@ pub const RealBackend = struct {
         return self.inner.trackHwOutputSetMode(track, hw_idx, mode);
     }
 
+    pub fn trackHwOutputSetDestChannel(self: *const RealBackend, track: *anyopaque, hw_idx: c_int, dest_chan: c_int) bool {
+        return self.inner.trackHwOutputSetDestChannel(track, hw_idx, dest_chan);
+    }
+
+    // =========================================================================
+    // Send/Receive/HW Output Creation & Removal
+    // =========================================================================
+
+    pub fn createSend(self: *const RealBackend, track: *anyopaque, dest_track: ?*anyopaque) c_int {
+        return self.inner.createTrackSend(track, dest_track);
+    }
+
+    pub fn removeSend(self: *const RealBackend, track: *anyopaque, category: c_int, send_idx: c_int) bool {
+        return self.inner.removeTrackSend(track, category, send_idx);
+    }
+
     // =========================================================================
     // Items
     // =========================================================================
@@ -1101,6 +1117,14 @@ pub const RealBackend = struct {
 
     pub fn audioInputName(self: *const RealBackend, channel: c_int) ?[*:0]const u8 {
         return self.inner.audioInputName(channel);
+    }
+
+    pub fn numAudioOutputs(self: *const RealBackend) c_int {
+        return self.inner.numAudioOutputs();
+    }
+
+    pub fn audioOutputName(self: *const RealBackend, channel: c_int) ?[*:0]const u8 {
+        return self.inner.audioOutputName(channel);
     }
 
     pub fn maxMidiInputs(self: *const RealBackend) c_int {

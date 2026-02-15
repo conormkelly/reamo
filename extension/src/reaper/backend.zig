@@ -238,6 +238,9 @@ pub fn validateBackend(comptime T: type) void {
         "trackHwOutputSetPan",
         "trackHwOutputSetMute",
         "trackHwOutputSetMode",
+        "trackHwOutputSetDestChannel",
+        "createSend",
+        "removeSend",
 
         // ExtState
         "getExtStateValue",
@@ -264,9 +267,11 @@ pub fn validateBackend(comptime T: type) void {
         "midiEditorGetActive",
         "midiEditorOnCommand",
 
-        // Input enumeration
+        // Input/Output enumeration
         "numAudioInputs",
         "audioInputName",
+        "numAudioOutputs",
+        "audioOutputName",
         "maxMidiInputs",
         "midiInputName",
         "getTrackRecInput",

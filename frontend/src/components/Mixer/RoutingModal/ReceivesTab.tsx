@@ -3,11 +3,12 @@
  * Renders a list of HorizontalRoutingFader components for each receive.
  */
 
-import { type ReactElement } from 'react';
+import { useState, type ReactElement } from 'react';
 import { useReaper } from '../../ReaperProvider';
 import { useTrack } from '../../../hooks/useTrack';
 import { receive as receiveCmd, gesture } from '../../../core/WebSocketCommands';
 import { HorizontalRoutingFader } from './HorizontalRoutingFader';
+import { TrackPicker } from './TrackPicker';
 import { nextMode } from './routingUtils';
 
 export interface ReceiveData {
@@ -23,6 +24,7 @@ export interface ReceiveData {
 
 export interface ReceivesTabProps {
   trackIndex: number;
+  trackGuid: string;
   receives: ReceiveData[];
   trackNameLookup: Record<number, string>;
 }
@@ -30,10 +32,12 @@ export interface ReceivesTabProps {
 /** Individual receive row - each maintains its own gesture tracking */
 function ReceiveRow({
   trackIndex,
+  trackGuid,
   recv,
   label,
 }: {
   trackIndex: number;
+  trackGuid: string;
   recv: ReceiveData;
   label: string;
 }): ReactElement {
@@ -83,16 +87,41 @@ function ReceiveRow({
       onModeToggle={() => {
         sendCommand(receiveCmd.setMode(trackIndex, recvIdx, nextMode(recv.mode ?? 0)));
       }}
+      onDelete={() => {
+        sendCommand(receiveCmd.remove(trackGuid, recvIdx));
+      }}
     />
   );
 }
 
-export function ReceivesTab({ trackIndex, receives, trackNameLookup }: ReceivesTabProps): ReactElement {
+export function ReceivesTab({ trackIndex, trackGuid, receives, trackNameLookup }: ReceivesTabProps): ReactElement {
+  const { sendCommand } = useReaper();
+  const [showPicker, setShowPicker] = useState(false);
+
+  if (showPicker) {
+    return (
+      <TrackPicker
+        prompt="Choose source track"
+        excludeGuid={trackGuid}
+        onSelect={(srcGuid) => {
+          sendCommand(receiveCmd.add(trackGuid, srcGuid));
+          setShowPicker(false);
+        }}
+        onCancel={() => setShowPicker(false)}
+      />
+    );
+  }
+
   if (receives.length === 0) {
     return (
-      <div className="text-center text-text-muted py-8">
-        <p>No receives to this track</p>
-        <p className="text-xs mt-1">Other tracks send to this track via routing</p>
+      <div className="text-center py-8">
+        <p className="text-text-muted">No receives to this track</p>
+        <button
+          onClick={() => setShowPicker(true)}
+          className="mt-3 text-sm text-accent-primary hover:text-accent-hover"
+        >
+          + Add Receive
+        </button>
       </div>
     );
   }
@@ -105,11 +134,18 @@ export function ReceivesTab({ trackIndex, receives, trackNameLookup }: ReceivesT
           <ReceiveRow
             key={`recv-${recv.sendIndex}`}
             trackIndex={trackIndex}
+            trackGuid={trackGuid}
             recv={recv}
             label={label}
           />
         );
       })}
+      <button
+        onClick={() => setShowPicker(true)}
+        className="w-full mt-2 py-2 text-sm text-accent-primary hover:text-accent-hover rounded-lg hover:bg-bg-elevated transition-colors"
+      >
+        + Add Receive
+      </button>
     </>
   );
 }

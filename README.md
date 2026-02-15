@@ -189,9 +189,11 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 
 ### Track Routing
 
-- View sends, receives, and hardware outputs per track
-- Adjust send levels with gesture-based undo coalescing
-- Visual routing overview in track detail modal
+- View, create, and delete sends, receives, and hardware outputs per track
+- Track picker for choosing send destinations and receive sources
+- Hardware output channel picker with stereo pairs and mono outputs
+- Adjust send/receive/hw output levels and pan with gesture-based undo coalescing
+- Two-tap delete confirmation (tap to arm, tap again to confirm)
 
 ### Folder Navigation
 

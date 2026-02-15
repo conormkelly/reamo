@@ -1360,6 +1360,66 @@ pub const TracksMethods = struct {
         return true;
     }
 
+    pub fn trackHwOutputSetDestChannel(self: anytype, track: *anyopaque, hw_idx: c_int, dest_chan: c_int) bool {
+        self.recordCall(.trackHwOutputSetDestChannel);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+        if (hw_idx < 0 or hw_idx >= self.tracks[idx].hw_output_count) return false;
+        const hw_usize: usize = @intCast(hw_idx);
+        if (hw_usize >= state.MAX_HW_OUTPUTS_PER_TRACK) return false;
+        self.tracks[idx].hw_outputs[hw_usize].dest_channel = dest_chan;
+        return true;
+    }
+
+    // =========================================================================
+    // Send/Receive/HW Output Creation & Removal
+    // =========================================================================
+
+    pub fn createSend(self: anytype, track: *anyopaque, dest_track: ?*anyopaque) c_int {
+        self.recordCall(.createSend);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return -1;
+
+        if (dest_track) |_| {
+            // Create a send
+            const send_count: usize = @intCast(self.tracks[idx].send_count);
+            if (send_count >= state.MAX_SENDS_PER_TRACK) return -1;
+            self.tracks[idx].sends[send_count] = .{};
+            self.tracks[idx].send_count += 1;
+            return @intCast(send_count);
+        } else {
+            // Create a hardware output
+            const hw_count: usize = @intCast(self.tracks[idx].hw_output_count);
+            if (hw_count >= state.MAX_HW_OUTPUTS_PER_TRACK) return -1;
+            self.tracks[idx].hw_outputs[hw_count] = .{};
+            self.tracks[idx].hw_output_count += 1;
+            return @intCast(hw_count);
+        }
+    }
+
+    pub fn removeSend(self: anytype, track: *anyopaque, category: c_int, send_idx: c_int) bool {
+        self.recordCall(.removeSend);
+        const idx = state.decodeTrackPtr(track);
+        if (idx >= state.MAX_TRACKS) return false;
+
+        if (category == 0) {
+            // Remove a send
+            if (send_idx < 0 or send_idx >= self.tracks[idx].send_count) return false;
+            self.tracks[idx].send_count -= 1;
+            return true;
+        } else if (category < 0) {
+            // Remove a receive
+            if (send_idx < 0 or send_idx >= self.tracks[idx].receive_count) return false;
+            self.tracks[idx].receive_count -= 1;
+            return true;
+        } else {
+            // Remove a hw output
+            if (send_idx < 0 or send_idx >= self.tracks[idx].hw_output_count) return false;
+            self.tracks[idx].hw_output_count -= 1;
+            return true;
+        }
+    }
+
     // =========================================================================
     // Fixed Lanes (swipe comping)
     // =========================================================================

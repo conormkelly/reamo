@@ -102,6 +102,9 @@ export function RoutingModal({
   // Use routing subscription data for hw outputs
   const hwOutputs: HwOutputData[] = routingHwOutputs;
 
+  // Use subscription hw output count when available, fall back to track skeleton
+  const effectiveHwCount = routingHwOutputs.length > 0 ? routingHwOutputs.length : hwOutCount;
+
   // Build name lookup from skeleton
   const trackNameLookup = useMemo(() => {
     const lookup: Record<number, string> = {};
@@ -111,16 +114,7 @@ export function RoutingModal({
     return lookup;
   }, [skeleton]);
 
-  const hasSends = trackSends.length > 0 || (track?.sendCount ?? 0) > 0;
-  const hasReceives = trackReceives.length > 0;
-  const hasHwOutputs = hwOutCount > 0;
-
-  // Derive effective tab - auto-switch if current selection has no content
-  const effectiveTab = useMemo((): RoutingTab => {
-    if (activeTab === 'sends' && !hasSends && hasReceives) return 'receives';
-    if (activeTab === 'sends' && !hasSends && hasHwOutputs) return 'hardware';
-    return activeTab;
-  }, [activeTab, hasSends, hasReceives, hasHwOutputs]);
+  const trackGuid = guid || '';
 
   const isMaster = trackIndex === 0;
   const displayName = trackName || (isMaster ? 'MASTER' : `Track ${trackIndex}`);
@@ -147,67 +141,61 @@ export function RoutingModal({
         <div className="flex gap-2 mb-4">
           <button
             onClick={() => setActiveTab('sends')}
-            disabled={!hasSends}
             className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
-              effectiveTab === 'sends'
+              activeTab === 'sends'
                 ? sendColors.tabActive
-                : hasSends
-                  ? sendColors.tabInactive
-                  : sendColors.tabDisabled
+                : sendColors.tabInactive
             }`}
           >
             Sends ({trackSends.length})
           </button>
           <button
             onClick={() => setActiveTab('receives')}
-            disabled={!hasReceives}
             className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
-              effectiveTab === 'receives'
+              activeTab === 'receives'
                 ? receiveColors.tabActive
-                : hasReceives
-                  ? receiveColors.tabInactive
-                  : receiveColors.tabDisabled
+                : receiveColors.tabInactive
             }`}
           >
             Receives ({trackReceives.length})
           </button>
           <button
             onClick={() => setActiveTab('hardware')}
-            disabled={!hasHwOutputs}
             className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
-              effectiveTab === 'hardware'
+              activeTab === 'hardware'
                 ? hardwareColors.tabActive
-                : hasHwOutputs
-                  ? hardwareColors.tabInactive
-                  : hardwareColors.tabDisabled
+                : hardwareColors.tabInactive
             }`}
           >
-            Hardware ({hwOutCount})
+            Hardware ({effectiveHwCount})
           </button>
         </div>
 
         {/* Scrollable content */}
         <div className="max-h-80 overflow-y-auto -mx-4 px-4">
           <div className="space-y-1">
-            {effectiveTab === 'sends' && (
+            {activeTab === 'sends' && (
               <SendsTab
                 trackIndex={trackIndex}
+                trackGuid={trackGuid}
                 sends={trackSends}
                 trackNameLookup={trackNameLookup}
               />
             )}
 
-            {effectiveTab === 'receives' && (
+            {activeTab === 'receives' && (
               <ReceivesTab
                 trackIndex={trackIndex}
+                trackGuid={trackGuid}
                 receives={trackReceives}
                 trackNameLookup={trackNameLookup}
               />
             )}
 
-            {effectiveTab === 'hardware' && (
+            {activeTab === 'hardware' && (
               <HardwareTab
                 trackIndex={trackIndex}
+                trackGuid={trackGuid}
                 hwOutputs={hwOutputs}
                 hwOutCount={hwOutCount}
               />
@@ -215,19 +203,10 @@ export function RoutingModal({
           </div>
         </div>
 
-        {/* Help text */}
-        {!hasSends && !hasReceives && !hasHwOutputs && (
-          <div className="text-center text-text-muted py-4 border-t border-border-subtle mt-4">
-            <p className="text-sm">This track has no routing connections</p>
-          </div>
-        )}
-
         {/* Footer summary */}
-        {(hasSends || hasReceives || hasHwOutputs) && (
-          <div className="text-xs text-text-muted text-center mt-3 pt-3 border-t border-border-subtle">
-            {trackSends.length} send{trackSends.length !== 1 ? 's' : ''} · {trackReceives.length} receive{trackReceives.length !== 1 ? 's' : ''} · {hwOutCount} hw out{hwOutCount !== 1 ? 's' : ''}
-          </div>
-        )}
+        <div className="text-xs text-text-muted text-center mt-3 pt-3 border-t border-border-subtle">
+          {trackSends.length} send{trackSends.length !== 1 ? 's' : ''} · {trackReceives.length} receive{trackReceives.length !== 1 ? 's' : ''} · {effectiveHwCount} hw out{effectiveHwCount !== 1 ? 's' : ''}
+        </div>
       </div>
     </BottomSheet>
   );

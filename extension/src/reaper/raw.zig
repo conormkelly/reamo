@@ -229,6 +229,8 @@ pub const Api = struct {
     csurf_OnSendVolumeChange: ?*const fn (?*anyopaque, c_int, f64, bool) callconv(.c) f64 = null,
     csurf_OnSendPanChange: ?*const fn (?*anyopaque, c_int, f64, bool) callconv(.c) f64 = null,
     toggleTrackSendUIMute: ?*const fn (?*anyopaque, c_int) callconv(.c) bool = null,
+    createTrackSend_fn: ?*const fn (?*anyopaque, ?*anyopaque) callconv(.c) c_int = null,
+    removeTrackSend_fn: ?*const fn (?*anyopaque, c_int, c_int) callconv(.c) bool = null,
 
     // Project enumeration and identity
     enumProjects_fn: ?*const fn (c_int, [*]u8, c_int) callconv(.c) ?*anyopaque = null,
@@ -246,9 +248,11 @@ pub const Api = struct {
     midiEditor_GetActive: ?*const fn () callconv(.c) ?*anyopaque = null,
     midiEditor_OnCommand: ?*const fn (?*anyopaque, c_int) callconv(.c) bool = null,
 
-    // Input enumeration (for track input selection)
+    // Input/Output enumeration (for track input/output selection)
     getNumAudioInputs: ?*const fn () callconv(.c) c_int = null,
     getInputChannelName: ?*const fn (c_int) callconv(.c) ?[*:0]const u8 = null,
+    getNumAudioOutputs: ?*const fn () callconv(.c) c_int = null,
+    getOutputChannelName: ?*const fn (c_int) callconv(.c) ?[*:0]const u8 = null,
     getMaxMidiInputs: ?*const fn () callconv(.c) c_int = null,
     getMIDIInputName: ?*const fn (c_int, [*]u8, c_int) callconv(.c) bool = null,
 
@@ -425,6 +429,8 @@ pub const Api = struct {
             .csurf_OnSendVolumeChange = getFunc(info, "CSurf_OnSendVolumeChange", fn (?*anyopaque, c_int, f64, bool) callconv(.c) f64),
             .csurf_OnSendPanChange = getFunc(info, "CSurf_OnSendPanChange", fn (?*anyopaque, c_int, f64, bool) callconv(.c) f64),
             .toggleTrackSendUIMute = getFunc(info, "ToggleTrackSendUIMute", fn (?*anyopaque, c_int) callconv(.c) bool),
+            .createTrackSend_fn = getFunc(info, "CreateTrackSend", fn (?*anyopaque, ?*anyopaque) callconv(.c) c_int),
+            .removeTrackSend_fn = getFunc(info, "RemoveTrackSend", fn (?*anyopaque, c_int, c_int) callconv(.c) bool),
             // Project enumeration and identity
             .enumProjects_fn = getFunc(info, "EnumProjects", fn (c_int, [*]u8, c_int) callconv(.c) ?*anyopaque),
             .getProjectName_fn = getFunc(info, "GetProjectName", fn (?*anyopaque, [*]u8, c_int) callconv(.c) void),
@@ -440,6 +446,8 @@ pub const Api = struct {
             // Input enumeration
             .getNumAudioInputs = getFunc(info, "GetNumAudioInputs", fn () callconv(.c) c_int),
             .getInputChannelName = getFunc(info, "GetInputChannelName", fn (c_int) callconv(.c) ?[*:0]const u8),
+            .getNumAudioOutputs = getFunc(info, "GetNumAudioOutputs", fn () callconv(.c) c_int),
+            .getOutputChannelName = getFunc(info, "GetOutputChannelName", fn (c_int) callconv(.c) ?[*:0]const u8),
             .getMaxMidiInputs = getFunc(info, "GetMaxMidiInputs", fn () callconv(.c) c_int),
             .getMIDIInputName = getFunc(info, "GetMIDIInputName", fn (c_int, [*]u8, c_int) callconv(.c) bool),
             // Script management
@@ -1933,6 +1941,26 @@ pub const Api = struct {
         return f(track, 1, hw_idx, "I_SENDMODE", @floatFromInt(mode));
     }
 
+    /// Set HW output destination channel (I_DSTCHAN encoding: low 10 bits = channel index, &1024 = mono)
+    pub fn trackHwOutputSetDestChannel(self: *const Api, track: *anyopaque, hw_idx: c_int, dest_chan: c_int) bool {
+        const f = self.setTrackSendInfo_Value orelse return false;
+        return f(track, 1, hw_idx, "I_DSTCHAN", @floatFromInt(dest_chan));
+    }
+
+    /// Create a send from track to dest_track, or a hardware output if dest_track is null.
+    /// Returns the new send/hw output index (>=0) on success, or -1 on failure.
+    pub fn createTrackSend(self: *const Api, track: *anyopaque, dest_track: ?*anyopaque) c_int {
+        const f = self.createTrackSend_fn orelse return -1;
+        return f(track, dest_track);
+    }
+
+    /// Remove a send (category=0), receive (category<0), or hw output (category>0).
+    /// Returns true on success.
+    pub fn removeTrackSend(self: *const Api, track: *anyopaque, category: c_int, send_idx: c_int) bool {
+        const f = self.removeTrackSend_fn orelse return false;
+        return f(track, category, send_idx);
+    }
+
     // Item methods
 
     pub fn trackItemCount(self: *const Api, track: *anyopaque) c_int {
@@ -2517,6 +2545,19 @@ pub const Api = struct {
     /// Returns null if index is out of range or function unavailable.
     pub fn audioInputName(self: *const Api, channel: c_int) ?[*:0]const u8 {
         const f = self.getInputChannelName orelse return null;
+        return f(channel);
+    }
+
+    /// Get number of audio output channels available.
+    pub fn numAudioOutputs(self: *const Api) c_int {
+        const f = self.getNumAudioOutputs orelse return 0;
+        return f();
+    }
+
+    /// Get name of an audio output channel by index.
+    /// Returns null if index is out of range or function unavailable.
+    pub fn audioOutputName(self: *const Api, channel: c_int) ?[*:0]const u8 {
+        const f = self.getOutputChannelName orelse return null;
         return f(channel);
     }
 

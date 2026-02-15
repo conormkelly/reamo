@@ -149,6 +149,7 @@ pub const MockBackend = struct {
     // Input enumeration (configurable for testing)
     // =========================================================================
     audio_input_count: c_int = 8,
+    audio_output_count: c_int = 8,
     midi_input_count: c_int = 4,
 
     // =========================================================================
@@ -485,6 +486,9 @@ pub const MockBackend = struct {
     pub const trackHwOutputSetPan = tracks.TracksMethods.trackHwOutputSetPan;
     pub const trackHwOutputSetMute = tracks.TracksMethods.trackHwOutputSetMute;
     pub const trackHwOutputSetMode = tracks.TracksMethods.trackHwOutputSetMode;
+    pub const trackHwOutputSetDestChannel = tracks.TracksMethods.trackHwOutputSetDestChannel;
+    pub const createSend = tracks.TracksMethods.createSend;
+    pub const removeSend = tracks.TracksMethods.removeSend;
 
     // =========================================================================
     // Marker methods (delegated)
@@ -555,6 +559,8 @@ pub const MockBackend = struct {
     // =========================================================================
     pub const numAudioInputs = inputs.InputsMethods.numAudioInputs;
     pub const audioInputName = inputs.InputsMethods.audioInputName;
+    pub const numAudioOutputs = inputs.InputsMethods.numAudioOutputs;
+    pub const audioOutputName = inputs.InputsMethods.audioOutputName;
     pub const maxMidiInputs = inputs.InputsMethods.maxMidiInputs;
     pub const midiInputName = inputs.InputsMethods.midiInputName;
     pub const getTrackRecInput = inputs.InputsMethods.getTrackRecInput;

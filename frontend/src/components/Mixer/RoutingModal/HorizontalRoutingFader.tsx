@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect, type ReactElement } from 'react';
-import { Volume2, VolumeX } from 'lucide-react';
+import { Volume2, VolumeX, Trash2 } from 'lucide-react';
 import { useReaperStore } from '../../../store';
 import { volumeToDbString, faderToVolume, volumeToFader } from '../../../utils/volume';
 import { formatPan, MODE_LABELS, ROUTING_COLORS, type RoutingColorScheme } from './routingUtils';
@@ -34,6 +34,10 @@ export interface HorizontalRoutingFaderProps {
   onModeToggle: () => void;
   onVolumeDoubleTap: () => void;
   onPanDoubleTap: () => void;
+  /** Optional delete callback - when provided, shows a trash icon */
+  onDelete?: () => void;
+  /** Optional label tap callback - when provided, label becomes tappable */
+  onLabelTap?: () => void;
 }
 
 export function HorizontalRoutingFader({
@@ -53,6 +57,8 @@ export function HorizontalRoutingFader({
   onModeToggle,
   onVolumeDoubleTap,
   onPanDoubleTap,
+  onDelete,
+  onLabelTap,
 }: HorizontalRoutingFaderProps): ReactElement {
   const mixerLocked = useReaperStore((s) => s.mixerLocked);
   const colors = ROUTING_COLORS[colorScheme];
@@ -69,11 +75,16 @@ export function HorizontalRoutingFader({
   const lastPanTapRef = useRef<number>(0);
   const panCleanupRef = useRef<(() => void) | null>(null);
 
+  // Delete confirmation state (tap once = armed/red, tap again = delete)
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const deleteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (cleanupRef.current) cleanupRef.current();
       if (panCleanupRef.current) panCleanupRef.current();
+      if (deleteTimeoutRef.current) clearTimeout(deleteTimeoutRef.current);
     };
   }, []);
 
@@ -224,9 +235,19 @@ export function HorizontalRoutingFader({
         </button>
 
         {/* Label */}
-        <span className="text-sm text-text-primary w-24 truncate" title={label}>
-          {label}
-        </span>
+        {onLabelTap ? (
+          <button
+            onClick={onLabelTap}
+            className="text-sm text-accent-primary w-24 truncate text-left"
+            title={`${label} - tap to change`}
+          >
+            {label}
+          </button>
+        ) : (
+          <span className="text-sm text-text-primary w-24 truncate" title={label}>
+            {label}
+          </span>
+        )}
 
         {/* Horizontal fader */}
         <div
@@ -295,6 +316,32 @@ export function HorizontalRoutingFader({
         >
           {MODE_LABELS[mode] || '?'}
         </button>
+
+        {/* Delete button - tap once to arm (red), tap again to confirm */}
+        {onDelete && (
+          <button
+            onClick={() => {
+              if (!deleteArmed) {
+                setDeleteArmed(true);
+                deleteTimeoutRef.current = setTimeout(() => {
+                  setDeleteArmed(false);
+                }, 3000);
+              } else {
+                if (deleteTimeoutRef.current) clearTimeout(deleteTimeoutRef.current);
+                setDeleteArmed(false);
+                onDelete();
+              }
+            }}
+            className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${
+              deleteArmed
+                ? 'bg-error-bg text-error-text'
+                : 'text-text-muted hover:text-error-text'
+            }`}
+            title={deleteArmed ? 'Tap again to confirm remove' : 'Remove'}
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
       </div>
     </div>
   );

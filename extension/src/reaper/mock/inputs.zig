@@ -30,6 +30,30 @@ pub const InputsMethods = struct {
     }
 
     // =========================================================================
+    // Audio output enumeration
+    // =========================================================================
+
+    pub fn numAudioOutputs(self: anytype) c_int {
+        self.recordCall(.numAudioOutputs);
+        return self.audio_output_count;
+    }
+
+    pub fn audioOutputName(self: anytype, channel: c_int) ?[*:0]const u8 {
+        self.recordCall(.audioOutputName);
+        if (channel < 0 or channel >= self.audio_output_count) return null;
+
+        const names = [_][*:0]const u8{
+            "Output 1",  "Output 2",  "Output 3",  "Output 4",
+            "Output 5",  "Output 6",  "Output 7",  "Output 8",
+            "Output 9",  "Output 10", "Output 11", "Output 12",
+            "Output 13", "Output 14", "Output 15", "Output 16",
+        };
+        const idx: usize = @intCast(channel);
+        if (idx >= names.len) return null;
+        return names[idx];
+    }
+
+    // =========================================================================
     // MIDI input enumeration
     // =========================================================================
 

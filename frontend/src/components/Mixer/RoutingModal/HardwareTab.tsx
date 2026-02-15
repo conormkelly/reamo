@@ -3,11 +3,12 @@
  * Renders a list of HorizontalRoutingFader components for each hardware output.
  */
 
-import { type ReactElement } from 'react';
+import { useState, type ReactElement } from 'react';
 import { useReaper } from '../../ReaperProvider';
 import { useTrack } from '../../../hooks/useTrack';
 import { hw as hwCmd, gesture } from '../../../core/WebSocketCommands';
 import { HorizontalRoutingFader } from './HorizontalRoutingFader';
+import { HwChannelPicker } from './HwChannelPicker';
 import { nextMode, formatHwOutputName } from './routingUtils';
 
 export interface HwOutputData {
@@ -21,6 +22,7 @@ export interface HwOutputData {
 
 export interface HardwareTabProps {
   trackIndex: number;
+  trackGuid: string;
   hwOutputs: HwOutputData[];
   hwOutCount: number;
 }
@@ -28,10 +30,14 @@ export interface HardwareTabProps {
 /** Individual hardware output row */
 function HwOutputRow({
   trackIndex,
+  trackGuid,
   hw,
+  onLabelTap,
 }: {
   trackIndex: number;
+  trackGuid: string;
   hw: HwOutputData;
+  onLabelTap: () => void;
 }): ReactElement {
   const { sendCommand } = useReaper();
   const { guid } = useTrack(trackIndex);
@@ -46,6 +52,7 @@ function HwOutputRow({
       mode={hw.mode}
       label={label}
       colorScheme="hardware"
+      onLabelTap={onLabelTap}
       onVolumeChange={(volume) => {
         sendCommand(hwCmd.setVolume(trackIndex, hwIdx, volume));
       }}
@@ -80,11 +87,51 @@ function HwOutputRow({
       onModeToggle={() => {
         sendCommand(hwCmd.setMode(trackIndex, hwIdx, nextMode(hw.mode)));
       }}
+      onDelete={() => {
+        sendCommand(hwCmd.remove(trackGuid, hwIdx));
+      }}
     />
   );
 }
 
-export function HardwareTab({ trackIndex, hwOutputs, hwOutCount }: HardwareTabProps): ReactElement {
+export function HardwareTab({ trackIndex, trackGuid, hwOutputs, hwOutCount }: HardwareTabProps): ReactElement {
+  const { sendCommand, sendCommandAsync } = useReaper();
+  // 'create' = picking channel for new hw output, number = editing existing hw output's dest
+  const [pickerMode, setPickerMode] = useState<'create' | number | null>(null);
+
+  // Show picker for creating or editing
+  if (pickerMode !== null) {
+    const isEditing = typeof pickerMode === 'number';
+    const editingHw = isEditing ? hwOutputs.find((h) => h.hwIdx === pickerMode) : undefined;
+
+    return (
+      <HwChannelPicker
+        prompt={isEditing ? 'Change output destination' : 'Choose output destination'}
+        currentDestChannel={editingHw?.destChannel}
+        onSelect={async (destChannel) => {
+          if (isEditing) {
+            sendCommand(hwCmd.setDestChannel(trackIndex, pickerMode, destChannel));
+          } else {
+            // Create new hw output, then set its destination
+            try {
+              const res = (await sendCommandAsync(hwCmd.add(trackGuid))) as {
+                success?: boolean;
+                payload?: { hwIdx?: number };
+              };
+              if (res.success && res.payload?.hwIdx !== undefined) {
+                sendCommand(hwCmd.setDestChannel(trackIndex, res.payload.hwIdx, destChannel));
+              }
+            } catch {
+              // hw/add may fail silently — output still created with defaults by REAPER
+            }
+          }
+          setPickerMode(null);
+        }}
+        onCancel={() => setPickerMode(null)}
+      />
+    );
+  }
+
   // Loading state - we know there are hw outputs but data hasn't arrived
   if (hwOutCount > 0 && hwOutputs.length === 0) {
     return (
@@ -97,9 +144,14 @@ export function HardwareTab({ trackIndex, hwOutputs, hwOutCount }: HardwareTabPr
   // Empty state
   if (hwOutputs.length === 0) {
     return (
-      <div className="text-center text-text-muted py-8">
-        <p>No hardware outputs on this track</p>
-        <p className="text-xs mt-1">Add hardware outputs in REAPER's routing window</p>
+      <div className="text-center py-8">
+        <p className="text-text-muted">No hardware outputs on this track</p>
+        <button
+          onClick={() => setPickerMode('create')}
+          className="mt-3 text-sm text-accent-primary hover:text-accent-hover"
+        >
+          + Add Hardware Output
+        </button>
       </div>
     );
   }
@@ -110,9 +162,17 @@ export function HardwareTab({ trackIndex, hwOutputs, hwOutCount }: HardwareTabPr
         <HwOutputRow
           key={hw.hwIdx}
           trackIndex={trackIndex}
+          trackGuid={trackGuid}
           hw={hw}
+          onLabelTap={() => setPickerMode(hw.hwIdx)}
         />
       ))}
+      <button
+        onClick={() => setPickerMode('create')}
+        className="w-full mt-2 py-2 text-sm text-accent-primary hover:text-accent-hover rounded-lg hover:bg-bg-elevated transition-colors"
+      >
+        + Add Hardware Output
+      </button>
     </>
   );
 }

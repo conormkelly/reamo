@@ -3,11 +3,12 @@
  * Renders a list of HorizontalRoutingFader components for each send.
  */
 
-import { type ReactElement } from 'react';
+import { useState, type ReactElement } from 'react';
 import { useReaper } from '../../ReaperProvider';
 import { useTrack } from '../../../hooks/useTrack';
 import { send as sendCmd, gesture } from '../../../core/WebSocketCommands';
 import { HorizontalRoutingFader } from './HorizontalRoutingFader';
+import { TrackPicker } from './TrackPicker';
 import { nextMode } from './routingUtils';
 
 export interface SendData {
@@ -23,6 +24,7 @@ export interface SendData {
 
 export interface SendsTabProps {
   trackIndex: number;
+  trackGuid: string;
   sends: SendData[];
   trackNameLookup: Record<number, string>;
 }
@@ -30,10 +32,12 @@ export interface SendsTabProps {
 /** Individual send row - each maintains its own gesture refs */
 function SendRow({
   trackIndex,
+  trackGuid,
   send,
   label,
 }: {
   trackIndex: number;
+  trackGuid: string;
   send: SendData;
   label: string;
 }): ReactElement {
@@ -83,16 +87,41 @@ function SendRow({
       onModeToggle={() => {
         sendCommand(sendCmd.setMode(trackIndex, sendIndex, nextMode(send.mode)));
       }}
+      onDelete={() => {
+        sendCommand(sendCmd.remove(trackGuid, sendIndex));
+      }}
     />
   );
 }
 
-export function SendsTab({ trackIndex, sends, trackNameLookup }: SendsTabProps): ReactElement {
+export function SendsTab({ trackIndex, trackGuid, sends, trackNameLookup }: SendsTabProps): ReactElement {
+  const { sendCommand } = useReaper();
+  const [showPicker, setShowPicker] = useState(false);
+
+  if (showPicker) {
+    return (
+      <TrackPicker
+        prompt="Choose destination track"
+        excludeGuid={trackGuid}
+        onSelect={(destGuid) => {
+          sendCommand(sendCmd.add(trackGuid, destGuid));
+          setShowPicker(false);
+        }}
+        onCancel={() => setShowPicker(false)}
+      />
+    );
+  }
+
   if (sends.length === 0) {
     return (
-      <div className="text-center text-text-muted py-8">
-        <p>No sends from this track</p>
-        <p className="text-xs mt-1">Add sends in REAPER's routing window</p>
+      <div className="text-center py-8">
+        <p className="text-text-muted">No sends from this track</p>
+        <button
+          onClick={() => setShowPicker(true)}
+          className="mt-3 text-sm text-accent-primary hover:text-accent-hover"
+        >
+          + Add Send
+        </button>
       </div>
     );
   }
@@ -105,11 +134,18 @@ export function SendsTab({ trackIndex, sends, trackNameLookup }: SendsTabProps):
           <SendRow
             key={`${send.srcTrackIdx}-${send.sendIndex}`}
             trackIndex={trackIndex}
+            trackGuid={trackGuid}
             send={send}
             label={label}
           />
         );
       })}
+      <button
+        onClick={() => setShowPicker(true)}
+        className="w-full mt-2 py-2 text-sm text-accent-primary hover:text-accent-hover rounded-lg hover:bg-bg-elevated transition-colors"
+      >
+        + Add Send
+      </button>
     </>
   );
 }
