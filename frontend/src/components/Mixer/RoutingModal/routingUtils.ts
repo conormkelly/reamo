@@ -25,18 +25,18 @@ export function formatPan(pan: number): string {
 }
 
 /**
- * Generate display name from destChannel encoding
- * Lower 10 bits = channel index, upper bits = number of channels
+ * Generate display name from I_DSTCHAN encoding.
+ * Bit 10 (& 1024) = mono flag. Lower 10 bits = channel index (0-based).
+ * Stereo (flag absent): "HW Out N/N+1", Mono (flag set): "HW Out N".
  */
 export function formatHwOutputName(destChannel: number): string {
+  const isMono = (destChannel & 1024) !== 0;
   const channelIdx = destChannel & 0x3ff;
-  const numChans = (destChannel >> 10) & 0x3ff;
   const startCh = channelIdx + 1;
-  // Mono if numChans is 0 or 1
-  if (numChans <= 1) {
+  if (isMono) {
     return `HW Out ${startCh}`;
   }
-  return `HW Out ${startCh}/${startCh + numChans - 1}`;
+  return `HW Out ${startCh}/${startCh + 1}`;
 }
 
 /** Color scheme type for routing faders */

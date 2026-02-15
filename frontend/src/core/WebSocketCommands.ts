@@ -741,6 +741,16 @@ export const send = {
     command: 'send/setMode',
     params: { trackIdx, sendIdx, mode },
   }),
+  /** Create a new send from source track to destination track */
+  add: (trackGuid: string, destTrackGuid: string): WSCommand => ({
+    command: 'send/add',
+    params: { trackGuid, destTrackGuid },
+  }),
+  /** Remove a send by index */
+  remove: (trackGuid: string, sendIdx: number): WSCommand => ({
+    command: 'send/remove',
+    params: { trackGuid, sendIdx },
+  }),
 };
 
 // =============================================================================
@@ -768,6 +778,16 @@ export const receive = {
     command: 'receive/setMode',
     params: { trackIdx, recvIdx, mode },
   }),
+  /** Create a new receive on this track from another track */
+  add: (trackGuid: string, srcTrackGuid: string): WSCommand => ({
+    command: 'receive/add',
+    params: { trackGuid, srcTrackGuid },
+  }),
+  /** Remove a receive by index */
+  remove: (trackGuid: string, recvIdx: number): WSCommand => ({
+    command: 'receive/remove',
+    params: { trackGuid, recvIdx },
+  }),
 };
 
 // =============================================================================
@@ -794,6 +814,26 @@ export const hw = {
   setMode: (trackIdx: number, hwIdx: number, mode: number): WSCommand => ({
     command: 'hw/setMode',
     params: { trackIdx, hwIdx, mode },
+  }),
+  /** Create a new hardware output on this track */
+  add: (trackGuid: string): WSCommand => ({
+    command: 'hw/add',
+    params: { trackGuid },
+  }),
+  /** Remove a hardware output by index */
+  remove: (trackGuid: string, hwIdx: number): WSCommand => ({
+    command: 'hw/remove',
+    params: { trackGuid, hwIdx },
+  }),
+  /** Set the destination channel for a hardware output */
+  setDestChannel: (trackIdx: number, hwIdx: number, destChannel: number): WSCommand => ({
+    command: 'hw/setDestChannel',
+    params: { trackIdx, hwIdx, destChannel },
+  }),
+  /** List available audio output channels */
+  listOutputs: (): WSCommand => ({
+    command: 'hw/listOutputs',
+    params: {},
   }),
 };
 

@@ -315,14 +315,6 @@ Enable drag-to-move for selected items on timeline.
 
 **Frontend:** Drag gesture on item (distinguish from pan on empty space), ghost preview, snap feedback.
 
-### Add Send to Track
-
-Currently can view and adjust existing sends but not create new ones.
-
-- `send/add` command with `sourceTrackGuid`, `destTrackGuid`
-- UI in track detail modal or dedicated sends view
-- Show available destination tracks (exclude self, existing destinations)
-
 ### Time Format Cycling (SMPTE)
 
 Tap time display to cycle: Bar.Beat → Seconds → SMPTE → Bar.Beat
@@ -509,6 +501,7 @@ Completed features, kept for historical reference.
 
 | Feature | Completed | Notes |
 |---------|-----------|-------|
+| Routing Create/Delete (Sends, Receives, HW Outputs) | 2026-02-15 | Add/remove sends, receives, and hardware outputs from routing bottom sheet. Track picker for send/receive destinations. HW output channel picker with stereo pairs + mono. Two-tap delete confirmation. `CreateTrackSend`/`RemoveTrackSend` bindings, `hw/listOutputs` for channel enumeration. |
 | Count-In & Pre-Roll Toggles | 2026-02-14 | 4 toggles in QuickActionsPanel: count-in play/rec + pre-roll play/rec. Count-in uses native `projmetroen` config var (no SWS dep). Pre-roll uses REAPER actions 41818/41819. State via project event polling. |
 | View Customization (Hide/Show/Reorder) | 2026-02-14 | Per-view show/hide toggles + drag-to-reorder in bottom sheet. Tab bar and side rail filter by visibility/order. Persisted to localStorage. Presets/onboarding deferred to v1.1. |
 | Extensions Menu System | 2026-02-07 | Declarative menu under Extensions > REAmo. SWELL bridge for macOS/Linux. **Windows: needs validation** — Win32 branches stub out, need `extern "user32"` calls. |

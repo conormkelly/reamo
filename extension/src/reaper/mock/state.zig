@@ -286,9 +286,14 @@ pub const Method = enum {
     trackHwOutputSetPan,
     trackHwOutputSetMute,
     trackHwOutputSetMode,
-    // Inputs
+    trackHwOutputSetDestChannel,
+    createSend,
+    removeSend,
+    // Inputs/Outputs
     numAudioInputs,
     audioInputName,
+    numAudioOutputs,
+    audioOutputName,
     maxMidiInputs,
     midiInputName,
     getTrackRecInput,

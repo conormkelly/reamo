@@ -1,6 +1,7 @@
 const std = @import("std");
 const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
+const tracks = @import("tracks.zig");
 const gesture_state = @import("../server/gesture_state.zig");
 const logging = @import("../core/logging.zig");
 
@@ -139,5 +140,94 @@ pub fn handleSetMode(api: anytype, cmd: protocol.CommandMessage, response: *mod.
     }
 
     logging.debug("Receive mode set: track {} recv {} mode {}", .{ track_idx, recv_idx, mode });
+    response.success(null);
+}
+
+/// Create a new receive on this track from another track.
+/// This creates a send FROM srcTrack TO this track (CreateTrackSend on the source).
+/// Params: trackGuid (receiver), srcTrackGuid (sender)
+/// Response: { "sendIndex": N } (index of the new send on the source track)
+pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const dest_guid = cmd.getString("trackGuid") orelse {
+        response.err("MISSING_PARAM", "trackGuid is required");
+        return;
+    };
+    const src_guid = cmd.getString("srcTrackGuid") orelse {
+        response.err("MISSING_PARAM", "srcTrackGuid is required");
+        return;
+    };
+
+    const cache = mod.g_ctx.guid_cache orelse {
+        response.err("NOT_INITIALIZED", "GUID cache not initialized");
+        return;
+    };
+
+    const dest_track = cache.resolve(dest_guid) orelse {
+        response.err("NOT_FOUND", "Destination track not found");
+        return;
+    };
+    if (!api.validateTrackPtr(dest_track)) {
+        response.err("NOT_FOUND", "Destination track no longer exists");
+        return;
+    }
+
+    const src_track = cache.resolve(src_guid) orelse {
+        response.err("NOT_FOUND", "Source track not found");
+        return;
+    };
+    if (!api.validateTrackPtr(src_track)) {
+        response.err("NOT_FOUND", "Source track no longer exists");
+        return;
+    }
+
+    if (src_track == dest_track) {
+        response.err("INVALID_PARAM", "Cannot create receive from self");
+        return;
+    }
+
+    // CreateTrackSend creates a send FROM src TO dest
+    api.undoBeginBlock();
+    const send_idx = api.createSend(src_track, dest_track);
+    api.undoEndBlock("REAmo: Create receive");
+
+    if (send_idx < 0) {
+        response.err("CREATE_FAILED", "Failed to create receive");
+        return;
+    }
+
+    var resp_buf: [64]u8 = undefined;
+    const resp_json = std.fmt.bufPrint(&resp_buf, "{{\"sendIndex\":{d}}}", .{send_idx}) catch {
+        logging.warn("receive/add: response buffer overflow", .{});
+        response.success(null);
+        return;
+    };
+    logging.debug("Receive created (send idx {d} on source)", .{send_idx});
+    response.success(resp_json);
+}
+
+/// Remove a receive by index.
+/// Params: trackGuid (or trackIdx), recvIdx
+pub fn handleRemove(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const resolution = tracks.resolveTrack(api, cmd) orelse {
+        response.err("NOT_FOUND", "Track not found");
+        return;
+    };
+
+    const recv_idx = cmd.getInt("recvIdx") orelse {
+        response.err("MISSING_PARAM", "recvIdx is required");
+        return;
+    };
+
+    // category < 0 = receives
+    api.undoBeginBlock();
+    const success = api.removeSend(resolution.track, -1, recv_idx);
+    api.undoEndBlock("REAmo: Remove receive");
+
+    if (!success) {
+        response.err("REMOVE_FAILED", "Failed to remove receive");
+        return;
+    }
+
+    logging.debug("Receive removed: track {} recv {}", .{ resolution.idx, recv_idx });
     response.success(null);
 }
