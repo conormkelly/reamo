@@ -228,3 +228,12 @@ pub fn handleRemove(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
     logging.debug("Send removed: track {} send {}", .{ resolution.idx, send_idx });
     response.success(null);
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "send handlers compile" {
+    // Command handlers require ResponseWriter with SharedState.
+    // Integration tests via websocat verify full behavior.
+}

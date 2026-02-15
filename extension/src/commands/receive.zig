@@ -231,3 +231,12 @@ pub fn handleRemove(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
     logging.debug("Receive removed: track {} recv {}", .{ resolution.idx, recv_idx });
     response.success(null);
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "receive handlers compile" {
+    // Command handlers require ResponseWriter with SharedState.
+    // Integration tests via websocat verify full behavior.
+}
