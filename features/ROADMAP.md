@@ -189,6 +189,8 @@ Expand the user base into new segments: worship teams, bands, podcasters, songwr
 
 ### Lyric/Chord Teleprompter
 
+**Design doc:** [LYRICS_DESIGN.md](LYRICS_DESIGN.md) (WIP)
+
 ChordPro import with timeline-synced display for performers. Unlocks the worship/band market.
 
 **Why this matters:** OnSong and ForScore are beloved because they combine lyrics, chords, and playback. REAmo can do this with native REAPER integration — charts live with the project, sync is automatic. Worship teams spend $30-300/month on tools like Planning Center. Bands and session musicians sight-read charts constantly.
