@@ -277,11 +277,30 @@ export function WaveformCanvas({
       ctx.fillStyle = getItemColor(item);
       ctx.fillRect(itemX, itemY, itemWidth, itemHeight);
 
-      // Draw selection border
+      // Draw selection border — only show left/right edges if actually visible
+      // in the viewport (items clipped to viewport shouldn't show borders at edges)
       if (item.selected) {
+        const leftVisible = itemStart >= viewportStart;
+        const rightVisible = itemEnd <= viewportEnd;
         ctx.strokeStyle = '#3b82f6'; // --color-primary
         ctx.lineWidth = 2;
-        ctx.strokeRect(itemX + 1, itemY + 1, itemWidth - 2, itemHeight - 2);
+        ctx.beginPath();
+        // Top edge (always)
+        ctx.moveTo(leftVisible ? itemX + 1 : itemX, itemY + 1);
+        ctx.lineTo(rightVisible ? itemRight - 1 : itemRight, itemY + 1);
+        // Right edge (only if item ends within viewport)
+        if (rightVisible) {
+          ctx.lineTo(itemRight - 1, itemY + itemHeight - 1);
+        } else {
+          ctx.moveTo(rightVisible ? itemRight - 1 : itemRight, itemY + itemHeight - 1);
+        }
+        // Bottom edge (always)
+        ctx.lineTo(leftVisible ? itemX + 1 : itemX, itemY + itemHeight - 1);
+        // Left edge (only if item starts within viewport)
+        if (leftVisible) {
+          ctx.lineTo(itemX + 1, itemY + 1);
+        }
+        ctx.stroke();
       }
 
       // Track this region as drawn
