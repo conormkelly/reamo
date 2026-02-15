@@ -553,6 +553,28 @@ Move an item to a new position.
 {"type": "command", "command": "item/move", "trackIdx": 0, "itemIdx": 0, "position": 15.0}
 ```
 
+### `item/moveByGuid`
+
+Move an item by GUID — stable across reordering. Supports changing position, track, or both in a single undo block. At least one of `position` or `destTrackGuid` must be provided.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `guid` | string | Yes | Item GUID |
+| `position` | float | No | New position in seconds (must be >= 0) |
+| `destTrackGuid` | string | No | GUID of destination track |
+
+```json
+{"type": "command", "command": "item/moveByGuid", "guid": "{XXXXXXXX-...}", "position": 15.0}
+```
+
+```json
+{"type": "command", "command": "item/moveByGuid", "guid": "{XXXXXXXX-...}", "destTrackGuid": "{YYYYYYYY-...}"}
+```
+
+```json
+{"type": "command", "command": "item/moveByGuid", "guid": "{XXXXXXXX-...}", "position": 15.0, "destTrackGuid": "{YYYYYYYY-...}"}
+```
+
 ### `item/setColor`
 
 Set an item's color.

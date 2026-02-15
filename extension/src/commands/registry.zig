@@ -77,6 +77,7 @@ pub const all = .{
     // Items
     .{ "item/setActiveTake", items.handleItemSetActiveTake },
     .{ "item/move", items.handleItemMove },
+    .{ "item/moveByGuid", items.handleItemMoveByGuid },
     .{ "item/setColor", items.handleItemColor },
     .{ "item/setLock", items.handleItemLock },
     .{ "item/setNotes", items.handleItemNotes },

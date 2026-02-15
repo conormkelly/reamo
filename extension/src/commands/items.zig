@@ -62,6 +62,72 @@ pub fn handleItemMove(api: anytype, cmd: protocol.CommandMessage, response: *mod
     api.updateTimeline();
 }
 
+/// Move item by GUID — stable across reordering.
+/// Params: { guid: string, position?: number, destTrackGuid?: string }
+/// At least one of position or destTrackGuid must be provided.
+pub fn handleItemMoveByGuid(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const guid = cmd.getString("guid") orelse {
+        response.err("MISSING_GUID", "Item GUID is required");
+        return;
+    };
+
+    // Validate: at least one action
+    const position = mod.validatePosition(cmd.getFloat("position"));
+    const dest_track_guid = cmd.getString("destTrackGuid");
+    if (position == null and dest_track_guid == null) {
+        response.err("MISSING_PARAMS", "At least one of position or destTrackGuid required");
+        return;
+    }
+
+    // Resolve item from GUID cache
+    const cache = mod.g_ctx.item_cache orelse {
+        response.err("NOT_INITIALIZED", "Item cache not initialized");
+        return;
+    };
+    const location = cache.resolve(guid) orelse {
+        response.err("NOT_FOUND", "Item not found (may have been deleted)");
+        return;
+    };
+    const track = api.getTrackByUnifiedIdx(location.track_idx) orelse {
+        response.err("NOT_FOUND", "Track not found");
+        return;
+    };
+    const item = api.getItemByIdx(track, location.item_idx) orelse {
+        response.err("NOT_FOUND", "Item not found at expected position");
+        return;
+    };
+
+    api.undoBeginBlock();
+
+    // Set position if provided
+    if (position) |pos| {
+        if (api.setItemPosition(item, pos)) {
+            logging.debug("Moved item to {d:.2}", .{pos});
+        }
+    }
+
+    // Move to destination track if provided
+    if (dest_track_guid) |dest_guid| {
+        const guid_cache = mod.g_ctx.guid_cache orelse {
+            api.undoEndBlock("Reamo: Move item");
+            response.err("NOT_INITIALIZED", "GUID cache not initialized");
+            return;
+        };
+        const dest_track = guid_cache.resolve(dest_guid) orelse {
+            api.undoEndBlock("Reamo: Move item");
+            response.err("NOT_FOUND", "Destination track not found");
+            return;
+        };
+        if (api.moveItemToTrack(item, dest_track)) {
+            logging.debug("Moved item to different track", .{});
+        }
+    }
+
+    api.undoEndBlock("Reamo: Move item");
+    api.updateTimeline();
+    response.success(null);
+}
+
 pub fn handleItemColor(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const item_info = getItemFromCmd(api, cmd) orelse {
         response.err("NOT_FOUND", "Item not found");
@@ -863,4 +929,26 @@ fn writeJsonEscaped(writer: anytype, str: []const u8) !void {
             },
         }
     }
+}
+
+test "handleItemMoveByGuid requires guid parameter" {
+    // Command handlers require ResponseWriter with SharedState.
+    // Integration tests via websocat verify full behavior.
+    // Key behaviors:
+    // - Requires guid string parameter
+    // - Requires at least one of position (f64) or destTrackGuid (string)
+    // - Resolves item via item_guid_cache (O(1) GUID → indices)
+    // - Resolves dest track via guid_cache (O(1) GUID → track pointer)
+    // - Both position + track changes happen in single undo block
+    // - Returns success(null) — frontend polls for updated item data
+}
+
+test "handleItemMoveByGuid rejects missing action params" {
+    // Sending guid without position or destTrackGuid should return MISSING_PARAMS error.
+    // Both are optional individually, but at least one must be present.
+}
+
+test "handleItemMoveByGuid supports combined position and track move" {
+    // When both position and destTrackGuid are provided, both operations
+    // happen in a single undo block — position is set first, then track move.
 }

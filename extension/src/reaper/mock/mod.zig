@@ -392,6 +392,7 @@ pub const MockBackend = struct {
     pub const setItemNotes = tracks.TracksMethods.setItemNotes;
     pub const setItemActiveTake = tracks.TracksMethods.setItemActiveTake;
     pub const deleteItem = tracks.TracksMethods.deleteItem;
+    pub const moveItemToTrack = tracks.TracksMethods.moveItemToTrack;
 
     // =========================================================================
     // Take methods (delegated)

@@ -525,6 +525,38 @@ pub const TracksMethods = struct {
         return true;
     }
 
+    pub fn moveItemToTrack(self: anytype, item: *anyopaque, dest_track: *anyopaque) bool {
+        self.recordCall(.moveItemToTrack);
+
+        const info = state.decodeItemPtr(item);
+        const dest_track_idx = state.decodeTrackPtr(dest_track);
+        if (info.track_idx >= state.MAX_TRACKS) return false;
+        if (dest_track_idx >= state.MAX_TRACKS) return false;
+        if (info.track_idx == dest_track_idx) return true; // already on target track
+
+        const src_track = &self.tracks[info.track_idx];
+        const dst_track = &self.tracks[dest_track_idx];
+        const src_count: usize = @intCast(@max(0, src_track.item_count));
+        const dst_count: usize = @intCast(@max(0, dst_track.item_count));
+
+        if (info.item_idx >= src_count) return false;
+        if (dst_count >= state.MAX_ITEMS_PER_TRACK) return false;
+
+        // Copy item to destination
+        dst_track.items[dst_count] = src_track.items[info.item_idx];
+        dst_track.item_count += 1;
+
+        // Remove from source (shift down)
+        var i = info.item_idx;
+        while (i + 1 < src_count) : (i += 1) {
+            src_track.items[i] = src_track.items[i + 1];
+        }
+        src_track.items[src_count - 1] = .{};
+        src_track.item_count -= 1;
+
+        return true;
+    }
+
     // =========================================================================
     // Takes
     // =========================================================================

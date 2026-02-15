@@ -179,6 +179,7 @@ pub const Method = enum {
     setItemNotes,
     setItemActiveTake,
     deleteItem,
+    moveItemToTrack,
     // Takes
     itemTakeCount,
     getTakeByIdx,

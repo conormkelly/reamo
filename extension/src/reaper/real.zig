@@ -899,6 +899,10 @@ pub const RealBackend = struct {
         return self.inner.deleteItem(track, item);
     }
 
+    pub fn moveItemToTrack(self: *const RealBackend, item: *anyopaque, dest_track: *anyopaque) bool {
+        return self.inner.moveItemToTrack(item, dest_track);
+    }
+
     // =========================================================================
     // Takes
     // =========================================================================

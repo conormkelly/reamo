@@ -124,6 +124,7 @@ pub const Api = struct {
     setMediaItemInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8, f64) callconv(.c) bool = null,
     getSetMediaItemInfo_String: ?*const fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool = null,
     deleteTrackMediaItem: ?*const fn (?*anyopaque, ?*anyopaque) callconv(.c) bool = null,
+    moveMediaItemToTrack: ?*const fn (?*anyopaque, ?*anyopaque) callconv(.c) bool = null,
 
     // Takes
     getMediaItemNumTakes: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
@@ -346,6 +347,7 @@ pub const Api = struct {
             .setMediaItemInfo_Value = getFunc(info, "SetMediaItemInfo_Value", fn (?*anyopaque, [*:0]const u8, f64) callconv(.c) bool),
             .getSetMediaItemInfo_String = getFunc(info, "GetSetMediaItemInfo_String", fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool),
             .deleteTrackMediaItem = getFunc(info, "DeleteTrackMediaItem", fn (?*anyopaque, ?*anyopaque) callconv(.c) bool),
+            .moveMediaItemToTrack = getFunc(info, "MoveMediaItemToTrack", fn (?*anyopaque, ?*anyopaque) callconv(.c) bool),
             // Takes
             .getMediaItemNumTakes = getFunc(info, "GetMediaItemNumTakes", fn (?*anyopaque) callconv(.c) c_int),
             .getMediaItemTake = getFunc(info, "GetMediaItemTake", fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque),
@@ -2075,6 +2077,11 @@ pub const Api = struct {
     pub fn deleteItem(self: *const Api, track: *anyopaque, item: *anyopaque) bool {
         const f = self.deleteTrackMediaItem orelse return false;
         return f(track, item);
+    }
+
+    pub fn moveItemToTrack(self: *const Api, item: *anyopaque, dest_track: *anyopaque) bool {
+        const f = self.moveMediaItemToTrack orelse return false;
+        return f(item, dest_track);
     }
 
     // Take methods
