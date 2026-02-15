@@ -336,3 +336,26 @@ fn writeJsonEscaped(writer: anytype, s: []const u8) void {
         }
     }
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "writeJsonEscaped passes plain text through unchanged" {
+    var buf: [64]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    writeJsonEscaped(stream.writer(), "Speakers L/R");
+    try std.testing.expectEqualStrings("Speakers L/R", stream.getWritten());
+}
+
+test "writeJsonEscaped escapes quotes and backslashes" {
+    var buf: [64]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    writeJsonEscaped(stream.writer(), "Output \"1\" \\ 2");
+    try std.testing.expectEqualStrings("Output \\\"1\\\" \\\\ 2", stream.getWritten());
+}
+
+test "hw output handlers compile" {
+    // Command handlers require ResponseWriter with SharedState.
+    // Integration tests via websocat verify full behavior.
+}

@@ -314,6 +314,9 @@ test "registry contains expected commands" {
         "gesture/start",
         "playlist/play",
         "debug/memoryStats",
+        "send/add",
+        "receive/add",
+        "hw/add",
     };
 
     for (expected) |name| {
@@ -384,4 +387,7 @@ test {
     _ = midi_cmds;
     _ = project_notes_cmds;
     _ = debug_cmds;
+    _ = @import("send.zig");
+    _ = @import("receive.zig");
+    _ = @import("hw_output.zig");
 }

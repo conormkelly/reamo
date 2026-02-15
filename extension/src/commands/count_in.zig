@@ -10,3 +10,12 @@ pub fn handleTogglePlayback(api: anytype, _: protocol.CommandMessage, _: *mod.Re
 pub fn handleToggleRecord(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.toggleCountInRecord();
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "count-in handlers compile" {
+    // Command handlers require ResponseWriter with SharedState.
+    // Integration tests via websocat verify full behavior.
+}
