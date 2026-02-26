@@ -347,7 +347,13 @@ Touch-based drawing of automation lanes. "Touch is actually superior to mouse fo
 
 Piano roll view with touch editing.
 
-**Effort:** Multi-week project
+**Branch:** `feature/midi-editing`
+
+**Backend (DONE):** All MIDI read/write APIs bound and ARM64-verified. `midi/editBatch` command handler does atomic buffer editing (parse → modify → rebuild) with 12 operations: delete, insert, move, transpose, resize, setVelocity, setChannel, setSelected, setMuted, quantize, selectAll, clearAllNotes. `PreventUIRefresh` for batch performance. MIDI subscription system with hash-based change detection. PPQ fields in note payloads for round-trip identity. 44 unit tests, verified E2E via WebSocket. See [MIDI_DESIGN.md](MIDI_DESIGN.md).
+
+**Frontend (TODO):** MIDI preview on timeline (render note rectangles in items), piano roll view (fullscreen canvas, touch gestures, grid, velocity lane).
+
+**Effort:** M (frontend only — all backend complete)
 
 ### Practice Tools
 
