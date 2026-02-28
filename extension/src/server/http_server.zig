@@ -5,6 +5,8 @@ const host_validation = @import("host_validation.zig");
 const ws_server = @import("ws_server.zig");
 const protocol = @import("../core/protocol.zig");
 const logging = @import("../core/logging.zig");
+const dev_options = @import("dev_options");
+const dev_mode = dev_options.enable_dev;
 
 const Allocator = std.mem.Allocator;
 const Thread = std.Thread;
@@ -21,12 +23,15 @@ pub const HttpServer = struct {
     port: u16,
     index_html: ?[]const u8, // Cached HTML with token meta tag injected
     web_dir: ?[]const u8, // Directory containing web assets (index.html, assets/, etc.)
+    html_path: ?[]const u8, // Path to index.html (used for per-request reads in dev mode)
 
     /// Initialize the HTTP server. Reads and caches HTML file with token injection.
     /// Does NOT start listening — call `start()` for that.
     pub fn init(allocator: Allocator, state: *ws_server.SharedState, port: u16, html_path: ?[]const u8, web_dir: ?[]const u8) !HttpServer {
-        // Read and cache HTML with token injected
-        const cached_html = if (html_path) |path| blk: {
+        // In dev mode, skip caching — HTML is read fresh per request
+        const cached_html = if (dev_mode)
+            null
+        else if (html_path) |path| blk: {
             const html = std.fs.cwd().readFileAlloc(allocator, path, 4 * 1024 * 1024) catch |err| {
                 logging.warn("http_server: could not read HTML file '{s}': {s}", .{ path, @errorName(err) });
                 break :blk null;
@@ -44,7 +49,7 @@ pub const HttpServer = struct {
             break :blk injected;
         } else null;
 
-        const handler = Handler{ .state = state, .index_html = cached_html, .web_dir = web_dir };
+        const handler = Handler{ .state = state, .index_html = cached_html, .web_dir = web_dir, .html_path = html_path };
 
         // httpz.Server.init returns by value; we need a heap-stable pointer
         // because listenInNewThread takes *Self
@@ -74,6 +79,7 @@ pub const HttpServer = struct {
             .port = port,
             .index_html = cached_html,
             .web_dir = web_dir,
+            .html_path = html_path,
         };
     }
 
@@ -107,6 +113,7 @@ pub const HttpServer = struct {
     /// response.Response.write → memmove → segfault. The leak is ~2KB per rebuild,
     /// only during development, cleaned up when REAPER exits.
     pub fn reloadHtml(self: *HttpServer, html_path: []const u8) void {
+        if (dev_mode) return; // Dev mode reads fresh per request, no cache to update
         const html = std.fs.cwd().readFileAlloc(self.allocator, html_path, 4 * 1024 * 1024) catch |err| {
             logging.warn("http_server: hot reload failed to read '{s}': {s}", .{ html_path, @errorName(err) });
             return;
@@ -135,6 +142,7 @@ const Handler = struct {
     state: *ws_server.SharedState,
     index_html: ?[]const u8 = null,
     web_dir: ?[]const u8 = null,
+    html_path: ?[]const u8 = null,
 
     pub const WebsocketHandler = WsHandler;
 };
@@ -156,12 +164,30 @@ fn serveIndex(handler: Handler, req: *httpz.Request, res: *httpz.Response) !void
 
     setSecurityHeaders(res);
 
-    if (handler.index_html) |html| {
+    if (dev_mode) {
+        // Dev mode: read HTML fresh from disk per request
+        const path = handler.html_path orelse {
+            res.status = 503;
+            res.body = "Application not ready";
+            return;
+        };
+        const html = std.fs.cwd().readFileAlloc(res.arena, path, 4 * 1024 * 1024) catch {
+            res.status = 503;
+            res.body = "Application not ready";
+            return;
+        };
+        const injected = injectTokenMeta(res.arena, html, handler.state) catch html;
         res.content_type = .HTML;
-        res.body = html;
+        res.body = injected;
     } else {
-        res.status = 503;
-        res.body = "Application not ready";
+        // Production: serve cached HTML
+        if (handler.index_html) |html| {
+            res.content_type = .HTML;
+            res.body = html;
+        } else {
+            res.status = 503;
+            res.body = "Application not ready";
+        }
     }
 }
 

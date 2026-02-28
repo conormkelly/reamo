@@ -1,4 +1,4 @@
-.PHONY: all frontend extension clean test test-frontend test-extension test-e2e \
+.PHONY: all frontend extension dev-extension clean test test-frontend test-extension test-e2e \
         dev dev-notests dev-cycle stop-reaper start-reaper frontend-dev install typecheck tracy
 
 # Platform detection: library name and REAPER plugin directory
@@ -6,20 +6,24 @@ ifeq ($(shell uname),Darwin)
     EXT_LIB = libreaper_reamo.dylib
     EXT_DEST = reaper_reamo.dylib
     REAPER_PLUGINS = $(HOME)/Library/Application Support/REAPER/UserPlugins
+    REAPER_WWW = $(HOME)/Library/Application Support/REAPER/reaper_www_root/web
 else
     EXT_LIB = libreaper_reamo.so
     EXT_DEST = reaper_reamo.so
     REAPER_PLUGINS = $(HOME)/.config/REAPER/UserPlugins
+    REAPER_WWW = $(HOME)/.config/REAPER/reaper_www_root/web
 endif
 
 # Default target: run tests first, then build
 all: test frontend extension
 
-# Build frontend and copy to www root
+# Build frontend, copy to www root, and install to REAPER's www root
 frontend:
 	@echo "Building frontend..."
 	cd frontend && npm run build
-	@echo "Frontend build complete: index.html + icons + manifest.json"
+	@mkdir -p "$(REAPER_WWW)"
+	cp -r web/* "$(REAPER_WWW)/"
+	@echo "Frontend built and installed."
 
 # Build and install Zig extension
 # Linux uses ReleaseSafe to work around Zig 0.15 Debug codegen bug (MIR InvalidInstruction)
@@ -34,6 +38,19 @@ endif
 	@mkdir -p "$(REAPER_PLUGINS)"
 	cp "extension/zig-out/lib/$(EXT_LIB)" "$(REAPER_PLUGINS)/$(EXT_DEST)"
 	@echo "Extension installed. Restart REAPER to load."
+
+# Build and install Zig extension in dev mode (fresh HTML reads per request)
+dev-extension:
+	@echo "Building extension (dev mode)..."
+ifeq ($(shell uname),Darwin)
+	cd extension && zig build -Ddev=true
+else
+	cd extension && zig build -Ddev=true -Doptimize=ReleaseSafe
+endif
+	@echo "Installing dev build to REAPER UserPlugins..."
+	@mkdir -p "$(REAPER_PLUGINS)"
+	cp "extension/zig-out/lib/$(EXT_LIB)" "$(REAPER_PLUGINS)/$(EXT_DEST)"
+	@echo "Dev extension installed (fresh HTML reads per request)."
 
 # Build extension with Tracy profiler enabled (ReleaseFast required for Zig 0.15)
 tracy:
@@ -85,7 +102,7 @@ dev: test dev-cycle
 dev-notests: dev-cycle
 
 # Internal: the actual kill/build/install/relaunch cycle
-dev-cycle: stop-reaper extension start-reaper
+dev-cycle: stop-reaper dev-extension start-reaper
 
 # Stop REAPER (cross-platform)
 stop-reaper:
