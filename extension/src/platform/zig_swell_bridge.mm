@@ -86,9 +86,14 @@ bool zig_swell_is_macos(void) {
  * REAPER's plugin loader calls this function to provide the SWELL API
  * function pointer before calling the plugin's entry point.
  */
-extern "C" void SWELL_dllMain(void* hInst, void* apiFunc) {
+extern "C" __attribute__ ((visibility ("default"))) int SWELL_dllMain(void* hInst, unsigned long callMode, void* apiFunc) {
     (void)hInst;
-    SWELLAPI_GetFunc = (void*(*)(const char*))apiFunc;
+    if (callMode == 1) {  // DLL_PROCESS_ATTACH
+        if (apiFunc) {
+            SWELLAPI_GetFunc = (void*(*)(const char*))apiFunc;
+        }
+    }
+    return 1;
 }
 
 bool zig_swell_init(void) {
