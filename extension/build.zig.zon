@@ -10,7 +10,7 @@
         },
         .httpz = .{
             .url = "https://github.com/karlseguin/http.zig/archive/refs/heads/master.tar.gz",
-            .hash = "httpz-0.0.0-PNVzrIowBwAFr_kqBN1W4KBMC2Ofutasj2ZfNAIcfTzF",
+            .hash = "httpz-0.0.0-PNVzrKw1BwDlxYlguTUSAWdqz6X0YbBARb-iRfwIKLOE",
         },
     },
     .paths = .{

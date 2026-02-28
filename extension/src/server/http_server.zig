@@ -51,8 +51,7 @@ pub const HttpServer = struct {
         var server = try allocator.create(ServerType);
         errdefer allocator.destroy(server);
         server.* = try ServerType.init(allocator, .{
-            .port = port,
-            .address = "0.0.0.0",
+            .address = .{ .ip = .{ .host = "0.0.0.0", .port = port } },
             .timeout = .{
                 .request = 5, // 5s header read timeout (Slowloris defense)
                 .keepalive = 30, // 30s keepalive (LAN latency is <1ms)

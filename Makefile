@@ -1,6 +1,17 @@
 .PHONY: all frontend extension clean test test-frontend test-extension test-e2e \
         dev dev-notests dev-cycle stop-reaper start-reaper frontend-dev install typecheck tracy
 
+# Platform detection: library name and REAPER plugin directory
+ifeq ($(shell uname),Darwin)
+    EXT_LIB = libreaper_reamo.dylib
+    EXT_DEST = reaper_reamo.dylib
+    REAPER_PLUGINS = $(HOME)/Library/Application Support/REAPER/UserPlugins
+else
+    EXT_LIB = libreaper_reamo.so
+    EXT_DEST = reaper_reamo.so
+    REAPER_PLUGINS = $(HOME)/.config/REAPER/UserPlugins
+endif
+
 # Default target: run tests first, then build
 all: test frontend extension
 
@@ -11,12 +22,17 @@ frontend:
 	@echo "Frontend build complete: index.html + icons + manifest.json"
 
 # Build and install Zig extension
+# Linux uses ReleaseSafe to work around Zig 0.15 Debug codegen bug (MIR InvalidInstruction)
 extension:
 	@echo "Building extension..."
+ifeq ($(shell uname),Darwin)
 	cd extension && zig build
+else
+	cd extension && zig build -Doptimize=ReleaseSafe
+endif
 	@echo "Installing to REAPER UserPlugins..."
-	cp extension/zig-out/lib/libreaper_reamo.dylib \
-		"$(HOME)/Library/Application Support/REAPER/UserPlugins/reaper_reamo.dylib"
+	@mkdir -p "$(REAPER_PLUGINS)"
+	cp "extension/zig-out/lib/$(EXT_LIB)" "$(REAPER_PLUGINS)/$(EXT_DEST)"
 	@echo "Extension installed. Restart REAPER to load."
 
 # Build extension with Tracy profiler enabled (ReleaseFast required for Zig 0.15)
@@ -24,8 +40,8 @@ tracy:
 	@echo "Building extension with Tracy profiler..."
 	cd extension && zig build -Dtracy=true -Doptimize=ReleaseFast
 	@echo "Installing Tracy-enabled build to REAPER UserPlugins..."
-	cp extension/zig-out/lib/libreaper_reamo.dylib \
-		"$(HOME)/Library/Application Support/REAPER/UserPlugins/reaper_reamo.dylib"
+	@mkdir -p "$(REAPER_PLUGINS)"
+	cp "extension/zig-out/lib/$(EXT_LIB)" "$(REAPER_PLUGINS)/$(EXT_DEST)"
 	@echo ""
 	@echo "Tracy-enabled extension installed. To profile:"
 	@echo "  1. Start Tracy GUI: tracy (or open Tracy.app)"
@@ -38,8 +54,8 @@ csurf:
 	@echo "Building extension with CSurf (push-based callbacks)..."
 	cd extension && zig build -Dcsurf=true
 	@echo "Installing CSurf-enabled build to REAPER UserPlugins..."
-	cp extension/zig-out/lib/libreaper_reamo.dylib \
-		"$(HOME)/Library/Application Support/REAPER/UserPlugins/reaper_reamo.dylib"
+	@mkdir -p "$(REAPER_PLUGINS)"
+	cp "extension/zig-out/lib/$(EXT_LIB)" "$(REAPER_PLUGINS)/$(EXT_DEST)"
 	@echo ""
 	@echo "CSurf-enabled extension installed. Restart REAPER to load."
 	@echo "Check extension log for 'CSurf registered for push-based callbacks'"
