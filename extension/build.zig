@@ -91,9 +91,24 @@ pub fn build(b: *std.Build) void {
                 "-std=c++17",
                 "-fno-exceptions",
                 "-fno-rtti",
-                "-x", "c++", // Compile as C++ on Linux (no ObjC)
+                "-x", "c++",
             },
         });
+        // SWELL modstub: provides SWELL_dllMain + doinit() which resolves all
+        // SWELL function pointers at plugin load time. Required for SWELL's
+        // window management (GDK) to work correctly.
+        lib.addCSourceFile(.{
+            .file = b.path("src/platform/swell_modstub.cpp"),
+            .flags = &.{
+                "-std=c++17",
+                "-fno-exceptions",
+                "-fno-rtti",
+                "-fvisibility=hidden",
+                "-DSWELL_PROVIDED_BY_APP",
+                "-I/home/conork/Dev/reaper-sdk/WDL/swell",
+            },
+        });
+        lib.linkLibCpp();
     }
 
     b.installArtifact(lib);
@@ -177,6 +192,18 @@ pub fn build(b: *std.Build) void {
                 "-x", "c++",
             },
         });
+        main_tests.addCSourceFile(.{
+            .file = b.path("src/platform/swell_modstub.cpp"),
+            .flags = &.{
+                "-std=c++17",
+                "-fno-exceptions",
+                "-fno-rtti",
+                "-fvisibility=hidden",
+                "-DSWELL_PROVIDED_BY_APP",
+                "-I/home/conork/Dev/reaper-sdk/WDL/swell",
+            },
+        });
+        main_tests.linkLibCpp();
     }
     const run_main_tests = b.addRunArtifact(main_tests);
     test_step.dependOn(&run_main_tests.step);
