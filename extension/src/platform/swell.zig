@@ -58,9 +58,10 @@ pub const WM_TIMER: c_uint = 0x0113;
 pub const TIMERPROC = *const fn (?*anyopaque, c_uint, usize, c_uint) callconv(.c) void;
 
 // ShowWindow commands
-pub const SW_HIDE: c_int = 0;
-pub const SW_SHOW: c_int = 5;
-pub const SW_SHOWNA: c_int = 8;
+// SWELL uses different values than Win32: SW_SHOW=2 (not 5), SW_SHOWNA=1 (not 8)
+pub const SW_HIDE: c_int = if (is_swell_platform) 0 else 0;
+pub const SW_SHOW: c_int = if (is_swell_platform) 2 else 5;
+pub const SW_SHOWNA: c_int = if (is_swell_platform) 1 else 8;
 
 // SetWindowPos flags
 pub const SWP_NOZORDER: c_uint = 0x0004;
@@ -76,6 +77,7 @@ pub const NSFloatingWindowLevel: c_int = 3;
 
 extern fn zig_swell_init() bool;
 extern fn zig_swell_is_macos() bool;
+extern fn zig_swell_create_modeless_dialog(HWND, DlgProc, c_int, c_int) HWND;
 extern fn zig_swell_get_CreateDialogParam() ?*const fn (?*anyopaque, ?*const anyopaque, HWND, DlgProc, isize) callconv(.c) HWND;
 extern fn zig_swell_get_BeginPaint() ?*const fn (HWND, *PAINTSTRUCT) callconv(.c) HDC;
 extern fn zig_swell_get_EndPaint() ?*const fn (HWND, *PAINTSTRUCT) callconv(.c) c_int;
@@ -152,6 +154,17 @@ pub fn createDialogParam(resid: usize, parent: HWND, dlgProc: DlgProc, param: is
 /// Bit 3 forces top-level without setting bit 0 (resizable).
 pub fn createFloatingWindow(parent: HWND, dlgProc: DlgProc) HWND {
     return createDialogParam(0x400008, parent, dlgProc, 0);
+}
+
+/// Create a modeless dialog with a proper SWELL resource template.
+/// This is the reliable way to create visible windows on Linux GDK.
+/// The templateless path (createFloatingWindow) doesn't produce visible windows on Linux.
+pub fn createModelessDialog(parent: HWND, dlgProc: DlgProc, width: c_int, height: c_int) HWND {
+    if (comptime !is_swell_platform) {
+        _ = .{ parent, dlgProc, width, height };
+        return null; // TODO: Windows implementation
+    }
+    return zig_swell_create_modeless_dialog(parent, dlgProc, width, height);
 }
 
 /// Begin painting a window. Must be paired with endPaint().

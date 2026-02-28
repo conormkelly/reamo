@@ -7,9 +7,11 @@
 /// Uses SWELL on macOS/Linux, native Win32 on Windows.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const swell = @import("swell.zig");
 const qr_render = @import("qr_render.zig");
 const network_detect = @import("network_detect.zig");
+const logging = @import("../core/logging.zig");
 
 /// QR code size in pixels (square)
 const QR_SIZE: usize = 200;
@@ -71,7 +73,7 @@ pub fn show(networks: []const network_detect.NetworkInfo, http_port: u16, parent
 
     // Initialize SWELL if not already done
     if (!swell.init()) {
-        std.log.err("qr_window: failed to initialize SWELL", .{});
+        logging.err("qr_window: failed to initialize SWELL", .{});
         return;
     }
 
@@ -85,20 +87,35 @@ pub fn show(networks: []const network_detect.NetworkInfo, http_port: u16, parent
     }
     g_http_port = http_port;
     g_current_index = 0;
-
     // Render initial QR code
     renderCurrentNetwork();
 
-    // Create floating window
-    g_hwnd = swell.createFloatingWindow(parent, &dlgProc);
+    // Create floating window.
+    // On Linux, pass NULL parent to avoid swell_oswindow_manage() deferring
+    // GDK window creation when the owner HWND lacks an m_oswindow.
+    // REAPER's main HWND doesn't have a GDK oswindow (it manages X11 directly),
+    // so owned windows get silently deferred forever.
+    const dialog_parent = if (comptime builtin.os.tag == .linux)
+        @as(swell.HWND, null)
+    else
+        parent;
+    logging.info("qr_window: creating dialog, parent_is_null={}", .{dialog_parent == null});
+    g_hwnd = swell.createModelessDialog(dialog_parent, &dlgProc, WINDOW_WIDTH, WINDOW_HEIGHT);
     if (g_hwnd == null) {
-        std.log.err("qr_window: failed to create window", .{});
+        logging.err("qr_window: failed to create window", .{});
         return;
     }
+    logging.info("qr_window: window created ok", .{});
 
     // Set window title and size, centered on parent window
     updateWindowTitle();
-    const pos = centerOnParent(parent);
+    var pos = centerOnParent(parent);
+    // Clamp position to reasonable screen area
+    if (pos[0] < 0) pos[0] = 100;
+    if (pos[1] < 0) pos[1] = 100;
+    if (pos[0] > 3000) pos[0] = 100;
+    if (pos[1] > 2000) pos[1] = 100;
+    logging.info("qr_window: position ({d}, {d})", .{ pos[0], pos[1] });
     swell.setWindowPos(g_hwnd, null, pos[0], pos[1], WINDOW_WIDTH, WINDOW_HEIGHT, 0);
 
     // Make window float above others on macOS
@@ -108,8 +125,10 @@ pub fn show(networks: []const network_detect.NetworkInfo, http_port: u16, parent
         }
     }
 
+    logging.info("qr_window: calling ShowWindow", .{});
     swell.showWindow(g_hwnd, swell.SW_SHOW);
     swell.invalidateRect(g_hwnd, null, true);
+    logging.info("qr_window: show complete", .{});
 }
 
 /// Hide and destroy the QR code window if open.
@@ -161,12 +180,12 @@ fn renderCurrentNetwork() void {
 
     var url_buf: [128:0]u8 = undefined;
     const url = std.fmt.bufPrintZ(&url_buf, "http://{s}:{d}/", .{ ip_str, g_http_port }) catch {
-        std.log.err("qr_window: URL too long", .{});
+        logging.err("qr_window: URL too long", .{});
         return;
     };
 
     _ = qr_render.renderSliceToBGRA(url, &g_qr_buffer, QR_SIZE) catch |err| {
-        std.log.err("qr_window: failed to render QR: {}", .{err});
+        logging.err("qr_window: failed to render QR: {}", .{err});
         @memset(&g_qr_buffer, 0xFFFFFFFF);
     };
 }
@@ -242,7 +261,13 @@ fn drawNavigation(hdc: swell.HDC) void {
 
 /// Dialog procedure handling window messages.
 fn dlgProc(hwnd: swell.HWND, msg: c_uint, wParam: usize, lParam: isize) callconv(.c) isize {
+    const WM_CREATE = 0x0001;
     switch (msg) {
+        WM_CREATE => {
+            // On Linux SWELL templateless path, we get WM_CREATE instead of WM_INITDIALOG
+            updateWindowTitle();
+            return 0;
+        },
         swell.WM_INITDIALOG => {
             updateWindowTitle();
             const pos = centerOnParent(g_parent);

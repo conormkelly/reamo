@@ -1,10 +1,14 @@
 /*
  * SWELL Bridge Implementation
  *
- * Loads SWELL functions from REAPER at runtime.
+ * Provides access to SWELL (Simple Windows Emulation Layer) functions
+ * from Zig code. SWELL is provided by REAPER on macOS/Linux.
  *
- * macOS: Uses Objective-C to get SWELLAPI_GetFunc from NSApp delegate
- * Linux: SWELL_dllMain is called by REAPER before ReaperPluginEntry
+ * macOS: Uses Objective-C to get SWELLAPI_GetFunc from NSApp delegate.
+ * Linux: swell-modstub-generic.cpp runs doinit() at plugin load.
+ *        The bridge gets the API lookup function from the modstub.
+ *
+ * Both platforms use lazy-loaded function pointers via SWELLAPI_GetFunc.
  */
 
 #include "zig_swell_bridge.h"
@@ -53,16 +57,18 @@ static EnableMenuItemFn s_EnableMenuItem = nullptr;
 static SWELL_SetMenuItemTextFn s_SWELL_SetMenuItemText = nullptr;
 static SetMenuItemInfoFn s_SetMenuItemInfo = nullptr;
 
+// =============================================================================
+// Platform-specific initialization
+// =============================================================================
+
 #ifdef __APPLE__
 
 /*
- * macOS: Get SWELLAPI_GetFunc from NSApp delegate
- *
- * REAPER's app delegate implements swellGetAPPAPIFunc which returns
- * the function pointer for looking up SWELL functions.
+ * macOS: Get SWELLAPI_GetFunc from NSApp delegate.
+ * REAPER's app delegate implements swellGetAPPAPIFunc.
  */
 bool zig_swell_init(void) {
-    if (SWELLAPI_GetFunc) return true;  /* Already initialized */
+    if (SWELLAPI_GetFunc) return true;
 
     @autoreleasepool {
         id del = [NSApp delegate];
@@ -81,24 +87,42 @@ bool zig_swell_is_macos(void) {
 #else /* Linux */
 
 /*
- * Linux: SWELL_dllMain is called by REAPER before ReaperPluginEntry
- *
- * REAPER's plugin loader calls this function to provide the SWELL API
- * function pointer before calling the plugin's entry point.
+ * Linux: swell_modstub.cpp provides SWELL_dllMain which calls doinit() to
+ * resolve all SWELL functions. It also saves the GetFunc pointer, accessible
+ * via zig_swell_modstub_getfunc(). We use that for lazy resolution here.
  */
-extern "C" __attribute__ ((visibility ("default"))) int SWELL_dllMain(void* hInst, unsigned long callMode, void* apiFunc) {
-    (void)hInst;
-    if (callMode == 1) {  // DLL_PROCESS_ATTACH
-        if (apiFunc) {
-            SWELLAPI_GetFunc = (void*(*)(const char*))apiFunc;
-        }
-    }
-    return 1;
-}
+extern "C" void *zig_swell_modstub_getfunc(const char *name);
 
 bool zig_swell_init(void) {
-    /* On Linux, SWELLAPI_GetFunc is set by SWELL_dllMain before plugin init */
-    return SWELLAPI_GetFunc != nullptr;
+    if (SWELLAPI_GetFunc) return true;
+
+    /* Get the API lookup function saved by the modstub during SWELL_dllMain */
+    SWELLAPI_GetFunc = (void*(*)(const char*))zig_swell_modstub_getfunc;
+
+    /* Verify it works by resolving a known function */
+    if (!zig_swell_modstub_getfunc("ShowWindow")) return false;
+
+    /*
+     * Initialize GDK in libSwell.so's context.
+     *
+     * REAPER ships libSwell.so as a separate shared library. Its SWELL_gdk_active
+     * static variable starts at 0 (uninitialized). Even though GDK is already
+     * loaded in REAPER's process, libSwell.so needs SWELL_initargs() called to
+     * set SWELL_gdk_active > 0. Without this, swell_oswindow_manage() silently
+     * skips GDK window creation and ShowWindow appears to succeed but produces
+     * no visible OS window.
+     */
+    typedef void (*SWELL_initargsFn)(int *argc, char ***argv);
+    auto fn = (SWELL_initargsFn)SWELLAPI_GetFunc("SWELL_initargs");
+    if (fn) {
+        int argc = 1;
+        char buf[32] = "reamo";
+        char *argv[2] = {buf, nullptr};
+        char **pargv = argv;
+        fn(&argc, &pargv);
+    }
+
+    return true;
 }
 
 bool zig_swell_is_macos(void) {
@@ -107,18 +131,21 @@ bool zig_swell_is_macos(void) {
 
 #endif
 
-/* Helper macro for lazy-loading function pointers */
+// =============================================================================
+// Helper macro for lazy-loading function pointers
+// =============================================================================
+
 #define GET_SWELL_FUNC(name, type) \
     if (!s_##name && SWELLAPI_GetFunc) { \
         s_##name = (type)SWELLAPI_GetFunc(#name); \
     } \
     return s_##name
 
-/* Function pointer getters */
+// =============================================================================
+// Function pointer getters (shared by both platforms)
+// =============================================================================
 
 CreateDialogParamFn zig_swell_get_CreateDialogParam(void) {
-    // Note: SWELL exports SWELL_CreateDialog, not CreateDialogParam
-    // The CreateDialogParam macro just wraps SWELL_CreateDialog
     GET_SWELL_FUNC(SWELL_CreateDialog, CreateDialogParamFn);
 }
 
@@ -167,7 +194,6 @@ CreateSolidBrushFn zig_swell_get_CreateSolidBrush(void) {
 }
 
 FillRectFn zig_swell_get_FillRect(void) {
-    // SWELL remaps FillRect to SWELL_FillRect
     GET_SWELL_FUNC(SWELL_FillRect, FillRectFn);
 }
 
@@ -215,8 +241,6 @@ GetWindowRectFn zig_swell_get_GetWindowRect(void) {
     GET_SWELL_FUNC(GetWindowRect, GetWindowRectFn);
 }
 
-/* Menu function getters */
-
 CreatePopupMenuFn zig_swell_get_CreatePopupMenu(void) {
     GET_SWELL_FUNC(CreatePopupMenu, CreatePopupMenuFn);
 }
@@ -258,9 +282,26 @@ SetMenuItemInfoFn zig_swell_get_SetMenuItemInfo(void) {
 }
 
 // =============================================================================
-// Native Fast Timer Implementation
-// macOS: Uses dispatch_source for precise timing with main thread callback
-// Linux: Falls back to SWELL SetTimer (if available)
+// Dialog creation
+// =============================================================================
+
+void* zig_swell_create_modeless_dialog(void* parent, SwellDlgProc dlgproc, int width, int height) {
+    if (!SWELLAPI_GetFunc) return nullptr;
+
+    typedef void* (*SWELL_CreateDialogFn)(void *reshead, const char *resid, void *parent, SwellDlgProc dlgproc, intptr_t param);
+    static SWELL_CreateDialogFn fn = nullptr;
+    if (!fn) fn = (SWELL_CreateDialogFn)SWELLAPI_GetFunc("SWELL_CreateDialog");
+    if (!fn) return nullptr;
+
+    // Use special resid 0x400008: titled, closable, minimizable, non-resizable.
+    // Bit 3 forces top-level. SWELL_CreateDialog sees (resid & ~0xf) == 0x400000,
+    // extracts forceStyles, sets resid=0, then falls through to the templateless
+    // path with forceNonChild=true.
+    return fn(nullptr, (const char*)(intptr_t)0x400008, parent, dlgproc, 0);
+}
+
+// =============================================================================
+// Native Fast Timer
 // =============================================================================
 
 #ifdef __APPLE__
@@ -269,21 +310,17 @@ static dispatch_source_t s_fast_timer = nullptr;
 static FastTimerCallback s_fast_timer_callback = nullptr;
 
 bool zig_fast_timer_start(unsigned int interval_ms, FastTimerCallback callback) {
-    if (s_fast_timer) return true;  // Already running
+    if (s_fast_timer) return true;
     if (!callback) return false;
 
     s_fast_timer_callback = callback;
 
-    // Create timer on main queue (main thread)
     s_fast_timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
     if (!s_fast_timer) return false;
 
-    // Set interval (converting ms to nanoseconds)
-    // Use 0 leeway for strictest timing (no coalescing with other timers)
     uint64_t interval_ns = (uint64_t)interval_ms * NSEC_PER_MSEC;
     dispatch_source_set_timer(s_fast_timer, dispatch_time(DISPATCH_TIME_NOW, 0), interval_ns, 0);
 
-    // Set event handler
     dispatch_source_set_event_handler(s_fast_timer, ^{
         if (s_fast_timer_callback) {
             s_fast_timer_callback();
@@ -308,16 +345,12 @@ bool zig_fast_timer_is_running(void) {
 
 #else /* Linux */
 
-// Linux: Use SWELL SetTimer with WM_TIMER if available
-// For now, return false to use fallback 30Hz timer
 static bool s_linux_timer_running = false;
 static FastTimerCallback s_fast_timer_callback = nullptr;
 
 bool zig_fast_timer_start(unsigned int interval_ms, FastTimerCallback callback) {
     (void)interval_ms;
     (void)callback;
-    // TODO: Implement Linux timer via SWELL + hidden window + WM_TIMER
-    // For now, fall back to 30Hz REAPER timer
     return false;
 }
 

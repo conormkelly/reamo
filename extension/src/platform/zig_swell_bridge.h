@@ -114,6 +114,13 @@ bool zig_swell_init(void);
  */
 bool zig_swell_is_macos(void);
 
+/*
+ * Create a modeless dialog window with proper SWELL resource template.
+ * This uses the resource-template path in SWELL_CreateDialog which works
+ * reliably on Linux GDK (the templateless path does not create visible windows).
+ */
+void* zig_swell_create_modeless_dialog(void* parent, SwellDlgProc dlgproc, int width, int height);
+
 /* Function pointer getters - valid after zig_swell_init() returns true */
 CreateDialogParamFn zig_swell_get_CreateDialogParam(void);
 BeginPaintFn zig_swell_get_BeginPaint(void);
