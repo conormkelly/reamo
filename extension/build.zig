@@ -45,6 +45,12 @@ pub fn build(b: *std.Build) void {
     csurf_options.addOption(bool, "enable_csurf", enable_csurf);
     lib.root_module.addOptions("csurf_options", csurf_options);
 
+    // Dev mode: fresh HTML reads per request (no caching). Use -Ddev=true for frontend development.
+    const enable_dev = b.option(bool, "dev", "Enable dev mode (fresh HTML reads per request)") orelse false;
+    const dev_options = b.addOptions();
+    dev_options.addOption(bool, "enable_dev", enable_dev);
+    lib.root_module.addOptions("dev_options", dev_options);
+
     if (enable_csurf) {
         // Compile C++ shim for IReaperControlSurface
         lib.addCSourceFile(.{
@@ -131,6 +137,7 @@ pub fn build(b: *std.Build) void {
     });
     main_tests.root_module.addImport("ztracy", ztracy_dep.module("root"));
     main_tests.root_module.addOptions("csurf_options", csurf_options);
+    main_tests.root_module.addOptions("dev_options", dev_options);
     // QR code generation library (required by platform/qr_render.zig)
     main_tests.addCSourceFile(.{
         .file = b.path("lib/qrcodegen/qrcodegen.c"),
