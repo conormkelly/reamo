@@ -8,8 +8,21 @@ const logging = @import("../core/logging.zig");
 const dev_options = @import("dev_options");
 const dev_mode = dev_options.enable_dev;
 
+const builtin = @import("builtin");
+
 const Allocator = std.mem.Allocator;
 const Thread = std.Thread;
+
+// Socket option constants — std.posix.SOL/SO resolve to empty structs on Windows
+const SOL_SOCKET: i32 = if (builtin.os.tag == .windows)
+    @intCast(std.os.windows.ws2_32.SOL.SOCKET)
+else
+    std.posix.SOL.SOCKET;
+
+const SO_SNDBUF: u32 = if (builtin.os.tag == .windows)
+    @intCast(std.os.windows.ws2_32.SO.SNDBUF)
+else
+    std.posix.SO.SNDBUF;
 
 const ServerType = httpz.Server(Handler);
 
@@ -312,7 +325,7 @@ const WsHandler = struct {
         // httpz uses non-blocking sockets; websocket.zig's write loop doesn't
         // retry on WouldBlock, so the buffer must fit the largest message.
         const sndbuf: c_int = 2 * 1024 * 1024;
-        std.posix.setsockopt(conn.stream.handle, std.posix.SOL.SOCKET, std.posix.SO.SNDBUF, std.mem.asBytes(&sndbuf)) catch |err| {
+        std.posix.setsockopt(conn.stream.handle, SOL_SOCKET, SO_SNDBUF, std.mem.asBytes(&sndbuf)) catch |err| {
             logging.warn("WsHandler: failed to set SO_SNDBUF: {}", .{err});
         };
 

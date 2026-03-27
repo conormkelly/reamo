@@ -13,6 +13,7 @@ const host_validation = @import("../server/host_validation.zig");
 const logging = @import("../core/logging.zig");
 const protocol = @import("../core/protocol.zig");
 const qr_window = @import("qr_window.zig");
+const compat = @import("compat.zig");
 
 /// Host operating system for platform-specific troubleshooting messages
 const HostOS = enum {
@@ -429,11 +430,11 @@ pub fn showAllowedHosts() void {
 
     // Re-add auto-detected hostname (always present)
     {
-        var hostname_buf: [std.posix.HOST_NAME_MAX]u8 = undefined;
-        const hostname = std.posix.gethostname(&hostname_buf) catch null;
+        var hostname_buf: [compat.HOSTNAME_MAX]u8 = undefined;
+        const hostname = compat.getHostname(&hostname_buf);
         if (hostname) |name| {
             _ = host_validation.addAllowedHost(name);
-            var local_buf: [std.posix.HOST_NAME_MAX + 6]u8 = undefined;
+            var local_buf: [compat.HOSTNAME_MAX + 6]u8 = undefined;
             if (name.len + 6 <= local_buf.len) {
                 @memcpy(local_buf[0..name.len], name);
                 @memcpy(local_buf[name.len..][0..6], ".local");
@@ -443,9 +444,9 @@ pub fn showAllowedHosts() void {
     }
 
     // Get auto-detected hostname once for filtering
-    var auto_hostname_buf: [std.posix.HOST_NAME_MAX]u8 = undefined;
-    const auto_hostname = std.posix.gethostname(&auto_hostname_buf) catch null;
-    var auto_local_buf: [std.posix.HOST_NAME_MAX + 6]u8 = undefined;
+    var auto_hostname_buf: [compat.HOSTNAME_MAX]u8 = undefined;
+    const auto_hostname = compat.getHostname(&auto_hostname_buf);
+    var auto_local_buf: [compat.HOSTNAME_MAX + 6]u8 = undefined;
     const auto_local: ?[]const u8 = if (auto_hostname) |name| blk: {
         if (name.len + 6 <= auto_local_buf.len) {
             @memcpy(auto_local_buf[0..name.len], name);
