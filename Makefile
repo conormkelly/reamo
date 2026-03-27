@@ -7,6 +7,11 @@ ifeq ($(shell uname),Darwin)
     EXT_DEST = reaper_reamo.dylib
     REAPER_PLUGINS = $(HOME)/Library/Application Support/REAPER/UserPlugins
     REAPER_WWW = $(HOME)/Library/Application Support/REAPER/reaper_www_root/web
+else ifeq ($(OS),Windows_NT)
+    EXT_LIB = reaper_reamo.dll
+    EXT_DEST = reaper_reamo.dll
+    REAPER_PLUGINS = $(APPDATA)/REAPER/UserPlugins
+    REAPER_WWW = $(APPDATA)/REAPER/reaper_www_root/web
 else
     EXT_LIB = libreaper_reamo.so
     EXT_DEST = reaper_reamo.so
@@ -29,10 +34,10 @@ frontend:
 # Linux uses ReleaseSafe to work around Zig 0.15 Debug codegen bug (MIR InvalidInstruction)
 extension:
 	@echo "Building extension..."
-ifeq ($(shell uname),Darwin)
-	cd extension && zig build
-else
+ifeq ($(shell uname),Linux)
 	cd extension && zig build -Doptimize=ReleaseSafe
+else
+	cd extension && zig build
 endif
 	@echo "Installing to REAPER UserPlugins..."
 	@mkdir -p "$(REAPER_PLUGINS)"
@@ -42,10 +47,10 @@ endif
 # Build and install Zig extension in dev mode (fresh HTML reads per request)
 dev-extension:
 	@echo "Building extension (dev mode)..."
-ifeq ($(shell uname),Darwin)
-	cd extension && zig build -Ddev=true
-else
+ifeq ($(shell uname),Linux)
 	cd extension && zig build -Ddev=true -Doptimize=ReleaseSafe
+else
+	cd extension && zig build -Ddev=true
 endif
 	@echo "Installing dev build to REAPER UserPlugins..."
 	@mkdir -p "$(REAPER_PLUGINS)"

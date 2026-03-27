@@ -111,8 +111,9 @@ pub const SharedState = struct {
     token_set: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
 
     // HTML file mtime for hot reload (set by main thread, read by WS thread for hello response)
-    // Atomic since it's a simple value updated infrequently
-    html_mtime: std.atomic.Value(i128) = std.atomic.Value(i128).init(0),
+    // Uses i64 (not i128) because 128-bit atomics aren't available on x86_64 Windows.
+    // i64 nanoseconds covers dates through year 2262, and the protocol truncates to seconds anyway.
+    html_mtime: std.atomic.Value(i64) = std.atomic.Value(i64).init(0),
 
     // High-precision timing function for clock sync
     // Uses typed atomic for function pointer safety (main thread writes, WS thread reads)
@@ -158,7 +159,7 @@ pub const SharedState = struct {
     // Update the HTML mtime (called by main thread when file changes)
     // Uses atomic store - no mutex needed for simple value
     pub fn setHtmlMtime(self: *SharedState, mtime: i128) void {
-        self.html_mtime.store(mtime, .release);
+        self.html_mtime.store(@intCast(mtime), .release);
     }
 
     // Set the time_precise function pointer (called by main thread on startup)
@@ -178,7 +179,7 @@ pub const SharedState = struct {
 
     // Get the HTML mtime (called by WS thread for hello response)
     // Uses atomic load - no mutex needed for simple value
-    pub fn getHtmlMtime(self: *SharedState) i128 {
+    pub fn getHtmlMtime(self: *SharedState) i64 {
         return self.html_mtime.load(.acquire);
     }
 

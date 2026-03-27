@@ -40,6 +40,7 @@ const network_action = @import("platform/network_action.zig");
 const menu = @import("platform/menu.zig");
 const swell = @import("platform/swell.zig");
 const fast_timer = @import("platform/fast_timer.zig");
+const compat = @import("platform/compat.zig");
 const ztracy = @import("ztracy");
 const lua_peak_bridge = @import("platform/lua_peak_bridge.zig");
 const subscription_polling = @import("server/subscription_polling.zig");
@@ -418,15 +419,15 @@ fn doInitialization() !void {
     // Also allows any .local hostname (mDNS = LAN-only by definition).
     // Users can add custom hostnames (Tailscale, VPN) via ExtState "Reamo/AllowedHosts".
     {
-        var hostname_buf: [std.posix.HOST_NAME_MAX]u8 = undefined;
-        const hostname = std.posix.gethostname(&hostname_buf) catch null;
+        var hostname_buf: [compat.HOSTNAME_MAX]u8 = undefined;
+        const hostname = compat.getHostname(&hostname_buf);
         if (hostname) |name| {
             _ = host_validation.addAllowedHost(name);
             logging.info("Auto-detected hostname: {s}", .{name});
 
             // Also add hostname.local for mDNS (redundant with .local suffix match,
             // but makes getAllowedHosts() output clearer for the user dialog)
-            var local_buf: [std.posix.HOST_NAME_MAX + 6]u8 = undefined;
+            var local_buf: [compat.HOSTNAME_MAX + 6]u8 = undefined;
             if (name.len + 6 <= local_buf.len) {
                 @memcpy(local_buf[0..name.len], name);
                 @memcpy(local_buf[name.len..][0..6], ".local");

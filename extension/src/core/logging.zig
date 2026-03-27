@@ -1,6 +1,13 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+/// Cross-platform getenv. std.posix.getenv is unavailable on Windows
+/// (environment strings are WTF-16). Returns null on Windows.
+fn getEnv(key: []const u8) ?[:0]const u8 {
+    if (comptime builtin.os.tag == .windows) return null;
+    return std.posix.getenv(key);
+}
+
 // ============================================================================
 // Custom Panic Handler (Zig 0.15 API)
 // ============================================================================
@@ -88,8 +95,8 @@ const MAX_ROTATIONS: u8 = 3;
 pub fn init(resource_path: ?[]const u8) void {
     if (initialized) return;
 
-    // Read log level from environment
-    if (std.posix.getenv("REAMO_LOG_LEVEL")) |level_str| {
+    // Read log level from environment (not available on Windows — WTF-16 strings)
+    if (getEnv("REAMO_LOG_LEVEL")) |level_str| {
         log_level = Level.fromString(level_str);
     }
 
