@@ -5,16 +5,19 @@
 ifeq ($(shell uname),Darwin)
     EXT_LIB = libreaper_reamo.dylib
     EXT_DEST = reaper_reamo.dylib
+    EXT_OUT_DIR = lib
     REAPER_PLUGINS = $(HOME)/Library/Application Support/REAPER/UserPlugins
     REAPER_WWW = $(HOME)/Library/Application Support/REAPER/reaper_www_root/web
 else ifeq ($(OS),Windows_NT)
     EXT_LIB = reaper_reamo.dll
     EXT_DEST = reaper_reamo.dll
+    EXT_OUT_DIR = bin
     REAPER_PLUGINS = $(APPDATA)/REAPER/UserPlugins
     REAPER_WWW = $(APPDATA)/REAPER/reaper_www_root/web
 else
     EXT_LIB = libreaper_reamo.so
     EXT_DEST = reaper_reamo.so
+    EXT_OUT_DIR = lib
     REAPER_PLUGINS = $(HOME)/.config/REAPER/UserPlugins
     REAPER_WWW = $(HOME)/.config/REAPER/reaper_www_root/web
 endif
@@ -31,17 +34,20 @@ frontend:
 	@echo "Frontend built and installed."
 
 # Build and install Zig extension
-# Linux uses ReleaseSafe to work around Zig 0.15 Debug codegen bug (MIR InvalidInstruction)
+# Linux: ReleaseSafe works around Zig 0.15 Debug codegen bug (MIR InvalidInstruction)
+# Windows: ReleaseSafe needed — Debug builds have 650KB+ stack frames that overflow the 1MB default thread stack
 extension:
 	@echo "Building extension..."
 ifeq ($(shell uname),Linux)
+	cd extension && zig build -Doptimize=ReleaseSafe
+else ifeq ($(OS),Windows_NT)
 	cd extension && zig build -Doptimize=ReleaseSafe
 else
 	cd extension && zig build
 endif
 	@echo "Installing to REAPER UserPlugins..."
 	@mkdir -p "$(REAPER_PLUGINS)"
-	cp "extension/zig-out/lib/$(EXT_LIB)" "$(REAPER_PLUGINS)/$(EXT_DEST)"
+	cp "extension/zig-out/$(EXT_OUT_DIR)/$(EXT_LIB)" "$(REAPER_PLUGINS)/$(EXT_DEST)"
 	@echo "Extension installed. Restart REAPER to load."
 
 # Build and install Zig extension in dev mode (fresh HTML reads per request)
@@ -49,12 +55,14 @@ dev-extension:
 	@echo "Building extension (dev mode)..."
 ifeq ($(shell uname),Linux)
 	cd extension && zig build -Ddev=true -Doptimize=ReleaseSafe
+else ifeq ($(OS),Windows_NT)
+	cd extension && zig build -Ddev=true -Doptimize=ReleaseSafe
 else
 	cd extension && zig build -Ddev=true
 endif
 	@echo "Installing dev build to REAPER UserPlugins..."
 	@mkdir -p "$(REAPER_PLUGINS)"
-	cp "extension/zig-out/lib/$(EXT_LIB)" "$(REAPER_PLUGINS)/$(EXT_DEST)"
+	cp "extension/zig-out/$(EXT_OUT_DIR)/$(EXT_LIB)" "$(REAPER_PLUGINS)/$(EXT_DEST)"
 	@echo "Dev extension installed (fresh HTML reads per request)."
 
 # Build extension with Tracy profiler enabled (ReleaseFast required for Zig 0.15)
@@ -63,7 +71,7 @@ tracy:
 	cd extension && zig build -Dtracy=true -Doptimize=ReleaseFast
 	@echo "Installing Tracy-enabled build to REAPER UserPlugins..."
 	@mkdir -p "$(REAPER_PLUGINS)"
-	cp "extension/zig-out/lib/$(EXT_LIB)" "$(REAPER_PLUGINS)/$(EXT_DEST)"
+	cp "extension/zig-out/$(EXT_OUT_DIR)/$(EXT_LIB)" "$(REAPER_PLUGINS)/$(EXT_DEST)"
 	@echo ""
 	@echo "Tracy-enabled extension installed. To profile:"
 	@echo "  1. Start Tracy GUI: tracy (or open Tracy.app)"
@@ -77,7 +85,7 @@ csurf:
 	cd extension && zig build -Dcsurf=true
 	@echo "Installing CSurf-enabled build to REAPER UserPlugins..."
 	@mkdir -p "$(REAPER_PLUGINS)"
-	cp "extension/zig-out/lib/$(EXT_LIB)" "$(REAPER_PLUGINS)/$(EXT_DEST)"
+	cp "extension/zig-out/$(EXT_OUT_DIR)/$(EXT_LIB)" "$(REAPER_PLUGINS)/$(EXT_DEST)"
 	@echo ""
 	@echo "CSurf-enabled extension installed. Restart REAPER to load."
 	@echo "Check extension log for 'CSurf registered for push-based callbacks'"

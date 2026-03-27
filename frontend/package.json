@@ -14,9 +14,9 @@
     "analyze": "tsc -b && vite build --mode analyze",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "cross-env NODE_OPTIONS=--no-webstorage vitest run",
-    "test:watch": "cross-env NODE_OPTIONS=--no-webstorage vitest",
-    "test:coverage": "cross-env NODE_OPTIONS=--no-webstorage vitest run --coverage",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"
   },
