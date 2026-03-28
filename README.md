@@ -85,7 +85,6 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 | **Studio** | All-in-one default view: transport, timeline, mixer in one screen |
 | **Mixer** | Dedicated full-screen mixer with faders, meters, and track controls |
 | **Clock** | Large transport display with big play/pause/stop/record buttons. Fully customizable: show/hide elements, resize, and reorder via edit mode |
-| **Cues** | Playlist manager for building setlists from regions |
 | **Actions** | User-configurable button grid for REAPER actions and MIDI |
 | **Instruments** | Touch instruments: drum pads, piano keyboard, and chord pads |
 | **Notes** | Project notes editor with external change detection |
@@ -129,7 +128,7 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 - Tap regions/markers to navigate
 - Tap items to select, with multi-select support
 
-### Region Editing
+### Region Editing *(Coming Soon)*
 
 - Drag regions to reposition
 - Resize regions by dragging edges
@@ -212,7 +211,7 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 - Filter tracks by folder (tap folder badge to focus)
 - Combine folder view with property filters (Armed, Muted, etc.)
 
-### Cue Lists (Playlists)
+### Cue Lists (Playlists) *(Coming Soon)*
 
 - Build playlists from project regions
 - Set loop count per entry (1x, 2x, infinite)
