@@ -79,8 +79,8 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 
 | View | Description |
 |------|-------------|
-| **Studio** | All-in-one default view: transport, timeline, mixer in one screen |
-| **Mixer** | Dedicated full-screen mixer with faders, meters, and track controls |
+| **Timeline** | Interactive timeline with regions, markers, waveforms, pinch-to-zoom, and item selection |
+| **Mixer** | Full-screen mixer with faders, meters, pan, mute/solo/arm, and track detail modals |
 | **Clock** | Large transport display with big play/pause/stop/record buttons. Fully customizable: show/hide elements, resize, and reorder via edit mode |
 | **Tuner** | Chromatic tuner with sub-cent accuracy. Auto-inserts a pitch detection plugin on your track's input FX chain |
 | **Actions** | User-configurable button grid for REAPER actions and MIDI |
