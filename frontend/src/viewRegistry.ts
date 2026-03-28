@@ -26,7 +26,7 @@ export const views = {
 export type ViewId = keyof typeof views;
 
 export const VIEW_STORAGE_KEY = 'reamo_current_view';
-export const DEFAULT_VIEW: ViewId = 'timeline';
+export const DEFAULT_VIEW: ViewId = 'mixer';
 
 /** Canonical tab/rail order — single source of truth for TabBar, SideRail, SettingsMenu */
 export const VIEW_ORDER: ViewId[] = ['timeline', 'mixer', 'clock', 'tuner', 'actions', 'notes', 'instruments'];
