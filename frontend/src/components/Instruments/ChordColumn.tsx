@@ -43,11 +43,8 @@ export interface ChordColumnProps {
   minVelocity?: number;
   /** Maximum velocity (right edge) - default 127 */
   maxVelocity?: number;
-  /** Whether this column is currently active */
-  isActive?: boolean;
-  /** Whether this chord is suggested as a next chord (progression hint) */
-  isSuggestedNext?: boolean;
   className?: string;
+  style?: React.CSSProperties;
 }
 
 /** Color mappings by chord quality */
@@ -153,8 +150,6 @@ interface InversionSegmentDisplayProps {
   isFirst: boolean;
   isLast: boolean;
   isActive: boolean;
-  isSuggestedNext: boolean;
-  isColumnActive: boolean;
   /** Chord name to display on top segment */
   chordName?: string;
   /** Roman numeral to display on top segment */
@@ -167,8 +162,6 @@ function InversionSegmentDisplay({
   isFirst,
   isLast,
   isActive,
-  isSuggestedNext,
-  isColumnActive,
   chordName,
   romanNumeral,
 }: InversionSegmentDisplayProps): ReactElement {
@@ -183,7 +176,6 @@ function InversionSegmentDisplay({
         ${isFirst ? 'rounded-t-lg' : ''}
         ${isLast ? 'rounded-b-lg' : ''}
         ${isActive ? 'brightness-125' : ''}
-        ${isSuggestedNext && !isColumnActive ? 'ring-2 ring-green-400/60 ring-inset' : ''}
       `}
     >
       {/* Top segment shows chord name + roman numeral instead of inversion label */}
@@ -216,11 +208,9 @@ export function ChordColumn({
   onBassNoteOff,
   minVelocity = MIN_VELOCITY,
   maxVelocity = MAX_VELOCITY,
-  isActive: externalIsActive,
-  isSuggestedNext = false,
   className = '',
+  style,
 }: ChordColumnProps): ReactElement {
-  const isColumnActive = externalIsActive ?? false;
   const containerRef = useRef<HTMLDivElement>(null);
   const currentNotesRef = useRef<number[]>([]);
   const activeSegmentRef = useRef<number | null>(null);
@@ -352,7 +342,7 @@ export function ChordColumn({
   }, [inversions]);
 
   return (
-    <div className={`flex flex-col gap-1 ${className}`}>
+    <div className={`flex flex-col gap-1 ${className}`} style={style}>
       {/* Inversion segments container - handles all pointer events for swipe */}
       {/* flex-[4] for 4 inversion segments, bass gets flex-[3] for 3 segments = equal heights */}
       <div
@@ -371,8 +361,6 @@ export function ChordColumn({
             isFirst={visualIdx === 0}
             isLast={visualIdx === displayOrder.length - 1}
             isActive={activeSegment === inversionIndex}
-            isSuggestedNext={isSuggestedNext}
-            isColumnActive={isColumnActive}
             chordName={visualIdx === 0 ? chord.displayName : undefined}
             romanNumeral={visualIdx === 0 ? chord.romanNumeral : undefined}
           />
