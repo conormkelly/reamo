@@ -1,0 +1,356 @@
+desc: REAmo Pitch Detector
+author: REAmo
+version: 1.2
+about:
+  Zero-latency pitch detection for REAmo remote tuner.
+  Uses correct FFT-accelerated YIN algorithm with proper energy terms.
+
+// Output sliders - readable via TrackFX_GetParam()
+slider1:0<0,2000,0.01>Detected Frequency (Hz)
+slider2:0<0,127,1>MIDI Note Number
+slider3:0<-50,50,0.01>Cents Deviation
+slider4:0<0,1,0.001>Confidence (0-1)
+slider5:440<400,480,0.1>Reference Pitch (A4)
+
+// User-adjustable parameters
+slider10:0.15<0.05,0.3,0.01>YIN Threshold
+slider11:-60<-90,-30,1>Silence Threshold (dB)
+
+options:no_meter
+
+@init
+
+// Analysis window size - determines lowest detectable frequency
+// At 44.1kHz: 4096 samples = 93ms, good for >50Hz
+win_size = 4096;
+fft_size = win_size * 2;  // Zero-pad to 2N for linear autocorrelation
+hop_size = 512;           // Analysis every ~12ms
+half_win = win_size / 2;
+
+// Ring buffer for input samples
+input_buf = 0;
+write_pos = 0;
+
+// Analysis buffers - careful memory layout
+yin_buf = win_size;                        // YIN difference function d(τ)
+yin_cmnd = yin_buf + half_win;             // CMNDF d'(τ) - separate from raw
+fft_buf = yin_cmnd + half_win;             // FFT workspace (interleaved, 2*fft_size)
+autocorr_buf = fft_buf + fft_size * 2;     // Autocorrelation r(τ)
+sqr_cumsum = autocorr_buf + win_size;      // Cumulative sum of squares
+
+samples_since_analysis = 0;
+current_freq = 0;
+current_note = 0;
+current_cents = 0;
+current_confidence = 0;
+
+function freq_to_midi(freq) (
+  69 + 12 * log(freq / slider5) / log(2);
+);
+
+// Compute autocorrelation r(τ) using zero-padded FFT
+function compute_autocorrelation()
+local(i, re, im, mag_sq)
+(
+  // Copy input samples to first half of FFT buffer (NO windowing!)
+  i = 0;
+  loop(win_size,
+    fft_buf[i * 2] = input_buf[(write_pos - win_size + i + win_size) % win_size];
+    fft_buf[i * 2 + 1] = 0;
+    i += 1;
+  );
+
+  // Zero-pad second half for linear (not circular) autocorrelation
+  loop(win_size,
+    fft_buf[i * 2] = 0;
+    fft_buf[i * 2 + 1] = 0;
+    i += 1;
+  );
+
+  // Forward FFT
+  fft(fft_buf, fft_size);
+
+  // Compute power spectrum |FFT(x)|²
+  i = 0;
+  loop(fft_size,
+    re = fft_buf[i * 2];
+    im = fft_buf[i * 2 + 1];
+    mag_sq = re * re + im * im;
+    fft_buf[i * 2] = mag_sq;
+    fft_buf[i * 2 + 1] = 0;
+    i += 1;
+  );
+
+  // Inverse FFT gives autocorrelation
+  ifft(fft_buf, fft_size);
+
+  // Extract and normalize autocorrelation values
+  // JSFX FFT normalization: divide by fft_size
+  i = 0;
+  loop(win_size,
+    autocorr_buf[i] = fft_buf[i * 2] / fft_size;
+    i += 1;
+  );
+);
+
+// Compute cumulative sum of squared samples for energy terms
+function compute_cumsum_squares()
+local(i, sample, sum)
+(
+  sum = 0;
+  i = 0;
+  loop(win_size,
+    sample = input_buf[(write_pos - win_size + i + win_size) % win_size];
+    sum += sample * sample;
+    sqr_cumsum[i] = sum;
+    i += 1;
+  );
+);
+
+// Compute CORRECT YIN difference function with proper energy terms
+// d(τ) = r_t(0) + r_{t+τ}(0) - 2*r(τ)
+// Where r_t(0) = energy of first W-τ samples
+//       r_{t+τ}(0) = energy of samples from τ to W
+function compute_yin_difference()
+local(tau, r_t_0, r_t_tau_0, diff, running_sum)
+(
+  // For each lag τ, compute the proper energy terms
+  // r_t(0) = sum of squares from 0 to W-τ-1
+  // r_{t+τ}(0) = sum of squares from τ to W-1
+
+  yin_buf[0] = 0;  // d(0) = 0 by definition
+  yin_cmnd[0] = 1; // d'(0) = 1 by definition
+  running_sum = 0;
+
+  tau = 1;
+  loop(half_win - 1,
+    // Energy of first (W-τ) samples: sqr_cumsum[W-τ-1]
+    r_t_0 = sqr_cumsum[win_size - tau - 1];
+
+    // Energy of samples from τ to W-1: sqr_cumsum[W-1] - sqr_cumsum[τ-1]
+    tau > 0 ? (
+      r_t_tau_0 = sqr_cumsum[win_size - 1] - sqr_cumsum[tau - 1];
+    ) : (
+      r_t_tau_0 = sqr_cumsum[win_size - 1];
+    );
+
+    // Correct YIN difference function
+    diff = r_t_0 + r_t_tau_0 - 2 * autocorr_buf[tau];
+
+    // Ensure non-negative (numerical precision)
+    diff = max(0, diff);
+    yin_buf[tau] = diff;
+
+    // Cumulative mean normalized difference (CMNDF)
+    running_sum += diff;
+    running_sum > 0 ? (
+      yin_cmnd[tau] = diff * tau / running_sum;
+    ) : (
+      yin_cmnd[tau] = 1;
+    );
+
+    tau += 1;
+  );
+);
+
+// Find the best tau using threshold on CMNDF, interpolate on raw d(τ)
+function find_pitch()
+local(tau, threshold, min_tau, found, best_tau, s0, s1, s2, delta, period, freq)
+(
+  threshold = slider10;
+
+  // Minimum tau corresponds to maximum detectable frequency (~2kHz)
+  min_tau = max(floor(srate / 2000), 2);
+
+  found = 0;
+  best_tau = min_tau;
+
+  // Find first local minimum in CMNDF below threshold (avoids octave errors)
+  tau = min_tau;
+  while (tau < half_win - 2 && !found) (
+    (yin_cmnd[tau] < threshold) ? (
+      // Check if it's a local minimum in CMNDF
+      (yin_cmnd[tau] < yin_cmnd[tau - 1] && yin_cmnd[tau] <= yin_cmnd[tau + 1]) ? (
+        found = 1;
+        best_tau = tau;
+      );
+    );
+    tau += 1;
+  );
+
+  // If nothing below threshold, find global minimum in CMNDF
+  !found ? (
+    best_tau = min_tau;
+    tau = min_tau + 1;
+    loop(half_win - min_tau - 2,
+      yin_cmnd[tau] < yin_cmnd[best_tau] ? best_tau = tau;
+      tau += 1;
+    );
+  );
+
+  // Parabolic interpolation on RAW d(τ), NOT on CMNDF!
+  // This is critical for accuracy
+  best_tau > 1 && best_tau < half_win - 2 ? (
+    s0 = yin_buf[best_tau - 1];  // Raw difference function
+    s1 = yin_buf[best_tau];
+    s2 = yin_buf[best_tau + 1];
+
+    // Parabolic fit: τ_interp = τ + (s0 - s2) / (2 × (s0 - 2×s1 + s2))
+    // Note: PLUS sign before the fraction (aubio had this wrong initially)
+    (s0 - 2 * s1 + s2) != 0 ? (
+      delta = (s0 - s2) / (2 * (s0 - 2 * s1 + s2));
+      // Clamp delta to reasonable range
+      delta = max(-1, min(1, delta));
+      period = best_tau + delta;
+    ) : (
+      period = best_tau;
+    );
+  ) : (
+    period = best_tau;
+  );
+
+  // Convert period to frequency
+  period > 0 ? (
+    freq = srate / period;
+
+    // Sanity check: 20Hz to 5kHz
+    freq >= 20 && freq <= 5000 ? (
+      current_freq = freq;
+      current_confidence = 1 - yin_cmnd[best_tau];
+      current_confidence = max(0, min(1, current_confidence));
+    ) : (
+      current_freq = 0;
+      current_confidence = 0;
+    );
+  );
+);
+
+// Calculate note and cents from frequency
+function calc_note_cents()
+local(midi_float, midi_int)
+(
+  current_freq > 20 ? (
+    midi_float = freq_to_midi(current_freq);
+    midi_int = floor(midi_float + 0.5);
+
+    current_note = midi_int;
+    current_cents = (midi_float - midi_int) * 100;
+  );
+);
+
+// Check for silence
+function is_silent()
+local(i, sum, rms, db)
+(
+  sum = 0;
+  i = 0;
+  loop(win_size,
+    sum += sqr(input_buf[(write_pos - win_size + i + win_size) % win_size]);
+    i += 1;
+  );
+  rms = sqrt(sum / win_size);
+  db = 20 * log10(max(rms, 0.0000001));
+  db < slider11;
+);
+
+@sample
+
+// Zero-latency passthrough
+spl0 = spl0;
+spl1 = spl1;
+
+// Accumulate mono sum into ring buffer
+input_buf[write_pos] = (spl0 + spl1) * 0.5;
+write_pos = (write_pos + 1) % win_size;
+
+samples_since_analysis += 1;
+
+// Analyze every hop_size samples
+samples_since_analysis >= hop_size ? (
+  samples_since_analysis = 0;
+
+  is_silent() ? (
+    // No signal - clear outputs
+    current_freq = 0;
+    current_note = 0;
+    current_cents = 0;
+    current_confidence = 0;
+  ) : (
+    // Run pitch detection with correct YIN algorithm
+    compute_autocorrelation();
+    compute_cumsum_squares();
+    compute_yin_difference();
+    find_pitch();
+    calc_note_cents();
+  );
+
+  // Update output sliders
+  slider1 = current_freq;
+  slider2 = current_note;
+  slider3 = current_cents;
+  slider4 = current_confidence;
+
+  sliderchange(slider1);
+  sliderchange(slider2);
+  sliderchange(slider3);
+  sliderchange(slider4);
+);
+
+@gfx 400 200
+
+// Simple visual display for testing in REAPER
+gfx_clear = 0;
+
+current_freq > 0 ? (
+  // Note name lookup
+  note_names = "C C#D D#E F F#G G#A A#B ";
+  note_idx = current_note % 12;
+  octave = floor(current_note / 12) - 1;
+
+  gfx_setfont(1, "Arial", 48, 'b');
+  gfx_set(1, 1, 1);
+
+  gfx_x = 150; gfx_y = 40;
+  gfx_drawchar(str_getchar(note_names, note_idx * 2));
+  note_idx == 1 || note_idx == 3 || note_idx == 6 || note_idx == 8 || note_idx == 10 ? (
+    gfx_drawchar(str_getchar(note_names, note_idx * 2 + 1));
+  );
+  gfx_printf("%d", octave);
+
+  // Cents meter labels
+  gfx_setfont(1, "Arial", 16);
+  gfx_x = 50; gfx_y = 120;
+  gfx_printf("-50");
+  gfx_x = 340; gfx_y = 120;
+  gfx_printf("+50");
+
+  // Meter bar background
+  gfx_set(0.3, 0.3, 0.3);
+  gfx_rect(80, 115, 240, 20);
+
+  // Center line (in tune)
+  gfx_set(0, 1, 0);
+  gfx_rect(198, 110, 4, 30);
+
+  // Cents indicator
+  cents_x = 200 + current_cents * 2.4;
+  abs(current_cents) < 2 ? gfx_set(0, 1, 0) :
+  abs(current_cents) < 10 ? gfx_set(1, 1, 0) :
+  gfx_set(1, 0.3, 0.3);
+  gfx_rect(cents_x - 5, 115, 10, 20);
+
+  // Frequency display
+  gfx_set(0.7, 0.7, 0.7);
+  gfx_setfont(1, "Arial", 14);
+  gfx_x = 160; gfx_y = 160;
+  gfx_printf("%.1f Hz", current_freq);
+
+  // Confidence indicator
+  gfx_x = 160; gfx_y = 180;
+  gfx_printf("Conf: %.0f%%", current_confidence * 100);
+) : (
+  gfx_set(0.5, 0.5, 0.5);
+  gfx_setfont(1, "Arial", 24);
+  gfx_x = 140; gfx_y = 80;
+  gfx_drawstr("No signal");
+);
