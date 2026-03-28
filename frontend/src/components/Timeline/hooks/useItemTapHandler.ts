@@ -27,6 +27,7 @@ interface UseItemTapHandlerParams {
   setViewFilterTrack: (guid: string | null) => void;
   setSelectedMarkerId: (id: number | null) => void;
   sendCommand: (cmd: WSCommand) => void;
+  optimisticSelectTrack: (trackGuid: string) => void;
 }
 
 /** Convert track GUID → trackIdx using skeleton */
@@ -48,6 +49,7 @@ export function useItemTapHandler({
   setViewFilterTrack,
   setSelectedMarkerId,
   sendCommand,
+  optimisticSelectTrack,
 }: UseItemTapHandlerParams): (clientX: number, clientY: number) => boolean {
   return useCallback(
     (clientX: number, clientY: number): boolean => {
@@ -103,8 +105,9 @@ export function useItemTapHandler({
           sendCommand(trackCmd.unselectAll());
           sendCommand(itemCmd.unselectAll());
           sendCommand(trackCmd.setSelected(clickedTrackIdx, 1));
-          // Set visual highlight for the selected track
+          // Optimistic update: highlight track immediately (skeleton polls at 1Hz)
           if (clickedTrackGuid) {
+            optimisticSelectTrack(clickedTrackGuid);
             setViewFilterTrack(clickedTrackGuid);
           }
           return true;
@@ -127,6 +130,10 @@ export function useItemTapHandler({
           // Select the item's track (clears other track selections)
           sendCommand(trackCmd.unselectAll());
           sendCommand(trackCmd.setSelected(clickedTrackIdx, 1));
+          // Optimistic update: highlight track immediately (skeleton polls at 1Hz)
+          if (clickedTrackGuid) {
+            optimisticSelectTrack(clickedTrackGuid);
+          }
         }
 
         return true;
@@ -199,6 +206,7 @@ export function useItemTapHandler({
       setViewFilterTrack,
       setSelectedMarkerId,
       sendCommand,
+      optimisticSelectTrack,
     ]
   );
 }

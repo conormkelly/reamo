@@ -37,8 +37,6 @@ export interface MultiTrackLanesProps {
   timelineEnd: number;
   /** Total height available for lanes */
   height: number;
-  /** Currently focused track GUID (shows highlight) */
-  focusedTrackGuid?: string | null;
   /** Function to assemble peaks for an item within the current viewport (tile-based) */
   assemblePeaksForViewport?: (
     takeGuid: string,
@@ -56,7 +54,6 @@ export function MultiTrackLanes({
   timelineStart,
   timelineEnd,
   height,
-  focusedTrackGuid,
   assemblePeaksForViewport: _assemblePeaksForViewport, // Not used - WaveformCanvas reads tiles directly
   hasTilesForTake: _hasTilesForTake, // Reserved for loading indicators
 }: MultiTrackLanesProps): ReactElement | null {
@@ -100,7 +97,7 @@ export function MultiTrackLanes({
           viewportEnd={timelineEnd}
           width={containerWidth}
           height={height}
-          focusedTrackGuid={focusedTrackGuid}
+
         />
       )}
     </div>
