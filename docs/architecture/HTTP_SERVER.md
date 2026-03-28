@@ -25,7 +25,6 @@ This creates three problems:
 - **Security headers:** Full control over response headers — CSP, X-Frame-Options, COOP, CORP, Referrer-Policy, Permissions-Policy (see [SECURITY.md](SECURITY.md) §4).
 - **Code splitting:** Separate JS/CSS with content-hashed filenames. `script-src 'self'` instead of `'unsafe-inline'`. Long-lived cache for assets, no-store for HTML.
 - **CSRF token in HTML:** Server embeds the session token as a `<meta>` tag in the served HTML — no EXTSTATE round-trip needed (see [SECURITY.md](SECURITY.md) §3).
-- **Foundation for licensing:** Server can handle the license validation response flow (see [LICENSING.md](LICENSING.md)).
 - **User-configurable server settings:** Port, bind address, and security presets exposed via Extensions menu (menu system already in place).
 
 ---
