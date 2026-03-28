@@ -27,6 +27,8 @@ export interface TrackInfoBarProps {
   onShowRouting?: (trackIdx: number) => void;
   /** Callback when folder badge is clicked (navigates into folder) */
   onFolderClick?: (folderGuid: string) => void;
+  /** Layout mode: 'horizontal' for portrait bottom panel (2-line), 'vertical' for landscape side panel (stacked) */
+  layout?: 'horizontal' | 'vertical';
   className?: string;
 }
 
@@ -102,6 +104,7 @@ export function TrackInfoBar({
   selectedTrackIdx,
   onShowRouting,
   onFolderClick,
+  layout = 'horizontal',
   className = '',
 }: TrackInfoBarProps): ReactElement | null {
   const { sendCommand } = useReaper();
@@ -353,152 +356,251 @@ export function TrackInfoBar({
 
   const isMaster = selectedTrackIdx === 0;
 
+  // Shared elements
+  const nameElement = isEditingName && !isMaster ? (
+    <input
+      ref={nameInputRef}
+      type="text"
+      value={nameValue}
+      onChange={(e) => setNameValue(e.target.value)}
+      onKeyDown={handleNameKeyDown}
+      onBlur={handleNameConfirm}
+      className="flex-1 min-w-0 px-1.5 py-0.5 bg-bg-elevated border border-focus-border rounded text-text-primary font-mono text-base focus:outline-none focus:ring-1 focus:ring-focus-ring"
+    />
+  ) : (
+    <button
+      onClick={handleNameClick}
+      disabled={isMaster}
+      className={`text-text-primary font-mono text-sm px-1.5 py-0.5 rounded transition-colors truncate min-w-0 ${
+        isMaster ? 'cursor-default' : 'hover:bg-bg-elevated cursor-pointer'
+      }`}
+      title={isMaster ? 'Master track' : 'Click to edit name'}
+    >
+      {trackData.name || (isMaster ? 'MASTER' : `Track ${selectedTrackIdx}`)}
+    </button>
+  );
+
+  const fxButton = (
+    <button
+      onClick={handleFxClick}
+      onPointerDown={handleFxPointerDown}
+      onPointerUp={handleFxPointerUp}
+      onPointerCancel={handleFxPointerUp}
+      onPointerLeave={handleFxPointerUp}
+      className={`w-8 h-8 flex items-center justify-center rounded-lg border-2 transition-colors ${
+        trackData.fxCount === 0
+          ? 'text-text-muted border-border-default hover:bg-bg-elevated hover:text-text-secondary'
+          : trackData.isFxDisabled
+            ? 'text-error-text border-error-text hover:bg-bg-elevated'
+            : 'text-success border-success hover:bg-bg-elevated'
+      }`}
+      title={
+        trackData.fxCount === 0
+          ? 'No FX - hold to add'
+          : trackData.isFxDisabled
+            ? `FX bypassed (${trackData.fxCount} FX) - tap to toggle, hold for details`
+            : `FX enabled (${trackData.fxCount} FX) - tap to toggle, hold for details`
+      }
+    >
+      <span className="text-xs font-bold">FX</span>
+    </button>
+  );
+
+  const folderIndicator = isFolder && trackData.guid && (
+    <button
+      onClick={() => onFolderClick?.(trackData.guid!)}
+      className="flex items-center gap-1 text-text-muted/50 hover:text-text-muted flex-shrink-0 ml-auto transition-colors"
+      title="View folder contents"
+    >
+      <Folder size={16} />
+      <span className="text-xs">({childCount})</span>
+    </button>
+  );
+
+  const inputIndicator = track && isRecordArmed(track) && track.recInput !== undefined && (
+    <span className="text-xs text-text-muted truncate flex-shrink-0">
+      {formatInputLabel(track.recInput)}
+    </span>
+  );
+
   return (
     <div className={`flex flex-col gap-2 px-infobar-x py-infobar-y bg-bg-surface/50 rounded-lg text-sm ${className}`}>
-        {/* Line 1: Track # and Name */}
-        <div className="flex items-center gap-3 min-w-0">
+
+      {layout === 'horizontal' ? (
+        <>
+          {/* Line 1: Track # | Name | Input | Folder */}
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-text-secondary text-xs">Track:</span>
+              <span className="text-text-primary font-mono text-xs font-bold">
+                {isMaster ? 'M' : selectedTrackIdx}
+              </span>
+            </div>
+
+            <div className="w-px h-4 bg-border-default flex-shrink-0" />
+
+            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+              <span className="text-text-secondary text-xs flex-shrink-0">Name:</span>
+              {nameElement}
+            </div>
+
+            {inputIndicator && (
+              <>
+                <div className="w-px h-4 bg-border-default flex-shrink-0" />
+                {inputIndicator}
+              </>
+            )}
+            {folderIndicator}
+          </div>
+
+          {/* Line 2: Color | FX | Routing | Spacer | Dupe | Delete */}
+          <div className="flex items-center gap-3">
+            {!isMaster && (
+              <>
+                <ColorPickerInput
+                  label="Color"
+                  value={currentColor}
+                  onChange={handleColorChange}
+                  defaultValue={DEFAULT_TRACK_COLOR}
+                  compact
+                />
+                <div className="w-px h-6 bg-border-default flex-shrink-0" />
+              </>
+            )}
+
+            {fxButton}
+
+            <div className="w-px h-6 bg-border-default flex-shrink-0" />
+
+            <RoutingIndicator
+              hasMasterSend={hasMasterSend}
+              hasSends={hasSends}
+              hasReceives={hasReceives}
+              onClick={handleShowRouting}
+            />
+
+            <div className="flex-1" />
+
+            {!isMaster && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleDuplicate}
+                  className="w-11 h-11 flex items-center justify-center rounded-lg hover:bg-bg-elevated transition-colors"
+                  title="Duplicate track"
+                >
+                  <Copy size={20} className="text-text-secondary" />
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className={`w-11 h-11 flex items-center justify-center rounded-lg transition-colors ${
+                    confirmDelete
+                      ? 'bg-error-bg text-error-text'
+                      : 'hover:bg-bg-elevated text-text-secondary hover:text-error-text'
+                  }`}
+                  title={confirmDelete ? 'Click again to confirm delete' : 'Delete track'}
+                >
+                  <Trash2 size={20} />
+                </button>
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Vertical layout for landscape side panel */}
+
           {/* Track number */}
           <div className="flex items-center gap-1.5">
             <span className="text-text-secondary text-xs">Track:</span>
             <span className="text-text-primary font-mono text-xs font-bold">
               {isMaster ? 'M' : selectedTrackIdx}
             </span>
+            {inputIndicator && <span className="ml-auto">{inputIndicator}</span>}
+            {folderIndicator}
           </div>
 
-          <div className="w-px h-4 bg-border-default flex-shrink-0" />
+          <div className="h-px bg-border-subtle" />
 
-          {/* Name (editable for non-master) */}
-          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+          {/* Name */}
+          <div className="flex items-center gap-1.5 min-w-0">
             <span className="text-text-secondary text-xs flex-shrink-0">Name:</span>
-            {isEditingName && !isMaster ? (
-              <input
-                ref={nameInputRef}
-                type="text"
-                value={nameValue}
-                onChange={(e) => setNameValue(e.target.value)}
-                onKeyDown={handleNameKeyDown}
-                onBlur={handleNameConfirm}
-                className="flex-1 min-w-0 px-1.5 py-0.5 bg-bg-elevated border border-focus-border rounded text-text-primary font-mono text-base focus:outline-none focus:ring-1 focus:ring-focus-ring"
-              />
-            ) : (
-              <button
-                onClick={handleNameClick}
-                disabled={isMaster}
-                className={`text-text-primary font-mono text-sm px-1.5 py-0.5 rounded transition-colors truncate min-w-0 ${
-                  isMaster ? 'cursor-default' : 'hover:bg-bg-elevated cursor-pointer'
-                }`}
-                title={isMaster ? 'Master track' : 'Click to edit name'}
-              >
-                {trackData.name || (isMaster ? 'MASTER' : `Track ${selectedTrackIdx}`)}
-              </button>
-            )}
+            {nameElement}
           </div>
 
-          {/* Input indicator for armed tracks */}
-          {track && isRecordArmed(track) && track.recInput !== undefined && (
+          <div className="h-px bg-border-subtle" />
+
+          {/* Color (not for master) */}
+          {!isMaster && (
             <>
-              <div className="w-px h-4 bg-border-default flex-shrink-0" />
-              <span className="text-xs text-text-muted truncate flex-shrink-0">
-                {formatInputLabel(track.recInput)}
-              </span>
+              <div className="flex items-center gap-1.5">
+                <ColorPickerInput
+                  label="Color"
+                  value={currentColor}
+                  onChange={handleColorChange}
+                  defaultValue={DEFAULT_TRACK_COLOR}
+                  compact
+                />
+              </div>
+              <div className="h-px bg-border-subtle" />
             </>
           )}
 
-          {/* Folder indicator with child count (top right) - clickable to navigate */}
-          {isFolder && trackData.guid && (
-            <button
-              onClick={() => onFolderClick?.(trackData.guid!)}
-              className="flex items-center gap-1 text-text-muted/50 hover:text-text-muted flex-shrink-0 ml-auto transition-colors"
-              title="View folder contents"
-            >
-              <Folder size={16} />
-              <span className="text-xs">({childCount})</span>
-            </button>
-          )}
-        </div>
+          {/* FX */}
+          <div className="flex items-center gap-2">
+            {fxButton}
+            <span className="text-xs text-text-muted">
+              {trackData.fxCount === 0
+                ? 'No FX'
+                : trackData.isFxDisabled
+                  ? `${trackData.fxCount} FX (bypassed)`
+                  : `${trackData.fxCount} FX`
+              }
+            </span>
+          </div>
 
-        {/* Line 2: Color, Routing, Duplicate, Delete */}
-        <div className="flex items-center gap-3">
-          {/* Color picker with hold-to-reset (not for master track) */}
+          <div className="h-px bg-border-subtle" />
+
+          {/* Routing */}
+          <div className="flex items-center gap-2">
+            <RoutingIndicator
+              hasMasterSend={hasMasterSend}
+              hasSends={hasSends}
+              hasReceives={hasReceives}
+              onClick={handleShowRouting}
+            />
+            <span className="text-xs text-text-muted">Routing</span>
+          </div>
+
+          {/* Actions (not for master) */}
           {!isMaster && (
             <>
-              <ColorPickerInput
-                label="Color"
-                value={currentColor}
-                onChange={handleColorChange}
-                defaultValue={DEFAULT_TRACK_COLOR}
-                compact
-              />
-
-              <div className="w-px h-6 bg-border-default flex-shrink-0" />
+              <div className="h-px bg-border-subtle" />
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleDuplicate}
+                  className="flex-1 h-9 flex items-center justify-center gap-1.5 rounded-lg hover:bg-bg-elevated transition-colors"
+                  title="Duplicate track"
+                >
+                  <Copy size={16} className="text-text-secondary" />
+                  <span className="text-xs text-text-secondary">Dupe</span>
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className={`flex-1 h-9 flex items-center justify-center gap-1.5 rounded-lg transition-colors ${
+                    confirmDelete
+                      ? 'bg-error-bg text-error-text'
+                      : 'hover:bg-bg-elevated text-text-secondary hover:text-error-text'
+                  }`}
+                  title={confirmDelete ? 'Click again to confirm delete' : 'Delete track'}
+                >
+                  <Trash2 size={16} />
+                  <span className="text-xs">{confirmDelete ? 'Confirm' : 'Delete'}</span>
+                </button>
+              </div>
             </>
           )}
-
-          {/* FX indicator/toggle - tap to toggle, long-press for modal */}
-          <button
-            onClick={handleFxClick}
-            onPointerDown={handleFxPointerDown}
-            onPointerUp={handleFxPointerUp}
-            onPointerCancel={handleFxPointerUp}
-            onPointerLeave={handleFxPointerUp}
-            className={`w-8 h-8 flex items-center justify-center rounded-lg border-2 transition-colors ${
-              trackData.fxCount === 0
-                ? 'text-text-muted border-border-default hover:bg-bg-elevated hover:text-text-secondary'
-                : trackData.isFxDisabled
-                  ? 'text-error-text border-error-text hover:bg-bg-elevated'
-                  : 'text-success border-success hover:bg-bg-elevated'
-            }`}
-            title={
-              trackData.fxCount === 0
-                ? 'No FX - hold to add'
-                : trackData.isFxDisabled
-                  ? `FX bypassed (${trackData.fxCount} FX) - tap to toggle, hold for details`
-                  : `FX enabled (${trackData.fxCount} FX) - tap to toggle, hold for details`
-            }
-          >
-            <span className="text-xs font-bold">FX</span>
-          </button>
-
-          <div className="w-px h-6 bg-border-default flex-shrink-0" />
-
-          {/* Routing indicator */}
-          <RoutingIndicator
-            hasMasterSend={hasMasterSend}
-            hasSends={hasSends}
-            hasReceives={hasReceives}
-            onClick={handleShowRouting}
-          />
-
-          {/* Spacer */}
-          <div className="flex-1" />
-
-          {/* Actions (not for master track) */}
-          {!isMaster && (
-            <div className="flex items-center gap-2">
-              {/* Duplicate */}
-              <button
-                onClick={handleDuplicate}
-                className="w-11 h-11 flex items-center justify-center rounded-lg hover:bg-bg-elevated transition-colors"
-                title="Duplicate track"
-              >
-                <Copy size={20} className="text-text-secondary" />
-              </button>
-
-              {/* Delete (with confirmation) */}
-              <button
-                onClick={handleDelete}
-                className={`w-11 h-11 flex items-center justify-center rounded-lg transition-colors ${
-                  confirmDelete
-                    ? 'bg-error-bg text-error-text'
-                    : 'hover:bg-bg-elevated text-text-secondary hover:text-error-text'
-                }`}
-                title={confirmDelete ? 'Click again to confirm delete' : 'Delete track'}
-              >
-                <Trash2 size={20} />
-              </button>
-            </div>
-          )}
-        </div>
+        </>
+      )}
 
       {/* FX Modal */}
       {selectedTrackIdx !== null && (
