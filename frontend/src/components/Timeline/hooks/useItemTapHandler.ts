@@ -28,6 +28,8 @@ interface UseItemTapHandlerParams {
   setSelectedMarkerId: (id: number | null) => void;
   sendCommand: (cmd: WSCommand) => void;
   optimisticSelectTrack: (trackGuid: string) => void;
+  optimisticToggleItemSelected: (guid: string) => void;
+  optimisticUnselectAllItems: () => void;
 }
 
 /** Convert track GUID → trackIdx using skeleton */
@@ -50,6 +52,8 @@ export function useItemTapHandler({
   setSelectedMarkerId,
   sendCommand,
   optimisticSelectTrack,
+  optimisticToggleItemSelected,
+  optimisticUnselectAllItems,
 }: UseItemTapHandlerParams): (clientX: number, clientY: number) => boolean {
   return useCallback(
     (clientX: number, clientY: number): boolean => {
@@ -105,7 +109,8 @@ export function useItemTapHandler({
           sendCommand(trackCmd.unselectAll());
           sendCommand(itemCmd.unselectAll());
           sendCommand(trackCmd.setSelected(clickedTrackIdx, 1));
-          // Optimistic update: highlight track immediately (skeleton polls at 1Hz)
+          // Optimistic updates: bridge gap until next poll
+          optimisticUnselectAllItems();
           if (clickedTrackGuid) {
             optimisticSelectTrack(clickedTrackGuid);
             setViewFilterTrack(clickedTrackGuid);
@@ -126,6 +131,7 @@ export function useItemTapHandler({
           // Sort by position, take first (earliest) item and toggle selection
           const firstItem = itemsAtTime.sort((a, b) => a.position - b.position)[0];
           sendCommand(itemCmd.toggleSelect(firstItem.guid));
+          optimisticToggleItemSelected(firstItem.guid);
 
           // Select the item's track (clears other track selections)
           sendCommand(trackCmd.unselectAll());
@@ -207,6 +213,8 @@ export function useItemTapHandler({
       setSelectedMarkerId,
       sendCommand,
       optimisticSelectTrack,
+      optimisticToggleItemSelected,
+      optimisticUnselectAllItems,
     ]
   );
 }
