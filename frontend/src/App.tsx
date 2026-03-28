@@ -11,7 +11,7 @@ import {
   TabBar,
   PersistentTransport,
   ConnectionBanner,
-  UpdateBanner,
+
   MemoryWarningBar,
   RecordingActionsBar,
   ErrorBoundary,
@@ -44,7 +44,7 @@ function AppContent() {
   const hiddenViews = useReaperStore((s) => s.hiddenViews);
   const viewOrder = useReaperStore((s) => s.viewOrder);
   const showRecordingActions = useReaperStore((s) => s.showRecordingActions);
-  const updateAvailable = useReaperStore((s) => s.updateAvailable);
+
   const { isRecording } = useTransport();
 
   // Layout context for responsive side rail
@@ -152,7 +152,7 @@ function AppContent() {
         <div className="flex flex-col flex-1 min-w-0 safe-area-top">
           {/* Conditional banners */}
           <ConnectionBanner className="shrink-0" />
-          {updateAvailable && <UpdateBanner className="shrink-0" />}
+
           <MemoryWarningBar className="shrink-0" />
 
           {/* Main content area */}
@@ -200,7 +200,7 @@ function AppContent() {
     <div className="flex flex-col h-dvh bg-bg-app overflow-hidden safe-area-top safe-area-x select-none isolate">
       {/* Conditional banners - shrink-0 prevents compression */}
       <ConnectionBanner className="shrink-0" />
-      {updateAvailable && <UpdateBanner className="shrink-0" />}
+
       <MemoryWarningBar className="shrink-0" />
 
       {/* Main content area - THE CRITICAL PATTERN: flex-1 min-h-0 */}
