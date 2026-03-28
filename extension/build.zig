@@ -116,6 +116,7 @@ pub fn build(b: *std.Build) void {
         lib.linkSystemLibrary("kernel32"); // GetComputerNameExA (hostname)
         lib.linkSystemLibrary("user32"); // SetTimer/KillTimer (fast_timer.zig)
         lib.linkSystemLibrary("iphlpapi"); // GetAdaptersAddresses (network_detect.zig)
+        lib.linkSystemLibrary("gdi32"); // GDI: CreateCompatibleDC, CreateDIBSection, BitBlt (swell.zig)
     }
 
     b.installArtifact(lib);
@@ -216,6 +217,7 @@ pub fn build(b: *std.Build) void {
         main_tests.linkSystemLibrary("kernel32");
         main_tests.linkSystemLibrary("user32");
         main_tests.linkSystemLibrary("iphlpapi");
+        main_tests.linkSystemLibrary("gdi32");
     }
     const run_main_tests = b.addRunArtifact(main_tests);
     test_step.dependOn(&run_main_tests.step);
