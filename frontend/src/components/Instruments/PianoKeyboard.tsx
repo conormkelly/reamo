@@ -10,8 +10,10 @@ import { PianoKey } from './PianoKey';
 export interface PianoKeyboardProps {
   /** Base octave (0-8, default 4 = middle C) */
   octave: number;
-  /** Number of octaves to display (1-2) */
+  /** Number of octaves to display */
   numOctaves?: number;
+  /** Show note labels (e.g. "C4") on C keys */
+  showNoteLabels?: boolean;
   /** Callback when note starts */
   onNoteOn: (note: number, velocity: number) => void;
   /** Callback when note ends */
@@ -37,6 +39,7 @@ const OCTAVE_STRUCTURE: [number, number | null][] = [
 export function PianoKeyboard({
   octave,
   numOctaves = 1,
+  showNoteLabels = false,
   onNoteOn,
   onNoteOff,
   className = '',
@@ -112,6 +115,13 @@ export function PianoKeyboard({
                     onNoteOff={handleNoteOff}
                     className="w-full h-full rounded-b-md"
                   />
+
+                  {/* C note label */}
+                  {showNoteLabels && whiteSemitone === 0 && (
+                    <span className="absolute bottom-2 left-1/2 -translate-x-1/2 text-xs font-medium text-gray-400 pointer-events-none select-none z-[5]">
+                      C{octave + octIdx}
+                    </span>
+                  )}
 
                   {/* Black key - overlaps to the right */}
                   {blackNote !== null && blackNote <= 127 && (

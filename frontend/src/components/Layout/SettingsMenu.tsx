@@ -32,6 +32,9 @@ export interface SettingsMenuProps {
   // Actions view settings
   actionsAutoCollapse: boolean;
   onToggleActionsAutoCollapse: () => void;
+  // Instruments view settings
+  showPianoWheels: boolean;
+  onToggleShowPianoWheels: () => void;
   // Audio monitoring
   audioMonitorActive: boolean;
   onToggleAudioMonitor: () => void;
@@ -60,6 +63,8 @@ export function SettingsMenu({
   onToggleShowAddTrackButton,
   actionsAutoCollapse,
   onToggleActionsAutoCollapse,
+  showPianoWheels,
+  onToggleShowPianoWheels,
   audioMonitorActive,
   onToggleAudioMonitor,
   onOpenViewCustomization,
@@ -293,6 +298,31 @@ export function SettingsMenu({
                 <span className="text-sm">Auto-Collapse Others</span>
                 <span className={`flex items-center gap-1.5 text-xs ${actionsAutoCollapse ? 'text-success' : 'text-text-muted'}`}>
                   {actionsAutoCollapse ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                </span>
+              </button>
+            </>
+          )}
+
+          {/* Instruments section - only shown in Instruments view */}
+          {currentView === 'instruments' && (
+            <>
+              <div className="my-2 border-t border-border-subtle" />
+
+              <div className="px-3 py-1.5 text-xs text-text-secondary uppercase tracking-wide">
+                Instruments
+              </div>
+
+              {/* Mod & Pitch Wheels toggle */}
+              <button
+                onClick={() => {
+                  onToggleShowPianoWheels();
+                }}
+                className="w-full px-menu-item-x py-menu-item-y flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
+              >
+                <span className="text-sm">Mod & Pitch Wheels</span>
+                <span className={`flex items-center gap-1.5 text-xs ${showPianoWheels ? 'text-success' : 'text-text-muted'}`}>
+                  {showPianoWheels ? <Eye size={14} /> : <EyeOff size={14} />}
+                  {showPianoWheels ? 'Visible' : 'Hidden'}
                 </span>
               </button>
             </>

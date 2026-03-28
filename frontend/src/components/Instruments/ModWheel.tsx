@@ -124,7 +124,7 @@ export function ModWheel({
       aria-valuenow={value}
     >
       {/* Track */}
-      <div className="flex-1 w-full bg-bg-elevated rounded-lg border border-border-subtle overflow-hidden">
+      <div className="flex-1 w-full bg-bg-elevated rounded-lg border border-border-subtle overflow-hidden relative">
         {/* Fill */}
         <div
           className="absolute bottom-0 left-0 right-0 bg-primary/60 transition-none"

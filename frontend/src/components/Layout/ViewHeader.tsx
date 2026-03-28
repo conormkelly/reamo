@@ -49,6 +49,8 @@ export function ViewHeader({ currentView, children, overflowItems }: ViewHeaderP
   const setShowAddTrackButton = useReaperStore((s) => s.setShowAddTrackButton);
   const actionsAutoCollapse = useReaperStore((s) => s.actionsAutoCollapse);
   const setActionsAutoCollapse = useReaperStore((s) => s.setActionsAutoCollapse);
+  const showPianoWheels = useReaperStore((s) => s.showPianoWheels);
+  const setShowPianoWheels = useReaperStore((s) => s.setShowPianoWheels);
   const openTimelineSettingsModal = useReaperStore((s) => s.openTimelineSettingsModal);
   const openViewCustomizationModal = useReaperStore((s) => s.openViewCustomizationModal);
 
@@ -75,6 +77,8 @@ export function ViewHeader({ currentView, children, overflowItems }: ViewHeaderP
         onToggleShowAddTrackButton={() => setShowAddTrackButton(!showAddTrackButton)}
         actionsAutoCollapse={actionsAutoCollapse}
         onToggleActionsAutoCollapse={() => setActionsAutoCollapse(!actionsAutoCollapse)}
+        showPianoWheels={showPianoWheels}
+        onToggleShowPianoWheels={() => setShowPianoWheels(!showPianoWheels)}
         audioMonitorActive={audioMonitorActive || audioMonitorRequested}
         onToggleAudioMonitor={() => audioMonitorRequested ? stopMonitoring() : startMonitoring()}
         onOpenViewCustomization={openViewCustomizationModal}

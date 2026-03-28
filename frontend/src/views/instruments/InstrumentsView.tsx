@@ -10,9 +10,11 @@
  */
 
 import { useState, useEffect, useCallback, useRef, useMemo, type ReactElement } from 'react';
+import { MoveHorizontal } from 'lucide-react';
 import { ViewHeader, ViewLayout, type OverflowMenuItem } from '../../components';
 import { useIsLandscape, useContainerQuery } from '../../hooks';
 import { useReaper } from '../../components/ReaperProvider';
+import { useReaperStore } from '../../store';
 import {
   InstrumentSelector,
   ChannelSelector,
@@ -312,6 +314,10 @@ function saveChordsStrumDelay(delay: number): void {
 export function InstrumentsView(): ReactElement {
   const { sendCommand } = useReaper();
   const isLandscape = useIsLandscape();
+  const showPianoWheels = useReaperStore((s) => s.showPianoWheels);
+
+  // 8va/8vb momentary transposition (held = ±12 semitones)
+  const [octaveTranspose, setOctaveTranspose] = useState(0);
 
   // State
   const [selectedInstrument, setSelectedInstrument] = useState<InstrumentType>(loadInstrument);
@@ -328,6 +334,109 @@ export function InstrumentsView(): ReactElement {
   const [chordsVoiceLead, setChordsVoiceLead] = useState<boolean>(loadChordsVoiceLead);
   const [chordsStrum, setChordsStrum] = useState<boolean>(loadChordsStrum);
   const [chordsStrumDelay, setChordsStrumDelay] = useState<number>(loadChordsStrumDelay);
+
+  // Piano scroll indicator (portrait mode) — interactive touch scrollbar
+  const pianoScrollRef = useRef<HTMLDivElement>(null);
+  const scrollTrackRef = useRef<HTMLDivElement>(null);
+  const [pianoScrollRatio, setPianoScrollRatio] = useState(0);
+  const [pianoThumbWidth, setPianoThumbWidth] = useState(0);
+  const [isDraggingScroll, setIsDraggingScroll] = useState(false);
+
+  const handlePianoScroll = useCallback(() => {
+    const el = pianoScrollRef.current;
+    if (!el) return;
+    const maxScroll = el.scrollWidth - el.clientWidth;
+    if (maxScroll <= 0) return;
+    setPianoScrollRatio(el.scrollLeft / maxScroll);
+    setPianoThumbWidth(el.clientWidth / el.scrollWidth);
+  }, []);
+
+  // Scroll the keyboard to a position based on where the user touches/drags on the track
+  const scrollToTrackPosition = useCallback((clientX: number) => {
+    const track = scrollTrackRef.current;
+    const scroll = pianoScrollRef.current;
+    if (!track || !scroll) return;
+    const rect = track.getBoundingClientRect();
+    const thumbW = Math.max(scroll.clientWidth / scroll.scrollWidth, 0.15);
+    // Map touch position to scroll ratio, centering the thumb on the finger
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left - (rect.width * thumbW / 2)) / (rect.width * (1 - thumbW))));
+    const maxScroll = scroll.scrollWidth - scroll.clientWidth;
+    scroll.scrollLeft = ratio * maxScroll;
+  }, []);
+
+  // Double-tap scrollbar to reset to middle C
+  const lastScrollTapRef = useRef(0);
+
+  const scrollToOctave = useCallback((oct: number, smooth = true) => {
+    const el = pianoScrollRef.current;
+    if (!el) return;
+    const whiteKeysPerOctave = 7;
+    const totalWhiteKeys = 8 * whiteKeysPerOctave;
+    const keyWidth = el.scrollWidth / totalWhiteKeys;
+    const targetKey = oct * whiteKeysPerOctave;
+    el.scrollTo({ left: targetKey * keyWidth, behavior: smooth ? 'smooth' : 'instant' });
+  }, []);
+
+  const handleScrollTrackPointerDown = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Detect double-tap (within 300ms)
+    const now = Date.now();
+    if (now - lastScrollTapRef.current < 300) {
+      // Reset to middle C
+      setPianoOctave(4);
+      scrollToOctave(4);
+      lastScrollTapRef.current = 0;
+      return;
+    }
+    lastScrollTapRef.current = now;
+
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    setIsDraggingScroll(true);
+    scrollToTrackPosition(e.clientX);
+  }, [scrollToTrackPosition, scrollToOctave]);
+
+  const handleScrollTrackPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!isDraggingScroll) return;
+    scrollToTrackPosition(e.clientX);
+  }, [isDraggingScroll, scrollToTrackPosition]);
+
+  const handleScrollTrackPointerUp = useCallback((e: React.PointerEvent) => {
+    (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    setIsDraggingScroll(false);
+  }, []);
+
+  // Initialize thumb width on mount / resize, and scroll to pianoOctave on first render
+  const hasInitialScrolled = useRef(false);
+  useEffect(() => {
+    if (isLandscape || selectedInstrument !== 'piano') {
+      hasInitialScrolled.current = false;
+      return;
+    }
+    const el = pianoScrollRef.current;
+    if (!el) return;
+    const update = () => {
+      const maxScroll = el.scrollWidth - el.clientWidth;
+      setPianoThumbWidth(el.clientWidth / el.scrollWidth);
+      if (maxScroll > 0) {
+        // Scroll to saved octave on first render
+        if (!hasInitialScrolled.current) {
+          hasInitialScrolled.current = true;
+          const whiteKeysPerOctave = 7;
+          const totalWhiteKeys = 8 * whiteKeysPerOctave;
+          const keyWidth = el.scrollWidth / totalWhiteKeys;
+          const targetKey = pianoOctave * whiteKeysPerOctave;
+          el.scrollLeft = targetKey * keyWidth;
+        }
+        setPianoScrollRatio(el.scrollLeft / maxScroll);
+      }
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isLandscape, selectedInstrument, pianoOctave]);
 
   // Header responsive behavior - collapse controls to overflow menu on narrow viewports
   const headerControlsRef = useRef<HTMLDivElement>(null);
@@ -439,17 +548,27 @@ export function InstrumentsView(): ReactElement {
     [sendCommand]
   );
 
-  // Piano-specific handlers bound to current channel
+  // Piano-specific handlers bound to current channel (applies 8va/8vb transposition)
+  const octaveTransposeRef = useRef(0);
+  octaveTransposeRef.current = octaveTranspose;
+
+  // Track which transposition was used for each note-on, so note-off sends the same value
+  const noteTransposeMap = useRef<Map<number, number>>(new Map());
+
   const handlePianoNoteOn = useCallback(
     (note: number, velocity: number) => {
-      handleNoteOn(pianoChannel, note, velocity);
+      const transposed = Math.max(0, Math.min(127, note + octaveTransposeRef.current));
+      noteTransposeMap.current.set(note, transposed);
+      handleNoteOn(pianoChannel, transposed, velocity);
     },
     [pianoChannel, handleNoteOn]
   );
 
   const handlePianoNoteOff = useCallback(
     (note: number) => {
-      handleNoteOff(pianoChannel, note);
+      const transposed = noteTransposeMap.current.get(note) ?? note;
+      noteTransposeMap.current.delete(note);
+      handleNoteOff(pianoChannel, transposed);
     },
     [pianoChannel, handleNoteOff]
   );
@@ -487,38 +606,122 @@ export function InstrumentsView(): ReactElement {
         );
 
       case 'piano':
-        // In portrait: horizontal scroll for keyboard, wheels on sides
-        // In landscape: standard horizontal layout
-        return (
+        // In portrait: scrollable multi-octave keyboard with capped height, C labels for navigation
+        // In landscape: standard horizontal layout with octave selector
+        return isLandscape ? (
           <div className="flex-1 flex gap-2 overflow-visible">
-            {/* Mod Wheel */}
-            <ModWheel onChange={handleModWheel} className="w-12 h-full shrink-0" />
-
-            {/* Piano Keyboard */}
+            {showPianoWheels && <ModWheel onChange={handleModWheel} className="w-12 h-full shrink-0" />}
             <div className="flex-1 min-w-0 flex flex-col gap-2 overflow-visible">
-              {/* Octave selector - more prominent in portrait */}
               <div className="shrink-0 flex justify-center">
                 <OctaveSelector
                   octave={pianoOctave}
                   onOctaveChange={setPianoOctave}
-                  minOctave={1}
-                  maxOctave={7}
+                  minOctave={0}
+                  maxOctave={6}
                 />
               </div>
-              {/* Keyboard - scrollable container in portrait */}
-              <div className={`flex-1 min-h-0 ${!isLandscape ? 'overflow-x-auto overflow-y-hidden overscroll-x-contain' : 'overflow-visible'}`}>
+              <div className="flex-1 min-h-0 overflow-visible">
                 <PianoKeyboard
                   octave={pianoOctave}
                   numOctaves={2}
+                  showNoteLabels
                   onNoteOn={handlePianoNoteOn}
                   onNoteOff={handlePianoNoteOff}
-                  className={`h-full ${!isLandscape ? 'min-w-[500px]' : ''}`}
+                  className="h-full"
                 />
               </div>
             </div>
+            {showPianoWheels && <PitchBendWheel onChange={handlePitchBendWheel} className="w-12 h-full shrink-0" />}
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center gap-3">
+            {/* Octave selector + 8va/8vb buttons */}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                className={`px-2.5 py-1.5 rounded text-xs font-bold touch-none select-none transition-colors ${
+                  octaveTranspose === -12
+                    ? 'bg-primary text-white'
+                    : 'bg-bg-elevated text-text-secondary active:bg-primary active:text-white'
+                }`}
+                onPointerDown={(e) => { e.preventDefault(); setOctaveTranspose(-12); }}
+                onPointerUp={() => setOctaveTranspose(0)}
+                onPointerCancel={() => setOctaveTranspose(0)}
+                onPointerLeave={() => setOctaveTranspose(0)}
+                aria-label="Octave down (8vb)"
+              >
+                8vb
+              </button>
+              <OctaveSelector
+                octave={pianoOctave}
+                onOctaveChange={(oct) => {
+                  setPianoOctave(oct);
+                  scrollToOctave(oct);
+                }}
+                minOctave={0}
+                maxOctave={7}
+              />
+              <button
+                type="button"
+                className={`px-2.5 py-1.5 rounded text-xs font-bold touch-none select-none transition-colors ${
+                  octaveTranspose === 12
+                    ? 'bg-primary text-white'
+                    : 'bg-bg-elevated text-text-secondary active:bg-primary active:text-white'
+                }`}
+                onPointerDown={(e) => { e.preventDefault(); setOctaveTranspose(12); }}
+                onPointerUp={() => setOctaveTranspose(0)}
+                onPointerCancel={() => setOctaveTranspose(0)}
+                onPointerLeave={() => setOctaveTranspose(0)}
+                aria-label="Octave up (8va)"
+              >
+                8va
+              </button>
+            </div>
+            <div className="flex flex-col gap-2 w-full max-h-[320px] h-full">
+              {/* Keyboard + wheels row */}
+              <div className="flex gap-2 flex-1 min-h-0">
+                {showPianoWheels && <ModWheel onChange={handleModWheel} className="w-12 h-full shrink-0" />}
+                <div
+                  ref={pianoScrollRef}
+                  onScroll={handlePianoScroll}
+                  className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden overscroll-x-contain"
+                  style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
+                >
+                  <PianoKeyboard
+                    octave={0}
+                    numOctaves={8}
+                    showNoteLabels
+                    onNoteOn={handlePianoNoteOn}
+                    onNoteOff={handlePianoNoteOff}
+                    className="h-full min-w-[1600px]"
+                  />
+                </div>
+                {showPianoWheels && <PitchBendWheel onChange={handlePitchBendWheel} className="w-12 h-full shrink-0" />}
+              </div>
 
-            {/* Pitch Bend Wheel */}
-            <PitchBendWheel onChange={handlePitchBendWheel} className="w-12 h-full shrink-0" />
+              {/* Interactive scroll bar — 44px touch target */}
+              <div className="flex items-center gap-2 shrink-0">
+                <MoveHorizontal size={16} className="text-text-tertiary shrink-0" />
+                <div
+                  ref={scrollTrackRef}
+                  className="flex-1 h-11 flex items-center touch-none select-none cursor-pointer"
+                  onPointerDown={handleScrollTrackPointerDown}
+                  onPointerMove={handleScrollTrackPointerMove}
+                  onPointerUp={handleScrollTrackPointerUp}
+                  onPointerCancel={handleScrollTrackPointerUp}
+                >
+                  <div className="w-full h-3 bg-bg-elevated rounded-full relative overflow-hidden">
+                    <div
+                      className={`absolute top-0 h-full rounded-full ${isDraggingScroll ? 'bg-primary' : 'bg-text-tertiary'}`}
+                      style={{
+                        width: `${Math.max(pianoThumbWidth * 100, 15)}%`,
+                        left: `${pianoScrollRatio * (100 - Math.max(pianoThumbWidth * 100, 15))}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         );
 
