@@ -478,7 +478,7 @@ export function InstrumentsView(): ReactElement {
         return (
           <div className="flex-1 flex items-center justify-center">
             <div className={isLandscape
-              ? "h-full aspect-square max-w-full"
+              ? "h-[90%] aspect-square max-w-full"
               : "w-full aspect-square max-h-full"
             }>
               <DrumPadGrid channel={currentChannel} onNoteOn={handleNoteOn} className="h-full w-full" />
@@ -762,7 +762,7 @@ export function InstrumentsView(): ReactElement {
   return (
     <ViewLayout
       viewId="instruments"
-      className="bg-bg-app text-text-primary"
+      className="bg-bg-app text-text-primary p-view"
       header={
         <ViewHeader
           currentView="instruments"
