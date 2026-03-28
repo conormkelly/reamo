@@ -95,6 +95,7 @@ describe('useItemTapHandler', () => {
   const enterItemSelectionMode = vi.fn();
   const setViewFilterTrack = vi.fn();
   const setSelectedMarkerId = vi.fn();
+  const optimisticSelectTrack = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -113,6 +114,7 @@ describe('useItemTapHandler', () => {
         setViewFilterTrack,
         setSelectedMarkerId,
         sendCommand,
+        optimisticSelectTrack,
         ...overrides,
       })
     );

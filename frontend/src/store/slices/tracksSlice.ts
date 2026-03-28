@@ -31,6 +31,8 @@ export interface TracksSlice {
   setTrackSkeleton: (skeleton: SkeletonTrack[]) => void;
   setTotalTracks: (total: number) => void;
   updateMeters: (meters: Record<string, MeterData>) => void;
+  /** Optimistically update skeleton sel flags (bridges gap until next LOW tier poll) */
+  optimisticSelectTrack: (trackGuid: string) => void;
 }
 
 export const createTracksSlice: StateCreator<TracksSlice> = (set, get) => ({
@@ -130,5 +132,14 @@ export const createTracksSlice: StateCreator<TracksSlice> = (set, get) => ({
     if (hasChanges) {
       set({ tracks: updatedTracks });
     }
+  },
+
+  optimisticSelectTrack: (trackGuid) => {
+    const { trackSkeleton } = get();
+    const updated = trackSkeleton.map((t) => ({
+      ...t,
+      sel: t.g === trackGuid,
+    }));
+    set({ trackSkeleton: updated });
   },
 });

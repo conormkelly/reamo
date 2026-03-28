@@ -36,8 +36,6 @@ export interface WaveformLayerProps {
   width: number;
   /** Total height for all lanes */
   height: number;
-  /** Currently focused track GUID (shows highlight) */
-  focusedTrackGuid?: string | null;
 }
 
 export function WaveformLayer({
@@ -48,7 +46,6 @@ export function WaveformLayer({
   viewportEnd,
   width,
   height,
-  focusedTrackGuid,
 }: WaveformLayerProps): ReactElement | null {
   // Group items by track index for efficient per-lane rendering
   const itemsByTrackIdx = useMemo(() => {
@@ -76,8 +73,6 @@ export function WaveformLayer({
       {tracks.map((track, laneIdx) => {
         const trackIdx = trackIndices[laneIdx];
         const laneItems = itemsByTrackIdx.get(trackIdx) ?? (EMPTY_ITEMS as WSItem[]);
-        const isFocused = focusedTrackGuid === track.g;
-
         return (
           <div
             key={track.g}
@@ -85,8 +80,8 @@ export function WaveformLayer({
             style={{
               top: laneIdx * laneHeight,
               height: laneHeight,
-              // Focused track highlight (subtle)
-              backgroundColor: isFocused ? 'rgba(59, 130, 246, 0.1)' : undefined,
+              // Selected track highlight — driven by REAPER's track selection state
+              backgroundColor: track.sel ? 'rgba(59, 130, 246, 0.1)' : undefined,
             }}
           >
             <WaveformCanvas

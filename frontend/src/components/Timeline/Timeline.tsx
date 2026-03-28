@@ -73,6 +73,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     selectionModeActive, toggleSelectionMode,
     followPlayhead, setFollowPlayhead, pauseFollowPlayhead,
     setMarkerLocked,
+    optimisticSelectTrack,
   } = useTimelineSelectors();
 
   // Time signature and bar offset from hooks
@@ -343,6 +344,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     setViewFilterTrack,
     setSelectedMarkerId,
     sendCommand,
+    optimisticSelectTrack,
   });
 
   // Pointer event routing
@@ -545,7 +547,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
             timelineStart={viewport.visibleRange.start}
             timelineEnd={viewport.visibleRange.end}
             height={height}
-            focusedTrackGuid={viewFilterTrackGuid}
             assemblePeaksForViewport={assemblePeaksForViewport}
             hasTilesForTake={hasTilesForTake}
           />
