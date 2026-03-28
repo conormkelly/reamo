@@ -33,19 +33,16 @@ Run `Uninstall_REAmo.lua` from the original extracted folder using the same "Run
 <details>
 <summary>Click to expand manual steps</summary>
 
-If the automatic installer doesn't work:
+If the automatic installer doesn't work, copy these files from the extracted ZIP to your REAPER resource path. Find it in REAPER via Options > Show REAPER resource path.
 
-1. Copy the REAmo extension (`.dylib`/`.dll`/`.so`) to your REAPER UserPlugins folder:
-   - **macOS**: `~/Library/Application Support/REAPER/UserPlugins/`
-   - **Windows**: `%APPDATA%\REAPER\UserPlugins\`
-   - **Linux**: `~/.config/REAPER/UserPlugins/`
+| File in ZIP | Copy to |
+|-------------|---------|
+| `reaper_reamo.dylib` / `.dll` / `.so` | `UserPlugins/` |
+| `web/` (entire folder) | `reaper_www_root/web/` |
+| `scripts/reamo_internal_fetch_peaks.lua` | `Scripts/Reamo/` |
+| `effects/REAmo/PitchDetect.jsfx` | `Effects/REAmo/` |
 
-2. Copy the frontend files to your REAPER www root folder:
-   - **macOS**: `~/Library/Application Support/REAPER/reaper_www_root/`
-   - **Windows**: `%APPDATA%\REAPER\reaper_www_root\`
-   - **Linux**: `~/.config/REAPER/reaper_www_root/`
-
-3. Restart REAPER
+Then restart REAPER.
 
 </details>
 
@@ -85,6 +82,7 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 | **Studio** | All-in-one default view: transport, timeline, mixer in one screen |
 | **Mixer** | Dedicated full-screen mixer with faders, meters, and track controls |
 | **Clock** | Large transport display with big play/pause/stop/record buttons. Fully customizable: show/hide elements, resize, and reorder via edit mode |
+| **Tuner** | Chromatic tuner with sub-cent accuracy. Auto-inserts a pitch detection plugin on your track's input FX chain |
 | **Actions** | User-configurable button grid for REAPER actions and MIDI |
 | **Instruments** | Touch instruments: drum pads, piano keyboard, and chord pads |
 | **Notes** | Project notes editor with external change detection |
@@ -127,14 +125,6 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 - Time selection display with bar.beat notation
 - Tap regions/markers to navigate
 - Tap items to select, with multi-select support
-
-### Region Editing *(Coming Soon)*
-
-- Drag regions to reposition
-- Resize regions by dragging edges
-- Ripple editing (subsequent regions shift automatically)
-- Add, rename, delete, and color regions
-- Full undo/redo support
 
 ### Marker Management
 
@@ -211,17 +201,6 @@ REAmo provides multiple views accessible via the tab bar at the bottom. Double-t
 - Filter tracks by folder (tap folder badge to focus)
 - Combine folder view with property filters (Armed, Muted, etc.)
 
-### Cue Lists (Playlists) *(Coming Soon)*
-
-- Build playlists from project regions
-- Set loop count per entry (1x, 2x, infinite)
-- Drag to reorder entries
-- Play/pause/stop/skip controls
-- Visual progress bar within current region
-- "Advance after loop" to exit infinite loops gracefully
-- Auto-advance through playlist during playback
-- Playlists persist with the project file
-
 ### Custom Toolbar
 
 - User-configurable buttons for any REAPER action
@@ -274,6 +253,13 @@ Current limitations to be aware of:
 
 ---
 
+## Coming Soon
+
+- **Region Editing** — Drag-and-drop region repositioning with ripple editing, undo/redo
+- **Cue Lists** — Build playlists from regions for rehearsal and arrangement experiments
+
+---
+
 ## Why REAmo?
 
 This project was built to solve a specific songwriting problem: **staying at the instrument**.
@@ -287,8 +273,7 @@ The typical home recording workflow kills creativity. You sit at the piano, get 
 3. **Tap in the tempo** - No need to touch the computer, dial in or tap the BPM from your playing position
 4. **Capture ideas in boxes** - Each region is a container for an idea. Record a rough verse, move to the chorus, try a bridge. Use auto-punch to nail specific sections
 5. **Compare takes on the fly** - Not sure if that last take was better? Long-press the track, switch between takes to A/B compare without touching the computer
-6. **Build a cue list** - Arrange regions into a playlist to hear your song structure without duplicating audio
-7. **End with a scaffold** - Instead of 16 over-produced bars, you have rough ideas across the whole song structure recorded to a click
+6. **End with a scaffold** - Instead of 16 over-produced bars, you have rough ideas across the whole song structure recorded to a click
 
 The goal is **idea capture, not production**. Get the song down while you're in creative mode. The engineering can wait.
 
