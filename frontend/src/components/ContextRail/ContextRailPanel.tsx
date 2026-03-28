@@ -59,31 +59,8 @@ export function ContextRailPanel({
     return () => window.removeEventListener('resize', updatePosition);
   }, [isOpen, anchorRef]);
 
-  // Handle click outside to close (must check both panel and anchor)
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
-      const target = event.target as Node;
-      const clickedPanel = panelRef.current?.contains(target);
-      const clickedAnchor = anchorRef.current?.contains(target);
-      if (!clickedPanel && !clickedAnchor) {
-        onClose();
-      }
-    };
-
-    // Small delay to prevent immediate close on the click that opened it
-    const timeoutId = setTimeout(() => {
-      document.addEventListener('mousedown', handleClickOutside);
-      document.addEventListener('touchstart', handleClickOutside);
-    }, 100);
-
-    return () => {
-      clearTimeout(timeoutId);
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('touchstart', handleClickOutside);
-    };
-  }, [isOpen, onClose, anchorRef]);
+  // Panel stays open when interacting with main content (e.g. tapping mixer strips).
+  // Close only via X button, Escape key, or chevron toggle in ContextRail.
 
   // Handle Escape key
   useEffect(() => {

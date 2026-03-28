@@ -43,9 +43,9 @@ export const STRIP_OVERHEAD_FULL = 164;
 
 /**
  * Non-fader overhead in compact mixer strip (landscape mode)
- * Includes: just track name + selection footer
+ * Includes: color bar (6) + name (18) + dB label (14) + pan (24) + M/S row (22) + Rec/Mon row (22) + footer (12) + gaps (~8)
  */
-export const STRIP_OVERHEAD_COMPACT = 40;
+export const STRIP_OVERHEAD_COMPACT = 126;
 
 /** Minimum fader height for touch usability in portrait */
 export const MIN_FADER_PORTRAIT = 80;

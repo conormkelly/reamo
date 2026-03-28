@@ -13,7 +13,6 @@ import { ViewHeader, ViewLayout, SecondaryPanel, type SecondaryPanelTabConfig, t
 import {
   MixerStrip,
   MixerStripCompact,
-  TrackDetailSheet,
   BankSelector,
   BankEditorModal,
   TrackInfoBar,
@@ -61,6 +60,7 @@ export function MixerView(): ReactElement {
   const setSideRailBankNav = useReaperStore((state) => state.setSideRailBankNav);
   const setSideRailBankNavCallbacks = useReaperStore((state) => state.setSideRailBankNavCallbacks);
   const setSideRailInfo = useReaperStore((state) => state.setSideRailInfo);
+  const setSideRailSearch = useReaperStore((state) => state.setSideRailSearch);
 
   // Responsive height measurement - tracks container size and panel transitions
   // Also provides layout context for side rail mode detection
@@ -117,16 +117,12 @@ export function MixerView(): ReactElement {
 
   // Filter state from store (persisted across view switches)
   const viewFilters = useReaperStore((s) => s.viewFilters.mixer);
-  const mixerViewState = useReaperStore((s) => s.mixerViewState);
   const setSelectedBankId = useReaperStore((s) => s.setSelectedBankId);
   const setFilterQuery = useReaperStore((s) => s.setFilterQuery);
   const setFilterBankIndex = useReaperStore((s) => s.setFilterBankIndex);
   const setFolderPath = useReaperStore((s) => s.setFolderPath);
-  const setDetailSheetTrackIdx = useReaperStore((s) => s.setDetailSheetTrackIdx);
-
   // Destructure for convenience
   const { selectedBankId, filterQuery, filterBankIndex, folderPath } = viewFilters;
-  const { detailSheetTrackIdx } = mixerViewState;
 
   // Folder navigation state (sheet visibility is ephemeral, path is persisted)
   // Declared before handleSetSelectedBankId which uses setFolderSheetOpen
@@ -165,9 +161,6 @@ export function MixerView(): ReactElement {
 
   // Create track modal state
   const [createTrackModalOpen, setCreateTrackModalOpen] = useState(false);
-
-  // Track detail sheet state (landscape mode) - open state is ephemeral, track idx is persisted
-  const [detailSheetOpen, setDetailSheetOpen] = useState(false);
 
   // Track info selection state (which track shows in InfoBar) - persisted in localStorage
   const [infoSelectedTrackIdx, setInfoSelectedTrackIdx] = useState<number | null>(() => {
@@ -393,24 +386,22 @@ export function MixerView(): ReactElement {
     handleSelectForInfo(trackIndex);
   }, [handleSelectForInfo]);
 
-  // Handle opening detail sheet (landscape mode)
-  // Opens sheet if closed, or switches track if already open
-  const handleOpenDetail = useCallback((trackIndex: number) => {
-    setDetailSheetTrackIdx(trackIndex);  // Store action - persists
-    setDetailSheetOpen(true);
-  }, [setDetailSheetTrackIdx]);
-
-  // Close detail sheet
-  const handleCloseDetail = useCallback(() => {
-    setDetailSheetOpen(false);
-  }, []);
-
-  // Info tab content
+  // Info tab content — horizontal for portrait bottom panel, vertical for landscape side panel
   const infoTabContent = useMemo(() => (
     <TrackInfoBar
       selectedTrackIdx={infoSelectedTrackIdx}
       onShowRouting={handleShowRouting}
       onFolderClick={handleFolderClick}
+      layout="horizontal"
+    />
+  ), [infoSelectedTrackIdx, handleShowRouting, handleFolderClick]);
+
+  const infoTabContentVertical = useMemo(() => (
+    <TrackInfoBar
+      selectedTrackIdx={infoSelectedTrackIdx}
+      onShowRouting={handleShowRouting}
+      onFolderClick={handleFolderClick}
+      layout="vertical"
     />
   ), [infoSelectedTrackIdx, handleShowRouting, handleFolderClick]);
 
@@ -450,10 +441,16 @@ export function MixerView(): ReactElement {
         onBack: handleBack,
         onForward: handleForward,
       });
-      // Provide info content for side rail actions button
+      // Provide info content for side rail actions button (vertical layout for narrow panel)
       setSideRailInfo({
-        content: infoTabContent,
+        content: infoTabContentVertical,
         label: 'Track Info',
+      });
+      // Sync search to context rail
+      setSideRailSearch({
+        value: filterQuery,
+        onChange: handleSetFilterQuery,
+        placeholder: 'Filter tracks...',
       });
     }
 
@@ -463,9 +460,10 @@ export function MixerView(): ReactElement {
         setSideRailBankNav(null);
         setSideRailBankNavCallbacks({ onBack: null, onForward: null });
         setSideRailInfo(null);
+        setSideRailSearch(null);
       }
     };
-  }, [isLandscapeConstrained, effectiveBankDisplay, effectiveTotalCount, effectiveCanGoBack, effectiveCanGoForward, handleBack, handleForward, setSideRailBankNav, setSideRailBankNavCallbacks, setSideRailInfo, infoTabContent]);
+  }, [isLandscapeConstrained, effectiveBankDisplay, effectiveTotalCount, effectiveCanGoBack, effectiveCanGoForward, handleBack, handleForward, setSideRailBankNav, setSideRailBankNavCallbacks, setSideRailInfo, setSideRailSearch, infoTabContentVertical, filterQuery, handleSetFilterQuery]);
 
   // Search props for SecondaryPanel header
   const searchProps: SearchProps = useMemo(() => ({
@@ -605,7 +603,6 @@ export function MixerView(): ReactElement {
                   faderHeight={faderHeight}
                   isInfoSelected={infoSelectedTrackIdx === 0}
                   onSelectForInfo={handleSelectForInfo}
-                  onOpenDetail={handleOpenDetail}
                 />
               ) : (
                 <MixerStrip
@@ -621,7 +618,7 @@ export function MixerView(): ReactElement {
               // Loading placeholder for master
               <div
                 className="bg-bg-surface/50 rounded-lg animate-pulse"
-                style={{ width: isLandscape ? 72 : 80, height: faderHeight + (isLandscape ? 40 : 100) }}
+                style={{ width: isLandscape ? 82 : 80, height: faderHeight + (isLandscape ? STRIP_OVERHEAD_COMPACT : STRIP_OVERHEAD_FULL) }}
               />
             )}
           </div>
@@ -638,7 +635,6 @@ export function MixerView(): ReactElement {
                     faderHeight={faderHeight}
                     isInfoSelected={infoSelectedTrackIdx === trackIndex}
                     onSelectForInfo={handleSelectForInfo}
-                    onOpenDetail={handleOpenDetail}
                   />
                 ) : (
                   <MixerStrip
@@ -654,7 +650,7 @@ export function MixerView(): ReactElement {
                 // Loading placeholder
                 <div
                   className="bg-bg-surface/50 rounded-lg animate-pulse"
-                  style={{ width: isLandscape ? 72 : 80, height: faderHeight + (isLandscape ? 40 : 100) }}
+                  style={{ width: isLandscape ? 82 : 80, height: faderHeight + (isLandscape ? STRIP_OVERHEAD_COMPACT : STRIP_OVERHEAD_FULL) }}
                 />
               )}
             </div>
@@ -720,12 +716,6 @@ export function MixerView(): ReactElement {
         onSelectTrack={handleFolderSheetSelectTrack}
       />
 
-      {/* Track detail sheet (landscape mode) */}
-      <TrackDetailSheet
-        trackIndex={detailSheetTrackIdx}
-        isOpen={detailSheetOpen}
-        onClose={handleCloseDetail}
-      />
     </ViewLayout>
   );
 }
