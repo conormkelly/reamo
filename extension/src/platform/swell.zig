@@ -72,6 +72,220 @@ pub const SWP_NOMOVE: c_uint = 0x0002;
 pub const NSFloatingWindowLevel: c_int = 3;
 
 // =============================================================================
+// Win32 native API declarations (Windows only)
+// =============================================================================
+// On Windows, REAPER extensions call Win32 directly — there is no SWELL layer.
+// SWELL exists to make macOS/Linux present a Win32-like API surface.
+// This follows the same pattern as fast_timer.zig, network_detect.zig, compat.zig.
+
+const win32 = if (builtin.os.tag == .windows) struct {
+    // -- Window management (user32) --
+    extern "user32" fn RegisterClassExA(*const WNDCLASSEXA) callconv(.winapi) u16;
+    extern "user32" fn CreateWindowExA(
+        dwExStyle: c_ulong,
+        lpClassName: [*:0]const u8,
+        lpWindowName: [*:0]const u8,
+        dwStyle: c_ulong,
+        x: c_int,
+        y: c_int,
+        nWidth: c_int,
+        nHeight: c_int,
+        hWndParent: ?*anyopaque,
+        hMenu: ?*anyopaque,
+        hInstance: ?*anyopaque,
+        lpParam: ?*anyopaque,
+    ) callconv(.winapi) ?*anyopaque;
+    extern "user32" fn DestroyWindow(hwnd: ?*anyopaque) callconv(.winapi) c_int;
+    extern "user32" fn ShowWindow(hwnd: ?*anyopaque, nCmdShow: c_int) callconv(.winapi) c_int;
+    extern "user32" fn SetWindowPos(
+        hwnd: ?*anyopaque,
+        hWndInsertAfter: ?*anyopaque,
+        x: c_int,
+        y: c_int,
+        cx: c_int,
+        cy: c_int,
+        uFlags: c_uint,
+    ) callconv(.winapi) c_int;
+    extern "user32" fn SetWindowTextA(hwnd: ?*anyopaque, lpString: [*:0]const u8) callconv(.winapi) c_int;
+    extern "user32" fn GetWindowRect(hwnd: ?*anyopaque, lpRect: *[4]c_int) callconv(.winapi) c_int;
+    extern "user32" fn InvalidateRect(hwnd: ?*anyopaque, lpRect: ?*anyopaque, bErase: c_int) callconv(.winapi) c_int;
+    extern "user32" fn DefWindowProcA(hwnd: ?*anyopaque, msg: c_uint, wParam: usize, lParam: isize) callconv(.winapi) isize;
+    extern "kernel32" fn GetModuleHandleA(lpModuleName: ?[*:0]const u8) callconv(.winapi) ?*anyopaque;
+
+    // -- Paint (user32 + gdi32) --
+    extern "user32" fn BeginPaint(hwnd: ?*anyopaque, lpPaint: *PAINTSTRUCT) callconv(.winapi) ?*anyopaque;
+    extern "user32" fn EndPaint(hwnd: ?*anyopaque, lpPaint: *const PAINTSTRUCT) callconv(.winapi) c_int;
+    extern "user32" fn FillRect(hDC: ?*anyopaque, lprc: *const [4]c_int, hbr: ?*anyopaque) callconv(.winapi) c_int;
+    extern "user32" fn DrawTextA(hdc: ?*anyopaque, lpchText: [*:0]const u8, cchText: c_int, lprc: *[4]c_int, format: c_uint) callconv(.winapi) c_int;
+    extern "gdi32" fn CreateSolidBrush(color: c_uint) callconv(.winapi) ?*anyopaque;
+    extern "gdi32" fn DeleteObject(ho: ?*anyopaque) callconv(.winapi) c_int;
+    extern "gdi32" fn SetBkMode(hdc: ?*anyopaque, mode: c_int) callconv(.winapi) c_int;
+    extern "gdi32" fn SetTextColor(hdc: ?*anyopaque, color: c_uint) callconv(.winapi) c_uint;
+
+    // -- Memory DC / bitmap (gdi32) --
+    extern "gdi32" fn CreateCompatibleDC(hdc: ?*anyopaque) callconv(.winapi) ?*anyopaque;
+    extern "gdi32" fn CreateDIBSection(
+        hdc: ?*anyopaque,
+        pbmi: *const BITMAPINFO,
+        usage: c_uint,
+        ppvBits: *?*anyopaque,
+        hSection: ?*anyopaque,
+        offset: c_uint,
+    ) callconv(.winapi) ?*anyopaque;
+    extern "gdi32" fn SelectObject(hdc: ?*anyopaque, h: ?*anyopaque) callconv(.winapi) ?*anyopaque;
+    extern "gdi32" fn DeleteDC(hdc: ?*anyopaque) callconv(.winapi) c_int;
+    extern "gdi32" fn BitBlt(
+        hdc: ?*anyopaque,
+        x: c_int,
+        y: c_int,
+        cx: c_int,
+        cy: c_int,
+        hdcSrc: ?*anyopaque,
+        x1: c_int,
+        y1: c_int,
+        rop: c_uint,
+    ) callconv(.winapi) c_int;
+
+    // -- Menu (user32) --
+    extern "user32" fn CreatePopupMenu() callconv(.winapi) ?*anyopaque;
+    extern "user32" fn DestroyMenu(hMenu: ?*anyopaque) callconv(.winapi) c_int;
+    extern "user32" fn InsertMenuA(
+        hMenu: ?*anyopaque,
+        uPosition: c_uint,
+        uFlags: c_uint,
+        uIDNewItem: usize,
+        lpNewItem: ?[*:0]const u8,
+    ) callconv(.winapi) c_int;
+    extern "user32" fn GetMenuItemCount(hMenu: ?*anyopaque) callconv(.winapi) c_int;
+    extern "user32" fn GetSubMenu(hMenu: ?*anyopaque, nPos: c_int) callconv(.winapi) ?*anyopaque;
+    extern "user32" fn GetMenuItemID(hMenu: ?*anyopaque, nPos: c_int) callconv(.winapi) c_uint;
+    extern "user32" fn CheckMenuItem(hMenu: ?*anyopaque, uIDCheckItem: c_uint, uCheck: c_uint) callconv(.winapi) c_int;
+    extern "user32" fn EnableMenuItem(hMenu: ?*anyopaque, uIDEnableItem: c_uint, uEnable: c_uint) callconv(.winapi) c_int;
+    extern "user32" fn SetMenuItemInfoA(
+        hmenu: ?*anyopaque,
+        item: c_uint,
+        fByPositon: c_int,
+        lpmii: *const Win32MenuItemInfo,
+    ) callconv(.winapi) c_int;
+
+    // =========================================================================
+    // Win32 structs
+    // =========================================================================
+
+    const WNDCLASSEXA = extern struct {
+        cbSize: c_uint = @sizeOf(WNDCLASSEXA),
+        style: c_uint = 0,
+        lpfnWndProc: ?*const fn (?*anyopaque, c_uint, usize, isize) callconv(.winapi) isize = null,
+        cbClsExtra: c_int = 0,
+        cbWndExtra: c_int = 0,
+        hInstance: ?*anyopaque = null,
+        hIcon: ?*anyopaque = null,
+        hCursor: ?*anyopaque = null,
+        hbrBackground: ?*anyopaque = null,
+        lpszMenuName: ?[*:0]const u8 = null,
+        lpszClassName: ?[*:0]const u8 = null,
+        hIconSm: ?*anyopaque = null,
+    };
+
+    const BITMAPINFOHEADER = extern struct {
+        biSize: c_uint = @sizeOf(BITMAPINFOHEADER),
+        biWidth: c_int = 0,
+        biHeight: c_int = 0, // negative = top-down DIB
+        biPlanes: u16 = 1,
+        biBitCount: u16 = 32,
+        biCompression: c_uint = 0, // BI_RGB
+        biSizeImage: c_uint = 0,
+        biXPelsPerMeter: c_int = 0,
+        biYPelsPerMeter: c_int = 0,
+        biClrUsed: c_uint = 0,
+        biClrImportant: c_uint = 0,
+    };
+
+    const BITMAPINFO = extern struct {
+        bmiHeader: BITMAPINFOHEADER = .{},
+        bmiColors: [1]c_uint = .{0},
+    };
+
+    /// Win32 MENUITEMINFOA — layout differs from SWELL's MenuItemInfo.
+    /// MIIM_* constant values are also different (see below).
+    const Win32MenuItemInfo = extern struct {
+        cbSize: c_uint = @sizeOf(Win32MenuItemInfo),
+        fMask: c_uint = 0,
+        fType: c_uint = 0,
+        fState: c_uint = 0,
+        wID: c_uint = 0,
+        hSubMenu: ?*anyopaque = null,
+        hbmpChecked: ?*anyopaque = null,
+        hbmpUnchecked: ?*anyopaque = null,
+        dwItemData: usize = 0,
+        dwTypeData: ?[*:0]u8 = null,
+        cch: c_uint = 0,
+        hbmpItem: ?*anyopaque = null,
+    };
+
+    // =========================================================================
+    // Win32 constants (these differ from SWELL where noted)
+    // =========================================================================
+
+    // Win32 MIIM_* (completely different values from SWELL!)
+    const MIIM_TYPE: c_uint = 0x0010;
+    const MFT_STRING: c_uint = 0x0000;
+
+    // Window styles
+    const WS_OVERLAPPED: c_ulong = 0x00000000;
+    const WS_CAPTION: c_ulong = 0x00C00000;
+    const WS_SYSMENU: c_ulong = 0x00080000;
+    const WS_MINIMIZEBOX: c_ulong = 0x00020000;
+    const CS_HREDRAW: c_uint = 0x0002;
+    const CS_VREDRAW: c_uint = 0x0001;
+    const DIB_RGB_COLORS: c_uint = 0;
+
+    // =========================================================================
+    // Win32 window class registration + WndProc adapter
+    // =========================================================================
+
+    /// Single stored DlgProc for the active window.
+    /// Safe: only one QR window exists, all UI is single-threaded (REAPER main thread).
+    var g_stored_dlgproc: ?DlgProc = null;
+    var g_class_registered: bool = false;
+
+    /// Adapts our callconv(.c) DlgProc to the callconv(.winapi) WNDPROC
+    /// that Windows requires. On x86_64 these are identical, but the Zig type
+    /// system requires the explicit adapter.
+    fn wndProcAdapter(hwnd_raw: ?*anyopaque, msg: c_uint, wParam: usize, lParam: isize) callconv(.winapi) isize {
+        if (g_stored_dlgproc) |proc| {
+            return proc(hwnd_raw, msg, wParam, lParam);
+        }
+        return DefWindowProcA(hwnd_raw, msg, wParam, lParam);
+    }
+
+    fn ensureClassRegistered() bool {
+        if (g_class_registered) return true;
+        const hInstance = GetModuleHandleA(null);
+        var wc = WNDCLASSEXA{
+            .lpfnWndProc = &wndProcAdapter,
+            .hInstance = hInstance,
+            .lpszClassName = "ReamoWindow",
+            .style = CS_HREDRAW | CS_VREDRAW,
+        };
+        if (RegisterClassExA(&wc) != 0) {
+            g_class_registered = true;
+            return true;
+        }
+        return false;
+    }
+
+    // =========================================================================
+    // Memory DC bookkeeping (for createMemContext / getCtxFrameBuffer)
+    // =========================================================================
+    // Single-threaded, only one mem DC at a time within WM_PAINT.
+
+    var g_mem_bitmap: ?*anyopaque = null;
+    var g_mem_old_bitmap: ?*anyopaque = null;
+    var g_mem_bits: ?[*]u32 = null;
+} else struct {};
+
+// =============================================================================
 // Extern declarations (from zig_swell_bridge)
 // =============================================================================
 
@@ -139,42 +353,62 @@ pub fn isMacOS() bool {
 
 /// Create a modeless dialog window.
 /// Use resid 0x400001 for a resource-less floating window.
-pub fn createDialogParam(resid: usize, parent: HWND, dlgProc: DlgProc, param: isize) HWND {
+pub fn createDialogParam(resid: usize, parent: HWND, dlgProc_param: DlgProc, param: isize) HWND {
     if (comptime !is_swell_platform) {
-        _ = .{ resid, parent, dlgProc, param };
+        _ = .{ resid, parent, dlgProc_param, param };
         return null;
     }
 
     const func = zig_swell_get_CreateDialogParam() orelse return null;
-    return func(null, @ptrFromInt(resid), parent, dlgProc, param);
+    return func(null, @ptrFromInt(resid), parent, dlgProc_param, param);
 }
 
 /// Create a floating window without dialog resources.
 /// Uses special resid 0x400008: titled, closable, minimizable, non-resizable.
 /// Bit 3 forces top-level without setting bit 0 (resizable).
-pub fn createFloatingWindow(parent: HWND, dlgProc: DlgProc) HWND {
-    return createDialogParam(0x400008, parent, dlgProc, 0);
+pub fn createFloatingWindow(parent: HWND, dlgProc_param: DlgProc) HWND {
+    return createDialogParam(0x400008, parent, dlgProc_param, 0);
 }
 
 /// Create a modeless dialog with a proper SWELL resource template.
-/// This is the reliable way to create visible windows on Linux GDK.
-/// The templateless path (createFloatingWindow) doesn't produce visible windows on Linux.
-pub fn createModelessDialog(parent: HWND, dlgProc: DlgProc, width: c_int, height: c_int) HWND {
+/// On Linux GDK this uses SWELL_CreateDialog with a resource template.
+/// On Windows this creates a native Win32 window via RegisterClass + CreateWindowEx.
+pub fn createModelessDialog(parent: HWND, dlgProc_param: DlgProc, width: c_int, height: c_int) HWND {
     if (comptime !is_swell_platform) {
-        _ = .{ parent, dlgProc, width, height };
-        return null; // TODO: Windows implementation
+        if (!win32.ensureClassRegistered()) return null;
+        win32.g_stored_dlgproc = dlgProc_param;
+
+        // WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX
+        // matches SWELL resid 0x400008: titled, closable, minimizable, non-resizable
+        const style = win32.WS_OVERLAPPED | win32.WS_CAPTION |
+            win32.WS_SYSMENU | win32.WS_MINIMIZEBOX;
+
+        // CW_USEDEFAULT = 0x80000000 as signed c_int
+        const cw_usedefault: c_int = @bitCast(@as(c_uint, 0x80000000));
+
+        return win32.CreateWindowExA(
+            0, // dwExStyle
+            "ReamoWindow",
+            "REAmo", // initial title (updated by qr_window.zig)
+            style,
+            cw_usedefault, // repositioned by qr_window.zig via setWindowPos
+            cw_usedefault,
+            width,
+            height,
+            parent,
+            null, // hMenu
+            win32.GetModuleHandleA(null),
+            null, // lpParam
+        );
     }
-    return zig_swell_create_modeless_dialog(parent, dlgProc, width, height);
+    return zig_swell_create_modeless_dialog(parent, dlgProc_param, width, height);
 }
 
 /// Begin painting a window. Must be paired with endPaint().
 pub fn beginPaint(hwnd: HWND, ps: *PAINTSTRUCT) HDC {
     if (comptime !is_swell_platform) {
-        // Windows: TODO implement native BeginPaint
-        _ = .{ hwnd, ps };
-        return null;
+        return win32.BeginPaint(hwnd, ps);
     }
-
     const func = zig_swell_get_BeginPaint() orelse return null;
     return func(hwnd, ps);
 }
@@ -182,11 +416,9 @@ pub fn beginPaint(hwnd: HWND, ps: *PAINTSTRUCT) HDC {
 /// End painting a window. Must be called after beginPaint().
 pub fn endPaint(hwnd: HWND, ps: *PAINTSTRUCT) void {
     if (comptime !is_swell_platform) {
-        // Windows: TODO implement native EndPaint
-        _ = .{ hwnd, ps };
+        _ = win32.EndPaint(hwnd, ps);
         return;
     }
-
     const func = zig_swell_get_EndPaint() orelse return;
     _ = func(hwnd, ps);
 }
@@ -207,10 +439,9 @@ pub fn stretchBltFromMem(hdc: HDC, x: c_int, y: c_int, w: c_int, h: c_int, bits:
 /// Destroy a window.
 pub fn destroyWindow(hwnd: HWND) void {
     if (comptime !is_swell_platform) {
-        // Windows: TODO implement native DestroyWindow
+        _ = win32.DestroyWindow(hwnd);
         return;
     }
-
     const func = zig_swell_get_DestroyWindow() orelse return;
     func(hwnd);
 }
@@ -218,8 +449,7 @@ pub fn destroyWindow(hwnd: HWND) void {
 /// Set window floating level (macOS only).
 /// Level 3 = NSFloatingWindowLevel (floats above normal windows)
 pub fn setWindowLevel(hwnd: HWND, level: c_int) void {
-    if (comptime !is_swell_platform) return;
-
+    if (comptime !is_swell_platform) return; // No-op on Windows (no equivalent)
     const func = zig_swell_get_SetWindowLevel() orelse return;
     _ = func(hwnd, level);
 }
@@ -227,10 +457,9 @@ pub fn setWindowLevel(hwnd: HWND, level: c_int) void {
 /// Invalidate a window's client area, causing WM_PAINT to be sent.
 pub fn invalidateRect(hwnd: HWND, rect: ?*anyopaque, erase: bool) void {
     if (comptime !is_swell_platform) {
-        _ = .{ hwnd, rect, erase };
+        _ = win32.InvalidateRect(hwnd, rect, if (erase) @as(c_int, 1) else 0);
         return;
     }
-
     const func = zig_swell_get_InvalidateRect() orelse return;
     func(hwnd, rect, if (erase) 1 else 0);
 }
@@ -238,10 +467,9 @@ pub fn invalidateRect(hwnd: HWND, rect: ?*anyopaque, erase: bool) void {
 /// Show or hide a window.
 pub fn showWindow(hwnd: HWND, cmd: c_int) void {
     if (comptime !is_swell_platform) {
-        _ = .{ hwnd, cmd };
+        _ = win32.ShowWindow(hwnd, cmd);
         return;
     }
-
     const func = zig_swell_get_ShowWindow() orelse return;
     func(hwnd, cmd);
 }
@@ -249,10 +477,9 @@ pub fn showWindow(hwnd: HWND, cmd: c_int) void {
 /// Set window title text.
 pub fn setWindowText(hwnd: HWND, text: [*:0]const u8) void {
     if (comptime !is_swell_platform) {
-        _ = .{ hwnd, text };
+        _ = win32.SetWindowTextA(hwnd, text);
         return;
     }
-
     // SetWindowText is a macro in SWELL: SetDlgItemText(hwnd, 0, text)
     const func = zig_swell_get_SetDlgItemText() orelse return;
     _ = func(hwnd, 0, text);
@@ -261,10 +488,9 @@ pub fn setWindowText(hwnd: HWND, text: [*:0]const u8) void {
 /// Set window position and size.
 pub fn setWindowPos(hwnd: HWND, insertAfter: HWND, x: c_int, y: c_int, cx: c_int, cy: c_int, flags: c_uint) void {
     if (comptime !is_swell_platform) {
-        _ = .{ hwnd, insertAfter, x, y, cx, cy, flags };
+        _ = win32.SetWindowPos(hwnd, insertAfter, x, y, cx, cy, flags);
         return;
     }
-
     const func = zig_swell_get_SetWindowPos() orelse return;
     _ = func(hwnd, insertAfter, x, y, cx, cy, flags);
 }
@@ -273,8 +499,7 @@ pub fn setWindowPos(hwnd: HWND, insertAfter: HWND, x: c_int, y: c_int, cx: c_int
 /// rect is [left, top, right, bottom].
 pub fn getWindowRect(hwnd: HWND, rect: *[4]c_int) bool {
     if (comptime !is_swell_platform) {
-        _ = .{ hwnd, rect };
-        return false;
+        return win32.GetWindowRect(hwnd, rect) != 0;
     }
     const func = zig_swell_get_GetWindowRect() orelse return false;
     return func(hwnd, rect);
@@ -283,10 +508,8 @@ pub fn getWindowRect(hwnd: HWND, rect: *[4]c_int) bool {
 /// Default window procedure - handles unprocessed messages.
 pub fn defWindowProc(hwnd: HWND, msg: c_uint, wParam: usize, lParam: isize) isize {
     if (comptime !is_swell_platform) {
-        _ = .{ hwnd, msg, wParam, lParam };
-        return 0;
+        return win32.DefWindowProcA(hwnd, msg, wParam, lParam);
     }
-
     const func = zig_swell_get_DefWindowProc() orelse return 0;
     return func(hwnd, msg, wParam, lParam);
 }
@@ -308,7 +531,9 @@ pub const DT_NOCLIP: c_uint = 0x0100;
 
 /// Create a solid color brush. Color is 0x00BBGGRR format.
 pub fn createSolidBrush(color: c_int) ?*anyopaque {
-    if (comptime !is_swell_platform) return null;
+    if (comptime !is_swell_platform) {
+        return win32.CreateSolidBrush(@bitCast(color));
+    }
     const func = zig_swell_get_CreateSolidBrush() orelse {
         std.log.err("swell: CreateSolidBrush function not loaded", .{});
         return null;
@@ -319,8 +544,7 @@ pub fn createSolidBrush(color: c_int) ?*anyopaque {
 /// Fill a rectangle with a brush.
 pub fn fillRect(hdc: HDC, rect: *const [4]c_int, brush: ?*anyopaque) c_int {
     if (comptime !is_swell_platform) {
-        _ = .{ hdc, rect, brush };
-        return 0;
+        return win32.FillRect(hdc, rect, brush);
     }
     const func = zig_swell_get_FillRect() orelse {
         std.log.err("swell: FillRect function not loaded", .{});
@@ -331,7 +555,10 @@ pub fn fillRect(hdc: HDC, rect: *const [4]c_int, brush: ?*anyopaque) c_int {
 
 /// Delete a GDI object (brush, pen, etc).
 pub fn deleteObject(obj: ?*anyopaque) void {
-    if (comptime !is_swell_platform) return;
+    if (comptime !is_swell_platform) {
+        _ = win32.DeleteObject(obj);
+        return;
+    }
     const func = zig_swell_get_DeleteObject() orelse return;
     func(obj);
 }
@@ -339,8 +566,7 @@ pub fn deleteObject(obj: ?*anyopaque) void {
 /// Set background mode (TRANSPARENT or OPAQUE).
 pub fn setBkMode(hdc: HDC, mode: c_int) c_int {
     if (comptime !is_swell_platform) {
-        _ = .{ hdc, mode };
-        return 0;
+        return win32.SetBkMode(hdc, mode);
     }
     const func = zig_swell_get_SetBkMode() orelse return 0;
     return func(hdc, mode);
@@ -349,8 +575,7 @@ pub fn setBkMode(hdc: HDC, mode: c_int) c_int {
 /// Set text color. Color is 0x00BBGGRR format.
 pub fn setTextColor(hdc: HDC, color: c_uint) c_uint {
     if (comptime !is_swell_platform) {
-        _ = .{ hdc, color };
-        return 0;
+        return win32.SetTextColor(hdc, color);
     }
     const func = zig_swell_get_SetTextColor() orelse return 0;
     return func(hdc, color);
@@ -359,8 +584,7 @@ pub fn setTextColor(hdc: HDC, color: c_uint) c_uint {
 /// Draw text in a rectangle.
 pub fn drawText(hdc: HDC, text: [*:0]const u8, len: c_int, rect: *[4]c_int, format: c_uint) c_int {
     if (comptime !is_swell_platform) {
-        _ = .{ hdc, text, len, rect, format };
-        return 0;
+        return win32.DrawTextA(hdc, text, len, rect, format);
     }
     const func = zig_swell_get_DrawText() orelse return 0;
     return func(hdc, text, len, rect, format);
@@ -374,11 +598,42 @@ pub fn drawText(hdc: HDC, text: [*:0]const u8, len: c_int, rect: *[4]c_int, form
 pub const SRCCOPY: c_int = 0x00CC0020;
 
 /// Create a memory device context with pixel buffer.
+/// On Windows, uses CreateCompatibleDC + CreateDIBSection.
 /// Returns null on failure.
 pub fn createMemContext(hdc: HDC, w: c_int, h: c_int) HDC {
     if (comptime !is_swell_platform) {
-        _ = .{ hdc, w, h };
-        return null;
+        const mem_dc = win32.CreateCompatibleDC(hdc) orelse return null;
+
+        // Top-down DIB (negative height) matches buffer row order (row 0 = top)
+        var bmi = win32.BITMAPINFO{
+            .bmiHeader = .{
+                .biWidth = w,
+                .biHeight = -h, // negative = top-down
+            },
+        };
+
+        var bits_raw: ?*anyopaque = null;
+        const bitmap = win32.CreateDIBSection(
+            mem_dc,
+            &bmi,
+            win32.DIB_RGB_COLORS,
+            &bits_raw,
+            null,
+            0,
+        ) orelse {
+            _ = win32.DeleteDC(mem_dc);
+            return null;
+        };
+
+        // Select bitmap into DC (saves previous for cleanup)
+        win32.g_mem_old_bitmap = win32.SelectObject(mem_dc, bitmap);
+        win32.g_mem_bitmap = bitmap;
+        win32.g_mem_bits = if (bits_raw) |ptr|
+            @as([*]u32, @ptrCast(@alignCast(ptr)))
+        else
+            null;
+
+        return mem_dc;
     }
     const func = zig_swell_get_SWELL_CreateMemContext() orelse {
         std.log.err("swell: SWELL_CreateMemContext not loaded", .{});
@@ -388,16 +643,38 @@ pub fn createMemContext(hdc: HDC, w: c_int, h: c_int) HDC {
 }
 
 /// Delete a graphics context (memory DC).
+/// On Windows, restores the original bitmap, deletes the DIB section, and deletes the DC.
 pub fn deleteGfxContext(ctx: HDC) void {
-    if (comptime !is_swell_platform) return;
+    if (comptime !is_swell_platform) {
+        // Restore original bitmap before deleting
+        if (win32.g_mem_old_bitmap) |old| {
+            _ = win32.SelectObject(ctx, old);
+        }
+        // Delete the DIB section bitmap
+        if (win32.g_mem_bitmap) |bmp| {
+            _ = win32.DeleteObject(bmp);
+        }
+        _ = win32.DeleteDC(ctx);
+
+        // Clear bookkeeping
+        win32.g_mem_bitmap = null;
+        win32.g_mem_old_bitmap = null;
+        win32.g_mem_bits = null;
+        return;
+    }
     const func = zig_swell_get_SWELL_DeleteGfxContext() orelse return;
     func(ctx);
 }
 
 /// Get the frame buffer pointer for a memory DC.
-/// Pixel format is ARGB (0xAARRGGBB) in native byte order.
+/// Pixel format is 0xAARRGGBB (BGRA little-endian) in native byte order.
+/// On Windows, returns the DIB section bits pointer stored during createMemContext.
 pub fn getCtxFrameBuffer(ctx: HDC) ?[*]u32 {
-    if (comptime !is_swell_platform) return null;
+    if (comptime !is_swell_platform) {
+        // On Windows, the bits pointer is stored during createMemContext.
+        // The ctx parameter is not needed (Win32 doesn't have GetCtxFrameBuffer).
+        return @as(?[*]u32, win32.g_mem_bits);
+    }
     const func = zig_swell_get_SWELL_GetCtxFrameBuffer() orelse {
         std.log.err("swell: SWELL_GetCtxFrameBuffer not loaded", .{});
         return null;
@@ -408,7 +685,7 @@ pub fn getCtxFrameBuffer(ctx: HDC) ?[*]u32 {
 /// Copy pixels from one DC to another.
 pub fn bitBlt(hdcOut: HDC, x: c_int, y: c_int, w: c_int, h: c_int, hdcIn: HDC, xin: c_int, yin: c_int, mode: c_int) void {
     if (comptime !is_swell_platform) {
-        _ = .{ hdcOut, x, y, w, h, hdcIn, xin, yin, mode };
+        _ = win32.BitBlt(hdcOut, x, y, w, h, hdcIn, xin, yin, @bitCast(mode));
         return;
     }
     const func = zig_swell_get_BitBlt() orelse {
@@ -495,42 +772,67 @@ pub const MF_ENABLED: c_uint = 0;
 
 /// Create an empty popup menu. Returns null on failure.
 pub fn createPopupMenu() HMENU {
-    if (comptime !is_swell_platform) return null;
+    if (comptime !is_swell_platform) {
+        return win32.CreatePopupMenu();
+    }
     const func = zig_swell_get_CreatePopupMenu() orelse return null;
     return func();
 }
 
 /// Destroy a menu handle.
 pub fn destroyMenu(menu: HMENU) void {
-    if (comptime !is_swell_platform) return;
+    if (comptime !is_swell_platform) {
+        _ = win32.DestroyMenu(menu);
+        return;
+    }
     const func = zig_swell_get_DestroyMenu() orelse return;
     func(menu);
 }
 
-/// Append a text menu item. Uses SWELL_InsertMenu with pos=-1 (append).
+/// Append a text menu item. Uses SWELL_InsertMenu / Win32 InsertMenuA.
 pub fn insertMenuItem(menu: HMENU, pos: c_int, cmd_id: c_int, text: [*:0]const u8) void {
     if (comptime !is_swell_platform) {
-        _ = .{ menu, pos, cmd_id, text };
+        // Win32 InsertMenuA: pos as unsigned, MF_BYPOSITION appends when pos=0xFFFFFFFF (-1)
+        _ = win32.InsertMenuA(
+            menu,
+            @as(c_uint, @bitCast(pos)),
+            MF_STRING | MF_BYPOSITION,
+            @intCast(@as(c_uint, @bitCast(cmd_id))),
+            text,
+        );
         return;
     }
     const func = zig_swell_get_SWELL_InsertMenu() orelse return;
     func(menu, pos, MF_STRING, @intCast(@as(c_uint, @bitCast(cmd_id))), text);
 }
 
-/// Append a separator. Uses SWELL_InsertMenu with MF_SEPARATOR.
+/// Append a separator. Uses SWELL_InsertMenu / Win32 InsertMenuA with MF_SEPARATOR.
 pub fn insertMenuSeparator(menu: HMENU, pos: c_int) void {
     if (comptime !is_swell_platform) {
-        _ = .{ menu, pos };
+        _ = win32.InsertMenuA(
+            menu,
+            @as(c_uint, @bitCast(pos)),
+            MF_SEPARATOR | MF_BYPOSITION,
+            0,
+            null,
+        );
         return;
     }
     const func = zig_swell_get_SWELL_InsertMenu() orelse return;
     func(menu, pos, MF_SEPARATOR, 0, "");
 }
 
-/// Append a submenu. Uses SWELL_InsertMenu with MF_POPUP | MF_STRING.
+/// Append a submenu. Uses SWELL_InsertMenu / Win32 InsertMenuA with MF_POPUP.
 pub fn insertSubMenu(parent: HMENU, pos: c_int, submenu: HMENU, text: [*:0]const u8) void {
     if (comptime !is_swell_platform) {
-        _ = .{ parent, pos, submenu, text };
+        const sub_ptr = submenu orelse return;
+        _ = win32.InsertMenuA(
+            parent,
+            @as(c_uint, @bitCast(pos)),
+            MF_POPUP | MF_BYPOSITION | MF_STRING,
+            @intFromPtr(sub_ptr),
+            text,
+        );
         return;
     }
     const func = zig_swell_get_SWELL_InsertMenu() orelse return;
@@ -540,7 +842,9 @@ pub fn insertSubMenu(parent: HMENU, pos: c_int, submenu: HMENU, text: [*:0]const
 
 /// Get the number of items in a menu.
 pub fn getMenuItemCount(menu: HMENU) c_int {
-    if (comptime !is_swell_platform) return 0;
+    if (comptime !is_swell_platform) {
+        return win32.GetMenuItemCount(menu);
+    }
     const func = zig_swell_get_GetMenuItemCount() orelse return 0;
     return func(menu);
 }
@@ -548,8 +852,7 @@ pub fn getMenuItemCount(menu: HMENU) c_int {
 /// Get submenu at a given position. Returns null if not a submenu.
 pub fn getSubMenu(menu: HMENU, pos: c_int) HMENU {
     if (comptime !is_swell_platform) {
-        _ = .{ menu, pos };
-        return null;
+        return win32.GetSubMenu(menu, pos);
     }
     const func = zig_swell_get_GetSubMenu() orelse return null;
     return func(menu, pos);
@@ -558,8 +861,7 @@ pub fn getSubMenu(menu: HMENU, pos: c_int) HMENU {
 /// Get the command ID of a menu item at a given position.
 pub fn getMenuItemID(menu: HMENU, pos: c_int) c_int {
     if (comptime !is_swell_platform) {
-        _ = .{ menu, pos };
-        return 0;
+        return @intCast(win32.GetMenuItemID(menu, pos));
     }
     const func = zig_swell_get_GetMenuItemID() orelse return 0;
     return func(menu, pos);
@@ -568,7 +870,8 @@ pub fn getMenuItemID(menu: HMENU, pos: c_int) c_int {
 /// Set or clear the checkmark on a menu item (by position).
 pub fn checkMenuItem(menu: HMENU, idx: c_int, checked: bool) void {
     if (comptime !is_swell_platform) {
-        _ = .{ menu, idx, checked };
+        const flags: c_uint = MF_BYPOSITION | (if (checked) MF_CHECKED else @as(c_uint, 0));
+        _ = win32.CheckMenuItem(menu, @as(c_uint, @bitCast(idx)), flags);
         return;
     }
     const func = zig_swell_get_CheckMenuItem() orelse return;
@@ -578,7 +881,8 @@ pub fn checkMenuItem(menu: HMENU, idx: c_int, checked: bool) void {
 /// Enable or gray out a menu item (by position).
 pub fn enableMenuItem(menu: HMENU, idx: c_int, enabled: bool) void {
     if (comptime !is_swell_platform) {
-        _ = .{ menu, idx, enabled };
+        const flags: c_uint = MF_BYPOSITION | (if (enabled) MF_ENABLED else MF_GRAYED);
+        _ = win32.EnableMenuItem(menu, @as(c_uint, @bitCast(idx)), flags);
         return;
     }
     const func = zig_swell_get_EnableMenuItem() orelse return;
@@ -588,7 +892,13 @@ pub fn enableMenuItem(menu: HMENU, idx: c_int, enabled: bool) void {
 /// Set the text of a menu item (by position).
 pub fn setMenuItemText(menu: HMENU, idx: c_int, text: [*:0]const u8) void {
     if (comptime !is_swell_platform) {
-        _ = .{ menu, idx, text };
+        // On Win32, use SetMenuItemInfoA (SWELL_SetMenuItemText doesn't exist)
+        var mi = win32.Win32MenuItemInfo{
+            .fMask = win32.MIIM_TYPE,
+            .fType = win32.MFT_STRING,
+            .dwTypeData = @constCast(text),
+        };
+        _ = win32.SetMenuItemInfoA(menu, @as(c_uint, @bitCast(idx)), 1, &mi);
         return;
     }
     const func = zig_swell_get_SWELL_SetMenuItemText() orelse return;
@@ -599,7 +909,13 @@ pub fn setMenuItemText(menu: HMENU, idx: c_int, text: [*:0]const u8) void {
 /// This works for both regular items and submenu items, unlike SWELL_SetMenuItemText.
 pub fn setMenuItemTextByPos(menu: HMENU, pos: c_int, text: [*:0]u8) void {
     if (comptime !is_swell_platform) {
-        _ = .{ menu, pos, text };
+        // Win32 MIIM_TYPE value (0x0010) differs from SWELL's (4)
+        var mi = win32.Win32MenuItemInfo{
+            .fMask = win32.MIIM_TYPE,
+            .fType = win32.MFT_STRING,
+            .dwTypeData = text,
+        };
+        _ = win32.SetMenuItemInfoA(menu, @as(c_uint, @bitCast(pos)), 1, &mi);
         return;
     }
     const func = zig_swell_get_SetMenuItemInfo() orelse return;
