@@ -11,8 +11,9 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo, type ReactElement } from 'react';
 import { MoveHorizontal } from 'lucide-react';
-import { ViewHeader, ViewLayout, type OverflowMenuItem } from '../../components';
-import { useIsLandscape, useContainerQuery } from '../../hooks';
+import { ViewHeader, ViewLayout } from '../../components';
+import { BottomSheet } from '../../components/Modal/BottomSheet';
+import { useIsLandscape } from '../../hooks';
 import { useReaper } from '../../components/ReaperProvider';
 import { useReaperStore } from '../../store';
 import {
@@ -28,7 +29,7 @@ import {
   Chords,
   type InstrumentType,
 } from '../../components/Instruments';
-import { DEFAULT_OCTAVE, SCALE_TYPES, SCALE_DISPLAY_NAMES, type NoteName, type ScaleType } from '@/lib/music-theory';
+import { DEFAULT_OCTAVE, type NoteName, type ScaleType } from '@/lib/music-theory';
 import { midi } from '../../core/WebSocketCommands';
 
 // localStorage keys for persistence
@@ -40,7 +41,6 @@ const STORAGE_KEY_CHORDS_CHANNEL = 'reamo_instruments_chords_channel';
 const STORAGE_KEY_CHORDS_KEY = 'reamo_instruments_chords_key';
 const STORAGE_KEY_CHORDS_SCALE = 'reamo_instruments_chords_scale';
 const STORAGE_KEY_CHORDS_OCTAVE = 'reamo_instruments_chords_octave';
-const STORAGE_KEY_CHORDS_HINTS = 'reamo_instruments_chords_hints';
 const STORAGE_KEY_CHORDS_VOICELEAD = 'reamo_instruments_chords_voicelead';
 const STORAGE_KEY_CHORDS_STRUM = 'reamo_instruments_chords_strum';
 const STORAGE_KEY_CHORDS_STRUM_DELAY = 'reamo_instruments_chords_strum_delay';
@@ -228,26 +228,6 @@ function saveChordsOctave(octave: number): void {
   }
 }
 
-/** Load chord hints setting from localStorage */
-function loadChordsHints(): boolean {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY_CHORDS_HINTS);
-    if (stored !== null) return stored === 'true';
-  } catch {
-    // Ignore
-  }
-  return true; // Default on
-}
-
-/** Save chord hints setting to localStorage */
-function saveChordsHints(enabled: boolean): void {
-  try {
-    localStorage.setItem(STORAGE_KEY_CHORDS_HINTS, String(enabled));
-  } catch {
-    // Ignore
-  }
-}
-
 /** Load voice leading setting from localStorage */
 function loadChordsVoiceLead(): boolean {
   try {
@@ -330,7 +310,6 @@ export function InstrumentsView(): ReactElement {
   const [chordsKey, setChordsKey] = useState<NoteName>(loadChordsKey);
   const [chordsScale, setChordsScale] = useState<ScaleType>(loadChordsScale);
   const [chordsOctave, setChordsOctave] = useState<number>(loadChordsOctave);
-  const [chordsHints, setChordsHints] = useState<boolean>(loadChordsHints);
   const [chordsVoiceLead, setChordsVoiceLead] = useState<boolean>(loadChordsVoiceLead);
   const [chordsStrum, setChordsStrum] = useState<boolean>(loadChordsStrum);
   const [chordsStrumDelay, setChordsStrumDelay] = useState<number>(loadChordsStrumDelay);
@@ -438,10 +417,6 @@ export function InstrumentsView(): ReactElement {
     return () => ro.disconnect();
   }, [isLandscape, selectedInstrument, pianoOctave]);
 
-  // Header responsive behavior - collapse controls to overflow menu on narrow viewports
-  const headerControlsRef = useRef<HTMLDivElement>(null);
-  const isHeaderNarrow = useContainerQuery(headerControlsRef, 400);
-
   // Persist instrument selection
   useEffect(() => {
     saveInstrument(selectedInstrument);
@@ -479,10 +454,6 @@ export function InstrumentsView(): ReactElement {
   useEffect(() => {
     saveChordsOctave(chordsOctave);
   }, [chordsOctave]);
-
-  useEffect(() => {
-    saveChordsHints(chordsHints);
-  }, [chordsHints]);
 
   useEffect(() => {
     saveChordsVoiceLead(chordsVoiceLead);
@@ -726,36 +697,60 @@ export function InstrumentsView(): ReactElement {
         );
 
       case 'chords':
-        // In portrait: horizontal scroll with snap
-        // In landscape: standard horizontal layout
-        return !isLandscape ? (
-          <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-mandatory">
-            <Chords
-              channel={currentChannel}
-              onNoteOn={handleNoteOn}
-              rootKey={chordsKey}
-              scaleType={chordsScale}
-              octave={chordsOctave}
-              showHints={chordsHints}
-              adaptiveVoicing={chordsVoiceLead}
-              strumEnabled={chordsStrum}
-              strumDelay={chordsStrumDelay}
-              className="h-full min-w-[700px]"
-            />
-          </div>
-        ) : (
+        // Landscape: all 7 chords flex to fill
+        // Portrait: paginated with large touch-friendly page buttons
+        return isLandscape ? (
           <Chords
             channel={currentChannel}
             onNoteOn={handleNoteOn}
             rootKey={chordsKey}
             scaleType={chordsScale}
             octave={chordsOctave}
-            showHints={chordsHints}
             adaptiveVoicing={chordsVoiceLead}
             strumEnabled={chordsStrum}
             strumDelay={chordsStrumDelay}
             className="flex-1"
           />
+        ) : (
+          <div className="flex-1 min-h-0 flex flex-col" ref={chordsContainerRef}>
+            <Chords
+              channel={currentChannel}
+              onNoteOn={handleNoteOn}
+              rootKey={chordsKey}
+              scaleType={chordsScale}
+              octave={chordsOctave}
+              adaptiveVoicing={chordsVoiceLead}
+              strumEnabled={chordsStrum}
+              strumDelay={chordsStrumDelay}
+              visibleChords={chordsPages[chordsPage]}
+              columnSlots={chordsColsPerPage}
+              className="flex-1"
+            />
+            {/* Prev/Next page buttons — large touch targets */}
+            {chordsPages.length > 1 && (
+              <div className="flex gap-2 px-3 pb-1 pt-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setChordsPage((p) => Math.max(0, p - 1))}
+                  disabled={chordsPage === 0}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-medium transition-colors bg-bg-elevated text-text-secondary disabled:opacity-30"
+                >
+                  &#9664; Prev
+                </button>
+                <span className="flex items-center text-xs text-text-tertiary tabular-nums">
+                  {chordsPage + 1}/{chordsPages.length}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setChordsPage((p) => Math.min(chordsPages.length - 1, p + 1))}
+                  disabled={chordsPage === chordsPages.length - 1}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-medium transition-colors bg-bg-elevated text-text-secondary disabled:opacity-30"
+                >
+                  Next &#9654;
+                </button>
+              </div>
+            )}
+          </div>
         );
 
       default:
@@ -763,178 +758,75 @@ export function InstrumentsView(): ReactElement {
     }
   };
 
-  // Settings popover state for Chord Pads (used in wide mode)
+  // Chord settings bottom sheet state
   const [showChordsSettings, setShowChordsSettings] = useState(false);
 
-  // Count active modes for badge
-  const activeModeCount = [chordsHints, chordsVoiceLead, chordsStrum].filter(Boolean).length;
+  // Chord pagination (portrait) — measure container to determine columns per page
+  const chordsContainerRef = useRef<HTMLDivElement>(null);
+  const [chordsColsPerPage, setChordsColsPerPage] = useState(4);
+  const [chordsPage, setChordsPage] = useState(0);
+  const TOTAL_CHORDS = 7;
 
-  // Build overflow items for Chords header when narrow
-  // Priority (last to collapse → first to collapse):
-  // 1. Key selector (most frequently changed) - always visible
-  // 2. Scale selector - collapses when narrow
-  // 3. Octave selector - collapses when narrow
-  // 4. Settings (hints, voice lead, strum) - collapses to overflow
-  const chordsOverflowItems = useMemo((): OverflowMenuItem[] => {
-    if (selectedInstrument !== 'chords' || !isHeaderNarrow) return [];
+  useEffect(() => {
+    if (isLandscape || selectedInstrument !== 'chords') return;
+    const el = chordsContainerRef.current;
+    if (!el) return;
+    const measure = () => {
+      const available = el.clientWidth - 24; // p-3 padding
+      const minColWidth = 80;
+      const gap = 8;
+      const cols = Math.max(2, Math.min(TOTAL_CHORDS, Math.floor((available + gap) / (minColWidth + gap))));
+      setChordsColsPerPage(cols);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isLandscape, selectedInstrument]);
 
-    const items: OverflowMenuItem[] = [
-      // Scale options - cycle through scales
-      {
-        id: 'scale',
-        label: `Scale: ${SCALE_DISPLAY_NAMES[chordsScale]}`,
-        onSelect: () => {
-          const currentIdx = SCALE_TYPES.indexOf(chordsScale);
-          const nextIdx = (currentIdx + 1) % SCALE_TYPES.length;
-          setChordsScale(SCALE_TYPES[nextIdx]);
-        },
-      },
-      // Octave options - cycle through octaves
-      {
-        id: 'octave',
-        label: `Octave: ${chordsOctave}`,
-        onSelect: () => {
-          setChordsOctave(chordsOctave >= 5 ? 1 : chordsOctave + 1);
-        },
-      },
-      // Separator-like divider via label
-      {
-        id: 'hints',
-        label: `Hints ${chordsHints ? '✓' : ''}`,
-        isActive: chordsHints,
-        onSelect: () => setChordsHints(!chordsHints),
-      },
-      {
-        id: 'voicelead',
-        label: `Voice Lead ${chordsVoiceLead ? '✓' : ''}`,
-        isActive: chordsVoiceLead,
-        onSelect: () => setChordsVoiceLead(!chordsVoiceLead),
-      },
-      {
-        id: 'strum',
-        label: `Strum ${chordsStrum ? '✓' : ''}`,
-        isActive: chordsStrum,
-        onSelect: () => setChordsStrum(!chordsStrum),
-      },
-    ];
+  // Build page arrays from column count
+  const chordsPages = useMemo(() => {
+    const pages: number[][] = [];
+    for (let i = 0; i < TOTAL_CHORDS; i += chordsColsPerPage) {
+      pages.push(Array.from({ length: Math.min(chordsColsPerPage, TOTAL_CHORDS - i) }, (_, k) => i + k));
+    }
+    return pages;
+  }, [chordsColsPerPage]);
 
-    return items;
-  }, [selectedInstrument, isHeaderNarrow, chordsScale, chordsOctave, chordsHints, chordsVoiceLead, chordsStrum]);
+  // Clamp page if cols-per-page changed and current page is now out of range
+  useEffect(() => {
+    if (chordsPage >= chordsPages.length) {
+      setChordsPage(chordsPages.length - 1);
+    }
+  }, [chordsPage, chordsPages.length]);
 
   // Render header controls based on selected instrument
   const renderHeaderControls = () => {
     if (selectedInstrument === 'chords') {
       return (
-        <div ref={headerControlsRef} className="flex items-center gap-2 w-full">
-          {/* Key selector - always visible (most frequently changed) */}
-          <KeySelector selectedKey={chordsKey} onKeyChange={setChordsKey} />
-
-          {/* Scale and Octave - hidden when narrow, moved to overflow menu */}
-          {!isHeaderNarrow && (
-            <>
-              <ScaleSelector selectedScale={chordsScale} onScaleChange={setChordsScale} />
-              <OctaveSelector
-                octave={chordsOctave}
-                onOctaveChange={setChordsOctave}
-                minOctave={1}
-                maxOctave={5}
+        <div className="flex items-center gap-2 w-full">
+          {/* Settings gear opens bottom sheet with all chord settings */}
+          <button
+            type="button"
+            onClick={() => setShowChordsSettings(true)}
+            className="p-1.5 rounded transition-colors bg-bg-surface text-text-secondary border border-border-subtle hover:bg-bg-subtle"
+            aria-label="Chord settings"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
               />
-            </>
-          )}
-
-          {/* Settings gear - only visible when wide (in narrow mode, settings go to overflow) */}
-          {!isHeaderNarrow && (
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowChordsSettings(!showChordsSettings)}
-                className={`
-                  p-1.5 rounded transition-colors relative
-                  ${showChordsSettings
-                    ? 'bg-accent-primary text-white'
-                    : 'bg-bg-surface text-text-secondary border border-border-subtle hover:bg-bg-subtle'}
-                `}
-                aria-label="Chord settings"
-                aria-expanded={showChordsSettings}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-                  />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                  />
-                </svg>
-                {activeModeCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-accent-primary text-white text-[10px] rounded-full flex items-center justify-center">
-                    {activeModeCount}
-                  </span>
-                )}
-              </button>
-
-              {/* Settings popover */}
-              {showChordsSettings && (
-                <>
-                  {/* Backdrop to close */}
-                  <div
-                    className="fixed inset-0 z-10"
-                    onClick={() => setShowChordsSettings(false)}
-                  />
-                  <div className="absolute right-0 top-full mt-1 z-20 bg-bg-surface border border-border-subtle rounded-lg shadow-lg p-3 min-w-[180px]">
-                    <div className="flex flex-col gap-2">
-                      <label className="flex items-center justify-between gap-3 cursor-pointer">
-                        <span className="text-sm text-text-primary">Hints</span>
-                        <input
-                          type="checkbox"
-                          checked={chordsHints}
-                          onChange={(e) => setChordsHints(e.target.checked)}
-                          className="w-4 h-4 accent-accent-primary"
-                        />
-                      </label>
-                      <label className="flex items-center justify-between gap-3 cursor-pointer">
-                        <span className="text-sm text-text-primary">Voice Lead</span>
-                        <input
-                          type="checkbox"
-                          checked={chordsVoiceLead}
-                          onChange={(e) => setChordsVoiceLead(e.target.checked)}
-                          className="w-4 h-4 accent-accent-primary"
-                        />
-                      </label>
-                      <label className="flex items-center justify-between gap-3 cursor-pointer">
-                        <span className="text-sm text-text-primary">Strum</span>
-                        <input
-                          type="checkbox"
-                          checked={chordsStrum}
-                          onChange={(e) => setChordsStrum(e.target.checked)}
-                          className="w-4 h-4 accent-accent-primary"
-                        />
-                      </label>
-                      {chordsStrum && (
-                        <div className="flex items-center gap-2 pt-1 border-t border-border-subtle">
-                          <span className="text-xs text-text-secondary">Delay</span>
-                          <input
-                            type="range"
-                            min="10"
-                            max="100"
-                            value={chordsStrumDelay}
-                            onChange={(e) => setChordsStrumDelay(Number(e.target.value))}
-                            className="flex-1 h-1 accent-accent-primary"
-                          />
-                          <span className="text-xs text-text-secondary w-8">{chordsStrumDelay}ms</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+              />
+            </svg>
+          </button>
 
           {/* Spacer pushes instrument/channel to right */}
           <div className="flex-1" />
@@ -967,10 +859,7 @@ export function InstrumentsView(): ReactElement {
       viewId="instruments"
       className="bg-bg-app text-text-primary p-view"
       header={
-        <ViewHeader
-          currentView="instruments"
-          overflowItems={chordsOverflowItems}
-        >
+        <ViewHeader currentView="instruments">
           {renderHeaderControls()}
         </ViewHeader>
       }
@@ -980,6 +869,93 @@ export function InstrumentsView(): ReactElement {
       <div className="h-full flex flex-col p-2 overflow-visible">
         {renderInstrument()}
       </div>
+
+      {/* Chord settings bottom sheet */}
+      <BottomSheet isOpen={showChordsSettings} onClose={() => setShowChordsSettings(false)}>
+        <div className="p-4 space-y-5">
+          <h3 className="text-lg font-semibold text-text-primary">Chord Settings</h3>
+
+          {/* Key */}
+          <div className="flex items-center justify-between">
+            <label className="text-sm text-text-secondary">Key</label>
+            <KeySelector selectedKey={chordsKey} onKeyChange={setChordsKey} />
+          </div>
+
+          {/* Scale */}
+          <div className="flex items-center justify-between">
+            <label className="text-sm text-text-secondary">Scale</label>
+            <ScaleSelector selectedScale={chordsScale} onScaleChange={setChordsScale} />
+          </div>
+
+          {/* Octave */}
+          <div className="flex items-center justify-between">
+            <label className="text-sm text-text-secondary">Octave</label>
+            <OctaveSelector
+              octave={chordsOctave}
+              onOctaveChange={setChordsOctave}
+              minOctave={1}
+              maxOctave={5}
+            />
+          </div>
+
+          {/* Voice Leading toggle */}
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="text-sm text-text-secondary">Voice Leading</label>
+              <p className="text-xs text-text-tertiary">Smooth transitions between chords</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setChordsVoiceLead(!chordsVoiceLead)}
+              className={`w-11 h-6 rounded-full transition-colors relative ${
+                chordsVoiceLead ? 'bg-primary' : 'bg-bg-elevated border border-border-subtle'
+              }`}
+            >
+              <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                chordsVoiceLead ? 'translate-x-5' : 'translate-x-0.5'
+              }`} />
+            </button>
+          </div>
+
+          {/* Strum toggle */}
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="text-sm text-text-secondary">Strum</label>
+              <p className="text-xs text-text-tertiary">Arpeggiate chord notes</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setChordsStrum(!chordsStrum)}
+              className={`w-11 h-6 rounded-full transition-colors relative ${
+                chordsStrum ? 'bg-primary' : 'bg-bg-elevated border border-border-subtle'
+              }`}
+            >
+              <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                chordsStrum ? 'translate-x-5' : 'translate-x-0.5'
+              }`} />
+            </button>
+          </div>
+
+          {/* Strum delay slider (only when strum enabled) */}
+          {chordsStrum && (
+            <div className="flex items-center justify-between gap-4">
+              <label className="text-sm text-text-secondary shrink-0">Strum Delay</label>
+              <div className="flex items-center gap-2 flex-1">
+                <input
+                  type="range"
+                  min={10}
+                  max={100}
+                  step={5}
+                  value={chordsStrumDelay}
+                  onChange={(e) => setChordsStrumDelay(Number(e.target.value))}
+                  className="flex-1 accent-primary"
+                />
+                <span className="text-xs text-text-tertiary w-10 text-right">{chordsStrumDelay}ms</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </BottomSheet>
     </ViewLayout>
   );
 }

@@ -4,7 +4,7 @@
  * Landscape orientation recommended - columns arranged horizontally
  */
 
-import { useState, useMemo, useCallback, useRef, type ReactElement } from 'react';
+import { useMemo, useCallback, useRef, type ReactElement } from 'react';
 import {
   generateChordsForKey,
   findClosestVoicing,
@@ -13,20 +13,6 @@ import {
   type Chord,
 } from '@/lib/music-theory';
 import { ChordColumn } from './ChordColumn';
-
-/**
- * Common chord progressions by degree (1-indexed)
- * Maps from current chord degree to commonly following degrees
- */
-const COMMON_PROGRESSIONS: Record<number, number[]> = {
-  1: [4, 5, 6],     // I → IV, V, vi
-  2: [5, 4],        // ii → V, IV
-  3: [6, 4],        // iii → vi, IV
-  4: [5, 1, 2],     // IV → V, I, ii
-  5: [1, 6],        // V → I, vi
-  6: [4, 2, 5],     // vi → IV, ii, V
-  7: [1, 3],        // vii° → I, iii
-};
 
 export interface ChordsProps {
   /** MIDI channel (0-15) */
@@ -39,14 +25,16 @@ export interface ChordsProps {
   scaleType: ScaleType;
   /** Chord octave */
   octave: number;
-  /** Show progression hints */
-  showHints: boolean;
   /** Enable adaptive voicing (voice leading) */
   adaptiveVoicing: boolean;
   /** Enable strum mode */
   strumEnabled: boolean;
   /** Strum delay in ms */
   strumDelay: number;
+  /** Optional subset of chord indices to display (for pagination) */
+  visibleChords?: number[];
+  /** Fixed number of column slots (for consistent sizing across pages) */
+  columnSlots?: number;
   className?: string;
 }
 
@@ -56,25 +44,16 @@ export function Chords({
   rootKey,
   scaleType,
   octave,
-  showHints,
   adaptiveVoicing,
   strumEnabled,
   strumDelay,
+  visibleChords,
+  columnSlots,
   className = '',
 }: ChordsProps): ReactElement {
   // Internal state
   const lastVoicingRef = useRef<number[]>([]);
   const currentNotesRef = useRef<number[]>([]); // Notes currently sounding (for correct note-off)
-
-  // Track currently active chord for hints
-  const [activeChord, setActiveChord] = useState<Chord | null>(null);
-
-  // Calculate suggested next chords based on active chord
-  const suggestedDegrees = useMemo(() => {
-    if (!activeChord || !showHints) return new Set<number>();
-    // eslint-disable-next-line no-restricted-syntax -- useMemo runs once per deps, not every render
-    return new Set(COMMON_PROGRESSIONS[activeChord.degree] || []);
-  }, [activeChord, showHints]);
 
   // Generate chords when key/scale/octave changes
   const chords = useMemo(
@@ -82,14 +61,17 @@ export function Chords({
     [rootKey, scaleType, octave]
   );
 
+  // Filter to visible chords if specified
+  const displayChords = visibleChords
+    ? visibleChords.map((i) => chords[i]).filter(Boolean)
+    : chords;
+
   // Bass octave is one below chord octave
   const bassOctave = octave - 1;
 
   // Handle chord note on - send all notes in the chord (with optional strum and adaptive voicing)
   const handleChordNoteOn = useCallback(
-    (notes: number[], velocity: number, chord: Chord) => {
-      setActiveChord(chord);
-
+    (notes: number[], velocity: number, _chord: Chord) => {
       // Determine which notes to play (adaptive voicing or root position)
       let notesToPlay = notes;
       if (adaptiveVoicing && lastVoicingRef.current.length > 0) {
@@ -121,7 +103,6 @@ export function Chords({
   // Handle chord note off - send velocity 0 for all notes that were played
   const handleChordNoteOff = useCallback(
     (_notes: number[]) => {
-      setActiveChord(null);
       // Use the notes that were actually played (may be inverted)
       for (const note of currentNotesRef.current) {
         onNoteOn(channel, note, 0);
@@ -147,13 +128,19 @@ export function Chords({
     [channel, onNoteOn]
   );
 
+  // When columnSlots is set, each column gets a fixed fraction of width
+  // so columns are identical size across pages even if last page has fewer
+  const slotStyle = columnSlots
+    ? { width: `calc((100% - ${(columnSlots - 1) * 8}px) / ${columnSlots})` }
+    : undefined;
+
   return (
     <div
       className={`flex flex-row gap-2 p-3 overflow-hidden ${className}`}
       role="group"
       aria-label="Chord Pads"
     >
-      {chords.map((chord) => (
+      {displayChords.map((chord) => (
         <ChordColumn
           key={`${chord.degree}-${chord.root}`}
           chord={chord}
@@ -162,9 +149,8 @@ export function Chords({
           onNoteOff={handleChordNoteOff}
           onBassNoteOn={handleBassNoteOn}
           onBassNoteOff={handleBassNoteOff}
-          isActive={activeChord?.degree === chord.degree}
-          isSuggestedNext={suggestedDegrees.has(chord.degree)}
-          className="flex-1 min-w-0 h-full"
+          className={columnSlots ? 'shrink-0 h-full' : 'flex-1 min-w-0 h-full'}
+          style={slotStyle}
         />
       ))}
     </div>
