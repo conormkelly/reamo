@@ -29,7 +29,7 @@ export const VIEW_STORAGE_KEY = 'reamo_current_view';
 export const DEFAULT_VIEW: ViewId = 'timeline';
 
 /** Canonical tab/rail order — single source of truth for TabBar, SideRail, SettingsMenu */
-export const VIEW_ORDER: ViewId[] = ['timeline', 'mixer', 'clock', 'tuner', 'playlist', 'actions', 'notes', 'instruments'];
+export const VIEW_ORDER: ViewId[] = ['timeline', 'mixer', 'clock', 'tuner', 'actions', 'notes', 'instruments'];
 
 // View metadata for TabBar (notes excluded from VIEW_ORDER in TabBar.tsx)
 export const viewMeta: Record<ViewId, { label: string; shortLabel?: string }> = {
