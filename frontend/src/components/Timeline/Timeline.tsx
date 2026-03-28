@@ -74,6 +74,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     followPlayhead, setFollowPlayhead, pauseFollowPlayhead,
     setMarkerLocked,
     optimisticSelectTrack,
+    optimisticToggleItemSelected,
+    optimisticUnselectAllItems,
   } = useTimelineSelectors();
 
   // Time signature and bar offset from hooks
@@ -345,6 +347,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     setSelectedMarkerId,
     sendCommand,
     optimisticSelectTrack,
+    optimisticToggleItemSelected,
+    optimisticUnselectAllItems,
   });
 
   // Pointer event routing

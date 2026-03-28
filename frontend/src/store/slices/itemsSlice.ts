@@ -66,6 +66,10 @@ export interface ItemsSlice {
    * Selection is now driven by REAPER's selection state, not local state.
    */
   clearItemSelection: () => void;
+  /** Optimistically toggle an item's selected state (bridges gap until next MEDIUM tier poll) */
+  optimisticToggleItemSelected: (guid: string) => void;
+  /** Optimistically deselect all items (bridges gap until next MEDIUM tier poll) */
+  optimisticUnselectAllItems: () => void;
 }
 
 export const createItemsSlice: StateCreator<StoreWithMarkers, [], [], ItemsSlice> = (
@@ -107,5 +111,20 @@ export const createItemsSlice: StateCreator<StoreWithMarkers, [], [], ItemsSlice
   clearItemSelection: () => {
     // No-op: selection is driven by REAPER's item.selected field
     // Components should use sendCommand(itemCmd.unselectAll()) instead
+  },
+
+  optimisticToggleItemSelected: (guid) => {
+    const { items } = get();
+    const updated = items.map((item) =>
+      item.guid === guid ? { ...item, selected: !item.selected } : item
+    );
+    set({ items: updated });
+  },
+
+  optimisticUnselectAllItems: () => {
+    const { items } = get();
+    if (items.some((i) => i.selected)) {
+      set({ items: items.map((i) => i.selected ? { ...i, selected: false } : i) });
+    }
   },
 });

@@ -73,8 +73,10 @@ export function useTimelineSelectors() {
   // Marker lock action
   const setMarkerLocked = useReaperStore((state) => state.setMarkerLocked);
 
-  // Optimistic track selection (bridges 1Hz skeleton poll gap)
+  // Optimistic selection updates (bridges poll gaps)
   const optimisticSelectTrack = useReaperStore((state) => state.optimisticSelectTrack);
+  const optimisticToggleItemSelected = useReaperStore((state) => state.optimisticToggleItemSelected);
+  const optimisticUnselectAllItems = useReaperStore((state) => state.optimisticUnselectAllItems);
 
   return {
     positionSeconds,
@@ -120,5 +122,7 @@ export function useTimelineSelectors() {
     pauseFollowPlayhead,
     setMarkerLocked,
     optimisticSelectTrack,
+    optimisticToggleItemSelected,
+    optimisticUnselectAllItems,
   };
 }
