@@ -133,6 +133,7 @@ function skeletonTrack(overrides?: Partial<SkeletonTrack>): SkeletonTrack {
     cl: false,
     ic: 0,
     fm: 0,
+    c: 0,
     ...overrides,
   };
 }

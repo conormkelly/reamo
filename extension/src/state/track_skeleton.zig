@@ -40,6 +40,7 @@ pub const SkeletonTrack = struct {
     item_count: u16 = 0, // Number of media items on track
     input_type: u8 = 0, // 0=none, 1=audio, 2=midi (from I_RECINPUT)
     free_mode: u8 = 0, // 0=normal, 1=free positioning, 2=fixed lanes (for comping)
+    color: c_int = 0, // Native OS color (0x01rrggbb), 0 = theme default
 
     pub fn getName(self: *const SkeletonTrack) []const u8 {
         return self.name[0..self.name_len];
@@ -66,6 +67,7 @@ pub const SkeletonTrack = struct {
         if (self.item_count != other.item_count) return false;
         if (self.input_type != other.input_type) return false;
         if (self.free_mode != other.free_mode) return false;
+        if (self.color != other.color) return false;
         return true;
     }
 };
@@ -162,6 +164,9 @@ pub const State = struct {
                     t.free_mode = if (free_mode >= 0 and free_mode <= 2) @intCast(free_mode) else 0;
                 }
 
+                // Color: 0x01rrggbb format, 0 = theme default
+                t.color = api.getTrackColor(track) catch 0;
+
                 // Input type: 0=none, 1=audio, 2=midi (from I_RECINPUT)
                 // Master track (idx 0) has no record input
                 if (idx == 0) {
@@ -245,6 +250,9 @@ pub const State = struct {
 
             // fm=free_mode (int: 0=normal, 1=free positioning, 2=fixed lanes)
             writer.print(",\"fm\":{d}", .{t.free_mode}) catch return null;
+
+            // c=color (int: 0x01rrggbb, 0=theme default)
+            writer.print(",\"c\":{d}", .{t.color}) catch return null;
 
             writer.writeByte('}') catch return null;
         }

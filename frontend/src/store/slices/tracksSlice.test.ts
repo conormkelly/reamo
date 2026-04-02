@@ -171,9 +171,9 @@ describe('tracksSlice', () => {
   describe('setTrackSkeleton', () => {
     it('sets skeleton array', () => {
       const skeleton: SkeletonTrack[] = [
-        { n: 'Master', g: '{MASTER}', m: false, sl: null, sel: false, r: false, fd: 0, sc: 0, hc: 0, cl: false, ic: 0, fm: 0 },
-        { n: 'Drums', g: '{DRUMS}', m: false, sl: null, sel: false, r: false, fd: 0, sc: 0, hc: 0, cl: false, ic: 0, fm: 0 },
-        { n: 'Bass', g: '{BASS}', m: false, sl: null, sel: false, r: false, fd: 0, sc: 0, hc: 0, cl: false, ic: 0, fm: 0 },
+        { n: 'Master', g: '{MASTER}', m: false, sl: null, sel: false, r: false, fd: 0, sc: 0, hc: 0, cl: false, ic: 0, fm: 0, c: 0 },
+        { n: 'Drums', g: '{DRUMS}', m: false, sl: null, sel: false, r: false, fd: 0, sc: 0, hc: 0, cl: false, ic: 0, fm: 0, c: 0 },
+        { n: 'Bass', g: '{BASS}', m: false, sl: null, sel: false, r: false, fd: 0, sc: 0, hc: 0, cl: false, ic: 0, fm: 0, c: 0 },
       ];
       useReaperStore.getState().setTrackSkeleton(skeleton);
       expect(useReaperStore.getState().trackSkeleton).toHaveLength(3);
@@ -181,8 +181,8 @@ describe('tracksSlice', () => {
 
     it('builds guidToIndex map from skeleton', () => {
       const skeleton: SkeletonTrack[] = [
-        { n: 'Master', g: '{MASTER}', m: false, sl: null, sel: false, r: false, fd: 0, sc: 0, hc: 0, cl: false, ic: 0, fm: 0 },
-        { n: 'Drums', g: '{DRUMS}', m: false, sl: null, sel: false, r: false, fd: 0, sc: 0, hc: 0, cl: false, ic: 0, fm: 0 },
+        { n: 'Master', g: '{MASTER}', m: false, sl: null, sel: false, r: false, fd: 0, sc: 0, hc: 0, cl: false, ic: 0, fm: 0, c: 0 },
+        { n: 'Drums', g: '{DRUMS}', m: false, sl: null, sel: false, r: false, fd: 0, sc: 0, hc: 0, cl: false, ic: 0, fm: 0, c: 0 },
       ];
       useReaperStore.getState().setTrackSkeleton(skeleton);
       const map = useReaperStore.getState().guidToIndex;
@@ -192,9 +192,9 @@ describe('tracksSlice', () => {
 
     it('sets totalTracks to skeleton length minus 1 (excludes master)', () => {
       const skeleton: SkeletonTrack[] = [
-        { n: 'Master', g: '{M}', m: false, sl: null, sel: false, r: false, fd: 0, sc: 0, hc: 0, cl: false, ic: 0, fm: 0 },
-        { n: 'T1', g: '{T1}', m: false, sl: null, sel: false, r: false, fd: 0, sc: 0, hc: 0, cl: false, ic: 0, fm: 0 },
-        { n: 'T2', g: '{T2}', m: false, sl: null, sel: false, r: false, fd: 0, sc: 0, hc: 0, cl: false, ic: 0, fm: 0 },
+        { n: 'Master', g: '{M}', m: false, sl: null, sel: false, r: false, fd: 0, sc: 0, hc: 0, cl: false, ic: 0, fm: 0, c: 0 },
+        { n: 'T1', g: '{T1}', m: false, sl: null, sel: false, r: false, fd: 0, sc: 0, hc: 0, cl: false, ic: 0, fm: 0, c: 0 },
+        { n: 'T2', g: '{T2}', m: false, sl: null, sel: false, r: false, fd: 0, sc: 0, hc: 0, cl: false, ic: 0, fm: 0, c: 0 },
       ];
       useReaperStore.getState().setTrackSkeleton(skeleton);
       expect(useReaperStore.getState().totalTracks).toBe(2);

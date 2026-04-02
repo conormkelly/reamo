@@ -185,6 +185,7 @@ export interface SkeletonTrack {
   cl: boolean; // clipped (sticky flag, L or R channel exceeded 0dB)
   ic: number; // item_count (number of media items on track)
   fm: number; // free_mode (0=normal, 1=free positioning, 2=fixed lanes)
+  c: number; // color (0x01rrggbb, 0 = theme default)
 }
 
 /** Track skeleton broadcast (1Hz, on structure change) */
