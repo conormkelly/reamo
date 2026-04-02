@@ -50,21 +50,21 @@ export interface WaveformCanvasProps {
   items: WSItem[];
 }
 
-/** Get effective color: active take color if set, otherwise item color */
-function getEffectiveColor(item: WSItem): number | null {
-  return item.activeTakeColor ?? (item.color || null);
+/** Get effective color: active take color > item color > track color */
+function getEffectiveColor(item: WSItem, trackColor?: number): number | null {
+  return item.activeTakeColor ?? (item.color || null) ?? (trackColor || null);
 }
 
 /** Get item color with fallback */
-function getItemColor(item: WSItem, opacity: number = 0.6): string {
-  const color = getEffectiveColor(item);
+function getItemColor(item: WSItem, trackColor?: number, opacity: number = 0.6): string {
+  const color = getEffectiveColor(item, trackColor);
   if (!color) return DEFAULT_ITEM_COLOR;
   return reaperColorToRgba(color, opacity) ?? DEFAULT_ITEM_COLOR;
 }
 
 /** Get waveform color that contrasts with item background */
-function getWaveformColor(item: WSItem): string {
-  const color = getEffectiveColor(item);
+function getWaveformColor(item: WSItem, trackColor?: number): string {
+  const color = getEffectiveColor(item, trackColor);
   const contrastBase = color ? getContrastColor(color) : 'white';
   return contrastBase === 'white' ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)';
 }
@@ -212,6 +212,8 @@ export function WaveformCanvas({
   const currentLod = useReaperStore((s) => s.currentLod);
   const tileCache = useReaperStore((s) => s.tileCache);
   const tilesByTake = useReaperStore((s) => s.tilesByTake);
+  // Track color from skeleton (available for ALL tracks, not just subscribed ones)
+  const trackColor = useReaperStore((s) => s.trackSkeleton[trackIdx]?.c ?? 0);
 
   useEffect(() => {
     // Item layout constants (matches MultiTrackLanes)
@@ -274,7 +276,7 @@ export function WaveformCanvas({
       ctx.clearRect(itemX, 0, itemWidth, height);
 
       // Draw item background (always succeeds - provides base color even if tiles missing)
-      ctx.fillStyle = getItemColor(item);
+      ctx.fillStyle = getItemColor(item, trackColor);
       ctx.fillRect(itemX, itemY, itemWidth, itemHeight);
 
       // Draw selection border — only show left/right edges if actually visible
@@ -311,7 +313,7 @@ export function WaveformCanvas({
 
       // Get tiles for this item's take at current LOD
       const takeKeyStrings = tilesByTake.get(item.activeTakeGuid) ?? EMPTY_STRING_ARRAY;
-      const waveformColor = getWaveformColor(item);
+      const waveformColor = getWaveformColor(item, trackColor);
       const bitmapHeight = Math.round(itemHeight);
 
       for (const keyStr of takeKeyStrings) {
@@ -461,6 +463,7 @@ export function WaveformCanvas({
     items,
     currentLod,
     tileCache,
+    trackColor,
     tilesByTake,
     renderTrigger,
   ]);
