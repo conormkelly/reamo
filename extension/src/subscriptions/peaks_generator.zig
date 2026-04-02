@@ -613,23 +613,29 @@ fn fetchItemPeaksViaTakePeaksAPI(
     // Get actual channel count from source (1=mono, 2=stereo, etc.)
     const source_channels = api.getMediaSourceChannels(source);
     if (source_channels <= 0) {
-        logging.debug("fetchItemPeaks: invalid channel count {d}", .{source_channels});
+        logging.warn("fetchItemPeaks: invalid channel count {d}", .{source_channels});
         return null;
     }
 
-    // Request up to 2 channels (we don't support more than stereo in the output)
-    const num_channels: usize = @min(@as(usize, @intCast(source_channels)), 2);
+    // Always request 2 channels from the API. Requesting numchannels=1 can cause
+    // REAPER's internal peak reader to enter a bad state where subsequent calls
+    // (even for stereo sources) return 0. The C test plugin and Lua bridge both
+    // always requested 2 channels and worked reliably.
+    // For mono sources, REAPER fills the second channel with identical data.
+    const request_channels: usize = 2;
+    // Track actual source channels for downstream mono detection
+    const actual_channels: usize = @min(@as(usize, @intCast(source_channels)), 2);
 
     // Calculate number of peaks for the full item at this peakrate
     const num_peaks: usize = @intFromFloat(@ceil(item_length * peakrate));
     if (num_peaks == 0) {
-        logging.debug("fetchItemPeaks: num_peaks is 0 for length={d:.2} peakrate={d:.2}", .{ item_length, peakrate });
+        logging.warn("fetchItemPeaks: num_peaks is 0 for length={d:.2} peakrate={d:.2}", .{ item_length, peakrate });
         return null;
     }
 
     // Buffer for REAPER's output (channel-interleaved within max/min blocks)
-    // Size = num_channels * num_peaks * 2 (max block + min block)
-    const buf_size = num_channels * num_peaks * 2;
+    // Size = request_channels * num_peaks * 2 (max block + min block)
+    const buf_size = request_channels * num_peaks * 2;
     const reaper_buf = allocator.alloc(f64, buf_size) catch {
         logging.warn("fetchItemPeaks: failed to allocate {d} bytes for peak buffer", .{buf_size * 8});
         return null;
@@ -643,7 +649,7 @@ fn fetchItemPeaksViaTakePeaksAPI(
         take,
         peakrate,
         item_position, // Project timeline position
-        @intCast(num_channels),
+        @intCast(request_channels),
         @intCast(num_peaks),
         reaper_buf,
     );
@@ -656,16 +662,17 @@ fn fetchItemPeaksViaTakePeaksAPI(
     _ = mode; // Unused - both 0 and 1 are valid
 
     if (actual_peaks == 0) {
-        logging.debug("fetchItemPeaks: no peaks returned from REAPER (result={d})", .{result});
+        logging.warn("fetchItemPeaks: FAIL result={d} pos={d:.2} len={d:.2} rate={d:.2} req_ch={d} src_ch={d} npeaks={d} take=0x{x}", .{ result, item_position, item_length, peakrate, request_channels, actual_channels, num_peaks, @intFromPtr(take) });
         allocator.free(reaper_buf);
         return null;
     }
 
-    logging.debug("fetchItemPeaks: requested {d} peaks at {d:.2}/sec, got {d} for {d:.2}s item", .{
+    logging.debug("fetchItemPeaks: requested {d} peaks at {d:.2}/sec, got {d} for {d:.2}s item (src_ch={d})", .{
         num_peaks,
         peakrate,
         actual_peaks,
         item_length,
+        actual_channels,
     });
 
     // Parse REAPER's buffer into separate min/max arrays
@@ -673,7 +680,9 @@ fn fetchItemPeaksViaTakePeaksAPI(
     //   Block 1 (Maximums): [L_max_0, R_max_0, L_max_1, R_max_1, ...]
     //   Block 2 (Minimums): [L_min_0, R_min_0, L_min_1, R_min_1, ...]
     const peaks_to_use = @min(actual_peaks, num_peaks);
-    const data_size = peaks_to_use * num_channels;
+
+    // Output uses actual_channels (1 for mono, 2 for stereo)
+    const data_size = peaks_to_use * actual_channels;
 
     const peak_min = allocator.alloc(f64, data_size) catch {
         allocator.free(reaper_buf);
@@ -688,15 +697,18 @@ fn fetchItemPeaksViaTakePeaksAPI(
     };
 
     // Copy from REAPER buffer to our format
-    // REAPER: [maxes...][mins...] -> Our: separate peak_max[], peak_min[]
-    const block_size = num_peaks * num_channels;
+    // REAPER writes request_channels (always 2), we extract actual_channels (1 or 2)
+    // Use actual_peaks (not num_peaks) for min block offset — REAPER only writes
+    // actual_peaks worth of data, so the min block starts at actual_peaks * request_channels.
+    const reaper_block_size = actual_peaks * request_channels;
     for (0..peaks_to_use) |p| {
-        for (0..num_channels) |ch| {
-            const idx = p * num_channels + ch;
-            const max_offset = p * num_channels + ch;
-            const min_offset = block_size + p * num_channels + ch;
-            peak_max[idx] = reaper_buf[max_offset];
-            peak_min[idx] = reaper_buf[min_offset];
+        for (0..actual_channels) |ch| {
+            const dst_idx = p * actual_channels + ch;
+            const src_idx = p * request_channels + ch;
+            const max_offset = src_idx;
+            const min_offset = reaper_block_size + src_idx;
+            peak_max[dst_idx] = reaper_buf[max_offset];
+            peak_min[dst_idx] = reaper_buf[min_offset];
         }
     }
 
@@ -706,7 +718,7 @@ fn fetchItemPeaksViaTakePeaksAPI(
         .peak_min = peak_min,
         .peak_max = peak_max,
         .num_peaks = peaks_to_use,
-        .channels = num_channels,
+        .channels = actual_channels,
         .allocator = allocator,
     };
 }
@@ -857,24 +869,11 @@ fn sliceTileFromItemPeaks(
         }
     }
 
-    // Detect mono vs stereo by comparing L/R peaks
-    const detected_channels: u8 = blk: {
-        if (channels == 1) break :blk 1;
-        const epsilon = 0.0001;
-        for (0..num_peaks) |p| {
-            const max_l = tile.peak_max[p * 2];
-            const max_r = tile.peak_max[p * 2 + 1];
-            const min_l = tile.peak_min[p * 2];
-            const min_r = tile.peak_min[p * 2 + 1];
-            if (@abs(max_l - max_r) > epsilon or @abs(min_l - min_r) > epsilon) {
-                break :blk 2; // Different L/R = true stereo
-            }
-        }
-        break :blk 1; // All L/R identical = mono
-    };
-
+    // Use source channel count directly — don't collapse stereo silence to mono.
+    // Per-tile L/R comparison caused visual glitches: stereo tracks showed centered
+    // single-lane rendering in silence regions instead of proper stereo two-lane layout.
     tile.num_peaks = @intCast(num_peaks);
-    tile.channels = detected_channels;
+    tile.channels = @intCast(channels);
 
     return tile;
 }
@@ -900,6 +899,14 @@ pub fn generateTileViaAccessor(
     tile_duration: f64,
     num_peaks: usize,
 ) ?TileGenerationResult {
+    // Get actual channel count from source (trust GetMediaSourceNumChannels)
+    const source = api.getTakeSource(take) orelse {
+        logging.warn("genTileAccessor: failed to get take source", .{});
+        return null;
+    };
+    const source_channels = api.getMediaSourceChannels(source);
+    const num_channels: usize = if (source_channels > 0) @min(@as(usize, @intCast(source_channels)), 2) else 2;
+
     // Create audio accessor for this take
     const accessor = api.makeTakeAccessor(take) orelse {
         logging.warn("genTileAccessor: failed to create accessor", .{});
@@ -907,7 +914,7 @@ pub fn generateTileViaAccessor(
     };
     defer api.destroyTakeAccessor(accessor);
 
-    return generateTileWithAccessor(allocator, api, accessor, tile_start_time, tile_duration, num_peaks);
+    return generateTileWithAccessor(allocator, api, accessor, tile_start_time, tile_duration, num_peaks, num_channels);
 }
 
 /// Generate a single tile using a pre-existing AudioAccessor.
@@ -930,6 +937,7 @@ fn generateTileWithAccessor(
     tile_start_time: f64,
     tile_duration: f64,
     num_peaks: usize,
+    num_channels: usize,
 ) ?TileGenerationResult {
     if (num_peaks == 0 or num_peaks > peaks_tile.MAX_PEAKS_PER_TILE) {
         logging.warn("genTileAccessor: invalid num_peaks {d}", .{num_peaks});
@@ -962,9 +970,6 @@ fn generateTileWithAccessor(
     }
 
     const samples_per_peak = @max(actual_samples / num_peaks, 1);
-
-    // Always request stereo (2 channels) - detect mono by comparing L/R later
-    const num_channels: usize = 2;
 
     // Calculate buffer size for metrics
     const buffer_bytes = actual_samples * num_channels * @sizeOf(f64);
@@ -1027,27 +1032,12 @@ fn generateTileWithAccessor(
         }
     }
 
-    // Detect mono vs stereo by comparing L/R peaks
-    const detected_channels: u8 = blk: {
-        const epsilon = 0.0001;
-        for (0..num_peaks) |p| {
-            const max_l = peak_max[p * 2];
-            const max_r = peak_max[p * 2 + 1];
-            const min_l = peak_min[p * 2];
-            const min_r = peak_min[p * 2 + 1];
-            if (@abs(max_l - max_r) > epsilon or @abs(min_l - min_r) > epsilon) {
-                break :blk 2; // Different L/R = true stereo
-            }
-        }
-        break :blk 1; // All L/R identical = mono
-    };
-
-    // Copy to tile
+    // Copy to tile — trust GetMediaSourceNumChannels for channel count
     const copy_len = num_peaks * num_channels;
     @memcpy(tile.peak_min[0..copy_len], peak_min[0..copy_len]);
     @memcpy(tile.peak_max[0..copy_len], peak_max[0..copy_len]);
     tile.num_peaks = @intCast(num_peaks);
-    tile.channels = detected_channels;
+    tile.channels = @intCast(num_channels);
 
     return TileGenerationResult{
         .tile = tile,
@@ -1145,13 +1135,18 @@ pub fn generateTilesForSubscription(
     metrics.tracks_processed = track_count;
     metrics.cache_size_before = tile_cache.count();
 
-    logging.info("peaks_generator: processing {d} tracks, lod={d}", .{ track_count, tile_range.lod });
+    // Estimate tiles: (buffered viewport duration / tile duration) * tracks with items
+    // Each stereo tile ≈ 13KB JSON (header + 256 peaks × ~49 bytes)
+    const tiles_per_item = (tile_range.end_tile - tile_range.start_tile) + 1;
+    const estimated_tiles = tiles_per_item * track_count;
+    const bytes_per_tile: usize = 14 * 1024; // 14KB worst-case (stereo + metadata)
+    const estimated_size = @max(512 * 1024, estimated_tiles * bytes_per_tile + 1024);
+    // Cap at 8MB to stay within scratch arena (~10MB)
+    const initial_buf_size: usize = @min(estimated_size, 8 * 1024 * 1024);
 
-    // Estimate buffer size for JSON
-    // Each tile is ~2-6KB depending on peak count. Start with reasonable fixed size.
-    // For a typical viewport with 10-50 tiles, 512KB is plenty.
-    // The scratch arena is ~10MB so we have headroom.
-    const initial_buf_size: usize = 512 * 1024; // 512KB
+    logging.info("peaks_generator: processing {d} tracks, lod={d}, estimated_tiles={d}, buf={d}KB", .{
+        track_count, tile_range.lod, estimated_tiles, initial_buf_size / 1024,
+    });
     metrics.json_buffer_bytes = initial_buf_size;
     const buf = allocator.alloc(u8, initial_buf_size) catch {
         logging.warn("peaks_generator: failed to allocate tile JSON buffer ({d} bytes)", .{initial_buf_size});
@@ -1180,7 +1175,7 @@ pub fn generateTilesForSubscription(
 
         const item_count_raw = api.trackItemCount(track);
         if (item_count_raw <= 0) {
-            logging.info("peaks_generator: track {} has no items", .{track_idx});
+            logging.info("peaks_generator: unified_track {d} (regular {d}) has no items", .{ track_idx, track_idx - 1 });
             continue;
         }
 
@@ -1226,8 +1221,8 @@ pub fn generateTilesForSubscription(
 
             // Calculate which tiles cover this item within the viewport range
             const item_start_tile: u32 = blk: {
-                if (item_position <= 0) break :blk 0;
                 const relative_start = @max(0.0, viewport_start_buffered - item_position);
+                if (relative_start <= 0) break :blk 0;
                 break :blk @intFromFloat(@floor(relative_start / config.duration));
             };
 
@@ -1286,18 +1281,17 @@ pub fn generateTilesForSubscription(
                         const fetch_duration = fetch_end_time - fetch_start_time;
                         first_fetched_tile = item_start_tile;
 
-                        // Convert unified track index (0=master, 1+=regular) to 0-based regular track index
-                        if (g_lua_bridge_fn != null and track_idx > 0) {
-                            const lua_track_idx: c_int = track_idx - 1; // Convert to 0-based
-                            item_peaks_result = fetchItemPeaksViaLuaBridge(
-                                allocator,
-                                lua_track_idx,
-                                i,
-                                fetch_start_time,
-                                fetch_duration,
-                                config.peakrate,
-                            );
-                        }
+                        // Call GetMediaItemTake_Peaks directly — no Lua bridge needed.
+                        // The API works correctly on all platforms (ARM64 included).
+                        // See docs/architecture/timeline/GETMEDIAITEMTAKE_PEAKS_ARM64_ISSUE.md
+                        item_peaks_result = fetchItemPeaksViaTakePeaksAPI(
+                            allocator,
+                            api,
+                            take,
+                            fetch_start_time,
+                            fetch_duration,
+                            config.peakrate,
+                        );
 
                         const fetch_end = std.time.nanoTimestamp();
                         const fetch_ns: u64 = @intCast(@max(0, fetch_end - fetch_start));
@@ -1305,9 +1299,20 @@ pub fn generateTilesForSubscription(
                         metrics.accessor_time_ns += fetch_ns;
 
                         if (item_peaks_result == null) {
-                            logging.warn("peaks_generator: failed to fetch peaks via Lua bridge", .{});
+                            logging.warn("peaks_generator: failed to fetch peaks via GetMediaItemTake_Peaks for unified_track={d} item={d}", .{
+                                track_idx, i,
+                            });
                             break; // Skip remaining tiles for this item
                         }
+
+                        logging.info("peaks_generator: fetched {d} peaks, {d}ch for unified_track={d} item={d}, tiles=[{d},{d}]", .{
+                            item_peaks_result.?.num_peaks,
+                            item_peaks_result.?.channels,
+                            track_idx,
+                            i,
+                            item_start_tile,
+                            item_end_tile,
+                        });
 
                         // Track buffer size for metrics
                         item_peak_buffer_bytes = item_peaks_result.?.num_peaks * item_peaks_result.?.channels * @sizeOf(f64) * 2;
@@ -1385,7 +1390,12 @@ pub fn generateTilesForSubscription(
 
                 // Write peaks array
                 for (0..tile.num_peaks) |p| {
-                    if (p > 0) w.writeByte(',') catch return null;
+                    if (p > 0) w.writeByte(',') catch {
+                        logging.warn("peaks_generator: JSON buffer overflow at tile {d} peak {d}/{d} (buf={d}, written={d})", .{
+                            tile_idx, p, tile.num_peaks, initial_buf_size, stream.pos,
+                        });
+                        return null;
+                    };
 
                     if (tile.channels == 2) {
                         const min_l = tile.peak_min[p * 2];
@@ -1394,15 +1404,30 @@ pub fn generateTilesForSubscription(
                         const max_r = tile.peak_max[p * 2 + 1];
                         w.print("{{\"l\":[{d:.4},{d:.4}],\"r\":[{d:.4},{d:.4}]}}", .{
                             min_l, max_l, min_r, max_r,
-                        }) catch return null;
+                        }) catch {
+                            logging.warn("peaks_generator: JSON buffer overflow writing stereo peak (buf={d}, written={d})", .{
+                                initial_buf_size, stream.pos,
+                            });
+                            return null;
+                        };
                     } else {
                         const min_val = tile.peak_min[p];
                         const max_val = tile.peak_max[p];
-                        w.print("[{d:.4},{d:.4}]", .{ min_val, max_val }) catch return null;
+                        w.print("[{d:.4},{d:.4}]", .{ min_val, max_val }) catch {
+                            logging.warn("peaks_generator: JSON buffer overflow writing mono peak (buf={d}, written={d})", .{
+                                initial_buf_size, stream.pos,
+                            });
+                            return null;
+                        };
                     }
                 }
 
-                w.writeAll("]}") catch return null;
+                w.writeAll("]}") catch {
+                    logging.warn("peaks_generator: JSON buffer overflow closing tile (buf={d}, written={d})", .{
+                        initial_buf_size, stream.pos,
+                    });
+                    return null;
+                };
                 tiles_written += 1;
                 metrics.tiles_total += 1;
             }
@@ -1458,6 +1483,12 @@ pub fn generateTilesForSubscription(
 
     // Shrink to actual size
     const written = stream.getWritten();
+    logging.info("peaks_generator: success tiles={d} json={d}KB/{d}KB ({d}%)", .{
+        tiles_written,
+        written.len / 1024,
+        initial_buf_size / 1024,
+        (written.len * 100) / initial_buf_size,
+    });
     const result = allocator.realloc(buf, written.len) catch buf;
     return result[0..written.len];
 }
@@ -1557,23 +1588,9 @@ fn generatePeaksForItem(
         }
     }
 
-    // Detect actual channel count by comparing L/R peaks (for mono detection)
-    const detected_channels: usize = blk: {
-        if (num_channels == 1) break :blk 1;
-        const epsilon = 0.0001;
-        for (0..num_peaks) |p| {
-            const max_l = item_peaks.peak_max[p * 2];
-            const max_r = item_peaks.peak_max[p * 2 + 1];
-            const min_l = item_peaks.peak_min[p * 2];
-            const min_r = item_peaks.peak_min[p * 2 + 1];
-            if (@abs(max_l - max_r) > epsilon or @abs(min_l - min_r) > epsilon) {
-                break :blk 2; // Different L/R = true stereo
-            }
-        }
-        break :blk 1; // All L/R identical = mono
-    };
-
-    item_peaks.channels = detected_channels;
+    // Trust GetMediaSourceNumChannels — it works correctly on all platforms.
+    // See docs/architecture/timeline/GETMEDIAITEMTAKE_PEAKS_ARM64_ISSUE.md
+    item_peaks.channels = num_channels;
     item_peaks.num_peaks = num_peaks;
     return true;
 }

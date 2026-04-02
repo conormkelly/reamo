@@ -517,8 +517,8 @@ pub const EpochTracker = struct {
 };
 
 /// Compute epoch from take's PCM_source properties.
-/// Hash: source_ptr only (channel count API is unreliable on ARM64)
-/// This changes when the source is replaced.
+/// Hash: source_ptr + channel count. This changes when the source is replaced
+/// or channel count changes (e.g. mono -> stereo render).
 fn computeEpoch(api: anytype, take: *anyopaque) u32 {
     const source = api.getTakeSource(take) orelse {
         return 0; // No source
@@ -527,9 +527,11 @@ fn computeEpoch(api: anytype, take: *anyopaque) u32 {
     var hasher = std.hash.Wyhash.init(0);
 
     // Hash source pointer (changes if source replaced)
-    // Note: We intentionally don't hash channel count because GetMediaSourceNumChannels
-    // returns inconsistent values on ARM64 via GetFunc(), causing spurious epoch changes.
     hasher.update(std.mem.asBytes(&@intFromPtr(source)));
+
+    // Hash channel count (GetMediaSourceNumChannels is reliable on all platforms)
+    const channels = api.getMediaSourceChannels(source);
+    hasher.update(std.mem.asBytes(&channels));
 
     // Truncate to u32
     return @truncate(hasher.final());

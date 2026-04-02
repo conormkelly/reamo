@@ -1,123 +1,109 @@
-# GetMediaItemTake_Peaks ARM64 ABI Issue
+# GetMediaItemTake_Peaks — Investigation Results
 
-> **Status**: SOLVED - Lua bridge implemented and working
+> **Status**: DEBUNKED (2026-04-02) — No ARM64 ABI bug exists. Original diagnosis was wrong.
 
-## Problem
+## Summary
 
-`GetMediaItemTake_Peaks` and `PCM_Source_GetPeaks` both fail on ARM64 macOS (Apple Silicon) when called via `GetFunc()` pointer casting. The same APIs work at ALL peakrates from Lua.
+The original belief was that `GetMediaItemTake_Peaks` via `GetFunc()` was broken on ARM64 macOS. A Lua bridge was built to work around this. **Systematic testing on REAPER 7.67 proves the API works identically from C, Zig, and Lua** — there is no GetFunc ABI issue.
 
-```
-From Zig (via GetFunc):  ALL peakrates return 0
-From Lua (direct):       ALL peakrates work perfectly
-```
+## What Actually Happened
 
-**Definitive proof** (same REAPER session, identical object pointers):
+The original tests used a **fixed 32 peaks** at increasing peakrates starting at **position 0.0** of items that began with silence. At high peakrates, 32 peaks covers a tiny time window (e.g., 32/256 = 0.125 seconds), which fell entirely within the silent region at the start of the test audio files.
 
-| Object | Lua | Zig |
-|--------|-----|-----|
-| Track | `0x158048000` | `0x158048000` |
-| Item | `0x14b2f9600` | `0x14b2f9600` |
-| Take | `0x121672e10` | `0x121672e10` |
-| Source | `0x16789e510` | `0x16789e510` |
-| **GetMediaSourceNumChannels** | **2** | **1** |
-| **GetMediaItemTake_Peaks (any rate)** | **256 peaks** | **0** |
-| **PCM_Source_GetPeaks (any rate)** | **256 peaks** | **0** |
+The "Lua works but Zig doesn't" conclusion was likely due to different test parameters (different num_peaks or starttime values) between the Lua and Zig tests, not a fundamental API difference.
 
-## Root Cause
+## Evidence
 
-Unknown. The bug is definitively in **REAPER's GetFunc() pathway on ARM64**, not in our calling code:
+### Test methodology
 
-- **libffi wrapper**: Failed - same result
-- **C shim**: Failed - same result
-- **PCM_Source_GetPeaks**: Different API, same failure
-- **GetMediaSourceNumChannels**: Also returns wrong values (1 instead of 2)
+Built a minimal C plugin (`test_peaks_plugin/reaper_test_peaks.c`) that calls `GetMediaItemTake_Peaks` via `GetFunc()` — identical to how Zig calls it. Also built an equivalent Lua script (`test_peaks_plugin/test_peaks.lua`). Both produce identical output format for direct comparison.
 
-Multiple unrelated APIs fail when called via GetFunc() on ARM64. Lua uses a different internal code path that works correctly.
+### C plugin and Lua produce identical results
 
-> **Note**: `starttime` must be PROJECT time (timeline position), not item-relative.
+Tested on the same items in the same REAPER session:
 
-## Solution: Lua Bridge (IMPLEMENTED)
+**Long mono item (184.7s, pos=0.0):**
+- C plugin: ALL ZERO at rate=32+ with 32 peaks
+- Lua: ALL ZERO at rate=32+ with 32 peaks (identical)
 
-Have Lua fetch peaks (which works), transfer to Zig via binary-packed strings.
+**Long stereo item (187.0s, pos=0.0):**
+- C plugin: ALL ZERO at rate=64+ with 32 peaks
+- Lua: ALL ZERO at rate=64+ with 32 peaks (identical)
 
-### Architecture Overview
+**Short mono item (2.17s, pos=80.0, section of 183s source):**
+- C plugin: All rates work, up to 1024/s
+- Lua: All rates work (identical)
+
+### Realistic viewport/tile requests all work
+
+When using parameters that match actual waveform rendering (num_peaks proportional to window duration):
 
 ```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   Frontend      │────▶│  Zig Extension   │────▶│   Lua Script    │
-│ (viewport zoom) │     │ (tile cache/LOD) │     │ (GetMediaItem-  │
-│                 │◀────│                  │◀────│  Take_Peaks)    │
-└─────────────────┘     └──────────────────┘     └─────────────────┘
+--- Viewport simulation (10s window at +30s) ---
+LOD0 (0.0625/s, 1 peak):    max=0.1789
+LOD1 (0.25/s, 2 peaks):     max=0.1789
+LOD2 (1/s, 10 peaks):       max=0.1789
+LOD3 (4/s, 40 peaks):       max=0.1789
+LOD4 (16/s, 160 peaks):     max=0.1789
+LOD5 (64/s, 640 peaks):     max=0.1789
+LOD6 (256/s, 2560 peaks):   max=0.1789
+
+--- Tile requests (256 peaks/tile) ---
+All 7 LOD levels: data returned successfully
+
+--- 5s slice at 256/s (1280 peaks) ---
+Start, 25%, middle, 75%, end: all return data
+
+--- Window size sweep at rate=256 ---
+4, 8, 16, 32, 64, 128, 256, 512, 1024, 2560 peaks: all return data
 ```
 
-1. Frontend sends `peaks/updateViewport` when LOD changes
-2. Zig calculates which tiles are needed, checks cache
-3. For cache misses: Zig sets request params → calls Lua via `Main_OnCommand`
-4. Lua fetches peaks via REAPER API → packs as binary → transfers to Zig
-5. Zig caches tiles, broadcasts to frontend
+**Zero failures across all realistic request patterns.**
 
-### Key Implementation Details
+### GetMediaSourceNumChannels works correctly
 
-**Zig APIs registered for Lua** (`main.zig` LuaPeakBridge):
+Also previously believed broken on ARM64. Test results:
+- Mono file: returns 1 (correct)
+- Stereo file: returns 2 (correct)
 
-- `Reamo_GetPeakRequestValid()` - Check if request pending
-- `Reamo_GetPeakRequestTrackIdx()` - Get track index
-- `Reamo_GetPeakRequestItemIdx()` - Get item index
-- `Reamo_GetPeakRequestStartTime()` - Get start time (project time)
-- `Reamo_GetPeakRequestEndTime()` - Get end time
-- `Reamo_GetPeakRequestPeakrate()` - Get peakrate
-- `Reamo_ReceivePeakData(packed, count)` - Receive binary peak data
-- `Reamo_SetPeakRequestComplete(count)` - Signal completion
+## Why the original tests showed zeros
 
-**Why individual getters instead of packed struct?**
-C strings are null-terminated. A packed struct with `track_idx=0` contains null bytes, which truncates the string when passed to Lua. Individual getter functions avoid this issue.
+The original test pattern was: fixed `num_peaks=32`, sweep `peakrate` from low to high, `starttime=item_position`.
 
-**Vararg wrapper gotchas (ARM64 PAC):**
+At `peakrate=256` with `num_peaks=32`, the time window is only `32/256 = 0.125 seconds`. If the audio file starts with silence (common for vocal tracks with count-ins, etc.), this window contains no audio data. The API correctly returns zero peaks for a silent region.
 
-- Integer args: Use `@truncate(@as(isize, @bitCast(@intFromPtr(arglist[N]))))`
-- Double return values: Use static storage, return pointer to real memory (not `@ptrFromInt(bits)` - PAC rejects fake pointers)
+At lower peakrates (e.g., `peakrate=0.5`), the same 32 peaks covers `32/0.5 = 64 seconds`, which extends well past any initial silence, so data is returned.
 
-**LOD change detection** (`peaks_subscriptions.zig`):
+This created the illusion of a peakrate-dependent failure when it was actually a content-dependent result of the test design.
 
-- Track `last_broadcast_lod` per client
-- On `updateViewport`: if LOD changed → set `force_broadcast = true`
-- Without this, viewport updates wouldn't trigger new tile generation
+## Implications for the codebase
 
-### Performance (Validated)
+### Lua bridge is unnecessary
 
-Viewport-driven fetching (10-second slice at LOD 6, 256 peaks/sec):
+The Lua bridge (`reamo_internal_fetch_peaks.lua` and the 8 `Reamo_*` API functions in `main.zig`) was built to work around a non-existent bug. `GetMediaItemTake_Peaks` can be called directly from Zig via `GetFunc()`.
 
-| Step | Time |
-|------|------|
-| GetMediaItemTake_Peaks | 0.12ms |
-| arr.table() | 0.04ms |
-| Batched string.pack | 0.43ms |
-| Transfer to Zig | 1.57ms |
-| **Total** | **~2.2ms** |
+The Lua bridge happens to work because it requests appropriately-sized tile windows (256 peaks at the LOD peakrate), not because Lua has a different code path.
 
-Well under the 16.7ms frame budget. Typical full generation cycle: 5-15ms.
+### GetMediaSourceNumChannels can be trusted
 
-### Files Modified
+The current code has several workarounds for "unreliable" channel count:
+- `items.zig:487`: "GetMediaSourceNumChannels is broken (returns 1 for stereo files)"
+- `peaks_generator.zig:954`: "Always request stereo, detect mono by comparing L/R later"
+- `peaks_tile.zig`: "Epoch = hash of source pointer (NOT channel count - unreliable)"
 
-**Zig Extension:**
+These workarounds can be removed. Trust the API, request the actual channel count, and tell the frontend directly whether the source is mono or stereo.
 
-- `extension/src/main.zig` - LuaPeakBridge with 8 API functions + vararg wrappers
-- `extension/src/peaks_generator.zig` - Viewport-based fetching (only fetch tiles in view)
-- `extension/src/peaks_subscriptions.zig` - LOD change detection, `last_broadcast_lod` tracking
-- `extension/src/peaks_tile.zig` - Epoch computation using source pointer only (not channel count)
-- `extension/src/reaper/raw.zig` - `AddRemoveReaScript` binding
-- `extension/src/commands/peaks_subs.zig` - Logging for `updateViewport`
+### Simplification opportunities
 
-**Lua Script:**
+1. **Remove Lua bridge** — Call `GetMediaItemTake_Peaks` directly from Zig. Eliminates: 8 vararg wrapper functions, Lua script, `Main_OnCommand` synchronization, binary packing/unpacking overhead.
 
-- `Scripts/Reamo/reamo_internal_fetch_peaks.lua` - Peak fetching script
+2. **Trust GetMediaSourceNumChannels** — Remove L/R comparison mono detection. Request actual channel count. Send channel info to frontend directly.
 
-**Frontend:**
+3. **Remove AudioAccessor fallback** — The `genTileAccessor` path (reads raw samples, computes peaks manually) was a fallback for the "broken" API. No longer needed.
 
-- `frontend/src/hooks/usePeaksSubscription.ts` - Effect 2 sends `updateViewport` on LOD change
-- `frontend/src/core/lod.ts` - `calculateLODFromViewport()` for LOD selection
+4. **Simplify epoch computation** — Can include channel count in epoch hash now that the API is reliable.
 
-## LOD System
+## LOD System (unchanged, still valid)
 
 | LOD | Viewport Duration | Peakrate | Tile Duration |
 |-----|-------------------|----------|---------------|
@@ -129,75 +115,32 @@ Well under the 16.7ms frame budget. Typical full generation cycle: 5-15ms.
 | 5 | 20-75s | 64/s | 4s |
 | 6 | < 20s | 256/s | 1s |
 
-All LODs use 256 peaks per tile. LOD selection based on viewport duration ensures appropriate detail at each zoom level.
+All LODs use 256 peaks per tile. LOD selection based on viewport duration.
 
-## Cache System
+## Cache System (unchanged, still valid)
 
 - Tiles cached by `(take_guid, epoch, lod, tile_index)`
-- Epoch = hash of source pointer (NOT channel count - unreliable on ARM64)
-- Source replaced → new epoch → old tiles orphaned automatically
+- Source replaced -> new epoch -> old tiles orphaned automatically
 - Cache survives pan/zoom at same LOD (100% hit rate when panning)
 
-## Lessons Learned
+## Lessons actually learned
 
-1. **ARM64 PAC is strict**: Can't create fake pointers from arbitrary bits. Use real memory addresses.
-2. **C strings truncate on null**: Don't pack structs with potential zero bytes for Lua interop.
-3. **Channel count unreliable**: `GetMediaSourceNumChannels` returns inconsistent values via GetFunc on ARM64.
-4. **LOD changes need explicit triggers**: Viewport updates alone don't cause broadcasts - must detect LOD change and set force flag.
-5. **Viewport-based fetching critical**: Fetching entire item at high peakrates causes 100K+ peak requests. Only fetch visible tiles.
+1. **Test with realistic parameters** — Fixed num_peaks sweeps are misleading. Use `num_peaks = peakrate * window_duration` to match real usage.
+2. **Test at multiple positions** — Starting at position 0 may hit silence. Test at 25%, 50%, 75% of item length.
+3. **Compare C and Lua side-by-side** — Before concluding "Lua works but C doesn't", run identical parameters through both and compare output.
+4. **Silent regions are not bugs** — The API returning zeros for a silent region is correct behavior.
+5. **ARM64 PAC is strict** — This lesson from the Lua bridge work remains valid for other vararg interop.
+6. **Viewport-based fetching is still critical** — Fetching entire items at high peakrates wastes memory. Only fetch visible tiles.
 
-## Known Issues
+## Still valid from original work
 
-- `ShowConsoleMsg` opens console window if not already open - need silent logging option (write to file or check if console is open first)
+- `starttime` must be PROJECT time (timeline position), not item-relative
+- Section sources: traverse to root via `GetMediaSourceParent` loop
+- LOD change detection needs explicit `force_broadcast` flag
+- ARM64 PAC: use real memory addresses for double return values in vararg wrappers
 
-## Fixes Applied
+## Test artifacts
 
-- **Section source handling**: `GetMediaItemTake_Source` returns wrapper sources for items with take offsets. Fixed by traversing to root source via `GetMediaSourceParent` loop.
-- **Channel count bypass**: Always request 2 channels instead of trusting `GetMediaSourceNumChannels` (unreliable even in Lua).
-- **Peak building retry**: If `GetMediaItemTake_Peaks` returns 0, try `PCM_Source_BuildPeaks` (fast mode first, then full) and retry.
-
-## Integration Checklist
-
-**Zig APIs:**
-
-- [x] `Reamo_ReceivePeakData` API
-- [x] `Reamo_GetPeakCount` API
-- [x] `Reamo_ClearPeakBuffer` API
-- [x] `Reamo_GetPeakRequestValid` API
-- [x] `Reamo_GetPeakRequestTrackIdx` API
-- [x] `Reamo_GetPeakRequestItemIdx` API
-- [x] `Reamo_GetPeakRequestStartTime` API
-- [x] `Reamo_GetPeakRequestEndTime` API
-- [x] `Reamo_GetPeakRequestPeakrate` API
-- [x] `Reamo_SetPeakRequestComplete` callback
-
-**Lua Script:**
-
-- [x] Batched `string.pack` optimization (BATCH=1000)
-- [x] Create `Scripts/Reamo/reamo_internal_fetch_peaks.lua`
-- [x] Debug logging for 0-peak cases
-- [ ] Add script to installer
-- [ ] Test graceful degradation when script missing
-
-**Integration:**
-
-- [x] Wire into `peaks_generator.zig`
-- [x] Viewport-based fetching (only tiles in view)
-- [x] LOD change detection triggers broadcast
-- [ ] Validate take pointer before reading buffer
-
-**Validation:**
-
-- [x] Test stereo items - renders as split L/R lanes
-- [x] Test long items (>1 hour) - works with 69-minute project
-- [x] Validate on ARM64 macOS at LOD levels 2-6
-- [ ] Profile memory usage
-- [ ] Test LODs 0-1 (very zoomed out)
-
-## Alternatives Considered
-
-- **libffi wrapper**: Tried using libffi to handle ABI correctly. **Failed** - same result as direct call.
-- **C shim**: Tried wrapping in plain C function. **Failed** - same result.
-- **PCM_Source_GetPeaks**: Tried alternative API that operates on source instead of take. **Failed** - same GetFunc bug affects it.
-- **AudioAccessor**: Read raw samples, compute peaks manually. Works but slower.
-- **Direct .reapeaks**: Read mipmap files directly. Complex format parsing.
+- `test_peaks_plugin/reaper_test_peaks.c` — Minimal C plugin (builds on macOS + Windows)
+- `test_peaks_plugin/test_peaks.lua` — Equivalent Lua script for comparison
+- `test_peaks_plugin/Makefile` — Build targets for macOS/Windows
