@@ -125,23 +125,7 @@ else
   errors[#errors + 1] = "Web frontend folder not found.\n(Expected at: " .. web_src .. ")"
 end
 
--- 3. Lua peak script → Scripts/Reamo/
-local lua_src = script_dir .. sep .. "scripts" .. sep .. "reamo_internal_fetch_peaks.lua"
-local lua_dst_dir = resource_path .. sep .. "Scripts" .. sep .. "Reamo"
-local lua_dst = lua_dst_dir .. sep .. "reamo_internal_fetch_peaks.lua"
-if file_exists(lua_src) then
-  ensure_dir(lua_dst_dir)
-  local ok, err = copy_file(lua_src, lua_dst)
-  if ok then
-    installed[#installed + 1] = "Peak script: reamo_internal_fetch_peaks.lua"
-  else
-    errors[#errors + 1] = err
-  end
-else
-  errors[#errors + 1] = "Lua peak script not found.\n(Expected at: " .. lua_src .. ")"
-end
-
--- 4. JSFX tuner → Effects/REAmo/
+-- 3. JSFX tuner → Effects/REAmo/
 local jsfx_src = script_dir .. sep .. "effects" .. sep .. "REAmo" .. sep .. "PitchDetect.jsfx"
 local jsfx_dst_dir = resource_path .. sep .. "Effects" .. sep .. "REAmo"
 local jsfx_dst = jsfx_dst_dir .. sep .. "PitchDetect.jsfx"

@@ -47,17 +47,9 @@ export interface TimelineProps {
   multiTrackLanes?: SkeletonTrack[];
   /** Track indices corresponding to multiTrackLanes (1-based, from bank) */
   multiTrackIndices?: number[];
-  /** Function to assemble peaks for an item within the current viewport (tile-based) */
-  assemblePeaksForViewport?: (
-    takeGuid: string,
-    itemPosition: number,
-    itemLength: number
-  ) => import('../../core/WebSocketTypes').StereoPeak[] | import('../../core/WebSocketTypes').MonoPeak[] | null;
-  /** Function to check if tiles exist for a take */
-  hasTilesForTake?: (takeGuid: string) => boolean;
 }
 
-export function Timeline({ className = '', height = 120, isSyncing = false, viewport: externalViewport, multiTrackLanes, multiTrackIndices, assemblePeaksForViewport, hasTilesForTake }: TimelineProps): ReactElement {
+export function Timeline({ className = '', height = 120, isSyncing = false, viewport: externalViewport, multiTrackLanes, multiTrackIndices }: TimelineProps): ReactElement {
   const { sendCommand } = useReaper();
   const {
     positionSeconds, regions, markers, items, trackSkeleton, bpm, tempoMarkers,
@@ -551,8 +543,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
             timelineStart={viewport.visibleRange.start}
             timelineEnd={viewport.visibleRange.end}
             height={height}
-            assemblePeaksForViewport={assemblePeaksForViewport}
-            hasTilesForTake={hasTilesForTake}
           />
         )}
 

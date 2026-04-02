@@ -30,7 +30,6 @@ const trackfxparam_subscriptions = @import("subscriptions/trackfxparam_subscript
 const trackfxparam_generator = @import("subscriptions/trackfxparam_generator.zig");
 const tuner_subscriptions = @import("subscriptions/tuner_subscriptions.zig");
 const peaks_generator = @import("subscriptions/peaks_generator.zig");
-const peaks_cache = @import("subscriptions/peaks_cache.zig");
 const peaks_tile = @import("state/peaks_tile.zig");
 const track_skeleton = @import("state/track_skeleton.zig");
 const csurf = @import("server/csurf.zig");
@@ -42,7 +41,6 @@ const swell = @import("platform/swell.zig");
 const fast_timer = @import("platform/fast_timer.zig");
 const compat = @import("platform/compat.zig");
 const ztracy = @import("ztracy");
-const lua_peak_bridge = @import("platform/lua_peak_bridge.zig");
 const subscription_polling = @import("server/subscription_polling.zig");
 const tier_polling = @import("server/tier_polling.zig");
 const playlist_tick = @import("server/playlist_tick.zig");
@@ -78,7 +76,6 @@ var g_routing_subs: ?*routing_subscriptions.RoutingSubscriptions = null;
 var g_trackfx_subs: ?*trackfx_subscriptions.TrackFxSubscriptions = null;
 var g_trackfxparam_subs: ?*trackfxparam_subscriptions.TrackFxParamSubscriptions = null;
 var g_tuner_subs: ?*tuner_subscriptions.TunerSubscriptions = null;
-var g_peaks_cache: ?*peaks_cache.PeaksCache = null;
 var g_tile_cache: ?*peaks_tile.TileCache = null;
 var g_csurf: ?*csurf.ControlSurface = null;
 var g_plugin_register: ?*const fn ([*:0]const u8, ?*anyopaque) callconv(.c) c_int = null;
@@ -301,11 +298,6 @@ fn doInitialization() !void {
     g_audio_stream = audio_mgr;
     commands.g_ctx.audio_stream = audio_mgr;
 
-    // Create peaks cache for LRU caching of waveform data
-    const p_cache = try g_allocator.create(peaks_cache.PeaksCache);
-    p_cache.* = peaks_cache.PeaksCache.init(g_allocator);
-    g_peaks_cache = p_cache;
-
     // Create tile cache for LOD-based waveform tiles
     const t_cache = try g_allocator.create(peaks_tile.TileCache);
     t_cache.* = peaks_tile.TileCache.init(g_allocator);
@@ -385,24 +377,9 @@ fn doInitialization() !void {
         }
     }
 
-    // Register Lua Peak Bridge API (works even without CSurf)
-    if (g_plugin_register) |plugin_register| {
-        lua_peak_bridge.LuaPeakBridge.register(plugin_register);
-    }
-
     // Initialize network action handlers (state only — menu registration already done in ReaperPluginEntry)
     if (g_api) |*inner_api| {
         network_action.init(inner_api.showMessageBox, inner_api.getMainHwnd_fn, inner_api.getUserInputs, inner_api.setExtState, inner_api.resourcePath());
-    }
-
-    // Initialize Lua script for peak fetching (must be after API registration)
-    // Wire up the module-level g_api reference first
-    lua_peak_bridge.g_api = if (g_api) |*bridge_api| bridge_api else null;
-    if (g_api) |*lua_api| {
-        if (lua_peak_bridge.LuaPeakBridge.initScript(lua_api)) {
-            // Register the bridge function with peaks_generator
-            peaks_generator.setLuaBridgeFn(&lua_peak_bridge.LuaPeakBridge.bridgeFetchAdapter);
-        }
     }
 
     // Read configured port from ExtState (persisted across sessions)
@@ -794,7 +771,7 @@ fn doProcessing() !void {
         // Poll peaks subscriptions
         if (g_peaks_subs) |peaks_subs| {
             if (g_tile_cache) |tile_cache| {
-                try subscription_polling.pollPeaksSubscriptions(&poll_ctx, peaks_subs, tile_cache, g_peaks_cache);
+                try subscription_polling.pollPeaksSubscriptions(&poll_ctx, peaks_subs, tile_cache);
             }
         }
 
@@ -1057,14 +1034,6 @@ fn shutdown() void {
         g_tuner_subs = null;
     }
     logging.info("tuner subscriptions cleaned up", .{});
-
-    if (g_peaks_cache) |p_cache| {
-        logging.info("cleaning up peaks cache", .{});
-        p_cache.deinit();
-        g_allocator.destroy(p_cache);
-        g_peaks_cache = null;
-    }
-    logging.info("peaks cache cleaned up", .{});
 
     if (g_tile_cache) |t_cache| {
         logging.info("cleaning up tile cache", .{});

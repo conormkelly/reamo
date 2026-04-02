@@ -26,7 +26,6 @@ export type {
   WSTake,
   WSItem,
   ItemsEventPayload,
-  PeaksResponsePayload,
   StereoPeak,
   MonoPeak,
   ConnectionState,
@@ -62,5 +61,3 @@ export {
   type TransportSubscriber,
 } from './TransportAnimationEngine';
 
-// Peaks cache (for waveform data)
-export { peaksCache, buildPeaksCacheKey, type PeaksCacheKey } from './PeaksCache';

@@ -386,15 +386,6 @@ export const item = {
     command: 'item/selectPrev',
     params: { trackIdx, itemIdx, ...(wrap !== undefined && { wrap: wrap ? 1 : 0 }) },
   }),
-  /** Get waveform peak data for an item's active take */
-  getPeaks: (
-    trackIdx: number,
-    itemIdx: number,
-    width?: number
-  ): WSCommand => ({
-    command: 'item/getPeaks',
-    params: { trackIdx, itemIdx, width },
-  }),
   /** Get notes content for an item (on-demand) */
   getNotes: (trackIdx: number, itemIdx: number): WSCommand => ({
     command: 'item/getNotes',

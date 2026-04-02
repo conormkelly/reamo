@@ -30,11 +30,11 @@
  * ```
  */
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import { useReaper } from '../components/ReaperProvider';
 import { useReaperStore } from '../store';
 import { peaks, type PeaksViewport } from '../core/WebSocketCommands';
-import type { LODLevel, StereoPeak, MonoPeak } from '../core/WebSocketTypes';
+import type { LODLevel } from '../core/WebSocketTypes';
 import { calculateLODFromViewport } from '../core/WebSocketTypes';
 
 // Re-export for consumers
@@ -58,32 +58,10 @@ export interface UsePeaksSubscriptionOptions {
   viewport?: PeaksViewport;
 }
 
-/** Return value from usePeaksSubscription - TILE-BASED API */
+/** Return value from usePeaksSubscription */
 export interface UsePeaksSubscriptionResult {
-  /** Current LOD level (0-6, see docs/architecture/LOD_LEVELS.md) */
+  /** Current LOD level (0-6) */
   currentLod: LODLevel;
-
-  /**
-   * Assemble peaks for an item within the current viewport.
-   * Concatenates tiles that overlap the visible range.
-   * @param takeGuid - The active take GUID (from item.activeTakeGuid)
-   * @param itemPosition - Item start position in project time (seconds)
-   * @param itemLength - Item length (seconds)
-   * @returns Assembled peaks array, or null if no tiles available
-   */
-  assemblePeaksForViewport: (
-    takeGuid: string,
-    itemPosition: number,
-    itemLength: number
-  ) => StereoPeak[] | MonoPeak[] | null;
-
-  /**
-   * Check if any tiles exist for a take at the current LOD
-   * @param takeGuid - The active take GUID
-   * @returns true if tiles are cached for this take
-   */
-  hasTilesForTake: (takeGuid: string) => boolean;
-
   /** Number of tiles in cache (for debugging/status) */
   tileCacheSize: number;
 }
@@ -103,9 +81,6 @@ export function usePeaksSubscription(
   const clearPeaksSubscription = useReaperStore((s) => s.clearPeaksSubscription);
   const currentLod = useReaperStore((s) => s.currentLod);
   const tileCache = useReaperStore((s) => s.tileCache);
-  const storeHasTilesForTake = useReaperStore((s) => s.hasTilesForTake);
-  const storeAssemblePeaksForViewport = useReaperStore((s) => s.assemblePeaksForViewport);
-
   // Track previous subscription (excluding viewport - that's handled separately)
   const prevSubscriptionRef = useRef<string | null>(null);
   // Track previous LOD level (only send viewport update when LOD changes)
@@ -281,25 +256,8 @@ export function usePeaksSubscription(
     };
   }, [viewportKey, calculatedLOD, options?.viewport, connected, sendCommand]);
 
-  // Wrap the store's assemblePeaksForViewport to include current viewport
-  const assemblePeaksForViewport = useCallback(
-    (takeGuid: string, itemPosition: number, itemLength: number) => {
-      if (!options?.viewport) return null;
-      return storeAssemblePeaksForViewport(
-        takeGuid,
-        itemPosition,
-        itemLength,
-        options.viewport.start,
-        options.viewport.end
-      );
-    },
-    [storeAssemblePeaksForViewport, options?.viewport]
-  );
-
   return {
     currentLod,
-    assemblePeaksForViewport,
-    hasTilesForTake: storeHasTilesForTake,
     tileCacheSize: tileCache.size,
   };
 }

@@ -89,7 +89,6 @@ pub const all = .{
     .{ "item/toggleSelect", items.handleItemToggleSelect },
     .{ "item/selectNext", items.handleItemSelectNext },
     .{ "item/selectPrev", items.handleItemSelectPrev },
-    .{ "item/getPeaks", items.handleItemGetPeaks },
     // On-demand item data (sparse field fetch)
     .{ "item/getNotes", items.handleItemGetNotes },
     .{ "item/getTakes", items.handleItemGetTakes },

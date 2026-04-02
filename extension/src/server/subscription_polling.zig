@@ -33,8 +33,6 @@ const trackfx_generator = @import("../subscriptions/trackfx_generator.zig");
 const trackfxparam_generator = @import("../subscriptions/trackfxparam_generator.zig");
 const tuner_generator = @import("../subscriptions/tuner_generator.zig");
 
-// Caches
-const peaks_cache = @import("../subscriptions/peaks_cache.zig");
 const peaks_tile = @import("../state/peaks_tile.zig");
 
 /// Context shared across all subscription polling functions.
@@ -86,7 +84,6 @@ pub fn pollPeaksSubscriptions(
     ctx: *const PollingContext,
     peaks_subs: *peaks_subscriptions.PeaksSubscriptions,
     tile_cache: *peaks_tile.TileCache,
-    peaks_cache_ptr: ?*peaks_cache.PeaksCache,
 ) !void {
     if (!peaks_subs.hasSubscriptions()) return;
 
@@ -124,43 +121,27 @@ pub fn pollPeaksSubscriptions(
         peaks_subs.last_broadcast_ms = now_ms;
 
         logging.info("peaks: broadcasting to clients (force={}, indices={})", .{ force_broadcast, subscribed_indices.len });
-        // Iterate active subscriptions and send to each client
         var iter = peaks_subs.activeSubscriptions();
         while (iter.next()) |entry| {
             const scratch = ctx.scratchAllocator();
 
-            // Generate peaks for this client's subscribed tracks.
-            // With viewport: binary int8 quantized tiles (12x smaller than JSON).
-            // Without viewport: legacy JSON path for fixed sample_count subscriptions.
-            if (entry.sub.hasViewport()) {
-                const bin = peaks_generator.generateTilesForSubscriptionBinary(
-                    scratch,
-                    ctx.backend,
-                    ctx.guid_cache_ptr,
-                    tile_cache,
-                    entry.sub,
-                );
-                if (bin) |b| {
-                    logging.info("peaks: sending {} bytes (binary) to client {}", .{ b.len, entry.client_id });
-                    ctx.shared_state.sendBinToClient(entry.client_id, b);
-                } else {
-                    logging.info("peaks: binary generation returned null for client {}", .{entry.client_id});
-                }
+            if (!entry.sub.hasViewport()) {
+                logging.info("peaks: skipping client {} (no viewport)", .{entry.client_id});
+                continue;
+            }
+
+            const bin = peaks_generator.generateTilesForSubscriptionBinary(
+                scratch,
+                ctx.backend,
+                ctx.guid_cache_ptr,
+                tile_cache,
+                entry.sub,
+            );
+            if (bin) |b| {
+                logging.info("peaks: sending {} bytes (binary) to client {}", .{ b.len, entry.client_id });
+                ctx.shared_state.sendBinToClient(entry.client_id, b);
             } else {
-                const json = peaks_generator.generatePeaksForSubscription(
-                    scratch,
-                    ctx.backend,
-                    ctx.guid_cache_ptr,
-                    peaks_cache_ptr,
-                    entry.sub,
-                    entry.sub.sample_count,
-                );
-                if (json) |j| {
-                    logging.info("peaks: sending {} bytes (json) to client {}", .{ j.len, entry.client_id });
-                    ctx.shared_state.sendToClient(entry.client_id, j);
-                } else {
-                    logging.info("peaks: json generation returned null for client {}", .{entry.client_id});
-                }
+                logging.info("peaks: binary generation returned null for client {}", .{entry.client_id});
             }
         }
     }
