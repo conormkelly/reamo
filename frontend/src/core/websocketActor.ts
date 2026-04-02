@@ -185,6 +185,15 @@ storeSubscription = actor.subscribe(syncToStore);
 // Global message handler that the websocket actor calls
 (window as unknown as { __wsMessageHandler?: (msg: ServerMessage) => void }).__wsMessageHandler = handleServerMessage;
 
+// Global binary peaks handler — routes decoded tile batches to the store
+import { decodePeaksBatch } from './binaryPeaksDecoder';
+(window as unknown as { __wsBinaryPeaksHandler?: (data: ArrayBuffer) => void }).__wsBinaryPeaksHandler = (data: ArrayBuffer) => {
+  const tiles = decodePeaksBatch(data);
+  if (tiles.length > 0) {
+    useReaperStore.getState().handlePeaksEvent({ tiles });
+  }
+};
+
 // Global event sender for socket events
 // CRITICAL: This bypasses the XState actor lifecycle issue where sendBack becomes invalid
 // after state transitions (connecting → handshaking). Socket handlers use this instead of sendBack.

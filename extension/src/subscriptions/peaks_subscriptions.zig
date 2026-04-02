@@ -153,6 +153,9 @@ pub const PeaksSubscriptions = struct {
     /// Force broadcast flag - set when subscriptions change
     force_broadcast: bool = false,
 
+    /// Timestamp of last peaks broadcast (milliseconds) for rate limiting
+    last_broadcast_ms: i64 = 0,
+
     pub fn init(allocator: Allocator) PeaksSubscriptions {
         var subs = PeaksSubscriptions{
             .allocator = allocator,

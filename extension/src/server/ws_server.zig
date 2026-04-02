@@ -185,7 +185,7 @@ pub const SharedState = struct {
 
     // Log WebSocket write errors with rate limiting (max once per 5 seconds)
     // Called from broadcast/sendToClient when writeText fails
-    fn logWriteError(self: *SharedState, err: anyerror) void {
+    pub fn logWriteError(self: *SharedState, err: anyerror) void {
         const count = self.write_error_count.fetchAdd(1, .monotonic) + 1;
         const now = std.time.milliTimestamp();
         const last = self.last_error_log_time.load(.monotonic);

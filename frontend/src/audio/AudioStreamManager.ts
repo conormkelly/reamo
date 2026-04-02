@@ -220,7 +220,7 @@ export class AudioStreamManager {
 
   /**
    * Parse binary frame and schedule for playback.
-   * Frame format: [4-byte u32 LE sequence][interleaved i16 LE stereo PCM]
+   * Frame format: [1-byte type 0x01][4-byte u32 LE sequence][interleaved i16 LE stereo PCM]
    *
    * Creates an AudioBuffer at the server's sample rate. If the AudioContext
    * runs at a different rate (e.g. iOS forcing 48kHz when REAPER is at 44.1kHz),
@@ -230,8 +230,9 @@ export class AudioStreamManager {
     const ctx = this.audioContext!;
     this.framesReceived++;
 
-    // Parse PCM: skip 4-byte header, read interleaved i16 stereo
-    const pairCount = (data.byteLength - 4) / 4; // 4 bytes per stereo pair (2 * i16)
+    // Parse PCM: skip 5-byte header (1 type + 4 sequence), read interleaved i16 stereo
+    const HEADER_SIZE = 5;
+    const pairCount = (data.byteLength - HEADER_SIZE) / 4; // 4 bytes per stereo pair (2 * i16)
     if (pairCount <= 0) return;
 
     const view = new DataView(data);
@@ -241,7 +242,7 @@ export class AudioStreamManager {
     const right = audioBuffer.getChannelData(1);
 
     for (let i = 0; i < pairCount; i++) {
-      const offset = 4 + i * 4;
+      const offset = HEADER_SIZE + i * 4;
       left[i] = view.getInt16(offset, true) / 32768.0;
       right[i] = view.getInt16(offset + 2, true) / 32768.0;
     }
