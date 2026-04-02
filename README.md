@@ -1,8 +1,18 @@
 # REAmo
 
-A wireless control surface for [REAPER](https://www.reaper.fm/). Transport, mixer, timeline, tuner, instruments — all from your phone or tablet.
+A wireless, zero-config control surface for [REAPER](https://www.reaper.fm/). Transport, mixer, timeline, tuner, instruments — all from your phone or tablet. Supports WiFi and USB.
 
-<!-- TODO: Demo video or screenshot here -->
+## What is it?
+
+This was built to solve a specific problem: **staying at the instrument**.
+
+You sit at the piano, get an idea, walk to the computer, set up a track, adjust levels, hit record, walk back, try to remember what you were playing... the moment's gone.
+
+**With REAmo:** mount your phone near your instrument. Tap record, capture the idea, compare takes, move to the next section. End with rough ideas across the whole song instead of 16 over-polished bars.
+
+The goal is **idea capture, not production**. Get the song down while you're in creative mode.
+
+<!-- TODO: Demo video here -->
 
 ## Quick Start
 
@@ -43,16 +53,6 @@ For the full feature list, see [FEATURES.md](FEATURES.md).
 - **Region Editing** — Drag-and-drop repositioning with ripple editing
 - **Cue Lists** — Build playlists from regions for rehearsal and arrangement
 
-## Why REAmo?
-
-This was built to solve a specific problem: **staying at the instrument**.
-
-You sit at the piano, get an idea, walk to the computer, set up a track, adjust levels, hit record, walk back, try to remember what you were playing... the moment's gone.
-
-**With REAmo:** mount your phone near your instrument. Tap record, capture the idea, compare takes, move to the next section. End with rough ideas across the whole song instead of 16 over-polished bars.
-
-The goal is **idea capture, not production**. Get the song down while you're in creative mode.
-
 ## Installation
 
 ### Automatic (Recommended)
@@ -62,6 +62,7 @@ The goal is **idea capture, not production**. Get the song down while you're in 
 3. In REAPER, run **Actions > ReaScript: Run ReaScript...** (Action ID: 41060)
 4. Select `Install_REAmo.lua` from the extracted folder
 5. **Restart REAPER**
+6. *(Optional)* **Preferences > Media** — uncheck **Set media items offline when application is not active**. If enabled, REAPER takes media offline when you switch to another app, which prevents waveforms from loading on your device.
 
 ### Uninstall
 

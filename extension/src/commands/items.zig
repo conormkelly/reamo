@@ -483,10 +483,13 @@ pub fn handleItemGetPeaks(api: anytype, cmd: protocol.CommandMessage, response: 
         return;
     }
 
-    // 5. Always request stereo from AudioAccessor
-    // GetMediaSourceNumChannels is broken (returns 1 for stereo files - REAPER bug)
-    // We detect actual mono vs stereo by comparing L/R peaks after reading
-    const num_channels: usize = 2;
+    // 5. Get actual channel count from source (trust GetMediaSourceNumChannels)
+    const source = api.getTakeSource(take) orelse {
+        response.err("NO_SOURCE", "Take has no source");
+        return;
+    };
+    const source_channels = api.getMediaSourceChannels(source);
+    const num_channels: usize = if (source_channels > 0) @min(@as(usize, @intCast(source_channels)), 2) else 2;
 
     // 6. Get item properties
     const length = api.getItemLength(item_info.item);
@@ -576,25 +579,8 @@ pub fn handleItemGetPeaks(api: anytype, cmd: protocol.CommandMessage, response: 
         }
     }
 
-    // Detect actual channel count by comparing L/R peaks
-    // GetMediaSourceNumChannels is unreliable (returns 1 for stereo files)
-    // so we detect mono by checking if L and R peaks are identical
-    const detected_channels: usize = blk: {
-        const epsilon = 0.0001;
-        for (0..num_peaks) |i| {
-            const max_l = peak_max[i * 2];
-            const max_r = peak_max[i * 2 + 1];
-            const min_l = peak_min[i * 2];
-            const min_r = peak_min[i * 2 + 1];
-            if (@abs(max_l - max_r) > epsilon or @abs(min_l - min_r) > epsilon) {
-                break :blk 2; // Different L/R = true stereo
-            }
-        }
-        break :blk 1; // All L/R identical = mono (or dual mono)
-    };
-
-    logging.debug("getPeaks - computed {d} peaks, detected_ch={d}, max[0]={d:.4}, min[0]={d:.4}", .{
-        num_peaks, detected_channels, peak_max[0], peak_min[0],
+    logging.debug("getPeaks - computed {d} peaks, channels={d}, max[0]={d:.4}, min[0]={d:.4}", .{
+        num_peaks, num_channels, peak_max[0], peak_min[0],
     });
 
     // 11. Get GUIDs for cache key
@@ -614,7 +600,7 @@ pub fn handleItemGetPeaks(api: anytype, cmd: protocol.CommandMessage, response: 
         api.getTakeStartOffset(take),
         api.getTakePlayrate(take),
         num_peaks,
-        detected_channels,
+        num_channels,
         peak_max[0 .. num_peaks * num_channels],
         peak_min[0 .. num_peaks * num_channels],
     ) orelse {
