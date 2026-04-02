@@ -324,7 +324,7 @@ const WsHandler = struct {
         // Increase send buffer for large messages (e.g., action/getActions ~1.1MB).
         // httpz uses non-blocking sockets; websocket.zig's write loop doesn't
         // retry on WouldBlock, so the buffer must fit the largest message.
-        const sndbuf: c_int = 2 * 1024 * 1024;
+        const sndbuf: c_int = 4 * 1024 * 1024;
         std.posix.setsockopt(conn.stream.handle, SOL_SOCKET, SO_SNDBUF, std.mem.asBytes(&sndbuf)) catch |err| {
             logging.warn("WsHandler: failed to set SO_SNDBUF: {}", .{err});
         };
@@ -351,7 +351,7 @@ const WsHandler = struct {
                 const hello = protocol.HelloMessage.parse(data);
 
                 if (!self.state.validateToken(hello.token)) {
-                    try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"INVALID_TOKEN\",\"message\":\"Invalid or missing authentication token\"}}");
+                    self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"INVALID_TOKEN\",\"message\":\"Invalid or missing authentication token\"}}") catch {};
                     self.conn.close(.{ .code = 4001, .reason = "Invalid token" }) catch {};
                     return;
                 }
@@ -363,7 +363,7 @@ const WsHandler = struct {
                             logging.warn("http_server: protocol mismatch response buffer overflow", .{});
                             return;
                         };
-                        try self.conn.writeText(err_json);
+                        self.conn.writeText(err_json) catch {};
                         self.conn.close(.{ .code = 4002, .reason = "Protocol mismatch" }) catch {};
                         return;
                     }
@@ -372,7 +372,10 @@ const WsHandler = struct {
                 self.authenticated = true;
                 var buf: [256]u8 = undefined;
                 const response = protocol.buildHelloResponse(&buf, self.state.getHtmlMtime());
-                try self.conn.writeText(response);
+                self.conn.writeText(response) catch |err| {
+                    self.state.logWriteError(err);
+                    return;
+                };
 
                 self.state.markNeedsSnapshot(self.id);
             },
@@ -380,12 +383,16 @@ const WsHandler = struct {
                 const t1 = self.state.timePreciseMs();
 
                 if (!self.authenticated and self.state.token_set.load(.acquire)) {
-                    try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"NOT_AUTHENTICATED\",\"message\":\"Send hello message first\"}}");
+                    self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"NOT_AUTHENTICATED\",\"message\":\"Send hello message first\"}}") catch |err| {
+                        self.state.logWriteError(err);
+                    };
                     return;
                 }
 
                 const t0 = protocol.jsonGetFloat(data, "t0") orelse {
-                    try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"MISSING_T0\",\"message\":\"t0 is required for clock sync\"}}");
+                    self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"MISSING_T0\",\"message\":\"t0 is required for clock sync\"}}") catch |err| {
+                        self.state.logWriteError(err);
+                    };
                     return;
                 };
 
@@ -396,11 +403,15 @@ const WsHandler = struct {
                     logging.warn("http_server: clockSync response buffer overflow", .{});
                     return;
                 };
-                try self.conn.writeText(response);
+                self.conn.writeText(response) catch |err| {
+                    self.state.logWriteError(err);
+                };
             },
             .ping => {
                 if (!self.authenticated and self.state.token_set.load(.acquire)) {
-                    try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"NOT_AUTHENTICATED\",\"message\":\"Send hello message first\"}}");
+                    self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"NOT_AUTHENTICATED\",\"message\":\"Send hello message first\"}}") catch |err| {
+                        self.state.logWriteError(err);
+                    };
                     return;
                 }
 
@@ -414,20 +425,28 @@ const WsHandler = struct {
                     }
                 else
                     "{\"type\":\"pong\"}";
-                try self.conn.writeText(response);
+                self.conn.writeText(response) catch |err| {
+                    self.state.logWriteError(err);
+                };
             },
             .command => {
                 if (!self.authenticated and self.state.token_set.load(.acquire)) {
-                    try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"NOT_AUTHENTICATED\",\"message\":\"Send hello message first\"}}");
+                    self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"NOT_AUTHENTICATED\",\"message\":\"Send hello message first\"}}") catch |err| {
+                        self.state.logWriteError(err);
+                    };
                     return;
                 }
 
                 if (!self.state.pushCommand(self.id, data)) {
-                    try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"QUEUE_FULL\",\"message\":\"Command queue full\"}}");
+                    self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"QUEUE_FULL\",\"message\":\"Command queue full\"}}") catch |err| {
+                        self.state.logWriteError(err);
+                    };
                 }
             },
             .unknown => {
-                try self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"UNKNOWN_MESSAGE\",\"message\":\"Unknown message type\"}}");
+                self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"UNKNOWN_MESSAGE\",\"message\":\"Unknown message type\"}}") catch |err| {
+                    self.state.logWriteError(err);
+                };
             },
         }
     }

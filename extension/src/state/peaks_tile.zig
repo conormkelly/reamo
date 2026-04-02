@@ -492,15 +492,17 @@ pub const EpochTracker = struct {
             return new_epoch;
         }
 
-        // First time seeing this take
+        // First time seeing this take — register silently.
+        // force_broadcast from subscription creation handles the initial data send,
+        // so first-seen should not trigger a change broadcast.
         const owned_guid = self.allocator.dupe(u8, take_guid) catch {
-            return new_epoch;
+            return null;
         };
         self.epochs.put(owned_guid, new_epoch) catch {
             self.allocator.free(owned_guid);
         };
 
-        return new_epoch;
+        return null;
     }
 
     /// Invalidate epoch for a take (force recomputation on next access).

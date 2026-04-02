@@ -9,11 +9,12 @@ const audio_hook = @import("audio_hook.zig");
 const ring_buffer = @import("ring_buffer.zig");
 const ws_server = @import("../server/ws_server.zig");
 const logging = @import("../core/logging.zig");
+const binary_protocol = @import("../core/binary_protocol.zig");
 
 const MAX_AUDIO_CLIENTS = 4;
 
-/// Frame header: u32 LE sequence number
-const HEADER_SIZE = 4;
+/// Frame header: 1-byte type prefix + u32 LE sequence number
+const HEADER_SIZE = 5;
 /// Max stereo sample pairs per frame: 10ms @ 96kHz
 const MAX_FRAME_SAMPLES = 960;
 /// Total frame buffer size: header + max payload (960 pairs * 2 ch * 2 bytes)
@@ -216,8 +217,9 @@ pub const AudioStreamManager = struct {
             // pass through normally.
             if (isSilent(read_buf[0 .. pairs_read * 2])) continue;
 
-            // Build frame: [sequence u32 LE] [pcm i16 LE interleaved]
-            std.mem.writeInt(u32, frame_buf[0..4], self.sequence, .little);
+            // Build frame: [type u8] [sequence u32 LE] [pcm i16 LE interleaved]
+            frame_buf[0] = @intFromEnum(binary_protocol.BinaryMessageType.audio);
+            std.mem.writeInt(u32, frame_buf[1..5], self.sequence, .little);
             const payload_bytes = pairs_read * 2 * @sizeOf(i16);
             const pcm_bytes = std.mem.sliceAsBytes(read_buf[0 .. pairs_read * 2]);
             @memcpy(frame_buf[HEADER_SIZE..][0..payload_bytes], pcm_bytes);

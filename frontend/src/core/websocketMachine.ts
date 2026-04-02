@@ -244,10 +244,20 @@ const websocketActor = fromCallback<
   };
 
   socket.onmessage = (event) => {
-    // Binary frame → audio pipeline (avoid JSON parse overhead)
+    // Binary frame → route by type prefix byte
     if (event.data instanceof ArrayBuffer) {
-      const handler = (window as unknown as { __wsBinaryHandler?: (data: ArrayBuffer) => void }).__wsBinaryHandler;
-      if (handler) handler(event.data);
+      if (event.data.byteLength < 1) return;
+      const typeByte = new Uint8Array(event.data, 0, 1)[0];
+
+      if (typeByte === 0x01) {
+        // Audio PCM frame
+        const handler = (window as unknown as { __wsBinaryHandler?: (data: ArrayBuffer) => void }).__wsBinaryHandler;
+        if (handler) handler(event.data);
+      } else if (typeByte === 0x02) {
+        // Peaks tile batch
+        const handler = (window as unknown as { __wsBinaryPeaksHandler?: (data: ArrayBuffer) => void }).__wsBinaryPeaksHandler;
+        if (handler) handler(event.data);
+      }
       return;
     }
 

@@ -13,6 +13,7 @@ const ffi = @import("../core/ffi.zig");
 const guid_cache_mod = @import("../state/guid_cache.zig");
 const peaks_cache = @import("peaks_cache.zig");
 const peaks_tile = @import("../state/peaks_tile.zig");
+const binary_protocol = @import("../core/binary_protocol.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -1491,6 +1492,215 @@ pub fn generateTilesForSubscription(
     });
     const result = allocator.realloc(buf, written.len) catch buf;
     return result[0..written.len];
+}
+
+/// Generate tiles in binary format for a subscription with viewport.
+/// Returns a binary buffer with the peaks batch protocol (see binary_protocol.zig).
+/// Same tile cache + generation logic as generateTilesForSubscription, but
+/// serializes to binary int8 quantized format instead of JSON.
+/// Payload is ~12x smaller than JSON (~1KB vs ~13KB per stereo tile).
+pub fn generateTilesForSubscriptionBinary(
+    allocator: Allocator,
+    api: anytype,
+    guid_cache: *const guid_cache_mod.GuidCache,
+    tile_cache: *peaks_tile.TileCache,
+    sub: *const @import("peaks_subscriptions.zig").ClientSubscription,
+) ?[]const u8 {
+    if (!sub.hasViewport()) return null;
+
+    const tile_range = peaks_tile.tilesForViewport(
+        sub.viewport_start,
+        sub.viewport_end,
+        sub.viewport_width_px,
+        0.5,
+    ) orelse return null;
+
+    // Collect track indices
+    var track_indices_buf: [MAX_TRACKS_PER_BROADCAST]c_int = undefined;
+    var track_count: usize = 0;
+
+    switch (sub.mode) {
+        .none => return null,
+        .range => {
+            const total_tracks = api.trackCount();
+            var idx = sub.range_start;
+            const end = @min(sub.range_end, total_tracks);
+            while (idx <= end and track_count < MAX_TRACKS_PER_BROADCAST) : (idx += 1) {
+                track_indices_buf[track_count] = idx;
+                track_count += 1;
+            }
+        },
+        .guids => {
+            for (0..sub.guid_count) |i| {
+                if (track_count >= MAX_TRACKS_PER_BROADCAST) break;
+                const guid = sub.getGuid(i) orelse continue;
+                const track = guid_cache.resolve(guid) orelse continue;
+                const idx = api.getTrackIdx(track);
+                if (idx >= 0) {
+                    track_indices_buf[track_count] = idx;
+                    track_count += 1;
+                }
+            }
+        },
+    }
+
+    if (track_count == 0) return null;
+
+    const config = peaks_tile.TILE_CONFIGS[tile_range.lod];
+    const tiles_per_item = (tile_range.end_tile - tile_range.start_tile) + 1;
+    const estimated_tiles = tiles_per_item * track_count;
+
+    // Binary buffer: much smaller than JSON (~1KB per stereo tile vs ~13KB)
+    const buf_size = binary_protocol.batchBufferSize(estimated_tiles, peaks_tile.MAX_PEAKS_PER_TILE, 2);
+    const buf = allocator.alloc(u8, buf_size) catch {
+        logging.warn("peaks_generator: failed to allocate binary tile buffer ({d} bytes)", .{buf_size});
+        return null;
+    };
+
+    // Write envelope placeholder (tile_count filled in at end)
+    var offset: usize = binary_protocol.BATCH_ENVELOPE_SIZE;
+    var tiles_written: u16 = 0;
+
+    for (track_indices_buf[0..track_count]) |track_idx| {
+        const track = api.getTrackByUnifiedIdx(track_idx) orelse continue;
+        const item_count_raw = api.trackItemCount(track);
+        if (item_count_raw <= 0) continue;
+
+        const max_items: c_int = @min(item_count_raw, MAX_ITEMS_PER_TRACK_MULTITRACK);
+
+        var i: c_int = 0;
+        while (i < max_items) : (i += 1) {
+            const item = api.getItemByIdx(track, i) orelse continue;
+            const take = api.getItemActiveTake(item) orelse continue;
+            if (api.isTakeMIDI(take)) continue;
+
+            const item_position = api.getItemPosition(item);
+            const item_length = api.getItemLength(item);
+            if (!ffi.isFinite(item_length) or item_length <= 0) continue;
+
+            // Check viewport overlap
+            const buffer_pct = (sub.viewport_end - sub.viewport_start) * 0.5;
+            const vp_start = sub.viewport_start - buffer_pct;
+            const vp_end = sub.viewport_end + buffer_pct;
+            if (item_position + item_length < vp_start or item_position > vp_end) continue;
+
+            var take_guid_buf: [64]u8 = undefined;
+            const take_guid = api.getTakeGUID(take, &take_guid_buf);
+            const epoch = tile_cache.getEpoch(take_guid, api, take);
+
+            const item_start_tile: u32 = blk: {
+                const rel = @max(0.0, vp_start - item_position);
+                if (rel <= 0) break :blk 0;
+                break :blk @intFromFloat(@floor(rel / config.duration));
+            };
+            const item_end_tile: u32 = blk: {
+                const rel = @min(item_length, vp_end - item_position);
+                if (rel <= 0) break :blk 0;
+                break :blk @intFromFloat(@ceil(rel / config.duration));
+            };
+
+            // Lazy fetch for cache misses
+            var item_peaks_result: ?ItemPeaksResult = null;
+            defer if (item_peaks_result) |*ipr| ipr.deinit();
+            var first_fetched_tile: u32 = 0;
+
+            var tile_idx = item_start_tile;
+            while (tile_idx <= item_end_tile and tile_idx < 10000) : (tile_idx += 1) {
+                const key = peaks_tile.TileCacheKey.create(take_guid, epoch, tile_range.lod, tile_idx);
+                var tile_ptr: ?*peaks_tile.CachedTile = tile_cache.get(key);
+
+                if (tile_ptr == null) {
+                    // Fetch and generate (same logic as JSON path)
+                    if (item_peaks_result == null) {
+                        const fetch_start_time = item_position + @as(f64, @floatFromInt(item_start_tile)) * config.duration;
+                        const fetch_end_time = @min(
+                            item_position + item_length,
+                            item_position + @as(f64, @floatFromInt(item_end_tile + 1)) * config.duration,
+                        );
+                        first_fetched_tile = item_start_tile;
+
+                        item_peaks_result = fetchItemPeaksViaTakePeaksAPI(
+                            allocator, api, take,
+                            fetch_start_time, fetch_end_time - fetch_start_time, config.peakrate,
+                        );
+                        if (item_peaks_result == null) break;
+                    }
+
+                    const relative_tile_idx = tile_idx - first_fetched_tile;
+                    const tile = sliceTileFromItemPeaks(&item_peaks_result.?, relative_tile_idx, config.peaks_per_tile);
+
+                    if (tile.num_peaks > 0) {
+                        tile_cache.put(
+                            key,
+                            tile.peak_min[0 .. tile.num_peaks * tile.channels],
+                            tile.peak_max[0 .. tile.num_peaks * tile.channels],
+                            tile.num_peaks,
+                            tile.channels,
+                        );
+                        tile_ptr = tile_cache.get(key);
+                    }
+                }
+
+                const tile = tile_ptr orelse continue;
+
+                // Check buffer space
+                const peak_data_size = tile.num_peaks * tile.channels * 2;
+                const tile_total = binary_protocol.TILE_FIXED_SIZE + peak_data_size;
+                if (offset + tile_total > buf.len) {
+                    logging.warn("peaks_generator: binary buffer overflow at tile {d} (need {d}, have {d})", .{
+                        tiles_written, offset + tile_total, buf.len,
+                    });
+                    break;
+                }
+
+                // Write tile header
+                const tile_start = @as(f64, @floatFromInt(tile_idx)) * config.duration;
+                offset += binary_protocol.writeTileHeader(buf[offset..], .{
+                    .lod_level = @intCast(tile_range.lod),
+                    .channels = tile.channels,
+                    .tile_index = @intCast(tile_idx),
+                    .num_peaks = tile.num_peaks,
+                    .epoch = epoch,
+                    .start_time = @floatCast(tile_start),
+                    .item_position = @floatCast(item_position),
+                });
+
+                // Write GUID
+                offset += binary_protocol.writeGuid(buf[offset..], take_guid);
+
+                // Write quantized peak data: i8 min, i8 max per channel per peak
+                for (0..tile.num_peaks) |p| {
+                    for (0..tile.channels) |ch| {
+                        const idx = p * tile.channels + ch;
+                        buf[offset] = @bitCast(binary_protocol.quantize(tile.peak_min[idx]));
+                        offset += 1;
+                        buf[offset] = @bitCast(binary_protocol.quantize(tile.peak_max[idx]));
+                        offset += 1;
+                    }
+                }
+
+                tiles_written += 1;
+            }
+        }
+    }
+
+    if (tiles_written == 0) {
+        allocator.free(buf);
+        return null;
+    }
+
+    // Write envelope at the start now that we know tile_count
+    _ = binary_protocol.writeBatchEnvelope(buf, tiles_written);
+
+    logging.info("peaks_generator: binary success tiles={d} size={d}KB (estimated={d}KB)", .{
+        tiles_written,
+        offset / 1024,
+        buf_size / 1024,
+    });
+
+    // Shrink to actual size
+    const result = allocator.realloc(buf, offset) catch buf;
+    return result[0..offset];
 }
 
 /// Generate peaks for a single item using REAPER's GetMediaItemTake_Peaks API.
