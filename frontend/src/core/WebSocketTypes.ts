@@ -546,13 +546,13 @@ export interface PlaylistEventPayload {
 // Peaks Subscription Event (per-client, pushed by backend) - TILE-BASED LOD
 // =============================================================================
 
-/** LOD level type (0=coarsest overview, 7=finest detail)
- * See docs/architecture/LOD_LEVELS.md for full configuration.
+/** LOD level type (0=coarsest overview, 6=finest detail)
+ * Must match backend peaks_tile.zig TILE_CONFIGS (7 levels, 0-6).
  */
-export type LODLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+export type LODLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 /** LOD configuration constants matching backend peaks_tile.zig
- * 8 levels with 4x ratio between adjacent levels.
+ * 7 levels with 4x ratio between adjacent levels.
  * Optimized for 1s-4hr viewport range, targeting 2-4 peaks/pixel at 400px width.
  */
 export const LOD_CONFIGS = {
@@ -562,15 +562,14 @@ export const LOD_CONFIGS = {
   3: { duration: 64, peakrate: 4, peaksPerTile: 256 },        // 5min - 20min
   4: { duration: 16, peakrate: 16, peaksPerTile: 256 },       // 75s - 5min
   5: { duration: 4, peakrate: 64, peaksPerTile: 256 },        // 20s - 75s
-  6: { duration: 1, peakrate: 256, peaksPerTile: 256 },       // 5s - 20s
-  7: { duration: 0.5, peakrate: 1024, peaksPerTile: 512 },    // < 5s (finest)
+  6: { duration: 1, peakrate: 256, peaksPerTile: 256 },       // < 20s (finest)
 } as const;
 
 /** Single tile of peaks data from backend */
 export interface PeaksTile {
   takeGuid: string;          // Take GUID for cache key
   epoch: number;             // Cache invalidation signal (changes when source audio edited)
-  lod: LODLevel;             // LOD level (0-7, see LOD_CONFIGS)
+  lod: LODLevel;             // LOD level (0-6, see LOD_CONFIGS)
   tileIndex: number;         // Position within item (0-indexed)
   itemPosition: number;      // Item start position in project time (seconds)
   startTime: number;         // Tile start time relative to item start (seconds)
@@ -615,7 +614,7 @@ export interface PeaksEventPayload {
 // -----------------------------------------------------------------------------
 
 /** Calculate LOD level from viewport (must match backend peaks_tile.zig logic)
- * Uses viewport duration thresholds - see docs/architecture/LOD_LEVELS.md
+ * Thresholds match server-side lodFromViewportDuration() exactly.
  */
 export function calculateLODFromViewport(
   viewportStart: number,
@@ -625,8 +624,7 @@ export function calculateLODFromViewport(
   const duration = viewportEnd - viewportStart;
   if (duration <= 0) return 5; // Default to LOD 5 (normal editing)
 
-  if (duration < 5) return 7;      // < 5s: finest detail
-  if (duration < 20) return 6;     // 5-20s: precision editing
+  if (duration < 20) return 6;     // < 20s: finest detail
   if (duration < 75) return 5;     // 20-75s: normal editing
   if (duration < 300) return 4;    // 75s-5min: wide view
   if (duration < 1200) return 3;   // 5-20min: overview

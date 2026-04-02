@@ -60,7 +60,7 @@ export interface UsePeaksSubscriptionOptions {
 
 /** Return value from usePeaksSubscription - TILE-BASED API */
 export interface UsePeaksSubscriptionResult {
-  /** Current LOD level (0-7, see docs/architecture/LOD_LEVELS.md) */
+  /** Current LOD level (0-6, see docs/architecture/LOD_LEVELS.md) */
   currentLod: LODLevel;
 
   /**
@@ -112,6 +112,8 @@ export function usePeaksSubscription(
   const prevLODRef = useRef<number | null>(null);
   // Debounce timer for viewport updates
   const viewportDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track previous viewport bounds for discrete jump detection
+  const prevViewportBoundsRef = useRef<{ start: number; end: number } | null>(null);
 
   // Subscription key: only tracks + sampleCount (NOT viewport)
   // Viewport changes don't require full re-subscription
@@ -165,6 +167,9 @@ export function usePeaksSubscription(
           })
         );
         prevLODRef.current = calculatedLODRef.current;
+        if (currentOptions.viewport) {
+          prevViewportBoundsRef.current = { start: currentOptions.viewport.start, end: currentOptions.viewport.end };
+        }
       } else if (currentOptions.guids && currentOptions.guids.length > 0) {
         setPeaksSubscriptionGuids(currentOptions.guids);
         sendCommand(
@@ -175,6 +180,9 @@ export function usePeaksSubscription(
           })
         );
         prevLODRef.current = calculatedLODRef.current;
+        if (currentOptions.viewport) {
+          prevViewportBoundsRef.current = { start: currentOptions.viewport.start, end: currentOptions.viewport.end };
+        }
       }
     } else {
       clearPeaksSubscription();
@@ -203,8 +211,9 @@ export function usePeaksSubscription(
     : null;
   const prevViewportKeyRef = useRef<string | null>(null);
 
-  // Effect 2: Debounced viewport updates (on ANY viewport change, not just LOD)
-  // Backend needs updated bounds to generate tiles for expanded/shifted viewport.
+  // Effect 2: Viewport updates — immediate for discrete jumps, debounced for gestures.
+  // Discrete jumps (page forward/back, zoom level change) need tiles ASAP.
+  // Smooth pan/zoom gestures are debounced to avoid flooding the server.
   useEffect(() => {
     // Skip if no active subscription or no viewport
     if (!connected || !options?.viewport || prevSubscriptionRef.current === null) {
@@ -216,20 +225,53 @@ export function usePeaksSubscription(
       return;
     }
 
+    // Detect discrete jumps: LOD changed, or less than 50% overlap with previous viewport
+    const prev = prevViewportBoundsRef.current;
+    const curr = options.viewport;
+    let isDiscreteJump = false;
+
+    if (calculatedLOD !== prevLODRef.current) {
+      // LOD change = zoom level changed significantly
+      isDiscreteJump = true;
+    } else if (prev) {
+      // Check viewport overlap: if < 50% of the old viewport is still visible, it's a jump
+      const overlapStart = Math.max(prev.start, curr.start);
+      const overlapEnd = Math.min(prev.end, curr.end);
+      const overlap = Math.max(0, overlapEnd - overlapStart);
+      const prevDuration = prev.end - prev.start;
+      if (prevDuration > 0 && overlap / prevDuration < 0.5) {
+        isDiscreteJump = true;
+      }
+    } else {
+      // No previous viewport = first update, send immediately
+      isDiscreteJump = true;
+    }
+
     // Clear any pending debounce
     if (viewportDebounceRef.current) {
       clearTimeout(viewportDebounceRef.current);
+      viewportDebounceRef.current = null;
     }
 
-    // Debounce viewport update
-    viewportDebounceRef.current = setTimeout(() => {
+    const sendUpdate = () => {
       if (options.viewport) {
         sendCommand(peaks.updateViewport(options.viewport));
         prevViewportKeyRef.current = viewportKey;
         prevLODRef.current = calculatedLOD;
+        prevViewportBoundsRef.current = { start: options.viewport.start, end: options.viewport.end };
       }
-      viewportDebounceRef.current = null;
-    }, VIEWPORT_DEBOUNCE_MS);
+    };
+
+    if (isDiscreteJump) {
+      // Send immediately — user jumped to a new position, needs tiles ASAP
+      sendUpdate();
+    } else {
+      // Debounce — smooth gesture in progress
+      viewportDebounceRef.current = setTimeout(() => {
+        sendUpdate();
+        viewportDebounceRef.current = null;
+      }, VIEWPORT_DEBOUNCE_MS);
+    }
 
     return () => {
       if (viewportDebounceRef.current) {

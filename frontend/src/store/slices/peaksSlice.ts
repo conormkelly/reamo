@@ -7,7 +7,7 @@
  * Backend sends tiles with:
  * - takeGuid: identify which take (for cache key)
  * - epoch: cache invalidation signal (changes when source audio edited)
- * - lod: Level of Detail (0-7, see docs/architecture/LOD_LEVELS.md)
+ * - lod: Level of Detail (0-6, see docs/architecture/LOD_LEVELS.md)
  * - tileIndex: position within the item
  * - itemPosition: item start time in project
  * - startTime/endTime: tile bounds relative to item start
