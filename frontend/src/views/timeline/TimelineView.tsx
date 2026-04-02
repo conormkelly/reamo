@@ -387,7 +387,7 @@ export function TimelineView(): ReactElement {
     }
   }, [isFiltered, laneTracks, prefetchStart, prefetchEnd, viewport.visibleRange, containerWidth]);
 
-  const { assemblePeaksForViewport, hasTilesForTake } = usePeaksSubscription(peaksSubscriptionOptions);
+  usePeaksSubscription(peaksSubscriptionOptions);
 
   // Bank management handlers
   const handleAddBank = useCallback(() => {
@@ -697,8 +697,6 @@ export function TimelineView(): ReactElement {
               viewport={viewport}
               multiTrackLanes={laneTracks}
               multiTrackIndices={displayTrackIndices}
-              assemblePeaksForViewport={assemblePeaksForViewport}
-              hasTilesForTake={hasTilesForTake}
             />
 
             {/* Track labels overlay - shown when holding bank display or switching banks */}

@@ -21,7 +21,7 @@
  */
 
 import { useRef, useEffect, useState, type ReactElement } from 'react';
-import type { WSItem, SkeletonTrack, StereoPeak, MonoPeak } from '../../core/WebSocketTypes';
+import type { WSItem, SkeletonTrack } from '../../core/WebSocketTypes';
 import { WaveformLayer } from './WaveformLayer';
 
 export interface MultiTrackLanesProps {
@@ -37,14 +37,6 @@ export interface MultiTrackLanesProps {
   timelineEnd: number;
   /** Total height available for lanes */
   height: number;
-  /** Function to assemble peaks for an item within the current viewport (tile-based) */
-  assemblePeaksForViewport?: (
-    takeGuid: string,
-    itemPosition: number,
-    itemLength: number
-  ) => StereoPeak[] | MonoPeak[] | null;
-  /** Function to check if tiles exist for a take */
-  hasTilesForTake?: (takeGuid: string) => boolean;
 }
 
 export function MultiTrackLanes({
@@ -54,8 +46,6 @@ export function MultiTrackLanes({
   timelineStart,
   timelineEnd,
   height,
-  assemblePeaksForViewport: _assemblePeaksForViewport, // Not used - WaveformCanvas reads tiles directly
-  hasTilesForTake: _hasTilesForTake, // Reserved for loading indicators
 }: MultiTrackLanesProps): ReactElement | null {
   // Track container width for WaveformCanvas sizing
   const containerRef = useRef<HTMLDivElement>(null);

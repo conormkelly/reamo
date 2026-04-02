@@ -20,7 +20,6 @@ local confirm = reaper.ShowMessageBox(
   "This will remove REAmo from REAPER:\n\n" ..
   "  - Extension: UserPlugins/" .. ext_name .. "\n" ..
   "  - Frontend: reaper_www_root/web/\n" ..
-  "  - Peak script: Scripts/Reamo/\n" ..
   "  - Tuner JSFX: Effects/REAmo/\n\n" ..
   "Continue?",
   "Uninstall REAmo", 4) -- 4 = Yes/No
@@ -73,16 +72,7 @@ if web_check then
   removed[#removed + 1] = "Frontend: reaper_www_root/web/"
 end
 
--- 3. Lua peak script + Scripts/Reamo/ directory
-local scripts_dir = resource_path .. sep .. "Scripts" .. sep .. "Reamo"
-local lua_path = scripts_dir .. sep .. "reamo_internal_fetch_peaks.lua"
-if remove_file(lua_path) then
-  removed[#removed + 1] = "Peak script: reamo_internal_fetch_peaks.lua"
-  -- Remove directory if empty
-  os.remove(scripts_dir)
-end
-
--- 4. JSFX tuner + Effects/REAmo/ directory
+-- 3. JSFX tuner + Effects/REAmo/ directory
 local effects_dir = resource_path .. sep .. "Effects" .. sep .. "REAmo"
 local jsfx_path = effects_dir .. sep .. "PitchDetect.jsfx"
 if remove_file(jsfx_path) then

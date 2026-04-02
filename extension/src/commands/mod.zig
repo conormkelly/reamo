@@ -310,7 +310,6 @@ test "registry contains expected commands" {
         "transport/playPause",
         "marker/add",
         "region/batch",
-        "item/getPeaks",
         "track/setVolume",
         "tempo/set",
         "gesture/start",

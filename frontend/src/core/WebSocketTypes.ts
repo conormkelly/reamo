@@ -609,10 +609,6 @@ export interface PeaksEventPayload {
   tiles: PeaksTile[];
 }
 
-// -----------------------------------------------------------------------------
-// DEPRECATED - Old item-based format (kept for backward compat with item/getPeaks)
-// -----------------------------------------------------------------------------
-
 /** Calculate LOD level from viewport (must match backend peaks_tile.zig logic)
  * Thresholds match server-side lodFromViewportDuration() exactly.
  */
@@ -636,54 +632,6 @@ export function calculateLODFromViewport(
 /** Create a tile cache key string for Map storage */
 export function makeTileCacheKeyString(key: TileCacheKey): string {
   return `${key.takeGuid}:${key.epoch}:${key.lod}:${key.tileIndex}`;
-}
-
-/** Get tile indices that cover a time range at a given LOD */
-export function getTileRange(
-  startTime: number,
-  endTime: number,
-  lod: LODLevel
-): { start: number; end: number } {
-  const config = LOD_CONFIGS[lod];
-  return {
-    start: Math.max(0, Math.floor(startTime / config.duration)),
-    end: Math.ceil(endTime / config.duration),
-  };
-}
-
-// -----------------------------------------------------------------------------
-// DEPRECATED - Old item-based format (kept for backward compat with item/getPeaks)
-// -----------------------------------------------------------------------------
-
-/** @deprecated Use PeaksTile instead - individual item's peaks from old format */
-export interface WSItemPeaks {
-  itemGuid: string;
-  trackIdx: number;
-  itemIdx: number;
-  position: number; // seconds
-  length: number; // seconds
-  channels: 1 | 2;
-  peaks: StereoPeak[] | MonoPeak[];
-}
-
-/** @deprecated Use PeaksEventPayload with tiles instead */
-export interface TrackPeaksData {
-  guid: string;
-  items: WSItemPeaks[];
-}
-
-// =============================================================================
-// Peaks Response (from item/getPeaks command)
-// =============================================================================
-
-export interface PeaksResponsePayload {
-  itemGUID: string;
-  takeGUID: string;
-  length: number; // Item length in seconds
-  startOffset: number; // Take start offset (D_STARTOFFS)
-  playrate: number; // Take playrate (D_PLAYRATE)
-  channels: 1 | 2; // Mono or stereo
-  peaks: StereoPeak[] | MonoPeak[];
 }
 
 // Stereo peak format: {l: [min, max], r: [min, max]}
