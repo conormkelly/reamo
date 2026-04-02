@@ -30,7 +30,12 @@ frontend:
 	@echo "Building frontend..."
 	cd frontend && npm run build
 	@mkdir -p "$(REAPER_WWW)"
-	cp -r web/* "$(REAPER_WWW)/"
+	@if [ "$$(cd web && pwd)" != "$$(cd "$(REAPER_WWW)" && pwd)" ]; then \
+		cp -r web/* "$(REAPER_WWW)/"; \
+		echo "Frontend installed to $(REAPER_WWW)"; \
+	else \
+		echo "Build output already in place (repo is inside reaper_www_root)."; \
+	fi
 	@echo "Frontend built and installed."
 
 # Build and install Zig extension

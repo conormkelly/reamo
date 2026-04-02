@@ -21,6 +21,7 @@
 
 import { useRef, useEffect, useState, type ReactElement } from 'react';
 import type { WSItem, TileCacheKey, LODLevel, StereoPeak, MonoPeak } from '../../core/WebSocketTypes';
+import { LOD_CONFIGS } from '../../core/WebSocketTypes';
 import { tileBitmapCache, TILE_RENDER_WIDTH } from '../../core/TileBitmapCache';
 import { reaperColorToRgba, getContrastColor } from '../../utils';
 import { useReaperStore } from '../../store';
@@ -32,7 +33,8 @@ const DEBUG_TILES = false;
 // Default item color when no color set
 const DEFAULT_ITEM_COLOR = 'rgba(129, 137, 137, 0.6)';
 
-// LOD levels to try as fallbacks (relative to current LOD)
+// LOD levels to try as bitmap fallbacks (relative to current LOD)
+// Prefer closer LODs first for better visual quality
 const FALLBACK_LOD_OFFSETS = [-1, 1, -2, 2] as const;
 
 export interface WaveformCanvasProps {
@@ -311,14 +313,54 @@ export function WaveformCanvas({
       // Skip MIDI items and items without take GUID
       if (item.activeTakeIsMidi || !item.activeTakeGuid) continue;
 
-      // Get tiles for this item's take at current LOD
+      // Get tiles for this item's take
       const takeKeyStrings = tilesByTake.get(item.activeTakeGuid) ?? EMPTY_STRING_ARRAY;
       const waveformColor = getWaveformColor(item, trackColor);
       const bitmapHeight = Math.round(itemHeight);
 
+      // Two-pass rendering: fallback LOD tiles first, then currentLod on top.
+      // This ensures we always show SOMETHING for the viewport, even before
+      // tiles at the ideal LOD have arrived from the server.
+      const lodFilter = `:${currentLod}:`;
+
+      // Pass 1: Render tiles at OTHER LODs as fallback layer.
+      // These get overwritten by currentLod tiles in pass 2.
       for (const keyStr of takeKeyStrings) {
-        // Filter to current LOD
-        if (!keyStr.includes(`:${currentLod}:`)) continue;
+        if (keyStr.includes(lodFilter)) continue; // Skip currentLod (pass 2)
+
+        const tile = tileCache.get(keyStr);
+        if (!tile || tile.peaks.length === 0) continue;
+
+        const tileAbsStart = tile.itemPosition + tile.startTime;
+        const tileAbsEnd = tile.itemPosition + tile.endTime;
+        if (tileAbsEnd <= viewportStart || tileAbsStart >= viewportEnd) continue;
+
+        const tileLeftRatio = (tileAbsStart - viewportStart) / viewportDuration;
+        const tileRightRatio = (tileAbsEnd - viewportStart) / viewportDuration;
+        const tileX = Math.round(tileLeftRatio * width);
+        const tileRight = Math.round(tileRightRatio * width);
+        const tileScreenWidth = tileRight - tileX;
+        if (tileScreenWidth <= 0) continue;
+
+        const clippedX = Math.max(tileX, itemX);
+        const clippedRight = Math.min(tileRight, itemRight);
+        const clippedWidth = clippedRight - clippedX;
+        if (clippedWidth <= 0) continue;
+
+        // Draw fallback peaks directly (fast enough, avoids bitmap lookup complexity)
+        drawPeaksDirect(ctx, tile.peaks, clippedX, itemY, clippedWidth, itemHeight, waveformColor);
+        fallbacks++;
+
+        if (DEBUG_TILES) {
+          ctx.strokeStyle = 'rgba(128, 128, 255, 0.5)'; // Blue = fallback LOD data
+          ctx.lineWidth = 1;
+          ctx.strokeRect(clippedX, itemY, clippedWidth, itemHeight);
+        }
+      }
+
+      // Pass 2: Render tiles at currentLod (overwrites fallback with correct data)
+      for (const keyStr of takeKeyStrings) {
+        if (!keyStr.includes(lodFilter)) continue;
 
         const tile = tileCache.get(keyStr);
         if (!tile || tile.peaks.length === 0) continue;
@@ -331,22 +373,17 @@ export function WaveformCanvas({
         if (tileAbsEnd <= viewportStart || tileAbsStart >= viewportEnd) continue;
 
         // Calculate tile screen position
-        // IMPORTANT: Round to whole pixels to prevent sub-pixel shimmer at edges
         const tileLeftRatio = (tileAbsStart - viewportStart) / viewportDuration;
         const tileRightRatio = (tileAbsEnd - viewportStart) / viewportDuration;
         const tileX = Math.round(tileLeftRatio * width);
         const tileRight = Math.round(tileRightRatio * width);
         const tileScreenWidth = tileRight - tileX;
-
-        // Skip tiles that round to zero width
         if (tileScreenWidth <= 0) continue;
 
-        // Clip tile to item bounds (tiles shouldn't extend past item visually)
-        // Use already-rounded itemX/itemRight for consistent pixel alignment
+        // Clip tile to item bounds
         const clippedX = Math.max(tileX, itemX);
         const clippedRight = Math.min(tileRight, itemRight);
         const clippedWidth = clippedRight - clippedX;
-
         if (clippedWidth <= 0) continue;
 
         // Parse tile cache key for bitmap lookup
@@ -376,29 +413,52 @@ export function WaveformCanvas({
           continue;
         }
 
-        // PHASE 2: Synchronous fallback rendering - never leave visual holes
+        // TRY 2: Adjacent LOD bitmaps with time-corrected tile index.
+        // Different LODs have different tile durations, so we calculate
+        // which tile at the fallback LOD covers the same time range.
         let drewFallback = false;
-
-        // TRY 2: Adjacent LOD levels (scaled but no gap)
         for (const lodOffset of FALLBACK_LOD_OFFSETS) {
           const fallbackLod = (currentLod + lodOffset) as LODLevel;
-          if (fallbackLod < 0 || fallbackLod > 7) continue;
+          if (fallbackLod < 0 || fallbackLod > 6) continue;
 
-          const fallbackKey: TileCacheKey = { ...tileKey, lod: fallbackLod };
+          const fallbackConfig = LOD_CONFIGS[fallbackLod as keyof typeof LOD_CONFIGS];
+          if (!fallbackConfig) continue;
+
+          // Find the fallback tile that covers the midpoint of our tile
+          const tileMidTime = tile.startTime + (tile.endTime - tile.startTime) / 2;
+          const fallbackTileIndex = Math.floor(tileMidTime / fallbackConfig.duration);
+
+          const fallbackKey: TileCacheKey = {
+            ...tileKey,
+            lod: fallbackLod,
+            tileIndex: fallbackTileIndex,
+          };
           const fallbackBitmap = tileBitmapCache.get(fallbackKey, waveformColor, bitmapHeight);
 
           if (fallbackBitmap) {
-            // Draw scaled fallback - may look slightly different but NO FLICKER
+            // Calculate source rect: what portion of the fallback bitmap
+            // corresponds to our current tile's time range
+            const fbTileStart = fallbackTileIndex * fallbackConfig.duration;
+            const fbTileDuration = fallbackConfig.duration;
+            const fbSrcLeft = ((tile.startTime - fbTileStart) / fbTileDuration) * TILE_RENDER_WIDTH;
+            const fbSrcWidth = ((tile.endTime - tile.startTime) / fbTileDuration) * TILE_RENDER_WIDTH;
+
+            // Apply viewport clipping on top
+            const clipRatio = (clippedX - tileX) / tileScreenWidth;
+            const clipWidthRatio = clippedWidth / tileScreenWidth;
+            const adjSrcLeft = fbSrcLeft + clipRatio * fbSrcWidth;
+            const adjSrcWidth = clipWidthRatio * fbSrcWidth;
+
             ctx.drawImage(
               fallbackBitmap,
-              srcClipLeft, 0, srcClipWidth, fallbackBitmap.height,
+              adjSrcLeft, 0, adjSrcWidth, fallbackBitmap.height,
               clippedX, itemY, clippedWidth, itemHeight
             );
             fallbacks++;
             drewFallback = true;
 
             if (DEBUG_TILES) {
-              ctx.strokeStyle = 'rgba(255, 255, 0, 0.8)'; // Yellow = LOD fallback
+              ctx.strokeStyle = 'rgba(255, 255, 0, 0.8)'; // Yellow = LOD bitmap fallback
               ctx.lineWidth = 1;
               ctx.strokeRect(clippedX, itemY, clippedWidth, itemHeight);
             }
@@ -410,7 +470,6 @@ export function WaveformCanvas({
         if (!drewFallback && tile.peaks.length > 0) {
           drawPeaksDirect(ctx, tile.peaks, clippedX, itemY, clippedWidth, itemHeight, waveformColor);
           fallbacks++;
-          drewFallback = true;
 
           if (DEBUG_TILES) {
             ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)'; // Red = direct peaks
