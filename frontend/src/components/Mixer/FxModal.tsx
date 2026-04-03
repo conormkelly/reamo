@@ -5,8 +5,8 @@
  * Uses BottomSheet for slide-up panel UX.
  */
 
-import { useEffect, useCallback, type ReactElement } from 'react';
-import { ChevronLeft, ChevronRight, CircleDot, Plus } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef, type ReactElement } from 'react';
+import { ChevronLeft, ChevronRight, CircleDot, Plus, Trash2 } from 'lucide-react';
 import { BottomSheet } from '../Modal/BottomSheet';
 import { useTrack } from '../../hooks/useTrack';
 import { useReaper } from '../ReaperProvider';
@@ -42,6 +42,7 @@ function FxRow({
   modified,
   enabled,
   onTap,
+  onDelete,
 }: {
   trackIdx: number;
   trackGuid?: string;
@@ -53,8 +54,19 @@ function FxRow({
   modified: boolean;
   enabled: boolean;
   onTap?: () => void;
+  onDelete?: () => void;
 }): ReactElement {
   const { sendCommand } = useReaper();
+
+  // Delete confirmation: tap once = armed (red), tap again within 3s = delete
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const deleteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (deleteTimeoutRef.current) clearTimeout(deleteTimeoutRef.current);
+    };
+  }, []);
 
   const handlePrevPreset = useCallback((e: React.MouseEvent) => {
     e.stopPropagation(); // Don't trigger row tap
@@ -127,6 +139,33 @@ function FxRow({
         title={enabled ? 'Bypass FX' : 'Enable FX'}
       />
 
+      {/* Delete button (tap once = arm, tap again = confirm) */}
+      {onDelete && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!deleteArmed) {
+              setDeleteArmed(true);
+              deleteTimeoutRef.current = setTimeout(() => {
+                setDeleteArmed(false);
+              }, 3000);
+            } else {
+              if (deleteTimeoutRef.current) clearTimeout(deleteTimeoutRef.current);
+              setDeleteArmed(false);
+              onDelete();
+            }
+          }}
+          className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${
+            deleteArmed
+              ? 'bg-error-bg text-error-text'
+              : 'text-text-muted hover:text-error-text'
+          }`}
+          title={deleteArmed ? 'Tap again to confirm delete' : 'Delete FX'}
+        >
+          <Trash2 size={14} />
+        </button>
+      )}
+
       {/* Preset navigation */}
       {presetCount > 0 && (
         <div className="flex items-center gap-1">
@@ -189,6 +228,12 @@ export function FxModal({
     onOpenFxParams?.(fx.fxGuid, fx.name);
   }, [onOpenFxParams]);
 
+  // Delete FX by GUID (stable across reorders)
+  const handleDeleteFx = useCallback((fxGuid: string) => {
+    if (!guid) return;
+    sendCommand(trackFx.delete(guid, { fxGuid }));
+  }, [sendCommand, guid]);
+
   return (
     <BottomSheet
       isOpen={isOpen}
@@ -242,6 +287,7 @@ export function FxModal({
                   modified={fx.modified}
                   enabled={fx.enabled}
                   onTap={() => handleFxRowTap(fx)}
+                  onDelete={() => handleDeleteFx(fx.fxGuid)}
                 />
               ))}
             </div>
