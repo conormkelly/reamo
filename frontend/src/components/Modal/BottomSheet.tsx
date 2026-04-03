@@ -136,18 +136,20 @@ export function BottomSheet({
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}
-        className={`bg-bg-deep rounded-t-2xl shadow-2xl border-t border-x border-border-subtle w-full max-w-md mx-0 outline-none transform transition-transform duration-200 ease-out safe-area-bottom ${
+        className={`bg-bg-deep rounded-t-2xl shadow-2xl border-t border-x border-border-subtle w-full max-w-md mx-0 outline-none transform transition-transform duration-200 ease-out safe-area-bottom max-h-[85dvh] flex flex-col ${
           isAnimating ? 'translate-y-0' : 'translate-y-full'
         }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Drag handle indicator */}
-        <div className="flex justify-center pt-3 pb-2">
+        <div className="flex justify-center pt-3 pb-2 flex-shrink-0">
           <div className="w-10 h-1 bg-border-default rounded-full" />
         </div>
 
-        {/* Content */}
-        {children}
+        {/* Content — scrollable when constrained */}
+        <div className="overflow-y-auto flex-1 min-h-0">
+          {children}
+        </div>
       </div>
     </div>,
     document.body
