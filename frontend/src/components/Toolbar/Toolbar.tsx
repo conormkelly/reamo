@@ -298,12 +298,10 @@ export function Toolbar({ layout = 'horizontal' }: ToolbarProps): ReactElement {
         <div className="flex flex-col gap-2 overflow-y-auto h-full p-1">
           {toolbarActions.map((action, index) => renderButton(action, index))}
 
-          {/* Empty state message */}
-          {toolbarActions.length === 0 && (
+          {/* Empty state hint - only in edit mode */}
+          {toolbarActions.length === 0 && toolbarEditMode && (
             <div className="flex items-center justify-center text-text-muted text-sm py-4">
-              {toolbarEditMode
-                ? 'Click "Add" to create buttons'
-                : 'Click "Edit" to add buttons'}
+              Tap &ldquo;+&rdquo; above to add a button
             </div>
           )}
         </div>
@@ -371,12 +369,10 @@ export function Toolbar({ layout = 'horizontal' }: ToolbarProps): ReactElement {
           </button>
         )}
 
-        {/* Empty state message */}
-        {toolbarActions.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center text-text-muted text-sm">
-            {toolbarEditMode
-              ? 'Click "Add" to create buttons'
-              : 'Click "Edit" to add buttons'}
+        {/* Empty state hint - only in edit mode */}
+        {toolbarActions.length === 0 && toolbarEditMode && (
+          <div className="absolute inset-0 flex items-center justify-center text-text-muted text-sm pointer-events-none">
+            Tap &ldquo;+&rdquo; above to add a button
           </div>
         )}
       </div>
