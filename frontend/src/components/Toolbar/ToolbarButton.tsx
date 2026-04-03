@@ -149,7 +149,7 @@ export function ToolbarButton({
           name={action.icon}
           size={iconSize}
           style={{ color: iconColor }}
-          className={layout === 'grid' ? 'mb-0.5 flex-shrink-0' : 'mb-1 flex-shrink-0'}
+          className={layout === 'grid' ? 'mt-0.5 mb-0.5 flex-shrink-0' : 'mt-0.5 mb-1 flex-shrink-0'}
         />
       )}
 
