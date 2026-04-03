@@ -107,7 +107,7 @@ export function SettingsMenu({
         <div
           ref={dropdownRef}
           data-testid="settings-dropdown"
-          className="fixed w-56 bg-bg-surface rounded-lg shadow-xl border border-border-subtle py-2 z-dropdown"
+          className="fixed w-56 max-h-[85dvh] overflow-y-auto bg-bg-surface rounded-lg shadow-xl border border-border-subtle py-2 z-dropdown"
           style={{ top: position.top, left: position.left }}
         >
           <div className="px-3 py-1.5 text-xs text-text-secondary uppercase tracking-wide">
