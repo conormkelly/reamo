@@ -121,6 +121,8 @@ function AppContent() {
       canGoForward: sideRailBankNav.canGoForward,
       onBack: sideRailBankNavCallbacks.onBack ?? (() => {}),
       onForward: sideRailBankNavCallbacks.onForward ?? (() => {}),
+      onHoldStart: sideRailBankNavCallbacks.onHoldStart ?? undefined,
+      onHoldEnd: sideRailBankNavCallbacks.onHoldEnd ?? undefined,
     };
   }, [sideRailBankNav, sideRailBankNavCallbacks]);
 

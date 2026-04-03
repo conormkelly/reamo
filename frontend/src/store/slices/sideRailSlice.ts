@@ -47,6 +47,8 @@ export interface SideRailSlice {
   sideRailBankNavCallbacks: {
     onBack: (() => void) | null;
     onForward: (() => void) | null;
+    onHoldStart?: (() => void) | null;
+    onHoldEnd?: (() => void) | null;
   };
 
   /** Info content from the active view (shown in side rail Info tab) */
@@ -65,6 +67,8 @@ export interface SideRailSlice {
   setSideRailBankNavCallbacks: (callbacks: {
     onBack: (() => void) | null;
     onForward: (() => void) | null;
+    onHoldStart?: (() => void) | null;
+    onHoldEnd?: (() => void) | null;
   }) => void;
 
   /** Set info content (called by active view) */
