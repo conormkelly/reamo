@@ -147,19 +147,9 @@ function syncToStore(): void {
       const result = checkVersionMismatch(extensionVersion, htmlMtime);
 
       if (result === 'mismatch') {
-        // Version changed since last load - either auto-refresh or show banner
-        const autoUpdateEnabled = useReaperStore.getState().autoUpdateEnabled;
-        if (autoUpdateEnabled) {
-          // Store new version BEFORE refresh to prevent infinite reload loop
-          storeVersion(extensionVersion, htmlMtime);
-          // Silent hard refresh
-          hardRefresh();
-        } else {
-          // Store new version so banner doesn't re-trigger on every reconnect
-          storeVersion(extensionVersion, htmlMtime);
-          // Show "Update available" banner
-          useReaperStore.getState().setUpdateAvailable(true);
-        }
+        // Version changed since last load - store new version and hard refresh
+        storeVersion(extensionVersion, htmlMtime);
+        hardRefresh();
       } else {
         // First load or same version - store for future comparison
         storeVersion(extensionVersion, htmlMtime);

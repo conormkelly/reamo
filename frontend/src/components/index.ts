@@ -3,7 +3,6 @@ export { ReaperProvider, useReaper, type ReaperProviderProps } from './ReaperPro
 export { ErrorBoundary } from './ErrorBoundary';
 export { ConnectionStatus, ConnectionBanner, type ConnectionStatusProps, type ConnectionBannerProps } from './ConnectionStatus';
 export { NetworkStatsModal, type NetworkStatsModalProps } from './NetworkStatsModal';
-export { UpdateBanner, type UpdateBannerProps } from './UpdateBanner';
 export { MemoryWarningBar, type MemoryWarningBarProps } from './MemoryWarningBar';
 
 // App chrome (Layout/)
