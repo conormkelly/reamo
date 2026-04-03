@@ -8,7 +8,7 @@ import { useCallback, type ReactElement } from 'react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
 import { useTimeSignature, useBarOffset } from '../../hooks';
-import { marker as markerCmd, action } from '../../core/WebSocketCommands';
+import { marker as markerCmd } from '../../core/WebSocketCommands';
 
 // Import modals
 import { MarkerEditModal } from '../Timeline/MarkerEditModal';
@@ -41,10 +41,6 @@ export function ModalRoot(): ReactElement | null {
     [sendCommand]
   );
 
-  const handleReorderAllMarkers = useCallback(() => {
-    sendCommand(action.execute(40898)); // Renumber all markers in timeline order
-  }, [sendCommand]);
-
   // Render modal based on state
   switch (modal.type) {
     case 'markerEdit':
@@ -58,7 +54,6 @@ export function ModalRoot(): ReactElement | null {
           onClose={closeModal}
           onMove={handleMarkerMove}
           onDelete={handleMarkerDelete}
-          onReorderAll={handleReorderAllMarkers}
         />
       );
 

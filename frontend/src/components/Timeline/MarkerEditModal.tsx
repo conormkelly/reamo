@@ -1,10 +1,10 @@
 /**
  * Marker Edit Modal Component
- * Modal for editing marker position, name, color, deleting, and reordering markers
+ * Modal for editing marker name, color, position, and deleting markers
  */
 
-import { useState, useCallback, useEffect, type ReactElement } from 'react';
-import { Trash2, ListOrdered, Move, Save, RotateCcw } from 'lucide-react';
+import { useState, useCallback, useEffect, useRef, type ReactElement } from 'react';
+import { Trash2 } from 'lucide-react';
 import type { Marker } from '../../core/types';
 import {
   formatTime,
@@ -12,15 +12,13 @@ import {
   beatsToSeconds,
   reaperColorToHex,
   hexToReaperColor,
-  reaperColorToHexWithFallback,
   formatBeatsToBarBeatTicks,
   parseBarBeatTicksToBeats,
 } from '../../utils';
 import { useReaper } from '../ReaperProvider';
-import { useReaperStore } from '../../store';
 import { marker as markerCmd } from '../../core/WebSocketCommands';
-import { DEFAULT_MARKER_COLOR, MARKER_COLORS } from '../../constants/colors';
-import { Modal } from '../Modal';
+import { DEFAULT_MARKER_COLOR } from '../../constants/colors';
+import { Modal, ModalFooter } from '../Modal';
 
 export interface MarkerEditModalProps {
   marker: Marker;
@@ -31,7 +29,6 @@ export interface MarkerEditModalProps {
   onClose: () => void;
   onMove: (markerId: number, newPositionSeconds: number) => void;
   onDelete: (markerId: number) => void;
-  onReorderAll: () => void;
 }
 
 /**
@@ -66,10 +63,8 @@ export function MarkerEditModal({
   onClose,
   onMove,
   onDelete,
-  onReorderAll,
 }: MarkerEditModalProps): ReactElement {
   const { sendCommand } = useReaper();
-  const markers = useReaperStore((s) => s.markers);
 
   const [editMode, setEditMode] = useState<'time' | 'beats'>('time');
   const [timeValue, setTimeValue] = useState('');
@@ -78,13 +73,23 @@ export function MarkerEditModal({
   const [colorValue, setColorValue] = useState<string | null>(null); // null = default (no color)
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const deleteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Get existing colors from project markers
-  const existingColors = [...new Set(
-    markers
-      .filter(m => m.color)
-      .map(m => reaperColorToHexWithFallback(m.color!, DEFAULT_MARKER_COLOR))
-  )];
+  // Hold-to-reset for color swatches
+  const holdTimer = useRef<number | null>(null);
+  const didReset = useRef(false);
+  const customColorRef = useRef<HTMLInputElement>(null);
+
+  const HOLD_DURATION = 500;
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (holdTimer.current) clearTimeout(holdTimer.current);
+      if (deleteTimeoutRef.current) clearTimeout(deleteTimeoutRef.current);
+    };
+  }, []);
 
   // Check if name/color changed
   const originalName = marker.name || '';
@@ -147,14 +152,20 @@ export function MarkerEditModal({
   }, [hasNameColorChanges, marker.id, nameValue, colorValue, sendCommand, onClose]);
 
   const handleDelete = useCallback(() => {
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      deleteTimeoutRef.current = setTimeout(() => {
+        setConfirmDelete(false);
+      }, 3000);
+      return;
+    }
+    if (deleteTimeoutRef.current) {
+      clearTimeout(deleteTimeoutRef.current);
+      deleteTimeoutRef.current = null;
+    }
     onDelete(marker.id);
     onClose();
-  }, [marker.id, onDelete, onClose]);
-
-  const handleReorder = useCallback(() => {
-    onReorderAll();
-    onClose();
-  }, [onReorderAll, onClose]);
+  }, [marker.id, onDelete, onClose, confirmDelete]);
 
   return (
     <Modal
@@ -168,126 +179,79 @@ export function MarkerEditModal({
         />
       }
       width="sm"
+      className="max-h-[85dvh] flex flex-col"
     >
-      {/* Content */}
-      <div className="p-modal space-y-4">
-          {/* Name Input */}
-          <div className="space-y-2">
-            <label className="text-sm text-text-secondary">Name</label>
+      {/* Scrollable content */}
+      <div className="p-modal space-y-4 overflow-y-auto flex-1">
+        {/* Name Input */}
+        <div>
+          <label className="block text-sm font-medium text-text-tertiary mb-1">Name</label>
+          <input
+            type="text"
+            value={nameValue}
+            onChange={(e) => setNameValue(e.target.value)}
+            className="w-full px-3 py-2 bg-bg-elevated border border-border-default rounded-lg text-text-primary text-base focus:outline-none focus:border-focus-border"
+            placeholder="Marker name"
+          />
+        </div>
+
+        {/* Color - tap to pick, hold to reset */}
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium text-text-tertiary">Color</label>
+          <div
+            onMouseDown={() => {
+              didReset.current = false;
+              holdTimer.current = window.setTimeout(() => {
+                setColorValue(null);
+                didReset.current = true;
+              }, HOLD_DURATION);
+            }}
+            onMouseUp={() => {
+              if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+              if (!didReset.current) customColorRef.current?.click();
+            }}
+            onMouseLeave={() => {
+              if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+            }}
+            onTouchStart={() => {
+              didReset.current = false;
+              holdTimer.current = window.setTimeout(() => {
+                setColorValue(null);
+                didReset.current = true;
+              }, HOLD_DURATION);
+            }}
+            onTouchEnd={() => {
+              if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+              if (!didReset.current) customColorRef.current?.click();
+            }}
+            className="relative w-10 h-10 rounded-lg border-2 border-border-default cursor-pointer hover:border-text-secondary transition-colors touch-none"
+            style={{ backgroundColor: colorValue ?? DEFAULT_MARKER_COLOR }}
+            title={colorValue === null ? 'Tap to pick color' : `${colorValue} (hold to reset)`}
+          >
+            {/* Non-default indicator dot */}
+            {colorValue !== null && (
+              <div className="absolute -top-1 -right-1 w-3 h-3 bg-primary-hover rounded-full border border-bg-surface" />
+            )}
             <input
-              type="text"
-              value={nameValue}
-              onChange={(e) => setNameValue(e.target.value)}
-              className="w-full px-3 py-2 bg-bg-deep border border-border-default rounded text-text-primary text-sm focus:outline-none focus:border-focus-border"
-              placeholder="Marker name"
+              ref={customColorRef}
+              type="color"
+              value={colorValue ?? DEFAULT_MARKER_COLOR}
+              onChange={(e) => setColorValue(e.target.value)}
+              className="absolute inset-0 opacity-0 cursor-pointer"
+              tabIndex={-1}
             />
           </div>
+        </div>
 
-          {/* Color Picker */}
-          <div className="space-y-2">
-              <label className="text-sm text-text-secondary">Color</label>
-
-              {/* Default + Project colors row */}
-              <div className="mb-2">
-                <div className="flex gap-1.5 flex-wrap items-center">
-                  {/* Default (reset) color - always first */}
-                  <button
-                    onClick={() => setColorValue(null)}
-                    className={`w-6 h-6 rounded border-2 transition-all relative ${
-                      colorValue === null
-                        ? 'border-white scale-110'
-                        : 'border-transparent hover:border-text-secondary'
-                    }`}
-                    style={{ backgroundColor: DEFAULT_MARKER_COLOR }}
-                    title="Reset to default"
-                  >
-                    <RotateCcw size={10} className="absolute inset-0 m-auto text-white/80" />
-                  </button>
-
-                  {/* Existing colors from project */}
-                  {existingColors.map((color) => (
-                    <button
-                      key={color}
-                      onClick={() => setColorValue(color)}
-                      className={`w-6 h-6 rounded border-2 transition-all ${
-                        colorValue !== null && colorValue.toLowerCase() === color.toLowerCase()
-                          ? 'border-white scale-110'
-                          : 'border-transparent hover:border-text-secondary'
-                      }`}
-                      style={{ backgroundColor: color }}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Default color swatches */}
-              <div className="mb-2">
-                <span className="text-xs text-text-muted mb-1 block">Presets</span>
-                <div className="flex gap-1.5 flex-wrap">
-                  {MARKER_COLORS.map((color) => (
-                    <button
-                      key={color}
-                      onClick={() => setColorValue(color)}
-                      className={`w-6 h-6 rounded border-2 transition-all ${
-                        colorValue !== null && colorValue.toLowerCase() === color.toLowerCase()
-                          ? 'border-white scale-110'
-                          : 'border-transparent hover:border-text-secondary'
-                      }`}
-                      style={{ backgroundColor: color }}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Custom color picker */}
-              <div className="flex gap-2 items-center">
-                <input
-                  type="color"
-                  value={colorValue ?? DEFAULT_MARKER_COLOR}
-                  onChange={(e) => setColorValue(e.target.value)}
-                  className="w-8 h-8 rounded border border-border-default cursor-pointer bg-transparent"
-                />
-                <input
-                  type="text"
-                  value={colorValue ?? ''}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === '') {
-                      setColorValue(null);
-                    } else if (/^#[0-9a-f]{0,6}$/i.test(val) || /^[0-9a-f]{0,6}$/i.test(val)) {
-                      setColorValue(val.startsWith('#') ? val : `#${val}`);
-                    }
-                  }}
-                  className="flex-1 px-2 py-1 bg-bg-deep border border-border-default rounded text-text-primary text-xs font-mono focus:outline-none focus:border-focus-border"
-                  placeholder="Default"
-                />
-              </div>
-          </div>
-
-          {/* Save Name/Color Button (only if changes) */}
-          {hasNameColorChanges && (
-            <button
-              onClick={handleSaveNameColor}
-              disabled={isSaving}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-success-action hover:bg-success text-text-on-success rounded font-medium transition-colors disabled:opacity-50"
-            >
-              <Save size={16} />
-              {isSaving ? 'Saving...' : 'Save Name & Color'}
-            </button>
-          )}
-
-          {/* Divider */}
-          <div className="border-t border-border-subtle" />
-
-          {/* Position Input */}
-          <div className="space-y-2">
-            <label className="text-sm text-text-secondary">Position</label>
-
-            {/* Mode Toggle */}
-            <div className="flex rounded-lg overflow-hidden border border-border-default">
+        {/* Position - compact single row */}
+        <div>
+          <label className="block text-sm font-medium text-text-tertiary mb-1">Position</label>
+          <div className="flex gap-2 items-center">
+            {/* Compact mode toggle */}
+            <div className="flex rounded-lg overflow-hidden border border-border-default flex-shrink-0">
               <button
                 onClick={() => setEditMode('time')}
-                className={`flex-1 px-3 py-1.5 text-sm font-medium transition-colors ${
+                className={`px-2.5 py-1.5 text-xs font-medium transition-colors ${
                   editMode === 'time'
                     ? 'bg-primary text-text-on-primary'
                     : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
@@ -297,17 +261,17 @@ export function MarkerEditModal({
               </button>
               <button
                 onClick={() => setEditMode('beats')}
-                className={`flex-1 px-3 py-1.5 text-sm font-medium transition-colors ${
+                className={`px-2.5 py-1.5 text-xs font-medium transition-colors ${
                   editMode === 'beats'
                     ? 'bg-primary text-text-on-primary'
                     : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
                 }`}
               >
-                Bar.Beat
+                Bar
               </button>
             </div>
 
-            {/* Input Field */}
+            {/* Position input */}
             <input
               type="text"
               value={editMode === 'time' ? timeValue : beatsValue}
@@ -319,44 +283,44 @@ export function MarkerEditModal({
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleMove();
               }}
-              className="w-full px-3 py-2 bg-bg-deep border border-border-default rounded text-text-primary text-sm focus:outline-none focus:border-focus-border"
+              className="flex-1 min-w-0 px-3 py-1.5 bg-bg-elevated border border-border-default rounded-lg text-text-primary text-base focus:outline-none focus:border-focus-border"
               placeholder={editMode === 'time' ? 'MM:SS.ms' : 'Bar.Beat'}
             />
 
-            {/* Error message */}
-            {error && <p className="text-error-text text-xs">{error}</p>}
+            {/* Compact Move button */}
+            <button
+              onClick={handleMove}
+              className="px-3 py-1.5 rounded-lg font-medium text-sm transition-colors bg-primary hover:bg-primary-hover text-text-on-primary flex-shrink-0"
+            >
+              Move
+            </button>
           </div>
+          {error && <p className="text-error-text text-xs mt-1">{error}</p>}
+        </div>
+      </div>
 
-          {/* Move Button */}
-          <button
-            onClick={handleMove}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded font-medium transition-colors bg-primary hover:bg-primary-hover text-text-on-primary"
-          >
-            <Move size={16} />
-            Move to Position
-          </button>
-
-          {/* Divider */}
-          <div className="border-t border-border-subtle" />
-
-          {/* Reorder Button */}
-          <button
-            onClick={handleReorder}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-bg-elevated hover:bg-bg-hover text-text-primary rounded font-medium transition-colors"
-          >
-            <ListOrdered size={16} />
-            Reorder All Markers
-          </button>
-
-          {/* Delete Button */}
+      <ModalFooter
+        onCancel={onClose}
+        onConfirm={handleSaveNameColor}
+        confirmText="Save"
+        confirmVariant="success"
+        confirmDisabled={!hasNameColorChanges}
+        confirmLoading={isSaving}
+        leftContent={
           <button
             onClick={handleDelete}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-delete-bg hover:bg-delete-bg-hover text-delete-text hover:text-delete-text-hover border border-delete-border rounded font-medium transition-colors"
+            className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
+              confirmDelete
+                ? 'bg-error-bg text-error-text'
+                : 'hover:bg-bg-elevated text-text-secondary hover:text-error-text'
+            }`}
+            title={confirmDelete ? 'Tap again to confirm' : 'Delete marker'}
           >
-            <Trash2 size={16} />
-            Delete Marker
+            <Trash2 size={14} />
+            {confirmDelete ? 'Confirm' : 'Delete'}
           </button>
-        </div>
+        }
+      />
     </Modal>
   );
 }
