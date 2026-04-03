@@ -318,48 +318,11 @@ export function WaveformCanvas({
       const waveformColor = getWaveformColor(item, trackColor);
       const bitmapHeight = Math.round(itemHeight);
 
-      // Two-pass rendering: fallback LOD tiles first, then currentLod on top.
-      // This ensures we always show SOMETHING for the viewport, even before
-      // tiles at the ideal LOD have arrived from the server.
+      // Render tiles at current LOD, with fallback chain for missing bitmaps
       const lodFilter = `:${currentLod}:`;
 
-      // Pass 1: Render tiles at OTHER LODs as fallback layer.
-      // These get overwritten by currentLod tiles in pass 2.
       for (const keyStr of takeKeyStrings) {
-        if (keyStr.includes(lodFilter)) continue; // Skip currentLod (pass 2)
-
-        const tile = tileCache.get(keyStr);
-        if (!tile || tile.peaks.length === 0) continue;
-
-        const tileAbsStart = tile.itemPosition + tile.startTime;
-        const tileAbsEnd = tile.itemPosition + tile.endTime;
-        if (tileAbsEnd <= viewportStart || tileAbsStart >= viewportEnd) continue;
-
-        const tileLeftRatio = (tileAbsStart - viewportStart) / viewportDuration;
-        const tileRightRatio = (tileAbsEnd - viewportStart) / viewportDuration;
-        const tileX = Math.round(tileLeftRatio * width);
-        const tileRight = Math.round(tileRightRatio * width);
-        const tileScreenWidth = tileRight - tileX;
-        if (tileScreenWidth <= 0) continue;
-
-        const clippedX = Math.max(tileX, itemX);
-        const clippedRight = Math.min(tileRight, itemRight);
-        const clippedWidth = clippedRight - clippedX;
-        if (clippedWidth <= 0) continue;
-
-        // Draw fallback peaks directly (fast enough, avoids bitmap lookup complexity)
-        drawPeaksDirect(ctx, tile.peaks, clippedX, itemY, clippedWidth, itemHeight, waveformColor);
-        fallbacks++;
-
-        if (DEBUG_TILES) {
-          ctx.strokeStyle = 'rgba(128, 128, 255, 0.5)'; // Blue = fallback LOD data
-          ctx.lineWidth = 1;
-          ctx.strokeRect(clippedX, itemY, clippedWidth, itemHeight);
-        }
-      }
-
-      // Pass 2: Render tiles at currentLod (overwrites fallback with correct data)
-      for (const keyStr of takeKeyStrings) {
+        // Filter to current LOD only
         if (!keyStr.includes(lodFilter)) continue;
 
         const tile = tileCache.get(keyStr);
