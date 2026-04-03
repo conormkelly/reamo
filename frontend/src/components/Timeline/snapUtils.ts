@@ -8,6 +8,7 @@ export interface SnapTargets {
   regions: Array<{ start: number; end: number }>
   markers: Array<{ position: number }>
   playheadPosition?: number
+  gridLines?: number[]
 }
 
 /**
@@ -38,6 +39,17 @@ export function findNearestSnapTarget(time: number, targets: SnapTargets): numbe
     if (dist < minDist) {
       minDist = dist
       nearest = marker.position
+    }
+  }
+
+  // Check gridlines (bar/beat boundaries)
+  if (targets.gridLines) {
+    for (const gridTime of targets.gridLines) {
+      const dist = Math.abs(gridTime - time)
+      if (dist < minDist) {
+        minDist = dist
+        nearest = gridTime
+      }
     }
   }
 

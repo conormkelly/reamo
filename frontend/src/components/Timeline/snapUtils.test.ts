@@ -52,4 +52,19 @@ describe('findNearestSnapTarget', () => {
     // Should work without playhead, falling back to regions/markers
     expect(findNearestSnapTarget(9.8, { regions, markers, playheadPosition: undefined })).toBe(10)
   })
+
+  it('snaps to nearest gridline', () => {
+    // Time 7.1 with gridlines at 4, 8, 12 — nearest is 8
+    expect(findNearestSnapTarget(7.1, { regions: [], markers: [], gridLines: [4, 8, 12] })).toBe(8)
+  })
+
+  it('prefers marker over gridline when closer', () => {
+    // Time 14.9 with gridline at 16 — marker at 15 is closer
+    expect(findNearestSnapTarget(14.9, { regions, markers, gridLines: [12, 16] })).toBe(15)
+  })
+
+  it('snaps to gridline when no markers or regions nearby', () => {
+    // Time 33 with no regions/markers nearby, gridline at 32
+    expect(findNearestSnapTarget(33, { regions, markers, gridLines: [32, 36] })).toBe(32)
+  })
 })
