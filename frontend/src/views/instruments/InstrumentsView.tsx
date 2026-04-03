@@ -571,7 +571,7 @@ export function InstrumentsView(): ReactElement {
               ? "h-[90%] aspect-square max-w-full"
               : "w-full aspect-square max-h-full"
             }>
-              <DrumPadGrid channel={currentChannel} onNoteOn={handleNoteOn} className="h-full w-full" />
+              <DrumPadGrid channel={currentChannel} onNoteOn={handleNoteOn} onNoteOff={handleNoteOff} className="h-full w-full" />
             </div>
           </div>
         );

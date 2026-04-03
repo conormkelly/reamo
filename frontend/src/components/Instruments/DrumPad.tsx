@@ -24,6 +24,8 @@ export interface DrumPadProps {
   label: string;
   /** Callback when note is triggered */
   onNoteOn: (note: number, velocity: number) => void;
+  /** Callback when note is released */
+  onNoteOff: (note: number) => void;
   /** Optional custom background color */
   color?: string;
   className?: string;
@@ -46,6 +48,7 @@ export function DrumPad({
   note,
   label,
   onNoteOn,
+  onNoteOff,
   color,
   className = '',
 }: DrumPadProps): ReactElement {
@@ -61,14 +64,16 @@ export function DrumPad({
 
   // Stable refs for callbacks (avoid recreating listeners)
   const onNoteOnRef = useRef(onNoteOn);
+  const onNoteOffRef = useRef(onNoteOff);
   const labelRef = useRef(label);
   const noteRef = useRef(note);
 
   useEffect(() => {
     onNoteOnRef.current = onNoteOn;
+    onNoteOffRef.current = onNoteOff;
     labelRef.current = label;
     noteRef.current = note;
-  }, [onNoteOn, label, note]);
+  }, [onNoteOn, onNoteOff, label, note]);
 
   // Core trigger logic - shared between Touch and Pointer events
   const triggerNote = useCallback((eventType: string) => {
@@ -135,6 +140,7 @@ export function DrumPad({
       for (const touch of Array.from(e.changedTouches)) {
         activeTouchesRef.current.delete(touch.identifier);
       }
+      onNoteOffRef.current(noteRef.current);
       if (activeTouchesRef.current.size === 0) {
         setIsActive(false);
       }
@@ -174,6 +180,7 @@ export function DrumPad({
 
   const handlePointerUp = useCallback(() => {
     if (isIOS) return;
+    onNoteOffRef.current(noteRef.current);
     setIsActive(false);
   }, []);
 

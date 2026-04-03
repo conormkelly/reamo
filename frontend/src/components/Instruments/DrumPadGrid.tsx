@@ -50,21 +50,29 @@ export interface DrumPadGridProps {
   channel: number;
   /** Callback to send note on */
   onNoteOn: (channel: number, note: number, velocity: number) => void;
+  /** Callback to send note off */
+  onNoteOff: (channel: number, note: number) => void;
   className?: string;
 }
 
 export function DrumPadGrid({
   channel,
   onNoteOn,
+  onNoteOff,
   className = '',
 }: DrumPadGridProps): ReactElement {
-  // Handle note on for a specific pad
-  // Note: Drums are one-shots, no note-off needed
   const handleNoteOn = useCallback(
     (note: number, velocity: number) => {
       onNoteOn(channel, note, velocity);
     },
     [channel, onNoteOn]
+  );
+
+  const handleNoteOff = useCallback(
+    (note: number) => {
+      onNoteOff(channel, note);
+    },
+    [channel, onNoteOff]
   );
 
   return (
@@ -85,6 +93,7 @@ export function DrumPadGrid({
           label={pad.label}
           color={pad.color}
           onNoteOn={handleNoteOn}
+          onNoteOff={handleNoteOff}
           className="aspect-square"
         />
       ))}
