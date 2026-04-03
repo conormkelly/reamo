@@ -637,6 +637,8 @@ export function TimelineView(): ReactElement {
       setSideRailBankNavCallbacks({
         onBack: handleBankBack,
         onForward: handleBankForward,
+        onHoldStart: handleHoldStart,
+        onHoldEnd: handleHoldEnd,
       });
       // Separate info and toolbar tabs for side rail (vertical layout)
       setSideRailInfo({
@@ -659,13 +661,13 @@ export function TimelineView(): ReactElement {
     return () => {
       if (isLandscapeConstrained) {
         setSideRailBankNav(null);
-        setSideRailBankNavCallbacks({ onBack: null, onForward: null });
+        setSideRailBankNavCallbacks({ onBack: null, onForward: null, onHoldStart: null, onHoldEnd: null });
         setSideRailInfo(null);
         setSideRailToolbar(null);
         setSideRailSearch(null);
       }
     };
-  }, [isLandscapeConstrained, effectiveBankDisplay, effectiveTotalCount, effectiveCanGoBack, effectiveCanGoForward, handleBankBack, handleBankForward, setSideRailBankNav, setSideRailBankNavCallbacks, setSideRailInfo, setSideRailToolbar, setSideRailSearch, sideRailInfoContent, sideRailToolbarContent, filterQuery, handleSetFilterQuery]);
+  }, [isLandscapeConstrained, effectiveBankDisplay, effectiveTotalCount, effectiveCanGoBack, effectiveCanGoForward, handleBankBack, handleBankForward, handleHoldStart, handleHoldEnd, setSideRailBankNav, setSideRailBankNavCallbacks, setSideRailInfo, setSideRailToolbar, setSideRailSearch, sideRailInfoContent, sideRailToolbarContent, filterQuery, handleSetFilterQuery]);
 
   // Search props for SecondaryPanel header
   const searchProps: SearchProps = useMemo(() => ({
