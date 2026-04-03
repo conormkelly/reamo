@@ -31,6 +31,7 @@ import { TimelineFooter } from './TimelineFooter';
 import { formatBeats, formatDelta } from '../../utils';
 import { timeToBarBeat, formatBarBeat } from '../../core/tempoUtils';
 import { findNearestSnapTarget } from './snapUtils';
+import { generateGridLines } from '../../utils/gridLines';
 
 export interface TimelineProps {
   className?: string;
@@ -312,16 +313,24 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     [sendCommand]
   );
 
-  // Find nearest snap target (region edge, marker, or playhead)
+  // Find nearest snap target (gridline, region edge, marker, or playhead)
   const findNearestBoundary = useCallback(
     (time: number): number => {
+      const gridLines = generateGridLines(
+        viewport.visibleRange.start,
+        viewport.visibleRange.end,
+        viewport.visibleRange.end - viewport.visibleRange.start,
+        tempoMarkers,
+        barOffset
+      );
       return findNearestSnapTarget(time, {
         regions,
         markers,
         playheadPosition: positionSeconds,
+        gridLines: gridLines.map(g => g.time),
       });
     },
-    [regions, markers, positionSeconds]
+    [regions, markers, positionSeconds, viewport.visibleRange, tempoMarkers, barOffset]
   );
 
   // Item tap detection
