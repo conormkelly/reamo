@@ -21,9 +21,6 @@ export interface SettingsMenuProps {
   currentView: ViewId;
   showRecordingActions: boolean;
   onToggleRecordingActions: () => void;
-  // Auto-update setting (PWA cache busting)
-  autoUpdateEnabled: boolean;
-  onToggleAutoUpdateEnabled: () => void;
   // Mixer view settings
   pinMasterTrack: boolean;
   onTogglePinMasterTrack: () => void;
@@ -55,8 +52,6 @@ export function SettingsMenu({
   currentView,
   showRecordingActions,
   onToggleRecordingActions,
-  autoUpdateEnabled,
-  onToggleAutoUpdateEnabled,
   pinMasterTrack,
   onTogglePinMasterTrack,
   showAddTrackButton,
@@ -190,20 +185,6 @@ export function SettingsMenu({
             <span className="text-sm">Audio Monitor</span>
             <span className={`flex items-center gap-1.5 text-xs ${audioMonitorActive ? 'text-success' : 'text-text-muted'}`}>
               {audioMonitorActive ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
-            </span>
-          </button>
-
-          {/* Auto-Update toggle */}
-          <button
-            onClick={() => {
-              onToggleAutoUpdateEnabled();
-            }}
-            className="w-full px-menu-item-x py-menu-item-y flex items-center justify-between hover:bg-bg-elevated/50 transition-colors"
-            data-testid="settings-auto-update"
-          >
-            <span className="text-sm">Auto-Update</span>
-            <span className={`flex items-center gap-1.5 text-xs ${autoUpdateEnabled ? 'text-success' : 'text-text-muted'}`}>
-              {autoUpdateEnabled ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
             </span>
           </button>
 

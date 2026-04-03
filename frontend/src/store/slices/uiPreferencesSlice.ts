@@ -18,8 +18,6 @@ export interface UIPreferencesState {
   notesFontSize: number;
   /** When to automatically re-enable follow playhead */
   followPlayheadReEnable: FollowPlayheadReEnable;
-  /** Auto-refresh when new version detected (PWA cache busting) */
-  autoUpdateEnabled: boolean;
   /** Number of track lanes to show in timeline view (1-8) */
   timelineLaneCount: number;
   /** Views hidden from tab bar and side rail */
@@ -37,8 +35,6 @@ export interface UIPreferencesState {
   setNotesFontSize: (size: number) => void;
   adjustNotesFontSize: (delta: number) => void;
   setFollowPlayheadReEnable: (mode: FollowPlayheadReEnable) => void;
-  setAutoUpdateEnabled: (enabled: boolean) => void;
-  toggleAutoUpdateEnabled: () => void;
   setTimelineLaneCount: (count: number) => void;
   toggleViewVisibility: (viewId: ViewId) => void;
   reorderView: (fromIndex: number, toIndex: number) => void;
@@ -51,7 +47,6 @@ interface StoredPrefs {
   transportPosition?: 'left' | 'right';
   notesFontSize?: number;
   followPlayheadReEnable?: FollowPlayheadReEnable;
-  autoUpdateEnabled?: boolean;
   timelineLaneCount?: number;
   hiddenViews?: ViewId[];
   viewOrder?: ViewId[];
@@ -63,7 +58,6 @@ const DEFAULT_PREFS = {
   transportPosition: 'left' as const,
   notesFontSize: 16,
   followPlayheadReEnable: 'on-playback' as FollowPlayheadReEnable,
-  autoUpdateEnabled: true,
   timelineLaneCount: 4,
   hiddenViews: [] as ViewId[],
   viewOrder: [...VIEW_ORDER],
@@ -79,7 +73,6 @@ function saveToStorage(get: () => UIPreferencesState): void {
       transportPosition: s.transportPosition,
       notesFontSize: s.notesFontSize,
       followPlayheadReEnable: s.followPlayheadReEnable,
-      autoUpdateEnabled: s.autoUpdateEnabled,
       timelineLaneCount: s.timelineLaneCount,
       hiddenViews: s.hiddenViews,
       viewOrder: s.viewOrder,
@@ -137,16 +130,6 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
     saveToStorage(get);
   },
 
-  setAutoUpdateEnabled: (enabled) => {
-    set({ autoUpdateEnabled: enabled });
-    saveToStorage(get);
-  },
-
-  toggleAutoUpdateEnabled: () => {
-    set({ autoUpdateEnabled: !get().autoUpdateEnabled });
-    saveToStorage(get);
-  },
-
   setTimelineLaneCount: (count) => {
     set({ timelineLaneCount: Math.max(1, Math.min(8, count)) });
     saveToStorage(get);
@@ -187,7 +170,6 @@ export const createUIPreferencesSlice: StateCreator<UIPreferencesState> = (set, 
           transportPosition: parsed.transportPosition ?? DEFAULT_PREFS.transportPosition,
           notesFontSize: parsed.notesFontSize ?? DEFAULT_PREFS.notesFontSize,
           followPlayheadReEnable: parsed.followPlayheadReEnable ?? DEFAULT_PREFS.followPlayheadReEnable,
-          autoUpdateEnabled: parsed.autoUpdateEnabled ?? DEFAULT_PREFS.autoUpdateEnabled,
           timelineLaneCount: parsed.timelineLaneCount ?? DEFAULT_PREFS.timelineLaneCount,
           hiddenViews: parsed.hiddenViews ?? DEFAULT_PREFS.hiddenViews,
           viewOrder,
