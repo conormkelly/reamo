@@ -672,16 +672,6 @@ export function MixerView(): ReactElement {
             <Plus size={24} />
           </button>
         )}
-
-        {/* Empty state - positioned absolutely within the content area */}
-        {totalTracks === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-text-muted text-center">
-              <p className="text-lg mb-2">No tracks in project</p>
-              <p className="text-sm">Add tracks in REAPER to see them here</p>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Bank editor modal */}
