@@ -136,6 +136,10 @@ function AppContent() {
     };
   }, [sideRailSearch]);
 
+  // Clock fullscreen hides all app chrome (side rails, tab bar, transport)
+  const clockFullscreen = useReaperStore((s) => s.clockFullscreen);
+  const isClockFullscreen = currentView === 'clock' && clockFullscreen;
+
   // Check if current view supports context rail (has bank nav)
   const showContextRail = useSideRail && (currentView === 'mixer' || currentView === 'timeline');
 
@@ -143,12 +147,14 @@ function AppContent() {
   if (useSideRail) {
     return (
       <div className="flex flex-row h-dvh bg-bg-app overflow-hidden select-none isolate">
-        {/* Nav Rail (left) - view tabs + transport */}
-        <SideRail
-          currentView={currentView}
-          onViewChange={setCurrentView}
-          className="z-fixed"
-        />
+        {/* Nav Rail (left) - view tabs + transport — hidden in clock fullscreen */}
+        {!isClockFullscreen && (
+          <SideRail
+            currentView={currentView}
+            onViewChange={setCurrentView}
+            className="z-fixed"
+          />
+        )}
 
         {/* Main content column */}
         <div className="flex flex-col flex-1 min-w-0 safe-area-top">
@@ -222,15 +228,15 @@ function AppContent() {
         </div>
       )}
 
-      {/* Fixed footer chrome - z-fixed (300) */}
-      {showTabBar && (
+      {/* Fixed footer chrome - z-fixed (300) — hidden in clock fullscreen */}
+      {showTabBar && !isClockFullscreen && (
         <TabBar
           currentView={currentView}
           onViewChange={setCurrentView}
           className={`shrink-0 z-fixed ${!showPersistentTransport ? 'safe-area-bottom' : ''}`}
         />
       )}
-      {showPersistentTransport && (
+      {showPersistentTransport && !isClockFullscreen && (
         <PersistentTransport position={transportPosition} className="shrink-0 z-fixed safe-area-bottom" />
       )}
 
