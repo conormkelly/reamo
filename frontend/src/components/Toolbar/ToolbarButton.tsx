@@ -2,7 +2,7 @@
  * ToolbarButton - Individual action button with toggle state support
  */
 
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { Pencil } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { action as actionCmd, midi as midiCmd } from '../../core/WebSocketCommands';
@@ -27,11 +27,16 @@ interface DragItemProps {
   onTouchEnd: () => void;
 }
 
+/** Long-press delay to enter edit mode (ms) */
+const LONG_PRESS_DELAY = 300;
+
 interface ToolbarButtonProps {
   action: ToolbarAction;
   toggleState?: ToggleState;
   editMode: boolean;
   onEdit: () => void;
+  /** Called on long-press (enters edit mode) */
+  onLongPress?: () => void;
   /** Layout mode - determines sizing strategy */
   layout?: ToolbarLayout;
   /** Optional size - only used when layout='grid' */
@@ -77,12 +82,33 @@ export function ToolbarButton({
   toggleState,
   editMode,
   onEdit,
+  onLongPress,
   layout = 'grid',
   size,
   dragProps,
   isDragTarget,
 }: ToolbarButtonProps) {
   const { sendCommand } = useReaper();
+
+  // Long-press detection (enters edit mode when not already editing)
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = useRef(false);
+
+  const handlePointerDown = useCallback(() => {
+    if (editMode || !onLongPress) return;
+    longPressFired.current = false;
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
+      onLongPress();
+    }, LONG_PRESS_DELAY);
+  }, [editMode, onLongPress]);
+
+  const handlePointerUp = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
 
   // Determine sizing based on layout mode
   // - horizontal/vertical: use LAYOUT_CONFIG
@@ -95,6 +121,12 @@ export function ToolbarButton({
   const buttonClass = layoutConfig?.container ?? sizeConfig?.button ?? 'w-full h-full px-1 py-0.5';
 
   const handleClick = useCallback(() => {
+    // Suppress click if long-press just fired
+    if (longPressFired.current) {
+      longPressFired.current = false;
+      return;
+    }
+
     if (editMode) {
       onEdit();
       return;
@@ -130,6 +162,10 @@ export function ToolbarButton({
   return (
     <button
       onClick={handleClick}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerLeave={handlePointerUp}
+      onPointerCancel={handlePointerUp}
       {...dragProps}
       className={`
         relative flex flex-col items-center justify-center
@@ -168,8 +204,8 @@ export function ToolbarButton({
         </div>
       )}
 
-      {/* Toggle state indicator dot - always show for REAPER actions (except non-toggles) */}
-      {action.type === 'reaper_action' && toggleState !== -1 && (
+      {/* Toggle state indicator dot - show for REAPER actions with known toggle state */}
+      {action.type === 'reaper_action' && toggleState !== undefined && toggleState !== -1 && (
         <div
           className={`absolute top-1 right-1 w-3 h-3 rounded-full border-2 border-white shadow-md ${
             toggleState === 1

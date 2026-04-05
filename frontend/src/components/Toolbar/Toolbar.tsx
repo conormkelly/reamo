@@ -33,32 +33,26 @@ interface ToolbarProps {
 export function ToolbarHeaderControls(): ReactElement {
   const {
     toolbarEditMode,
+    toolbarActions,
     setToolbarEditMode,
   } = useReaperStore();
-
-  const handleToggleEditMode = useCallback(() => {
-    setToolbarEditMode(!toolbarEditMode);
-  }, [toolbarEditMode, setToolbarEditMode]);
 
   const handleAddClick = useCallback(() => {
     // Dispatch custom event that Toolbar component will listen for
     window.dispatchEvent(new CustomEvent('toolbar:add'));
   }, []);
 
-  return (
-    <div className="flex items-center gap-2">
-      <button
-        onClick={handleToggleEditMode}
-        className={`px-2 py-1 text-xs rounded transition-colors flex items-center gap-1 ${
-          toolbarEditMode
-            ? 'bg-primary text-text-on-primary'
-            : 'bg-bg-elevated hover:bg-bg-hover text-text-tertiary'
-        }`}
-      >
-        <Pencil size={12} />
-        {toolbarEditMode ? 'Done' : 'Edit'}
-      </button>
-      {toolbarEditMode && (
+  // Edit mode active: show Done + Add
+  if (toolbarEditMode) {
+    return (
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setToolbarEditMode(false)}
+          className="px-2 py-1 text-xs rounded transition-colors flex items-center gap-1 bg-primary text-text-on-primary"
+        >
+          <Pencil size={12} />
+          Done
+        </button>
         <button
           onClick={handleAddClick}
           className="px-2 py-1 text-xs bg-success-action hover:bg-success text-text-on-success rounded transition-colors flex items-center gap-1"
@@ -66,9 +60,27 @@ export function ToolbarHeaderControls(): ReactElement {
           <Plus size={12} />
           Add
         </button>
-      )}
-    </div>
-  );
+      </div>
+    );
+  }
+
+  // Not editing, empty toolbar: show Add button so users can bootstrap
+  if (toolbarActions.length === 0) {
+    return (
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => { setToolbarEditMode(true); handleAddClick(); }}
+          className="px-2 py-1 text-xs bg-success-action hover:bg-success text-text-on-success rounded transition-colors flex items-center gap-1"
+        >
+          <Plus size={12} />
+          Add
+        </button>
+      </div>
+    );
+  }
+
+  // Not editing, has buttons: no header controls (long-press a button to edit)
+  return <></>;
 }
 
 export function Toolbar({ layout = 'horizontal' }: ToolbarProps): ReactElement {
@@ -84,6 +96,7 @@ export function Toolbar({ layout = 'horizontal' }: ToolbarProps): ReactElement {
     reorderToolbarActions,
     updateToggleStates,
     setToolbarCurrentPage,
+    setToolbarEditMode,
   } = useReaperStore();
 
   const { sendCommand, sendAsync, connectionStatus } = useReaper();
@@ -286,6 +299,7 @@ export function Toolbar({ layout = 'horizontal' }: ToolbarProps): ReactElement {
       }
       editMode={toolbarEditMode}
       onEdit={() => handleEditClick(action)}
+      onLongPress={() => setToolbarEditMode(true)}
       dragProps={getDragItemProps(absoluteIndex)}
       isDragTarget={isDragTarget(absoluteIndex)}
     />
