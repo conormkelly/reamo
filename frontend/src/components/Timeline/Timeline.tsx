@@ -728,9 +728,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
         />
       </div>
 
-      {/* Footer controls - only in navigate mode */}
-      {timelineMode === 'navigate' && (
-        <TimelineFooter
+      {/* Footer controls - zoom, marker nav, mode toggles */}
+      <TimelineFooter
           // Marker navigation
           onPrevMarker={handlePrevMarker}
           onNextMarker={handleNextMarker}
@@ -757,7 +756,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
           onZoomOut={() => viewport.zoomOut(followPlayhead ? positionSeconds : undefined)}
           onFitToContent={() => viewport.fitToContent({ start: baseTimelineStart, end: baseTimelineStart + baseDuration })}
         />
-      )}
     </div>
   );
 }

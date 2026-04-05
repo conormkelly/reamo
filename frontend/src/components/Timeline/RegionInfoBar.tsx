@@ -1,17 +1,25 @@
 /**
  * Region Info Bar Component
- * Shows name, start/end position, length, and color when a region is selected
- * Fields are tappable to edit values directly
- * Includes "Add Region" button for creating new regions
  *
- * Color picker renders via portal to document.body to escape stacking contexts.
+ * Designed for the SecondaryPanel info tab. No labels, no nested cards.
+ * The format IS the label: color swatch is the color, monospace "1.1 → 5.1" is start→end.
+ *
+ * Layout when region selected:
+ *   [■] Verse 1 ············ [🗑] [+]
+ *   1.1 → 5.1 · 4.0
+ *
+ * Empty states:
+ *   "Select a region to edit"  [+]
+ *   "Add a region"  [+]
+ *
+ * Color: tap swatch = OS color picker, hold = reset to default.
+ * Name/Start/Length: tap to edit inline.
  */
 
 import { useState, useRef, useEffect, type ReactElement } from 'react';
-import { createPortal } from 'react-dom';
-import { Plus, Trash2, CopyPlus, RotateCcw } from 'lucide-react';
+import { Plus, Trash2, CopyPlus } from 'lucide-react';
 import { useReaperStore } from '../../store';
-import { useTimeFormatters, usePortalPosition } from '../../hooks';
+import { useTimeFormatters } from '../../hooks';
 import { hexToReaperColor, reaperColorToHexWithFallback } from '../../utils';
 import type { Region } from '../../core/types';
 import { useReaper } from '../ReaperProvider';
@@ -32,28 +40,22 @@ function parseBarsString(bars: string): { bar: number; beat: number; ticks: numb
 }
 
 /**
- * Parse a duration string (e.g., "10", "10.1", "10.1.50") into bar/beat/ticks
- * For duration, bars start at 0 (not 1-indexed like positions)
+ * Parse a duration string into bar/beat/ticks (bars start at 0 for durations)
  */
 function parseDurationBars(input: string): { bar: number; beat: number; ticks: number } | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
-
   const parts = trimmed.split('.');
   const bar = parseInt(parts[0], 10);
   if (isNaN(bar)) return null;
-
-  // Default beat and ticks to 0 for durations
   const beat = parts.length >= 2 ? parseInt(parts[1], 10) : 0;
   const ticks = parts.length >= 3 ? parseInt(parts[2], 10) : 0;
-
   if (isNaN(beat) || isNaN(ticks)) return null;
   return { bar, beat, ticks };
 }
 
 /**
  * Add duration to a position (with carry for beats/ticks)
- * Returns the new position bar.beat.ticks
  */
 function addDurationToPosition(
   pos: { bar: number; beat: number; ticks: number },
@@ -63,30 +65,23 @@ function addDurationToPosition(
   let ticks = pos.ticks + dur.ticks;
   let beat = pos.beat + dur.beat;
   let bar = pos.bar + dur.bar;
-
-  // Carry ticks -> beat
-  if (ticks >= 100) {
-    beat += Math.floor(ticks / 100);
-    ticks = ticks % 100;
-  }
-
-  // Carry beat -> bar (beat is 1-indexed in positions, so > beatsPerBar means carry)
-  while (beat > beatsPerBar) {
-    beat -= beatsPerBar;
-    bar += 1;
-  }
-
+  if (ticks >= 100) { beat += Math.floor(ticks / 100); ticks = ticks % 100; }
+  while (beat > beatsPerBar) { beat -= beatsPerBar; bar += 1; }
   return { bar, beat, ticks };
 }
 
 interface RegionInfoBarProps {
   className?: string;
   onAddRegion?: () => void;
+  /** Layout mode — 'horizontal' for SecondaryPanel, 'vertical' for landscape sidebar */
+  layout?: 'horizontal' | 'vertical';
 }
 
-type EditingField = 'name' | 'start' | 'length' | 'color' | null;
+type EditingField = 'name' | 'start' | 'length' | null;
 
-export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProps): ReactElement | null {
+const COLOR_HOLD_DURATION = 500;
+
+export function RegionInfoBar({ className = '', onAddRegion, layout = 'horizontal' }: RegionInfoBarProps): ReactElement | null {
   const { sendCommandAsync } = useReaper();
   const timelineMode = useReaperStore((s) => s.timelineMode);
   const selectedRegionIds = useReaperStore((s) => s.selectedRegionIds);
@@ -98,6 +93,7 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
   const createRegion = useReaperStore((s) => s.createRegion);
   const selectRegion = useReaperStore((s) => s.selectRegion);
   const nextNewRegionKey = useReaperStore((s) => s.nextNewRegionKey);
+  const openDeleteRegionModal = useReaperStore((s) => s.openDeleteRegionModal);
 
   const {
     formatBeats,
@@ -110,7 +106,6 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
 
   const [editingField, setEditingField] = useState<EditingField>(null);
   const [editValue, setEditValue] = useState('');
-  // Store region data at edit start to avoid issues when selection changes during edit
   const editingRegionDataRef = useRef<{
     id: number;
     start: number;
@@ -118,249 +113,138 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
     startBars?: string;
     name: string;
   } | null>(null);
-  const [showColorPicker, setShowColorPicker] = useState(false);
-  const openDeleteRegionModal = useReaperStore((s) => s.openDeleteRegionModal);
-  // Cache of bar strings fetched for pending regions (keyed by "id:start:end")
+
   const [pendingBarStrings, setPendingBarStrings] = useState<Record<string, { startBars: string; endBars: string; lengthBars: string }>>({});
   const inputRef = useRef<HTMLInputElement>(null);
-  const colorTriggerRef = useRef<HTMLButtonElement>(null);
-  const colorPickerRef = useRef<HTMLDivElement>(null);
-  const { position: colorPickerPosition } = usePortalPosition(colorTriggerRef, showColorPicker, { placement: 'bottom-start', offset: 8 });
 
-  // Long-press handling for clone functionality
+  // Color swatch: tap = OS picker, hold = reset
+  const colorInputRef = useRef<HTMLInputElement>(null);
+  const colorHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const colorDidResetRef = useRef(false);
+
+  // Long-press for clone
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLongPressRef = useRef(false);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const [isCloneMode, setIsCloneMode] = useState(false);
-  const LONG_PRESS_DURATION = 500; // ms
+  const LONG_PRESS_DURATION = 500;
 
-  // Focus input when editing starts (must be before any early returns)
+  // Focus input when editing starts
   useEffect(() => {
-    if (editingField && editingField !== 'color' && inputRef.current) {
+    if (editingField && inputRef.current) {
       inputRef.current.focus();
       inputRef.current.select();
     }
   }, [editingField]);
 
-  // Fetch bar strings for pending regions (they don't have server bar strings)
-  // This ensures accurate display regardless of playhead position
+  // Fetch bar strings for pending regions
   useEffect(() => {
     const pendingIds = Object.keys(pendingChanges).map(k => parseInt(k, 10));
     if (pendingIds.length === 0) {
-      // Clear cache when no pending changes
-      if (Object.keys(pendingBarStrings).length > 0) {
-        setPendingBarStrings({});
-      }
+      if (Object.keys(pendingBarStrings).length > 0) setPendingBarStrings({});
       return;
     }
 
-    // Fetch bar strings for each pending change
     pendingIds.forEach(async (id) => {
       const change = pendingChanges[id];
       if (!change || change.isDeleted) return;
 
       const cacheKey = `${id}:${change.newStart}:${change.newEnd}`;
-      if (pendingBarStrings[cacheKey]) return; // Already fetched
+      if (pendingBarStrings[cacheKey]) return;
 
       try {
-        // Fetch start, end, and calculate length bar strings
         const [startResp, endResp] = await Promise.all([
           sendCommandAsync(tempoCmd.timeToBeats(change.newStart)),
           sendCommandAsync(tempoCmd.timeToBeats(change.newEnd)),
         ]);
-
         const startData = startResp as { payload?: { bars?: string } } | undefined;
         const endData = endResp as { payload?: { bars?: string } } | undefined;
 
         if (startData?.payload?.bars && endData?.payload?.bars) {
-          // Extract to local variables for TypeScript narrowing
           const startBars = startData.payload.bars;
           const endBars = endData.payload.bars;
-
-          // Parse start and end to calculate length
           const startParsed = parseBarsString(startBars);
           const endParsed = parseBarsString(endBars);
 
           let lengthBars = '';
           if (startParsed && endParsed) {
-            // Calculate length as bar.beat.ticks difference
             let barDiff = endParsed.bar - startParsed.bar;
             let beatDiff = endParsed.beat - startParsed.beat;
             let ticksDiff = endParsed.ticks - startParsed.ticks;
-
-            // Handle borrows
-            if (ticksDiff < 0) {
-              beatDiff -= 1;
-              ticksDiff += 100;
-            }
-            if (beatDiff < 0) {
-              barDiff -= 1;
-              beatDiff += beatsPerBar; // This is approximate, but better than playhead BPM
-            }
-
+            if (ticksDiff < 0) { beatDiff -= 1; ticksDiff += 100; }
+            if (beatDiff < 0) { barDiff -= 1; beatDiff += beatsPerBar; }
             lengthBars = `${barDiff}.${beatDiff}.${ticksDiff.toString().padStart(2, '0')}`;
           }
 
-          setPendingBarStrings(prev => ({
-            ...prev,
-            [cacheKey]: {
-              startBars,
-              endBars,
-              lengthBars,
-            },
-          }));
+          setPendingBarStrings(prev => ({ ...prev, [cacheKey]: { startBars, endBars, lengthBars } }));
         }
       } catch {
-        // Ignore errors, will fall back to local calculation
+        // Ignore — falls back to local calculation
       }
     });
   }, [pendingChanges, pendingBarStrings, sendCommandAsync, beatsPerBar]);
 
-  // Close color picker when clicking outside
-  useEffect(() => {
-    if (!showColorPicker) return;
-
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as Node;
-      const clickedTrigger = colorTriggerRef.current?.contains(target);
-      const clickedPicker = colorPickerRef.current?.contains(target);
-      if (!clickedTrigger && !clickedPicker) {
-        setShowColorPicker(false);
-        setEditingField(null);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showColorPicker]);
-
   // Cleanup timers on unmount
   useEffect(() => {
     return () => {
-      if (longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current);
-      }
-      if (selectTimerRef.current) {
-        clearTimeout(selectTimerRef.current);
-      }
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      if (selectTimerRef.current) clearTimeout(selectTimerRef.current);
+      if (colorHoldTimerRef.current) clearTimeout(colorHoldTimerRef.current);
     };
   }, []);
 
   // Only show in regions mode
-  if (timelineMode !== 'regions') {
-    return null;
-  }
+  if (timelineMode !== 'regions') return null;
 
-  // Get display regions (with pending changes)
   const displayRegions = getDisplayRegions(regions);
-  // Find the selected region by ID (stable across server updates)
   const selectedId = selectedRegionIds.length === 1 ? selectedRegionIds[0] : null;
   const region: Region | undefined = selectedId !== null
     ? displayRegions.find(r => r.id === selectedId)
     : undefined;
 
-  // Check if selected region has pending changes (no server bar strings)
+  // Pending bar strings
   const pendingChange = selectedId !== null ? pendingChanges[selectedId] : null;
-  const hasPendingChanges = pendingChange !== null && pendingChange !== undefined;
+  const hasPending = pendingChange !== null && pendingChange !== undefined;
+  const pendingCacheKey = hasPending && region ? `${selectedId}:${region.start}:${region.end}` : null;
+  const fetchedBars = pendingCacheKey ? pendingBarStrings[pendingCacheKey] : null;
 
-  // Get fetched bar strings for pending region (if available)
-  const pendingCacheKey = hasPendingChanges && region ? `${selectedId}:${region.start}:${region.end}` : null;
-  const fetchedPendingBars = pendingCacheKey ? pendingBarStrings[pendingCacheKey] : null;
-
-  // Display bar strings: prefer fetched pending bars, then server bars, then local calculation
-  const displayStartBars = fetchedPendingBars?.startBars ?? region?.startBars ?? (region ? formatBeats(region.start) : '');
-  const displayEndBars = fetchedPendingBars?.endBars ?? region?.endBars ?? (region ? formatBeats(region.end) : '');
-  const displayLengthBars = fetchedPendingBars?.lengthBars ?? region?.lengthBars ?? (region ? formatDuration(region.end - region.start) : '');
-
-  // Get unique colors from all regions for the picker
-  const existingColors = new Set<string>();
-  displayRegions.forEach((r) => {
-    if (r.color) {
-      existingColors.add(reaperColorToHexWithFallback(r.color, DEFAULT_REGION_COLOR));
-    }
-  });
+  const displayStartBars = fetchedBars?.startBars ?? region?.startBars ?? (region ? formatBeats(region.start) : '');
+  const displayEndBars = fetchedBars?.endBars ?? region?.endBars ?? (region ? formatBeats(region.end) : '');
+  const displayLengthBars = fetchedBars?.lengthBars ?? region?.lengthBars ?? (region ? formatDuration(region.end - region.start) : '');
 
   const currentColor = region ? reaperColorToHexWithFallback(region.color, DEFAULT_REGION_COLOR) : DEFAULT_REGION_COLOR;
+  const isDefaultColor = !region?.color || region.color === 0;
+
+  // --- Field editing ---
 
   const handleFieldClick = (field: EditingField) => {
     if (!region) return;
-
-    // Capture region data at edit start to use in handleConfirm
-    // This prevents issues when selection changes during edit
-    // Use display bar strings which include fetched pending bar strings
     editingRegionDataRef.current = {
-      id: region.id,
-      start: region.start,
-      end: region.end,
-      startBars: displayStartBars || undefined,
-      name: region.name,
+      id: region.id, start: region.start, end: region.end,
+      startBars: displayStartBars || undefined, name: region.name,
     };
-
-    if (field === 'color') {
-      setShowColorPicker(true);
-      setEditingField('color');
-      return;
-    }
 
     if (!bpm && (field === 'start' || field === 'length')) return;
 
     setEditingField(field);
-    if (field === 'name') {
-      setEditValue(region.name);
-    } else if (field === 'start') {
-      // Use display bar string (fetched pending or server), stripping trailing .00 ticks for easier editing
-      setEditValue(displayStartBars.replace(/\.00$/, ''));
-    } else if (field === 'length') {
-      // Use display bar string (fetched pending or server), stripping trailing .00 ticks for easier editing
-      setEditValue(displayLengthBars.replace(/\.00$/, ''));
-    }
-  };
-
-  // Check if region uses default color (color = 0 or undefined)
-  const isDefaultColor = !region?.color || region.color === 0;
-
-  const handleColorSelect = (hex: string) => {
-    // Use captured region ID to ensure we update the right region
-    const editRegion = editingRegionDataRef.current;
-    if (!editRegion) return;
-    const reaperColor = hexToReaperColor(hex);
-    updateRegionMeta(editRegion.id, { color: reaperColor }, regions);
-    setShowColorPicker(false);
-    setEditingField(null);
-    editingRegionDataRef.current = null;
-  };
-
-  const handleColorReset = () => {
-    // Use captured region ID to ensure we update the right region
-    const editRegion = editingRegionDataRef.current;
-    if (!editRegion) return;
-    // Send 0 to reset to REAPER's default region color
-    updateRegionMeta(editRegion.id, { color: 0 }, regions);
-    setShowColorPicker(false);
-    setEditingField(null);
-    editingRegionDataRef.current = null;
+    if (field === 'name') setEditValue(region.name);
+    else if (field === 'start') setEditValue(displayStartBars.replace(/\.00$/, ''));
+    else if (field === 'length') setEditValue(displayLengthBars.replace(/\.00$/, ''));
   };
 
   const handleConfirm = async () => {
-    // Use the captured region data from when editing started
-    // This prevents applying changes to wrong region if selection changed
     const editRegion = editingRegionDataRef.current;
     if (!editRegion || !editingField) {
-      setEditingField(null);
-      setEditValue('');
-      editingRegionDataRef.current = null;
+      setEditingField(null); setEditValue(''); editingRegionDataRef.current = null;
       return;
     }
 
     if (editingField === 'name') {
-      if (editValue.trim()) {
-        updateRegionMeta(editRegion.id, { name: editValue.trim() }, regions);
-      }
+      if (editValue.trim()) updateRegionMeta(editRegion.id, { name: editValue.trim() }, regions);
     } else if (bpm) {
       if (editingField === 'start') {
-        // Parse bar.beat.ticks and convert to time via server (no ripple, no snapping)
-        const parsed = parseBarsString(editValue) ?? parseBarsString(editValue + '.1'); // Handle "13" -> "13.1"
+        const parsed = parseBarsString(editValue) ?? parseBarsString(editValue + '.1');
         if (parsed) {
           try {
             const response = await sendCommandAsync(tempoCmd.barsToTime(parsed.bar, parsed.beat, parsed.ticks));
@@ -369,7 +253,6 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
               updateRegionBounds(editRegion.id, { start: resp.payload.time }, regions);
             }
           } catch {
-            // Fall back to local parsing
             const newSeconds = parseBarBeat(editValue);
             if (newSeconds !== null && newSeconds >= 0 && newSeconds < editRegion.end) {
               updateRegionBounds(editRegion.id, { start: newSeconds }, regions);
@@ -377,95 +260,83 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
           }
         }
       } else if (editingField === 'length') {
-        // Parse duration as bar.beat.ticks (no ripple, no snapping)
         const durParsed = parseDurationBars(editValue);
-        // Parse start position from server's startBars (captured at edit start)
         const startParsed = editRegion.startBars ? parseBarsString(editRegion.startBars) : null;
 
         if (durParsed && startParsed) {
-          // Add duration to start position to get new end position
           const newEnd = addDurationToPosition(startParsed, durParsed, beatsPerBar);
-
           try {
-            // Convert new end bar.beat.ticks to time via server
             const response = await sendCommandAsync(tempoCmd.barsToTime(newEnd.bar, newEnd.beat, newEnd.ticks));
             const resp = response as { payload?: { time?: number } } | undefined;
             if (resp?.payload?.time !== undefined && resp.payload.time > editRegion.start) {
               updateRegionBounds(editRegion.id, { end: resp.payload.time }, regions);
             }
           } catch {
-            // Fall back to local parsing
             const newDuration = parseDuration(editValue);
             if (newDuration !== null && newDuration > 0) {
-              const newEndTime = editRegion.start + newDuration;
-              updateRegionBounds(editRegion.id, { end: newEndTime }, regions);
+              updateRegionBounds(editRegion.id, { end: editRegion.start + newDuration }, regions);
             }
           }
         } else {
-          // Fall back to local parsing if we don't have startBars
           const newDuration = parseDuration(editValue);
           if (newDuration !== null && newDuration > 0) {
-            const newEndTime = editRegion.start + newDuration;
-            updateRegionBounds(editRegion.id, { end: newEndTime }, regions);
+            updateRegionBounds(editRegion.id, { end: editRegion.start + newDuration }, regions);
           }
         }
       }
     }
 
-    setEditingField(null);
-    setEditValue('');
-    editingRegionDataRef.current = null;
+    setEditingField(null); setEditValue(''); editingRegionDataRef.current = null;
   };
 
   const handleCancel = () => {
-    setEditingField(null);
-    setEditValue('');
-    setShowColorPicker(false);
-    editingRegionDataRef.current = null;
+    setEditingField(null); setEditValue(''); editingRegionDataRef.current = null;
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleConfirm();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      handleCancel();
-    }
+    if (e.key === 'Enter') { e.preventDefault(); handleConfirm(); }
+    else if (e.key === 'Escape') { e.preventDefault(); handleCancel(); }
   };
 
-  // Clone selected region and place at end of last region
+  // --- Color swatch: tap = OS picker, hold = reset ---
+
+  const handleColorPointerDown = () => {
+    if (!region) return;
+    colorDidResetRef.current = false;
+    colorHoldTimerRef.current = setTimeout(() => {
+      colorDidResetRef.current = true;
+      updateRegionMeta(region.id, { color: 0 }, regions);
+    }, COLOR_HOLD_DURATION);
+  };
+
+  const handleColorPointerUp = () => {
+    if (colorHoldTimerRef.current) { clearTimeout(colorHoldTimerRef.current); colorHoldTimerRef.current = null; }
+    if (!colorDidResetRef.current) colorInputRef.current?.click();
+  };
+
+  const handleColorPointerCancel = () => {
+    if (colorHoldTimerRef.current) { clearTimeout(colorHoldTimerRef.current); colorHoldTimerRef.current = null; }
+  };
+
+  const handleColorChange = (hex: string) => {
+    if (!region) return;
+    updateRegionMeta(region.id, { color: hexToReaperColor(hex) }, regions);
+  };
+
+  // --- Clone ---
+
   const handleCloneRegion = () => {
     if (!region || !bpm) return;
-
-    // Find end of last region in displayRegions
-    const lastEnd = displayRegions.length > 0
-      ? Math.max(...displayRegions.map(r => r.end))
-      : 0;
-
-    // Clone with same duration
-    const cloneDuration = region.end - region.start;
-    const start = lastEnd;
-    const end = start + cloneDuration;
-
-    // Store the key that will be used for the new region
+    const lastEnd = displayRegions.length > 0 ? Math.max(...displayRegions.map(r => r.end)) : 0;
+    const duration = region.end - region.start;
     const newRegionKey = nextNewRegionKey;
-
-    createRegion(start, end, region.name, bpm, region.color, regions);
-
-    // Select the new region by its ID (the newRegionKey IS the ID for new regions)
-    // We need to do this after state updates, so use setTimeout with ref for cleanup
-    selectTimerRef.current = setTimeout(() => {
-      selectRegion(newRegionKey);
-    }, 0);
+    createRegion(lastEnd, lastEnd + duration, region.name, bpm, region.color, regions);
+    selectTimerRef.current = setTimeout(() => selectRegion(newRegionKey), 0);
   };
 
-  // Long-press handlers for Add button
   const handleAddPointerDown = () => {
     isLongPressRef.current = false;
     setIsCloneMode(false);
-
-    // Only enable clone mode if a region is selected
     if (region) {
       longPressTimerRef.current = setTimeout(() => {
         isLongPressRef.current = true;
@@ -475,257 +346,212 @@ export function RegionInfoBar({ className = '', onAddRegion }: RegionInfoBarProp
   };
 
   const handleAddPointerUp = () => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-
-    // If it was a long press and we have a region, clone it
-    if (isLongPressRef.current && region) {
-      handleCloneRegion();
-    } else if (!isLongPressRef.current && onAddRegion) {
-      // Normal tap - open add modal
-      onAddRegion();
-    }
-
+    if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+    if (isLongPressRef.current && region) handleCloneRegion();
+    else if (!isLongPressRef.current && onAddRegion) onAddRegion();
     setIsCloneMode(false);
   };
 
   const handleAddPointerLeave = () => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
+    if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
     isLongPressRef.current = false;
     setIsCloneMode(false);
   };
 
-  const handleAddPointerMove = (e: React.PointerEvent) => {
-    // Cancel if pointer moves outside the button
-    if (!addButtonRef.current) return;
-    const rect = addButtonRef.current.getBoundingClientRect();
-    const isOutside =
-      e.clientX < rect.left ||
-      e.clientX > rect.right ||
-      e.clientY < rect.top ||
-      e.clientY > rect.bottom;
+  // --- Render ---
 
-    if (isOutside) {
-      if (longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
-      }
-      isLongPressRef.current = false;
-      setIsCloneMode(false);
-    }
-  };
+  const actionBtn = 'p-1.5 rounded transition-colors';
 
-  const renderField = (
-    field: EditingField,
-    label: string,
-    value: string,
-    colorClass: string = 'text-text-primary',
-    inputWidth: string = 'w-24'
-  ) => {
-    const isEditing = editingField === field;
-
+  // No regions at all
+  if (displayRegions.length === 0) {
     return (
-      <div className="flex items-center gap-1.5">
-        <span className="text-text-secondary text-xs">{label}:</span>
-        {isEditing ? (
-          <input
-            ref={inputRef}
-            type="text"
-            value={editValue}
-            onChange={(e) => setEditValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onBlur={handleConfirm}
-            className={`${inputWidth} px-1.5 py-0.5 bg-bg-elevated border border-accent-region rounded text-text-primary font-mono text-base focus:outline-none focus:ring-1 focus:ring-accent-region`}
-          />
-        ) : (
-          <button
-            onClick={() => handleFieldClick(field)}
-            className={`${colorClass} font-mono text-sm hover:bg-bg-elevated px-1.5 py-0.5 rounded transition-colors cursor-pointer truncate max-w-28`}
-          >
-            {value}
+      <div className={`flex items-center gap-2 px-3 py-2 ${className}`}>
+        <span className="text-text-muted text-sm flex-1">Add a region</span>
+        {onAddRegion && (
+          <button onClick={onAddRegion} className={`${actionBtn} bg-accent-region text-text-primary`} title="Add region">
+            <Plus size={18} />
           </button>
         )}
       </div>
     );
-  };
+  }
 
-  return (
-    <div className={`flex items-center gap-2 ${className}`}>
-      {/* Region info section */}
-      <div className="flex flex-col gap-2 px-infobar-x py-infobar-y bg-bg-surface/50 rounded-lg text-sm flex-1 min-w-0">
-        {region ? (
-          <>
-            {/* Line 1: Name and Color */}
-            <div className="flex items-center gap-3">
-              {/* Name */}
-              {renderField('name', 'Name', region.name, 'text-text-primary font-medium', 'w-28')}
-
-              <div className="w-px h-5 bg-border-default flex-shrink-0" />
-
-              {/* Color */}
-              <div className="flex items-center gap-1.5 relative">
-                <span className="text-text-secondary text-xs">Color:</span>
-                <button
-                  ref={colorTriggerRef}
-                  onClick={() => handleFieldClick('color')}
-                  className="w-7 h-7 rounded border-2 border-border-default hover:border-text-secondary transition-colors cursor-pointer"
-                  style={{ backgroundColor: currentColor }}
-                  title="Change color"
-                  aria-expanded={showColorPicker}
-                  aria-haspopup="true"
-                />
-                {showColorPicker && createPortal(
-                  <div
-                    ref={colorPickerRef}
-                    className="fixed p-3 bg-bg-surface border border-border-default rounded-lg shadow-xl z-popover min-w-[200px]"
-                    style={{ top: colorPickerPosition.top, left: colorPickerPosition.left }}
-                  >
-                    {/* Default + Project colors row */}
-                    <div className="mb-3">
-                      <div className="flex gap-2 overflow-x-auto pb-1 max-w-[200px] items-center">
-                        {/* Default (reset) color - always first */}
-                        <button
-                          onClick={handleColorReset}
-                          className={`w-6 h-6 rounded border-2 transition-all flex-shrink-0 relative ${
-                            isDefaultColor
-                              ? 'border-on-primary scale-110'
-                              : 'border-transparent hover:border-text-secondary'
-                          }`}
-                          style={{ backgroundColor: DEFAULT_REGION_COLOR }}
-                          title="Reset to default"
-                        >
-                          <RotateCcw size={10} className="absolute inset-0 m-auto text-white/80" />
-                        </button>
-
-                        {/* Existing colors from project */}
-                        {Array.from(existingColors).map((color) => (
-                          <button
-                            key={color}
-                            onClick={() => handleColorSelect(color)}
-                            className={`w-6 h-6 rounded border-2 transition-all flex-shrink-0 ${
-                              !isDefaultColor && currentColor.toLowerCase() === color.toLowerCase()
-                                ? 'border-on-primary scale-110'
-                                : 'border-transparent hover:border-text-secondary'
-                            }`}
-                            style={{ backgroundColor: color }}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                    {/* Color picker and hex input */}
-                    <div className="text-xs text-text-secondary mb-1.5">Pick color</div>
-                    <div className="flex gap-2 items-center">
-                      <input
-                        type="color"
-                        value={currentColor}
-                        onChange={(e) => handleColorSelect(e.target.value)}
-                        className="w-8 h-8 rounded border-2 border-border-default cursor-pointer bg-transparent"
-                        title="Pick a color"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Default"
-                        defaultValue={isDefaultColor ? '' : currentColor}
-                        className="flex-1 px-2 py-1 bg-bg-elevated border border-border-default rounded text-text-primary text-xs font-mono focus:outline-none focus:border-accent-region"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            const val = (e.target as HTMLInputElement).value;
-                            if (/^#?[0-9a-f]{6}$/i.test(val)) {
-                              handleColorSelect(val.startsWith('#') ? val : `#${val}`);
-                            }
-                          }
-                        }}
-                      />
-                    </div>
-                  </div>,
-                  document.body
-                )}
-              </div>
-            </div>
-
-            {/* Line 2: Start, End */}
-            <div className="flex items-center gap-3">
-              {/* Start position - use fetched pending bar string, or server bar string, or local calc */}
-              {renderField(
-                'start',
-                'Start',
-                displayStartBars
-              )}
-
-              <div className="w-px h-5 bg-border-default flex-shrink-0" />
-
-              {/* End position - display only (derived from start + length) */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-text-secondary text-xs">End:</span>
-                <span className="text-text-tertiary font-mono text-sm px-1.5 py-0.5">
-                  {displayEndBars}
-                </span>
-              </div>
-
-              {/* Length - inline on larger screens */}
-              <div className="hidden sm:flex items-center gap-3">
-                <div className="w-px h-5 bg-border-default flex-shrink-0" />
-                {renderField(
-                  'length',
-                  'Length',
-                  displayLengthBars,
-                  'text-accent-region-hover font-medium'
-                )}
-              </div>
-            </div>
-
-            {/* Line 3: Length - mobile only */}
-            <div className="flex sm:hidden items-center gap-3">
-              {renderField(
-                'length',
-                'Length',
-                displayLengthBars,
-                'text-accent-region-hover font-medium'
-              )}
-            </div>
-          </>
-        ) : (
-          <span className="text-text-muted text-sm italic py-1">Select a region to edit</span>
+  // No region selected
+  if (!region) {
+    return (
+      <div className={`flex items-center gap-2 px-3 py-2 ${className}`}>
+        <span className="text-text-muted text-sm flex-1">Select a region to edit</span>
+        {onAddRegion && (
+          <button onClick={onAddRegion} className={`${actionBtn} bg-accent-region text-text-primary`} title="Add region">
+            <Plus size={18} />
+          </button>
         )}
       </div>
+    );
+  }
 
-      {/* Delete Region button - only show when a region is selected */}
-      {region && (
-        <button
-          onClick={() => openDeleteRegionModal(region, region.id)}
-          className="flex items-center gap-1.5 px-3 py-2.5 bg-error-action/80 hover:bg-error text-text-on-error text-sm font-medium rounded-lg transition-colors flex-shrink-0"
-          title="Delete selected region"
-        >
-          <Trash2 size={18} />
-          <span className="hidden sm:inline">Delete</span>
-        </button>
+  // Strip trailing .00 for compact display
+  const startDisplay = displayStartBars.replace(/\.00$/, '');
+  const endDisplay = displayEndBars.replace(/\.00$/, '');
+  const lengthDisplay = displayLengthBars.replace(/\.00$/, '');
+
+  // Shared sub-components used by both layouts
+  const colorSwatch = (
+    <div
+      onPointerDown={handleColorPointerDown}
+      onPointerUp={handleColorPointerUp}
+      onPointerLeave={handleColorPointerCancel}
+      onPointerCancel={handleColorPointerCancel}
+      className="relative w-6 h-6 rounded-sm border border-border-default cursor-pointer flex-shrink-0 touch-none"
+      style={{ backgroundColor: currentColor }}
+      title={isDefaultColor ? 'Tap to pick color' : 'Tap to change, hold to reset'}
+    >
+      {!isDefaultColor && (
+        <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-primary-hover rounded-full" />
       )}
+      <input
+        ref={colorInputRef}
+        type="color"
+        value={currentColor}
+        onChange={(e) => handleColorChange(e.target.value)}
+        className="absolute inset-0 opacity-0 cursor-pointer"
+        tabIndex={-1}
+      />
+    </div>
+  );
 
-      {/* Add Region button - long press to clone selected region */}
+  const nameField = editingField === 'name' ? (
+    <input
+      ref={inputRef}
+      type="text"
+      value={editValue}
+      onChange={(e) => setEditValue(e.target.value)}
+      onKeyDown={handleKeyDown}
+      onBlur={handleConfirm}
+      className="flex-1 min-w-0 px-1.5 py-0.5 bg-bg-elevated border border-accent-region rounded text-text-primary text-base focus:outline-none focus:ring-1 focus:ring-accent-region"
+    />
+  ) : (
+    <button
+      onClick={() => handleFieldClick('name')}
+      className="text-text-primary font-medium text-sm truncate min-w-0 flex-1 text-left px-1 py-0.5 rounded hover:bg-bg-elevated transition-colors"
+    >
+      {region.name}
+    </button>
+  );
+
+  const startField = editingField === 'start' ? (
+    <input
+      ref={inputRef}
+      type="text"
+      value={editValue}
+      onChange={(e) => setEditValue(e.target.value)}
+      onKeyDown={handleKeyDown}
+      onBlur={handleConfirm}
+      className="w-20 px-1 py-0.5 bg-bg-elevated border border-accent-region rounded text-text-primary text-base font-mono focus:outline-none focus:ring-1 focus:ring-accent-region"
+    />
+  ) : (
+    <button
+      onClick={() => handleFieldClick('start')}
+      className="text-text-secondary hover:bg-bg-elevated px-1 py-0.5 rounded transition-colors"
+    >
+      {startDisplay}
+    </button>
+  );
+
+  const lengthField = editingField === 'length' ? (
+    <input
+      ref={inputRef}
+      type="text"
+      value={editValue}
+      onChange={(e) => setEditValue(e.target.value)}
+      onKeyDown={handleKeyDown}
+      onBlur={handleConfirm}
+      className="w-20 px-1 py-0.5 bg-bg-elevated border border-accent-region rounded text-text-primary text-base font-mono focus:outline-none focus:ring-1 focus:ring-accent-region"
+    />
+  ) : (
+    <button
+      onClick={() => handleFieldClick('length')}
+      className="text-accent-region-hover hover:bg-bg-elevated px-1 py-0.5 rounded transition-colors"
+    >
+      {lengthDisplay}
+    </button>
+  );
+
+  const actionButtons = (
+    <div className="flex items-center gap-0.5 flex-shrink-0">
+      <button
+        onClick={() => openDeleteRegionModal(region, region.id)}
+        className={`${actionBtn} text-text-tertiary hover:text-error-text hover:bg-error-bg`}
+        title="Delete region"
+      >
+        <Trash2 size={16} />
+      </button>
       {onAddRegion && (
         <button
           ref={addButtonRef}
           onPointerDown={handleAddPointerDown}
           onPointerUp={handleAddPointerUp}
-          onPointerMove={handleAddPointerMove}
           onPointerLeave={handleAddPointerLeave}
           onPointerCancel={handleAddPointerLeave}
-          className={`flex items-center gap-1.5 px-3 py-2.5 text-text-primary text-sm font-medium rounded-lg transition-colors flex-shrink-0 touch-none ${
+          className={`${actionBtn} touch-none ${
             isCloneMode
-              ? 'bg-success-action hover:bg-success'
-              : 'bg-accent-region hover:bg-accent-region-hover'
+              ? 'text-text-on-success bg-success-action'
+              : 'text-accent-region hover:bg-bg-elevated'
           }`}
-          title={region ? 'Tap to add, long-press to clone selected' : 'Add new region'}
+          title="Tap to add, hold to clone"
         >
-          {isCloneMode ? <CopyPlus size={18} /> : <Plus size={18} />}
-          <span className="hidden sm:inline">{isCloneMode ? 'Clone' : 'Add'}</span>
+          {isCloneMode ? <CopyPlus size={16} /> : <Plus size={16} />}
         </button>
       )}
+    </div>
+  );
+
+  // --- Vertical layout (landscape sidebar) ---
+  if (layout === 'vertical') {
+    return (
+      <div className={`flex flex-col gap-2 px-3 py-2 text-sm ${className}`}>
+        {/* [swatch] name */}
+        <div className="flex items-center gap-2 min-w-0">
+          {colorSwatch}
+          {nameField}
+        </div>
+
+        {/* start → end */}
+        <div className="flex items-center gap-1.5 font-mono text-xs">
+          {startField}
+          <span className="text-text-muted">→</span>
+          <span className="text-text-tertiary px-1 py-0.5">{endDisplay}</span>
+        </div>
+
+        {/* length */}
+        <div className="font-mono text-xs">
+          {lengthField}
+        </div>
+
+        {/* actions */}
+        {actionButtons}
+      </div>
+    );
+  }
+
+  // --- Horizontal layout (portrait SecondaryPanel) ---
+  return (
+    <div className={`flex flex-col gap-1.5 px-3 py-2 text-sm ${className}`}>
+      {/* Row 1: [swatch] name ............ [actions] */}
+      <div className="flex items-center gap-2 min-w-0">
+        {colorSwatch}
+        {nameField}
+        {actionButtons}
+      </div>
+
+      {/* Row 2: start → end · length — the format is the label */}
+      <div className="flex items-center gap-1.5 font-mono text-xs pl-8">
+        {startField}
+        <span className="text-text-muted">→</span>
+        <span className="text-text-tertiary px-1 py-0.5">{endDisplay}</span>
+        <span className="text-text-muted">·</span>
+        {lengthField}
+      </div>
     </div>
   );
 }

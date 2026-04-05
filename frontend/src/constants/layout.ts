@@ -70,13 +70,13 @@ export const MIXER_CONTENT_PADDING = 36;
  * - Ruler: 32px
  * - Region labels bar: 25px
  * - Bottom bar (marker pills): h-5 = 20px
- * - Footer (navigate mode): ~44px
+ * - Footer: ~44px
  * Total: ~121px
  *
- * In regions mode (no footer): 77px
+ * Both modes now share the same footer (zoom, marker nav, mode toggles).
  */
 export const TIMELINE_OVERHEAD_NAVIGATE = 121;
-export const TIMELINE_OVERHEAD_REGIONS = 77;
+export const TIMELINE_OVERHEAD_REGIONS = 121;
 
 /** Padding inside timeline content area (p-3 = 24px + mt-2 = 8px) */
 export const TIMELINE_CONTENT_PADDING = 32;

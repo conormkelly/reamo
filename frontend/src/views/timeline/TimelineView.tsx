@@ -515,15 +515,8 @@ export function TimelineView(): ReactElement {
   // Info tab content - changes based on mode
   const infoTabContent = useMemo(() => {
     if (timelineMode === 'regions') {
-      // Regions mode: show RegionInfoBar + RegionEditActionBar
-      return (
-        <>
-          <RegionInfoBar onAddRegion={openAddRegionModal} />
-          <div className="mt-2">
-            <RegionEditActionBar />
-          </div>
-        </>
-      );
+      // Regions mode: editable region info in info tab (consistent with navigate mode)
+      return <RegionInfoBar onAddRegion={openAddRegionModal} />;
     } else {
       // Navigate mode: show marker/item info or fallback
       return (
@@ -533,7 +526,7 @@ export function TimelineView(): ReactElement {
           {selectedMarkerId === null && !itemSelectionModeActive && (
             <div
               data-testid="nothing-selected-message"
-              className="px-3 py-2 bg-bg-surface/50 rounded-lg text-text-muted text-sm text-center"
+              className="px-3 py-2 text-text-muted text-sm text-center"
             >
               Tap a marker pill or item
             </div>
@@ -543,13 +536,13 @@ export function TimelineView(): ReactElement {
     }
   }, [timelineMode, openAddRegionModal, selectedMarkerId, itemSelectionModeActive]);
 
-  // Info content for side rail (landscape - vertical layout for MarkerInfoBar)
+  // Info content for side rail (landscape - vertical layout)
   const sideRailInfoContent = useMemo(() => {
     if (timelineMode === 'regions') {
-      // Regions mode: show RegionInfoBar + RegionEditActionBar
+      // Regions mode: editable region info + unsaved changes bar
       return (
         <>
-          <RegionInfoBar onAddRegion={openAddRegionModal} />
+          <RegionInfoBar onAddRegion={openAddRegionModal} layout="vertical" />
           <div className="mt-2">
             <RegionEditActionBar />
           </div>
@@ -560,11 +553,11 @@ export function TimelineView(): ReactElement {
       return (
         <section data-testid="navigate-info-section" className="flex flex-col gap-2">
           <MarkerInfoBar layout="vertical" />
-          {selectedMarkerId === null && itemSelectionModeActive && <NavigateItemInfoBar />}
+          {selectedMarkerId === null && itemSelectionModeActive && <NavigateItemInfoBar layout="vertical" />}
           {selectedMarkerId === null && !itemSelectionModeActive && (
             <div
               data-testid="nothing-selected-message"
-              className="px-3 py-2 bg-bg-surface/50 rounded-lg text-text-muted text-sm text-center"
+              className="px-3 py-2 text-text-muted text-sm text-center"
             >
               Tap a marker pill or item
             </div>
@@ -677,8 +670,29 @@ export function TimelineView(): ReactElement {
   }), [filterQuery, handleSetFilterQuery]);
 
   // Footer content - SecondaryPanel with search and bank nav in header
+  // Regions mode gets a taller panel so region editing controls aren't clipped
   const footerContent = (
-    <SecondaryPanel viewId="timeline" tabs={secondaryTabs} bankNav={bankNavProps} search={searchProps} />
+    <SecondaryPanel
+      viewId="timeline"
+      tabs={secondaryTabs}
+      bankNav={bankNavProps}
+      search={searchProps}
+    />
+  );
+
+  // Persistent unsaved changes bar (portrait only, between timeline and panel)
+  const unsavedChangesBar = timelineMode === 'regions' && !isLandscapeConstrained ? (
+    <div className="px-2">
+      <RegionEditActionBar />
+    </div>
+  ) : null;
+
+  // Combined footer: unsaved changes bar + secondary panel
+  const combinedFooter = isLandscapeConstrained ? undefined : (
+    <>
+      {unsavedChangesBar}
+      {footerContent}
+    </>
   );
 
   return (
@@ -687,7 +701,7 @@ export function TimelineView(): ReactElement {
         viewId="timeline"
         className="bg-bg-app text-text-primary p-view"
         header={headerContent}
-        footer={isLandscapeConstrained ? undefined : footerContent}
+        footer={combinedFooter}
         scrollable={false}
       >
         {/* Main timeline area - containerRef for height measurement */}

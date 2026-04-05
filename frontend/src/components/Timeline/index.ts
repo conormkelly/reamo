@@ -3,6 +3,7 @@ export { TimelineFooter, type TimelineFooterProps } from './TimelineFooter';
 export { TimelineModeToggle } from './TimelineModeToggle';
 export { RegionEditActionBar } from './RegionEditActionBar';
 export { RegionInfoBar } from './RegionInfoBar';
+export { RegionContextBar } from './RegionContextBar';
 export { AddRegionModal } from './AddRegionModal';
 export { MakeSelectionModal } from './MakeSelectionModal';
 export { MarkerEditModal, type MarkerEditModalProps } from './MarkerEditModal';
