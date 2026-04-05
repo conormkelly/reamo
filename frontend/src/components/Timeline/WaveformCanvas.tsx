@@ -460,6 +460,30 @@ export function WaveformCanvas({
       }
     }
 
+    // Draw separator lines between adjacent/touching items on the same track.
+    // Without these, two items that share a boundary look like one big item.
+    // Sort items by position, then draw a 1px line wherever one item's end
+    // meets another item's start (within a tiny tolerance for float precision).
+    const sorted = [...items].sort((a, b) => a.position - b.position);
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const curr = sorted[i];
+      const next = sorted[i + 1];
+      const gap = next.position - (curr.position + curr.length);
+      // Tolerance: items "touch" if gap is within ~1ms
+      if (Math.abs(gap) < 0.002) {
+        const boundaryRatio = (next.position - viewportStart) / viewportDuration;
+        const bx = Math.round(boundaryRatio * width);
+        if (bx >= 0 && bx <= width) {
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(bx + 0.5, itemY);
+          ctx.lineTo(bx + 0.5, itemY + itemHeight);
+          ctx.stroke();
+        }
+      }
+    }
+
     // Clear canvas regions NOT covered by any item (prevents stale waveforms)
     clearUncoveredRegions(ctx, drawnRegions, width, height);
 
