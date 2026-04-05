@@ -8,6 +8,8 @@
  * - Bank navigation (back/forward/display)
  * - Expand button to show content panel
  *
+ * Note: Transport time display was moved to ViewHeader for consistency across all landscape views.
+ *
  * Mirrors SecondaryPanel behavior but in vertical orientation.
  * Placed on right side of screen, complementing NavRail on left.
  *
@@ -19,10 +21,6 @@ import { ChevronUp, ChevronDown, ChevronLeft, Search, type LucideIcon } from 'lu
 import { ContextRailTab } from './ContextRailTab';
 import { ContextRailPanel } from './ContextRailPanel';
 import { BottomSheet } from '../Modal/BottomSheet';
-import { QuickActionsPanel } from '../Layout/QuickActionsPanel';
-import { MarkerNavigationPanel } from '../Layout/MarkerNavigationPanel';
-import { useLongPress, useDoubleTap, useTransportAnimation } from '../../hooks';
-import { formatTime } from '../../utils';
 
 // =============================================================================
 // Types
@@ -101,31 +99,6 @@ export function ContextRail({
 
   // Search sheet state
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-
-  // Quick actions and marker navigation panel state
-  const [isQuickActionsOpen, setIsQuickActionsOpen] = useState(false);
-  const [isMarkerNavOpen, setIsMarkerNavOpen] = useState(false);
-
-  // Refs for 60fps time display updates (bypass React state)
-  const beatsRef = useRef<HTMLSpanElement>(null);
-  const timeRef = useRef<HTMLSpanElement>(null);
-
-  // Subscribe to transport animation for 60fps time display updates
-  useTransportAnimation((state) => {
-    if (beatsRef.current) beatsRef.current.textContent = state.positionBeats;
-    if (timeRef.current) timeRef.current.textContent = formatTime(state.position, { precision: 0 });
-  }, []);
-
-  // Gesture handlers for time display
-  const { onClick: handleDoubleTap } = useDoubleTap({
-    onDoubleTap: useCallback(() => setIsQuickActionsOpen(true), []),
-  });
-
-  const { handlers: timeDisplayHandlers } = useLongPress({
-    onTap: handleDoubleTap,
-    onLongPress: useCallback(() => setIsMarkerNavOpen(true), []),
-    duration: 500,
-  });
 
   // Get active tab config
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
@@ -219,19 +192,6 @@ export function ContextRail({
 
       {/* Spacer */}
       <div className="flex-1" />
-
-      {/* Time/Position Display - above bank navigation */}
-      <div className="shrink-0 flex flex-col items-center py-2 border-t border-border-subtle">
-        <button
-          {...timeDisplayHandlers}
-          className="w-14 py-2 flex flex-col items-center justify-center rounded-lg hover:bg-bg-hover active:bg-bg-elevated transition-colors touch-none"
-          title="Double-tap: quick actions, Hold: markers"
-          aria-label="Time display. Double-tap for quick actions, hold for marker navigation"
-        >
-          <span ref={beatsRef} className="text-xs font-mono text-text-primary leading-tight">1.1.00</span>
-          <span ref={timeRef} className="text-[10px] font-mono text-text-muted leading-tight">0:00</span>
-        </button>
-      </div>
 
       {/* Bank navigation */}
       {bankNav && (
@@ -336,17 +296,6 @@ export function ContextRail({
         </BottomSheet>
       )}
 
-      {/* Quick Actions Panel (double-tap time display) */}
-      <QuickActionsPanel
-        isOpen={isQuickActionsOpen}
-        onClose={() => setIsQuickActionsOpen(false)}
-      />
-
-      {/* Marker Navigation Panel (long-press time display) */}
-      <MarkerNavigationPanel
-        isOpen={isMarkerNavOpen}
-        onClose={() => setIsMarkerNavOpen(false)}
-      />
     </aside>
   );
 }

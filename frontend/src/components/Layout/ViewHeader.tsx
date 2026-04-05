@@ -12,8 +12,9 @@
 import type { ReactElement, ReactNode } from 'react';
 import { SettingsMenu } from './SettingsMenu';
 import { ConnectionStatus } from '../ConnectionStatus';
+import { TransportTimeDisplay } from './TransportTimeDisplay';
 import { OverflowMenu, type OverflowMenuItem } from './OverflowMenu';
-import { useUIPreferences, useAudioMonitor } from '../../hooks';
+import { useUIPreferences, useAudioMonitor, useLayoutContext } from '../../hooks';
 import { useReaperStore } from '../../store';
 import type { ViewId } from '../../viewRegistry';
 
@@ -30,6 +31,9 @@ export interface ViewHeaderProps {
 }
 
 export function ViewHeader({ currentView, children, overflowItems }: ViewHeaderProps): ReactElement {
+  const { navPosition } = useLayoutContext();
+  const isLandscape = navPosition === 'side';
+
   const {
     showTabBar,
     showPersistentTransport,
@@ -90,6 +94,9 @@ export function ViewHeader({ currentView, children, overflowItems }: ViewHeaderP
       {overflowItems && overflowItems.length > 0 && (
         <OverflowMenu items={overflowItems} />
       )}
+
+      {/* Transport time display - landscape only, before connection dot */}
+      {isLandscape && <TransportTimeDisplay />}
 
       {/* Connection status - far right */}
       <ConnectionStatus />
