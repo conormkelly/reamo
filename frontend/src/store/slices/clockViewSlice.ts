@@ -59,6 +59,10 @@ export interface ClockViewSlice {
   // State
   clockConfig: ClockViewConfig;
   clockEditMode: boolean;
+  clockFullscreen: boolean;
+
+  // Fullscreen (hides all app chrome)
+  setClockFullscreen: (fullscreen: boolean) => void;
 
   // Element visibility
   setClockElementVisible: (id: ClockElement, visible: boolean) => void;
@@ -94,6 +98,10 @@ export const createClockViewSlice: StateCreator<ClockViewSlice> = (set, get) => 
   // Initial state
   clockConfig: { ...DEFAULT_CONFIG, elements: DEFAULT_CONFIG.elements.map(e => ({ ...e })) },
   clockEditMode: false,
+  clockFullscreen: false,
+
+  // Fullscreen
+  setClockFullscreen: (fullscreen) => set({ clockFullscreen: fullscreen }),
 
   // Element visibility
   setClockElementVisible: (id, visible) => {

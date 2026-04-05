@@ -4,8 +4,8 @@
  * Uses CSS clamp() and container-relative sizing for responsive layout
  */
 
-import { useState, useEffect, useCallback, type ReactElement } from 'react';
-import { Pencil } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback, type ReactElement } from 'react';
+import { Pencil, Maximize, Minimize } from 'lucide-react';
 import { useReaperStore, ELEMENT_SCALE_MAP, type ClockElement } from '../../store';
 import { ViewHeader, ViewLayout } from '../../components';
 import {
@@ -41,6 +41,37 @@ export function ClockView(): ReactElement {
   useEffect(() => {
     loadClockViewFromStorage();
   }, [loadClockViewFromStorage]);
+
+  // Fullscreen (chrome-hidden) state — stored in Zustand so App can hide SideRail
+  const isFullscreen = useReaperStore((s) => s.clockFullscreen);
+  const setClockFullscreen = useReaperStore((s) => s.setClockFullscreen);
+  const [chromeVisible, setChromeVisible] = useState(false);
+  const chromeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // In fullscreen, tapping the clock briefly reveals the header
+  const handleFullscreenTap = useCallback(() => {
+    if (!isFullscreen || clockEditMode) return;
+    setChromeVisible(true);
+    if (chromeTimer.current) clearTimeout(chromeTimer.current);
+    chromeTimer.current = setTimeout(() => setChromeVisible(false), 3000);
+  }, [isFullscreen, clockEditMode]);
+
+  // Clean up timer on unmount or view change
+  useEffect(() => {
+    return () => {
+      if (chromeTimer.current) clearTimeout(chromeTimer.current);
+      // Reset fullscreen when leaving the clock view
+      setClockFullscreen(false);
+    };
+  }, [setClockFullscreen]);
+
+  // Exit fullscreen when entering edit mode
+  useEffect(() => {
+    if (clockEditMode) {
+      setClockFullscreen(false);
+      setChromeVisible(false);
+    }
+  }, [clockEditMode, setClockFullscreen]);
 
   // Drag state
   const [dragFromIdx, setDragFromIdx] = useState<number | null>(null);
@@ -104,24 +135,45 @@ export function ClockView(): ReactElement {
       <div
         className="h-full w-full relative overflow-hidden"
         style={{ containerType: 'size' }}
+        onClick={isFullscreen ? handleFullscreenTap : undefined}
       >
-        {/* Header overlay - semi-transparent so clock content shows through */}
-        <div className="absolute top-0 left-0 right-0 z-elevated p-3">
-          <ViewHeader currentView="clock">
-            {/* Edit mode toggle */}
-            <button
-              onClick={() => setClockEditMode(!clockEditMode)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
-                clockEditMode
-                  ? 'bg-primary text-text-on-primary'
-                  : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
-              }`}
-            >
-              <Pencil size={16} />
-              <span className="text-sm">{clockEditMode ? 'Done' : 'Edit'}</span>
-            </button>
-          </ViewHeader>
-        </div>
+        {/* Header overlay - hidden in fullscreen unless tapped */}
+        {(!isFullscreen || chromeVisible) && (
+          <div className={`absolute top-0 left-0 right-0 z-elevated p-3 transition-opacity duration-300 ${
+            isFullscreen && chromeVisible ? 'bg-bg-deep/80' : ''
+          }`}>
+            <ViewHeader currentView="clock">
+              {/* Edit mode toggle */}
+              <button
+                onClick={() => setClockEditMode(!clockEditMode)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
+                  clockEditMode
+                    ? 'bg-primary text-text-on-primary'
+                    : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
+                }`}
+              >
+                <Pencil size={16} />
+                <span className="text-sm">{clockEditMode ? 'Done' : 'Edit'}</span>
+              </button>
+
+              {/* Fullscreen toggle */}
+              {!clockEditMode && (
+                <button
+                  onClick={() => {
+                    setClockFullscreen(!isFullscreen);
+                    setChromeVisible(false);
+                    if (chromeTimer.current) clearTimeout(chromeTimer.current);
+                  }}
+                  className="ml-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-bg-elevated text-text-tertiary hover:bg-bg-hover transition-colors"
+                  title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                  aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                >
+                  {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
+                </button>
+              )}
+            </ViewHeader>
+          </div>
+        )}
 
         {/* Main content - centered or scrollable in edit mode */}
         <div
