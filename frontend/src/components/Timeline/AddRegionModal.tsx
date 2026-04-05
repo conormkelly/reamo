@@ -4,13 +4,11 @@
  */
 
 import { useState, useEffect, useRef, type ReactElement } from 'react';
-import { RotateCcw } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
 import { tempo as tempoCmd } from '../../core/WebSocketCommands';
 import {
   hexToReaperColor,
-  reaperColorToHexWithFallback,
 } from '../../utils';
 import { DEFAULT_REGION_COLOR } from '../../constants/colors';
 import { Modal, ModalFooter } from '../Modal';
@@ -36,25 +34,18 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
 
   const wasOpenRef = useRef(false);
 
-  // Get unique colors from existing + pending regions (snapshot when modal opens)
-  const existingColorsRef = useRef<string[]>([]);
+  // Hold-to-reset for color swatch
+  const holdTimer = useRef<number | null>(null);
+  const didReset = useRef(false);
+  const customColorRef = useRef<HTMLInputElement>(null);
+  const HOLD_DURATION = 500;
 
-  // Update colors ref only when modal is closed (so it doesn't change while open)
+  // Cleanup timers on unmount
   useEffect(() => {
-    if (!isOpen) {
-      const colors = new Set<string>();
-      // Use displayRegions to include pending region colors
-      const displayRegions = getDisplayRegions(regions);
-      displayRegions.forEach((r) => {
-        if (r.color) {
-          colors.add(reaperColorToHexWithFallback(r.color, DEFAULT_REGION_COLOR));
-        }
-      });
-      existingColorsRef.current = Array.from(colors);
-    }
-  }, [isOpen, regions, getDisplayRegions]);
-
-  const existingColors = existingColorsRef.current;
+    return () => {
+      if (holdTimer.current) clearTimeout(holdTimer.current);
+    };
+  }, []);
 
   // Reset form only when modal transitions from closed to open
   useEffect(() => {
@@ -144,122 +135,110 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Add Region" width="lg">
-      {/* Body */}
-      <div className="p-modal space-y-4">
-          {/* Name */}
-          <div>
-            <label className="block text-sm font-medium text-text-tertiary mb-1">Name</label>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Add Region"
+      width="sm"
+      className="max-h-[85dvh] flex flex-col"
+    >
+      {/* Scrollable content */}
+      <div className="p-modal space-y-4 overflow-y-auto flex-1">
+        {/* Name */}
+        <div>
+          <label className="block text-sm font-medium text-text-tertiary mb-1">Name</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+            className="w-full px-3 py-2 bg-bg-elevated border border-border-default rounded-lg text-text-primary text-base focus:outline-none focus:border-accent-region"
+            placeholder="Region name"
+          />
+        </div>
+
+        {/* Color - tap to pick, hold to reset (matching MarkerEditModal pattern) */}
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium text-text-tertiary">Color</label>
+          <div
+            onMouseDown={() => {
+              didReset.current = false;
+              holdTimer.current = window.setTimeout(() => {
+                setSelectedColor(null);
+                didReset.current = true;
+              }, HOLD_DURATION);
+            }}
+            onMouseUp={() => {
+              if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+              if (!didReset.current) customColorRef.current?.click();
+            }}
+            onMouseLeave={() => {
+              if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+            }}
+            onTouchStart={() => {
+              didReset.current = false;
+              holdTimer.current = window.setTimeout(() => {
+                setSelectedColor(null);
+                didReset.current = true;
+              }, HOLD_DURATION);
+            }}
+            onTouchEnd={() => {
+              if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+              if (!didReset.current) customColorRef.current?.click();
+            }}
+            className="relative w-10 h-10 rounded-lg border-2 border-border-default cursor-pointer hover:border-text-secondary transition-colors touch-none"
+            style={{ backgroundColor: selectedColor ?? DEFAULT_REGION_COLOR }}
+            title={selectedColor === null ? 'Tap to pick color' : `${selectedColor} (hold to reset)`}
+          >
+            {/* Non-default indicator dot */}
+            {selectedColor !== null && (
+              <div className="absolute -top-1 -right-1 w-3 h-3 bg-primary-hover rounded-full border border-bg-surface" />
+            )}
             <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoFocus
-              className="w-full px-3 py-2 bg-bg-elevated border border-border-default rounded-lg text-text-primary focus:outline-none focus:border-accent-region"
-              placeholder="Region name"
+              ref={customColorRef}
+              type="color"
+              value={selectedColor ?? DEFAULT_REGION_COLOR}
+              onChange={(e) => setSelectedColor(e.target.value)}
+              className="absolute inset-0 opacity-0 cursor-pointer"
+              tabIndex={-1}
             />
           </div>
-
-          {/* Color */}
-          <div>
-            <label className="block text-sm font-medium text-text-tertiary mb-2">Color</label>
-
-            {/* Default + Project colors row */}
-            <div className="mb-3">
-              <div className="flex gap-2 overflow-x-auto py-1 px-1 -mx-1 items-center">
-                {/* Default (reset) color - always first */}
-                <button
-                  onClick={() => setSelectedColor(null)}
-                  className={`w-8 h-8 rounded-lg border-2 transition-all flex-shrink-0 relative ${
-                    selectedColor === null
-                      ? 'border-white scale-110'
-                      : 'border-transparent hover:border-text-secondary'
-                  }`}
-                  style={{ backgroundColor: DEFAULT_REGION_COLOR }}
-                  title="Use default color"
-                >
-                  <RotateCcw size={12} className="absolute inset-0 m-auto text-white/80" />
-                </button>
-
-                {/* Existing colors from project */}
-                {existingColors.map((color) => (
-                  <button
-                    key={color}
-                    onClick={() => setSelectedColor(color)}
-                    className={`w-8 h-8 rounded-lg border-2 transition-all flex-shrink-0 ${
-                      selectedColor !== null && selectedColor.toLowerCase() === color.toLowerCase()
-                        ? 'border-white scale-110'
-                        : 'border-transparent hover:border-text-secondary'
-                    }`}
-                    style={{ backgroundColor: color }}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {/* Color picker and hex input */}
-            <div>
-              <span className="text-xs text-text-secondary mb-1.5 block">Custom</span>
-              <div className="flex gap-2 items-center">
-                <input
-                  type="color"
-                  value={selectedColor ?? DEFAULT_REGION_COLOR}
-                  onChange={(e) => setSelectedColor(e.target.value)}
-                  className="w-10 h-10 rounded-lg border-2 border-border-default cursor-pointer bg-transparent"
-                  title="Pick a color"
-                />
-                <input
-                  type="text"
-                  value={selectedColor ?? ''}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === '') {
-                      setSelectedColor(null);
-                    } else if (/^#[0-9a-f]{0,6}$/i.test(val) || /^[0-9a-f]{0,6}$/i.test(val)) {
-                      setSelectedColor(val.startsWith('#') ? val : `#${val}`);
-                    }
-                  }}
-                  placeholder="Default"
-                  className="flex-1 px-3 py-2 bg-bg-elevated border border-border-default rounded-lg text-text-primary text-sm font-mono focus:outline-none focus:border-accent-region"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Start and Length */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-text-tertiary mb-1">Start</label>
-              <input
-                type="text"
-                value={startBar}
-                onChange={(e) => setStartBar(e.target.value)}
-                placeholder="69.1.40"
-                className="w-full px-3 py-2 bg-bg-elevated border border-border-default rounded-lg text-text-primary focus:outline-none focus:border-accent-region"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-text-tertiary mb-1">Length (bars)</label>
-              <input
-                type="number"
-                min="1"
-                value={lengthBars}
-                onChange={(e) => setLengthBars(e.target.value)}
-                className="w-full px-3 py-2 bg-bg-elevated border border-border-default rounded-lg text-text-primary focus:outline-none focus:border-accent-region"
-              />
-            </div>
-          </div>
-
-          {/* Info about pending state */}
-          <p className="text-xs text-text-secondary">
-            Region will be created as a pending change. Click Save to apply to REAPER.
-          </p>
-
-          {/* Error */}
-          {error && (
-            <p className="text-sm text-error-text">{error}</p>
-          )}
         </div>
+
+        {/* Start and Length */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-text-tertiary mb-1">Start</label>
+            <input
+              type="text"
+              value={startBar}
+              onChange={(e) => setStartBar(e.target.value)}
+              placeholder="69.1.40"
+              className="w-full px-3 py-2 bg-bg-elevated border border-border-default rounded-lg text-text-primary text-base focus:outline-none focus:border-accent-region"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-tertiary mb-1">Length (bars)</label>
+            <input
+              type="number"
+              min="1"
+              value={lengthBars}
+              onChange={(e) => setLengthBars(e.target.value)}
+              className="w-full px-3 py-2 bg-bg-elevated border border-border-default rounded-lg text-text-primary text-base focus:outline-none focus:border-accent-region"
+            />
+          </div>
+        </div>
+
+        {/* Info about pending state */}
+        <p className="text-xs text-text-secondary">
+          Region will be created as a pending change. Click Save to apply to REAPER.
+        </p>
+
+        {/* Error */}
+        {error && (
+          <p className="text-sm text-error-text">{error}</p>
+        )}
+      </div>
 
       <ModalFooter
         onCancel={onClose}

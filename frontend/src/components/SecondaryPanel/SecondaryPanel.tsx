@@ -23,7 +23,6 @@ import { useReaperStore } from '../../store';
 /** Height constants */
 const COLLAPSED_HEIGHT = 44;
 const EXPANDED_HEIGHT = 140;
-const CONTENT_HEIGHT = EXPANDED_HEIGHT - COLLAPSED_HEIGHT; // 96px
 
 export interface SecondaryPanelTabConfig {
   /** Unique tab identifier */
@@ -77,11 +76,13 @@ export interface SecondaryPanelProps {
   bankNav?: BankNavProps;
   /** Search/filter in header (optional) */
   search?: SearchProps;
+  /** Override expanded height (default 140px) */
+  expandedHeight?: number;
   /** Additional CSS classes */
   className?: string;
 }
 
-export function SecondaryPanel({ viewId, tabs, bankNav, search, className = '' }: SecondaryPanelProps) {
+export function SecondaryPanel({ viewId, tabs, bankNav, search, expandedHeight, className = '' }: SecondaryPanelProps) {
   // Generate unique IDs for ARIA
   const baseId = useId();
 
@@ -123,7 +124,7 @@ export function SecondaryPanel({ viewId, tabs, bankNav, search, className = '' }
   return (
     <div
       className={`border-t border-border-subtle bg-bg-app safe-area-bottom transition-[height] duration-200 ease-out ${className}`}
-      style={{ height: expanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT }}
+      style={{ height: expanded ? (expandedHeight ?? EXPANDED_HEIGHT) : COLLAPSED_HEIGHT }}
     >
       {/* Tab bar - always visible */}
       <div
@@ -209,7 +210,7 @@ export function SecondaryPanel({ viewId, tabs, bankNav, search, className = '' }
       <div
         className="overflow-hidden transition-opacity duration-150 ease-out"
         style={{
-          height: CONTENT_HEIGHT,
+          height: (expandedHeight ?? EXPANDED_HEIGHT) - COLLAPSED_HEIGHT,
           opacity: expanded ? 1 : 0,
           pointerEvents: expanded ? 'auto' : 'none',
         }}

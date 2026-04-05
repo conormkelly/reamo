@@ -62,6 +62,8 @@ import type { SkeletonTrack, WSItem } from '../../core/WebSocketTypes';
 
 export interface NavigateItemInfoBarProps {
   className?: string;
+  /** Layout mode - 'horizontal' for SecondaryPanel, 'vertical' for ContextRail */
+  layout?: 'horizontal' | 'vertical';
 }
 
 /** Group items by track for details sheet */
@@ -74,6 +76,7 @@ interface TrackGroup {
 
 export function NavigateItemInfoBar({
   className = '',
+  layout = 'horizontal',
 }: NavigateItemInfoBarProps): ReactElement | null {
   const { sendCommand, sendAsync, connected } = useReaper();
   const { formatBeats, formatDuration, bpm, beatsPerBar, denominator, barOffset } = useTimeFormatters();
@@ -82,7 +85,6 @@ export function NavigateItemInfoBar({
   const items = useReaperStore((s) => s?.items ?? EMPTY_ITEMS);
   const trackSkeleton = useReaperStore((s) => s?.trackSkeleton ?? EMPTY_SKELETON) as readonly SkeletonTrack[];
   const itemSelectionModeActive = useReaperStore((s) => s.itemSelectionModeActive);
-  const exitItemSelectionMode = useReaperStore((s) => s.exitItemSelectionMode);
 
   // Derive selection from items (REAPER is source of truth)
   const selectedItems = useMemo(() => items.filter((i) => i.selected), [items]);
@@ -413,13 +415,6 @@ export function NavigateItemInfoBar({
 
   // ========== Common Handlers ==========
 
-  // Exit mode handler
-  const handleExitMode = useCallback(() => {
-    exitItemSelectionMode();
-    // Also clear selection in REAPER
-    sendCommand(itemCmd.unselectAll());
-  }, [exitItemSelectionMode, sendCommand]);
-
   // Selection details sheet handlers
   const handleClearAll = useCallback(() => {
     sendCommand(itemCmd.unselectAll());
@@ -494,112 +489,67 @@ export function NavigateItemInfoBar({
   const takeCount = singleItem?.takeCount ?? 1;
   const formattedPosition = singleItem ? formatBeats(singleItem.position) : '-';
 
-  return (
-    <div data-testid="item-info-bar" className={`flex flex-col gap-2 px-infobar-x py-infobar-y bg-bg-surface/50 rounded-lg text-sm relative ${className}`}>
-      {/* Close button (X) - top right */}
+  // --- Shared sub-components ---
+
+  const selectionPill = selectedCount > 0 ? (
+    <button
+      onClick={() => setShowSelectionSheet(true)}
+      className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/20 hover:bg-primary/30 text-primary text-sm font-medium transition-colors"
+      title="View selected items"
+      data-testid="selection-pill"
+    >
+      <span data-testid="selection-count">{selectedCount}</span> {selectedCount === 1 ? 'item' : 'items'}
+      <ChevronRight className="w-3.5 h-3.5" />
+    </button>
+  ) : null;
+
+  const takeNav = (
+    <div className="flex items-center gap-1.5">
       <button
-        onClick={handleExitMode}
-        className="absolute top-1.5 right-1.5 p-1.5 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors z-10"
-        title="Clear selection"
-        data-testid="item-mode-close"
+        onClick={handlePrevTake}
+        disabled={takeCount <= 1}
+        className="p-2 rounded hover:bg-bg-elevated disabled:opacity-30 disabled:cursor-not-allowed"
+        title="Previous take"
       >
-        <X className="w-4 h-4" />
+        <ChevronLeft className="w-4 h-4" />
       </button>
+      <span className="text-sm text-text-secondary min-w-[60px] text-center">
+        Take {singleItem ? `${singleItem.activeTakeIdx + 1}/${takeCount}` : '-'}
+      </span>
+      <button
+        onClick={handleNextTake}
+        disabled={takeCount <= 1}
+        className="p-2 rounded hover:bg-bg-elevated disabled:opacity-30 disabled:cursor-not-allowed"
+        title="Next take"
+      >
+        <ChevronRight className="w-4 h-4" />
+      </button>
+    </div>
+  );
 
-      {/* Row 1: Selection pill + take name (when single item with take name) */}
-      <div className="flex items-center gap-3 min-w-0 pr-8">
-        {selectedCount > 0 && (
-          <button
-            onClick={() => setShowSelectionSheet(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/20 hover:bg-primary/30 text-primary text-sm font-medium transition-colors"
-            title="View selected items"
-            data-testid="selection-pill"
-          >
-            <span data-testid="selection-count">{selectedCount}</span> selected
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        )}
-        {singleItem?.activeTakeName && (
-          <span className="text-sm text-text-primary truncate" title={singleItem.activeTakeName}>
-            {singleItem.activeTakeName}
-          </span>
-        )}
-      </div>
+  const colorPicker = (
+    <ColorPickerInput
+      label=""
+      value={currentTakeColor}
+      onChange={handleTakeColorChange}
+      defaultValue={DEFAULT_ITEM_COLOR}
+      compact
+    />
+  );
 
-      {/* Row 2: Content varies based on selection count */}
-      {selectedCount === 0 ? (
-        // No items selected - prompt to select
-        <div className="text-sm text-text-muted py-1">
-          Tap an item to select
-        </div>
-      ) : selectedCount === 1 && singleItem ? (
-        // Single item selected - show full controls
-        <div className="flex items-center gap-3">
-          {/* Take navigation */}
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={handlePrevTake}
-              disabled={takeCount <= 1}
-              className="p-2 rounded hover:bg-bg-elevated disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Previous take"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="text-sm text-text-secondary min-w-[60px] text-center">
-              Take {singleItem.activeTakeIdx + 1}/{takeCount}
-            </span>
-            <button
-              onClick={handleNextTake}
-              disabled={takeCount <= 1}
-              className="p-2 rounded hover:bg-bg-elevated disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Next take"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
+  const moreButton = (
+    <button
+      onClick={() => setShowItemSheet(true)}
+      className="p-1.5 rounded hover:bg-bg-elevated"
+      title="More options"
+    >
+      <MoreHorizontal className="w-5 h-5" />
+    </button>
+  );
 
-          <div className="w-px h-6 bg-border-default flex-shrink-0" />
-
-          {/* Color picker - take color */}
-          <ColorPickerInput
-            label=""
-            value={currentTakeColor}
-            onChange={handleTakeColorChange}
-            defaultValue={DEFAULT_ITEM_COLOR}
-            compact
-          />
-
-          {/* More button - opens item details bottom sheet */}
-          <button
-            onClick={() => setShowItemSheet(true)}
-            className="p-1.5 rounded hover:bg-bg-elevated"
-            title="More options"
-          >
-            <MoreHorizontal className="w-5 h-5" />
-          </button>
-        </div>
-      ) : (
-        // Multiple items selected - batch mode
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-text-secondary">
-            {groupedByTrack.length > 1
-              ? `${selectedCount} items across ${groupedByTrack.length} tracks`
-              : `${selectedCount} items on ${groupedByTrack[0]?.trackName ?? 'track'}`}
-          </span>
-
-          {/* Group button - opens batch operations sheet */}
-          <button
-            onClick={() => setShowBatchSheet(true)}
-            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded bg-bg-elevated hover:bg-bg-hover text-text-primary text-sm transition-colors"
-            title="Batch operations"
-            data-testid="batch-actions-btn"
-          >
-            <Group className="w-4 h-4" />
-            Actions
-          </button>
-        </div>
-      )}
-
+  // --- Bottom sheets (shared between layouts, rendered via portal) ---
+  const bottomSheets = (
+    <>
       {/* Single Item Details Bottom Sheet */}
       <BottomSheet
         isOpen={showItemSheet}
@@ -1059,6 +1009,120 @@ export function NavigateItemInfoBar({
           </button>
         </div>
       </BottomSheet>
+    </>
+  );
+
+  // --- Vertical layout (landscape sidebar) ---
+  if (layout === 'vertical') {
+    return (
+      <div data-testid="item-info-bar" className={`flex flex-col gap-2 px-3 py-2 text-sm ${className}`}>
+        {/* Row 1: selection pill */}
+        <div className="flex items-center gap-2 min-w-0">
+          {selectionPill}
+        </div>
+
+        {selectedCount === 0 ? (
+          <div className="text-sm text-text-muted py-1">
+            Tap a marker pill or item
+          </div>
+        ) : selectedCount === 1 && singleItem ? (
+          <>
+            {/* Take name (own row) */}
+            {singleItem.activeTakeName && (
+              <span className="text-sm text-text-primary truncate" title={singleItem.activeTakeName}>
+                {singleItem.activeTakeName}
+              </span>
+            )}
+
+            {/* Position */}
+            <span className="text-text-secondary font-mono text-xs">
+              {formattedPosition}
+            </span>
+
+            {/* Take nav + color + more (compact row) */}
+            <div className="flex items-center gap-2">
+              {takeNav}
+            </div>
+            <div className="flex items-center gap-2">
+              {colorPicker}
+              {moreButton}
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Multi-select info */}
+            <span className="text-sm text-text-secondary">
+              {groupedByTrack.length > 1
+                ? `${selectedCount} items across ${groupedByTrack.length} tracks`
+                : `${selectedCount} items on ${groupedByTrack[0]?.trackName ?? 'track'}`}
+            </span>
+
+            {/* Batch actions button */}
+            <button
+              onClick={() => setShowBatchSheet(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-bg-elevated hover:bg-bg-hover text-text-primary text-sm transition-colors w-fit"
+              title="Batch operations"
+              data-testid="batch-actions-btn"
+            >
+              <Group className="w-4 h-4" />
+              Actions
+            </button>
+          </>
+        )}
+
+        {/* Bottom sheets */}
+        {bottomSheets}
+      </div>
+    );
+  }
+
+  // --- Horizontal layout (portrait SecondaryPanel) ---
+  return (
+    <div data-testid="item-info-bar" className={`flex flex-col gap-2 px-3 py-2 text-sm ${className}`}>
+      {/* Row 1: Selection pill + take name */}
+      <div className="flex items-center gap-3 min-w-0">
+        {selectionPill}
+        {singleItem?.activeTakeName && (
+          <span className="text-sm text-text-primary truncate" title={singleItem.activeTakeName}>
+            {singleItem.activeTakeName}
+          </span>
+        )}
+      </div>
+
+      {/* Row 2: Content varies based on selection count */}
+      {selectedCount === 0 ? (
+        <div className="text-sm text-text-muted py-1">
+          Tap a marker pill or item
+        </div>
+      ) : selectedCount === 1 && singleItem ? (
+        <div className="flex items-center gap-3">
+          {takeNav}
+          <div className="w-px h-6 bg-border-default flex-shrink-0" />
+          {colorPicker}
+          {moreButton}
+        </div>
+      ) : (
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-text-secondary">
+            {groupedByTrack.length > 1
+              ? `${selectedCount} items across ${groupedByTrack.length} tracks`
+              : `${selectedCount} items on ${groupedByTrack[0]?.trackName ?? 'track'}`}
+          </span>
+          <button
+            onClick={() => setShowBatchSheet(true)}
+            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded bg-bg-elevated hover:bg-bg-hover text-text-primary text-sm transition-colors"
+            title="Batch operations"
+            data-testid="batch-actions-btn"
+          >
+            <Group className="w-4 h-4" />
+            Actions
+          </button>
+        </div>
+      )}
+
+      {/* Bottom sheets */}
+      {bottomSheets}
     </div>
   );
 }
+

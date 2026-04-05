@@ -1,21 +1,30 @@
 /**
  * Marker Info Bar Component
- * Shows marker info in Navigate mode: ID, name, color, timestamp
- * Supports inline editing of name and color
- * Auto-advances to show the most recently passed marker during playback
  *
- * Color picker renders via portal to document.body to escape stacking contexts.
+ * Layout matches TrackInfoBar for visual consistency.
+ *
+ * Horizontal (portrait SecondaryPanel):
+ *   Marker: 3 | Name: Chorus
+ *   Color: [●] | 4.1
+ *
+ * Vertical (landscape sidebar):
+ *   Marker: 3
+ *   Name: Chorus
+ *   Color: [●]
+ *   4.1
+ *
+ * Color: tap swatch = OS color picker, hold = reset to default.
+ * Name: tap to edit inline.
+ * Auto-advances to show the most recently passed marker during playback.
  */
 
 import { useState, useRef, useEffect, useCallback, type ReactElement } from 'react';
-import { createPortal } from 'react-dom';
-import { RotateCcw, X } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
-import { useCurrentMarker, useTimeFormatters, usePortalPosition } from '../../hooks';
+import { useCurrentMarker, useTimeFormatters } from '../../hooks';
 import { marker as markerCmd } from '../../core/WebSocketCommands';
-import { reaperColorToHex, hexToReaperColor } from '../../utils';
-import { DEFAULT_MARKER_COLOR, MARKER_COLORS } from '../../constants/colors';
+import { reaperColorToHex, hexToReaperColor, formatTime } from '../../utils';
+import { DEFAULT_MARKER_COLOR } from '../../constants/colors';
 
 interface MarkerInfoBarProps {
   className?: string;
@@ -23,25 +32,24 @@ interface MarkerInfoBarProps {
   layout?: 'horizontal' | 'vertical';
 }
 
+const COLOR_HOLD_DURATION = 500;
+
 export function MarkerInfoBar({ className = '', layout = 'horizontal' }: MarkerInfoBarProps): ReactElement | null {
   const { sendCommand } = useReaper();
   const timelineMode = useReaperStore((s) => s.timelineMode);
-  const markers = useReaperStore((s) => s.markers);
-  const setSelectedMarkerId = useReaperStore((s) => s.setSelectedMarkerId);
-
   const { currentMarker, setLocked } = useCurrentMarker();
   const { formatBeats } = useTimeFormatters();
 
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameValue, setNameValue] = useState('');
-  const [showColorPicker, setShowColorPicker] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
 
   const nameInputRef = useRef<HTMLInputElement>(null);
-  const colorTriggerRef = useRef<HTMLButtonElement>(null);
-  const colorPickerRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { position: colorPickerPosition } = usePortalPosition(colorTriggerRef, showColorPicker, { placement: 'bottom-start', offset: 8 });
+
+  // Color swatch: tap = OS picker, hold = reset
+  const colorInputRef = useRef<HTMLInputElement>(null);
+  const colorHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const colorDidResetRef = useRef(false);
 
   // Focus name input when editing starts
   useEffect(() => {
@@ -51,37 +59,16 @@ export function MarkerInfoBar({ className = '', layout = 'horizontal' }: MarkerI
     }
   }, [isEditingName]);
 
-  // Close color picker on outside click
+  // Lock auto-advance when editing name
   useEffect(() => {
-    if (!showColorPicker) return;
+    if (isEditingName) setLocked(true);
+  }, [isEditingName, setLocked]);
 
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as Node;
-      const clickedTrigger = colorTriggerRef.current?.contains(target);
-      const clickedPicker = colorPickerRef.current?.contains(target);
-      if (!clickedTrigger && !clickedPicker) {
-        setShowColorPicker(false);
-        setLocked(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showColorPicker, setLocked]);
-
-  // Lock auto-advance when editing
-  useEffect(() => {
-    if (isEditingName || showColorPicker) {
-      setLocked(true);
-    }
-  }, [isEditingName, showColorPicker, setLocked]);
-
-  // Cleanup save timeout on unmount
+  // Cleanup timers on unmount
   useEffect(() => {
     return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      if (colorHoldTimerRef.current) clearTimeout(colorHoldTimerRef.current);
     };
   }, []);
 
@@ -89,10 +76,7 @@ export function MarkerInfoBar({ className = '', layout = 'horizontal' }: MarkerI
   const saveMarkerEdit = useCallback(
     (name: string, color: number) => {
       if (!currentMarker) return;
-
-      setIsSaving(true);
       sendCommand(markerCmd.update(currentMarker.id, { name, color }));
-      setIsSaving(false);
     },
     [currentMarker, sendCommand]
   );
@@ -103,44 +87,28 @@ export function MarkerInfoBar({ className = '', layout = 'horizontal' }: MarkerI
     return null;
   }
 
-  // Get colors from existing markers for picker
-  const existingColors = new Set<string>();
-  markers.forEach((m) => {
-    if (m.color) {
-      const hex = reaperColorToHex(m.color);
-      if (hex) existingColors.add(hex);
-    }
-  });
-
-  // Check if marker uses default color (color = 0 or undefined)
   const isDefaultColor = !currentMarker.color || currentMarker.color === 0;
   const currentColor = isDefaultColor
     ? DEFAULT_MARKER_COLOR
     : reaperColorToHex(currentMarker.color!) ?? DEFAULT_MARKER_COLOR;
 
+  const positionDisplay = (currentMarker.positionBars ?? formatBeats(currentMarker.position)).replace(/\.00$/, '');
+
+  // --- Name editing ---
+
   const handleNameClick = () => {
-    if (!currentMarker) return;
     setNameValue(currentMarker.name);
     setIsEditingName(true);
   };
 
   const handleNameConfirm = () => {
-    if (!currentMarker) {
-      setIsEditingName(false);
-      return;
-    }
-
     const trimmedName = nameValue.trim();
     if (trimmedName && trimmedName !== currentMarker.name) {
-      // Debounced save
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = setTimeout(() => {
         saveMarkerEdit(trimmedName, currentMarker.color ?? 0);
       }, 300);
     }
-
     setIsEditingName(false);
     setLocked(false);
   };
@@ -151,277 +119,140 @@ export function MarkerInfoBar({ className = '', layout = 'horizontal' }: MarkerI
   };
 
   const handleNameKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleNameConfirm();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      handleNameCancel();
-    }
+    if (e.key === 'Enter') { e.preventDefault(); handleNameConfirm(); }
+    else if (e.key === 'Escape') { e.preventDefault(); handleNameCancel(); }
   };
 
-  const handleColorClick = () => {
-    if (!currentMarker) return;
-    setShowColorPicker(true);
+  // --- Color swatch: tap = OS picker, hold = reset ---
+
+  const handleColorPointerDown = () => {
+    colorDidResetRef.current = false;
+    colorHoldTimerRef.current = setTimeout(() => {
+      colorDidResetRef.current = true;
+      saveMarkerEdit(currentMarker.name, 0);
+    }, COLOR_HOLD_DURATION);
   };
 
-  const handleColorSelect = (hex: string) => {
-    if (!currentMarker) return;
-    const reaperColor = hexToReaperColor(hex);
-    saveMarkerEdit(currentMarker.name, reaperColor);
-    setShowColorPicker(false);
-    setLocked(false);
+  const handleColorPointerUp = () => {
+    if (colorHoldTimerRef.current) { clearTimeout(colorHoldTimerRef.current); colorHoldTimerRef.current = null; }
+    if (!colorDidResetRef.current) colorInputRef.current?.click();
   };
 
-  const handleColorReset = () => {
-    if (!currentMarker) return;
-    // Send 0 to reset to REAPER's default marker color
-    saveMarkerEdit(currentMarker.name, 0);
-    setShowColorPicker(false);
-    setLocked(false);
+  const handleColorPointerCancel = () => {
+    if (colorHoldTimerRef.current) { clearTimeout(colorHoldTimerRef.current); colorHoldTimerRef.current = null; }
   };
 
-  // Format position as beats (hook handles fallback to time if no BPM)
-  const formatPosition = (seconds: number): string => formatBeats(seconds);
-
-  const handleClose = () => {
-    setSelectedMarkerId(null);
+  const handleColorChange = (hex: string) => {
+    saveMarkerEdit(currentMarker.name, hexToReaperColor(hex));
   };
 
-  // Color picker portal (shared by both layouts)
-  const colorPickerPortal = showColorPicker && createPortal(
+  // --- Shared sub-components ---
+
+  const colorSwatch = (
     <div
-      ref={colorPickerRef}
-      className="fixed p-3 bg-bg-surface border border-border-default rounded-lg shadow-xl z-popover min-w-[200px]"
-      style={{ top: colorPickerPosition.top, left: colorPickerPosition.left }}
+      onPointerDown={handleColorPointerDown}
+      onPointerUp={handleColorPointerUp}
+      onPointerLeave={handleColorPointerCancel}
+      onPointerCancel={handleColorPointerCancel}
+      className="relative w-6 h-6 rounded-full border border-border-default cursor-pointer flex-shrink-0 touch-none"
+      style={{ backgroundColor: currentColor }}
+      title={isDefaultColor ? 'Tap to pick color' : 'Tap to change, hold to reset'}
     >
-      {/* Default + Project colors row */}
-      <div className="mb-3">
-        <div className="flex gap-2 overflow-x-auto pb-1 max-w-[200px] items-center">
-          {/* Default (reset) color - always first */}
-          <button
-            onClick={handleColorReset}
-            className={`w-6 h-6 rounded border-2 transition-all flex-shrink-0 relative ${
-              isDefaultColor
-                ? 'border-white scale-110'
-                : 'border-transparent hover:border-text-secondary'
-            }`}
-            style={{ backgroundColor: DEFAULT_MARKER_COLOR }}
-            title="Reset to default"
-          >
-            <RotateCcw size={10} className="absolute inset-0 m-auto text-white/80" />
-          </button>
-
-          {/* Existing colors from project */}
-          {Array.from(existingColors).map((color) => (
-            <button
-              key={color}
-              onClick={() => handleColorSelect(color)}
-              className={`w-6 h-6 rounded border-2 transition-all flex-shrink-0 ${
-                !isDefaultColor && currentColor.toLowerCase() === color.toLowerCase()
-                  ? 'border-white scale-110'
-                  : 'border-transparent hover:border-text-secondary'
-              }`}
-              style={{ backgroundColor: color }}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* Preset colors */}
-      <div className="mb-3">
-        <div className="text-xs text-text-secondary mb-1.5">Presets</div>
-        <div className="flex gap-2 flex-wrap">
-          {MARKER_COLORS.map((color) => (
-            <button
-              key={color}
-              onClick={() => handleColorSelect(color)}
-              className={`w-6 h-6 rounded border-2 transition-all ${
-                !isDefaultColor && currentColor.toLowerCase() === color.toLowerCase()
-                  ? 'border-white scale-110'
-                  : 'border-transparent hover:border-text-secondary'
-              }`}
-              style={{ backgroundColor: color }}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* Color picker and hex input */}
-      <div className="text-xs text-text-secondary mb-1.5">Custom</div>
-      <div className="flex gap-2 items-center">
-        <input
-          type="color"
-          value={currentColor}
-          onChange={(e) => handleColorSelect(e.target.value)}
-          className="w-8 h-8 rounded border-2 border-border-default cursor-pointer bg-transparent"
-        />
-        <input
-          type="text"
-          placeholder="Default"
-          defaultValue={isDefaultColor ? '' : currentColor}
-          className="flex-1 px-2 py-1 bg-bg-elevated border border-border-default rounded text-text-primary text-xs font-mono focus:outline-none focus:border-focus-border"
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              const val = (e.target as HTMLInputElement).value;
-              if (/^#?[0-9a-f]{6}$/i.test(val)) {
-                handleColorSelect(val.startsWith('#') ? val : `#${val}`);
-              }
-            }
-          }}
-        />
-      </div>
-    </div>,
-    document.body
+      {!isDefaultColor && (
+        <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-primary-hover rounded-full" />
+      )}
+      <input
+        ref={colorInputRef}
+        type="color"
+        value={currentColor}
+        onChange={(e) => handleColorChange(e.target.value)}
+        className="absolute inset-0 opacity-0 cursor-pointer"
+        tabIndex={-1}
+      />
+    </div>
   );
 
-  // Vertical layout for ContextRail (one field per row)
+  const markerLabel = (
+    <div className="flex items-center gap-1.5">
+      <span className="text-text-secondary text-xs">Marker:</span>
+      <span className="text-text-primary font-mono text-xs font-bold">{currentMarker.id}</span>
+    </div>
+  );
+
+  const nameField = isEditingName ? (
+    <input
+      ref={nameInputRef}
+      type="text"
+      value={nameValue}
+      onChange={(e) => setNameValue(e.target.value)}
+      onKeyDown={handleNameKeyDown}
+      onBlur={handleNameConfirm}
+      className="flex-1 min-w-0 px-1.5 py-0.5 bg-bg-elevated border border-focus-border rounded text-text-primary text-base focus:outline-none focus:ring-1 focus:ring-focus-ring"
+    />
+  ) : (
+    <button
+      onClick={handleNameClick}
+      className="text-text-primary text-sm truncate min-w-0 text-left px-1 py-0.5 rounded hover:bg-bg-elevated transition-colors"
+    >
+      {currentMarker.name || '(unnamed)'}
+    </button>
+  );
+
+  // --- Vertical layout (landscape sidebar) ---
   if (layout === 'vertical') {
     return (
-      <div data-testid="marker-info-bar" className={`flex flex-col gap-2.5 px-infobar-x py-infobar-y bg-bg-surface/50 rounded-lg text-sm relative ${className}`}>
-        {/* X close button - top right */}
-        <button
-          onClick={handleClose}
-          className="absolute top-1.5 right-1.5 p-1.5 text-text-muted hover:text-text-primary hover:bg-bg-elevated rounded transition-colors"
-          title="Close marker info"
-        >
-          <X size={16} />
-        </button>
+      <div data-testid="marker-info-bar" className={`flex flex-col gap-3 px-3 py-2 text-sm ${className}`}>
+        {/* Marker: # */}
+        {markerLabel}
 
-        {/* Marker ID row */}
-        <div className="flex items-center gap-2 pr-8">
-          <span className="text-text-secondary text-xs w-12 shrink-0">Marker:</span>
-          <span className="text-text-primary font-mono text-sm font-bold">{currentMarker.id}</span>
+        {/* Name: ... */}
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-text-secondary text-xs flex-shrink-0">Name:</span>
+          {nameField}
         </div>
 
-        {/* Name row */}
-        <div className="flex items-center gap-2 pr-8">
-          <span className="text-text-secondary text-xs w-12 shrink-0">Name:</span>
-          {isEditingName ? (
-            <input
-              ref={nameInputRef}
-              type="text"
-              value={nameValue}
-              onChange={(e) => setNameValue(e.target.value)}
-              onKeyDown={handleNameKeyDown}
-              onBlur={handleNameConfirm}
-              className="flex-1 min-w-0 px-1.5 py-0.5 bg-bg-elevated border border-focus-border rounded text-text-primary font-mono text-sm focus:outline-none focus:ring-1 focus:ring-focus-ring"
-            />
-          ) : (
-            <button
-              onClick={handleNameClick}
-              className="text-text-primary font-mono text-sm px-1.5 py-0.5 rounded transition-colors truncate min-w-0 hover:bg-bg-elevated cursor-pointer text-left"
-              title="Click to edit name"
-            >
-              {currentMarker.name || '(unnamed)'}
-            </button>
-          )}
-          {isSaving && <span className="text-text-muted text-xs italic">...</span>}
+        {/* Color: [●] */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-text-secondary text-xs flex-shrink-0">Color:</span>
+          {colorSwatch}
         </div>
 
-        {/* Color row */}
-        <div className="flex items-center gap-2">
-          <span className="text-text-secondary text-xs w-12 shrink-0">Color:</span>
-          <button
-            ref={colorTriggerRef}
-            onClick={handleColorClick}
-            className="w-7 h-7 rounded border-2 transition-colors border-border-default hover:border-text-secondary cursor-pointer"
-            style={{ backgroundColor: currentColor }}
-            title="Click to change color"
-            aria-expanded={showColorPicker}
-            aria-haspopup="true"
-          />
-          {colorPickerPortal}
-        </div>
-
-        {/* Position row */}
-        <div className="flex items-center gap-2">
-          <span className="text-text-secondary text-xs w-12 shrink-0">At:</span>
-          <span className="text-info-muted font-mono text-sm">
-            {currentMarker.positionBars ?? formatPosition(currentMarker.position)}
-          </span>
+        {/* position (bar.beat / time) */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-text-primary font-mono text-xs">{positionDisplay}</span>
+          <span className="text-text-muted font-mono text-xs">/ {formatTime(currentMarker.position)}</span>
         </div>
       </div>
     );
   }
 
-  // Horizontal layout (default) for SecondaryPanel
+  // --- Horizontal layout (portrait SecondaryPanel) ---
   return (
-    <div data-testid="marker-info-bar" className={`flex flex-col gap-2 px-infobar-x py-infobar-y bg-bg-surface/50 rounded-lg text-sm relative ${className}`}>
-      {/* X close button - top right */}
-      <button
-        onClick={handleClose}
-        className="absolute top-1.5 right-1.5 p-1.5 text-text-muted hover:text-text-primary hover:bg-bg-elevated rounded transition-colors"
-        title="Close marker info"
-      >
-        <X size={16} />
-      </button>
+    <div data-testid="marker-info-bar" className={`flex flex-col gap-3 px-3 py-2 text-sm ${className}`}>
+      {/* Row 1: Marker: # | Name: ... */}
+      <div className="flex items-center gap-3 min-w-0">
+        {markerLabel}
 
-      {/* Line 1: Marker ID and Name */}
-      <div className="flex items-center gap-3 min-w-0 pr-8">
-        {/* Marker ID */}
-        <div className="flex items-center gap-1.5">
-          <span className="text-text-secondary text-xs">Marker:</span>
-          <span className="text-text-primary font-mono text-sm font-bold">{currentMarker.id}</span>
-        </div>
+        <div className="w-px h-4 bg-border-default flex-shrink-0" />
 
-        <div className="w-px h-5 bg-border-default flex-shrink-0" />
-
-        {/* Name (editable if script installed) */}
         <div className="flex items-center gap-1.5 flex-1 min-w-0">
           <span className="text-text-secondary text-xs flex-shrink-0">Name:</span>
-          {isEditingName ? (
-            <input
-              ref={nameInputRef}
-              type="text"
-              value={nameValue}
-              onChange={(e) => setNameValue(e.target.value)}
-              onKeyDown={handleNameKeyDown}
-              onBlur={handleNameConfirm}
-              className="flex-1 min-w-0 px-1.5 py-0.5 bg-bg-elevated border border-focus-border rounded text-text-primary font-mono text-base focus:outline-none focus:ring-1 focus:ring-focus-ring"
-            />
-          ) : (
-            <button
-              onClick={handleNameClick}
-              className="text-text-primary font-mono text-sm px-1.5 py-0.5 rounded transition-colors truncate min-w-0 hover:bg-bg-elevated cursor-pointer"
-              title="Click to edit name"
-            >
-              {currentMarker.name || '(unnamed)'}
-            </button>
-          )}
+          {nameField}
         </div>
-
-        {/* Saving indicator */}
-        {isSaving && (
-          <span className="text-text-muted text-xs italic ml-auto">Saving...</span>
-        )}
       </div>
 
-      {/* Line 2: Color and Position */}
-      <div className="flex items-center gap-3">
-        {/* Color indicator */}
-        <div className="flex items-center gap-1.5 relative">
-          <span className="text-text-secondary text-xs">Color:</span>
-          <button
-            ref={colorTriggerRef}
-            onClick={handleColorClick}
-            className="w-7 h-7 rounded border-2 transition-colors border-border-default hover:border-text-secondary cursor-pointer"
-            style={{ backgroundColor: currentColor }}
-            title="Click to change color"
-            aria-expanded={showColorPicker}
-            aria-haspopup="true"
-          />
-          {colorPickerPortal}
+      {/* Row 2: Color: [●] | position (bar.beat / time) */}
+      <div className="flex items-center gap-3 min-h-[32px]">
+        <div className="flex items-center gap-1.5">
+          <span className="text-text-secondary text-xs flex-shrink-0">Color:</span>
+          {colorSwatch}
         </div>
 
-        <div className="w-px h-5 bg-border-default flex-shrink-0" />
+        <div className="w-px h-6 bg-border-default flex-shrink-0" />
 
-        {/* Position - use server bar string if available */}
         <div className="flex items-center gap-1.5">
-          <span className="text-text-secondary text-xs">At:</span>
-          <span className="text-info-muted font-mono text-sm">
-            {currentMarker.positionBars ?? formatPosition(currentMarker.position)}
-          </span>
+          <span className="text-text-primary font-mono text-xs">{positionDisplay}</span>
+          <span className="text-text-muted font-mono text-xs">/ {formatTime(currentMarker.position)}</span>
         </div>
       </div>
     </div>

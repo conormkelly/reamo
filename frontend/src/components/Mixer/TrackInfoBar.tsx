@@ -348,7 +348,7 @@ export function TrackInfoBar({
   // Don't render if no track selected
   if (selectedTrackIdx === null || !trackData.exists) {
     return (
-      <div className={`flex flex-col gap-1 px-3 py-1.5 bg-bg-surface/50 rounded-lg text-sm ${className}`}>
+      <div className={`flex flex-col gap-1 px-3 py-1.5 text-sm ${className}`}>
         <span className="text-text-muted text-sm italic">Select a track to view details</span>
       </div>
     );
@@ -424,7 +424,7 @@ export function TrackInfoBar({
   );
 
   return (
-    <div className={`flex flex-col gap-2 px-infobar-x py-infobar-y bg-bg-surface/50 rounded-lg text-sm ${className}`}>
+    <div className={`flex flex-col gap-3 px-3 py-2 text-sm ${className}`}>
 
       {layout === 'horizontal' ? (
         <>
@@ -519,7 +519,6 @@ export function TrackInfoBar({
             {folderIndicator}
           </div>
 
-          <div className="h-px bg-border-subtle" />
 
           {/* Name */}
           <div className="flex items-center gap-1.5 min-w-0">
@@ -527,7 +526,6 @@ export function TrackInfoBar({
             {nameElement}
           </div>
 
-          <div className="h-px bg-border-subtle" />
 
           {/* Color (not for master) */}
           {!isMaster && (
@@ -541,8 +539,7 @@ export function TrackInfoBar({
                   compact
                 />
               </div>
-              <div className="h-px bg-border-subtle" />
-            </>
+                </>
           )}
 
           {/* FX */}
@@ -558,7 +555,6 @@ export function TrackInfoBar({
             </span>
           </div>
 
-          <div className="h-px bg-border-subtle" />
 
           {/* Routing */}
           <div className="flex items-center gap-2">
@@ -574,8 +570,7 @@ export function TrackInfoBar({
           {/* Actions (not for master) */}
           {!isMaster && (
             <>
-              <div className="h-px bg-border-subtle" />
-              <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2">
                 <button
                   onClick={handleDuplicate}
                   className="flex-1 h-9 flex items-center justify-center gap-1.5 rounded-lg hover:bg-bg-elevated transition-colors"
