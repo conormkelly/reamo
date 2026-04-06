@@ -4,7 +4,7 @@
  */
 
 import type { StateCreator } from 'zustand';
-import type { PlayState, TransportState, BeatPosition } from '../../core/types';
+import type { PlayState, TransportState, BeatPosition, RecordMode } from '../../core/types';
 
 export interface TimeSelection {
   /** Start position in seconds */
@@ -21,7 +21,7 @@ export interface TransportSlice {
   positionBeats: string;
   isRepeat: boolean;
   isMetronome: boolean;
-  isAutoPunch: boolean;
+  recordMode: RecordMode;
   isCountInRecord: boolean;
   isCountInPlayback: boolean;
   isPreRollPlay: boolean;
@@ -42,7 +42,7 @@ export interface TransportSlice {
   setPosition: (seconds: number) => void;
   setRepeat: (repeat: boolean) => void;
   setMetronome: (metronome: boolean) => void;
-  setAutoPunch: (autoPunch: boolean) => void;
+  setRecordMode: (mode: RecordMode) => void;
   setCountInRecord: (enabled: boolean) => void;
   setCountInPlayback: (enabled: boolean) => void;
   setPreRollPlay: (enabled: boolean) => void;
@@ -61,7 +61,7 @@ export const createTransportSlice: StateCreator<TransportSlice> = (set, get) => 
   positionBeats: '1.1.00',
   isRepeat: false,
   isMetronome: false,
-  isAutoPunch: false,
+  recordMode: 'normal' as RecordMode,
   isCountInRecord: false,
   isCountInPlayback: false,
   isPreRollPlay: false,
@@ -114,7 +114,7 @@ export const createTransportSlice: StateCreator<TransportSlice> = (set, get) => 
   setPosition: (positionSeconds) => set({ positionSeconds }),
   setRepeat: (isRepeat) => set({ isRepeat }),
   setMetronome: (isMetronome) => set({ isMetronome }),
-  setAutoPunch: (isAutoPunch) => set({ isAutoPunch }),
+  setRecordMode: (recordMode) => set({ recordMode }),
   setCountInRecord: (isCountInRecord) => set({ isCountInRecord }),
   setCountInPlayback: (isCountInPlayback) => set({ isCountInPlayback }),
   setPreRollPlay: (isPreRollPlay) => set({ isPreRollPlay }),

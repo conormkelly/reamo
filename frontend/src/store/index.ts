@@ -207,8 +207,6 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
           const cmdState = response.data as CommandState;
           if (cmdState.commandId === ActionCommands.TOGGLE_METRONOME) {
             get().setMetronome(cmdState.state === 1);
-          } else if (cmdState.commandId === ActionCommands.AUTO_PUNCH) {
-            get().setAutoPunch(cmdState.state === 1);
           }
           break;
         }
@@ -280,6 +278,10 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
       get().setProjectDirty(p.isDirty);
       get().setMemoryWarning(p.memoryWarning);
       // Project-level settings (moved from transport event)
+      // Record mode: 0=normal, 1=timeSelection, 2=selectedItems
+      const recordMode = p.recordMode === 2 ? 'selectedItems' as const
+        : p.recordMode === 1 ? 'timeSelection' as const
+        : 'normal' as const;
       set({
         isRepeat: p.repeat,
         isMetronome: p.metronome.enabled,
@@ -290,6 +292,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
         isPreRollRecord: p.preRoll.recording,
         masterStereo: p.master.stereoEnabled,
         barOffset: p.barOffset,
+        recordMode,
       });
     } else if (isTrackSkeletonEvent(message)) {
       // Track skeleton: lightweight list of all tracks (name + GUID)

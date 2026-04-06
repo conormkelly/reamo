@@ -13,13 +13,11 @@
  * @see docs/architecture/RESPONSIVE_FRONTEND_FINAL.md
  */
 
-import { type ReactElement, useRef, useEffect, useCallback } from 'react';
+import type { ReactElement } from 'react';
 import {
   Play,
   Pause,
   Square,
-  Circle,
-  RefreshCw,
   SlidersHorizontal,
   Clock,
   ListMusic,
@@ -32,7 +30,10 @@ import {
 import { useReaper } from '../ReaperProvider';
 import { useTransport } from '../../hooks/useTransport';
 import { useReaperStore } from '../../store';
+import { useRecordButton } from '../../hooks/useRecordButton';
 import { type ViewId, viewMeta } from '../../viewRegistry';
+import { RecordModeIcon } from '../Transport/RecordModeIcon';
+import { recordModeTitle } from '../../hooks/useRecordButton';
 
 /** Icons for each view */
 const VIEW_ICONS: Record<ViewId, typeof SlidersHorizontal> = {
@@ -45,9 +46,6 @@ const VIEW_ICONS: Record<ViewId, typeof SlidersHorizontal> = {
   instruments: Music,
   tuner: AudioWaveform,
 };
-
-// Hold duration threshold for record button mode toggle
-const RECORD_HOLD_THRESHOLD = 300;
 
 // =============================================================================
 // Types
@@ -65,57 +63,18 @@ export interface SideRailProps {
 
 export function SideRail({ currentView, onViewChange, className = '' }: SideRailProps): ReactElement {
   const { sendCommand } = useReaper();
-  const { isPlaying, isPaused, isStopped, isRecording, play, pause, stop, record } = useTransport();
-  const isAutoPunch = useReaperStore((state) => state.isAutoPunch);
+  const { isPlaying, isPaused, isStopped, play, pause, stop } = useTransport();
   const hiddenViews = useReaperStore((s) => s.hiddenViews);
   const viewOrder = useReaperStore((s) => s.viewOrder);
   const visibleViews = viewOrder.filter(v => !hiddenViews.includes(v));
-
-  // Long-press state for Record button
-  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const wasHoldRef = useRef(false);
+  const { pointerHandlers, recordMode, isRecording } = useRecordButton();
 
   // Transport handlers
   const handlePlay = () => sendCommand(play());
   const handlePause = () => sendCommand(pause());
   const handleStop = () => sendCommand(stop());
 
-  // Record button long-press handlers (same as PersistentTransport)
-  const handleRecordPointerDown = useCallback(() => {
-    wasHoldRef.current = false;
-    holdTimerRef.current = setTimeout(() => {
-      wasHoldRef.current = true;
-      // TODO: Toggle auto-punch mode
-    }, RECORD_HOLD_THRESHOLD);
-  }, []);
-
-  const handleRecordPointerUp = useCallback(() => {
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-    if (!wasHoldRef.current) {
-      sendCommand(record());
-    }
-  }, [sendCommand, record]);
-
-  const handleRecordPointerCancel = useCallback(() => {
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-  }, []);
-
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (holdTimerRef.current) {
-        clearTimeout(holdTimerRef.current);
-      }
-    };
-  }, []);
-
-  const recordInactiveClass = isAutoPunch
+  const recordInactiveClass = recordMode !== 'normal'
     ? 'bg-record-dim hover:bg-record-hover ring-2 ring-record-ring'
     : 'bg-record-dim hover:bg-record-hover ring-2 ring-record-ring-dim';
 
@@ -193,25 +152,18 @@ export function SideRail({ currentView, onViewChange, className = '' }: SideRail
           <Square size={12} fill={isStopped ? 'currentColor' : 'none'} />
         </button>
 
-        {/* Record - with long-press for auto-punch toggle */}
+        {/* Record - with long-press for record mode cycling */}
         <button
-          onPointerDown={handleRecordPointerDown}
-          onPointerUp={handleRecordPointerUp}
-          onPointerCancel={handleRecordPointerCancel}
-          onPointerLeave={handleRecordPointerCancel}
+          {...pointerHandlers}
           className={`
             w-10 h-10 rounded-full flex items-center justify-center transition-colors touch-none
             ${isRecording ? 'bg-record animate-pulse' : recordInactiveClass}
           `}
-          title={isAutoPunch ? 'Record (Auto-Punch) - hold to toggle mode' : 'Record - hold to toggle auto-punch'}
-          aria-label={isAutoPunch ? 'Record (Auto-Punch mode)' : 'Record'}
+          title={recordModeTitle(recordMode)}
+          aria-label={recordModeTitle(recordMode)}
           aria-pressed={isRecording}
         >
-          {isAutoPunch ? (
-            <RefreshCw size={14} strokeWidth={2.5} />
-          ) : (
-            <Circle size={14} fill="currentColor" />
-          )}
+          <RecordModeIcon mode={recordMode} size={14} />
         </button>
       </div>
     </nav>

@@ -1,17 +1,16 @@
 /**
  * TransportControls - Skip, Play, Pause, Stop, Record buttons
- * Record button supports long-press to toggle auto-punch mode
+ * Record button supports long-press to cycle record modes
  */
 
-import { useRef, useCallback, useEffect, type ReactElement } from 'react';
-import { Play, Pause, Square, Circle, SkipBack, RefreshCw } from 'lucide-react';
+import type { ReactElement } from 'react';
+import { Play, Pause, Square, SkipBack } from 'lucide-react';
 import { useReaper } from '../../../components/ReaperProvider';
 import { useTransport } from '../../../hooks';
-import { useReaperStore } from '../../../store';
-import { transport, action } from '../../../core/WebSocketCommands';
-
-// Hold duration for record button mode toggle
-const HOLD_THRESHOLD = 300;
+import { useRecordButton } from '../../../hooks/useRecordButton';
+import { transport } from '../../../core/WebSocketCommands';
+import { RecordModeIcon } from '../../../components/Transport/RecordModeIcon';
+import { recordModeTitle } from '../../../hooks/useRecordButton';
 
 interface BigTransportButtonProps {
   onClick: () => void;
@@ -67,8 +66,8 @@ interface TransportControlsProps {
 
 export function TransportControls({ scale }: TransportControlsProps): ReactElement {
   const { sendCommand } = useReaper();
-  const { isPlaying, isPaused, isStopped, isRecording, play, pause, stop, record } = useTransport();
-  const isAutoPunch = useReaperStore((state) => state.isAutoPunch);
+  const { isPlaying, isPaused, isStopped, play, pause, stop } = useTransport();
+  const { pointerHandlers, recordMode, isRecording } = useRecordButton();
 
   // Transport handlers
   const handleSkipToStart = () => sendCommand(transport.goStart());
@@ -76,49 +75,7 @@ export function TransportControls({ scale }: TransportControlsProps): ReactEleme
   const handlePause = () => sendCommand(pause());
   const handleStop = () => sendCommand(stop());
 
-  // Record button long-press handlers
-  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const wasHoldRef = useRef(false);
-
-  const handleRecordPointerDown = useCallback(() => {
-    wasHoldRef.current = false;
-    holdTimerRef.current = setTimeout(() => {
-      wasHoldRef.current = true;
-      if (isAutoPunch) {
-        sendCommand(action.execute(40252)); // Set record mode to normal
-      } else {
-        sendCommand(action.execute(40076)); // Set record mode to time selection auto-punch
-      }
-    }, HOLD_THRESHOLD);
-  }, [sendCommand, isAutoPunch]);
-
-  const handleRecordPointerUp = useCallback(() => {
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-    if (!wasHoldRef.current) {
-      sendCommand(record());
-    }
-  }, [sendCommand, record]);
-
-  const handleRecordPointerCancel = useCallback(() => {
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-  }, []);
-
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (holdTimerRef.current) {
-        clearTimeout(holdTimerRef.current);
-      }
-    };
-  }, []);
-
-  const recordInactiveClass = isAutoPunch
+  const recordInactiveClass = recordMode !== 'normal'
     ? 'bg-record-dim-50 hover:bg-record-hover-70 ring-2 ring-record-ring'
     : 'bg-record-dim-50 hover:bg-record-hover-70 ring-2 ring-record-ring-dim';
 
@@ -177,14 +134,11 @@ export function TransportControls({ scale }: TransportControlsProps): ReactEleme
         />
       </BigTransportButton>
 
-      {/* Record - with long-press for auto-punch toggle */}
+      {/* Record - with long-press for record mode cycling */}
       <button
-        onPointerDown={handleRecordPointerDown}
-        onPointerUp={handleRecordPointerUp}
-        onPointerCancel={handleRecordPointerCancel}
-        onPointerLeave={handleRecordPointerCancel}
-        title={isAutoPunch ? 'Record (Auto-Punch) - hold to toggle mode' : 'Record - hold to toggle auto-punch'}
-        aria-label={isAutoPunch ? 'Record (Auto-Punch mode)' : 'Record'}
+        {...pointerHandlers}
+        title={recordModeTitle(recordMode)}
+        aria-label={recordModeTitle(recordMode)}
         aria-pressed={isRecording}
         data-testid="transport-button"
         data-action="record"
@@ -198,11 +152,7 @@ export function TransportControls({ scale }: TransportControlsProps): ReactEleme
           height: `calc(clamp(48px, 12cqmin, 112px) * ${scale})`,
         }}
       >
-        {isAutoPunch ? (
-          <RefreshCw style={iconStyle} strokeWidth={2.5} />
-        ) : (
-          <Circle style={iconStyle} fill="currentColor" />
-        )}
+        <RecordModeIcon mode={recordMode} style={iconStyle} />
       </button>
     </div>
   );

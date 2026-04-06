@@ -124,3 +124,7 @@ export {
   useAudioMonitor,
   type UseAudioMonitorReturn,
 } from './useAudioMonitor';
+export {
+  useRecordButton,
+  type UseRecordButtonReturn,
+} from './useRecordButton';

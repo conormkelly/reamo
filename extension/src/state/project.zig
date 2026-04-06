@@ -35,6 +35,7 @@ pub const State = struct {
     is_dirty: bool = false, // Project has unsaved changes
     frame_rate: f64 = 30.0, // Project frame rate (e.g., 29.97, 24, 25)
     drop_frame: bool = false, // True for drop-frame timecode (29.97/59.94)
+    record_mode: u8 = 0, // 0=normal, 1=time selection auto-punch, 2=selected items auto-punch
 
     // Memory warning flag - set externally from tiered arena usage monitoring
     // When true, frontend should warn user about high memory utilization
@@ -106,6 +107,7 @@ pub const State = struct {
         if (self.is_dirty != other.is_dirty) return false;
         if (@abs(self.frame_rate - other.frame_rate) > 0.001) return false;
         if (self.drop_frame != other.drop_frame) return false;
+        if (self.record_mode != other.record_mode) return false;
         if (self.memory_warning != other.memory_warning) return false;
         return true;
     }
@@ -122,6 +124,15 @@ pub const State = struct {
         const master_mono_state = api.getCommandState(40917);
         const frame_info = api.getFrameRate();
 
+        // Record mode: check toggle states for auto-punch actions
+        // 40076 = time selection auto-punch, 40253 = selected items auto-punch
+        const record_mode: u8 = if (api.getCommandStateEx(0, 40253) == 1)
+            2 // selected items auto-punch
+        else if (api.getCommandStateEx(0, 40076) == 1)
+            1 // time selection auto-punch
+        else
+            0; // normal
+
         var state = State{
             .state_change_count = api.projectStateChangeCount(),
             .project_length = api.projectLength(),
@@ -137,6 +148,7 @@ pub const State = struct {
             .is_dirty = api.isDirty(),
             .frame_rate = frame_info.frame_rate,
             .drop_frame = frame_info.drop_frame,
+            .record_mode = record_mode,
         };
 
         // Get project identity (pointer + path)
@@ -222,7 +234,7 @@ pub const State = struct {
         }
 
         // Write remaining fields
-        writer.print(",\"stateChangeCount\":{d},\"repeat\":{s},\"metronome\":{{\"enabled\":{s},\"volume\":{d:.4},\"volumeDb\":{d:.2}}},\"countIn\":{{\"playback\":{s},\"recording\":{s}}},\"preRoll\":{{\"playback\":{s},\"recording\":{s}}},\"master\":{{\"stereoEnabled\":{s}}},\"projectLength\":{d:.3},\"barOffset\":{d},\"isDirty\":{s},\"frameRate\":{d:.4},\"dropFrame\":{s},\"memoryWarning\":{s}}}}}", .{
+        writer.print(",\"stateChangeCount\":{d},\"repeat\":{s},\"metronome\":{{\"enabled\":{s},\"volume\":{d:.4},\"volumeDb\":{d:.2}}},\"countIn\":{{\"playback\":{s},\"recording\":{s}}},\"preRoll\":{{\"playback\":{s},\"recording\":{s}}},\"master\":{{\"stereoEnabled\":{s}}},\"projectLength\":{d:.3},\"barOffset\":{d},\"isDirty\":{s},\"frameRate\":{d:.4},\"dropFrame\":{s},\"recordMode\":{d},\"memoryWarning\":{s}}}}}", .{
             self.state_change_count,
             if (self.repeat) "true" else "false",
             if (self.metronome_enabled) "true" else "false",
@@ -238,6 +250,7 @@ pub const State = struct {
             if (self.is_dirty) "true" else "false",
             self.frame_rate,
             if (self.drop_frame) "true" else "false",
+            self.record_mode,
             if (self.memory_warning) "true" else "false",
         }) catch return null;
 

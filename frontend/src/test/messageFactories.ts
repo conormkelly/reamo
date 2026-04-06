@@ -108,6 +108,7 @@ const PROJECT_DEFAULTS: ProjectEventPayload = {
   projectLength: 300,
   barOffset: 0,
   isDirty: false,
+  recordMode: 0,
   memoryWarning: false,
 };
 
