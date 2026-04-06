@@ -40,7 +40,8 @@ jobs:
       - name: Generate checksum
         run: |
           cd release
-          shasum -a 256 REAmo-v*.zip > REAmo-v*.zip.sha256
+          ZIP=$(ls REAmo-v*.zip)
+          shasum -a 256 "$ZIP" > "${ZIP}.sha256"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
