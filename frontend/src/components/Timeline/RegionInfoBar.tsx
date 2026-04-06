@@ -1,29 +1,25 @@
 /**
  * Region Info Bar Component
  *
- * Designed for the SecondaryPanel info tab. No labels, no nested cards.
- * The format IS the label: color swatch is the color, monospace "1.1 → 5.1" is start→end.
+ * Inline editing panel for the selected region in regions mode.
+ * All edits go directly to REAPER via WebSocket — no staging/pending changes.
  *
- * Layout when region selected:
- *   [■] Verse 1 ············ [🗑] [+]
- *   1.1 → 5.1 · 4.0
- *
- * Empty states:
- *   "Select a region to edit"  [+]
- *   "Add a region"  [+]
+ * Layout (horizontal):
+ *   Row 1: Color: [■] | Name: Verse 1 ............ [⊕] [🗑] [+]
+ *   Row 2: Start: 1.1 | End: 5.1 | Length: 4.0
  *
  * Color: tap swatch = OS color picker, hold = reset to default.
  * Name/Start/Length: tap to edit inline.
  */
 
 import { useState, useRef, useEffect, type ReactElement } from 'react';
-import { Plus, Trash2, CopyPlus } from 'lucide-react';
+import { Plus, Trash2, CopyPlus, Crosshair } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useTimeFormatters } from '../../hooks';
 import { hexToReaperColor, reaperColorToHexWithFallback } from '../../utils';
 import type { Region } from '../../core/types';
 import { useReaper } from '../ReaperProvider';
-import { tempo as tempoCmd } from '../../core/WebSocketCommands';
+import { region as regionCmd, tempo as tempoCmd, timeSelection } from '../../core/WebSocketCommands';
 import { DEFAULT_REGION_COLOR } from '../../constants/colors';
 
 /**
@@ -82,18 +78,10 @@ type EditingField = 'name' | 'start' | 'length' | null;
 const COLOR_HOLD_DURATION = 500;
 
 export function RegionInfoBar({ className = '', onAddRegion, layout = 'horizontal' }: RegionInfoBarProps): ReactElement | null {
-  const { sendCommandAsync } = useReaper();
+  const { sendCommand, sendCommandAsync } = useReaper();
   const timelineMode = useReaperStore((s) => s.timelineMode);
   const selectedRegionIds = useReaperStore((s) => s.selectedRegionIds);
   const regions = useReaperStore((s) => s.regions);
-  const pendingChanges = useReaperStore((s) => s.pendingChanges);
-  const getDisplayRegions = useReaperStore((s) => s.getDisplayRegions);
-  const updateRegionBounds = useReaperStore((s) => s.updateRegionBounds);
-  const updateRegionMeta = useReaperStore((s) => s.updateRegionMeta);
-  const createRegion = useReaperStore((s) => s.createRegion);
-  const selectRegion = useReaperStore((s) => s.selectRegion);
-  const nextNewRegionKey = useReaperStore((s) => s.nextNewRegionKey);
-  const openDeleteRegionModal = useReaperStore((s) => s.openDeleteRegionModal);
 
   const {
     formatBeats,
@@ -114,7 +102,6 @@ export function RegionInfoBar({ className = '', onAddRegion, layout = 'horizonta
     name: string;
   } | null>(null);
 
-  const [pendingBarStrings, setPendingBarStrings] = useState<Record<string, { startBars: string; endBars: string; lengthBars: string }>>({});
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Color swatch: tap = OS picker, hold = reset
@@ -122,9 +109,12 @@ export function RegionInfoBar({ className = '', onAddRegion, layout = 'horizonta
   const colorHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const colorDidResetRef = useRef(false);
 
+  // Delete confirmation (tap once = red, tap again = delete)
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const deleteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Long-press for clone
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const selectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLongPressRef = useRef(false);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const [isCloneMode, setIsCloneMode] = useState(false);
@@ -138,80 +128,33 @@ export function RegionInfoBar({ className = '', onAddRegion, layout = 'horizonta
     }
   }, [editingField]);
 
-  // Fetch bar strings for pending regions
+  // Reset delete confirmation when selection changes
   useEffect(() => {
-    const pendingIds = Object.keys(pendingChanges).map(k => parseInt(k, 10));
-    if (pendingIds.length === 0) {
-      if (Object.keys(pendingBarStrings).length > 0) setPendingBarStrings({});
-      return;
-    }
-
-    pendingIds.forEach(async (id) => {
-      const change = pendingChanges[id];
-      if (!change || change.isDeleted) return;
-
-      const cacheKey = `${id}:${change.newStart}:${change.newEnd}`;
-      if (pendingBarStrings[cacheKey]) return;
-
-      try {
-        const [startResp, endResp] = await Promise.all([
-          sendCommandAsync(tempoCmd.timeToBeats(change.newStart)),
-          sendCommandAsync(tempoCmd.timeToBeats(change.newEnd)),
-        ]);
-        const startData = startResp as { payload?: { bars?: string } } | undefined;
-        const endData = endResp as { payload?: { bars?: string } } | undefined;
-
-        if (startData?.payload?.bars && endData?.payload?.bars) {
-          const startBars = startData.payload.bars;
-          const endBars = endData.payload.bars;
-          const startParsed = parseBarsString(startBars);
-          const endParsed = parseBarsString(endBars);
-
-          let lengthBars = '';
-          if (startParsed && endParsed) {
-            let barDiff = endParsed.bar - startParsed.bar;
-            let beatDiff = endParsed.beat - startParsed.beat;
-            let ticksDiff = endParsed.ticks - startParsed.ticks;
-            if (ticksDiff < 0) { beatDiff -= 1; ticksDiff += 100; }
-            if (beatDiff < 0) { barDiff -= 1; beatDiff += beatsPerBar; }
-            lengthBars = `${barDiff}.${beatDiff}.${ticksDiff.toString().padStart(2, '0')}`;
-          }
-
-          setPendingBarStrings(prev => ({ ...prev, [cacheKey]: { startBars, endBars, lengthBars } }));
-        }
-      } catch {
-        // Ignore — falls back to local calculation
-      }
-    });
-  }, [pendingChanges, pendingBarStrings, sendCommandAsync, beatsPerBar]);
+    setConfirmDelete(false);
+    if (deleteTimeoutRef.current) { clearTimeout(deleteTimeoutRef.current); deleteTimeoutRef.current = null; }
+  }, [selectedRegionIds]);
 
   // Cleanup timers on unmount
   useEffect(() => {
     return () => {
       if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-      if (selectTimerRef.current) clearTimeout(selectTimerRef.current);
       if (colorHoldTimerRef.current) clearTimeout(colorHoldTimerRef.current);
+      if (deleteTimeoutRef.current) clearTimeout(deleteTimeoutRef.current);
     };
   }, []);
 
   // Only show in regions mode
   if (timelineMode !== 'regions') return null;
 
-  const displayRegions = getDisplayRegions(regions);
   const selectedId = selectedRegionIds.length === 1 ? selectedRegionIds[0] : null;
   const region: Region | undefined = selectedId !== null
-    ? displayRegions.find(r => r.id === selectedId)
+    ? regions.find(r => r.id === selectedId)
     : undefined;
 
-  // Pending bar strings
-  const pendingChange = selectedId !== null ? pendingChanges[selectedId] : null;
-  const hasPending = pendingChange !== null && pendingChange !== undefined;
-  const pendingCacheKey = hasPending && region ? `${selectedId}:${region.start}:${region.end}` : null;
-  const fetchedBars = pendingCacheKey ? pendingBarStrings[pendingCacheKey] : null;
-
-  const displayStartBars = fetchedBars?.startBars ?? region?.startBars ?? (region ? formatBeats(region.start) : '');
-  const displayEndBars = fetchedBars?.endBars ?? region?.endBars ?? (region ? formatBeats(region.end) : '');
-  const displayLengthBars = fetchedBars?.lengthBars ?? region?.lengthBars ?? (region ? formatDuration(region.end - region.start) : '');
+  // Bar strings directly from server-provided region data
+  const displayStartBars = region?.startBars ?? (region ? formatBeats(region.start) : '');
+  const displayEndBars = region?.endBars ?? (region ? formatBeats(region.end) : '');
+  const displayLengthBars = region?.lengthBars ?? (region ? formatDuration(region.end - region.start) : '');
 
   const currentColor = region ? reaperColorToHexWithFallback(region.color, DEFAULT_REGION_COLOR) : DEFAULT_REGION_COLOR;
   const isDefaultColor = !region?.color || region.color === 0;
@@ -241,7 +184,9 @@ export function RegionInfoBar({ className = '', onAddRegion, layout = 'horizonta
     }
 
     if (editingField === 'name') {
-      if (editValue.trim()) updateRegionMeta(editRegion.id, { name: editValue.trim() }, regions);
+      if (editValue.trim()) {
+        sendCommand(regionCmd.update(editRegion.id, { name: editValue.trim() }));
+      }
     } else if (bpm) {
       if (editingField === 'start') {
         const parsed = parseBarsString(editValue) ?? parseBarsString(editValue + '.1');
@@ -250,12 +195,12 @@ export function RegionInfoBar({ className = '', onAddRegion, layout = 'horizonta
             const response = await sendCommandAsync(tempoCmd.barsToTime(parsed.bar, parsed.beat, parsed.ticks));
             const resp = response as { payload?: { time?: number } } | undefined;
             if (resp?.payload?.time !== undefined && resp.payload.time >= 0 && resp.payload.time < editRegion.end) {
-              updateRegionBounds(editRegion.id, { start: resp.payload.time }, regions);
+              sendCommand(regionCmd.update(editRegion.id, { start: resp.payload.time }));
             }
           } catch {
             const newSeconds = parseBarBeat(editValue);
             if (newSeconds !== null && newSeconds >= 0 && newSeconds < editRegion.end) {
-              updateRegionBounds(editRegion.id, { start: newSeconds }, regions);
+              sendCommand(regionCmd.update(editRegion.id, { start: newSeconds }));
             }
           }
         }
@@ -269,18 +214,18 @@ export function RegionInfoBar({ className = '', onAddRegion, layout = 'horizonta
             const response = await sendCommandAsync(tempoCmd.barsToTime(newEnd.bar, newEnd.beat, newEnd.ticks));
             const resp = response as { payload?: { time?: number } } | undefined;
             if (resp?.payload?.time !== undefined && resp.payload.time > editRegion.start) {
-              updateRegionBounds(editRegion.id, { end: resp.payload.time }, regions);
+              sendCommand(regionCmd.update(editRegion.id, { end: resp.payload.time }));
             }
           } catch {
             const newDuration = parseDuration(editValue);
             if (newDuration !== null && newDuration > 0) {
-              updateRegionBounds(editRegion.id, { end: editRegion.start + newDuration }, regions);
+              sendCommand(regionCmd.update(editRegion.id, { end: editRegion.start + newDuration }));
             }
           }
         } else {
           const newDuration = parseDuration(editValue);
           if (newDuration !== null && newDuration > 0) {
-            updateRegionBounds(editRegion.id, { end: editRegion.start + newDuration }, regions);
+            sendCommand(regionCmd.update(editRegion.id, { end: editRegion.start + newDuration }));
           }
         }
       }
@@ -305,7 +250,7 @@ export function RegionInfoBar({ className = '', onAddRegion, layout = 'horizonta
     colorDidResetRef.current = false;
     colorHoldTimerRef.current = setTimeout(() => {
       colorDidResetRef.current = true;
-      updateRegionMeta(region.id, { color: 0 }, regions);
+      sendCommand(regionCmd.update(region.id, { color: 0 }));
     }, COLOR_HOLD_DURATION);
   };
 
@@ -320,18 +265,37 @@ export function RegionInfoBar({ className = '', onAddRegion, layout = 'horizonta
 
   const handleColorChange = (hex: string) => {
     if (!region) return;
-    updateRegionMeta(region.id, { color: hexToReaperColor(hex) }, regions);
+    sendCommand(regionCmd.update(region.id, { color: hexToReaperColor(hex) }));
+  };
+
+  // --- Delete (tap once = confirm, tap again = delete) ---
+
+  const handleDelete = () => {
+    if (!region) return;
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      deleteTimeoutRef.current = setTimeout(() => setConfirmDelete(false), 3000);
+    } else {
+      sendCommand(regionCmd.delete(region.id));
+      setConfirmDelete(false);
+      if (deleteTimeoutRef.current) { clearTimeout(deleteTimeoutRef.current); deleteTimeoutRef.current = null; }
+    }
+  };
+
+  // --- Set time selection to region bounds ---
+
+  const handleSetTimeSelection = () => {
+    if (!region) return;
+    sendCommand(timeSelection.set(region.start, region.end));
   };
 
   // --- Clone ---
 
   const handleCloneRegion = () => {
-    if (!region || !bpm) return;
-    const lastEnd = displayRegions.length > 0 ? Math.max(...displayRegions.map(r => r.end)) : 0;
+    if (!region) return;
+    const lastEnd = regions.length > 0 ? Math.max(...regions.map(r => r.end)) : 0;
     const duration = region.end - region.start;
-    const newRegionKey = nextNewRegionKey;
-    createRegion(lastEnd, lastEnd + duration, region.name, bpm, region.color, regions);
-    selectTimerRef.current = setTimeout(() => selectRegion(newRegionKey), 0);
+    sendCommand(regionCmd.add(lastEnd, lastEnd + duration, region.name, region.color));
   };
 
   const handleAddPointerDown = () => {
@@ -363,7 +327,7 @@ export function RegionInfoBar({ className = '', onAddRegion, layout = 'horizonta
   const actionBtn = 'p-1.5 rounded transition-colors';
 
   // No regions at all
-  if (displayRegions.length === 0) {
+  if (regions.length === 0) {
     return (
       <div className={`flex items-center gap-2 px-3 py-2 ${className}`}>
         <span className="text-text-muted text-sm flex-1">Add a region</span>
@@ -480,9 +444,20 @@ export function RegionInfoBar({ className = '', onAddRegion, layout = 'horizonta
   const actionButtons = (
     <div className="flex items-center gap-0.5 flex-shrink-0">
       <button
-        onClick={() => openDeleteRegionModal(region, region.id)}
-        className={`${actionBtn} text-text-tertiary hover:text-error-text hover:bg-error-bg`}
-        title="Delete region"
+        onClick={handleSetTimeSelection}
+        className={`${actionBtn} text-text-tertiary hover:text-accent-region hover:bg-bg-elevated`}
+        title="Set time selection to region"
+      >
+        <Crosshair size={16} />
+      </button>
+      <button
+        onClick={handleDelete}
+        className={`${actionBtn} ${
+          confirmDelete
+            ? 'bg-error-bg text-error-text'
+            : 'text-text-tertiary hover:text-error-text hover:bg-error-bg'
+        }`}
+        title={confirmDelete ? 'Tap again to confirm delete' : 'Delete region'}
       >
         <Trash2 size={16} />
       </button>
@@ -509,22 +484,34 @@ export function RegionInfoBar({ className = '', onAddRegion, layout = 'horizonta
   // --- Vertical layout (landscape sidebar) ---
   if (layout === 'vertical') {
     return (
-      <div className={`flex flex-col gap-2 px-3 py-2 text-sm ${className}`}>
-        {/* [swatch] name */}
-        <div className="flex items-center gap-2 min-w-0">
+      <div className={`flex flex-col gap-3 px-3 py-2 text-sm ${className}`}>
+        {/* Color: [■] */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-text-secondary text-xs flex-shrink-0">Color:</span>
           {colorSwatch}
+        </div>
+
+        {/* Name: ... */}
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-text-secondary text-xs flex-shrink-0">Name:</span>
           {nameField}
         </div>
 
-        {/* start → end */}
+        {/* Start: 1.1 */}
         <div className="flex items-center gap-1.5 font-mono text-xs">
+          <span className="text-text-secondary font-sans">Start:</span>
           {startField}
-          <span className="text-text-muted">→</span>
+        </div>
+
+        {/* End: 5.1 */}
+        <div className="flex items-center gap-1.5 font-mono text-xs">
+          <span className="text-text-secondary font-sans">End:</span>
           <span className="text-text-tertiary px-1 py-0.5">{endDisplay}</span>
         </div>
 
-        {/* length */}
-        <div className="font-mono text-xs">
+        {/* Length: 4.0 */}
+        <div className="flex items-center gap-1.5 font-mono text-xs">
+          <span className="text-text-secondary font-sans">Length:</span>
           {lengthField}
         </div>
 
@@ -536,21 +523,44 @@ export function RegionInfoBar({ className = '', onAddRegion, layout = 'horizonta
 
   // --- Horizontal layout (portrait SecondaryPanel) ---
   return (
-    <div className={`flex flex-col gap-1.5 px-3 py-2 text-sm ${className}`}>
-      {/* Row 1: [swatch] name ............ [actions] */}
-      <div className="flex items-center gap-2 min-w-0">
-        {colorSwatch}
-        {nameField}
+    <div className={`flex flex-col gap-3 px-3 py-2 text-sm ${className}`}>
+      {/* Row 1: Color: [■] | Name: Verse 1 ............ [actions] */}
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <span className="text-text-secondary text-xs flex-shrink-0">Color:</span>
+          {colorSwatch}
+        </div>
+
+        <div className="w-px h-4 bg-border-default flex-shrink-0" />
+
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+          <span className="text-text-secondary text-xs flex-shrink-0">Name:</span>
+          {nameField}
+        </div>
+
         {actionButtons}
       </div>
 
-      {/* Row 2: start → end · length — the format is the label */}
-      <div className="flex items-center gap-1.5 font-mono text-xs pl-8">
-        {startField}
-        <span className="text-text-muted">→</span>
-        <span className="text-text-tertiary px-1 py-0.5">{endDisplay}</span>
-        <span className="text-text-muted">·</span>
-        {lengthField}
+      {/* Row 2: Start: 1.1 | End: 5.1 | Length: 4.0 */}
+      <div className="flex items-center gap-3 min-h-[32px]">
+        <div className="flex items-center gap-1.5 font-mono text-xs">
+          <span className="text-text-secondary font-sans">Start:</span>
+          {startField}
+        </div>
+
+        <div className="w-px h-4 bg-border-default flex-shrink-0" />
+
+        <div className="flex items-center gap-1.5 font-mono text-xs">
+          <span className="text-text-secondary font-sans">End:</span>
+          <span className="text-text-tertiary px-1 py-0.5">{endDisplay}</span>
+        </div>
+
+        <div className="w-px h-4 bg-border-default flex-shrink-0" />
+
+        <div className="flex items-center gap-1.5 font-mono text-xs">
+          <span className="text-text-secondary font-sans">Length:</span>
+          {lengthField}
+        </div>
       </div>
     </div>
   );

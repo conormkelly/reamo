@@ -3,9 +3,7 @@
  * Visual timeline showing regions and markers for navigation and selection
  */
 
-import { useRef, useCallback, useMemo, useEffect, type ReactElement } from 'react';
-import { useReaperStore } from '../../store';
-import { computeDisplayRegions, computeDragPreview } from '../../store/slices/regionEditSlice';
+import { useRef, useCallback, useMemo, type ReactElement } from 'react';
 import { useReaper } from '../ReaperProvider';
 import {
   useTimeSignature,
@@ -19,7 +17,7 @@ import {
   type UseViewportReturn,
 } from '../../hooks';
 import { transport, timeSelection as timeSelCmd, marker as markerCmd, action } from '../../core/WebSocketCommands';
-import { usePlayheadDrag, useMarkerDrag, useRegionDrag, useEdgeScroll, useTimelineSelectors, useItemTapHandler, useTimelineViewport, useTimelinePointerEvents } from './hooks';
+import { usePlayheadDrag, useMarkerDrag, useEdgeScroll, useTimelineSelectors, useItemTapHandler, useTimelineViewport, useTimelinePointerEvents } from './hooks';
 import { TimelineRegionLabels, TimelineRegionBlocks } from './TimelineRegions';
 import { MultiTrackLanes } from './MultiTrackLanes';
 import type { SkeletonTrack } from '../../core/WebSocketTypes';
@@ -28,8 +26,6 @@ import { TimelineGridLines } from './TimelineGridLines';
 import { TimelineRuler } from './TimelineRuler';
 import { TimelinePlayhead, PlayheadDragPreview, PlayheadPreviewPill, MarkerDragPreview } from './TimelinePlayhead';
 import { TimelineFooter } from './TimelineFooter';
-import { formatBeats, formatDelta } from '../../utils';
-import { timeToBarBeat, formatBarBeat } from '../../core/tempoUtils';
 import { findNearestSnapTarget } from './snapUtils';
 import { generateGridLines } from '../../utils/gridLines';
 
@@ -55,11 +51,8 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
   const {
     positionSeconds, regions, markers, items, trackSkeleton, bpm, tempoMarkers,
     storedTimeSelection, setStoredTimeSelection,
-    timelineMode, selectedRegionIds, pendingChanges, hasPendingChanges,
-    selectRegion, deselectRegion, clearSelection, isRegionSelected,
-    resizeRegion, moveRegion, startDrag, updateDrag, endDrag, cancelDrag,
-    regionDragType, regionDragId, dragCurrentTime, dragStartTime,
-    insertionPoint, resizeEdgePosition,
+    timelineMode, selectedRegionIds,
+    selectRegion, deselectRegion, isRegionSelected,
     viewFilterTrackGuid, itemSelectionModeActive, enterItemSelectionMode, setViewFilterTrack,
     setSelectedMarkerId,
     openMarkerEditModal, openMakeSelectionModal,
@@ -86,72 +79,24 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     return { start: storedTimeSelection.startSeconds, end: storedTimeSelection.endSeconds };
   }, [storedTimeSelection]);
 
-  // Base display regions (with pending changes but WITHOUT drag preview) - used for snap calculations
-  // Uses pure function directly with explicit dependencies (no hidden store reads)
-  const baseDisplayRegions = useMemo(() => {
-    if (timelineMode === 'regions') {
-      return computeDisplayRegions(regions, pendingChanges);
-    }
-    return regions;
-  }, [timelineMode, regions, pendingChanges]);
-
-  // Get regions to display (with pending changes and drag preview applied in region mode)
-  // Uses pure function directly with explicit dependencies (no hidden store reads)
-  const dragPreviewResult = useMemo(() => {
-    if (timelineMode === 'regions' && regionDragType !== 'none') {
-      return computeDragPreview(
-        regions,
-        pendingChanges,
-        { dragType: regionDragType, dragRegionId: regionDragId, dragStartTime, dragCurrentTime },
-        bpm,
-        denominator
-      );
-    }
-    return null;
-  }, [timelineMode, regions, pendingChanges, regionDragType, regionDragId, dragStartTime, dragCurrentTime, bpm, denominator]);
-
-  const displayRegions = useMemo(() => {
-    if (timelineMode === 'regions') {
-      // Use drag preview when actively dragging, otherwise show pending changes
-      if (dragPreviewResult) {
-        return dragPreviewResult.regions;
-      }
-      return baseDisplayRegions;
-    }
-    return regions;
-  }, [timelineMode, regions, baseDisplayRegions, dragPreviewResult]);
-
-  // Sync drag preview indicator positions to store (for rendering insertion point, resize edge)
-  // This effect runs after the pure computation, keeping the store in sync without hidden deps
-  useEffect(() => {
-    useReaperStore.setState({
-      insertionPoint: dragPreviewResult?.insertionPoint ?? null,
-      resizeEdgePosition: dragPreviewResult?.resizeEdgePosition ?? null,
-    });
-  }, [dragPreviewResult]);
-
   // Selected region IDs as a Set for efficient lookup
-  // Now that we use ID-based keying, selectedRegionIds ARE the IDs we need
   const selectedRegionIdSet = useMemo(() => {
     return new Set(selectedRegionIds);
   }, [selectedRegionIds]);
-
-  // The ID of the region being dragged (already an ID, not an index)
-  const draggedRegionId = regionDragId;
 
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Viewport, follow-playhead, coordinate conversion, pan/pinch gestures
   const {
-    viewport, containerWidth, timelineStart, duration,
+    viewport, containerWidth,
     baseTimelineStart, baseDuration,
-    timeToPercent, viewportTimeToPercent, playheadPercent,
+    viewportTimeToPercent, playheadPercent,
     positionToTime, pauseFollow,
     panGesture, pinchGesture,
   } = useTimelineViewport({
     containerRef,
     positionSeconds,
-    displayRegions,
+    displayRegions: regions,
     markers,
     items,
     externalViewport,
@@ -193,82 +138,23 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     onSeek: handlePlayheadSeek,
   });
 
-  // Region drag hook (handles move, resize with vertical-cancel)
-  const {
-    handlePointerDown: handleRegionPointerDown,
-    handlePointerMove: handleRegionPointerMove,
-    handlePointerUp: handleRegionPointerUp,
-    isCancelled: isRegionDragCancelled,
-  } = useRegionDrag({
-    containerRef,
-    timelineStart,
-    duration,
-    bpm,
-    denominator,
-    displayRegions,
-    baseDisplayRegions,
-    selectedRegionIds,
-    regions,
-    timeToPercent,
-    positionToTime,
-    regionDragType,
-    regionDragId,
-    dragStartTime,
-    dragCurrentTime,
-    isRegionSelected,
-    selectRegion,
-    deselectRegion,
-    clearSelection,
-    startDrag,
-    updateDrag,
-    endDrag,
-    cancelDrag,
-    resizeRegion,
-    moveRegion,
-  });
-
   // Render-specific timeToPercent (uses VIEWPORT bounds for visible range)
-  // Extends viewport during drag operations to show drag targets
   const renderTimeToPercent = useCallback(
     (time: number) => {
-      // Calculate effective visible range, extending for drag operations
-      let effectiveStart = viewport.visibleRange.start;
-      let effectiveEnd = viewport.visibleRange.end;
-
-      // Don't extend when resize drag is cancelled
-      const isResizing = regionDragType === 'resize-start' || regionDragType === 'resize-end';
-      const shouldExtend = !isResizing || !isRegionDragCancelled;
-
-      if (shouldExtend) {
-        // Extend for resize edge position
-        if (resizeEdgePosition !== null) {
-          effectiveStart = Math.min(effectiveStart, resizeEdgePosition);
-          effectiveEnd = Math.max(effectiveEnd, resizeEdgePosition);
-        }
-        // Extend for insertion point
-        if (insertionPoint !== null) {
-          effectiveStart = Math.min(effectiveStart, insertionPoint);
-          effectiveEnd = Math.max(effectiveEnd, insertionPoint);
-        }
-        // Extend for drag target
-        if (dragCurrentTime !== null) {
-          effectiveStart = Math.min(effectiveStart, dragCurrentTime);
-          effectiveEnd = Math.max(effectiveEnd, dragCurrentTime);
-        }
-      }
-
+      const effectiveStart = viewport.visibleRange.start;
+      const effectiveEnd = viewport.visibleRange.end;
       const effectiveDuration = effectiveEnd - effectiveStart;
       if (effectiveDuration === 0) return 0;
       return ((time - effectiveStart) / effectiveDuration) * 100;
     },
-    [viewport.visibleRange, resizeEdgePosition, insertionPoint, dragCurrentTime, regionDragType, isRegionDragCancelled]
+    [viewport.visibleRange]
   );
 
   // Filter items to visible viewport range with buffer for smooth scrolling
   const VISIBILITY_BUFFER = 10; // seconds of buffer on each side
 
   const { visibleItems: visibleRegions } = useVisibleRegions(
-    displayRegions,
+    regions,
     viewport.visibleRange,
     VISIBILITY_BUFFER
   );
@@ -291,7 +177,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     VISIBILITY_BUFFER
   );
 
-  
+
   // Set time selection in REAPER via WebSocket
   const setTimeSelection = useCallback(
     (startSeconds: number, endSeconds: number) => {
@@ -352,6 +238,26 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
     optimisticUnselectAllItems,
   });
 
+  // Region tap handler for regions mode — hit-test region blocks by position
+  const handleRegionTap = useCallback(
+    (clientX: number, _clientY: number): boolean => {
+      if (!containerRef.current) return false;
+      const time = positionToTime(clientX);
+      // Find region containing this time
+      const hitRegion = regions.find(r => r.start <= time && time < r.end);
+      if (hitRegion) {
+        if (isRegionSelected(hitRegion.id)) {
+          deselectRegion(hitRegion.id);
+        } else {
+          selectRegion(hitRegion.id);
+        }
+        return true;
+      }
+      return false;
+    },
+    [regions, positionToTime, isRegionSelected, selectRegion, deselectRegion, containerRef]
+  );
+
   // Pointer event routing
   const { handlePointerDown, handlePointerMove, handlePointerUp, selectionPreview } =
     useTimelinePointerEvents({
@@ -361,9 +267,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
       panGesture,
       pinchGesture,
       isDraggingPlayhead,
-      handleRegionPointerDown,
-      handleRegionPointerMove,
-      handleRegionPointerUp,
+      onRegionTap: handleRegionTap,
       handleItemTap,
       positionToTime,
       followPlayhead,
@@ -490,9 +394,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
           displayRegions={visibleRegions}
           timelineMode={timelineMode}
           selectedRegionIds={selectedRegionIdSet}
-          pendingChanges={pendingChanges}
-          draggedRegionId={draggedRegionId}
-          regionDragType={regionDragType}
           renderTimeToPercent={renderTimeToPercent}
           containerWidth={containerWidth}
         />
@@ -536,10 +437,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
           displayRegions={visibleRegions}
           timelineMode={timelineMode}
           selectedRegionIds={selectedRegionIdSet}
-          pendingChanges={pendingChanges}
-          draggedRegionId={draggedRegionId}
-          regionDragType={regionDragType}
-          hasPendingChanges={hasPendingChanges}
           renderTimeToPercent={renderTimeToPercent}
         />
 
@@ -588,76 +485,6 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
               width: `${renderTimeToPercent(selectionPreview.end) - renderTimeToPercent(selectionPreview.start)}%`,
             }}
           />
-        )}
-
-        {/* Insertion Point Indicator (for move operations) */}
-        {insertionPoint !== null && regionDragType === 'move' && (
-          <div
-            data-testid="insertion-indicator"
-            className="absolute top-0 bottom-0 pointer-events-none z-20"
-            style={{ left: `${renderTimeToPercent(insertionPoint)}%` }}
-          >
-            {/* Main insertion line */}
-            <div className="absolute top-0 bottom-0 left-0 w-1 bg-insert-indicator shadow-lg shadow-insert-indicator/50" />
-            {/* Top arrow indicator */}
-            <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-t-[8px] border-l-transparent border-r-transparent border-t-insert-indicator" />
-            {/* Bottom arrow indicator */}
-            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-b-[8px] border-l-transparent border-r-transparent border-b-insert-indicator" />
-            {/* Position pill showing bar position at bottom - uses tempo map for accuracy */}
-            <div className="absolute bottom-1 -translate-x-1/2 z-40">
-              <div className="bg-bg-deep border border-insert-indicator rounded px-2 py-1 text-xs text-text-primary font-mono whitespace-nowrap shadow-lg">
-                {tempoMarkers.length > 0
-                  ? formatBarBeat(timeToBarBeat(insertionPoint, tempoMarkers, barOffset))
-                  : bpm
-                    ? formatBeats(insertionPoint, bpm, barOffset, beatsPerBar, denominator)
-                    : `${insertionPoint.toFixed(1)}s`}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Resize Edge Position Indicator - hidden when drag is cancelled */}
-        {resizeEdgePosition !== null && (regionDragType === 'resize-start' || regionDragType === 'resize-end') && regionDragId !== null && !isRegionDragCancelled && (
-          (() => {
-            const originalRegion = regions.find(r => r.id === regionDragId);
-            const originalEdge = regionDragType === 'resize-start' ? originalRegion?.start : originalRegion?.end;
-            const delta = originalEdge !== undefined ? resizeEdgePosition - originalEdge : 0;
-            const showDelta = Math.abs(delta) > 0.01 && bpm;
-
-            return (
-              <div
-                className="absolute top-0 bottom-0 pointer-events-none z-20"
-                style={{ left: `${renderTimeToPercent(resizeEdgePosition)}%` }}
-              >
-                {/* Main edge line */}
-                <div className="absolute top-0 bottom-0 left-0 w-1 bg-insert-indicator shadow-lg shadow-insert-indicator/50" />
-                {/* Top arrow indicator */}
-                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-t-[8px] border-l-transparent border-r-transparent border-t-insert-indicator" />
-                {/* Bottom arrow indicator */}
-                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-b-[8px] border-l-transparent border-r-transparent border-b-insert-indicator" />
-                {/* Delta pill showing change amount */}
-                {showDelta && (
-                  <div className="absolute top-8 -translate-x-1/2 z-40">
-                    <div className={`rounded px-2 py-0.5 text-xs font-mono whitespace-nowrap shadow-lg ${
-                      delta < 0 ? 'bg-delta-negative-bg text-delta-negative-text border border-delta-negative-border' : 'bg-delta-positive-bg text-delta-positive-text border border-delta-positive-border'
-                    }`}>
-                      {formatDelta(delta, bpm!, beatsPerBar, denominator)}
-                    </div>
-                  </div>
-                )}
-                {/* Position pill showing bar position at bottom - uses tempo map for accuracy */}
-                <div className="absolute bottom-1 -translate-x-1/2 z-40">
-                  <div className="bg-bg-deep border border-insert-indicator rounded px-2 py-1 text-xs text-text-primary font-mono whitespace-nowrap shadow-lg">
-                    {tempoMarkers.length > 0
-                      ? formatBarBeat(timeToBarBeat(resizeEdgePosition, tempoMarkers, barOffset))
-                      : bpm
-                        ? formatBeats(resizeEdgePosition, bpm, barOffset, beatsPerBar, denominator)
-                        : `${resizeEdgePosition.toFixed(1)}s`}
-                  </div>
-                </div>
-              </div>
-            );
-          })()
         )}
 
         {/* Playhead with grab handle */}

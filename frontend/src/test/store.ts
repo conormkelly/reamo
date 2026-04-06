@@ -17,23 +17,9 @@ import type { TimelineMode } from '../store/slices/regionEditSlice'
  */
 export function setupStore(regions: Region[], mode: TimelineMode = 'regions') {
   useReaperStore.setState({
-    // Regions slice
     regions,
-
-    // Region edit slice - reset to defaults
     timelineMode: mode,
     selectedRegionIds: [],
-    pendingChanges: {},
-    nextNewRegionKey: -1,
-    dragType: 'none',
-    dragRegionId: null,
-    dragStartX: null,
-    dragStartTime: null,
-    dragCurrentTime: null,
-    insertionPoint: null,
-    resizeEdgePosition: null,
-    isCommitting: false,
-    commitError: null,
   })
 
   return useReaperStore.getState()
@@ -51,18 +37,10 @@ export function store() {
 // ============================================================================
 
 /**
- * Get display regions (with pending changes applied)
- */
-export function displayRegions(): Region[] {
-  const state = store()
-  return state.getDisplayRegions(state.regions)
-}
-
-/**
- * Find a region by name in display regions
+ * Find a region by name
  */
 export function findRegion(name: string): Region | undefined {
-  return displayRegions().find(r => r.name === name)
+  return store().regions.find(r => r.name === name)
 }
 
 /**
@@ -70,7 +48,7 @@ export function findRegion(name: string): Region | undefined {
  */
 export function positions(): Record<string, { start: number; end: number }> {
   const result: Record<string, { start: number; end: number }> = {}
-  for (const r of displayRegions()) {
+  for (const r of store().regions) {
     result[r.name] = { start: r.start, end: r.end }
   }
   return result
@@ -80,19 +58,12 @@ export function positions(): Record<string, { start: number; end: number }> {
  * Get region order (names sorted by start time)
  */
 export function regionOrder(): string[] {
-  return displayRegions().map(r => r.name)
+  return [...store().regions].sort((a, b) => a.start - b.start).map(r => r.name)
 }
 
 // ============================================================================
 // State Queries
 // ============================================================================
-
-/**
- * Check if store has pending changes
- */
-export function hasPendingChanges(): boolean {
-  return store().hasPendingChanges()
-}
 
 /**
  * Check if a region is selected (by ID)
@@ -131,36 +102,6 @@ export const actions = {
 
   /** Clear all selection */
   clearSelection: () => store().clearSelection(),
-
-  /** Move region(s) by delta seconds */
-  move: (ids: number[], deltaSeconds: number) => {
-    const state = store()
-    state.moveRegion(ids, deltaSeconds, state.regions)
-  },
-
-  /** Resize region edge by ID */
-  resize: (id: number, edge: 'start' | 'end', newTime: number, bpm: number = 120) => {
-    const state = store()
-    state.resizeRegion(id, edge, newTime, state.regions, bpm)
-  },
-
-  /** Create a new region */
-  create: (start: number, end: number, name: string, bpm: number = 120, color?: number) => {
-    const state = store()
-    state.createRegion(start, end, name, bpm, color, state.regions)
-  },
-
-  /** Delete a region by ID with mode */
-  delete: (id: number, mode: 'leave-gap' | 'extend-previous' | 'ripple-back' = 'ripple-back') => {
-    const state = store()
-    state.deleteRegionWithMode(id, mode, state.regions)
-  },
-
-  /** Commit pending changes */
-  commit: () => store().commitChanges(),
-
-  /** Cancel pending changes */
-  cancel: () => store().cancelChanges(),
 
   /** Set timeline mode */
   setMode: (mode: TimelineMode) => store().setTimelineMode(mode),

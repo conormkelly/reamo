@@ -31,17 +31,57 @@ pub fn handleRegionUpdate(api: anytype, cmd: protocol.CommandMessage, response: 
         response.err("MISSING_ID", "Region id is required");
         return;
     };
-    const start = cmd.getFloat("start") orelse 0;
-    const end = cmd.getFloat("end") orelse 0;
-    const color = cmd.getInt("color") orelse 0;
+
+    // Look up current region state for PATCH semantics
+    var current_start: f64 = 0;
+    var current_end: f64 = 0;
+    var current_name: []const u8 = "";
+    var current_color: c_int = 0;
+    var found = false;
+
+    var idx: c_int = 0;
+    while (api.enumMarker(idx)) |info| : (idx += 1) {
+        if (info.is_region and info.id == id) {
+            current_start = info.pos;
+            current_end = info.end;
+            current_name = info.name;
+            current_color = info.color;
+            found = true;
+            break;
+        }
+    }
+
+    if (!found) {
+        response.err("NOT_FOUND", "Region not found");
+        return;
+    }
+
+    // PATCH semantics: use provided values, fall back to current
+    const start = cmd.getFloat("start") orelse current_start;
+    const end = cmd.getFloat("end") orelse current_end;
 
     var name_buf: [65]u8 = undefined;
-    const name = mod.toNullTerminated(&name_buf, cmd.getString("name"));
+    const provided_name = cmd.getString("name");
+    const name = if (provided_name) |n|
+        mod.toNullTerminated(&name_buf, n)
+    else
+        mod.toNullTerminated(&name_buf, current_name);
+
+    // Color: null = preserve, 0 = reset to default, other = use value
+    const color_provided = cmd.getInt("color");
+    const color = color_provided orelse current_color;
+    const reset_to_default = color_provided != null and color_provided.? == 0;
 
     api.undoBeginBlock();
-    if (api.updateRegion(id, start, end, name, color)) {
-        logging.debug("Updated region {d}", .{id});
+    // color=0 means "reset to default" but REAPER's SetProjectMarker4
+    // treats 0 as "don't modify color" — workaround: delete + recreate
+    if (reset_to_default) {
+        _ = api.deleteRegion(id);
+        _ = api.addRegionWithId(start, end, name, 0, id);
+    } else {
+        _ = api.updateRegion(id, start, end, name, color);
     }
+    logging.debug("Updated region {d}", .{id});
     api.undoEndBlock("Reamo: Update region");
 }
 

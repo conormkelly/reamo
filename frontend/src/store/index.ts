@@ -428,7 +428,7 @@ export type { ProjectSlice } from './slices/projectSlice';
 export type { TracksSlice } from './slices/tracksSlice';
 export type { RegionsSlice } from './slices/regionsSlice';
 export type { MarkersSlice } from './slices/markersSlice';
-export type { RegionEditSlice, TimelineMode, DragType, PendingRegionChange } from './slices/regionEditSlice';
+export type { RegionEditSlice, TimelineMode } from './slices/regionEditSlice';
 export type { ItemsSlice } from './slices/itemsSlice';
 export type { ToolbarSlice, ToolbarAction, ToolbarActionBase, ToggleState } from './slices/toolbarSlice';
 export { TOOLBAR_STORAGE_KEY } from './slices/toolbarSlice';

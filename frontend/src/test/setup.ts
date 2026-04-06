@@ -42,16 +42,7 @@ afterEach(() => {
 // Reset store state before each test (belt and suspenders with setupStore)
 beforeEach(() => {
   useReaperStore.setState({
-    pendingChanges: {},
     selectedRegionIds: [],
-    dragType: 'none',
-    dragRegionId: null,
-    dragStartX: null,
-    dragStartTime: null,
-    dragCurrentTime: null,
-    insertionPoint: null,
-    resizeEdgePosition: null,
-    isCommitting: false,
-    commitError: null,
+    timelineMode: 'navigate',
   })
 })
