@@ -5,20 +5,20 @@
  */
 
 import type { ReactElement } from 'react';
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { SkipBack, Play, Pause, Square, Circle, RefreshCw } from 'lucide-react';
+import { useState, useRef, useCallback } from 'react';
+import { SkipBack, Play, Pause, Square } from 'lucide-react';
 import { useReaper } from '../ReaperProvider';
 import { useTransport } from '../../hooks/useTransport';
 import { useReaperStore } from '../../store';
-import { transport, action } from '../../core/WebSocketCommands';
+import { useRecordButton } from '../../hooks/useRecordButton';
+import { transport } from '../../core/WebSocketCommands';
 import { useTransportAnimation, useDoubleTap, useLongPress } from '../../hooks';
 import { formatTime } from '../../utils';
 import { QuickActionsPanel } from './QuickActionsPanel';
 import { MarkerNavigationPanel } from './MarkerNavigationPanel';
 import { CircularTransportButton } from '../Transport/CircularTransportButton';
-
-// Hold duration threshold in ms
-const HOLD_THRESHOLD = 300;
+import { RecordModeIcon } from '../Transport/RecordModeIcon';
+import { recordModeTitle } from '../../hooks/useRecordButton';
 
 export interface PersistentTransportProps {
   className?: string;
@@ -28,11 +28,11 @@ export interface PersistentTransportProps {
 
 export function PersistentTransport({ className = '', position = 'left' }: PersistentTransportProps): ReactElement {
   const { sendCommand } = useReaper();
-  const { isPlaying, isPaused, isStopped, isRecording, play, pause, stop, record } = useTransport();
-  const isAutoPunch = useReaperStore((state) => state.isAutoPunch);
+  const { isPlaying, isPaused, isStopped, isRecording, play, pause, stop } = useTransport();
   const bpm = useReaperStore((state) => state.bpm);
   const timeSignatureNumerator = useReaperStore((state) => state.timeSignatureNumerator);
   const timeSignatureDenominator = useReaperStore((state) => state.timeSignatureDenominator);
+  const { pointerHandlers, recordMode } = useRecordButton();
 
   // Panel states
   const [isQuickActionsPanelOpen, setIsQuickActionsPanelOpen] = useState(false);
@@ -52,53 +52,10 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
     }
   }, []);
 
-  // Long-press state for Record button
-  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const wasHoldRef = useRef(false);
-
   const handleSkipToStart = () => sendCommand(transport.goStart());
   const handlePlay = () => sendCommand(play());
   const handlePause = () => sendCommand(pause());
   const handleStop = () => sendCommand(stop());
-
-  // Record button long-press handlers
-  const handleRecordPointerDown = useCallback(() => {
-    wasHoldRef.current = false;
-    holdTimerRef.current = setTimeout(() => {
-      wasHoldRef.current = true;
-      if (isAutoPunch) {
-        sendCommand(action.execute(40252)); // Set record mode to normal
-      } else {
-        sendCommand(action.execute(40076)); // Set record mode to time selection auto-punch
-      }
-    }, HOLD_THRESHOLD);
-  }, [sendCommand, isAutoPunch]);
-
-  const handleRecordPointerUp = useCallback(() => {
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-    if (!wasHoldRef.current) {
-      sendCommand(record());
-    }
-  }, [sendCommand, record]);
-
-  const handleRecordPointerCancel = useCallback(() => {
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-  }, []);
-
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (holdTimerRef.current) {
-        clearTimeout(holdTimerRef.current);
-      }
-    };
-  }, []);
 
   // Double-tap handler for Quick Actions Panel
   const { onClick: handleDoubleTapCheck } = useDoubleTap({
@@ -125,7 +82,7 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
     setIsMarkerNavigationOpen(false);
   }, []);
 
-  const recordInactiveClass = isAutoPunch
+  const recordInactiveClass = recordMode !== 'normal'
     ? 'bg-record-dim hover:bg-record-hover ring-2 ring-record-ring'
     : 'bg-record-dim hover:bg-record-hover ring-2 ring-record-ring-dim';
 
@@ -169,14 +126,11 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
           <Square size={14} fill={isStopped ? 'currentColor' : 'none'} />
         </CircularTransportButton>
 
-        {/* Record - with long-press for auto-punch toggle */}
+        {/* Record - with long-press for record mode cycling */}
         <button
-          onPointerDown={handleRecordPointerDown}
-          onPointerUp={handleRecordPointerUp}
-          onPointerCancel={handleRecordPointerCancel}
-          onPointerLeave={handleRecordPointerCancel}
-          title={isAutoPunch ? "Record (Auto-Punch) - hold to toggle mode" : "Record - hold to toggle auto-punch"}
-          aria-label={isAutoPunch ? "Record (Auto-Punch mode)" : "Record"}
+          {...pointerHandlers}
+          title={recordModeTitle(recordMode)}
+          aria-label={recordModeTitle(recordMode)}
           aria-pressed={isRecording}
           className={`
             w-10 h-10 rounded-full flex items-center justify-center
@@ -184,11 +138,7 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
             ${isRecording ? 'bg-record animate-pulse' : recordInactiveClass}
           `}
         >
-          {isAutoPunch ? (
-            <RefreshCw size={16} strokeWidth={2.5} />
-          ) : (
-            <Circle size={16} fill="currentColor" />
-          )}
+          <RecordModeIcon mode={recordMode} size={16} />
         </button>
       </div>
 

@@ -190,7 +190,12 @@ export const ActionCommands = {
   TOGGLE_REPEAT: 1068,
   TAP_TEMPO: 1134,
   AUTO_PUNCH: 40076,
+  AUTO_PUNCH_ITEMS: 40253,
+  RECORD_MODE_NORMAL: 40252,
 } as const;
+
+/** Record mode: normal recording, time selection auto-punch, or selected items auto-punch */
+export type RecordMode = 'normal' | 'timeSelection' | 'selectedItems';
 
 // =============================================================================
 // Input Selection Types
