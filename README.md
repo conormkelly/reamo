@@ -12,7 +12,14 @@ You sit at the piano, get an idea, walk to the computer, set up a track, adjust 
 
 The goal is **idea capture, not production**. Get the song down while you're in creative mode.
 
-<!-- TODO: Demo video here -->
+<p align="center">
+  <img src="screenshots/reamo-1.gif" alt="Timeline view" width="280" />
+  &nbsp;&nbsp;
+  <img src="screenshots/reamo-2.gif" alt="Mixer view" width="280" />
+</p>
+<p align="center">
+  <img src="screenshots/piano-screenshot.png" alt="Piano keyboard (landscape)" width="500" />
+</p>
 
 ## Quick Start
 
