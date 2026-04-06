@@ -17,17 +17,13 @@ import {
 import {
   setupStore,
   actions,
-  hasPendingChanges,
   isSelected,
   selectedIds,
-  findRegion,
 } from '../../test/store'
 import { useReaperStore } from '../../store'
 import {
   findRegionElement,
   isVisuallySelected,
-  getPositionPercent,
-  findAllRegionElements,
 } from '../../test/queries'
 
 // ============================================================================
@@ -116,108 +112,6 @@ describe('Timeline state integration', () => {
     expect(isVisuallySelected(verseEl!)).toBe(false)
   })
 
-  it('reflects moved region position after store move', () => {
-    // Move Intro forward 5 seconds
-    act(() => {
-      actions.move([0], 5)
-    })
-
-    const { container } = render(<Timeline height={120} />)
-
-    const introEl = findRegionElement(container, 'Intro')
-    expect(introEl).not.toBeNull()
-    const pos = getPositionPercent(introEl!)
-    // Intro moved from 0s to 5s, should have positive left%
-    expect(pos.left).toBeGreaterThan(0)
-  })
-
-  it('reverts to original positions after cancel', () => {
-    act(() => {
-      actions.move([0], 5)
-      actions.cancel()
-    })
-
-    const { container } = render(<Timeline height={120} />)
-
-    const introEl = findRegionElement(container, 'Intro')
-    expect(introEl).not.toBeNull()
-    const pos = getPositionPercent(introEl!)
-    // Should be back at 0%
-    expect(pos.left).toBe(0)
-  })
-
-  it('updates region order after move changes position', () => {
-    // Move Chorus to the beginning (before Intro)
-    act(() => {
-      actions.move([2], -20)
-    })
-
-    const { container } = render(<Timeline height={120} />)
-
-    // Find all region elements and check their order by left position
-    const elements = findAllRegionElements(container)
-    const positions = elements.map(el => ({
-      name: el.querySelector('span')?.textContent,
-      left: parseFloat(el.style.left) || 0,
-    })).sort((a, b) => a.left - b.left)
-
-    // Chorus should now be first
-    expect(positions[0].name).toBe('Chorus')
-  })
-})
-
-// ============================================================================
-// Tests: Bug Fix Verification
-// ============================================================================
-
-describe('Bug fix: multiple moves before commit', () => {
-  beforeEach(() => {
-    setupStore(songStructure())
-  })
-
-  afterEach(() => {
-    cleanup()
-  })
-
-  it('allows multiple moves on same region before committing', () => {
-    // This was the bug: regions could only be moved once before Save/Cancel
-    act(() => {
-      actions.select(0)
-      actions.move([0], 5)
-    })
-
-    expect(hasPendingChanges()).toBe(true)
-    expect(findRegion('Intro')?.start).toBe(5)
-
-    // Second move should work (this was broken)
-    act(() => {
-      actions.move([0], 3)
-    })
-
-    expect(hasPendingChanges()).toBe(true)
-    // Region should now be at 8s (5 + 3)
-    expect(findRegion('Intro')?.start).toBe(8)
-  })
-
-  it('allows editing different regions before commit', () => {
-    // Move Intro forward 5 seconds
-    act(() => {
-      actions.move([0], 5)
-    })
-
-    // Intro is now at 5s, Verse rippled to 5s (fills gap left by Intro)
-    expect(findRegion('Intro')?.start).toBe(5)
-
-    // Move Chorus backward 5 seconds
-    act(() => {
-      actions.move([2], -5)
-    })
-
-    expect(hasPendingChanges()).toBe(true)
-    // Both changes should be tracked
-    expect(findRegion('Intro')?.start).toBe(5)
-    expect(findRegion('Chorus')?.start).toBe(15) // 20 - 5
-  })
 })
 
 // ============================================================================
@@ -270,142 +164,6 @@ describe('Region selection behavior', () => {
     })
 
     expect(selectedIds()).toEqual([])
-  })
-})
-
-// ============================================================================
-// Tests: Resize Behavior
-// ============================================================================
-
-describe('Region resize behavior', () => {
-  beforeEach(() => {
-    setupStore(songStructure())
-  })
-
-  afterEach(() => {
-    cleanup()
-  })
-
-  it('extends region end and ripples subsequent', () => {
-    act(() => {
-      // Extend Intro from 10s to 15s
-      actions.resize(0, 'end', 15, 120)
-    })
-
-    expect(findRegion('Intro')?.end).toBe(15)
-    // Verse should be pushed forward
-    expect(findRegion('Verse')?.start).toBe(15)
-    expect(findRegion('Chorus')?.start).toBe(25)
-  })
-
-  it('shrinks region and closes gap', () => {
-    act(() => {
-      // Shrink Intro from 10s to 5s
-      actions.resize(0, 'end', 5, 120)
-    })
-
-    expect(findRegion('Intro')?.end).toBe(5)
-    // Verse should move back
-    expect(findRegion('Verse')?.start).toBe(5)
-  })
-
-  it('extends start edge and trims previous', () => {
-    act(() => {
-      // Extend Verse start from 10s to 5s
-      actions.resize(1, 'start', 5, 120)
-    })
-
-    // Intro should be trimmed
-    expect(findRegion('Intro')?.end).toBe(5)
-    expect(findRegion('Verse')?.start).toBe(5)
-  })
-})
-
-// ============================================================================
-// Tests: Delete Behavior
-// ============================================================================
-
-describe('Region delete behavior', () => {
-  beforeEach(() => {
-    setupStore(songStructure())
-  })
-
-  afterEach(() => {
-    cleanup()
-  })
-
-  it('deletes with ripple back', () => {
-    act(() => {
-      actions.delete(1, 'ripple-back')
-    })
-
-    expect(findRegion('Verse')).toBeUndefined()
-    // Chorus should move back to fill gap
-    expect(findRegion('Chorus')?.start).toBe(10)
-  })
-
-  it('deletes leaving gap', () => {
-    act(() => {
-      actions.delete(1, 'leave-gap')
-    })
-
-    expect(findRegion('Verse')).toBeUndefined()
-    // Chorus should stay in place
-    expect(findRegion('Chorus')?.start).toBe(20)
-  })
-
-  it('deletes extending previous', () => {
-    act(() => {
-      actions.delete(1, 'extend-previous')
-    })
-
-    expect(findRegion('Verse')).toBeUndefined()
-    // Intro should extend to fill gap
-    expect(findRegion('Intro')?.end).toBe(20)
-  })
-})
-
-// ============================================================================
-// Tests: Create Behavior
-// ============================================================================
-
-describe('Region create behavior', () => {
-  beforeEach(() => {
-    setupStore(songStructure())
-  })
-
-  afterEach(() => {
-    cleanup()
-  })
-
-  it('creates new region at position', () => {
-    act(() => {
-      actions.create(30, 40, 'Bridge', 120)
-    })
-
-    expect(findRegion('Bridge')).toBeDefined()
-    expect(findRegion('Bridge')?.start).toBe(30)
-    expect(findRegion('Bridge')?.end).toBe(40)
-  })
-
-  it('marks as pending after create', () => {
-    act(() => {
-      actions.create(30, 40, 'Bridge', 120)
-    })
-
-    expect(hasPendingChanges()).toBe(true)
-  })
-
-  it('shifts following regions when inserting in middle', () => {
-    act(() => {
-      // Insert a 5-second section in the middle of Verse
-      actions.create(15, 20, 'Pre-Chorus', 120)
-    })
-
-    // Verse should be trimmed
-    expect(findRegion('Verse')?.end).toBe(15)
-    // Chorus should be shifted
-    expect(findRegion('Chorus')?.start).toBe(25)
   })
 })
 

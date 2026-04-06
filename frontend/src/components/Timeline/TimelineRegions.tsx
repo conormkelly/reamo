@@ -8,7 +8,7 @@
 
 import type { ReactElement } from 'react';
 import type { Region } from '../../core/types';
-import type { DragType, PendingRegionChange, TimelineMode } from '../../store';
+import type { TimelineMode } from '../../store';
 import { reaperColorToRgba } from '../../utils';
 import { DEFAULT_REGION_COLOR_RGB } from '../../constants/colors';
 
@@ -16,20 +16,12 @@ import { DEFAULT_REGION_COLOR_RGB } from '../../constants/colors';
 const REGION_LABEL_MIN_WIDTH_PX = 40;
 
 export interface TimelineRegionsProps {
-  /** Regions to display (with pending changes applied) */
+  /** Regions to display */
   displayRegions: Region[];
   /** Current timeline mode */
   timelineMode: TimelineMode;
   /** Set of selected region IDs */
   selectedRegionIds: Set<number>;
-  /** Pending changes by region ID */
-  pendingChanges: Record<number, PendingRegionChange>;
-  /** ID of region being dragged */
-  draggedRegionId: number | null;
-  /** Current drag type */
-  regionDragType: DragType;
-  /** Whether there are any pending changes */
-  hasPendingChanges: () => boolean;
   /** Convert time to percentage position */
   renderTimeToPercent: (time: number) => number;
   /** Container width in pixels (for LOD calculations) */
@@ -43,23 +35,15 @@ export function TimelineRegionLabels({
   displayRegions,
   timelineMode,
   selectedRegionIds,
-  pendingChanges,
-  draggedRegionId,
-  regionDragType,
   renderTimeToPercent,
   containerWidth,
-}: Omit<TimelineRegionsProps, 'hasPendingChanges'>): ReactElement {
+}: TimelineRegionsProps): ReactElement {
   return (
     <>
       {displayRegions.map((region) => {
         // Use region.id for all lookups - stable across server updates
         const regionId = region.id;
         const isSelected = timelineMode === 'regions' && selectedRegionIds.has(regionId);
-        const isNewRegion = (region as { _isNew?: boolean })._isNew === true;
-        const hasPending = pendingChanges[regionId] !== undefined;
-        const isBeingDragged = draggedRegionId === regionId && regionDragType !== 'none';
-        // New regions get white outline, modified existing get orange
-        const pendingRingClass = isNewRegion ? 'ring-1 ring-inset ring-white' : hasPending ? 'ring-1 ring-inset ring-pending-ring' : '';
 
         // Get region color for stem borders
         const regionColor = region.color ? reaperColorToRgba(region.color, 1) ?? DEFAULT_REGION_COLOR_RGB : DEFAULT_REGION_COLOR_RGB;
@@ -98,24 +82,16 @@ export function TimelineRegionLabels({
             data-region-id={regionId}
             data-region-name={region.name}
             data-selected={isSelected || undefined}
-            data-dragging={isBeingDragged || undefined}
-            data-pending={hasPending || undefined}
-            data-new={isNewRegion || undefined}
             className={`absolute top-0 bottom-0 border-l flex flex-col ${
               hideRightBorder ? '' : 'border-r'
             } ${
-              isBeingDragged
-                ? 'border-accent-region z-20 bg-bg-deep'
-                : isSelected
-                  ? 'border-accent-region z-10'
-                  : ''
-            } ${pendingRingClass}`}
+              isSelected ? 'border-accent-region z-10' : ''
+            }`}
             style={{
               left: `${renderTimeToPercent(region.start)}%`,
               width: `${percentWidth}%`,
-              // Color stems with region color (overridden by selection/drag classes)
-              borderLeftColor: isBeingDragged || isSelected ? undefined : regionColor,
-              borderRightColor: isBeingDragged || isSelected ? undefined : hideRightBorder ? 'transparent' : regionColor,
+              borderLeftColor: isSelected ? undefined : regionColor,
+              borderRightColor: isSelected ? undefined : hideRightBorder ? 'transparent' : regionColor,
             }}
           >
             {/* Color bar - 5px */}
@@ -146,28 +122,15 @@ export function TimelineRegionBlocks({
   displayRegions,
   timelineMode,
   selectedRegionIds,
-  pendingChanges,
-  draggedRegionId,
-  regionDragType,
-  hasPendingChanges,
   renderTimeToPercent,
 }: TimelineRegionsProps): ReactElement {
   return (
     <>
       {displayRegions.map((region) => {
-        // Use region.id for all lookups - stable across server updates
         const regionId = region.id;
         const isSelected = timelineMode === 'regions' && selectedRegionIds.has(regionId);
-        const isNewRegion = (region as { _isNew?: boolean })._isNew === true;
-        const hasPending = pendingChanges[regionId] !== undefined;
-        const isSingleSelection = isSelected && selectedRegionIds.size === 1;
-        const isBeingDragged = draggedRegionId === regionId && regionDragType !== 'none';
-        // New regions get white outline, modified existing get orange
-        const pendingRingClass = isNewRegion ? 'ring-1 ring-inset ring-white' : hasPending ? 'ring-1 ring-inset ring-pending-ring' : '';
 
-        // Get region color for stem borders
         const regionColor = region.color ? reaperColorToRgba(region.color, 1) ?? DEFAULT_REGION_COLOR_RGB : DEFAULT_REGION_COLOR_RGB;
-        // Don't draw right border if another region starts at this region's end (REAPER only shows the new region's left edge)
         const hasAdjacentRegion = displayRegions.some(r => r.id !== region.id && Math.abs(r.start - region.end) < 0.001);
 
         return (
@@ -177,46 +140,20 @@ export function TimelineRegionBlocks({
             data-region-id={regionId}
             data-region-name={region.name}
             data-selected={isSelected || undefined}
-            data-dragging={isBeingDragged || undefined}
-            data-pending={hasPending || undefined}
-            data-new={isNewRegion || undefined}
             className={`absolute top-0 bottom-0 border-l ${
               hasAdjacentRegion ? '' : 'border-r'
             } ${
-              isBeingDragged
-                ? 'border-accent-region bg-accent-region/50 z-20'
-                : isSelected
-                  ? 'border-accent-region bg-accent-region/30 z-10'
-                  : ''
-            } ${pendingRingClass}`}
+              isSelected
+                ? 'border-accent-region bg-accent-region/30 z-10'
+                : ''
+            }`}
             style={{
               left: `${renderTimeToPercent(region.start)}%`,
               width: `${renderTimeToPercent(region.end) - renderTimeToPercent(region.start)}%`,
-              // Color stems with region color (overridden by selection/drag classes)
-              borderLeftColor: isBeingDragged || isSelected ? undefined : regionColor,
-              borderRightColor: isBeingDragged || isSelected ? undefined : hasAdjacentRegion ? 'transparent' : regionColor,
+              borderLeftColor: isSelected ? undefined : regionColor,
+              borderRightColor: isSelected ? undefined : hasAdjacentRegion ? 'transparent' : regionColor,
             }}
-          >
-            {/* Edge handles - only show for single selection when no pending changes */}
-            {isSingleSelection && !hasPendingChanges() && (
-              <>
-                {/* Left edge handle */}
-                <div
-                  className="absolute left-0 top-0 bottom-0 w-5 cursor-ew-resize flex items-center justify-start"
-                  style={{ touchAction: 'none' }}
-                >
-                  <div className="w-1.5 h-8 bg-accent-region rounded-r-sm" />
-                </div>
-                {/* Right edge handle */}
-                <div
-                  className="absolute right-0 top-0 bottom-0 w-5 cursor-ew-resize flex items-center justify-end"
-                  style={{ touchAction: 'none' }}
-                >
-                  <div className="w-1.5 h-8 bg-accent-region rounded-l-sm" />
-                </div>
-              </>
-            )}
-          </div>
+          />
         );
       })}
     </>

@@ -1,8 +1,7 @@
 /**
  * Region Context Bar
  * Compact persistent bar showing selected region info + quick actions.
- * Lives between the timeline canvas and the SecondaryPanel in portrait,
- * and in the sidebar info section in landscape.
+ * All operations go directly to REAPER via WebSocket.
  *
  * Layout when region selected:
  *   [color] Name  |  Start → End  |  Length  [Set Sel] [Del] [+]
@@ -14,7 +13,7 @@
  *   "Add a region"  [+]
  */
 
-import { useState, useRef, useEffect, useCallback, type ReactElement } from 'react';
+import { useState, useRef, useEffect, type ReactElement } from 'react';
 import { Plus, Trash2, CopyPlus, Crosshair } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
@@ -22,7 +21,7 @@ import { useTimeFormatters } from '../../hooks';
 import { reaperColorToHexWithFallback } from '../../utils';
 import type { Region } from '../../core/types';
 import { DEFAULT_REGION_COLOR } from '../../constants/colors';
-import { tempo as tempoCmd, timeSelection } from '../../core/WebSocketCommands';
+import { region as regionCmd, timeSelection } from '../../core/WebSocketCommands';
 
 interface RegionContextBarProps {
   onAddRegion: () => void;
@@ -31,141 +30,78 @@ interface RegionContextBarProps {
   className?: string;
 }
 
-/**
- * Parse a bar.beat.ticks string into components
- */
-function parseBarsString(bars: string): { bar: number; beat: number; ticks: number } | null {
-  const parts = bars.split('.');
-  if (parts.length < 2) return null;
-  const bar = parseInt(parts[0], 10);
-  const beat = parseInt(parts[1], 10);
-  const ticks = parts.length >= 3 ? parseInt(parts[2], 10) : 0;
-  if (isNaN(bar) || isNaN(beat) || isNaN(ticks)) return null;
-  return { bar, beat, ticks };
-}
-
 export function RegionContextBar({ onAddRegion, layout = 'horizontal', className = '' }: RegionContextBarProps): ReactElement {
-  const { sendCommand, sendCommandAsync } = useReaper();
+  const { sendCommand } = useReaper();
   const selectedRegionIds = useReaperStore((s) => s.selectedRegionIds);
   const regions = useReaperStore((s) => s.regions);
-  const pendingChanges = useReaperStore((s) => s.pendingChanges);
-  const getDisplayRegions = useReaperStore((s) => s.getDisplayRegions);
-  const createRegion = useReaperStore((s) => s.createRegion);
-  const selectRegion = useReaperStore((s) => s.selectRegion);
-  const nextNewRegionKey = useReaperStore((s) => s.nextNewRegionKey);
-  const openDeleteRegionModal = useReaperStore((s) => s.openDeleteRegionModal);
 
   const {
     formatBeats,
     formatDuration,
-    bpm,
-    beatsPerBar,
   } = useTimeFormatters();
 
-  // Pending bar string cache
-  const [pendingBarStrings, setPendingBarStrings] = useState<Record<string, { startBars: string; endBars: string; lengthBars: string }>>({});
+  // Delete confirmation (tap once = red, tap again = delete)
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const deleteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Long-press for clone
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const selectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLongPressRef = useRef(false);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const [isCloneMode, setIsCloneMode] = useState(false);
   const LONG_PRESS_DURATION = 500;
 
+  // Reset delete confirmation when selection changes
+  useEffect(() => {
+    setConfirmDelete(false);
+    if (deleteTimeoutRef.current) { clearTimeout(deleteTimeoutRef.current); deleteTimeoutRef.current = null; }
+  }, [selectedRegionIds]);
+
   useEffect(() => {
     return () => {
       if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-      if (selectTimerRef.current) clearTimeout(selectTimerRef.current);
+      if (deleteTimeoutRef.current) clearTimeout(deleteTimeoutRef.current);
     };
   }, []);
 
-  // Fetch bar strings for pending regions
-  useEffect(() => {
-    const pendingIds = Object.keys(pendingChanges).map(k => parseInt(k, 10));
-    if (pendingIds.length === 0) {
-      if (Object.keys(pendingBarStrings).length > 0) setPendingBarStrings({});
-      return;
-    }
-
-    pendingIds.forEach(async (id) => {
-      const change = pendingChanges[id];
-      if (!change || change.isDeleted) return;
-
-      const cacheKey = `${id}:${change.newStart}:${change.newEnd}`;
-      if (pendingBarStrings[cacheKey]) return;
-
-      try {
-        const [startResp, endResp] = await Promise.all([
-          sendCommandAsync(tempoCmd.timeToBeats(change.newStart)),
-          sendCommandAsync(tempoCmd.timeToBeats(change.newEnd)),
-        ]);
-
-        const startData = startResp as { payload?: { bars?: string } } | undefined;
-        const endData = endResp as { payload?: { bars?: string } } | undefined;
-
-        if (startData?.payload?.bars && endData?.payload?.bars) {
-          const startBars = startData.payload.bars;
-          const endBars = endData.payload.bars;
-          const startParsed = parseBarsString(startBars);
-          const endParsed = parseBarsString(endBars);
-
-          let lengthBars = '';
-          if (startParsed && endParsed) {
-            let barDiff = endParsed.bar - startParsed.bar;
-            let beatDiff = endParsed.beat - startParsed.beat;
-            let ticksDiff = endParsed.ticks - startParsed.ticks;
-            if (ticksDiff < 0) { beatDiff -= 1; ticksDiff += 100; }
-            if (beatDiff < 0) { barDiff -= 1; beatDiff += beatsPerBar; }
-            lengthBars = `${barDiff}.${beatDiff}.${ticksDiff.toString().padStart(2, '0')}`;
-          }
-
-          setPendingBarStrings(prev => ({
-            ...prev,
-            [cacheKey]: { startBars, endBars, lengthBars },
-          }));
-        }
-      } catch {
-        // Ignore
-      }
-    });
-  }, [pendingChanges, pendingBarStrings, sendCommandAsync, beatsPerBar]);
-
-  const displayRegions = getDisplayRegions(regions);
   const selectedId = selectedRegionIds.length === 1 ? selectedRegionIds[0] : null;
   const region: Region | undefined = selectedId !== null
-    ? displayRegions.find(r => r.id === selectedId)
+    ? regions.find(r => r.id === selectedId)
     : undefined;
 
-  // Bar strings
-  const pendingChange = selectedId !== null ? pendingChanges[selectedId] : null;
-  const hasPending = pendingChange !== null && pendingChange !== undefined;
-  const pendingCacheKey = hasPending && region ? `${selectedId}:${region.start}:${region.end}` : null;
-  const fetchedBars = pendingCacheKey ? pendingBarStrings[pendingCacheKey] : null;
-
-  const displayStartBars = fetchedBars?.startBars ?? region?.startBars ?? (region ? formatBeats(region.start) : '');
-  const displayEndBars = fetchedBars?.endBars ?? region?.endBars ?? (region ? formatBeats(region.end) : '');
-  const displayLengthBars = fetchedBars?.lengthBars ?? region?.lengthBars ?? (region ? formatDuration(region.end - region.start) : '');
+  // Bar strings directly from server-provided region data
+  const displayStartBars = region?.startBars ?? (region ? formatBeats(region.start) : '');
+  const displayEndBars = region?.endBars ?? (region ? formatBeats(region.end) : '');
+  const displayLengthBars = region?.lengthBars ?? (region ? formatDuration(region.end - region.start) : '');
 
   const currentColor = region ? reaperColorToHexWithFallback(region.color, DEFAULT_REGION_COLOR) : DEFAULT_REGION_COLOR;
 
   // Set time selection to region bounds
-  const handleSetTimeSelection = useCallback(() => {
+  const handleSetTimeSelection = () => {
     if (!region) return;
     sendCommand(timeSelection.set(region.start, region.end));
-  }, [region, sendCommand]);
+  };
+
+  // Delete (tap once = confirm, tap again = delete)
+  const handleDelete = () => {
+    if (!region) return;
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      deleteTimeoutRef.current = setTimeout(() => setConfirmDelete(false), 3000);
+    } else {
+      sendCommand(regionCmd.delete(region.id));
+      setConfirmDelete(false);
+      if (deleteTimeoutRef.current) { clearTimeout(deleteTimeoutRef.current); deleteTimeoutRef.current = null; }
+    }
+  };
 
   // Clone selected region
-  const handleCloneRegion = useCallback(() => {
-    if (!region || !bpm) return;
-    const lastEnd = displayRegions.length > 0
-      ? Math.max(...displayRegions.map(r => r.end))
-      : 0;
+  const handleCloneRegion = () => {
+    if (!region) return;
+    const lastEnd = regions.length > 0 ? Math.max(...regions.map(r => r.end)) : 0;
     const duration = region.end - region.start;
-    const newRegionKey = nextNewRegionKey;
-    createRegion(lastEnd, lastEnd + duration, region.name, bpm, region.color, regions);
-    selectTimerRef.current = setTimeout(() => selectRegion(newRegionKey), 0);
-  }, [region, bpm, displayRegions, nextNewRegionKey, createRegion, regions, selectRegion]);
+    sendCommand(regionCmd.add(lastEnd, lastEnd + duration, region.name, region.color));
+  };
 
   // Add button long-press handlers
   const handleAddPointerDown = () => {
@@ -199,7 +135,7 @@ export function RegionContextBar({ onAddRegion, layout = 'horizontal', className
   const actionBtn = 'flex items-center justify-center w-9 h-9 rounded-lg transition-colors flex-shrink-0';
 
   // No regions at all
-  if (displayRegions.length === 0) {
+  if (regions.length === 0) {
     return (
       <div className={`flex items-center gap-2 px-3 py-2 ${className}`}>
         <span className="text-text-muted text-sm flex-1">Add a region</span>
@@ -263,9 +199,13 @@ export function RegionContextBar({ onAddRegion, layout = 'horizontal', className
             <Crosshair size={16} />
           </button>
           <button
-            onClick={() => openDeleteRegionModal(region, region.id)}
-            className={`${actionBtn} bg-bg-elevated hover:bg-error-bg text-text-secondary hover:text-error-text`}
-            title="Delete region"
+            onClick={handleDelete}
+            className={`${actionBtn} ${
+              confirmDelete
+                ? 'bg-error-bg text-error-text'
+                : 'bg-bg-elevated hover:bg-error-bg text-text-secondary hover:text-error-text'
+            }`}
+            title={confirmDelete ? 'Tap again to confirm delete' : 'Delete region'}
           >
             <Trash2 size={16} />
           </button>
@@ -333,9 +273,13 @@ export function RegionContextBar({ onAddRegion, layout = 'horizontal', className
 
         {/* Delete */}
         <button
-          onClick={() => openDeleteRegionModal(region, region.id)}
-          className={`${actionBtn} bg-bg-elevated hover:bg-error-bg text-text-secondary hover:text-error-text`}
-          title="Delete region"
+          onClick={handleDelete}
+          className={`${actionBtn} ${
+            confirmDelete
+              ? 'bg-error-bg text-error-text'
+              : 'bg-bg-elevated hover:bg-error-bg text-text-secondary hover:text-error-text'
+          }`}
+          title={confirmDelete ? 'Tap again to confirm delete' : 'Delete region'}
         >
           <Trash2 size={16} />
         </button>

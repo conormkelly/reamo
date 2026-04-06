@@ -24,27 +24,13 @@ export function useTimelineSelectors() {
   const storedTimeSelection = useReaperStore((state) => state.timeSelection);
   const setStoredTimeSelection = useReaperStore((state) => state.setTimeSelection);
 
-  // Region editing state
+  // Region editing state (mode + selection only)
   const timelineMode = useReaperStore((state) => state.timelineMode);
   const selectedRegionIds = useReaperStore((state) => state.selectedRegionIds);
-  const pendingChanges = useReaperStore((state) => state.pendingChanges);
-  const hasPendingChanges = useReaperStore((state) => state.hasPendingChanges);
   const selectRegion = useReaperStore((state) => state.selectRegion);
   const deselectRegion = useReaperStore((state) => state.deselectRegion);
   const clearSelection = useReaperStore((state) => state.clearSelection);
   const isRegionSelected = useReaperStore((state) => state.isRegionSelected);
-  const resizeRegion = useReaperStore((state) => state.resizeRegion);
-  const moveRegion = useReaperStore((state) => state.moveRegion);
-  const startDrag = useReaperStore((state) => state.startDrag);
-  const updateDrag = useReaperStore((state) => state.updateDrag);
-  const endDrag = useReaperStore((state) => state.endDrag);
-  const cancelDrag = useReaperStore((state) => state.cancelDrag);
-  const regionDragType = useReaperStore((state) => state.dragType);
-  const regionDragId = useReaperStore((state) => state.dragRegionId);
-  const dragCurrentTime = useReaperStore((state) => state.dragCurrentTime);
-  const dragStartTime = useReaperStore((state) => state.dragStartTime);
-  const insertionPoint = useReaperStore((state) => state.insertionPoint);
-  const resizeEdgePosition = useReaperStore((state) => state.resizeEdgePosition);
 
   // Focused track GUID for highlight in multi-track lanes
   const viewFilterTrackGuid = useReaperStore((state) => state.viewFilterTrackGuid);
@@ -90,24 +76,10 @@ export function useTimelineSelectors() {
     setStoredTimeSelection,
     timelineMode,
     selectedRegionIds,
-    pendingChanges,
-    hasPendingChanges,
     selectRegion,
     deselectRegion,
     clearSelection,
     isRegionSelected,
-    resizeRegion,
-    moveRegion,
-    startDrag,
-    updateDrag,
-    endDrag,
-    cancelDrag,
-    regionDragType,
-    regionDragId,
-    dragCurrentTime,
-    dragStartTime,
-    insertionPoint,
-    resizeEdgePosition,
     viewFilterTrackGuid,
     itemSelectionModeActive,
     enterItemSelectionMode,

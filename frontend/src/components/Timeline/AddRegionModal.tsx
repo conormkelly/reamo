@@ -1,12 +1,13 @@
 /**
  * Add Region Modal Component
- * Modal dialog for creating a new region with name, color, start, and length
+ * Modal dialog for creating a new region with name, color, start, and length.
+ * Creates region directly in REAPER via WebSocket.
  */
 
 import { useState, useEffect, useRef, type ReactElement } from 'react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../ReaperProvider';
-import { tempo as tempoCmd } from '../../core/WebSocketCommands';
+import { region as regionCmd, tempo as tempoCmd } from '../../core/WebSocketCommands';
 import {
   hexToReaperColor,
 } from '../../utils';
@@ -19,12 +20,8 @@ interface AddRegionModalProps {
 }
 
 export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactElement | null {
-  const { sendCommandAsync } = useReaper();
-  const createRegion = useReaperStore((s) => s.createRegion);
+  const { sendCommand, sendCommandAsync } = useReaper();
   const regions = useReaperStore((s) => s.regions);
-  const pendingChanges = useReaperStore((s) => s.pendingChanges);
-  const getDisplayRegions = useReaperStore((s) => s.getDisplayRegions);
-  const bpm = useReaperStore((s) => s.bpm);
 
   const [name, setName] = useState('New Region');
   const [selectedColor, setSelectedColor] = useState<string | null>(null); // null = REAPER default (gray)
@@ -50,12 +47,10 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
   // Reset form only when modal transitions from closed to open
   useEffect(() => {
     if (isOpen && !wasOpenRef.current) {
-      // Default start position: end of last region (including pending), or bar 1 if no regions
+      // Default start position: end of last region, or bar 1 if no regions
       let defaultStartSeconds = 0;
-      const displayRegions = getDisplayRegions(regions);
-      if (displayRegions.length > 0) {
-        // Find the end of the last region (by end time, not array order)
-        const lastEnd = Math.max(...displayRegions.map(r => r.end));
+      if (regions.length > 0) {
+        const lastEnd = Math.max(...regions.map(r => r.end));
         defaultStartSeconds = lastEnd;
       }
 
@@ -71,18 +66,16 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
           }
         })
         .catch(() => {
-          // Fallback to bar 1 on error
           setStartBar('1');
         });
 
       setName('');
-      // Default to REAPER's default color (null = gray)
       setSelectedColor(null);
       setLengthBars('8');
       setError(null);
     }
     wasOpenRef.current = isOpen;
-  }, [isOpen, regions, pendingChanges, getDisplayRegions, sendCommandAsync]);
+  }, [isOpen, regions, sendCommandAsync]);
 
   const handleCreate = async () => {
     // Parse start position (bar.beat.ticks format)
@@ -112,7 +105,6 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
       const start = startResp.payload.time;
 
       // Calculate end position: add duration bars to start position
-      // End bar = start bar + duration bars, beat and ticks stay same
       const endBarNum = startBarNum + lengthBarsNum;
       const endResponse = await sendCommandAsync(tempoCmd.barsToTime(endBarNum, startBeat, startTicks));
       const endResp = endResponse as { payload?: { time?: number } } | undefined;
@@ -125,8 +117,8 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
       // null = REAPER default (pass undefined to let REAPER assign default color)
       const color = selectedColor ? hexToReaperColor(selectedColor) : undefined;
 
-      // Create the region (as pending change, with ripple logic)
-      createRegion(start, end, name.trim(), bpm, color, regions);
+      // Create region directly in REAPER
+      sendCommand(regionCmd.add(start, end, name.trim() || undefined, color));
 
       onClose();
     } catch {
@@ -228,11 +220,6 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
             />
           </div>
         </div>
-
-        {/* Info about pending state */}
-        <p className="text-xs text-text-secondary">
-          Region will be created as a pending change. Click Save to apply to REAPER.
-        </p>
 
         {/* Error */}
         {error && (

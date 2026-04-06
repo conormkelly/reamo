@@ -18,7 +18,6 @@ import { ViewHeader, ViewLayout, Toolbar, ToolbarHeaderControls, SecondaryPanel,
 import {
   Timeline,
   RegionInfoBar,
-  RegionEditActionBar,
   MarkerInfoBar,
   TimelineModeToggle,
   NavigateItemInfoBar,
@@ -539,14 +538,9 @@ export function TimelineView(): ReactElement {
   // Info content for side rail (landscape - vertical layout)
   const sideRailInfoContent = useMemo(() => {
     if (timelineMode === 'regions') {
-      // Regions mode: editable region info + unsaved changes bar
+      // Regions mode: editable region info
       return (
-        <>
-          <RegionInfoBar onAddRegion={openAddRegionModal} layout="vertical" />
-          <div className="mt-2">
-            <RegionEditActionBar />
-          </div>
-        </>
+        <RegionInfoBar onAddRegion={openAddRegionModal} layout="vertical" />
       );
     } else {
       // Navigate mode: show marker/item info with vertical layout
@@ -680,20 +674,8 @@ export function TimelineView(): ReactElement {
     />
   );
 
-  // Persistent unsaved changes bar (portrait only, between timeline and panel)
-  const unsavedChangesBar = timelineMode === 'regions' && !isLandscapeConstrained ? (
-    <div className="px-2">
-      <RegionEditActionBar />
-    </div>
-  ) : null;
-
-  // Combined footer: unsaved changes bar + secondary panel
-  const combinedFooter = isLandscapeConstrained ? undefined : (
-    <>
-      {unsavedChangesBar}
-      {footerContent}
-    </>
-  );
+  // Combined footer: secondary panel (portrait only)
+  const combinedFooter = isLandscapeConstrained ? undefined : footerContent;
 
   return (
     <>

@@ -26,9 +26,12 @@ export interface UseTimelinePointerEventsParams {
   panGesture: UsePanGestureResult;
   pinchGesture: UsePinchGestureResult;
   isDraggingPlayhead: boolean;
-  handleRegionPointerDown: (e: React.PointerEvent) => void;
-  handleRegionPointerMove: (e: React.PointerEvent) => void;
-  handleRegionPointerUp: (e: React.PointerEvent) => void;
+  /** Region pointer handlers (optional — if absent, regions mode uses pan/tap like navigate) */
+  handleRegionPointerDown?: (e: React.PointerEvent) => void;
+  handleRegionPointerMove?: (e: React.PointerEvent) => void;
+  handleRegionPointerUp?: (e: React.PointerEvent) => void;
+  /** Called on tap in regions mode to select/deselect a region. Return true if a region was hit. */
+  onRegionTap?: (clientX: number, clientY: number) => boolean;
   handleItemTap: (clientX: number, clientY: number) => boolean;
   positionToTime: (clientX: number) => number;
   followPlayhead: boolean;
@@ -55,6 +58,7 @@ export function useTimelinePointerEvents({
   handleRegionPointerDown,
   handleRegionPointerMove,
   handleRegionPointerUp,
+  onRegionTap,
   handleItemTap,
   positionToTime,
   followPlayhead,
@@ -89,14 +93,14 @@ export function useTimelinePointerEvents({
       // Don't start timeline selection if dragging playhead
       if (isDraggingPlayhead) return;
 
-      // Region editing mode - delegate to hook
-      if (timelineMode === 'regions') {
+      // Region editing mode - delegate to hook if handlers provided, otherwise fall through to pan/tap
+      if (timelineMode === 'regions' && handleRegionPointerDown) {
         handleRegionPointerDown(e);
         return;
       }
 
-      // Navigate mode
-      if (timelineMode === 'navigate') {
+      // Navigate mode (and regions mode without drag handlers)
+      if (timelineMode === 'navigate' || timelineMode === 'regions') {
         if (!selectionModeActive) {
           // Pan mode (default) - track start position for tap detection, then delegate
           panStartPositionRef.current = { x: e.clientX, y: e.clientY };
@@ -124,14 +128,14 @@ export function useTimelinePointerEvents({
       // If pinching, skip other gesture handling
       if (pinchGesture.isPinchingRef.current) return;
 
-      // Region editing mode - delegate to hook
-      if (timelineMode === 'regions') {
+      // Region editing mode - delegate to hook if handlers provided
+      if (timelineMode === 'regions' && handleRegionPointerMove) {
         handleRegionPointerMove(e);
         return;
       }
 
-      // Navigate mode
-      if (timelineMode === 'navigate') {
+      // Navigate mode (and regions mode without drag handlers)
+      if (timelineMode === 'navigate' || timelineMode === 'regions') {
         if (!selectionModeActive) {
           // Pan mode - delegate to pan gesture
           panGesture.handlePointerMove(e);
@@ -174,25 +178,30 @@ export function useTimelinePointerEvents({
         return;
       }
 
-      // Region editing mode - delegate to hook
-      if (timelineMode === 'regions') {
+      // Region editing mode - delegate to hook if handlers provided
+      if (timelineMode === 'regions' && handleRegionPointerUp) {
         handleRegionPointerUp(e);
         return;
       }
 
-      // Navigate mode
-      if (timelineMode === 'navigate') {
+      // Navigate mode (and regions mode without drag handlers)
+      if (timelineMode === 'navigate' || timelineMode === 'regions') {
         if (!selectionModeActive) {
           // Pan mode - delegate to pan gesture
           panGesture.handlePointerUp(e);
 
-          // Check if it was a tap (minimal movement) - if so, check for item hit
+          // Check if it was a tap (minimal movement) - if so, check for item/region hit
           if (panStartPositionRef.current) {
             const dx = Math.abs(e.clientX - panStartPositionRef.current.x);
             const dy = Math.abs(e.clientY - panStartPositionRef.current.y);
 
             if (dx < TAP_THRESHOLD && dy < TAP_THRESHOLD) {
-              handleItemTap(e.clientX, e.clientY);
+              // In regions mode, try region tap first
+              if (timelineMode === 'regions' && onRegionTap) {
+                onRegionTap(e.clientX, e.clientY);
+              } else {
+                handleItemTap(e.clientX, e.clientY);
+              }
             }
           }
 
@@ -257,6 +266,7 @@ export function useTimelinePointerEvents({
       panGesture,
       pinchGesture,
       handleItemTap,
+      onRegionTap,
       containerRef,
     ]
   );

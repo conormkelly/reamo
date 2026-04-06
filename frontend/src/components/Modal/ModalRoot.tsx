@@ -12,7 +12,7 @@ import { marker as markerCmd } from '../../core/WebSocketCommands';
 
 // Import modals
 import { MarkerEditModal } from '../Timeline/MarkerEditModal';
-import { DeleteRegionModal } from '../Timeline/DeleteRegionModal';
+
 import { AddRegionModal } from '../Timeline/AddRegionModal';
 import { MakeSelectionModal } from '../Timeline/MakeSelectionModal';
 import { TimelineSettingsSheet } from '.';
@@ -54,16 +54,6 @@ export function ModalRoot(): ReactElement | null {
           onClose={closeModal}
           onMove={handleMarkerMove}
           onDelete={handleMarkerDelete}
-        />
-      );
-
-    case 'deleteRegion':
-      return (
-        <DeleteRegionModal
-          isOpen
-          onClose={closeModal}
-          region={modal.region}
-          regionId={modal.regionId}
         />
       );
 
