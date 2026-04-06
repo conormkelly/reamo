@@ -1,5 +1,6 @@
 .PHONY: all frontend extension dev-extension clean test test-frontend test-extension test-e2e \
-        dev dev-notests dev-cycle stop-reaper start-reaper frontend-dev install typecheck tracy
+        dev dev-notests dev-cycle stop-reaper start-reaper frontend-dev install typecheck tracy \
+        release release-dir
 
 # Platform detection: library name and REAPER plugin directory
 ifeq ($(shell uname),Darwin)
@@ -168,3 +169,43 @@ test-extension:
 # Type check frontend
 typecheck:
 	cd frontend && npm run build -- --mode development
+
+# =============================================================================
+# Release packaging
+# =============================================================================
+
+# Version from frontend/package.json
+VERSION := $(shell node -p "require('./frontend/package.json').version")
+RELEASE_DIR := release/REAmo-v$(VERSION)
+
+# Build release ZIP with platform binaries + frontend + installer
+# Builds: macOS arm64 (native), Windows x86_64 (cross-compile)
+release: frontend release-dir
+	@echo "=== Building release v$(VERSION) ==="
+	@# macOS arm64 (native)
+	@echo "Building macOS arm64..."
+	cd extension && zig build
+	cp extension/zig-out/$(EXT_OUT_DIR)/$(EXT_LIB) "$(RELEASE_DIR)/reaper_reamo.dylib"
+	@# Windows x86_64 (cross-compile)
+	@echo "Building Windows x86_64..."
+	cd extension && zig build -Dtarget=x86_64-windows
+	cp extension/zig-out/bin/reaper_reamo.dll "$(RELEASE_DIR)/reaper_reamo.dll"
+	@# Package
+	@echo "Creating ZIP..."
+	cd release && zip -r "REAmo-v$(VERSION).zip" "REAmo-v$(VERSION)"
+	@echo ""
+	@echo "Release ready: release/REAmo-v$(VERSION).zip"
+	@echo "Contents:"
+	@zipinfo -1 "release/REAmo-v$(VERSION).zip"
+
+# Create release directory structure with installer + frontend + JSFX
+release-dir:
+	@rm -rf "$(RELEASE_DIR)"
+	@mkdir -p "$(RELEASE_DIR)/web" "$(RELEASE_DIR)/effects/REAmo"
+	@# Installer scripts
+	cp installer/Install_REAmo.lua "$(RELEASE_DIR)/"
+	cp installer/Uninstall_REAmo.lua "$(RELEASE_DIR)/"
+	@# Frontend (built by 'frontend' target)
+	cp -r web/* "$(RELEASE_DIR)/web/"
+	@# JSFX tuner plugin
+	cp extension/effects/REAmo/PitchDetect.jsfx "$(RELEASE_DIR)/effects/REAmo/"

@@ -3,14 +3,14 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'  # Triggers on version tags like v1.0.0
+      - 'v*'
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
 
     permissions:
-      contents: write  # Needed to create releases
+      contents: write
 
     steps:
       - name: Checkout
@@ -19,45 +19,35 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: '22'
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
 
-      - name: Build
-        run: npm run build
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
 
-      - name: Copy build to reamo.html
-        run: cp ./dist/index.html ./reamo.html
-
-      - name: Create release directory
+      - name: Run tests
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          RELEASE_DIR="Reamo-v${VERSION}"
-          mkdir -p "$RELEASE_DIR"
+          cd frontend && npm test
+          cd ../extension && zig build test
 
-          # Copy installer files
-          cp installer/Install_Reamo.lua "$RELEASE_DIR/"
-          cp installer/Uninstall_Reamo.lua "$RELEASE_DIR/"
-          cp installer/Reamo_Startup.lua "$RELEASE_DIR/"
-          cp installer/README.txt "$RELEASE_DIR/"
+      - name: Build release
+        run: make release
 
-          # Copy app
-          cp reamo.html "$RELEASE_DIR/"
-
-          # Create ZIP
-          zip -r "Reamo-v${VERSION}.zip" "$RELEASE_DIR"
-
-          # Generate checksum
-          sha256sum "Reamo-v${VERSION}.zip" > "Reamo-v${VERSION}.zip.sha256"
+      - name: Generate checksum
+        run: |
+          cd release
+          shasum -a 256 REAmo-v*.zip > REAmo-v*.zip.sha256
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
-            Reamo-v*.zip
-            Reamo-v*.zip.sha256
+            release/REAmo-v*.zip
+            release/REAmo-v*.zip.sha256
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}

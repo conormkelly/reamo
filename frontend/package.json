@@ -9,8 +9,6 @@
     "dev": "vite",
     "build": "tsc -b && vite build && rm -rf ../web && cp -r ./dist ../web && cp ./public/icon*.png ./public/icon.svg ./public/manifest.json ../web/",
     "build:debug": "tsc -b && vite build --mode development && rm -rf ../web && cp -r ./dist ../web && cp ./public/icon*.png ./public/icon.svg ./public/manifest.json ../web/",
-    "deploy": "npm run build",
-    "release": "npm run deploy && node scripts/create-release-zip.js",
     "analyze": "tsc -b && vite build --mode analyze",
     "lint": "eslint .",
     "preview": "vite preview",

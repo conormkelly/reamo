@@ -15,6 +15,7 @@ web
 *.local
 playwright-report
 test-results
+release
 releases
 frontend/bundle-stats.html
 frontend/coverage
