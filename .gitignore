@@ -37,3 +37,4 @@ zig-out
 
 # Claude
 .claude
+*.bak
