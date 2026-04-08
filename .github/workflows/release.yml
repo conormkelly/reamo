@@ -68,11 +68,11 @@ jobs:
         if: matrix.platform == 'macos'
         run: |
           cd extension
-          # Build native arm64
-          zig build -Doptimize=ReleaseSafe
+          # Build arm64 (arm64 Macs require minimum macOS 11.0)
+          zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-macos.11.0
           cp zig-out/lib/libreaper_reamo.dylib ../reaper_reamo_arm64.dylib
-          # Cross-compile x86_64 (same OS, no glibc issue)
-          zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-macos
+          # Build x86_64 (support back to Catalina 10.15)
+          zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-macos.10.15
           # Create universal binary
           lipo -create \
             ../reaper_reamo_arm64.dylib \
