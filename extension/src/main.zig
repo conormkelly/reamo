@@ -8,6 +8,7 @@ const tracks = @import("state/tracks.zig");
 const tempomap = @import("state/tempomap.zig");
 const fx = @import("state/fx.zig");
 const sends = @import("state/sends.zig");
+const protocol = @import("core/protocol.zig");
 const commands = @import("commands/mod.zig");
 const ws_server = @import("server/ws_server.zig");
 const http_server = @import("server/http_server.zig");
@@ -197,7 +198,7 @@ fn doInitialization() !void {
 
     // Initialize logging with REAPER's resource path
     logging.init(api.resourcePath());
-    logging.info("initTimerCallback() started", .{});
+    logging.info("REAmo v{s} starting", .{protocol.EXTENSION_VERSION});
 
     // Initialize hot reload file path
     if (api.resourcePath()) |res_path| {
