@@ -245,6 +245,7 @@ pub fn build(b: *std.Build) void {
         .flags = &.{"-std=c99"},
     });
     qr_tests.root_module.addIncludePath(b.path("lib/qrcodegen"));
+    qr_tests.root_module.link_libc = true;
     const run_qr_tests = b.addRunArtifact(qr_tests);
     test_step.dependOn(&run_qr_tests.step);
 }
