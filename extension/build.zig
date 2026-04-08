@@ -8,6 +8,11 @@ pub fn build(b: *std.Build) void {
     // Tracy profiler option - must use ReleaseFast due to Zig 0.15 bug
     const enable_tracy = b.option(bool, "tracy", "Enable Tracy profiler") orelse false;
 
+    // macOS SDK path — used for framework/include/lib search paths on macOS builds.
+    // Needed when targeting a non-native config (different arch or OS version).
+    const macos_sdk_path = b.option([]const u8, "macos-sdk", "macOS SDK path") orelse
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk";
+
     const httpz = b.dependency("httpz", .{
         .target = target,
         .optimize = optimize,
@@ -84,15 +89,11 @@ pub fn build(b: *std.Build) void {
                 "-fno-rtti",
             },
         });
-        // When cross-compiling macOS (e.g. x86_64 from arm64), Zig can't find
-        // system frameworks automatically. Add the SDK framework search path.
-        if (target.result.cpu.arch != builtin.cpu.arch) {
-            const sdk_path = b.option([]const u8, "macos-sdk", "macOS SDK path for cross-compilation") orelse
-                "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk";
-            lib.root_module.addSystemFrameworkPath(.{ .cwd_relative = b.fmt("{s}/System/Library/Frameworks", .{sdk_path}) });
-            lib.root_module.addSystemIncludePath(.{ .cwd_relative = b.fmt("{s}/usr/include", .{sdk_path}) });
-            lib.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/usr/lib", .{sdk_path}) });
-        }
+        // Always add SDK paths on macOS — needed when any part of the target
+        // differs from native (arch or OS version), and harmless for native builds.
+        lib.root_module.addSystemFrameworkPath(.{ .cwd_relative = b.fmt("{s}/System/Library/Frameworks", .{macos_sdk_path}) });
+        lib.root_module.addSystemIncludePath(.{ .cwd_relative = b.fmt("{s}/usr/include", .{macos_sdk_path}) });
+        lib.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/usr/lib", .{macos_sdk_path}) });
         lib.linkFramework("Cocoa");
     } else if (target.result.os.tag == .linux) {
         lib.addCSourceFile(.{
@@ -199,6 +200,9 @@ pub fn build(b: *std.Build) void {
                 "-fno-rtti",
             },
         });
+        main_tests.root_module.addSystemFrameworkPath(.{ .cwd_relative = b.fmt("{s}/System/Library/Frameworks", .{macos_sdk_path}) });
+        main_tests.root_module.addSystemIncludePath(.{ .cwd_relative = b.fmt("{s}/usr/include", .{macos_sdk_path}) });
+        main_tests.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/usr/lib", .{macos_sdk_path}) });
         main_tests.linkFramework("Cocoa");
     } else if (target.result.os.tag == .linux) {
         main_tests.addCSourceFile(.{
