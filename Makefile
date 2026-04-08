@@ -1,24 +1,27 @@
 .PHONY: all frontend extension dev-extension clean test test-frontend test-extension test-e2e \
         dev dev-notests dev-cycle stop-reaper start-reaper frontend-dev install typecheck tracy \
-        release release-dir
+        release-native release-dir
 
 # Platform detection: library name and REAPER plugin directory
 ifeq ($(shell uname),Darwin)
     EXT_LIB = libreaper_reamo.dylib
     EXT_DEST = reaper_reamo.dylib
     EXT_OUT_DIR = lib
+    PLATFORM = macos
     REAPER_PLUGINS = $(HOME)/Library/Application Support/REAPER/UserPlugins
     REAPER_WWW = $(HOME)/Library/Application Support/REAPER/reaper_www_root/web
 else ifeq ($(OS),Windows_NT)
     EXT_LIB = reaper_reamo.dll
     EXT_DEST = reaper_reamo.dll
     EXT_OUT_DIR = bin
+    PLATFORM = windows
     REAPER_PLUGINS = $(APPDATA)/REAPER/UserPlugins
     REAPER_WWW = $(APPDATA)/REAPER/reaper_www_root/web
 else
     EXT_LIB = libreaper_reamo.so
     EXT_DEST = reaper_reamo.so
     EXT_OUT_DIR = lib
+    PLATFORM = linux
     REAPER_PLUGINS = $(HOME)/.config/REAPER/UserPlugins
     REAPER_WWW = $(HOME)/.config/REAPER/reaper_www_root/web
 endif
@@ -178,10 +181,11 @@ typecheck:
 VERSION := $(shell node -p "require('./frontend/package.json').version")
 RELEASE_DIR := release/REAmo-v$(VERSION)
 
-# Build release ZIP with platform binaries + frontend + installer
-# Builds: macOS universal (arm64+x86_64), Windows x86_64, Linux x86_64
-release: frontend release-dir
-	@echo "=== Building release v$(VERSION) ==="
+# Build release ZIP for the current platform (native build, no cross-compilation)
+# Used by CI matrix: each platform runner builds its own native binary
+release-native: frontend release-dir
+	@echo "=== Building native release v$(VERSION) ==="
+ifeq ($(shell uname),Darwin)
 	@# macOS universal binary (arm64 + x86_64 via lipo)
 	@echo "Building macOS arm64..."
 	cd extension && zig build -Doptimize=ReleaseSafe
@@ -194,21 +198,15 @@ release: frontend release-dir
 		extension/zig-out/lib/libreaper_reamo.dylib \
 		-output "$(RELEASE_DIR)/reaper_reamo.dylib"
 	@rm "$(RELEASE_DIR)/reaper_reamo_arm64.dylib"
-	@# Windows x86_64 (cross-compile)
-	@echo "Building Windows x86_64..."
-	cd extension && zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-windows
-	cp extension/zig-out/bin/reaper_reamo.dll "$(RELEASE_DIR)/reaper_reamo.dll"
-	@# Linux x86_64 (cross-compile)
-	@echo "Building Linux x86_64..."
-	cd extension && zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux
-	cp extension/zig-out/lib/libreaper_reamo.so "$(RELEASE_DIR)/reaper_reamo.so"
-	@# Package
+else
+	@echo "Building $(EXT_DEST)..."
+	cd extension && zig build -Doptimize=ReleaseSafe
+	cp "extension/zig-out/$(EXT_OUT_DIR)/$(EXT_LIB)" "$(RELEASE_DIR)/$(EXT_DEST)"
+endif
 	@echo "Creating ZIP..."
-	cd release && zip -r "REAmo-v$(VERSION).zip" "REAmo-v$(VERSION)"
+	cd release && zip -r "REAmo-v$(VERSION)-$(PLATFORM).zip" "REAmo-v$(VERSION)"
 	@echo ""
-	@echo "Release ready: release/REAmo-v$(VERSION).zip"
-	@echo "Contents:"
-	@zipinfo -1 "release/REAmo-v$(VERSION).zip"
+	@echo "Release ready: release/REAmo-v$(VERSION)-$(PLATFORM).zip"
 
 # Create release directory structure with installer + frontend + JSFX
 release-dir:
