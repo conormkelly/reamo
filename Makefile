@@ -214,9 +214,10 @@ release: frontend release-dir
 release-dir:
 	@rm -rf "$(RELEASE_DIR)"
 	@mkdir -p "$(RELEASE_DIR)/web" "$(RELEASE_DIR)/effects/REAmo"
-	@# Installer scripts
+	@# Installer scripts and README
 	cp installer/Install_REAmo.lua "$(RELEASE_DIR)/"
 	cp installer/Uninstall_REAmo.lua "$(RELEASE_DIR)/"
+	cp installer/README.txt "$(RELEASE_DIR)/"
 	@# Frontend (built by 'frontend' target)
 	cp -r web/* "$(RELEASE_DIR)/web/"
 	@# JSFX tuner plugin
