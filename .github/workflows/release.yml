@@ -102,7 +102,7 @@ jobs:
           cp installer/Install_REAmo.lua "${DIR}/"
           cp installer/Uninstall_REAmo.lua "${DIR}/"
           cp installer/README.txt "${DIR}/"
-          zip -r "${DIR}.zip" "${DIR}"
+          7z a -r "${DIR}.zip" "${DIR}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
