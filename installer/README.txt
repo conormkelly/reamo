@@ -8,8 +8,7 @@ INSTALL
 
 1. Extract this ZIP anywhere
 2. Open REAPER
-3. Actions > Run ReaScript > Run ReaScript... (or just drag Install_REAmo.lua
-   into REAPER)
+3. Actions > Run ReaScript > Run ReaScript...
 4. Select Install_REAmo.lua from the extracted folder
 5. Restart REAPER
 6. Extensions > REAmo > Show QR Code
