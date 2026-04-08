@@ -1,4 +1,4 @@
-REAmo v0.7.0
+REAmo v0.7.1
 Control REAPER from your phone. Free, open source, zero config.
 https://github.com/conormkelly/reamo
 
