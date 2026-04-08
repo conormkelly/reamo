@@ -2,7 +2,7 @@ const std = @import("std");
 
 // Protocol version - increment when breaking changes are made
 pub const PROTOCOL_VERSION: u32 = 1;
-pub const EXTENSION_VERSION = "0.6.0";
+pub const EXTENSION_VERSION = "0.7.0";
 
 // Incoming message types
 pub const MessageType = enum {

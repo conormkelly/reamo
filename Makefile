@@ -179,17 +179,29 @@ VERSION := $(shell node -p "require('./frontend/package.json').version")
 RELEASE_DIR := release/REAmo-v$(VERSION)
 
 # Build release ZIP with platform binaries + frontend + installer
-# Builds: macOS arm64 (native), Windows x86_64 (cross-compile)
+# Builds: macOS universal (arm64+x86_64), Windows x86_64, Linux x86_64
 release: frontend release-dir
 	@echo "=== Building release v$(VERSION) ==="
-	@# macOS arm64 (native)
+	@# macOS universal binary (arm64 + x86_64 via lipo)
 	@echo "Building macOS arm64..."
-	cd extension && zig build
-	cp extension/zig-out/$(EXT_OUT_DIR)/$(EXT_LIB) "$(RELEASE_DIR)/reaper_reamo.dylib"
+	cd extension && zig build -Doptimize=ReleaseSafe
+	cp extension/zig-out/lib/libreaper_reamo.dylib "$(RELEASE_DIR)/reaper_reamo_arm64.dylib"
+	@echo "Building macOS x86_64..."
+	cd extension && zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-macos
+	@echo "Creating macOS universal binary..."
+	lipo -create \
+		"$(RELEASE_DIR)/reaper_reamo_arm64.dylib" \
+		extension/zig-out/lib/libreaper_reamo.dylib \
+		-output "$(RELEASE_DIR)/reaper_reamo.dylib"
+	@rm "$(RELEASE_DIR)/reaper_reamo_arm64.dylib"
 	@# Windows x86_64 (cross-compile)
 	@echo "Building Windows x86_64..."
-	cd extension && zig build -Dtarget=x86_64-windows
+	cd extension && zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-windows
 	cp extension/zig-out/bin/reaper_reamo.dll "$(RELEASE_DIR)/reaper_reamo.dll"
+	@# Linux x86_64 (cross-compile)
+	@echo "Building Linux x86_64..."
+	cd extension && zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux
+	cp extension/zig-out/lib/libreaper_reamo.so "$(RELEASE_DIR)/reaper_reamo.so"
 	@# Package
 	@echo "Creating ZIP..."
 	cd release && zip -r "REAmo-v$(VERSION).zip" "REAmo-v$(VERSION)"

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -83,6 +84,15 @@ pub fn build(b: *std.Build) void {
                 "-fno-rtti",
             },
         });
+        // When cross-compiling macOS (e.g. x86_64 from arm64), Zig can't find
+        // system frameworks automatically. Add the SDK framework search path.
+        if (target.result.cpu.arch != builtin.cpu.arch) {
+            const sdk_path = b.option([]const u8, "macos-sdk", "macOS SDK path for cross-compilation") orelse
+                "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk";
+            lib.root_module.addSystemFrameworkPath(.{ .cwd_relative = b.fmt("{s}/System/Library/Frameworks", .{sdk_path}) });
+            lib.root_module.addSystemIncludePath(.{ .cwd_relative = b.fmt("{s}/usr/include", .{sdk_path}) });
+            lib.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/usr/lib", .{sdk_path}) });
+        }
         lib.linkFramework("Cocoa");
     } else if (target.result.os.tag == .linux) {
         lib.addCSourceFile(.{
@@ -97,6 +107,7 @@ pub fn build(b: *std.Build) void {
         // SWELL modstub: provides SWELL_dllMain + doinit() which resolves all
         // SWELL function pointers at plugin load time. Required for SWELL's
         // window management (GDK) to work correctly.
+        lib.addIncludePath(b.path("lib/WDL/swell"));
         lib.addCSourceFile(.{
             .file = b.path("src/platform/swell_modstub.cpp"),
             .flags = &.{
@@ -105,7 +116,6 @@ pub fn build(b: *std.Build) void {
                 "-fno-rtti",
                 "-fvisibility=hidden",
                 "-DSWELL_PROVIDED_BY_APP",
-                "-I/home/conork/Dev/reaper-sdk/WDL/swell",
             },
         });
         lib.linkLibCpp();
@@ -200,6 +210,7 @@ pub fn build(b: *std.Build) void {
                 "-x", "c++",
             },
         });
+        main_tests.addIncludePath(b.path("lib/WDL/swell"));
         main_tests.addCSourceFile(.{
             .file = b.path("src/platform/swell_modstub.cpp"),
             .flags = &.{
@@ -208,7 +219,6 @@ pub fn build(b: *std.Build) void {
                 "-fno-rtti",
                 "-fvisibility=hidden",
                 "-DSWELL_PROVIDED_BY_APP",
-                "-I/home/conork/Dev/reaper-sdk/WDL/swell",
             },
         });
         main_tests.linkLibCpp();

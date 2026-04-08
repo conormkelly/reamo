@@ -50,5 +50,5 @@ jobs:
             release/REAmo-v*.zip
             release/REAmo-v*.zip.sha256
           generate_release_notes: true
-          draft: false
+          draft: true
           prerelease: ${{ contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
