@@ -18,7 +18,8 @@ pub const State = struct {
         state.count = api.tempoMarkerCount();
 
         // Limit to MAX_MARKERS
-        const count: usize = @intCast(@min(state.count, MAX_MARKERS));
+        // Guard against negative count from REAPER API (causes integerOutOfBounds crash)
+        const count: usize = if (state.count > 0) @intCast(@min(state.count, MAX_MARKERS)) else 0;
 
         var hash: u64 = 0;
         for (0..count) |i| {
@@ -27,8 +28,9 @@ pub const State = struct {
                 // Simple hash: XOR position bits and BPM bits
                 hash ^= @bitCast(marker.position);
                 hash ^= @bitCast(marker.bpm);
-                hash ^= @as(u64, @intCast(marker.timesig_num)) << 32;
-                hash ^= @as(u64, @intCast(marker.timesig_denom)) << 40;
+                // Use @bitCast to avoid integerOutOfBounds if REAPER returns negative timesig values
+                hash ^= @as(u64, @as(u32, @bitCast(marker.timesig_num))) << 32;
+                hash ^= @as(u64, @as(u32, @bitCast(marker.timesig_denom))) << 40;
             }
         }
         state.hash = hash;
@@ -49,7 +51,7 @@ pub const State = struct {
 
         writer.writeAll("{\"type\":\"event\",\"event\":\"tempoMap\",\"payload\":{\"markers\":[") catch return null;
 
-        const count: usize = @intCast(@min(self.count, MAX_MARKERS));
+        const count: usize = if (self.count > 0) @intCast(@min(self.count, MAX_MARKERS)) else 0;
         for (0..count) |i| {
             if (i > 0) writer.writeAll(",") catch return null;
 
@@ -147,6 +149,20 @@ test "poll with MockBackend returns empty state for no markers" {
     const state = State.poll(&mock);
 
     try std.testing.expectEqual(@as(c_int, 0), state.count);
+}
+
+test "poll handles negative tempo_marker_count without panic" {
+    var mock = MockBackend{
+        .tempo_marker_count = -1,
+    };
+
+    const state = State.poll(&mock);
+
+    // Should treat negative count as 0 markers
+    try std.testing.expectEqual(@as(c_int, -1), state.count);
+    var buf: [256]u8 = undefined;
+    const json = state.toJson(&buf).?;
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"markers\":[]") != null);
 }
 
 test "poll tracks API calls correctly" {
