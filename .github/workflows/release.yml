@@ -6,11 +6,28 @@ on:
       - 'v*'
 
 jobs:
-  release:
-    runs-on: macos-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            ext_lib: libreaper_reamo.so
+            ext_dest: reaper_reamo.so
+            ext_dir: lib
+          - os: macos-latest
+            platform: macos
+            ext_lib: libreaper_reamo.dylib
+            ext_dest: reaper_reamo.dylib
+            ext_dir: lib
+          - os: windows-latest
+            platform: windows
+            ext_lib: reaper_reamo.dll
+            ext_dest: reaper_reamo.dll
+            ext_dir: bin
 
-    permissions:
-      contents: write
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout
@@ -30,25 +47,91 @@ jobs:
         run: cd frontend && npm ci
 
       - name: Run tests
+        shell: bash
         run: |
           cd frontend && npm test
           cd ../extension && zig build test
 
-      - name: Build release
-        run: make release
+      - name: Build frontend
+        shell: bash
+        run: cd frontend && npm run build
 
-      - name: Generate checksum
+      - name: Build extension (Linux)
+        if: matrix.platform == 'linux'
+        run: cd extension && zig build -Doptimize=ReleaseSafe
+
+      - name: Build extension (macOS universal)
+        if: matrix.platform == 'macos'
         run: |
-          cd release
-          ZIP=$(ls REAmo-v*.zip)
-          shasum -a 256 "$ZIP" > "${ZIP}.sha256"
+          cd extension
+          # Build native arm64
+          zig build -Doptimize=ReleaseSafe
+          cp zig-out/lib/libreaper_reamo.dylib ../reaper_reamo_arm64.dylib
+          # Cross-compile x86_64 (same OS, no glibc issue)
+          zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-macos
+          # Create universal binary
+          lipo -create \
+            ../reaper_reamo_arm64.dylib \
+            zig-out/lib/libreaper_reamo.dylib \
+            -output zig-out/lib/libreaper_reamo.dylib
+          rm ../reaper_reamo_arm64.dylib
+
+      - name: Build extension (Windows)
+        if: matrix.platform == 'windows'
+        shell: bash
+        run: cd extension && zig build -Doptimize=ReleaseSafe
+
+      - name: Get version
+        id: version
+        shell: bash
+        run: echo "version=$(node -p "require('./frontend/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Package release
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          DIR="REAmo-v${VERSION}-${{ matrix.platform }}"
+          mkdir -p "${DIR}/web" "${DIR}/effects/REAmo"
+          cp "extension/zig-out/${{ matrix.ext_dir }}/${{ matrix.ext_lib }}" "${DIR}/${{ matrix.ext_dest }}"
+          cp -r web/* "${DIR}/web/"
+          cp extension/effects/REAmo/PitchDetect.jsfx "${DIR}/effects/REAmo/"
+          cp installer/Install_REAmo.lua "${DIR}/"
+          cp installer/Uninstall_REAmo.lua "${DIR}/"
+          cp installer/README.txt "${DIR}/"
+          zip -r "${DIR}.zip" "${DIR}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: REAmo-v*-${{ matrix.platform }}.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          for zip in REAmo-v*.zip; do
+            sha256sum "$zip" > "${zip}.sha256"
+          done
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release/REAmo-v*.zip
-            release/REAmo-v*.zip.sha256
+            artifacts/REAmo-v*.zip
+            artifacts/REAmo-v*.zip.sha256
           generate_release_notes: true
           draft: true
           prerelease: ${{ contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
