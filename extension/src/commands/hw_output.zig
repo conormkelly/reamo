@@ -282,7 +282,7 @@ pub fn handleListOutputs(api: anytype, _: protocol.CommandMessage, response: *mo
     {
         var ch: c_int = 0;
         while (ch + 1 < count) : (ch += 2) {
-            if (!first) writer.writeAll(",") catch {};
+            if (!first) writer.writeAll(",") catch return;
             first = false;
 
             // Get first name and copy it before the second call overwrites the static buffer
@@ -297,11 +297,11 @@ pub fn handleListOutputs(api: anytype, _: protocol.CommandMessage, response: *mo
             // I_DSTCHAN for stereo: just the channel index
             const dest_chan = ch;
 
-            writer.print("{{\"destChan\":{d},\"name\":\"", .{dest_chan}) catch continue;
-            writeJsonEscaped(writer, s1);
-            writer.writeAll(" / ") catch {};
-            writeJsonEscaped(writer, s2);
-            writer.writeAll("\",\"stereo\":true}") catch {};
+            writer.print("{{\"destChan\":{d},\"name\":\"", .{dest_chan}) catch return;
+            writeJsonEscaped(writer, s1) catch return;
+            writer.writeAll(" / ") catch return;
+            writeJsonEscaped(writer, s2) catch return;
+            writer.writeAll("\",\"stereo\":true}") catch return;
         }
     }
 
@@ -309,30 +309,30 @@ pub fn handleListOutputs(api: anytype, _: protocol.CommandMessage, response: *mo
     {
         var ch: c_int = 0;
         while (ch < count) : (ch += 1) {
-            if (!first) writer.writeAll(",") catch {};
+            if (!first) writer.writeAll(",") catch return;
             first = false;
 
             const name = if (api.audioOutputName(ch)) |n| std.mem.sliceTo(n, 0) else "Unknown";
             // I_DSTCHAN for mono: channel index | 1024
             const dest_chan = ch | 1024;
 
-            writer.print("{{\"destChan\":{d},\"name\":\"", .{dest_chan}) catch continue;
-            writeJsonEscaped(writer, name);
-            writer.writeAll("\",\"stereo\":false}") catch {};
+            writer.print("{{\"destChan\":{d},\"name\":\"", .{dest_chan}) catch return;
+            writeJsonEscaped(writer, name) catch return;
+            writer.writeAll("\",\"stereo\":false}") catch return;
         }
     }
 
-    writer.writeAll("]}") catch {};
+    writer.writeAll("]}") catch return;
     response.successLargePayload(stream.getWritten());
 }
 
 /// Write a string with JSON escaping (quotes and backslashes)
-fn writeJsonEscaped(writer: anytype, s: []const u8) void {
+fn writeJsonEscaped(writer: anytype, s: []const u8) !void {
     for (s) |c| {
         switch (c) {
-            '"' => writer.writeAll("\\\"") catch {},
-            '\\' => writer.writeAll("\\\\") catch {},
-            else => writer.writeByte(c) catch {},
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            else => try writer.writeByte(c),
         }
     }
 }
@@ -344,14 +344,14 @@ fn writeJsonEscaped(writer: anytype, s: []const u8) void {
 test "writeJsonEscaped passes plain text through unchanged" {
     var buf: [64]u8 = undefined;
     var stream = std.io.fixedBufferStream(&buf);
-    writeJsonEscaped(stream.writer(), "Speakers L/R");
+    try writeJsonEscaped(stream.writer(), "Speakers L/R");
     try std.testing.expectEqualStrings("Speakers L/R", stream.getWritten());
 }
 
 test "writeJsonEscaped escapes quotes and backslashes" {
     var buf: [64]u8 = undefined;
     var stream = std.io.fixedBufferStream(&buf);
-    writeJsonEscaped(stream.writer(), "Output \"1\" \\ 2");
+    try writeJsonEscaped(stream.writer(), "Output \"1\" \\ 2");
     try std.testing.expectEqualStrings("Output \\\"1\\\" \\\\ 2", stream.getWritten());
 }
 
