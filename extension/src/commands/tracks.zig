@@ -533,9 +533,17 @@ pub fn handleGetFx(api: anytype, cmd: protocol.CommandMessage, response: *mod.Re
     const fx_count = end - start;
     const has_more = end < total;
 
-    // Serialize directly to response buffer
-    var buf: [32768]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
+    // Serialize to scratch arena buffer (32KB — too large for stack per §1)
+    const tiered = mod.g_ctx.tiered orelse {
+        response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
+        return;
+    };
+    const scratch = tiered.scratchAllocator();
+    const buf = scratch.alloc(u8, 32768) catch {
+        response.err("ALLOC_FAILED", "Failed to allocate buffer");
+        return;
+    };
+    var stream = std.io.fixedBufferStream(buf);
     var w = stream.writer();
 
     w.print("{{\"fx\":[", .{}) catch {
@@ -636,9 +644,17 @@ pub fn handleGetSends(api: anytype, cmd: protocol.CommandMessage, response: *mod
     const send_count = end - start;
     const has_more = end < total;
 
-    // Serialize directly to response buffer
-    var buf: [16384]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
+    // Serialize to scratch arena buffer (16KB — too large for stack per §1)
+    const tiered_sends = mod.g_ctx.tiered orelse {
+        response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
+        return;
+    };
+    const scratch_sends = tiered_sends.scratchAllocator();
+    const buf = scratch_sends.alloc(u8, 16384) catch {
+        response.err("ALLOC_FAILED", "Failed to allocate buffer");
+        return;
+    };
+    var stream = std.io.fixedBufferStream(buf);
     var w = stream.writer();
 
     w.print("{{\"sends\":[", .{}) catch {
@@ -725,9 +741,17 @@ pub fn handleGetHwOutputs(api: anytype, cmd: protocol.CommandMessage, response: 
     const hw_count = end - start;
     const has_more = end < total;
 
-    // Serialize directly to response buffer
-    var buf: [16384]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
+    // Serialize to scratch arena buffer (16KB — too large for stack per §1)
+    const tiered_hw = mod.g_ctx.tiered orelse {
+        response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
+        return;
+    };
+    const scratch_hw = tiered_hw.scratchAllocator();
+    const buf = scratch_hw.alloc(u8, 16384) catch {
+        response.err("ALLOC_FAILED", "Failed to allocate buffer");
+        return;
+    };
+    var stream = std.io.fixedBufferStream(buf);
     var w = stream.writer();
 
     w.print("{{\"hwOutputs\":[", .{}) catch {
