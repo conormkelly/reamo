@@ -83,6 +83,8 @@ pub const Api = struct {
 
     // Project info
     getProjectLength: ?*const fn (?*anyopaque) callconv(.c) f64 = null,
+    getSetProjectInfo: ?*const fn (?*anyopaque, [*:0]const u8, f64, bool) callconv(.c) f64 = null,
+    getAudioDeviceInfo: ?*const fn ([*:0]const u8, [*]u8, c_int) callconv(.c) bool = null,
 
     // Command state
     getToggleCommandState: ?*const fn (c_int) callconv(.c) c_int = null,
@@ -312,6 +314,8 @@ pub const Api = struct {
             .getTempoTimeSigMarker = getFunc(info, "GetTempoTimeSigMarker", fn (?*anyopaque, c_int, ?*f64, ?*c_int, ?*f64, ?*f64, ?*c_int, ?*c_int, ?*bool) callconv(.c) bool),
             // Project info
             .getProjectLength = getFunc(info, "GetProjectLength", fn (?*anyopaque) callconv(.c) f64),
+            .getSetProjectInfo = getFunc(info, "GetSetProjectInfo", fn (?*anyopaque, [*:0]const u8, f64, bool) callconv(.c) f64),
+            .getAudioDeviceInfo = getFunc(info, "GetAudioDeviceInfo", fn ([*:0]const u8, [*]u8, c_int) callconv(.c) bool),
             // Command state
             .getToggleCommandState = getFunc(info, "GetToggleCommandState", fn (c_int) callconv(.c) c_int),
             .getToggleCommandStateEx = getFunc(info, "GetToggleCommandStateEx", fn (c_int, c_int) callconv(.c) c_int),
@@ -776,6 +780,21 @@ pub const Api = struct {
     pub fn projectLength(self: *const Api) f64 {
         const f = self.getProjectLength orelse return 0.0;
         return f(null);
+    }
+
+    // Query project info value (GetSetProjectInfo). Returns raw f64.
+    // desc examples: "PROJECT_SRATE", "PROJECT_SRATE_USE"
+    pub fn getProjectInfoValue(self: *const Api, desc: [*:0]const u8) f64 {
+        const f = self.getSetProjectInfo orelse return 0.0;
+        return f(null, desc, 0.0, false);
+    }
+
+    // Query audio device info string (GetAudioDeviceInfo).
+    // Returns true on success, writing result into buf.
+    // attr examples: "SRATE", "BSIZE", "BPS"
+    pub fn audioDeviceInfo(self: *const Api, attr: [*:0]const u8, buf: [*]u8, buf_sz: c_int) bool {
+        const f = self.getAudioDeviceInfo orelse return false;
+        return f(attr, buf, buf_sz);
     }
 
     // Command toggle state: returns 1 if on, 0 if off, -1 if not toggle command
