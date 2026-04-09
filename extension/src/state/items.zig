@@ -362,10 +362,11 @@ pub const State = struct {
     }
 
     // Allocator-based version - returns owned slice from allocator
+    // Allocates from arena instead of stack to avoid stack overflow in timer callbacks
     pub fn itemsToJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
-        var buf: [32768]u8 = undefined;
-        const json = self.itemsToJson(&buf) orelse return error.JsonSerializationFailed;
-        return allocator.dupe(u8, json);
+        const buf = try allocator.alloc(u8, 32768);
+        const json = self.itemsToJson(buf) orelse return error.JsonSerializationFailed;
+        return json;
     }
 
     /// Poll items within a time range (for timeline subscriptions).

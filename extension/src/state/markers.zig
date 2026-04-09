@@ -332,16 +332,17 @@ pub const State = struct {
     }
 
     // Allocator-based versions - return owned slice from allocator
+    // Allocates from arena instead of stack to avoid stack overflow in timer callbacks
     pub fn markersToJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
-        var buf: [8192]u8 = undefined;
-        const json = self.markersToJson(&buf) orelse return error.JsonSerializationFailed;
-        return allocator.dupe(u8, json);
+        const buf = try allocator.alloc(u8, 8192);
+        const json = self.markersToJson(buf) orelse return error.JsonSerializationFailed;
+        return json;
     }
 
     pub fn regionsToJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
-        var buf: [8192]u8 = undefined;
-        const json = self.regionsToJson(&buf) orelse return error.JsonSerializationFailed;
-        return allocator.dupe(u8, json);
+        const buf = try allocator.alloc(u8, 8192);
+        const json = self.regionsToJson(buf) orelse return error.JsonSerializationFailed;
+        return json;
     }
 
     /// Poll markers within a time range (for timeline subscriptions).
@@ -513,9 +514,9 @@ pub const MarkersOnlyState = struct {
     }
 
     pub fn markersToJsonAlloc(self: *const MarkersOnlyState, allocator: std.mem.Allocator) ![]const u8 {
-        var buf: [8192]u8 = undefined;
-        const json = self.markersToJson(&buf) orelse return error.JsonSerializationFailed;
-        return allocator.dupe(u8, json);
+        const buf = try allocator.alloc(u8, 8192);
+        const json = self.markersToJson(buf) orelse return error.JsonSerializationFailed;
+        return json;
     }
 
     /// Compute a hash for change detection.
@@ -569,9 +570,9 @@ pub const RegionsOnlyState = struct {
     }
 
     pub fn regionsToJsonAlloc(self: *const RegionsOnlyState, allocator: std.mem.Allocator) ![]const u8 {
-        var buf: [8192]u8 = undefined;
-        const json = self.regionsToJson(&buf) orelse return error.JsonSerializationFailed;
-        return allocator.dupe(u8, json);
+        const buf = try allocator.alloc(u8, 8192);
+        const json = self.regionsToJson(buf) orelse return error.JsonSerializationFailed;
+        return json;
     }
 
     /// Compute a hash for change detection.
