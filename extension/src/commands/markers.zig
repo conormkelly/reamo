@@ -16,7 +16,7 @@ pub fn handleMarkerAdd(api: anytype, cmd: protocol.CommandMessage, response: *mo
 
     api.undoBeginBlock();
     const id = api.addMarker(pos, name, color);
-    api.undoEndBlock("Reamo: Add marker");
+    api.undoEndBlock("REAmo: Add marker");
     if (id >= 0) {
         logging.debug("Added marker {d} at {d:.2}", .{ id, pos });
     }
@@ -81,7 +81,7 @@ pub fn handleMarkerUpdate(api: anytype, cmd: protocol.CommandMessage, response: 
         }
     }
 
-    api.undoEndBlock("Reamo: Update marker");
+    api.undoEndBlock("REAmo: Update marker");
 }
 
 pub fn handleMarkerDelete(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
@@ -93,7 +93,7 @@ pub fn handleMarkerDelete(api: anytype, cmd: protocol.CommandMessage, response: 
     if (api.deleteMarker(id)) {
         logging.debug("Deleted marker {d}", .{id});
     }
-    api.undoEndBlock("Reamo: Delete marker");
+    api.undoEndBlock("REAmo: Delete marker");
 }
 
 pub fn handleMarkerGoto(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {

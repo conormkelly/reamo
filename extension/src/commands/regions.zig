@@ -20,7 +20,7 @@ pub fn handleRegionAdd(api: anytype, cmd: protocol.CommandMessage, response: *mo
 
     api.undoBeginBlock();
     const id = api.addRegion(start, end, name, color);
-    api.undoEndBlock("Reamo: Add region");
+    api.undoEndBlock("REAmo: Add region");
     if (id >= 0) {
         logging.debug("Added region {d} from {d:.2} to {d:.2}", .{ id, start, end });
     }
@@ -82,7 +82,7 @@ pub fn handleRegionUpdate(api: anytype, cmd: protocol.CommandMessage, response: 
         _ = api.updateRegion(id, start, end, name, color);
     }
     logging.debug("Updated region {d}", .{id});
-    api.undoEndBlock("Reamo: Update region");
+    api.undoEndBlock("REAmo: Update region");
 }
 
 pub fn handleRegionDelete(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
@@ -94,7 +94,7 @@ pub fn handleRegionDelete(api: anytype, cmd: protocol.CommandMessage, response: 
     if (api.deleteRegion(id)) {
         logging.debug("Deleted region {d}", .{id});
     }
-    api.undoEndBlock("Reamo: Delete region");
+    api.undoEndBlock("REAmo: Delete region");
 }
 
 pub fn handleRegionGoto(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
@@ -176,7 +176,7 @@ pub fn handleRegionBatch(api: anytype, cmd: protocol.CommandMessage, response: *
         }
     }
 
-    api.undoEndBlock("Reamo: Batch region edit");
+    api.undoEndBlock("REAmo: Batch region edit");
 
     // Build response
     var resp_buf: [256]u8 = undefined;

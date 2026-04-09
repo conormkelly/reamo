@@ -34,7 +34,7 @@ pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     const success = api.setTimeSignature(numerator, denominator);
 
     // End undo block
-    api.undoEndBlock("Reamo: Adjust time signature");
+    api.undoEndBlock("REAmo: Adjust time signature");
 
     if (success) {
         logging.debug("Set time signature to {d}/{d}", .{ numerator, denominator });
