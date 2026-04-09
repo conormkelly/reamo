@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# Pre-push hook: when pushing a version tag (v*), verify all version strings match.
+# Runs automatically via husky. Skips silently for non-tag pushes.
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+
+# Read stdin for push refs — git provides: <local ref> <local sha> <remote ref> <remote sha>
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # Only check version tags
+  if ! [[ "$local_ref" =~ ^refs/tags/v([0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?)$ ]]; then
+    continue
+  fi
+
+  VERSION="${BASH_REMATCH[1]}"
+  echo "Checking version consistency for tag v$VERSION..."
+
+  ERRORS=()
+
+  # --- extension/build.zig.zon ---
+  FILE="$ROOT/extension/build.zig.zon"
+  if [[ -f "$FILE" ]]; then
+    if ! grep -q "\.version = \"$VERSION\"" "$FILE"; then
+      ERRORS+=("  extension/build.zig.zon: version does not match $VERSION")
+    fi
+  fi
+
+  # --- extension/src/core/protocol.zig ---
+  FILE="$ROOT/extension/src/core/protocol.zig"
+  if [[ -f "$FILE" ]]; then
+    if ! grep -q "EXTENSION_VERSION = \"$VERSION\"" "$FILE"; then
+      ERRORS+=("  extension/src/core/protocol.zig: EXTENSION_VERSION does not match $VERSION")
+    fi
+  fi
+
+  # --- extension/API.md ---
+  FILE="$ROOT/extension/API.md"
+  if [[ -f "$FILE" ]]; then
+    if ! grep -q "\"extensionVersion\": \"$VERSION\"" "$FILE"; then
+      ERRORS+=("  extension/API.md: extensionVersion does not match $VERSION")
+    fi
+  fi
+
+  # --- frontend/package.json ---
+  FILE="$ROOT/frontend/package.json"
+  if [[ -f "$FILE" ]]; then
+    ACTUAL=$(node -p "require('$FILE').version")
+    if [[ "$ACTUAL" != "$VERSION" ]]; then
+      ERRORS+=("  frontend/package.json: version is $ACTUAL, expected $VERSION")
+    fi
+  fi
+
+  # --- frontend/package-lock.json ---
+  FILE="$ROOT/frontend/package-lock.json"
+  if [[ -f "$FILE" ]]; then
+    ACTUAL=$(node -e "const l=require('$FILE'); console.log(l.version)")
+    if [[ "$ACTUAL" != "$VERSION" ]]; then
+      ERRORS+=("  frontend/package-lock.json: version is $ACTUAL, expected $VERSION")
+    fi
+  fi
+
+  # --- installer/README.txt ---
+  FILE="$ROOT/installer/README.txt"
+  if [[ -f "$FILE" ]]; then
+    if ! head -1 "$FILE" | grep -q "REAmo v$VERSION"; then
+      ERRORS+=("  installer/README.txt: header does not match v$VERSION")
+    fi
+  fi
+
+  if [[ ${#ERRORS[@]} -gt 0 ]]; then
+    echo ""
+    echo "ERROR: Version mismatch detected for tag v$VERSION:"
+    echo ""
+    for err in "${ERRORS[@]}"; do
+      echo "$err"
+    done
+    echo ""
+    echo "Run: ./scripts/bump-version.sh $VERSION"
+    echo "Then commit, re-tag, and push again."
+    exit 1
+  fi
+
+  echo "All version strings match v$VERSION"
+done
