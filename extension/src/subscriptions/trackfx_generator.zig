@@ -25,6 +25,12 @@ pub fn generateTrackFxChain(
         return null;
     };
 
+    // Validate track pointer is still valid (track could be deleted while subscription is active)
+    if (!api.validateTrackPtr(track)) {
+        logging.debug("trackfx_generator: stale track pointer for GUID: {s}", .{track_guid});
+        return null;
+    }
+
     // Allocate buffer for JSON serialization.
     // 16KB supports ~50 FX per track (each entry ~300 bytes with names).
     const buf = allocator.alloc(u8, 16384) catch return null;

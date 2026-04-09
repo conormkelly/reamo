@@ -135,7 +135,7 @@ pub fn handleGetActions(api: anytype, _: protocol.CommandMessage, response: *mod
         const section = api.getSectionFromUniqueID(section_id) orelse continue;
 
         var idx: c_int = 0;
-        var name_ptr: [*:0]const u8 = undefined;
+        var name_ptr: [*:0]const u8 = "";
 
         while (true) {
             const cmd_id = api.enumerateActions(section, idx, &name_ptr);
