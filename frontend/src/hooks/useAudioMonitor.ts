@@ -166,6 +166,21 @@ export function useAudioMonitor(): UseAudioMonitorReturn {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [audioMonitorRequested, startPipeline, stopPipeline, setAudioMonitorState]);
 
+  // Restart pipeline when project sample rate changes while monitoring
+  const sampleRate = useReaperStore((s) => s.sampleRate);
+  const prevSampleRateRef = useRef(sampleRate);
+  useEffect(() => {
+    const prev = prevSampleRateRef.current;
+    prevSampleRateRef.current = sampleRate;
+
+    // Skip initial render and only act on actual changes while monitoring
+    if (prev !== sampleRate && audioMonitorRequested && managerRef.current && connected) {
+      console.log(`[AudioMonitor] Sample rate changed ${prev} → ${sampleRate}, restarting pipeline`);
+      stopPipeline();
+      startPipeline();
+    }
+  }, [sampleRate]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {

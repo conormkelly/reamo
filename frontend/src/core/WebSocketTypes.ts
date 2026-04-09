@@ -164,6 +164,7 @@ export interface ProjectEventPayload {
   barOffset: number; // bar offset (e.g., -4 means time 0 = bar 1, display starts at bar -4)
   isDirty: boolean; // Project has unsaved changes
   recordMode: number; // 0=normal, 1=time selection auto-punch, 2=selected items auto-punch
+  sampleRate: number; // Audio engine sample rate in Hz (e.g., 44100, 48000, 96000)
   memoryWarning: boolean; // Arena utilization warning (any tier > 80% peak usage)
 }
 
