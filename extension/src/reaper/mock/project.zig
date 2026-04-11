@@ -19,6 +19,11 @@ pub const ProjectMethods = struct {
         return self.project_length;
     }
 
+    pub fn getSampleRate(self: anytype) u32 {
+        self.recordCall(.getSampleRate);
+        return self.sample_rate;
+    }
+
     pub fn projectStateChangeCount(self: anytype) c_int {
         self.recordCall(.projectStateChangeCount);
         return self.project_state_change_count;

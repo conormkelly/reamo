@@ -264,6 +264,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
             }
           : null,
       });
+
     } else if (isTransportTickEvent(message)) {
       // Enhanced tick event - position + BPM + time sig + bar.beat.ticks
       const p = message.payload as TransportTickEventPayload;
@@ -277,6 +278,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
       get().setProjectName(p.projectName);
       get().setProjectDirty(p.isDirty);
       get().setMemoryWarning(p.memoryWarning);
+      if (p.sampleRate) get().setSampleRate(p.sampleRate);
       // Project-level settings (moved from transport event)
       // Record mode: 0=normal, 1=timeSelection, 2=selectedItems
       const recordMode = p.recordMode === 2 ? 'selectedItems' as const

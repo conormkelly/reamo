@@ -14,6 +14,9 @@ interface Props {
   visibleDuration: number;
   tempoMarkers: WSTempoMarker[];
   barOffset: number;
+  bpm: number;
+  timesigNum: number;
+  timesigDenom: number;
 }
 
 export function TimelineGridLines({
@@ -22,6 +25,9 @@ export function TimelineGridLines({
   visibleDuration,
   tempoMarkers,
   barOffset,
+  bpm,
+  timesigNum,
+  timesigDenom,
 }: Props): ReactElement {
   const gridLines = useMemo(
     () =>
@@ -30,9 +36,12 @@ export function TimelineGridLines({
         visibleRange.end,
         visibleDuration,
         tempoMarkers,
-        barOffset
+        barOffset,
+        bpm,
+        timesigNum,
+        timesigDenom,
       ),
-    [visibleRange.start, visibleRange.end, visibleDuration, tempoMarkers, barOffset]
+    [visibleRange.start, visibleRange.end, visibleDuration, tempoMarkers, barOffset, bpm, timesigNum, timesigDenom]
   );
 
   return (

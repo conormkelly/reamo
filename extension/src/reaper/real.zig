@@ -183,6 +183,33 @@ pub const RealBackend = struct {
         return self.inner.projectLength();
     }
 
+    /// Get effective audio engine sample rate using canonical Cockos fallback:
+    /// 1. If PROJECT_SRATE_USE > 0, return PROJECT_SRATE (project enforces its own rate)
+    /// 2. Otherwise, query GetAudioDeviceInfo("SRATE") for the device's actual rate
+    /// 3. Returns 0 if both APIs unavailable (caller should use a sensible default)
+    pub fn getSampleRate(self: *const RealBackend) u32 {
+        const use_flag = self.inner.getProjectInfoValue("PROJECT_SRATE_USE");
+        if (use_flag > 0.0) {
+            const srate = self.inner.getProjectInfoValue("PROJECT_SRATE");
+            if (srate > 0.0) {
+                return ffi.safeFloatToInt(u32, srate) catch 0;
+            }
+        }
+
+        // Fall back to audio device info (returns integer string like "48000")
+        var buf: [64]u8 = undefined;
+        if (self.inner.audioDeviceInfo("SRATE", &buf, 64)) {
+            // Parse integer string — find first non-digit to determine length
+            var len: usize = 0;
+            while (len < 64 and buf[len] >= '0' and buf[len] <= '9') : (len += 1) {}
+            if (len > 0) {
+                return std.fmt.parseInt(u32, buf[0..len], 10) catch return 0;
+            }
+        }
+
+        return 0;
+    }
+
     pub fn projectStateChangeCount(self: *const RealBackend) c_int {
         return self.inner.projectStateChangeCount();
     }

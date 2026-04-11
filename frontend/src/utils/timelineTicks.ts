@@ -65,12 +65,18 @@ export interface TickGeneratorOptions {
   visibleEnd: number;
   /** Visible duration in seconds (for density calculation) */
   visibleDuration: number;
-  /** Tempo markers from REAPER */
+  /** Tempo markers from REAPER (may be empty for projects with only a global tempo) */
   tempoMarkers: WSTempoMarker[];
   /** Bar offset (project setting) */
   barOffset: number;
   /** Mode: 'ruler' uses sparser density than 'grid' */
   mode: 'ruler' | 'grid';
+  /** Project BPM from transport (used when tempoMarkers is empty) */
+  bpm?: number;
+  /** Time signature numerator from transport (used when tempoMarkers is empty) */
+  timesigNum?: number;
+  /** Time signature denominator from transport (used when tempoMarkers is empty) */
+  timesigDenom?: number;
 }
 
 /** Target number of labels/gridlines per screen width */
@@ -155,15 +161,29 @@ function getBarStepAndBeats(
  * We use them directly for display without conversion.
  */
 export function generateTimelineTicks(options: TickGeneratorOptions): TimelineTick[] {
-  const { visibleStart, visibleEnd, visibleDuration, tempoMarkers, barOffset, mode } = options;
+  const { visibleStart, visibleEnd, visibleDuration, barOffset, mode } = options;
 
   // Skip if viewport is invalid
   if (visibleDuration <= 0 || visibleEnd <= visibleStart) {
     return [];
   }
 
-  // Get time signature from first tempo marker (or default 4/4)
-  const beatsPerBar = tempoMarkers[0]?.timesigNum ?? 4;
+  // When REAPER has no explicit tempo markers (CountTempoTimeSigMarkers == 0),
+  // the project uses a global tempo. Use the transport BPM/time sig to build
+  // a single marker so bar/beat math uses the actual project tempo. Issue #22.
+  const tempoMarkers: WSTempoMarker[] = options.tempoMarkers.length > 0
+    ? options.tempoMarkers
+    : [{
+        position: 0,
+        positionBeats: 0,
+        bpm: options.bpm ?? 120,
+        timesigNum: options.timesigNum ?? 4,
+        timesigDenom: options.timesigDenom ?? 4,
+        linear: false,
+      }];
+
+  // Get time signature from first tempo marker
+  const beatsPerBar = tempoMarkers[0].timesigNum;
 
   // Calculate visibility buffer (10% of visible duration) to prevent edge jank
   const buffer = visibleDuration * 0.1;

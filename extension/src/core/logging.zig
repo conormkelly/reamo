@@ -212,19 +212,24 @@ fn getTimestampMs() i64 {
     return @divFloor(std.time.milliTimestamp(), 1);
 }
 
-/// Format timestamp as HH:MM:SS.mmm
+/// Format timestamp as DD.MM.YYYY HH:MM:SS.mmm (UTC)
 fn formatTimestamp(buf: []u8, timestamp_ms: i64) []const u8 {
-    const secs = @divFloor(timestamp_ms, 1000);
-    const ms = @mod(timestamp_ms, 1000);
-    const s = @mod(secs, 60);
-    const m = @mod(@divFloor(secs, 60), 60);
-    const h = @mod(@divFloor(secs, 3600), 24);
+    const ms: u32 = @intCast(@mod(timestamp_ms, 1000));
+    const epoch_secs: u64 = @intCast(@divFloor(timestamp_ms, 1000));
+    const es = std.time.epoch.EpochSeconds{ .secs = epoch_secs };
+    const day = es.getEpochDay();
+    const yd = day.calculateYearDay();
+    const md = yd.calculateMonthDay();
+    const ds = es.getDaySeconds();
 
-    return std.fmt.bufPrint(buf, "{d:0>2}:{d:0>2}:{d:0>2}.{d:0>3}", .{
-        @as(u32, @intCast(h)),
-        @as(u32, @intCast(m)),
-        @as(u32, @intCast(s)),
-        @as(u32, @intCast(if (ms < 0) -ms else ms)),
+    return std.fmt.bufPrint(buf, "{d:0>2}.{d:0>2}.{d} {d:0>2}:{d:0>2}:{d:0>2}.{d:0>3}", .{
+        @as(u32, md.day_index + 1),
+        @as(u32, md.month.numeric()),
+        yd.year,
+        ds.getHoursIntoDay(),
+        ds.getMinutesIntoHour(),
+        ds.getSecondsIntoMinute(),
+        ms,
     }) catch buf[0..0];
 }
 
@@ -245,8 +250,8 @@ pub fn log(level: Level, comptime fmt: []const u8, args: anytype) void {
     ring_head = (ring_head + 1) % RING_SIZE;
 
     // Format full log line
-    var line_buf: [600]u8 = undefined;
-    var ts_buf: [16]u8 = undefined;
+    var line_buf: [612]u8 = undefined;
+    var ts_buf: [28]u8 = undefined;
     const ts = formatTimestamp(&ts_buf, timestamp);
 
     const line = std.fmt.bufPrint(&line_buf, "[{s}] {s} {s}\n", .{ ts, level.asText(), msg }) catch return;
@@ -292,7 +297,7 @@ pub fn flushRingBuffer() void {
         const entry = &crash_ring[idx];
         if (entry.len == 0) continue;
 
-        var ts_buf: [16]u8 = undefined;
+        var ts_buf: [28]u8 = undefined;
         const ts = formatTimestamp(&ts_buf, entry.timestamp_ms);
 
         var line_buf: [300]u8 = undefined;
@@ -329,12 +334,12 @@ test "Level.fromString" {
 }
 
 test "formatTimestamp" {
-    var buf: [16]u8 = undefined;
+    var buf: [28]u8 = undefined;
 
-    // 1 hour, 23 minutes, 45 seconds, 678 ms
-    const ts: i64 = (1 * 3600 + 23 * 60 + 45) * 1000 + 678;
+    // 10.04.2026 13:30:45.678 (Unix epoch ms for that datetime in UTC)
+    const ts: i64 = 1775827845678;
     const result = formatTimestamp(&buf, ts);
-    try std.testing.expectEqualStrings("01:23:45.678", result);
+    try std.testing.expectEqualStrings("10.04.2026 13:30:45.678", result);
 }
 
 test "RingEntry write and read" {

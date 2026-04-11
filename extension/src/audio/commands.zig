@@ -7,7 +7,7 @@ const audio_hook = @import("audio_hook.zig");
 
 /// Handle audio/startStream — subscribe the requesting client to receive binary audio frames.
 /// Response includes the current sample rate for frontend AudioContext creation.
-pub fn handleStartStream(_: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleStartStream(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const manager = mod.g_ctx.audio_stream orelse {
         response.err("NOT_INITIALIZED", "Audio streaming not initialized");
         return;
@@ -18,9 +18,14 @@ pub fn handleStartStream(_: anytype, _: protocol.CommandMessage, response: *mod.
         return;
     }
 
-    // Return sample rate so frontend can create AudioContext({sampleRate: ...})
+    // Query REAPER directly for current project sample rate (main thread safe).
+    // Uses canonical Cockos fallback: PROJECT_SRATE_USE → PROJECT_SRATE → GetAudioDeviceInfo.
+    // This avoids the race where the ring buffer hasn't been updated by the audio hook yet.
+    const api_rate = api.getSampleRate();
+    const sample_rate: u32 = if (api_rate > 0) api_rate else manager.getSampleRate();
+
     var buf: [64]u8 = undefined;
-    const payload = std.fmt.bufPrint(&buf, "{{\"sampleRate\":{d}}}", .{manager.getSampleRate()}) catch {
+    const payload = std.fmt.bufPrint(&buf, "{{\"sampleRate\":{d}}}", .{sample_rate}) catch {
         response.err("FORMAT_ERROR", "Failed to format response");
         return;
     };
