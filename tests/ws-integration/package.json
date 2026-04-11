@@ -8,7 +8,9 @@
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",
+    "eslint": "^10.2.0",
     "typescript": "~5.9.3",
+    "typescript-eslint": "^8.58.0",
     "vitest": "^4.0.16",
     "ws": "^8.19.0"
   }
