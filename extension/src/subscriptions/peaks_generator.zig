@@ -107,6 +107,7 @@ fn fetchItemPeaksViaTakePeaksAPI(
         reaper_buf,
     );
 
+    if (result < 0) return null;
     const actual_peaks: usize = @intCast(result & 0xFFFFF);
     _ = @as(u4, @intCast((result >> 20) & 0xF)); // mode (unused - both 0 and 1 are valid)
 

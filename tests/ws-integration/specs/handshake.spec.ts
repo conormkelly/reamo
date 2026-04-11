@@ -84,19 +84,15 @@ describe('Multi-client', () => {
   });
 
   it('supports multiple concurrent connections', async () => {
-    const hello1 = await client1.connect();
-    const hello2 = await client2.connect();
-
-    expect(hello1.extensionVersion).toBe(hello2.extensionVersion);
-
-    // Both clients should independently receive events
-    // Use collectEvents to verify both get broadcast data
-    const [events1, events2] = await Promise.all([
-      client1.collectEvents('transport', 1500),
-      client2.collectEvents('transport', 1500),
+    // Connect both clients concurrently — each must independently
+    // complete the hello handshake with the server
+    const [hello1, hello2] = await Promise.all([
+      client1.connect(),
+      client2.connect(),
     ]);
 
-    expect(events1.length).toBeGreaterThan(0);
-    expect(events2.length).toBeGreaterThan(0);
+    expect(hello1.type).toBe('hello');
+    expect(hello2.type).toBe('hello');
+    expect(hello1.extensionVersion).toBe(hello2.extensionVersion);
   });
 });

@@ -6,6 +6,7 @@
 const std = @import("std");
 const logging = @import("../core/logging.zig");
 const protocol = @import("../core/protocol.zig");
+const ffi = @import("../core/ffi.zig");
 const guid_cache = @import("../state/guid_cache.zig");
 const constants = @import("../core/constants.zig");
 const trackfxparam_subscriptions = @import("trackfxparam_subscriptions.zig");
@@ -38,6 +39,12 @@ pub fn generateParamValues(
         return null;
     };
 
+    // Validate track pointer is still valid (track could be deleted while subscription is active)
+    if (!api.validateTrackPtr(track)) {
+        logging.debug("trackfxparam_generator: stale track pointer for GUID: {s}", .{track_guid});
+        return null;
+    }
+
     // Resolve FX by GUID
     const fx_idx = fx.findFxByGuid(api, track, fx_guid) orelse {
         logging.debug("trackfxparam_generator: FX GUID not found on track: {s}", .{fx_guid});
@@ -46,6 +53,13 @@ pub fn generateParamValues(
 
     // Get param count
     const param_count = api.trackFxGetNumParams(track, fx_idx);
+    if (param_count <= 0) {
+        return .{
+            .json = "",
+            .param_count = param_count,
+            .name_hash = 0,
+        };
+    }
 
     // Compute name hash for skeleton invalidation (hash of all param names concatenated)
     var name_hash: u64 = 0;
@@ -81,18 +95,19 @@ pub fn generateParamValues(
 
     switch (client.mode) {
         .range => {
-            // Clamp range to actual param count
+            // Clamp range to actual param count (param_count > 0 guaranteed by early return above)
             const range_start = client.range_start;
             const range_end = @min(client.range_end, param_count - 1);
 
             if (range_start <= range_end) {
                 var i: c_int = range_start;
                 while (i <= range_end) : (i += 1) {
+                    const value = api.trackFxGetParamNormalized(track, fx_idx, i);
+                    if (!ffi.isFinite(value)) continue;
+                    const formatted = api.trackFxGetFormattedParamValue(track, fx_idx, i, &formatted_buf);
+
                     if (!first) w.writeByte(',') catch return null;
                     first = false;
-
-                    const value = api.trackFxGetParamNormalized(track, fx_idx, i);
-                    const formatted = api.trackFxGetFormattedParamValue(track, fx_idx, i, &formatted_buf);
 
                     // Write: "index": [value, "formatted"]
                     w.print("\"{d}\":[{d:.6},\"", .{ i, value }) catch return null;
@@ -106,11 +121,12 @@ pub fn generateParamValues(
                 // Skip out-of-bounds indices
                 if (param_idx >= param_count) continue;
 
+                const value = api.trackFxGetParamNormalized(track, fx_idx, param_idx);
+                if (!ffi.isFinite(value)) continue;
+                const formatted = api.trackFxGetFormattedParamValue(track, fx_idx, param_idx, &formatted_buf);
+
                 if (!first) w.writeByte(',') catch return null;
                 first = false;
-
-                const value = api.trackFxGetParamNormalized(track, fx_idx, param_idx);
-                const formatted = api.trackFxGetFormattedParamValue(track, fx_idx, param_idx, &formatted_buf);
 
                 // Write: "index": [value, "formatted"]
                 w.print("\"{d}\":[{d:.6},\"", .{ param_idx, value }) catch return null;

@@ -3,6 +3,7 @@ const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
 const project_notes = @import("../subscriptions/project_notes.zig");
+const logging = @import("../core/logging.zig");
 
 /// Subscribe to project notes updates.
 /// Returns current notes and hash.
@@ -40,9 +41,18 @@ pub fn handleUnsubscribe(_: anytype, _: protocol.CommandMessage, response: *mod.
 
 /// Get current project notes (without subscribing).
 pub fn handleGet(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    // Get notes directly from REAPER
-    var buf: [project_notes.MAX_NOTES_SIZE]u8 = undefined;
-    const notes = api.getProjectNotes(&buf) orelse {
+    const tiered = mod.g_ctx.tiered orelse {
+        response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
+        return;
+    };
+    const scratch = tiered.scratchAllocator();
+
+    // Get notes directly from REAPER (64KB - use scratch arena, not stack)
+    const buf = scratch.alloc(u8, project_notes.MAX_NOTES_SIZE) catch {
+        response.err("ALLOC_FAILED", "Failed to allocate notes buffer");
+        return;
+    };
+    const notes = api.getProjectNotes(buf) orelse {
         // API not available
         sendNotesResponse(response, "", 0);
         return;
@@ -54,9 +64,19 @@ pub fn handleGet(api: anytype, _: protocol.CommandMessage, response: *mod.Respon
 
 /// Set project notes.
 pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const tiered = mod.g_ctx.tiered orelse {
+        response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
+        return;
+    };
+    const scratch = tiered.scratchAllocator();
+
     // Use unescaped version to properly handle \n, \t, etc. from JSON
-    var unescape_buf: [project_notes.MAX_NOTES_SIZE]u8 = undefined;
-    const notes_input = cmd.getStringUnescaped("notes", &unescape_buf) orelse {
+    // 64KB buffers - use scratch arena, not stack
+    const unescape_buf = scratch.alloc(u8, project_notes.MAX_NOTES_SIZE) catch {
+        response.err("ALLOC_FAILED", "Failed to allocate buffer");
+        return;
+    };
+    const notes_input = cmd.getStringUnescaped("notes", unescape_buf) orelse {
         response.err("MISSING_NOTES", "notes field is required");
         return;
     };
@@ -68,15 +88,21 @@ pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     }
 
     // Sanitize the input
-    var sanitized_buf: [project_notes.MAX_NOTES_SIZE]u8 = undefined;
-    const sanitized = project_notes.sanitizeNotes(notes_input, &sanitized_buf);
+    const sanitized_buf = scratch.alloc(u8, project_notes.MAX_NOTES_SIZE) catch {
+        response.err("ALLOC_FAILED", "Failed to allocate buffer");
+        return;
+    };
+    const sanitized = project_notes.sanitizeNotes(notes_input, sanitized_buf);
 
     // Set the notes via REAPER API (this also marks project dirty)
     api.setProjectNotes(sanitized);
 
     // Get the updated notes and hash to confirm
-    var verify_buf: [project_notes.MAX_NOTES_SIZE]u8 = undefined;
-    if (api.getProjectNotes(&verify_buf)) |saved_notes| {
+    const verify_buf = scratch.alloc(u8, project_notes.MAX_NOTES_SIZE) catch {
+        response.err("ALLOC_FAILED", "Failed to allocate buffer");
+        return;
+    };
+    if (api.getProjectNotes(verify_buf)) |saved_notes| {
         const new_hash = project_notes.computeHash(saved_notes);
 
         // Update subscription cache if available
@@ -98,9 +124,17 @@ fn sendNotesResponse(response: *mod.ResponseWriter, notes: []const u8, hash: u64
     var hash_buf: [16]u8 = undefined;
     const hash_hex = project_notes.hashToHex(hash, &hash_buf);
 
-    // Use a large buffer for escaped content (2x for worst-case escaping + overhead)
-    var payload_buf: [project_notes.MAX_NOTES_SIZE * 2 + 100]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&payload_buf);
+    // Use scratch arena for escaped content buffer (2x for worst-case escaping + overhead)
+    const tiered = mod.g_ctx.tiered orelse {
+        response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
+        return;
+    };
+    const scratch = tiered.scratchAllocator();
+    const payload_buf = scratch.alloc(u8, project_notes.MAX_NOTES_SIZE * 2 + 100) catch {
+        response.err("ALLOC_FAILED", "Failed to allocate response buffer");
+        return;
+    };
+    var stream = std.io.fixedBufferStream(payload_buf);
     const writer = stream.writer();
 
     writer.writeAll("{\"notes\":\"") catch {

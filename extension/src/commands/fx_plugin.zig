@@ -35,8 +35,8 @@ pub fn handleGetList(api: anytype, _: protocol.CommandMessage, response: *mod.Re
 
     var idx: c_int = 0;
     var first = true;
-    var name_ptr: [*:0]const u8 = undefined;
-    var ident_ptr: [*:0]const u8 = undefined;
+    var name_ptr: [*:0]const u8 = "";
+    var ident_ptr: [*:0]const u8 = "";
 
     while (api.enumInstalledFX(idx, &name_ptr, &ident_ptr)) {
         if (!first) {

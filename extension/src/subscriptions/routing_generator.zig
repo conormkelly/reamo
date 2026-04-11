@@ -5,6 +5,7 @@
 const std = @import("std");
 const logging = @import("../core/logging.zig");
 const protocol = @import("../core/protocol.zig");
+const ffi = @import("../core/ffi.zig");
 const guid_cache = @import("../state/guid_cache.zig");
 
 const Allocator = std.mem.Allocator;
@@ -23,6 +24,12 @@ pub fn generateRoutingState(
         logging.debug("routing_generator: GUID not found in cache: {s}", .{track_guid});
         return null;
     };
+
+    // Validate track pointer is still valid (track could be deleted while subscription is active)
+    if (!api.validateTrackPtr(track)) {
+        logging.debug("routing_generator: stale track pointer for GUID: {s}", .{track_guid});
+        return null;
+    }
 
     // Allocate buffer for JSON serialization.
     // 8KB supports ~40 sends + ~40 hw outputs per track (each entry ~100 bytes).
@@ -50,11 +57,15 @@ pub fn generateRoutingState(
         const muted = api.trackSendGetMute(track, i);
         const mode = api.trackSendGetMode(track, i) catch 0;
 
+        // Guard against NaN/Inf from stale pointers or corrupt project state
+        const safe_volume = if (ffi.isFinite(volume)) volume else 0.0;
+        const safe_pan = if (ffi.isFinite(pan)) pan else 0.0;
+
         w.print("{{\"sendIndex\":{d},\"destName\":\"", .{i}) catch return null;
         protocol.writeJsonString(w, dest_name) catch return null;
         w.print("\",\"volume\":{d:.6},\"pan\":{d:.6},\"muted\":{s},\"mode\":{d}}}", .{
-            volume,
-            pan,
+            safe_volume,
+            safe_pan,
             if (muted) "true" else "false",
             mode,
         }) catch return null;
@@ -75,11 +86,14 @@ pub fn generateRoutingState(
         const recv_muted = api.trackReceiveGetMute(track, i);
         const recv_mode = api.trackReceiveGetMode(track, i) catch 0;
 
+        const safe_recv_volume = if (ffi.isFinite(recv_volume)) recv_volume else 0.0;
+        const safe_recv_pan = if (ffi.isFinite(recv_pan)) recv_pan else 0.0;
+
         w.print("{{\"receiveIndex\":{d},\"srcName\":\"", .{i}) catch return null;
         protocol.writeJsonString(w, src_name) catch return null;
         w.print("\",\"volume\":{d:.6},\"pan\":{d:.6},\"muted\":{s},\"mode\":{d}}}", .{
-            recv_volume,
-            recv_pan,
+            safe_recv_volume,
+            safe_recv_pan,
             if (recv_muted) "true" else "false",
             recv_mode,
         }) catch return null;
@@ -99,11 +113,14 @@ pub fn generateRoutingState(
         const mode = api.trackHwOutputGetMode(track, i) catch 0;
         const dest_chan = api.trackHwOutputGetDestChannel(track, i) catch 0;
 
+        const safe_hw_volume = if (ffi.isFinite(volume)) volume else 0.0;
+        const safe_hw_pan = if (ffi.isFinite(pan)) pan else 0.0;
+
         w.print("{{\"hwIdx\":{d},\"destChannel\":{d},\"volume\":{d:.6},\"pan\":{d:.6},\"muted\":{s},\"mode\":{d}}}", .{
             i,
             dest_chan,
-            volume,
-            pan,
+            safe_hw_volume,
+            safe_hw_pan,
             if (muted) "true" else "false",
             mode,
         }) catch return null;

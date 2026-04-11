@@ -105,19 +105,32 @@ pub fn handleSubscribe(api: anytype, cmd: protocol.CommandMessage, response: *mo
     };
     defer states.deinit();
 
+    // Use scratch arena for JSON buffers (16KB+8KB+32KB — too large for stack per §1)
+    const tiered = mod.g_ctx.tiered orelse {
+        response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
+        return;
+    };
+    const scratch = tiered.scratchAllocator();
+
     // Format states as JSON array [{s: sectionId, c: commandId, v: state}, ...]
-    var states_buf: [16384]u8 = undefined;
-    const states_json = toggle_subscriptions.ToggleSubscriptions.statesToJson(&states, &states_buf) orelse {
+    const states_buf = scratch.alloc(u8, 16384) catch {
+        response.err("ALLOC_FAILED", "Failed to allocate buffer");
+        return;
+    };
+    const states_json = toggle_subscriptions.ToggleSubscriptions.statesToJson(&states, states_buf) orelse {
         response.err("JSON_ERROR", "Failed to format states");
         return;
     };
 
     // Build nameToId mapping if names were used (frontend needs this to translate change events)
-    var mapping_buf: [8192]u8 = undefined;
+    const mapping_buf = scratch.alloc(u8, 8192) catch {
+        response.err("ALLOC_FAILED", "Failed to allocate buffer");
+        return;
+    };
     var mapping_json: []const u8 = "[]";
 
     if (name_to_key_len > 0) {
-        var mapping_stream = std.io.fixedBufferStream(&mapping_buf);
+        var mapping_stream = std.io.fixedBufferStream(mapping_buf);
         var mapping_writer = mapping_stream.writer();
 
         mapping_writer.writeAll("[") catch {
@@ -152,8 +165,11 @@ pub fn handleSubscribe(api: anytype, cmd: protocol.CommandMessage, response: *mo
     }
 
     // Build full response payload: {"states": [...], "nameToId": [...]}
-    var payload_buf: [32000]u8 = undefined;
-    const payload = std.fmt.bufPrint(&payload_buf, "{{\"states\":{s},\"nameToId\":{s}}}", .{ states_json, mapping_json }) catch {
+    const payload_buf = scratch.alloc(u8, 32000) catch {
+        response.err("ALLOC_FAILED", "Failed to allocate buffer");
+        return;
+    };
+    const payload = std.fmt.bufPrint(payload_buf, "{{\"states\":{s},\"nameToId\":{s}}}", .{ states_json, mapping_json }) catch {
         response.err("JSON_ERROR", "Failed to format response");
         return;
     };

@@ -462,10 +462,11 @@ pub const State = struct {
     }
 
     // Allocator-based version - returns owned slice from allocator
+    // Allocates from arena instead of stack to avoid stack overflow in timer callbacks (§1)
     pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator, metering: ?*const MeteringState) ![]const u8 {
-        var buf: [16384]u8 = undefined;
-        const json = self.toJson(&buf, metering) orelse return error.JsonSerializationFailed;
-        return allocator.dupe(u8, json);
+        const buf = try allocator.alloc(u8, 16384);
+        const json = self.toJson(buf, metering) orelse return error.JsonSerializationFailed;
+        return json;
     }
 
     /// Build JSON event with total track count (for viewport-driven subscriptions).

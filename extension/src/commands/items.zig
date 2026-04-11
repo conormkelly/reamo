@@ -39,7 +39,7 @@ pub fn handleItemSetActiveTake(api: anytype, cmd: protocol.CommandMessage, respo
     if (api.setItemActiveTake(item_info.item, take_idx)) {
         logging.debug("Set active take to {d}", .{take_idx});
     }
-    api.undoEndBlock("Reamo: Set active take");
+    api.undoEndBlock("REAmo: Set active take");
     api.updateTimeline();
 }
 
@@ -57,7 +57,7 @@ pub fn handleItemMove(api: anytype, cmd: protocol.CommandMessage, response: *mod
     if (api.setItemPosition(item_info.item, position)) {
         logging.debug("Moved item to {d:.2}", .{position});
     }
-    api.undoEndBlock("Reamo: Move item");
+    api.undoEndBlock("REAmo: Move item");
     api.updateTimeline();
 }
 
@@ -108,12 +108,12 @@ pub fn handleItemMoveByGuid(api: anytype, cmd: protocol.CommandMessage, response
     // Move to destination track if provided
     if (dest_track_guid) |dest_guid| {
         const guid_cache = mod.g_ctx.guid_cache orelse {
-            api.undoEndBlock("Reamo: Move item");
+            api.undoEndBlock("REAmo: Move item");
             response.err("NOT_INITIALIZED", "GUID cache not initialized");
             return;
         };
         const dest_track = guid_cache.resolve(dest_guid) orelse {
-            api.undoEndBlock("Reamo: Move item");
+            api.undoEndBlock("REAmo: Move item");
             response.err("NOT_FOUND", "Destination track not found");
             return;
         };
@@ -122,7 +122,7 @@ pub fn handleItemMoveByGuid(api: anytype, cmd: protocol.CommandMessage, response
         }
     }
 
-    api.undoEndBlock("Reamo: Move item");
+    api.undoEndBlock("REAmo: Move item");
     api.updateTimeline();
     response.success(null);
 }
@@ -141,7 +141,7 @@ pub fn handleItemColor(api: anytype, cmd: protocol.CommandMessage, response: *mo
     if (api.setItemColor(item_info.item, color)) {
         logging.debug("Set item color to {d}", .{color});
     }
-    api.undoEndBlock("Reamo: Set item color");
+    api.undoEndBlock("REAmo: Set item color");
     api.updateTimeline();
 }
 
@@ -164,7 +164,7 @@ pub fn handleItemLock(api: anytype, cmd: protocol.CommandMessage, response: *mod
     if (api.setItemLocked(item_info.item, locked)) {
         logging.debug("Set item locked to {}", .{locked});
     }
-    api.undoEndBlock("Reamo: Lock item");
+    api.undoEndBlock("REAmo: Lock item");
     api.updateTimeline();
 }
 
@@ -179,7 +179,7 @@ pub fn handleItemNotes(api: anytype, cmd: protocol.CommandMessage, response: *mo
     if (api.setItemNotes(item_info.item, notes)) {
         logging.debug("Updated item notes", .{});
     }
-    api.undoEndBlock("Reamo: Set item notes");
+    api.undoEndBlock("REAmo: Set item notes");
     // Notes don't need visual refresh (not displayed in arrange view)
 }
 
@@ -193,7 +193,7 @@ pub fn handleItemDelete(api: anytype, cmd: protocol.CommandMessage, response: *m
     if (api.deleteItem(item_info.track, item_info.item)) {
         logging.debug("Deleted item", .{});
     }
-    api.undoEndBlock("Reamo: Delete item");
+    api.undoEndBlock("REAmo: Delete item");
     api.updateTimeline();
 }
 
@@ -509,9 +509,17 @@ pub fn handleItemGetTakes(api: anytype, cmd: protocol.CommandMessage, response: 
     // Get active take index for comparison
     const active_take_idx = api.getItemActiveTakeIdx(item_info.item) catch null;
 
-    // Serialize response
-    var buf: [16384]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
+    // Serialize to scratch arena buffer (16KB — too large for stack per §1)
+    const tiered = mod.g_ctx.tiered orelse {
+        response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
+        return;
+    };
+    const scratch = tiered.scratchAllocator();
+    const buf = scratch.alloc(u8, 16384) catch {
+        response.err("ALLOC_FAILED", "Failed to allocate buffer");
+        return;
+    };
+    var stream = std.io.fixedBufferStream(buf);
     var w = stream.writer();
 
     w.writeAll("{\"takes\":[") catch {
