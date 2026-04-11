@@ -104,12 +104,25 @@ pub fn handleProjGet(api: anytype, cmd: protocol.CommandMessage, response: *mod.
     const extname_z = mod.toNullTerminated(&extname_buf, extname);
     const key_z = mod.toNullTerminated(&key_buf, key);
 
-    var value_buf: [16384]u8 = undefined;
-    const value = api.getProjExtStateValue(extname_z, key_z, &value_buf);
+    // 16KB+33KB buffers — use scratch arena, not stack (§1)
+    const tiered = mod.g_ctx.tiered orelse {
+        response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
+        return;
+    };
+    const scratch = tiered.scratchAllocator();
+
+    const value_buf = scratch.alloc(u8, 16384) catch {
+        response.err("ALLOC_FAILED", "Failed to allocate buffer");
+        return;
+    };
+    const value = api.getProjExtStateValue(extname_z, key_z, value_buf);
 
     // Buffer: 2x max value (16384) for worst-case escaping + JSON overhead
-    var payload_buf: [33000]u8 = undefined;
-    if (formatValueResponse(value, &payload_buf)) |payload| {
+    const payload_buf = scratch.alloc(u8, 33000) catch {
+        response.err("ALLOC_FAILED", "Failed to allocate buffer");
+        return;
+    };
+    if (formatValueResponse(value, payload_buf)) |payload| {
         response.success(payload);
     } else {
         response.err("VALUE_TOO_LONG", "Value exceeds buffer size");
@@ -134,16 +147,26 @@ pub fn handleProjSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.
     // Convert to null-terminated strings
     var extname_buf: [65]u8 = undefined;
     var key_buf: [65]u8 = undefined;
-    var value_buf: [16385]u8 = undefined;
     const extname_z = mod.toNullTerminated(&extname_buf, extname);
     const key_z = mod.toNullTerminated(&key_buf, key);
+
+    // 16KB value buffer — use scratch arena, not stack (§1)
+    const tiered = mod.g_ctx.tiered orelse {
+        response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
+        return;
+    };
+    const scratch = tiered.scratchAllocator();
+    const value_buf = scratch.alloc(u8, 16385) catch {
+        response.err("ALLOC_FAILED", "Failed to allocate buffer");
+        return;
+    };
 
     // Value can be longer for project state
     const value_len = @min(value.len, 16384);
     @memcpy(value_buf[0..value_len], value[0..value_len]);
     value_buf[value_len] = 0;
     // SAFETY: @alignCast unnecessary - u8 has alignment 1, always valid
-    const value_z: [*:0]const u8 = @ptrCast(&value_buf);
+    const value_z: [*:0]const u8 = @ptrCast(value_buf.ptr);
 
     api.setProjExtStateValue(extname_z, key_z, value_z);
     logging.debug("Set proj extstate {s}/{s}", .{ extname, key });

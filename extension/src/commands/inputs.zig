@@ -55,22 +55,22 @@ pub fn handleEnumerateAudio(api: anytype, _: protocol.CommandMessage, response: 
         const name_ptr = api.audioInputName(i);
         const name_str = if (name_ptr) |n| std.mem.span(n) else "Unknown";
 
-        if (!first) writer.writeAll(",") catch {};
+        if (!first) writer.writeAll(",") catch return;
         first = false;
 
         // Escape quotes in name for JSON safety
-        writer.print("{{\"idx\":{d},\"name\":\"", .{i}) catch continue;
+        writer.print("{{\"idx\":{d},\"name\":\"", .{i}) catch return;
         for (name_str) |c| {
             switch (c) {
-                '"' => writer.writeAll("\\\"") catch {},
-                '\\' => writer.writeAll("\\\\") catch {},
-                else => writer.writeByte(c) catch {},
+                '"' => writer.writeAll("\\\"") catch return,
+                '\\' => writer.writeAll("\\\\") catch return,
+                else => writer.writeByte(c) catch return,
             }
         }
-        writer.writeAll("\"}") catch {};
+        writer.writeAll("\"}") catch return;
     }
 
-    writer.writeAll("]}") catch {};
+    writer.writeAll("]}") catch return;
 
     // Use large payload - input list can exceed 512-byte response buffer
     const payload = stream.getWritten();
@@ -113,30 +113,30 @@ pub fn handleEnumerateMidi(api: anytype, _: protocol.CommandMessage, response: *
     while (i < max_devices) : (i += 1) {
         if (i == 62 or i == 63) continue;
         if (api.midiInputName(i, &name_buf, 256)) {
-            if (!first) writer.writeAll(",") catch {};
+            if (!first) writer.writeAll(",") catch return;
             first = false;
 
             const name_len = std.mem.indexOfScalar(u8, &name_buf, 0) orelse 255;
 
             // Escape quotes in name for JSON safety
-            writer.print("{{\"idx\":{d},\"name\":\"", .{i}) catch continue;
+            writer.print("{{\"idx\":{d},\"name\":\"", .{i}) catch return;
             for (name_buf[0..name_len]) |c| {
                 switch (c) {
-                    '"' => writer.writeAll("\\\"") catch {},
-                    '\\' => writer.writeAll("\\\\") catch {},
-                    else => writer.writeByte(c) catch {},
+                    '"' => writer.writeAll("\\\"") catch return,
+                    '\\' => writer.writeAll("\\\\") catch return,
+                    else => writer.writeByte(c) catch return,
                 }
             }
-            writer.writeAll("\"}") catch {};
+            writer.writeAll("\"}") catch return;
         }
     }
 
     // Add special virtual entries (always present)
-    if (!first) writer.writeAll(",") catch {};
-    writer.writeAll("{\"idx\":62,\"name\":\"Virtual MIDI Keyboard\"}") catch {};
-    writer.writeAll(",{\"idx\":63,\"name\":\"All MIDI Inputs\"}") catch {};
+    if (!first) writer.writeAll(",") catch return;
+    writer.writeAll("{\"idx\":62,\"name\":\"Virtual MIDI Keyboard\"}") catch return;
+    writer.writeAll(",{\"idx\":63,\"name\":\"All MIDI Inputs\"}") catch return;
 
-    writer.writeAll("]}") catch {};
+    writer.writeAll("]}") catch return;
 
     // Use large payload - device list can exceed 512-byte response buffer
     response.successLargePayload(stream.getWritten());

@@ -44,6 +44,12 @@ pub fn generateTunerEvent(
         return null;
     };
 
+    // Validate track pointer is still valid (track could be deleted while subscription is active)
+    if (!api.validateTrackPtr(track)) {
+        logging.debug("tuner_generator: stale track pointer for GUID: {s}", .{track_guid});
+        return null;
+    }
+
     // Search Input FX chain by GUID to find current index
     // This handles when user has reordered the FX chain
     const input_fx_count = api.trackFxRecCount(track);
