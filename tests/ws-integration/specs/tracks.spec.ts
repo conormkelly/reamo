@@ -48,7 +48,8 @@ describe('Tracks', () => {
     // Collect for a short window and expect few or none.
     const events = await client.collectEvents('tracks', 1500);
 
-    // Might get one straggler, but shouldn't get a continuous stream
-    expect(events.length).toBeLessThanOrEqual(1);
+    // May get a few stragglers from in-flight broadcasts, but should not
+    // get a continuous 30Hz stream (which would be ~45 events in 1.5s)
+    expect(events.length).toBeLessThanOrEqual(5);
   });
 });

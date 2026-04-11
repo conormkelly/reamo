@@ -33,7 +33,6 @@ describe('Handshake', () => {
     await client.connect();
 
     const timestamp = Date.now();
-    const pongPromise = client.waitForEvent('__raw_pong', { timeout: 3000 }).catch(() => null);
 
     // Listen for raw pong (type: 'pong')
     let receivedPong = false;
@@ -90,13 +89,14 @@ describe('Multi-client', () => {
 
     expect(hello1.extensionVersion).toBe(hello2.extensionVersion);
 
-    // Both clients should be able to receive events independently
-    const [t1, t2] = await Promise.all([
-      client1.waitForEvent('transport', { timeout: 3000 }),
-      client2.waitForEvent('transport', { timeout: 3000 }),
+    // Both clients should independently receive events
+    // Use collectEvents to verify both get broadcast data
+    const [events1, events2] = await Promise.all([
+      client1.collectEvents('transport', 1500),
+      client2.collectEvents('transport', 1500),
     ]);
 
-    expect(t1).toBeDefined();
-    expect(t2).toBeDefined();
+    expect(events1.length).toBeGreaterThan(0);
+    expect(events2.length).toBeGreaterThan(0);
   });
 });
