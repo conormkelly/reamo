@@ -36,6 +36,7 @@ pub const State = struct {
     frame_rate: f64 = 30.0, // Project frame rate (e.g., 29.97, 24, 25)
     drop_frame: bool = false, // True for drop-frame timecode (29.97/59.94)
     record_mode: u8 = 0, // 0=normal, 1=time selection auto-punch, 2=selected items auto-punch
+    sample_rate: u32 = 48000, // Audio engine sample rate (Hz)
 
     // Memory warning flag - set externally from tiered arena usage monitoring
     // When true, frontend should warn user about high memory utilization
@@ -108,6 +109,7 @@ pub const State = struct {
         if (@abs(self.frame_rate - other.frame_rate) > 0.001) return false;
         if (self.drop_frame != other.drop_frame) return false;
         if (self.record_mode != other.record_mode) return false;
+        if (self.sample_rate != other.sample_rate) return false;
         if (self.memory_warning != other.memory_warning) return false;
         return true;
     }
@@ -133,9 +135,12 @@ pub const State = struct {
         else
             0; // normal
 
+        const api_rate = api.getSampleRate();
+
         var state = State{
             .state_change_count = api.projectStateChangeCount(),
             .project_length = api.projectLength(),
+            .sample_rate = if (api_rate > 0) api_rate else 48000,
             .repeat = api.getRepeat(),
             .metronome_enabled = api.isMetronomeEnabled(),
             .metronome_volume = api.getMetronomeVolume(),
@@ -234,7 +239,7 @@ pub const State = struct {
         }
 
         // Write remaining fields
-        writer.print(",\"stateChangeCount\":{d},\"repeat\":{s},\"metronome\":{{\"enabled\":{s},\"volume\":{d:.4},\"volumeDb\":{d:.2}}},\"countIn\":{{\"playback\":{s},\"recording\":{s}}},\"preRoll\":{{\"playback\":{s},\"recording\":{s}}},\"master\":{{\"stereoEnabled\":{s}}},\"projectLength\":{d:.3},\"barOffset\":{d},\"isDirty\":{s},\"frameRate\":{d:.4},\"dropFrame\":{s},\"recordMode\":{d},\"memoryWarning\":{s}}}}}", .{
+        writer.print(",\"stateChangeCount\":{d},\"repeat\":{s},\"metronome\":{{\"enabled\":{s},\"volume\":{d:.4},\"volumeDb\":{d:.2}}},\"countIn\":{{\"playback\":{s},\"recording\":{s}}},\"preRoll\":{{\"playback\":{s},\"recording\":{s}}},\"master\":{{\"stereoEnabled\":{s}}},\"projectLength\":{d:.3},\"barOffset\":{d},\"isDirty\":{s},\"frameRate\":{d:.4},\"dropFrame\":{s},\"recordMode\":{d},\"sampleRate\":{d},\"memoryWarning\":{s}}}}}", .{
             self.state_change_count,
             if (self.repeat) "true" else "false",
             if (self.metronome_enabled) "true" else "false",
@@ -251,6 +256,7 @@ pub const State = struct {
             self.frame_rate,
             if (self.drop_frame) "true" else "false",
             self.record_mode,
+            self.sample_rate,
             if (self.memory_warning) "true" else "false",
         }) catch return null;
 

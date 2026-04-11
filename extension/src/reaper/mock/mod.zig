@@ -110,6 +110,7 @@ pub const MockBackend = struct {
     project_notes_len: usize = 0,
     frame_rate: f64 = 30.0,
     drop_frame: bool = false,
+    sample_rate: u32 = 48000,
 
     // Project identity (for project switch detection)
     project_pointer: ?*anyopaque = null, // Simulated ReaProject* pointer
@@ -509,6 +510,7 @@ pub const MockBackend = struct {
     // Project methods (delegated)
     // =========================================================================
     pub const projectLength = project.ProjectMethods.projectLength;
+    pub const getSampleRate = project.ProjectMethods.getSampleRate;
     pub const projectStateChangeCount = project.ProjectMethods.projectStateChangeCount;
     pub const isDirty = project.ProjectMethods.isDirty;
     pub const markDirty = project.ProjectMethods.markDirty;
