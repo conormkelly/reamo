@@ -75,7 +75,12 @@ pub const HttpServer = struct {
                 .keepalive = 30, // 30s keepalive (LAN latency is <1ms)
             },
             .workers = .{
-                .max_conn = 64, // Home studio: phone + tablet + laptop, not 8192
+                .max_conn = 16, // Home studio: phone + tablet + laptop
+            },
+            .thread_pool = .{
+                .count = 8, // In blocking mode (Windows), each WS client holds a thread.
+                            // 8 covers a few WS clients + concurrent HTTP bursts during page load.
+                            // Default is 32 which wastes ~1MB in thread buffers.
             },
         }, handler);
 
