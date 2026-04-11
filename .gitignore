@@ -12,6 +12,7 @@ node_modules
 dist
 dist-ssr
 web
+reamo
 *.local
 playwright-report
 test-results
