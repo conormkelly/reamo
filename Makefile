@@ -1,6 +1,6 @@
 .PHONY: all frontend extension dev-extension clean test test-frontend test-extension test-e2e \
-        dev dev-notests dev-cycle stop-reaper start-reaper frontend-dev install typecheck tracy \
-        release-native release-dir
+        test-ws dev dev-notests dev-cycle stop-reaper start-reaper frontend-dev install typecheck \
+        tracy release-native release-dir
 
 # Platform detection: library name and REAPER plugin directory
 ifeq ($(shell uname),Darwin)
@@ -163,6 +163,12 @@ test-frontend:
 test-e2e:
 	@echo "Running E2E tests..."
 	cd frontend && npm run test:e2e
+
+# Run WebSocket integration tests (requires REAPER running with extension loaded)
+test-ws:
+	@echo "Running WebSocket integration tests..."
+	@echo "(Requires REAPER running with the extension loaded)"
+	cd tests/ws-integration && npm test
 
 # Run extension unit tests (zig)
 test-extension:
