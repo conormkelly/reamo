@@ -90,20 +90,78 @@ local function copy_dir_recursive(src_dir, dst_dir)
   return count
 end
 
+-- Helper: recursively delete directory contents (for clean upgrades)
+local function remove_dir_recursive(dir)
+  -- Always enumerate index 0: after deleting, the next file shifts to index 0
+  while true do
+    local filename = reaper.EnumerateFiles(dir, 0)
+    if not filename then break end
+    os.remove(dir .. sep .. filename)
+  end
+  while true do
+    local subdir = reaper.EnumerateSubdirectories(dir, 0)
+    if not subdir then break end
+    remove_dir_recursive(dir .. sep .. subdir)
+  end
+  os.remove(dir)
+end
+
+-- Helper: clean up old renamed DLLs from previous upgrades (Windows only)
+-- Collects filenames first to avoid modifying the directory while enumerating
+local function cleanup_old_dlls(plugins_dir)
+  local to_delete = {}
+  local i = 0
+  while true do
+    local filename = reaper.EnumerateFiles(plugins_dir, i)
+    if not filename then break end
+    if filename:match("^old_reaper_reamo%.dll$")
+      or filename:match("^old_reaper_reamo%..+%.dll$") then
+      to_delete[#to_delete + 1] = filename
+    end
+    i = i + 1
+  end
+  for _, filename in ipairs(to_delete) do
+    os.remove(plugins_dir .. sep .. filename)
+  end
+end
+
 ------------------------------------------------------------------------
 -- Installation
 ------------------------------------------------------------------------
 
 local errors = {}
 local installed = {}
+local is_windows = os_name:match("^Win")
+local plugins_dir = resource_path .. sep .. "UserPlugins"
+
+-- Clean up leftover renamed DLLs from previous upgrades
+if is_windows then
+  cleanup_old_dlls(plugins_dir)
+end
 
 -- 1. Extension binary → UserPlugins/
 local ext_src = script_dir .. sep .. ext_name
-local ext_dst = resource_path .. sep .. "UserPlugins" .. sep .. ext_name
+local ext_dst = plugins_dir .. sep .. ext_name
 if file_exists(ext_src) then
-  ensure_dir(resource_path .. sep .. "UserPlugins")
+  ensure_dir(plugins_dir)
   local ok, err = copy_file(ext_src, ext_dst)
-  if ok then
+  if not ok and is_windows and file_exists(ext_dst) then
+    -- DLL is locked by running REAPER — rename it out of the way
+    local old_path = plugins_dir .. sep .. "old_reaper_reamo.dll"
+    os.remove(old_path) -- remove any leftover from a previous upgrade
+    local renamed = os.rename(ext_dst, old_path)
+    if renamed then
+      ok, err = copy_file(ext_src, ext_dst)
+      if ok then
+        installed[#installed + 1] = "Extension: " .. ext_name .. " (upgraded — old DLL renamed, restart REAPER)"
+      else
+        errors[#errors + 1] = err
+      end
+    else
+      errors[#errors + 1] = "Cannot update " .. ext_name .. " — DLL is locked.\n" ..
+        "Close REAPER, replace the DLL manually, then restart."
+    end
+  elseif ok then
     installed[#installed + 1] = "Extension: " .. ext_name
   else
     errors[#errors + 1] = err
@@ -113,14 +171,36 @@ else
     "\n(Expected at: " .. ext_src .. ")"
 end
 
--- 2. Web frontend → reaper_www_root/web/
-local web_src = script_dir .. sep .. "web"
-local web_dst = resource_path .. sep .. "reaper_www_root" .. sep .. "web"
+-- 2. Web frontend → reaper_www_root/reamo/
+local web_src = script_dir .. sep .. "reamo"
+-- Fall back to old "web" directory name in case user has an older ZIP layout
+if not reaper.EnumerateFiles(web_src, 0) then
+  web_src = script_dir .. sep .. "web"
+end
+local web_dst = resource_path .. sep .. "reaper_www_root" .. sep .. "reamo"
 local web_check = reaper.EnumerateFiles(web_src, 0)
 if web_check then
+  -- Clean out old frontend files before copying (prevents stale hashed files accumulating)
+  if reaper.EnumerateFiles(web_dst, 0) then
+    remove_dir_recursive(web_dst)
+  end
   ensure_dir(web_dst)
   local count = copy_dir_recursive(web_src, web_dst)
   installed[#installed + 1] = "Frontend: " .. count .. " files"
+
+  -- Migrate: remove old reaper_www_root/web/ if it was ours (pre-v0.8 installs)
+  -- Only delete if index.html contains "REAmo" — avoid nuking other extensions' files
+  local old_web = resource_path .. sep .. "reaper_www_root" .. sep .. "web"
+  local old_index = old_web .. sep .. "index.html"
+  local f = io.open(old_index, "r")
+  if f then
+    local content = f:read("*a")
+    f:close()
+    if content and content:find("REAmo") then
+      remove_dir_recursive(old_web)
+      installed[#installed + 1] = "Cleaned up old web/ directory (migrated to reamo/)"
+    end
+  end
 else
   errors[#errors + 1] = "Web frontend folder not found.\n(Expected at: " .. web_src .. ")"
 end
