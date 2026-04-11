@@ -21,6 +21,13 @@ Works on iPhone, iPad, Android - anything with a browser.
 WiFi and USB tethering supported.
 
 ================================================================================
+UPGRADE
+================================================================================
+
+Just run Install_REAmo.lua again from the new version's extracted folder.
+Restart REAPER after upgrading.
+
+================================================================================
 UNINSTALL
 ================================================================================
 
@@ -30,25 +37,22 @@ Option A: Uninstall script
   3. Restart REAPER
 
 Option B: Manual uninstall
-  On Windows, the extension DLL is locked while REAPER is running, so the
-  uninstall script may not be able to remove it. To uninstall manually:
-
   1. Close REAPER
   2. Delete the following files/folders:
 
   WINDOWS:
     C:\Users\<you>\AppData\Roaming\REAPER\UserPlugins\reaper_reamo.dll
-    C:\Users\<you>\AppData\Roaming\REAPER\reaper_www_root\web\
+    C:\Users\<you>\AppData\Roaming\REAPER\reaper_www_root\reamo\
     C:\Users\<you>\AppData\Roaming\REAPER\Effects\REAmo\
 
   macOS:
     ~/Library/Application Support/REAPER/UserPlugins/reaper_reamo.dylib
-    ~/Library/Application Support/REAPER/reaper_www_root/web/
+    ~/Library/Application Support/REAPER/reaper_www_root/reamo/
     ~/Library/Application Support/REAPER/Effects/REAmo/
 
   LINUX:
     ~/.config/REAPER/UserPlugins/reaper_reamo.so
-    ~/.config/REAPER/reaper_www_root/web/
+    ~/.config/REAPER/reaper_www_root/reamo/
     ~/.config/REAPER/Effects/REAmo/
 
   PORTABLE INSTALL (any OS):

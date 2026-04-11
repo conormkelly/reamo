@@ -95,9 +95,9 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           DIR="REAmo-v${VERSION}-${{ matrix.platform }}"
-          mkdir -p "${DIR}/web" "${DIR}/effects/REAmo"
+          mkdir -p "${DIR}/reamo" "${DIR}/effects/REAmo"
           cp "extension/zig-out/${{ matrix.ext_dir }}/${{ matrix.ext_lib }}" "${DIR}/${{ matrix.ext_dest }}"
-          cp -r web/* "${DIR}/web/"
+          cp -r web/* "${DIR}/reamo/"
           cp extension/effects/REAmo/PitchDetect.jsfx "${DIR}/effects/REAmo/"
           cp installer/Install_REAmo.lua "${DIR}/"
           cp installer/Uninstall_REAmo.lua "${DIR}/"

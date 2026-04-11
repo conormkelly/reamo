@@ -19,7 +19,7 @@ end
 local confirm = reaper.ShowMessageBox(
   "This will remove REAmo from REAPER:\n\n" ..
   "  - Extension: UserPlugins/" .. ext_name .. "\n" ..
-  "  - Frontend: reaper_www_root/web/\n" ..
+  "  - Frontend: reaper_www_root/reamo/\n" ..
   "  - Tuner JSFX: Effects/REAmo/\n\n" ..
   "Continue?",
   "Uninstall REAmo", 4) -- 4 = Yes/No
@@ -36,40 +36,67 @@ end
 
 -- Helper: recursively delete directory contents then the directory itself
 local function remove_dir_recursive(dir)
-  -- Delete files first
-  local i = 0
+  -- Always enumerate index 0: after deleting, the next file shifts to index 0
   while true do
-    local filename = reaper.EnumerateFiles(dir, i)
+    local filename = reaper.EnumerateFiles(dir, 0)
     if not filename then break end
     os.remove(dir .. sep .. filename)
-    i = i + 1
   end
-
-  -- Recurse into subdirectories
-  i = 0
   while true do
-    local subdir = reaper.EnumerateSubdirectories(dir, i)
+    local subdir = reaper.EnumerateSubdirectories(dir, 0)
     if not subdir then break end
     remove_dir_recursive(dir .. sep .. subdir)
-    i = i + 1
   end
-
-  -- Remove the now-empty directory
   os.remove(dir)
 end
 
 -- 1. Extension binary
-local ext_path = resource_path .. sep .. "UserPlugins" .. sep .. ext_name
+local plugins_dir = resource_path .. sep .. "UserPlugins"
+local ext_path = plugins_dir .. sep .. ext_name
 if remove_file(ext_path) then
   removed[#removed + 1] = "Extension: " .. ext_name
 end
 
--- 2. Web frontend directory
-local web_dir = resource_path .. sep .. "reaper_www_root" .. sep .. "web"
-local web_check = reaper.EnumerateFiles(web_dir, 0)
-if web_check then
+-- Clean up old renamed DLLs from previous upgrades (Windows only)
+-- Collect first, then delete to avoid modifying directory while enumerating
+if os_name:match("^Win") then
+  local old_dlls = {}
+  local i = 0
+  while true do
+    local filename = reaper.EnumerateFiles(plugins_dir, i)
+    if not filename then break end
+    if filename:match("^old_reaper_reamo%.dll$")
+      or filename:match("^old_reaper_reamo%..+%.dll$") then
+      old_dlls[#old_dlls + 1] = filename
+    end
+    i = i + 1
+  end
+  for _, filename in ipairs(old_dlls) do
+    if remove_file(plugins_dir .. sep .. filename) then
+      removed[#removed + 1] = "Old DLL: " .. filename
+    end
+  end
+end
+
+-- 2. Web frontend directory (current location)
+local web_dir = resource_path .. sep .. "reaper_www_root" .. sep .. "reamo"
+if reaper.EnumerateFiles(web_dir, 0) then
   remove_dir_recursive(web_dir)
-  removed[#removed + 1] = "Frontend: reaper_www_root/web/"
+  removed[#removed + 1] = "Frontend: reaper_www_root/reamo/"
+end
+
+-- Also clean up old pre-v0.8 web/ directory if it was ours
+-- Only delete if index.html contains "REAmo" — avoid nuking other extensions' files
+local old_web_dir = resource_path .. sep .. "reaper_www_root" .. sep .. "web"
+local old_index = old_web_dir .. sep .. "index.html"
+local f = io.open(old_index, "r")
+if f then
+  local content = f:read("*a")
+  f:close()
+  if content and content:find("REAmo") then
+    remove_dir_recursive(old_web_dir)
+    removed[#removed + 1] = "Old frontend: reaper_www_root/web/"
+  end
 end
 
 -- 3. JSFX tuner + Effects/REAmo/ directory

@@ -203,9 +203,9 @@ fn doInitialization() !void {
     // Initialize hot reload file path
     if (api.resourcePath()) |res_path| {
         logging.debug("Resource path: {s}", .{res_path});
-        const web_dir = std.fmt.bufPrint(&g_web_dir_buf, "{s}/reaper_www_root/web", .{res_path}) catch null;
+        const web_dir = std.fmt.bufPrint(&g_web_dir_buf, "{s}/reaper_www_root/reamo", .{res_path}) catch null;
         g_web_dir = web_dir;
-        const written = std.fmt.bufPrint(&g_html_path_buf, "{s}/reaper_www_root/web/index.html", .{res_path}) catch null;
+        const written = std.fmt.bufPrint(&g_html_path_buf, "{s}/reaper_www_root/reamo/index.html", .{res_path}) catch null;
         if (written) |path| {
             g_html_path = path;
             logging.debug("Watching: {s}", .{path});
