@@ -113,6 +113,78 @@ describe('generateTimelineTicks', () => {
     });
   });
 
+  describe('tick alignment with region positions at non-default BPM', () => {
+    // Fixture project: 140 BPM, 4/4, barOffset = -5 (display starts at bar -4)
+    // Region "Verse1" starts at bar 0.1 = time 6.857142857... seconds
+    // Region "Intro" starts at bar -4.1 = time 0 seconds
+    // See: test-fixtures/test-project-1.RPP
+    const FIXTURE_TEMPO: WSTempoMarker[] = [
+      { position: 0, positionBeats: 0, bpm: 140, timesigNum: 4, timesigDenom: 4, linear: false },
+    ];
+    const FIXTURE_BAR_OFFSET = -5;
+
+    // Expected seconds for bar 0.1 at 140 BPM with barOffset -5:
+    // 4 bars × 4 beats/bar ÷ (140/60 beats/sec) = 48/7 ≈ 6.857142857s
+    const VERSE1_START_SECONDS = 6.85714285714286; // From REAPER RPP
+
+    it('tick for bar 0.1 aligns with region position at 140 BPM', () => {
+      const ticks = generateTimelineTicks({
+        visibleStart: 0,
+        visibleEnd: 16,
+        visibleDuration: 16,
+        tempoMarkers: FIXTURE_TEMPO,
+        barOffset: FIXTURE_BAR_OFFSET,
+        mode: 'ruler',
+      });
+
+      const barTicks = ticks.filter((t) => t.type === 'bar');
+      // Find the tick for bar 0 (displayed as "0.1" on ruler)
+      const bar0Tick = barTicks.find((t) => t.bar === 0);
+      expect(bar0Tick, 'Tick for bar 0 should exist in viewport').toBeDefined();
+
+      // The tick's time position must match where REAPER places the region
+      // A mismatch here means regions/markers will visually not align with grid lines
+      expect(bar0Tick!.time).toBeCloseTo(VERSE1_START_SECONDS, 3);
+    });
+
+    it('tick for bar -4.1 aligns with time 0 at 140 BPM', () => {
+      const ticks = generateTimelineTicks({
+        visibleStart: 0,
+        visibleEnd: 16,
+        visibleDuration: 16,
+        tempoMarkers: FIXTURE_TEMPO,
+        barOffset: FIXTURE_BAR_OFFSET,
+        mode: 'ruler',
+      });
+
+      const barTicks = ticks.filter((t) => t.type === 'bar');
+      const barMinus4Tick = barTicks.find((t) => t.bar === -4);
+      expect(barMinus4Tick, 'Tick for bar -4 should exist').toBeDefined();
+      expect(barMinus4Tick!.time).toBeCloseTo(0, 3);
+    });
+
+    it('empty tempoMarkers falls back to 120 BPM (wrong — store must synthesize)', () => {
+      // Documents the raw function behavior: empty markers = 120 BPM fallback.
+      // The store layer (index.ts) prevents this by synthesizing a marker from
+      // transport BPM when REAPER reports 0 explicit tempo markers. See issue #22.
+      const ticksEmpty = generateTimelineTicks({
+        visibleStart: 0,
+        visibleEnd: 16,
+        visibleDuration: 16,
+        tempoMarkers: [],
+        barOffset: FIXTURE_BAR_OFFSET,
+        mode: 'ruler',
+      });
+
+      const emptyBar0 = ticksEmpty.filter((t) => t.type === 'bar').find((t) => t.bar === 0);
+      expect(emptyBar0, 'Bar 0 tick with empty markers').toBeDefined();
+      // With empty markers, bar 0 is at 8.0s (120 BPM) — wrong for 140 BPM project
+      expect(emptyBar0!.time).toBeCloseTo(8.0, 3);
+      // Correct value is 6.857s — the store synthesizes a marker to prevent this
+      expect(emptyBar0!.time).not.toBeCloseTo(VERSE1_START_SECONDS, 1);
+    });
+  });
+
   describe('density by zoom level', () => {
     it('shows every bar at close zoom (step=1)', () => {
       // At 5s zoom with 120 BPM: ~2.5 bars visible

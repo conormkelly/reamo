@@ -207,7 +207,10 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
         viewport.visibleRange.end,
         viewport.visibleRange.end - viewport.visibleRange.start,
         tempoMarkers,
-        barOffset
+        barOffset,
+        bpm ?? undefined,
+        beatsPerBar,
+        denominator,
       );
       return findNearestSnapTarget(time, {
         regions,
@@ -216,7 +219,7 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
         gridLines: gridLines.map(g => g.time),
       });
     },
-    [regions, markers, positionSeconds, viewport.visibleRange, tempoMarkers, barOffset]
+    [regions, markers, positionSeconds, viewport.visibleRange, tempoMarkers, barOffset, bpm, beatsPerBar, denominator]
   );
 
   // Item tap detection
@@ -386,6 +389,9 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
         visibleDuration={viewport.visibleDuration}
         tempoMarkers={tempoMarkers}
         barOffset={barOffset}
+        bpm={bpm ?? 120}
+        timesigNum={beatsPerBar}
+        timesigDenom={denominator}
       />
 
       {/* Region labels bar (color bar + text) + playhead preview pill */}
@@ -430,6 +436,9 @@ export function Timeline({ className = '', height = 120, isSyncing = false, view
           visibleDuration={viewport.visibleDuration}
           tempoMarkers={tempoMarkers}
           barOffset={barOffset}
+          bpm={bpm ?? 120}
+          timesigNum={beatsPerBar}
+          timesigDenom={denominator}
         />
 
         {/* Regions - blocks only (no color), labels in top bar */}
