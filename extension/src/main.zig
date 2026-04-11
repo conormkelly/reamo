@@ -712,6 +712,13 @@ fn doProcessing() !void {
     // Increment frame counter for tiered polling
     g_frame_counter +%= 1;
 
+    // Skip all polling when no clients are connected.
+    // CSurf dirty flags are already consumed above (they must be drained to avoid
+    // stale accumulation), and skeleton rebuilds still run. This only skips the
+    // tier polling, subscription polling, playlist engine, and heartbeat.
+    // Trade-off: ~30ms delay to first state update on reconnect (imperceptible).
+    if (shared_state.clientCount() == 0) return;
+
     // ========================================================================
     // TIER POLLING - Extracted to tier_polling.zig for testability
     // ========================================================================
