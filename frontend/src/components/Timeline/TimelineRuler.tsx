@@ -78,6 +78,9 @@ interface Props {
   visibleDuration: number;
   tempoMarkers: WSTempoMarker[];
   barOffset: number;
+  bpm: number;
+  timesigNum: number;
+  timesigDenom: number;
 }
 
 export function TimelineRuler({
@@ -86,6 +89,9 @@ export function TimelineRuler({
   visibleDuration,
   tempoMarkers,
   barOffset,
+  bpm,
+  timesigNum,
+  timesigDenom,
 }: Props): ReactElement {
   const { sendCommand } = useReaper();
 
@@ -98,8 +104,11 @@ export function TimelineRuler({
         tempoMarkers,
         barOffset,
         mode: 'ruler',
+        bpm,
+        timesigNum,
+        timesigDenom,
       }),
-    [visibleRange.start, visibleRange.end, visibleDuration, tempoMarkers, barOffset]
+    [visibleRange.start, visibleRange.end, visibleDuration, tempoMarkers, barOffset, bpm, timesigNum, timesigDenom]
   );
 
   // Seek to position on long-press
