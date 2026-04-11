@@ -21,7 +21,10 @@ export function generateGridLines(
   visibleEnd: number,
   visibleDuration: number,
   tempoMarkers: WSTempoMarker[],
-  barOffset: number
+  barOffset: number,
+  bpm?: number,
+  timesigNum?: number,
+  timesigDenom?: number,
 ): GridLine[] {
   const ticks = generateTimelineTicks({
     visibleStart,
@@ -30,6 +33,9 @@ export function generateGridLines(
     tempoMarkers,
     barOffset,
     mode: 'grid',
+    bpm,
+    timesigNum,
+    timesigDenom,
   });
 
   // Convert to GridLine format (drop bar number, not needed for grid rendering)

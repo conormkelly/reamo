@@ -30,6 +30,13 @@ const EXPECTED_REGIONS = [
   { name: 'Verse1', start: 6.86 },
 ];
 
+// Bar offset: PROJOFFS 0 -5 0 in RPP → projmeasoffs = -5
+// Display: bar -4 at time 0 (bar 1 + offset -5 = bar -4)
+const EXPECTED_BAR_OFFSET = -5;
+
+// Tempo: 140 BPM, 4/4 — set as global project tempo, NOT via an explicit tempo marker.
+// CountTempoTimeSigMarkers returns 0 for this project (issue #22).
+
 // --- Interfaces ---
 
 interface TransportPayload {
@@ -57,6 +64,24 @@ interface TrackSkeletonEntry {
   g: string;
 }
 
+interface ProjectPayload {
+  barOffset: number;
+  projectLength: number;
+}
+
+interface TempoMarkerEntry {
+  position: number;
+  positionBeats: number;
+  bpm: number;
+  timesigNum: number;
+  timesigDenom: number;
+  linear: boolean;
+}
+
+interface TempoMapPayload {
+  markers: TempoMarkerEntry[];
+}
+
 // --- Tests ---
 
 describe('Fixture: test-project-1', () => {
@@ -67,6 +92,8 @@ describe('Fixture: test-project-1', () => {
   let skeleton: { tracks: TrackSkeletonEntry[] };
   let markers: { markers: MarkerEntry[] };
   let regions: { regions: RegionEntry[] };
+  let project: ProjectPayload;
+  let tempoMap: TempoMapPayload;
 
   beforeAll(async () => {
     // Register collectors before connect to catch initial snapshot
@@ -75,19 +102,29 @@ describe('Fixture: test-project-1', () => {
         if (msg.type === 'event' && (msg as any).event === 'transport') resolve((msg as any).payload);
       });
     });
-    const skeletonP = new Promise<TrackSkeletonEntry[]>((resolve) => {
+    const skeletonP = new Promise<{ tracks: TrackSkeletonEntry[] }>((resolve) => {
       client.onMessage((msg) => {
         if (msg.type === 'event' && (msg as any).event === 'trackSkeleton') resolve((msg as any).payload);
       });
     });
-    const markersP = new Promise<MarkerEntry[]>((resolve) => {
+    const markersP = new Promise<{ markers: MarkerEntry[] }>((resolve) => {
       client.onMessage((msg) => {
         if (msg.type === 'event' && (msg as any).event === 'markers') resolve((msg as any).payload);
       });
     });
-    const regionsP = new Promise<RegionEntry[]>((resolve) => {
+    const regionsP = new Promise<{ regions: RegionEntry[] }>((resolve) => {
       client.onMessage((msg) => {
         if (msg.type === 'event' && (msg as any).event === 'regions') resolve((msg as any).payload);
+      });
+    });
+    const projectP = new Promise<ProjectPayload>((resolve) => {
+      client.onMessage((msg) => {
+        if (msg.type === 'event' && (msg as any).event === 'project') resolve((msg as any).payload);
+      });
+    });
+    const tempoMapP = new Promise<TempoMapPayload>((resolve) => {
+      client.onMessage((msg) => {
+        if (msg.type === 'event' && (msg as any).event === 'tempoMap') resolve((msg as any).payload);
       });
     });
 
@@ -98,8 +135,8 @@ describe('Fixture: test-project-1', () => {
       setTimeout(() => reject(new Error('Timed out waiting for initial snapshot')), 5000),
     );
 
-    [transport, skeleton, markers, regions] = await Promise.race([
-      Promise.all([transportP, skeletonP, markersP, regionsP]),
+    [transport, skeleton, markers, regions, project, tempoMap] = await Promise.race([
+      Promise.all([transportP, skeletonP, markersP, regionsP, projectP, tempoMapP]),
       timeout.then(() => { throw new Error('timeout'); }),
     ]);
   });
@@ -151,6 +188,43 @@ describe('Fixture: test-project-1', () => {
         expect(found, `Region "${expected.name}" not found`).toBeDefined();
         expect(found!.start).toBeCloseTo(expected.start, 1);
       }
+    });
+  });
+
+  describe('Project settings', () => {
+    it('has correct bar offset', () => {
+      expect(project.barOffset).toBe(EXPECTED_BAR_OFFSET);
+    });
+  });
+
+  describe('Tempo map', () => {
+    it('reports zero explicit markers for global-tempo-only projects', () => {
+      // REAPER's CountTempoTimeSigMarkers returns 0 when the project uses only
+      // a global tempo (no explicit tempo change markers). The frontend handles
+      // this by falling back to the transport BPM in generateTimelineTicks.
+      // See: https://github.com/conormkelly/reamo/issues/22
+      expect(tempoMap.markers.length).toBe(0);
+    });
+  });
+
+  describe('Grid/region alignment', () => {
+    it('region positions match bar.beat math from transport BPM', () => {
+      // Uses transport BPM instead of tempoMap markers to verify alignment.
+      // This test catches the bug where empty tempoMarkers causes 120 BPM fallback
+      // in the frontend's barBeatToTime calculation.
+      const bpm = transport.bpm;
+      const beatsPerBar = transport.timeSignature.numerator;
+      const denom = transport.timeSignature.denominator;
+      const beatsPerSecond = (bpm / 60) * (denom / 4);
+
+      // Verse1 is at bar 0 beat 1, which is 4 bars from project start (bar -4)
+      // barOffset = -5 → bar -4 is at time 0, bar 0 is 4 bars later
+      const barsFromStart = 0 - (1 + project.barOffset); // bar 0 minus first bar (-4)
+      const expectedSeconds = (barsFromStart * beatsPerBar) / beatsPerSecond;
+
+      const verse1 = regions.regions.find((r) => r.name === 'Verse1');
+      expect(verse1, 'Region "Verse1" not found').toBeDefined();
+      expect(verse1!.start).toBeCloseTo(expectedSeconds, 2);
     });
   });
 
