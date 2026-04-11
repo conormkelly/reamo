@@ -6,8 +6,7 @@ export default defineConfig({
     testTimeout: 10000,
     hookTimeout: 10000,
     globals: true,
-    // Run test files sequentially to avoid overwhelming the REAPER WebSocket server
-    // with too many concurrent connections during token fetch + handshake
+    // Sequential to avoid race conditions with REAPER's broadcast timing
     fileParallelism: false,
   },
 });
