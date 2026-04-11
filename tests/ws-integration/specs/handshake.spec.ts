@@ -68,9 +68,9 @@ describe('Handshake', () => {
     remove();
 
     expect(clockResponse).not.toBeNull();
-    expect((clockResponse as Record<string, unknown>).t0).toBe(t0);
-    expect((clockResponse as Record<string, unknown>).t1).toBeTypeOf('number');
-    expect((clockResponse as Record<string, unknown>).t2).toBeTypeOf('number');
+    expect((clockResponse as unknown as Record<string, unknown>).t0).toBe(t0);
+    expect((clockResponse as unknown as Record<string, unknown>).t1).toBeTypeOf('number');
+    expect((clockResponse as unknown as Record<string, unknown>).t2).toBeTypeOf('number');
   });
 });
 

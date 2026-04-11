@@ -264,6 +264,7 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
             }
           : null,
       });
+
     } else if (isTransportTickEvent(message)) {
       // Enhanced tick event - position + BPM + time sig + bar.beat.ticks
       const p = message.payload as TransportTickEventPayload;
