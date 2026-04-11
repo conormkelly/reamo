@@ -85,25 +85,18 @@ describe('Multi-client', () => {
   });
 
   it('supports multiple concurrent connections', async () => {
-    // Register listeners BEFORE connecting to avoid missing snapshot events
-    let t1Received = false;
-    let t2Received = false;
-    client1.onMessage((msg) => {
-      if (msg.type === 'event' && (msg as any).event === 'transport') t1Received = true;
-    });
-    client2.onMessage((msg) => {
-      if (msg.type === 'event' && (msg as any).event === 'transport') t2Received = true;
-    });
-
     const hello1 = await client1.connect();
     const hello2 = await client2.connect();
 
     expect(hello1.extensionVersion).toBe(hello2.extensionVersion);
 
-    // Wait briefly for transport broadcasts to arrive
-    await new Promise((r) => setTimeout(r, 1000));
+    // Both clients should be able to receive events independently
+    const [t1, t2] = await Promise.all([
+      client1.waitForEvent('transport', { timeout: 3000 }),
+      client2.waitForEvent('transport', { timeout: 3000 }),
+    ]);
 
-    expect(t1Received).toBe(true);
-    expect(t2Received).toBe(true);
+    expect(t1).toBeDefined();
+    expect(t2).toBeDefined();
   });
 });
