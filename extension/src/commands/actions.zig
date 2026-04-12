@@ -163,16 +163,7 @@ pub fn handleGetActions(api: anytype, _: protocol.CommandMessage, response: *mod
                 return;
             };
 
-            for (name) |c| {
-                switch (c) {
-                    '"' => writer.writeAll("\\\"") catch return,
-                    '\\' => writer.writeAll("\\\\") catch return,
-                    '\n' => writer.writeAll("\\n") catch return,
-                    '\r' => writer.writeAll("\\r") catch return,
-                    '\t' => writer.writeAll("\\t") catch return,
-                    else => writer.writeByte(c) catch return,
-                }
-            }
+            protocol.writeJsonString(writer, name) catch return;
 
             // Write is_toggle and named_id
             writer.print("\",{d},", .{is_toggle}) catch {
@@ -184,14 +175,7 @@ pub fn handleGetActions(api: anytype, _: protocol.CommandMessage, response: *mod
             // Prepend underscore since API returns without it
             if (raw_named_id) |nid| {
                 writer.writeAll("\"_") catch return;
-                // Escape the named_id (usually alphanumeric, but be safe)
-                for (nid) |c| {
-                    switch (c) {
-                        '"' => writer.writeAll("\\\"") catch return,
-                        '\\' => writer.writeAll("\\\\") catch return,
-                        else => writer.writeByte(c) catch return,
-                    }
-                }
+                protocol.writeJsonString(writer, nid) catch return;
                 writer.writeAll("\"]") catch return;
             } else {
                 writer.writeAll("null]") catch return;

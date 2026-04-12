@@ -580,7 +580,7 @@ pub fn handleGetFx(api: anytype, cmd: protocol.CommandMessage, response: *mod.Re
             response.err("SERIALIZE_ERROR", "Buffer overflow");
             return;
         };
-        writeJsonEscaped(w, name) catch {
+        protocol.writeJsonString(w, name) catch {
             response.err("SERIALIZE_ERROR", "Buffer overflow");
             return;
         };
@@ -588,7 +588,7 @@ pub fn handleGetFx(api: anytype, cmd: protocol.CommandMessage, response: *mod.Re
             response.err("SERIALIZE_ERROR", "Buffer overflow");
             return;
         };
-        writeJsonEscaped(w, preset_info.name) catch {
+        protocol.writeJsonString(w, preset_info.name) catch {
             response.err("SERIALIZE_ERROR", "Buffer overflow");
             return;
         };
@@ -685,7 +685,7 @@ pub fn handleGetSends(api: anytype, cmd: protocol.CommandMessage, response: *mod
             response.err("SERIALIZE_ERROR", "Buffer overflow");
             return;
         };
-        writeJsonEscaped(w, dest_name) catch {
+        protocol.writeJsonString(w, dest_name) catch {
             response.err("SERIALIZE_ERROR", "Buffer overflow");
             return;
         };
@@ -802,26 +802,6 @@ pub fn handleGetHwOutputs(api: anytype, cmd: protocol.CommandMessage, response: 
 
     response.success(stream.getWritten());
     logging.debug("Returned {d} hw outputs for track {d} (offset={d}, total={d})", .{ hw_count, track_idx, offset, total });
-}
-
-/// Helper to write JSON-escaped string
-fn writeJsonEscaped(writer: anytype, str: []const u8) !void {
-    for (str) |c| {
-        switch (c) {
-            '"' => try writer.writeAll("\\\""),
-            '\\' => try writer.writeAll("\\\\"),
-            '\n' => try writer.writeAll("\\n"),
-            '\r' => try writer.writeAll("\\r"),
-            '\t' => try writer.writeAll("\\t"),
-            else => {
-                if (c < 0x20) {
-                    // Skip control characters
-                } else {
-                    try writer.writeByte(c);
-                }
-            },
-        }
-    }
 }
 
 // ============================================================================
