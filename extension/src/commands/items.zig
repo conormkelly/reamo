@@ -481,7 +481,7 @@ pub fn handleItemGetNotes(api: anytype, cmd: protocol.CommandMessage, response: 
         response.err("SERIALIZE_ERROR", "Buffer overflow");
         return;
     };
-    writeJsonEscaped(w, notes) catch {
+    protocol.writeJsonString(w, notes) catch {
         response.err("SERIALIZE_ERROR", "Buffer overflow");
         return;
     };
@@ -562,7 +562,7 @@ pub fn handleItemGetTakes(api: anytype, cmd: protocol.CommandMessage, response: 
             response.err("SERIALIZE_ERROR", "Buffer overflow");
             return;
         };
-        writeJsonEscaped(w, name) catch {
+        protocol.writeJsonString(w, name) catch {
             response.err("SERIALIZE_ERROR", "Buffer overflow");
             return;
         };
@@ -584,26 +584,6 @@ pub fn handleItemGetTakes(api: anytype, cmd: protocol.CommandMessage, response: 
 
     response.success(stream.getWritten());
     logging.debug("Returned {d} takes for item", .{take_count});
-}
-
-/// Helper to write JSON-escaped string
-fn writeJsonEscaped(writer: anytype, str: []const u8) !void {
-    for (str) |c| {
-        switch (c) {
-            '"' => try writer.writeAll("\\\""),
-            '\\' => try writer.writeAll("\\\\"),
-            '\n' => try writer.writeAll("\\n"),
-            '\r' => try writer.writeAll("\\r"),
-            '\t' => try writer.writeAll("\\t"),
-            else => {
-                if (c < 0x20) {
-                    // Skip control characters
-                } else {
-                    try writer.writeByte(c);
-                }
-            },
-        }
-    }
 }
 
 test "handleItemMoveByGuid requires guid parameter" {

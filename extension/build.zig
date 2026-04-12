@@ -136,11 +136,10 @@ pub fn build(b: *std.Build) void {
     // Note: state/ modules are tested via main.zig test block (they have ../ imports)
     // Note: commands/mod.zig tests run via library build (depends on ws_server)
     const test_modules = [_][]const u8{
-        "src/core/protocol.zig",
         "src/server/frame_arena.zig",
         "src/server/host_validation.zig",
         "src/audio/ring_buffer.zig",
-        // State/subscription modules with ../ imports are tested via main.zig test block
+        // protocol.zig, state/, subscription/ modules have ../ imports — tested via main.zig test block
     };
 
     const test_step = b.step("test", "Run unit tests");
