@@ -298,9 +298,9 @@ pub fn handleListOutputs(api: anytype, _: protocol.CommandMessage, response: *mo
             const dest_chan = ch;
 
             writer.print("{{\"destChan\":{d},\"name\":\"", .{dest_chan}) catch return;
-            writeJsonEscaped(writer, s1) catch return;
+            protocol.writeJsonString(writer, s1) catch return;
             writer.writeAll(" / ") catch return;
-            writeJsonEscaped(writer, s2) catch return;
+            protocol.writeJsonString(writer, s2) catch return;
             writer.writeAll("\",\"stereo\":true}") catch return;
         }
     }
@@ -317,7 +317,7 @@ pub fn handleListOutputs(api: anytype, _: protocol.CommandMessage, response: *mo
             const dest_chan = ch | 1024;
 
             writer.print("{{\"destChan\":{d},\"name\":\"", .{dest_chan}) catch return;
-            writeJsonEscaped(writer, name) catch return;
+            protocol.writeJsonString(writer, name) catch return;
             writer.writeAll("\",\"stereo\":false}") catch return;
         }
     }
@@ -326,34 +326,9 @@ pub fn handleListOutputs(api: anytype, _: protocol.CommandMessage, response: *mo
     response.successLargePayload(stream.getWritten());
 }
 
-/// Write a string with JSON escaping (quotes and backslashes)
-fn writeJsonEscaped(writer: anytype, s: []const u8) !void {
-    for (s) |c| {
-        switch (c) {
-            '"' => try writer.writeAll("\\\""),
-            '\\' => try writer.writeAll("\\\\"),
-            else => try writer.writeByte(c),
-        }
-    }
-}
-
 // ============================================================================
 // Tests
 // ============================================================================
-
-test "writeJsonEscaped passes plain text through unchanged" {
-    var buf: [64]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
-    try writeJsonEscaped(stream.writer(), "Speakers L/R");
-    try std.testing.expectEqualStrings("Speakers L/R", stream.getWritten());
-}
-
-test "writeJsonEscaped escapes quotes and backslashes" {
-    var buf: [64]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
-    try writeJsonEscaped(stream.writer(), "Output \"1\" \\ 2");
-    try std.testing.expectEqualStrings("Output \\\"1\\\" \\\\ 2", stream.getWritten());
-}
 
 test "hw output handlers compile" {
     // Command handlers require ResponseWriter with SharedState.

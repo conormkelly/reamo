@@ -1,4 +1,5 @@
 const std = @import("std");
+const encoding = @import("../platform/encoding.zig");
 
 // Protocol version - increment when breaking changes are made
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -593,9 +594,19 @@ pub fn buildEvent(buf: []u8, event_name: []const u8, payload_fn: fn (*JsonWriter
     return w.slice();
 }
 
-// Helper to escape JSON strings - used by state modules for serialization
+// Helper to escape JSON strings - used by state modules for serialization.
+// On Windows, transcodes from the system's active code page (e.g. Windows-1252)
+// to UTF-8 before escaping — REAPER's C API returns strings in the local code
+// page, not UTF-8, which would otherwise break WebSocket text frames.
 pub fn writeJsonString(writer: anytype, s: []const u8) !void {
-    for (s) |c| {
+    // Transcode from system code page to UTF-8 (no-op on non-Windows / pure ASCII).
+    // Keep buffer ≤1KB — this runs in timer callbacks with deep call stacks (see ZIG_GUIDE §1).
+    // 512 bytes covers realistic REAPER names (action/FX/track names are typically <256 bytes;
+    // UTF-8 expansion of Windows-1252 is at most 2x for the 0x80-0x9F range, 1.5x typical).
+    var utf8_buf: [512]u8 = undefined;
+    const str = encoding.toUtf8(s, &utf8_buf) orelse s;
+
+    for (str) |c| {
         switch (c) {
             '"' => try writer.writeAll("\\\""),
             '\\' => try writer.writeAll("\\\\"),
@@ -725,6 +736,29 @@ test "writeJsonString handles empty string" {
 
     try writeJsonString(w, "");
     try std.testing.expectEqual(@as(usize, 0), stream.getWritten().len);
+}
+
+test "writeJsonString produces valid UTF-8 from Windows-1252 bytes" {
+    // On Windows, REAPER's C API returns strings in the system code page.
+    // Before the fix, 0xE9 (é in Windows-1252) was written as a raw byte — invalid UTF-8.
+    // After the fix, writeJsonString transcodes to valid UTF-8 via Win32 APIs.
+    // On non-Windows this is a passthrough (macOS/Linux already use UTF-8).
+    const builtin = @import("builtin");
+
+    var buf: [256]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    const w = stream.writer();
+
+    try writeJsonString(w, "Caf\xe9");
+    const output = stream.getWritten();
+
+    if (comptime builtin.os.tag == .windows) {
+        // On Windows: should be transcoded to valid UTF-8 "Café"
+        try std.testing.expectEqualStrings("Caf\xc3\xa9", output);
+    } else {
+        // On non-Windows: passthrough (raw bytes unchanged)
+        try std.testing.expectEqualStrings("Caf\xe9", output);
+    }
 }
 
 test "MessageType.parse recognizes hello" {
