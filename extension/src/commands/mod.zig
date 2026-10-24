@@ -307,6 +307,11 @@ pub fn validateBar(bar: ?c_int) ?c_int {
 /// The message must carry no "id", so the ResponseWriter never touches
 /// shared_state and handlers can be exercised against MockBackend directly.
 pub fn testRunHandler(api: anytype, comptime handler: anytype, json: []const u8) void {
+    testRunPlaylistHandler(api, handler, json, null);
+}
+
+/// testRunHandler for handlers that read playlist state from the ResponseWriter.
+pub fn testRunPlaylistHandler(api: anytype, comptime handler: anytype, json: []const u8, playlist: ?*PlaylistState) void {
     const cmd = protocol.CommandMessage.parse(json).?;
     std.debug.assert(cmd.getId() == null);
     var shared: ws_server.SharedState = undefined;
@@ -315,6 +320,7 @@ pub fn testRunHandler(api: anytype, comptime handler: anytype, json: []const u8)
         .cmd_id = null,
         .shared_state = &shared,
         .gestures = null,
+        .playlist = playlist,
     };
     handler(api, cmd, &response);
 }

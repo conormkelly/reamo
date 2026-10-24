@@ -126,6 +126,10 @@ pub fn handleAddEntry(api: anytype, cmd: protocol.CommandMessage, response: *mod
     };
 
     const loop_count = cmd.getInt("loopCount") orelse 1;
+    if (loop_count < -1) {
+        response.err("INVALID_LOOP_COUNT", "loopCount must be -1 (infinite), 0 (skip) or a positive count");
+        return;
+    }
 
     const p = state.getPlaylist(playlist_idx_usize) orelse {
         response.err("NOT_FOUND", "Playlist not found");
@@ -277,6 +281,10 @@ pub fn handleSetLoopCount(api: anytype, cmd: protocol.CommandMessage, response: 
         response.err("MISSING_LOOP_COUNT", "loopCount is required");
         return;
     };
+    if (loop_count < -1) {
+        response.err("INVALID_LOOP_COUNT", "loopCount must be -1 (infinite), 0 (skip) or a positive count");
+        return;
+    }
 
     const p = state.getPlaylist(playlist_idx_usize) orelse {
         response.err("NOT_FOUND", "Playlist not found");
@@ -716,4 +724,37 @@ fn findRegionBounds(api: anytype, region_id: i32) ?RegionBounds {
         }
     }
     return null;
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "playlist loopCount below -1 is rejected instead of overflowing the live loop math" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{};
+    var state = playlist_mod.State{};
+    const idx = state.addPlaylist("Set").?;
+    try std.testing.expect(state.getPlaylist(idx).?.addEntry(1, 4));
+
+    // Playing the entry, on its second loop (as Engine.tick leaves it).
+    _ = state.engine.playFromEntry(idx, 0, 4);
+    state.engine.current_loop_iteration = 2;
+    state.engine.loops_remaining = 3;
+
+    mod.testRunPlaylistHandler(&m, handleSetLoopCount,
+        \\{"type":"command","command":"playlist/setLoopCount","playlistIdx":0,"entryIdx":0,"loopCount":-2147483648}
+    , &state);
+    mod.testRunPlaylistHandler(&m, handleAddEntry,
+        \\{"type":"command","command":"playlist/addEntry","playlistIdx":0,"regionId":2,"loopCount":-5}
+    , &state);
+    try std.testing.expectEqual(@as(i32, 4), state.getPlaylist(idx).?.entries[0].loop_count);
+    try std.testing.expectEqual(@as(usize, 1), state.getPlaylist(idx).?.entry_count);
+    try std.testing.expectEqual(@as(i32, 3), state.engine.loops_remaining);
+
+    // -1 (infinite) remains valid.
+    mod.testRunPlaylistHandler(&m, handleSetLoopCount,
+        \\{"type":"command","command":"playlist/setLoopCount","playlistIdx":0,"entryIdx":0,"loopCount":-1}
+    , &state);
+    try std.testing.expectEqual(@as(i32, -1), state.engine.loops_remaining);
 }
