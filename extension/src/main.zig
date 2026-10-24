@@ -41,6 +41,7 @@ const menu = @import("platform/menu.zig");
 const swell = @import("platform/swell.zig");
 const fast_timer = @import("platform/fast_timer.zig");
 const compat = @import("platform/compat.zig");
+const sigpipe = @import("platform/sigpipe.zig");
 const ztracy = @import("ztracy");
 const subscription_polling = @import("server/subscription_polling.zig");
 const tier_polling = @import("server/tier_polling.zig");
@@ -1085,6 +1086,9 @@ fn shutdown() void {
     }
     logging.info("tiered arenas cleaned up", .{});
 
+    // Last: every thread that writes to a socket has been joined above.
+    sigpipe.uninstall();
+
     logging.info("shutdown() complete", .{});
     logging.deinit();
 }
@@ -1132,6 +1136,10 @@ export fn ReaperPluginEntry(hInstance: ?*anyopaque, rec: ?*reaper.PluginInfo) ca
         }
     }
 
+    // Before any socket exists: a write to a dropped client must fail with
+    // EPIPE, not terminate REAPER. Paired with sigpipe.uninstall() in shutdown().
+    sigpipe.install();
+
     // Register deferred initialization timer
     g_api.?.registerTimer(&initTimerCallback);
 
@@ -1144,6 +1152,7 @@ test {
     _ = @import("core/ffi.zig");
     _ = @import("core/logging.zig");
     _ = @import("core/protocol.zig");
+    _ = @import("platform/sigpipe.zig");
     _ = @import("state/transport.zig");
     _ = @import("state/project.zig");
     _ = @import("state/markers.zig");
