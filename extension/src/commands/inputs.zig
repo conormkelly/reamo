@@ -241,6 +241,12 @@ pub fn handleSetInput(api: anytype, cmd: protocol.CommandMessage, response: *mod
         const multi = if (cmd.getInt("multi")) |v| v != 0 else false;
         const rearoute = if (cmd.getInt("rearoute")) |v| v != 0 else false;
 
+        // Channel index occupies bits 0-8; bit 9 (REAROUTE_OFFSET) and up are flags.
+        if (channel < 0 or channel >= REAROUTE_OFFSET) {
+            response.err("INVALID_PARAMS", "audio channel must be 0-511");
+            return;
+        }
+
         value = channel;
         if (rearoute) value += REAROUTE_OFFSET;
         if (multi) {
@@ -527,4 +533,49 @@ test "roundtrip - MIDI device with channel" {
     try std.testing.expect(decoded == .midi);
     try std.testing.expectEqual(@as(c_int, 5), decoded.midi.device);
     try std.testing.expectEqual(@as(c_int, 16), decoded.midi.channel);
+}
+
+// ============================================================================
+// Tests - handleSetInput parameter validation
+// ============================================================================
+
+fn runSetInput(api: anytype, json: []const u8) void {
+    const ws_server = @import("../server/ws_server.zig");
+    const cmd = protocol.CommandMessage.parse(json).?;
+    // No "id" in the message, so the ResponseWriter never touches shared_state.
+    var shared: ws_server.SharedState = undefined;
+    var response = mod.ResponseWriter{
+        .client_id = 1,
+        .cmd_id = null,
+        .shared_state = &shared,
+        .gestures = null,
+    };
+    handleSetInput(api, cmd, &response);
+}
+
+test "track/setInput rejects audio channels outside I_RECINPUT's channel bits without setting the input" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{ .track_count = 1 };
+    // INT_MAX + REAROUTE_OFFSET overflowed c_int and panicked.
+    runSetInput(&m,
+        \\{"type":"command","command":"track/setInput","trackIdx":0,"inputType":"audio","channel":2147483647,"rearoute":1}
+    );
+    // In range for c_int, but would spill into the stereo/multi/MIDI flag bits.
+    runSetInput(&m,
+        \\{"type":"command","command":"track/setInput","trackIdx":0,"inputType":"audio","channel":4096}
+    );
+    runSetInput(&m,
+        \\{"type":"command","command":"track/setInput","trackIdx":0,"inputType":"audio","channel":-1}
+    );
+    try std.testing.expectEqual(@as(usize, 0), m.getCallCount(.setTrackRecInput));
+}
+
+test "track/setInput still accepts the highest ReaRoute audio channel" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{ .track_count = 1 };
+    runSetInput(&m,
+        \\{"type":"command","command":"track/setInput","trackIdx":0,"inputType":"audio","channel":511,"rearoute":1}
+    );
+    try std.testing.expectEqual(@as(usize, 1), m.getCallCount(.setTrackRecInput));
+    try std.testing.expectEqual(@as(c_int, 1023), m.tracks[0].rec_input);
 }

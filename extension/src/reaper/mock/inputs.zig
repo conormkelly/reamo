@@ -1,5 +1,6 @@
 /// Mock input enumeration methods for testing.
 const std = @import("std");
+const state = @import("state.zig");
 
 /// Input method implementations for MockBackend.
 /// Called via duck typing from the main MockBackend struct.
@@ -104,7 +105,8 @@ pub const InputsMethods = struct {
     }
 };
 
-// Helper to decode track pointer (index-as-pointer pattern used by mock)
+// Track pointers come from state.encodeTrackPtr, which offsets by one so
+// index 0 is not a null pointer.
 fn trackPtrToIdx(ptr: *anyopaque) c_int {
-    return @intCast(@intFromPtr(ptr));
+    return @intCast(state.decodeTrackPtr(ptr));
 }
