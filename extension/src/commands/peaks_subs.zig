@@ -18,6 +18,8 @@ fn parseViewport(raw: []const u8) ?ViewportParams {
     const end = protocol.jsonGetFloatFromObject(raw, "viewport", "end") orelse return null;
     const width_px = protocol.jsonGetIntFromObject(raw, "viewport", "widthPx") orelse return null;
     if (width_px <= 0) return null;
+    // jsonGetFloat parses e.g. 1e999 as inf.
+    if (!std.math.isFinite(start) or !std.math.isFinite(end)) return null;
     return ViewportParams{
         .start = start,
         .end = end,
@@ -180,4 +182,16 @@ pub fn handleUpdateViewport(_: anytype, cmd: protocol.CommandMessage, response: 
 // Tests
 test "handleSubscribe and handleUnsubscribe compile" {
     // Just verify the module compiles - full tests need mock ResponseWriter
+}
+
+test "parseViewport rejects non-finite viewport bounds" {
+    try std.testing.expect(parseViewport(
+        \\{"viewport":{"start":0,"end":1e999,"widthPx":400}}
+    ) == null);
+    try std.testing.expect(parseViewport(
+        \\{"viewport":{"start":-1e999,"end":10,"widthPx":400}}
+    ) == null);
+    try std.testing.expect(parseViewport(
+        \\{"viewport":{"start":0,"end":30,"widthPx":400}}
+    ) != null);
 }

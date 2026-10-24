@@ -606,7 +606,7 @@ pub fn tilesForViewport(
 ) ?TileRange {
     // Validate inputs
     const duration = viewport_end - viewport_start;
-    if (duration <= 0) {
+    if (!(duration > 0) or std.math.isInf(duration)) {
         logging.warn("peaks_tile: invalid viewport duration {d}", .{duration});
         return null;
     }
@@ -626,9 +626,16 @@ pub fn tilesForViewport(
     const buffered_start = @max(0.0, viewport_start - buffer);
     const buffered_end = viewport_end + buffer;
 
-    // Calculate tile indices
-    const start_tile: u32 = @intFromFloat(@floor(buffered_start / config.duration));
-    const end_tile: u32 = @intFromFloat(@ceil(buffered_end / config.duration));
+    // Calculate tile indices. A viewport (client-supplied) too far out for
+    // u32 tile indices has no tiles rather than trapping the conversion.
+    const start_tile = ffi.safeFloatToInt(u32, @floor(buffered_start / config.duration)) catch {
+        logging.warn("peaks_tile: viewport start {d} out of range", .{viewport_start});
+        return null;
+    };
+    const end_tile = ffi.safeFloatToInt(u32, @ceil(buffered_end / config.duration)) catch {
+        logging.warn("peaks_tile: viewport end {d} out of range", .{viewport_end});
+        return null;
+    };
 
     return TileRange{
         .lod = lod,
@@ -813,4 +820,13 @@ test "tilesForViewport invalid inputs" {
     // Zero width
     const zero_width = tilesForViewport(0.0, 10.0, 0, 0.0);
     try std.testing.expect(zero_width == null);
+}
+
+test "tilesForViewport returns null when the buffered viewport's tile indices don't fit u32" {
+    // Each once panicked converting the tile index (+inf, or > maxInt(u32) tiles).
+    try std.testing.expect(tilesForViewport(0, std.math.inf(f64), 400, 0.5) == null);
+    try std.testing.expect(tilesForViewport(0, 1e20, 400, 0.5) == null);
+    try std.testing.expect(tilesForViewport(-1e308, 0, 400, 0.5) == null);
+    // A realistic long viewport still resolves.
+    try std.testing.expect(tilesForViewport(0, 3600, 400, 0.5) != null);
 }
