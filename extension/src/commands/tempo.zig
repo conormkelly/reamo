@@ -139,11 +139,19 @@ pub fn handleBarsToTime(api: anytype, cmd: protocol.CommandMessage, response: *m
         response.err("MISSING_BAR", "bar is required");
         return;
     };
+    if (mod.validateBar(bar) == null) {
+        response.err("INVALID_BAR", "bar is out of range");
+        return;
+    }
 
     // Beat is 1-indexed in the input (like display), default to 1
     const beat_input = cmd.getInt("beat") orelse 1;
     // Ticks are 0-99, default to 0
     const ticks_input = cmd.getInt("ticks") orelse 0;
+    if (beat_input < 1 or ticks_input < 0 or ticks_input > 99) {
+        response.err("INVALID_BEAT", "beat must be >= 1 and ticks 0-99");
+        return;
+    }
 
     // Apply bar offset (reverse of what we do in timeToBeats)
     const bar_offset = api.getBarOffset();
@@ -174,4 +182,30 @@ pub fn handleBarsToTime(api: anytype, cmd: protocol.CommandMessage, response: *m
         return;
     };
     response.success(payload);
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "tempo/barsToTime rejects bar, beat and ticks that would overflow before converting" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{};
+    const rejected = [_][]const u8{
+        \\{"type":"command","command":"tempo/barsToTime","bar":-2147483648}
+        ,
+        \\{"type":"command","command":"tempo/barsToTime","bar":1,"beat":-2147483648}
+        ,
+        \\{"type":"command","command":"tempo/barsToTime","bar":1,"beat":0}
+        ,
+        \\{"type":"command","command":"tempo/barsToTime","bar":1,"ticks":100}
+        ,
+    };
+    for (rejected) |json| mod.testRunHandler(&m, handleBarsToTime, json);
+    try std.testing.expectEqual(@as(usize, 0), m.getCallCount(.barBeatToTime));
+
+    mod.testRunHandler(&m, handleBarsToTime,
+        \\{"type":"command","command":"tempo/barsToTime","bar":2,"beat":3,"ticks":50}
+    );
+    try std.testing.expect(m.getCallCount(.barBeatToTime) > 0);
 }

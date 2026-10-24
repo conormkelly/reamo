@@ -540,17 +540,7 @@ test "roundtrip - MIDI device with channel" {
 // ============================================================================
 
 fn runSetInput(api: anytype, json: []const u8) void {
-    const ws_server = @import("../server/ws_server.zig");
-    const cmd = protocol.CommandMessage.parse(json).?;
-    // No "id" in the message, so the ResponseWriter never touches shared_state.
-    var shared: ws_server.SharedState = undefined;
-    var response = mod.ResponseWriter{
-        .client_id = 1,
-        .cmd_id = null,
-        .shared_state = &shared,
-        .gestures = null,
-    };
-    handleSetInput(api, cmd, &response);
+    mod.testRunHandler(api, handleSetInput, json);
 }
 
 test "track/setInput rejects audio channels outside I_RECINPUT's channel bits without setting the input" {
