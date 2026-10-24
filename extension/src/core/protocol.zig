@@ -455,7 +455,8 @@ pub fn jsonGetStringArray(
 
 /// Get an integer array from JSON.
 /// E.g., for {"indices": [0, 5, 10]}, call jsonGetIntArray(data, "indices", ...)
-/// Returns the number of integers parsed, or null if the key is not found.
+/// Returns the number of integers parsed, or null if the key is not found or
+/// the array holds anything other than integers.
 pub fn jsonGetIntArray(
     data: []const u8,
     key: []const u8,
@@ -482,31 +483,42 @@ pub fn jsonGetIntArray(
     var count: usize = 0;
     var pos = open_bracket + 1;
 
-    while (pos < close_bracket and count < max_items) {
-        // Skip whitespace and commas
-        while (pos < close_bracket and (data[pos] == ' ' or data[pos] == ',' or data[pos] == '\t' or data[pos] == '\n')) {
-            pos += 1;
-        }
-
+    // Every iteration must consume a number or bail out: an element the
+    // scanner cannot advance past would otherwise spin forever.
+    while (count < max_items) {
+        pos = skipJsonWhitespace(data, pos, close_bracket);
         if (pos >= close_bracket) break;
 
         // Find start of number (handles negative)
         const num_start = pos;
         if (data[pos] == '-') pos += 1;
+        const digits_start = pos;
 
         // Find end of number
         while (pos < close_bracket and data[pos] >= '0' and data[pos] <= '9') {
             pos += 1;
         }
+        if (pos == digits_start) return null;
 
-        if (pos > num_start) {
-            const value = std.fmt.parseInt(c_int, data[num_start..pos], 10) catch continue;
-            out_values[count] = value;
-            count += 1;
-        }
+        const value = std.fmt.parseInt(c_int, data[num_start..pos], 10) catch return null;
+        out_values[count] = value;
+        count += 1;
+
+        // A number must be followed by a separator or the end of the array.
+        pos = skipJsonWhitespace(data, pos, close_bracket);
+        if (pos >= close_bracket) break;
+        if (data[pos] != ',') return null;
+        pos += 1;
     }
 
     return count;
+}
+
+/// Index of the first non-whitespace byte in data[pos..end], or `end`.
+fn skipJsonWhitespace(data: []const u8, pos: usize, end: usize) usize {
+    var i = pos;
+    while (i < end and (data[i] == ' ' or data[i] == '\t' or data[i] == '\n' or data[i] == '\r')) i += 1;
+    return i;
 }
 
 // JSON building helpers
@@ -1003,4 +1015,30 @@ test "jsonGetIntArray respects max_items" {
     var values: [2]c_int = undefined;
     const count = jsonGetIntArray(data, "values", 2, &values).?;
     try std.testing.expectEqual(@as(usize, 2), count);
+}
+
+test "jsonGetIntArray returns null for non-integer elements instead of looping forever" {
+    // Each of these once spun REAPER's main thread forever: the scanner never
+    // advanced past a byte that was not whitespace, a comma, '-' or a digit.
+    const malformed = [_][]const u8{
+        "{\"indices\":[1,x]}",
+        "{\"indices\":[1.5]}",
+        "{\"indices\":[true]}",
+        "{\"indices\":[null]}",
+        "{\"indices\":[\"0\"]}",
+        "{\"indices\":[-]}",
+        "{\"indices\":[1 2]}",
+    };
+    var values: [10]c_int = undefined;
+    for (malformed) |data| {
+        try std.testing.expectEqual(@as(?usize, null), jsonGetIntArray(data, "indices", 10, &values));
+    }
+}
+
+test "jsonGetIntArray accepts CRLF whitespace between elements" {
+    const data = "{\"indices\":[\r\n1,\r\n2\r\n]}";
+    var values: [10]c_int = undefined;
+    const count = jsonGetIntArray(data, "indices", 10, &values).?;
+    try std.testing.expectEqual(@as(usize, 2), count);
+    try std.testing.expectEqual(@as(c_int, 2), values[1]);
 }
