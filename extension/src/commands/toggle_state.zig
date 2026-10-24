@@ -268,7 +268,8 @@ fn parseCommandIds(cmd: protocol.CommandMessage) ?ParsedCommandIds {
         const trimmed = std.mem.trim(u8, num_str, " \t\r\n");
         if (trimmed.len == 0) continue;
 
-        const num = std.fmt.parseInt(u32, trimmed, 10) catch continue;
+        // u31: REAPER command IDs are c_int, and subscribing casts to it.
+        const num = std.fmt.parseInt(u31, trimmed, 10) catch continue;
         if (result.len >= result.buf.len) break; // Buffer full
         result.buf[result.len] = num;
         result.len += 1;
@@ -393,7 +394,8 @@ fn parseActions(cmd: protocol.CommandMessage) ?ParsedActions {
             var val_end = val_start;
             while (val_end < obj_content.len and (obj_content[val_end] >= '0' and obj_content[val_end] <= '9')) : (val_end += 1) {}
             if (val_end > val_start) {
-                command_id = std.fmt.parseInt(u32, obj_content[val_start..val_end], 10) catch null;
+                // u31: REAPER command IDs are c_int, and subscribing casts to it.
+                command_id = std.fmt.parseInt(u31, obj_content[val_start..val_end], 10) catch null;
             }
         }
 
@@ -513,6 +515,25 @@ fn parseNamedActions(cmd: protocol.CommandMessage) ?ParsedNamedActions {
 
 // Tests
 test "parseCommandIds parses array" {
-    // We can't easily test this without mocking protocol.CommandMessage
-    // The integration tests via websocat will verify this works
+    const cmd = protocol.CommandMessage.parse(
+        \\{"type":"command","command":"actionToggleState/subscribe","commandIds":[40364, 1007]}
+    ).?;
+    const ids = parseCommandIds(cmd).?;
+    try std.testing.expectEqualSlices(u32, &.{ 40364, 1007 }, ids.slice());
+}
+
+test "toggle parsers drop command IDs that don't fit REAPER's c_int command type" {
+    // Subscribing cast each ID to c_int for GetToggleCommandStateEx; IDs above
+    // maxInt(c_int) panicked there.
+    const ids_cmd = protocol.CommandMessage.parse(
+        \\{"type":"command","command":"actionToggleState/subscribe","commandIds":[2147483648,4294967295,40364]}
+    ).?;
+    try std.testing.expectEqualSlices(u32, &.{40364}, parseCommandIds(ids_cmd).?.slice());
+
+    const actions_cmd = protocol.CommandMessage.parse(
+        \\{"type":"command","command":"actionToggleState/subscribe","actions":[{"c":2147483648,"s":0},{"c":40364,"s":0}]}
+    ).?;
+    const actions = parseActions(actions_cmd).?;
+    try std.testing.expectEqual(@as(usize, 1), actions.slice().len);
+    try std.testing.expectEqual(@as(u32, 40364), actions.slice()[0].command_id);
 }
