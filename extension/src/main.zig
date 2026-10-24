@@ -1153,6 +1153,7 @@ test {
     _ = @import("core/logging.zig");
     _ = @import("core/protocol.zig");
     _ = @import("platform/sigpipe.zig");
+    _ = @import("platform/network_action.zig");
     _ = @import("reaper/raw.zig");
     _ = @import("state/transport.zig");
     _ = @import("state/project.zig");

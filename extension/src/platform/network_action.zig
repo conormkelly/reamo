@@ -397,19 +397,20 @@ pub fn showAllowedHosts() void {
     var host_slices: [16][]const u8 = undefined;
     const count = host_validation.getAllowedHosts(&host_slices);
 
-    var default_buf: [512]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&default_buf);
-    const writer = fbs.writer();
-    for (0..count) |i| {
-        if (i > 0) writer.writeAll(",") catch {};
-        writer.writeAll(host_slices[i]) catch {};
-    }
-    const default_written = fbs.getWritten();
-
     // GetUserInputs writes result into this buffer
     var input_buf: [512]u8 = undefined;
-    @memcpy(input_buf[0..default_written.len], default_written);
-    input_buf[default_written.len] = 0;
+
+    // Whole entries only, leaving room for the NUL: up to 16 hosts of 128
+    // chars don't fit, and a host cut mid-name would be saved back on OK.
+    var default_len: usize = 0;
+    for (host_slices[0..count]) |host| {
+        const sep: usize = if (default_len > 0) 1 else 0;
+        if (default_len + sep + host.len > input_buf.len - 1) break;
+        if (sep == 1) input_buf[default_len] = ',';
+        @memcpy(input_buf[default_len + sep ..][0..host.len], host);
+        default_len += sep + host.len;
+    }
+    input_buf[default_len] = 0;
 
     if (!get_input(
         "REAmo Allowed Hosts",
@@ -509,4 +510,46 @@ pub fn showAllowedHosts() void {
         }
         _ = show_msg(@ptrCast(&msg_buf), "REAmo", 0);
     }
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+var test_dialog_default: [512]u8 = undefined;
+var test_dialog_default_len: usize = 0;
+
+/// GetUserInputs stand-in: records the default value it was handed, then cancels.
+fn captureDefaultAndCancel(_: [*:0]const u8, _: c_int, _: [*:0]const u8, buf: [*]u8, buf_len: c_int) callconv(.c) bool {
+    const len = std.mem.indexOfScalar(u8, buf[0..@intCast(buf_len)], 0) orelse @as(usize, @intCast(buf_len));
+    @memcpy(test_dialog_default[0..len], buf[0..len]);
+    test_dialog_default_len = len;
+    return false;
+}
+
+test "showAllowedHosts hands the dialog a NUL-terminated default of whole hosts when the list exceeds its buffer" {
+    host_validation.clearAllowedHosts();
+    defer host_validation.clearAllowedHosts();
+    defer init(null, null, null, null, null);
+
+    // 15 hosts of 36 chars joined by commas is 554 bytes, more than the
+    // dialog's 512-byte buffer; writing the terminator past it panicked.
+    var names: [15][40]u8 = undefined;
+    var hosts: [15][]const u8 = undefined;
+    for (&names, &hosts, 0..) |*name, *host, i| {
+        host.* = try std.fmt.bufPrint(name, "host-{d:0>3}-macbook-pro.tail1234.ts.net", .{i});
+        try std.testing.expect(host_validation.addAllowedHost(host.*));
+    }
+
+    init(null, null, &captureDefaultAndCancel, null, null);
+    showAllowedHosts();
+
+    const default = test_dialog_default[0..test_dialog_default_len];
+    try std.testing.expect(default.len < 512);
+    var it = std.mem.splitScalar(u8, default, ',');
+    var seen: usize = 0;
+    while (it.next()) |entry| : (seen += 1) {
+        try std.testing.expectEqualStrings(hosts[seen], entry);
+    }
+    try std.testing.expectEqual(@as(usize, 13), seen);
 }
