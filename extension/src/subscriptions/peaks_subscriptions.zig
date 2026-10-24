@@ -242,7 +242,11 @@ pub const PeaksSubscriptions = struct {
 
         client.mode = .range;
         client.range_start = @max(0, start);
-        client.range_end = @max(client.range_start, end);
+        // Saturating: range_start may itself be near maxInt(c_int).
+        client.range_end = @min(
+            @max(client.range_start, end),
+            client.range_start +| (constants.MAX_SUBSCRIPTION_RANGE_SPAN - 1),
+        );
         client.sample_count = sample_count;
 
         // Set viewport if provided
@@ -399,9 +403,11 @@ pub const PeaksSubscriptions = struct {
         if (client.mode == .range) {
             const now = std.time.nanoTimestamp();
             const expiry = now + GRACE_PERIOD_NS;
+            // Stop at range_end before incrementing: range_end may be maxInt(c_int).
             var idx = client.range_start;
-            while (idx <= client.range_end) : (idx += 1) {
+            while (true) : (idx += 1) {
                 self.grace_until.put(idx, expiry) catch {};
+                if (idx == client.range_end) break;
             }
         }
 
@@ -788,4 +794,27 @@ test "slot recycling after client disconnect" {
     // New client should succeed (slot recycled)
     _ = try subs.subscribeRange(100, 0, 5, 30);
     try std.testing.expectEqual(@as(usize, MAX_CLIENTS), subs.clientCount());
+}
+
+test "subscribeRange caps an oversized range instead of overflowing the count" {
+    const allocator = std.testing.allocator;
+    var subs = PeaksSubscriptions.init(allocator);
+    defer subs.deinit();
+
+    const count = try subs.subscribeRange(1, 0, std.math.maxInt(c_int), 30);
+    try std.testing.expectEqual(@as(usize, constants.MAX_SUBSCRIPTION_RANGE_SPAN), count);
+}
+
+test "removeClient after a range ending at maxInt(c_int) terminates with bounded grace entries" {
+    const allocator = std.testing.allocator;
+    var subs = PeaksSubscriptions.init(allocator);
+    defer subs.deinit();
+
+    _ = try subs.subscribeRange(1, 1, std.math.maxInt(c_int), 30);
+    subs.removeClient(1);
+    try std.testing.expect(subs.grace_until.count() <= constants.MAX_SUBSCRIPTION_RANGE_SPAN);
+
+    // A one-index range at the very top must not overflow the loop counter.
+    _ = try subs.subscribeRange(1, std.math.maxInt(c_int), std.math.maxInt(c_int), 30);
+    subs.removeClient(1);
 }

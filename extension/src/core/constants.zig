@@ -52,6 +52,11 @@ pub const MAX_SUBSCRIPTION_CLIENTS: usize = 16;
 /// Maximum tracks a single client can subscribe to
 pub const MAX_TRACKS_PER_CLIENT: usize = 64;
 
+/// Maximum span of a range subscription (track/peaks), in unified indices.
+/// Far beyond any real project; bounds the per-client count and the grace
+/// bookkeeping done for every index in the range on disconnect.
+pub const MAX_SUBSCRIPTION_RANGE_SPAN: c_int = 10_000;
+
 /// Maximum GUIDs a single client can subscribe to
 pub const MAX_GUIDS_PER_CLIENT: usize = 64;
 
