@@ -13,6 +13,7 @@
 /// Filter fields enable built-in banks (Muted, Soloed, Armed, Selected, Folders, With Sends)
 /// without requiring full track subscriptions. Polled in same loop - no extra overhead.
 const std = @import("std");
+const ffi = @import("../core/ffi.zig");
 const Allocator = std.mem.Allocator;
 const protocol = @import("../core/protocol.zig");
 const constants = @import("../core/constants.zig");
@@ -37,7 +38,7 @@ pub const SkeletonTrack = struct {
     send_count: u16 = 0,
     hw_output_count: u16 = 0,
     clipped: bool = false, // Sticky clip flag (L or R channel exceeded 0dB)
-    item_count: u16 = 0, // Number of media items on track
+    item_count: u32 = 0, // Number of media items on track
     input_type: u8 = 0, // 0=none, 1=audio, 2=midi (from I_RECINPUT)
     free_mode: u8 = 0, // 0=normal, 1=free positioning, 2=fixed lanes (for comping)
     color: c_int = 0, // Native OS color (0x01rrggbb), 0 = theme default
@@ -142,9 +143,9 @@ pub const State = struct {
                 t.rec_arm = api.getTrackRecArm(track);
                 t.folder_depth = api.getTrackFolderDepth(track) catch 0;
                 const send_c = api.trackSendCount(track);
-                t.send_count = if (send_c >= 0) @intCast(send_c) else 0;
+                t.send_count = ffi.clampCount(u16, send_c);
                 const hw_c = api.trackHwOutputCount(track);
-                t.hw_output_count = if (hw_c >= 0) @intCast(hw_c) else 0;
+                t.hw_output_count = ffi.clampCount(u16, hw_c);
 
                 // Clipped: check peak hold on L/R channels (sticky until cleared, use clear=false)
                 const hold_l = api.getTrackPeakHoldDB(track, 0, false);
@@ -153,7 +154,7 @@ pub const State = struct {
 
                 // Item count (master track can have items too)
                 const item_c = api.trackItemCount(track);
-                t.item_count = if (item_c >= 0) @intCast(item_c) else 0;
+                t.item_count = ffi.clampCount(u32, item_c);
 
                 // Free mode: 0=normal, 1=free positioning, 2=fixed lanes
                 // Master track (idx 0) doesn't support free mode
@@ -389,4 +390,16 @@ test "State toJsonAlloc dynamically sizes buffer" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"event\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"event\":\"trackSkeleton\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"g\":\"master\"") != null);
+}
+
+test "State poll reports a track with more than 65535 items instead of overflowing" {
+    const reaper = @import("../reaper.zig");
+    var mock = reaper.MockBackend{ .track_count = 1 };
+    // Unified index 1 is the first user track. REAPER reports the real count.
+    mock.tracks[1].item_count = 70_000;
+
+    const state = try State.poll(std.testing.allocator, &mock);
+    defer std.testing.allocator.free(state.tracks);
+
+    try std.testing.expectEqual(@as(u32, 70_000), state.tracks[1].item_count);
 }

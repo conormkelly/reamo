@@ -1,4 +1,5 @@
 const std = @import("std");
+const ffi = @import("../core/ffi.zig");
 const Allocator = std.mem.Allocator;
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
@@ -258,13 +259,13 @@ pub const State = struct {
                 t.folder_depth = api.getTrackFolderDepth(track) catch 0;
                 // Sparse counts - full data fetched on-demand via track/getFx, track/getSends
                 const fx_c = api.trackFxCount(track);
-                t.fx_count = if (fx_c >= 0) @intCast(fx_c) else 0;
+                t.fx_count = ffi.clampCount(u16, fx_c);
                 const send_c = api.trackSendCount(track);
-                t.send_count = if (send_c >= 0) @intCast(send_c) else 0;
+                t.send_count = ffi.clampCount(u16, send_c);
                 const recv_c = api.trackReceiveCount(track);
-                t.receive_count = if (recv_c >= 0) @intCast(recv_c) else 0;
+                t.receive_count = ffi.clampCount(u16, recv_c);
                 const hw_c = api.trackHwOutputCount(track);
-                t.hw_output_count = if (hw_c >= 0) @intCast(hw_c) else 0;
+                t.hw_output_count = ffi.clampCount(u16, hw_c);
 
                 // GUID for stable identification (master uses literal "master")
                 if (idx == 0) {
@@ -338,13 +339,13 @@ pub const State = struct {
                 t.folder_depth = api.getTrackFolderDepth(track) catch 0;
 
                 const fx_c = api.trackFxCount(track);
-                t.fx_count = if (fx_c >= 0) @intCast(fx_c) else 0;
+                t.fx_count = ffi.clampCount(u16, fx_c);
                 const send_c = api.trackSendCount(track);
-                t.send_count = if (send_c >= 0) @intCast(send_c) else 0;
+                t.send_count = ffi.clampCount(u16, send_c);
                 const recv_c = api.trackReceiveCount(track);
-                t.receive_count = if (recv_c >= 0) @intCast(recv_c) else 0;
+                t.receive_count = ffi.clampCount(u16, recv_c);
                 const hw_c = api.trackHwOutputCount(track);
-                t.hw_output_count = if (hw_c >= 0) @intCast(hw_c) else 0;
+                t.hw_output_count = ffi.clampCount(u16, hw_c);
 
                 // GUID for stable identification
                 if (idx == 0) {
