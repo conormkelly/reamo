@@ -1253,7 +1253,9 @@ pub const Api = struct {
 
     /// Get track by unified index: 0 = master, 1+ = user tracks
     /// This matches REAPER's HTTP API convention where track 0 is master
+    /// Negative indices (client-supplied) resolve to no track.
     pub fn getTrackByUnifiedIdx(self: *const Api, idx: c_int) ?*anyopaque {
+        if (idx < 0) return null;
         if (idx == 0) {
             return self.masterTrack();
         } else {
@@ -2694,3 +2696,11 @@ pub const Command = struct {
     pub const DUPLICATE_TRACKS: c_int = 40062; // Track: Duplicate tracks
     pub const DELETE_SELECTED_TRACKS: c_int = 40005; // Track: Remove tracks
 };
+
+test "getTrackByUnifiedIdx returns null for negative indices instead of overflowing" {
+    // Function pointers are all null: a negative index must be rejected before
+    // any arithmetic, since `idx - 1` on minInt(c_int) traps in ReleaseSafe.
+    const api = Api{ .showConsoleMsg = undefined, .register = undefined };
+    try std.testing.expectEqual(@as(?*anyopaque, null), api.getTrackByUnifiedIdx(std.math.minInt(c_int)));
+    try std.testing.expectEqual(@as(?*anyopaque, null), api.getTrackByUnifiedIdx(-1));
+}
