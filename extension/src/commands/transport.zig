@@ -54,6 +54,10 @@ pub fn handleSeekBeats(api: anytype, cmd: protocol.CommandMessage, response: *mo
         response.err("MISSING_BAR", "bar is required");
         return;
     };
+    if (mod.validateBar(bar) == null) {
+        response.err("INVALID_BAR", "bar is out of range");
+        return;
+    }
 
     // Beat defaults to 1 (start of bar) if not provided
     const beat: f64 = if (cmd.getFloat("beat")) |b| b else 1.0;
@@ -62,4 +66,22 @@ pub fn handleSeekBeats(api: anytype, cmd: protocol.CommandMessage, response: *mo
     const time = api.barBeatToTime(bar, beat);
     api.setCursorPos(time);
     logging.info("Seek to bar {d}.{d:.1} ({d:.3}s)", .{ bar, beat, time });
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "transport/seekBeats rejects bars that would overflow bar arithmetic" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{};
+    mod.testRunHandler(&m, handleSeekBeats,
+        \\{"type":"command","command":"transport/seekBeats","bar":-2147483648}
+    );
+    try std.testing.expectEqual(@as(usize, 0), m.getCallCount(.setCursorPos));
+
+    mod.testRunHandler(&m, handleSeekBeats,
+        \\{"type":"command","command":"transport/seekBeats","bar":-3}
+    );
+    try std.testing.expectEqual(@as(usize, 1), m.getCallCount(.setCursorPos));
 }

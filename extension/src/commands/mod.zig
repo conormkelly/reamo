@@ -291,6 +291,34 @@ pub fn validatePosition(pos: ?f64) ?f64 {
     return p;
 }
 
+/// Largest bar number magnitude accepted from clients. Bars may be negative
+/// (project measure offset), but nothing real is a million bars from zero, and
+/// the bound keeps `bar - 1` / `bar - offset` arithmetic inside c_int.
+pub const MAX_BAR_MAGNITUDE: c_int = 1_000_000;
+
+// Validate a client-supplied bar number - returns null if out of range
+pub fn validateBar(bar: ?c_int) ?c_int {
+    const b = bar orelse return null;
+    if (b < -MAX_BAR_MAGNITUDE or b > MAX_BAR_MAGNITUDE) return null;
+    return b;
+}
+
+/// Test helper: run a handler on a raw client message, as dispatch would.
+/// The message must carry no "id", so the ResponseWriter never touches
+/// shared_state and handlers can be exercised against MockBackend directly.
+pub fn testRunHandler(api: anytype, comptime handler: anytype, json: []const u8) void {
+    const cmd = protocol.CommandMessage.parse(json).?;
+    std.debug.assert(cmd.getId() == null);
+    var shared: ws_server.SharedState = undefined;
+    var response = ResponseWriter{
+        .client_id = 1,
+        .cmd_id = null,
+        .shared_state = &shared,
+        .gestures = null,
+    };
+    handler(api, cmd, &response);
+}
+
 // ============================================================================
 // Tests
 // ============================================================================

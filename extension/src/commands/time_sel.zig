@@ -35,6 +35,10 @@ pub fn handleSetBars(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         response.err("MISSING_END_BAR", "endBar is required");
         return;
     };
+    if (mod.validateBar(start_bar) == null or mod.validateBar(end_bar) == null) {
+        response.err("INVALID_BAR", "startBar/endBar is out of range");
+        return;
+    }
 
     // Beat defaults to 1 (start of bar) if not provided
     const start_beat: f64 = if (cmd.getFloat("startBeat")) |b| b else 1.0;
@@ -76,4 +80,25 @@ pub fn handleSetStart(api: anytype, _: protocol.CommandMessage, _: *mod.Response
 /// Set time selection end at current cursor position
 pub fn handleSetEnd(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWriter) void {
     api.runCommand(reaper.Command.TIME_SEL_SET_END);
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "timeSelection/setByBars rejects bars that would overflow bar arithmetic" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{};
+    mod.testRunHandler(&m, handleSetBars,
+        \\{"type":"command","command":"timeSelection/setByBars","startBar":1,"endBar":-2147483648}
+    );
+    mod.testRunHandler(&m, handleSetBars,
+        \\{"type":"command","command":"timeSelection/setByBars","startBar":-2147483648,"endBar":2}
+    );
+    try std.testing.expectEqual(@as(usize, 0), m.getCallCount(.setTimeSelection));
+
+    mod.testRunHandler(&m, handleSetBars,
+        \\{"type":"command","command":"timeSelection/setByBars","startBar":1,"endBar":3}
+    );
+    try std.testing.expectEqual(@as(usize, 1), m.getCallCount(.setTimeSelection));
 }
