@@ -1162,6 +1162,7 @@ test {
     _ = @import("state/tracks.zig");
     _ = @import("commands/mod.zig");
     _ = @import("server/ws_server.zig");
+    _ = @import("server/http_server_stress_test.zig");
     _ = @import("server/gesture_state.zig");
     _ = @import("subscriptions/toggle_subscriptions.zig");
     _ = @import("server/subscription_polling.zig");
