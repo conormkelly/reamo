@@ -612,6 +612,10 @@ pub fn buildEvent(buf: []u8, event_name: []const u8, payload_fn: fn (*JsonWriter
 // On Windows, transcodes from the system's active code page (e.g. Windows-1252)
 // to UTF-8 before escaping — REAPER's C API returns strings in the local code
 // page, not UTF-8, which would otherwise break WebSocket text frames.
+/// Largest message serializeAlloc builds. A 10,000-track project's track
+/// list is a few MB; a WebSocket frame this size would already stall a phone.
+pub const MAX_SERIALIZED_SIZE: usize = 64 * 1024 * 1024;
+
 /// Serialize with `toJson(ctx, buf)` (which returns null when `buf` is too
 /// small) into a buffer from `allocator`, starting at `initial_size` and
 /// doubling until it fits. Entity JSON size depends on names and escaping, so
@@ -621,16 +625,25 @@ pub fn buildEvent(buf: []u8, event_name: []const u8, payload_fn: fn (*JsonWriter
 /// don't consume scratch space. Logs if the allocator itself runs out. The
 /// result is its own allocation, exactly the JSON's length, so any allocator
 /// can free it.
+///
+/// `toJson` must return null only when the buffer is too small. Any other
+/// failure looks the same, so growth stops at MAX_SERIALIZED_SIZE, far past
+/// any real event, rather than doubling until memory runs out.
 pub fn serializeAlloc(
     allocator: std.mem.Allocator,
     initial_size: usize,
     ctx: anytype,
     comptime toJson: fn (@TypeOf(ctx), []u8) ?[]const u8,
 ) ![]const u8 {
+    const what = @typeName(@TypeOf(ctx));
     var size = @max(initial_size, 256);
     while (true) {
+        if (size > MAX_SERIALIZED_SIZE) {
+            logging.err("JSON serialization of {s} failed below {d} bytes; its toJson fails for a reason other than space", .{ what, MAX_SERIALIZED_SIZE });
+            return error.SerializationFailed;
+        }
         const buf = allocator.alloc(u8, size) catch |err| {
-            logging.warn("JSON serialization needs more than {d} bytes: {s}", .{ size, @errorName(err) });
+            logging.warn("JSON serialization of {s} needs more than {d} bytes: {s}", .{ what, size, @errorName(err) });
             return err;
         };
         if (toJson(ctx, buf)) |json| {
@@ -1252,4 +1265,15 @@ test "serializeAlloc grows past a too-small estimate and reclaims failed attempt
     var small: [4096]u8 = undefined;
     var small_fba = std.heap.FixedBufferAllocator.init(&small);
     try std.testing.expectError(error.OutOfMemory, serializeAlloc(small_fba.allocator(), 1, &payload, Payload.toJson));
+}
+
+test "serializeAlloc gives up on a toJson that fails for a reason other than space" {
+    const Broken = struct {
+        fn toJson(_: void, _: []u8) ?[]const u8 {
+            return null;
+        }
+    };
+    // Would otherwise double until the allocator gave out (a general
+    // allocator could hand over gigabytes first).
+    try std.testing.expectError(error.SerializationFailed, serializeAlloc(std.testing.allocator, 1, {}, Broken.toJson));
 }
