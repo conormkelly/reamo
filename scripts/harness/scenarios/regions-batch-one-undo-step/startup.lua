@@ -1,0 +1,6 @@
+dofile(reaper.GetResourcePath() .. "/Scripts/harness.lua")
+reaper.AddProjectMarker2(0, true, 0, 8, "Intro", 1, 0)
+reaper.AddProjectMarker2(0, true, 8, 16, "Verse", 2, 0)
+reaper.AddProjectMarker2(0, true, 16, 24, "Chorus", 3, 0)
+reaper.Undo_OnStateChangeEx("fixture", -1, -1)
+harness.ready()

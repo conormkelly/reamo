@@ -86,6 +86,17 @@ pub fn inGesture(response: *const ResponseWriter, control: gesture_state.Control
     return gestures.isActive(control);
 }
 
+/// The name a marker/region add or update should store, NUL-terminated and
+/// whole: the client's text (unescaped) when it sent a non-empty one, else a
+/// copy of `current` (REAPER's own string must not be passed back into the
+/// setter that may free it). Free with c_allocator.
+pub fn resolveNameZ(provided: ?[:0]u8, current: []const u8) ![:0]u8 {
+    if (provided) |p| {
+        if (p.len > 0) return std.heap.c_allocator.dupeZ(u8, p);
+    }
+    return std.heap.c_allocator.dupeZ(u8, current);
+}
+
 // Response writer for sending responses to the requesting client only
 pub const ResponseWriter = struct {
     client_id: usize,

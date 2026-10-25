@@ -66,6 +66,13 @@ pub const CommandMessage = struct {
         return jsonGetString(self.raw, key);
     }
 
+    /// A text parameter (a name, notes, a stored value) as the user typed it:
+    /// unescaped, whole, NUL-terminated, in a new allocation from `allocator`.
+    /// null when the key is absent.
+    pub fn getTextAlloc(self: CommandMessage, key: []const u8, allocator: std.mem.Allocator) !?[:0]u8 {
+        return jsonGetTextAlloc(self.raw, key, allocator);
+    }
+
     // Get a string parameter with JSON unescaping (for content that may contain \n, \t, etc.)
     pub fn getStringUnescaped(self: CommandMessage, key: []const u8, out_buf: []u8) ?[]const u8 {
         return jsonGetStringUnescaped(self.raw, key, out_buf);
@@ -115,6 +122,16 @@ pub fn jsonGetString(data: []const u8, key: []const u8) ?[]const u8 {
     if (i >= data.len) return null;
 
     return data[quote1 + 1 .. i];
+}
+
+/// See CommandMessage.getTextAlloc. Unescaping never lengthens JSON text,
+/// so a buffer the size of the escaped value always holds all of it.
+pub fn jsonGetTextAlloc(data: []const u8, key: []const u8, allocator: std.mem.Allocator) !?[:0]u8 {
+    const escaped = jsonGetString(data, key) orelse return null;
+    const tmp = try allocator.alloc(u8, escaped.len);
+    defer allocator.free(tmp);
+    const text = jsonGetStringUnescaped(data, key, tmp) orelse return null;
+    return try allocator.dupeZ(u8, text);
 }
 
 /// The 4-hex-digit code unit of a \\uXXXX escape starting at data[at], or null.
@@ -836,6 +853,15 @@ test "writeJsonString never emits invalid UTF-8" {
     var stream = std.io.fixedBufferStream(&buf);
     try writeJsonString(stream.writer(), "ok \u{1F3A4}\"");
     try std.testing.expectEqualStrings("ok \u{1F3A4}\\\"", stream.getWritten());
+}
+
+test "jsonGetTextAlloc returns the whole name unescaped" {
+    const long = "Estribillo \\\"final\\\" \\\\ versi\u{F3}n ac\u{FA}stica, guitarra y voz principal, \u{A1}\u{FA}ltima!";
+    const json = "{\"name\":\"" ++ long ++ "\",\"color\":0}";
+    const text = (try jsonGetTextAlloc(json, "name", std.testing.allocator)).?;
+    defer std.testing.allocator.free(text);
+    try std.testing.expectEqualStrings("Estribillo \"final\" \\ versi\u{F3}n ac\u{FA}stica, guitarra y voz principal, \u{A1}\u{FA}ltima!", text);
+    try std.testing.expect((try jsonGetTextAlloc(json, "missing", std.testing.allocator)) == null);
 }
 
 test "jsonGetStringUnescaped decodes surrogate pairs to one character" {

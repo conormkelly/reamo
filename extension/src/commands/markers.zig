@@ -11,8 +11,11 @@ pub fn handleMarkerAdd(api: anytype, cmd: protocol.CommandMessage, response: *mo
     };
     const color = cmd.getInt("color") orelse 0;
 
-    var name_buf: [65]u8 = undefined;
-    const name = mod.toNullTerminated(&name_buf, cmd.getString("name"));
+    const name = mod.resolveNameZ(cmd.getTextAlloc("name", std.heap.c_allocator) catch null, "") catch {
+        response.err("ALLOC_FAILED", "Failed to read name");
+        return;
+    };
+    defer std.heap.c_allocator.free(name);
 
     api.undoBeginBlock();
     const id = api.addMarker(pos, name, color);
@@ -53,13 +56,15 @@ pub fn handleMarkerUpdate(api: anytype, cmd: protocol.CommandMessage, response: 
     // PATCH semantics: use provided values, fall back to current
     const pos = cmd.getFloat("position") orelse current_pos;
 
-    // Name: use provided if non-empty, else preserve current
-    var name_buf: [65]u8 = undefined;
-    const provided_name = cmd.getString("name");
-    const name = if (provided_name) |n| blk: {
-        if (n.len == 0) break :blk mod.toNullTerminated(&name_buf, current_name);
-        break :blk mod.toNullTerminated(&name_buf, n);
-    } else mod.toNullTerminated(&name_buf, current_name);
+    // Name: use provided if non-empty, else preserve current (whole: a
+    // drag that sends only a position must not shorten the name).
+    const provided_name = cmd.getTextAlloc("name", std.heap.c_allocator) catch null;
+    defer if (provided_name) |n| std.heap.c_allocator.free(n);
+    const name = mod.resolveNameZ(provided_name, current_name) catch {
+        response.err("ALLOC_FAILED", "Failed to read name");
+        return;
+    };
+    defer std.heap.c_allocator.free(name);
 
     // Color: null = preserve, 0 = reset to default, other = use value
     const color_provided = cmd.getInt("color");

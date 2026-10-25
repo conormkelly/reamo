@@ -153,11 +153,12 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
         return;
     }
 
-    const fx_name = cmd.getString("fxName") orelse {
+    const fx_name = (cmd.getTextAlloc("fxName", std.heap.c_allocator) catch null) orelse {
         logging.warn("trackFx/add: missing fxName", .{});
         response.err("MISSING_PARAM", "fxName is required");
         return;
     };
+    defer std.heap.c_allocator.free(fx_name);
 
     const position = cmd.getInt("position") orelse -1;
 
