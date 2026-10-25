@@ -633,19 +633,21 @@ fn pollLowTierRegular(
         logging.info("Track skeleton changed: {d} tracks", .{current_skeleton.count()});
     }
 
-    // Update persistent skeleton state for next comparison
-    if (current_skeleton.tracks.len <= tracks.MAX_TRACKS) {
-        if (mutable.last_skeleton_buf.len < current_skeleton.tracks.len) {
-            // Reallocate if needed
-            if (mutable.last_skeleton_buf.len > 0) {
-                ctx.allocator.free(mutable.last_skeleton_buf.*);
-            }
-            mutable.last_skeleton_buf.* = ctx.allocator.alloc(track_skeleton.SkeletonTrack, current_skeleton.tracks.len) catch &.{};
+    // Keep a copy for the next comparison: current_skeleton lives in the low
+    // tier's arena, which is reset before the next poll. If the copy can't
+    // be made, the next poll sees a change and broadcasts again.
+    const n = current_skeleton.tracks.len;
+    if (mutable.last_skeleton_buf.len < n) {
+        if (ctx.allocator.alloc(track_skeleton.SkeletonTrack, n)) |grown| {
+            if (mutable.last_skeleton_buf.len > 0) ctx.allocator.free(mutable.last_skeleton_buf.*);
+            mutable.last_skeleton_buf.* = grown;
+        } else |err| {
+            logging.warn("Track skeleton: can't keep a copy of {d} tracks ({s}); it will be resent every poll", .{ n, @errorName(err) });
         }
-        if (mutable.last_skeleton_buf.len >= current_skeleton.tracks.len) {
-            @memcpy(mutable.last_skeleton_buf.*[0..current_skeleton.tracks.len], current_skeleton.tracks);
-            mutable.last_skeleton.tracks = mutable.last_skeleton_buf.*[0..current_skeleton.tracks.len];
-        }
+    }
+    if (mutable.last_skeleton_buf.len >= n) {
+        @memcpy(mutable.last_skeleton_buf.*[0..n], current_skeleton.tracks);
+        mutable.last_skeleton.tracks = mutable.last_skeleton_buf.*[0..n];
     }
 
     // ========================================================================
