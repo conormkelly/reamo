@@ -21,6 +21,14 @@ Works on iPhone, iPad, Android - anything with a browser.
 WiFi and USB tethering supported.
 
 ================================================================================
+UPDATE
+================================================================================
+
+Run Install_REAmo.lua from the new version's folder, the same way as above.
+REAPER can stay open: the new version is put in place, and the old one keeps
+running until you restart REAPER. Restart to finish the update.
+
+================================================================================
 UNINSTALL
 ================================================================================
 
@@ -30,8 +38,6 @@ Option A: Uninstall script
   3. Restart REAPER
 
 Option B: Manual uninstall
-  On Windows, the extension DLL is locked while REAPER is running, so the
-  uninstall script may not be able to remove it. To uninstall manually:
 
   1. Close REAPER
   2. Delete the following files/folders:
