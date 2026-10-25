@@ -369,13 +369,6 @@ fn pollMediumTierRegular(ctx: *const TierContext, mutable: *MutableState) !void 
             if (medium_state.project.projectName().len > 0) medium_state.project.projectName() else "(Unsaved)",
         });
 
-        // Stop playlist engine if playing
-        if (mutable.playlist_state.engine.isActive()) {
-            _ = mutable.playlist_state.engine.stop();
-            ctx.backend.clearLoopPoints();
-            logging.info("Stopped playlist engine due to project change", .{});
-        }
-
         // Resize arenas if new project has significantly different entity counts
         const new_counts = tiered_state.EntityCounts.countFromApi(ctx.backend);
         const new_sizes = tiered_state.CalculatedSizes.fromCounts(new_counts);
@@ -396,25 +389,10 @@ fn pollMediumTierRegular(ctx: *const TierContext, mutable: *MutableState) !void 
             logging.info("Arena resize complete: {d}MB total", .{new_sizes.totalAllocated() >> 20});
         }
 
-        // Unsaved playlist edits belong to the project being left. Save them
-        // there if it is still open in another tab; never into the project
-        // now current. A project replaced in this tab is gone with them.
-        if (mutable.playlist_state.dirty) {
-            const old_project = medium_prev.project.project_pointer;
-            if (!medium_prev.project.replacedInSameTab(&medium_state.project) and ctx.backend.validateProjectPtr(old_project)) {
-                mutable.playlist_state.saveAllTo(ctx.backend, old_project);
-            } else {
-                logging.warn("Playlist edits not yet saved were lost: their project was replaced", .{});
-            }
-            mutable.playlist_state.dirty = false;
-        }
+    }
 
-        // Reload playlists from new project
-        mutable.playlist_state.reset();
-        mutable.playlist_state.loadAll(ctx.backend);
-        logging.info("Loaded {d} playlists from new project", .{mutable.playlist_state.playlist_count});
-
-        // Broadcast updated playlist state
+    // Playlists belong to the project now open (usually a no-op; see followProject).
+    if (mutable.playlist_state.followProject(ctx.backend, medium_state.project.identity())) {
         if (mutable.playlist_state.toJsonAlloc(scratch, null)) |json| {
             ctx.shared_state.broadcast(json);
         } else |_| {}
