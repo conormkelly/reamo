@@ -86,8 +86,14 @@ pub fn handleItemMoveByGuid(api: anytype, cmd: protocol.CommandMessage, response
         return;
     };
 
-    // Validate: at least one action
-    const position = mod.validatePosition(cmd.getFloat("position"));
+    // Validate: at least one action. Everything is resolved before the undo
+    // block opens, so a refused move changes nothing.
+    const raw_position = cmd.getFloat("position");
+    const position = mod.validatePosition(raw_position);
+    if (raw_position != null and position == null) {
+        response.err("INVALID_POSITION", "Position must be a non-negative number");
+        return;
+    }
     const dest_track_guid = cmd.getString("destTrackGuid");
     if (position == null and dest_track_guid == null) {
         response.err("MISSING_PARAMS", "At least one of position or destTrackGuid required");
@@ -100,32 +106,29 @@ pub fn handleItemMoveByGuid(api: anytype, cmd: protocol.CommandMessage, response
     };
     if (!refuseIfLocked(api, item, response)) return;
 
-    api.undoBeginBlock();
+    var dest_track: ?*anyopaque = null;
+    if (dest_track_guid) |dest_guid| {
+        const guid_cache = mod.g_ctx.guid_cache orelse {
+            response.err("NOT_INITIALIZED", "GUID cache not initialized");
+            return;
+        };
+        dest_track = guid_cache.resolve(api, dest_guid) orelse {
+            response.err("NOT_FOUND", "Destination track not found");
+            return;
+        };
+    }
 
-    // Set position if provided
+    api.undoBeginBlock();
     if (position) |pos| {
         if (api.setItemPosition(item, pos)) {
             logging.debug("Moved item to {d:.2}", .{pos});
         }
     }
-
-    // Move to destination track if provided
-    if (dest_track_guid) |dest_guid| {
-        const guid_cache = mod.g_ctx.guid_cache orelse {
-            api.undoEndBlock("REAmo: Move item");
-            response.err("NOT_INITIALIZED", "GUID cache not initialized");
-            return;
-        };
-        const dest_track = guid_cache.resolve(api, dest_guid) orelse {
-            api.undoEndBlock("REAmo: Move item");
-            response.err("NOT_FOUND", "Destination track not found");
-            return;
-        };
-        if (api.moveItemToTrack(item, dest_track)) {
+    if (dest_track) |dest| {
+        if (api.moveItemToTrack(item, dest)) {
             logging.debug("Moved item to different track", .{});
         }
     }
-
     api.undoEndBlock("REAmo: Move item");
     api.updateTimeline();
     response.success(null);
