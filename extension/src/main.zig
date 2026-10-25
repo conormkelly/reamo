@@ -180,7 +180,13 @@ fn initTimerCallbackImpl() !void {
     // First call: do initialization
     if (!g_initialized) {
         g_initialized = true;
-        try doInitialization();
+        doInitialization() catch |err| {
+            // The processing timer assumes everything doInitialization sets
+            // up; started without it, it would fail on every tick. REAmo
+            // stays off until REAPER restarts.
+            if (g_api) |*api| api.unregisterTimer(&initTimerCallback);
+            logging.err("REAmo failed to start ({s}) and is off until REAPER restarts", .{@errorName(err)});
+        };
         return;
     }
 
