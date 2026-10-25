@@ -150,8 +150,10 @@ pub const PeaksSubscriptions = struct {
     free_slots: [MAX_CLIENTS]usize = undefined,
     free_count: usize = 0,
 
-    /// Force broadcast flag - set when subscriptions change
-    force_broadcast: bool = false,
+    /// Per-slot "send this client fresh tiles" flags, set when that client
+    /// subscribes or changes its viewport. Per slot so one client scrolling
+    /// doesn't regenerate and resend every other client's tiles.
+    force_broadcast_clients: [MAX_CLIENTS]bool = [_]bool{false} ** MAX_CLIENTS,
 
     /// Timestamp of last peaks broadcast (milliseconds) for rate limiting
     last_broadcast_ms: i64 = 0,
@@ -265,7 +267,7 @@ pub const PeaksSubscriptions = struct {
         }
 
         // Force broadcast to ensure new subscriber gets immediate data
-        self.force_broadcast = true;
+        self.force_broadcast_clients[slot] = true;
 
         const count: usize = @intCast(client.range_end - client.range_start + 1);
 
@@ -331,7 +333,7 @@ pub const PeaksSubscriptions = struct {
         }
 
         // Force broadcast to ensure new subscriber gets immediate data
-        self.force_broadcast = true;
+        self.force_broadcast_clients[slot] = true;
 
         logging.debug("peaks_subscriptions: client {d} subscribed to {d} GUIDs with {d} samples", .{
             client_id,
@@ -379,7 +381,7 @@ pub const PeaksSubscriptions = struct {
                     client.last_broadcast_lod, new_lod,
                 });
             }
-            self.force_broadcast = true;
+            self.force_broadcast_clients[slot] = true;
             client.last_broadcast_lod = new_lod;
         }
 
@@ -391,6 +393,7 @@ pub const PeaksSubscriptions = struct {
         const slot = self.client_id_to_slot.get(client_id) orelse return;
         const client = &self.clients[slot];
         client.clear();
+        self.force_broadcast_clients[slot] = false;
         logging.debug("peaks_subscriptions: client {d} unsubscribed", .{client_id});
     }
 
@@ -412,6 +415,7 @@ pub const PeaksSubscriptions = struct {
         }
 
         client.clear();
+        self.force_broadcast_clients[slot] = false;
         _ = self.client_id_to_slot.remove(client_id);
 
         // Add slot to free list for reuse
@@ -523,11 +527,20 @@ pub const PeaksSubscriptions = struct {
         }
     }
 
-    /// Check and clear force_broadcast flag (atomic consume).
-    pub fn consumeForceBroadcast(self: *PeaksSubscriptions) bool {
-        if (self.force_broadcast) {
-            self.force_broadcast = false;
+    /// Check and clear a slot's force-broadcast flag.
+    pub fn consumeForceBroadcast(self: *PeaksSubscriptions, slot: usize) bool {
+        if (slot >= MAX_CLIENTS) return false;
+        if (self.force_broadcast_clients[slot]) {
+            self.force_broadcast_clients[slot] = false;
             return true;
+        }
+        return false;
+    }
+
+    /// Whether any client is due fresh tiles (does not consume).
+    pub fn anyForceBroadcast(self: *const PeaksSubscriptions) bool {
+        for (self.force_broadcast_clients) |pending| {
+            if (pending) return true;
         }
         return false;
     }
@@ -554,12 +567,12 @@ pub const PeaksSubscriptions = struct {
         subs: *const PeaksSubscriptions,
         key_iter: std.AutoHashMap(usize, usize).KeyIterator,
 
-        pub fn next(self: *SubscriptionIterator) ?struct { client_id: usize, sub: *const ClientSubscription } {
+        pub fn next(self: *SubscriptionIterator) ?struct { client_id: usize, slot: usize, sub: *const ClientSubscription } {
             while (self.key_iter.next()) |client_id| {
                 const slot = self.subs.client_id_to_slot.get(client_id.*) orelse continue;
                 const sub = &self.subs.clients[slot];
                 if (sub.isActive()) {
-                    return .{ .client_id = client_id.*, .sub = sub };
+                    return .{ .client_id = client_id.*, .slot = slot, .sub = sub };
                 }
             }
             return null;
@@ -721,16 +734,45 @@ test "multiple clients combined" {
     try std.testing.expectEqual(@as(usize, 5), indices.len);
 }
 
-test "force_broadcast flag" {
+test "force broadcast is per client: one client's viewport change doesn't regenerate others" {
     const allocator = std.testing.allocator;
     var subs = PeaksSubscriptions.init(allocator);
     defer subs.deinit();
 
-    try std.testing.expect(!subs.consumeForceBroadcast());
+    try std.testing.expect(!subs.anyForceBroadcast());
 
-    _ = try subs.subscribeRange(1, 0, 5, 30);
-    try std.testing.expect(subs.consumeForceBroadcast());
-    try std.testing.expect(!subs.consumeForceBroadcast()); // Consumed
+    const vp = PeaksSubscriptions.ViewportParams{ .start = 0, .end = 30, .width_px = 400 };
+    _ = try subs.subscribeRangeWithViewport(1, 0, 5, 30, vp);
+    _ = try subs.subscribeRangeWithViewport(2, 0, 5, 30, vp);
+    const slot1 = subs.client_id_to_slot.get(1).?;
+    const slot2 = subs.client_id_to_slot.get(2).?;
+
+    // Both new subscribers need their initial data.
+    try std.testing.expect(subs.anyForceBroadcast());
+    try std.testing.expect(subs.consumeForceBroadcast(slot1));
+    try std.testing.expect(subs.consumeForceBroadcast(slot2));
+    try std.testing.expect(!subs.consumeForceBroadcast(slot1)); // Consumed
+    try std.testing.expect(!subs.anyForceBroadcast());
+
+    // Client 2 scrolls: only client 2 is due a regeneration.
+    try std.testing.expect(subs.updateViewport(2, .{ .start = 10, .end = 40, .width_px = 400 }));
+    try std.testing.expect(!subs.consumeForceBroadcast(slot1));
+    try std.testing.expect(subs.consumeForceBroadcast(slot2));
+
+    // An unchanged viewport is not a change.
+    try std.testing.expect(subs.updateViewport(2, .{ .start = 10, .end = 40, .width_px = 400 }));
+    try std.testing.expect(!subs.anyForceBroadcast());
+
+    // A freed slot doesn't carry a pending flag to its next owner.
+    _ = subs.updateViewport(1, .{ .start = 5, .end = 35, .width_px = 400 });
+    subs.removeClient(1);
+    try std.testing.expect(!subs.anyForceBroadcast());
+
+    // Nor does an unsubscribed one: the broadcast loop never visits inactive
+    // subscriptions, and a stuck flag would suppress change detection forever.
+    _ = subs.updateViewport(2, .{ .start = 20, .end = 50, .width_px = 400 });
+    subs.unsubscribe(2);
+    try std.testing.expect(!subs.anyForceBroadcast());
 }
 
 test "activeSubscriptions iterator" {
