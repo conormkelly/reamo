@@ -203,6 +203,10 @@ pub fn handleSetCompTarget(api: anytype, cmd: protocol.CommandMessage, response:
         response.err("MISSING_LANE_INDEX", "laneIndex is required");
         return;
     };
+    if (!laneExists(api, resolution.track, lane_index)) {
+        response.err("INVALID_LANE", "laneIndex is not a lane of this track");
+        return;
+    }
 
     // Get the whole track state chunk: it is written back, and a truncated
     // chunk written back deletes everything past the cut.
@@ -256,6 +260,13 @@ pub fn handleSetCompTarget(api: anytype, cmd: protocol.CommandMessage, response:
 
     logging.debug("Set comp target lane to {d}", .{lane_index});
     response.success(null);
+}
+
+/// REAPER accepts lane properties for lanes a track doesn't have; refuse them
+/// instead of writing settings nothing will ever show.
+fn laneExists(api: anytype, track: *anyopaque, lane: c_int) bool {
+    const num_lanes = api.getNumFixedLanes(track) catch return false;
+    return lane >= 0 and lane < num_lanes;
 }
 
 /// A whole track state chunk, read into `buf` (free with c_allocator).
@@ -378,6 +389,14 @@ pub fn handleSetLanePlays(api: anytype, cmd: protocol.CommandMessage, response: 
         response.err("MISSING_PLAYS", "plays is required (0=off, 1=exclusive, 2=layered)");
         return;
     };
+    if (!laneExists(api, resolution.track, lane_index)) {
+        response.err("INVALID_LANE", "laneIndex is not a lane of this track");
+        return;
+    }
+    if (plays < 0 or plays > 2) {
+        response.err("INVALID_PLAYS", "plays must be 0 (off), 1 (exclusive) or 2 (layered)");
+        return;
+    }
 
     api.undoBeginBlock();
 
