@@ -22,6 +22,11 @@ pub fn handlePresetNext(api: anytype, cmd: protocol.CommandMessage, response: *m
         return;
     };
 
+    if (fx_idx < 0 or fx_idx >= api.trackFxCount(track)) {
+        response.err("NOT_FOUND", "FX not found");
+        return;
+    }
+
     // Loading a preset rewrites the plugin's state; Ctrl+Z should return
     // to the sound before it. (REAPER drops the point if nothing changed.)
     api.undoBeginBlock();
@@ -51,6 +56,11 @@ pub fn handlePresetPrev(api: anytype, cmd: protocol.CommandMessage, response: *m
         response.err("NOT_FOUND", "Track not found");
         return;
     };
+
+    if (fx_idx < 0 or fx_idx >= api.trackFxCount(track)) {
+        response.err("NOT_FOUND", "FX not found");
+        return;
+    }
 
     // Loading a preset rewrites the plugin's state; Ctrl+Z should return
     // to the sound before it. (REAPER drops the point if nothing changed.)
@@ -85,6 +95,11 @@ pub fn handlePresetSet(api: anytype, cmd: protocol.CommandMessage, response: *mo
         response.err("NOT_FOUND", "Track not found");
         return;
     };
+
+    if (fx_idx < 0 or fx_idx >= api.trackFxCount(track)) {
+        response.err("NOT_FOUND", "FX not found");
+        return;
+    }
 
     // Loading a preset rewrites the plugin's state; Ctrl+Z should return
     // to the sound before it. (REAPER drops the point if nothing changed.)
