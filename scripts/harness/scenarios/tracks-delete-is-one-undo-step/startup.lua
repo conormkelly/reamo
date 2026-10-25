@@ -1,0 +1,5 @@
+dofile(reaper.GetResourcePath() .. "/Scripts/harness.lua")
+harness.item(harness.track("Drums"), 0, 2)
+harness.item(harness.track("Bass"), 0, 2)
+reaper.Undo_OnStateChangeEx2(0, "fixture", -1, -1)
+harness.ready()
