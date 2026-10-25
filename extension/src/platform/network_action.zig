@@ -377,18 +377,28 @@ fn spawnDetached(argv: []const []const u8) !void {
     child.stdout_behavior = .Ignore;
     child.stderr_behavior = .Ignore;
     try child.spawn();
-    const reaper_thread = std.Thread.spawn(.{}, struct {
-        fn reap(c: *std.process.Child) void {
-            _ = c.wait() catch |err| logging.warn("{s} failed: {s}", .{ c.argv[0], @errorName(err) });
-            std.heap.c_allocator.destroy(c);
-        }
-    }.reap, .{child}) catch |err| {
-        // Without the thread, wait here: the opener returns at once.
-        _ = child.wait() catch {};
-        std.heap.c_allocator.destroy(child);
+    const reaper_thread = std.Thread.spawn(.{}, reapChild, .{child}) catch |err| {
+        // Without the thread, reap here: the opener returns at once.
+        reapChild(child);
         return err;
     };
     reaper_thread.detach();
+}
+
+/// Wait for `child` to exit and free it. On POSIX this calls waitpid
+/// directly: std's wait treats ECHILD as unreachable, and REAPER or another
+/// extension may already reap children (SIGCHLD ignored, or waitpid(-1)).
+fn reapChild(child: *std.process.Child) void {
+    defer std.heap.c_allocator.destroy(child);
+    if (comptime builtin.os.tag == .windows) {
+        _ = child.wait() catch |err| logging.warn("Open Log Folder: the file browser failed: {s}", .{@errorName(err)});
+    } else {
+        var status: c_int = 0;
+        while (std.c.waitpid(child.id, &status, 0) == -1) {
+            if (std.posix.errno(@as(c_int, -1)) != .INTR) break;
+        }
+        if (child.err_pipe) |fd| std.posix.close(fd);
+    }
 }
 
 fn showMessage(msg: [*:0]const u8) void {
