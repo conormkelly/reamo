@@ -78,21 +78,8 @@ pub fn handleItemMoveByGuid(api: anytype, cmd: protocol.CommandMessage, response
         return;
     }
 
-    // Resolve item from GUID cache
-    const cache = mod.g_ctx.item_cache orelse {
-        response.err("NOT_INITIALIZED", "Item cache not initialized");
-        return;
-    };
-    const location = cache.resolve(guid) orelse {
+    const item = findItemByGuid(api, mod.g_ctx.item_cache, guid) orelse {
         response.err("NOT_FOUND", "Item not found (may have been deleted)");
-        return;
-    };
-    const track = api.getTrackByUnifiedIdx(location.track_idx) orelse {
-        response.err("NOT_FOUND", "Track not found");
-        return;
-    };
-    const item = api.getItemByIdx(track, location.item_idx) orelse {
-        response.err("NOT_FOUND", "Item not found at expected position");
         return;
     };
 
@@ -258,25 +245,8 @@ pub fn handleItemToggleSelect(api: anytype, cmd: protocol.CommandMessage, respon
         return;
     };
 
-    // Look up item location from cache
-    const cache = mod.g_ctx.item_cache orelse {
-        response.err("NOT_INITIALIZED", "Item cache not initialized");
-        return;
-    };
-
-    const location = cache.resolve(guid) orelse {
+    const item = findItemByGuid(api, mod.g_ctx.item_cache, guid) orelse {
         response.err("NOT_FOUND", "Item not found (may have been deleted)");
-        return;
-    };
-
-    // Get track and item pointers from indices
-    const track = api.getTrackByUnifiedIdx(location.track_idx) orelse {
-        response.err("NOT_FOUND", "Track not found");
-        return;
-    };
-
-    const item = api.getItemByIdx(track, location.item_idx) orelse {
-        response.err("NOT_FOUND", "Item not found at expected position");
         return;
     };
 
@@ -600,24 +570,83 @@ pub fn handleItemGetTakes(api: anytype, cmd: protocol.CommandMessage, response: 
     logging.debug("Returned {d} takes for item", .{take_count});
 }
 
-test "handleItemMoveByGuid requires guid parameter" {
-    // Command handlers require ResponseWriter with SharedState.
-    // Integration tests via websocat verify full behavior.
-    // Key behaviors:
-    // - Requires guid string parameter
-    // - Requires at least one of position (f64) or destTrackGuid (string)
-    // - Resolves item via item_guid_cache (O(1) GUID → indices)
-    // - Resolves dest track via guid_cache (O(1) GUID → track pointer)
-    // - Both position + track changes happen in single undo block
-    // - Returns success(null) — frontend polls for updated item data
+/// The item with this GUID, wherever it is now. The cache is rebuilt by the
+/// 5 Hz item poll, but REAPER re-sorts a track's items as soon as one moves,
+/// so between polls a cached index can name a different item: the cached
+/// location is a hint, used only once the item there has this GUID. On a
+/// miss the cached track, then the whole project, is searched (that also
+/// finds items past the poll's item cap, which the cache never holds).
+pub fn findItemByGuid(api: anytype, cache: ?*const item_guid_cache.ItemGuidCache, guid: []const u8) ?*anyopaque {
+    var hinted_track: ?*anyopaque = null;
+    if (cache) |c| {
+        if (c.resolve(guid)) |loc| {
+            if (api.getTrackByUnifiedIdx(loc.track_idx)) |track| {
+                hinted_track = track;
+                if (api.getItemByIdx(track, loc.item_idx)) |item| {
+                    if (itemHasGuid(api, item, guid)) return item;
+                }
+                if (findItemOnTrack(api, track, guid)) |item| return item;
+            }
+        }
+    }
+    var t: c_int = 1;
+    while (t <= api.trackCount()) : (t += 1) {
+        const track = api.getTrackByUnifiedIdx(t) orelse continue;
+        if (track == hinted_track) continue;
+        if (findItemOnTrack(api, track, guid)) |item| return item;
+    }
+    return null;
 }
 
-test "handleItemMoveByGuid rejects missing action params" {
-    // Sending guid without position or destTrackGuid should return MISSING_PARAMS error.
-    // Both are optional individually, but at least one must be present.
+fn findItemOnTrack(api: anytype, track: *anyopaque, guid: []const u8) ?*anyopaque {
+    var i: c_int = 0;
+    while (i < api.trackItemCount(track)) : (i += 1) {
+        const item = api.getItemByIdx(track, i) orelse continue;
+        if (itemHasGuid(api, item, guid)) return item;
+    }
+    return null;
 }
 
-test "handleItemMoveByGuid supports combined position and track move" {
-    // When both position and destTrackGuid are provided, both operations
-    // happen in a single undo block — position is set first, then track move.
+fn itemHasGuid(api: anytype, item: *anyopaque, guid: []const u8) bool {
+    var buf: [64]u8 = undefined;
+    return std.ascii.eqlIgnoreCase(api.getItemGUID(item, &buf), guid);
+}
+
+fn setMockItem(m: anytype, track: usize, idx: usize, guid: []const u8) void {
+    const it = &m.tracks[track].items[idx];
+    @memcpy(it.guid[0..guid.len], guid);
+    it.guid_len = guid.len;
+}
+
+const GUID_A = "{AAAAAAAA-0000-0000-0000-000000000000}";
+const GUID_B = "{BBBBBBBB-0000-0000-0000-000000000000}";
+const GUID_C = "{CCCCCCCC-0000-0000-0000-000000000000}";
+
+test "findItemByGuid finds the item REAPER re-sorted after the last poll, not its neighbour" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{ .track_count = 1 };
+    m.tracks[1].item_count = 2;
+    // The poll saw A at index 0; then A moved past B and REAPER re-sorted.
+    setMockItem(&m, 1, 0, GUID_B);
+    setMockItem(&m, 1, 1, GUID_A);
+    var cache = item_guid_cache.ItemGuidCache.init(std.testing.allocator);
+    defer cache.deinit();
+    try cache.put(GUID_A, .{ .track_idx = 1, .item_idx = 0 });
+    try cache.put(GUID_B, .{ .track_idx = 1, .item_idx = 1 });
+
+    try std.testing.expectEqual(m.getItemByIdx(m.getTrackByUnifiedIdx(1).?, 1), findItemByGuid(&m, &cache, GUID_A));
+    try std.testing.expectEqual(m.getItemByIdx(m.getTrackByUnifiedIdx(1).?, 0), findItemByGuid(&m, &cache, GUID_B));
+}
+
+test "findItemByGuid finds items the cache does not hold, and nothing for a deleted item" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{ .track_count = 2 };
+    m.tracks[2].item_count = 1;
+    setMockItem(&m, 2, 0, GUID_C);
+    var cache = item_guid_cache.ItemGuidCache.init(std.testing.allocator);
+    defer cache.deinit();
+
+    try std.testing.expectEqual(m.getItemByIdx(m.getTrackByUnifiedIdx(2).?, 0), findItemByGuid(&m, &cache, GUID_C));
+    try std.testing.expectEqual(m.getItemByIdx(m.getTrackByUnifiedIdx(2).?, 0), findItemByGuid(&m, null, "{cccccccc-0000-0000-0000-000000000000}"));
+    try std.testing.expectEqual(@as(?*anyopaque, null), findItemByGuid(&m, &cache, GUID_A));
 }
