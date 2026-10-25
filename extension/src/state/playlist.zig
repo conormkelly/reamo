@@ -144,7 +144,7 @@ pub const Playlist = struct {
     /// Deserialize from pipe-delimited format
     pub fn deserialize(buf: []const u8) ?Playlist {
         var playlist = Playlist{};
-        const allocator = std.heap.page_allocator;
+        const allocator = std.heap.c_allocator;
 
         // Split on unescaped pipes
         var segments: std.ArrayList([]const u8) = .empty;

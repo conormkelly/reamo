@@ -195,7 +195,10 @@ fn doInitialization() !void {
     const api = &(g_api orelse return error.ApiNotInitialized);
     logging.info("Deferred initialization starting...", .{});
 
-    g_allocator = std.heap.page_allocator;
+    // libc malloc, not page_allocator: caches and subscriptions make many small,
+    // short-lived allocations per tick, and page_allocator maps/unmaps a page
+    // for each one.
+    g_allocator = std.heap.c_allocator;
 
     // Initialize logging with REAPER's resource path
     logging.init(api.resourcePath());
