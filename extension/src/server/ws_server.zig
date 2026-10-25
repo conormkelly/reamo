@@ -274,7 +274,7 @@ pub const SharedState = struct {
             logging.err("CLIENT ADD FAILED id={d}: {}", .{ id, e });
             return null;
         };
-        logging.info("CLIENT ADD id={d} total={d}", .{ id, self.clients.count() });
+        logging.debug("Socket {d} opened ({d} open)", .{ id, self.clients.count() });
         return id;
     }
 
@@ -288,7 +288,7 @@ pub const SharedState = struct {
         self.disconnected_clients.put(id, {}) catch |e| {
             logging.warn("Failed to track disconnected client {d}: {} - gesture cleanup may be incomplete", .{ id, e });
         };
-        logging.info("CLIENT REMOVE id={d} total={d}", .{ id, self.clients.count() });
+        logging.debug("Socket {d} closed ({d} open)", .{ id, self.clients.count() });
     }
 
     // Called by main thread to get and clear disconnected clients

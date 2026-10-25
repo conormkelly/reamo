@@ -177,6 +177,12 @@ const Handler = struct {
 
 // ── HTTP Route Handlers ────────────────────────────────────────────
 
+/// A browser reached REAmo by a name it doesn't serve: the usual cause of
+/// "the page won't load" with a VPN or custom hostname.
+fn logRefusedHost(host: []const u8) void {
+    logging.info("Refused a request for host '{f}'; add it under Extensions > REAmo > Allowed Hosts if it's this computer", .{logging.untrusted(host)});
+}
+
 fn serveIndex(handler: Handler, req: *httpz.Request, res: *httpz.Response) !void {
     // Host header validation (DNS rebinding protection)
     const host = req.header("host") orelse {
@@ -185,6 +191,7 @@ fn serveIndex(handler: Handler, req: *httpz.Request, res: *httpz.Response) !void
         return;
     };
     if (!host_validation.isValidLocalHost(host)) {
+        logRefusedHost(host);
         res.status = 403;
         res.body = "Forbidden: invalid Host header";
         return;
@@ -236,6 +243,7 @@ fn serveWsUpgrade(handler: Handler, req: *httpz.Request, res: *httpz.Response) !
         return;
     };
     if (!host_validation.isValidLocalHost(host)) {
+        logRefusedHost(host);
         res.status = 403;
         res.body = "Forbidden: invalid Host header";
         return;
@@ -244,6 +252,7 @@ fn serveWsUpgrade(handler: Handler, req: *httpz.Request, res: *httpz.Response) !
     // Origin validation (CSRF protection for WebSocket upgrade)
     const origin = req.header("origin");
     if (!host_validation.isValidOrigin(origin, host)) {
+        logging.info("Refused a WebSocket from origin '{f}' for host '{f}'", .{ logging.untrusted(origin orelse "(none)"), logging.untrusted(host) });
         res.status = 403;
         res.body = "Forbidden: invalid Origin header";
         return;
@@ -263,6 +272,7 @@ fn serveStatic(handler: Handler, req: *httpz.Request, res: *httpz.Response) !voi
         return;
     };
     if (!host_validation.isValidLocalHost(host)) {
+        logRefusedHost(host);
         res.status = 403;
         res.body = "Forbidden: invalid Host header";
         return;
@@ -324,12 +334,15 @@ fn serveStatic(handler: Handler, req: *httpz.Request, res: *httpz.Response) !voi
 // ── WebSocket Handler ──────────────────────────────────────────────
 
 /// WebSocket handler for httpz. Mirrors the old ws_server.Client logic.
+var sndbuf_warned = std.atomic.Value(bool).init(false);
+
 const WsHandler = struct {
     id: usize,
     conn: *websocket.Conn,
     state: *ws_server.SharedState,
     authenticated: bool = false,
     closed: bool = false,
+    connected_ms: i64 = 0,
 
     const Context = struct {
         state: *ws_server.SharedState,
@@ -341,7 +354,10 @@ const WsHandler = struct {
         // websocket.zig and drained by SharedState.flushPendingOutput.
         const sndbuf: c_int = 4 * 1024 * 1024;
         std.posix.setsockopt(conn.stream.handle, SOL_SOCKET, SO_SNDBUF, std.mem.asBytes(&sndbuf)) catch |err| {
-            logging.warn("WsHandler: failed to set SO_SNDBUF: {}", .{err});
+            // Same cause for every connection: say it once.
+            if (!sndbuf_warned.swap(true, .monotonic)) {
+                logging.warn("Can't enlarge WebSocket send buffers ({s}); large lists go out in pieces", .{@errorName(err)});
+            }
         };
 
         const id = ctx.state.addClient(conn) orelse {
@@ -353,6 +369,7 @@ const WsHandler = struct {
             .id = id,
             .conn = conn,
             .state = ctx.state,
+            .connected_ms = std.time.milliTimestamp(),
         };
     }
 
@@ -366,6 +383,7 @@ const WsHandler = struct {
                 const hello = protocol.HelloMessage.parse(data);
 
                 if (!self.state.validateToken(hello.token)) {
+                    logging.info("Client {d} refused: stale or missing session token (a page from before REAPER restarted?)", .{self.id});
                     self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"INVALID_TOKEN\",\"message\":\"Invalid or missing authentication token\"}}") catch {};
                     self.conn.close(.{ .code = 4001, .reason = "Invalid token" }) catch {};
                     return;
@@ -373,6 +391,7 @@ const WsHandler = struct {
 
                 if (hello.protocol_version) |client_version| {
                     if (client_version != protocol.PROTOCOL_VERSION) {
+                        logging.warn("Client {d} refused: it speaks protocol {d}, REAmo {d} (a cached page from another version?)", .{ self.id, client_version, protocol.PROTOCOL_VERSION });
                         var buf: [128]u8 = undefined;
                         const err_json = std.fmt.bufPrint(&buf, "{{\"type\":\"error\",\"error\":{{\"code\":\"PROTOCOL_MISMATCH\",\"message\":\"Expected protocol version {d}\"}}}}", .{protocol.PROTOCOL_VERSION}) catch {
                             logging.warn("http_server: protocol mismatch response buffer overflow", .{});
@@ -385,6 +404,7 @@ const WsHandler = struct {
                 }
 
                 self.authenticated = true;
+                logging.info("Client {d} connected", .{self.id});
                 var buf: [256]u8 = undefined;
                 const response = protocol.buildHelloResponse(&buf, self.state.getHtmlMtime());
                 self.conn.writeText(response) catch |err| {
@@ -466,13 +486,18 @@ const WsHandler = struct {
     /// response carrying that id, so a UI awaiting it fails at once rather
     /// than at its timeout.
     fn refuseQueueFull(self: *WsHandler, data: []const u8) void {
+        logging.warn("Client {d}: command queue full, refused a command", .{self.id});
         const err_body = "\"error\":{\"code\":\"QUEUE_FULL\",\"message\":\"Too many commands at once; try again\"}";
-        var buf: [256]u8 = undefined;
-        const msg = if (protocol.jsonGetString(data, "id")) |id|
-            std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":false,{s}}}", .{ id, err_body }) catch
-                "{\"type\":\"error\"," ++ err_body ++ "}"
-        else
-            "{\"type\":\"error\"," ++ err_body ++ "}";
+        const id = protocol.jsonGetString(data, "id") orelse {
+            self.conn.writeText("{\"type\":\"error\"," ++ err_body ++ "}") catch |err| self.state.logWriteError(err);
+            return;
+        };
+        // Exact-size, so the reply carries the id however long it is.
+        const msg = std.fmt.allocPrint(std.heap.c_allocator, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":false,{s}}}", .{ id, err_body }) catch {
+            logging.err("Client {d}: no memory to refuse a command", .{self.id});
+            return;
+        };
+        defer std.heap.c_allocator.free(msg);
         self.conn.writeText(msg) catch |err| {
             self.state.logWriteError(err);
         };
@@ -482,6 +507,10 @@ const WsHandler = struct {
         if (self.closed) return;
         self.closed = true;
         self.state.removeClient(self.id);
+        if (self.authenticated) {
+            const secs = @divFloor(std.time.milliTimestamp() - self.connected_ms, std.time.ms_per_s);
+            logging.info("Client {d} disconnected after {d}m{d:0>2}s", .{ self.id, @divFloor(secs, 60), @as(u64, @intCast(@mod(secs, 60))) });
+        }
     }
 };
 
@@ -526,7 +555,11 @@ fn setSecurityHeaders(res: *httpz.Response) void {
 fn injectTokenMeta(allocator: Allocator, html: []const u8, state: *ws_server.SharedState) ![]const u8 {
     const token = state.getToken() orelse return html;
     const needle = "</head>";
-    const pos = std.mem.indexOf(u8, html, needle) orelse return html;
+    const pos = std.mem.indexOf(u8, html, needle) orelse {
+        // Served without the token, every phone's hello is refused.
+        logging.warn("web/index.html has no </head>; phones can't authenticate (reinstall REAmo's web files)", .{});
+        return html;
+    };
 
     const meta_tag = try std.fmt.allocPrint(allocator, "<meta name=\"reamo-token\" content=\"{s}\">\n", .{token});
     defer allocator.free(meta_tag);
