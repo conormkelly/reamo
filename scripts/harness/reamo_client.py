@@ -17,6 +17,7 @@ import os
 import re
 import socket
 import struct
+import subprocess
 import time
 import urllib.request
 
@@ -41,32 +42,117 @@ _rpc_ids = itertools.count(1)
 RPC_DIR = "/tmp/harness_rpc"
 
 
-def reaper(lua, timeout=5.0):
-    """Run a Lua chunk on REAPER's main thread (harness.lua serves these once
-    the fixture calls harness.ready()) and return what it returns: None, one
-    value, or a tuple. Chunks run in order, between extension timer ticks."""
+class Pending:
+    """An RPC chunk submitted to REAPER whose result has not been read yet."""
+
+    def __init__(self, n):
+        self.n = n
+        self.out = f"{RPC_DIR}/{n}.out"
+
+    def done(self):
+        return os.path.exists(self.out)
+
+    def result(self, timeout=5.0):
+        deadline = time.time() + timeout
+        while not self.done():
+            if time.time() > deadline:
+                raise TimeoutError(f"REAPER did not run rpc {self.n} within {timeout} s "
+                                   f"(a modal dialog may be blocking it; windows: {windows()})")
+            time.sleep(0.01)
+        with open(self.out, "rb") as f:
+            raw = f.read()
+        try:
+            res = json.loads(raw.decode("utf-8"))
+        except UnicodeDecodeError as e:
+            raise ReaperError(f"REAPER returned a string that is not valid UTF-8 "
+                              f"(byte {e.start}: {raw[max(0, e.start - 40):e.start + 8]!r})") from None
+        os.remove(self.out)
+        if not res["ok"]:
+            raise ReaperError(res["error"])
+        vals = res["result"]
+        return None if not vals else vals[0] if len(vals) == 1 else tuple(vals)
+
+
+def submit(lua):
+    """Queue a Lua chunk for REAPER's main thread without waiting for it."""
     n = next(_rpc_ids)
     req = f"{RPC_DIR}/{n}.lua"
     with open(req + ".tmp", "w", encoding="utf-8") as f:
         f.write(lua)
     os.rename(req + ".tmp", req)
-    out = f"{RPC_DIR}/{n}.out"
+    return Pending(n)
+
+
+def reaper(lua, timeout=5.0):
+    """Run a Lua chunk on REAPER's main thread (harness.lua serves these once
+    the fixture calls harness.ready()) and return what it returns: None, one
+    value, or a tuple. Chunks run in order, between extension timer ticks."""
+    return submit(lua).result(timeout)
+
+
+# Dialogs REAPER raises while loading an ordinary project, and the key a user
+# would press to get past each.
+LOAD_DIALOGS = {"Project Load Warning": "Return", "Missing media": "Return"}
+
+
+def open_project(path, dialogs=LOAD_DIALOGS, timeout=30.0, on_dialog=None):
+    """Open a project in REAPER as a user would, clicking through the dialogs
+    REAPER shows on the way (each one is screenshotted first). Returns the
+    titles of the dialogs that appeared. `on_dialog(title)` runs while a dialog
+    blocks REAPER's main thread, before it is dismissed."""
+    pending = submit(f'reaper.Main_openProject("noprompt:{path}")')
+    seen = []
     deadline = time.time() + timeout
-    while not os.path.exists(out):
+    while not pending.done():
         if time.time() > deadline:
-            raise TimeoutError(f"REAPER did not run rpc {n} within {timeout} s")
-        time.sleep(0.01)
-    with open(out, encoding="utf-8") as f:
-        res = json.load(f)
-    os.remove(out)
-    if not res["ok"]:
-        raise ReaperError(res["error"])
-    vals = res["result"]
-    return None if not vals else vals[0] if len(vals) == 1 else tuple(vals)
+            screenshot("open-project-timeout")
+            raise TimeoutError(f"opening {path} did not finish; windows: {windows()}")
+        for title in windows():
+            for known, key in dialogs.items():
+                if known.lower() in title.lower():
+                    seen.append(title)
+                    screenshot(f"dialog-{len(seen)}")
+                    if on_dialog:
+                        on_dialog(title)
+                    press(title, key)
+        time.sleep(0.1)
+    pending.result()
+    return seen
+
+
+def screenshot(name):
+    """Save REAPER's whole X display as out/<scenario>/<name>.png on the host."""
+    path = os.path.join(os.environ.get("HARNESS_OUT", "/tmp"), f"{name}.png")
+    subprocess.run(["import", "-window", "root", path], check=True, timeout=10)
+    return path
+
+
+def windows():
+    """Titles of REAPER's visible windows: a dialog showing up here means a
+    modal may be blocking REAPER's main thread."""
+    r = subprocess.run(["xdotool", "search", "--onlyvisible", "--name", ".", "getwindowname", "%@"],
+                       capture_output=True, text=True, timeout=10)
+    return [line for line in r.stdout.splitlines() if line]
+
+
+def press(window_title, *keys):
+    """Send keys (xdotool names, e.g. "Return", "Escape") to the first visible
+    window whose title contains `window_title`, as a user dismissing a dialog."""
+    r = subprocess.run(["xdotool", "search", "--onlyvisible", "--name", window_title],
+                       capture_output=True, text=True, timeout=10)
+    ids = r.stdout.split()
+    if not ids:
+        raise LookupError(f"no visible window titled like {window_title!r}; windows: {windows()}")
+    subprocess.run(["xdotool", "key", "--window", ids[0], *keys], check=True, timeout=10)
 
 
 class Closed(Exception):
     """The server closed the connection."""
+
+
+class InvalidFrame(Exception):
+    """A text frame that is not valid UTF-8: a browser fails the connection
+    on it (RFC 6455 8.1), so every client would disconnect."""
 
 
 def fetch_token(host=HOST, port=PORT):
@@ -172,7 +258,12 @@ class Client:
                 continue
             if opcode != 1:
                 continue
-            msg = json.loads(payload)
+            try:
+                text = payload.decode("utf-8")
+            except UnicodeDecodeError as e:
+                raise InvalidFrame(f"text frame is not valid UTF-8 at byte {e.start}: "
+                                   f"{payload[max(0, e.start - 40):e.start + 8]!r}") from None
+            msg = json.loads(text)
             if msg.get("type") == "event":
                 self.events.append((msg.get("event"), msg))
             return msg
