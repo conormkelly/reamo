@@ -22,7 +22,11 @@ pub fn handlePresetNext(api: anytype, cmd: protocol.CommandMessage, response: *m
         return;
     };
 
+    // Loading a preset rewrites the plugin's state; Ctrl+Z should return
+    // to the sound before it. (REAPER drops the point if nothing changed.)
+    api.undoBeginBlock();
     const success = api.trackFxNavigatePresets(track, fx_idx, 1);
+    api.undoEndBlock("REAmo: Change FX preset");
     if (!success) {
         response.err("NAVIGATE_FAILED", "Failed to navigate to next preset");
         return;
@@ -48,7 +52,11 @@ pub fn handlePresetPrev(api: anytype, cmd: protocol.CommandMessage, response: *m
         return;
     };
 
+    // Loading a preset rewrites the plugin's state; Ctrl+Z should return
+    // to the sound before it. (REAPER drops the point if nothing changed.)
+    api.undoBeginBlock();
     const success = api.trackFxNavigatePresets(track, fx_idx, -1);
+    api.undoEndBlock("REAmo: Change FX preset");
     if (!success) {
         response.err("NAVIGATE_FAILED", "Failed to navigate to previous preset");
         return;
@@ -78,7 +86,11 @@ pub fn handlePresetSet(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     };
 
+    // Loading a preset rewrites the plugin's state; Ctrl+Z should return
+    // to the sound before it. (REAPER drops the point if nothing changed.)
+    api.undoBeginBlock();
     const success = api.trackFxSetPresetByIndex(track, fx_idx, preset_idx);
+    api.undoEndBlock("REAmo: Change FX preset");
     if (!success) {
         response.err("SET_FAILED", "Failed to set preset");
         return;
