@@ -613,6 +613,22 @@ pub fn serializeAlloc(
     }
 }
 
+/// serializeAlloc for code that formats through a writer: `write(ctx, w)`
+/// writes the whole message to `w`, a fixed-buffer writer that fails with
+/// NoSpaceLeft when the buffer is too small, and the buffer doubles until the
+/// message fits. `write` must fail only through the writer, or it retries
+/// until the allocator runs out.
+pub fn writeAlloc(allocator: std.mem.Allocator, initial_size: usize, ctx: anytype, comptime write: anytype) ![]const u8 {
+    const Wrap = struct {
+        fn toJson(c: @TypeOf(ctx), buf: []u8) ?[]const u8 {
+            var stream = std.io.fixedBufferStream(buf);
+            write(c, stream.writer()) catch return null;
+            return stream.getWritten();
+        }
+    };
+    return serializeAlloc(allocator, initial_size, ctx, Wrap.toJson);
+}
+
 pub fn writeJsonString(writer: anytype, s: []const u8) !void {
     // Transcode from system code page to UTF-8 (no-op on non-Windows / pure ASCII).
     // Keep buffer ≤1KB — this runs in timer callbacks with deep call stacks (see ZIG_GUIDE §1).
@@ -1120,6 +1136,17 @@ test "jsonGetIntArray accepts CRLF whitespace between elements" {
     const count = jsonGetIntArray(data, "indices", 10, &values).?;
     try std.testing.expectEqual(@as(usize, 2), count);
     try std.testing.expectEqual(@as(c_int, 2), values[1]);
+}
+
+test "writeAlloc grows the buffer until the writer's output fits" {
+    const write = struct {
+        fn f(n: usize, w: anytype) !void {
+            for (0..n) |_| try w.writeAll("0123456789");
+        }
+    }.f;
+    const out = try writeAlloc(std.testing.allocator, 16, @as(usize, 5000), write);
+    defer std.testing.allocator.free(out);
+    try std.testing.expectEqual(@as(usize, 50_000), out.len);
 }
 
 test "serializeAlloc grows past a too-small estimate and reclaims failed attempts" {

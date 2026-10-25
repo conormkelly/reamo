@@ -349,60 +349,42 @@ pub fn handleGetParams(api: anytype, cmd: protocol.CommandMessage, response: *mo
     // Get param count
     const param_count = api.trackFxGetNumParams(resolution.track, fx_idx);
 
-    // Use scratch arena for JSON buffer (64KB supports ~1000 param names)
     const tiered = mod.g_ctx.tiered orelse {
         response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
         return;
     };
-    const scratch = tiered.scratchAllocator();
-    const buf = scratch.alloc(u8, 64 * 1024) catch {
-        response.err("ALLOC_FAILED", "Failed to allocate buffer");
-        return;
-    };
-
-    var stream = std.io.fixedBufferStream(buf);
-    var w = stream.writer();
-
-    // Write JSON header
-    w.print("{{\"trackGuid\":\"{s}\",\"fxGuid\":\"{s}\",\"paramCount\":{d},\"params\":[", .{ track_guid, fx_guid, param_count }) catch {
-        response.err("BUFFER_OVERFLOW", "Response too large");
-        return;
-    };
-
-    // Write param names
-    var name_buf: [256]u8 = undefined;
-    var i: c_int = 0;
-    while (i < param_count) : (i += 1) {
-        if (i > 0) w.writeByte(',') catch {
-            response.err("BUFFER_OVERFLOW", "Response too large");
-            return;
-        };
-
-        const name = api.trackFxGetParamName(resolution.track, fx_idx, i, &name_buf);
-
-        w.writeByte('"') catch {
-            response.err("BUFFER_OVERFLOW", "Response too large");
-            return;
-        };
-
-        protocol.writeJsonString(w, name) catch {
-            response.err("BUFFER_OVERFLOW", "Response too large");
-            return;
-        };
-
-        w.writeByte('"') catch {
-            response.err("BUFFER_OVERFLOW", "Response too large");
-            return;
-        };
-    }
-
-    w.writeAll("]}") catch {
-        response.err("BUFFER_OVERFLOW", "Response too large");
+    // Sized to fit: synths expose thousands of parameters (~20-40 bytes of
+    // name each), and the UI awaits this response to open the parameter page.
+    const ctx = ParamNamesCtx(@TypeOf(api)){ .api = api, .track = resolution.track, .fx_idx = fx_idx, .track_guid = track_guid, .fx_guid = fx_guid, .param_count = param_count };
+    const estimate = 128 + @as(usize, @intCast(@max(param_count, 0))) * 48;
+    const json = protocol.writeAlloc(tiered.scratchAllocator(), estimate, ctx, writeParamNames) catch {
+        response.err("RESPONSE_TOO_LARGE", "Parameter list too large");
         return;
     };
 
     logging.debug("trackFx/getParams: returning {d} params for track {s} fx {s}", .{ param_count, track_guid, fx_guid });
-    response.successLargePayload(stream.getWritten());
+    response.successLargePayload(json);
+}
+
+fn ParamNamesCtx(comptime Api: type) type {
+    return struct { api: Api, track: *anyopaque, fx_idx: c_int, track_guid: []const u8, fx_guid: []const u8, param_count: c_int };
+}
+
+fn writeParamNames(ctx: anytype, w: anytype) !void {
+    try w.writeAll("{\"trackGuid\":\"");
+    try protocol.writeJsonString(w, ctx.track_guid);
+    try w.writeAll("\",\"fxGuid\":\"");
+    try protocol.writeJsonString(w, ctx.fx_guid);
+    try w.print("\",\"paramCount\":{d},\"params\":[", .{ctx.param_count});
+    var name_buf: [256]u8 = undefined;
+    var i: c_int = 0;
+    while (i < ctx.param_count) : (i += 1) {
+        if (i > 0) try w.writeByte(',');
+        try w.writeByte('"');
+        try protocol.writeJsonString(w, ctx.api.trackFxGetParamName(ctx.track, ctx.fx_idx, i, &name_buf));
+        try w.writeByte('"');
+    }
+    try w.writeAll("]}");
 }
 
 /// Helper: Resolve FX index from fxGuid or fxIndex parameter.

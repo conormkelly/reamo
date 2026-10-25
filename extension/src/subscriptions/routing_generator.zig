@@ -31,24 +31,30 @@ pub fn generateRoutingState(
         return null;
     }
 
-    // Allocate buffer for JSON serialization.
-    // 8KB supports ~40 sends + ~40 hw outputs per track (each entry ~100 bytes).
-    // This is sufficient for real-world use - most tracks have <10 sends.
-    // If a track exceeds this, the write will fail gracefully (return null).
-    const buf = allocator.alloc(u8, 8192) catch return null;
-    var stream = std.io.fixedBufferStream(buf);
-    var w = stream.writer();
+    const Ctx = struct { api: @TypeOf(api), track: *anyopaque, guid: []const u8 };
+    // ~100 bytes per send, receive or hardware output; grows for buses with
+    // dozens of receives (an orchestral template's reverb).
+    return protocol.writeAlloc(allocator, 8192, Ctx{ .api = api, .track = track, .guid = track_guid }, writeRoutingState) catch |err| {
+        logging.warn("routing_generator: could not serialize routing for {s}: {s}", .{ track_guid, @errorName(err) });
+        return null;
+    };
+}
+
+fn writeRoutingState(ctx: anytype, w: anytype) !void {
+    const api = ctx.api;
+    const track = ctx.track;
+    const track_guid = ctx.guid;
 
     // Start event envelope
-    w.writeAll("{\"type\":\"event\",\"event\":\"routing_state\",\"payload\":{") catch return null;
-    w.print("\"trackGuid\":\"{s}\",", .{track_guid}) catch return null;
+    try w.writeAll("{\"type\":\"event\",\"event\":\"routing_state\",\"payload\":{");
+    try w.print("\"trackGuid\":\"{s}\",", .{track_guid});
 
     // Write sends array (category 0)
-    w.writeAll("\"sends\":[") catch return null;
+    try w.writeAll("\"sends\":[");
     const send_count = api.trackSendCount(track);
     var i: c_int = 0;
     while (i < send_count) : (i += 1) {
-        if (i > 0) w.writeByte(',') catch return null;
+        if (i > 0) try w.writeByte(',');
 
         var dest_name_buf: [MAX_NAME_LEN]u8 = undefined;
         const dest_name = api.trackSendGetDestName(track, i, &dest_name_buf);
@@ -61,23 +67,23 @@ pub fn generateRoutingState(
         const safe_volume = if (ffi.isFinite(volume)) volume else 0.0;
         const safe_pan = if (ffi.isFinite(pan)) pan else 0.0;
 
-        w.print("{{\"sendIndex\":{d},\"destName\":\"", .{i}) catch return null;
-        protocol.writeJsonString(w, dest_name) catch return null;
-        w.print("\",\"volume\":{d:.6},\"pan\":{d:.6},\"muted\":{s},\"mode\":{d}}}", .{
+        try w.print("{{\"sendIndex\":{d},\"destName\":\"", .{i});
+        try protocol.writeJsonString(w, dest_name);
+        try w.print("\",\"volume\":{d:.6},\"pan\":{d:.6},\"muted\":{s},\"mode\":{d}}}", .{
             safe_volume,
             safe_pan,
             if (muted) "true" else "false",
             mode,
-        }) catch return null;
+        });
     }
-    w.writeAll("],") catch return null;
+    try w.writeAll("],");
 
     // Write receives array (category -1)
-    w.writeAll("\"receives\":[") catch return null;
+    try w.writeAll("\"receives\":[");
     const receive_count = api.trackReceiveCount(track);
     i = 0;
     while (i < receive_count) : (i += 1) {
-        if (i > 0) w.writeByte(',') catch return null;
+        if (i > 0) try w.writeByte(',');
 
         var src_name_buf: [MAX_NAME_LEN]u8 = undefined;
         const src_name = api.trackReceiveGetSrcName(track, i, &src_name_buf);
@@ -89,23 +95,23 @@ pub fn generateRoutingState(
         const safe_recv_volume = if (ffi.isFinite(recv_volume)) recv_volume else 0.0;
         const safe_recv_pan = if (ffi.isFinite(recv_pan)) recv_pan else 0.0;
 
-        w.print("{{\"receiveIndex\":{d},\"srcName\":\"", .{i}) catch return null;
-        protocol.writeJsonString(w, src_name) catch return null;
-        w.print("\",\"volume\":{d:.6},\"pan\":{d:.6},\"muted\":{s},\"mode\":{d}}}", .{
+        try w.print("{{\"receiveIndex\":{d},\"srcName\":\"", .{i});
+        try protocol.writeJsonString(w, src_name);
+        try w.print("\",\"volume\":{d:.6},\"pan\":{d:.6},\"muted\":{s},\"mode\":{d}}}", .{
             safe_recv_volume,
             safe_recv_pan,
             if (recv_muted) "true" else "false",
             recv_mode,
-        }) catch return null;
+        });
     }
-    w.writeAll("],") catch return null;
+    try w.writeAll("],");
 
     // Write hwOutputs array (category 1)
-    w.writeAll("\"hwOutputs\":[") catch return null;
+    try w.writeAll("\"hwOutputs\":[");
     const hw_count = api.trackHwOutputCount(track);
     i = 0;
     while (i < hw_count) : (i += 1) {
-        if (i > 0) w.writeByte(',') catch return null;
+        if (i > 0) try w.writeByte(',');
 
         const volume = api.trackHwOutputGetVolume(track, i);
         const pan = api.trackHwOutputGetPan(track, i);
@@ -116,18 +122,17 @@ pub fn generateRoutingState(
         const safe_hw_volume = if (ffi.isFinite(volume)) volume else 0.0;
         const safe_hw_pan = if (ffi.isFinite(pan)) pan else 0.0;
 
-        w.print("{{\"hwIdx\":{d},\"destChannel\":{d},\"volume\":{d:.6},\"pan\":{d:.6},\"muted\":{s},\"mode\":{d}}}", .{
+        try w.print("{{\"hwIdx\":{d},\"destChannel\":{d},\"volume\":{d:.6},\"pan\":{d:.6},\"muted\":{s},\"mode\":{d}}}", .{
             i,
             dest_chan,
             safe_hw_volume,
             safe_hw_pan,
             if (muted) "true" else "false",
             mode,
-        }) catch return null;
+        });
     }
-    w.writeAll("]}}") catch return null;
+    try w.writeAll("]}}");
 
-    return stream.getWritten();
 }
 
 /// Compute hash of routing state for change detection.
