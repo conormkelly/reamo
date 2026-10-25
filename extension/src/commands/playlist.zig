@@ -228,20 +228,19 @@ pub fn handleRemoveEntry(api: anytype, cmd: protocol.CommandMessage, response: *
             // Removed before current position - shift index back
             state.engine.entry_idx -= 1;
         } else if (entry_idx_usize == state.engine.entry_idx) {
-            // Removed current entry - skip to next entry (which shifted into this index)
-            // Note: p.removeEntry already shifted entries, so entry_idx now points to "next"
-            if (state.engine.entry_idx < p.entry_count) {
-                // There's a next entry - immediately set up its region
-                const next_entry = &p.entries[state.engine.entry_idx];
+            // Removed current entry - move on to the next entry that plays.
+            // p.removeEntry already shifted entries, so entry_idx now points
+            // at the one after it; Skip entries and entries whose region is
+            // gone are passed over, as next does.
+            if (findFirstValidEntry(api, p, state.engine.entry_idx)) |next| {
+                const next_entry = &p.entries[next.entry_idx];
+                state.engine.entry_idx = next.entry_idx;
                 state.engine.loops_remaining = next_entry.loop_count;
                 state.engine.current_loop_iteration = 1;
                 state.engine.next_loop_pending = false;
                 state.engine.advance_after_loop = false;
-                // Set up native looping on next region
-                if (findRegionBounds(api, next_entry.region_id)) |bounds| {
-                    api.setCursorPos(bounds.start);
-                    api.setLoopPoints(bounds.start, bounds.end);
-                }
+                api.setCursorPos(next.bounds.start);
+                api.setLoopPoints(next.bounds.start, next.bounds.end);
                 logging.debug("Deleted current entry, skipped to next (now at idx {d})", .{state.engine.entry_idx});
             } else {
                 // No more entries - stop playback
