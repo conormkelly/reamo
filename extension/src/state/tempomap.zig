@@ -2,46 +2,54 @@ const std = @import("std");
 const protocol = @import("../core/protocol.zig");
 const reaper = @import("../reaper.zig");
 
-/// Maximum number of tempo markers to track
-const MAX_MARKERS: usize = 64;
+const Allocator = std.mem.Allocator;
 
-/// Tempo map state - polls tempo markers from REAPER
+/// What change detection keeps between polls. The markers themselves live
+/// only as long as the frame that serializes them.
+pub const Summary = struct {
+    count: usize = 0,
+    hash: u64 = 0,
+};
+
+/// Every tempo/time signature marker in the project.
 pub const State = struct {
-    count: c_int = 0,
-    markers: [MAX_MARKERS]reaper.TempoMarker = undefined,
-    // For change detection, we track a simple hash of positions + BPMs
+    markers: []const reaper.TempoMarker = &.{},
     hash: u64 = 0,
 
-    /// Poll current tempo markers from REAPER.
+    /// Poll every tempo marker, however many the project has, into
+    /// `allocator` (the frame's scratch arena; free with deinit otherwise).
     /// Accepts any backend type (RealBackend, MockBackend, or test doubles).
-    pub fn poll(api: anytype) State {
-        var state = State{};
-        state.count = api.tempoMarkerCount();
+    pub fn poll(allocator: Allocator, api: anytype) Allocator.Error!State {
+        const reported = api.tempoMarkerCount();
+        // A negative count from REAPER means none.
+        const n: usize = if (reported > 0) @intCast(reported) else 0;
+        var buf = try allocator.alloc(reaper.TempoMarker, n);
 
-        // Limit to MAX_MARKERS
-        // Guard against negative count from REAPER API (causes integerOutOfBounds crash)
-        const count: usize = if (state.count > 0) @intCast(@min(state.count, MAX_MARKERS)) else 0;
-
-        var hash: u64 = 0;
-        for (0..count) |i| {
-            if (api.getTempoMarker(@intCast(i))) |marker| {
-                state.markers[i] = marker;
-                // Simple hash: XOR position bits and BPM bits
-                hash ^= @bitCast(marker.position);
-                hash ^= @bitCast(marker.bpm);
-                // Use @bitCast to avoid integerOutOfBounds if REAPER returns negative timesig values
-                hash ^= @as(u64, @as(u32, @bitCast(marker.timesig_num))) << 32;
-                hash ^= @as(u64, @as(u32, @bitCast(marker.timesig_denom))) << 40;
-            }
+        var len: usize = 0;
+        var hasher = std.hash.Wyhash.init(0);
+        for (0..n) |i| {
+            // A marker REAPER can't return is left out rather than sent as
+            // whatever the buffer held.
+            const m = api.getTempoMarker(@intCast(i)) orelse continue;
+            buf[len] = m;
+            len += 1;
+            hashMarker(&hasher, m);
         }
-        state.hash = hash;
-
-        return state;
+        if (len < n) buf = try allocator.realloc(buf, len);
+        return .{ .markers = buf, .hash = hasher.final() };
     }
 
-    /// Check if tempo map changed from another state
-    pub fn changed(self: *const State, other: *const State) bool {
-        return self.count != other.count or self.hash != other.hash;
+    pub fn deinit(self: State, allocator: Allocator) void {
+        allocator.free(self.markers);
+    }
+
+    pub fn summary(self: *const State) Summary {
+        return .{ .count = self.markers.len, .hash = self.hash };
+    }
+
+    /// Whether the map differs from the one summarized by `prev`.
+    pub fn changed(self: *const State, prev: Summary) bool {
+        return self.markers.len != prev.count or self.hash != prev.hash;
     }
 
     /// Build JSON event for tempo markers
@@ -52,11 +60,8 @@ pub const State = struct {
 
         writer.writeAll("{\"type\":\"event\",\"event\":\"tempoMap\",\"payload\":{\"markers\":[") catch return null;
 
-        const count: usize = if (self.count > 0) @intCast(@min(self.count, MAX_MARKERS)) else 0;
-        for (0..count) |i| {
+        for (self.markers, 0..) |m, i| {
             if (i > 0) writer.writeAll(",") catch return null;
-
-            const m = self.markers[i];
             writer.print("{{\"position\":{d:.15},\"positionBeats\":{d:.6},\"bpm\":{d:.2},\"timesigNum\":{d},\"timesigDenom\":{d},\"linear\":{s}}}", .{
                 m.position,
                 m.position_beats,
@@ -72,29 +77,91 @@ pub const State = struct {
         return stream.getWritten();
     }
 
-    // Allocator-based version - returns owned slice from allocator
     /// Sized to fit the whole map (~100 bytes per marker).
-    pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
-        return protocol.serializeAlloc(allocator, 256 + @as(usize, @intCast(@max(self.count, 0))) * 128, self, toJson);
+    pub fn toJsonAlloc(self: *const State, allocator: Allocator) ![]const u8 {
+        return protocol.serializeAlloc(allocator, 256 + self.markers.len * 128, self, toJson);
     }
 };
 
+/// Every field a client shows feeds the hash, so any edit (a gradual tempo
+/// toggled, two markers trading tempos) is a change.
+fn hashMarker(hasher: *std.hash.Wyhash, m: reaper.TempoMarker) void {
+    hasher.update(std.mem.asBytes(&m.position));
+    hasher.update(std.mem.asBytes(&m.position_beats));
+    hasher.update(std.mem.asBytes(&m.bpm));
+    hasher.update(std.mem.asBytes(&m.timesig_num));
+    hasher.update(std.mem.asBytes(&m.timesig_denom));
+    hasher.update(&[_]u8{@intFromBool(m.linear_tempo)});
+}
+
 // Tests
-test "toJsonAlloc keeps the event for a full tempo map" {
-    var state = State{ .count = MAX_MARKERS };
-    for (state.markers[0..MAX_MARKERS], 0..) |*m, i| {
-        m.* = .{ .position = @as(f64, @floatFromInt(i)) * 1.234567, .position_beats = @as(f64, @floatFromInt(i)) * 2.5, .bpm = 97.5, .timesig_num = 7, .timesig_denom = 8, .linear_tempo = true };
+
+/// A backend with `n` generated tempo markers (the mock holds only 8).
+const Generated = struct {
+    n: c_int,
+    linear_at: ?c_int = null,
+    swap_bpm: bool = false,
+    null_at: ?c_int = null,
+
+    pub fn tempoMarkerCount(self: *const Generated) c_int {
+        return self.n;
     }
+
+    pub fn getTempoMarker(self: *const Generated, idx: c_int) ?reaper.TempoMarker {
+        if (idx < 0 or idx >= self.n) return null;
+        if (self.null_at == idx) return null;
+        var bpm: f64 = if (@mod(idx, 2) == 0) 120.0 else 90.0;
+        if (self.swap_bpm and idx < 2) bpm = if (idx == 0) 90.0 else 120.0;
+        return .{
+            .position = @as(f64, @floatFromInt(idx)) * 0.5,
+            .position_beats = @as(f64, @floatFromInt(idx)),
+            .bpm = bpm,
+            .timesig_num = 4,
+            .timesig_denom = 4,
+            .linear_tempo = self.linear_at == idx,
+        };
+    }
+};
+
+test "a tempo map of hundreds of markers reaches clients whole" {
+    const state = try State.poll(std.testing.allocator, &Generated{ .n = 300 });
+    defer state.deinit(std.testing.allocator);
     const json = try state.toJsonAlloc(std.testing.allocator);
     defer std.testing.allocator.free(json);
-    try std.testing.expect(json.len > 4096);
+    try std.testing.expectEqual(@as(usize, 300), std.mem.count(u8, json, "\"bpm\":"));
     try std.testing.expect(std.mem.endsWith(u8, json, "]}}"));
 }
 
-test "State.poll returns empty for no markers" {
-    // Can't test without REAPER API, but verify struct compiles
-    const state = State{};
-    try std.testing.expectEqual(@as(c_int, 0), state.count);
+test "making a tempo change gradual is a tempo map change" {
+    const a = try State.poll(std.testing.allocator, &Generated{ .n = 4 });
+    defer a.deinit(std.testing.allocator);
+    const b = try State.poll(std.testing.allocator, &Generated{ .n = 4, .linear_at = 2 });
+    defer b.deinit(std.testing.allocator);
+    try std.testing.expect(b.changed(a.summary()));
+}
+
+test "two markers trading tempos is a tempo map change" {
+    const a = try State.poll(std.testing.allocator, &Generated{ .n = 4 });
+    defer a.deinit(std.testing.allocator);
+    const b = try State.poll(std.testing.allocator, &Generated{ .n = 4, .swap_bpm = true });
+    defer b.deinit(std.testing.allocator);
+    try std.testing.expect(b.changed(a.summary()));
+}
+
+test "an unchanged tempo map is not a change" {
+    const a = try State.poll(std.testing.allocator, &Generated{ .n = 4 });
+    defer a.deinit(std.testing.allocator);
+    const b = try State.poll(std.testing.allocator, &Generated{ .n = 4 });
+    defer b.deinit(std.testing.allocator);
+    try std.testing.expect(!b.changed(a.summary()));
+}
+
+test "a marker REAPER can't return is left out, not sent as garbage" {
+    const state = try State.poll(std.testing.allocator, &Generated{ .n = 3, .null_at = 1 });
+    defer state.deinit(std.testing.allocator);
+    const json = try state.toJsonAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(json);
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, json, "\"bpm\":"));
 }
 
 test "State.toJson empty markers" {
@@ -102,18 +169,6 @@ test "State.toJson empty markers" {
     var buf: [256]u8 = undefined;
     const json = state.toJson(&buf).?;
     try std.testing.expect(std.mem.indexOf(u8, json, "\"markers\":[]") != null);
-}
-
-test "State.changed detects count change" {
-    var a = State{ .count = 0, .hash = 0 };
-    var b = State{ .count = 1, .hash = 0 };
-    try std.testing.expect(a.changed(&b));
-}
-
-test "State.changed detects hash change" {
-    var a = State{ .count = 1, .hash = 123 };
-    var b = State{ .count = 1, .hash = 456 };
-    try std.testing.expect(a.changed(&b));
 }
 
 // =============================================================================
@@ -143,9 +198,10 @@ test "poll with MockBackend returns tempo markers" {
         .linear_tempo = true,
     };
 
-    const state = State.poll(&mock);
+    const state = try State.poll(std.testing.allocator, &mock);
+    defer state.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(@as(c_int, 2), state.count);
+    try std.testing.expectEqual(@as(usize, 2), state.markers.len);
     try std.testing.expect(@abs(state.markers[0].bpm - 120.0) < 0.01);
     try std.testing.expect(@abs(state.markers[1].bpm - 140.0) < 0.01);
     try std.testing.expectEqual(@as(c_int, 4), state.markers[0].timesig_num);
@@ -157,9 +213,10 @@ test "poll with MockBackend returns empty state for no markers" {
         .tempo_marker_count = 0,
     };
 
-    const state = State.poll(&mock);
+    const state = try State.poll(std.testing.allocator, &mock);
+    defer state.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(@as(c_int, 0), state.count);
+    try std.testing.expectEqual(@as(usize, 0), state.markers.len);
 }
 
 test "poll handles negative tempo_marker_count without panic" {
@@ -167,31 +224,11 @@ test "poll handles negative tempo_marker_count without panic" {
         .tempo_marker_count = -1,
     };
 
-    const state = State.poll(&mock);
+    const state = try State.poll(std.testing.allocator, &mock);
+    defer state.deinit(std.testing.allocator);
 
-    // Should treat negative count as 0 markers
-    try std.testing.expectEqual(@as(c_int, -1), state.count);
+    try std.testing.expectEqual(@as(usize, 0), state.markers.len);
     var buf: [256]u8 = undefined;
     const json = state.toJson(&buf).?;
     try std.testing.expect(std.mem.indexOf(u8, json, "\"markers\":[]") != null);
-}
-
-test "poll tracks API calls correctly" {
-    var mock = MockBackend{
-        .tempo_marker_count = 1,
-    };
-    mock.tempo_markers[0] = .{
-        .position = 0.0,
-        .position_beats = 0.0,
-        .bpm = 120.0,
-        .timesig_num = 4,
-        .timesig_denom = 4,
-        .linear_tempo = false,
-    };
-
-    _ = State.poll(&mock);
-
-    // Verify key API calls were made
-    try std.testing.expect(mock.getCallCount(.tempoMarkerCount) >= 1);
-    try std.testing.expect(mock.getCallCount(.getTempoMarker) >= 1);
 }
