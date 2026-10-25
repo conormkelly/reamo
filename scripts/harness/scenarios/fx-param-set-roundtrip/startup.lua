@@ -1,0 +1,5 @@
+dofile(reaper.GetResourcePath() .. "/Scripts/harness.lua")
+local t = harness.track("Bass")
+reaper.TrackFX_AddByName(t, "JS:loser/4BandEQ", false, -1)
+reaper.TrackFX_AddByName(t, "JS:utility/volume", false, -1)
+harness.ready()

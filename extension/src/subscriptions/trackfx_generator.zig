@@ -31,21 +31,30 @@ pub fn generateTrackFxChain(
         return null;
     }
 
-    // Allocate buffer for JSON serialization.
-    // 16KB supports ~50 FX per track (each entry ~300 bytes with names).
-    const buf = allocator.alloc(u8, 16384) catch return null;
-    var stream = std.io.fixedBufferStream(buf);
-    var w = stream.writer();
+    const Ctx = struct { api: @TypeOf(api), track: *anyopaque, track_guid: []const u8 };
+    // ~300 bytes per FX with names and preset; grows for long chains.
+    const estimate = 1024 + @as(usize, @intCast(@max(api.trackFxCount(track), 0))) * 384;
+    const ctx = Ctx{ .api = api, .track = track, .track_guid = track_guid };
+    return protocol.writeAlloc(allocator, estimate, ctx, writeTrackFxChain) catch |err| {
+        logging.warn("trackfx_generator: could not serialize for {s}: {s}", .{ track_guid, @errorName(err) });
+        return null;
+    };
+}
+
+fn writeTrackFxChain(ctx: anytype, w: anytype) !void {
+    const api = ctx.api;
+    const track = ctx.track;
+    const track_guid = ctx.track_guid;
 
     // Start event envelope
-    w.writeAll("{\"type\":\"event\",\"event\":\"trackFxChain\",\"payload\":{") catch return null;
-    w.print("\"trackGuid\":\"{s}\",\"fx\":[", .{track_guid}) catch return null;
+    try w.writeAll("{\"type\":\"event\",\"event\":\"trackFxChain\",\"payload\":{");
+    try w.print("\"trackGuid\":\"{s}\",\"fx\":[", .{track_guid});
 
     // Iterate all FX on the track
     const fx_count = api.trackFxCount(track);
     var i: c_int = 0;
     while (i < fx_count) : (i += 1) {
-        if (i > 0) w.writeByte(',') catch return null;
+        if (i > 0) try w.writeByte(',');
 
         // Get FX name
         var name_buf: [MAX_FX_NAME_LEN]u8 = undefined;
@@ -66,23 +75,22 @@ pub fn generateTrackFxChain(
         const enabled = api.trackFxGetEnabled(track, i);
 
         // Write FX object
-        w.writeAll("{\"fxGuid\":\"") catch return null;
-        protocol.writeJsonString(w, fx_guid) catch return null;
-        w.print("\",\"fxIndex\":{d},\"name\":\"", .{i}) catch return null;
-        protocol.writeJsonString(w, name) catch return null;
-        w.writeAll("\",\"presetName\":\"") catch return null;
-        protocol.writeJsonString(w, preset_info.name) catch return null;
-        w.print("\",\"presetIndex\":{d},\"presetCount\":{d},\"modified\":{s},\"enabled\":{s}}}", .{
+        try w.writeAll("{\"fxGuid\":\"");
+        try protocol.writeJsonString(w, fx_guid);
+        try w.print("\",\"fxIndex\":{d},\"name\":\"", .{i});
+        try protocol.writeJsonString(w, name);
+        try w.writeAll("\",\"presetName\":\"");
+        try protocol.writeJsonString(w, preset_info.name);
+        try w.print("\",\"presetIndex\":{d},\"presetCount\":{d},\"modified\":{s},\"enabled\":{s}}}", .{
             preset_index,
             preset_count,
             if (!preset_info.matches_preset) "true" else "false",
             if (enabled) "true" else "false",
-        }) catch return null;
+        });
     }
 
-    w.writeAll("]}}") catch return null;
+    try w.writeAll("]}}");
 
-    return stream.getWritten();
 }
 
 /// Compute hash of FX chain state for change detection.

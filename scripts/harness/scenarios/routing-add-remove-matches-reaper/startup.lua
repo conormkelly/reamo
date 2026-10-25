@@ -1,0 +1,5 @@
+dofile(reaper.GetResourcePath() .. "/Scripts/harness.lua")
+harness.track("Vocals")
+harness.track("Reverb")
+harness.track("Click")
+harness.ready()
