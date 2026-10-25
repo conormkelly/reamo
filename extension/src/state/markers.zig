@@ -25,9 +25,16 @@ pub const Marker = struct {
         return self.name[0..self.name_len];
     }
 
+    /// True when a client would see the same marker. Covers the
+    /// beat-derived fields too: a tempo or meter change moves a marker's
+    /// bar label without moving its time.
     pub fn eql(self: *const Marker, other: *const Marker) bool {
         if (self.id != other.id) return false;
         if (@abs(self.position - other.position) > 0.001) return false;
+        if (@abs(self.position_beats - other.position_beats) > 0.001) return false;
+        if (self.position_bar != other.position_bar) return false;
+        if (@abs(self.position_beat_in_bar - other.position_beat_in_bar) > 0.001) return false;
+        if (self.position_beats_per_bar != other.position_beats_per_bar) return false;
         if (self.color != other.color) return false;
         if (self.name_len != other.name_len) return false;
         return std.mem.eql(u8, self.getName(), other.getName());
@@ -55,10 +62,20 @@ pub const Region = struct {
         return self.name[0..self.name_len];
     }
 
+    /// True when a client would see the same region, including the
+    /// beat-derived bar labels and length (see Marker.eql).
     pub fn eql(self: *const Region, other: *const Region) bool {
         if (self.id != other.id) return false;
         if (@abs(self.start - other.start) > 0.001) return false;
         if (@abs(self.end - other.end) > 0.001) return false;
+        if (@abs(self.start_beats - other.start_beats) > 0.001) return false;
+        if (@abs(self.end_beats - other.end_beats) > 0.001) return false;
+        if (self.start_bar != other.start_bar) return false;
+        if (self.end_bar != other.end_bar) return false;
+        if (@abs(self.start_beat_in_bar - other.start_beat_in_bar) > 0.001) return false;
+        if (@abs(self.end_beat_in_bar - other.end_beat_in_bar) > 0.001) return false;
+        if (self.start_beats_per_bar != other.start_beats_per_bar) return false;
+        if (self.end_beats_per_bar != other.end_beats_per_bar) return false;
         if (self.color != other.color) return false;
         if (self.name_len != other.name_len) return false;
         return std.mem.eql(u8, self.getName(), other.getName());
@@ -208,9 +225,11 @@ pub const State = struct {
         return state;
     }
 
-    // Check if markers have changed
+    /// True when the markers event clients hold is out of date. The
+    /// project start measure (bar_offset) shifts every bar label.
     pub fn markersChanged(self: *const State, other: *const State) bool {
         if (self.markers.len != other.markers.len) return true;
+        if (self.markers.len > 0 and self.bar_offset != other.bar_offset) return true;
 
         for (0..self.markers.len) |i| {
             if (!self.markers[i].eql(&other.markers[i])) return true;
@@ -218,9 +237,10 @@ pub const State = struct {
         return false;
     }
 
-    // Check if regions have changed
+    /// True when the regions event clients hold is out of date (see markersChanged).
     pub fn regionsChanged(self: *const State, other: *const State) bool {
         if (self.regions.len != other.regions.len) return true;
+        if (self.regions.len > 0 and self.bar_offset != other.bar_offset) return true;
 
         for (0..self.regions.len) |i| {
             if (!self.regions[i].eql(&other.regions[i])) return true;
@@ -699,6 +719,64 @@ test "markers changed detection" {
 
     buffer2[0].position = 15.0;
     try std.testing.expect(state1.markersChanged(&state2));
+}
+
+test "a tempo change that keeps marker times still counts as a change" {
+    // 4 s is bar 3.1.00 at 120 BPM and bar 2.1.00 at 60 BPM.
+    var at_120: [1]Marker = .{.{ .id = 1, .position = 4.0, .position_beats = 8, .position_bar = 2, .color = 0 }};
+    var at_60: [1]Marker = .{.{ .id = 1, .position = 4.0, .position_beats = 4, .position_bar = 1, .color = 0 }};
+    at_120[0].name_len = 0;
+    at_60[0].name_len = 0;
+
+    const before = State{ .markers = &at_120, .regions = &.{} };
+    const after = State{ .markers = &at_60, .regions = &.{} };
+    try std.testing.expect(after.markersChanged(&before));
+
+    // The meter and the beat within the bar feed the label on their own as well.
+    var meter: [1]Marker = at_120;
+    meter[0].position_beats_per_bar = 3;
+    try std.testing.expect((State{ .markers = &meter, .regions = &.{} }).markersChanged(&before));
+
+    var beat: [1]Marker = at_120;
+    beat[0].position_beat_in_bar = 0.5;
+    try std.testing.expect((State{ .markers = &beat, .regions = &.{} }).markersChanged(&before));
+}
+
+test "a tempo change that keeps region times still counts as a change" {
+    var at_120: [1]Region = .{.{ .id = 1, .start = 4, .end = 12, .start_beats = 8, .end_beats = 24, .start_bar = 2, .end_bar = 6, .color = 0 }};
+    at_120[0].name_len = 0;
+    const before = State{ .markers = &.{}, .regions = &at_120 };
+
+    var end_moved: [1]Region = at_120;
+    end_moved[0].end_beats = 12;
+    end_moved[0].end_bar = 3;
+    try std.testing.expect((State{ .markers = &.{}, .regions = &end_moved }).regionsChanged(&before));
+
+    var start_meter: [1]Region = at_120;
+    start_meter[0].start_beats_per_bar = 7; // changes lengthBars borrowing
+    try std.testing.expect((State{ .markers = &.{}, .regions = &start_meter }).regionsChanged(&before));
+}
+
+test "changing the project start measure counts as a change for every label" {
+    var m: [1]Marker = .{.{ .id = 1, .position = 4.0, .color = 0 }};
+    m[0].name_len = 0;
+    var r: [1]Region = .{.{ .id = 1, .start = 4, .end = 12, .color = 0 }};
+    r[0].name_len = 0;
+
+    const before = State{ .markers = &m, .regions = &r, .bar_offset = 0 };
+    const after = State{ .markers = &m, .regions = &r, .bar_offset = -5 };
+    try std.testing.expect(after.markersChanged(&before));
+    try std.testing.expect(after.regionsChanged(&before));
+    try std.testing.expect(!before.markersChanged(&before));
+    try std.testing.expect(!before.regionsChanged(&before));
+}
+
+test "empty marker lists do not change when only the start measure does" {
+    // Nothing on the wire depends on bar_offset when there is nothing to label.
+    const before = State{ .markers = &.{}, .regions = &.{}, .bar_offset = 0 };
+    const after = State{ .markers = &.{}, .regions = &.{}, .bar_offset = 3 };
+    try std.testing.expect(!after.markersChanged(&before));
+    try std.testing.expect(!after.regionsChanged(&before));
 }
 
 test "marker position preserves sub-millisecond precision" {

@@ -113,24 +113,6 @@ pub const HighTierResult = struct {
 // Helper functions (moved from main.zig)
 // ============================================================================
 
-/// Compare marker slices for change detection
-fn markersSliceEql(a: []const markers.Marker, b: []const markers.Marker) bool {
-    if (a.len != b.len) return false;
-    for (a, b) |*marker_a, *marker_b| {
-        if (!marker_a.eql(marker_b)) return false;
-    }
-    return true;
-}
-
-/// Compare region slices for change detection
-fn regionsSliceEql(a: []const markers.Region, b: []const markers.Region) bool {
-    if (a.len != b.len) return false;
-    for (a, b) |*region_a, *region_b| {
-        if (!region_a.eql(region_b)) return false;
-    }
-    return true;
-}
-
 /// Compare item slices for change detection
 fn itemsSliceEql(a: []const items.Item, b: []const items.Item) bool {
     if (a.len != b.len) return false;
@@ -362,29 +344,7 @@ fn pollMarkersImmediate(ctx: *const TierContext, mutable: *MutableState) !void {
     medium_state.regions = marker_state.regions;
     medium_state.bar_offset = marker_state.bar_offset;
 
-    // Broadcast markers if changed
-    if (!markersSliceEql(medium_state.markers, medium_prev.markers)) {
-        const temp_marker_state = markers.State{
-            .markers = medium_state.markers,
-            .regions = medium_state.regions,
-            .bar_offset = medium_state.bar_offset,
-        };
-        if (temp_marker_state.markersToJsonAlloc(scratch)) |json| {
-            ctx.shared_state.broadcast(json);
-        } else |_| {}
-    }
-
-    // Broadcast regions if changed
-    if (!regionsSliceEql(medium_state.regions, medium_prev.regions)) {
-        const temp_marker_state = markers.State{
-            .markers = medium_state.markers,
-            .regions = medium_state.regions,
-            .bar_offset = medium_state.bar_offset,
-        };
-        if (temp_marker_state.regionsToJsonAlloc(scratch)) |json| {
-            ctx.shared_state.broadcast(json);
-        } else |_| {}
-    }
+    broadcastMarkersIfChanged(ctx, medium_state, medium_prev, scratch);
 
     // Update g_last_markers cache for playlist engine
     updateMarkersCache(mutable, medium_state.markers, medium_state.regions, medium_state.bar_offset);
@@ -472,29 +432,7 @@ fn pollMediumTierRegular(ctx: *const TierContext, mutable: *MutableState) !void 
     medium_state.regions = marker_state.regions;
     medium_state.bar_offset = marker_state.bar_offset;
 
-    // Broadcast markers if changed
-    if (!markersSliceEql(medium_state.markers, medium_prev.markers)) {
-        const temp_marker_state = markers.State{
-            .markers = medium_state.markers,
-            .regions = medium_state.regions,
-            .bar_offset = medium_state.bar_offset,
-        };
-        if (temp_marker_state.markersToJsonAlloc(scratch)) |json| {
-            ctx.shared_state.broadcast(json);
-        } else |_| {}
-    }
-
-    // Broadcast regions if changed
-    if (!regionsSliceEql(medium_state.regions, medium_prev.regions)) {
-        const temp_marker_state = markers.State{
-            .markers = medium_state.markers,
-            .regions = medium_state.regions,
-            .bar_offset = medium_state.bar_offset,
-        };
-        if (temp_marker_state.regionsToJsonAlloc(scratch)) |json| {
-            ctx.shared_state.broadcast(json);
-        } else |_| {}
-    }
+    broadcastMarkersIfChanged(ctx, medium_state, medium_prev, scratch);
 
     // Update markers cache for playlist engine
     updateMarkersCache(mutable, medium_state.markers, medium_state.regions, medium_state.bar_offset);
@@ -564,6 +502,29 @@ fn pollMediumTierRegular(ctx: *const TierContext, mutable: *MutableState) !void 
     if (!sendsSliceEql(medium_state.send_slots, medium_prev.send_slots)) {
         const temp_sends_state = sends.State{ .sends = medium_state.send_slots };
         if (temp_sends_state.toJsonAlloc(scratch)) |json| {
+            ctx.shared_state.broadcast(json);
+        } else |_| {}
+    }
+}
+
+/// Broadcast the markers and regions events whose content differs from the
+/// previous medium-tier poll.
+fn broadcastMarkersIfChanged(
+    ctx: *const TierContext,
+    cur: *const tiered_state.MediumTierState,
+    prev: *const tiered_state.MediumTierState,
+    scratch: std.mem.Allocator,
+) void {
+    const cur_view = markers.State{ .markers = cur.markers, .regions = cur.regions, .bar_offset = cur.bar_offset };
+    const prev_view = markers.State{ .markers = prev.markers, .regions = prev.regions, .bar_offset = prev.bar_offset };
+
+    if (cur_view.markersChanged(&prev_view)) {
+        if (cur_view.markersToJsonAlloc(scratch)) |json| {
+            ctx.shared_state.broadcast(json);
+        } else |_| {}
+    }
+    if (cur_view.regionsChanged(&prev_view)) {
+        if (cur_view.regionsToJsonAlloc(scratch)) |json| {
             ctx.shared_state.broadcast(json);
         } else |_| {}
     }
