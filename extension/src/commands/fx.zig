@@ -113,7 +113,7 @@ pub fn handleSetEnabled(api: anytype, cmd: protocol.CommandMessage, response: *m
 
     // Get current state for toggle, or use explicit enabled param
     const current = api.trackFxGetEnabled(resolution.track, fx_idx);
-    const enabled = if (cmd.getInt("enabled")) |e| e != 0 else !current;
+    const enabled = cmd.getFlag("enabled") orelse !current;
 
     // Build undo description with track/FX names
     var track_name_buf: [128]u8 = undefined;

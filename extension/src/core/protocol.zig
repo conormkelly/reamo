@@ -78,6 +78,14 @@ pub const CommandMessage = struct {
         return jsonGetStringUnescaped(self.raw, key, out_buf);
     }
 
+    /// An on/off parameter, sent as a JSON boolean or as 0/1 (the frontend
+    /// uses both). null when absent.
+    pub fn getFlag(self: CommandMessage, key: []const u8) ?bool {
+        if (jsonGetBool(self.raw, key)) |b| return b;
+        if (jsonGetInt(self.raw, key)) |v| return v != 0;
+        return null;
+    }
+
     // Get an integer parameter from the message
     pub fn getInt(self: CommandMessage, key: []const u8) ?c_int {
         return jsonGetInt(self.raw, key);
@@ -994,6 +1002,15 @@ test "jsonGetString handles escaped quotes in string" {
     try std.testing.expect(result != null);
     // Raw result includes the escape sequences
     try std.testing.expectEqualStrings("say \\\"hello\\\"", result.?);
+}
+
+test "getFlag reads booleans and 0/1 alike" {
+    const msg = CommandMessage{ .command = "track/setInput", .raw = "{\"stereo\":true,\"multi\":0,\"rearoute\":1,\"wrap\":false}" };
+    try std.testing.expectEqual(@as(?bool, true), msg.getFlag("stereo"));
+    try std.testing.expectEqual(@as(?bool, false), msg.getFlag("multi"));
+    try std.testing.expectEqual(@as(?bool, true), msg.getFlag("rearoute"));
+    try std.testing.expectEqual(@as(?bool, false), msg.getFlag("wrap"));
+    try std.testing.expectEqual(@as(?bool, null), msg.getFlag("missing"));
 }
 
 test "jsonGetBool true" {

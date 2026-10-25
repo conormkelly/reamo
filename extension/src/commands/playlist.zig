@@ -355,7 +355,7 @@ pub fn handleSetStopAfterLast(api: anytype, cmd: protocol.CommandMessage, respon
         return;
     };
 
-    const stop_after_last = cmd.getInt("stopAfterLast") orelse {
+    const stop_after_last = cmd.getFlag("stopAfterLast") orelse {
         response.err("MISSING_VALUE", "stopAfterLast is required (0 or 1)");
         return;
     };
@@ -365,7 +365,7 @@ pub fn handleSetStopAfterLast(api: anytype, cmd: protocol.CommandMessage, respon
         return;
     };
 
-    p.stop_after_last = stop_after_last != 0;
+    p.stop_after_last = stop_after_last;
     state.markDirty(api.timePrecise());
 
     response.success(null);
