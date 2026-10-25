@@ -70,7 +70,7 @@ pub fn handleGetBarDuration(api: anytype, cmd: protocol.CommandMessage, response
 
     const tempo = api.getTempoAtPosition(time);
     const beats_per_bar: f64 = @floatFromInt(tempo.timesig_num);
-    const duration = barDurationSeconds(tempo);
+    const duration = barDurationAt(api, time);
 
     var buf: [192]u8 = undefined;
     const payload = std.fmt.bufPrint(&buf, "{{\"duration\":{d:.15},\"durationBeats\":{d:.6},\"bpm\":{d:.2},\"timesigNum\":{d},\"timesigDenom\":{d}}}", .{
@@ -86,12 +86,12 @@ pub fn handleGetBarDuration(api: anytype, cmd: protocol.CommandMessage, response
     response.success(payload);
 }
 
-/// A bar's length: `timesig_num` beats of 1/`timesig_denom` notes, while
-/// REAPER's BPM counts quarter notes (a 6/8 bar at 90 BPM is 2 s, not 4 s).
-fn barDurationSeconds(tempo: anytype) f64 {
-    const num: f64 = @floatFromInt(tempo.timesig_num);
-    const denom: f64 = @floatFromInt(@max(tempo.timesig_denom, 1));
-    return num * (4.0 / denom) * 60.0 / tempo.bpm;
+/// Length in seconds of the bar containing `time`, from REAPER's own bar
+/// starts. Through a tempo ramp the BPM differs across the bar, so no
+/// single BPM gives its length.
+fn barDurationAt(api: anytype, time: f64) f64 {
+    const bar = api.timeToBeats(time).measures;
+    return api.barBeatToTime(bar +| 1, 1.0) - api.barBeatToTime(bar, 1.0);
 }
 
 // Convert time to beats with formatted bar string
@@ -172,7 +172,18 @@ test "bar.beat counts the meter's own beats in compound meters" {
     // 6/8 at 90 BPM (quarter notes): an eighth is 1/3 s, a bar 2 s.
     var m = mock.MockBackend{ .bpm = 90, .timesig_num = 6, .timesig_denom = 8 };
     try std.testing.expectApproxEqAbs(@as(f64, 2.0 + 1.0), mod.displayedBarBeatToTime(&m, 2, 4.0).?, 1e-9);
-    try std.testing.expectApproxEqAbs(@as(f64, 2.0), barDurationSeconds(m.getTempoAtPosition(0)), 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), barDurationAt(&m, 0), 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), barDurationAt(&m, 1.0), 1e-9);
+}
+
+test "a bar before the project start has no time" {
+    const mock = @import("../reaper/mock/mod.zig");
+    // The ruler starts at -4 (start measure offset -5), as in most projects.
+    var m = mock.MockBackend{ .bpm = 120, .bar_offset = -5 };
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), mod.displayedBarBeatToTime(&m, -4, 1.0).?, 1e-12);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.5), mod.displayedBarBeatToTime(&m, -3, 2.0).?, 1e-9);
+    try std.testing.expectEqual(@as(?f64, null), mod.displayedBarBeatToTime(&m, -5, 1.0));
+    try std.testing.expectEqual(@as(?f64, null), mod.displayedBarBeatToTime(&m, -4, 0.5));
 }
 
 test "tempo/barsToTime rejects bar, beat and ticks that would overflow before converting" {
