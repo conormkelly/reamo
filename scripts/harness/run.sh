@@ -98,6 +98,8 @@ mkdir -p "$OUT/harness"
 echo "Building extension for $arch-linux (REAPER $REAPER_VERSION)..."
 (cd "$ROOT/extension" && "$ZIG" build -Doptimize=ReleaseSafe -Dtarget="$arch-linux-gnu.2.28" --prefix "$OUT/build")
 cp "$OUT/build/lib/libreaper_reamo.so" "$OUT/reaper_reamo.so"
+# The release installer scripts, for scenarios that install over a running REAmo.
+cp -R "$ROOT/installer" "$OUT/installer"
 
 lic_mount=()
 if [ -f "$LICENSE" ]; then
