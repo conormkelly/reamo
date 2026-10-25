@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
 # Run harness scenarios against a real, headless REAPER in Docker.
 #
-#   scripts/harness/run.sh                 # every scenario
-#   scripts/harness/run.sh item-notes ...  # just these
+#   scripts/harness/run.sh                         # every scenario, pinned REAPER
+#   scripts/harness/run.sh item-notes ...          # just these
+#   scripts/harness/run.sh --reaper 6.0 smoke      # on a given REAPER release
+#   scripts/harness/run.sh --reaper oldest         # the oldest REAPER we support
+#   scripts/harness/run.sh --reaper latest         # reaper.fm's current release
+#   scripts/harness/run.sh --reaper 6.0 --image-only   # just build that image
+#
+# --reaper takes a release as reaper.fm numbers it, or one of: pinned (the
+# default, the newest release we have checked), oldest, latest (looked up on
+# reaper.fm, so it needs the network and can change under you). Each version
+# gets its own image, built on first use.
 #
 # Env:
 #   ZIG             Zig 0.15.x binary (default: zig on PATH)
 #   REAPER_LICENSE  licence file (default: scripts/harness/reaper-license.rk)
+#   REAPER_VERSION  as --reaper, which overrides it
 #   HARNESS_GDB=1   run REAPER under gdb; a crash prints all thread backtraces
-#   REAPER_VERSION  REAPER release to run, as reaper.fm numbers it (default: 7.83);
-#                   each version gets its own image, built on first use
 #   HARNESS_IMAGE   image name (default: reamo-v1-harness), tagged reaper-<version>
 #   HARNESS_JOBS    scenarios to run at once (default: 4); output is still
 #                   printed one scenario at a time, in order
@@ -21,12 +29,45 @@
 # project's harness) without contention.
 set -euo pipefail
 
+PINNED_REAPER=7.83
+OLDEST_REAPER=6.0
+
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-REAPER_VERSION="${REAPER_VERSION:-7.83}"
+REAPER_VERSION="${REAPER_VERSION:-pinned}"
+image_only=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --reaper) REAPER_VERSION="${2:?--reaper needs a version}"; shift 2 ;;
+        --image-only) image_only=1; shift ;;
+        --) shift; break ;;
+        -*) echo "error: unknown option $1" >&2; exit 1 ;;
+        *) break ;;
+    esac
+done
+case "$REAPER_VERSION" in
+    pinned) REAPER_VERSION="$PINNED_REAPER" ;;
+    oldest) REAPER_VERSION="$OLDEST_REAPER" ;;
+    latest)
+        # reaper.fm links its current Linux tarballs as files/<major>.x/reaper<major><minor>_linux_*.
+        latest="$(curl -fsSL https://www.reaper.fm/download.php \
+            | grep -oE 'files/[0-9]+\.x/reaper[0-9]+_linux_x86_64\.tar\.xz' | head -1)" \
+            || { echo "error: couldn't look up the latest REAPER on reaper.fm" >&2; exit 1; }
+        major="$(printf '%s' "$latest" | sed -E 's|files/([0-9]+)\.x/.*|\1|')"
+        digits="$(printf '%s' "$latest" | sed -E 's|.*/reaper([0-9]+)_linux.*|\1|')"
+        REAPER_VERSION="$major.${digits#"$major"}"
+        echo "latest REAPER on reaper.fm: $REAPER_VERSION"
+        ;;
+esac
+printf '%s' "$REAPER_VERSION" | grep -qE '^[0-9]+\.[0-9]+$' \
+    || { echo "error: REAPER version '$REAPER_VERSION' isn't like 7.83" >&2; exit 1; }
 IMAGE="${HARNESS_IMAGE:-reamo-v1-harness}:reaper-$REAPER_VERSION"
 ZIG="${ZIG:-zig}"
 LICENSE="${REAPER_LICENSE:-$HERE/reaper-license.rk}"
+
+# Cached after the first build; rebuilt only when the Dockerfile changes.
+docker build -q --build-arg REAPER_VERSION="$REAPER_VERSION" -t "$IMAGE" "$HERE" >/dev/null
+[ "$image_only" = 0 ] || { echo "built $IMAGE"; exit 0; }
 
 zig_version="$("$ZIG" version 2>/dev/null || true)"
 case "$zig_version" in
@@ -35,9 +76,6 @@ case "$zig_version" in
 esac
 
 [ -f "$ROOT/web/index.html" ] || { echo "error: no built frontend in web/; run: make frontend" >&2; exit 1; }
-
-# Cached after the first build; rebuilt only when the Dockerfile changes.
-docker build -q --build-arg REAPER_VERSION="$REAPER_VERSION" -t "$IMAGE" "$HERE" >/dev/null
 
 # Screenshots and other per-scenario artifacts (gitignored).
 ARTIFACTS="$HERE/out"
