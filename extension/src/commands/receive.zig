@@ -2,6 +2,7 @@ const std = @import("std");
 const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
 const tracks = @import("tracks.zig");
+const send = @import("send.zig");
 const gesture_state = @import("../server/gesture_state.zig");
 const logging = @import("../core/logging.zig");
 
@@ -207,13 +208,13 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
 
     // CreateTrackSend creates a send FROM src TO dest
     api.undoBeginBlock();
-    const send_idx = api.createSend(src_track, dest_track);
+    const created = send.createSendChecked(api, src_track, dest_track);
     api.undoEndBlock("REAmo: Create receive");
 
-    if (send_idx < 0) {
-        response.err("CREATE_FAILED", "Failed to create receive");
+    const send_idx = created orelse {
+        response.err("CREATE_FAILED", "REAPER didn't create the receive");
         return;
-    }
+    };
 
     var resp_buf: [64]u8 = undefined;
     const resp_json = std.fmt.bufPrint(&resp_buf, "{{\"sendIndex\":{d}}}", .{send_idx}) catch {

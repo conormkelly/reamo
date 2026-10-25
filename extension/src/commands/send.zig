@@ -163,6 +163,16 @@ pub fn handleSetMode(api: anytype, cmd: protocol.CommandMessage, response: *mod.
     response.success(null);
 }
 
+/// CreateTrackSend, believed only if REAPER added a send: it returns an
+/// index even for a route it declines (from or to the master track, which
+/// tracks reach through their master send instead).
+pub fn createSendChecked(api: anytype, src: *anyopaque, dest: *anyopaque) ?c_int {
+    const before = api.trackSendCount(src);
+    const idx = api.createSend(src, dest);
+    if (idx < 0 or api.trackSendCount(src) != before + 1) return null;
+    return idx;
+}
+
 /// Create a new send from source track to destination track.
 /// Params: trackGuid (source), destTrackGuid (destination)
 /// Response: { "sendIndex": N }
@@ -205,13 +215,13 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     }
 
     api.undoBeginBlock();
-    const send_idx = api.createSend(src_track, dest_track);
+    const created = createSendChecked(api, src_track, dest_track);
     api.undoEndBlock("REAmo: Create send");
 
-    if (send_idx < 0) {
-        response.err("CREATE_FAILED", "Failed to create send");
+    const send_idx = created orelse {
+        response.err("CREATE_FAILED", "REAPER didn't create the send");
         return;
-    }
+    };
 
     var resp_buf: [64]u8 = undefined;
     const resp_json = std.fmt.bufPrint(&resp_buf, "{{\"sendIndex\":{d}}}", .{send_idx}) catch {

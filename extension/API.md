@@ -658,6 +658,8 @@ Move an item by GUID — stable across reordering. Supports changing position, t
 - `NOT_FOUND` - Item not found (may have been deleted), or destination track not found
 - `ITEM_LOCKED` - The item is locked; nothing changes
 - `READ_FAILED` - The item's lock couldn't be read; nothing changes
+- `INVALID_PARAM` - `destTrackGuid` is the master track, which holds no items; nothing changes
+- `MOVE_FAILED` - REAPER didn't move the item to the destination track; nothing changes
 
 ### `item/setColor`
 
@@ -3051,7 +3053,7 @@ Create a send from one track to another. One undo point. **Returns data.**
 
 `sendIndex` is the new send's index on the source track.
 
-**Errors:** `MISSING_PARAM`, `NOT_FOUND` (source or destination track), `INVALID_PARAM` (send to self), `CREATE_FAILED`.
+**Errors:** `MISSING_PARAM`, `NOT_FOUND` (source or destination track), `INVALID_PARAM` (send to self), `CREATE_FAILED` (REAPER didn't add the send: it has no sends from or to the master track, which tracks reach through their master send).
 
 ### `send/remove`
 
@@ -3155,7 +3157,7 @@ Create a receive on a track from another track (a send on the source track). One
 
 `sendIndex` is the new route's index among the source track's sends.
 
-**Errors:** `MISSING_PARAM`, `NOT_FOUND` (either track), `INVALID_PARAM` (receive from self), `CREATE_FAILED`.
+**Errors:** `MISSING_PARAM`, `NOT_FOUND` (either track), `INVALID_PARAM` (receive from self), `CREATE_FAILED` (REAPER didn't add the route, as for `send/add`).
 
 ### `receive/remove`
 
