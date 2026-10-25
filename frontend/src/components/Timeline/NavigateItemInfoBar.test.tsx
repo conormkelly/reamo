@@ -78,4 +78,60 @@ describe('NavigateItemInfoBar notes', () => {
     });
     await waitFor(() => expect(screen.getByText('double the chorus, then cut')).toBeTruthy());
   });
+
 });
+
+describe('NavigateItemInfoBar move', () => {
+  // A project whose tempo halves at bar 5 (8 s): bar 6 is at 12 s, and bars
+  // from 5 on are 4 s long. The item sits at bar 5.
+  function fakeReaper(command: string, params?: Record<string, unknown>) {
+    const p = params as Record<string, number>;
+    switch (command) {
+      case 'item/getNotes':
+        return Promise.resolve({ success: true, payload: { notes: '' } });
+      case 'tempo/timeToBeats':
+        return Promise.resolve({ success: true, payload: { bars: p.time === 8 ? '5.1.00' : '?' } });
+      case 'tempo/barsToTime':
+        return Promise.resolve({ success: true, payload: { time: p.bar === 6 && p.beat === 1 ? 12 : -1 } });
+      case 'tempo/getBarDuration':
+        return Promise.resolve({ success: true, payload: { duration: p.time >= 8 ? 4 : 2, durationBeats: 4 } });
+      default:
+        return Promise.reject(new Error(command));
+    }
+  }
+
+  beforeEach(() => {
+    sendCommand.mockReset();
+    sendAsync.mockReset();
+    sendAsync.mockImplementation(fakeReaper);
+    useReaperStore.setState({ items: [{ ...ITEM, position: 8 }], bpm: 120, itemSelectionModeActive: true });
+  });
+
+  async function openMove() {
+    openSheet();
+    fireEvent.click(screen.getByText('Position'));
+    return (await screen.findByDisplayValue('5.1')) as HTMLInputElement;
+  }
+
+  it('moves the item to the time REAPER gives for a bar, across a tempo change', async () => {
+    const input = await openMove();
+    fireEvent.change(input, { target: { value: '6.1' } });
+    fireEvent.click(screen.getByText('Set Position'));
+    await waitFor(() =>
+      expect(sendCommand).toHaveBeenCalledWith({ command: 'item/moveByGuid', params: { guid: '{VOX-TAKE}', position: 12 } })
+    );
+  });
+
+  it('nudges by the length of the bar the item is in, not a bar at the playhead tempo', async () => {
+    await openMove();
+    fireEvent.click(screen.getByText('+1 bar'));
+    await waitFor(() =>
+      expect(sendCommand).toHaveBeenCalledWith({ command: 'item/moveByGuid', params: { guid: '{VOX-TAKE}', position: 12 } })
+    );
+    fireEvent.click(screen.getByText('-1 bar'));
+    await waitFor(() =>
+      expect(sendCommand).toHaveBeenCalledWith({ command: 'item/moveByGuid', params: { guid: '{VOX-TAKE}', position: 6 } })
+    );
+  });
+});
+

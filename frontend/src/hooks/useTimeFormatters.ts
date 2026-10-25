@@ -1,9 +1,13 @@
 /**
- * Hook providing pre-bound time formatting and parsing functions
+ * Hook providing pre-bound time formatting functions
  *
  * This hook returns formatting functions that are already configured with
  * the current BPM, time signature, and bar offset - so components don't
  * need to pass all those parameters manually.
+ *
+ * They use the tempo at the playhead, which is only right everywhere in a
+ * project with one tempo and meter. Convert a position the user types (to
+ * move or select something) with useBarPositions, which asks REAPER.
  *
  * @example
  * ```tsx
@@ -28,8 +32,6 @@ import {
   formatDuration,
   formatDelta,
   formatTime,
-  parseBarBeatToSeconds,
-  parseDurationToSeconds,
 } from '../utils';
 
 export interface UseTimeFormattersReturn {
@@ -39,10 +41,6 @@ export interface UseTimeFormattersReturn {
   formatDuration: (seconds: number) => string;
   /** Format delta seconds as relative change (e.g., "+2 bars") */
   formatDelta: (deltaSeconds: number) => string;
-  /** Parse bar.beat input to seconds */
-  parseBarBeat: (input: string) => number | null;
-  /** Parse duration input to seconds */
-  parseDuration: (input: string) => number | null;
   /** Current BPM (null if not calculated yet) */
   bpm: number | null;
   /** Beats per bar (numerator) */
@@ -74,14 +72,6 @@ export function useTimeFormatters(): UseTimeFormattersReturn {
         bpm
           ? formatDelta(deltaSeconds, bpm, beatsPerBar, denominator)
           : `${deltaSeconds.toFixed(2)}s`,
-
-      parseBarBeat: (input: string) =>
-        bpm
-          ? parseBarBeatToSeconds(input, bpm, barOffset, beatsPerBar, denominator)
-          : null,
-
-      parseDuration: (input: string) =>
-        bpm ? parseDurationToSeconds(input, bpm, beatsPerBar, denominator) : null,
 
       bpm,
       beatsPerBar,

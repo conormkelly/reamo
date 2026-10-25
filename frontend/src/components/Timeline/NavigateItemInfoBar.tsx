@@ -49,13 +49,10 @@ import {
   hexToReaperColor,
   reaperColorToHexWithFallback,
   formatTime,
-  secondsToBeats,
-  beatsToSeconds,
-  formatBeatsToBarBeatTicks,
-  parseBarBeatTicksToBeats,
 } from '../../utils';
 import { DEFAULT_ITEM_COLOR } from '../../constants/colors';
 import { useItemNotes } from './hooks/useItemNotes';
+import { useBarPositions, parseBarPosition } from '../../hooks/useBarPositions';
 import { ColorPickerInput } from '../Toolbar/ColorPickerInput';
 import { TrackPicker } from '../Mixer/RoutingModal/TrackPicker';
 import { EMPTY_SKELETON, EMPTY_ITEMS } from '../../store/stableRefs';
@@ -80,7 +77,8 @@ export function NavigateItemInfoBar({
   layout = 'horizontal',
 }: NavigateItemInfoBarProps): ReactElement | null {
   const { sendCommand, sendAsync, connected } = useReaper();
-  const { formatBeats, formatDuration, bpm, beatsPerBar, denominator, barOffset } = useTimeFormatters();
+  const { formatBeats, formatDuration } = useTimeFormatters();
+  const { barsToSeconds, secondsToBars, barLengthAt } = useBarPositions();
 
   // Store state
   const items = useReaperStore((s) => s?.items ?? EMPTY_ITEMS);
@@ -229,10 +227,6 @@ export function NavigateItemInfoBar({
 
   // ========== Move Item Handlers ==========
 
-  // Compute nudge amounts in seconds from BPM
-  const beatDurationSeconds = bpm ? 60 / bpm : 0.5;
-  const barDurationSeconds = beatDurationSeconds * beatsPerBar;
-
   // Parse time string (MM:SS.ms or SS.ms) to seconds
   const parseTime = useCallback((timeStr: string): number | null => {
     const trimmed = timeStr.trim();
@@ -247,17 +241,22 @@ export function NavigateItemInfoBar({
     return null;
   }, []);
 
-  // Initialize move values when move UI opens or position changes
+  // Initialize move values when move UI opens or position changes. The
+  // bar.beat label comes from REAPER, through the project's tempo map.
   const singleItemPosition = singleItem?.position ?? null;
   useEffect(() => {
-    if (showMoveUI && singleItemPosition !== null && bpm) {
-      setMoveTimeValue(formatTime(singleItemPosition, { precision: 3 }));
-      const quarterNoteBeats = secondsToBeats(singleItemPosition, bpm);
-      const denominatorBeats = quarterNoteBeats * (denominator / 4);
-      setMoveBeatsValue(formatBeatsToBarBeatTicks(denominatorBeats, beatsPerBar, true, barOffset));
-      setMovePosError(null);
-    }
-  }, [showMoveUI, singleItemPosition, bpm, beatsPerBar, denominator, barOffset]);
+    if (!showMoveUI || singleItemPosition === null) return;
+    setMoveTimeValue(formatTime(singleItemPosition, { precision: 3 }));
+    setMoveBeatsValue('');
+    setMovePosError(null);
+    let current = true;
+    void secondsToBars(singleItemPosition).then((bars) => {
+      if (current && bars !== null) setMoveBeatsValue(bars);
+    });
+    return () => {
+      current = false;
+    };
+  }, [showMoveUI, singleItemPosition, secondsToBars]);
 
   // Reset move UI when item changes or sheet closes
   useEffect(() => {
@@ -273,19 +272,22 @@ export function NavigateItemInfoBar({
     }
   }, [showItemSheet]);
 
-  // Set position from input
-  const handleSetPosition = useCallback(() => {
+  // Set position from input; a bar.beat position is placed by REAPER
+  const handleSetPosition = useCallback(async () => {
     if (!singleItem) return;
-    let newPositionSeconds: number | null = null;
+    let newPositionSeconds: number | null;
 
     if (moveEditMode === 'time') {
       newPositionSeconds = parseTime(moveTimeValue);
     } else {
-      const denominatorBeats = parseBarBeatTicksToBeats(moveBeatsValue, beatsPerBar, barOffset);
-      if (denominatorBeats !== null) {
-        const quarterNoteBeats = denominatorBeats * (4 / denominator);
-        const beats = quarterNoteBeats >= 0 ? quarterNoteBeats : 0;
-        newPositionSeconds = beatsToSeconds(beats, bpm!);
+      if (!parseBarPosition(moveBeatsValue)) {
+        setMovePosError('Invalid position');
+        return;
+      }
+      newPositionSeconds = await barsToSeconds(moveBeatsValue);
+      if (newPositionSeconds === null) {
+        setMovePosError("REAPER couldn't place that position");
+        return;
       }
     }
 
@@ -296,7 +298,7 @@ export function NavigateItemInfoBar({
 
     setMovePosError(null);
     sendCommand(itemCmd.moveByGuid(singleItem.guid, newPositionSeconds));
-  }, [singleItem, moveEditMode, moveTimeValue, moveBeatsValue, bpm, beatsPerBar, denominator, barOffset, sendCommand, parseTime]);
+  }, [singleItem, moveEditMode, moveTimeValue, moveBeatsValue, barsToSeconds, sendCommand, parseTime]);
 
   // Nudge position by delta seconds
   const handleNudge = useCallback(
@@ -306,6 +308,23 @@ export function NavigateItemInfoBar({
       sendCommand(itemCmd.moveByGuid(singleItem.guid, newPos));
     },
     [singleItem, sendCommand]
+  );
+
+  // Nudge by one bar or beat as long as REAPER says it is where the item
+  // moves through: the bar it starts in going forward, the bar before going back
+  const handleNudgeMusical = useCallback(
+    async (unit: 'bar' | 'beat', direction: 1 | -1) => {
+      if (!singleItem) return;
+      const at = direction > 0 ? singleItem.position : Math.max(0, singleItem.position - 1e-6);
+      const length = await barLengthAt(at);
+      if (length === null) {
+        setMovePosError("Couldn't get the bar length from REAPER");
+        return;
+      }
+      setMovePosError(null);
+      handleNudge(direction * (unit === 'bar' ? length.bar : length.beat));
+    },
+    [singleItem, barLengthAt, handleNudge]
   );
 
   // Move item to a different track
@@ -774,7 +793,7 @@ export function NavigateItemInfoBar({
                         : setMoveBeatsValue(e.target.value)
                     }
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSetPosition();
+                      if (e.key === 'Enter') void handleSetPosition();
                     }}
                     className="w-full px-3 py-2 bg-bg-deep border border-border-default rounded text-text-primary text-sm font-mono focus:outline-none focus:border-focus-border"
                     placeholder={moveEditMode === 'time' ? 'MM:SS.ms (e.g. 1:30.000)' : 'Bar.Beat.Ticks (e.g. 5.3.00)'}
@@ -785,7 +804,7 @@ export function NavigateItemInfoBar({
 
                   {/* Set Position button */}
                   <button
-                    onClick={handleSetPosition}
+                    onClick={() => void handleSetPosition()}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded font-medium transition-colors bg-primary hover:bg-primary-hover text-text-on-primary text-sm"
                   >
                     <Move size={14} />
@@ -794,12 +813,12 @@ export function NavigateItemInfoBar({
 
                   {/* Nudge buttons */}
                   <div className="flex gap-1 justify-center flex-wrap">
-                    <button onClick={() => handleNudge(-barDurationSeconds)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">-1 bar</button>
-                    <button onClick={() => handleNudge(-beatDurationSeconds)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">-1 beat</button>
+                    <button onClick={() => void handleNudgeMusical('bar', -1)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">-1 bar</button>
+                    <button onClick={() => void handleNudgeMusical('beat', -1)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">-1 beat</button>
                     <button onClick={() => handleNudge(-0.1)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">-0.1s</button>
                     <button onClick={() => handleNudge(0.1)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">+0.1s</button>
-                    <button onClick={() => handleNudge(beatDurationSeconds)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">+1 beat</button>
-                    <button onClick={() => handleNudge(barDurationSeconds)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">+1 bar</button>
+                    <button onClick={() => void handleNudgeMusical('beat', 1)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">+1 beat</button>
+                    <button onClick={() => void handleNudgeMusical('bar', 1)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">+1 bar</button>
                   </div>
 
                   {/* Move to track (hidden if only 1 user track) */}

@@ -1,18 +1,13 @@
 /**
  * Make Selection Modal Component
- * Modal dialog for precisely setting time selection using bar.beat.tick notation
+ * Modal dialog for precisely setting time selection using bar.beat.tick notation.
+ * Bar positions are converted by REAPER, through the project's tempo map.
  */
 
 import { useState, useEffect, useRef, type ReactElement } from 'react';
 import { useReaper } from '../ReaperProvider';
 import { useReaperStore } from '../../store';
-import { useTimeSignature, useBarOffset } from '../../hooks';
-import {
-  beatsToSeconds,
-  secondsToBeats,
-  parseBarBeatTicksToBeats,
-  formatBeatsToBarBeatTicks,
-} from '../../utils';
+import { useBarPositions, parseBarPosition } from '../../hooks/useBarPositions';
 import { timeSelection as timeSelCmd } from '../../core/WebSocketCommands';
 import { Modal } from '../Modal';
 
@@ -70,149 +65,104 @@ function parseTimeLocal(input: string): number | null {
 
 export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps): ReactElement | null {
   const { sendCommand } = useReaper();
-  const bpm = useReaperStore((s) => s.bpm);
   const timeSelection = useReaperStore((s) => s.timeSelection);
   const setTimeSelection = useReaperStore((s) => s.setTimeSelection);
-
-  const { beatsPerBar, denominator } = useTimeSignature();
-  const barOffset = useBarOffset();
+  const { barsToSeconds, secondsToBars } = useBarPositions();
 
   const [mode, setMode] = useState<'beats' | 'time'>('beats');
   const [startValue, setStartValue] = useState('1.1');
   const [endValue, setEndValue] = useState('2.1');
   const [error, setError] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
 
   const wasOpenRef = useRef(false);
-  const prevModeRef = useRef<'beats' | 'time'>(mode);
-  const capturedBarOffsetRef = useRef<number>(0); // Captured on modal open to prevent drift during playback
+  // Bumped whenever the form is refilled: a conversion REAPER answers after a
+  // later refill (reopen, mode switch) must not overwrite it
+  const generationRef = useRef(0);
 
-  // Reset form when modal opens
+  // Fill the form when the modal opens: the current selection, or bar 1 to bar 2
   useEffect(() => {
     if (isOpen && !wasOpenRef.current) {
       setError(null);
-      // Capture barOffset when modal opens - use this fixed value for all conversions
-      capturedBarOffsetRef.current = barOffset;
-      const effectiveBpm = bpm && bpm > 0 ? bpm : 120;
-
-      // Pre-populate with current time selection if exists
-      if (timeSelection) {
-        if (mode === 'beats') {
-          // Convert seconds to quarter-note beats, then to denominator beats
-          const startQuarterBeats = secondsToBeats(timeSelection.startSeconds, effectiveBpm);
-          const endQuarterBeats = secondsToBeats(timeSelection.endSeconds, effectiveBpm);
-          const startDenomBeats = startQuarterBeats * (denominator / 4);
-          const endDenomBeats = endQuarterBeats * (denominator / 4);
-          setStartValue(formatBeatsToBarBeatTicks(startDenomBeats, beatsPerBar, true, capturedBarOffsetRef.current));
-          setEndValue(formatBeatsToBarBeatTicks(endDenomBeats, beatsPerBar, true, capturedBarOffsetRef.current));
-        } else {
+      const generation = ++generationRef.current;
+      const current = generationRef;
+      if (mode === 'time') {
+        if (timeSelection) {
           setStartValue(formatTimeLocal(timeSelection.startSeconds));
           setEndValue(formatTimeLocal(timeSelection.endSeconds));
-        }
-      } else {
-        // Default to bar 1 to bar 2
-        if (mode === 'beats') {
-          setStartValue('1.1');
-          setEndValue('2.1');
         } else {
           setStartValue('0:00.000');
-          setEndValue(formatTimeLocal(beatsToSeconds(4, effectiveBpm)));
+          setEndValue('');
+          void barsToSeconds('2.1').then((end) => {
+            if (current.current === generation && end !== null) setEndValue(formatTimeLocal(end));
+          });
         }
+      } else if (timeSelection) {
+        setStartValue('');
+        setEndValue('');
+        void Promise.all([
+          secondsToBars(timeSelection.startSeconds),
+          secondsToBars(timeSelection.endSeconds),
+        ]).then(([start, end]) => {
+          if (current.current !== generation) return;
+          if (start === null || end === null) {
+            setError("Couldn't get the selection's bar positions from REAPER");
+            return;
+          }
+          setStartValue(start);
+          setEndValue(end);
+        });
+      } else {
+        setStartValue('1.1');
+        setEndValue('2.1');
       }
     }
     wasOpenRef.current = isOpen;
-  }, [isOpen, bpm, barOffset, timeSelection, mode, beatsPerBar, denominator]);
+  }, [isOpen, mode, timeSelection, barsToSeconds, secondsToBars]);
 
-  // Convert values when mode changes while modal is open
-  useEffect(() => {
-    if (!isOpen) return;
-    if (mode === prevModeRef.current) return;
-
-    const prevMode = prevModeRef.current;
-    prevModeRef.current = mode;
-
-    const effectiveBpm = bpm && bpm > 0 ? bpm : 120;
-    // Use captured barOffset to ensure consistent conversions
-    const offset = capturedBarOffsetRef.current;
-
-    // Convert start value
-    let startSeconds: number | null = null;
-    let endSeconds: number | null = null;
-
-    if (prevMode === 'beats') {
-      // Parse from bar.beat format - barOffset handled by utility
-      const startDenomBeats = parseBarBeatTicksToBeats(startValue, beatsPerBar, offset);
-      const endDenomBeats = parseBarBeatTicksToBeats(endValue, beatsPerBar, offset);
-
-      if (startDenomBeats !== null) {
-        // Convert denominator beats to quarter notes
-        const quarterNoteBeats = startDenomBeats * (4 / denominator);
-        startSeconds = beatsToSeconds(quarterNoteBeats, effectiveBpm);
-      }
-      if (endDenomBeats !== null) {
-        const quarterNoteBeats = endDenomBeats * (4 / denominator);
-        endSeconds = beatsToSeconds(quarterNoteBeats, effectiveBpm);
-      }
-    } else {
-      // Parse from time format
-      startSeconds = parseTimeLocal(startValue);
-      endSeconds = parseTimeLocal(endValue);
-    }
-
-    // Format to new mode
-    if (mode === 'time') {
-      // Convert to time format
-      if (startSeconds !== null) {
-        setStartValue(formatTimeLocal(startSeconds));
-      }
-      if (endSeconds !== null) {
-        setEndValue(formatTimeLocal(endSeconds));
-      }
-    } else {
-      // Convert to bar.beat format - barOffset handled by utility
-      if (startSeconds !== null) {
-        // Convert seconds to quarter notes, then to denominator beats
-        const quarterNoteBeats = secondsToBeats(startSeconds, effectiveBpm);
-        const denomBeats = quarterNoteBeats * (denominator / 4);
-        setStartValue(formatBeatsToBarBeatTicks(denomBeats, beatsPerBar, true, offset));
-      }
-      if (endSeconds !== null) {
-        const quarterNoteBeats = secondsToBeats(endSeconds, effectiveBpm);
-        const denomBeats = quarterNoteBeats * (denominator / 4);
-        setEndValue(formatBeatsToBarBeatTicks(denomBeats, beatsPerBar, true, offset));
-      }
-    }
-
+  // Switch between bar.beat and time, converting what's typed; a value that
+  // doesn't convert is left as typed
+  const switchMode = async (next: 'beats' | 'time') => {
+    if (next === mode) return;
+    const generation = ++generationRef.current;
+    setMode(next);
     setError(null);
-  }, [mode, isOpen, bpm, startValue, endValue, beatsPerBar, denominator]);
+    const convert = async (value: string): Promise<string | null> => {
+      if (next === 'time') {
+        const seconds = await barsToSeconds(value);
+        return seconds === null ? null : formatTimeLocal(seconds);
+      }
+      const seconds = parseTimeLocal(value);
+      return seconds === null ? null : secondsToBars(seconds);
+    };
+    const [start, end] = await Promise.all([convert(startValue), convert(endValue)]);
+    if (generationRef.current !== generation) return;
+    if (start !== null) setStartValue(start);
+    if (end !== null) setEndValue(end);
+  };
 
-  const handleApply = () => {
-    const effectiveBpm = bpm && bpm > 0 ? bpm : 120;
-    // Use captured barOffset for consistency
-    const offset = capturedBarOffsetRef.current;
-
+  const handleApply = async () => {
     let startSeconds: number;
     let endSeconds: number;
 
     if (mode === 'beats') {
-      // Parse to get denominator beats - barOffset handled by utility
-      const startDenomBeats = parseBarBeatTicksToBeats(startValue, beatsPerBar, offset);
-      const endDenomBeats = parseBarBeatTicksToBeats(endValue, beatsPerBar, offset);
-
-      if (startDenomBeats === null) {
+      if (!parseBarPosition(startValue)) {
         setError('Start must be a valid position (e.g., 1.1 or 5.2.50)');
         return;
       }
-      if (endDenomBeats === null) {
+      if (!parseBarPosition(endValue)) {
         setError('End must be a valid position (e.g., 2.1 or 10.1)');
         return;
       }
-
-      // Convert denominator beats to quarter notes
-      const startQuarterNotes = startDenomBeats * (4 / denominator);
-      const endQuarterNotes = endDenomBeats * (4 / denominator);
-
-      startSeconds = beatsToSeconds(startQuarterNotes, effectiveBpm);
-      endSeconds = beatsToSeconds(endQuarterNotes, effectiveBpm);
+      setApplying(true);
+      const [start, end] = await Promise.all([barsToSeconds(startValue), barsToSeconds(endValue)]);
+      setApplying(false);
+      if (start === null || end === null) {
+        setError(`REAPER couldn't place ${start === null ? 'the start' : 'the end'}: is it before the project start?`);
+        return;
+      }
+      startSeconds = start;
+      endSeconds = end;
     } else {
       const parsedStart = parseTimeLocal(startValue);
       const parsedEnd = parseTimeLocal(endValue);
@@ -266,7 +216,7 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
           {/* Mode toggle */}
           <div className="flex rounded-lg bg-bg-elevated p-1">
             <button
-              onClick={() => setMode('beats')}
+              onClick={() => void switchMode('beats')}
               className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
                 mode === 'beats'
                   ? 'bg-bg-hover text-text-primary'
@@ -276,7 +226,7 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
               Bars.Beats
             </button>
             <button
-              onClick={() => setMode('time')}
+              onClick={() => void switchMode('time')}
               className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
                 mode === 'time'
                   ? 'bg-bg-hover text-text-primary'
@@ -341,7 +291,8 @@ export function MakeSelectionModal({ isOpen, onClose }: MakeSelectionModalProps)
             Cancel
           </button>
           <button
-            onClick={handleApply}
+            onClick={() => void handleApply()}
+            disabled={applying}
             className="px-4 py-2 text-sm font-medium text-text-on-accent bg-accent-region hover:bg-accent-region-hover rounded-lg transition-colors"
           >
             Apply
