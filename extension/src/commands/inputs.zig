@@ -224,9 +224,9 @@ pub fn handleSetInput(api: anytype, cmd: protocol.CommandMessage, response: *mod
             response.err("INVALID_PARAMS", "channel required for audio input");
             return;
         };
-        const stereo = if (cmd.getInt("stereo")) |v| v != 0 else false;
-        const multi = if (cmd.getInt("multi")) |v| v != 0 else false;
-        const rearoute = if (cmd.getInt("rearoute")) |v| v != 0 else false;
+        const stereo = cmd.getFlag("stereo") orelse false;
+        const multi = cmd.getFlag("multi") orelse false;
+        const rearoute = cmd.getFlag("rearoute") orelse false;
 
         // Channel index occupies bits 0-8; bit 9 (REAROUTE_OFFSET) and up are flags.
         if (channel < 0 or channel >= REAROUTE_OFFSET) {

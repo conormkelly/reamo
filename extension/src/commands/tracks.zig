@@ -110,7 +110,7 @@ pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.
     // Toggle if no explicit value
     // For master track (idx=0), use GetMasterMuteSoloFlags for reliable state
     const current_mute = if (resolution.idx == 0) api.isMasterMuted() else api.getTrackMute(resolution.track);
-    const mute = if (cmd.getInt("mute")) |v| v != 0 else !current_mute;
+    const mute = cmd.getFlag("mute") orelse !current_mute;
     // Use CSurf API - properly handles master track unlike SetMediaTrackInfo_Value
     if (api.csurfSetMute(resolution.track, mute, true)) {
         logging.debug("Set track mute to {}", .{mute});
@@ -179,7 +179,7 @@ pub fn handleSetRecArm(api: anytype, cmd: protocol.CommandMessage, response: *mo
         response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
-    const arm = if (cmd.getInt("arm")) |v| v != 0 else !api.getTrackRecArm(resolution.track);
+    const arm = cmd.getFlag("arm") orelse !api.getTrackRecArm(resolution.track);
     // Use CSurf API for gang support
     if (api.csurfSetRecArm(resolution.track, arm, true)) {
         logging.debug("Set track rec arm to {}", .{arm});
@@ -218,7 +218,7 @@ pub fn handleSetFxEnabled(api: anytype, cmd: protocol.CommandMessage, response: 
         response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
-    const enabled = if (cmd.getInt("enabled")) |v| v != 0 else !api.getTrackFxEnabled(resolution.track);
+    const enabled = cmd.getFlag("enabled") orelse !api.getTrackFxEnabled(resolution.track);
     if (api.setTrackFxEnabled(resolution.track, enabled)) {
         logging.debug("Set track FX enabled to {}", .{enabled});
     }
@@ -232,7 +232,7 @@ pub fn handleSetSelected(api: anytype, cmd: protocol.CommandMessage, response: *
         response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
-    const selected = if (cmd.getInt("selected")) |v| v != 0 else !api.getTrackSelected(resolution.track);
+    const selected = cmd.getFlag("selected") orelse !api.getTrackSelected(resolution.track);
     if (api.setTrackSelected(resolution.track, selected)) {
         logging.debug("Set track selected to {}", .{selected});
     }

@@ -139,7 +139,7 @@ pub fn handleItemLock(api: anytype, cmd: protocol.CommandMessage, response: *mod
     };
 
     // Toggle lock state if no explicit value provided
-    const locked = if (cmd.getInt("locked")) |v| v != 0 else blk: {
+    const locked = cmd.getFlag("locked") orelse blk: {
         const current = api.getItemLocked(item_info.item) catch {
             response.err("CORRUPT_DATA", "Cannot read item lock state");
             return;
@@ -282,7 +282,7 @@ pub fn handleItemSelectNext(api: anytype, cmd: protocol.CommandMessage, response
         response.err("MISSING_ITEM_IDX", "Item index required");
         return;
     };
-    const wrap = if (cmd.getInt("wrap")) |w| w != 0 else false;
+    const wrap = cmd.getFlag("wrap") orelse false;
 
     const track = api.getTrackByUnifiedIdx(track_idx) orelse {
         response.err("NOT_FOUND", "Track not found");
@@ -363,7 +363,7 @@ pub fn handleItemSelectPrev(api: anytype, cmd: protocol.CommandMessage, response
         response.err("MISSING_ITEM_IDX", "Item index required");
         return;
     };
-    const wrap = if (cmd.getInt("wrap")) |w| w != 0 else false;
+    const wrap = cmd.getFlag("wrap") orelse false;
 
     const track = api.getTrackByUnifiedIdx(track_idx) orelse {
         response.err("NOT_FOUND", "Track not found");
