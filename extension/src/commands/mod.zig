@@ -97,6 +97,22 @@ pub fn inGesture(response: *const ResponseWriter, control: gesture_state.Control
     return gestures.isActive(control);
 }
 
+/// The kinds of route a track has, each addressed by its own 0-based index.
+pub const Route = enum { send, receive, hw_output };
+
+/// Whether `idx` names an existing route of `track`. A row on a phone can
+/// outlive its route (another phone removed it), so handlers check this
+/// before opening an undo block: a stale index changes nothing, leaves no
+/// empty undo point and is refused.
+pub fn routeExists(api: anytype, track: *anyopaque, route: Route, idx: c_int) bool {
+    const count = switch (route) {
+        .send => api.trackSendCount(track),
+        .receive => api.trackReceiveCount(track),
+        .hw_output => api.trackHwOutputCount(track),
+    };
+    return idx >= 0 and idx < count;
+}
+
 /// The name a marker/region add or update should store, NUL-terminated and
 /// whole: the client's text (unescaped) when it sent a non-empty one, else a
 /// copy of `current` (REAPER's own string must not be passed back into the
