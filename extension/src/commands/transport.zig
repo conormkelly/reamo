@@ -62,8 +62,10 @@ pub fn handleSeekBeats(api: anytype, cmd: protocol.CommandMessage, response: *mo
     // Beat defaults to 1 (start of bar) if not provided
     const beat: f64 = if (cmd.getFloat("beat")) |b| b else 1.0;
 
-    // Convert bar.beat to time using REAPER's native conversion
-    const time = api.barBeatToTime(bar, beat);
+    const time = mod.displayedBarBeatToTime(api, bar, beat) orelse {
+        response.err("INVALID_BAR", "bar is out of range");
+        return;
+    };
     api.setCursorPos(time);
     logging.info("Seek to bar {d}.{d:.1} ({d:.3}s)", .{ bar, beat, time });
 }
@@ -71,6 +73,14 @@ pub fn handleSeekBeats(api: anytype, cmd: protocol.CommandMessage, response: *mo
 // ============================================================================
 // Tests
 // ============================================================================
+
+test "transport/seekBeats goes to the bar the ruler shows when the project starts at measure -5" {
+    const mock = @import("../reaper/mock/mod.zig");
+    // 120 BPM 4/4: a bar is 2 s; with start measure -5, time 0 reads -4.1.00.
+    var m = mock.MockBackend{ .bar_offset = -5 };
+    mod.testRunHandler(&m, handleSeekBeats, "{\"type\":\"command\",\"command\":\"transport/seekBeats\",\"bar\":1,\"beat\":3}");
+    try std.testing.expectApproxEqAbs(@as(f64, 5 * 2.0 + 1.0), m.cursor_position, 1e-9);
+}
 
 test "transport/seekBeats rejects bars that would overflow bar arithmetic" {
     const mock = @import("../reaper/mock/mod.zig");

@@ -68,14 +68,9 @@ pub fn handleSnap(api: anytype, cmd: protocol.CommandMessage, response: *mod.Res
 pub fn handleGetBarDuration(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const time = cmd.getFloat("time") orelse 0.0;
 
-    // Get tempo at position
     const tempo = api.getTempoAtPosition(time);
-
-    // Calculate bar duration in beats (numerator in the time signature's denominator units)
     const beats_per_bar: f64 = @floatFromInt(tempo.timesig_num);
-
-    // Convert beats to seconds: beats / (bpm / 60) = beats * 60 / bpm
-    const duration = beats_per_bar * 60.0 / tempo.bpm;
+    const duration = barDurationSeconds(tempo);
 
     var buf: [192]u8 = undefined;
     const payload = std.fmt.bufPrint(&buf, "{{\"duration\":{d:.15},\"durationBeats\":{d:.6},\"bpm\":{d:.2},\"timesigNum\":{d},\"timesigDenom\":{d}}}", .{
@@ -89,6 +84,14 @@ pub fn handleGetBarDuration(api: anytype, cmd: protocol.CommandMessage, response
         return;
     };
     response.success(payload);
+}
+
+/// A bar's length: `timesig_num` beats of 1/`timesig_denom` notes, while
+/// REAPER's BPM counts quarter notes (a 6/8 bar at 90 BPM is 2 s, not 4 s).
+fn barDurationSeconds(tempo: anytype) f64 {
+    const num: f64 = @floatFromInt(tempo.timesig_num);
+    const denom: f64 = @floatFromInt(@max(tempo.timesig_denom, 1));
+    return num * (4.0 / denom) * 60.0 / tempo.bpm;
 }
 
 // Convert time to beats with formatted bar string
@@ -126,10 +129,7 @@ pub fn handleTimeToBeats(api: anytype, cmd: protocol.CommandMessage, response: *
 // Convert bar.beat.ticks to time in seconds (tempo-aware)
 // Request: { "bar": 15, "beat": 1, "ticks": 0 }
 // Response: { "time": 28.0 }
-//
-// IMPORTANT: User input uses "denominator beats" (e.g., beat 2 in 6/8 = second eighth note)
-// but REAPER's TimeMap2_beatsToTime expects quarter notes as tpos.
-// We must convert: qn_offset = (beat - 1) * (4.0 / denominator)
+// bar.beat.ticks as displayed: beat in the meter's own beats, ticks hundredths of a beat.
 pub fn handleBarsToTime(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const bar = cmd.getInt("bar") orelse {
         response.err("MISSING_BAR", "bar is required");
@@ -149,28 +149,11 @@ pub fn handleBarsToTime(api: anytype, cmd: protocol.CommandMessage, response: *m
         return;
     }
 
-    // Apply bar offset (reverse of what we do in timeToBeats)
-    const bar_offset = api.getBarOffset();
-    const actual_bar = bar - bar_offset;
-
-    // Step 1: Get time at bar start (beat 1 = 0 QN offset)
-    const bar_start_time = api.barBeatToTime(actual_bar, 1.0);
-
-    // Step 2: Get time signature at bar start to know the denominator
-    const tempo = api.getTempoAtPosition(bar_start_time);
-    const denom: f64 = @floatFromInt(tempo.timesig_denom);
-
-    // Step 3: Convert beat/ticks from denominator units to quarter notes
-    // In 6/8: beat 2 = (2-1) * (4/8) = 0.5 QN
-    // In 4/4: beat 2 = (2-1) * (4/4) = 1.0 QN
-    const beat_f: f64 = @floatFromInt(beat_input - 1);
-    const ticks_f: f64 = @as(f64, @floatFromInt(ticks_input)) / 100.0;
-    const qn_offset = (beat_f + ticks_f) * (4.0 / denom);
-
-    // Step 4: barBeatToTime expects beat where beat-1.0 = QN offset
-    // So beat = qn_offset + 1.0
-    const beat_for_api = qn_offset + 1.0;
-    const time = api.barBeatToTime(actual_bar, beat_for_api);
+    const beat: f64 = @as(f64, @floatFromInt(beat_input)) + @as(f64, @floatFromInt(ticks_input)) / 100.0;
+    const time = mod.displayedBarBeatToTime(api, bar, beat) orelse {
+        response.err("INVALID_BAR", "bar is out of range");
+        return;
+    };
 
     var buf: [64]u8 = undefined;
     const payload = std.fmt.bufPrint(&buf, "{{\"time\":{d:.15}}}", .{time}) catch {
@@ -183,6 +166,14 @@ pub fn handleBarsToTime(api: anytype, cmd: protocol.CommandMessage, response: *m
 // ============================================================================
 // Tests
 // ============================================================================
+
+test "bar.beat counts the meter's own beats in compound meters" {
+    const mock = @import("../reaper/mock/mod.zig");
+    // 6/8 at 90 BPM (quarter notes): an eighth is 1/3 s, a bar 2 s.
+    var m = mock.MockBackend{ .bpm = 90, .timesig_num = 6, .timesig_denom = 8 };
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0 + 1.0), mod.displayedBarBeatToTime(&m, 2, 4.0).?, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), barDurationSeconds(m.getTempoAtPosition(0)), 1e-9);
+}
 
 test "tempo/barsToTime rejects bar, beat and ticks that would overflow before converting" {
     const mock = @import("../reaper/mock/mod.zig");
