@@ -110,6 +110,23 @@ from reamo_client import oracle
 assert got == oracle()["label@0"]
 ```
 
+### Acting in REAPER mid-test
+
+`reaper(lua)` runs a Lua chunk on REAPER's main thread while the test is
+connected, the way a user's edit in REAPER would land, and returns what the
+chunk returns (numbers, strings, booleans, tables as lists/dicts):
+
+```python
+from reamo_client import reaper
+reaper("reaper.SetTempoTimeSigMarker(0, -1, 2, -1, -1, 60, 3, 4, false); reaper.UpdateTimeline()")
+want = reaper('return reaper.format_timestr_pos(4, "", 2)')
+```
+
+A command sent with `fire()` is applied on a later extension tick, so when
+the oracle depends on it, re-read it inside your wait loop rather than once.
+A Lua error raises `ReaperError`. `harness.ready()` starts the RPC loop, so
+every fixture has it.
+
 ### Real projects
 
 `harness.open_fixture("test-project-1.RPP")` opens a project from the repo's

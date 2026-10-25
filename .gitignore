@@ -42,3 +42,6 @@ zig-out
 # Live-REAPER harness: your personal REAPER licence (never commit)
 scripts/harness/reaper-license.rk
 *.rk
+
+# Session handover notes (local only)
+handover/
