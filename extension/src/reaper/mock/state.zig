@@ -171,6 +171,7 @@ pub const Method = enum {
     getItemLocked,
     getItemSelected,
     getItemActiveTakeIdx,
+    itemNotes,
     getItemNotes,
     getItemGUID,
     setItemPosition,

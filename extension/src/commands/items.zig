@@ -173,14 +173,29 @@ pub fn handleItemNotes(api: anytype, cmd: protocol.CommandMessage, response: *mo
         response.err("NOT_FOUND", "Item not found");
         return;
     };
-    const notes = cmd.getString("notes") orelse "";
+    // Unescaped text (real newlines, quotes), NUL-terminated for REAPER. The
+    // raw JSON value is never shorter than its unescaped form.
+    const raw = cmd.getString("notes") orelse "";
+    const scratch = (mod.g_ctx.tiered orelse {
+        response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
+        return;
+    }).scratchAllocator();
+    const notes_buf = scratch.alloc(u8, raw.len + 1) catch {
+        response.err("ALLOC_FAILED", "Failed to allocate notes buffer");
+        return;
+    };
+    const notes = cmd.getStringUnescaped("notes", notes_buf[0..raw.len]) orelse "";
+    notes_buf[notes.len] = 0;
 
     api.undoBeginBlock();
-    if (api.setItemNotes(item_info.item, notes)) {
-        logging.debug("Updated item notes", .{});
-    }
+    const ok = api.setItemNotes(item_info.item, notes_buf[0..notes.len :0]);
     api.undoEndBlock("REAmo: Set item notes");
     // Notes don't need visual refresh (not displayed in arrange view)
+    if (!ok) {
+        response.err("SET_FAILED", "Failed to set item notes");
+        return;
+    }
+    response.success(null);
 }
 
 pub fn handleItemDelete(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
@@ -454,8 +469,6 @@ pub fn handleItemSelectPrev(api: anytype, cmd: protocol.CommandMessage, response
 // item polling events (which only contain sparse hints like has_notes, take_count).
 // Frontend calls these when user opens item notes or take details.
 
-// Notes buffer size
-const NOTES_BUF_SIZE = 8192;
 // GUID buffer size
 const GUID_BUF_SIZE = 64;
 
@@ -467,32 +480,33 @@ pub fn handleItemGetNotes(api: anytype, cmd: protocol.CommandMessage, response: 
         response.err("NOT_FOUND", "Item not found");
         return;
     };
+    const scratch = (mod.g_ctx.tiered orelse {
+        response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
+        return;
+    }).scratchAllocator();
 
-    // Get notes content
-    var notes_buf: [NOTES_BUF_SIZE]u8 = undefined;
-    const notes = api.getItemNotes(item_info.item, &notes_buf);
-
-    // Serialize response with escaped notes
-    var buf: [NOTES_BUF_SIZE + 256]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
-    var w = stream.writer();
-
-    w.writeAll("{\"notes\":\"") catch {
-        response.err("SERIALIZE_ERROR", "Buffer overflow");
+    // REAPER's own string, any length; serialized before anything can change it.
+    const notes = NotesPayload{ .notes = api.itemNotes(item_info.item) };
+    const payload = protocol.serializeAlloc(scratch, notes.notes.len + 32, &notes, NotesPayload.toJson) catch {
+        response.err("NOTES_TOO_LARGE", "Item notes exceed the response buffer");
         return;
     };
-    protocol.writeJsonString(w, notes) catch {
-        response.err("SERIALIZE_ERROR", "Buffer overflow");
-        return;
-    };
-    w.writeAll("\"}") catch {
-        response.err("SERIALIZE_ERROR", "Buffer overflow");
-        return;
-    };
-
-    response.success(stream.getWritten());
+    response.success(payload);
     logging.debug("Returned notes for item", .{});
 }
+
+const NotesPayload = struct {
+    notes: []const u8,
+
+    fn toJson(self: *const NotesPayload, buf: []u8) ?[]const u8 {
+        var stream = std.io.fixedBufferStream(buf);
+        var w = stream.writer();
+        w.writeAll("{\"notes\":\"") catch return null;
+        protocol.writeJsonString(w, self.notes) catch return null;
+        w.writeAll("\"}") catch return null;
+        return stream.getWritten();
+    }
+};
 
 /// Get full take list for a single item.
 /// Input: { trackIdx: number, itemIdx: number }

@@ -142,6 +142,7 @@ pub fn validateBackend(comptime T: type) void {
         "getItemLocked",
         "getItemSelected",
         "getItemActiveTakeIdx",
+        "itemNotes",
         "getItemNotes",
         "getItemGUID",
         "setItemPosition",
