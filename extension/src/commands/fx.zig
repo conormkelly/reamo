@@ -360,11 +360,10 @@ pub fn handleGetParams(api: anytype, cmd: protocol.CommandMessage, response: *mo
     var fx_guid_buf: [64]u8 = undefined;
     const fx_guid = api.trackFxGetGuid(resolution.track, fx_idx, &fx_guid_buf);
 
-    // Get track GUID from command parameters (client must provide it)
-    const track_guid = cmd.getString("trackGuid") orelse {
-        response.err("MISSING_PARAM", "trackGuid required");
-        return;
-    };
+    // The GUID of the track the request resolved to, by trackIdx or trackGuid
+    // ("master" for the master, as clients address it).
+    var track_guid_buf: [64]u8 = undefined;
+    const track_guid = if (resolution.idx == 0) "master" else api.formatTrackGuid(resolution.track, &track_guid_buf);
 
     // Get param count
     const param_count = api.trackFxGetNumParams(resolution.track, fx_idx);
