@@ -15,32 +15,38 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 - [Time Selection](#time-selection-commands) — set, setByBars, goStart, goEnd, clear
 - [Repeat](#repeat-commands) — set, toggle
 - [Marker](#marker-commands) — add, update, delete, goto, prev, next
-- [Region](#region-commands) — add, update, delete, goto
-- [Item](#item-commands) — setActiveTake, move, setColor, delete, getPeaks, getNotes, getTakes
-- [Take](#take-commands) — deleteCurrent, cropToActive
-- [Track](#track-commands) — setVolume, setPan, setMute, setSolo, setRecArm, setRecMon, rename, create, duplicate, delete, getFx, getSends, subscribe, unsubscribe
+- [Region](#region-commands) — add, update, delete, goto, batch
+- [Item](#item-commands) — setActiveTake, move, moveByGuid, setColor, setLock, setNotes, delete, goto, select, selectNext, selectPrev, toggleSelect, getNotes, getTakes
+- [Peaks](#peaks-subscription-commands) — subscribe, updateViewport, unsubscribe
+- [Take](#take-commands) — next, prev, delete, cropToActive, setColor
+- [Track](#track-commands) — setVolume, setPan, setMute, setSolo, setRecArm, setRecMon, setSelected, unselectAll, rename, create, duplicate, delete, getFx, getSends, subscribe, unsubscribe
+- [Input](#input-commands) — enumerateAudio, enumerateMidi, getInput, setInput
 - [Master](#master-commands) — toggleMono
-- [Tempo](#tempo-commands) — set, tap
+- [Tempo](#tempo-commands) — set, tap, snap, getBarDuration, timeToBeats, barsToTime
 - [Time Signature](#time-signature-commands) — set
-- [Metronome](#metronome-commands) — toggle, getVolume, setVolume
+- [Metronome](#metronome-commands) — toggle, getVolume, setVolume; countIn togglePlayback, toggleRecord
 - [ExtState](#extstate-commands) — projGet, projSet (REAmo data only)
 - [Project Notes](#project-notes-commands) — subscribe, unsubscribe, get, set
-- [Undo](#undo-commands) — add, begin, end, do, redo
+- [Undo](#undo-commands) — add, do, redo
 - [Gesture](#gesture-commands) — start, end
-- [Action](#action-commands) — getToggleState, execute, executeByName
-- [MIDI](#midi-commands) — cc, pc, noteOn
-- [FX](#fx-commands) — presetNext, presetPrev, presetSet
-- [Send](#send-commands) — setVolume, setMute, setPan, setMode
-- [Receive](#receive-commands) — setVolume, setMute, setPan, setMode
-- [Hardware Output](#hardware-output-commands) — setVolume, setMute, setPan, setMode, getHwOutputs
+- [Action](#action-commands) — getToggleState, getActions, execute, executeByName; toggle state subscribe, unsubscribe
+- [MIDI](#midi-commands) — cc, pc, noteOn, pitchBend
+- [FX](#fx-commands) — presetNext, presetPrev, presetSet, setEnabled, add, delete, move, subscribe, unsubscribe
+- [FX Parameters](#track-fx-parameter-commands) — getParams, subscribe, unsubscribe, set
+- [Tuner](#tuner-commands) — subscribe, unsubscribe, setParam
+- [Send](#send-commands) — setVolume, setMute, setPan, setMode, add, remove
+- [Receive](#receive-commands) — setVolume, setMute, setPan, setMode, add, remove
+- [Hardware Output](#hardware-output-commands) — setVolume, setMute, setPan, setMode, add, remove, setDestChannel, listOutputs, getHwOutputs
+- [Routing](#routing-subscription-commands) — subscribe, unsubscribe
 - [Playlist](#playlist-commands) — create, delete, rename, addEntry, removeEntry, play, stop, next, prev
+- [Audio Monitoring](#audio-monitoring-commands) — startStream, stopStream, status
 - [Lanes](#lanes-commands) — getState, swipeComp, setCompTarget, setLanePlays, createCompLane, moveCompUp, moveCompDown, deleteCompArea
 - [Preferences](#preferences-commands) — getSeekSettings, setSeekSettings
 - [Debug](#debug-commands) — memoryStats
 
 **Events**
 
-- [Events (Broadcast)](#events-broadcast) — transport, trackSkeleton, tracks, markers, regions, items, project
+- [Events (Broadcast)](#events-broadcast) — transport, tt, trackSkeleton, tracks, meters, markers, regions, fx_state, sends_state, tempoMap, items, project, playlist
 
 **Reference**
 
@@ -84,6 +90,8 @@ All messages are JSON. Three types:
   "payload": { ... }
 }
 ```
+
+Only a command that carries an `id` is answered. Every such command gets exactly one `response`: handlers that report only failures answer success with no payload. A command without an `id` gets no response, failure included.
 
 **Events** (server → all clients, broadcast ~30ms):
 
@@ -253,12 +261,17 @@ Move cursor to a bar/beat position.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `bar` | int | Yes | Bar number (1-based) |
-| `beat` | float | No | Beat within bar (default: 1.0) |
+| `bar` | int | Yes | Bar as displayed on REAPER's ruler (the project's start measure applies, so it can be 0 or negative) |
+| `beat` | float | No | Beat within the bar, 1-based, in the meter's own beats (eighths in 6/8) (default: 1.0) |
 
 ```json
 {"type": "command", "command": "transport/seekBeats", "bar": 5, "beat": 2.5}
 ```
+
+**Errors:**
+
+- `MISSING_BAR` - `bar` not provided
+- `INVALID_BAR` - `bar` is more than 1,000,000 from zero, or falls before the project start (a bar the ruler doesn't have). The cursor doesn't move.
 
 ### `transport/goStart`
 
@@ -294,12 +307,14 @@ Set time selection by seconds.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `start` | float | Yes | Start position in seconds |
-| `end` | float | Yes | End position in seconds |
+| `start` | float | Yes | Start position in seconds (≥0) |
+| `end` | float | Yes | End position in seconds (≥ `start`) |
 
 ```json
 {"type": "command", "command": "timeSelection/set", "start": 10.0, "end": 20.0}
 ```
+
+**Errors:** `INVALID_START`, `INVALID_END` (missing, negative, NaN or Inf), `INVALID_RANGE` (end before start).
 
 ### `timeSelection/setByBars`
 
@@ -307,14 +322,22 @@ Set time selection by bar numbers. Great for touch interfaces.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `startBar` | int | Yes | Start bar (1-based) |
-| `endBar` | int | Yes | End bar (1-based) |
-| `startBeat` | float | No | Beat within start bar (default: 1.0) |
-| `endBeat` | float | No | Beat within end bar (default: 1.0) |
+| `startBar` | int | Yes | Start bar as displayed on the ruler |
+| `endBar` | int | Yes | End bar as displayed on the ruler |
+| `startBeat` | float | No | Beat within start bar, 1-based (default: 1.0) |
+| `endBeat` | float | No | Beat within end bar, 1-based (default: 1.0) |
 
 ```json
 {"type": "command", "command": "timeSelection/setByBars", "startBar": 1, "endBar": 9}
 ```
+
+Bars and beats are read as in [`transport/seekBeats`](#transportseekbeats).
+
+**Errors:**
+
+- `MISSING_START_BAR`, `MISSING_END_BAR` - Bar not provided
+- `INVALID_BAR` - A bar is more than 1,000,000 from zero, or falls before the project start. No time selection is made.
+- `INVALID_RANGE` - End before start
 
 ### `timeSelection/setStartAtCursor`
 
@@ -519,11 +542,51 @@ Move cursor to a region's start position.
 {"type": "command", "command": "region/goto", "id": 1}
 ```
 
+### `region/batch`
+
+Apply several region creates, updates and deletes as one undo step ("REAmo: Batch region edit"). Operations run in order; one that can't be applied is skipped and the rest still run.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `ops` | array | Yes | Operations (see below) |
+
+Each operation is an object with an `op` field:
+
+| `op` | Fields | Description |
+|------|--------|-------------|
+| `"create"` | `start`, `end` (required), `name`, `color` | Same as `region/add` |
+| `"update"` | `id` (required), `start`, `end`, `name`, `color` | Same PATCH semantics as `region/update` (`color: 0` resets to the default colour) |
+| `"delete"` | `id` (required) | Same as `region/delete` |
+
+```json
+{"type": "command", "command": "region/batch", "ops": [
+  {"op": "update", "id": 1, "end": 32.0},
+  {"op": "create", "start": 32.0, "end": 48.0, "name": "Chorus"},
+  {"op": "delete", "id": 4}
+], "id": "1"}
+```
+
+**Response:**
+
+```json
+{"type": "response", "id": "1", "success": true, "payload": {"applied": 2, "skipped": 1, "warnings": ["region not found"]}}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `applied` | int | Operations applied |
+| `skipped` | int | Operations skipped |
+| `warnings` | string[] | Why each skipped operation was skipped (`"missing op type"`, `"unknown op type"`, `"update missing id"`, `"region not found"`, ...) |
+
+**Errors:** `MISSING_OPS` (no `ops`), `INVALID_OPS` (`ops` is not an array, or is malformed).
+
 ---
 
 ## Item Commands
 
-Items are identified by track index + item index within that track.
+Items are identified by track index + item index within that track, or by item GUID.
+
+`trackIdx` in every item command is the unified track index (0 = master, 1+ = user tracks), the same index the [`items` event](#items-event) reports. The master track holds no items, so item commands address tracks 1+. `itemIdx` is the 0-based index of the item on its track.
 
 ### `item/setActiveTake`
 
@@ -531,36 +594,45 @@ Set the active take for an item.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index (0-based) |
+| `trackIdx` | int | Yes | Track index (unified: 0 = master, 1+ = user tracks) |
 | `itemIdx` | int | Yes | Item index within track (0-based) |
 | `takeIdx` | int | Yes | Take index to activate (0-based) |
 
 ```json
-{"type": "command", "command": "item/setActiveTake", "trackIdx": 0, "itemIdx": 0, "takeIdx": 1}
+{"type": "command", "command": "item/setActiveTake", "trackIdx": 1, "itemIdx": 0, "takeIdx": 1}
 ```
+
+**Errors:** `NOT_FOUND`, `MISSING_TAKE_IDX`, `INVALID_TAKE_INDEX` (out of range for the item's takes).
 
 ### `item/move`
 
-Move an item to a new position.
+Move an item to a new position. A locked item is not moved, as REAPER's own nudge, move actions and dragging leave it in place.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index |
+| `trackIdx` | int | Yes | Track index (unified: 0 = master, 1+ = user tracks) |
 | `itemIdx` | int | Yes | Item index |
-| `position` | float | Yes | New position in seconds |
+| `position` | float | Yes | New position in seconds (≥0) |
 
 ```json
-{"type": "command", "command": "item/move", "trackIdx": 0, "itemIdx": 0, "position": 15.0}
+{"type": "command", "command": "item/move", "trackIdx": 1, "itemIdx": 0, "position": 15.0}
 ```
+
+**Errors:**
+
+- `NOT_FOUND` - No item at `trackIdx`/`itemIdx`
+- `INVALID_POSITION` - Position missing, negative, NaN or Inf
+- `ITEM_LOCKED` - The item is locked; nothing changes
+- `READ_FAILED` - The item's lock couldn't be read; nothing changes
 
 ### `item/moveByGuid`
 
-Move an item by GUID — stable across reordering. Supports changing position, track, or both in a single undo block. At least one of `position` or `destTrackGuid` must be provided.
+Move an item by GUID — stable across reordering. Supports changing position, track, or both in a single undo block. At least one of `position` or `destTrackGuid` must be provided. A locked item is not moved.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `guid` | string | Yes | Item GUID |
-| `position` | float | No | New position in seconds (must be >= 0) |
+| `position` | float | No | New position in seconds. A negative, NaN or Inf value counts as not provided. |
 | `destTrackGuid` | string | No | GUID of destination track |
 
 ```json
@@ -575,18 +647,26 @@ Move an item by GUID — stable across reordering. Supports changing position, t
 {"type": "command", "command": "item/moveByGuid", "guid": "{XXXXXXXX-...}", "position": 15.0, "destTrackGuid": "{YYYYYYYY-...}"}
 ```
 
+**Errors:**
+
+- `MISSING_GUID` - No `guid`
+- `MISSING_PARAMS` - Neither a valid `position` nor `destTrackGuid`
+- `NOT_FOUND` - Item not found (may have been deleted), or destination track not found
+- `ITEM_LOCKED` - The item is locked; nothing changes
+- `READ_FAILED` - The item's lock couldn't be read; nothing changes
+
 ### `item/setColor`
 
 Set an item's color.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index |
+| `trackIdx` | int | Yes | Track index (unified: 0 = master, 1+ = user tracks) |
 | `itemIdx` | int | Yes | Item index |
 | `color` | int | Yes | Native OS color value |
 
 ```json
-{"type": "command", "command": "item/setColor", "trackIdx": 0, "itemIdx": 0, "color": 16711680}
+{"type": "command", "command": "item/setColor", "trackIdx": 1, "itemIdx": 0, "color": 16711680}
 ```
 
 ### `item/setLock`
@@ -595,12 +675,12 @@ Lock or unlock an item. Toggles if no explicit value.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index |
+| `trackIdx` | int | Yes | Track index (unified: 0 = master, 1+ = user tracks) |
 | `itemIdx` | int | Yes | Item index |
 | `locked` | int | No | 0=unlock, 1=lock (toggles if omitted) |
 
 ```json
-{"type": "command", "command": "item/setLock", "trackIdx": 0, "itemIdx": 0, "locked": 1}
+{"type": "command", "command": "item/setLock", "trackIdx": 1, "itemIdx": 0, "locked": 1}
 ```
 
 ### `item/setNotes`
@@ -609,12 +689,12 @@ Set an item's notes.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index |
+| `trackIdx` | int | Yes | Track index (unified: 0 = master, 1+ = user tracks) |
 | `itemIdx` | int | Yes | Item index |
-| `notes` | string | Yes | Notes text (max 1024 chars) |
+| `notes` | string | Yes | Notes text, stored whole as typed (newlines and quotes kept) |
 
 ```json
-{"type": "command", "command": "item/setNotes", "trackIdx": 0, "itemIdx": 0, "notes": "Verse vocals"}
+{"type": "command", "command": "item/setNotes", "trackIdx": 1, "itemIdx": 0, "notes": "Verse vocals"}
 ```
 
 ### `item/delete`
@@ -623,11 +703,11 @@ Delete an item.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index |
+| `trackIdx` | int | Yes | Track index (unified: 0 = master, 1+ = user tracks) |
 | `itemIdx` | int | Yes | Item index |
 
 ```json
-{"type": "command", "command": "item/delete", "trackIdx": 0, "itemIdx": 0}
+{"type": "command", "command": "item/delete", "trackIdx": 1, "itemIdx": 0}
 ```
 
 ### `item/goto`
@@ -636,11 +716,11 @@ Move cursor to an item's position.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index |
+| `trackIdx` | int | Yes | Track index (unified: 0 = master, 1+ = user tracks) |
 | `itemIdx` | int | Yes | Item index |
 
 ```json
-{"type": "command", "command": "item/goto", "trackIdx": 0, "itemIdx": 0}
+{"type": "command", "command": "item/goto", "trackIdx": 1, "itemIdx": 0}
 ```
 
 ### `item/select`
@@ -649,11 +729,11 @@ Select a single item (deselects all others first).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index |
+| `trackIdx` | int | Yes | Track index (unified: 0 = master, 1+ = user tracks) |
 | `itemIdx` | int | Yes | Item index |
 
 ```json
-{"type": "command", "command": "item/select", "trackIdx": 0, "itemIdx": 0}
+{"type": "command", "command": "item/select", "trackIdx": 1, "itemIdx": 0}
 ```
 
 ### `item/selectInTimeSel`
@@ -692,59 +772,39 @@ Toggle selection of a single item. Does NOT affect other items' selection state 
 - `NOT_FOUND` - Item not found (may have been deleted)
 - `CORRUPT_DATA` - Cannot read item selection state
 
-### `item/getPeaks`
+### `item/selectNext`
 
-Get waveform peak data for an item's active take. Use for waveform visualization.
+Select the next item on the same track, by position (the item that starts soonest after the current one). Deselects all other items. **Returns data.**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `trackIdx` | int | Yes | Track index (unified: 0 = master, 1+ = user tracks) |
-| `itemIdx` | int | Yes | Item index within track (0-based) |
-| `width` | int | No | Number of peaks to return (default: 400, max: 2000) |
+| `itemIdx` | int | Yes | Index of the current item on the track |
+| `wrap` | int | No | 1 = from the last item, go to the first (default: 0) |
 
 ```json
-{"type": "command", "command": "item/getPeaks", "trackIdx": 1, "itemIdx": 0, "width": 800, "id": "1"}
+{"type": "command", "command": "item/selectNext", "trackIdx": 1, "itemIdx": 0, "wrap": 1, "id": "1"}
 ```
 
 **Response:**
 
 ```json
-{
-  "type": "response",
-  "id": "1",
-  "success": true,
-  "payload": {
-    "itemGUID": "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}",
-    "takeGUID": "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}",
-    "length": 5.0,
-    "startOffset": 0.0,
-    "playrate": 1.0,
-    "channels": 2,
-    "peaks": [
-      {"l": [-0.5, 0.6], "r": [-0.4, 0.5]},
-      {"l": [-0.7, 0.8], "r": [-0.6, 0.7]}
-    ]
-  }
-}
+{"type": "response", "id": "1", "success": true, "payload": {"trackIdx": 1, "itemIdx": 2}}
 ```
-
-**Peak format:**
-
-- Stereo: `{"l": [min, max], "r": [min, max]}`
-- Mono: `[min, max]`
-- Values normalized to -1.0 to 1.0
 
 **Errors:**
 
-- `NOT_FOUND` - Item not found at trackIdx/itemIdx
-- `NO_TAKE` - Item has no active take
-- `MIDI_ITEM` - Item contains MIDI, not audio
-- `EMPTY_ITEM` - Item has zero length
-- `INVALID_WIDTH` - Width out of range (1-2000)
-- `ACCESSOR_ERROR` - Failed to create audio accessor
-- `SERIALIZE_ERROR` - Failed to serialize peaks
+- `MISSING_TRACK_IDX`, `MISSING_ITEM_IDX` - Parameter not provided
+- `NOT_FOUND` - Track or current item not found
+- `NO_NEXT` - The track has only one item, or the current item is the last and `wrap` is off
 
-**Cache key:** Frontend should cache using `{itemGUID, takeGUID, length, startOffset, playrate}`. Re-fetch when any of these change in the `items` event.
+### `item/selectPrev`
+
+Select the previous item on the same track, by position. Same parameters, response and errors as `item/selectNext`, with `NO_PREV` in place of `NO_NEXT`; `wrap` goes from the first item to the last.
+
+```json
+{"type": "command", "command": "item/selectPrev", "trackIdx": 1, "itemIdx": 2, "id": "1"}
+```
 
 ### `item/getNotes`
 
@@ -752,7 +812,7 @@ Get notes content for a single item. Use for on-demand fetching when displaying 
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index (0-based) |
+| `trackIdx` | int | Yes | Track index (unified: 0 = master, 1+ = user tracks) |
 | `itemIdx` | int | Yes | Item index within track (0-based) |
 
 ```json
@@ -776,7 +836,7 @@ Get full take list for a single item. Use for on-demand fetching when displaying
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index (0-based) |
+| `trackIdx` | int | Yes | Track index (unified: 0 = master, 1+ = user tracks) |
 | `itemIdx` | int | Yes | Item index within track (0-based) |
 
 ```json
@@ -847,9 +907,9 @@ Subscribe to peaks for multiple tracks. Returns tile-based peak data optimized f
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `range` | object | Conditional | Track index range: `{start: int, end: int}` (end exclusive) |
-| `guids` | array | Conditional | Alternative: list of track GUIDs to subscribe |
-| `sampleCount` | int | No | Fallback peaks per item when no viewport (default: 30) |
+| `range` | object | Conditional | Unified track index range: `{start: int, end: int}` (both inclusive, at most 10,000 tracks) |
+| `guids` | array | Conditional | Alternative: list of track GUIDs to subscribe (max 64) |
+| `sampleCount` | int | No | Fallback peaks per item when no viewport (1-200, default: 30) |
 | `viewport` | object | No | Viewport params: `{start: float, end: float, widthPx: int}` |
 
 **Note:** Either `range` or `guids` must be provided, not both.
@@ -876,44 +936,34 @@ Subscribe to peaks for multiple tracks. Returns tile-based peak data optimized f
 }
 ```
 
-**Peaks Event (broadcast after subscribe and on changes):**
+**Errors:** `TOO_MANY_CLIENTS`, `INVALID_PARAMS` (neither `range` nor `guids`).
 
-```json
-{
-  "type": "event",
-  "event": "peaks",
-  "payload": {
-    "tiles": [
-      {
-        "takeGuid": "{XXXX...}",
-        "epoch": 2355337060,
-        "lod": 6,
-        "tileIndex": 105,
-        "itemPosition": 100.0,
-        "startTime": 105.0,
-        "endTime": 106.0,
-        "channels": 2,
-        "peaks": [
-          {"l": [-0.5, 0.6], "r": [-0.4, 0.5]},
-          {"l": [-0.7, 0.8], "r": [-0.6, 0.7]}
-        ]
-      }
-    ]
-  }
-}
-```
+**Peak data (binary frames, sent to the subscriber after subscribe and on changes):**
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `takeGuid` | string | GUID of the take (for cache key) |
-| `epoch` | int | Cache epoch (changes when audio is re-rendered) |
-| `lod` | int | LOD level (0-7, see LOD System above) |
-| `tileIndex` | int | Tile index within item |
-| `itemPosition` | float | Item position in project time (seconds) |
-| `startTime` | float | Tile start time relative to item start |
-| `endTime` | float | Tile end time relative to item start |
-| `channels` | int | 1 = mono, 2 = stereo |
-| `peaks` | array | Peak data (stereo or mono format) |
+Peaks arrive as binary WebSocket frames, not JSON. Every binary frame starts with a type byte: `0x01` is an audio frame (see [`audio/startStream`](#audiostartstream)), `0x02` a batch of peak tiles. All integers and floats are little-endian.
+
+Batch envelope (4 bytes):
+
+| Offset | Type | Field |
+|--------|------|-------|
+| 0 | u8 | Message type (`0x02`) |
+| 1 | u8 | Reserved (0) |
+| 2 | u16 | Tile count |
+
+Then, per tile, a 20-byte header, a 40-byte take GUID and the peak data:
+
+| Offset | Type | Field | Description |
+|--------|------|-------|-------------|
+| 0 | u8 | `lod` | LOD level (0-7, see LOD System above) |
+| 1 | u8 | `channels` | 1 = mono, 2 = stereo |
+| 2 | u16 | `tileIndex` | Tile index within the item |
+| 4 | u16 | `numPeaks` | Peaks in this tile (at most 256) |
+| 6 | u16 | reserved | 0 |
+| 8 | u32 | `epoch` | Cache epoch (changes when audio is re-rendered) |
+| 12 | f32 | `startTime` | Tile start in seconds, relative to the item start |
+| 16 | f32 | `itemPosition` | Item position in project time (seconds) |
+| 20 | 40 bytes | `takeGuid` | Take GUID, NUL-padded |
+| 60 | `numPeaks * channels * 2` bytes | peaks | Per peak, per channel: i8 min, i8 max (stereo: L min, L max, R min, R max). Values are -1.0..1.0 scaled by 127. |
 
 **Cache key:** `{takeGuid, epoch, lod, tileIndex}`
 
@@ -923,20 +973,18 @@ Update viewport for an existing subscription. Use this for zoom/pan without re-s
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `start` | float | Yes | Viewport start time (seconds) |
-| `end` | float | Yes | Viewport end time (seconds) |
-| `widthPx` | int | Yes | Viewport width in pixels |
+| `viewport` | object | Yes | `{start: float, end: float, widthPx: int}`: viewport start and end times (seconds) and width in pixels |
 
 ```json
 {
   "type": "command",
   "command": "peaks/updateViewport",
-  "start": 105.0,
-  "end": 115.0,
-  "widthPx": 800,
+  "viewport": {"start": 105.0, "end": 115.0, "widthPx": 800},
   "id": "vp1"
 }
 ```
+
+**Errors:** `INVALID_PARAMS` (no complete `viewport`), `NOT_SUBSCRIBED` (no active peaks subscription).
 
 **Note:** The backend only sends new peak data when LOD changes. Panning at the same zoom level won't trigger new data - the frontend should slice from cached tiles.
 
@@ -1014,7 +1062,7 @@ Tracks are identified by unified index (0=master, 1+=user tracks) OR by GUID.
 - `trackIdx` — Positional index. Simple but shifts when tracks reorder.
 - `trackGuid` — Stable GUID from `trackSkeleton` event. Use during gestures (fader drags) to avoid targeting wrong track if user reorders mid-gesture. Master track uses `"master"` as GUID.
 
-All track write commands (`setVolume`, `setPan`, `setMute`, etc.) accept either parameter. If both provided, `trackGuid` takes precedence.
+All track write commands (`setVolume`, `setPan`, `setMute`, etc.) accept either parameter. If both are provided, `trackIdx` is used.
 
 ### `track/setVolume`
 
@@ -1121,13 +1169,38 @@ Enable or disable track FX. Toggles if no explicit value.
 {"type": "command", "command": "track/setFxEnabled", "trackIdx": 0, "enabled": 0}
 ```
 
+### `track/setSelected`
+
+Select or unselect one track, leaving the selection of other tracks as it is. Toggles if no explicit value. Selection makes no undo point.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackIdx` | int | One of | Track index (0 = master, 1+ = user tracks) |
+| `trackGuid` | string | One of | Track GUID |
+| `selected` | int | No | 0 = unselect, 1 = select (toggles if omitted) |
+
+```json
+{"type": "command", "command": "track/setSelected", "trackGuid": "{ABC...}", "selected": 1}
+```
+
+**Errors:** `NOT_FOUND` (no track given, or not found).
+
+### `track/unselectAll`
+
+Unselect every track, master included.
+
+```json
+{"type": "command", "command": "track/unselectAll"}
+```
+
 ### `meter/clearClip`
 
 Clear the clip indicator for a track's input meter.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index |
+| `trackIdx` | int | One of | Track index (0 = master, 1+ = user tracks) |
+| `trackGuid` | string | One of | Track GUID |
 
 ```json
 {"type": "command", "command": "meter/clearClip", "trackIdx": 0}
@@ -1327,11 +1400,11 @@ Get full send detail for a single track with pagination support. Use for on-dema
 | `destName` | string | Destination track name |
 | `volume` | float | Send volume (0.0 to ∞, 1.0 = 0dB) |
 | `muted` | bool | Whether send is muted |
-| `mode` | int | Send mode (0=post-fader, 1=pre-fx, 3=pre-fader) |
+| `mode` | int | Send mode (0=post-fader, 1=pre-FX, 3=post-FX) |
 
 ### `track/subscribe`
 
-Subscribe to track updates. Replaces any previous subscription for this client. Only subscribed tracks are included in the `tracks` event at 30Hz.
+Subscribe to track updates. Replaces any previous subscription for this client. Only subscribed tracks are included in the `tracks` event, polled at 30Hz. The event is broadcast to every client and carries the tracks any client is subscribed to, so a client picks out its own by `idx` or `g`.
 
 **Two mutually exclusive modes:**
 
@@ -1614,11 +1687,13 @@ Set project tempo.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `bpm` | float | Yes | Tempo in BPM (2-960) |
+| `bpm` | float | Yes | Tempo in BPM (1-960) |
 
 ```json
 {"type": "command", "command": "tempo/set", "bpm": 128.0}
 ```
+
+**Errors:** `MISSING_BPM`, `INVALID_BPM` (outside 1-960).
 
 ### `tempo/tap`
 
@@ -1627,6 +1702,109 @@ Tap tempo. Call repeatedly to set tempo from tap intervals.
 ```json
 {"type": "command", "command": "tempo/tap"}
 ```
+
+### `tempo/snap`
+
+Snap a time to the nearest beat subdivision, following the tempo map. **Returns data.**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `time` | float | Yes | Time in seconds |
+| `subdivision` | int | No | Divisions per beat, 1-16 (1 = beat, 2 = eighth, 4 = sixteenth; default: 1) |
+
+```json
+{"type": "command", "command": "tempo/snap", "time": 15.7, "subdivision": 1, "id": "1"}
+```
+
+**Response:**
+
+```json
+{"type": "response", "id": "1", "success": true, "payload": {"snappedTime": 16.0, "snappedBeats": 32.0}}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `snappedTime` | float | Snapped time in seconds |
+| `snappedBeats` | float | Snapped position in beats from the project start |
+
+**Errors:** `MISSING_TIME`, `INVALID_SUBDIVISION` (outside 1-16).
+
+### `tempo/getBarDuration`
+
+Length of the bar containing a time. The length is the difference between REAPER's own start of the next bar and the start of this bar, so tempo ramps, meter changes and compound meters all come from REAPER's tempo map. **Returns data.**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `time` | float | No | Time in seconds (default: 0) |
+
+```json
+{"type": "command", "command": "tempo/getBarDuration", "time": 10.5, "id": "1"}
+```
+
+**Response:**
+
+```json
+{"type": "response", "id": "1", "success": true, "payload": {"duration": 2.0, "durationBeats": 4.0, "bpm": 120.00, "timesigNum": 4, "timesigDenom": 4}}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `duration` | float | Length of the bar in seconds |
+| `durationBeats` | float | Beats in the bar (the time signature numerator) |
+| `bpm` | float | Tempo at `time` |
+| `timesigNum` | int | Time signature numerator at `time` |
+| `timesigDenom` | int | Time signature denominator at `time` |
+
+### `tempo/timeToBeats`
+
+Convert a time to a beat position and the bar.beat.ticks label the ruler shows. **Returns data.**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `time` | float | Yes | Time in seconds |
+
+```json
+{"type": "command", "command": "tempo/timeToBeats", "time": 16.0, "id": "1"}
+```
+
+**Response:**
+
+```json
+{"type": "response", "id": "1", "success": true, "payload": {"beats": 32.0, "bars": "9.1.00"}}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `beats` | float | Beats from the project start |
+| `bars` | string | Position as "bar.beat.ticks", as on the ruler (start measure applied), the same label markers and regions carry |
+
+**Errors:** `MISSING_TIME`, `INVALID_BEAT` (the position can't be labelled).
+
+### `tempo/barsToTime`
+
+Convert a bar.beat.ticks position, as displayed on the ruler, to a time. **Returns data.**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `bar` | int | Yes | Bar as displayed on the ruler (start measure applied) |
+| `beat` | int | No | Beat within the bar, 1-based, in the meter's own beats (default: 1) |
+| `ticks` | int | No | Hundredths of a beat, 0-99 (default: 0) |
+
+```json
+{"type": "command", "command": "tempo/barsToTime", "bar": 15, "beat": 1, "ticks": 0, "id": "1"}
+```
+
+**Response:**
+
+```json
+{"type": "response", "id": "1", "success": true, "payload": {"time": 28.0}}
+```
+
+**Errors:**
+
+- `MISSING_BAR` - `bar` not provided
+- `INVALID_BEAT` - `beat` below 1, or `ticks` outside 0-99
+- `INVALID_BAR` - `bar` is more than 1,000,000 from zero, or falls before the project start (REAPER has no time there)
 
 ---
 
@@ -1689,6 +1867,22 @@ Set metronome volume. Accepts dB or linear.
 
 ```json
 {"type": "command", "command": "metronome/setVolume", "volumeDb": -6.0}
+```
+
+### `countIn/togglePlayback`
+
+Toggle count-in before playback (REAPER's metronome setting).
+
+```json
+{"type": "command", "command": "countIn/togglePlayback"}
+```
+
+### `countIn/toggleRecord`
+
+Toggle count-in before recording (REAPER's metronome setting).
+
+```json
+{"type": "command", "command": "countIn/toggleRecord"}
 ```
 
 ---
@@ -1837,35 +2031,19 @@ Clients should compare the hash to their last known hash to detect changes.
 
 ### `undo/add`
 
-Add a simple undo point.
+Add a simple undo point. The description is stored as typed: quotes, backslashes, tabs and non-ASCII text appear in REAPER's undo history as sent, at any length.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `description` | string | Yes | Undo point description (max 255 chars) |
+| `description` | string | Yes | Undo point description |
 
 ```json
 {"type": "command", "command": "undo/add", "description": "Changed marker"}
 ```
 
-### `undo/begin`
+**Errors:** `MISSING_DESCRIPTION`.
 
-Begin an undo block. Use to group multiple operations into one undo step.
-
-```json
-{"type": "command", "command": "undo/begin"}
-```
-
-### `undo/end`
-
-End an undo block.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `description` | string | Yes | Description for the grouped operations |
-
-```json
-{"type": "command", "command": "undo/end", "description": "Batch edit"}
-```
+There are no commands to open or close an undo block: REAPER doesn't nest undo blocks, and a block held open across commands from several clients would gather unrelated edits. Continuous controls group their changes with [gestures](#gesture-commands).
 
 ### `undo/do`
 
@@ -1878,10 +2056,12 @@ Execute undo (revert last action). **Returns data.**
 Response:
 
 ```json
-{"type": "response", "id": "1", "success": true, "payload": {"action": "Changed marker"}}
+{"type": "response", "id": "1", "success": true, "action": "Changed marker"}
 ```
 
-Returns the description of what was undone. If nothing to undo, returns `{"action": null}`.
+`action` (at the top level of the response, not in a payload) is the description of what was undone.
+
+**Errors:** `NOTHING_TO_UNDO`, `UNDO_FAILED`.
 
 ### `redo/do`
 
@@ -1894,10 +2074,12 @@ Execute redo (re-apply last undone action). **Returns data.**
 Response:
 
 ```json
-{"type": "response", "id": "1", "success": true, "payload": {"action": "Changed marker"}}
+{"type": "response", "id": "1", "success": true, "action": "Changed marker"}
 ```
 
-Returns the description of what was redone. If nothing to redo, returns `{"action": null}`.
+`action` is the description of what was redone.
+
+**Errors:** `NOTHING_TO_REDO`, `REDO_FAILED`.
 
 ---
 
@@ -1908,14 +2090,16 @@ Gestures enable undo coalescing for continuous controls (faders, knobs). When a 
 **How it works:**
 
 1. Client sends `gesture/start` when user begins dragging
-2. Client sends value changes (`track/setVolume`, `track/setPan`, `send/setVolume`)
+2. Client sends value changes (`track/setVolume`, `send/setVolume`, `hw/setPan`, `trackFxParams/set`, ...)
 3. Client sends `gesture/end` when user releases
 4. Server creates a single undo point for the entire gesture
+
+Track volume and pan go through REAPER's control surface API, and the gesture's end flushes its undo. Sends, receives, hardware outputs and FX parameters have no such undo: their changes apply as they arrive, and when the last of these gestures ends the server records one undo point for all of them ("REAmo: Adjust sends", "REAmo: Adjust hardware outputs", ...). Outside a gesture, each send, receive or hardware output volume or pan change (a double-tap reset, for example) makes an undo point of its own.
 
 **Safety nets:**
 
 - If client disconnects during gesture, server flushes undo automatically
-- If `gesture/end` is missed, a 500ms timeout flushes the gesture
+- If `gesture/end` is missed, a gesture is flushed after 10 seconds without any value change from any client
 - Multiple clients can gesture the same control (reference counted)
 
 ### `gesture/start`
@@ -1925,10 +2109,13 @@ Begin a gesture on a continuous control.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `controlType` | string | Yes | Control type (see below) |
-| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `trackIdx` | int | One of | Track index (0 = master, 1+ = user tracks) |
+| `trackGuid` | string | One of | Track GUID |
 | `sendIdx` | int | For sends | Send index (required for `"send"`, `"sendPan"`) |
 | `recvIdx` | int | For receives | Receive index (required for `"receive"`, `"receivePan"`) |
 | `hwIdx` | int | For hw outputs | Hardware output index (required for `"hwOutputVolume"`, `"hwOutputPan"`) |
+| `fxGuid` | string | For FX params | FX GUID (required for `"fxParam"`) |
+| `paramIdx` | int | For FX params | Parameter index (required for `"fxParam"`) |
 
 **Control types:**
 
@@ -1940,6 +2127,7 @@ Begin a gesture on a continuous control.
 - `"receivePan"` — Receive pan knob
 - `"hwOutputVolume"` — Hardware output volume fader
 - `"hwOutputPan"` — Hardware output pan knob
+- `"fxParam"` — FX parameter (see [`trackFxParams/set`](#trackfxparamsset))
 
 ```json
 {"type": "command", "command": "gesture/start", "controlType": "volume", "trackIdx": 1}
@@ -1948,6 +2136,8 @@ Begin a gesture on a continuous control.
 {"type": "command", "command": "gesture/start", "controlType": "hwOutputVolume", "trackIdx": 0, "hwIdx": 0}
 ```
 
+**Errors:** `INVALID_PARAMS` (unknown `controlType`, track not found, or the index the type needs is missing).
+
 ### `gesture/end`
 
 End a gesture on a continuous control. Triggers undo point creation.
@@ -1955,10 +2145,11 @@ End a gesture on a continuous control. Triggers undo point creation.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `controlType` | string | Yes | Control type (same as gesture/start) |
-| `trackIdx` | int | Yes | Track index |
+| `trackIdx` / `trackGuid` | | Yes | Track, as in gesture/start |
 | `sendIdx` | int | For sends | Send index (required for `"send"`, `"sendPan"`) |
 | `recvIdx` | int | For receives | Receive index (required for `"receive"`, `"receivePan"`) |
 | `hwIdx` | int | For hw outputs | Hardware output index (required for `"hwOutputVolume"`, `"hwOutputPan"`) |
+| `fxGuid`, `paramIdx` | | For FX params | As in gesture/start |
 
 ```json
 {"type": "command", "command": "gesture/end", "controlType": "volume", "trackIdx": 1}
@@ -2107,10 +2298,12 @@ Subscribe to toggle state changes for a list of actions. **Returns data.**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `actions` | `{c, s}[]` | No* | Numeric actions: `c` = commandId, `s` = sectionId |
-| `namedActions` | `{n, s}[]` | No* | Named actions: `n` = named command, `s` = sectionId |
+| `actions` | `{c, s}[]` | No* | Numeric actions: `c` = commandId, `s` = sectionId (default 0) |
+| `namedActions` | `{n, s}[]` | No* | Named actions: `n` = named command, `s` = sectionId (default 0) |
+| `commandIds` | int[] | No* | Numeric command IDs in the Main section (0) |
+| `names` | string[] | No* | Named commands in the Main section (0) |
 
-\* At least one of `actions` or `namedActions` is required. Both can be provided together.
+\* At least one action is required. The forms can be combined. The message is parsed as JSON, so any spacing, escaping and field order works. A command ID that doesn't fit REAPER's command IDs, and a name that resolves to no action, are skipped; if nothing is left, the command fails with `MISSING_PARAMS`.
 
 **Section IDs:**
 
@@ -2144,7 +2337,9 @@ Subscribe to toggle state changes for a list of actions. **Returns data.**
 | Field | Description |
 |-------|-------------|
 | `states` | Array of toggle states: `s` = sectionId, `c` = commandId, `v` = value (-1 = not a toggle, 0 = off, 1 = on) |
-| `nameToId` | Array mapping named commands to their resolved IDs: `n` = name, `s` = sectionId, `c` = commandId |
+| `nameToId` | Array mapping named commands to their resolved IDs: `n` = name (as sent), `s` = sectionId, `c` = commandId |
+
+**Errors:** `INVALID_PARAMS` (an action form is malformed), `MISSING_PARAMS` (no action given, or none resolves), `TOO_MANY_CLIENTS`, `TOO_MANY_SUBSCRIPTIONS` (more than 256 actions per client).
 
 **Change events** are broadcast when toggle states change:
 
@@ -2166,8 +2361,10 @@ Unsubscribe from toggle state changes for a list of actions.
 |-----------|------|----------|-------------|
 | `actions` | `{c, s}[]` | No* | Numeric actions to unsubscribe from |
 | `namedActions` | `{n, s}[]` | No* | Named actions to unsubscribe from |
+| `commandIds` | int[] | No* | Numeric command IDs in the Main section |
+| `names` | string[] | No* | Named commands in the Main section |
 
-\* At least one of `actions` or `namedActions` is required.
+\* Accepts the same four forms as `actionToggleState/subscribe`, read the same way. At least one action that resolves is required (`MISSING_PARAMS` otherwise).
 
 ```json
 {"type": "command", "command": "actionToggleState/unsubscribe", "actions": [{"c": 40364, "s": 0}], "id": "1"}
@@ -2238,24 +2435,11 @@ Send MIDI Pitch Bend message. Uses 14-bit resolution (0-16383), with 8192 as cen
 
 ## FX Commands
 
-Control track FX presets. FX state is included in the `tracks` event — see [tracks event](#tracks-event) for the `fx[]` array format.
+Control track FX: presets, bypass, adding, removing and reordering. The FX of every track travel in the [`fx_state` event](#fx_state-event); one track's chain in detail comes from [`trackFx/subscribe`](#trackfxsubscribe).
 
-### `fx/presetNext`
+### `trackFx/presetNext`
 
-Navigate to the next preset for a track FX.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
-| `fxIdx` | int | Yes | FX index within track (0-based) |
-
-```json
-{"type": "command", "command": "fx/presetNext", "trackIdx": 1, "fxIdx": 0}
-```
-
-### `fx/presetPrev`
-
-Navigate to the previous preset for a track FX.
+Load the next preset for a track FX. Makes an undo point ("REAmo: Change FX preset"); REAPER drops it when nothing changed, as on an FX without presets.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -2263,12 +2447,22 @@ Navigate to the previous preset for a track FX.
 | `fxIdx` | int | Yes | FX index within track (0-based) |
 
 ```json
-{"type": "command", "command": "fx/presetPrev", "trackIdx": 1, "fxIdx": 0}
+{"type": "command", "command": "trackFx/presetNext", "trackIdx": 1, "fxIdx": 0}
 ```
 
-### `fx/presetSet`
+**Errors:** `MISSING_TRACK_IDX`, `MISSING_FX_IDX`, `NOT_FOUND` (track), `NAVIGATE_FAILED`.
 
-Jump to a specific preset by index.
+### `trackFx/presetPrev`
+
+Load the previous preset for a track FX. Same parameters, undo point and errors as `trackFx/presetNext`.
+
+```json
+{"type": "command", "command": "trackFx/presetPrev", "trackIdx": 1, "fxIdx": 0}
+```
+
+### `trackFx/presetSet`
+
+Load a specific preset by index. Makes an undo point, as `trackFx/presetNext` does.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -2277,10 +2471,10 @@ Jump to a specific preset by index.
 | `presetIdx` | int | Yes | Preset index (-1 = default user, -2 = factory, 0+ = preset index) |
 
 ```json
-{"type": "command", "command": "fx/presetSet", "trackIdx": 1, "fxIdx": 0, "presetIdx": 5}
+{"type": "command", "command": "trackFx/presetSet", "trackIdx": 1, "fxIdx": 0, "presetIdx": 5}
 ```
 
-**Note:** Each preset change creates a REAPER undo point. Consider debouncing rapid clicks in the frontend.
+**Errors:** `MISSING_TRACK_IDX`, `MISSING_FX_IDX`, `MISSING_PRESET_IDX`, `NOT_FOUND` (track), `SET_FAILED`.
 
 ### `trackFx/setEnabled`
 
@@ -2298,6 +2492,119 @@ Enable or bypass a specific FX on a track. Toggles if no explicit value provided
 ```
 
 **Note:** This controls bypass state of individual FX plugins. For the entire track's FX chain enable/disable, use `track/setFxEnabled`.
+
+**Errors:** `NOT_FOUND` (track), `MISSING_FX_IDX`, `INVALID_FX_IDX` (out of range).
+
+### `trackFx/add`
+
+Add an FX to a track by name. One undo point ("REAmo: Add FX: name"). **Returns data.**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` / `trackIdx` | | Yes | Track |
+| `fxName` | string | Yes | Plugin identifier, as `ident` from [`fxPlugin/getList`](#fxplugingetlist) |
+| `position` | int | No | Chain position to insert at (0-based). Omitted or out of range: append at the end. |
+
+```json
+{"type": "command", "command": "trackFx/add", "trackGuid": "{AAA}", "fxName": "VST: ReaEQ (Cockos)", "position": 0, "id": "1"}
+```
+
+**Response:**
+
+```json
+{"type": "response", "id": "1", "success": true, "payload": {"fxGuid": "{BBB}", "fxIndex": 0}}
+```
+
+**Errors:** `NOT_FOUND` (track), `INVALID_TRACK` (track no longer exists), `MISSING_PARAM` (no `fxName`), `ADD_FAILED` (REAPER couldn't add it; check the name).
+
+### `trackFx/delete`
+
+Remove an FX from a track. One undo point ("REAmo: Delete FX: name").
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` / `trackIdx` | | Yes | Track |
+| `fxGuid` | string | One of | FX GUID (preferred: stable across reordering) |
+| `fxIndex` | int | One of | FX index (0-based) |
+
+```json
+{"type": "command", "command": "trackFx/delete", "trackGuid": "{AAA}", "fxGuid": "{BBB}"}
+```
+
+**Errors:** `NOT_FOUND` (track), `INVALID_TRACK`, `FX_NOT_FOUND`, `DELETE_FAILED`.
+
+### `trackFx/move`
+
+Move an FX to a new position in the same track's chain. One undo point ("REAmo: Move FX"). **Returns data.**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` / `trackIdx` | | Yes | Track |
+| `fxGuid` | string | Yes | FX GUID |
+| `toIndex` | int | Yes | Target chain position (0-based, less than the FX count) |
+
+```json
+{"type": "command", "command": "trackFx/move", "trackGuid": "{AAA}", "fxGuid": "{BBB}", "toIndex": 2, "id": "1"}
+```
+
+**Response:**
+
+```json
+{"type": "response", "id": "1", "success": true, "payload": {"newIndex": 2}}
+```
+
+**Errors:** `NOT_FOUND` (track), `INVALID_TRACK`, `MISSING_PARAM`, `FX_NOT_FOUND`, `INVALID_INDEX` (`toIndex` out of range).
+
+### `trackFx/subscribe`
+
+Subscribe to one track's FX chain. Each client has at most one; subscribing replaces it. The client then receives [`trackFxChain` events](#trackfxchain-event) for that track: one soon after subscribing, then whenever the chain changes (polled at 30Hz).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` | string | Yes | Track GUID (`"master"` for master) |
+
+```json
+{"type": "command", "command": "trackFx/subscribe", "trackGuid": "{AAA}", "id": "1"}
+```
+
+**Errors:** `MISSING_PARAM`, `TOO_MANY_CLIENTS`.
+
+### `trackFx/unsubscribe`
+
+Clear this client's FX chain subscription.
+
+```json
+{"type": "command", "command": "trackFx/unsubscribe", "id": "1"}
+```
+
+### `trackFxChain` Event
+
+Sent to the subscribed client only.
+
+```json
+{
+  "type": "event",
+  "event": "trackFxChain",
+  "payload": {
+    "trackGuid": "{AAA}",
+    "fx": [
+      {"fxGuid": "{BBB}", "fxIndex": 0, "name": "VST: ReaEQ (Cockos)", "presetName": "Vocal", "presetIndex": 2, "presetCount": 12, "modified": false, "enabled": true}
+    ]
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `trackGuid` | string | Subscribed track |
+| `fx[].fxGuid` | string | FX GUID |
+| `fx[].fxIndex` | int | Chain position (0-based) |
+| `fx[].name` | string | Plugin name |
+| `fx[].presetName` | string | Current preset name (empty if none) |
+| `fx[].presetIndex` | int | Current preset index (-1 if none) |
+| `fx[].presetCount` | int | Number of presets |
+| `fx[].modified` | bool | Parameters differ from the preset |
+| `fx[].enabled` | bool | `false` when bypassed |
 
 ---
 
@@ -2334,7 +2641,7 @@ Get all installed FX plugins. **Returns data.**
 | Field | Type | Description |
 |-------|------|-------------|
 | `name` | string | Plugin display name |
-| `ident` | string | Identifier for `trackFx/add` command |
+| `ident` | string | Identifier for `trackFx/add` (`fxName`) |
 
 **Plugin format prefixes** (in `ident` field):
 
@@ -2518,7 +2825,7 @@ Subscribe to tuner on a track. Inserts JSFX if first subscriber to this track.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackGuid` | string | Yes | Track GUID |
+| `trackGuid` | string | Yes | Track GUID (`"master"` for the master track) |
 
 ```json
 {"type": "command", "command": "tuner/subscribe", "trackGuid": "{AAA}", "id": "1"}
@@ -2545,12 +2852,12 @@ Subscribe to tuner on a track. Inserts JSFX if first subscriber to this track.
 
 - Each client can subscribe to one track's tuner at a time; subscribing auto-unsubscribes from previous
 - Multiple clients can share a single track's JSFX (ref-counted)
-- JSFX is inserted at position 0 in Input FX chain
+- JSFX is inserted at position 0 in Input FX chain. On the master track that chain is REAPER's monitoring FX, which is not stored in the project.
 - After subscribing, receive `tuner` events at 30Hz (see below)
 
 ### `tuner/unsubscribe`
 
-Unsubscribe from tuner. Removes JSFX if this was the last subscriber.
+Unsubscribe from tuner. Removes JSFX if this was the last subscriber, on the master track as on any other.
 
 ```json
 {"type": "command", "command": "tuner/unsubscribe", "id": "1"}
@@ -2628,11 +2935,17 @@ Sent when the tuner can no longer function (track deleted, JSFX removed, etc.). 
 
 ## Send Commands
 
-Control track send levels and mute states. Send state is included in the `tracks` event — see [tracks event](#tracks-event) for the `sends[]` array format.
+Control track sends. Every track's sends travel in the [`sends_state` event](#sends_state-event); one track's full routing comes from [`routing/subscribe`](#routingsubscribe). The `tracks` event carries only `sendCount`.
+
+Volume and pan changes inside a `send`/`sendPan` gesture are covered by the one undo point recorded when the gesture ends; outside a gesture each change makes its own undo point. Mute, mode, add and remove each make one undo point.
+
+**Stale indexes:** a routing row on a phone can outlive its route (another client removed it). Every command that names a send, receive or hardware output by index checks the index against the track's current count first. A stale index is refused with `NOT_FOUND`, changes nothing and leaves no undo point.
+
+**Common errors:** `MISSING_TRACK_IDX`, `MISSING_SEND_IDX`, `MISSING_<PARAM>` for the value, `NOT_FOUND` (track or send), `SET_FAILED`.
 
 ### `send/setVolume`
 
-Set the volume level for a track send. Uses CSurf API for automatic undo coalescing - wrap with `gesture/start` and `gesture/end` (controlType `"send"`) for proper undo behavior during fader drags.
+Set the volume level for a track send. Wrap fader drags with `gesture/start` and `gesture/end` (controlType `"send"`).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -2660,7 +2973,7 @@ Set the mute state for a track send.
 
 ### `send/setPan`
 
-Set the pan position for a track send. Uses CSurf API for automatic undo coalescing - wrap with `gesture/start` and `gesture/end` (controlType `"sendPan"`) for proper undo behavior during pan knob drags.
+Set the pan position for a track send (clamped to -1.0..1.0). Wrap knob drags with `gesture/start` and `gesture/end` (controlType `"sendPan"`).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -2682,11 +2995,49 @@ Set the routing mode for a track send.
 | `sendIdx` | int | Yes | Send index within track (0-based) |
 | `mode` | int | Yes | Send mode (0 = post-fader, 1 = pre-FX, 3 = post-FX) |
 
-**Note:** Mode 2 is not valid in REAPER's send routing.
+**Note:** Mode 2 is not valid in REAPER's send routing; any mode other than 0, 1 or 3 is refused with `INVALID_MODE`.
 
 ```json
 {"type": "command", "command": "send/setMode", "trackIdx": 1, "sendIdx": 0, "mode": 1}
 ```
+
+### `send/add`
+
+Create a send from one track to another. One undo point. **Returns data.**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` | string | Yes | Source track GUID |
+| `destTrackGuid` | string | Yes | Destination track GUID |
+
+```json
+{"type": "command", "command": "send/add", "trackGuid": "{AAA}", "destTrackGuid": "{BBB}", "id": "1"}
+```
+
+**Response:**
+
+```json
+{"type": "response", "id": "1", "success": true, "payload": {"sendIndex": 2}}
+```
+
+`sendIndex` is the new send's index on the source track.
+
+**Errors:** `MISSING_PARAM`, `NOT_FOUND` (source or destination track), `INVALID_PARAM` (send to self), `CREATE_FAILED`.
+
+### `send/remove`
+
+Remove a send. One undo point.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` / `trackIdx` | | Yes | Track |
+| `sendIdx` | int | Yes | Send index (0-based) |
+
+```json
+{"type": "command", "command": "send/remove", "trackGuid": "{AAA}", "sendIdx": 0}
+```
+
+**Errors:** `NOT_FOUND` (track or send), `MISSING_PARAM`, `REMOVE_FAILED`.
 
 ---
 
@@ -2694,11 +3045,11 @@ Set the routing mode for a track send.
 
 Control track receives (incoming routing from other tracks). Receives are the "other side" of sends — when Track A sends to Track B, Track B has a receive from Track A.
 
-**Note:** Receive commands route through the source track's send internally to use CSurf APIs for proper undo coalescing. This is transparent to the client.
+Undo, stale-index handling and errors follow the [send commands](#send-commands): volume and pan inside a `receive`/`receivePan` gesture share the gesture's undo point, outside one each change makes its own, and a stale `recvIdx` is refused with `NOT_FOUND` (`MISSING_RECV_IDX` when it is absent).
 
 ### `receive/setVolume`
 
-Set the volume level for a track receive. Uses CSurf API (via source track's send) for automatic undo coalescing - wrap with `gesture/start` and `gesture/end` (controlType `"receive"`) for proper undo behavior during fader drags.
+Set the volume level for a track receive. Wrap fader drags with `gesture/start` and `gesture/end` (controlType `"receive"`).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -2726,7 +3077,7 @@ Set the mute state for a track receive.
 
 ### `receive/setPan`
 
-Set the pan position for a track receive. Uses CSurf API (via source track's send) for automatic undo coalescing - wrap with `gesture/start` and `gesture/end` (controlType `"receivePan"`) for proper undo behavior during pan knob drags.
+Set the pan position for a track receive. Wrap knob drags with `gesture/start` and `gesture/end` (controlType `"receivePan"`).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -2754,17 +3105,55 @@ Set the routing mode for a track receive.
 {"type": "command", "command": "receive/setMode", "trackIdx": 2, "recvIdx": 0, "mode": 1}
 ```
 
+### `receive/add`
+
+Create a receive on a track from another track (a send on the source track). One undo point. **Returns data.**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` | string | Yes | Receiving (destination) track GUID |
+| `srcTrackGuid` | string | Yes | Source track GUID |
+
+```json
+{"type": "command", "command": "receive/add", "trackGuid": "{BBB}", "srcTrackGuid": "{AAA}", "id": "1"}
+```
+
+**Response:**
+
+```json
+{"type": "response", "id": "1", "success": true, "payload": {"sendIndex": 0}}
+```
+
+`sendIndex` is the new route's index among the source track's sends.
+
+**Errors:** `MISSING_PARAM`, `NOT_FOUND` (either track), `INVALID_PARAM` (receive from self), `CREATE_FAILED`.
+
+### `receive/remove`
+
+Remove a receive. One undo point.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` / `trackIdx` | | Yes | Receiving track |
+| `recvIdx` | int | Yes | Receive index (0-based) |
+
+```json
+{"type": "command", "command": "receive/remove", "trackGuid": "{BBB}", "recvIdx": 0}
+```
+
+**Errors:** `NOT_FOUND` (track or receive), `MISSING_PARAM`, `REMOVE_FAILED`.
+
 ---
 
 ## Hardware Output Commands
 
-Control track hardware outputs (routing to physical audio interfaces). Hardware output state is included in the `tracks` event when `track/getHwOutputs` is called.
+Control track hardware outputs (routing to physical audio interfaces). The `tracks` event carries only `hwOutCount`; the outputs themselves come from `track/getHwOutputs` or [`routing/subscribe`](#routingsubscribe).
 
-**Note:** Hardware output setters use `SetTrackSendInfo_Value` directly because `CSurf_OnSendVolumeChange` only works for category 0 (sends), not category 1 (hardware outputs). Undo coalescing relies on gesture tracking.
+Volume and pan changes inside an `hwOutputVolume`/`hwOutputPan` gesture are covered by the one undo point recorded when the gesture ends ("REAmo: Adjust hardware outputs"). Outside a gesture (a double-tap reset) each change makes its own undo point. Mute, mode, destination, add and remove each make one undo point. A stale `hwIdx` is refused with `NOT_FOUND`, as for [sends](#send-commands); `MISSING_HW_IDX` when it is absent.
 
 ### `hw/setVolume`
 
-Set the volume level for a track hardware output. Wrap with `gesture/start` and `gesture/end` (controlType `"hwVolume"`) for proper undo behavior during fader drags.
+Set the volume level for a track hardware output. Wrap fader drags with `gesture/start` and `gesture/end` (controlType `"hwOutputVolume"`).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -2792,7 +3181,7 @@ Set the mute state for a track hardware output.
 
 ### `hw/setPan`
 
-Set the pan position for a track hardware output. Wrap with `gesture/start` and `gesture/end` (controlType `"hwPan"`) for proper undo behavior during pan knob drags.
+Set the pan position for a track hardware output. Wrap knob drags with `gesture/start` and `gesture/end` (controlType `"hwOutputPan"`).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -2820,13 +3209,97 @@ Set the routing mode for a track hardware output.
 {"type": "command", "command": "hw/setMode", "trackIdx": 0, "hwIdx": 0, "mode": 0}
 ```
 
+### `hw/add`
+
+Add a hardware output to a track. One undo point. **Returns data.**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` / `trackIdx` | | Yes | Track |
+
+```json
+{"type": "command", "command": "hw/add", "trackGuid": "master", "id": "1"}
+```
+
+**Response:**
+
+```json
+{"type": "response", "id": "1", "success": true, "payload": {"hwIdx": 1}}
+```
+
+**Errors:** `NOT_FOUND` (track), `CREATE_FAILED`.
+
+### `hw/remove`
+
+Remove a hardware output. One undo point.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` / `trackIdx` | | Yes | Track |
+| `hwIdx` | int | Yes | Hardware output index (0-based) |
+
+```json
+{"type": "command", "command": "hw/remove", "trackGuid": "master", "hwIdx": 1}
+```
+
+**Errors:** `NOT_FOUND` (track or output), `MISSING_PARAM`, `REMOVE_FAILED`.
+
+### `hw/setDestChannel`
+
+Route a hardware output to different interface channels. One undo point.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` / `trackIdx` | | Yes | Track |
+| `hwIdx` | int | Yes | Hardware output index (0-based) |
+| `destChannel` | int | Yes | REAPER's `I_DSTCHAN` value, as `destChan` from `hw/listOutputs` |
+
+```json
+{"type": "command", "command": "hw/setDestChannel", "trackGuid": "master", "hwIdx": 0, "destChannel": 1026}
+```
+
+**Errors:** `NOT_FOUND` (track or output), `MISSING_PARAM`, `SET_FAILED`.
+
+### `hw/listOutputs`
+
+List the audio interface's output channels, as REAPER's own hardware output menu offers them: stereo pairs first, then each channel alone. **Returns data.**
+
+```json
+{"type": "command", "command": "hw/listOutputs", "id": "1"}
+```
+
+**Response:**
+
+```json
+{
+  "type": "response",
+  "id": "1",
+  "success": true,
+  "payload": {
+    "outputs": [
+      {"destChan": 0, "name": "Out 1 / Out 2", "stereo": true},
+      {"destChan": 1024, "name": "Out 1", "stereo": false},
+      {"destChan": 1025, "name": "Out 2", "stereo": false}
+    ]
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `destChan` | int | `I_DSTCHAN` value: the first channel's index, plus 1024 for a mono output |
+| `name` | string | Channel name(s) from the audio device |
+| `stereo` | bool | Stereo pair or single channel |
+
 ### `track/getHwOutputs`
 
-Get all hardware outputs for a track. **Returns data.**
+Get a track's hardware outputs, with pagination. **Returns data.**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `offset` | int | No | Start index for pagination (default: 0) |
+| `limit` | int | No | Maximum outputs to return (default: 64, max: 64) |
 
 ```json
 {"type": "command", "command": "track/getHwOutputs", "trackIdx": 0, "id": "1"}
@@ -2841,29 +3314,85 @@ Response:
   "success": true,
   "payload": {
     "hwOutputs": [
-      {
-        "idx": 0,
-        "destChannel": 0,
-        "mono": false,
-        "volume": 1.0,
-        "pan": 0.0,
-        "muted": false,
-        "mode": 0
-      }
-    ]
+      {"hwIdx": 0, "destChannel": 0, "volume": 1.0, "pan": 0.0, "muted": false, "mode": 0}
+    ],
+    "total": 1,
+    "offset": 0,
+    "hasMore": false
   }
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `idx` | int | Hardware output index |
-| `destChannel` | int | Output channel index (0-based) |
-| `mono` | bool | True if mono output, false if stereo |
+| `hwIdx` | int | Hardware output index |
+| `destChannel` | int | `I_DSTCHAN` value (channel index, +1024 for mono) |
 | `volume` | float | Volume level (linear, 1.0 = 0dB) |
 | `pan` | float | Pan position (-1.0 to 1.0) |
 | `muted` | bool | Mute state |
 | `mode` | int | Output mode (0 = post-fader, 1 = pre-FX, 3 = post-FX) |
+| `total` | int | Hardware outputs on the track |
+| `offset` | int | Start index used for this response |
+| `hasMore` | bool | Whether more outputs exist beyond this page |
+
+**Errors:** `INVALID_PARAMS` (no `trackIdx`), `NOT_FOUND`.
+
+---
+
+## Routing Subscription Commands
+
+### `routing/subscribe`
+
+Subscribe to one track's sends, receives and hardware outputs. Each client has at most one; subscribing replaces it. The client then receives `routing_state` events for that track: one soon after subscribing, then whenever its routing changes (polled at 30Hz).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trackGuid` | string | Yes | Track GUID (`"master"` for master) |
+
+```json
+{"type": "command", "command": "routing/subscribe", "trackGuid": "{AAA}", "id": "1"}
+```
+
+**Errors:** `MISSING_PARAM`, `TOO_MANY_CLIENTS`.
+
+### `routing/unsubscribe`
+
+Clear this client's routing subscription.
+
+```json
+{"type": "command", "command": "routing/unsubscribe", "id": "1"}
+```
+
+### `routing_state` Event
+
+Sent to the subscribed client only.
+
+```json
+{
+  "type": "event",
+  "event": "routing_state",
+  "payload": {
+    "trackGuid": "{AAA}",
+    "sends": [{"sendIndex": 0, "destName": "Reverb Bus", "volume": 0.5, "pan": 0.0, "muted": false, "mode": 0}],
+    "receives": [{"receiveIndex": 0, "srcName": "Guitar", "volume": 1.0, "pan": 0.0, "muted": false, "mode": 0}],
+    "hwOutputs": [{"hwIdx": 0, "destChannel": 0, "volume": 1.0, "pan": 0.0, "muted": false, "mode": 0}]
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `trackGuid` | string | Subscribed track |
+| `sends[].sendIndex` | int | Send index (as `sendIdx` in send commands) |
+| `sends[].destName` | string | Destination track name |
+| `receives[].receiveIndex` | int | Receive index (as `recvIdx` in receive commands) |
+| `receives[].srcName` | string | Source track name |
+| `hwOutputs[].hwIdx` | int | Hardware output index |
+| `hwOutputs[].destChannel` | int | `I_DSTCHAN` value |
+| `*.volume` | float | Linear volume (1.0 = 0dB) |
+| `*.pan` | float | Pan (-1.0 to 1.0) |
+| `*.muted` | bool | Mute state |
+| `*.mode` | int | 0 = post-fader, 1 = pre-FX, 3 = post-FX |
 
 ---
 
@@ -2940,6 +3469,8 @@ Response:
 ### `playlist/removeEntry`
 
 Remove an entry from a playlist.
+
+When the removed entry is the one playing, the playlist moves on to the next entry that plays, passing over Skip entries (loop count 0) and entries whose region is gone, and sets REAPER's loop points to it. When none is left, the playlist stops.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -3054,6 +3585,46 @@ Set whether transport stops after the final region's last loop completes. Per-pl
 
 ```json
 {"type": "command", "command": "playlist/setStopAfterLast", "playlistIdx": 0, "stopAfterLast": 1}
+```
+
+---
+
+## Audio Monitoring Commands
+
+Stream REAPER's master output to the client as PCM, for listening on the phone.
+
+### `audio/startStream`
+
+Start sending this client binary audio frames. **Returns data.**
+
+```json
+{"type": "command", "command": "audio/startStream", "id": "1"}
+```
+
+**Response:**
+
+```json
+{"type": "response", "id": "1", "success": true, "payload": {"sampleRate": 48000}}
+```
+
+Each audio frame is a binary WebSocket message: a type byte `0x01`, a u32 little-endian sequence number, then interleaved stereo 16-bit little-endian PCM (at most 10 ms of audio). Frames whose samples are all near silence (below about -72 dBFS) are not sent. At most 4 clients stream at once.
+
+**Errors:** `NOT_INITIALIZED`, `STREAM_FAILED` (client limit reached, or the audio hook or network thread couldn't start).
+
+### `audio/stopStream`
+
+Stop this client's audio stream.
+
+```json
+{"type": "command", "command": "audio/stopStream", "id": "1"}
+```
+
+### `audio/status`
+
+Diagnostic snapshot of the audio stream (hook registration, client count, ring buffer level, sample rate, overflow and callback counters). **Returns data.**
+
+```json
+{"type": "command", "command": "audio/status", "id": "1"}
 ```
 
 ---
@@ -3253,7 +3824,7 @@ Delete a comp area (preserves source media in the original lane).
 
 **Notes:**
 
-- Selects the item and runs REAPER's "Delete comp area" action (42642)
+- Runs REAPER's "Delete comp area" action (42642) on this comp area alone, then gives the user back the rest of their item selection, all in one undo step
 - Original source media is preserved in the source lane
 
 **Errors:**
@@ -3489,7 +4060,7 @@ Lightweight track list broadcast at 1Hz when structure changes (add/delete/renam
 
 ### `tracks` Event
 
-Broadcast when track data changes for subscribed tracks. Clients must call `track/subscribe` to receive this event.
+Broadcast when track data changes for subscribed tracks. Clients must call `track/subscribe` to receive this event. The event goes to every connected client and carries every track any client is subscribed to.
 
 ```json
 {
@@ -3500,36 +4071,42 @@ Broadcast when track data changes for subscribed tracks. Clients must call `trac
     "tracks": [
       {
         "idx": 0,
-        "guid": "master",
+        "g": "master",
         "name": "MASTER",
         "color": 0,
         "volume": 1.0000,
         "pan": 0.000,
         "mute": false,
         "solo": 0,
-        "recArm": true,
-        "recMon": 1,
+        "recArm": false,
+        "recMon": 0,
         "fxEnabled": true,
         "selected": false,
         "folderDepth": 0,
-        "fx": [
-          {
-            "name": "ReaEQ",
-            "presetName": "My EQ",
-            "presetIndex": 3,
-            "presetCount": 12,
-            "modified": false
-          }
-        ],
-        "sends": [
-          {
-            "idx": 0,
-            "destName": "Reverb Bus",
-            "volume": 0.5,
-            "muted": false,
-            "mode": 0
-          }
-        ]
+        "fxCount": 2,
+        "sendCount": 0,
+        "receiveCount": 3,
+        "hwOutCount": 1
+      },
+      {
+        "idx": 1,
+        "g": "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}",
+        "name": "Vocal",
+        "color": 16777471,
+        "volume": 0.7079,
+        "pan": -0.200,
+        "mute": false,
+        "solo": 0,
+        "recArm": true,
+        "recMon": 1,
+        "fxEnabled": true,
+        "selected": true,
+        "folderDepth": 0,
+        "fxCount": 3,
+        "sendCount": 1,
+        "receiveCount": 0,
+        "hwOutCount": 0,
+        "recInput": 1
       }
     ]
   }
@@ -3540,40 +4117,32 @@ Broadcast when track data changes for subscribed tracks. Clients must call `trac
 |-------|------|-------------|
 | `total` | int | User track count (excludes master, for virtual scroll sizing) |
 | `tracks[].idx` | int | Track index (0=master, 1+=user tracks) |
-| `tracks[].guid` | string | Track GUID (`"master"` for master track) — use for write commands |
+| `tracks[].g` | string | Track GUID (`"master"` for master track) — use for `trackGuid` in write commands |
 | `tracks[].name` | string | Track name |
-| `tracks[].color` | int | Track color (native OS format, 0=default) |
+| `tracks[].color` | int\|null | Track color (native OS format, 0=default), null if REAPER returned a corrupt value |
 | `tracks[].volume` | float | Volume (1.0 = 0dB) |
 | `tracks[].pan` | float | Pan (-1.0 to 1.0) |
 | `tracks[].mute` | bool | Muted |
-| `tracks[].solo` | int | Solo state (0=off, 1=solo, 2=solo in place) |
+| `tracks[].solo` | int\|null | Solo state as REAPER's `I_SOLO` (0=off, 1=solo, 2=solo in place, ...); master is 0 or 1. null if corrupt |
 | `tracks[].recArm` | bool | Record armed |
-| `tracks[].recMon` | int | Record monitoring (0=off, 1=on, 2=not when playing) |
+| `tracks[].recMon` | int\|null | Record monitoring (0=off, 1=on, 2=not when playing), null if corrupt |
 | `tracks[].fxEnabled` | bool | FX chain enabled |
 | `tracks[].selected` | bool | Track is selected |
 | `tracks[].folderDepth` | int | Folder hierarchy: 1=folder parent, 0=normal, -N=closes N folder levels |
-| `tracks[].fx` | array | FX chain (polled at 5Hz, empty if no FX) |
-| `tracks[].fx[].name` | string | Plugin name |
-| `tracks[].fx[].presetName` | string | Current preset name |
-| `tracks[].fx[].presetIndex` | int | Current preset index (-1 if none) |
-| `tracks[].fx[].presetCount` | int | Total number of presets |
-| `tracks[].fx[].modified` | bool | `true` if params don't match preset |
-| `tracks[].sends` | array | Sends (polled at 5Hz, empty if no sends) |
-| `tracks[].sends[].idx` | int | Send index |
-| `tracks[].sends[].destName` | string | Destination track name |
-| `tracks[].sends[].volume` | float | Volume (linear, 1.0 = 0dB) |
-| `tracks[].sends[].muted` | bool | Mute state |
-| `tracks[].sends[].mode` | int | Send mode (0=post-fader, 1=pre-FX, 3=post-FX) |
+| `tracks[].fxCount` | int | FX on the track |
+| `tracks[].sendCount` | int | Sends from the track |
+| `tracks[].receiveCount` | int | Receives into the track |
+| `tracks[].hwOutCount` | int | Hardware outputs on the track |
+| `tracks[].recInput` | int | Record input, REAPER's `I_RECINPUT` encoding (-1 = none). Present only while the track is armed. |
 
 **Notes:**
 
 - Clients must call `track/subscribe` to receive tracks events — no subscription means no track data
 - Only subscribed tracks are included in the `tracks` array
 - `total` is user track count only (excludes master) for virtual scrollbar sizing
-- Broadcasts only when track data changes (not every frame)
+- Polled at 30Hz; broadcast only when track data changes (not every frame)
 - Meter data is sent separately via the `meters` event (see below)
-- FX and sends are polled at 5Hz (for efficiency) but included in track events
-- Max 64 FX per track, max 16 sends per track
+- The track carries only counts of its FX and routes. The FX and sends themselves travel in the [`fx_state`](#fx_state-event) and [`sends_state`](#sends_state-event) events (all tracks), and in detail from `track/getFx`, `track/getSends`, `track/getHwOutputs`, [`trackFx/subscribe`](#trackfxsubscribe) and [`routing/subscribe`](#routingsubscribe)
 
 ### `meters` Event
 
@@ -3682,6 +4251,86 @@ Broadcast to all clients when regions change. No subscription required.
 - Sent on connect (snapshot) and on change at 5Hz (MEDIUM tier)
 - Contains all regions in the project
 - Broadcast to all connected clients
+
+### `fx_state` Event
+
+Every FX on every track (master included), broadcast to all clients when any of it changes. Polled at 5Hz (MEDIUM tier). Not part of the connect snapshot: a new client receives it at the next change.
+
+```json
+{
+  "type": "event",
+  "event": "fx_state",
+  "payload": {
+    "fx": [
+      {"trackIdx": 1, "fxIndex": 0, "fxGuid": "{BBB}", "name": "VST: ReaEQ (Cockos)", "presetName": "Vocal", "presetIndex": 2, "presetCount": 12, "modified": false, "enabled": true}
+    ]
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `fx[].trackIdx` | int | Track index (unified: 0 = master, 1+ = user tracks) |
+| `fx[].fxIndex` | int | Position in the track's chain (0-based) |
+| `fx[].fxGuid` | string | FX GUID (stable across reorders) |
+| `fx[].name` | string | Plugin name |
+| `fx[].presetName` | string | Current preset name (empty if none) |
+| `fx[].presetIndex` | int | Current preset index (-1 if none) |
+| `fx[].presetCount` | int | Number of presets |
+| `fx[].modified` | bool | Parameters differ from the preset |
+| `fx[].enabled` | bool | `false` when bypassed |
+
+### `sends_state` Event
+
+Every send on every track (master included), broadcast to all clients when any of it changes. Polled at 5Hz (MEDIUM tier). Not part of the connect snapshot. Receives and hardware outputs are not included; they come from [`routing/subscribe`](#routingsubscribe).
+
+```json
+{
+  "type": "event",
+  "event": "sends_state",
+  "payload": {
+    "sends": [
+      {"srcTrackIdx": 1, "sendIndex": 0, "destName": "Reverb Bus", "volume": 0.500000, "pan": 0.000000, "muted": false, "mode": 0}
+    ]
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `sends[].srcTrackIdx` | int | Source track index (unified: 0 = master, 1+ = user tracks) |
+| `sends[].sendIndex` | int | Send index on the source track (as `sendIdx` in send commands) |
+| `sends[].destName` | string | Destination track name |
+| `sends[].volume` | float | Linear volume (1.0 = 0dB) |
+| `sends[].pan` | float | Pan (-1.0 to 1.0) |
+| `sends[].muted` | bool | Mute state |
+| `sends[].mode` | int | 0 = post-fader, 1 = pre-FX, 3 = post-FX |
+
+### `tempoMap` Event
+
+Every tempo and time signature marker in the project, however many there are. Sent on connect (snapshot) and broadcast to all clients when any marker changes (polled at 1Hz, and immediately after an edit REAPER reports). Any edit is a change, including toggling a marker's gradual tempo or two markers trading tempos.
+
+```json
+{
+  "type": "event",
+  "event": "tempoMap",
+  "payload": {
+    "markers": [
+      {"position": 0.000000000000000, "positionBeats": 0.000000, "bpm": 92.00, "timesigNum": 4, "timesigDenom": 4, "linear": true},
+      {"position": 10.434782608695652, "positionBeats": 16.000000, "bpm": 104.00, "timesigNum": 4, "timesigDenom": 4, "linear": false}
+    ]
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `markers[].position` | float | Marker time in seconds |
+| `markers[].positionBeats` | float | Marker position in beats from the project start |
+| `markers[].bpm` | float | Tempo at the marker |
+| `markers[].timesigNum` | int | Time signature numerator, as REAPER's `GetTempoTimeSigMarker` reports it |
+| `markers[].timesigDenom` | int | Time signature denominator, as REAPER reports it |
+| `markers[].linear` | bool | Gradual (linear) tempo change from this marker to the next |
 
 ### `items` Event
 
@@ -3876,7 +4525,7 @@ Broadcast when playlist state changes (polled at 5Hz). Includes all playlists an
 | `isPaused` | bool | Playlist paused (vs actively playing) |
 | `advanceAfterLoop` | bool | Flag: will advance after current loop completes |
 
-**Note:** `valid: false` indicates the referenced region was deleted. Frontend should show a warning and allow removal of invalid entries.
+**Note:** `deleted: true` indicates the referenced region was deleted. Frontend should show a warning and allow removal of invalid entries.
 
 ---
 
@@ -3885,22 +4534,20 @@ Broadcast when playlist state changes (polled at 5Hz). Includes all playlists an
 | Resource | Max |
 |----------|-----|
 | Tracks polled | 128 |
-| FX per track | 64 |
-| Sends per track | 16 |
 | Metered tracks | 16 |
 | Markers | 256 |
 | Regions | 256 |
 | Items | 512 |
-| Takes per item | 8 |
 | Track/take name | 128 chars |
 | Marker/region name | 128 chars |
-| Item notes | 1024 chars |
-| ExtState global value | 1024 chars |
-| ExtState project value | 16384 chars |
+| ExtState project value | 16384 bytes |
 | Playlists | 16 |
 | Entries per playlist | 64 |
 | Playlist name | 128 chars |
-| Command queue | 256 pending |
+| Track subscription GUIDs per client | 64 |
+| Toggle-state subscriptions per client | 256 actions |
+| Audio stream clients | 4 |
+| Command queue | 4096 commands and 8 MB of message data, across all clients |
 
 ---
 
@@ -3915,13 +4562,32 @@ Broadcast when playlist state changes (polled at 5Hz). Includes all playlists an
 }
 ```
 
+Error responses go only to commands that carry an `id`; a failed command without one is dropped silently.
+
 Common error codes:
 
 - `INVALID_POSITION` - Position is negative, NaN, or Inf
 - `MISSING_*` - Required parameter not provided
-- `NOT_FOUND` - Referenced item/marker/region doesn't exist
+- `NOT_FOUND` - Referenced track/item/marker/region/route doesn't exist (including a send, receive or hardware output index that is stale)
 - `INVALID_RANGE` - End before start
-- `QUEUE_FULL` - Command queue overflow (slow down!)
+- `INVALID_BAR` - Bar out of range, or before the project start
+- `ITEM_LOCKED` - The item is locked and won't be moved
+- `UNKNOWN_COMMAND` - No such command
+- `QUEUE_FULL` - The command queue is full (see below)
+
+**`QUEUE_FULL`:** commands wait in a queue that the main thread drains every frame. The queue holds 4096 commands and 8 MB of message data; past either limit a command is refused rather than queued. A refused command that carries an `id` gets a response with that id:
+
+```json
+{"type": "response", "id": "42", "success": false, "error": {"code": "QUEUE_FULL", "message": "Too many commands at once; try again"}}
+```
+
+A refused command without an `id` gets an error message instead:
+
+```json
+{"type": "error", "error": {"code": "QUEUE_FULL", "message": "Too many commands at once; try again"}}
+```
+
+Other connection-level errors use the same `{"type": "error"}` form: `NOT_AUTHENTICATED` (a command before `hello` when a token is set) and `UNKNOWN_MESSAGE` (unrecognised message type).
 
 ## Implementation Notes
 
