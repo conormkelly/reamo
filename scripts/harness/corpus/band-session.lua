@@ -8,6 +8,7 @@ dofile(reaper.GetResourcePath() .. "/Scripts/harness.lua")
 
 local dir = "/tmp/corpus/band-session"
 os.execute("mkdir -p " .. dir .. "/Media")
+harness.begin_project(dir .. "/band-session.RPP")
 local function wav(name, secs, freq, ch) return harness.wav(dir .. "/Media/" .. name, secs, freq, ch) end
 
 reaper.SetCurrentBPM(0, 100, false)

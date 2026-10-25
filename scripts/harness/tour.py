@@ -169,7 +169,7 @@ for i = 0, reaper.CountMediaItems(0) - 1 do
   local it = reaper.GetMediaItem(0, i)
   local tk = reaper.GetActiveTake(it)
   local src = tk and not reaper.TakeIsMIDI(tk) and reaper.GetMediaItemTake_Source(tk)
-  local file = src and reaper.GetMediaSourceFileName(src) or ""
+  local file = src and reaper.GetMediaSourceFileName(src, "") or ""
   if file ~= "" and reaper.file_exists(file) then
     out[#out + 1] = select(2, reaper.GetSetMediaItemInfo_String(it, "GUID", "", false))
   end
@@ -199,6 +199,13 @@ return out
         if r is not None and not r.get("success", False):
             raise Mismatch(f"{command} failed: {r.get('error')}")
         return r
+
+    def need(self, *keys):
+        """Skip the op when this REAPER can't report a fact it checks: the
+        digest leaves out what an older REAPER's API has no way to read."""
+        missing = [k for k in keys if k not in self.flat]
+        if missing:
+            raise Skip(f"this REAPER can't report {', '.join(missing)}")
 
     def meter(self, pos=None):
         """t.expect changes for the tempo and meter the digest shows at the

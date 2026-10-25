@@ -21,6 +21,18 @@ import subprocess
 import time
 import urllib.request
 
+# Exit status for a scenario this REAPER can't run (boot.sh reports SKIP).
+SKIP_STATUS = 77
+
+
+def skip(reason):
+    """End the scenario as skipped: what it checks needs a REAPER feature this
+    release lacks. A skip is reported apart from passes and failures."""
+    import sys
+    print(f"SKIP: {reason}")
+    sys.exit(SKIP_STATUS)
+
+
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("REAMO_PORT", "9224"))
 

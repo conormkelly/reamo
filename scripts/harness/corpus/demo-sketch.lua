@@ -8,6 +8,7 @@ dofile(reaper.GetResourcePath() .. "/Scripts/harness.lua")
 
 local dir = "/tmp/corpus/demo-sketch"
 os.execute("mkdir -p " .. dir)
+harness.begin_project(dir .. "/demo-sketch.RPP")
 local function wav(name, secs, freq, ch) return harness.wav(dir .. "/" .. name, secs, freq, ch) end
 
 local bar = 60 / 120 * 4 -- 2 s at REAPER's default tempo

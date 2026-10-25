@@ -30,7 +30,7 @@ def wait_playlists(c, pred, what, timeout=3):
 
 with Client() as c:
     c.wait_event("playlist")
-    reaper('reaper.Main_SaveProjectEx(0, "/tmp/other.rpp", 0)')  # a project with no playlists
+    reaper('harness.save_as("/tmp/other.rpp")')  # a project with no playlists
 
     # The gig project: one setlist.
     assert c.command("playlist/create", name=NAME)["success"]
@@ -38,7 +38,7 @@ with Client() as c:
         assert c.command("playlist/addEntry", playlistIdx=0, regionId=rid, loopCount=loops)["success"]
     assert c.command("playlist/setStopAfterLast", playlistIdx=0, stopAfterLast=0)["success"]
     c.drain(0.5)  # persisted on the next medium tick when not playing
-    reaper('reaper.Main_SaveProjectEx(0, "/tmp/gig.rpp", 0)')
+    reaper('harness.save_as("/tmp/gig.rpp")')
     gig = [{"name": NAME, "entries": [{"regionId": 3, "loopCount": 2}, {"regionId": 1, "loopCount": -1},
                                        {"regionId": 2, "loopCount": 1}], "stopAfterLast": False}]
 
@@ -51,7 +51,7 @@ with Client() as c:
     n, v = reaper(EXT)
     if (n, v.split("|")[0]) != ("1", "Other set"):
         problems.append(f"edit in the other project saved as: PlaylistCount={n} Playlist_0={v!r}")
-    reaper('reaper.Main_SaveProjectEx(0, "/tmp/other.rpp", 0)')
+    reaper('harness.save_as("/tmp/other.rpp")')
 
     reaper('reaper.Main_openProject("noprompt:/tmp/gig.rpp")')
     got = wait_playlists(c, lambda p: len(p) == 1 and p[0]["name"] == NAME, "reopened the gig project")

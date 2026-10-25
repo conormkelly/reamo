@@ -92,12 +92,84 @@ function harness.track_chunk_append(track, text)
   assert(reaper.SetTrackStateChunk(track, chunk, false), "SetTrackStateChunk failed")
 end
 
+-- REAPER before Main_SaveProjectEx (6.0) can save a project only to the
+-- file it was opened from: "save as" is a dialog. A fixture that saves
+-- starts with harness.begin_project(path), which on such a REAPER opens an
+-- empty project at `path`, so harness.save_as has a file to save to. On a
+-- REAPER with Main_SaveProjectEx it does nothing: the fixture builds in
+-- REAPER's own new project, as a user would.
+function harness.begin_project(path)
+  if reaper.Main_SaveProjectEx then return end
+  local f = assert(io.open(path, "w"))
+  f:write("<REAPER_PROJECT 0.1 \"" .. reaper.GetAppVersion() .. "\" 0\n>\n")
+  f:close()
+  reaper.Main_openProject("noprompt:" .. path)
+end
+
+-- Save the project as `path` and carry on in it, as File > Save project as
+-- does. Without Main_SaveProjectEx: save to the project's own file, move what
+-- was saved to `path`, put the old file back as it was, and open `path`.
+-- Unlike a real save as, undo history doesn't survive the reopen.
+function harness.save_as(path)
+  if reaper.Main_SaveProjectEx then
+    reaper.Main_SaveProjectEx(0, path, 0)
+    return
+  end
+  local _, current = reaper.EnumProjects(-1, "")
+  assert(current ~= "", "REAPER " .. reaper.GetAppVersion() ..
+    " can't save an unsaved project to a file: start the fixture with harness.begin_project()")
+  if current == path then
+    reaper.Main_SaveProject(0, false)
+    return
+  end
+  local function read(p)
+    local f = assert(io.open(p, "rb"))
+    local text = f:read("a")
+    f:close()
+    return text
+  end
+  local function write(p, text)
+    local f = assert(io.open(p, "wb"))
+    f:write(text)
+    f:close()
+  end
+  local before = read(current)
+  reaper.Main_SaveProject(0, false)
+  write(path, read(current))
+  write(current, before)
+  reaper.Main_openProject("noprompt:" .. path)
+end
+
+-- A REAPER preference or project setting as text, or nil where this REAPER
+-- can't read it from a script (6.0 reads none of the project settings): the
+-- caller decides what that means.
+function harness.config(name)
+  if not reaper.get_config_var_string then return nil end
+  local ok, value = reaper.get_config_var_string(name)
+  if not ok or value == "" then return nil end
+  return value
+end
+
+-- Build `src`'s peak file now, so GetMediaItemTake_Peaks has data. Without
+-- PCM_Source_BuildPeaks, REAPER's "Peaks: Build any missing peaks" does it.
+function harness.build_peaks(src)
+  if not reaper.PCM_Source_BuildPeaks then
+    reaper.Main_OnCommand(40047, 0)
+    return
+  end
+  if reaper.PCM_Source_BuildPeaks(src, 0) ~= 0 then
+    while reaper.PCM_Source_BuildPeaks(src, 1) ~= 0 do end
+    reaper.PCM_Source_BuildPeaks(src, 2)
+  end
+end
+
 -- Save the project to `path`, then patch top-level RPP lines REAPER's API
 -- cannot set (e.g. PROJOFFS for the start measure, TIMELOCKMODE, SAMPLERATE).
 -- The test opens it with reamo_client.open_project(), which goes through
 -- REAPER's project-load path (and its dialogs) while clients are connected.
+-- The fixture starts with harness.begin_project(path).
 function harness.save_project(path, patches)
-  reaper.Main_SaveProjectEx(0, path, 0)
+  harness.save_as(path)
   local f = io.open(path, "r")
   local text = f:read("a")
   f:close()

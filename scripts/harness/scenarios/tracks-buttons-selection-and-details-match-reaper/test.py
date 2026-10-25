@@ -60,7 +60,7 @@ with Client() as c:
 
     fx = c.command("track/getFx", trackIdx=1)["payload"]
     want_fx = reaper("""local t = reaper.GetTrack(0, 0); local o = {}
-for i = 0, reaper.TrackFX_GetCount(t) - 1 do local _, n = reaper.TrackFX_GetFXName(t, i); o[#o + 1] = n end return o""")
+for i = 0, reaper.TrackFX_GetCount(t) - 1 do local _, n = reaper.TrackFX_GetFXName(t, i, ''); o[#o + 1] = n end return o""")
     print("getFx:", [(f["name"], f["enabled"]) for f in fx["fx"]], "REAPER:", want_fx)
     assert [f["name"] for f in fx["fx"]] == want_fx and fx["total"] == len(want_fx), fx
     page = c.command("track/getFx", trackIdx=1, offset=1, limit=1)["payload"]

@@ -1,8 +1,12 @@
 """A real saved project with a non-default start measure: bar numbers match REAPER's own labels."""
-from reamo_client import Client, oracle
+from reamo_client import Client, open_project, reaper
 
-truth = oracle()
-labels = {float(k.split("@")[1]): v for k, v in truth.items() if k.startswith("label@")}
+print("dialogs:", open_project("/tmp/fixtures/test-project-1.RPP"))
+# REAPER's own bar labels (measures.beats, project offset applied) at bar-length steps.
+labels = {t: label for t, label in reaper("""
+  local bar, out = 60 / reaper.Master_GetTempo() * 4, {}
+  for i = 0, 6 do out[#out + 1] = {i * bar, reaper.format_timestr_pos(i * bar, "", 2)} end
+  return out""")}
 print("REAPER labels:", {round(t, 3): v for t, v in sorted(labels.items())})
 
 with Client(timeout=8) as c:

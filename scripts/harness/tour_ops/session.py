@@ -518,6 +518,8 @@ def _(t):
 
 @op("preferences: seek settings round-trip", "preferences/getSeekSettings", "preferences/setSeekSettings")
 def _(t):
+    t.need("project.seek.0", "project.seek.1")
+
     def cfg():
         ss, meas = t.d["project"]["seek"]
         return int(ss), int(meas)

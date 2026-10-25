@@ -809,7 +809,7 @@ for i = 0, reaper.CountTracks(0) - 1 do reaper.SetTrackSelected(reaper.GetTrack(
 HEAVY = """
 reaper.Undo_BeginBlock()
 local src = reaper.GetMediaItemTake_Source(reaper.GetActiveTake(reaper.GetTrackMediaItem(tr, 0)))
-local file = reaper.GetMediaSourceFileName(src)
+local file = reaper.GetMediaSourceFileName(src, "")
 local n = reaper.GetMediaTrackInfo_Value(tr, "I_NUMFIXEDLANES")
 for i = 0, {count} - 1 do
   local it = reaper.AddMediaItemToTrack(tr)
@@ -972,7 +972,7 @@ def check_tiles(t, ts, takes, lod):
         want = reaper(REAPER_PEAKS % (tile["guid"], rate, it["pos"] + tile["idx"] * dur, tile["npk"], tile["ch"]))
         want = [max(-128, min(127, round(v * 127))) for v in want]
         path, loop = reaper(f'local tk = reaper.GetMediaItemTakeByGUID(0, "{tile["guid"]}") '
-                            f'return {{reaper.GetMediaSourceFileName(reaper.GetMediaItemTake_Source(tk)), '
+                            f'return {{reaper.GetMediaSourceFileName(reaper.GetMediaItemTake_Source(tk), ""), '
                             f'reaper.GetMediaItemInfo_Value(reaper.GetMediaItemTake_Item(tk), "B_LOOPSRC") == 1}}')
         # REAPER resamples a looped source's peaks differently for every
         # request start and length (a tile can come from any of the

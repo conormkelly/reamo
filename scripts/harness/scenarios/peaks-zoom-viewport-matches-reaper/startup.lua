@@ -26,10 +26,7 @@ local src = reaper.PCM_Source_CreateFromFile(path)
 reaper.SetMediaItemTake_Source(take, src)
 reaper.SetMediaItemInfo_Value(it, "D_POSITION", 0)
 reaper.SetMediaItemInfo_Value(it, "D_LENGTH", 30)
-if reaper.PCM_Source_BuildPeaks(src, 0) ~= 0 then
-  while reaper.PCM_Source_BuildPeaks(src, 1) ~= 0 do end
-  reaper.PCM_Source_BuildPeaks(src, 2)
-end
+harness.build_peaks(src)
 reaper.CreateNewMIDIItemInProj(harness.track("Keys"), 0, 8, false)
 harness.item(harness.track("Empty"), 2, 4)
 reaper.UpdateArrange()

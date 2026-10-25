@@ -54,7 +54,8 @@ with Client() as c:
     want_undo = reaper("return reaper.Undo_CanUndo2(0)")
     want_redo = reaper("return reaper.Undo_CanRedo2(0)")
     print(f"  REAPER canUndo={want_undo!r}\n         canRedo={want_redo!r}")
-    assert want_undo and want_redo and len(want_undo) > 100 and len(want_redo) > 100
+    # REAPER 7 keeps them whole; REAPER 6 keeps the first 99 bytes.
+    assert want_undo and want_redo and len(want_undo) >= 99 and len(want_redo) >= 99
     problems = []
     p = wait_project(c, lambda p: p["canUndo"] == want_undo and p["canRedo"] == want_redo)
     if p:
@@ -77,5 +78,30 @@ with Client() as late:
         problems.append("a newly connected client got no project event at all")
     elif not (p["metronome"]["enabled"] and p["canUndo"] == want_undo and p["canRedo"] == want_redo):
         problems.append(f"a newly connected client got a stale project snapshot: {p}")
+
+# A description REAPER cuts inside a character (REAPER 6 keeps 99 bytes) must
+# still reach phones as valid UTF-8: the client decodes every frame strictly,
+# as a browser does, and a bad frame would close the connection. Phones show
+# REAPER's text with the cut-off character as U+FFFD (the extension can't tell
+# it from a Windows code-page byte, so it replaces rather than drops it).
+PREFIX = "REAmo: rename track: "
+CUT = PREFIX + "x" * (98 - len(PREFIX)) + "\u00e9 Strophe zw\u00f6lf"
+with Client() as c:
+    c.wait_event("project")
+    # A real change (REAPER drops an undo point that changes nothing).
+    reaper(f"local tr = reaper.GetTrack(0, 0); reaper.Undo_BeginBlock2(0); "
+           f"reaper.SetMediaTrackInfo_Value(tr, 'B_MUTE', 1 - reaper.GetMediaTrackInfo_Value(tr, 'B_MUTE')); "
+           f"reaper.Undo_EndBlock2(0, {json.dumps(CUT, ensure_ascii=False)}, -1)")
+    held, cut = reaper("""local raw = reaper.Undo_CanUndo2(0)
+      local d = raw
+      while d ~= "" and not utf8.len(d) do d = d:sub(1, -2) end
+      return {d, d ~= raw}""")
+    print(f"  REAPER holds {len(held.encode())} whole bytes of a {len(CUT.encode())}-byte description"
+          f"{', cut inside a character' if cut else ''}")
+    assert held.startswith(PREFIX), f"REAPER's last undo step isn't this one: {held!r}"
+    want = held + "\ufffd" if cut else held
+    if not wait_project(c, lambda p: p["canUndo"] == want):
+        problems.append(f"a description REAPER holds as {held!r}{' (cut)' if cut else ''}: "
+                        f"phones show {c.latest_event('project')['payload']['canUndo']!r}")
 
 assert not problems, "\n".join(problems)

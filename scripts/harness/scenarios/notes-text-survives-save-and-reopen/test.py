@@ -17,7 +17,7 @@ def norm(s):
 # First: does REAPER itself keep such text across save + reopen? (oracle)
 probe = "| pipe\n<lt\n>gt\nplain"
 reaper(f"reaper.GetSetProjectNotes(0, true, {json.dumps(probe)})")
-reaper('reaper.Main_SaveProjectEx(0, "/tmp/notes_probe.rpp", 0)')
+reaper('harness.save_as("/tmp/notes_probe.rpp")')
 reaper('reaper.Main_openProject("noprompt:/tmp/notes_probe.rpp")')
 reaper_kept = norm(reaper(GET))
 print("REAPER alone, after save+reopen:", repr(reaper_kept))
@@ -29,7 +29,7 @@ with Client() as c:
     echoed = norm(r["payload"]["notes"])
     print("typed :", repr(TYPED))
     print("REAPER:", repr(in_reaper))
-    reaper('reaper.Main_SaveProjectEx(0, "/tmp/notes_rt.rpp", 0)')
+    reaper('harness.save_as("/tmp/notes_rt.rpp")')
     reaper('reaper.Main_openProject("noprompt:/tmp/notes_rt.rpp")')
     after = norm(reaper(GET))
     got = norm(c.command("projectNotes/get")["payload"]["notes"])

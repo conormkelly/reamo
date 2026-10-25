@@ -12,6 +12,7 @@ dofile(reaper.GetResourcePath() .. "/Scripts/harness.lua")
 
 local dir = "/tmp/corpus/tempo-map"
 os.execute("mkdir -p " .. dir .. "/Media")
+harness.begin_project(dir .. "/tempo-map.RPP")
 local function wav(name, secs, freq, ch) return harness.wav(dir .. "/Media/" .. name, secs, freq, ch) end
 
 -- (measure, bpm, num, den, linear): num/den 0 keep the meter in force.

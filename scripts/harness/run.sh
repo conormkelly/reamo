@@ -157,15 +157,16 @@ print_ready
 
 pass=0
 failed=()
+skipped=()
 for i in "${!scenarios[@]}"; do
-    if [ "$(cat "$OUT/run-$i.status")" = 0 ]; then
-        pass=$((pass + 1))
-    else
-        failed+=("${scenarios[$i]}")
-    fi
+    case "$(cat "$OUT/run-$i.status")" in
+        0) pass=$((pass + 1)) ;;
+        77) skipped+=("${scenarios[$i]}") ;;
+        *) failed+=("${scenarios[$i]}") ;;
+    esac
 done
 
 echo
 [ ${#failed[@]} -eq 0 ] || echo "screenshots of failed scenarios: $ARTIFACTS/<scenario>/ (<scenario>.<run> when repeated)"
-echo "harness: $pass passed, ${#failed[@]} failed${failed[*]:+ (${failed[*]})}"
+echo "harness on REAPER $REAPER_VERSION: $pass passed, ${#skipped[@]} skipped${skipped[*]:+ (${skipped[*]})}, ${#failed[@]} failed${failed[*]:+ (${failed[*]})}"
 [ ${#failed[@]} -eq 0 ]

@@ -12,10 +12,19 @@ reaper.TrackFX_AddByName(t, "JS:harness_uni.jsfx", false, -1)
 reaper.TrackFX_AddByName(t, "JS:utility/volume", false, -1)
 -- The user renames the second FX in REAPER's FX chain (a 2-byte name > 128 bytes).
 reaper.TrackFX_SetNamedConfigParm(t, 1, "renamed_name", "Lead vocal " .. string.rep("ü", 80))
+-- REAPER 6 keeps names to a fixed length of its own, possibly cutting inside
+-- a character: the oracle is what it holds less that partial character, and
+-- "<key>_cut" says REAPER itself cut there.
+local function record(key, text)
+  local whole = text
+  while whole ~= "" and not utf8.len(whole) do whole = whole:sub(1, -2) end
+  harness.oracle(key, whole)
+  harness.oracle(key .. "_cut", whole ~= text and 1 or 0)
+end
 for i = 0, 1 do
   local _, n = reaper.TrackFX_GetParamName(t, 0, i, "")
-  harness.oracle("param" .. i, n)
+  record("param" .. i, n)
   local _, fxn = reaper.TrackFX_GetFXName(t, i, "")
-  harness.oracle("fx" .. i, fxn)
+  record("fx" .. i, fxn)
 end
 harness.ready()

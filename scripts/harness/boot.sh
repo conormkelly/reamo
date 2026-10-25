@@ -11,6 +11,7 @@
 #
 # Exit status: 0 only if the scenario's test.py passed AND REAPER is still
 # alive afterwards. A crash is a failure even when the test script "passed".
+# 77: the scenario skipped itself (this REAPER lacks what it checks).
 set -uo pipefail
 
 SCENARIO="${1:?usage: boot.sh <scenario>}"
@@ -110,6 +111,10 @@ if [ "$alive" != 1 ]; then
     tail -40 /tmp/reaper.out
     echo "RESULT: FAIL ($SCENARIO: REAPER crashed)"
     exit 3
+fi
+if [ "$test_status" = 77 ]; then
+    echo "RESULT: SKIP ($SCENARIO)"
+    exit 77
 fi
 if [ "$test_status" != 0 ]; then
     shot failed
