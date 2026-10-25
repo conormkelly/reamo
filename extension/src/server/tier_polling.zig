@@ -100,6 +100,28 @@ pub const MutableState = struct {
     playlist_state: *playlist.State,
 };
 
+/// Logs when a polled list reaches the cap on what phones are sent, and when
+/// it falls back under: a project past a cap otherwise loses the rest on
+/// every phone without a trace, polled 5 times a second.
+const CapLatch = struct {
+    capped: bool = false,
+
+    fn update(self: *CapLatch, what: []const u8, len: usize, cap: usize) void {
+        const capped = len >= cap;
+        if (capped == self.capped) return;
+        self.capped = capped;
+        if (capped) {
+            logging.warn("The project has {d} or more {s}; phones get the first {d}", .{ cap, what, cap });
+        } else {
+            logging.info("All the project's {s} reach phones again", .{what});
+        }
+    }
+};
+
+var g_markers_cap: CapLatch = .{};
+var g_regions_cap: CapLatch = .{};
+var g_items_cap: CapLatch = .{};
+
 /// Result from HIGH tier polling.
 /// Contains transport state for use by playlist engine in main.zig.
 pub const HighTierResult = struct {
@@ -420,6 +442,8 @@ fn pollMediumTierRegular(ctx: *const TierContext, mutable: *MutableState) !void 
     medium_state.markers = marker_state.markers;
     medium_state.regions = marker_state.regions;
     medium_state.bar_offset = marker_state.bar_offset;
+    g_markers_cap.update("markers", marker_state.markers.len, markers.MAX_MARKERS);
+    g_regions_cap.update("regions", marker_state.regions.len, markers.MAX_REGIONS);
 
     broadcastMarkersIfChanged(ctx, medium_state, medium_prev, scratch);
 
@@ -434,6 +458,7 @@ fn pollMediumTierRegular(ctx: *const TierContext, mutable: *MutableState) !void 
         return err;
     };
     medium_state.items = item_state.items;
+    g_items_cap.update("items", item_state.items.len, items.MAX_ITEMS);
 
     // Rebuild item GUID cache
     if (ctx.item_cache_ptr) |icache| {

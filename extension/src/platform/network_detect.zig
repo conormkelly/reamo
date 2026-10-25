@@ -7,6 +7,7 @@
 /// - WiFi/Ethernet: Other private IP ranges
 
 const std = @import("std");
+const logging = @import("../core/logging.zig");
 const builtin = @import("builtin");
 
 /// Network type classification
@@ -133,6 +134,7 @@ fn detectNetworksPosix(buf: []NetworkInfo) usize {
     var ifap: ?*posix.ifaddrs = null;
 
     if (posix.getifaddrs(&ifap) != 0) {
+        logging.warn("Can't list network interfaces (getifaddrs errno {d})", .{@intFromEnum(std.posix.errno(@as(c_int, -1)))});
         return 0;
     }
     defer posix.freeifaddrs(ifap);
