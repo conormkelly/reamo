@@ -17,9 +17,6 @@ const Allocator = std.mem.Allocator;
 /// Maximum tracks in a single subscription broadcast.
 const MAX_TRACKS_PER_BROADCAST = 32;
 
-/// Maximum items per track in multi-track mode (smaller than single-track to limit stack usage).
-const MAX_ITEMS_PER_TRACK_MULTITRACK = 64;
-
 // =============================================================================
 // GetMediaItemTake_Peaks Based Tile Generation
 // =============================================================================
@@ -266,11 +263,13 @@ pub fn generateTilesForSubscriptionBinary(
 
     const config = peaks_tile.TILE_CONFIGS[tile_range.lod];
     const tiles_per_item = (tile_range.end_tile - tile_range.start_tile) + 1;
+    // A first guess of one item's worth of tiles per track; every item in
+    // view brings its own edge tiles, so the buffer grows when it fills.
     const estimated_tiles = tiles_per_item * track_count;
 
     // Binary buffer: much smaller than JSON (~1KB per stereo tile vs ~13KB)
     const buf_size = binary_protocol.batchBufferSize(estimated_tiles, peaks_tile.MAX_PEAKS_PER_TILE, 2);
-    const buf = allocator.alloc(u8, buf_size) catch {
+    var buf = allocator.alloc(u8, buf_size) catch {
         logging.warn("peaks_generator: failed to allocate binary tile buffer ({d} bytes)", .{buf_size});
         return null;
     };
@@ -279,15 +278,15 @@ pub fn generateTilesForSubscriptionBinary(
     var offset: usize = binary_protocol.BATCH_ENVELOPE_SIZE;
     var tiles_written: u16 = 0;
 
-    for (track_indices_buf[0..track_count]) |track_idx| {
+    tracks: for (track_indices_buf[0..track_count]) |track_idx| {
         const track = api.getTrackByUnifiedIdx(track_idx) orelse continue;
         const item_count_raw = api.trackItemCount(track);
         if (item_count_raw <= 0) continue;
 
-        const max_items: c_int = @min(item_count_raw, MAX_ITEMS_PER_TRACK_MULTITRACK);
-
+        // Every item, not the first N: the viewport check below keeps the
+        // work to what's in view, wherever on the track that is.
         var i: c_int = 0;
-        while (i < max_items) : (i += 1) {
+        while (i < item_count_raw) : (i += 1) {
             const item = api.getItemByIdx(track, i) orelse continue;
             const take = api.getItemActiveTake(item) orelse continue;
             if (api.isTakeMIDI(take)) continue;
@@ -364,11 +363,12 @@ pub fn generateTilesForSubscriptionBinary(
                 // Check buffer space
                 const peak_data_size = tile.num_peaks * tile.channels * 2;
                 const tile_total = binary_protocol.TILE_FIXED_SIZE + peak_data_size;
+                if (tiles_written == std.math.maxInt(u16)) break :tracks; // the envelope's count
                 if (offset + tile_total > buf.len) {
-                    logging.warn("peaks_generator: binary buffer overflow at tile {d} (need {d}, have {d})", .{
-                        tiles_written, offset + tile_total, buf.len,
-                    });
-                    break;
+                    buf = allocator.realloc(buf, @max(buf.len * 2, offset + tile_total)) catch {
+                        logging.warn("peaks: no memory for more than {d} tiles; later items get no waveform", .{tiles_written});
+                        break :tracks;
+                    };
                 }
 
                 // Write tile header
