@@ -103,7 +103,11 @@ fn churn(stats: *Stats, seed: u64, deadline_ms: i64) void {
 }
 
 test "server survives concurrent WebSocket upgrade/close churn without wedging or leaking clients" {
-    const secs_str = std.posix.getenv("REAMO_STRESS_SECS") orelse return error.SkipZigTest;
+    const secs_str = std.process.getEnvVarOwned(std.testing.allocator, "REAMO_STRESS_SECS") catch |e| switch (e) {
+        error.EnvironmentVariableNotFound => return error.SkipZigTest,
+        else => return e,
+    };
+    defer std.testing.allocator.free(secs_str);
     const secs = try std.fmt.parseInt(i64, secs_str, 10);
 
     const allocator = std.heap.page_allocator;
