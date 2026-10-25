@@ -4,15 +4,9 @@ Band members share the setlist: one edits (rename, loop counts, reorder,
 the "stop after last" switch), the others see the edit in their playlist
 event. Fire-and-forget, as PlaylistView sends them.
 """
-import json
 import time
-import types
 
-import reamo_client
 from reamo_client import Client
-
-reamo_client.json = types.SimpleNamespace(
-    dumps=lambda o: json.dumps(o, separators=(",", ":"), ensure_ascii=False), loads=json.loads, load=json.load)
 
 
 def wait_for(c, pred, what):

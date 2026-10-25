@@ -6,13 +6,8 @@ the banks to []. So the value read back must be the exact string written,
 and REAPER must hold that same string (it is what lands in the .rpp).
 """
 import json
-import types
 
-import reamo_client
 from reamo_client import Client, reaper
-
-reamo_client.json = types.SimpleNamespace(
-    dumps=lambda o: json.dumps(o, separators=(",", ":"), ensure_ascii=False), loads=json.loads, load=json.load)
 
 banks = [{"id": "b1", "name": "Drums \"kit\"", "trackGuids": ["{AB-1}", "{CD-2}"]},
          {"id": "b2", "name": "Vox / Gäste", "trackGuids": []}]

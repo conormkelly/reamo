@@ -5,16 +5,9 @@ actionToggleState change with REAPER's value. A client toggles it: REAPER
 changes. Unsubscribing one client must not silence another that still holds
 the same action. Unknown names fail cleanly.
 """
-import json
 import time
-import types
 
-import reamo_client
 from reamo_client import Client, reaper
-
-# Browser-shaped JSON (JSON.stringify has no spaces).
-reamo_client.json = types.SimpleNamespace(
-    dumps=lambda o: json.dumps(o, separators=(",", ":")), loads=json.loads, load=json.load)
 
 REPEAT = 1068     # Transport: Toggle repeat
 METRONOME = 40364  # Options: Toggle metronome

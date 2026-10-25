@@ -5,18 +5,11 @@ app switch). Every reconnect is a new client id. The toggle-button view
 subscribes on each connect, so the 17th, 30th, 100th reconnect must work as
 well as the first.
 """
-import json
 import time
-import types
 
-import reamo_client
 from reamo_client import Client, reaper
 
 # Send compact JSON, as the browser's JSON.stringify does (see report: the
-# extension's array parsing does not accept a space after the colon).
-reamo_client.json = types.SimpleNamespace(
-    dumps=lambda o: json.dumps(o, separators=(",", ":")), loads=json.loads, load=json.load)
-
 REPEAT = 1068  # Transport: Toggle repeat
 CONNECTS = 20  # well past the 16 subscription slots
 

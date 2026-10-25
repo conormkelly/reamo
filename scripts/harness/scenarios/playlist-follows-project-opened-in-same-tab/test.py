@@ -3,15 +3,9 @@ tab (File > Open, the usual way) shows that project's playlists, and edits
 then are saved into that project only. Reopening brings a setlist back
 intact (name with | and \\, loop counts, stop-after-last).
 """
-import json
 import time
-import types
 
-import reamo_client
 from reamo_client import Client, reaper
-
-reamo_client.json = types.SimpleNamespace(
-    dumps=lambda o: json.dumps(o, separators=(",", ":"), ensure_ascii=False), loads=json.loads, load=json.load)
 
 NAME = 'Saturday | "encore" \\ Zürich'
 EXT = 'local _, n = reaper.GetProjExtState(0, "Reamo", "PlaylistCount"); local _, v = reaper.GetProjExtState(0, "Reamo", "Playlist_0"); return n, v'
