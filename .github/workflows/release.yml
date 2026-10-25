@@ -11,17 +11,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             platform: linux
             ext_lib: libreaper_reamo.so
             ext_dest: reaper_reamo.so
             ext_dir: lib
-          - os: macos-latest
+          - os: macos-15
             platform: macos
             ext_lib: libreaper_reamo.dylib
             ext_dest: reaper_reamo.dylib
             ext_dir: lib
-          - os: windows-latest
+          - os: windows-2025
             platform: windows
             ext_lib: reaper_reamo.dll
             ext_dest: reaper_reamo.dll
