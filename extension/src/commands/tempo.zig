@@ -3,7 +3,7 @@ const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../core/logging.zig");
-const ffi = @import("../core/ffi.zig");
+const bar_beat = @import("../state/bar_beat.zig");
 
 // Set tempo (BPM)
 pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
@@ -104,22 +104,18 @@ pub fn handleTimeToBeats(api: anytype, cmd: protocol.CommandMessage, response: *
     const beats_info = api.timeToBeats(time);
     const bar_offset = api.getBarOffset();
 
-    // Format bar string (same logic as markers.zig)
-    const display_bar = beats_info.measures + bar_offset;
-    // roundFloatToInt validates NaN/Inf from corrupt project data
-    const scaled: u32 = ffi.roundFloatToInt(u32, (beats_info.beats_in_measure + 1.0) * 100.0) catch {
+    // Same bar.beat.ticks label as markers and regions
+    var bars_buf: [48]u8 = undefined;
+    var bars_stream = std.io.fixedBufferStream(&bars_buf);
+    bar_beat.write(bars_stream.writer(), beats_info.measures, beats_info.beats_in_measure, beats_info.time_sig_num, bar_offset) catch {
         response.err("INVALID_BEAT", "Invalid beat position value");
         return;
     };
-    const beat_int: u32 = @max(1, scaled / 100);
-    const ticks: u32 = scaled % 100;
 
     var buf: [192]u8 = undefined;
-    const payload = std.fmt.bufPrint(&buf, "{{\"beats\":{d:.6},\"bars\":\"{d}.{d}.{d:0>2}\"}}", .{
+    const payload = std.fmt.bufPrint(&buf, "{{\"beats\":{d:.6},\"bars\":\"{s}\"}}", .{
         beats_info.beats,
-        display_bar,
-        beat_int,
-        ticks,
+        bars_stream.getWritten(),
     }) catch {
         logging.warn("tempo: timeToBeats response format failed", .{});
         return;

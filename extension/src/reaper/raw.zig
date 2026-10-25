@@ -1061,15 +1061,17 @@ pub const Api = struct {
         var measures: c_int = 0;
         var fullbeats: f64 = 0;
         var cdenom: c_int = 4;
+        var cml: c_int = 4;
         // The RETURN VALUE is beats within measure (0-indexed with fraction)
-        // cml (4th param) is just the time sig numerator, so we pass null
+        // cml (4th param) is the time sig numerator at this position
         // fullbeats is cumulative from project start
-        const beats_in_measure = f(null, time, &measures, null, &fullbeats, &cdenom);
+        const beats_in_measure = f(null, time, &measures, &cml, &fullbeats, &cdenom);
         return .{
             .beats = fullbeats, // Total beats from project start
             .measures = measures + 1, // Convert to 1-based
             .beats_in_measure = beats_in_measure, // Return value IS beats within measure (0-indexed)
             .time_sig_denom = cdenom,
+            .time_sig_num = cml,
         };
     }
 
