@@ -23,6 +23,9 @@ import { ColorPickerInput } from '../Toolbar/ColorPickerInput';
 export interface TrackInfoBarProps {
   /** Currently selected track index (null if no selection) */
   selectedTrackIdx: number | null;
+  /** GUID of the selected track: what rename, duplicate and delete act on, so
+   *  they reach the track the user picked even if tracks shift around it */
+  selectedTrackGuid: string | null;
   /** Callback when routing button is clicked */
   onShowRouting?: (trackIdx: number) => void;
   /** Callback when folder badge is clicked (navigates into folder) */
@@ -102,6 +105,7 @@ function RoutingIndicator({
 
 export function TrackInfoBar({
   selectedTrackIdx,
+  selectedTrackGuid,
   onShowRouting,
   onFolderClick,
   layout = 'horizontal',
@@ -163,7 +167,8 @@ export function TrackInfoBar({
     }
   }, [isEditingName]);
 
-  // Reset state when track changes
+  // Reset state when the selected track changes (by identity: an armed
+  // delete or an open rename belongs to the track it was started on)
   useEffect(() => {
     setIsEditingName(false);
     setConfirmDelete(false);
@@ -180,7 +185,7 @@ export function TrackInfoBar({
       clearTimeout(fxPressTimerRef.current);
       fxPressTimerRef.current = null;
     }
-  }, [selectedTrackIdx]);
+  }, [selectedTrackGuid]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -226,18 +231,18 @@ export function TrackInfoBar({
   }, [trackData.exists, trackData.name]);
 
   const handleNameConfirm = useCallback(() => {
-    if (selectedTrackIdx === null || !trackData.exists) {
+    if (selectedTrackIdx === null || selectedTrackGuid === null || !trackData.exists) {
       setIsEditingName(false);
       return;
     }
 
     const trimmedName = nameValue.trim();
     if (trimmedName && trimmedName !== trackData.name) {
-      sendCommand(trackCmd.rename(selectedTrackIdx, trimmedName));
+      sendCommand(trackCmd.rename(selectedTrackIdx, trimmedName, selectedTrackGuid));
     }
 
     setIsEditingName(false);
-  }, [selectedTrackIdx, trackData.exists, trackData.name, nameValue, sendCommand]);
+  }, [selectedTrackIdx, selectedTrackGuid, trackData.exists, trackData.name, nameValue, sendCommand]);
 
   const handleNameCancel = useCallback(() => {
     setIsEditingName(false);
@@ -258,12 +263,12 @@ export function TrackInfoBar({
 
   // Action handlers
   const handleDuplicate = useCallback(() => {
-    if (selectedTrackIdx === null || selectedTrackIdx === 0) return; // Can't duplicate master
-    sendCommand(trackCmd.duplicate(selectedTrackIdx));
-  }, [selectedTrackIdx, sendCommand]);
+    if (selectedTrackIdx === null || selectedTrackIdx === 0 || selectedTrackGuid === null) return; // Can't duplicate master
+    sendCommand(trackCmd.duplicate(selectedTrackIdx, selectedTrackGuid));
+  }, [selectedTrackIdx, selectedTrackGuid, sendCommand]);
 
   const handleDelete = useCallback(() => {
-    if (selectedTrackIdx === null || selectedTrackIdx === 0) return; // Can't delete master
+    if (selectedTrackIdx === null || selectedTrackIdx === 0 || selectedTrackGuid === null) return; // Can't delete master
 
     if (!confirmDelete) {
       // First click - show confirmation
@@ -274,14 +279,14 @@ export function TrackInfoBar({
       }, 3000);
     } else {
       // Second click - actually delete
-      sendCommand(trackCmd.delete(selectedTrackIdx));
+      sendCommand(trackCmd.delete(selectedTrackIdx, selectedTrackGuid));
       setConfirmDelete(false);
       if (deleteTimeoutRef.current) {
         clearTimeout(deleteTimeoutRef.current);
         deleteTimeoutRef.current = null;
       }
     }
-  }, [selectedTrackIdx, confirmDelete, sendCommand]);
+  }, [selectedTrackIdx, selectedTrackGuid, confirmDelete, sendCommand]);
 
   const handleShowRouting = useCallback(() => {
     if (selectedTrackIdx !== null && onShowRouting) {

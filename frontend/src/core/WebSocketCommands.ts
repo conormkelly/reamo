@@ -229,9 +229,9 @@ export const track = {
     params: { trackIdx },
   }),
   /** Rename a track */
-  rename: (trackIdx: number, name: string): WSCommand => ({
+  rename: (trackIdx: number, name: string, trackGuid?: string): WSCommand => ({
     command: 'track/rename',
-    params: { trackIdx, name },
+    params: trackGuid ? { trackGuid, name } : { trackIdx, name },
   }),
   /** Set track color. Pass 0 to reset to theme default. */
   setColor: (trackIdx: number, color: number, trackGuid?: string): WSCommand => ({
@@ -239,14 +239,14 @@ export const track = {
     params: trackGuid ? { trackGuid, color } : { trackIdx, color },
   }),
   /** Duplicate a track (includes FX, items, routing). Returns new track index. */
-  duplicate: (trackIdx: number): WSCommand => ({
+  duplicate: (trackIdx: number, trackGuid?: string): WSCommand => ({
     command: 'track/duplicate',
-    params: { trackIdx },
+    params: trackGuid ? { trackGuid } : { trackIdx },
   }),
   /** Delete a track */
-  delete: (trackIdx: number): WSCommand => ({
+  delete: (trackIdx: number, trackGuid?: string): WSCommand => ({
     command: 'track/delete',
-    params: { trackIdx },
+    params: trackGuid ? { trackGuid } : { trackIdx },
   }),
   /** Create a new track */
   create: (name?: string, afterTrackIdx?: number): WSCommand => ({
@@ -815,33 +815,48 @@ export const hw = {
 // Uses trackFx/ prefix to match REAPER's TrackFX_* API family
 // =============================================================================
 
+/** Track and FX addressing: GUIDs when known, as indices shift when tracks
+ * or plugins are added, removed or reordered. */
+function fxTarget(trackIdx: number, fxIdx: number, trackGuid?: string, fxGuid?: string) {
+  return {
+    ...(trackGuid ? { trackGuid } : { trackIdx }),
+    ...(fxGuid ? { fxGuid } : { fxIdx }),
+  };
+}
+
 export const trackFx = {
   /** Navigate to the next preset for a track FX */
-  presetNext: (trackIdx: number, fxIdx: number): WSCommand => ({
+  presetNext: (trackIdx: number, fxIdx: number, trackGuid?: string, fxGuid?: string): WSCommand => ({
     command: 'trackFx/presetNext',
-    params: { trackIdx, fxIdx },
+    params: fxTarget(trackIdx, fxIdx, trackGuid, fxGuid),
   }),
   /** Navigate to the previous preset for a track FX */
-  presetPrev: (trackIdx: number, fxIdx: number): WSCommand => ({
+  presetPrev: (trackIdx: number, fxIdx: number, trackGuid?: string, fxGuid?: string): WSCommand => ({
     command: 'trackFx/presetPrev',
-    params: { trackIdx, fxIdx },
+    params: fxTarget(trackIdx, fxIdx, trackGuid, fxGuid),
   }),
   /** Jump to a specific preset by index (-1 = default user, -2 = factory, 0+ = preset index) */
-  presetSet: (trackIdx: number, fxIdx: number, presetIdx: number): WSCommand => ({
+  presetSet: (
+    trackIdx: number,
+    fxIdx: number,
+    presetIdx: number,
+    trackGuid?: string,
+    fxGuid?: string
+  ): WSCommand => ({
     command: 'trackFx/presetSet',
-    params: { trackIdx, fxIdx, presetIdx },
+    params: { ...fxTarget(trackIdx, fxIdx, trackGuid, fxGuid), presetIdx },
   }),
   /** Set FX enabled/bypassed state. Omit enabled to toggle. */
   setEnabled: (
     trackIdx: number,
     fxIdx: number,
     enabled?: number,
-    trackGuid?: string
+    trackGuid?: string,
+    fxGuid?: string
   ): WSCommand => ({
     command: 'trackFx/setEnabled',
     params: {
-      ...(trackGuid ? { trackGuid } : { trackIdx }),
-      fxIdx,
+      ...fxTarget(trackIdx, fxIdx, trackGuid, fxGuid),
       ...(enabled !== undefined && { enabled }),
     },
   }),
