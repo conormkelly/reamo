@@ -3,6 +3,7 @@
 /// For the abstract interface used by state modules, see api.zig.
 const std = @import("std");
 const utf8 = @import("../core/utf8.zig");
+const constants = @import("../core/constants.zig");
 const project_load = @import("../platform/project_load.zig");
 const types = @import("types.zig");
 
@@ -2498,7 +2499,10 @@ pub const Api = struct {
             const find = self.findTempoTimeSigMarker orelse return false;
             const get = self.getTempoTimeSigMarker orelse return false;
             const set = self.setTempoTimeSigMarker orelse return false;
-            const idx = find(null, self.cursorPosition());
+            // A marker REAPER placed at the cursor's bar can sit a float
+            // rounding after the cursor (12.10361067503925 vs ...931), and
+            // must still count as the one at the cursor.
+            const idx = find(null, self.cursorPosition() + constants.TIME_EPSILON);
             if (idx >= 0) {
                 var pos: f64 = 0;
                 var bpm: f64 = 0;
