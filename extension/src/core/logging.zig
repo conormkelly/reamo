@@ -450,16 +450,21 @@ pub fn setDebug(on: bool) void {
 /// with control characters escaped, so a client can't forge log lines or
 /// push the rest of the line out of the 512-byte message.
 pub fn untrusted(text: []const u8) Untrusted {
-    return .{ .text = text };
+    return .{ .text = text, .shown = 64 };
+}
+
+/// Text that may hold anything (a library's message, say) with control
+/// characters escaped, kept to the length of a log message.
+pub fn escaped(text: []const u8) Untrusted {
+    return .{ .text = text, .shown = MSG_CAP };
 }
 
 pub const Untrusted = struct {
     text: []const u8,
-
-    const SHOWN = 64;
+    shown: usize,
 
     pub fn format(self: Untrusted, w: *std.Io.Writer) std.Io.Writer.Error!void {
-        const shown = utf8.prefix(self.text, SHOWN);
+        const shown = utf8.prefix(self.text, self.shown);
         for (shown) |c| {
             if (c < 0x20 or c == 0x7f) try w.print("\\x{x:0>2}", .{c}) else try w.writeByte(c);
         }

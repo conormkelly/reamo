@@ -76,7 +76,12 @@ fn logToReamoLog(
         .info => .info,
         .debug => .debug,
     };
-    logging.log(ours, prefix ++ format, args);
+    // Library messages quote whatever they were given (URLs, peer
+    // addresses, client frames): escaped, so none can forge a log line.
+    var buf: [512]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    w.print(format, args) catch {};
+    logging.log(ours, prefix ++ "{f}", .{logging.escaped(w.buffered())});
 }
 
 // Configuration
@@ -430,7 +435,7 @@ fn doInitialization() !void {
                 const trimmed = std.mem.trim(u8, entry, " ");
                 if (trimmed.len > 0) {
                     if (!host_validation.addAllowedHost(trimmed)) {
-                        logging.warn("Allowed host '{f}' not added: too long, or the list is full", .{logging.untrusted(trimmed)});
+                        logging.warn("An allowed host wasn't added ({d} characters): too long, or the list is full", .{trimmed.len});
                     }
                 }
             }
