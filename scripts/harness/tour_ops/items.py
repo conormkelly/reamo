@@ -494,11 +494,16 @@ def _(t):
     t.expect({f"items.{g}.lock": lambda v: int(v) & 1 == 1})
     check_undo(t)
     t.digest()
-    # A locked item stays put when the phone nudges it, as in REAPER, and the
-    # phone is told why.
-    r = t.send("item/moveByGuid", awaited=True, guid=g, position=it["pos"] + 1.0)
-    if r.get("success") or r.get("error", {}).get("code") != "ITEM_LOCKED":
-        raise Mismatch(f"item/moveByGuid on a locked item answered {r}")
+    # A locked item stays put when the phone nudges it, and stays whole when
+    # the phone deletes it or switches its take, as in REAPER (whose remove,
+    # cut, split and take actions all leave a locked item alone); the phone
+    # is told why.
+    for cmd, params in (("item/moveByGuid", {"guid": g, "position": it["pos"] + 1.0}),
+                        ("item/delete", {"itemGuid": g}),
+                        ("item/setActiveTake", {"itemGuid": g, "takeIdx": 0})):
+        r = t.send(cmd, awaited=True, **params)
+        if r.get("success") or r.get("error", {}).get("code") != "ITEM_LOCKED":
+            raise Mismatch(f"{cmd} on a locked item answered {r}")
     t.c.drain(0.5)
     t.expect({})
     t.ok("item/setLock", trackIdx=ti, itemIdx=ii, locked=0)

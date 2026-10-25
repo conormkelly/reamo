@@ -30,6 +30,7 @@ pub fn handleItemSetActiveTake(api: anytype, cmd: protocol.CommandMessage, respo
         response.err("NOT_FOUND", "Item not found");
         return;
     };
+    if (!refuseIfLocked(api, item_info.item, response)) return;
     const take_idx = cmd.getInt("takeIdx") orelse {
         response.err("MISSING_TAKE_IDX", "Take index is required");
         return;
@@ -51,9 +52,10 @@ pub fn handleItemSetActiveTake(api: anytype, cmd: protocol.CommandMessage, respo
     api.updateTimeline();
 }
 
-/// REAPER doesn't move a locked item (nudge, drag or move action), and
+/// REAPER doesn't move, delete or switch the take of a locked item (its
+/// nudge, drag, remove, cut, split and take actions all leave it alone), and
 /// neither does a phone. Refuses the command when `item` is locked or its
-/// lock can't be read; returns whether the move may go ahead.
+/// lock can't be read; returns whether the edit may go ahead.
 fn refuseIfLocked(api: anytype, item: *anyopaque, response: *mod.ResponseWriter) bool {
     const locked = api.getItemLocked(item) catch {
         response.err("READ_FAILED", "Could not read the item's lock");
@@ -218,6 +220,7 @@ pub fn handleItemDelete(api: anytype, cmd: protocol.CommandMessage, response: *m
         response.err("NOT_FOUND", "Item not found");
         return;
     };
+    if (!refuseIfLocked(api, item_info.item, response)) return;
 
     api.undoBeginBlock();
     if (api.deleteItem(item_info.track, item_info.item)) {

@@ -604,7 +604,9 @@ Set the active take for an item.
 {"type": "command", "command": "item/setActiveTake", "trackIdx": 1, "itemIdx": 0, "takeIdx": 1}
 ```
 
-**Errors:** `NOT_FOUND`, `MISSING_TAKE_IDX`, `INVALID_TAKE_INDEX` (out of range for the item's takes).
+A locked item keeps its take, as REAPER's take actions leave it.
+
+**Errors:** `NOT_FOUND`, `ITEM_LOCKED`, `READ_FAILED` (the lock can't be read), `MISSING_TAKE_IDX`, `INVALID_TAKE_INDEX` (out of range for the item's takes).
 
 ### `item/move`
 
@@ -711,6 +713,10 @@ Delete an item.
 ```json
 {"type": "command", "command": "item/delete", "trackIdx": 1, "itemIdx": 0}
 ```
+
+A locked item isn't deleted, as REAPER's remove and cut actions leave it.
+
+**Errors:** `NOT_FOUND`, `ITEM_LOCKED`, `READ_FAILED` (the lock can't be read).
 
 ### `item/goto`
 
