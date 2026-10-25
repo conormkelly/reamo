@@ -4,6 +4,10 @@
     with Client() as c:                      # GET / for the token, upgrade, hello
         r = c.command("tempo/barsToTime", bar=2)   # waits for the matching response
         ev = c.wait_event("tracks")                # next event of that type
+
+    from reamo_client import reaper
+    reaper("reaper.SetCurrentBPM(0, 90, false)")   # act in REAPER itself, as a user would
+    n = reaper("return reaper.CountTracks(0)")     # ...or ask it (REAPER as the oracle)
 """
 
 import base64
@@ -27,6 +31,38 @@ def oracle():
             return dict(line.rstrip("\n").split("\t", 1) for line in f if "\t" in line)
     except FileNotFoundError:
         return {}
+
+
+class ReaperError(Exception):
+    """A reaper() chunk raised a Lua error."""
+
+
+_rpc_ids = itertools.count(1)
+RPC_DIR = "/tmp/harness_rpc"
+
+
+def reaper(lua, timeout=5.0):
+    """Run a Lua chunk on REAPER's main thread (harness.lua serves these once
+    the fixture calls harness.ready()) and return what it returns: None, one
+    value, or a tuple. Chunks run in order, between extension timer ticks."""
+    n = next(_rpc_ids)
+    req = f"{RPC_DIR}/{n}.lua"
+    with open(req + ".tmp", "w", encoding="utf-8") as f:
+        f.write(lua)
+    os.rename(req + ".tmp", req)
+    out = f"{RPC_DIR}/{n}.out"
+    deadline = time.time() + timeout
+    while not os.path.exists(out):
+        if time.time() > deadline:
+            raise TimeoutError(f"REAPER did not run rpc {n} within {timeout} s")
+        time.sleep(0.01)
+    with open(out, encoding="utf-8") as f:
+        res = json.load(f)
+    os.remove(out)
+    if not res["ok"]:
+        raise ReaperError(res["error"])
+    vals = res["result"]
+    return None if not vals else vals[0] if len(vals) == 1 else tuple(vals)
 
 
 class Closed(Exception):
