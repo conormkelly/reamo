@@ -260,6 +260,12 @@ pub fn sendSnapshotsToNewClients(ctx: *const SnapshotContext) void {
     }
 }
 
+/// A section of a new client's snapshot that couldn't be built: the phone
+/// starts without it until that state next changes.
+fn snapshotFailed(client_id: usize, section: []const u8, err: anyerror) void {
+    logging.warn("Client {d} started without the {s}: {s}", .{ client_id, section, @errorName(err) });
+}
+
 /// Send complete state snapshot to a single client.
 fn sendSnapshotToClient(
     ctx: *const SnapshotContext,
@@ -272,48 +278,48 @@ fn sendSnapshotToClient(
     // Transport
     if (Buffers.snap_transport.toJsonAlloc(scratch)) |json| {
         ctx.shared_state.sendToClient(client_id, json);
-    } else |_| {}
+    } else |err| snapshotFailed(client_id, "transport", err);
 
     // Project (undo/redo state)
     if (Buffers.snap_project.toJsonAlloc(scratch)) |json| {
         ctx.shared_state.sendToClient(client_id, json);
-    } else |_| {}
+    } else |err| snapshotFailed(client_id, "project", err);
 
     // Markers (broadcast - no subscription required)
     if (Buffers.snap_markers.markersToJsonAlloc(scratch)) |json| {
         ctx.shared_state.sendToClient(client_id, json);
-    } else |_| {}
+    } else |err| snapshotFailed(client_id, "markers", err);
 
     // Regions (broadcast - no subscription required)
     if (Buffers.snap_markers.regionsToJsonAlloc(scratch)) |json| {
         ctx.shared_state.sendToClient(client_id, json);
-    } else |_| {}
+    } else |err| snapshotFailed(client_id, "regions", err);
 
     // Items (broadcast - no subscription required)
     if (snap_items) |item_state| {
         if (item_state.itemsToJsonAlloc(scratch)) |json| {
             ctx.shared_state.sendToClient(client_id, json);
-        } else |_| {}
+        } else |err| snapshotFailed(client_id, "items", err);
     }
 
     // Track skeleton (client must subscribe to receive full track data)
     if (snap_skeleton) |skeleton| {
         if (skeleton.toJsonAlloc(scratch)) |json| {
             ctx.shared_state.sendToClient(client_id, json);
-        } else |_| {}
+        } else |err| snapshotFailed(client_id, "track list", err);
     }
 
     // Tempo map
     if (snap_tempomap) |tempo| {
         if (tempo.toJsonAlloc(scratch)) |json| {
             ctx.shared_state.sendToClient(client_id, json);
-        } else |_| {}
+        } else |err| snapshotFailed(client_id, "tempo map", err);
     }
 
     // Playlist (cue list) - uses last_markers_regions for region resolution
     if (ctx.playlist_state.toJsonAlloc(scratch, ctx.last_markers_regions)) |json| {
         ctx.shared_state.sendToClient(client_id, json);
-    } else |_| {}
+    } else |err| snapshotFailed(client_id, "playlist", err);
 }
 
 // ============================================================================

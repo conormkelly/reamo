@@ -14,7 +14,8 @@ pub fn handleSubscribe(api: anytype, _: protocol.CommandMessage, response: *mod.
     };
 
     // Subscribe client
-    subs.subscribe(api, response.client_id) catch {
+    subs.subscribe(api, response.client_id) catch |err| {
+        logging.warn("notes/subscribe failed for client {d}: {s}", .{ response.client_id, @errorName(err) });
         response.err("SUBSCRIBE_FAILED", "Failed to subscribe to notes");
         return;
     };

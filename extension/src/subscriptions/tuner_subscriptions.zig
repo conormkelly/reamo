@@ -369,8 +369,11 @@ pub const TunerSubscriptions = struct {
                         const current_fx_guid = api.trackFxGetGuid(track, api_fx_idx, &fx_guid_buf);
 
                         if (current_fx_guid.len > 0 and std.mem.eql(u8, current_fx_guid, stored_fx_guid)) {
-                            _ = api.trackFxDelete(track, api_fx_idx);
-                            logging.info("tuner: deleted JSFX from track {s} at Input FX position {d}", .{ track_guid, fx_idx });
+                            if (api.trackFxDelete(track, api_fx_idx)) {
+                                logging.debug("tuner: deleted JSFX from track {s} at Input FX position {d}", .{ track_guid, fx_idx });
+                            } else {
+                                logging.warn("tuner: REAPER wouldn't remove the tuner JSFX from track {s}; it stays in the Input FX chain", .{track_guid});
+                            }
                             found = true;
                             break;
                         }

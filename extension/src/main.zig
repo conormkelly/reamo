@@ -394,8 +394,10 @@ fn doInitialization() !void {
             if (port >= 1024) {
                 g_configured_port = port;
                 logging.info("Configured port from ExtState: {d}", .{port});
+            } else {
+                logging.warn("Ignoring saved port {d} (below 1024); using {d}", .{ port, g_configured_port });
             }
-        } else |_| {}
+        } else |_| logging.warn("Ignoring saved port '{f}' (not a port number); using {d}", .{ logging.untrusted(port_str), g_configured_port });
     }
 
     // Auto-detect machine hostname and add to allowed hosts for DNS rebinding protection.
@@ -428,8 +430,7 @@ fn doInitialization() !void {
                 const trimmed = std.mem.trim(u8, entry, " ");
                 if (trimmed.len > 0) {
                     if (!host_validation.addAllowedHost(trimmed)) {
-                        logging.warn("Allowed hosts list full, skipping: {s}", .{trimmed});
-                        break;
+                        logging.warn("Allowed host '{f}' not added: too long, or the list is full", .{logging.untrusted(trimmed)});
                     }
                 }
             }

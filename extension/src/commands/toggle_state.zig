@@ -1,4 +1,5 @@
 const std = @import("std");
+const logging = @import("../core/logging.zig");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
@@ -111,7 +112,10 @@ pub fn handleSubscribe(api: anytype, cmd: protocol.CommandMessage, response: *mo
         switch (err) {
             error.TooManyClients => response.err("TOO_MANY_CLIENTS", "Maximum client limit reached"),
             error.TooManySubscriptions => response.err("TOO_MANY_SUBSCRIPTIONS", "Maximum 256 actions per client"),
-            else => response.err("SUBSCRIBE_FAILED", "Failed to subscribe"),
+            else => {
+                logging.warn("toggle/subscribe failed for client {d}: {s}", .{ response.client_id, @errorName(err) });
+                response.err("SUBSCRIBE_FAILED", "Failed to subscribe");
+            },
         }
         return;
     };

@@ -795,6 +795,10 @@ pub const State = struct {
         };
 
         const count = std.fmt.parseInt(usize, count_str, 10) catch {
+            // The next playlist edit saves a count of 0 and clears the
+            // Playlist_N keys, so say so (the key, never the values: those
+            // hold the user's playlist names).
+            logging.warn("This project's Reamo/PlaylistCount isn't a number; its playlists aren't loaded, and editing playlists will replace them", .{});
             self.playlist_count = 0;
             return;
         };

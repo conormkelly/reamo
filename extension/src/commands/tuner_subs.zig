@@ -7,6 +7,7 @@
 ///
 /// Single track per client - subscribing auto-unsubscribes from previous track.
 const std = @import("std");
+const logging = @import("../core/logging.zig");
 const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
 const tuner_subscriptions = @import("../subscriptions/tuner_subscriptions.zig");
@@ -49,7 +50,11 @@ pub fn handleSubscribe(api: anytype, cmd: protocol.CommandMessage, response: *mo
         switch (err) {
             error.TooManyClients => response.err("TOO_MANY_CLIENTS", "Maximum client limit reached"),
             error.TrackNotFound => response.err("TRACK_NOT_FOUND", "Track GUID not found in cache"),
-            error.FxInsertFailed => response.err("FX_INSERT_FAILED", "Failed to insert tuner JSFX (not installed?)"),
+            error.FxInsertFailed => {
+                // The tuner's commonest support case: REAmo's JSFX isn't where REAPER looks.
+                logging.warn("tuner: REAPER couldn't insert the tuner JSFX on track {f}; is REAmo/PitchDetect.jsfx installed in Effects?", .{logging.untrusted(track_guid)});
+                response.err("FX_INSERT_FAILED", "Failed to insert tuner JSFX (not installed?)");
+            },
             error.TooManyTuners => response.err("TOO_MANY_TUNERS", "Maximum tuner track limit reached"),
         }
         return;

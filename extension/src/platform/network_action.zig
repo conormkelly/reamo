@@ -555,7 +555,10 @@ pub fn showAllowedHosts() void {
         else
             false;
 
-        _ = host_validation.addAllowedHost(trimmed);
+        if (!host_validation.addAllowedHost(trimmed)) {
+            logging.warn("Allowed host '{f}' not added: too long, or the list is full", .{logging.untrusted(trimmed)});
+            continue;
+        }
 
         // Only persist non-auto entries to ExtState
         if (!is_auto) {
