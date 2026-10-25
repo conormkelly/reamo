@@ -452,11 +452,7 @@ const WsHandler = struct {
                     return;
                 }
 
-                if (!self.state.pushCommand(self.id, data)) {
-                    self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"QUEUE_FULL\",\"message\":\"Command queue full\"}}") catch |err| {
-                        self.state.logWriteError(err);
-                    };
-                }
+                if (!self.state.pushCommand(self.id, data)) self.refuseQueueFull(data);
             },
             .unknown => {
                 self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"UNKNOWN_MESSAGE\",\"message\":\"Unknown message type\"}}") catch |err| {
@@ -464,6 +460,22 @@ const WsHandler = struct {
                 };
             },
         }
+    }
+
+    /// Tell the client its command was refused. A command with an id gets a
+    /// response carrying that id, so a UI awaiting it fails at once rather
+    /// than at its timeout.
+    fn refuseQueueFull(self: *WsHandler, data: []const u8) void {
+        const err_body = "\"error\":{\"code\":\"QUEUE_FULL\",\"message\":\"Too many commands at once; try again\"}";
+        var buf: [256]u8 = undefined;
+        const msg = if (protocol.jsonGetString(data, "id")) |id|
+            std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":false,{s}}}", .{ id, err_body }) catch
+                "{\"type\":\"error\"," ++ err_body ++ "}"
+        else
+            "{\"type\":\"error\"," ++ err_body ++ "}";
+        self.conn.writeText(msg) catch |err| {
+            self.state.logWriteError(err);
+        };
     }
 
     pub fn close(self: *WsHandler) void {
