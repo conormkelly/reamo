@@ -410,7 +410,7 @@ pub fn generateTilesForSubscriptionBinary(
     // Write envelope at the start now that we know tile_count
     _ = binary_protocol.writeBatchEnvelope(buf, tiles_written);
 
-    logging.info("peaks_generator: binary success tiles={d} size={d}KB (estimated={d}KB)", .{
+    logging.debug("peaks_generator: binary success tiles={d} size={d}KB (estimated={d}KB)", .{
         tiles_written,
         offset / 1024,
         buf_size / 1024,

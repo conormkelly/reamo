@@ -146,7 +146,7 @@ pub fn cleanupDisconnectedClients(ctx: *const ClientContext) void {
         if (ctx.gestures) |gestures| {
             const flush_count = gestures.removeClientFromAll(client_id, &Buffers.flush);
             if (flush_count > 0) {
-                logging.info("Client {d} disconnected, flushing {d} gestures", .{ client_id, flush_count });
+                logging.debug("Client {d} disconnected, flushing {d} gestures", .{ client_id, flush_count });
                 handleFlushedGestures(ctx, gestures, Buffers.flush[0..flush_count], "client disconnect");
             }
         }
@@ -186,7 +186,7 @@ pub fn checkGestureTimeouts(ctx: *const ClientContext) void {
         return;
     }
 
-    logging.info("Flushing {d} timed-out gestures", .{timeout_count});
+    logging.debug("Flushing {d} timed-out gestures", .{timeout_count});
     handleFlushedGestures(ctx, gestures, Buffers.timeout[0..timeout_count], "gesture timeout");
 }
 
@@ -203,7 +203,7 @@ fn handleFlushedGestures(
     for (flushed_controls) |control| {
         if (gesture_state.GestureState.needsManualUndo(control.control_type)) {
             if (gestures.endManualUndo(control.control_type)) |undo_msg| {
-                logging.info("Recording manual undo point ({s})", .{reason});
+                logging.debug("Recording manual undo point ({s})", .{reason});
                 ctx.api.undoRecordChange(undo_msg);
             }
         } else {

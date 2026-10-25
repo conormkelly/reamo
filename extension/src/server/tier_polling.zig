@@ -225,7 +225,7 @@ pub fn pollHighTier(
             if (csurf.enabled and hash_changed and !csurf_track_dirty and !force_broadcast) {
                 const now_ms = std.time.milliTimestamp();
                 if (now_ms - mutable.last_drift_log_time.* > 1000) {
-                    logging.warn("Track state drift detected without dirty flag (undo/selection/FX drag?)", .{});
+                    logging.debug("Track state drift detected without dirty flag (undo/selection/FX drag?)", .{});
                     mutable.last_drift_log_time.* = now_ms;
                 }
             }
@@ -271,7 +271,7 @@ pub fn pollHighTier(
         if (csurf.enabled and hash_changed and !csurf_track_dirty) {
             const now_ms = std.time.milliTimestamp();
             if (now_ms - mutable.last_drift_log_time.* > 1000) {
-                logging.warn("Track state drift detected without dirty flag (undo/selection/FX drag?)", .{});
+                logging.debug("Track state drift detected without dirty flag (undo/selection/FX drag?)", .{});
                 mutable.last_drift_log_time.* = now_ms;
             }
         }
@@ -370,9 +370,9 @@ fn pollMediumTierRegular(ctx: *const TierContext, mutable: *MutableState) !void 
 
     // Check for project identity change
     if (medium_prev.project.projectChanged(&medium_state.project)) {
-        logging.info("Project changed: {s}", .{
-            if (medium_state.project.projectName().len > 0) medium_state.project.projectName() else "(Unsaved)",
-        });
+        // The name is the user's (often a client's or artist's): debug only.
+        logging.info("Project changed ({s})", .{if (medium_state.project.projectName().len > 0) "saved project" else "unsaved project"});
+        logging.debug("Project name: {s}", .{medium_state.project.projectName()});
 
         // Resize arenas if new project has significantly different entity counts
         const new_counts = tiered_state.EntityCounts.countFromApi(ctx.backend);
@@ -629,7 +629,7 @@ fn pollLowTierRegular(
             ctx.shared_state.broadcast(json);
         } else |_| {}
 
-        logging.info("Track skeleton changed: {d} tracks", .{current_skeleton.count()});
+        logging.debug("Track skeleton changed: {d} tracks", .{current_skeleton.count()});
     }
 
     // Keep a copy for the next comparison: current_skeleton lives in the low
