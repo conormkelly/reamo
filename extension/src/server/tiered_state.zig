@@ -9,6 +9,7 @@ const tracks = @import("../state/tracks.zig");
 const project = @import("../state/project.zig");
 const markers = @import("../state/markers.zig");
 const items = @import("../state/items.zig");
+const track_skeleton = @import("../state/track_skeleton.zig");
 const tempomap = @import("../state/tempomap.zig");
 const fx = @import("../state/fx.zig");
 const sends = @import("../state/sends.zig");
@@ -261,8 +262,9 @@ pub const CalculatedSizes = struct {
             (counts.sends_total * EntitySizes.SEND_SLOT) +
             4096; // Project state overhead
 
-        // LOW: tempo map
+        // LOW: tempo map + the track skeleton, which pollLowTier allocates here
         const low_raw = (counts.tempo_events * EntitySizes.TEMPO_EVENT) +
+            (counts.tracks * @sizeOf(track_skeleton.SkeletonTrack)) +
             1024; // Overhead
 
         // SCRATCH: JSON serialization (scales with largest payload)
@@ -943,4 +945,22 @@ test "TieredArenas shouldResize detects significant changes" {
         .scratch = 32 * 1024,
     };
     try testing.expect(arenas.shouldResize(much_smaller, 20));
+}
+
+test "CalculatedSizes low tier fits the track skeleton polled into it" {
+    // Shapes where the low arena (sized for the tempo map only) ran out of
+    // memory every second and the skeleton poll aborted the low tier.
+    const shapes = [_]EntityCounts{
+        .{ .tracks = 201, .items = 5000, .fx_total = 800, .sends_total = 400, .markers = 250, .regions = 250, .tempo_events = 10 },
+        .{ .tracks = 301, .items = 3000, .tempo_events = 1 },
+        .{ .tracks = 1001, .items = 20000, .tempo_events = 50 },
+    };
+    for (shapes) |counts| {
+        const sizes = CalculatedSizes.fromCounts(counts);
+        const skeleton_bytes = counts.tracks * @sizeOf(track_skeleton.SkeletonTrack);
+        if (sizes.low < skeleton_bytes) {
+            std.debug.print("tracks={d}: low={d} < skeleton={d}\n", .{ counts.tracks, sizes.low, skeleton_bytes });
+            return error.LowTierTooSmallForSkeleton;
+        }
+    }
 }
