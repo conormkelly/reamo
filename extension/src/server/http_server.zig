@@ -118,11 +118,12 @@ pub const HttpServer = struct {
 
     /// Stop the server and clean up.
     pub fn stop(self: *HttpServer) void {
+        // A server that never listened (its port was taken) has nothing to
+        // stop, and httpz logs an error if asked to.
+        const t = self.listen_thread orelse return;
         self.server.stop();
-        if (self.listen_thread) |t| {
-            t.join();
-            self.listen_thread = null;
-        }
+        t.join();
+        self.listen_thread = null;
     }
 
     pub fn deinit(self: *HttpServer) void {
