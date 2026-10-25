@@ -33,6 +33,21 @@ def skip(reason):
     sys.exit(SKIP_STATUS)
 
 
+def reaper_major():
+    """REAPER's major version, as GetAppVersion reports it."""
+    return int(reaper("return reaper.GetAppVersion()").split(".")[0])
+
+
+def skip_before_lanes(c, command, **params):
+    """Comp lanes are REAPER 7's. On an older REAPER, `command` must be
+    refused with NEEDS_REAPER_7, and then the scenario skips."""
+    if reaper_major() >= 7:
+        return
+    r = c.command(command, **params)
+    assert not r["success"] and r["error"]["code"] == "NEEDS_REAPER_7", f"{command} before REAPER 7: {r}"
+    skip(f"comp lanes need REAPER 7: {command} is refused, as it should be")
+
+
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("REAMO_PORT", "9224"))
 

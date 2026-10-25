@@ -113,6 +113,11 @@ pub const ProjectMethods = struct {
         return null;
     }
 
+    pub fn majorVersion(self: anytype) ?u32 {
+        self.recordCall(.majorVersion);
+        return self.major_version;
+    }
+
     // FX plugin enumeration (global)
     pub fn enumInstalledFX(self: anytype, index: c_int, name_out: *[*:0]const u8, ident_out: *[*:0]const u8) bool {
         self.recordCall(.enumInstalledFX);

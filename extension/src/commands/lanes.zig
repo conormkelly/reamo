@@ -21,6 +21,7 @@ const ACTION_UNSELECT_ALL_ITEMS: c_int = 40289; // "Item: Unselect all items"
 /// Request: { "trackGuid": "{...}" } or { "trackIdx": 1 }
 /// Response: { "numLanes": 3, "freeMode": 2, "compTargetLane": 0, "lanes": [...] }
 pub fn handleGetState(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    if (!mod.requireLanes(api, response)) return;
     // Use scratch arena for large buffers (timer callback stack safety)
     const tiered = mod.g_ctx.tiered orelse {
         response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
@@ -105,6 +106,7 @@ pub fn handleGetState(api: anytype, cmd: protocol.CommandMessage, response: *mod
 /// Uses P_RAZOREDITS_EXT + Action 42475 to create proper comp metadata.
 /// Request: { "trackGuid": "{...}", "sourceLane": 1, "startTime": 10.0, "endTime": 15.0 }
 pub fn handleSwipeComp(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    if (!mod.requireLanes(api, response)) return;
     const resolution = tracks.resolveTrack(api, cmd) orelse {
         response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
@@ -194,6 +196,7 @@ pub fn handleSwipeComp(api: anytype, cmd: protocol.CommandMessage, response: *mo
 /// Set the comp target lane for a track by modifying the LANEREC field in the state chunk.
 /// Request: { "trackGuid": "{...}", "laneIndex": 0 }
 pub fn handleSetCompTarget(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    if (!mod.requireLanes(api, response)) return;
     const resolution = tracks.resolveTrack(api, cmd) orelse {
         response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
@@ -411,6 +414,7 @@ test "findLanerec ignores LANEREC text inside item notes" {
 /// Request: { "trackGuid": "{...}", "laneIndex": 0, "plays": 1 }
 /// plays: 0=off, 1=exclusive, 2=layered
 pub fn handleSetLanePlays(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    if (!mod.requireLanes(api, response)) return;
     const resolution = tracks.resolveTrack(api, cmd) orelse {
         response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
@@ -452,6 +456,7 @@ pub fn handleSetLanePlays(api: anytype, cmd: protocol.CommandMessage, response: 
 /// Create a new comp lane on the track.
 /// Request: { "trackGuid": "{...}" }
 pub fn handleCreateCompLane(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    if (!mod.requireLanes(api, response)) return;
     const resolution = tracks.resolveTrack(api, cmd) orelse {
         response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
@@ -481,6 +486,7 @@ pub fn handleCreateCompLane(api: anytype, cmd: protocol.CommandMessage, response
 /// Move selected comp area up (to previous source lane).
 /// Request: { "trackGuid": "{...}" }
 pub fn handleMoveCompUp(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    if (!mod.requireLanes(api, response)) return;
     // Track validation is intentional even though the pointer isn't used directly.
     // The REAPER action operates on the current item selection, but we validate the
     // track exists first to ensure the request references a valid track context.
@@ -501,6 +507,7 @@ pub fn handleMoveCompUp(api: anytype, cmd: protocol.CommandMessage, response: *m
 /// Move selected comp area down (to next source lane).
 /// Request: { "trackGuid": "{...}" }
 pub fn handleMoveCompDown(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    if (!mod.requireLanes(api, response)) return;
     // Track validation is intentional even though the pointer isn't used directly.
     // The REAPER action operates on the current item selection, but we validate the
     // track exists first to ensure the request references a valid track context.
@@ -521,6 +528,7 @@ pub fn handleMoveCompDown(api: anytype, cmd: protocol.CommandMessage, response: 
 /// Delete a comp area (preserves source media).
 /// Request: { "trackGuid": "{...}", "itemGuid": "{...}" } or { "trackIdx": 1, "itemIdx": 0 }
 pub fn handleDeleteCompArea(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    if (!mod.requireLanes(api, response)) return;
     const resolution = tracks.resolveTrack(api, cmd) orelse {
         response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;

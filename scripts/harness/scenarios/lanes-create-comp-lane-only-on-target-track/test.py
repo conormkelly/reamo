@@ -5,7 +5,7 @@ asks for a comp lane on "Vox" while the user has "Gtr" selected in REAPER:
 Gtr must keep its lanes, and the user's track selection should be as it was.
 """
 import time
-from reamo_client import Client, reaper
+from reamo_client import Client, reaper, skip_before_lanes
 
 STATE = """
 local out = {}
@@ -20,6 +20,7 @@ return out
 with Client() as c:
     skel = c.wait_event("trackSkeleton")["payload"]["tracks"]
     vox = next(t["g"] for t in skel if t["n"] == "Vox")
+    skip_before_lanes(c, "lanes/createCompLane", trackGuid=vox)
     before = reaper(STATE)
     print("before:", before)
     deadline = time.time() + 3

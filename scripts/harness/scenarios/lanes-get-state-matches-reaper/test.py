@@ -4,7 +4,7 @@ Lane names a user typed in REAPER may hold quotes, backslashes or a tab; the
 response must still be valid JSON and carry them exactly.
 """
 import time
-from reamo_client import Client, reaper
+from reamo_client import Client, reaper, skip_before_lanes
 
 STATE = """
 local t = reaper.GetTrack(0, 0)
@@ -35,6 +35,7 @@ def shown(c, g):
 
 with Client() as c:
     g = c.wait_event("trackSkeleton")["payload"]["tracks"][1]["g"]
+    skip_before_lanes(c, "lanes/getState", trackGuid=g)
     want, got = reaper(STATE), shown(c, g)
     print("REAPER:", want)
     print("shown: ", got)

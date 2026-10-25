@@ -697,6 +697,12 @@ pub const RealBackend = struct {
         return self.inner.trackFxGetFormattedParamValue(track, fx_idx, param_idx, buf);
     }
 
+    /// REAPER's major version (6 for "6.0/linux-aarch64"), or null if REAPER
+    /// doesn't say.
+    pub fn majorVersion(self: *const RealBackend) ?u32 {
+        return self.inner.majorVersion();
+    }
+
     /// Enumerate installed FX plugins (global, not per-track).
     /// index: 0-based, increment until returns false.
     /// name_out: receives plugin display name.

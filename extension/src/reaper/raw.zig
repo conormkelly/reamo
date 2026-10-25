@@ -212,6 +212,7 @@ pub const Api = struct {
 
     // Resource path
     getResourcePath: ?*const fn () callconv(.c) [*:0]const u8 = null,
+    getAppVersion: ?*const fn () callconv(.c) [*:0]const u8 = null,
 
     // High-precision timing (for transport sync)
     time_precise: ?*const fn () callconv(.c) f64 = null,
@@ -432,6 +433,7 @@ pub const Api = struct {
             .updateTimeline_fn = getFunc(info, "UpdateTimeline", fn () callconv(.c) void),
             // Resource path
             .getResourcePath = getFunc(info, "GetResourcePath", fn () callconv(.c) [*:0]const u8),
+            .getAppVersion = getFunc(info, "GetAppVersion", fn () callconv(.c) [*:0]const u8),
             // High-precision timing
             .time_precise = getFunc(info, "time_precise", fn () callconv(.c) f64),
             // MIDI injection
@@ -511,6 +513,13 @@ pub const Api = struct {
         const func = self.getResourcePath orelse return null;
         const path = func();
         return std.mem.sliceTo(path, 0);
+    }
+
+    /// REAPER's major version (6 for "6.0/linux-aarch64"), or null if REAPER
+    /// doesn't say.
+    pub fn majorVersion(self: *const Api) ?u32 {
+        const func = self.getAppVersion orelse return null;
+        return parseMajorVersion(std.mem.sliceTo(func(), 0));
     }
 
     fn getFunc(info: *PluginInfo, name: [*:0]const u8, comptime T: type) ?*const T {
@@ -2804,4 +2813,18 @@ test "getTrackByUnifiedIdx returns null for negative indices instead of overflow
     const api = Api{ .showConsoleMsg = undefined, .register = undefined };
     try std.testing.expectEqual(@as(?*anyopaque, null), api.getTrackByUnifiedIdx(std.math.minInt(c_int)));
     try std.testing.expectEqual(@as(?*anyopaque, null), api.getTrackByUnifiedIdx(-1));
+}
+
+/// The major version at the start of GetAppVersion's text ("7.83/macOS-arm64").
+fn parseMajorVersion(version: []const u8) ?u32 {
+    const end = std.mem.indexOfNone(u8, version, "0123456789") orelse version.len;
+    return std.fmt.parseInt(u32, version[0..end], 10) catch null;
+}
+
+test "parseMajorVersion reads the major version REAPER reports" {
+    try std.testing.expectEqual(@as(?u32, 7), parseMajorVersion("7.83/macOS-arm64"));
+    try std.testing.expectEqual(@as(?u32, 6), parseMajorVersion("6.0/linux-aarch64"));
+    try std.testing.expectEqual(@as(?u32, 10), parseMajorVersion("10.1+dev0102/x64"));
+    try std.testing.expectEqual(@as(?u32, null), parseMajorVersion("/x64"));
+    try std.testing.expectEqual(@as(?u32, null), parseMajorVersion(""));
 }
