@@ -86,8 +86,6 @@ export function RegionInfoBar({ className = '', onAddRegion, layout = 'horizonta
   const {
     formatBeats,
     formatDuration,
-    parseBarBeat,
-    parseDuration,
     bpm,
     beatsPerBar,
   } = useTimeFormatters();
@@ -198,10 +196,8 @@ export function RegionInfoBar({ className = '', onAddRegion, layout = 'horizonta
               sendCommand(regionCmd.update(editRegion.id, { start: resp.payload.time }));
             }
           } catch {
-            const newSeconds = parseBarBeat(editValue);
-            if (newSeconds !== null && newSeconds >= 0 && newSeconds < editRegion.end) {
-              sendCommand(regionCmd.update(editRegion.id, { start: newSeconds }));
-            }
+            // REAPER didn't answer: leave the region where it is rather than
+            // guess with one tempo, which is wrong in a tempo-mapped project
           }
         }
       } else if (editingField === 'length') {
@@ -217,15 +213,7 @@ export function RegionInfoBar({ className = '', onAddRegion, layout = 'horizonta
               sendCommand(regionCmd.update(editRegion.id, { end: resp.payload.time }));
             }
           } catch {
-            const newDuration = parseDuration(editValue);
-            if (newDuration !== null && newDuration > 0) {
-              sendCommand(regionCmd.update(editRegion.id, { end: editRegion.start + newDuration }));
-            }
-          }
-        } else {
-          const newDuration = parseDuration(editValue);
-          if (newDuration !== null && newDuration > 0) {
-            sendCommand(regionCmd.update(editRegion.id, { end: editRegion.start + newDuration }));
+            // As for the start: no answer, no change
           }
         }
       }
