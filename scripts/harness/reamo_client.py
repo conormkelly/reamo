@@ -20,6 +20,15 @@ HOST = "127.0.0.1"
 PORT = int(os.environ.get("REAMO_PORT", "9224"))
 
 
+def oracle():
+    """Ground-truth values the fixture recorded with harness.oracle(), as strings."""
+    try:
+        with open("/tmp/harness_oracle.tsv", encoding="utf-8") as f:
+            return dict(line.rstrip("\n").split("\t", 1) for line in f if "\t" in line)
+    except FileNotFoundError:
+        return {}
+
+
 class Closed(Exception):
     """The server closed the connection."""
 
@@ -157,6 +166,13 @@ class Client:
             if msg.get("type") == "event" and msg.get("event") == event:
                 self.events.remove((event, msg))
                 return msg
+
+    def latest_event(self, event):
+        """Most recent already-received event of this type, or None."""
+        for name, msg in reversed(self.events):
+            if name == event:
+                return msg
+        return None
 
     def drain(self, seconds):
         """Read everything for `seconds`; returns nothing, fills events/binary."""

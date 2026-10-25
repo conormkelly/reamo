@@ -29,6 +29,20 @@ function harness.item(track, pos, len)
   return it
 end
 
+-- Record a ground-truth value computed by REAPER itself, for test.py to
+-- compare against (reamo_client.oracle()). Values are strings or numbers.
+function harness.oracle(key, value)
+  local f = io.open("/tmp/harness_oracle.tsv", "a")
+  f:write(key .. "\t" .. tostring(value) .. "\n")
+  f:close()
+end
+
+-- Open a project from the repo's test-fixtures directory (a writable copy).
+function harness.open_fixture(name)
+  reaper.Main_openProject("noprompt:/tmp/fixtures/" .. name)
+  harness.log("opened %s: tracks=%d", name, reaper.CountTracks(0))
+end
+
 function harness.ready()
   reaper.UpdateArrange()
   harness.log("fixture ready: tracks=%d items=%d", reaper.CountTracks(0), reaper.CountMediaItems(0))

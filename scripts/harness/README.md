@@ -24,7 +24,7 @@ afterwards**: a segfault is a failure even if the client saw no error.
 - A REAPER licence file, see below
 
 The first run builds the `reamo-v1-harness` image (~30 s: Debian, pinned
-REAPER 7.30, xvfb/GTK/ALSA, python3, gdb).
+REAPER 7.83, xvfb/GTK/ALSA, python3, gdb).
 
 ## REAPER licence (local only, never committed)
 
@@ -95,6 +95,27 @@ On connect a client receives `transport`, `project`, `markers`, `regions`,
 `items`, `tempoMap`, `trackSkeleton` and `playlist`. Track detail and meters
 need `track/subscribe`. `reamo_client.py` documents the rest; it uses only
 the Python standard library.
+
+### REAPER as the oracle
+
+When the right answer is "whatever REAPER says" (bar labels, tempo maths),
+have the fixture ask REAPER and record it, then compare in the test:
+
+```lua
+harness.oracle("label@0", reaper.format_timestr_pos(0, "", 2))
+```
+
+```python
+from reamo_client import oracle
+assert got == oracle()["label@0"]
+```
+
+### Real projects
+
+`harness.open_fixture("test-project-1.RPP")` opens a project from the repo's
+`test-fixtures/` (a writable copy, so REAPER can write peak files). Fixture
+errors are caught and logged as `FIXTURE ERROR` rather than opening REAPER's
+invisible error dialog.
 
 Name scenarios after the behaviour they pin (`item-notes-poll`), and keep
 each to one concern so a failure points somewhere.

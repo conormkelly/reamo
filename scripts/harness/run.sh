@@ -67,6 +67,7 @@ for s in "${scenarios[@]}"; do
     echo "=== $s"
     if docker run --rm --name "reamo-v1-harness-$s-$$" --network none --label reamo.harness=v1 \
         -v "$HERE:/harness:ro" -v "$OUT:/ext:ro" -v "$ROOT/web:/web:ro" \
+        -v "$ROOT/extension/effects:/effects:ro" -v "$ROOT/test-fixtures:/fixtures:ro" \
         ${lic_mount[@]+"${lic_mount[@]}"} -e HARNESS_GDB="${HARNESS_GDB:-0}" \
         "$IMAGE" bash /harness/boot.sh "$s"; then
         pass=$((pass + 1))

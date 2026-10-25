@@ -5,6 +5,8 @@
 #   /harness   this directory (client library, lua helper, scenarios)
 #   /ext       reaper_reamo.so built for the container's architecture
 #   /web       the built frontend (index.html carries the hello token)
+#   /effects   REAmo's own JSFX (extension/effects), installed as the release zip does
+#   /fixtures  the repo's test-fixtures (projects a startup.lua can open)
 #   /lic       optional reaper-license.rk (suppresses the evaluation nag)
 #
 # Exit status: 0 only if the scenario's test.py passed AND REAPER is still
@@ -32,15 +34,30 @@ verchk=0
 EOF
 [ -f /lic/reaper-license.rk ] && cp /lic/reaper-license.rk "$HOME_DIR/"
 mkdir -p "$HOME_DIR/UserPlugins" "$HOME_DIR/Scripts" "$HOME_DIR/reaper_www_root"
+# The installer copies stock JSFX into the resource folder; portable mode doesn't.
+cp -a "$HOME_DIR/InstallData/Effects" "$HOME_DIR/Effects"
+cp -a /effects/. "$HOME_DIR/Effects/"
 cp /ext/reaper_reamo.so "$HOME_DIR/UserPlugins/reaper_reamo.so"
 cp -a /web "$HOME_DIR/reaper_www_root/web"
+# Writable copy: REAPER writes peak files beside media, as in a real project dir.
+cp -a /fixtures /tmp/fixtures
 cp /harness/harness.lua "$HOME_DIR/Scripts/harness.lua"
+# The fixture runs under pcall: an uncaught Lua error would otherwise open
+# REAPER's (invisible, modal) error dialog and hang the run until the timeout.
 if [ -f "$SDIR/startup.lua" ]; then
-    cp "$SDIR/startup.lua" "$HOME_DIR/Scripts/__startup.lua"
+    cp "$SDIR/startup.lua" "$HOME_DIR/Scripts/fixture.lua"
 else
     printf 'dofile(reaper.GetResourcePath() .. "/Scripts/harness.lua")\nharness.ready()\n' \
-        > "$HOME_DIR/Scripts/__startup.lua"
+        > "$HOME_DIR/Scripts/fixture.lua"
 fi
+cat > "$HOME_DIR/Scripts/__startup.lua" <<'EOF'
+local ok, err = pcall(dofile, reaper.GetResourcePath() .. "/Scripts/fixture.lua")
+if not ok then
+  local f = io.open("/tmp/harness_lua.log", "a")
+  f:write("FIXTURE ERROR: " .. tostring(err) .. "\n")
+  f:close()
+end
+EOF
 
 if [ "${HARNESS_GDB:-0}" = 1 ]; then
     xvfb-run -a gdb -q -batch -ex run -ex "thread apply all bt 25" \

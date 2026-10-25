@@ -33,7 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # writable dir and puts a reaper.ini beside the binary, which makes REAPER
 # portable: the binary's dir becomes its resource dir.
 ARG TARGETARCH
-ARG REAPER_VERSION=7.30
+ARG REAPER_VERSION=7.83
 RUN set -eux; \
     case "$TARGETARCH" in \
         arm64) rarch=aarch64 ;; \
