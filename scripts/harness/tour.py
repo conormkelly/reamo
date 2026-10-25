@@ -78,6 +78,18 @@ def approx(want, tol=1e-3):
     return lambda got: isinstance(got, (int, float)) and abs(got - want) <= tol
 
 
+def play_position(c):
+    """(event, seconds): the play position client `c` last heard. Ticks (tt)
+    carry it while playing, but while the tempo ramps the extension sends
+    full transport events instead, so whichever came last is current."""
+    for name, msg in reversed(c.events):
+        if name == "tt":
+            return name, msg["payload"]["p"]
+        if name == "transport":
+            return name, msg["payload"]["position"]
+    raise Mismatch("the phone has heard no play position (no tt or transport event)")
+
+
 def matches(spec, got):
     if spec is ANY:
         return True
@@ -91,8 +103,9 @@ def matches(spec, got):
 # ----------------------------------------------------------------------------
 
 class Tour:
-    def __init__(self, project, user_flow_name):
+    def __init__(self, project, user_flow_name, on_dialog=None):
         self.project = project
+        self.on_dialog = on_dialog  # runs while each load dialog is up (open_project)
         self.name = user_flow_name
         self.results = []
         self.c = None  # the phone driving the session
@@ -134,6 +147,37 @@ class Tour:
             raise Skip("no item matching the op's needs")
         return found[0]
 
+    def track_for(self, name, pred=None, role="the op needs", exclude=()):
+        """The track an op acts on, chosen by its role (`pred`): the band
+        session's track `name` when it fits, else the first track that does.
+        Tracks in `exclude` (GUIDs) are passed over."""
+        fits = [(g, tr) for g, tr in self.tracks() if g not in exclude and (pred is None or pred(g, tr))]
+        for g, tr in fits:
+            if tr["name"] == name:
+                return g, tr
+        if not fits:
+            raise Skip(f"no track {role}")
+        return fits[0]
+
+    def playable_audio(self):
+        """GUIDs of the items whose active take is audio REAPER can play: a
+        source file that exists. A missing file is offline media, which
+        plays as silence."""
+        found = reaper("""
+local out = {}
+for i = 0, reaper.CountMediaItems(0) - 1 do
+  local it = reaper.GetMediaItem(0, i)
+  local tk = reaper.GetActiveTake(it)
+  local src = tk and not reaper.TakeIsMIDI(tk) and reaper.GetMediaItemTake_Source(tk)
+  local file = src and reaper.GetMediaSourceFileName(src) or ""
+  if file ~= "" and reaper.file_exists(file) then
+    out[#out + 1] = select(2, reaper.GetSetMediaItemInfo_String(it, "GUID", "", false))
+  end
+end
+return out
+""")
+        return set(found) if isinstance(found, (list, tuple)) else set()
+
     # -- client side --------------------------------------------------------
     def send(self, command, awaited=False, client=None, **params):
         """Send as the frontend does (every command carries an id). Returns
@@ -155,6 +199,26 @@ class Tour:
         if r is not None and not r.get("success", False):
             raise Mismatch(f"{command} failed: {r.get('error')}")
         return r
+
+    def meter(self, pos=None):
+        """t.expect changes for the tempo and meter the digest shows at the
+        edit cursor: what REAPER's tempo map gives at `pos`, or with `pos`
+        None at wherever the op leaves the cursor (an op whose cursor is
+        REAPER's own choice, such as where stopping puts it). They change
+        only when the cursor crosses a tempo or meter change."""
+        cache = {}
+
+        def at(i):
+            def check(got):
+                where = self.flat["project.cursor"] if pos is None else pos
+                if where not in cache:
+                    cache[where] = reaper(
+                        f"local n, d, bpm = reaper.TimeMap_GetTimeSigAtTime(0, {where!r}); return {{bpm, n, d}}")
+                want = cache[where][i]
+                # The digest rounds the cursor and the tempo to 1e-6.
+                return abs(got - want) <= 1e-5 if i == 0 else got == want
+            return check
+        return {"project.bpm": at(0), "project.timesig.0": at(1), "project.timesig.1": at(2)}
 
     def expect(self, changes=None, timeout=3.0, allow=()):
         """Wait until REAPER shows exactly `changes` (path pattern -> expected
@@ -244,8 +308,13 @@ class Tour:
                 cl.wait_event("trackSkeleton")
             # Open the user's project while both phones are connected, clicking
             # through the dialogs REAPER raises on the way, as the user would.
-            dialogs = open_project(self.project)
-            print(f"opened {self.project}; dialogs: {dialogs or 'none'}")
+            # With no project file the tour runs against the unsaved project
+            # REAPER starts with.
+            if self.project:
+                dialogs = open_project(self.project, on_dialog=self.on_dialog)
+                print(f"opened {self.project}; dialogs: {dialogs or 'none'}")
+            else:
+                print("no project file: touring REAPER's unsaved startup project")
             self.digest()
             if self.d["project"]["play"] != 0:
                 # Every op's diff would show the moving cursor; nothing after this is meaningful.
@@ -291,7 +360,10 @@ class Tour:
         return counts.get("FAIL", 0) == 0 and counts.get("ERROR", 0) == 0
 
 
-def main(project, name, only=None):
+def main(project, name, only=None, on_dialog=None):
+    """Tour the .RPP at `project`, or with `project` None, the unsaved
+    project REAPER starts with. `on_dialog(title)` runs while each dialog
+    REAPER raises during the load is up."""
     import tour_ops  # noqa: F401 registers the ops
-    ok = Tour(project, name).run(only=only)
+    ok = Tour(project, name, on_dialog).run(only=only)
     sys.exit(0 if ok else 1)

@@ -95,6 +95,12 @@ local function track_digest(tr, pos)
       name = select(2, reaper.GetSetMediaTrackInfo_String(tr, "P_LANENAME:" .. l, "", false)),
     }
   end
+  if t.freemode == 2 then
+    -- The comp target lane (which lane a new comp area lands in) is only in
+    -- the state chunk's LANEREC line.
+    local _, chunk = reaper.GetTrackStateChunk(tr, "", false)
+    t.lanerec = chunk:match("\nLANEREC ([^\r\n]*)") or ""
+  end
   return t
 end
 
@@ -114,6 +120,8 @@ local function item_digest(it, track_guid, idx)
       rate = r6(reaper.GetMediaItemTakeInfo_Value(tk, "D_PLAYRATE")),
       midi = reaper.TakeIsMIDI(tk),
       src = src and reaper.GetMediaSourceType(src, "") or "",
+      -- Which recording the take plays (comp areas differ only in this).
+      file = src and (reaper.GetMediaSourceFileName(src) or ""):match("[^/\\]*$") or "",
       fx = reaper.TakeFX_GetCount(tk),
     } or {empty = true}
   end
@@ -151,10 +159,24 @@ function D.digest()
   while true do
     local ok, isrgn, pos, rend, name, id, color = reaper.EnumProjectMarkers3(0, i)
     if ok == 0 then break end
+    -- A region's render-matrix routing: the tracks (or master) it renders.
+    local render = nil
+    if isrgn then
+      render = {}
+      local k = 0
+      while true do
+        local tr = reaper.EnumRegionRenderMatrix(0, id, k)
+        if not tr then break end
+        render[#render + 1] = guid_of_track(tr)
+        k = k + 1
+      end
+    end
     d.markers[(isrgn and "R" or "M") .. id] = {
       pos = r6(pos), ["end"] = isrgn and r6(rend) or nil, name = name, color = color,
       bars = reaper.format_timestr_pos(pos, "", 2),
       end_bars = isrgn and reaper.format_timestr_pos(rend, "", 2) or nil,
+      guid = select(2, reaper.GetSetProjectInfo_String(0, "MARKER_GUID:" .. i, "", false)),
+      render = render,
     }
     i = i + 1
   end
@@ -163,16 +185,24 @@ function D.digest()
     d.tempo[#d.tempo + 1] = {pos = r6(tpos), bpm = r6(bpm), num = num, den = den, linear = linear}
   end
   local ts_start, ts_end = reaper.GetSet_LoopTimeRange2(0, false, false, 0, 0, false)
-  local num, den = reaper.TimeMap_GetTimeSigAtTime(0, reaper.GetCursorPosition())
+  local loop_start, loop_end = reaper.GetSet_LoopTimeRange2(0, false, true, 0, 0, false)
+  -- The tempo and meter at the edit cursor, from the tempo map (what the
+  -- transport bar shows). Master_GetTempo follows a moved cursor only on
+  -- REAPER's next UI refresh, so it is not read here.
+  local num, den, cursor_bpm = reaper.TimeMap_GetTimeSigAtTime(0, reaper.GetCursorPosition())
   d.project = {
     play = reaper.GetPlayState(),
     cursor = r6(reaper.GetCursorPosition()),
     timesel = {r6(ts_start), r6(ts_end)},
+    -- "timesel" while the loop points equal the time selection (REAPER links
+    -- them by default), so an op that sets one is not charged with both.
+    loop = (r6(loop_start) == r6(ts_start) and r6(loop_end) == r6(ts_end)) and "timesel"
+      or {r6(loop_start), r6(loop_end)},
     ["repeat"] = reaper.GetSetRepeat(-1),
     metronome = reaper.GetToggleCommandState(40364),
     metro_vol = select(2, reaper.get_config_var_string("projmetrov1")),
     metro_flags = select(2, reaper.get_config_var_string("projmetroen")),
-    bpm = r6(reaper.Master_GetTempo()),
+    bpm = r6(cursor_bpm),
     timesig = {num, den},
     start_measure = select(2, reaper.get_config_var_string("projmeasoffs")),
     notes = str_hash(reaper.GetSetProjectNotes(0, false, "")),
@@ -187,7 +217,13 @@ function D.digest()
   while true do
     local ok, key, val = reaper.EnumProjExtState(0, "Reamo", k)
     if not ok then break end
-    d.project.reamo[key] = str_hash(val)
+    -- Playlists are short and the tour decodes them (tour_mirror.py); other
+    -- values (custom banks, up to 16 KB) are compared by hash.
+    -- EnumProjExtState cuts values at 4095 bytes; GetProjExtState does not.
+    val = select(2, reaper.GetProjExtState(0, "Reamo", key))
+    -- REAPER reports ExtState keys in upper case.
+    local raw = key == "PLAYLISTCOUNT" or key:match("^PLAYLIST_%d+$")
+    d.project.reamo[key] = raw and val or str_hash(val)
     k = k + 1
   end
   -- Volatile: changes with any edit; the tour checks them separately.

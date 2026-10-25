@@ -70,6 +70,8 @@ if [ $# -gt 0 ]; then
 else
     scenarios=()
     for d in "$HERE"/scenarios/*/; do scenarios+=("$(basename "$d")"); done
+    # A full run is a release check: every protocol command must be toured.
+    python3 "$HERE/check_tour_coverage.py" || { echo "error: tour coverage incomplete (see above)" >&2; exit 1; }
 fi
 
 JOBS="${HARNESS_JOBS:-4}"
