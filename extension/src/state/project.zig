@@ -3,6 +3,44 @@ const utf8 = @import("../core/utf8.zig");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
 
+/// Which project is open, as far as telling one project from another needs.
+pub const Identity = struct {
+    pointer: ?*anyopaque = null,
+    loads: u32 = 0, // project loads seen (platform/project_load)
+    has_path: bool = false,
+
+    pub fn current(api: anytype) Identity {
+        var path_buf: [512]u8 = undefined;
+        const info = api.enumCurrentProject(&path_buf);
+        return .{
+            .pointer = if (info) |i| i.project else null,
+            .loads = api.projectLoadCount(),
+            .has_path = if (info) |i| i.path.len > 0 else false,
+        };
+    }
+
+    /// Whether `now` is a different project from `self`, as opposed to the
+    /// same project edited or saved:
+    /// - another tab: the ReaProject* differs;
+    /// - a project opened in this tab: a project load happened in between
+    ///   (the pointer stays the same and REAPER's state-change count only
+    ///   rises, so neither tells);
+    /// - File > New in this tab: the saved project's path becomes empty.
+    /// Save As changes the path but is the same project; undo reloads state
+    /// but is not counted as a load.
+    pub fn isDifferentFrom(self: Identity, now: Identity) bool {
+        if (self.pointer != now.pointer) return true;
+        if (self.loads != now.loads) return true;
+        return self.has_path and !now.has_path;
+    }
+
+    /// Whether `now` replaced this project in the same tab, so this project
+    /// is gone and its pointer names the new one.
+    pub fn replacedBy(self: Identity, now: Identity) bool {
+        return self.pointer == now.pointer and self.isDifferentFrom(now);
+    }
+};
+
 // Project state snapshot
 // Contains: undo/redo state + project-level settings (moved from transport for efficiency)
 pub const State = struct {
@@ -66,26 +104,13 @@ pub const State = struct {
         return self.project_path_buf[0..self.project_path_len];
     }
 
-    /// Whether `other` (just polled) is a different project from `self` (the
-    /// previous poll), as opposed to the same project edited or saved:
-    /// - another tab: the ReaProject* differs;
-    /// - a project opened in this tab: a project load happened in between
-    ///   (the pointer stays the same and the state-change count only rises,
-    ///   so neither tells);
-    /// - File > New in this tab: the saved project's path becomes empty.
-    /// Save As changes the path but is the same project; undo reloads state
-    /// but is not counted as a load.
-    pub fn projectChanged(self: *const State, other: *const State) bool {
-        if (self.project_pointer != other.project_pointer) return true;
-        if (self.load_count != other.load_count) return true;
-        if (self.project_path_len > 0 and other.project_path_len == 0) return true;
-        return false;
+    pub fn identity(self: *const State) Identity {
+        return .{ .pointer = self.project_pointer, .loads = self.load_count, .has_path = self.project_path_len > 0 };
     }
 
-    /// Whether this change put a different project into the same tab, so the
-    /// previous project is gone and its pointer now names the new one.
-    pub fn replacedInSameTab(self: *const State, other: *const State) bool {
-        return self.project_pointer == other.project_pointer and self.projectChanged(other);
+    /// Whether `other` (just polled) is a different project from `self`.
+    pub fn projectChanged(self: *const State, other: *const State) bool {
+        return self.identity().isDifferentFrom(other.identity());
     }
 
     // Compare for change detection
@@ -497,14 +522,14 @@ fn projectState(pointer: usize, loads: u32, path: []const u8) State {
 test "projectChanged: switching to another tab is a change" {
     const prev = projectState(0x1000, 3, "/songs/a.rpp");
     try std.testing.expect(prev.projectChanged(&projectState(0x2000, 3, "/songs/b.rpp")));
-    try std.testing.expect(!prev.replacedInSameTab(&projectState(0x2000, 3, "/songs/b.rpp")));
+    try std.testing.expect(!prev.identity().replacedBy(projectState(0x2000, 3, "/songs/b.rpp").identity()));
 }
 
 test "projectChanged: opening a project in the same tab is a change, even though REAPER's state count rises" {
     const prev = projectState(0x1000, 3, "/songs/gig.rpp");
     const curr = projectState(0x1000, 4, "/songs/other.rpp");
     try std.testing.expect(prev.projectChanged(&curr));
-    try std.testing.expect(prev.replacedInSameTab(&curr));
+    try std.testing.expect(prev.identity().replacedBy(curr.identity()));
     // Reopening the same file is a load too.
     try std.testing.expect(prev.projectChanged(&projectState(0x1000, 4, "/songs/gig.rpp")));
 }

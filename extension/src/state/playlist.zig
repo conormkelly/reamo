@@ -4,6 +4,7 @@ const protocol = @import("../core/protocol.zig");
 const markers = @import("markers.zig");
 const constants = @import("../core/constants.zig");
 const logging = @import("../core/logging.zig");
+const project_mod = @import("project.zig");
 
 // Maximum playlists per project
 pub const MAX_PLAYLISTS: usize = 16;
@@ -496,6 +497,8 @@ pub const State = struct {
     dirty: bool = false,
     /// Timestamp when dirty flag was set (for debounce)
     dirty_since: f64 = 0,
+    /// The project these playlists were loaded from and are saved to.
+    project: project_mod.Identity = .{},
 
     pub fn addPlaylist(self: *State, name: []const u8) ?usize {
         if (self.playlist_count >= MAX_PLAYLISTS) return null;
@@ -531,6 +534,38 @@ pub const State = struct {
     pub fn getPlaylist(self: *State, idx: usize) ?*Playlist {
         if (idx >= self.playlist_count) return null;
         return &self.playlists[idx];
+    }
+
+    /// Make these the playlists of the project open now. Nothing happens while
+    /// it is the project they were loaded from. When it isn't, playback of
+    /// the old project's playlist ends (repeat and loop points it set are
+    /// cleared), edits not yet saved go to the old project if it is still
+    /// open in another tab (never into the new one: a project replaced in
+    /// the same tab is gone with them), and the new project's playlists are
+    /// loaded. Runs before playlist commands and on the medium tick, so a
+    /// command never edits another project's playlists. Returns true when
+    /// the playlists were replaced.
+    pub fn followProject(self: *State, api: anytype, now: project_mod.Identity) bool {
+        if (!self.project.isDifferentFrom(now)) return false;
+        if (self.engine.isActive()) {
+            _ = self.engine.stop();
+            api.setRepeat(false);
+            api.clearLoopPoints();
+            logging.info("Stopped playlist engine: project changed", .{});
+        }
+        if (self.dirty) {
+            const old = self.project;
+            if (!old.replacedBy(now) and api.validateProjectPtr(old.pointer)) {
+                self.saveAllTo(api, old.pointer);
+            } else {
+                logging.warn("Playlist edits not yet saved were lost: their project was replaced", .{});
+            }
+        }
+        self.reset();
+        self.loadAll(api);
+        self.project = now;
+        logging.info("Loaded {d} playlists for the open project", .{self.playlist_count});
+        return true;
     }
 
     /// Reset all state (clear playlists and stop engine).
@@ -956,6 +991,42 @@ test "Engine tick - duplicate region entries (same region twice in playlist)" {
     try std.testing.expectEqual(Action.broadcast_state, action);
     try std.testing.expectEqual(@as(usize, 1), engine.entry_idx); // Now on entry 1!
     try std.testing.expect(!engine.next_loop_pending);
+}
+
+test "followProject keeps the playlists while the same project stays open" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{};
+    var state = State{ .project = .{ .pointer = @ptrFromInt(0x1000), .loads = 2, .has_path = true } };
+    _ = state.addPlaylist("Gig");
+    try std.testing.expect(!state.followProject(&m, .{ .pointer = @ptrFromInt(0x1000), .loads = 2, .has_path = true }));
+    try std.testing.expectEqual(@as(usize, 1), state.playlist_count);
+}
+
+test "followProject saves pending edits into the tab being left, never into the new project" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{ .project_pointer = @ptrFromInt(0x2000) };
+    var state = State{ .project = .{ .pointer = @ptrFromInt(0x1000), .loads = 2, .has_path = true } };
+    _ = state.addPlaylist("Gig");
+    state.markDirty(0);
+    _ = state.engine.play(0, 1);
+
+    try std.testing.expect(state.followProject(&m, .{ .pointer = @ptrFromInt(0x2000), .loads = 2, .has_path = true }));
+    try std.testing.expect(m.extstate_writes_to_other_project > 0);
+    try std.testing.expect(!state.engine.isActive());
+    try std.testing.expect(!state.dirty);
+    try std.testing.expectEqual(@as(usize, 0), state.playlist_count); // the new project has none
+}
+
+test "followProject writes nothing anywhere when the project was replaced in the same tab" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{ .project_pointer = @ptrFromInt(0x1000) };
+    var state = State{ .project = .{ .pointer = @ptrFromInt(0x1000), .loads = 2, .has_path = true } };
+    _ = state.addPlaylist("Gig");
+    state.markDirty(0);
+
+    try std.testing.expect(state.followProject(&m, .{ .pointer = @ptrFromInt(0x1000), .loads = 3, .has_path = true }));
+    try std.testing.expectEqual(@as(usize, 0), m.extstate_writes_to_other_project);
+    try std.testing.expectEqual(@as(usize, 0), m.ext_state_count); // nothing written into the new project
 }
 
 test "State toJson" {

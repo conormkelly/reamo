@@ -448,6 +448,7 @@ fn doInitialization() !void {
 
     // Load playlist state from ProjExtState
     g_playlist_state.loadAll(&backend);
+    g_playlist_state.project = project.Identity.current(&backend);
     g_last_playlist = g_playlist_state;
     logging.info("Loaded {d} playlists from project", .{g_playlist_state.playlist_count});
     logging.info("Initialization complete, waiting for warmup", .{});
@@ -529,8 +530,13 @@ fn commandQueueTimerCallback() callconv(.c) void {
     const shared_state = g_shared_state orelse return;
     var backend = reaper.RealBackend{ .inner = api };
 
-    // Drain all pending commands
+    // Drain all pending commands, against the open project's playlists
+    var followed = false;
     while (shared_state.popCommand()) |cmd| {
+        if (!followed) {
+            _ = g_playlist_state.followProject(&backend, project.Identity.current(&backend));
+            followed = true;
+        }
         var command = cmd;
         defer command.deinit();
         commands.dispatch(&backend, command.client_id, command.data, shared_state, g_gesture_state, &g_playlist_state);
@@ -669,6 +675,7 @@ fn doProcessing() !void {
     // Process pending commands from WebSocket clients (fallback if fast timer not running)
     // Normally the 100Hz timer drains the queue; this is defensive fallback
     if (!g_fast_timer.isRunning()) {
+        _ = g_playlist_state.followProject(&backend, project.Identity.current(&backend));
         while (shared_state.popCommand()) |cmd| {
             var command = cmd;
             defer command.deinit();
