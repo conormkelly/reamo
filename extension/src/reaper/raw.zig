@@ -81,6 +81,8 @@ pub const Api = struct {
     timeMap_GetTimeSigAtTime: ?*const fn (?*anyopaque, f64, *c_int, *c_int, *f64) callconv(.c) void = null,
     countTempoTimeSigMarkers: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
     getTempoTimeSigMarker: ?*const fn (?*anyopaque, c_int, ?*f64, ?*c_int, ?*f64, ?*f64, ?*c_int, ?*c_int, ?*bool) callconv(.c) bool = null,
+    findTempoTimeSigMarker: ?*const fn (?*anyopaque, f64) callconv(.c) c_int = null,
+    setTempoTimeSigMarker: ?*const fn (?*anyopaque, c_int, f64, c_int, f64, f64, c_int, c_int, bool) callconv(.c) bool = null,
 
     // Project info
     getProjectLength: ?*const fn (?*anyopaque) callconv(.c) f64 = null,
@@ -319,6 +321,8 @@ pub const Api = struct {
             .timeMap_GetTimeSigAtTime = getFunc(info, "TimeMap_GetTimeSigAtTime", fn (?*anyopaque, f64, *c_int, *c_int, *f64) callconv(.c) void),
             .countTempoTimeSigMarkers = getFunc(info, "CountTempoTimeSigMarkers", fn (?*anyopaque) callconv(.c) c_int),
             .getTempoTimeSigMarker = getFunc(info, "GetTempoTimeSigMarker", fn (?*anyopaque, c_int, ?*f64, ?*c_int, ?*f64, ?*f64, ?*c_int, ?*c_int, ?*bool) callconv(.c) bool),
+            .findTempoTimeSigMarker = getFunc(info, "FindTempoTimeSigMarker", fn (?*anyopaque, f64) callconv(.c) c_int),
+            .setTempoTimeSigMarker = getFunc(info, "SetTempoTimeSigMarker", fn (?*anyopaque, c_int, f64, c_int, f64, f64, c_int, c_int, bool) callconv(.c) bool),
             // Project info
             .getProjectLength = getFunc(info, "GetProjectLength", fn (?*anyopaque) callconv(.c) f64),
             .getSetProjectInfo = getFunc(info, "GetSetProjectInfo", fn (?*anyopaque, [*:0]const u8, f64, bool) callconv(.c) f64),
@@ -2441,7 +2445,36 @@ pub const Api = struct {
     }
 
     /// Set project time signature (fixed project-level, no tempo markers)
+    /// Set the meter where the user is. In a project with a tempo map REAPER
+    /// ignores the project-default meter, and SetCurrentBPM edits or inserts
+    /// a tempo marker at the edit cursor, so the meter goes on the tempo/meter
+    /// marker in effect at the cursor, keeping its time, tempo and shape.
     pub fn setTimeSignature(self: *const Api, numerator: c_int, denominator: c_int) bool {
+        if (self.tempoMarkerCount() > 0) {
+            const find = self.findTempoTimeSigMarker orelse return false;
+            const get = self.getTempoTimeSigMarker orelse return false;
+            const set = self.setTempoTimeSigMarker orelse return false;
+            const idx = find(null, self.cursorPosition());
+            if (idx >= 0) {
+                var pos: f64 = 0;
+                var bpm: f64 = 0;
+                var linear = false;
+                if (!get(null, idx, &pos, null, null, &bpm, null, null, &linear)) return false;
+                if (!set(null, idx, pos, -1, -1, bpm, numerator, denominator, linear)) return false;
+                self.updateTimeline();
+                return true;
+            }
+            // Before the first marker the project default applies, but its
+            // tempo must not be re-set (that would insert a marker).
+            return self.setDefaultTimeSignature(numerator, denominator, false);
+        }
+        return self.setDefaultTimeSignature(numerator, denominator, true);
+    }
+
+    /// The project-default meter (projmeaslen/projtsdenom). With
+    /// `normalize_bpm`, the tempo is re-set so it stays the same in quarter
+    /// notes when the denominator changes.
+    fn setDefaultTimeSignature(self: *const Api, numerator: c_int, denominator: c_int, normalize_bpm: bool) bool {
         const getoffs = self.projectconfig_var_getoffs orelse return false;
         const getaddr = self.projectconfig_var_addr orelse return false;
 
@@ -2470,10 +2503,11 @@ pub const Api = struct {
         // Normalize BPM to quarter notes before setting
         // REAPER's BPM is in denominator-note units (e.g., eighths for 6/8)
         // Convert to quarter-note BPM which is the standard reference
-        const old_denom_f: f64 = @floatFromInt(old_denom);
-        const quarter_note_bpm = current_bpm * (4.0 / old_denom_f);
-
-        self.setTempo(quarter_note_bpm);
+        if (normalize_bpm) {
+            const old_denom_f: f64 = @floatFromInt(old_denom);
+            const quarter_note_bpm = current_bpm * (4.0 / old_denom_f);
+            self.setTempo(quarter_note_bpm);
+        }
 
         // Refresh timeline to show changes
         self.updateTimeline();
