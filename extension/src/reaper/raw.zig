@@ -3,6 +3,7 @@
 /// For the abstract interface used by state modules, see api.zig.
 const std = @import("std");
 const utf8 = @import("../core/utf8.zig");
+const project_load = @import("../platform/project_load.zig");
 const types = @import("types.zig");
 
 // Re-export types for convenience
@@ -898,8 +899,23 @@ pub const Api = struct {
 
     // ExtState: set project-specific extended state
     pub fn setProjExtStateValue(self: *const Api, extname: [*:0]const u8, key: [*:0]const u8, value: [*:0]const u8) void {
+        self.setProjExtStateValueIn(null, extname, key, value);
+    }
+
+    /// setProjExtStateValue for a given project tab (null = the current one).
+    pub fn setProjExtStateValueIn(self: *const Api, project: ?*anyopaque, extname: [*:0]const u8, key: [*:0]const u8, value: [*:0]const u8) void {
         const f = self.setProjExtState orelse return;
-        _ = f(null, extname, key, value);
+        _ = f(project, extname, key, value);
+    }
+
+    /// Whether `project` is still an open project tab.
+    pub fn validateProjectPtr(self: *const Api, project: ?*anyopaque) bool {
+        return self.validatePtr2(project, "ReaProject*");
+    }
+
+    /// Project loads (not undo reloads) since the extension started.
+    pub fn projectLoadCount(_: *const Api) u32 {
+        return project_load.loadCount();
     }
 
     // Undo: begin an undo block

@@ -320,6 +320,22 @@ pub const ProjectMethods = struct {
         self.setExtStateValue(extname, key, value, false);
     }
 
+    /// Writes aimed at another project tab are counted, not stored: the
+    /// mock holds only the current project's state.
+    pub fn setProjExtStateValueIn(self: anytype, project: ?*anyopaque, extname: [*:0]const u8, key: [*:0]const u8, value: [*:0]const u8) void {
+        if (project == null or project == self.project_pointer) return self.setProjExtStateValue(extname, key, value);
+        self.recordCall(.setProjExtStateValue);
+        self.extstate_writes_to_other_project += 1;
+    }
+
+    pub fn validateProjectPtr(self: anytype, project: ?*anyopaque) bool {
+        return project != null and project != self.closed_project_pointer;
+    }
+
+    pub fn projectLoadCount(self: anytype) u32 {
+        return self.project_loads;
+    }
+
     // =========================================================================
     // Project notes
     // =========================================================================

@@ -396,9 +396,16 @@ fn pollMediumTierRegular(ctx: *const TierContext, mutable: *MutableState) !void 
             logging.info("Arena resize complete: {d}MB total", .{new_sizes.totalAllocated() >> 20});
         }
 
-        // Flush pending playlist changes to old project
+        // Unsaved playlist edits belong to the project being left. Save them
+        // there if it is still open in another tab; never into the project
+        // now current. A project replaced in this tab is gone with them.
         if (mutable.playlist_state.dirty) {
-            mutable.playlist_state.saveAll(ctx.backend);
+            const old_project = medium_prev.project.project_pointer;
+            if (!medium_prev.project.replacedInSameTab(&medium_state.project) and ctx.backend.validateProjectPtr(old_project)) {
+                mutable.playlist_state.saveAllTo(ctx.backend, old_project);
+            } else {
+                logging.warn("Playlist edits not yet saved were lost: their project was replaced", .{});
+            }
             mutable.playlist_state.dirty = false;
         }
 

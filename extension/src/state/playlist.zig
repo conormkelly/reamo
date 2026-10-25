@@ -685,7 +685,7 @@ pub const State = struct {
     // =========================================================================
 
     /// Save a single playlist to ProjExtState
-    pub fn savePlaylist(self: *const State, api: anytype, idx: usize) void {
+    pub fn savePlaylist(self: *const State, api: anytype, project: ?*anyopaque, idx: usize) void {
         if (idx >= self.playlist_count) return;
 
         // Build key: "Playlist_0", "Playlist_1", etc.
@@ -705,39 +705,44 @@ pub const State = struct {
         @memcpy(value_z_buf[0..value.len], value);
         value_z_buf[value.len] = 0;
 
-        api.setProjExtStateValue("Reamo", key, value_z_buf[0..value.len :0]);
+        api.setProjExtStateValueIn(project, "Reamo", key, value_z_buf[0..value.len :0]);
     }
 
     /// Clear a playlist from ProjExtState (for deletion)
-    pub fn clearPlaylist(api: anytype, idx: usize) void {
+    pub fn clearPlaylist(api: anytype, project: ?*anyopaque, idx: usize) void {
         var key_buf: [32]u8 = undefined;
         const key = std.fmt.bufPrintZ(&key_buf, "Playlist_{d}", .{idx}) catch {
             logging.warn("playlist: clearPlaylist key format failed for idx={d}", .{idx});
             return;
         };
         // Setting empty string clears the key
-        api.setProjExtStateValue("Reamo", key, "");
+        api.setProjExtStateValueIn(project, "Reamo", key, "");
     }
 
     /// Save playlist count to ProjExtState
-    pub fn savePlaylistCount(self: *const State, api: anytype) void {
+    pub fn savePlaylistCount(self: *const State, api: anytype, project: ?*anyopaque) void {
         var count_buf: [16]u8 = undefined;
         const count_str = std.fmt.bufPrintZ(&count_buf, "{d}", .{self.playlist_count}) catch {
             logging.warn("playlist: savePlaylistCount format failed for count={d}", .{self.playlist_count});
             return;
         };
-        api.setProjExtStateValue("Reamo", "PlaylistCount", count_str);
+        api.setProjExtStateValueIn(project, "Reamo", "PlaylistCount", count_str);
     }
 
-    /// Save all playlists to ProjExtState
+    /// Save all playlists to the current project's ProjExtState
     pub fn saveAll(self: *const State, api: anytype) void {
-        self.savePlaylistCount(api);
+        self.saveAllTo(api, null);
+    }
+
+    /// Save all playlists into `project` (null = the current project tab).
+    pub fn saveAllTo(self: *const State, api: anytype, project: ?*anyopaque) void {
+        self.savePlaylistCount(api, project);
         for (0..self.playlist_count) |i| {
-            self.savePlaylist(api, i);
+            self.savePlaylist(api, project, i);
         }
         // Clear any stale playlists beyond current count
         for (self.playlist_count..MAX_PLAYLISTS) |i| {
-            clearPlaylist(api, i);
+            clearPlaylist(api, project, i);
         }
     }
 

@@ -251,6 +251,9 @@ pub fn validateBackend(comptime T: type) void {
         "setExtStateValue",
         "getProjExtStateValue",
         "setProjExtStateValue",
+        "setProjExtStateValueIn",
+        "validateProjectPtr",
+        "projectLoadCount",
 
         // Project notes
         "getProjectNotes",
