@@ -75,49 +75,52 @@ for s in "${scenarios[@]}"; do
     [ -f "$HERE/scenarios/$s/test.py" ] || { echo "error: no scenario '$s'" >&2; exit 1; }
 done
 
+# Runs are keyed by position, so a scenario named twice (to chase a flake)
+# runs twice rather than sharing one container name and status file.
 run_one() {
-    local s="$1"
-    docker run --rm --name "reamo-v1-harness-$s-$$" --network none --label reamo.harness=v1 \
+    local i="$1" s="$2" out="$2"
+    [ "$(printf '%s\n' "${scenarios[@]}" | grep -cxF "$s")" -eq 1 ] || out="$s.$i"
+    docker run --rm --name "reamo-v1-harness-$s-$$-$i" --network none --label reamo.harness=v1 \
         -v "$OUT/harness:/harness:ro" -v "$OUT:/ext:ro" -v "$ROOT/web:/web:ro" \
         -v "$ROOT/extension/effects:/effects:ro" -v "$ROOT/test-fixtures:/fixtures:ro" \
         -v "$ARTIFACTS:/out" \
-        ${lic_mount[@]+"${lic_mount[@]}"} -e HARNESS_GDB="${HARNESS_GDB:-0}" \
-        "$IMAGE" bash /harness/boot.sh "$s" >"$OUT/$s.log" 2>&1 && rc=0 || rc=$?
-    echo "$rc" >"$OUT/$s.status"
+        ${lic_mount[@]+"${lic_mount[@]}"} -e HARNESS_GDB="${HARNESS_GDB:-0}" -e HARNESS_OUT_DIR="$out" \
+        "$IMAGE" bash /harness/boot.sh "$s" >"$OUT/run-$i.log" 2>&1 && rc=0 || rc=$?
+    echo "$rc" >"$OUT/run-$i.status"
 }
 
 # Each scenario writes its own log; they are printed in order as each one
 # (and every one before it) finishes, so output reads the same as a serial run.
 printed=0
 print_ready() {
-    while [ "$printed" -lt "${#scenarios[@]}" ] && [ -f "$OUT/${scenarios[$printed]}.status" ]; do
+    while [ "$printed" -lt "${#scenarios[@]}" ] && [ -f "$OUT/run-$printed.status" ]; do
         echo "=== ${scenarios[$printed]}"
-        cat "$OUT/${scenarios[$printed]}.log"
+        cat "$OUT/run-$printed.log"
         printed=$((printed + 1))
     done
 }
 
-for s in "${scenarios[@]}"; do
+for i in "${!scenarios[@]}"; do
     while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do
         sleep 0.5
         print_ready
     done
-    run_one "$s" &
+    run_one "$i" "${scenarios[$i]}" &
 done
 wait
 print_ready
 
 pass=0
 failed=()
-for s in "${scenarios[@]}"; do
-    if [ "$(cat "$OUT/$s.status")" = 0 ]; then
+for i in "${!scenarios[@]}"; do
+    if [ "$(cat "$OUT/run-$i.status")" = 0 ]; then
         pass=$((pass + 1))
     else
-        failed+=("$s")
+        failed+=("${scenarios[$i]}")
     fi
 done
 
 echo
-[ ${#failed[@]} -eq 0 ] || echo "screenshots of failed scenarios: $ARTIFACTS/<scenario>/"
+[ ${#failed[@]} -eq 0 ] || echo "screenshots of failed scenarios: $ARTIFACTS/<scenario>/ (<scenario>.<run> when repeated)"
 echo "harness: $pass passed, ${#failed[@]} failed${failed[*]:+ (${failed[*]})}"
 [ ${#failed[@]} -eq 0 ]

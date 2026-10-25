@@ -65,11 +65,11 @@ EOF
 
 # One X display shared by REAPER and the test, so test.py can screenshot it
 # and look for (or dismiss) dialogs; see reamo_client.screenshot()/windows().
-export DISPLAY=:99 HARNESS_SCENARIO="$SCENARIO" HARNESS_OUT="/out/$SCENARIO"
+export DISPLAY=:99 HARNESS_SCENARIO="$SCENARIO" HARNESS_OUT="/out/${HARNESS_OUT_DIR:-$SCENARIO}"
 rm -rf "$HARNESS_OUT" && mkdir -p "$HARNESS_OUT"
 Xvfb :99 -screen 0 1600x1000x24 -nolisten tcp >/tmp/xvfb.out 2>&1 &
 for _ in $(seq 1 40); do xdotool getmouselocation >/dev/null 2>&1 && break; sleep 0.05; done
-shot() { import -window root "$HARNESS_OUT/$1.png" 2>/dev/null && echo "screenshot: out/$SCENARIO/$1.png"; }
+shot() { import -window root "$HARNESS_OUT/$1.png" 2>/dev/null && echo "screenshot: out/${HARNESS_OUT_DIR:-$SCENARIO}/$1.png"; }
 
 if [ "${HARNESS_GDB:-0}" = 1 ]; then
     gdb -q -batch -ex run -ex "thread apply all bt 25" \
