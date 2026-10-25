@@ -66,28 +66,12 @@ pub fn handleMarkerUpdate(api: anytype, cmd: protocol.CommandMessage, response: 
     };
     defer std.heap.c_allocator.free(name);
 
-    // Color: null = preserve, 0 = reset to default, other = use value
-    const color_provided = cmd.getInt("color");
-    const color = color_provided orelse current_color;
-    // Recreate only for a real reset: the UI sends color 0 with every rename
-    // of a default-coloured marker, and recreating changes its GUID.
-    const reset_to_default = color_provided != null and color_provided.? == 0 and current_color != 0;
+    const color = mod.markerColor(current_color, cmd.getInt("color"));
 
     api.undoBeginBlock();
-
-    // Special case: color=0 explicitly means "reset to default"
-    // REAPER's SetProjectMarker4 treats 0 as "don't modify color"
-    // Workaround: delete and recreate marker with same ID
-    if (reset_to_default) {
-        _ = api.deleteMarker(id);
-        _ = api.addMarkerWithId(pos, name, 0, id);
-        logging.debug("Reset marker {d} to default color", .{id});
-    } else {
-        if (api.updateMarker(id, pos, name, color)) {
-            logging.debug("Updated marker {d}", .{id});
-        }
+    if (api.updateMarker(id, pos, name, color)) {
+        logging.debug("Updated marker {d}", .{id});
     }
-
     api.undoEndBlock("REAmo: Update marker");
 }
 

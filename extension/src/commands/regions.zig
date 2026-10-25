@@ -73,32 +73,12 @@ pub fn handleRegionUpdate(api: anytype, cmd: protocol.CommandMessage, response: 
     };
     defer std.heap.c_allocator.free(name);
 
-    // Color: null = preserve, 0 = reset to default, other = use value
-    const color_provided = cmd.getInt("color");
-    const color = color_provided orelse current_color;
-    const reset_to_default = color_provided != null and color_provided.? == 0 and current_color != 0;
+    const color = mod.markerColor(current_color, cmd.getInt("color"));
 
     api.undoBeginBlock();
-    if (reset_to_default) {
-        resetRegionColor(api, id, start, end, name);
-    } else {
-        _ = api.updateRegion(id, start, end, name, color);
-    }
+    _ = api.updateRegion(id, start, end, name, color);
     logging.debug("Updated region {d}", .{id});
     api.undoEndBlock("REAmo: Update region");
-}
-
-/// Give a region the default colour. REAPER has no call for that
-/// (SetProjectMarker4 reads colour 0 as "unchanged"), so the region is
-/// deleted and recreated with the same number, bounds and name, and its
-/// render-matrix routing is put back. Its GUID still changes: REAPER
-/// ignores attempts to set MARKER_GUID.
-fn resetRegionColor(api: anytype, id: c_int, start: f64, end: f64, name: [*:0]const u8) void {
-    var render_buf: [256]*anyopaque = undefined;
-    const render_tracks = api.regionRenderTracks(id, &render_buf);
-    _ = api.deleteRegion(id);
-    _ = api.addRegionWithId(start, end, name, 0, id);
-    for (render_tracks) |track| api.addRegionRenderTrack(id, track);
 }
 
 pub fn handleRegionDelete(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
@@ -267,16 +247,8 @@ fn processUpdate(api: anytype, op_json: []const u8) OpResult {
     const name = mod.resolveNameZ(provided_name, current_name) catch return .{ .skipped = "out of memory" };
     defer std.heap.c_allocator.free(name);
 
-    // Color: null = preserve, 0 = reset to default, other = use value
-    const color_provided = protocol.jsonGetInt(op_json, "color");
-    const color = color_provided orelse current_color;
-    const reset_to_default = color_provided != null and color_provided.? == 0 and current_color != 0;
-
-    if (reset_to_default) {
-        resetRegionColor(api, id, start, end, name);
-    } else {
-        _ = api.updateRegion(id, start, end, name, color);
-    }
+    const color = mod.markerColor(current_color, protocol.jsonGetInt(op_json, "color"));
+    _ = api.updateRegion(id, start, end, name, color);
 
     return .success;
 }

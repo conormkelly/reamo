@@ -43,6 +43,11 @@ pub const MAX_MARKERS: usize = 256;
 /// sample (2.6e-6 s at 384 kHz), so any real move counts as a change.
 pub const TIME_EPSILON: f64 = 1e-9;
 
+/// REAPER's custom-colour flag (bit 24) in a track, item, take, marker or
+/// region colour. Without it REAPER shows the theme's colour, whatever the
+/// other bits hold.
+pub const CUSTOM_COLOR_FLAG: c_int = 0x01000000;
+
 /// Maximum regions in project
 pub const MAX_REGIONS: usize = 256;
 

@@ -1,8 +1,9 @@
 """Resetting a region's colour from the phone keeps its Region Render Matrix routing.
 
 RegionInfoBar sends region/update {id, color: 0} for "reset to default".
-Only the colour may change: the region's render matrix assignments (which
-stems a user has set up to render for it) must survive.
+Only the colour may change, and only as REAPER's own "Set region to default
+color" changes it (the custom flag cleared): the region's render matrix
+assignments (which stems a user has set up to render for it) must survive.
 """
 import time
 from reamo_client import Client, reaper
@@ -37,11 +38,11 @@ with Client() as c:
     deadline = time.time() + 2
     while True:
         after = reaper(STATE)
-        if (after and after["color"] == 0) or time.time() > deadline:
+        if (after and not after["color"] & 0x1000000) or time.time() > deadline:
             break
         time.sleep(0.1)
     print("after: ", after)
-    assert after["color"] == 0, f"colour not reset: {after}"
+    assert not after["color"] & 0x1000000, f"colour not reset: {after}"
     assert (after["pos"], after["rend"], after["name"]) == (4, 12, "Chorus"), after
     assert after["routed"] == ["Drums", "Vox"], \
         f"colour reset dropped the region's render matrix routing: {before['routed']} -> {after['routed']}"
