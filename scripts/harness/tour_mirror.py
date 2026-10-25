@@ -20,7 +20,7 @@ def close(a, b, tol=1e-3):
 def mirror_problems(tour, c):
     d = tour.d
     problems = []
-    for check in (skeleton, tracks, fx_state, sends_state, items, markers, regions, transport, project, tempo_map):
+    for check in (skeleton, tracks, fx_state, sends_state, items, markers, regions, transport, project, tempo_map, playlists):
         try:
             problems += check(d, c, tour)
         except (KeyError, TypeError, IndexError) as e:
@@ -90,6 +90,9 @@ def tracks(d, c, tour):
             exp["color"] = custom_color(t["color"])
             if t["name"]:
                 exp["name"] = t["name"]
+            if t["arm"]:
+                # The input chip shows only on armed tracks, as in REAPER.
+                exp["recInput"] = int(t["input"])
         for k, v in exp.items():
             if e.get(k) != v and not (k == "color" and e.get(k) is None and v == 0):
                 out.append(f"tracks {label}.{k} = {e.get(k)!r}, REAPER {v!r}")
@@ -103,7 +106,11 @@ def tracks(d, c, tour):
 def fx_state(d, c, tour):
     ev = c.latest_event("fx_state")
     if ev is None:
-        return ["no fx_state event"]
+        # The extension sends fx_state only when it changes, so a client that has
+        # seen no fx yet has an empty list, which is right while REAPER has none.
+        if any(t["fx"] for t in d["tracks"].values()):
+            return ["no fx_state event"]
+        return []
     got = {}
     for f in ev["payload"]["fx"]:
         got.setdefault(f["trackIdx"], []).append(f)
@@ -125,7 +132,11 @@ def fx_state(d, c, tour):
 def sends_state(d, c, tour):
     ev = c.latest_event("sends_state")
     if ev is None:
-        return ["no sends_state event"]
+        # The extension sends sends_state only when it changes, so a client that has
+        # seen no sends yet has an empty list, which is right while REAPER has none.
+        if any(t["sends"] for t in d["tracks"].values()):
+            return ["no sends_state event"]
+        return []
     got = {}
     for s in ev["payload"]["sends"]:
         got.setdefault(s["srcTrackIdx"], []).append(s)
@@ -145,18 +156,24 @@ def sends_state(d, c, tour):
     return out
 
 
+# Items the items event carries at most (MAX_ITEMS in extension/src/core/constants.zig).
+MAX_ITEMS = 512
+
+
 def items(d, c, tour):
     ev = c.latest_event("items")
     if ev is None:
         return ["no items event"]
     got = {i["guid"]: i for i in ev["payload"]["items"]}
     out = []
-    if set(got) != set(d["items"]):
-        missing = set(d["items"]) - set(got)
-        extra = set(got) - set(d["items"])
-        return [f"items: {len(missing)} in REAPER not shown, {len(extra)} shown but gone from REAPER"]
     pos = {g: t["pos"] for g, t in d["tracks"].items()}
-    for g, it in d["items"].items():
+    # The event carries the project's first MAX_ITEMS items, in track order.
+    shown = dict(sorted(d["items"].items(), key=lambda gi: (pos[gi[1]["track"]], gi[1]["idx"]))[:MAX_ITEMS])
+    if set(got) != set(shown):
+        missing = set(shown) - set(got)
+        extra = set(got) - set(shown)
+        return [f"items: {len(missing)} of REAPER's first {len(shown)} not shown, {len(extra)} shown but not among them"]
+    for g, it in shown.items():
         e = got[g]
         active = it["takes"][it["active"]] if it["active"] >= 0 else None
         checks = {
@@ -175,6 +192,8 @@ def items(d, c, tour):
         if active and not active.get("empty"):
             checks["activeTakeGuid"] = e["activeTakeGuid"] == active["guid"]
             checks["activeTakeIsMidi"] = e["activeTakeIsMidi"] == bool(active["midi"])
+            checks["activeTakeName"] = e["activeTakeName"] == active["name"]
+            checks["activeTakeColor"] = e["activeTakeColor"] == (int(active["color"]) or None)
         for k, ok in checks.items():
             if not ok:
                 out.append(f"item {g[:9]} on track {pos[it['track']]}: {k} = {e.get(k)!r}, REAPER {it}")
@@ -275,4 +294,60 @@ def tempo_map(d, c, tour):
         if (not close(e["position"], w["pos"], 1e-6) or not close(e["bpm"], w["bpm"], 0.01)
                 or e["timesigNum"] != w["num"] and w["num"] > 0 or e["linear"] != bool(w["linear"])):
             out.append(f"tempoMap[{i}] = {e}, REAPER {w}")
+    return out
+
+
+def decode_playlists(reamo):
+    """REAmo's playlists as saved in the project's ExtState:
+    [{"name", "stopAfterLast", "entries": [(regionId, loopCount)]}].
+    Each value is `name|S:<0/1>|regionId,loopCount|...`, with `|` and `\\`
+    in the name escaped by a backslash."""
+    out = []
+    reamo = {k.upper(): v for k, v in reamo.items()}  # REAPER upper-cases ExtState keys
+    for i in range(int(reamo.get("PLAYLISTCOUNT") or 0)):
+        raw = reamo.get(f"PLAYLIST_{i}")
+        if raw is None:
+            break
+        fields, cur, esc = [], "", False
+        for ch in raw:
+            if esc:
+                cur += ch
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == "|":
+                fields.append(cur)
+                cur = ""
+            else:
+                cur += ch
+        fields.append(cur)
+        p = {"name": fields[0], "stopAfterLast": True, "entries": []}
+        for f in fields[1:]:
+            if f.startswith("S:"):
+                p["stopAfterLast"] = f[2:3] == "1"
+            elif "," in f:
+                r, n = f.split(",", 1)
+                p["entries"].append((int(r), int(n)))
+        out.append(p)
+    return out
+
+
+def playlists(d, c, tour):
+    ev = c.latest_event("playlist")
+    if ev is None:
+        return ["no playlist event"]
+    p = ev["payload"]
+    want = decode_playlists(d["project"]["reamo"])
+    got = [{"name": pl["name"], "stopAfterLast": pl["stopAfterLast"],
+            "entries": [(e["regionId"], e["loopCount"]) for e in pl["entries"]]} for pl in p["playlists"]]
+    out = []
+    if got != want:
+        out.append(f"playlists {got} vs saved in the project {want}")
+    regions = {int(k[1:]) for k in d["markers"] if k.startswith("R")}
+    for i, pl in enumerate(p["playlists"]):
+        for j, e in enumerate(pl["entries"]):
+            if bool(e.get("deleted")) != (e["regionId"] not in regions):
+                out.append(f"playlist {i} entry {j}: deleted = {e.get('deleted')!r}, REAPER has regions {sorted(regions)}")
+    if d["project"]["play"] == 0 and p["isPlaylistActive"]:
+        out.append("playlist shown active while REAPER's transport is stopped")
     return out

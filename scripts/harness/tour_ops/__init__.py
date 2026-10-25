@@ -6,4 +6,4 @@ Each op performs one user action with the parameters the frontend sends
 should show afterwards. See tour.py for what is checked around every op.
 Importing this package registers every op.
 """
-from . import transport, mixer  # noqa: F401
+from . import transport, mixer, timeline, items, fx, tracks, session  # noqa: F401

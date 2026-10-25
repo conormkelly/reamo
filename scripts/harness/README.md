@@ -159,6 +159,15 @@ TOUR_ONLY="marker region" make harness SCENARIOS=tour-band-session   # ops whose
 ```
 
 A new command needs an op (or an `EXEMPT` entry with the reason) or the
-coverage check fails. Ops find their targets by name and raise `Skip` when
-a project lacks them. They leave the project as they found it, so a later
-op sees the same session whatever runs before it.
+coverage check fails, and a full `make harness` runs that check first. Ops
+choose their targets by role (a track with items, one with FX, a folder),
+preferring the band session's track for each flow, and raise `Skip` when a
+project has none. They leave the project as they found it, so a later op
+sees the same session whatever runs before it.
+
+The tour runs over five corpus projects, each its own `tour-*` scenario:
+`band-session` (a full band arrangement), `demo-sketch` (an evening's
+untidy idea), `tempo-map` (ramps and meter changes, time-locked),
+`legacy-v6` (a hand-written REAPER 6 project with a missing plugin and
+missing media, so REAPER's load dialogs come up) and `empty-unsaved`
+(REAPER's startup project).
