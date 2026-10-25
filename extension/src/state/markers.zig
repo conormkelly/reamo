@@ -252,8 +252,14 @@ pub const State = struct {
     // beat_in_bar: 0-indexed beat within measure (from timeToBeats)
     // beats_per_bar: time sig numerator at the position (rounding can carry a bar)
     // bar_offset: project bar offset to apply
+    // A position REAPER reports that can't be formatted (NaN, or a bar out of
+    // range in a corrupt project) is written as nothing: failing would read
+    // to serializeAlloc as "buffer too small" and drop every marker.
     pub fn formatBars(w: anytype, bar: c_int, beat_in_bar: f64, beats_per_bar: c_int, bar_offset: c_int) !void {
-        try bar_beat.write(w, bar, beat_in_bar, beats_per_bar, bar_offset);
+        bar_beat.write(w, bar, beat_in_bar, beats_per_bar, bar_offset) catch |e| switch (e) {
+            error.InvalidBeatValue => {},
+            else => |write_err| return write_err,
+        };
     }
 
     // Format length as bar.beat.ticks string (e.g., "10.1.50")
@@ -270,23 +276,27 @@ pub const State = struct {
         // Convert beat_in_bar (0-indexed with fraction) to scaled integers (ticks = fraction * 100)
         // start_beat_in_bar=0.0 means beat 1.00, start_beat_in_bar=1.5 means beat 2.50
         // roundFloatToInt validates NaN/Inf from corrupt project data
-        const start_scaled: i32 = ffi.roundFloatToInt(i32, start_beat_in_bar * 100.0) catch return error.InvalidBeatValue;
-        const end_scaled: i32 = ffi.roundFloatToInt(i32, end_beat_in_bar * 100.0) catch return error.InvalidBeatValue;
+        // Unformattable positions write nothing (see formatBars).
+        const start_scaled: i32 = ffi.roundFloatToInt(i32, start_beat_in_bar * 100.0) catch return;
+        const end_scaled: i32 = ffi.roundFloatToInt(i32, end_beat_in_bar * 100.0) catch return;
 
-        var bar_diff: i32 = end_bar - start_bar;
-        var beat_diff: i32 = end_scaled - start_scaled;
+        var bar_diff: i32 = std.math.sub(i32, end_bar, start_bar) catch return;
+        var beat_diff: i32 = std.math.sub(i32, end_scaled, start_scaled) catch return;
 
         // Handle borrowing: if beat_diff is negative, borrow from bars
         // Use time signature at START - when borrowing a bar, you're taking beats from the start position's bar
         if (beat_diff < 0) {
-            bar_diff -= 1;
+            bar_diff = std.math.sub(i32, bar_diff, 1) catch return;
             // Add one full bar worth of beats (in scaled units: beats_per_bar * 100)
-            beat_diff += start_beats_per_bar * 100;
+            const bar_beats = std.math.mul(i32, start_beats_per_bar, 100) catch return;
+            beat_diff = std.math.add(i32, beat_diff, bar_beats) catch return;
         }
 
         // Extract beat and ticks from the scaled difference
         // beat_diff is now the total scaled difference (whole beats * 100 + ticks)
-        const beat_int: u32 = @intCast(@divFloor(beat_diff, 100));
+        // A region ending before it starts (never from REAPER, but the data is
+        // REAPER's) still has a negative difference after one borrow.
+        const beat_int = std.math.cast(u32, @divFloor(beat_diff, 100)) orelse return;
         const ticks: u32 = @intCast(@mod(beat_diff, 100));
 
         // Display as bar.beat.ticks (NOT 1-indexed for lengths - 0 beats = "0.0.00")
@@ -663,6 +673,26 @@ test "State markers JSON output" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"positionBars\":\"3.2.50\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"name\":\"Verse\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"color\":16711680") != null);
+}
+
+test "a marker whose bar position can't be formatted doesn't take the other markers with it" {
+    var marker_buffer: [2]Marker = undefined;
+    marker_buffer[0] = .{ .id = 1, .position = 1, .position_beat_in_bar = std.math.nan(f64), .color = 0 };
+    marker_buffer[1] = .{ .id = 2, .position = 2, .position_bar = 2, .color = 0 };
+    var region_buffer: [1]Region = undefined;
+    region_buffer[0] = .{ .id = 3, .start = 0, .end = 4, .start_beat_in_bar = std.math.inf(f64), .color = 0 };
+    const state = State{ .markers = &marker_buffer, .regions = &region_buffer };
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const markers_json = try state.markersToJsonAlloc(arena.allocator());
+    try std.testing.expect(try std.json.validate(std.testing.allocator, markers_json));
+    try std.testing.expect(std.mem.indexOf(u8, markers_json, "\"id\":1,") != null);
+    try std.testing.expect(std.mem.indexOf(u8, markers_json, "\"positionBars\":\"\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, markers_json, "\"positionBars\":\"2.1.00\"") != null);
+    const regions_json = try state.regionsToJsonAlloc(arena.allocator());
+    try std.testing.expect(try std.json.validate(std.testing.allocator, regions_json));
+    try std.testing.expect(std.mem.indexOf(u8, regions_json, "\"id\":3,") != null);
 }
 
 test "State regions JSON output" {
