@@ -91,7 +91,7 @@ test "transport/seekBeats rejects bars that would overflow bar arithmetic" {
     try std.testing.expectEqual(@as(usize, 0), m.getCallCount(.setCursorPos));
 
     mod.testRunHandler(&m, handleSeekBeats,
-        \\{"type":"command","command":"transport/seekBeats","bar":-3}
+        \\{"type":"command","command":"transport/seekBeats","bar":3}
     );
     try std.testing.expectEqual(@as(usize, 1), m.getCallCount(.setCursorPos));
 }

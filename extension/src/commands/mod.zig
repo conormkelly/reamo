@@ -7,6 +7,7 @@ const gesture_state = @import("../server/gesture_state.zig");
 const playlist_mod = @import("../state/playlist.zig");
 const errors = @import("../core/errors.zig");
 const logging = @import("../core/logging.zig");
+const constants = @import("../core/constants.zig");
 const toggle_subscriptions = @import("../subscriptions/toggle_subscriptions.zig");
 const project_notes = @import("../subscriptions/project_notes.zig");
 const guid_cache = @import("../state/guid_cache.zig");
@@ -82,11 +83,15 @@ pub var g_ctx: CommandContext = .{};
 /// displayed (the project start measure shifts it; 58% of real projects
 /// start at -5 or similar) and `beat` 1-based in the meter's own beats
 /// (eighths in 6/8), which is how TimeMap2_beatsToTime takes them. null if
-/// the bar is out of range once the start measure is applied.
+/// the bar is out of range once the start measure is applied, or falls
+/// before the project start: REAPER has no time there, and TimeMap2 would
+/// extrapolate one (a time selection at negative seconds).
 pub fn displayedBarBeatToTime(api: anytype, bar: c_int, beat: f64) ?f64 {
     const measure = std.math.cast(c_int, @as(i64, bar) - api.getBarOffset()) orelse return null;
     if (validateBar(measure) == null) return null;
-    return api.barBeatToTime(measure, beat);
+    const time = api.barBeatToTime(measure, beat);
+    if (!(time >= -constants.TIME_EPSILON)) return null;
+    return @max(time, 0.0);
 }
 
 /// Whether a client is mid-drag on `control`. A change inside a drag is
