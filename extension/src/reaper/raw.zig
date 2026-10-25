@@ -738,8 +738,8 @@ pub const Api = struct {
     // Tempo: set BPM for current project
     pub fn setTempo(self: *const Api, bpm: f64) void {
         const f = self.setCurrentBPM orelse return;
-        // Clamp to REAPER's valid range (2-960 BPM)
-        const clamped = @max(2.0, @min(960.0, bpm));
+        // REAPER's valid range (1-960 BPM)
+        const clamped = @max(1.0, @min(960.0, bpm));
         f(null, clamped, true); // true = add undo point
     }
 
