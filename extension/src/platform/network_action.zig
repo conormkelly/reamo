@@ -566,7 +566,7 @@ pub fn showAllowedHosts() void {
             false;
 
         if (!host_validation.addAllowedHost(trimmed)) {
-            logging.warn("Allowed host '{f}' not added: too long, or the list is full", .{logging.untrusted(trimmed)});
+            logging.warn("An allowed host wasn't added ({d} characters): too long, or the list is full", .{trimmed.len});
             continue;
         }
 

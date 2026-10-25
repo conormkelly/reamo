@@ -174,14 +174,24 @@ const Handler = struct {
     html_path: ?[]const u8 = null,
 
     pub const WebsocketHandler = WsHandler;
+
+    /// A route handler failed. httpz's own report quotes the raw URL, which
+    /// a client controls; this one keeps it contained.
+    pub fn uncaughtError(_: Handler, req: *httpz.Request, res: *httpz.Response, err: anyerror) void {
+        logging.warn("HTTP request for '{f}' failed: {s}", .{ logging.untrusted(req.url.path), @errorName(err) });
+        res.status = 500;
+        res.body = "Internal Server Error";
+    }
 };
 
 // ── HTTP Route Handlers ────────────────────────────────────────────
 
 /// A browser reached REAmo by a name it doesn't serve: the usual cause of
 /// "the page won't load" with a VPN or custom hostname.
+/// The name itself is often the user's machine or domain, so it is debug.
 fn logRefusedHost(host: []const u8) void {
-    logging.info("Refused a request for host '{f}'; add it under Extensions > REAmo > Allowed Hosts if it's this computer", .{logging.untrusted(host)});
+    logging.info("Refused a request for a host name REAmo doesn't serve; if it's this computer, add it under Extensions > REAmo > Allowed Hosts", .{});
+    logging.debug("Refused host: '{f}'", .{logging.untrusted(host)});
 }
 
 fn serveIndex(handler: Handler, req: *httpz.Request, res: *httpz.Response) !void {
@@ -253,7 +263,8 @@ fn serveWsUpgrade(handler: Handler, req: *httpz.Request, res: *httpz.Response) !
     // Origin validation (CSRF protection for WebSocket upgrade)
     const origin = req.header("origin");
     if (!host_validation.isValidOrigin(origin, host)) {
-        logging.info("Refused a WebSocket from origin '{f}' for host '{f}'", .{ logging.untrusted(origin orelse "(none)"), logging.untrusted(host) });
+        logging.info("Refused a WebSocket whose page came from another site (Origin doesn't match Host)", .{});
+        logging.debug("Refused origin '{f}' for host '{f}'", .{ logging.untrusted(origin orelse "(none)"), logging.untrusted(host) });
         res.status = 403;
         res.body = "Forbidden: invalid Origin header";
         return;
