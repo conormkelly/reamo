@@ -118,8 +118,10 @@ pub fn jsonGetString(data: []const u8, key: []const u8) ?[]const u8 {
     // Find the colon
     const colon = std.mem.indexOfPos(u8, data, after_key, ":") orelse return null;
 
-    // Find opening quote
-    const quote1 = std.mem.indexOfPos(u8, data, colon + 1, "\"") orelse return null;
+    // The value must be a string: any other type is absent, not the next
+    // quoted text further on (which may belong to another key).
+    const quote1 = skipJsonWhitespace(data, colon + 1, data.len);
+    if (quote1 >= data.len or data[quote1] != '"') return null;
 
     // Find closing quote (handling escaped quotes)
     var i = quote1 + 1;
@@ -161,8 +163,9 @@ pub fn jsonGetStringUnescaped(data: []const u8, key: []const u8, out_buf: []u8) 
     // Find the colon
     const colon = std.mem.indexOfPos(u8, data, after_key, ":") orelse return null;
 
-    // Find opening quote
-    const quote1 = std.mem.indexOfPos(u8, data, colon + 1, "\"") orelse return null;
+    // The value must be a string (see jsonGetString).
+    const quote1 = skipJsonWhitespace(data, colon + 1, data.len);
+    if (quote1 >= data.len or data[quote1] != '"') return null;
 
     // Parse and unescape the string content. Output stops at the last whole
     // character that fits: a name cut mid-character would be invalid UTF-8
@@ -280,11 +283,17 @@ pub fn jsonGetInt(data: []const u8, key: []const u8) ?c_int {
         }
     }
 
+    // A whole number ends at a delimiter: 1.5 or 1e30 is not an integer
+    // parameter (read as 1, 1e30 ran action 1).
+    const after = skipJsonWhitespace(data, num_end, data.len);
+    if (after < data.len and data[after] != ',' and data[after] != '}' and data[after] != ']') return null;
+
     if (num_end > num_start) {
         return std.fmt.parseInt(c_int, data[num_start..num_end], 10) catch null;
     }
     return null;
 }
+
 
 /// Get a boolean value by key.
 /// Handles "key":true and "key":false (not quoted).
@@ -1011,6 +1020,32 @@ test "getFlag reads booleans and 0/1 alike" {
     try std.testing.expectEqual(@as(?bool, true), msg.getFlag("rearoute"));
     try std.testing.expectEqual(@as(?bool, false), msg.getFlag("wrap"));
     try std.testing.expectEqual(@as(?bool, null), msg.getFlag("missing"));
+}
+
+test "string parameters must be JSON strings" {
+    // A value of another type is absent, never the next quoted text.
+    try std.testing.expect(jsonGetString("{\"name\":[\"a\"]}", "name") == null);
+    var buf: [16]u8 = undefined;
+    try std.testing.expect(jsonGetStringUnescaped("{\"name\":[\"a\"]}", "name", &buf) == null);
+    try std.testing.expect(jsonGetStringUnescaped("{\"name\":{\"x\":\"y\"}}", "name", &buf) == null);
+    try std.testing.expect(jsonGetString("{\"name\":{\"x\":\"y\"}}", "name") == null);
+    try std.testing.expect(jsonGetString("{\"name\":3,\"color\":\"red\"}", "name") == null);
+    try std.testing.expectEqualStrings("Verse", jsonGetString("{\"name\": \"Verse\"}", "name").?);
+    // A marker command fired without a request id: its numeric marker id is
+    // not a request id.
+    const marker_update = CommandMessage{ .command = "marker/update", .raw = "{\"type\":\"command\",\"command\":\"marker/update\",\"id\":3,\"name\":\"Verse\"}" };
+    try std.testing.expect(marker_update.getId() == null);
+    try std.testing.expectEqual(@as(?c_int, 3), marker_update.getInt("id"));
+}
+
+test "integer parameters must be whole numbers in range" {
+    try std.testing.expect(jsonGetInt("{\"cc\":1.5}", "cc") == null);
+    try std.testing.expect(jsonGetInt("{\"commandId\":1e30}", "commandId") == null);
+    try std.testing.expect(jsonGetInt("{\"commandId\":99999999999}", "commandId") == null);
+    try std.testing.expect(jsonGetInt("{\"cc\":\"7\"}", "cc") == null);
+    try std.testing.expectEqual(@as(?c_int, -12), jsonGetInt("{\"bar\": -12 }", "bar"));
+    try std.testing.expectEqual(@as(?c_int, 40364), jsonGetInt("{\"commandId\":40364,\"sectionId\":0}", "commandId"));
+    try std.testing.expectEqual(@as(?c_int, 4), jsonGetInt("[{\"n\":4}]", "n"));
 }
 
 test "jsonGetBool true" {
