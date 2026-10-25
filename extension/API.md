@@ -1965,6 +1965,8 @@ Response:
 
 The `hash` is a hex-encoded 64-bit hash of the notes content, used for change detection.
 
+A phone can carry notes shorter than 65,536 bytes. When REAPER's notes are longer, the payload has `"truncated": true` and `notes` holds only their beginning (cut at a character boundary): show it read-only, since `projectNotes/set` refuses to save over notes it can't carry whole.
+
 ### `projectNotes/unsubscribe`
 
 Unsubscribe from project notes updates.
@@ -1989,7 +1991,7 @@ Set project notes. Returns the saved notes and new hash. **Returns data.**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `notes` | string | Yes | Notes content (max 64KB) |
+| `notes` | string | Yes | Notes content: under 65,536 bytes once each line break is stored as CRLF |
 
 ```json
 {"type": "command", "command": "projectNotes/set", "notes": "Updated notes content", "id": "1"}
@@ -2010,6 +2012,14 @@ Response:
 ```
 
 **Note:** Setting notes marks the project as dirty (unsaved). Notes are outside REAPER's undo system.
+
+The whole command must fit in one WebSocket message of at most 65,536 bytes (after JSON escaping); the server closes a connection that sends a larger message, so check the size before sending.
+
+**Errors:**
+
+- `MISSING_NOTES` - `notes` not provided
+- `NOTES_TOO_LONG` - The notes don't fit once line breaks are stored as CRLF. Nothing is saved.
+- `NOTES_TOO_LONG_TO_EDIT` - REAPER's current notes are longer than a phone can carry (see `projectNotes/subscribe`); saving would replace the part the phone never had. Nothing is saved.
 
 ### `projectNotesChanged` Event
 
