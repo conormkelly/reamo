@@ -9,6 +9,9 @@ export interface NotesSlice {
   // State from server
   serverNotes: string | null; // Last value from server (null = never fetched)
   serverHash: string | null; // Hash of server notes for change detection
+  // True when REAPER's notes are longer than a phone can carry: serverNotes
+  // is only their beginning, and saving would replace the rest
+  serverNotesTruncated: boolean;
 
   // Local editing state
   localNotes: string; // Current editor content
@@ -20,7 +23,7 @@ export interface NotesSlice {
   notesError: string | null;
 
   // Actions
-  setServerNotes: (notes: string, hash: string) => void;
+  setServerNotes: (notes: string, hash: string, truncated?: boolean) => void;
   setLocalNotes: (notes: string) => void;
   setExternalChange: (hasChange: boolean) => void;
   setNotesLoading: (loading: boolean) => void;
@@ -38,15 +41,19 @@ export const getNotesIsOverLimit = (slice: Pick<NotesSlice, 'localNotes'>, limit
   slice.localNotes.length > limit;
 
 export const getNotesCanSave = (
-  slice: Pick<NotesSlice, 'localNotes' | 'serverNotes' | 'hasExternalChange'>,
+  slice: Pick<NotesSlice, 'localNotes' | 'serverNotes' | 'hasExternalChange' | 'serverNotesTruncated'>,
   limit = 5000
 ): boolean =>
-  getNotesIsDirty(slice) && !getNotesIsOverLimit(slice, limit) && !slice.hasExternalChange;
+  getNotesIsDirty(slice) &&
+  !getNotesIsOverLimit(slice, limit) &&
+  !slice.hasExternalChange &&
+  !slice.serverNotesTruncated;
 
 export const createNotesSlice: StateCreator<NotesSlice> = (set, get) => ({
   // Initial state
   serverNotes: null,
   serverHash: null,
+  serverNotesTruncated: false,
   localNotes: '',
   hasExternalChange: false,
   isNotesLoading: false,
@@ -54,10 +61,11 @@ export const createNotesSlice: StateCreator<NotesSlice> = (set, get) => ({
   notesError: null,
 
   // Actions
-  setServerNotes: (notes, hash) =>
+  setServerNotes: (notes, hash, truncated = false) =>
     set({
       serverNotes: notes,
       serverHash: hash,
+      serverNotesTruncated: truncated,
       localNotes: notes,
       hasExternalChange: false,
       notesError: null,
