@@ -38,30 +38,10 @@ pub fn handleGetState(api: anytype, cmd: protocol.CommandMessage, response: *mod
 
     // Get comp target lane from LANEREC in track state chunk
     var comp_target_lane: i32 = 0;
-    const chunk_buf = scratch.alloc(u8, 65536) catch {
-        response.err("ALLOC_FAILED", "Failed to allocate chunk buffer");
-        return;
-    };
-    const chunk = api.getTrackStateChunkStr(resolution.track, chunk_buf, false);
-    if (chunk.len > 0) {
-        if (std.mem.indexOf(u8, chunk, "LANEREC ")) |lanerec_start| {
-            const after_lanerec = lanerec_start + 8;
-            const line_end = std.mem.indexOfPos(u8, chunk, after_lanerec, "\n") orelse chunk.len;
-            const lanerec_line = chunk[after_lanerec..line_end];
-
-            // Parse LANEREC v1 v2 v3 v4 - v2 is the comp target lane
-            var part_idx: usize = 0;
-            var iter = std.mem.splitScalar(u8, lanerec_line, ' ');
-            while (iter.next()) |part| {
-                if (part_idx == 1) { // v2 = comp target lane
-                    comp_target_lane = std.fmt.parseInt(i32, part, 10) catch |err| blk: {
-                        logging.warn("Failed to parse LANEREC comp target: {}", .{err});
-                        break :blk 0;
-                    };
-                    break;
-                }
-                part_idx += 1;
-            }
+    if (readTrackChunk(api, resolution.track)) |chunk| {
+        defer std.heap.c_allocator.free(chunk.buf);
+        if (findLanerec(chunk.text)) |line| {
+            comp_target_lane = parseLanerec(line.fields)[1];
         }
     }
 
@@ -214,13 +194,6 @@ pub fn handleSwipeComp(api: anytype, cmd: protocol.CommandMessage, response: *mo
 /// Set the comp target lane for a track by modifying the LANEREC field in the state chunk.
 /// Request: { "trackGuid": "{...}", "laneIndex": 0 }
 pub fn handleSetCompTarget(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    // Use scratch arena for large buffers (timer callback stack safety)
-    const tiered = mod.g_ctx.tiered orelse {
-        response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
-        return;
-    };
-    const scratch = tiered.scratchAllocator();
-
     const resolution = tracks.resolveTrack(api, cmd) orelse {
         response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
@@ -231,40 +204,23 @@ pub fn handleSetCompTarget(api: anytype, cmd: protocol.CommandMessage, response:
         return;
     };
 
-    // Get current track state chunk
-    const chunk_buf = scratch.alloc(u8, 65536) catch {
-        response.err("ALLOC_FAILED", "Failed to allocate chunk buffer");
+    // Get the whole track state chunk: it is written back, and a truncated
+    // chunk written back deletes everything past the cut.
+    const chunk = readTrackChunk(api, resolution.track) orelse {
+        response.err("CHUNK_READ_FAILED", "Failed to read the whole track state chunk");
         return;
     };
-    const chunk = api.getTrackStateChunkStr(resolution.track, chunk_buf, false);
-    if (chunk.len == 0) {
-        response.err("CHUNK_READ_FAILED", "Failed to read track state chunk");
+    defer std.heap.c_allocator.free(chunk.buf);
+    if (!isCompleteChunk(chunk.text)) {
+        response.err("CHUNK_READ_FAILED", "Track state chunk is incomplete");
         return;
     }
 
-    // Find LANEREC in the chunk
-    const lanerec_start = std.mem.indexOf(u8, chunk, "LANEREC ");
-    if (lanerec_start == null) {
+    const line = findLanerec(chunk.text) orelse {
         response.err("NO_LANEREC", "Track has no LANEREC field (not in fixed lanes mode?)");
         return;
-    }
-
-    const after_lanerec = lanerec_start.? + 8; // "LANEREC " is 8 chars
-    const line_end = std.mem.indexOfPos(u8, chunk, after_lanerec, "\n") orelse chunk.len;
-    const lanerec_line = chunk[after_lanerec..line_end];
-
-    // Parse LANEREC v1 v2 v3 v4
-    var parts: [4]i32 = .{ -1, 0, 0, 0 };
-    var part_idx: usize = 0;
-    var iter = std.mem.splitScalar(u8, lanerec_line, ' ');
-    while (iter.next()) |part| {
-        if (part_idx >= 4) break;
-        parts[part_idx] = std.fmt.parseInt(i32, part, 10) catch |err| blk: {
-            logging.warn("Failed to parse LANEREC part {d}: {}", .{ part_idx, err });
-            break :blk 0;
-        };
-        part_idx += 1;
-    }
+    };
+    const parts = parseLanerec(line.fields);
 
     // Build new LANEREC: v1 unchanged, v2=new target, v3 depends on target, v4=0
     const new_v3: i32 = if (lane_index == 0) 1 else 0;
@@ -278,38 +234,18 @@ pub fn handleSetCompTarget(api: anytype, cmd: protocol.CommandMessage, response:
         return;
     };
 
-    // Replace old LANEREC line with new one
-    // Allocate +1 for null terminator required by setTrackStateChunkStr
-    const new_chunk_buf = scratch.alloc(u8, 65537) catch {
+    // Replace the LANEREC line; everything else is written back byte for byte.
+    const before = chunk.text[0..line.start];
+    const after = chunk.text[line.end..];
+    const new_chunk = std.mem.concatWithSentinel(std.heap.c_allocator, u8, &.{ before, new_lanerec, after }, 0) catch {
         response.err("ALLOC_FAILED", "Failed to allocate new chunk buffer");
         return;
     };
-    const before = chunk[0..lanerec_start.?];
-    const after = chunk[line_end..];
-
-    var new_offset: usize = 0;
-
-    // Validate total size before copying
-    const total_size = before.len + new_lanerec.len + after.len;
-    if (total_size >= new_chunk_buf.len) {
-        response.err("CHUNK_TOO_LARGE", "Modified chunk exceeds buffer size");
-        return;
-    }
-
-    @memcpy(new_chunk_buf[new_offset .. new_offset + before.len], before);
-    new_offset += before.len;
-    @memcpy(new_chunk_buf[new_offset .. new_offset + new_lanerec.len], new_lanerec);
-    new_offset += new_lanerec.len;
-    @memcpy(new_chunk_buf[new_offset .. new_offset + after.len], after);
-    new_offset += after.len;
-
-    // Null-terminate and create sentinel slice for FFI
-    new_chunk_buf[new_offset] = 0;
-    const chunk_z: [:0]const u8 = new_chunk_buf[0..new_offset :0];
+    defer std.heap.c_allocator.free(new_chunk);
 
     api.undoBeginBlock();
 
-    if (!api.setTrackStateChunkStr(resolution.track, chunk_z, false)) {
+    if (!api.setTrackStateChunkStr(resolution.track, new_chunk, false)) {
         api.undoEndBlock("REAmo: Set comp target (failed)");
         response.err("CHUNK_SET_FAILED", "Failed to set track state chunk");
         return;
@@ -320,6 +256,108 @@ pub fn handleSetCompTarget(api: anytype, cmd: protocol.CommandMessage, response:
 
     logging.debug("Set comp target lane to {d}", .{lane_index});
     response.success(null);
+}
+
+/// A whole track state chunk, read into `buf` (free with c_allocator).
+const TrackChunk = struct { buf: []u8, text: []const u8 };
+
+/// Largest track chunk read; a track this size has hundreds of thousands of items.
+const MAX_CHUNK_BYTES: usize = 256 * 1024 * 1024;
+
+/// Read a track's whole state chunk. GetTrackStateChunk reports success even
+/// when it cut the chunk to fit the buffer (it keeps one byte for the NUL),
+/// so a chunk that fills the buffer is read again into a larger one.
+fn readTrackChunk(api: anytype, track: *anyopaque) ?TrackChunk {
+    var size: usize = 64 * 1024;
+    while (size <= MAX_CHUNK_BYTES) : (size *= 4) {
+        const buf = std.heap.c_allocator.alloc(u8, size) catch return null;
+        const text = api.getTrackStateChunkStr(track, buf, false);
+        if (text.len > 0 and text.len + 1 < buf.len) return .{ .buf = buf, .text = text };
+        std.heap.c_allocator.free(buf);
+        if (text.len == 0) return null;
+    }
+    logging.warn("track state chunk larger than {d} bytes; not read", .{MAX_CHUNK_BYTES});
+    return null;
+}
+
+/// A track chunk as REAPER writes it: "<TRACK ..." through its closing ">".
+fn isCompleteChunk(chunk: []const u8) bool {
+    const t = std.mem.trim(u8, chunk, " \t\r\n");
+    return std.mem.startsWith(u8, t, "<TRACK") and std.mem.endsWith(u8, t, ">");
+}
+
+const LanerecLine = struct { start: usize, end: usize, fields: []const u8 };
+
+/// The track's own LANEREC line. Only a line starting with the keyword
+/// counts: item notes and other nested text can contain the word.
+fn findLanerec(chunk: []const u8) ?LanerecLine {
+    var line_start: usize = 0;
+    while (line_start < chunk.len) {
+        const line_end = std.mem.indexOfScalarPos(u8, chunk, line_start, '\n') orelse chunk.len;
+        const line = std.mem.trimRight(u8, chunk[line_start..line_end], "\r");
+        if (std.mem.startsWith(u8, line, "LANEREC ")) {
+            return .{ .start = line_start, .end = line_start + line.len, .fields = line["LANEREC ".len..] };
+        }
+        line_start = line_end + 1;
+    }
+    return null;
+}
+
+/// LANEREC's four integer fields; missing or malformed fields read as -1 / 0.
+fn parseLanerec(fields: []const u8) [4]i32 {
+    var parts: [4]i32 = .{ -1, 0, 0, 0 };
+    var iter = std.mem.tokenizeScalar(u8, fields, ' ');
+    var i: usize = 0;
+    while (iter.next()) |part| : (i += 1) {
+        if (i >= parts.len) break;
+        parts[i] = std.fmt.parseInt(i32, part, 10) catch |err| blk: {
+            logging.warn("Failed to parse LANEREC part {d}: {}", .{ i, err });
+            break :blk parts[i];
+        };
+    }
+    return parts;
+}
+
+/// Stand-in for REAPER's GetTrackStateChunk: copies what fits and keeps
+/// one byte for the NUL, reporting success either way.
+const FakeChunkApi = struct {
+    chunk: []const u8,
+    calls: usize = 0,
+    pub fn getTrackStateChunkStr(self: *FakeChunkApi, track: *anyopaque, buf: []u8, isundo: bool) []const u8 {
+        _ = track;
+        _ = isundo;
+        self.calls += 1;
+        const n = @min(self.chunk.len, buf.len - 1);
+        @memcpy(buf[0..n], self.chunk[0..n]);
+        return buf[0..n];
+    }
+};
+
+test "readTrackChunk reads a chunk larger than its first buffer whole" {
+    const big = try std.testing.allocator.alloc(u8, 300 * 1024);
+    defer std.testing.allocator.free(big);
+    @memset(big, 'x');
+    @memcpy(big[0..7], "<TRACK\n");
+    big[big.len - 1] = '>';
+    var api = FakeChunkApi{ .chunk = big };
+    var dummy: u8 = 0;
+    const chunk = readTrackChunk(&api, @ptrCast(&dummy)).?;
+    defer std.heap.c_allocator.free(chunk.buf);
+    try std.testing.expectEqual(big.len, chunk.text.len);
+    try std.testing.expect(isCompleteChunk(chunk.text));
+    try std.testing.expect(api.calls > 1);
+}
+
+test "a truncated chunk is not complete" {
+    try std.testing.expect(isCompleteChunk("<TRACK\nNAME x\nLANEREC 1 0 0 0\n>\n"));
+    try std.testing.expect(!isCompleteChunk("<TRACK\nNAME x\n<ITEM\nPOSITION 1\n"));
+}
+
+test "findLanerec ignores LANEREC text inside item notes" {
+    const chunk = "<TRACK\nNAME v\n<ITEM\n<NOTES\n|LANEREC 9 9 9 9\n>\n>\nLANEREC 1 2 0 0\n>\n";
+    const line = findLanerec(chunk).?;
+    try std.testing.expectEqual([4]i32{ 1, 2, 0, 0 }, parseLanerec(line.fields));
+    try std.testing.expectEqualStrings("LANEREC 1 2 0 0", chunk[line.start..line.end]);
 }
 
 /// Set lane play state at track level.
