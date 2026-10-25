@@ -90,19 +90,17 @@ pub fn pollPeaksSubscriptions(
     // Tick the cache for LRU tracking
     tile_cache.tick();
 
-    // Check if any subscription needs immediate data (new subscription)
-    const force_broadcast = peaks_subs.consumeForceBroadcast();
-    if (force_broadcast) {
-        logging.info("peaks: force_broadcast triggered", .{});
-    }
+    // Some client subscribed or moved its viewport and needs its own tiles now.
+    const any_forced = peaks_subs.anyForceBroadcast();
 
     // Get all subscribed track indices across all clients
     var indices_buf: [128]c_int = undefined;
     const subscribed_indices = peaks_subs.getSubscribedIndices(ctx.guid_cache_ptr, ctx.backend, &indices_buf);
 
-    // Check if any track has epoch changes (audio source modified)
-    var any_track_changed = force_broadcast;
-    if (!force_broadcast) {
+    // Check if any track has epoch changes (audio source modified); that goes to
+    // every client. Skipped on a forced tick, as before: the next tick sees it.
+    var any_track_changed = false;
+    if (!any_forced) {
         for (subscribed_indices) |track_idx| {
             // Unified index (0 = master), as the generator resolves it.
             const track = ctx.backend.getTrackByUnifiedIdx(track_idx) orelse continue;
@@ -115,15 +113,19 @@ pub fn pollPeaksSubscriptions(
         }
     }
 
-    // Only broadcast if something changed, with rate limiting
-    if (any_track_changed) {
+    // Only broadcast if something changed, with rate limiting (forced
+    // per-client sends bypass the limit, as initial data always did)
+    if (any_track_changed or any_forced) {
         const now_ms = std.time.milliTimestamp();
-        if (!force_broadcast and (now_ms - peaks_subs.last_broadcast_ms) < 100) return;
+        if (!any_forced and (now_ms - peaks_subs.last_broadcast_ms) < 100) return;
         peaks_subs.last_broadcast_ms = now_ms;
 
-        logging.info("peaks: broadcasting to clients (force={}, indices={})", .{ force_broadcast, subscribed_indices.len });
+        logging.info("peaks: broadcasting (content changed={}, forced={}, indices={})", .{ any_track_changed, any_forced, subscribed_indices.len });
         var iter = peaks_subs.activeSubscriptions();
         while (iter.next()) |entry| {
+            const forced = peaks_subs.consumeForceBroadcast(entry.slot);
+            if (!forced and !any_track_changed) continue;
+
             const scratch = ctx.scratchAllocator();
 
             if (!entry.sub.hasViewport()) {
