@@ -648,11 +648,11 @@ fn doProcessing() !void {
         while (attempt < MAX_PORT_ATTEMPTS) : (attempt += 1) {
             const port = g_configured_port + @as(u16, attempt);
             var srv = http_server.HttpServer.init(g_allocator, shared_state, port, g_html_path, g_web_dir) catch |err| {
-                logging.debug("http_server: port {d} init failed: {s}", .{ port, @errorName(err) });
+                logging.warn("Server: port {d} unavailable ({s}), trying the next", .{ port, @errorName(err) });
                 continue;
             };
             srv.start() catch |err| {
-                logging.debug("http_server: port {d} listen failed: {s}", .{ port, @errorName(err) });
+                logging.warn("Server: port {d} unavailable ({s}), trying the next", .{ port, @errorName(err) });
                 srv.deinit();
                 continue;
             };
