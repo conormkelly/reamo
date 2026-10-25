@@ -74,6 +74,7 @@ pub const TransportMethods = struct {
             .measures = bar + 1,
             .beats_in_measure = beat_in_bar,
             .time_sig_denom = self.timesig_denom,
+            .time_sig_num = self.timesig_num,
         };
     }
 

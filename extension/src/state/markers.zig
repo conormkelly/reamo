@@ -1,5 +1,6 @@
 const std = @import("std");
 const ffi = @import("../core/ffi.zig");
+const bar_beat = @import("bar_beat.zig");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
 const constants = @import("../core/constants.zig");
@@ -15,6 +16,7 @@ pub const Marker = struct {
     position_beats: f64 = 0,
     position_bar: c_int = 1,
     position_beat_in_bar: f64 = 0, // 0-indexed beat within bar
+    position_beats_per_bar: c_int = 4, // Time sig numerator at the position
     name: [128]u8 = undefined,
     name_len: usize = 0,
     color: c_int,
@@ -44,6 +46,7 @@ pub const Region = struct {
     end_bar: c_int = 1,
     end_beat_in_bar: f64 = 0, // 0-indexed beat within bar
     start_beats_per_bar: c_int = 4, // Time sig numerator at start (for length borrowing)
+    end_beats_per_bar: c_int = 4, // Time sig numerator at end (for its label)
     name: [128]u8 = undefined,
     name_len: usize = 0,
     color: c_int,
@@ -153,6 +156,7 @@ pub const State = struct {
                     region.end_beats = end_beats.beats;
                     region.end_bar = end_beats.measures;
                     region.end_beat_in_bar = end_beats.beats_in_measure;
+                    region.end_beats_per_bar = end_beats.time_sig_num;
 
                     // Get time sig at start for length borrowing calculation
                     // When borrowing beats, we use the time signature of the bar we're borrowing FROM
@@ -177,6 +181,7 @@ pub const State = struct {
                     marker.position_beats = beats_info.beats;
                     marker.position_bar = beats_info.measures;
                     marker.position_beat_in_bar = beats_info.beats_in_measure;
+                    marker.position_beats_per_bar = beats_info.time_sig_num;
 
                     const copy_len = @min(info.name.len, marker.name.len);
                     @memcpy(marker.name[0..copy_len], info.name[0..copy_len]);
@@ -226,16 +231,10 @@ pub const State = struct {
     // Format bar.beat.ticks string (e.g., "5.2.50")
     // bar: measure number from timeToBeats (before offset applied)
     // beat_in_bar: 0-indexed beat within measure (from timeToBeats)
+    // beats_per_bar: time sig numerator at the position (rounding can carry a bar)
     // bar_offset: project bar offset to apply
-    pub fn formatBars(w: anytype, bar: c_int, beat_in_bar: f64, bar_offset: c_int) !void {
-        const display_bar = bar + bar_offset;
-        // Convert 0-indexed to 1-indexed and extract ticks
-        // Use integer arithmetic to avoid floating-point precision issues
-        // roundFloatToInt validates NaN/Inf from corrupt project data
-        const scaled: u32 = ffi.roundFloatToInt(u32, (beat_in_bar + 1.0) * 100.0) catch return error.InvalidBeatValue;
-        const beat_int: u32 = @max(1, scaled / 100);
-        const ticks: u32 = scaled % 100;
-        try w.print("{d}.{d}.{d:0>2}", .{ display_bar, beat_int, ticks });
+    pub fn formatBars(w: anytype, bar: c_int, beat_in_bar: f64, beats_per_bar: c_int, bar_offset: c_int) !void {
+        try bar_beat.write(w, bar, beat_in_bar, beats_per_bar, bar_offset);
     }
 
     // Format length as bar.beat.ticks string (e.g., "10.1.50")
@@ -290,7 +289,7 @@ pub const State = struct {
                 m.position,
                 m.position_beats,
             }) catch return null;
-            formatBars(w, m.position_bar, m.position_beat_in_bar, self.bar_offset) catch return null;
+            formatBars(w, m.position_bar, m.position_beat_in_bar, m.position_beats_per_bar, self.bar_offset) catch return null;
             w.writeAll("\",\"name\":\"") catch return null;
             protocol.writeJsonString(w, m.getName()) catch return null;
             w.print("\",\"color\":{d}}}", .{m.color}) catch return null;
@@ -317,9 +316,9 @@ pub const State = struct {
                 r.start_beats,
                 r.end_beats,
             }) catch return null;
-            formatBars(w, r.start_bar, r.start_beat_in_bar, self.bar_offset) catch return null;
+            formatBars(w, r.start_bar, r.start_beat_in_bar, r.start_beats_per_bar, self.bar_offset) catch return null;
             w.writeAll("\",\"endBars\":\"") catch return null;
-            formatBars(w, r.end_bar, r.end_beat_in_bar, self.bar_offset) catch return null;
+            formatBars(w, r.end_bar, r.end_beat_in_bar, r.end_beats_per_bar, self.bar_offset) catch return null;
             w.writeAll("\",\"lengthBars\":\"") catch return null;
             formatLengthBars(w, r.start_bar, r.start_beat_in_bar, r.end_bar, r.end_beat_in_bar, r.start_beats_per_bar) catch return null;
             w.writeAll("\",\"name\":\"") catch return null;
@@ -380,6 +379,7 @@ pub const State = struct {
             marker.position_beats = beats_info.beats;
             marker.position_bar = beats_info.measures;
             marker.position_beat_in_bar = beats_info.beats_in_measure;
+            marker.position_beats_per_bar = beats_info.time_sig_num;
 
             const copy_len = @min(info.name.len, marker.name.len);
             @memcpy(marker.name[0..copy_len], info.name[0..copy_len]);
@@ -436,6 +436,7 @@ pub const State = struct {
             region.end_beats = end_beats.beats;
             region.end_bar = end_beats.measures;
             region.end_beat_in_bar = end_beats.beats_in_measure;
+            region.end_beats_per_bar = end_beats.time_sig_num;
 
             // Get time sig at start for length borrowing calculation
             const start_timesig = api.getTempoAtPosition(info.pos);
@@ -499,7 +500,7 @@ pub const MarkersOnlyState = struct {
                 m.position,
                 m.position_beats,
             }) catch return null;
-            State.formatBars(w, m.position_bar, m.position_beat_in_bar, self.bar_offset) catch return null;
+            State.formatBars(w, m.position_bar, m.position_beat_in_bar, m.position_beats_per_bar, self.bar_offset) catch return null;
             w.writeAll("\",\"name\":\"") catch return null;
             protocol.writeJsonString(w, m.getName()) catch return null;
             w.print("\",\"color\":{d}}}", .{m.color}) catch return null;
@@ -549,9 +550,9 @@ pub const RegionsOnlyState = struct {
                 r.start_beats,
                 r.end_beats,
             }) catch return null;
-            State.formatBars(w, r.start_bar, r.start_beat_in_bar, self.bar_offset) catch return null;
+            State.formatBars(w, r.start_bar, r.start_beat_in_bar, r.start_beats_per_bar, self.bar_offset) catch return null;
             w.writeAll("\",\"endBars\":\"") catch return null;
-            State.formatBars(w, r.end_bar, r.end_beat_in_bar, self.bar_offset) catch return null;
+            State.formatBars(w, r.end_bar, r.end_beat_in_bar, r.end_beats_per_bar, self.bar_offset) catch return null;
             w.writeAll("\",\"lengthBars\":\"") catch return null;
             State.formatLengthBars(w, r.start_bar, r.start_beat_in_bar, r.end_bar, r.end_beat_in_bar, r.start_beats_per_bar) catch return null;
             w.writeAll("\",\"name\":\"") catch return null;

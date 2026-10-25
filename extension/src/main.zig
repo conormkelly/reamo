@@ -1159,6 +1159,7 @@ test {
     _ = @import("platform/network_action.zig");
     _ = @import("reaper/raw.zig");
     _ = @import("state/transport.zig");
+    _ = @import("state/bar_beat.zig");
     _ = @import("state/project.zig");
     _ = @import("state/markers.zig");
     _ = @import("state/items.zig");
