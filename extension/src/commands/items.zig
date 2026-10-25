@@ -43,6 +43,21 @@ pub fn handleItemSetActiveTake(api: anytype, cmd: protocol.CommandMessage, respo
     api.updateTimeline();
 }
 
+/// REAPER doesn't move a locked item (nudge, drag or move action), and
+/// neither does a phone. Refuses the command when `item` is locked or its
+/// lock can't be read; returns whether the move may go ahead.
+fn refuseIfLocked(api: anytype, item: *anyopaque, response: *mod.ResponseWriter) bool {
+    const locked = api.getItemLocked(item) catch {
+        response.err("READ_FAILED", "Could not read the item's lock");
+        return false;
+    };
+    if (locked) {
+        response.err("ITEM_LOCKED", "Item is locked");
+        return false;
+    }
+    return true;
+}
+
 pub fn handleItemMove(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const item_info = getItemFromCmd(api, cmd) orelse {
         response.err("NOT_FOUND", "Item not found");
@@ -52,6 +67,7 @@ pub fn handleItemMove(api: anytype, cmd: protocol.CommandMessage, response: *mod
         response.err("INVALID_POSITION", "Position must be a non-negative number");
         return;
     };
+    if (!refuseIfLocked(api, item_info.item, response)) return;
 
     api.undoBeginBlock();
     if (api.setItemPosition(item_info.item, position)) {
@@ -82,6 +98,7 @@ pub fn handleItemMoveByGuid(api: anytype, cmd: protocol.CommandMessage, response
         response.err("NOT_FOUND", "Item not found (may have been deleted)");
         return;
     };
+    if (!refuseIfLocked(api, item, response)) return;
 
     api.undoBeginBlock();
 
