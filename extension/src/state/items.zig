@@ -91,8 +91,8 @@ pub const Item = struct {
         if (!std.mem.eql(u8, self.getGUID(), other.getGUID())) return false;
         if (self.track_idx != other.track_idx) return false;
         if (self.item_idx != other.item_idx) return false;
-        if (@abs(self.position - other.position) > 0.001) return false;
-        if (@abs(self.length - other.length) > 0.001) return false;
+        if (@abs(self.position - other.position) > constants.TIME_EPSILON) return false;
+        if (@abs(self.length - other.length) > constants.TIME_EPSILON) return false;
         if (self.color != other.color) return false;
         if (self.locked != other.locked) return false;
         if (self.selected != other.selected) return false;
@@ -301,7 +301,7 @@ pub const State = struct {
             w.writeAll("{\"guid\":\"") catch return null;
             w.writeAll(item.getGUID()) catch return null;
             // Output unified trackIdx (0 = master, 1+ = user tracks)
-            w.print("\",\"trackIdx\":{d},\"itemIdx\":{d},\"position\":{d:.3},\"length\":{d:.3},", .{
+            w.print("\",\"trackIdx\":{d},\"itemIdx\":{d},\"position\":{d:.15},\"length\":{d:.15},", .{
                 item.track_idx + 1, item.item_idx, item.position, item.length,
             }) catch return null;
             // Write nullable fields
@@ -542,6 +542,21 @@ test "Take equality" {
     try std.testing.expect(!t1.eql(&t2));
 }
 
+test "a sample-length nudge is a change, and reaches clients to the sample" {
+    // One sample at 48 kHz.
+    const a = Item{ .position = 1.0, .length = 2.0, .color = 0, .active_take_idx = 0 };
+    var b = a;
+    b.position = 1.0 + 1.0 / 48000.0;
+    try std.testing.expect(!a.eql(&b));
+
+    var buf: [1]Item = .{b};
+    buf[0].guid_len = 0;
+    const state = State{ .items = &buf };
+    var json_buf: [2048]u8 = undefined;
+    const json = state.itemsToJson(&json_buf).?;
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"position\":1.00002083333333") != null);
+}
+
 test "Item equality" {
     const item_guid = "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}";
 
@@ -623,7 +638,7 @@ test "State items JSON output" {
     // Sparse fields: hasNotes, takeCount, activeTakeName, activeTakeGuid, activeTakeIsMidi, activeTakeColor
     // Fixed lane for swipe comping
     try std.testing.expectEqualStrings(
-        "{\"type\":\"event\",\"event\":\"items\",\"payload\":{\"items\":[{\"guid\":\"{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}\",\"trackIdx\":1,\"itemIdx\":0,\"position\":10.000,\"length\":5.000,\"color\":16711680,\"locked\":false,\"selected\":false,\"activeTakeIdx\":0,\"fixedLane\":0,\"hasNotes\":true,\"takeCount\":2,\"activeTakeName\":\"Test Take\",\"activeTakeGuid\":\"{11111111-2222-3333-4444-555555555555}\",\"activeTakeIsMidi\":false,\"activeTakeColor\":null}]}}",
+        "{\"type\":\"event\",\"event\":\"items\",\"payload\":{\"items\":[{\"guid\":\"{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}\",\"trackIdx\":1,\"itemIdx\":0,\"position\":10.000000000000000,\"length\":5.000000000000000,\"color\":16711680,\"locked\":false,\"selected\":false,\"activeTakeIdx\":0,\"fixedLane\":0,\"hasNotes\":true,\"takeCount\":2,\"activeTakeName\":\"Test Take\",\"activeTakeGuid\":\"{11111111-2222-3333-4444-555555555555}\",\"activeTakeIsMidi\":false,\"activeTakeColor\":null}]}}",
         json,
     );
 }
