@@ -35,6 +35,7 @@ function FxRow({
   trackIdx,
   trackGuid,
   fxIndex,
+  fxGuid,
   name,
   presetName,
   presetIndex,
@@ -47,6 +48,7 @@ function FxRow({
   trackIdx: number;
   trackGuid?: string;
   fxIndex: number;
+  fxGuid: string;
   name: string;
   presetName: string;
   presetIndex: number;
@@ -70,22 +72,22 @@ function FxRow({
 
   const handlePrevPreset = useCallback((e: React.MouseEvent) => {
     e.stopPropagation(); // Don't trigger row tap
-    sendCommand(fxCmd.presetPrev(trackIdx, fxIndex));
+    sendCommand(fxCmd.presetPrev(trackIdx, fxIndex, trackGuid, fxGuid));
     // No need to refetch - subscription updates automatically
-  }, [sendCommand, trackIdx, fxIndex]);
+  }, [sendCommand, trackIdx, fxIndex, trackGuid, fxGuid]);
 
   const handleNextPreset = useCallback((e: React.MouseEvent) => {
     e.stopPropagation(); // Don't trigger row tap
-    sendCommand(fxCmd.presetNext(trackIdx, fxIndex));
+    sendCommand(fxCmd.presetNext(trackIdx, fxIndex, trackGuid, fxGuid));
     // No need to refetch - subscription updates automatically
-  }, [sendCommand, trackIdx, fxIndex]);
+  }, [sendCommand, trackIdx, fxIndex, trackGuid, fxGuid]);
 
   const handleToggleBypass = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     e.stopPropagation(); // Don't trigger row tap
     // Toggle FX enabled state (undefined = toggle)
-    sendCommand(trackFx.setEnabled(trackIdx, fxIndex, undefined, trackGuid));
+    sendCommand(trackFx.setEnabled(trackIdx, fxIndex, undefined, trackGuid, fxGuid));
     // No need to refetch - subscription updates automatically
-  }, [sendCommand, trackIdx, fxIndex, trackGuid]);
+  }, [sendCommand, trackIdx, fxIndex, trackGuid, fxGuid]);
 
   // Display preset info
   const presetDisplay = presetName || '(no preset)';
@@ -280,6 +282,7 @@ export function FxModal({
                   trackIdx={trackIndex}
                   trackGuid={guid}
                   fxIndex={fx.fxIndex}
+                  fxGuid={fx.fxGuid}
                   name={fx.name}
                   presetName={fx.presetName}
                   presetIndex={fx.presetIndex}
