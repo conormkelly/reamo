@@ -162,7 +162,7 @@ pub const State = struct {
                     region.id = info.id;
                     region.start = info.pos;
                     region.end = info.end;
-                    region.color = info.color;
+                    region.color = shownColor(info.color);
 
                     // Compute beat positions
                     const start_beats = api.timeToBeats(info.pos);
@@ -191,7 +191,7 @@ pub const State = struct {
                     var marker = &marker_buffer[marker_count];
                     marker.id = info.id;
                     marker.position = info.pos;
-                    marker.color = info.color;
+                    marker.color = shownColor(info.color);
 
                     // Compute beat position
                     const beats_info = api.timeToBeats(info.pos);
@@ -391,7 +391,7 @@ pub const State = struct {
             var marker = &marker_buf[write_idx];
             marker.id = info.id;
             marker.position = info.pos;
-            marker.color = info.color;
+            marker.color = shownColor(info.color);
 
             // Compute beat position
             const beats_info = api.timeToBeats(info.pos);
@@ -442,7 +442,7 @@ pub const State = struct {
             region.id = info.id;
             region.start = info.pos;
             region.end = info.end;
-            region.color = info.color;
+            region.color = shownColor(info.color);
 
             // Compute beat positions
             const start_beats = api.timeToBeats(info.pos);
@@ -815,7 +815,26 @@ test "region position preserves sub-millisecond precision" {
 // MockBackend-based tests
 // =============================================================================
 
+/// The colour phones show for a marker or region: 0 (the theme's) unless
+/// REAPER's custom flag is set. Resetting to the theme's colour, in REAPER or
+/// from a phone, clears only the flag and leaves the RGB behind.
+fn shownColor(raw: c_int) c_int {
+    return if (raw & constants.CUSTOM_COLOR_FLAG != 0) raw else 0;
+}
+
 const MockBackend = reaper.MockBackend;
+
+test "a marker or region reset to the theme's colour shows as 0, whatever RGB is left" {
+    var mock = MockBackend{ .marker_count = 1, .region_count = 1 };
+    mock.markers[0] = .{ .idx = 0, .id = 1, .pos = 2.0, .end = 0.0, .is_region = false, .color = 0x2828DC };
+    mock.markers[0].setName("Verse");
+    mock.markers[1] = .{ .idx = 1, .id = 2, .pos = 0.0, .end = 8.0, .is_region = true, .color = 0x2828DC | constants.CUSTOM_COLOR_FLAG };
+    mock.markers[1].setName("Intro");
+
+    const state = State.pollStatic(&mock);
+    try std.testing.expectEqual(@as(c_int, 0), state.markers[0].color);
+    try std.testing.expectEqual(@as(c_int, 0x2828DC | constants.CUSTOM_COLOR_FLAG), state.regions[0].color);
+}
 
 test "poll with MockBackend returns markers and regions" {
     var mock = MockBackend{

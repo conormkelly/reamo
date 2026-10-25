@@ -87,8 +87,6 @@ pub fn validateBackend(comptime T: type) void {
         "undoBeginBlock",
         "undoEndBlock",
         "undoRecordChange",
-        "regionRenderTracks",
-        "addRegionRenderTrack",
 
         // Tracks
         "trackCount",
@@ -183,9 +181,7 @@ pub fn validateBackend(comptime T: type) void {
         "markerCount",
         "enumMarker",
         "addMarker",
-        "addMarkerWithId",
         "addRegion",
-        "addRegionWithId",
         "updateMarker",
         "updateRegion",
         "deleteMarker",

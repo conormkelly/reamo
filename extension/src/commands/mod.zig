@@ -102,6 +102,22 @@ pub fn inGesture(response: *const ResponseWriter, control: gesture_state.Control
     return gestures.isActive(control);
 }
 
+/// The colour a marker or region update stores, from its `current` colour
+/// and the colour the client sent (null: unchanged). 0 asks for the theme's
+/// colour, which REAPER's own "Set marker/region to default color" gives by
+/// clearing the custom flag and keeping the RGB, so the marker or region
+/// keeps its GUID and render routing. SetProjectMarker4 reads 0 as
+/// "unchanged": a black custom colour (RGB 0) clears to 1, which shows the
+/// theme's colour too, and one already showing it stays as it is (the UI
+/// sends 0 with every rename).
+pub fn markerColor(current: c_int, requested: ?c_int) c_int {
+    const want = requested orelse return current;
+    if (want != 0) return want;
+    if (current & constants.CUSTOM_COLOR_FLAG == 0) return 0;
+    const rgb = current & ~constants.CUSTOM_COLOR_FLAG;
+    return if (rgb != 0) rgb else 1;
+}
+
 /// Comp lanes (fixed item lanes) are REAPER 7's. On an older REAPER a lane
 /// command answers NEEDS_REAPER_7 and does nothing: this returns false.
 pub fn requireLanes(api: anytype, response: *ResponseWriter) bool {
@@ -471,4 +487,17 @@ test {
     _ = @import("send.zig");
     _ = @import("receive.zig");
     _ = @import("hw_output.zig");
+}
+
+test "markerColor clears only the custom flag to give the theme's colour back" {
+    const red = 0x2828DC | constants.CUSTOM_COLOR_FLAG;
+    try std.testing.expectEqual(@as(c_int, 0x2828DC), markerColor(red, 0));
+    // Black: RGB 0 would read as "unchanged".
+    try std.testing.expectEqual(@as(c_int, 1), markerColor(constants.CUSTOM_COLOR_FLAG, 0));
+    // Already the theme's colour (never coloured, or reset before): unchanged.
+    try std.testing.expectEqual(@as(c_int, 0), markerColor(0, 0));
+    try std.testing.expectEqual(@as(c_int, 0), markerColor(0x2828DC, 0));
+    // A colour, or nothing sent.
+    try std.testing.expectEqual(@as(c_int, 0x10000FF), markerColor(red, 0x10000FF));
+    try std.testing.expectEqual(red, markerColor(red, null));
 }

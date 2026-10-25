@@ -7,8 +7,9 @@ import math
 
 
 def custom_color(c):
-    """REAPER returns a colour without the 0x1000000 "custom" flag for tracks
-    that use the theme colour; clients show those as 0 (theme default)."""
+    """REAPER returns a colour without the 0x1000000 "custom" flag for a track,
+    item, marker or region that shows the theme colour (a marker reset to the
+    default keeps its RGB); clients show those as 0 (theme default)."""
     c = int(c)
     return c if c & 0x1000000 else 0
 
@@ -212,7 +213,7 @@ def markers(d, c, tour):
         return [f"markers ids {sorted(got)} vs REAPER {sorted(want)}"]
     for k, m in want.items():
         e = got[k]
-        if not close(e["position"], m["pos"], 1e-6) or e["name"] != m["name"] or e["color"] != m["color"]:
+        if not close(e["position"], m["pos"], 1e-6) or e["name"] != m["name"] or e["color"] != custom_color(m["color"]):
             out.append(f"marker {k} = {e}, REAPER {m}")
         elif e["positionBars"] != m["bars"]:
             out.append(f"marker {k} bars {e['positionBars']!r}, REAPER shows {m['bars']!r}")
@@ -231,7 +232,7 @@ def regions(d, c, tour):
     for k, r in want.items():
         e = got[k]
         if (not close(e["start"], r["pos"], 1e-6) or not close(e["end"], r["end"], 1e-6)
-                or e["name"] != r["name"] or e["color"] != r["color"]):
+                or e["name"] != r["name"] or e["color"] != custom_color(r["color"])):
             out.append(f"region {k} = {e}, REAPER {r}")
         elif (e["startBars"], e["endBars"]) != (r["bars"], r["end_bars"]):
             out.append(f"region {k} bars {e['startBars']}..{e['endBars']}, REAPER shows {r['bars']}..{r['end_bars']}")

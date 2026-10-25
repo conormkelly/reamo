@@ -10,6 +10,7 @@ const std = @import("std");
 const raw = @import("raw.zig");
 const types = @import("types.zig");
 const ffi = @import("../core/ffi.zig");
+const constants = @import("../core/constants.zig");
 const backend = @import("backend.zig");
 
 pub const RealBackend = struct {
@@ -339,14 +340,6 @@ pub const RealBackend = struct {
         self.inner.undoEndBlock(description);
     }
 
-    pub fn regionRenderTracks(self: *const RealBackend, region_id: c_int, out: []*anyopaque) []*anyopaque {
-        return self.inner.regionRenderTracks(region_id, out);
-    }
-
-    pub fn addRegionRenderTrack(self: *const RealBackend, region_id: c_int, track: *anyopaque) void {
-        self.inner.addRegionRenderTrack(region_id, track);
-    }
-
     pub fn undoRecordChange(self: *const RealBackend, description: [*:0]const u8) void {
         self.inner.undoRecordChange(description);
     }
@@ -413,9 +406,7 @@ pub const RealBackend = struct {
 
     pub fn getTrackColor(self: *const RealBackend, track: *anyopaque) ffi.FFIError!c_int {
         const color_val = try ffi.safeFloatToInt(c_int, self.inner.getTrackColor(track));
-        // REAPER uses bit 24 (0x01000000) as an "enabled" flag - if not set, track uses theme default
-        const CUSTOM_COLOR_FLAG: c_int = 0x01000000;
-        if ((color_val & CUSTOM_COLOR_FLAG) == 0) {
+        if ((color_val & constants.CUSTOM_COLOR_FLAG) == 0) {
             return 0; // No custom color - uses theme default
         }
         return color_val;
@@ -1048,16 +1039,8 @@ pub const RealBackend = struct {
         return self.inner.addMarker(pos, name, color);
     }
 
-    pub fn addMarkerWithId(self: *const RealBackend, pos: f64, name: [*:0]const u8, color: c_int, id: c_int) c_int {
-        return self.inner.addMarkerWithId(pos, name, color, id);
-    }
-
     pub fn addRegion(self: *const RealBackend, start: f64, end: f64, name: [*:0]const u8, color: c_int) c_int {
         return self.inner.addRegion(start, end, name, color);
-    }
-
-    pub fn addRegionWithId(self: *const RealBackend, start: f64, end: f64, name: [*:0]const u8, color: c_int, id: c_int) c_int {
-        return self.inner.addRegionWithId(start, end, name, color, id);
     }
 
     pub fn updateMarker(self: *const RealBackend, id: c_int, pos: f64, name: [*:0]const u8, color: c_int) bool {

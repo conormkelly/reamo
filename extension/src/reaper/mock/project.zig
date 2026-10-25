@@ -229,13 +229,6 @@ pub const ProjectMethods = struct {
         self.undo_block_active = true;
     }
 
-    /// The mock has no render matrix.
-    pub fn regionRenderTracks(_: anytype, _: c_int, out: []*anyopaque) []*anyopaque {
-        return out[0..0];
-    }
-
-    pub fn addRegionRenderTrack(_: anytype, _: c_int, _: *anyopaque) void {}
-
     pub fn undoRecordChange(self: anytype, desc: [*:0]const u8) void {
         self.recordCall(.undoRecordChange);
         _ = desc;

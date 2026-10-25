@@ -430,12 +430,12 @@ Update an existing marker. Uses PATCH semantics - omitted fields preserve curren
 | `id` | int | Yes | Marker ID |
 | `position` | float | No | New position in seconds (preserves current if omitted) |
 | `name` | string | No | New name (preserves current if omitted or empty) |
-| `color` | int | No | New color: omit to preserve, `0` to reset to default red |
+| `color` | int | No | New color: omit to preserve, `0` to reset to the theme's colour |
 
 **Color behavior:**
 
 - Omitted → preserve current color
-- `0` → reset to REAPER's default marker color (red)
+- `0` → back to the theme's marker colour. As REAPER's own "Set marker to default color" does, this clears the custom-colour flag (`0x1000000`) and keeps the other bits, so the marker keeps its GUID. A marker whose colour lacks the flag shows the theme's colour, and `markers` events report it as `0`.
 - Non-zero → set to that color value
 
 ```json
@@ -512,7 +512,7 @@ Update an existing region.
 | `start` | float | No | New start position |
 | `end` | float | No | New end position |
 | `name` | string | No | New name |
-| `color` | int | No | New color |
+| `color` | int | No | New color: omit to preserve, `0` back to the theme's colour as for [`marker/update`](#markerupdate) (the region keeps its GUID and render-matrix routing) |
 
 ```json
 {"type": "command", "command": "region/update", "id": 1, "name": "Verse"}
