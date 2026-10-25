@@ -39,13 +39,19 @@ pub const TunerParam = enum(c_int) {
     threshold = 6, // Write: silence threshold (dB, -90 to -30) - slider11
 };
 
-/// Result from subscribe operation
+/// Result from subscribe operation. The track name is held in the result
+/// itself: it is read after subscribe() returns.
 pub const SubscribeResult = struct {
     track_guid: []const u8,
     fx_guid: []const u8,
-    track_name: []const u8,
+    track_name_buf: [256]u8 = undefined,
+    track_name_len: usize = 0,
     reference_hz: f32,
     threshold_db: f32,
+
+    pub fn trackName(self: *const SubscribeResult) []const u8 {
+        return self.track_name_buf[0..self.track_name_len];
+    }
 };
 
 /// Per-track tuner state (shared across clients subscribing to same track)
@@ -295,19 +301,16 @@ pub const TunerSubscriptions = struct {
         self.force_broadcast_clients[slot] = true;
         self.prev_hash[slot] = 0;
 
-        // Get track name for response
-        var name_buf: [256]u8 = undefined;
-        const track_name = api.getTrackNameStr(track, &name_buf);
-
         logging.debug("tuner: client {d} subscribed to track {s} (ref_count={d})", .{ client_id, track_guid, tuner.?.ref_count });
 
-        return SubscribeResult{
+        var result = SubscribeResult{
             .track_guid = tuner.?.getTrackGuid(),
             .fx_guid = tuner.?.getFxGuid(),
-            .track_name = track_name,
             .reference_hz = tuner.?.reference_hz,
             .threshold_db = tuner.?.silence_threshold,
         };
+        result.track_name_len = api.getTrackNameStr(track, &result.track_name_buf).len;
+        return result;
     }
 
     /// Internal unsubscribe (doesn't remove client from map)
