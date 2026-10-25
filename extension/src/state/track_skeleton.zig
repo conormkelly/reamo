@@ -262,14 +262,10 @@ pub const State = struct {
         return buf[0..stream.pos];
     }
 
-    /// Allocator-based version - dynamically sized, supports extreme projects.
-    /// Estimates buffer size based on track count, allocates from arena, returns trimmed slice.
+    /// toJson into a buffer grown until the event fits: names escape to
+    /// several times their length, so no per-track estimate is safe.
     pub fn toJsonAlloc(self: *const State, allocator: Allocator) ![]const u8 {
-        // Estimate: ~250 bytes per track (name + GUID + filter fields + JSON overhead) + 100 base
-        const estimated_size = 100 + (self.tracks.len * 250);
-        const buf = try allocator.alloc(u8, estimated_size);
-        const json = self.toJson(buf) orelse return error.JsonSerializationFailed;
-        return json; // Return slice of allocated buffer (no copy needed, arena-owned)
+        return protocol.serializeAlloc(allocator, 100 + self.tracks.len * 250, self, toJson);
     }
 };
 
@@ -389,6 +385,25 @@ test "State toJsonAlloc dynamically sizes buffer" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"event\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"event\":\"trackSkeleton\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"g\":\"master\"") != null);
+}
+
+test "a track list of long names that need escaping reaches the phone whole" {
+    // Every name at the 128-byte cap, all quotes: each escapes to 256 bytes,
+    // well past any fixed per-track estimate.
+    var tracks_buf: [64]SkeletonTrack = undefined;
+    for (&tracks_buf, 0..) |*t, i| {
+        t.* = .{};
+        @memset(t.name[0..MAX_NAME_LEN], '"');
+        t.name_len = MAX_NAME_LEN;
+        const g = std.fmt.bufPrint(&t.guid, "{{{d:0>36}}}", .{i}) catch unreachable;
+        t.guid_len = g.len;
+    }
+    const state = State{ .tracks = &tracks_buf };
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const json = try state.toJsonAlloc(arena.allocator());
+    try std.testing.expect(try std.json.validate(std.testing.allocator, json));
+    try std.testing.expectEqual(@as(usize, 64), std.mem.count(u8, json, "\"g\":"));
 }
 
 test "State poll reports a track with more than 65535 items instead of overflowing" {

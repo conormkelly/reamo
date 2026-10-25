@@ -459,12 +459,16 @@ pub const State = struct {
         return stream.getWritten();
     }
 
-    // Allocator-based version - returns owned slice from allocator
-    // Allocates from arena instead of stack to avoid stack overflow in timer callbacks (§1)
+    /// toJson into a buffer grown until the event fits.
     pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator, metering: ?*const MeteringState) ![]const u8 {
-        const buf = try allocator.alloc(u8, 16384);
-        const json = self.toJson(buf, metering) orelse return error.JsonSerializationFailed;
-        return json;
+        const Ctx = struct {
+            state: *const State,
+            metering: ?*const MeteringState,
+            fn toJson(ctx: @This(), buf: []u8) ?[]const u8 {
+                return ctx.state.toJson(buf, ctx.metering);
+            }
+        };
+        return protocol.serializeAlloc(allocator, 200 + self.tracks.len * 600, Ctx{ .state = self, .metering = metering }, Ctx.toJson);
     }
 
     /// Build JSON event with total track count (for viewport-driven subscriptions).
@@ -561,15 +565,19 @@ pub const State = struct {
         return stream.getWritten();
     }
 
-    /// Allocator-based version of toJsonWithTotal - dynamically sized for extreme projects.
-    /// Returns owned slice from allocator.
+    /// toJsonWithTotal into a buffer grown until the event fits.
     pub fn toJsonWithTotalAlloc(self: *const State, allocator: std.mem.Allocator, metering: ?*const MeteringState, total: usize) ![]const u8 {
-        // Estimate: ~600 bytes per track (with GUID) + ~65 bytes per meter + 200 base
+        const Ctx = struct {
+            state: *const State,
+            metering: ?*const MeteringState,
+            total: usize,
+            fn toJson(ctx: @This(), buf: []u8) ?[]const u8 {
+                return ctx.state.toJsonWithTotal(buf, ctx.metering, ctx.total);
+            }
+        };
         const meter_count = if (metering) |m| m.count else 0;
         const estimated_size = 200 + (self.tracks.len * 600) + (meter_count * 65);
-        const buf = try allocator.alloc(u8, estimated_size);
-        const json = self.toJsonWithTotal(buf, metering, total) orelse return error.JsonSerializationFailed;
-        return json; // Return slice of allocated buffer (arena-owned)
+        return protocol.serializeAlloc(allocator, estimated_size, Ctx{ .state = self, .metering = metering, .total = total }, Ctx.toJson);
     }
 };
 
@@ -708,15 +716,17 @@ pub const MeteringState = struct {
         return stream.getWritten();
     }
 
-    /// Allocator-based version of toJsonEvent - dynamically sized for extreme projects.
-    /// Returns owned slice from allocator.
+    /// toJsonEvent into a buffer grown until the event fits.
     pub fn toJsonEventAlloc(self: *const MeteringState, allocator: std.mem.Allocator, track_slice: []const Track) ![]const u8 {
         if (self.count == 0) return error.NoMeteringData;
-        // Estimate: ~100 bytes per meter entry (GUID key + values) + 50 base
-        const estimated_size = 50 + (self.count * 100);
-        const buf = try allocator.alloc(u8, estimated_size);
-        const json = self.toJsonEvent(buf, track_slice) orelse return error.JsonSerializationFailed;
-        return json; // Return slice of allocated buffer (arena-owned)
+        const Ctx = struct {
+            metering: *const MeteringState,
+            tracks: []const Track,
+            fn toJson(ctx: @This(), buf: []u8) ?[]const u8 {
+                return ctx.metering.toJsonEvent(buf, ctx.tracks);
+            }
+        };
+        return protocol.serializeAlloc(allocator, 50 + self.count * 100, Ctx{ .metering = self, .tracks = track_slice }, Ctx.toJson);
     }
 };
 

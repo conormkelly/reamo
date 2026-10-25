@@ -184,14 +184,9 @@ pub const State = struct {
         return stream.getWritten();
     }
 
-    /// Allocator-based version - dynamically sized, supports extreme projects.
-    /// Estimates buffer size based on send count, allocates from arena, returns trimmed slice.
+    /// toJson into a buffer grown until the event fits.
     pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
-        // Estimate: ~200 bytes per send (name + volume + pan + mode + JSON overhead) + 100 base
-        const estimated_size = 100 + (self.sends.len * 200);
-        const buf = try allocator.alloc(u8, estimated_size);
-        const json = self.toJson(buf) orelse return error.JsonSerializationFailed;
-        return json; // Return slice of allocated buffer (no copy needed, arena-owned)
+        return protocol.serializeAlloc(allocator, 100 + self.sends.len * 200, self, toJson);
     }
 };
 
@@ -302,14 +297,9 @@ pub const HwOutputsState = struct {
         return stream.getWritten();
     }
 
-    /// Allocator-based version - dynamically sized, supports extreme projects.
-    /// Estimates buffer size based on hw output count, allocates from arena, returns trimmed slice.
+    /// toJson into a buffer grown until the event fits.
     pub fn toJsonAlloc(self: *const HwOutputsState, allocator: std.mem.Allocator) ![]const u8 {
-        // Estimate: ~150 bytes per hw output (name + volume + pan + channel + JSON overhead) + 100 base
-        const estimated_size = 100 + (self.hw_outputs.len * 150);
-        const buf = try allocator.alloc(u8, estimated_size);
-        const json = self.toJson(buf) orelse return error.JsonSerializationFailed;
-        return json; // Return slice of allocated buffer (no copy needed, arena-owned)
+        return protocol.serializeAlloc(allocator, 100 + self.hw_outputs.len * 150, self, toJson);
     }
 };
 
