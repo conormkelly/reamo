@@ -12,6 +12,8 @@
 //! do work when there are relevant events to process.
 
 const std = @import("std");
+const item_guid_cache = @import("../state/item_guid_cache.zig");
+const guid_cache = @import("../state/guid_cache.zig");
 const reaper = @import("../reaper.zig");
 const logging = @import("../core/logging.zig");
 const ws_server = @import("ws_server.zig");
@@ -112,6 +114,9 @@ pub const SnapshotContext = struct {
     playlist_state: *const playlist.State,
     /// Cached regions for playlist serialization
     last_markers_regions: []const markers.Region,
+    /// GUID caches, rebuilt from the same poll the snapshot sends
+    guid_cache: ?*guid_cache.GuidCache,
+    item_cache: ?*item_guid_cache.ItemGuidCache,
 
     /// Create a scratch allocator from the tiered arenas
     pub fn scratchAllocator(self: *const SnapshotContext) std.mem.Allocator {
@@ -239,6 +244,16 @@ pub fn sendSnapshotsToNewClients(ctx: *const SnapshotContext) void {
     const scratch = ctx.scratchAllocator();
     const snap_skeleton = track_skeleton.State.poll(scratch, ctx.backend) catch null;
     const snap_items = items.State.poll(scratch, ctx.backend) catch null;
+
+    // A client acts on the GUIDs in its snapshot at once (a fader moved by
+    // trackGuid), so the caches must resolve every one of them now, not
+    // after the next track-list change.
+    if (ctx.guid_cache) |cache| {
+        cache.rebuild(ctx.backend) catch |err| logging.warn("snapshot: track GUID cache rebuild failed: {s}", .{@errorName(err)});
+    }
+    if (ctx.item_cache) |cache| {
+        if (snap_items) |si| cache.rebuildFromItems(items, si.items) catch |err| logging.warn("snapshot: item GUID cache rebuild failed: {s}", .{@errorName(err)});
+    }
 
     // Send snapshot to each new client
     for (Buffers.snapshot_clients[0..snapshot_count]) |client_id| {

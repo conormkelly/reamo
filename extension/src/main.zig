@@ -716,6 +716,8 @@ fn doProcessing() !void {
         .tiered = tiered,
         .playlist_state = &g_playlist_state,
         .last_markers_regions = g_last_markers.regions,
+        .guid_cache = g_guid_cache,
+        .item_cache = g_item_cache,
     };
 
     // Send snapshots to newly connected clients
