@@ -25,49 +25,40 @@ const MIDI_DEVICE_ALL: c_int = 63;
 // input/enumerateAudio
 // ============================================================================
 
-pub fn handleEnumerateAudio(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const count = api.numAudioInputs();
+/// `{"inputs":[{"idx":0,"name":"..."},...]}` for the first `count` audio
+/// inputs. Device channel names run long (aggregate and network devices), so
+/// the buffer grows to fit rather than trusting a per-input estimate.
+fn audioInputsJsonAlloc(api: anytype, allocator: std.mem.Allocator, count: c_int) ![]const u8 {
+    const Ctx = struct {
+        api: @TypeOf(api),
+        count: c_int,
+        fn write(ctx: @This(), w: anytype) !void {
+            try w.writeAll("{\"inputs\":[");
+            var i: c_int = 0;
+            while (i < ctx.count) : (i += 1) {
+                if (i > 0) try w.writeAll(",");
+                const name = if (ctx.api.audioInputName(i)) |n| std.mem.span(n) else "Unknown";
+                try w.print("{{\"idx\":{d},\"name\":\"", .{i});
+                try protocol.writeJsonString(w, name);
+                try w.writeAll("\"}");
+            }
+            try w.writeAll("]}");
+        }
+    };
+    return protocol.writeAlloc(allocator, 2048 + @as(usize, @intCast(count)) * 60, Ctx{ .api = api, .count = count }, Ctx.write);
+}
 
-    // Use scratch arena for dynamic-sized response
+pub fn handleEnumerateAudio(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const count = @max(api.numAudioInputs(), 0);
     const tiered = mod.g_ctx.tiered orelse {
         response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
         return;
     };
-    const allocator = tiered.scratchAllocator();
-
-    // Estimate: ~60 bytes per input (JSON overhead + name)
-    const estimated_size: usize = @intCast(@max(2048, @as(c_int, @intCast(count)) * 60 + 100));
-    const buf = allocator.alloc(u8, estimated_size) catch {
-        response.err("ALLOC_FAILED", "Failed to allocate response buffer");
+    const payload = audioInputsJsonAlloc(api, tiered.scratchAllocator(), count) catch |err| {
+        logging.warn("input/enumerateAudio: can't build the list of {d} inputs: {s}", .{ count, @errorName(err) });
+        response.err("SERIALIZE_ERROR", "Failed to build the input list");
         return;
     };
-
-    var stream = std.io.fixedBufferStream(buf);
-    const writer = stream.writer();
-
-    writer.writeAll("{\"inputs\":[") catch {
-        response.err("SERIALIZE_ERROR", "Failed to write response");
-        return;
-    };
-
-    var first = true;
-    var i: c_int = 0;
-    while (i < count) : (i += 1) {
-        const name_ptr = api.audioInputName(i);
-        const name_str = if (name_ptr) |n| std.mem.span(n) else "Unknown";
-
-        if (!first) writer.writeAll(",") catch return;
-        first = false;
-
-        writer.print("{{\"idx\":{d},\"name\":\"", .{i}) catch return;
-        protocol.writeJsonString(writer, name_str) catch return;
-        writer.writeAll("\"}") catch return;
-    }
-
-    writer.writeAll("]}") catch return;
-
-    // Use large payload - input list can exceed 512-byte response buffer
-    const payload = stream.getWritten();
     response.successLargePayload(payload);
 }
 
@@ -77,56 +68,37 @@ pub fn handleEnumerateAudio(api: anytype, _: protocol.CommandMessage, response: 
 
 pub fn handleEnumerateMidi(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const max_devices = api.maxMidiInputs();
-
     const tiered = mod.g_ctx.tiered orelse {
         response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
         return;
     };
-    const allocator = tiered.scratchAllocator();
-
-    // Estimate: ~80 bytes per device (including name)
-    const estimated_size: usize = @intCast(@max(4096, @as(c_int, @intCast(max_devices)) * 80 + 300));
-    const buf = allocator.alloc(u8, estimated_size) catch {
-        response.err("ALLOC_FAILED", "Failed to allocate response buffer");
-        return;
-    };
-
-    var stream = std.io.fixedBufferStream(buf);
-    const writer = stream.writer();
-
-    writer.writeAll("{\"devices\":[") catch {
-        response.err("SERIALIZE_ERROR", "Failed to write response");
-        return;
-    };
-
-    var first = true;
-    var name_buf: [256]u8 = undefined;
-
-    // Enumerate hardware devices (skip 62, 63 - added as virtual entries below)
-    var i: c_int = 0;
-    while (i < max_devices) : (i += 1) {
-        if (i == 62 or i == 63) continue;
-        if (api.midiInputName(i, &name_buf, 256)) {
-            if (!first) writer.writeAll(",") catch return;
-            first = false;
-
-            const name_len = std.mem.indexOfScalar(u8, &name_buf, 0) orelse 255;
-
-            writer.print("{{\"idx\":{d},\"name\":\"", .{i}) catch return;
-            protocol.writeJsonString(writer, utf8.trimTruncated(name_buf[0..name_len], name_buf.len)) catch return;
-            writer.writeAll("\"}") catch return;
+    const Ctx = struct {
+        api: @TypeOf(api),
+        max_devices: c_int,
+        fn write(ctx: @This(), w: anytype) !void {
+            try w.writeAll("{\"devices\":[");
+            var name_buf: [256]u8 = undefined;
+            // Hardware devices; 62 and 63 are the virtual entries added below.
+            var i: c_int = 0;
+            while (i < ctx.max_devices) : (i += 1) {
+                if (i == MIDI_DEVICE_VKB or i == MIDI_DEVICE_ALL) continue;
+                if (!ctx.api.midiInputName(i, &name_buf, name_buf.len)) continue;
+                const name_len = std.mem.indexOfScalar(u8, &name_buf, 0) orelse name_buf.len - 1;
+                try w.print("{{\"idx\":{d},\"name\":\"", .{i});
+                try protocol.writeJsonString(w, utf8.trimTruncated(name_buf[0..name_len], name_buf.len));
+                try w.writeAll("\"},");
+            }
+            try w.writeAll("{\"idx\":62,\"name\":\"Virtual MIDI Keyboard\"}");
+            try w.writeAll(",{\"idx\":63,\"name\":\"All MIDI Inputs\"}");
+            try w.writeAll("]}");
         }
-    }
-
-    // Add special virtual entries (always present)
-    if (!first) writer.writeAll(",") catch return;
-    writer.writeAll("{\"idx\":62,\"name\":\"Virtual MIDI Keyboard\"}") catch return;
-    writer.writeAll(",{\"idx\":63,\"name\":\"All MIDI Inputs\"}") catch return;
-
-    writer.writeAll("]}") catch return;
-
-    // Use large payload - device list can exceed 512-byte response buffer
-    response.successLargePayload(stream.getWritten());
+    };
+    const payload = protocol.writeAlloc(tiered.scratchAllocator(), 4096, Ctx{ .api = api, .max_devices = max_devices }, Ctx.write) catch |err| {
+        logging.warn("input/enumerateMidi: can't build the device list: {s}", .{@errorName(err)});
+        response.err("SERIALIZE_ERROR", "Failed to build the device list");
+        return;
+    };
+    response.successLargePayload(payload);
 }
 
 // ============================================================================
@@ -555,4 +527,17 @@ test "track/setInput still accepts the highest ReaRoute audio channel" {
     );
     try std.testing.expectEqual(@as(usize, 1), m.getCallCount(.setTrackRecInput));
     try std.testing.expectEqual(@as(c_int, 1023), m.tracks[0].rec_input);
+}
+
+test "the audio input list carries every input, however long their names" {
+    const FakeApi = struct {
+        fn audioInputName(_: @This(), _: c_int) ?[*:0]const u8 {
+            return "Dante Virtual Soundcard: Stage box A, channel with a very long descriptive name";
+        }
+    };
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const json = try audioInputsJsonAlloc(FakeApi{}, arena.allocator(), 64);
+    try std.testing.expect(try std.json.validate(std.testing.allocator, json));
+    try std.testing.expectEqual(@as(usize, 64), std.mem.count(u8, json, "\"idx\":"));
 }
