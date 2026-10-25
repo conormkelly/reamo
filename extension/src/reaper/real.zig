@@ -339,6 +339,14 @@ pub const RealBackend = struct {
         self.inner.undoEndBlock(description);
     }
 
+    pub fn regionRenderTracks(self: *const RealBackend, region_id: c_int, out: []*anyopaque) []*anyopaque {
+        return self.inner.regionRenderTracks(region_id, out);
+    }
+
+    pub fn addRegionRenderTrack(self: *const RealBackend, region_id: c_int, track: *anyopaque) void {
+        self.inner.addRegionRenderTrack(region_id, track);
+    }
+
     pub fn undoRecordChange(self: *const RealBackend, description: [*:0]const u8) void {
         self.inner.undoRecordChange(description);
     }

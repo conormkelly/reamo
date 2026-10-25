@@ -83,6 +83,8 @@ pub const Api = struct {
     countTempoTimeSigMarkers: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
     getTempoTimeSigMarker: ?*const fn (?*anyopaque, c_int, ?*f64, ?*c_int, ?*f64, ?*f64, ?*c_int, ?*c_int, ?*bool) callconv(.c) bool = null,
     findTempoTimeSigMarker: ?*const fn (?*anyopaque, f64) callconv(.c) c_int = null,
+    enumRegionRenderMatrix: ?*const fn (?*anyopaque, c_int, c_int) callconv(.c) ?*anyopaque = null,
+    setRegionRenderMatrix: ?*const fn (?*anyopaque, c_int, ?*anyopaque, c_int) callconv(.c) void = null,
     setTempoTimeSigMarker: ?*const fn (?*anyopaque, c_int, f64, c_int, f64, f64, c_int, c_int, bool) callconv(.c) bool = null,
 
     // Project info
@@ -323,6 +325,8 @@ pub const Api = struct {
             .countTempoTimeSigMarkers = getFunc(info, "CountTempoTimeSigMarkers", fn (?*anyopaque) callconv(.c) c_int),
             .getTempoTimeSigMarker = getFunc(info, "GetTempoTimeSigMarker", fn (?*anyopaque, c_int, ?*f64, ?*c_int, ?*f64, ?*f64, ?*c_int, ?*c_int, ?*bool) callconv(.c) bool),
             .findTempoTimeSigMarker = getFunc(info, "FindTempoTimeSigMarker", fn (?*anyopaque, f64) callconv(.c) c_int),
+            .enumRegionRenderMatrix = getFunc(info, "EnumRegionRenderMatrix", fn (?*anyopaque, c_int, c_int) callconv(.c) ?*anyopaque),
+            .setRegionRenderMatrix = getFunc(info, "SetRegionRenderMatrix", fn (?*anyopaque, c_int, ?*anyopaque, c_int) callconv(.c) void),
             .setTempoTimeSigMarker = getFunc(info, "SetTempoTimeSigMarker", fn (?*anyopaque, c_int, f64, c_int, f64, f64, c_int, c_int, bool) callconv(.c) bool),
             // Project info
             .getProjectLength = getFunc(info, "GetProjectLength", fn (?*anyopaque) callconv(.c) f64),
@@ -1259,6 +1263,22 @@ pub const Api = struct {
     pub fn updateMarker(self: *const Api, id: c_int, pos: f64, name: [*:0]const u8, color: c_int) bool {
         const f = self.setProjectMarker4 orelse return false;
         return f(null, id, false, pos, 0, name, color, 0);
+    }
+
+    /// The tracks (master included) region `region_id` renders in the render
+    /// matrix, up to out.len of them.
+    pub fn regionRenderTracks(self: *const Api, region_id: c_int, out: []*anyopaque) []*anyopaque {
+        const f = self.enumRegionRenderMatrix orelse return out[0..0];
+        var n: usize = 0;
+        while (n < out.len) : (n += 1) {
+            out[n] = f(null, region_id, @intCast(n)) orelse break;
+        }
+        return out[0..n];
+    }
+
+    pub fn addRegionRenderTrack(self: *const Api, region_id: c_int, track: *anyopaque) void {
+        const f = self.setRegionRenderMatrix orelse return;
+        f(null, region_id, track, 1);
     }
 
     pub fn updateRegion(self: *const Api, id: c_int, start: f64, end: f64, name: [*:0]const u8, color: c_int) bool {

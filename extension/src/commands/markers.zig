@@ -69,7 +69,9 @@ pub fn handleMarkerUpdate(api: anytype, cmd: protocol.CommandMessage, response: 
     // Color: null = preserve, 0 = reset to default, other = use value
     const color_provided = cmd.getInt("color");
     const color = color_provided orelse current_color;
-    const reset_to_default = color_provided != null and color_provided.? == 0;
+    // Recreate only for a real reset: the UI sends color 0 with every rename
+    // of a default-coloured marker, and recreating changes its GUID.
+    const reset_to_default = color_provided != null and color_provided.? == 0 and current_color != 0;
 
     api.undoBeginBlock();
 
