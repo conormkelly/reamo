@@ -1,4 +1,5 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const ffi = @import("../core/ffi.zig");
 const Allocator = std.mem.Allocator;
 const reaper = @import("../reaper.zig");
@@ -229,8 +230,7 @@ pub const State = struct {
                 // Get track name (master track returns "MASTER" from REAPER)
                 var name_buf: [MAX_NAME_LEN]u8 = undefined;
                 const name = api.getTrackNameStr(track, &name_buf);
-                const name_copy_len = @min(name.len, MAX_NAME_LEN);
-                @memcpy(t.name[0..name_copy_len], name[0..name_copy_len]);
+                const name_copy_len = utf8.copyPrefix(t.name[0..MAX_NAME_LEN], name);
                 t.name_len = name_copy_len;
 
                 // getTrackColor returns error on NaN/Inf - propagate as null to client
@@ -275,8 +275,7 @@ pub const State = struct {
                 } else {
                     var guid_buf: [64]u8 = undefined;
                     const guid = api.formatTrackGuid(track, &guid_buf);
-                    const guid_copy_len = @min(guid.len, 40);
-                    @memcpy(t.guid[0..guid_copy_len], guid[0..guid_copy_len]);
+                    const guid_copy_len = utf8.copyPrefix(t.guid[0..40], guid);
                     t.guid_len = guid_copy_len;
                 }
             } else {
@@ -312,8 +311,7 @@ pub const State = struct {
                 // Get track name
                 var name_buf: [MAX_NAME_LEN]u8 = undefined;
                 const name = api.getTrackNameStr(track, &name_buf);
-                const name_copy_len = @min(name.len, MAX_NAME_LEN);
-                @memcpy(t.name[0..name_copy_len], name[0..name_copy_len]);
+                const name_copy_len = utf8.copyPrefix(t.name[0..MAX_NAME_LEN], name);
                 t.name_len = name_copy_len;
 
                 t.color = api.getTrackColor(track) catch null;
@@ -355,8 +353,7 @@ pub const State = struct {
                 } else {
                     var guid_buf: [64]u8 = undefined;
                     const guid = api.formatTrackGuid(track, &guid_buf);
-                    const guid_copy_len = @min(guid.len, 40);
-                    @memcpy(t.guid[0..guid_copy_len], guid[0..guid_copy_len]);
+                    const guid_copy_len = utf8.copyPrefix(t.guid[0..40], guid);
                     t.guid_len = guid_copy_len;
                 }
 

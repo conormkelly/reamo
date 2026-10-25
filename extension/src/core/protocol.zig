@@ -1,6 +1,7 @@
 const std = @import("std");
 const encoding = @import("../platform/encoding.zig");
 const logging = @import("logging.zig");
+const utf8 = @import("utf8.zig");
 
 // Protocol version - increment when breaking changes are made
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -116,6 +117,12 @@ pub fn jsonGetString(data: []const u8, key: []const u8) ?[]const u8 {
     return data[quote1 + 1 .. i];
 }
 
+/// The 4-hex-digit code unit of a \\uXXXX escape starting at data[at], or null.
+fn parseHex4(data: []const u8, at: usize) ?u16 {
+    if (at + 4 > data.len) return null;
+    return std.fmt.parseInt(u16, data[at .. at + 4], 16) catch null;
+}
+
 /// Get a JSON string value and unescape it into the provided buffer.
 /// Handles \n, \r, \t, \\, \", and \uXXXX escape sequences.
 pub fn jsonGetStringUnescaped(data: []const u8, key: []const u8, out_buf: []u8) ?[]const u8 {
@@ -132,95 +139,55 @@ pub fn jsonGetStringUnescaped(data: []const u8, key: []const u8, out_buf: []u8) 
     // Find opening quote
     const quote1 = std.mem.indexOfPos(u8, data, colon + 1, "\"") orelse return null;
 
-    // Parse and unescape the string content
+    // Parse and unescape the string content. Output stops at the last whole
+    // character that fits: a name cut mid-character would be invalid UTF-8
+    // in REAPER and in every event that later carries it.
     var out_idx: usize = 0;
     var i = quote1 + 1;
-    while (i < data.len and out_idx < out_buf.len) {
+    while (i < data.len) {
         const c = data[i];
         if (c == '"') break; // End of string
 
+        var enc: [4]u8 = undefined;
+        var piece: []const u8 = undefined;
         if (c == '\\' and i + 1 < data.len) {
-            // Escape sequence
             const next = data[i + 1];
-            switch (next) {
-                'n' => {
-                    out_buf[out_idx] = '\n';
-                    out_idx += 1;
-                    i += 2;
-                },
-                'r' => {
-                    out_buf[out_idx] = '\r';
-                    out_idx += 1;
-                    i += 2;
-                },
-                't' => {
-                    out_buf[out_idx] = '\t';
-                    out_idx += 1;
-                    i += 2;
-                },
-                '\\' => {
-                    out_buf[out_idx] = '\\';
-                    out_idx += 1;
-                    i += 2;
-                },
-                '"' => {
-                    out_buf[out_idx] = '"';
-                    out_idx += 1;
-                    i += 2;
-                },
-                '/' => {
-                    out_buf[out_idx] = '/';
-                    out_idx += 1;
-                    i += 2;
-                },
-                'u' => {
-                    // \uXXXX - decode to UTF-8
-                    if (i + 5 < data.len) {
-                        // Parse hex digits
-                        const hex = data[i + 2 .. i + 6];
-                        const codepoint = std.fmt.parseInt(u16, hex, 16) catch {
-                            out_buf[out_idx] = '?';
-                            out_idx += 1;
+            i += 2;
+            piece = switch (next) {
+                'n' => "\n",
+                'r' => "\r",
+                't' => "\t",
+                'b' => "\x08",
+                'f' => "\x0C",
+                '\\' => "\\",
+                '"' => "\"",
+                '/' => "/",
+                'u' => blk: {
+                    const unit = parseHex4(data, i) orelse break :blk "?";
+                    i += 4;
+                    var cp: u21 = unit;
+                    if (unit >= 0xD800 and unit <= 0xDBFF) {
+                        // A high surrogate must pair with a following \uDC00-\uDFFF.
+                        const low = if (i + 1 < data.len and data[i] == '\\' and data[i + 1] == 'u') parseHex4(data, i + 2) else null;
+                        if (low != null and low.? >= 0xDC00 and low.? <= 0xDFFF) {
+                            cp = 0x10000 + ((@as(u21, unit) - 0xD800) << 10) + (low.? - 0xDC00);
                             i += 6;
-                            continue;
-                        };
-                        // Encode as UTF-8
-                        if (codepoint < 0x80) {
-                            // 1-byte UTF-8 (ASCII)
-                            out_buf[out_idx] = @intCast(codepoint);
-                            out_idx += 1;
-                        } else if (codepoint < 0x800) {
-                            // 2-byte UTF-8
-                            if (out_idx + 2 > out_buf.len) break;
-                            out_buf[out_idx] = @intCast(0xC0 | (codepoint >> 6));
-                            out_buf[out_idx + 1] = @intCast(0x80 | (codepoint & 0x3F));
-                            out_idx += 2;
-                        } else {
-                            // 3-byte UTF-8 (covers all of BMP: U+0800 to U+FFFF)
-                            if (out_idx + 3 > out_buf.len) break;
-                            out_buf[out_idx] = @intCast(0xE0 | (codepoint >> 12));
-                            out_buf[out_idx + 1] = @intCast(0x80 | ((codepoint >> 6) & 0x3F));
-                            out_buf[out_idx + 2] = @intCast(0x80 | (codepoint & 0x3F));
-                            out_idx += 3;
-                        }
-                        i += 6;
-                    } else {
-                        i += 2;
-                    }
+                        } else break :blk utf8.replacement;
+                    } else if (unit >= 0xDC00 and unit <= 0xDFFF) break :blk utf8.replacement;
+                    const n = utf8.encode(cp, &enc) orelse break :blk utf8.replacement;
+                    break :blk enc[0..n];
                 },
-                else => {
-                    // Unknown escape, just output the character after backslash
-                    out_buf[out_idx] = next;
-                    out_idx += 1;
-                    i += 2;
-                },
-            }
+                else => data[i - 1 .. i], // unknown escape: the character itself
+            };
         } else {
-            // Regular character
-            out_buf[out_idx] = c;
-            out_idx += 1;
-            i += 1;
+            // Copy raw UTF-8 a whole character at a time.
+            const n = std.unicode.utf8ByteSequenceLength(c) catch 1;
+            piece = data[i..@min(i + n, data.len)];
+            i += piece.len;
         }
+        if (out_idx + piece.len > out_buf.len) break;
+        @memcpy(out_buf[out_idx..][0..piece.len], piece);
+        out_idx += piece.len;
     }
 
     return out_buf[0..out_idx];
@@ -644,7 +611,23 @@ pub fn writeJsonString(writer: anytype, s: []const u8) !void {
     var utf8_buf: [512]u8 = undefined;
     const str = encoding.toUtf8(s, &utf8_buf) orelse s;
 
-    for (str) |c| {
+    // Whatever is still not UTF-8 (a string cut mid-character, or one that
+    // could not be transcoded) is replaced, never sent: one invalid byte
+    // makes a browser drop the whole connection.
+    var i: usize = 0;
+    while (i < str.len) {
+        const c = str[i];
+        if (c >= 0x80) {
+            const n = std.unicode.utf8ByteSequenceLength(c) catch 0;
+            if (n == 0 or i + n > str.len or !isValidSequence(str[i .. i + n])) {
+                try writer.writeAll(utf8.replacement);
+                i += 1;
+                continue;
+            }
+            try writer.writeAll(str[i .. i + n]);
+            i += n;
+            continue;
+        }
         switch (c) {
             '"' => try writer.writeAll("\\\""),
             '\\' => try writer.writeAll("\\\\"),
@@ -659,7 +642,15 @@ pub fn writeJsonString(writer: anytype, s: []const u8) !void {
                 }
             },
         }
+        i += 1;
     }
+}
+
+/// A complete, well-formed sequence (no overlong forms, surrogates or
+/// code points past U+10FFFF).
+fn isValidSequence(seq: []const u8) bool {
+    _ = std.unicode.utf8Decode(seq) catch return false;
+    return true;
 }
 
 // Build error response
@@ -794,9 +785,61 @@ test "writeJsonString produces valid UTF-8 from Windows-1252 bytes" {
         // On Windows: should be transcoded to valid UTF-8 "Café"
         try std.testing.expectEqualStrings("Caf\xc3\xa9", output);
     } else {
-        // On non-Windows: passthrough (raw bytes unchanged)
-        try std.testing.expectEqualStrings("Caf\xe9", output);
+        // Elsewhere REAPER strings are UTF-8 already; an invalid byte is
+        // replaced rather than sent, so the frame stays valid UTF-8.
+        try std.testing.expectEqualStrings("Caf\u{FFFD}", output);
     }
+}
+
+test "writeJsonString never emits invalid UTF-8" {
+    const inputs = [_][]const u8{
+        "\u{E9}" ** 63 ++ "\xC3", // cut inside a character
+        "tail \xF0\x9F", // cut inside an emoji
+        "lone \x80 continuation",
+        "bad lead \xFF here",
+        "CESU-8 \xED\xA0\xBC\xED\xBE\xA4", // surrogates encoded as UTF-8
+        "fine \u{1F3A4} \u{3042}",
+    };
+    for (inputs) |input| {
+        var buf: [512]u8 = undefined;
+        var stream = std.io.fixedBufferStream(&buf);
+        try writeJsonString(stream.writer(), input);
+        try std.testing.expect(std.unicode.utf8ValidateSlice(stream.getWritten()));
+    }
+    var buf: [64]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    try writeJsonString(stream.writer(), "ok \u{1F3A4}\"");
+    try std.testing.expectEqualStrings("ok \u{1F3A4}\\\"", stream.getWritten());
+}
+
+test "jsonGetStringUnescaped decodes surrogate pairs to one character" {
+    var buf: [64]u8 = undefined;
+    const r = jsonGetStringUnescaped("{\"name\":\"mic \\uD83C\\uDFA4\"}", "name", &buf).?;
+    try std.testing.expectEqualStrings("mic \u{1F3A4}", r);
+}
+
+test "jsonGetStringUnescaped replaces lone surrogates" {
+    var buf: [64]u8 = undefined;
+    const r = jsonGetStringUnescaped("{\"name\":\"a\\uD83Cb\\uDFA4c\"}", "name", &buf).?;
+    try std.testing.expectEqualStrings("a\u{FFFD}b\u{FFFD}c", r);
+}
+
+test "jsonGetStringUnescaped decodes backspace and form feed" {
+    var buf: [64]u8 = undefined;
+    const r = jsonGetStringUnescaped("{\"name\":\"A\\bB\\fC\"}", "name", &buf).?;
+    try std.testing.expectEqualStrings("A\x08B\x0CC", r);
+}
+
+test "jsonGetStringUnescaped stops on a character boundary when the buffer is full" {
+    var buf: [5]u8 = undefined;
+    // Raw UTF-8, as browsers send it: "ab" + 3-byte char + "c" does not fit in 5.
+    try std.testing.expectEqualStrings("ab\u{3042}", jsonGetStringUnescaped("{\"n\":\"ab\u{3042}\u{3042}\"}", "n", &buf).?);
+    var small: [3]u8 = undefined;
+    try std.testing.expectEqualStrings("ab", jsonGetStringUnescaped("{\"n\":\"ab\u{3042}\"}", "n", &small).?);
+    // An escape whose encoding does not fit is dropped, not split.
+    try std.testing.expectEqualStrings("ab", jsonGetStringUnescaped("{\"n\":\"ab\\u3042\"}", "n", &small).?);
+    var four: [4]u8 = undefined;
+    try std.testing.expectEqualStrings("ab", jsonGetStringUnescaped("{\"n\":\"ab\\uD83C\\uDFA4\"}", "n", &four).?);
 }
 
 test "MessageType.parse recognizes hello" {

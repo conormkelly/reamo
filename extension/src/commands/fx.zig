@@ -1,4 +1,5 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../core/logging.zig");
@@ -162,8 +163,7 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
 
     // Build null-terminated name for REAPER API
     var name_buf: [256:0]u8 = undefined;
-    const name_len = @min(fx_name.len, name_buf.len - 1);
-    @memcpy(name_buf[0..name_len], fx_name[0..name_len]);
+    const name_len = utf8.copyPrefix(name_buf[0 .. name_buf.len - 1], fx_name);
     name_buf[name_len] = 0;
 
     // Build undo description
@@ -385,17 +385,10 @@ pub fn handleGetParams(api: anytype, cmd: protocol.CommandMessage, response: *mo
             return;
         };
 
-        // Escape JSON special characters in name
-        for (name) |c| {
-            switch (c) {
-                '"' => w.writeAll("\\\"") catch return,
-                '\\' => w.writeAll("\\\\") catch return,
-                '\n' => w.writeAll("\\n") catch return,
-                '\r' => w.writeAll("\\r") catch return,
-                '\t' => w.writeAll("\\t") catch return,
-                else => w.writeByte(c) catch return,
-            }
-        }
+        protocol.writeJsonString(w, name) catch {
+            response.err("BUFFER_OVERFLOW", "Response too large");
+            return;
+        };
 
         w.writeByte('"') catch {
             response.err("BUFFER_OVERFLOW", "Response too large");

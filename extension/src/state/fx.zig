@@ -1,4 +1,5 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const Allocator = std.mem.Allocator;
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
@@ -133,8 +134,7 @@ pub const State = struct {
                     // Get FX name
                     var name_buf: [MAX_FX_NAME_LEN]u8 = undefined;
                     const name = api.trackFxGetName(track, fx_idx, &name_buf);
-                    const name_len = @min(name.len, MAX_FX_NAME_LEN);
-                    @memcpy(slot.name[0..name_len], name[0..name_len]);
+                    const name_len = utf8.copyPrefix(slot.name[0..MAX_FX_NAME_LEN], name);
                     slot.name_len = name_len;
 
                     // Get preset index and count
@@ -145,8 +145,7 @@ pub const State = struct {
                     // Get preset name and modified state
                     var preset_buf: [MAX_FX_NAME_LEN]u8 = undefined;
                     const preset_info = api.trackFxGetPreset(track, fx_idx, &preset_buf);
-                    const preset_len = @min(preset_info.name.len, MAX_FX_NAME_LEN);
-                    @memcpy(slot.preset_name[0..preset_len], preset_info.name[0..preset_len]);
+                    const preset_len = utf8.copyPrefix(slot.preset_name[0..MAX_FX_NAME_LEN], preset_info.name);
                     slot.preset_name_len = preset_len;
                     slot.modified = !preset_info.matches_preset;
 
@@ -156,8 +155,7 @@ pub const State = struct {
                     // Get FX GUID (stable identifier)
                     var guid_buf: [64]u8 = undefined;
                     const guid = api.trackFxGetGuid(track, fx_idx, &guid_buf);
-                    const guid_len = @min(guid.len, FX_GUID_LEN);
-                    @memcpy(slot.guid[0..guid_len], guid[0..guid_len]);
+                    const guid_len = utf8.copyPrefix(slot.guid[0..FX_GUID_LEN], guid);
                     slot.guid_len = guid_len;
 
                     slot_idx += 1;

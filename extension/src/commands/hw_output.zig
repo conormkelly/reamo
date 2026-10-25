@@ -1,4 +1,5 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
 const tracks = @import("tracks.zig");
@@ -287,9 +288,7 @@ pub fn handleListOutputs(api: anytype, _: protocol.CommandMessage, response: *mo
 
             // Get first name and copy it before the second call overwrites the static buffer
             const raw1 = if (api.audioOutputName(ch)) |n| std.mem.sliceTo(n, 0) else "Unknown";
-            const len1 = @min(raw1.len, name_copy_buf.len);
-            @memcpy(name_copy_buf[0..len1], raw1[0..len1]);
-            const s1 = name_copy_buf[0..len1];
+            const s1 = name_copy_buf[0..utf8.copyPrefix(&name_copy_buf, raw1)];
 
             // Now safe to call again — s1 is in our local buffer
             const s2 = if (api.audioOutputName(ch + 1)) |n| std.mem.sliceTo(n, 0) else "Unknown";

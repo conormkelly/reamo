@@ -13,6 +13,7 @@
 /// Filter fields enable built-in banks (Muted, Soloed, Armed, Selected, Folders, With Sends)
 /// without requiring full track subscriptions. Polled in same loop - no extra overhead.
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const ffi = @import("../core/ffi.zig");
 const Allocator = std.mem.Allocator;
 const protocol = @import("../core/protocol.zig");
@@ -113,8 +114,7 @@ pub const State = struct {
                 // Get track name
                 var name_buf: [MAX_NAME_LEN]u8 = undefined;
                 const name = api.getTrackNameStr(track, &name_buf);
-                const name_copy_len = @min(name.len, MAX_NAME_LEN);
-                @memcpy(t.name[0..name_copy_len], name[0..name_copy_len]);
+                const name_copy_len = utf8.copyPrefix(t.name[0..MAX_NAME_LEN], name);
                 t.name_len = name_copy_len;
 
                 // Get GUID (master uses "master" literal)
@@ -125,8 +125,7 @@ pub const State = struct {
                 } else {
                     var guid_buf: [64]u8 = undefined;
                     const guid = api.formatTrackGuid(track, &guid_buf);
-                    const guid_copy_len = @min(guid.len, MAX_GUID_LEN);
-                    @memcpy(t.guid[0..guid_copy_len], guid[0..guid_copy_len]);
+                    const guid_copy_len = utf8.copyPrefix(t.guid[0..MAX_GUID_LEN], guid);
                     t.guid_len = guid_copy_len;
                 }
 

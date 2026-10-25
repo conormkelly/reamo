@@ -1,4 +1,5 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
 
@@ -168,16 +169,14 @@ pub const State = struct {
 
         // Copy undo description if available
         if (api.canUndo()) |desc| {
-            const len = @min(desc.len, state.undo_buf.len - 1);
-            @memcpy(state.undo_buf[0..len], desc[0..len]);
+            const len = utf8.copyPrefix(state.undo_buf[0 .. state.undo_buf.len - 1], desc);
             state.undo_buf[len] = 0;
             state.undo_len = len;
         }
 
         // Copy redo description if available
         if (api.canRedo()) |desc| {
-            const len = @min(desc.len, state.redo_buf.len - 1);
-            @memcpy(state.redo_buf[0..len], desc[0..len]);
+            const len = utf8.copyPrefix(state.redo_buf[0 .. state.redo_buf.len - 1], desc);
             state.redo_buf[len] = 0;
             state.redo_len = len;
         }

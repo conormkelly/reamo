@@ -99,33 +99,12 @@ pub fn handleGetState(api: anytype, cmd: protocol.CommandMessage, response: *mod
         }).len;
 
         // Write escaped lane name
-        for (lane_name) |c| {
-            if (offset >= buf.len - 10) break;
-            switch (c) {
-                '"' => {
-                    buf[offset] = '\\';
-                    offset += 1;
-                    buf[offset] = '"';
-                    offset += 1;
-                },
-                '\\' => {
-                    buf[offset] = '\\';
-                    offset += 1;
-                    buf[offset] = '\\';
-                    offset += 1;
-                },
-                '\n' => {
-                    buf[offset] = '\\';
-                    offset += 1;
-                    buf[offset] = 'n';
-                    offset += 1;
-                },
-                else => {
-                    buf[offset] = c;
-                    offset += 1;
-                },
-            }
-        }
+        var stream = std.io.fixedBufferStream(buf[offset..]);
+        protocol.writeJsonString(stream.writer(), lane_name) catch {
+            response.err("BUFFER_OVERFLOW", "Response too large for buffer");
+            return;
+        };
+        offset += stream.pos;
 
         offset += (std.fmt.bufPrint(buf[offset..], "\"}}", .{}) catch {
             response.err("BUFFER_OVERFLOW", "Response too large for buffer");

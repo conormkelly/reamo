@@ -1,4 +1,5 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const reaper = @import("../reaper.zig");
 const constants = @import("../core/constants.zig");
 const protocol = @import("../core/protocol.zig");
@@ -204,8 +205,7 @@ pub const State = struct {
                 // Get item GUID
                 var guid_buf: [64]u8 = undefined;
                 const item_guid = api.getItemGUID(item_ptr, &guid_buf);
-                const guid_copy_len = @min(item_guid.len, item.guid.len);
-                @memcpy(item.guid[0..guid_copy_len], item_guid[0..guid_copy_len]);
+                const guid_copy_len = utf8.copyPrefix(&item.guid, item_guid);
                 item.guid_len = guid_copy_len;
 
                 item.track_idx = track_idx;
@@ -236,15 +236,13 @@ pub const State = struct {
                 if (api.getItemActiveTake(item_ptr)) |take| {
                     // Name
                     const take_name = api.getTakeNameStr(take);
-                    const copy_len = @min(take_name.len, item.active_take_name.len);
-                    @memcpy(item.active_take_name[0..copy_len], take_name[0..copy_len]);
+                    const copy_len = utf8.copyPrefix(&item.active_take_name, take_name);
                     item.active_take_name_len = copy_len;
 
                     // GUID (for peaks cache lookup)
                     var take_guid_buf: [64]u8 = undefined;
                     const take_guid = api.getTakeGUID(take, &take_guid_buf);
-                    const take_guid_copy_len = @min(take_guid.len, item.active_take_guid.len);
-                    @memcpy(item.active_take_guid[0..take_guid_copy_len], take_guid[0..take_guid_copy_len]);
+                    const take_guid_copy_len = utf8.copyPrefix(&item.active_take_guid, take_guid);
                     item.active_take_guid_len = take_guid_copy_len;
 
                     // MIDI flag (skip peaks for MIDI items)
@@ -430,8 +428,7 @@ pub const State = struct {
                 // Get item GUID
                 var guid_buf: [64]u8 = undefined;
                 const item_guid = api.getItemGUID(item_ptr, &guid_buf);
-                const guid_copy_len = @min(item_guid.len, item.guid.len);
-                @memcpy(item.guid[0..guid_copy_len], item_guid[0..guid_copy_len]);
+                const guid_copy_len = utf8.copyPrefix(&item.guid, item_guid);
                 item.guid_len = guid_copy_len;
 
                 item.track_idx = track_idx;
@@ -460,15 +457,13 @@ pub const State = struct {
                 if (api.getItemActiveTake(item_ptr)) |take| {
                     // Name
                     const take_name = api.getTakeNameStr(take);
-                    const copy_len = @min(take_name.len, item.active_take_name.len);
-                    @memcpy(item.active_take_name[0..copy_len], take_name[0..copy_len]);
+                    const copy_len = utf8.copyPrefix(&item.active_take_name, take_name);
                     item.active_take_name_len = copy_len;
 
                     // GUID
                     var take_guid_buf: [64]u8 = undefined;
                     const take_guid = api.getTakeGUID(take, &take_guid_buf);
-                    const take_guid_copy_len = @min(take_guid.len, item.active_take_guid.len);
-                    @memcpy(item.active_take_guid[0..take_guid_copy_len], take_guid[0..take_guid_copy_len]);
+                    const take_guid_copy_len = utf8.copyPrefix(&item.active_take_guid, take_guid);
                     item.active_take_guid_len = take_guid_copy_len;
 
                     // MIDI flag

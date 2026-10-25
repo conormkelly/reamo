@@ -1,4 +1,5 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const ffi = @import("../core/ffi.zig");
 const bar_beat = @import("bar_beat.zig");
 const reaper = @import("../reaper.zig");
@@ -180,8 +181,7 @@ pub const State = struct {
                     const start_timesig = api.getTempoAtPosition(info.pos);
                     region.start_beats_per_bar = start_timesig.timesig_num;
 
-                    const copy_len = @min(info.name.len, region.name.len);
-                    @memcpy(region.name[0..copy_len], info.name[0..copy_len]);
+                    const copy_len = utf8.copyPrefix(&region.name, info.name);
                     region.name_len = copy_len;
 
                     region_count += 1;
@@ -200,8 +200,7 @@ pub const State = struct {
                     marker.position_beat_in_bar = beats_info.beats_in_measure;
                     marker.position_beats_per_bar = beats_info.time_sig_num;
 
-                    const copy_len = @min(info.name.len, marker.name.len);
-                    @memcpy(marker.name[0..copy_len], info.name[0..copy_len]);
+                    const copy_len = utf8.copyPrefix(&marker.name, info.name);
                     marker.name_len = copy_len;
 
                     marker_count += 1;
@@ -401,8 +400,7 @@ pub const State = struct {
             marker.position_beat_in_bar = beats_info.beats_in_measure;
             marker.position_beats_per_bar = beats_info.time_sig_num;
 
-            const copy_len = @min(info.name.len, marker.name.len);
-            @memcpy(marker.name[0..copy_len], info.name[0..copy_len]);
+            const copy_len = utf8.copyPrefix(&marker.name, info.name);
             marker.name_len = copy_len;
 
             write_idx += 1;
@@ -462,8 +460,7 @@ pub const State = struct {
             const start_timesig = api.getTempoAtPosition(info.pos);
             region.start_beats_per_bar = start_timesig.timesig_num;
 
-            const copy_len = @min(info.name.len, region.name.len);
-            @memcpy(region.name[0..copy_len], info.name[0..copy_len]);
+            const copy_len = utf8.copyPrefix(&region.name, info.name);
             region.name_len = copy_len;
 
             write_idx += 1;

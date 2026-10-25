@@ -1,4 +1,5 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
@@ -12,8 +13,7 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     };
 
     var desc_buf: [256]u8 = undefined;
-    const len = @min(description.len, 255);
-    @memcpy(desc_buf[0..len], description[0..len]);
+    const len = utf8.copyPrefix(desc_buf[0..255], description);
     desc_buf[len] = 0;
     // SAFETY: @alignCast unnecessary - u8 has alignment 1, always valid
     const desc_z: [*:0]const u8 = @ptrCast(&desc_buf);

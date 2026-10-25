@@ -2,6 +2,7 @@
 /// This module contains the C function pointers loaded at runtime from REAPER.
 /// For the abstract interface used by state modules, see api.zig.
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const types = @import("types.zig");
 
 // Re-export types for convenience
@@ -543,8 +544,7 @@ pub const Api = struct {
         if (buf.len < 2) return null;
 
         // Pre-fill buffer with default value, null-terminated
-        const copy_len = @min(default_val.len, buf.len - 1);
-        @memcpy(buf[0..copy_len], default_val[0..copy_len]);
+        const copy_len = utf8.copyPrefix(buf[0 .. buf.len - 1], default_val);
         buf[copy_len] = 0;
 
         if (f(title, 1, caption, buf.ptr, @intCast(buf.len))) {
@@ -834,8 +834,7 @@ pub const Api = struct {
         const f = self.namedCommandLookup_fn orelse return 0;
         // Need null-terminated string
         var buf: [256]u8 = undefined;
-        const len = @min(name.len, buf.len - 1);
-        @memcpy(buf[0..len], name[0..len]);
+        const len = utf8.copyPrefix(buf[0 .. buf.len - 1], name);
         buf[len] = 0;
         return f(@ptrCast(&buf));
     }
@@ -1121,8 +1120,7 @@ pub const Api = struct {
 
         // Need null-terminated buffer for API
         var buf: [65536]u8 = undefined; // 64KB max
-        const copy_len = @min(notes.len, buf.len - 1);
-        @memcpy(buf[0..copy_len], notes[0..copy_len]);
+        const copy_len = utf8.copyPrefix(buf[0 .. buf.len - 1], notes);
         buf[copy_len] = 0;
 
         // Call API - set=true means set
@@ -1275,7 +1273,7 @@ pub const Api = struct {
     pub fn getTrackNameStr(self: *const Api, track: *anyopaque, buf: []u8) []const u8 {
         const f = self.getTrackName orelse return "";
         if (f(track, buf.ptr, @intCast(buf.len))) {
-            return std.mem.sliceTo(buf, 0);
+            return utf8.trimTruncated(std.mem.sliceTo(buf, 0), buf.len);
         }
         return "";
     }
@@ -1290,8 +1288,7 @@ pub const Api = struct {
     pub fn setTrackName(self: *const Api, track: *anyopaque, name: []const u8) bool {
         const f = self.getSetMediaTrackInfo_String orelse return false;
         var buf: [256]u8 = undefined;
-        const len = @min(name.len, buf.len - 1);
-        @memcpy(buf[0..len], name[0..len]);
+        const len = utf8.copyPrefix(buf[0 .. buf.len - 1], name);
         buf[len] = 0;
         return f(track, "P_NAME", &buf, true);
     }
@@ -1493,8 +1490,7 @@ pub const Api = struct {
     pub fn setRazorEditsExt(self: *const Api, track: *anyopaque, razor_str: []const u8) bool {
         const f = self.getSetMediaTrackInfo_String orelse return false;
         var buf: [1024]u8 = undefined;
-        const len = @min(razor_str.len, buf.len - 1);
-        @memcpy(buf[0..len], razor_str[0..len]);
+        const len = utf8.copyPrefix(buf[0 .. buf.len - 1], razor_str);
         buf[len] = 0;
         return f(track, "P_RAZOREDITS_EXT", &buf, true);
     }
@@ -1573,7 +1569,7 @@ pub const Api = struct {
         if (!success) return "";
         // Find null terminator
         const len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
-        return buf[0..len];
+        return utf8.trimTruncated(buf[0..len], buf.len);
     }
 
     /// Get preset index and count. Returns -1 on error.
@@ -1592,7 +1588,7 @@ pub const Api = struct {
         const matches = f(track, fx_idx, buf.ptr, @intCast(buf.len));
         // Find null terminator
         const len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
-        return .{ .name = buf[0..len], .matches_preset = matches };
+        return .{ .name = utf8.trimTruncated(buf[0..len], buf.len), .matches_preset = matches };
     }
 
     /// Navigate to next/prev preset. presetmove: +1=next, -1=prev
@@ -1674,11 +1670,8 @@ pub const Api = struct {
         const f = self.trackFX_GetParamName orelse return "";
         if (buf.len == 0) return "";
         if (!f(track, fx_idx, param_idx, buf.ptr, @intCast(buf.len))) return "";
-        // Find null terminator
-        for (buf, 0..) |c, i| {
-            if (c == 0) return buf[0..i];
-        }
-        return buf;
+        const len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
+        return utf8.trimTruncated(buf[0..len], buf.len);
     }
 
     /// Get normalized parameter value (0.0 to 1.0). Returns 0.0 on failure or invalid index.
@@ -1704,11 +1697,8 @@ pub const Api = struct {
         const f = self.trackFX_GetFormattedParamValue orelse return "";
         if (buf.len == 0) return "";
         if (!f(track, fx_idx, param_idx, buf.ptr, @intCast(buf.len))) return "";
-        // Find null terminator
-        for (buf, 0..) |c, i| {
-            if (c == 0) return buf[0..i];
-        }
-        return buf;
+        const len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
+        return utf8.trimTruncated(buf[0..len], buf.len);
     }
 
     // Track Send methods
@@ -2708,9 +2698,7 @@ pub const Command = struct {
 
 /// Copy as much of `src` as fits into `buf`; returns the copied prefix.
 fn copyBounded(src: []const u8, buf: []u8) []const u8 {
-    const n = @min(src.len, buf.len);
-    @memcpy(buf[0..n], src[0..n]);
-    return buf[0..n];
+    return buf[0..utf8.copyPrefix(buf, src)];
 }
 
 test "getTrackByUnifiedIdx returns null for negative indices instead of overflowing" {
