@@ -281,22 +281,26 @@ pub fn handleListOutputs(api: anytype, _: protocol.CommandMessage, response: *mo
         response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
         return;
     };
-    const allocator = tiered.scratchAllocator();
 
-    const estimated_size: usize = @intCast(@max(4096, @as(c_int, @intCast(count)) * 120 + 200));
-    const buf = allocator.alloc(u8, estimated_size) catch {
-        response.err("ALLOC_FAILED", "Failed to allocate response buffer");
-        return;
-    };
-
-    var stream = std.io.fixedBufferStream(buf);
-    const writer = stream.writer();
-
-    writer.writeAll("{\"outputs\":[") catch {
+    // Grows to fit: a multichannel interface's long channel names can run
+    // past any estimate, and the UI awaits this list to open the picker.
+    const estimate: usize = 200 + @as(usize, @intCast(@max(count, 0))) * 160;
+    const json = protocol.writeAlloc(tiered.scratchAllocator(), estimate, OutputsCtx(@TypeOf(api)){ .api = api, .count = count }, writeOutputs) catch {
         response.err("SERIALIZE_ERROR", "Failed to write response");
         return;
     };
+    response.successLargePayload(json);
+}
 
+fn OutputsCtx(comptime Api: type) type {
+    return struct { api: Api, count: c_int };
+}
+
+fn writeOutputs(ctx: anytype, writer: anytype) !void {
+    const api = ctx.api;
+    const count = ctx.count;
+
+    try writer.writeAll("{\"outputs\":[");
     var first = true;
 
     // GetOutputChannelName returns a pointer to a static internal buffer that is
@@ -307,7 +311,7 @@ pub fn handleListOutputs(api: anytype, _: protocol.CommandMessage, response: *mo
     {
         var ch: c_int = 0;
         while (ch + 1 < count) : (ch += 2) {
-            if (!first) writer.writeAll(",") catch return;
+            if (!first) try writer.writeAll(",");
             first = false;
 
             // Get first name and copy it before the second call overwrites the static buffer
@@ -318,13 +322,11 @@ pub fn handleListOutputs(api: anytype, _: protocol.CommandMessage, response: *mo
             const s2 = if (api.audioOutputName(ch + 1)) |n| std.mem.sliceTo(n, 0) else "Unknown";
 
             // I_DSTCHAN for stereo: just the channel index
-            const dest_chan = ch;
-
-            writer.print("{{\"destChan\":{d},\"name\":\"", .{dest_chan}) catch return;
-            protocol.writeJsonString(writer, s1) catch return;
-            writer.writeAll(" / ") catch return;
-            protocol.writeJsonString(writer, s2) catch return;
-            writer.writeAll("\",\"stereo\":true}") catch return;
+            try writer.print("{{\"destChan\":{d},\"name\":\"", .{ch});
+            try protocol.writeJsonString(writer, s1);
+            try writer.writeAll(" / ");
+            try protocol.writeJsonString(writer, s2);
+            try writer.writeAll("\",\"stereo\":true}");
         }
     }
 
@@ -332,21 +334,18 @@ pub fn handleListOutputs(api: anytype, _: protocol.CommandMessage, response: *mo
     {
         var ch: c_int = 0;
         while (ch < count) : (ch += 1) {
-            if (!first) writer.writeAll(",") catch return;
+            if (!first) try writer.writeAll(",");
             first = false;
 
             const name = if (api.audioOutputName(ch)) |n| std.mem.sliceTo(n, 0) else "Unknown";
             // I_DSTCHAN for mono: channel index | 1024
-            const dest_chan = ch | 1024;
-
-            writer.print("{{\"destChan\":{d},\"name\":\"", .{dest_chan}) catch return;
-            protocol.writeJsonString(writer, name) catch return;
-            writer.writeAll("\",\"stereo\":false}") catch return;
+            try writer.print("{{\"destChan\":{d},\"name\":\"", .{ch | 1024});
+            try protocol.writeJsonString(writer, name);
+            try writer.writeAll("\",\"stereo\":false}");
         }
     }
 
-    writer.writeAll("]}") catch return;
-    response.successLargePayload(stream.getWritten());
+    try writer.writeAll("]}");
 }
 
 // ============================================================================
