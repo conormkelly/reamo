@@ -5,27 +5,47 @@ const mod = @import("mod.zig");
 const logging = @import("../core/logging.zig");
 const tracks = @import("tracks.zig");
 
-/// Navigate to next preset for the specified FX
-/// Params: trackIdx (unified: 0=master, 1+=user tracks), fxIdx (0-based)
-pub fn handlePresetNext(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("MISSING_TRACK_IDX", "trackIdx is required");
-        return;
-    };
-    const fx_idx = cmd.getInt("fxIdx") orelse {
-        response.err("MISSING_FX_IDX", "fxIdx is required");
-        return;
-    };
+/// The track and FX a preset or bypass command names. The track is found by
+/// trackIdx or trackGuid, the FX by fxGuid when given, else by fxIdx: an
+/// FX's index changes when the chain is reordered, its GUID doesn't. On
+/// failure answers the error and returns null; `out_of_range` is the error
+/// code for an fxIdx past the chain.
+const FxTarget = struct { track: *anyopaque, track_idx: c_int, fx_idx: c_int };
 
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
-        response.err("NOT_FOUND", "Track not found");
-        return;
-    };
-
-    if (fx_idx < 0 or fx_idx >= api.trackFxCount(track)) {
-        response.err("NOT_FOUND", "FX not found");
-        return;
+fn resolveFxTarget(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter, comptime out_of_range: []const u8) ?FxTarget {
+    if (cmd.getInt("trackIdx") == null and cmd.getString("trackGuid") == null) {
+        response.err("MISSING_TRACK_IDX", "trackIdx or trackGuid is required");
+        return null;
     }
+    const resolution = tracks.resolveTrack(api, cmd) orelse {
+        response.err("NOT_FOUND", "Track not found");
+        return null;
+    };
+    if (cmd.getString("fxGuid")) |fx_guid| {
+        const fx_idx = findFxByGuid(api, resolution.track, fx_guid) orelse {
+            response.err("NOT_FOUND", "FX not found");
+            return null;
+        };
+        return .{ .track = resolution.track, .track_idx = resolution.idx, .fx_idx = fx_idx };
+    }
+    const fx_idx = cmd.getInt("fxIdx") orelse {
+        response.err("MISSING_FX_IDX", "fxIdx or fxGuid is required");
+        return null;
+    };
+    if (fx_idx < 0 or fx_idx >= api.trackFxCount(resolution.track)) {
+        response.err(out_of_range, "FX not found");
+        return null;
+    }
+    return .{ .track = resolution.track, .track_idx = resolution.idx, .fx_idx = fx_idx };
+}
+
+/// Navigate to next preset for the specified FX
+/// Params: see resolveFxTarget
+pub fn handlePresetNext(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const target = resolveFxTarget(api, cmd, response, "NOT_FOUND") orelse return;
+    const track = target.track;
+    const track_idx = target.track_idx;
+    const fx_idx = target.fx_idx;
 
     // Loading a preset rewrites the plugin's state; Ctrl+Z should return
     // to the sound before it. (REAPER drops the point if nothing changed.)
@@ -41,26 +61,12 @@ pub fn handlePresetNext(api: anytype, cmd: protocol.CommandMessage, response: *m
 }
 
 /// Navigate to previous preset for the specified FX
-/// Params: trackIdx (unified: 0=master, 1+=user tracks), fxIdx (0-based)
+/// Params: see resolveFxTarget
 pub fn handlePresetPrev(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("MISSING_TRACK_IDX", "trackIdx is required");
-        return;
-    };
-    const fx_idx = cmd.getInt("fxIdx") orelse {
-        response.err("MISSING_FX_IDX", "fxIdx is required");
-        return;
-    };
-
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
-        response.err("NOT_FOUND", "Track not found");
-        return;
-    };
-
-    if (fx_idx < 0 or fx_idx >= api.trackFxCount(track)) {
-        response.err("NOT_FOUND", "FX not found");
-        return;
-    }
+    const target = resolveFxTarget(api, cmd, response, "NOT_FOUND") orelse return;
+    const track = target.track;
+    const track_idx = target.track_idx;
+    const fx_idx = target.fx_idx;
 
     // Loading a preset rewrites the plugin's state; Ctrl+Z should return
     // to the sound before it. (REAPER drops the point if nothing changed.)
@@ -76,30 +82,16 @@ pub fn handlePresetPrev(api: anytype, cmd: protocol.CommandMessage, response: *m
 }
 
 /// Set preset by index for the specified FX
-/// Params: trackIdx, fxIdx, presetIdx (-1=default user, -2=factory, 0+=preset index)
+/// Params: see resolveFxTarget, and presetIdx (-1=default user, -2=factory, 0+=preset index)
 pub fn handlePresetSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("MISSING_TRACK_IDX", "trackIdx is required");
-        return;
-    };
-    const fx_idx = cmd.getInt("fxIdx") orelse {
-        response.err("MISSING_FX_IDX", "fxIdx is required");
-        return;
-    };
+    const target = resolveFxTarget(api, cmd, response, "NOT_FOUND") orelse return;
+    const track = target.track;
+    const track_idx = target.track_idx;
+    const fx_idx = target.fx_idx;
     const preset_idx = cmd.getInt("presetIdx") orelse {
         response.err("MISSING_PRESET_IDX", "presetIdx is required (-1=default, -2=factory, or 0+)");
         return;
     };
-
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
-        response.err("NOT_FOUND", "Track not found");
-        return;
-    };
-
-    if (fx_idx < 0 or fx_idx >= api.trackFxCount(track)) {
-        response.err("NOT_FOUND", "FX not found");
-        return;
-    }
 
     // Loading a preset rewrites the plugin's state; Ctrl+Z should return
     // to the sound before it. (REAPER drops the point if nothing changed.)
@@ -115,28 +107,12 @@ pub fn handlePresetSet(api: anytype, cmd: protocol.CommandMessage, response: *mo
 }
 
 /// Set FX enabled/bypassed state
-/// Params: trackIdx or trackGuid (unified: 0=master, 1+=user tracks), fxIdx (0-based)
+/// Params: see resolveFxTarget
 /// Optional: enabled (0=bypass, 1=enabled) - toggles if omitted
 pub fn handleSetEnabled(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const resolution = tracks.resolveTrack(api, cmd) orelse {
-        response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
-        return;
-    };
-    const fx_idx = cmd.getInt("fxIdx") orelse {
-        response.err("MISSING_FX_IDX", "fxIdx is required");
-        return;
-    };
-
-    // Validate fx_idx bounds
-    if (fx_idx < 0) {
-        response.err("INVALID_FX_IDX", "fxIdx must be non-negative");
-        return;
-    }
-    const fx_count = api.trackFxCount(resolution.track);
-    if (fx_idx >= fx_count) {
-        response.err("INVALID_FX_IDX", "fxIdx out of range");
-        return;
-    }
+    const target = resolveFxTarget(api, cmd, response, "INVALID_FX_IDX") orelse return;
+    const resolution = tracks.TrackResolution{ .track = target.track, .idx = target.track_idx };
+    const fx_idx = target.fx_idx;
 
     // Get current state for toggle, or use explicit enabled param
     const current = api.trackFxGetEnabled(resolution.track, fx_idx);

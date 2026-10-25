@@ -2445,14 +2445,18 @@ Load the next preset for a track FX. Makes an undo point ("REAmo: Change FX pres
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
-| `fxIdx` | int | Yes | FX index within track (0-based) |
+| `trackIdx` | int | One of | Track index (0 = master, 1+ = user tracks) |
+| `trackGuid` | string | One of | Track GUID (stable across reordering) |
+| `fxGuid` | string | One of | FX GUID: stays on the same plugin when the chain is reordered |
+| `fxIdx` | int | One of | FX index within track (0-based) |
 
 ```json
 {"type": "command", "command": "trackFx/presetNext", "trackIdx": 1, "fxIdx": 0}
 ```
 
-**Errors:** `MISSING_TRACK_IDX`, `MISSING_FX_IDX`, `NOT_FOUND` (track), `NAVIGATE_FAILED`.
+Given `fxGuid`, the command acts on that plugin wherever it now sits, or answers `NOT_FOUND` if it's gone; `fxIdx` is ignored.
+
+**Errors:** `MISSING_TRACK_IDX` (neither track parameter), `MISSING_FX_IDX` (neither FX parameter), `NOT_FOUND` (track, or FX), `NAVIGATE_FAILED`.
 
 ### `trackFx/presetPrev`
 
@@ -2468,15 +2472,19 @@ Load a specific preset by index. Makes an undo point, as `trackFx/presetNext` do
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
-| `fxIdx` | int | Yes | FX index within track (0-based) |
+| `trackIdx` | int | One of | Track index (0 = master, 1+ = user tracks) |
+| `trackGuid` | string | One of | Track GUID (stable across reordering) |
+| `fxGuid` | string | One of | FX GUID: stays on the same plugin when the chain is reordered |
+| `fxIdx` | int | One of | FX index within track (0-based) |
 | `presetIdx` | int | Yes | Preset index (-1 = default user, -2 = factory, 0+ = preset index) |
 
 ```json
 {"type": "command", "command": "trackFx/presetSet", "trackIdx": 1, "fxIdx": 0, "presetIdx": 5}
 ```
 
-**Errors:** `MISSING_TRACK_IDX`, `MISSING_FX_IDX`, `MISSING_PRESET_IDX`, `NOT_FOUND` (track), `SET_FAILED`.
+FX targeting as in `trackFx/presetNext`.
+
+**Errors:** `MISSING_TRACK_IDX`, `MISSING_FX_IDX`, `MISSING_PRESET_IDX`, `NOT_FOUND` (track, or FX), `SET_FAILED`.
 
 ### `trackFx/setEnabled`
 
@@ -2486,7 +2494,8 @@ Enable or bypass a specific FX on a track. Toggles if no explicit value provided
 |-----------|------|----------|-------------|
 | `trackIdx` | int | One of | Track index (0 = master, 1+ = user tracks) |
 | `trackGuid` | string | One of | Track GUID (stable across reordering) |
-| `fxIdx` | int | Yes | FX index within track (0-based) |
+| `fxGuid` | string | One of | FX GUID: stays on the same plugin when the chain is reordered |
+| `fxIdx` | int | One of | FX index within track (0-based) |
 | `enabled` | int | No | 0 = bypass, 1 = enabled (toggles if omitted) |
 
 ```json
@@ -2495,7 +2504,9 @@ Enable or bypass a specific FX on a track. Toggles if no explicit value provided
 
 **Note:** This controls bypass state of individual FX plugins. For the entire track's FX chain enable/disable, use `track/setFxEnabled`.
 
-**Errors:** `NOT_FOUND` (track), `MISSING_FX_IDX`, `INVALID_FX_IDX` (out of range).
+FX targeting as in `trackFx/presetNext`.
+
+**Errors:** `MISSING_TRACK_IDX`, `MISSING_FX_IDX`, `NOT_FOUND` (track, or `fxGuid`), `INVALID_FX_IDX` (`fxIdx` out of range).
 
 ### `trackFx/add`
 
