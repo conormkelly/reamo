@@ -12,9 +12,9 @@ pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
         return;
     };
 
-    // Validate range (REAPER supports 2-960 BPM)
-    if (bpm < 2.0 or bpm > 960.0) {
-        response.err("INVALID_BPM", "bpm must be between 2 and 960");
+    // REAPER's tempo range (SetCurrentBPM clamps to 1-960)
+    if (bpm < 1.0 or bpm > 960.0) {
+        response.err("INVALID_BPM", "bpm must be between 1 and 960");
         return;
     }
 
