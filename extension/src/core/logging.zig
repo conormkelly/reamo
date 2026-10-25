@@ -1,32 +1,28 @@
+//! REAmo's log file: {REAPER resource path}/Logs/reamo.log.
+//!
+//! The log is what a user sends when something goes wrong, so it has to
+//! describe the session it came from and survive a crash, and it must never
+//! fill their disk:
+//!
+//! - Each file starts with a header naming the REAmo and REAPER versions,
+//!   OS, CPU and log level, so a file read on its own is still useful.
+//! - A file rotates when it reaches MAX_LOG_SIZE, checked on every write, and
+//!   MAX_ROTATIONS old files are kept: the logs never use more than
+//!   (MAX_ROTATIONS + 1) * MAX_LOG_SIZE bytes.
+//! - A message identical to the one before it is counted, not written, and
+//!   the count is written when a different message arrives or once a minute,
+//!   so a condition that persists across timer ticks costs one line a minute.
+//! - A message too long for the line buffer is cut short and marked, never
+//!   dropped.
+//! - A panic writes the message, the stack and the most recent messages at
+//!   every level, debug included, before REAPER goes down.
+//!
+//! Logging is safe from any thread: the WebSocket server logs from its
+//! worker threads while the timer logs from REAPER's main thread.
+
 const std = @import("std");
 const builtin = @import("builtin");
-
-/// Cross-platform getenv. std.posix.getenv is unavailable on Windows
-/// (environment strings are WTF-16). Returns null on Windows.
-fn getEnv(key: []const u8) ?[:0]const u8 {
-    if (comptime builtin.os.tag == .windows) return null;
-    return std.posix.getenv(key);
-}
-
-// ============================================================================
-// Custom Panic Handler (Zig 0.15 API)
-// ============================================================================
-
-/// Custom panic implementation that flushes the ring buffer before aborting.
-/// This ensures we have context about what led to the crash.
-fn panicImpl(msg: []const u8, ret_addr: ?usize) noreturn {
-    // Log the panic message
-    log(.err, "PANIC: {s}", .{msg});
-
-    // Flush ring buffer to file
-    flushRingBuffer();
-
-    // Call default panic behavior (prints stack trace and aborts)
-    std.debug.defaultPanic(msg, ret_addr);
-}
-
-/// Export panic handler namespace for Zig 0.15
-pub const panic = std.debug.FullPanic(panicImpl);
+const utf8 = @import("utf8.zig");
 
 /// Log levels for runtime configuration
 pub const Level = enum(u8) {
@@ -36,10 +32,10 @@ pub const Level = enum(u8) {
     debug = 3,
 
     pub fn fromString(s: []const u8) Level {
-        if (std.mem.eql(u8, s, "error") or std.mem.eql(u8, s, "err")) return .err;
-        if (std.mem.eql(u8, s, "warn") or std.mem.eql(u8, s, "warning")) return .warn;
-        if (std.mem.eql(u8, s, "info")) return .info;
-        if (std.mem.eql(u8, s, "debug")) return .debug;
+        if (std.ascii.eqlIgnoreCase(s, "error") or std.ascii.eqlIgnoreCase(s, "err")) return .err;
+        if (std.ascii.eqlIgnoreCase(s, "warn") or std.ascii.eqlIgnoreCase(s, "warning")) return .warn;
+        if (std.ascii.eqlIgnoreCase(s, "info")) return .info;
+        if (std.ascii.eqlIgnoreCase(s, "debug")) return .debug;
         return .info; // default
     }
 
@@ -51,9 +47,38 @@ pub const Level = enum(u8) {
             .debug => "DEBUG",
         };
     }
+
+    fn name(self: Level) []const u8 {
+        return switch (self) {
+            .err => "error",
+            .warn => "warn",
+            .info => "info",
+            .debug => "debug",
+        };
+    }
 };
 
-/// Ring buffer entry for crash recovery
+/// Size at which the log rotates (1 MB).
+pub const MAX_LOG_SIZE: u64 = 1024 * 1024;
+/// Rotated files kept beside the live one: reamo.log.1 (newest) to .3.
+pub const MAX_ROTATIONS: u8 = 3;
+/// Longest message kept, in bytes; longer ones end in TRUNCATED_MARK.
+const MSG_CAP = 512;
+const TRUNCATED_MARK = " [cut]";
+/// How often a run of repeated messages reports its count.
+const REPEAT_REPORT_MS: i64 = 60 * std.time.ms_per_s;
+
+/// What the header of every log file says about the session.
+pub const Session = struct {
+    reamo_version: []const u8,
+    /// GetAppVersion's text, e.g. "7.83/macOS-arm64"; null before the API loads.
+    reaper_version: ?[]const u8 = null,
+};
+
+// ============================================================================
+// Crash ring: the most recent messages at every level
+// ============================================================================
+
 const RingEntry = struct {
     timestamp_ms: i64 = 0,
     level: Level = .info,
@@ -63,9 +88,9 @@ const RingEntry = struct {
     fn write(self: *RingEntry, timestamp: i64, level: Level, msg: []const u8) void {
         self.timestamp_ms = timestamp;
         self.level = level;
-        const copy_len = @min(msg.len, self.message.len);
-        @memcpy(self.message[0..copy_len], msg[0..copy_len]);
-        self.len = @intCast(copy_len);
+        const kept = utf8.prefix(msg, self.message.len);
+        @memcpy(self.message[0..kept.len], kept);
+        self.len = @intCast(kept.len);
     }
 
     fn getMessage(self: *const RingEntry) []const u8 {
@@ -73,143 +98,233 @@ const RingEntry = struct {
     }
 };
 
-/// Pre-allocated ring buffer for crash recovery (no allocation needed)
 const RING_SIZE = 64;
-var crash_ring: [RING_SIZE]RingEntry = [_]RingEntry{.{}} ** RING_SIZE;
-var ring_head: usize = 0;
 
-/// Global logger state
-var log_file: ?std.fs.File = null;
-var log_level: Level = .info;
-var initialized: bool = false;
-var log_path_buf: [512]u8 = undefined;
-var log_path_len: usize = 0;
+// ============================================================================
+// Sink: one log file, its rotations, and repeat collapsing
+// ============================================================================
 
-/// Maximum log file size before rotation (1MB)
-const MAX_LOG_SIZE: u64 = 1024 * 1024;
-/// Number of rotated files to keep
-const MAX_ROTATIONS: u8 = 3;
+/// The file side of the logger. Not thread-safe: the module-level functions
+/// hold `mutex` around every call.
+const Sink = struct {
+    path_buf: [512]u8 = undefined,
+    path_len: usize = 0,
+    file: ?std.fs.File = null,
+    /// Bytes in the current file, so rotation needs no stat per write.
+    size: u64 = 0,
+    max_size: u64 = MAX_LOG_SIZE,
+    level: Level = .info,
 
-/// Initialize the logger with REAPER's resource path
-/// Call this early in extension startup
-pub fn init(resource_path: ?[]const u8) void {
-    if (initialized) return;
+    header_buf: [384]u8 = undefined,
+    header_len: usize = 0,
 
-    // Read log level from environment (not available on Windows — WTF-16 strings)
-    if (getEnv("REAMO_LOG_LEVEL")) |level_str| {
-        log_level = Level.fromString(level_str);
+    last_level: Level = .info,
+    last_buf: [MSG_CAP]u8 = undefined,
+    last_len: usize = 0,
+    /// Copies of the last message not yet written.
+    repeats: u32 = 0,
+    /// When the current run of repeats began, or was last reported.
+    repeat_since_ms: i64 = 0,
+
+    ring: [RING_SIZE]RingEntry = [_]RingEntry{.{}} ** RING_SIZE,
+    ring_head: usize = 0,
+
+    fn path(self: *const Sink) []const u8 {
+        return self.path_buf[0..self.path_len];
     }
 
-    // Build log path: {resource_path}/Logs/reamo.log
-    const res_path = resource_path orelse {
-        // No resource path - log to stderr only
-        initialized = true;
-        return;
-    };
+    /// Open (or create) the log at `log_path` for appending, rotating it
+    /// first if it is already full.
+    fn open(self: *Sink, log_path: []const u8) void {
+        if (log_path.len > self.path_buf.len) return;
+        @memcpy(self.path_buf[0..log_path.len], log_path);
+        self.path_len = log_path.len;
+        if (std.fs.cwd().statFile(log_path)) |stat| {
+            if (stat.size >= self.max_size) self.rotateFiles();
+        } else |_| {}
+        self.openCurrent();
+    }
 
-    var fbs = std.io.fixedBufferStream(&log_path_buf);
-    const writer = fbs.writer();
-    writer.print("{s}/Logs/reamo.log", .{res_path}) catch {
-        initialized = true;
-        return;
-    };
-    log_path_len = fbs.pos;
+    fn openCurrent(self: *Sink) void {
+        const p = self.path();
+        // A log that can't be opened leaves REAmo running without one: there
+        // is nowhere to report the failure to.
+        const f = std.fs.cwd().createFile(p, .{ .truncate = false }) catch return;
+        self.size = f.getEndPos() catch 0;
+        f.seekTo(self.size) catch {};
+        self.file = f;
+        self.writeRaw(self.header_buf[0..self.header_len]);
+    }
 
-    // Ensure Logs directory exists
-    var dir_path_buf: [512]u8 = undefined;
-    var dir_fbs = std.io.fixedBufferStream(&dir_path_buf);
-    dir_fbs.writer().print("{s}/Logs", .{res_path}) catch {
-        initialized = true;
-        return;
-    };
-    const dir_path = dir_path_buf[0..dir_fbs.pos];
+    /// reamo.log.N-1 -> .N, ..., reamo.log -> .1; the oldest is deleted.
+    fn rotateFiles(self: *Sink) void {
+        const p = self.path();
+        var from_buf: [530]u8 = undefined;
+        var to_buf: [530]u8 = undefined;
+        var i: u8 = MAX_ROTATIONS;
+        while (i > 0) : (i -= 1) {
+            const to = std.fmt.bufPrint(&to_buf, "{s}.{d}", .{ p, i }) catch return;
+            const from = if (i == 1) p else std.fmt.bufPrint(&from_buf, "{s}.{d}", .{ p, i - 1 }) catch return;
+            // Renaming over an existing file replaces it on every platform;
+            // a missing `from` just means fewer rotations exist yet.
+            std.fs.cwd().rename(from, to) catch {};
+        }
+    }
 
-    std.fs.makeDirAbsolute(dir_path) catch |e| switch (e) {
-        error.PathAlreadyExists => {}, // OK
-        else => {
-            initialized = true;
+    fn rotate(self: *Sink) void {
+        if (self.file) |f| f.close();
+        self.file = null;
+        self.rotateFiles();
+        self.openCurrent();
+    }
+
+    fn writeRaw(self: *Sink, bytes: []const u8) void {
+        const f = self.file orelse return;
+        // A failed write (disk full, file removed) loses this line only;
+        // there is nowhere else to report it.
+        f.writeAll(bytes) catch return;
+        self.size += bytes.len;
+    }
+
+    fn writeLine(self: *Sink, timestamp: i64, level: Level, msg: []const u8) void {
+        var ts_buf: [28]u8 = undefined;
+        const ts = formatTimestamp(&ts_buf, timestamp);
+        var line_buf: [MSG_CAP + 64]u8 = undefined;
+        const line = std.fmt.bufPrint(&line_buf, "[{s}] {s} {s}\n", .{ ts, level.asText(), msg }) catch unreachable;
+        self.writeRaw(line);
+        if (builtin.mode == .Debug and !builtin.is_test) std.debug.print("{s}", .{line});
+        if (self.size >= self.max_size) self.rotate();
+    }
+
+    fn reportRepeats(self: *Sink, timestamp: i64) void {
+        if (self.repeats == 0) return;
+        var buf: [96]u8 = undefined;
+        const summary = std.fmt.bufPrint(&buf, "(previous message repeated {d} more time{s})", .{
+            self.repeats,
+            if (self.repeats == 1) "" else "s",
+        }) catch unreachable;
+        self.repeats = 0;
+        self.repeat_since_ms = timestamp;
+        self.writeLine(timestamp, self.last_level, summary);
+    }
+
+    /// Record a formatted message: always into the crash ring, and into the
+    /// file if `level` is enabled and it isn't a repeat of the last one.
+    fn submit(self: *Sink, timestamp: i64, level: Level, msg: []const u8) void {
+        self.ring[self.ring_head].write(timestamp, level, msg);
+        self.ring_head = (self.ring_head + 1) % RING_SIZE;
+
+        if (@intFromEnum(level) > @intFromEnum(self.level)) return;
+
+        if (self.last_len > 0 and level == self.last_level and std.mem.eql(u8, msg, self.last_buf[0..self.last_len])) {
+            self.repeats += 1;
+            if (timestamp - self.repeat_since_ms >= REPEAT_REPORT_MS) self.reportRepeats(timestamp);
             return;
-        },
-    };
-
-    // Check if rotation needed before opening
-    rotateIfNeeded();
-
-    // Open log file for append
-    const path = log_path_buf[0..log_path_len];
-    log_file = std.fs.openFileAbsolute(path, .{ .mode = .write_only }) catch |e| blk: {
-        if (e == error.FileNotFound) {
-            break :blk std.fs.createFileAbsolute(path, .{}) catch null;
         }
-        break :blk null;
-    };
-
-    if (log_file) |f| {
-        f.seekFromEnd(0) catch {};
-        writeHeader(f);
+        self.reportRepeats(timestamp);
+        self.writeLine(timestamp, level, msg);
+        @memcpy(self.last_buf[0..msg.len], msg);
+        self.last_len = msg.len;
+        self.last_level = level;
+        self.repeat_since_ms = timestamp;
     }
 
+    fn writeRing(self: *Sink) void {
+        self.writeRaw("=== Last messages at every level, oldest first ===\n");
+        var i: usize = 0;
+        while (i < RING_SIZE) : (i += 1) {
+            const entry = &self.ring[(self.ring_head + i) % RING_SIZE];
+            if (entry.len == 0) continue;
+            var ts_buf: [28]u8 = undefined;
+            var line_buf: [300]u8 = undefined;
+            const line = std.fmt.bufPrint(&line_buf, "[{s}] {s} {s}\n", .{
+                formatTimestamp(&ts_buf, entry.timestamp_ms),
+                entry.level.asText(),
+                entry.getMessage(),
+            }) catch continue;
+            self.writeRaw(line);
+        }
+        self.writeRaw("=== End of last messages ===\n");
+    }
+
+    fn close(self: *Sink, timestamp: i64) void {
+        self.reportRepeats(timestamp);
+        self.writeRaw("=== REAmo unloaded ===\n\n");
+        if (self.file) |f| f.close();
+        self.file = null;
+    }
+};
+
+/// Format `fmt` into `buf`; a message that doesn't fit is cut on a character
+/// boundary and ends in TRUNCATED_MARK.
+fn formatMessage(buf: *[MSG_CAP]u8, comptime fmt: []const u8, args: anytype) []const u8 {
+    var w: std.Io.Writer = .fixed(buf[0 .. buf.len - TRUNCATED_MARK.len]);
+    w.print(fmt, args) catch {
+        const kept = utf8.trimIncompleteTail(w.buffered());
+        @memcpy(buf[kept.len..][0..TRUNCATED_MARK.len], TRUNCATED_MARK);
+        return buf[0 .. kept.len + TRUNCATED_MARK.len];
+    };
+    return w.buffered();
+}
+
+fn writeHeader(buf: []u8, session: Session, level: Level) []const u8 {
+    return std.fmt.bufPrint(buf, "=== REAmo {s} | REAPER {s} | {s}-{s} | {s} | log level {s} | times are UTC ===\n", .{
+        session.reamo_version,
+        session.reaper_version orelse "unknown",
+        @tagName(builtin.cpu.arch),
+        @tagName(builtin.os.tag),
+        @tagName(builtin.mode),
+        level.name(),
+    }) catch buf[0..0];
+}
+
+// ============================================================================
+// Global logger
+// ============================================================================
+
+var mutex: std.Thread.Mutex = .{};
+var sink: Sink = .{};
+var initialized: bool = false;
+
+/// Open the log. REAMO_LOG_LEVEL (error, warn, info, debug) sets the level;
+/// the default is info.
+pub fn init(resource_path: ?[]const u8, session: Session) void {
+    mutex.lock();
+    defer mutex.unlock();
+    if (initialized) return;
     initialized = true;
+
+    if (envLevel()) |level| sink.level = level;
+    sink.header_len = writeHeader(&sink.header_buf, session, sink.level).len;
+
+    // Without a resource path there is no log file; the crash ring still runs.
+    const res_path = resource_path orelse return;
+    var dir_buf: [512]u8 = undefined;
+    const dir = std.fmt.bufPrint(&dir_buf, "{s}/Logs", .{res_path}) catch return;
+    std.fs.cwd().makePath(dir) catch return;
+    var path_buf: [512]u8 = undefined;
+    const log_path = std.fmt.bufPrint(&path_buf, "{s}/reamo.log", .{dir}) catch return;
+    sink.open(log_path);
 }
 
-fn writeHeader(f: std.fs.File) void {
-    const header = "=== Reamo Extension Log ===\n";
-    _ = f.write(header) catch {};
-}
-
-/// Rotate log files if current one exceeds size limit
-fn rotateIfNeeded() void {
-    if (log_path_len == 0) return;
-
-    const path = log_path_buf[0..log_path_len];
-    const stat = std.fs.cwd().statFile(path) catch return;
-
-    if (stat.size < MAX_LOG_SIZE) return;
-
-    // Close current file
-    if (log_file) |f| {
-        f.close();
-        log_file = null;
-    }
-
-    // Rotate: reamo.log.3 -> delete, .2 -> .3, .1 -> .2, .log -> .1
-    var i: u8 = MAX_ROTATIONS;
-    while (i > 0) : (i -= 1) {
-        var old_path: [520]u8 = undefined;
-        var new_path: [520]u8 = undefined;
-
-        if (i == MAX_ROTATIONS) {
-            // Delete oldest
-            const old_slice = std.fmt.bufPrint(&old_path, "{s}.{d}", .{ path, i }) catch continue;
-            std.fs.deleteFileAbsolute(old_slice) catch {};
-        } else {
-            // Rename .N to .N+1
-            const old_slice = std.fmt.bufPrint(&old_path, "{s}.{d}", .{ path, i }) catch continue;
-            const new_slice = std.fmt.bufPrint(&new_path, "{s}.{d}", .{ path, i + 1 }) catch continue;
-            std.fs.renameAbsolute(old_slice, new_slice) catch {};
-        }
-    }
-
-    // Rename current .log to .1
-    var first_rotation: [520]u8 = undefined;
-    const first_slice = std.fmt.bufPrint(&first_rotation, "{s}.1", .{path}) catch return;
-    std.fs.renameAbsolute(path, first_slice) catch {};
-}
-
-/// Shutdown the logger (called on extension unload)
+/// Close the log (called on extension unload).
 pub fn deinit() void {
-    if (log_file) |f| {
-        const footer = "=== Extension Unloaded ===\n\n";
-        _ = f.write(footer) catch {};
-        f.close();
-        log_file = null;
-    }
+    mutex.lock();
+    defer mutex.unlock();
+    sink.close(std.time.milliTimestamp());
     initialized = false;
 }
 
-/// Get current timestamp in milliseconds
-fn getTimestampMs() i64 {
-    return @divFloor(std.time.milliTimestamp(), 1);
+fn envLevel() ?Level {
+    if (comptime builtin.os.tag == .windows) {
+        const value = std.process.getenvW(std.unicode.utf8ToUtf16LeStringLiteral("REAMO_LOG_LEVEL")) orelse return null;
+        var ascii: [16]u8 = undefined;
+        if (value.len > ascii.len) return null;
+        for (value, 0..) |c, i| ascii[i] = if (c < 128) @intCast(c) else '?';
+        return Level.fromString(ascii[0..value.len]);
+    }
+    const value = std.posix.getenv("REAMO_LOG_LEVEL") orelse return null;
+    return Level.fromString(value);
 }
 
 /// Format timestamp as DD.MM.YYYY HH:MM:SS.mmm (UTC)
@@ -235,36 +350,12 @@ fn formatTimestamp(buf: []u8, timestamp_ms: i64) []const u8 {
 
 /// Core logging function
 pub fn log(level: Level, comptime fmt: []const u8, args: anytype) void {
-    if (@intFromEnum(level) > @intFromEnum(log_level)) return;
-
-    const timestamp = getTimestampMs();
-
-    // Format message
-    // AUDIT: Silent catch return is intentional - can't log a logging failure.
-    // Ring buffer provides crash recovery for truncated messages.
-    var msg_buf: [512]u8 = undefined;
-    const msg = std.fmt.bufPrint(&msg_buf, fmt, args) catch return;
-
-    // Add to ring buffer (always, for crash recovery)
-    crash_ring[ring_head].write(timestamp, level, msg);
-    ring_head = (ring_head + 1) % RING_SIZE;
-
-    // Format full log line
-    var line_buf: [612]u8 = undefined;
-    var ts_buf: [28]u8 = undefined;
-    const ts = formatTimestamp(&ts_buf, timestamp);
-
-    const line = std.fmt.bufPrint(&line_buf, "[{s}] {s} {s}\n", .{ ts, level.asText(), msg }) catch return;
-
-    // Write to file (silent catch - no meaningful recovery for file write failure)
-    if (log_file) |f| {
-        _ = f.write(line) catch {};
-    }
-
-    // Also write to stderr in debug builds
-    if (builtin.mode == .Debug) {
-        std.debug.print("{s}", .{line});
-    }
+    var msg_buf: [MSG_CAP]u8 = undefined;
+    const msg = formatMessage(&msg_buf, fmt, args);
+    const timestamp = std.time.milliTimestamp();
+    mutex.lock();
+    defer mutex.unlock();
+    sink.submit(timestamp, level, msg);
 }
 
 /// Convenience functions matching std.log interface
@@ -284,53 +375,115 @@ pub fn debug(comptime fmt: []const u8, args: anytype) void {
     log(.debug, fmt, args);
 }
 
-/// Flush ring buffer to file (call from panic handler)
-pub fn flushRingBuffer() void {
-    const f = log_file orelse return;
-
-    _ = f.write("\n=== CRASH RING BUFFER ===\n") catch return;
-
-    // Write entries in order (oldest to newest)
-    var i: usize = 0;
-    while (i < RING_SIZE) : (i += 1) {
-        const idx = (ring_head + i) % RING_SIZE;
-        const entry = &crash_ring[idx];
-        if (entry.len == 0) continue;
-
-        var ts_buf: [28]u8 = undefined;
-        const ts = formatTimestamp(&ts_buf, entry.timestamp_ms);
-
-        var line_buf: [300]u8 = undefined;
-        const line = std.fmt.bufPrint(&line_buf, "[{s}] {s} {s}\n", .{
-            ts,
-            entry.level.asText(),
-            entry.getMessage(),
-        }) catch continue;
-
-        _ = f.write(line) catch {};
-    }
-
-    _ = f.write("=== END RING BUFFER ===\n") catch {};
-}
-
 /// Get the log file path (for error messages)
 pub fn getLogPath() ?[]const u8 {
-    if (log_path_len == 0) return null;
-    return log_path_buf[0..log_path_len];
+    if (sink.path_len == 0) return null;
+    return sink.path();
 }
+
+// ============================================================================
+// Panic handler
+// ============================================================================
+
+/// Write the panic, the stack and the crash ring to the log, then hand over
+/// to Zig's default handler (stderr trace, abort). REAPER's stderr is
+/// usually nowhere a user can find, so the log is the crash report.
+fn panicImpl(msg: []const u8, ret_addr: ?usize) noreturn {
+    @branchHint(.cold);
+    // A panic inside the logger on this thread would deadlock on lock();
+    // writing unlocked risks interleaving with another thread, which is the
+    // lesser harm when REAPER is about to go down.
+    const locked = mutex.tryLock();
+    writeCrashReport(msg, ret_addr);
+    if (locked) mutex.unlock();
+    std.debug.defaultPanic(msg, ret_addr);
+}
+
+fn writeCrashReport(msg: []const u8, ret_addr: ?usize) void {
+    const now = std.time.milliTimestamp();
+    sink.reportRepeats(now);
+    var ts_buf: [28]u8 = undefined;
+    var buf: [MSG_CAP + 128]u8 = undefined;
+    sink.writeRaw(std.fmt.bufPrint(&buf, "\n[{s}] PANIC on thread {d}: {s}\n", .{
+        formatTimestamp(&ts_buf, now),
+        std.Thread.getCurrentId(),
+        utf8.prefix(msg, MSG_CAP),
+    }) catch "\nPANIC\n");
+
+    // Raw return addresses first: they need no debug info. The address of
+    // panicImpl anchors them, so they can be symbolized against the
+    // release's own binary.
+    sink.writeRaw(std.fmt.bufPrint(&buf, "Stack (panicImpl at 0x{x}):\n", .{@intFromPtr(&panicImpl)}) catch "Stack:\n");
+    var addrs: [32]usize = undefined;
+    var trace: std.builtin.StackTrace = .{ .index = 0, .instruction_addresses = &addrs };
+    std.debug.captureStackTrace(null, &trace);
+    for (addrs[0..@min(trace.index, addrs.len)]) |addr| {
+        sink.writeRaw(std.fmt.bufPrint(&buf, "  0x{x}\n", .{addr}) catch continue);
+    }
+
+    // A symbolized trace, when this machine has the debug info for it.
+    if (sink.file) |f| {
+        var out_buf: [1024]u8 = undefined;
+        var fw = f.writerStreaming(&out_buf);
+        const w = &fw.interface;
+        if (builtin.strip_debug_info) {
+            w.writeAll("No symbolized stack: debug info stripped\n") catch {};
+        } else if (std.debug.getSelfDebugInfo()) |info_ptr| {
+            std.debug.writeCurrentStackTrace(w, info_ptr, .no_color, ret_addr orelse @returnAddress()) catch |e| {
+                w.print("No symbolized stack: {s}\n", .{@errorName(e)}) catch {};
+            };
+        } else |e| {
+            w.print("No symbolized stack: {s}\n", .{@errorName(e)}) catch {};
+        }
+        w.flush() catch {};
+    }
+
+    sink.writeRing();
+}
+
+/// Export panic handler namespace for Zig 0.15
+pub const panic = std.debug.FullPanic(panicImpl);
 
 // ============================================================================
 // Tests
 // ============================================================================
 
+const testing = std.testing;
+
+/// A sink writing to `name` inside a fresh temporary directory.
+const TestSink = struct {
+    tmp: testing.TmpDir,
+    sink: Sink,
+    path_buf: [std.fs.max_path_bytes]u8,
+
+    fn init(self: *TestSink, max_size: u64) !void {
+        self.tmp = testing.tmpDir(.{});
+        self.sink = .{ .max_size = max_size, .level = .info };
+        self.sink.header_len = writeHeader(&self.sink.header_buf, .{ .reamo_version = "test", .reaper_version = "7.83/test" }, .info).len;
+        const dir = try self.tmp.dir.realpath(".", &self.path_buf);
+        var p: [std.fs.max_path_bytes]u8 = undefined;
+        self.sink.open(try std.fmt.bufPrint(&p, "{s}/reamo.log", .{dir}));
+    }
+
+    fn deinit(self: *TestSink) void {
+        if (self.sink.file) |f| f.close();
+        self.tmp.cleanup();
+    }
+
+    fn read(self: *TestSink, name: []const u8, buf: []u8) ![]const u8 {
+        return self.tmp.dir.readFile(name, buf);
+    }
+};
+
 test "Level.fromString" {
-    try std.testing.expectEqual(Level.err, Level.fromString("error"));
-    try std.testing.expectEqual(Level.err, Level.fromString("err"));
-    try std.testing.expectEqual(Level.warn, Level.fromString("warn"));
-    try std.testing.expectEqual(Level.warn, Level.fromString("warning"));
-    try std.testing.expectEqual(Level.info, Level.fromString("info"));
-    try std.testing.expectEqual(Level.debug, Level.fromString("debug"));
-    try std.testing.expectEqual(Level.info, Level.fromString("unknown")); // default
+    try testing.expectEqual(Level.err, Level.fromString("error"));
+    try testing.expectEqual(Level.err, Level.fromString("err"));
+    try testing.expectEqual(Level.warn, Level.fromString("warn"));
+    try testing.expectEqual(Level.warn, Level.fromString("warning"));
+    try testing.expectEqual(Level.info, Level.fromString("info"));
+    try testing.expectEqual(Level.debug, Level.fromString("debug"));
+    try testing.expectEqual(Level.debug, Level.fromString("DEBUG"));
+    try testing.expectEqual(Level.info, Level.fromString("unknown")); // default
 }
 
 test "formatTimestamp" {
@@ -339,22 +492,111 @@ test "formatTimestamp" {
     // 10.04.2026 13:30:45.678 (Unix epoch ms for that datetime in UTC)
     const ts: i64 = 1775827845678;
     const result = formatTimestamp(&buf, ts);
-    try std.testing.expectEqualStrings("10.04.2026 13:30:45.678", result);
+    try testing.expectEqualStrings("10.04.2026 13:30:45.678", result);
 }
 
-test "RingEntry write and read" {
+test "RingEntry truncates long messages on a character boundary" {
     var entry = RingEntry{};
-    entry.write(12345, .warn, "test message");
-
-    try std.testing.expectEqual(@as(i64, 12345), entry.timestamp_ms);
-    try std.testing.expectEqual(Level.warn, entry.level);
-    try std.testing.expectEqualStrings("test message", entry.getMessage());
+    entry.write(0, .info, "x" ** 239 ++ "é");
+    try testing.expectEqual(@as(u8, 239), entry.len);
 }
 
-test "RingEntry truncates long messages" {
-    var entry = RingEntry{};
-    const long_msg = "x" ** 300; // longer than 240
-    entry.write(0, .info, long_msg);
+test "a message longer than the buffer is cut short and marked, not dropped" {
+    var buf: [MSG_CAP]u8 = undefined;
+    const long = "y" ** (MSG_CAP * 2);
+    const msg = formatMessage(&buf, "name={s}", .{long});
+    try testing.expect(msg.len <= MSG_CAP);
+    try testing.expect(std.mem.startsWith(u8, msg, "name=yyy"));
+    try testing.expect(std.mem.endsWith(u8, msg, TRUNCATED_MARK));
+}
 
-    try std.testing.expectEqual(@as(u8, 240), entry.len);
+test "a cut message never ends inside a multi-byte character" {
+    var buf: [MSG_CAP]u8 = undefined;
+    const msg = formatMessage(&buf, "{s}", .{"é" ** MSG_CAP});
+    const body = msg[0 .. msg.len - TRUNCATED_MARK.len];
+    try testing.expect(std.unicode.utf8ValidateSlice(body));
+}
+
+test "each log file starts with the session header" {
+    var t: TestSink = undefined;
+    try t.init(MAX_LOG_SIZE);
+    defer t.deinit();
+    var buf: [1024]u8 = undefined;
+    const text = try t.read("reamo.log", &buf);
+    try testing.expect(std.mem.startsWith(u8, text, "=== REAmo test | REAPER 7.83/test | "));
+    try testing.expect(std.mem.indexOf(u8, text, "log level info") != null);
+}
+
+test "messages below the level stay out of the file but reach the crash ring" {
+    var t: TestSink = undefined;
+    try t.init(MAX_LOG_SIZE);
+    defer t.deinit();
+    t.sink.submit(0, .debug, "tick detail");
+    var buf: [1024]u8 = undefined;
+    try testing.expect(std.mem.indexOf(u8, try t.read("reamo.log", &buf), "tick detail") == null);
+    try testing.expectEqualStrings("tick detail", t.sink.ring[0].getMessage());
+}
+
+test "a repeated message is written once and counted when another arrives" {
+    var t: TestSink = undefined;
+    try t.init(MAX_LOG_SIZE);
+    defer t.deinit();
+    for (0..1000) |i| t.sink.submit(@intCast(i), .warn, "buffer too small");
+    t.sink.submit(1000, .info, "something else");
+    var buf: [4096]u8 = undefined;
+    const text = try t.read("reamo.log", &buf);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, text, "buffer too small"));
+    try testing.expect(std.mem.indexOf(u8, text, "repeated 999 more times") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "something else") != null);
+}
+
+test "a message repeating forever reports its count once a minute" {
+    var t: TestSink = undefined;
+    try t.init(MAX_LOG_SIZE);
+    defer t.deinit();
+    // 30 Hz for ten minutes.
+    var ts: i64 = 0;
+    while (ts < 10 * 60 * std.time.ms_per_s) : (ts += 33) t.sink.submit(ts, .warn, "stuck");
+    var buf: [8192]u8 = undefined;
+    const text = try t.read("reamo.log", &buf);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, text, "stuck"));
+    const reports = std.mem.count(u8, text, "previous message repeated");
+    try testing.expect(reports >= 9 and reports <= 10);
+}
+
+test "the log rotates while running, not only at startup, and keeps a bounded number of files" {
+    var t: TestSink = undefined;
+    try t.init(4096);
+    defer t.deinit();
+    var msg_buf: [64]u8 = undefined;
+    for (0..2000) |i| t.sink.submit(@intCast(i), .info, try std.fmt.bufPrint(&msg_buf, "distinct message {d}", .{i}));
+
+    var buf: [8192]u8 = undefined;
+    const live = try t.read("reamo.log", &buf);
+    try testing.expect(live.len < 4096 + MSG_CAP + 64);
+    try testing.expect(std.mem.startsWith(u8, live, "=== REAmo test"));
+    try testing.expect(std.mem.indexOf(u8, live, "distinct message 1999") != null);
+
+    for (1..MAX_ROTATIONS + 1) |n| {
+        var name_buf: [32]u8 = undefined;
+        const rotated = try t.read(try std.fmt.bufPrint(&name_buf, "reamo.log.{d}", .{n}), &buf);
+        try testing.expect(std.mem.startsWith(u8, rotated, "=== REAmo test"));
+    }
+    var name_buf: [32]u8 = undefined;
+    const too_many = try std.fmt.bufPrint(&name_buf, "reamo.log.{d}", .{MAX_ROTATIONS + 1});
+    try testing.expectError(error.FileNotFound, t.tmp.dir.access(too_many, .{}));
+}
+
+test "a log already full at startup is rotated before writing" {
+    var t: TestSink = undefined;
+    try t.init(64);
+    defer t.deinit();
+    // init wrote a header longer than 64 bytes; reopening must rotate it away.
+    const p = t.sink.path();
+    var p_copy: [std.fs.max_path_bytes]u8 = undefined;
+    @memcpy(p_copy[0..p.len], p);
+    t.sink.file.?.close();
+    t.sink.file = null;
+    t.sink.open(p_copy[0..p.len]);
+    try t.tmp.dir.access("reamo.log.1", .{});
 }
