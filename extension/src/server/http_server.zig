@@ -72,10 +72,20 @@ pub const HttpServer = struct {
             .address = .{ .ip = .{ .host = "0.0.0.0", .port = port } },
             .timeout = .{
                 .request = 5, // 5s header read timeout (Slowloris defense)
-                .keepalive = 30, // 30s keepalive (LAN latency is <1ms)
+                // Short: page loads finish in well under a second on a LAN, and
+                // a web page can park idle keep-alive sockets on our loopback
+                // addresses to exhaust max_conn.
+                .keepalive = 5,
             },
             .workers = .{
-                .max_conn = 16, // Home studio: phone + tablet + laptop
+                // Home studio needs a handful (phone + tablet + laptop). The cap is
+                // set above what one browser can hold idle against us (~6 sockets
+                // per host and pool across 127.0.0.1, localhost, [::1] and the LAN
+                // IP), so a hostile page can't lock real clients out.
+                .max_conn = 64,
+                // Connections preallocated up front (httpz defaults this to
+                // max_conn); keeps the idle footprint at what 16 cost.
+                .min_conn = 16,
             },
             .thread_pool = .{
                 .count = 8, // In blocking mode (Windows), each WS client holds a thread.
