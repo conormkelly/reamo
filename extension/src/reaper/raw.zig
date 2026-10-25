@@ -17,9 +17,6 @@ pub const MarkerInfo = types.MarkerInfo;
 pub const MarkerCount = types.MarkerCount;
 pub const FxPresetInfo = types.FxPresetInfo;
 
-// Debug logging - set to false for release builds
-pub const DEBUG_LOGGING = false;
-
 // REAPER plugin API version
 pub const PLUGIN_VERSION: c_int = 0x20E;
 
@@ -531,34 +528,6 @@ pub const Api = struct {
     }
 
     // Safe wrapper methods
-
-    /// Debug log - only outputs when DEBUG_LOGGING is true
-    pub fn log(self: *const Api, comptime fmt: []const u8, args: anytype) void {
-        if (!DEBUG_LOGGING) return;
-        var buf: [512]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
-        if (msg.len < buf.len) {
-            buf[msg.len] = 0;
-            self.showConsoleMsg(@ptrCast(&buf));
-        }
-    }
-
-    /// Debug log (simple) - only outputs when DEBUG_LOGGING is true
-    pub fn logSimple(self: *const Api, msg: [*:0]const u8) void {
-        if (!DEBUG_LOGGING) return;
-        self.showConsoleMsg(msg);
-        self.showConsoleMsg("\n");
-    }
-
-    /// Always log - for critical messages that should appear regardless of DEBUG_LOGGING
-    pub fn logAlways(self: *const Api, comptime fmt: []const u8, args: anytype) void {
-        var buf: [512]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
-        if (msg.len < buf.len) {
-            buf[msg.len] = 0;
-            self.showConsoleMsg(@ptrCast(&buf));
-        }
-    }
 
     /// Show a single-input dialog and return the user's input, or null if cancelled.
     /// `title`: dialog title, `caption`: field label, `default_val`: pre-filled value.

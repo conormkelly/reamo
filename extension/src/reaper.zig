@@ -60,7 +60,6 @@ pub const Api = raw.Api;
 pub const PluginInfo = raw.PluginInfo;
 pub const Command = raw.Command;
 pub const PLUGIN_VERSION = raw.PLUGIN_VERSION;
-pub const DEBUG_LOGGING = raw.DEBUG_LOGGING;
 
 // =============================================================================
 // Shared type exports

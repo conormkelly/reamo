@@ -54,10 +54,29 @@ const audio_hook = @import("audio/audio_hook.zig");
 // Use custom panic handler that flushes log ring buffer before aborting
 pub const panic = logging.panic;
 
-// Suppress websocket library debug spam - only show warnings and errors
+// Libraries (httpz, websocket) log through std.log: keep their warnings and
+// errors, in reamo.log with everything else rather than on a stderr REAPER
+// users never see.
 pub const std_options: std.Options = .{
     .log_level = .warn,
+    .logFn = logToReamoLog,
 };
+
+fn logToReamoLog(
+    comptime level: std.log.Level,
+    comptime scope: @Type(.enum_literal),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    const prefix = if (scope == .default) "" else "[" ++ @tagName(scope) ++ "] ";
+    const ours: logging.Level = switch (level) {
+        .err => .err,
+        .warn => .warn,
+        .info => .info,
+        .debug => .debug,
+    };
+    logging.log(ours, prefix ++ format, args);
+}
 
 // Configuration
 const FALLBACK_PORT: u16 = 9224;
@@ -106,7 +125,6 @@ var g_last_playlist: playlist.State = .{}; // For change detection
 var g_initialized: bool = false;
 
 // Error rate limiting for broadcast errors
-var g_error_limiter: errors.ErrorRateLimiter = .{};
 
 // Audio monitoring (binary WebSocket PCM streaming)
 var g_audio_stream: ?*audio_stream.AudioStreamManager = null;
@@ -138,30 +156,6 @@ var g_frame_counter: u32 = 0;
 var g_init_complete: bool = false; // Safety flag to prevent timer callback running before init
 var g_ws_started: bool = false; // Track if WebSocket server has been started
 const WS_START_DELAY_FRAMES: u32 = 30; // Wait ~1 second before starting WebSocket server
-
-/// Broadcast an error event to all clients with rate limiting
-/// Only broadcasts if enough time has passed since the last broadcast of this error type
-fn broadcastRateLimitedError(code: errors.ErrorCode, detail: ?[]const u8) void {
-    const shared_state = g_shared_state orelse return;
-    const current_time = std.time.timestamp();
-
-    if (g_error_limiter.shouldBroadcast(code, current_time)) {
-        const event = errors.ErrorEvent{ .code = code, .detail = detail };
-        // Use scratch allocator if available, otherwise use fixed buffer
-        if (g_tiered) |*tiered| {
-            const scratch = tiered.scratchAllocator();
-            if (event.toJsonAlloc(scratch)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-        } else {
-            // Fallback for errors before tiered state is initialized
-            var buf: [2048]u8 = undefined;
-            if (event.toJson(&buf)) |json| {
-                shared_state.broadcast(json);
-            }
-        }
-    }
-}
 
 // Timer callback for deferred initialization
 // First call does initialization, then immediately switches to processing timer.
@@ -207,12 +201,6 @@ fn doInitialization() !void {
     // for each one.
     g_allocator = std.heap.c_allocator;
 
-    // Initialize logging with REAPER's resource path
-    logging.init(api.resourcePath(), .{
-        .reamo_version = protocol.EXTENSION_VERSION,
-        .reaper_version = api.appVersion(),
-    });
-    logging.info("REAmo v{s} starting", .{protocol.EXTENSION_VERSION});
 
     // Initialize hot reload file path
     if (api.resourcePath()) |res_path| {
@@ -1147,6 +1135,13 @@ export fn ReaperPluginEntry(hInstance: ?*anyopaque, rec: ?*reaper.PluginInfo) ca
     // Load REAPER API
     g_api = reaper.Api.load(info) orelse return 0;
 
+    // The log first, so everything after (menu registration included) is in it.
+    logging.init(g_api.?.resourcePath(), .{
+        .reamo_version = protocol.EXTENSION_VERSION,
+        .reaper_version = g_api.?.appVersion(),
+    });
+    logging.info("REAmo v{s} starting", .{protocol.EXTENSION_VERSION});
+
     // Save plugin_register for CSurf integration
     g_plugin_register = info.Register;
 
@@ -1158,7 +1153,7 @@ export fn ReaperPluginEntry(hInstance: ?*anyopaque, rec: ?*reaper.PluginInfo) ca
     // Initialize SWELL bridge before menu registration.
     // Menu building (flag=0 callback) needs SWELL functions like CreatePopupMenu.
     // SWELLAPI_GetFunc must be obtained before any SWELL calls work.
-    _ = swell.init();
+    if (!swell.init()) logging.warn("SWELL bridge unavailable; the REAmo menu and dialogs may not work", .{});
 
     // Register Extensions menu NOW (before returning 1).
     // hookcustommenu flag=0 fires once when the menu is first created —
