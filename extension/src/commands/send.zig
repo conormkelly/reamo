@@ -26,13 +26,11 @@ pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     };
 
-    // Use CSurf for undo coalescing
+    const control = gesture_state.ControlId.sendVolume(track_idx, send_idx);
+    const in_gesture = mod.inGesture(response, control);
+    if (!in_gesture) api.undoBeginBlock();
     _ = api.trackSendSetVolume(track, send_idx, volume);
-
-    // Record activity for gesture timeout tracking
-    if (response.gestures) |gestures| {
-        gestures.recordActivity(gesture_state.ControlId.sendVolume(track_idx, send_idx));
-    }
+    if (in_gesture) response.gestures.?.recordActivity(control) else api.undoEndBlock("REAmo: Adjust send volume");
 
     logging.debug("Send volume set: track {} send {} volume {d:.3}", .{ track_idx, send_idx, volume });
     response.success(null);
@@ -60,7 +58,9 @@ pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         return;
     };
 
+    api.undoBeginBlock();
     const success = api.trackSendSetMute(track, send_idx, muted);
+    api.undoEndBlock("REAmo: Toggle send mute");
     if (!success) {
         response.err("SET_FAILED", "Failed to set send mute state");
         return;
@@ -94,13 +94,11 @@ pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
     // Clamp pan to valid range
     const clamped = @max(-1.0, @min(1.0, pan));
 
-    // Use CSurf for undo coalescing
+    const control = gesture_state.ControlId.sendPan(track_idx, send_idx);
+    const in_gesture = mod.inGesture(response, control);
+    if (!in_gesture) api.undoBeginBlock();
     _ = api.trackSendSetPan(track, send_idx, clamped);
-
-    // Record activity for gesture timeout tracking
-    if (response.gestures) |gestures| {
-        gestures.recordActivity(gesture_state.ControlId.sendPan(track_idx, send_idx));
-    }
+    if (in_gesture) response.gestures.?.recordActivity(control) else api.undoEndBlock("REAmo: Adjust send pan");
 
     logging.debug("Send pan set: track {} send {} pan {d:.3}", .{ track_idx, send_idx, clamped });
     response.success(null);
@@ -133,7 +131,9 @@ pub fn handleSetMode(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         return;
     };
 
+    api.undoBeginBlock();
     const success = api.trackSendSetMode(track, send_idx, mode);
+    api.undoEndBlock("REAmo: Set send mode");
     if (!success) {
         response.err("SET_FAILED", "Failed to set send mode");
         return;

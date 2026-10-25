@@ -78,6 +78,14 @@ pub const CommandContext = struct {
 /// Global command context - initialized by main.zig
 pub var g_ctx: CommandContext = .{};
 
+/// Whether a client is mid-drag on `control`. A change inside a drag is
+/// covered by the undo point recorded when the drag ends; a change outside
+/// one (a double-tap reset) needs an undo point of its own.
+pub fn inGesture(response: *const ResponseWriter, control: gesture_state.ControlId) bool {
+    const gestures = response.gestures orelse return false;
+    return gestures.isActive(control);
+}
+
 // Response writer for sending responses to the requesting client only
 pub const ResponseWriter = struct {
     client_id: usize,
