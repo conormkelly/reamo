@@ -43,8 +43,8 @@ const commands = @import("../commands/mod.zig");
 const item_guid_cache = @import("../state/item_guid_cache.zig");
 
 // Constants
-pub const MEDIUM_TIER_INTERVAL: u32 = 6; // 30Hz / 6 = 5Hz
-pub const LOW_TIER_INTERVAL: u32 = 30; // 30Hz / 30 = 1Hz
+pub const MEDIUM_TIER_INTERVAL = tiered_state.MEDIUM_TIER_INTERVAL; // 30Hz / 6 = 5Hz
+pub const LOW_TIER_INTERVAL = tiered_state.LOW_TIER_INTERVAL; // 30Hz / 30 = 1Hz
 
 /// Context shared across all tier polling functions.
 /// Contains references to infrastructure needed for polling and broadcasting.
@@ -332,8 +332,13 @@ pub fn pollMediumTier(
 fn pollMarkersImmediate(ctx: *const TierContext, mutable: *MutableState) !void {
     const medium_alloc = ctx.tiered.medium.currentAllocator();
     const medium_state = ctx.tiered.medium.currentState();
-    const medium_prev = ctx.tiered.medium.previousState();
     const scratch = ctx.scratchAllocator();
+
+    // Compare with this period's latest poll, which is what clients last
+    // heard, not with the previous period's: an edit undone within one
+    // period would otherwise match the previous period and never be sent,
+    // leaving clients showing the edit.
+    const last_sent = medium_state.*;
 
     // Poll markers/regions into MEDIUM arena
     const marker_state = markers.State.poll(medium_alloc, ctx.backend) catch |err| {
@@ -344,7 +349,7 @@ fn pollMarkersImmediate(ctx: *const TierContext, mutable: *MutableState) !void {
     medium_state.regions = marker_state.regions;
     medium_state.bar_offset = marker_state.bar_offset;
 
-    broadcastMarkersIfChanged(ctx, medium_state, medium_prev, scratch);
+    broadcastMarkersIfChanged(ctx, medium_state, &last_sent, scratch);
 
     // Update g_last_markers cache for playlist engine
     updateMarkersCache(mutable, medium_state.markers, medium_state.regions, medium_state.bar_offset);
@@ -563,22 +568,27 @@ pub fn pollLowTier(
 
 /// Immediate tempo poll when CSurf dirty flag is set.
 fn pollTempoImmediate(ctx: *const TierContext) !void {
-    pollTempoMap(ctx);
+    // This period's latest poll is what clients last heard (see
+    // pollMarkersImmediate).
+    pollTempoMap(ctx, ctx.tiered.low.currentState().tempomap);
 }
 
-/// Poll the tempo map and broadcast it if it changed. The markers go in the
-/// frame's scratch arena; the low tier keeps only their summary.
-fn pollTempoMap(ctx: *const TierContext) void {
+/// Poll the tempo map and broadcast it if it differs from `last_sent`. The
+/// markers go in the frame's scratch arena; the low tier keeps only their
+/// summary.
+fn pollTempoMap(ctx: *const TierContext, last_sent: tempomap.Summary) void {
     const low_state = ctx.tiered.low.currentState();
-    const low_prev = ctx.tiered.low.previousState();
     const scratch = ctx.scratchAllocator();
 
     const tempo = tempomap.State.poll(scratch, ctx.backend) catch |err| {
         logging.err("Tempo map poll failed: {s}", .{@errorName(err)});
         return;
     };
+    // Decide before storing the summary: `last_sent` may be the very field
+    // being overwritten (Zig can pass a struct parameter by reference).
+    const changed = tempo.changed(last_sent);
     low_state.tempomap = tempo.summary();
-    if (tempo.changed(low_prev.tempomap)) {
+    if (changed) {
         if (tempo.toJsonAlloc(scratch)) |json| {
             ctx.shared_state.broadcast(json);
         } else |_| {}
@@ -596,7 +606,7 @@ fn pollLowTierRegular(
     // ========================================================================
     // Tempomap
     // ========================================================================
-    pollTempoMap(ctx);
+    pollTempoMap(ctx, ctx.tiered.low.previousState().tempomap);
 
     // ========================================================================
     // Track skeleton
