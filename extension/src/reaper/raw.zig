@@ -1287,6 +1287,17 @@ pub const Api = struct {
         return f(null, idx);
     }
 
+    /// trackCount in `project` (a ReaProject*, which may be a background tab).
+    pub fn trackCountIn(self: *const Api, project: ?*anyopaque) c_int {
+        return if (self.countTracks) |f| f(project) else 0;
+    }
+
+    /// getTrackByIdx in `project` (a ReaProject*, which may be a background tab).
+    pub fn getTrackIn(self: *const Api, project: ?*anyopaque, idx: c_int) ?*anyopaque {
+        const f = self.getTrack orelse return null;
+        return f(project, idx);
+    }
+
     /// Get the master track
     pub fn masterTrack(self: *const Api) ?*anyopaque {
         const f = self.getMasterTrack orelse return null;

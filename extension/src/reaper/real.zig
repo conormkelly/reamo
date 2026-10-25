@@ -360,6 +360,14 @@ pub const RealBackend = struct {
         return self.inner.getTrackByIdx(idx);
     }
 
+    pub fn trackCountIn(self: *const RealBackend, project: ?*anyopaque) c_int {
+        return self.inner.trackCountIn(project);
+    }
+
+    pub fn getTrackIn(self: *const RealBackend, project: ?*anyopaque, idx: c_int) ?*anyopaque {
+        return self.inner.getTrackIn(project, idx);
+    }
+
     pub fn getTrackByUnifiedIdx(self: *const RealBackend, idx: c_int) ?*anyopaque {
         return self.inner.getTrackByUnifiedIdx(idx);
     }

@@ -91,6 +91,8 @@ pub fn validateBackend(comptime T: type) void {
         // Tracks
         "trackCount",
         "getTrackByIdx",
+        "trackCountIn",
+        "getTrackIn",
         "getTrackByUnifiedIdx",
         "masterTrack",
         "getTrackNameStr",
