@@ -480,8 +480,14 @@ pub fn getLogPath() ?[]const u8 {
 /// Write the panic, the stack and the crash ring to the log, then hand over
 /// to Zig's default handler (stderr trace, abort). REAPER's stderr is
 /// usually nowhere a user can find, so the log is the crash report.
+threadlocal var in_panic: bool = false;
+
 fn panicImpl(msg: []const u8, ret_addr: ?usize) noreturn {
     @branchHint(.cold);
+    // A panic while writing the report (reading debug info from a corrupt
+    // heap, say) goes straight to the default handler instead of recursing.
+    if (in_panic) std.debug.defaultPanic(msg, ret_addr);
+    in_panic = true;
     // A panic inside the logger on this thread would deadlock on lock();
     // writing unlocked risks interleaving with another thread, which is the
     // lesser harm when REAPER is about to go down.
