@@ -608,10 +608,6 @@ pub fn buildEvent(buf: []u8, event_name: []const u8, payload_fn: fn (*JsonWriter
     return w.slice();
 }
 
-// Helper to escape JSON strings - used by state modules for serialization.
-// On Windows, transcodes from the system's active code page (e.g. Windows-1252)
-// to UTF-8 before escaping — REAPER's C API returns strings in the local code
-// page, not UTF-8, which would otherwise break WebSocket text frames.
 /// Largest message serializeAlloc builds. A 10,000-track project's track
 /// list is a few MB; a WebSocket frame this size would already stall a phone.
 pub const MAX_SERIALIZED_SIZE: usize = 64 * 1024 * 1024;
@@ -676,6 +672,10 @@ pub fn writeAlloc(allocator: std.mem.Allocator, initial_size: usize, ctx: anytyp
     return serializeAlloc(allocator, initial_size, ctx, Wrap.toJson);
 }
 
+/// Write `s` as the body of a JSON string, escaped. On Windows it is first
+/// transcoded from the system's active code page (e.g. Windows-1252) to
+/// UTF-8: REAPER's C API returns strings in the local code page, which
+/// would otherwise break WebSocket text frames.
 pub fn writeJsonString(writer: anytype, s: []const u8) !void {
     // Transcode from system code page to UTF-8 (no-op on non-Windows / pure ASCII).
     // Keep buffer ≤1KB — this runs in timer callbacks with deep call stacks (see ZIG_GUIDE §1).

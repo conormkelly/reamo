@@ -18,7 +18,6 @@ const gesture_state = @import("server/gesture_state.zig");
 const toggle_subscriptions = @import("subscriptions/toggle_subscriptions.zig");
 const project_notes = @import("subscriptions/project_notes.zig");
 const playlist = @import("state/playlist.zig");
-const errors = @import("core/errors.zig");
 const logging = @import("core/logging.zig");
 const tiered_state = @import("server/tiered_state.zig");
 const guid_cache = @import("state/guid_cache.zig");
@@ -131,8 +130,6 @@ var g_last_regions_buf: [markers.MAX_REGIONS]markers.Region = undefined;
 var g_playlist_state: playlist.State = .{};
 var g_last_playlist: playlist.State = .{}; // For change detection
 var g_initialized: bool = false;
-
-// Error rate limiting for broadcast errors
 
 // Audio monitoring (binary WebSocket PCM streaming)
 var g_audio_stream: ?*audio_stream.AudioStreamManager = null;
@@ -914,9 +911,7 @@ fn doProcessing() !void {
     }
 }
 
-/// Restart the HTTP server on a new port.
-/// Called from network_action when user changes port via menu.
-/// Move the server to `new_port`. The new server is listening before the
+/// Move the server to `new_port` (Change Server Port in the REAmo menu). The new server is listening before the
 /// old one stops, so on failure REAmo is still serving where it was.
 fn restartServer(new_port: u16) anyerror!void {
     const shared_state = g_shared_state orelse return error.NotInitialized;
