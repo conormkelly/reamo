@@ -1,24 +1,21 @@
 const std = @import("std");
-const utf8 = @import("../core/utf8.zig");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../core/logging.zig");
 
-// Add a simple undo point with description
+// Add a simple undo point with description, stored as the user typed it
 pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const description = cmd.getString("description") orelse {
+    const description = (cmd.getTextAlloc("description", std.heap.c_allocator) catch {
+        response.err("ALLOC_FAILED", "Failed to read description");
+        return;
+    }) orelse {
         response.err("MISSING_DESCRIPTION", "description is required");
         return;
     };
+    defer std.heap.c_allocator.free(description);
 
-    var desc_buf: [256]u8 = undefined;
-    const len = utf8.copyPrefix(desc_buf[0..255], description);
-    desc_buf[len] = 0;
-    // SAFETY: @alignCast unnecessary - u8 has alignment 1, always valid
-    const desc_z: [*:0]const u8 = @ptrCast(&desc_buf);
-
-    api.undoAddPoint(desc_z);
+    api.undoAddPoint(description.ptr);
     logging.info("Added undo point: {s}", .{description});
     response.success(null);
 }
