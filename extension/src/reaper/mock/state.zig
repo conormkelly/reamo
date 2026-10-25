@@ -117,6 +117,7 @@ pub const Method = enum {
     doRedo,
     undoBeginBlock,
     undoEndBlock,
+    undoRecordChange,
     // Tracks
     trackCount,
     getTrackByIdx,

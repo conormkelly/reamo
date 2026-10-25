@@ -67,16 +67,8 @@ pub fn handleStart(api: anytype, cmd: protocol.CommandMessage, response: *mod.Re
         response.client_id,
     });
 
-    // For manual-undo controls (hw outputs, FX params), manage shared undo block.
-    // CSurf doesn't support these categories. REAPER doesn't support nested blocks,
-    // so all manual-undo gestures share one block.
-    if (is_new and gesture_state.GestureState.needsManualUndo(control.control_type)) {
-        const should_open = gestures.beginManualUndoBlock(control.control_type);
-        if (should_open) {
-            logging.debug("Opening shared manual undo block for {s}", .{@tagName(control.control_type)});
-            api.undoBeginBlock();
-        }
-    }
+    // Manual-undo controls get one undo point when their gesture ends.
+    if (is_new) gestures.beginManualUndo(control.control_type);
 
     response.success(null);
 }
@@ -105,13 +97,10 @@ pub fn handleEnd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     });
 
     if (should_flush) {
-        // For manual-undo controls (hw outputs, FX params), manage shared undo block.
         if (gesture_state.GestureState.needsManualUndo(control.control_type)) {
-            const should_close = gestures.endManualUndoBlock(control.control_type);
-            if (should_close) {
-                const undo_msg = gestures.getManualUndoMessage();
-                logging.debug("Closing shared manual undo block: {s}", .{undo_msg});
-                api.undoEndBlock(undo_msg);
+            if (gestures.endManualUndo(control.control_type)) |undo_msg| {
+                logging.debug("Recording manual undo point: {s}", .{undo_msg});
+                api.undoRecordChange(undo_msg);
             }
         } else {
             // For CSurf-based controls (track/send volume/pan), flush pending undo

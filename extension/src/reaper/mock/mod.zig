@@ -536,6 +536,7 @@ pub const MockBackend = struct {
     pub const doRedo = project.ProjectMethods.doRedo;
     pub const undoBeginBlock = project.ProjectMethods.undoBeginBlock;
     pub const undoEndBlock = project.ProjectMethods.undoEndBlock;
+    pub const undoRecordChange = project.ProjectMethods.undoRecordChange;
     pub const getExtStateValue = project.ProjectMethods.getExtStateValue;
     pub const setExtStateValue = project.ProjectMethods.setExtStateValue;
     pub const getProjExtStateValue = project.ProjectMethods.getProjExtStateValue;

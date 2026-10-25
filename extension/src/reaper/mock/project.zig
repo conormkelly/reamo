@@ -224,6 +224,11 @@ pub const ProjectMethods = struct {
         self.undo_block_active = true;
     }
 
+    pub fn undoRecordChange(self: anytype, desc: [*:0]const u8) void {
+        self.recordCall(.undoRecordChange);
+        _ = desc;
+    }
+
     pub fn undoEndBlock(self: anytype, desc: [*:0]const u8, _: c_int) void {
         self.recordCall(.undoEndBlock);
         self.undo_block_active = false;

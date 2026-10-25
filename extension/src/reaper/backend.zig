@@ -85,6 +85,7 @@ pub fn validateBackend(comptime T: type) void {
         "doRedo",
         "undoBeginBlock",
         "undoEndBlock",
+        "undoRecordChange",
 
         // Tracks
         "trackCount",

@@ -186,8 +186,8 @@ pub fn checkGestureTimeouts(ctx: *const ClientContext) void {
     handleFlushedGestures(ctx, gestures, Buffers.timeout[0..timeout_count], "gesture timeout");
 }
 
-/// Handle flushed gestures by closing undo blocks appropriately.
-/// Shared logic between disconnect cleanup and timeout handling.
+/// End gestures whose client disconnected or went quiet, exactly as
+/// gesture/end would: every kind of control gets its undo point.
 fn handleFlushedGestures(
     ctx: *const ClientContext,
     gestures: *gesture_state.GestureState,
@@ -197,11 +197,10 @@ fn handleFlushedGestures(
     var had_csurf_gesture = false;
 
     for (flushed_controls) |control| {
-        if (gesture_state.GestureState.isHwOutputControl(control.control_type)) {
-            // Hardware output control - uses separate undo block tracking
-            if (gestures.endHwUndoBlock()) {
-                logging.info("Closing HW undo block ({s})", .{reason});
-                ctx.api.undoEndBlock("REAmo: Adjust audio hardware outputs");
+        if (gesture_state.GestureState.needsManualUndo(control.control_type)) {
+            if (gestures.endManualUndo(control.control_type)) |undo_msg| {
+                logging.info("Recording manual undo point ({s})", .{reason});
+                ctx.api.undoRecordChange(undo_msg);
             }
         } else {
             had_csurf_gesture = true;

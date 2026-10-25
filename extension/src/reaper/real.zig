@@ -339,6 +339,10 @@ pub const RealBackend = struct {
         self.inner.undoEndBlock(description);
     }
 
+    pub fn undoRecordChange(self: *const RealBackend, description: [*:0]const u8) void {
+        self.inner.undoRecordChange(description);
+    }
+
     pub fn undoAddPoint(self: *const RealBackend, description: [*:0]const u8) void {
         self.inner.undoAddPoint(description);
     }

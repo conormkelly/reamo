@@ -161,6 +161,7 @@ pub const Api = struct {
     // Undo
     undo_BeginBlock2: ?*const fn (?*anyopaque) callconv(.c) void = null,
     undo_EndBlock2: ?*const fn (?*anyopaque, [*:0]const u8, c_int) callconv(.c) void = null,
+    undo_OnStateChangeEx2: ?*const fn (?*anyopaque, [*:0]const u8, c_int, c_int) callconv(.c) void = null,
     undo_OnStateChange: ?*const fn ([*:0]const u8) callconv(.c) void = null,
     undo_CanUndo2: ?*const fn (?*anyopaque) callconv(.c) ?[*:0]const u8 = null,
     undo_CanRedo2: ?*const fn (?*anyopaque) callconv(.c) ?[*:0]const u8 = null,
@@ -384,6 +385,7 @@ pub const Api = struct {
             // Undo
             .undo_BeginBlock2 = getFunc(info, "Undo_BeginBlock2", fn (?*anyopaque) callconv(.c) void),
             .undo_EndBlock2 = getFunc(info, "Undo_EndBlock2", fn (?*anyopaque, [*:0]const u8, c_int) callconv(.c) void),
+            .undo_OnStateChangeEx2 = getFunc(info, "Undo_OnStateChangeEx2", fn (?*anyopaque, [*:0]const u8, c_int, c_int) callconv(.c) void),
             .undo_OnStateChange = getFunc(info, "Undo_OnStateChange", fn ([*:0]const u8) callconv(.c) void),
             .undo_CanUndo2 = getFunc(info, "Undo_CanUndo2", fn (?*anyopaque) callconv(.c) ?[*:0]const u8),
             .undo_CanRedo2 = getFunc(info, "Undo_CanRedo2", fn (?*anyopaque) callconv(.c) ?[*:0]const u8),
@@ -911,6 +913,14 @@ pub const Api = struct {
     pub fn undoEndBlock(self: *const Api, description: [*:0]const u8) void {
         const f = self.undo_EndBlock2 orelse return;
         f(null, description, -1); // -1 = all undo states
+    }
+
+    /// Record an undo point for changes already made without a block (a
+    /// fader or knob drag applied over many timer ticks). Undo returns to the
+    /// state of the previous point, i.e. before the changes.
+    pub fn undoRecordChange(self: *const Api, description: [*:0]const u8) void {
+        const f = self.undo_OnStateChangeEx2 orelse return;
+        f(null, description, -1, -1); // all state categories, all tracks
     }
 
     // Undo: add simple undo point
