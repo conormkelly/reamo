@@ -9,9 +9,10 @@
 //! - A file rotates when it reaches MAX_LOG_SIZE, checked on every write, and
 //!   MAX_ROTATIONS old files are kept: the logs never use more than
 //!   (MAX_ROTATIONS + 1) * MAX_LOG_SIZE bytes.
-//! - A message identical to the one before it is counted, not written, and
-//!   the count is written when a different message arrives or once a minute,
-//!   so a condition that persists across timer ticks costs one line a minute.
+//! - A message identical to one written in the last minute (among the last
+//!   few distinct ones) is counted, not written, and the count is written
+//!   once a minute, so a condition that persists across timer ticks costs a
+//!   line a minute, even when it logs two or three different lines a tick.
 //! - A message too long for the line buffer is cut short and marked, never
 //!   dropped.
 //! - A panic writes the message, the stack and the most recent messages at
@@ -71,8 +72,33 @@ pub const MAX_ROTATIONS: u8 = 3;
 /// Longest message kept, in bytes; longer ones end in TRUNCATED_MARK.
 const MSG_CAP = 512;
 const TRUNCATED_MARK = " [cut]";
-/// How often a run of repeated messages reports its count.
+/// How often a run of repeated messages reports its count, and how long a
+/// message must go unseen before it is written again in full.
 const REPEAT_REPORT_MS: i64 = 60 * std.time.ms_per_s;
+/// Distinct recent messages tracked for repeats.
+const RECENT_SIZE = 8;
+/// How much of a repeated message its count line quotes.
+const REPEAT_QUOTE_LEN = 80;
+
+/// A recently written message and how often it has repeated since.
+const Recent = struct {
+    hash: u64 = 0,
+    level: Level = .info,
+    quote: [REPEAT_QUOTE_LEN]u8 = undefined,
+    quote_len: usize = 0,
+    /// Copies not yet written.
+    count: u32 = 0,
+    /// When the count was last reported (or the message first written).
+    since_ms: i64 = 0,
+    last_seen_ms: i64 = 0,
+    used: bool = false,
+
+    fn hashOf(level: Level, msg: []const u8) u64 {
+        var h = std.hash.Wyhash.init(@intFromEnum(level));
+        h.update(msg);
+        return h.final();
+    }
+};
 
 /// What the header of every log file says about the session.
 pub const Session = struct {
@@ -124,13 +150,7 @@ const Sink = struct {
     header_buf: [384]u8 = undefined,
     header_len: usize = 0,
 
-    last_level: Level = .info,
-    last_buf: [MSG_CAP]u8 = undefined,
-    last_len: usize = 0,
-    /// Copies of the last message not yet written.
-    repeats: u32 = 0,
-    /// When the current run of repeats began, or was last reported.
-    repeat_since_ms: i64 = 0,
+    recent: [RECENT_SIZE]Recent = [_]Recent{.{}} ** RECENT_SIZE,
 
     ring: [RING_SIZE]RingEntry = [_]RingEntry{.{}} ** RING_SIZE,
     ring_head: usize = 0,
@@ -202,37 +222,59 @@ const Sink = struct {
         if (self.size >= self.max_size) self.rotate();
     }
 
-    fn reportRepeats(self: *Sink, timestamp: i64) void {
-        if (self.repeats == 0) return;
-        var buf: [96]u8 = undefined;
-        const summary = std.fmt.bufPrint(&buf, "(previous message repeated {d} more time{s})", .{
-            self.repeats,
-            if (self.repeats == 1) "" else "s",
+    fn reportRepeats(self: *Sink, entry: *Recent, timestamp: i64) void {
+        entry.since_ms = timestamp;
+        if (entry.count == 0) return;
+        var buf: [REPEAT_QUOTE_LEN + 64]u8 = undefined;
+        const summary = std.fmt.bufPrint(&buf, "(repeated {d} more time{s}: {s})", .{
+            entry.count,
+            if (entry.count == 1) "" else "s",
+            entry.quote[0..entry.quote_len],
         }) catch unreachable;
-        self.repeats = 0;
-        self.repeat_since_ms = timestamp;
-        self.writeLine(timestamp, self.last_level, summary);
+        entry.count = 0;
+        self.writeLine(timestamp, entry.level, summary);
+    }
+
+    /// Report every pending repeat count (on close and on a crash).
+    fn reportAllRepeats(self: *Sink, timestamp: i64) void {
+        for (&self.recent) |*entry| {
+            if (entry.used) self.reportRepeats(entry, timestamp);
+        }
     }
 
     /// Record a formatted message: always into the crash ring, and into the
-    /// file if `level` is enabled and it isn't a repeat of the last one.
+    /// file if `level` is enabled and it isn't a recent repeat.
     fn submit(self: *Sink, timestamp: i64, level: Level, msg: []const u8) void {
         self.ring[self.ring_head].write(timestamp, level, msg);
         self.ring_head = (self.ring_head + 1) % RING_SIZE;
 
         if (@intFromEnum(level) > @intFromEnum(self.level)) return;
 
-        if (self.last_len > 0 and level == self.last_level and std.mem.eql(u8, msg, self.last_buf[0..self.last_len])) {
-            self.repeats += 1;
-            if (timestamp - self.repeat_since_ms >= REPEAT_REPORT_MS) self.reportRepeats(timestamp);
-            return;
+        // Counts that have waited a minute are reported whatever arrives.
+        for (&self.recent) |*entry| {
+            if (entry.used and entry.count > 0 and timestamp - entry.since_ms >= REPEAT_REPORT_MS) {
+                self.reportRepeats(entry, timestamp);
+            }
         }
-        self.reportRepeats(timestamp);
+
+        const hash = Recent.hashOf(level, msg);
+        var oldest: *Recent = &self.recent[0];
+        for (&self.recent) |*entry| {
+            if (entry.used and entry.hash == hash and timestamp - entry.last_seen_ms < REPEAT_REPORT_MS) {
+                entry.count += 1;
+                entry.last_seen_ms = timestamp;
+                return;
+            }
+            if (!entry.used or entry.last_seen_ms < oldest.last_seen_ms) oldest = entry;
+        }
+
+        // A new message, or one unseen for a minute: write it in full, in
+        // the slot of the least recently seen, reporting that one's count.
+        if (oldest.used) self.reportRepeats(oldest, timestamp);
         self.writeLine(timestamp, level, msg);
-        @memcpy(self.last_buf[0..msg.len], msg);
-        self.last_len = msg.len;
-        self.last_level = level;
-        self.repeat_since_ms = timestamp;
+        const quote = utf8.prefix(msg, REPEAT_QUOTE_LEN);
+        oldest.* = .{ .hash = hash, .level = level, .quote_len = quote.len, .since_ms = timestamp, .last_seen_ms = timestamp, .used = true };
+        @memcpy(oldest.quote[0..quote.len], quote);
     }
 
     fn writeRing(self: *Sink) void {
@@ -254,7 +296,7 @@ const Sink = struct {
     }
 
     fn close(self: *Sink, timestamp: i64) void {
-        self.reportRepeats(timestamp);
+        self.reportAllRepeats(timestamp);
         self.writeRaw("=== REAmo unloaded ===\n\n");
         if (self.file) |f| f.close();
         self.file = null;
@@ -430,7 +472,7 @@ fn panicImpl(msg: []const u8, ret_addr: ?usize) noreturn {
 
 fn writeCrashReport(msg: []const u8, ret_addr: ?usize) void {
     const now = std.time.milliTimestamp();
-    sink.reportRepeats(now);
+    sink.reportAllRepeats(now);
     var ts_buf: [28]u8 = undefined;
     var buf: [MSG_CAP + 128]u8 = undefined;
     sink.writeRaw(std.fmt.bufPrint(&buf, "\n[{s}] PANIC on thread {d}: {s}\n", .{
@@ -574,9 +616,40 @@ test "a repeated message is written once and counted when another arrives" {
     t.sink.submit(1000, .info, "something else");
     var buf: [4096]u8 = undefined;
     const text = try t.read("reamo.log", &buf);
-    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, text, "buffer too small"));
-    try testing.expect(std.mem.indexOf(u8, text, "repeated 999 more times") != null);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, text, "] WARN  buffer too small"));
     try testing.expect(std.mem.indexOf(u8, text, "something else") != null);
+    t.sink.reportAllRepeats(2000);
+    const final = try t.read("reamo.log", &buf);
+    try testing.expect(std.mem.indexOf(u8, final, "(repeated 999 more times: buffer too small)") != null);
+}
+
+test "two messages alternating every tick are each written once, then counted" {
+    var t: TestSink = undefined;
+    try t.init(MAX_LOG_SIZE);
+    defer t.deinit();
+    // A poll's own error, then the timer's line about the same failure.
+    var ts: i64 = 0;
+    while (ts < 5 * 60 * std.time.ms_per_s) : (ts += 33) {
+        t.sink.submit(ts, .err, "Failed to poll skeleton: OutOfMemory");
+        t.sink.submit(ts, .err, "processTimerCallback failed: OutOfMemory");
+    }
+    var buf: [8192]u8 = undefined;
+    const text = try t.read("reamo.log", &buf);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, text, "] ERROR Failed to poll skeleton"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, text, "] ERROR processTimerCallback failed"));
+    // One count line per message per minute.
+    try testing.expect(std.mem.count(u8, text, "(repeated ") <= 2 * 5);
+}
+
+test "a message seen again after a quiet minute is written in full" {
+    var t: TestSink = undefined;
+    try t.init(MAX_LOG_SIZE);
+    defer t.deinit();
+    t.sink.submit(0, .info, "Client 1 authenticated");
+    t.sink.submit(5 * 60 * std.time.ms_per_s, .info, "Client 1 authenticated");
+    var buf: [4096]u8 = undefined;
+    const text = try t.read("reamo.log", &buf);
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, text, "] INFO  Client 1 authenticated"));
 }
 
 test "a message repeating forever reports its count once a minute" {
@@ -588,8 +661,8 @@ test "a message repeating forever reports its count once a minute" {
     while (ts < 10 * 60 * std.time.ms_per_s) : (ts += 33) t.sink.submit(ts, .warn, "stuck");
     var buf: [8192]u8 = undefined;
     const text = try t.read("reamo.log", &buf);
-    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, text, "stuck"));
-    const reports = std.mem.count(u8, text, "previous message repeated");
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, text, "] WARN  stuck"));
+    const reports = std.mem.count(u8, text, "(repeated ");
     try testing.expect(reports >= 9 and reports <= 10);
 }
 
