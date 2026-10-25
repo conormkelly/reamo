@@ -725,7 +725,7 @@ Move cursor to an item's position.
 
 ### `item/select`
 
-Select a single item (deselects all others first).
+Select a single item (deselects all others first). One undo step ("REAmo: Change item selection"), which REAPER keeps only when its undo settings include item selection, as for a click on an item. `item/toggleSelect`, `item/selectNext` and `item/selectPrev` do the same; `item/unselectAll` and `item/selectInTimeSel` run REAPER's own actions, which follow the same setting.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
