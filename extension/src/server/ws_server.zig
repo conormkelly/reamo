@@ -358,6 +358,16 @@ pub const SharedState = struct {
         }
     }
 
+    /// Send output queued behind clients' full sockets (a phone on slow
+    /// Wi-Fi or backgrounded mid-stream). Never blocks; called every tick.
+    pub fn flushPendingOutput(self: *SharedState) void {
+        self.client_rwlock.lockShared();
+        defer self.client_rwlock.unlockShared();
+        for (self.clients.values()) |conn| {
+            conn.flushPending() catch |err| self.logWriteError(err);
+        }
+    }
+
     // Get client count (for logging)
     // Uses RwLock read lock since we're only reading
     pub fn clientCount(self: *SharedState) usize {

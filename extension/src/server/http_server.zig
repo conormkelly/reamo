@@ -336,9 +336,9 @@ const WsHandler = struct {
     };
 
     pub fn init(conn: *websocket.Conn, ctx: *const Context) !WsHandler {
-        // Increase send buffer for large messages (e.g., action/getActions ~1.1MB).
-        // httpz uses non-blocking sockets; websocket.zig's write loop doesn't
-        // retry on WouldBlock, so the buffer must fit the largest message.
+        // A larger send buffer lets big messages (action/getActions ~1.1 MB)
+        // go out in one write. Output the socket can't take yet is queued by
+        // websocket.zig and drained by SharedState.flushPendingOutput.
         const sndbuf: c_int = 4 * 1024 * 1024;
         std.posix.setsockopt(conn.stream.handle, SOL_SOCKET, SO_SNDBUF, std.mem.asBytes(&sndbuf)) catch |err| {
             logging.warn("WsHandler: failed to set SO_SNDBUF: {}", .{err});
