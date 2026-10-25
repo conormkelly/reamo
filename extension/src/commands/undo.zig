@@ -1,4 +1,5 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
@@ -24,10 +25,18 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
 // clients as REAPER doesn't support nested undo blocks. See research/REAPER_UNDO_BLOCKS.md
 // Use gesture-based undo coalescing instead (gesture/start, gesture/end).
 
+/// REAPER's description of the step, copied (at a character boundary, as
+/// much as the response sends). REAPER owns the string, and undoing or
+/// redoing rearranges the history it lives in, so it can't be read after.
+fn copyDescription(desc: []const u8, buf: *[256]u8) []const u8 {
+    return buf[0..utf8.copyPrefix(buf, desc)];
+}
+
 // Perform undo
 pub fn handleUndo(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     // Get the description of what will be undone BEFORE doing it
-    const action_desc = api.canUndo();
+    var desc_buf: [256]u8 = undefined;
+    const action_desc = if (api.canUndo()) |desc| copyDescription(desc, &desc_buf) else null;
 
     if (action_desc == null) {
         response.err("NOTHING_TO_UNDO", "No undo action available");
@@ -48,7 +57,8 @@ pub fn handleUndo(api: anytype, _: protocol.CommandMessage, response: *mod.Respo
 // Perform redo
 pub fn handleRedo(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     // Get the description of what will be redone BEFORE doing it
-    const action_desc = api.canRedo();
+    var desc_buf: [256]u8 = undefined;
+    const action_desc = if (api.canRedo()) |desc| copyDescription(desc, &desc_buf) else null;
 
     if (action_desc == null) {
         response.err("NOTHING_TO_REDO", "No redo action available");
