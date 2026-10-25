@@ -543,8 +543,10 @@ end
 def tuner_round(t, g, label):
     """Open the tuner on a track, set reference and threshold, close it.
     The tuner is a JSFX the extension puts first in the track's input FX
-    (the master's input FX is REAPER's monitoring chain) and must take away
-    again, leaving the project and its undo history untouched."""
+    and takes away again, leaving the project as it was. On a track, adding
+    and removing it are REAPER's own two undo steps ("Add FX", "Remove FX"),
+    as the tuner is meant to work; on the master its input FX is REAPER's
+    monitoring chain, outside the project, so there is no undo history."""
     start = t.digest()
     undo_before = dict(t.d["undo"])
     n_in = len(chain(t, g, rec=True))
@@ -580,8 +582,24 @@ def tuner_round(t, g, label):
     t.ok("tuner/unsubscribe")
     t._wait_equal(start, f"closing the tuner on {label} left REAPER's input FX changed")
     t.digest()
+    if g == "master":
+        if t.d["undo"]["can_undo"] != undo_before["can_undo"]:
+            raise Mismatch(f"the tuner on {label} left undo history: Ctrl+Z now offers "
+                           f"{t.d['undo']['can_undo']!r} (before the tuner: {undo_before['can_undo']!r})")
+        return
+    # Exactly two steps: undoing "Remove FX" puts the tuner back, undoing
+    # "Add FX" takes it away again, and then the history is as before.
+    top = t.d["undo"]["can_undo"]
+    if not top.startswith("Remove FX"):
+        raise Mismatch(f"closing the tuner on {label} left undo step {top!r}, not REAPER's \"Remove FX\"")
+    reaper("reaper.Undo_DoUndo2(0)")
+    t.digest()
+    if not t.d["undo"]["can_undo"].startswith("Add FX"):
+        raise Mismatch(f"before the tuner's \"Remove FX\" on {label}: {t.d['undo']['can_undo']!r}, not \"Add FX\"")
+    reaper("reaper.Undo_DoUndo2(0)")
+    t._wait_equal(start, f"undoing the tuner's two steps on {label} did not return the project to how it was")
     if t.d["undo"]["can_undo"] != undo_before["can_undo"]:
-        raise Mismatch(f"the tuner on {label} left undo history: Ctrl+Z now offers "
+        raise Mismatch(f"the tuner on {label} left more than its two undo steps: Ctrl+Z now offers "
                        f"{t.d['undo']['can_undo']!r} (before the tuner: {undo_before['can_undo']!r})")
 
 
