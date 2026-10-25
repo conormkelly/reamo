@@ -58,6 +58,12 @@ pub const Level = enum(u8) {
     }
 };
 
+/// The level a session starts at. A Debug (developer) build logs everything;
+/// a release logs lifecycle events, problems and failures, so a user's log
+/// is small and safe to share. REAMO_LOG_LEVEL overrides it, and the REAmo
+/// menu's Debug Logging turns debug on until REAPER restarts.
+pub const default_level: Level = if (builtin.mode == .Debug) .debug else .info;
+
 /// Size at which the log rotates (1 MB).
 pub const MAX_LOG_SIZE: u64 = 1024 * 1024;
 /// Rotated files kept beside the live one: reamo.log.1 (newest) to .3.
@@ -113,7 +119,7 @@ const Sink = struct {
     /// Bytes in the current file, so rotation needs no stat per write.
     size: u64 = 0,
     max_size: u64 = MAX_LOG_SIZE,
-    level: Level = .info,
+    level: Level = default_level,
 
     header_buf: [384]u8 = undefined,
     header_len: usize = 0,
@@ -285,6 +291,8 @@ fn writeHeader(buf: []u8, session: Session, level: Level) []const u8 {
 var mutex: std.Thread.Mutex = .{};
 var sink: Sink = .{};
 var initialized: bool = false;
+/// The level the session started at, which turning debug off returns to.
+var session_level: Level = default_level;
 
 /// Open the log. REAMO_LOG_LEVEL (error, warn, info, debug) sets the level;
 /// the default is info.
@@ -295,6 +303,7 @@ pub fn init(resource_path: ?[]const u8, session: Session) void {
     initialized = true;
 
     if (envLevel()) |level| sink.level = level;
+    session_level = sink.level;
     sink.header_len = writeHeader(&sink.header_buf, session, sink.level).len;
 
     // Without a resource path there is no log file; the crash ring still runs.
@@ -373,6 +382,26 @@ pub fn info(comptime fmt: []const u8, args: anytype) void {
 
 pub fn debug(comptime fmt: []const u8, args: anytype) void {
     log(.debug, fmt, args);
+}
+
+/// Whether debug messages reach the file.
+pub fn debugEnabled() bool {
+    mutex.lock();
+    defer mutex.unlock();
+    return sink.level == .debug;
+}
+
+/// Turn debug logging on, or back to the session's level, until REAPER
+/// restarts. Never persisted: a user who switches it on to reproduce a
+/// problem can't leave it on by mistake.
+pub fn setDebug(on: bool) void {
+    const level: Level = if (on) .debug else if (session_level == .debug) .info else session_level;
+    const timestamp = std.time.milliTimestamp();
+    mutex.lock();
+    defer mutex.unlock();
+    sink.level = level;
+    var buf: [96]u8 = undefined;
+    sink.submit(timestamp, .info, std.fmt.bufPrint(&buf, "Log level {s} until REAPER restarts", .{level.name()}) catch unreachable);
 }
 
 /// Get the log file path (for error messages)
