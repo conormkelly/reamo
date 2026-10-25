@@ -15,8 +15,11 @@ pub fn handleRegionAdd(api: anytype, cmd: protocol.CommandMessage, response: *mo
     };
     const color = cmd.getInt("color") orelse 0;
 
-    var name_buf: [65]u8 = undefined;
-    const name = mod.toNullTerminated(&name_buf, cmd.getString("name"));
+    const name = mod.resolveNameZ(cmd.getTextAlloc("name", std.heap.c_allocator) catch null, "") catch {
+        response.err("ALLOC_FAILED", "Failed to read name");
+        return;
+    };
+    defer std.heap.c_allocator.free(name);
 
     api.undoBeginBlock();
     const id = api.addRegion(start, end, name, color);
@@ -60,12 +63,15 @@ pub fn handleRegionUpdate(api: anytype, cmd: protocol.CommandMessage, response: 
     const start = cmd.getFloat("start") orelse current_start;
     const end = cmd.getFloat("end") orelse current_end;
 
-    var name_buf: [65]u8 = undefined;
-    const provided_name = cmd.getString("name");
-    const name = if (provided_name) |n|
-        mod.toNullTerminated(&name_buf, n)
-    else
-        mod.toNullTerminated(&name_buf, current_name);
+    // Name: use provided if non-empty, else preserve current (whole: a
+    // resize that sends only start/end must not shorten the name).
+    const provided_name = cmd.getTextAlloc("name", std.heap.c_allocator) catch null;
+    defer if (provided_name) |n| std.heap.c_allocator.free(n);
+    const name = mod.resolveNameZ(provided_name, current_name) catch {
+        response.err("ALLOC_FAILED", "Failed to read name");
+        return;
+    };
+    defer std.heap.c_allocator.free(name);
 
     // Color: null = preserve, 0 = reset to default, other = use value
     const color_provided = cmd.getInt("color");
@@ -245,13 +251,11 @@ fn processUpdate(api: anytype, op_json: []const u8) OpResult {
     const start = protocol.jsonGetFloat(op_json, "start") orelse current_start;
     const end = protocol.jsonGetFloat(op_json, "end") orelse current_end;
 
-    // Name: use provided if exists, else preserve current
-    var name_buf: [65]u8 = undefined;
-    const provided_name = protocol.jsonGetString(op_json, "name");
-    const name = if (provided_name) |n|
-        mod.toNullTerminated(&name_buf, n)
-    else
-        mod.toNullTerminated(&name_buf, current_name);
+    // Name: use provided if non-empty, else preserve current
+    const provided_name = protocol.jsonGetTextAlloc(op_json, "name", std.heap.c_allocator) catch null;
+    defer if (provided_name) |n| std.heap.c_allocator.free(n);
+    const name = mod.resolveNameZ(provided_name, current_name) catch return .{ .skipped = "out of memory" };
+    defer std.heap.c_allocator.free(name);
 
     // Color: null = preserve, 0 = reset to default, other = use value
     const color_provided = protocol.jsonGetInt(op_json, "color");
@@ -293,8 +297,8 @@ fn processCreate(api: anytype, op_json: []const u8) OpResult {
         return .{ .skipped = "create missing end" };
     };
 
-    var name_buf: [65]u8 = undefined;
-    const name = mod.toNullTerminated(&name_buf, protocol.jsonGetString(op_json, "name"));
+    const name = mod.resolveNameZ(protocol.jsonGetTextAlloc(op_json, "name", std.heap.c_allocator) catch null, "") catch return .{ .skipped = "out of memory" };
+    defer std.heap.c_allocator.free(name);
     const color = protocol.jsonGetInt(op_json, "color") orelse 0;
 
     const id = api.addRegion(start, end, name, color);
@@ -321,7 +325,10 @@ fn findMatchingBracket(data: []const u8, start: usize) ?usize {
         const c = data[i];
 
         if (in_string) {
-            if (c == '"' and (i == 0 or data[i - 1] != '\\')) {
+            // Skip the character after a backslash: `\\"` ends the string.
+            if (c == '\\') {
+                i += 1;
+            } else if (c == '"') {
                 in_string = false;
             }
         } else {
@@ -389,7 +396,9 @@ fn findMatchingBrace(data: []const u8, start: usize) ?usize {
         const c = data[i];
 
         if (in_string) {
-            if (c == '"' and (i == 0 or data[i - 1] != '\\')) {
+            if (c == '\\') {
+                i += 1;
+            } else if (c == '"') {
                 in_string = false;
             }
         } else {
@@ -411,6 +420,16 @@ fn findMatchingBrace(data: []const u8, start: usize) ?usize {
 // ============================================================================
 // Tests
 // ============================================================================
+
+test "a name ending in a backslash does not swallow the closing quote" {
+    // [{"op":"update","id":1,"name":"Bridge \\"},{"op":"delete","id":2}]
+    const ops = "[{\"op\":\"update\",\"id\":1,\"name\":\"Bridge \\\\\"},{\"op\":\"delete\",\"id\":2}]";
+    try std.testing.expectEqual(@as(?usize, ops.len - 1), findMatchingBracket(ops, 0));
+    var it = JsonArrayIterator.init(ops);
+    try std.testing.expect(std.mem.endsWith(u8, it.next().?, "\\\\\"}"));
+    try std.testing.expectEqualStrings("{\"op\":\"delete\",\"id\":2}", it.next().?);
+    try std.testing.expect(it.next() == null);
+}
 
 test "findMatchingBracket" {
     const data = "[{\"a\":1},{\"b\":2}]";

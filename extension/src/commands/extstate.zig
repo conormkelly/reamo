@@ -28,6 +28,9 @@ pub fn formatValueResponse(value: ?[]const u8, buf: []u8) ?[]const u8 {
 /// a remote client must not read or write it. REAmo's own server config
 /// (AllowedHosts, ServerPort) is global ExtState and has no command at all.
 const PROJ_EXTNAME = "Reamo";
+
+/// Largest value a client may store (API.md limits).
+const MAX_PROJ_VALUE_LEN = 16384;
 const PROJ_KEYS = [_][]const u8{"CustomBanks"};
 
 fn isAllowedProjState(extname: []const u8, key: []const u8) bool {
@@ -59,21 +62,22 @@ pub fn handleProjGet(api: anytype, cmd: protocol.CommandMessage, response: *mod.
     const extname_z = mod.toNullTerminated(&extname_buf, extname);
     const key_z = mod.toNullTerminated(&key_buf, key);
 
-    // 16KB+33KB buffers — use scratch arena, not stack (§1)
+    // Scratch arena, not stack (§1): values reach 16 KB
     const tiered = mod.g_ctx.tiered orelse {
         response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
         return;
     };
     const scratch = tiered.scratchAllocator();
 
-    const value_buf = scratch.alloc(u8, 16384) catch {
+    // One byte more than the largest value, which REAPER needs for the NUL.
+    const value_buf = scratch.alloc(u8, MAX_PROJ_VALUE_LEN + 1) catch {
         response.err("ALLOC_FAILED", "Failed to allocate buffer");
         return;
     };
     const value = api.getProjExtStateValue(extname_z, key_z, value_buf);
 
-    // Buffer: 2x max value (16384) for worst-case escaping + JSON overhead
-    const payload_buf = scratch.alloc(u8, 33000) catch {
+    // Worst-case escaping is 6 bytes per byte (control characters as \u00XX).
+    const payload_buf = scratch.alloc(u8, (if (value) |v| v.len else 0) * 6 + 64) catch {
         response.err("ALLOC_FAILED", "Failed to allocate buffer");
         return;
     };
@@ -98,10 +102,21 @@ pub fn handleProjSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         response.err("FORBIDDEN", "extname/key is not accessible to clients");
         return;
     }
-    const value = cmd.getString("value") orelse {
+    // Stored as the client wrote it: unescaped and whole. A value cut short
+    // (custom banks are JSON) would no longer parse and the UI would discard
+    // it, so an oversized value is refused rather than truncated.
+    const value = (cmd.getTextAlloc("value", std.heap.c_allocator) catch {
+        response.err("ALLOC_FAILED", "Failed to read value");
+        return;
+    }) orelse {
         response.err("MISSING_VALUE", "value is required");
         return;
     };
+    defer std.heap.c_allocator.free(value);
+    if (value.len > MAX_PROJ_VALUE_LEN) {
+        response.err("VALUE_TOO_LARGE", "value exceeds 16384 bytes");
+        return;
+    }
 
     // Convert to null-terminated strings
     var extname_buf: [65]u8 = undefined;
@@ -109,25 +124,7 @@ pub fn handleProjSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.
     const extname_z = mod.toNullTerminated(&extname_buf, extname);
     const key_z = mod.toNullTerminated(&key_buf, key);
 
-    // 16KB value buffer — use scratch arena, not stack (§1)
-    const tiered = mod.g_ctx.tiered orelse {
-        response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
-        return;
-    };
-    const scratch = tiered.scratchAllocator();
-    const value_buf = scratch.alloc(u8, 16385) catch {
-        response.err("ALLOC_FAILED", "Failed to allocate buffer");
-        return;
-    };
-
-    // Value can be longer for project state
-    const value_len = @min(value.len, 16384);
-    @memcpy(value_buf[0..value_len], value[0..value_len]);
-    value_buf[value_len] = 0;
-    // SAFETY: @alignCast unnecessary - u8 has alignment 1, always valid
-    const value_z: [*:0]const u8 = @ptrCast(value_buf.ptr);
-
-    api.setProjExtStateValue(extname_z, key_z, value_z);
+    api.setProjExtStateValue(extname_z, key_z, value);
     logging.debug("Set proj extstate {s}/{s}", .{ extname, key });
     response.success(null);
 }
