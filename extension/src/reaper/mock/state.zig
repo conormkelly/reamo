@@ -100,6 +100,7 @@ pub const Method = enum {
     enumerateActions,
     reverseNamedCommandLookup,
     enumInstalledFX,
+    majorVersion,
     midiEditorGetActive,
     midiEditorOnCommand,
     isMetronomeEnabled,

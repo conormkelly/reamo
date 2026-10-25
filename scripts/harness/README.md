@@ -166,7 +166,8 @@ a harness helper that covers the difference:
 
 A scenario that checks something a REAPER release doesn't have ends with
 `reamo_client.skip(reason)` (exit 77), after checking the extension's answer
-there when it has one. A tour op raises `Skip`, and `t.need(key)` skips
+there when it has one: `skip_before_lanes()` requires lane commands to be
+refused before REAPER 7. A tour op raises `Skip`, and `t.need(key)` skips
 when the digest has no such fact on this REAPER. Skips are listed apart from
 passes and failures, so a run shows what it didn't check.
 

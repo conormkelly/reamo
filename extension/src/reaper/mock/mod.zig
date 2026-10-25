@@ -53,6 +53,8 @@ pub const MockBackend = struct {
     // =========================================================================
     // Transport state
     // =========================================================================
+    /// REAPER's major version, as GetAppVersion reports it.
+    major_version: ?u32 = 7,
     play_state: c_int = 0,
     play_position: f64 = 0.0,
     cursor_position: f64 = 0.0,
@@ -524,6 +526,7 @@ pub const MockBackend = struct {
     pub const enumerateActions = project.ProjectMethods.enumerateActions;
     pub const reverseNamedCommandLookup = project.ProjectMethods.reverseNamedCommandLookup;
     pub const enumInstalledFX = project.ProjectMethods.enumInstalledFX;
+    pub const majorVersion = project.ProjectMethods.majorVersion;
     pub const isMetronomeEnabled = project.ProjectMethods.isMetronomeEnabled;
     pub const getMetronomeVolume = project.ProjectMethods.getMetronomeVolume;
     pub const setMetronomeVolume = project.ProjectMethods.setMetronomeVolume;

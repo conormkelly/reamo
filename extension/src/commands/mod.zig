@@ -102,6 +102,15 @@ pub fn inGesture(response: *const ResponseWriter, control: gesture_state.Control
     return gestures.isActive(control);
 }
 
+/// Comp lanes (fixed item lanes) are REAPER 7's. On an older REAPER a lane
+/// command answers NEEDS_REAPER_7 and does nothing: this returns false.
+pub fn requireLanes(api: anytype, response: *ResponseWriter) bool {
+    const major = api.majorVersion() orelse return true;
+    if (major >= 7) return true;
+    response.err("NEEDS_REAPER_7", "Comp lanes need REAPER 7 or later");
+    return false;
+}
+
 /// The kinds of route a track has, each addressed by its own 0-based index.
 pub const Route = enum { send, receive, hw_output };
 

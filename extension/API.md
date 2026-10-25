@@ -3633,6 +3633,8 @@ Diagnostic snapshot of the audio stream (hook registration, client count, ring b
 
 Fixed lanes / swipe comping commands for REAPER's multi-take comping system. Tracks must have fixed lanes enabled (`I_NUMFIXEDLANES > 0`) for these commands to work.
 
+Fixed lanes are REAPER 7's. On an older REAPER every `lanes/*` command is refused with `NEEDS_REAPER_7` and changes nothing.
+
 ### `lanes/getState`
 
 Get the lane state for a track. **Returns data.**
