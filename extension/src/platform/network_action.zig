@@ -145,7 +145,8 @@ const GetUserInputsFn = *const fn ([*:0]const u8, c_int, [*:0]const u8, [*]u8, c
 const SetExtStateFn = *const fn ([*:0]const u8, [*:0]const u8, [*:0]const u8, c_int) callconv(.c) void;
 
 /// Callback for requesting a server restart on a new port
-const RestartServerFn = *const fn (u16) void;
+/// Moves the server to a port; on error it is still serving on the old one.
+const RestartServerFn = *const fn (u16) anyerror!void;
 
 // Global state
 var g_show_message_box: ?ShowMessageBoxFn = null;
@@ -318,6 +319,15 @@ pub fn showAbout() void {
 
 /// Show dialog to change the server port.
 /// Persists new port in ExtState and restarts the server immediately.
+/// Why a port change failed, in words for the dialog.
+fn errorText(err: anyerror) []const u8 {
+    return switch (err) {
+        error.AddressInUse => "another program is using it",
+        error.AccessDenied => "permission denied",
+        else => @errorName(err),
+    };
+}
+
 pub fn showChangePort() void {
     const get_input = g_get_user_inputs orelse {
         logging.err("Network action: GetUserInputs not available", .{});
@@ -358,29 +368,20 @@ pub fn showChangePort() void {
         return; // No change
     }
 
-    // Persist the new port in ExtState
-    if (g_set_ext_state) |set_state| {
-        var port_z: [8]u8 = undefined;
-        const port_str = std.fmt.bufPrint(&port_z, "{d}", .{new_port}) catch "9224";
-        port_z[port_str.len] = 0;
-        set_state("Reamo", "ServerPort", @ptrCast(&port_z), 1); // persist=true
-    }
-
-    // Restart the server on the new port
-    if (g_restart_server) |restart| {
-        restart(new_port);
-
-        // Show confirmation
-        if (g_show_message_box) |show_msg| {
-            var msg_buf: [128]u8 = undefined;
-            var fbs = std.io.fixedBufferStream(&msg_buf);
-            fbs.writer().print("Server restarted on port {d}.\nClients should reconnect.", .{new_port}) catch {};
-            const written = fbs.getWritten();
-            if (written.len < msg_buf.len) {
-                msg_buf[written.len] = 0;
-            }
-            _ = show_msg(@ptrCast(&msg_buf), "REAmo", 0);
+    const restart = g_restart_server orelse return;
+    var msg_buf: [192]u8 = undefined;
+    const msg: [:0]const u8 = if (restart(new_port)) |_| blk: {
+        // Saved only once the server is listening there, so a port that
+        // failed is never the one REAmo tries at the next start.
+        if (g_set_ext_state) |set_state| {
+            var port_z: [8]u8 = undefined;
+            const port_str = std.fmt.bufPrintZ(&port_z, "{d}", .{new_port}) catch unreachable;
+            set_state("Reamo", "ServerPort", port_str.ptr, 1); // persist=true
         }
+        break :blk std.fmt.bufPrintZ(&msg_buf, "Server restarted on port {d}.\nClients should reconnect.", .{new_port}) catch unreachable;
+    } else |err| std.fmt.bufPrintZ(&msg_buf, "Couldn't start the server on port {d} ({s}).\nREAmo is still on port {d}.", .{ new_port, errorText(err), g_server_port }) catch unreachable;
+    if (g_show_message_box) |show_msg| {
+        _ = show_msg(msg.ptr, "REAmo", 0);
     }
 }
 

@@ -892,33 +892,27 @@ fn doProcessing() !void {
 
 /// Restart the HTTP server on a new port.
 /// Called from network_action when user changes port via menu.
-fn restartServer(new_port: u16) void {
-    const shared_state = g_shared_state orelse return;
+/// Move the server to `new_port`. The new server is listening before the
+/// old one stops, so on failure REAmo is still serving where it was.
+fn restartServer(new_port: u16) anyerror!void {
+    const shared_state = g_shared_state orelse return error.NotInitialized;
 
-    // Stop existing server
-    if (g_http_server) |*server| {
-        logging.info("Restarting server: stopping on port {d}...", .{g_port});
-        server.deinit();
-        g_http_server = null;
-    }
-
-    // Start on new port
     var srv = http_server.HttpServer.init(g_allocator, shared_state, new_port, g_html_path, g_web_dir) catch |err| {
-        logging.err("restartServer: init failed on port {d}: {s}", .{ new_port, @errorName(err) });
-        return;
+        logging.err("Port change to {d} failed to set up: {s}; still serving on {d}", .{ new_port, @errorName(err), g_port });
+        return err;
     };
     srv.start() catch |err| {
-        logging.err("restartServer: listen failed on port {d}: {s}", .{ new_port, @errorName(err) });
+        logging.err("Port change to {d} failed to listen: {s}; still serving on {d}", .{ new_port, @errorName(err), g_port });
         srv.deinit();
-        return;
+        return err;
     };
 
+    if (g_http_server) |*old| old.deinit();
+    logging.info("Server moved from port {d} to {d}", .{ g_port, new_port });
     g_http_server = srv;
     g_port = new_port;
     g_configured_port = new_port;
     network_action.setPort(new_port);
-
-    logging.info("Server restarted on port {d}", .{new_port});
 }
 
 // Shutdown - called when REAPER unloads the extension
