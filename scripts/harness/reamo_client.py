@@ -90,9 +90,23 @@ def reaper(lua, timeout=5.0):
     return submit(lua).result(timeout)
 
 
+def _ignore_all_missing(wid):
+    """Click "Ignore all missing files" in REAPER's "Replace missing file..."
+    dialog, as a user opening a project from another machine does. Return
+    would press the focused "Browse for file..." and open a file chooser. The
+    button is the dialog's bottom-right one (REAPER 7's fixed layout)."""
+    geo = subprocess.run(["xdotool", "getwindowgeometry", "--shell", wid],
+                         capture_output=True, text=True, check=True, timeout=10).stdout
+    size = dict(line.split("=", 1) for line in geo.split())
+    x, y = int(size["WIDTH"]) - 80, int(size["HEIGHT"]) - 23
+    subprocess.run(["xdotool", "mousemove", "--sync", "--window", wid, str(x), str(y), "click", "1"],
+                   check=True, timeout=10)
+
+
 # Dialogs REAPER raises while loading an ordinary project, and the key a user
-# would press to get past each.
-LOAD_DIALOGS = {"Project Load Warning": "Return", "Missing media": "Return"}
+# would press (or the function that clicks what they would click) to get past each.
+LOAD_DIALOGS = {"Project Load Warning": "Return", "Missing media": "Return",
+                "Replace missing file": _ignore_all_missing}
 
 
 def open_project(path, dialogs=LOAD_DIALOGS, timeout=30.0, on_dialog=None):
@@ -121,7 +135,10 @@ def open_project(path, dialogs=LOAD_DIALOGS, timeout=30.0, on_dialog=None):
                     screenshot(f"dialog-{len(seen)}")
                     if on_dialog:
                         on_dialog(title)
-                    _press_window(wid, key)
+                    if callable(key):
+                        key(wid)
+                    else:
+                        _press_window(wid, key)
                     break
         time.sleep(0.1)
     pending.result()
@@ -241,7 +258,9 @@ class Client:
             self._fill()
 
     def send(self, obj):
-        data = json.dumps(obj).encode()
+        # As the browser's JSON.stringify writes it: no whitespace between
+        # tokens, non-ASCII text as raw UTF-8.
+        data = json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode()
         n = len(data)
         hdr = bytearray([0x81])
         if n < 126:
