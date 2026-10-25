@@ -9,6 +9,8 @@
 #   REAPER_LICENSE  licence file (default: scripts/harness/reaper-license.rk)
 #   HARNESS_GDB=1   run REAPER under gdb; a crash prints all thread backtraces
 #   HARNESS_IMAGE   image tag (default: reamo-v1-harness)
+#   HARNESS_JOBS    scenarios to run at once (default: 4); output is still
+#                   printed one scenario at a time, in order
 #
 # Each scenario gets a fresh REAPER in its own --rm container with no network
 # and no published ports, so it can run beside a desktop REAPER (or another
@@ -60,16 +62,46 @@ else
     for d in "$HERE"/scenarios/*/; do scenarios+=("$(basename "$d")"); done
 fi
 
-pass=0
-failed=()
+JOBS="${HARNESS_JOBS:-4}"
 for s in "${scenarios[@]}"; do
     [ -f "$HERE/scenarios/$s/test.py" ] || { echo "error: no scenario '$s'" >&2; exit 1; }
-    echo "=== $s"
-    if docker run --rm --name "reamo-v1-harness-$s-$$" --network none --label reamo.harness=v1 \
+done
+
+run_one() {
+    local s="$1"
+    docker run --rm --name "reamo-v1-harness-$s-$$" --network none --label reamo.harness=v1 \
         -v "$HERE:/harness:ro" -v "$OUT:/ext:ro" -v "$ROOT/web:/web:ro" \
         -v "$ROOT/extension/effects:/effects:ro" -v "$ROOT/test-fixtures:/fixtures:ro" \
         ${lic_mount[@]+"${lic_mount[@]}"} -e HARNESS_GDB="${HARNESS_GDB:-0}" \
-        "$IMAGE" bash /harness/boot.sh "$s"; then
+        "$IMAGE" bash /harness/boot.sh "$s" >"$OUT/$s.log" 2>&1
+    echo $? >"$OUT/$s.status"
+}
+
+# Each scenario writes its own log; they are printed in order as each one
+# (and every one before it) finishes, so output reads the same as a serial run.
+printed=0
+print_ready() {
+    while [ "$printed" -lt "${#scenarios[@]}" ] && [ -f "$OUT/${scenarios[$printed]}.status" ]; do
+        echo "=== ${scenarios[$printed]}"
+        cat "$OUT/${scenarios[$printed]}.log"
+        printed=$((printed + 1))
+    done
+}
+
+for s in "${scenarios[@]}"; do
+    while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do
+        sleep 0.5
+        print_ready
+    done
+    run_one "$s" &
+done
+wait
+print_ready
+
+pass=0
+failed=()
+for s in "${scenarios[@]}"; do
+    if [ "$(cat "$OUT/$s.status")" = 0 ]; then
         pass=$((pass + 1))
     else
         failed+=("$s")
