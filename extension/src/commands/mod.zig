@@ -168,36 +168,36 @@ pub const ResponseWriter = struct {
     /// frame must fit the socket send buffer (see WsHandler.init).
     const MAX_RESPONSE_PAYLOAD = 2 * 1024 * 1024;
 
+    /// Format a reply and send it to the requesting client. Most replies fit
+    /// on the stack; larger ones (a long payload, or a long id echoed back)
+    /// get an exact-size heap buffer instead of being dropped, since the
+    /// client would wait for them forever.
+    fn reply(self: *ResponseWriter, comptime fmt: []const u8, args: anytype) void {
+        var buf: [512]u8 = undefined;
+        if (std.fmt.bufPrint(&buf, fmt, args)) |json| {
+            self.shared_state.sendToClient(self.client_id, json);
+            return;
+        } else |_| {}
+        const json = std.fmt.allocPrint(std.heap.c_allocator, fmt, args) catch {
+            logging.err("Reply to client {d} dropped: no memory for {d} bytes", .{ self.client_id, std.fmt.count(fmt, args) });
+            return;
+        };
+        defer std.heap.c_allocator.free(json);
+        self.shared_state.sendToClient(self.client_id, json);
+    }
+
     pub fn success(self: *ResponseWriter, payload: ?[]const u8) void {
         if (self.cmd_id == null) return; // No response expected if no id provided
         self.responded = true;
 
-        // Most responses fit on the stack; larger ones get an exact-size heap
-        // buffer instead of being dropped (the client would wait forever).
-        var buf: [512]u8 = undefined;
         if (payload) |p| {
-            const fmt = "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"payload\":{s}}}";
-            const args = .{ self.cmd_id.?, p };
-            if (std.fmt.bufPrint(&buf, fmt, args)) |json| {
-                self.shared_state.sendToClient(self.client_id, json);
-                return;
-            } else |_| {}
             if (p.len > MAX_RESPONSE_PAYLOAD) {
                 self.err("RESPONSE_TOO_LARGE", "Response payload exceeds maximum size");
                 return;
             }
-            const json = std.fmt.allocPrint(std.heap.c_allocator, fmt, args) catch {
-                self.err("ALLOC_FAILED", "Failed to allocate response buffer");
-                return;
-            };
-            defer std.heap.c_allocator.free(json);
-            self.shared_state.sendToClient(self.client_id, json);
+            self.reply("{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"payload\":{s}}}", .{ self.cmd_id.?, p });
         } else {
-            const json = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true}}", .{self.cmd_id.?}) catch {
-                logging.warn("ResponseWriter.success: id too long for cmd_id={s}", .{self.cmd_id.?});
-                return;
-            };
-            self.shared_state.sendToClient(self.client_id, json);
+            self.reply("{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true}}", .{self.cmd_id.?});
         }
     }
 
@@ -209,17 +209,11 @@ pub const ResponseWriter = struct {
         self.responded = true;
 
         // REAPER's undo descriptions are short; 256 bytes escapes to at most
-        // ~1.5 KB (control characters become \u00XX).
-        var buf: [2048]u8 = undefined;
-        var stream = std.io.fixedBufferStream(&buf);
-        const w = stream.writer();
-        w.print("{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"action\":\"", .{self.cmd_id.?}) catch {
-            logging.warn("ResponseWriter.successWithAction: id too long for cmd_id={s}", .{self.cmd_id.?});
-            return;
-        };
-        protocol.writeJsonString(w, utf8.prefix(action, 256)) catch return;
-        w.writeAll("\"}") catch return;
-        self.shared_state.sendToClient(self.client_id, stream.getWritten());
+        // 1536 (a control character becomes \u00XX).
+        var escaped_buf: [256 * 6]u8 = undefined;
+        var stream = std.io.fixedBufferStream(&escaped_buf);
+        protocol.writeJsonString(stream.writer(), utf8.prefix(action, 256)) catch unreachable;
+        self.reply("{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"action\":\"{s}\"}}", .{ self.cmd_id.?, stream.getWritten() });
     }
 
     /// Success response for commands whose payload is routinely large (action
@@ -232,14 +226,7 @@ pub const ResponseWriter = struct {
     pub fn err(self: *ResponseWriter, code: []const u8, message: []const u8) void {
         if (self.cmd_id == null) return;
         self.responded = true;
-
-        var buf: [512]u8 = undefined;
-        const json = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":false,\"error\":{{\"code\":\"{s}\",\"message\":\"{s}\"}}}}", .{ self.cmd_id.?, code, message }) catch {
-            logging.warn("ResponseWriter.err: buffer overflow for cmd_id={s}, code={s}", .{ self.cmd_id.?, code });
-            return;
-        };
-
-        self.shared_state.sendToClient(self.client_id, json);
+        self.reply("{{\"type\":\"response\",\"id\":\"{s}\",\"success\":false,\"error\":{{\"code\":\"{s}\",\"message\":\"{s}\"}}}}", .{ self.cmd_id.?, code, message });
     }
 
     /// Send a non-fatal warning to the client
@@ -248,14 +235,7 @@ pub const ResponseWriter = struct {
     pub fn warn(self: *ResponseWriter, code: []const u8, message: []const u8) void {
         if (self.cmd_id == null) return;
         self.responded = true;
-
-        var buf: [512]u8 = undefined;
-        const json = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"warning\":{{\"code\":\"{s}\",\"message\":\"{s}\"}}}}", .{ self.cmd_id.?, code, message }) catch {
-            logging.warn("ResponseWriter.warn: buffer overflow for cmd_id={s}, code={s}", .{ self.cmd_id.?, code });
-            return;
-        };
-
-        self.shared_state.sendToClient(self.client_id, json);
+        self.reply("{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"warning\":{{\"code\":\"{s}\",\"message\":\"{s}\"}}}}", .{ self.cmd_id.?, code, message });
     }
 
     /// Broadcast an error event to ALL connected clients
