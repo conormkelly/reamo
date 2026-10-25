@@ -104,7 +104,8 @@ pub fn pollPeaksSubscriptions(
     var any_track_changed = force_broadcast;
     if (!force_broadcast) {
         for (subscribed_indices) |track_idx| {
-            const track = ctx.backend.getTrackByIdx(track_idx) orelse continue;
+            // Unified index (0 = master), as the generator resolves it.
+            const track = ctx.backend.getTrackByUnifiedIdx(track_idx) orelse continue;
             var guid_buf: [64]u8 = undefined;
             const track_guid = ctx.backend.formatTrackGuid(track, &guid_buf);
             if (tile_cache.trackChanged(track_guid, ctx.backend, track)) {
