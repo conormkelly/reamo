@@ -384,6 +384,7 @@ pub const MockBackend = struct {
     pub const getItemLocked = tracks.TracksMethods.getItemLocked;
     pub const getItemSelected = tracks.TracksMethods.getItemSelected;
     pub const getItemActiveTakeIdx = tracks.TracksMethods.getItemActiveTakeIdx;
+    pub const itemNotes = tracks.TracksMethods.itemNotes;
     pub const getItemNotes = tracks.TracksMethods.getItemNotes;
     pub const getItemGUID = tracks.TracksMethods.getItemGUID;
     pub const setItemPosition = tracks.TracksMethods.setItemPosition;

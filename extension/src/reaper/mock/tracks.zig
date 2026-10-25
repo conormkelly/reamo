@@ -423,6 +423,15 @@ pub const TracksMethods = struct {
         return self.tracks[info.track_idx].items[info.item_idx].active_take_idx;
     }
 
+    pub fn itemNotes(self: anytype, item: *anyopaque) []const u8 {
+        self.recordCall(.itemNotes);
+        const info = state.decodeItemPtr(item);
+        if (info.track_idx >= state.MAX_TRACKS) return "";
+        if (info.item_idx >= state.MAX_ITEMS_PER_TRACK) return "";
+        const mock_item = &self.tracks[info.track_idx].items[info.item_idx];
+        return mock_item.notes[0..mock_item.notes_len];
+    }
+
     pub fn getItemNotes(self: anytype, item: *anyopaque, buf: []u8) []const u8 {
         self.recordCall(.getItemNotes);
         const info = state.decodeItemPtr(item);

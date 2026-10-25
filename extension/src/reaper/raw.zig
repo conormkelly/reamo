@@ -112,6 +112,9 @@ pub const Api = struct {
     getMediaTrackInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8) callconv(.c) f64 = null,
     setMediaTrackInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8, f64) callconv(.c) bool = null,
     getSetMediaTrackInfo_String: ?*const fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool = null,
+    // Pointer-returning form: for char* attributes (P_LANENAME:n) this returns
+    // REAPER's own string, so reads never depend on a caller buffer size.
+    getSetMediaTrackInfo: ?*const fn (?*anyopaque, [*:0]const u8, ?*anyopaque) callconv(.c) ?*anyopaque = null,
     insertTrackAtIndex: ?*const fn (c_int, bool) callconv(.c) void = null,
     deleteTrack: ?*const fn (?*anyopaque) callconv(.c) void = null,
     setTrackColor: ?*const fn (?*anyopaque, c_int) callconv(.c) void = null,
@@ -125,6 +128,8 @@ pub const Api = struct {
     getMediaItemInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8) callconv(.c) f64 = null,
     setMediaItemInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8, f64) callconv(.c) bool = null,
     getSetMediaItemInfo_String: ?*const fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool = null,
+    // Pointer-returning form: for P_NOTES this returns REAPER's own string.
+    getSetMediaItemInfo: ?*const fn (?*anyopaque, [*:0]const u8, ?*anyopaque) callconv(.c) ?*anyopaque = null,
     deleteTrackMediaItem: ?*const fn (?*anyopaque, ?*anyopaque) callconv(.c) bool = null,
     moveMediaItemToTrack: ?*const fn (?*anyopaque, ?*anyopaque) callconv(.c) bool = null,
 
@@ -338,6 +343,7 @@ pub const Api = struct {
             .getMediaTrackInfo_Value = getFunc(info, "GetMediaTrackInfo_Value", fn (?*anyopaque, [*:0]const u8) callconv(.c) f64),
             .setMediaTrackInfo_Value = getFunc(info, "SetMediaTrackInfo_Value", fn (?*anyopaque, [*:0]const u8, f64) callconv(.c) bool),
             .getSetMediaTrackInfo_String = getFunc(info, "GetSetMediaTrackInfo_String", fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool),
+            .getSetMediaTrackInfo = getFunc(info, "GetSetMediaTrackInfo", fn (?*anyopaque, [*:0]const u8, ?*anyopaque) callconv(.c) ?*anyopaque),
             .insertTrackAtIndex = getFunc(info, "InsertTrackAtIndex", fn (c_int, bool) callconv(.c) void),
             .deleteTrack = getFunc(info, "DeleteTrack", fn (?*anyopaque) callconv(.c) void),
             .setTrackColor = getFunc(info, "SetTrackColor", fn (?*anyopaque, c_int) callconv(.c) void),
@@ -350,6 +356,7 @@ pub const Api = struct {
             .getMediaItemInfo_Value = getFunc(info, "GetMediaItemInfo_Value", fn (?*anyopaque, [*:0]const u8) callconv(.c) f64),
             .setMediaItemInfo_Value = getFunc(info, "SetMediaItemInfo_Value", fn (?*anyopaque, [*:0]const u8, f64) callconv(.c) bool),
             .getSetMediaItemInfo_String = getFunc(info, "GetSetMediaItemInfo_String", fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool),
+            .getSetMediaItemInfo = getFunc(info, "GetSetMediaItemInfo", fn (?*anyopaque, [*:0]const u8, ?*anyopaque) callconv(.c) ?*anyopaque),
             .deleteTrackMediaItem = getFunc(info, "DeleteTrackMediaItem", fn (?*anyopaque, ?*anyopaque) callconv(.c) bool),
             .moveMediaItemToTrack = getFunc(info, "MoveMediaItemToTrack", fn (?*anyopaque, ?*anyopaque) callconv(.c) bool),
             // Takes
@@ -1528,25 +1535,18 @@ pub const Api = struct {
         return f(item, "C_LANEPLAYS");
     }
 
-    /// Get lane name (P_LANENAME:N) - returns slice of name or empty string
+    /// Get lane name (P_LANENAME:N), truncated to `buf`, or empty string.
+    ///
+    /// Reads through the pointer-returning GetSetMediaTrackInfo, never the
+    /// _String form: REAPER's _String getters ("stringNeedBig") copy the whole
+    /// value without knowing the buffer size, so a long lane name overflowed
+    /// the caller's stack buffer.
     pub fn getLaneName(self: *const Api, track: *anyopaque, lane_idx: c_int, buf: []u8) []const u8 {
-        const f = self.getSetMediaTrackInfo_String orelse return "";
-        if (buf.len == 0) return "";
-
-        // Build parameter name "P_LANENAME:N" with null terminator
+        const f = self.getSetMediaTrackInfo orelse return "";
         var param_buf: [32]u8 = undefined;
-        const param = std.fmt.bufPrint(&param_buf, "P_LANENAME:{d}", .{lane_idx}) catch return "";
-        param_buf[param.len] = 0; // null terminate
-
-        // GetSetMediaTrackInfo_String with setnewvalue=false reads into the buffer
-        // Use sentinel-terminated slice to get correct pointer type for C ABI
-        const param_ptr: [*:0]const u8 = param_buf[0..param.len :0];
-        const success = f(track, param_ptr, buf.ptr, false);
-        if (!success) return "";
-
-        // Find null terminator
-        const len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
-        return buf[0..len];
+        const param = std.fmt.bufPrintZ(&param_buf, "P_LANENAME:{d}", .{lane_idx}) catch return "";
+        const ptr = f(track, param, null) orelse return ""; // NULL: not a fixed-lane track
+        return copyBounded(std.mem.span(@as([*:0]const u8, @ptrCast(ptr))), buf);
     }
 
     // Track FX methods
@@ -2078,21 +2078,28 @@ pub const Api = struct {
         return f(item, "I_CURTAKE", @floatFromInt(take_idx));
     }
 
-    pub fn getItemNotes(self: *const Api, item: *anyopaque, buf: []u8) []const u8 {
-        const f = self.getSetMediaItemInfo_String orelse return "";
-        if (f(item, "P_NOTES", buf.ptr, false)) {
-            return std.mem.sliceTo(buf, 0);
-        }
-        return "";
+    /// Item notes as REAPER's own string, any length. Valid until the item's
+    /// notes change: use it on the main thread and copy before yielding.
+    ///
+    /// Reads through the pointer-returning GetSetMediaItemInfo, never the
+    /// _String form: REAPER's _String getters ("stringNeedBig") copy the whole
+    /// value without knowing the buffer size, so long notes overflowed the
+    /// caller's stack buffer.
+    pub fn itemNotes(self: *const Api, item: *anyopaque) []const u8 {
+        const f = self.getSetMediaItemInfo orelse return "";
+        const ptr = f(item, "P_NOTES", null) orelse return "";
+        return std.mem.span(@as([*:0]const u8, @ptrCast(ptr)));
     }
 
-    pub fn setItemNotes(self: *const Api, item: *anyopaque, notes: []const u8) bool {
+    /// Item notes truncated to `buf` (for callers that only need a prefix).
+    pub fn getItemNotes(self: *const Api, item: *anyopaque, buf: []u8) []const u8 {
+        return copyBounded(self.itemNotes(item), buf);
+    }
+
+    /// Replace the item's notes. Setting reads our string, so any length works.
+    pub fn setItemNotes(self: *const Api, item: *anyopaque, notes: [:0]const u8) bool {
         const f = self.getSetMediaItemInfo_String orelse return false;
-        var buf: [1024]u8 = undefined;
-        const len = @min(notes.len, buf.len - 1);
-        @memcpy(buf[0..len], notes[0..len]);
-        buf[len] = 0;
-        return f(item, "P_NOTES", &buf, true);
+        return f(item, "P_NOTES", @constCast(notes.ptr), true);
     }
 
     pub fn deleteItem(self: *const Api, track: *anyopaque, item: *anyopaque) bool {
@@ -2696,6 +2703,13 @@ pub const Command = struct {
     pub const DUPLICATE_TRACKS: c_int = 40062; // Track: Duplicate tracks
     pub const DELETE_SELECTED_TRACKS: c_int = 40005; // Track: Remove tracks
 };
+
+/// Copy as much of `src` as fits into `buf`; returns the copied prefix.
+fn copyBounded(src: []const u8, buf: []u8) []const u8 {
+    const n = @min(src.len, buf.len);
+    @memcpy(buf[0..n], src[0..n]);
+    return buf[0..n];
+}
 
 test "getTrackByUnifiedIdx returns null for negative indices instead of overflowing" {
     // Function pointers are all null: a negative index must be rejected before

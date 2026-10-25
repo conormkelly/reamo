@@ -889,6 +889,10 @@ pub const RealBackend = struct {
         return ffi.safeFloatToInt(c_int, self.inner.getItemActiveTakeIdx(item));
     }
 
+    pub fn itemNotes(self: *const RealBackend, item: *anyopaque) []const u8 {
+        return self.inner.itemNotes(item);
+    }
+
     pub fn getItemNotes(self: *const RealBackend, item: *anyopaque, buf: []u8) []const u8 {
         return self.inner.getItemNotes(item, buf);
     }
@@ -914,7 +918,7 @@ pub const RealBackend = struct {
         return self.inner.setItemSelected(item, selected);
     }
 
-    pub fn setItemNotes(self: *const RealBackend, item: *anyopaque, notes: []const u8) bool {
+    pub fn setItemNotes(self: *const RealBackend, item: *anyopaque, notes: [:0]const u8) bool {
         return self.inner.setItemNotes(item, notes);
     }
 
