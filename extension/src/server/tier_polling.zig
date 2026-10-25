@@ -388,10 +388,9 @@ fn pollMediumTierRegular(ctx: *const TierContext, mutable: *MutableState) !void 
                 logging.info("Resizing arenas: {s}", .{sizes_str});
             }
 
-            ctx.tiered.resize(ctx.allocator, new_sizes) catch |err| {
-                logging.err("Failed to resize arenas: {s}", .{@errorName(err)});
-            };
-            logging.info("Arena resize complete: {d}MB total", .{new_sizes.totalAllocated() >> 20});
+            // This poll holds state from the arenas, so the resize waits for
+            // the next frame boundary.
+            ctx.tiered.requestResize(new_sizes);
         }
 
     }
