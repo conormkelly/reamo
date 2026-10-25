@@ -2614,7 +2614,7 @@ Commands for enumerating installed FX plugins globally (not per-track).
 
 ### `fxPlugin/getList`
 
-Get all installed FX plugins. **Returns data.**
+Get all installed FX plugins. **Returns data.** Empty on a REAPER that can't list them to an extension (REAPER 6.0 has no `EnumInstalledFX`).
 
 ```json
 {"type": "command", "command": "fxPlugin/getList", "id": "1"}
