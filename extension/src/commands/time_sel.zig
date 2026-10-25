@@ -44,9 +44,14 @@ pub fn handleSetBars(api: anytype, cmd: protocol.CommandMessage, response: *mod.
     const start_beat: f64 = if (cmd.getFloat("startBeat")) |b| b else 1.0;
     const end_beat: f64 = if (cmd.getFloat("endBeat")) |b| b else 1.0;
 
-    // Convert bar.beat to time using REAPER's native conversion
-    const start_time = api.barBeatToTime(start_bar, start_beat);
-    const end_time = api.barBeatToTime(end_bar, end_beat);
+    const start_time = mod.displayedBarBeatToTime(api, start_bar, start_beat) orelse {
+        response.err("INVALID_BAR", "startBar is out of range");
+        return;
+    };
+    const end_time = mod.displayedBarBeatToTime(api, end_bar, end_beat) orelse {
+        response.err("INVALID_BAR", "endBar is out of range");
+        return;
+    };
 
     if (end_time < start_time) {
         response.err("INVALID_RANGE", "End must be greater than or equal to start");
@@ -85,6 +90,14 @@ pub fn handleSetEnd(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWr
 // ============================================================================
 // Tests
 // ============================================================================
+
+test "timeSelection/setByBars selects the bars the ruler shows when the project starts at measure -5" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{ .bar_offset = -5 };
+    mod.testRunHandler(&m, handleSetBars, "{\"type\":\"command\",\"command\":\"timeSelection/setByBars\",\"startBar\":-4,\"endBar\":-2}");
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), m.time_sel_start, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 4.0), m.time_sel_end, 1e-9);
+}
 
 test "timeSelection/setByBars rejects bars that would overflow bar arithmetic" {
     const mock = @import("../reaper/mock/mod.zig");

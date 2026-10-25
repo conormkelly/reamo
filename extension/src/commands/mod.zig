@@ -78,6 +78,17 @@ pub const CommandContext = struct {
 /// Global command context - initialized by main.zig
 pub var g_ctx: CommandContext = .{};
 
+/// Time of a bar.beat as the user reads it on REAPER's ruler: `bar` as
+/// displayed (the project start measure shifts it; 58% of real projects
+/// start at -5 or similar) and `beat` 1-based in the meter's own beats
+/// (eighths in 6/8), which is how TimeMap2_beatsToTime takes them. null if
+/// the bar is out of range once the start measure is applied.
+pub fn displayedBarBeatToTime(api: anytype, bar: c_int, beat: f64) ?f64 {
+    const measure = std.math.cast(c_int, @as(i64, bar) - api.getBarOffset()) orelse return null;
+    if (validateBar(measure) == null) return null;
+    return api.barBeatToTime(measure, beat);
+}
+
 /// Whether a client is mid-drag on `control`. A change inside a drag is
 /// covered by the undo point recorded when the drag ends; a change outside
 /// one (a double-tap reset) needs an undo point of its own.
