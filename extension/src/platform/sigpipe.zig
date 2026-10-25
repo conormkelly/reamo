@@ -189,7 +189,12 @@ test "uninstall restores the default action so no handler points into an unloade
 test "uninstall leaves a handler installed after ours in place" {
     if (!supported) return error.SkipZigTest;
     const outcome = try runInChild(struct {
-        fn other(_: i32) callconv(.c) void {}
+        var calls: u32 = 0;
+        // Must not be an empty body: optimized builds fold identical
+        // functions, which would give this noopHandler's address.
+        fn other(_: i32) callconv(.c) void {
+            calls += 1;
+        }
         fn body() !void {
             install();
             setHandler(other);
