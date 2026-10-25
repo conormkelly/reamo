@@ -65,6 +65,12 @@ pub fn register(plugin_register: PluginRegisterFn, add_ext_menu: AddExtMenuFn) b
         return false;
     }
 
+    // Toggle state for the action list and toolbars (the menu sets its own
+    // checkmarks in updateMenuState). Not fatal: only the display is lost.
+    if (plugin_register("toggleaction", @constCast(@ptrCast(&onToggleState))) == 0) {
+        logging.warn("menu: failed to register toggleaction", .{});
+    }
+
     // 3. Register the hookcustommenu callback
     if (plugin_register("hookcustommenu", @constCast(@ptrCast(&menuHook))) == 0) {
         logging.err("menu: failed to register hookcustommenu", .{});
@@ -83,6 +89,7 @@ pub fn unregister() void {
     if (g_plugin_register) |plugin_register| {
         _ = plugin_register("-hookcustommenu", @constCast(@ptrCast(&menuHook)));
         _ = plugin_register("-hookcommand2", @constCast(@ptrCast(&onCommand)));
+        _ = plugin_register("-toggleaction", @constCast(@ptrCast(&onToggleState)));
         logging.info("menu: unregistered", .{});
     }
 }
@@ -118,6 +125,18 @@ fn menuHook(menuidstr: [*:0]const u8, menu_handle: ?*anyopaque, flag: c_int) cal
     }
 }
 
+/// toggleaction callback: 1/0 for REAmo's toggle actions, -1 for any other
+/// command (not ours, or not a toggle).
+fn onToggleState(command: c_int) callconv(.c) c_int {
+    for (&menu_items.items, 0..) |*item, i| {
+        if (command == g_cmd_ids[i] and g_cmd_ids[i] != 0) {
+            if (!item.is_toggle) return -1;
+            return @intFromBool(toggleState(std.mem.span(item.action_id)));
+        }
+    }
+    return -1;
+}
+
 /// hookcommand2 callback — dispatches menu item clicks to handlers.
 /// Returns false for unrecognized commands to let other extensions handle them.
 fn onCommand(
@@ -147,8 +166,7 @@ fn onCommand(
 fn buildMenu(hMenu: HMENU) void {
     const submenu = swell.createPopupMenu() orelse return;
 
-    var added_connection = false;
-    var added_settings = false;
+    var prev_group: ?menu_items.Group = null;
     var added_any_grouped = false;
 
     // First pass: grouped items in declaration order
@@ -157,15 +175,14 @@ fn buildMenu(hMenu: HMENU) void {
         if (cmd_id == 0) continue;
         if (item.group == null) continue;
 
-        // Add separator between different groups
-        if (item.group == .settings and !added_settings and added_connection) {
+        // Separator between groups
+        if (prev_group != null and prev_group != item.group) {
             swell.insertMenuSeparator(submenu, -1);
         }
 
         swell.insertMenuItem(submenu, -1, cmd_id, item.label);
 
-        if (item.group == .connection) added_connection = true;
-        if (item.group == .settings) added_settings = true;
+        prev_group = item.group;
         added_any_grouped = true;
     }
 
@@ -213,8 +230,7 @@ fn updateMenuState(hMenu: HMENU) void {
                         swell.setMenuItemTextByPos(hMenu, i, text);
                     }
                     if (item.is_toggle) {
-                        // TODO: query toggle state and update checkmark
-                        // swell.checkMenuItem(hMenu, i, queryToggleState(g_cmd_ids[idx]));
+                        swell.checkMenuItem(hMenu, i, toggleState(std.mem.span(item.action_id)));
                     }
                     break;
                 }
@@ -226,6 +242,12 @@ fn updateMenuState(hMenu: HMENU) void {
 // =============================================================================
 // Action dispatch — routes command IDs to handler functions
 // =============================================================================
+
+/// Checkmark state of a toggle item.
+fn toggleState(action_id: []const u8) bool {
+    if (std.mem.eql(u8, action_id, "REAMO_DEBUG_LOGGING")) return logging.debugEnabled();
+    return false;
+}
 
 /// Dispatch a menu action by its index in menu_items.items.
 fn dispatchAction(index: usize) void {
@@ -241,6 +263,10 @@ fn dispatchAction(index: usize) void {
         network_action.showChangePort();
     } else if (std.mem.eql(u8, action_id, "REAMO_ALLOWED_HOSTS")) {
         network_action.showAllowedHosts();
+    } else if (std.mem.eql(u8, action_id, "REAMO_DEBUG_LOGGING")) {
+        logging.setDebug(!logging.debugEnabled());
+    } else if (std.mem.eql(u8, action_id, "REAMO_OPEN_LOG_FOLDER")) {
+        network_action.openLogFolder();
     } else if (std.mem.eql(u8, action_id, "REAMO_ABOUT")) {
         network_action.showAbout();
     } else {

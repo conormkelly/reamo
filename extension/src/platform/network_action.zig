@@ -317,6 +317,85 @@ pub fn showAbout() void {
     );
 }
 
+/// Open the folder holding reamo.log in the system file browser. If that
+/// can't be done, say where the folder is instead.
+pub fn openLogFolder() void {
+    const log_path = logging.getLogPath() orelse {
+        showMessage("REAmo has no log file this session (REAPER's resource folder wasn't available).");
+        return;
+    };
+    var dir_buf: [512]u8 = undefined;
+    const dir = nativeSeparators(std.fs.path.dirname(log_path) orelse log_path, &dir_buf);
+    const opener: []const u8 = switch (builtin.os.tag) {
+        .macos => "open",
+        .windows => "explorer.exe",
+        else => "xdg-open",
+    };
+    // A failed exec only surfaces when the child is reaped, off the main
+    // thread, so check first for the one opener a system may lack.
+    const available = builtin.os.tag == .macos or builtin.os.tag == .windows or onPath(opener);
+    if (!available) {
+        logging.warn("Open Log Folder: couldn't run {s}: not installed", .{opener});
+    }
+    (if (available) spawnDetached(&.{ opener, dir }) else error.FileNotFound) catch |err| {
+        if (available) logging.warn("Open Log Folder: couldn't run {s}: {s}", .{ opener, @errorName(err) });
+        var buf: [600]u8 = undefined;
+        const msg = std.fmt.bufPrintZ(&buf, "REAmo's log is in:\n{s}", .{dir}) catch "REAmo's log is in REAPER's resource folder, under Logs.";
+        showMessage(msg);
+    };
+}
+
+/// `path` with Windows' separators on Windows, where REAPER's resource path
+/// uses backslashes but REAmo appends "/Logs", and Explorer may open
+/// somewhere else for a mixed path. Other platforms use it as is.
+fn nativeSeparators(path: []const u8, buf: []u8) []const u8 {
+    if (builtin.os.tag != .windows or path.len > buf.len) return path;
+    for (path, 0..) |c, i| buf[i] = if (c == '/') '\\' else c;
+    return buf[0..path.len];
+}
+
+/// Whether an executable named `name` is in a PATH directory.
+fn onPath(name: []const u8) bool {
+    const path = std.posix.getenv("PATH") orelse return false;
+    var dirs = std.mem.tokenizeScalar(u8, path, ':');
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    while (dirs.next()) |d| {
+        const candidate = std.fmt.bufPrint(&buf, "{s}/{s}", .{ d, name }) catch continue;
+        std.fs.cwd().access(candidate, .{}) catch continue;
+        return true;
+    }
+    return false;
+}
+
+/// Run a program without waiting for it; a thread reaps it so it never
+/// lingers as a zombie, and REAPER's main thread never blocks on it.
+fn spawnDetached(argv: []const []const u8) !void {
+    const child = try std.heap.c_allocator.create(std.process.Child);
+    errdefer std.heap.c_allocator.destroy(child);
+    child.* = std.process.Child.init(argv, std.heap.c_allocator);
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Ignore;
+    child.stderr_behavior = .Ignore;
+    try child.spawn();
+    const reaper_thread = std.Thread.spawn(.{}, struct {
+        fn reap(c: *std.process.Child) void {
+            _ = c.wait() catch |err| logging.warn("{s} failed: {s}", .{ c.argv[0], @errorName(err) });
+            std.heap.c_allocator.destroy(c);
+        }
+    }.reap, .{child}) catch |err| {
+        // Without the thread, wait here: the opener returns at once.
+        _ = child.wait() catch {};
+        std.heap.c_allocator.destroy(child);
+        return err;
+    };
+    reaper_thread.detach();
+}
+
+fn showMessage(msg: [*:0]const u8) void {
+    const show_msg = g_show_message_box orelse return;
+    _ = show_msg(msg, "REAmo", 0);
+}
+
 /// Why a port change failed, in words for the dialog.
 fn errorText(err: anyerror) []const u8 {
     return switch (err) {
