@@ -9,8 +9,8 @@
             .hash = "ztracy-0.14.0-dev-zHJSqzUHGQAmhJybhlwtl1QKevUBw4M5YKZqPfWx2y99",
         },
         .httpz = .{
-            .url = "https://github.com/conormkelly/http.zig/archive/751779b.tar.gz",
-            .hash = "httpz-0.0.0-PNVzrN-DBwDa_0Kjzs2NnCh_IYk9xfOurK2iRc8fJmcG",
+            .url = "https://github.com/conormkelly/http.zig/archive/9f2e1ba82d40a8997416a9ade84695a52630e79d.tar.gz",
+            .hash = "httpz-0.0.0-PNVzrK6JBwCyepU8PaCUZhJcwD8DB8JmhybIKFSo0hOH",
         },
     },
     .paths = .{
