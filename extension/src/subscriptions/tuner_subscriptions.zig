@@ -65,8 +65,9 @@ pub const TrackTuner = struct {
     fx_guid_len: u8 = 0,
     fx_index: c_int = -1, // Raw index in Input FX chain (0, 1, 2...)
     ref_count: u8 = 0, // Number of clients subscribed to this track
-    // The project tab the JSFX went into (ReaProject*): the user may have
-    // switched tabs by the time it comes out
+    // The track and project tab (ReaProject*) the JSFX went into: the user
+    // may have switched tabs by the time it comes out
+    track: ?*anyopaque = null,
     project: ?*anyopaque = null,
 
     // Configurable params (shared across subscribers to this track)
@@ -285,6 +286,7 @@ pub const TunerSubscriptions = struct {
             @memcpy(tuner.?.track_guid[0..track_len], track_guid[0..track_len]);
             tuner.?.track_guid_len = track_len;
 
+            tuner.?.track = track;
             tuner.?.project = project.Identity.current(api).pointer;
             tuner.?.fx_index = 0; // Always at position 0 after move
             tuner.?.ref_count = 0;
@@ -321,19 +323,18 @@ pub const TunerSubscriptions = struct {
     }
 
     /// The track a tuner is on: "master" (whose Input FX are REAPER's
-    /// monitoring chain, shared by every tab) or a user track by GUID in
-    /// `in_project`, the tab the tuner went into, which needn't be the tab
-    /// shown now. null once the track or its tab is gone.
-    fn findTrack(api: anytype, in_project: ?*anyopaque, track_guid: []const u8) ?*anyopaque {
-        if (std.mem.eql(u8, track_guid, "master")) return api.masterTrack();
-        if (in_project != null and !api.validateProjectPtr(in_project)) return null;
-        var i: c_int = 0;
-        while (i < api.trackCountIn(in_project)) : (i += 1) {
-            const track = api.getTrackIn(in_project, i) orelse continue;
-            var guid_buf: [64]u8 = undefined;
-            if (std.mem.eql(u8, api.formatTrackGuid(track, &guid_buf), track_guid)) return track;
-        }
-        return null;
+    /// monitoring chain, shared by every tab), or the track the JSFX went
+    /// into, checked against the tab it went into, which needn't be the tab
+    /// shown now. null once the track or its tab is gone. Found by pointer,
+    /// not GUID: REAPER 6.0's GetTrackGUID gives nothing for a track in a
+    /// background tab. A stale pointer reused by another track is harmless:
+    /// the JSFX is deleted only where its own FX GUID is found.
+    fn findTrack(api: anytype, tuner: *const TrackTuner) ?*anyopaque {
+        if (std.mem.eql(u8, tuner.getTrackGuid(), "master")) return api.masterTrack();
+        const track = tuner.track orelse return null;
+        if (tuner.project != null and !api.validateProjectPtr(tuner.project)) return null;
+        if (!api.validateTrackPtrIn(tuner.project, track)) return null;
+        return track;
     }
 
     /// Internal unsubscribe (doesn't remove client from map)
@@ -358,7 +359,7 @@ pub const TunerSubscriptions = struct {
                 // Delete the JSFX if the track still exists (deleting a track
                 // takes its FX with it). Search all of its Input FX by GUID, in
                 // case the user has reordered the chain.
-                if (findTrack(api, tuner.project, track_guid)) |track| {
+                if (findTrack(api, tuner)) |track| {
                     const input_fx_count = api.trackFxRecCount(track);
                     var found = false;
                     var fx_idx: c_int = 0;
@@ -385,6 +386,7 @@ pub const TunerSubscriptions = struct {
                 tuner.track_guid_len = 0;
                 tuner.fx_guid_len = 0;
                 tuner.fx_index = -1;
+                tuner.track = null;
                 tuner.project = null;
             }
         }
