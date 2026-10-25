@@ -31,8 +31,11 @@ pub fn handleTap(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWrite
 // Request: { "time": 15.7, "subdivision": 1 }
 // Response: { "snappedTime": 16.0, "snappedBeats": 32.0 }
 pub fn handleSnap(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const time = cmd.getFloat("time") orelse {
+    const time = mod.validateTime(cmd.getFloat("time") orelse {
         response.err("MISSING_TIME", "time is required");
+        return;
+    }) orelse {
+        response.err("INVALID_TIME", "time is out of range");
         return;
     };
 
@@ -66,7 +69,10 @@ pub fn handleSnap(api: anytype, cmd: protocol.CommandMessage, response: *mod.Res
 // Request: { "time": 10.5 }
 // Response: { "duration": 2.0, "durationBeats": 4.0, "bpm": 120.0, "timesigNum": 4, "timesigDenom": 4 }
 pub fn handleGetBarDuration(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const time = cmd.getFloat("time") orelse 0.0;
+    const time = mod.validateTime(cmd.getFloat("time") orelse 0.0) orelse {
+        response.err("INVALID_TIME", "time is out of range");
+        return;
+    };
 
     const tempo = api.getTempoAtPosition(time);
     const beats_per_bar: f64 = @floatFromInt(tempo.timesig_num);
@@ -98,8 +104,11 @@ fn barDurationAt(api: anytype, time: f64) f64 {
 // Request: { "time": 16.0 }
 // Response: { "beats": 32.0, "bars": "9.1.00" }
 pub fn handleTimeToBeats(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const time = cmd.getFloat("time") orelse {
+    const time = mod.validateTime(cmd.getFloat("time") orelse {
         response.err("MISSING_TIME", "time is required");
+        return;
+    }) orelse {
+        response.err("INVALID_TIME", "time is out of range");
         return;
     };
 

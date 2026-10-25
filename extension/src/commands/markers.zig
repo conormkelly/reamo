@@ -54,7 +54,10 @@ pub fn handleMarkerUpdate(api: anytype, cmd: protocol.CommandMessage, response: 
     }
 
     // PATCH semantics: use provided values, fall back to current
-    const pos = cmd.getFloat("position") orelse current_pos;
+    const pos = if (cmd.getFloat("position")) |p| mod.validatePosition(p) orelse {
+        response.err("INVALID_POSITION", "Position must be a non-negative number of seconds in range");
+        return;
+    } else current_pos;
 
     // Name: use provided if non-empty, else preserve current (whole: a
     // drag that sends only a position must not shorten the name).
