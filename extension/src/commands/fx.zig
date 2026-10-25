@@ -187,15 +187,6 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     };
     defer std.heap.c_allocator.free(fx_name);
 
-    // TrackFX_AddByName's last argument is not a position: -1 adds at the
-    // end, 0 only looks an instance up, 1 adds if none exists, and
-    // -1000 - N inserts at N.
-    const fx_count = api.trackFxCount(resolution.track);
-    const instantiate: c_int = if (cmd.getInt("position")) |pos|
-        (if (pos >= 0 and pos < fx_count) -1000 - pos else -1)
-    else
-        -1;
-
     // Build null-terminated name for REAPER API
     var name_buf: [256:0]u8 = undefined;
     const name_len = utf8.copyPrefix(name_buf[0 .. name_buf.len - 1], fx_name);
@@ -206,7 +197,7 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     const undo_desc: [*:0]const u8 = std.fmt.bufPrintZ(&undo_buf, "REAmo: Add FX: {s}", .{fx_name}) catch "REAmo: Add FX";
 
     api.undoBeginBlock();
-    const fx_idx = api.trackFxAddByName(resolution.track, @ptrCast(&name_buf), false, instantiate);
+    const fx_idx = addFxAt(api, resolution.track, @ptrCast(&name_buf), cmd.getInt("position"));
     api.undoEndBlock(undo_desc);
 
     if (fx_idx < 0) {
@@ -228,6 +219,20 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
 
     logging.debug("trackFx/add: added '{s}' at index {d}, guid={s}", .{ fx_name, fx_idx, fx_guid });
     response.success(resp_json);
+}
+
+/// Add an FX by name at `position` and return its index, or -1 if REAPER
+/// can't add it. A position that is null, negative or past the end adds at
+/// the end.
+fn addFxAt(api: anytype, track: *anyopaque, name: [*:0]const u8, position: ?c_int) c_int {
+    // Added at the end, then moved: TrackFX_AddByName can insert at N
+    // itself (-1000 - N), but REAPER 6.0 appends instead.
+    const added = api.trackFxAddByName(track, name, false, -1);
+    if (added < 0) return added;
+    const pos = position orelse return added;
+    if (pos < 0 or pos >= added) return added;
+    api.trackFxCopyToTrack(track, added, track, pos, true);
+    return pos;
 }
 
 /// Delete an FX from a track.
@@ -470,4 +475,24 @@ test "handleSetEnabled validates fx_idx bounds" {
 
 test "resolveFxIndex and findFxByGuid compile" {
     // Integration tests via websocat verify full behavior.
+}
+
+test "an FX added at a position lands there even where REAPER only appends" {
+    const mock = @import("../reaper/mock/mod.zig");
+    // The mock appends whatever position it is asked for, as REAPER 6.0 does.
+    var m = mock.MockBackend{ .track_count = 1 };
+    m.tracks[1].fx[0].setName("ReaComp");
+    m.tracks[1].fx[1].setName("ReaVerb");
+    m.tracks[1].fx_count = 2;
+    const track = m.getTrackByIdx(0).?;
+
+    try std.testing.expectEqual(@as(c_int, 0), addFxAt(&m, track, "ReaEQ", 0));
+    try std.testing.expectEqualStrings("ReaEQ", m.tracks[1].fx[0].getName());
+    try std.testing.expectEqualStrings("ReaComp", m.tracks[1].fx[1].getName());
+    try std.testing.expectEqualStrings("ReaVerb", m.tracks[1].fx[2].getName());
+
+    // Past the end, or no position: at the end.
+    try std.testing.expectEqual(@as(c_int, 3), addFxAt(&m, track, "ReaDelay", 7));
+    try std.testing.expectEqual(@as(c_int, 4), addFxAt(&m, track, "ReaGate", null));
+    try std.testing.expectEqualStrings("ReaGate", m.tracks[1].fx[4].getName());
 }
