@@ -28,15 +28,22 @@ Debian, REAPER 7.83, xvfb/GTK/ALSA, python3, gdb).
 
 ## Running against another REAPER release
 
-`REAPER_VERSION` picks the release, numbered as reaper.fm numbers it.
-Each version gets its own image, built on first use from that release's
-portable Linux tarball, so a run always says exactly which REAPER it
+`--reaper` (or `REAPER_VERSION`, for `make`) picks the release: a number
+as reaper.fm numbers it, or `pinned` (the default: the newest release we
+have checked, 7.83), `oldest` (the oldest we support, 6.0) or `latest`
+(reaper.fm's current release, looked up when the run starts, so it needs
+the network). Each version gets its own image, built on first use from
+that release's portable Linux tarball, and the run says which REAPER it
 tested:
 
 ```sh
-REAPER_VERSION=6.0 make harness                    # the oldest REAPER we support
-REAPER_VERSION=6.0 make harness SCENARIOS=smoke
+scripts/harness/run.sh --reaper 6.0 smoke
+REAPER_VERSION=latest make harness
+make release-check          # every scenario on oldest, then on pinned
 ```
+
+`make release-check` is the release gate: both runs must pass. When a new
+REAPER comes out, run on `latest`, then move `PINNED_REAPER` in `run.sh`.
 
 Screenshots in `out/` are per scenario, not per version: a later run of the
 same scenario on another version replaces them.

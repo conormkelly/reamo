@@ -1,6 +1,6 @@
 .PHONY: all frontend extension dev-extension clean test test-frontend test-extension test-e2e \
         test-ws dev dev-notests dev-cycle stop-reaper start-reaper frontend-dev install typecheck \
-        tracy release-native release-dir harness harness-image
+        tracy release-native release-dir harness harness-image release-check
 
 # Platform detection: library name and REAPER plugin directory
 ifeq ($(shell uname),Darwin)
@@ -176,11 +176,16 @@ test-ws:
 harness:
 	scripts/harness/run.sh $(SCENARIOS)
 
-# Rebuild the harness image for REAPER_VERSION (default 7.83); run.sh
-# builds it on first use.
-REAPER_VERSION ?= 7.83
+# Build the harness image for REAPER_VERSION (pinned, oldest, latest or a
+# release like 6.0); run.sh builds it on first use.
 harness-image:
-	docker build --build-arg REAPER_VERSION=$(REAPER_VERSION) -t reamo-v1-harness:reaper-$(REAPER_VERSION) scripts/harness
+	scripts/harness/run.sh --image-only
+
+# Release gate: every scenario on the oldest REAPER we support, then on the
+# pinned newest one. Both must pass.
+release-check:
+	scripts/harness/run.sh --reaper oldest
+	scripts/harness/run.sh --reaper pinned
 
 # Run extension unit tests (zig)
 test-extension:
