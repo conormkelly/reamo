@@ -583,6 +583,14 @@ fn doProcessing() !void {
     // latest poll, which the immediate (CSurf) polls compare against.
     g_frame_counter +%= 1;
     var tiered = &(g_tiered orelse return error.TieredNotInitialized);
+    // A resize a poll asked for last tick, now that nothing holds tier state.
+    if (tiered.pending_sizes) |sizes| {
+        if (tiered.applyPendingResize(g_allocator)) {
+            logging.info("Arenas resized: {d}MB total", .{sizes.totalAllocated() >> 20});
+        } else |err| {
+            logging.err("Arena resize to {d}MB failed ({s}); keeping the current {d}MB", .{ sizes.totalAllocated() >> 20, @errorName(err), tiered.sizes.totalAllocated() >> 20 });
+        }
+    }
     try tiered.beginFrame(g_frame_counter);
 
     // Create backend for state polling (needed early for skeleton rebuild)

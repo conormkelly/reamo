@@ -360,6 +360,8 @@ pub const TieredArenas = struct {
     low: DoubleBufferedState(LowTierState),
     scratch: FrameArena,
     sizes: CalculatedSizes, // Store sizes for diagnostics
+    /// Sizes requested by requestResize, applied by the caller between frames.
+    pending_sizes: ?CalculatedSizes = null,
 
     const Self = @This();
 
@@ -369,6 +371,7 @@ pub const TieredArenas = struct {
     pub fn initWithSizes(backing: Allocator, sizes: CalculatedSizes) !Self {
         var self: Self = undefined;
         self.sizes = sizes;
+        self.pending_sizes = null;
 
         // Initialize HIGH tier
         self.high = try DoubleBufferedState(HighTierState).init(backing, sizes.high);
@@ -402,33 +405,30 @@ pub const TieredArenas = struct {
         self.* = undefined;
     }
 
-    /// Resize all arenas to new sizes.
-    /// Call this on project change when entity counts have changed significantly.
-    /// Invalidates all existing state - caller must repopulate.
+    /// Resize all arenas to new sizes. Every tier state lives inside these
+    /// arenas, so this invalidates every state pointer and slice taken from
+    /// them: call it between frames, never during a poll (see requestResize).
+    /// The new arenas are allocated before the old ones are freed, so on
+    /// failure the old ones are untouched and still in use.
     pub fn resize(self: *Self, backing: Allocator, new_sizes: CalculatedSizes) !void {
-        // Deinit all existing arenas
-        self.high.deinit(backing);
-        self.medium.deinit(backing);
-        self.low.deinit(backing);
-        self.scratch.deinit(backing);
+        const fresh = try initWithSizes(backing, new_sizes);
+        self.deinit(backing);
+        self.* = fresh;
+    }
 
-        // Reinitialize with new sizes
-        self.sizes = new_sizes;
+    /// Ask for a resize at the next frame boundary. Polls that find the
+    /// project has changed size call this instead of resize, since they are
+    /// holding state from these arenas.
+    pub fn requestResize(self: *Self, new_sizes: CalculatedSizes) void {
+        self.pending_sizes = new_sizes;
+    }
 
-        // Initialize HIGH tier
-        self.high = try DoubleBufferedState(HighTierState).init(backing, new_sizes.high);
-        errdefer self.high.deinit(backing);
-
-        // Initialize MEDIUM tier
-        self.medium = try DoubleBufferedState(MediumTierState).init(backing, new_sizes.medium);
-        errdefer self.medium.deinit(backing);
-
-        // Initialize LOW tier
-        self.low = try DoubleBufferedState(LowTierState).init(backing, new_sizes.low);
-        errdefer self.low.deinit(backing);
-
-        // Initialize SCRATCH arena
-        self.scratch = try FrameArena.init(backing, new_sizes.scratch);
+    /// Apply a requested resize; call before beginFrame, while nothing holds
+    /// state from the arenas.
+    pub fn applyPendingResize(self: *Self, backing: Allocator) !void {
+        const sizes = self.pending_sizes orelse return;
+        self.pending_sizes = null;
+        try self.resize(backing, sizes);
     }
 
     /// Check if resize is warranted based on new counts.
@@ -859,6 +859,35 @@ test "TieredArenas resize preserves functionality" {
     try arenas.beginFrame(1);
     arenas.high.currentState().transport.bpm = 160.0;
     try testing.expectEqual(@as(f64, 160.0), arenas.high.currentState().transport.bpm);
+}
+
+test "a resize that can't allocate leaves the current arenas and their state in use" {
+    const sizes = CalculatedSizes{ .high = 128 * 1024, .medium = 512 * 1024, .low = 32 * 1024, .scratch = 128 * 1024 };
+    var arenas = try TieredArenas.initWithSizes(testing.allocator, sizes);
+    defer arenas.deinit(testing.allocator);
+    try arenas.beginFrame(0);
+    arenas.high.currentState().transport.bpm = 140.0;
+
+    // Enough for some of the new arenas, not all of them.
+    var failing = std.testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 3 });
+    const bigger = CalculatedSizes{ .high = 256 * 1024, .medium = 1024 * 1024, .low = 64 * 1024, .scratch = 256 * 1024 };
+    try testing.expectError(error.OutOfMemory, arenas.resize(failing.allocator(), bigger));
+
+    try testing.expectEqual(sizes.high, arenas.sizes.high);
+    try testing.expectEqual(@as(f64, 140.0), arenas.high.currentState().transport.bpm);
+    try arenas.beginFrame(1);
+}
+
+test "a requested resize waits for applyPendingResize" {
+    var arenas = try TieredArenas.init(testing.allocator);
+    defer arenas.deinit(testing.allocator);
+    const before = arenas.sizes;
+    const smaller = CalculatedSizes{ .high = 128 * 1024, .medium = 512 * 1024, .low = 32 * 1024, .scratch = 128 * 1024 };
+    arenas.requestResize(smaller);
+    try testing.expectEqual(before.high, arenas.sizes.high);
+    try arenas.applyPendingResize(testing.allocator);
+    try testing.expectEqual(smaller.high, arenas.sizes.high);
+    try testing.expect(arenas.pending_sizes == null);
 }
 
 test "DiagnosticUsage isMemoryWarning threshold" {
