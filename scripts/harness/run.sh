@@ -31,10 +31,12 @@ esac
 
 [ -f "$ROOT/web/index.html" ] || { echo "error: no built frontend in web/; run: make frontend" >&2; exit 1; }
 
-if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-    echo "Building $IMAGE (one-time)..."
-    docker build -q -t "$IMAGE" "$HERE" >/dev/null
-fi
+# Cached after the first build; rebuilt only when the Dockerfile changes.
+docker build -q -t "$IMAGE" "$HERE" >/dev/null
+
+# Screenshots and other per-scenario artifacts (gitignored).
+ARTIFACTS="$HERE/out"
+mkdir -p "$ARTIFACTS"
 
 case "$(docker info --format '{{.Architecture}}')" in
     aarch64 | arm64) arch=aarch64 ;;
@@ -44,6 +46,12 @@ esac
 
 OUT="$(mktemp -d)"
 trap 'rm -rf "$OUT"' EXIT
+# Containers read a snapshot of this directory taken now: Docker Desktop's
+# bind mounts can briefly serve a stale or truncated copy of a file that was
+# just edited, and a run should see one consistent version of the harness.
+mkdir -p "$OUT/harness"
+(cd "$HERE" && tar --exclude ./out --exclude ./reaper-license.rk -cf - .) | (cd "$OUT/harness" && tar -xf -)
+
 echo "Building extension for $arch-linux..."
 (cd "$ROOT/extension" && "$ZIG" build -Doptimize=ReleaseSafe -Dtarget="$arch-linux-gnu.2.28" --prefix "$OUT/build")
 cp "$OUT/build/lib/libreaper_reamo.so" "$OUT/reaper_reamo.so"
@@ -70,11 +78,12 @@ done
 run_one() {
     local s="$1"
     docker run --rm --name "reamo-v1-harness-$s-$$" --network none --label reamo.harness=v1 \
-        -v "$HERE:/harness:ro" -v "$OUT:/ext:ro" -v "$ROOT/web:/web:ro" \
+        -v "$OUT/harness:/harness:ro" -v "$OUT:/ext:ro" -v "$ROOT/web:/web:ro" \
         -v "$ROOT/extension/effects:/effects:ro" -v "$ROOT/test-fixtures:/fixtures:ro" \
+        -v "$ARTIFACTS:/out" \
         ${lic_mount[@]+"${lic_mount[@]}"} -e HARNESS_GDB="${HARNESS_GDB:-0}" \
-        "$IMAGE" bash /harness/boot.sh "$s" >"$OUT/$s.log" 2>&1
-    echo $? >"$OUT/$s.status"
+        "$IMAGE" bash /harness/boot.sh "$s" >"$OUT/$s.log" 2>&1 && rc=0 || rc=$?
+    echo "$rc" >"$OUT/$s.status"
 }
 
 # Each scenario writes its own log; they are printed in order as each one
@@ -109,5 +118,6 @@ for s in "${scenarios[@]}"; do
 done
 
 echo
+[ ${#failed[@]} -eq 0 ] || echo "screenshots of failed scenarios: $ARTIFACTS/<scenario>/"
 echo "harness: $pass passed, ${#failed[@]} failed${failed[*]:+ (${failed[*]})}"
 [ ${#failed[@]} -eq 0 ]

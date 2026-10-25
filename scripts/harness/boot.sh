@@ -22,7 +22,9 @@ cp -a "$REAPER_DIR" "$HOME_DIR"
 # Portable mode (reaper.ini beside the binary). linux_audio_mode=2 is REAPER's
 # Linux dummy audio device, which still runs the full audio path; blank VST
 # paths skip the plugin scan; verchk=0 stops the update check, whose modal
-# would block the main thread (as would the unlicensed evaluation nag).
+# would block the main thread (as would the unlicensed evaluation nag);
+# diskcheck=0 and promptendrec=0 skip the low-disk-space warning and the
+# "keep recorded files?" prompt, both modal, when a scenario records.
 cat > "$HOME_DIR/reaper.ini" <<'EOF'
 [audioconfig]
 mode=4
@@ -31,6 +33,8 @@ vstpath=
 vstpath_arm64=
 linux_audio_mode=2
 verchk=0
+diskcheck=0
+promptendrec=0
 EOF
 [ -f /lic/reaper-license.rk ] && cp /lic/reaper-license.rk "$HOME_DIR/"
 mkdir -p "$HOME_DIR/UserPlugins" "$HOME_DIR/Scripts" "$HOME_DIR/reaper_www_root"
@@ -59,11 +63,19 @@ if not ok then
 end
 EOF
 
+# One X display shared by REAPER and the test, so test.py can screenshot it
+# and look for (or dismiss) dialogs; see reamo_client.screenshot()/windows().
+export DISPLAY=:99 HARNESS_SCENARIO="$SCENARIO" HARNESS_OUT="/out/$SCENARIO"
+rm -rf "$HARNESS_OUT" && mkdir -p "$HARNESS_OUT"
+Xvfb :99 -screen 0 1600x1000x24 -nolisten tcp >/tmp/xvfb.out 2>&1 &
+for _ in $(seq 1 40); do xdotool getmouselocation >/dev/null 2>&1 && break; sleep 0.05; done
+shot() { import -window root "$HARNESS_OUT/$1.png" 2>/dev/null && echo "screenshot: out/$SCENARIO/$1.png"; }
+
 if [ "${HARNESS_GDB:-0}" = 1 ]; then
-    xvfb-run -a gdb -q -batch -ex run -ex "thread apply all bt 25" \
+    gdb -q -batch -ex run -ex "thread apply all bt 25" \
         --args "$HOME_DIR/reaper" -nosplash >/tmp/reaper.out 2>&1 &
 else
-    xvfb-run -a "$HOME_DIR/reaper" -nosplash >/tmp/reaper.out 2>&1 &
+    "$HOME_DIR/reaper" -nosplash >/tmp/reaper.out 2>&1 &
 fi
 
 # Ready = the fixture has run and the extension's server accepts connections.
@@ -74,6 +86,8 @@ for _ in $(seq 1 120); do
 done
 [ -f /tmp/harness_lua.log ] && sed 's/^/[lua] /' /tmp/harness_lua.log
 if [ "$ok" != 1 ]; then
+    shot not-ready
+    echo "--- windows: $(xdotool search --onlyvisible --name . getwindowname %@ 2>/dev/null | tr '\n' '|')"
     echo "RESULT: FAIL ($SCENARIO: REAPER/extension not ready within 30 s)"
     tail -20 /tmp/reaper.out
     exit 2
@@ -98,6 +112,7 @@ if [ "$alive" != 1 ]; then
     exit 3
 fi
 if [ "$test_status" != 0 ]; then
+    shot failed
     echo "RESULT: FAIL ($SCENARIO: assertions failed)"
     exit 1
 fi

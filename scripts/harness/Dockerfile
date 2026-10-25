@@ -21,11 +21,13 @@ FROM debian:bookworm-slim
 #   python3      the scenario client (stdlib only)
 #   procps       pgrep, to tell whether REAPER survived a scenario
 #   gdb          backtraces when REAPER crashes (HARNESS_GDB=1)
+#   imagemagick  screenshots of REAPER's display (`import -window root`)
+#   xdotool      list REAPER's windows (is a modal open?) and press keys in them
 # DOWNLOAD (image build only):
 #   ca-certificates curl xz-utils
 RUN apt-get update && apt-get install -y --no-install-recommends \
         xvfb xauth libgtk-3-0 libasound2 \
-        python3 procps gdb \
+        python3 procps gdb imagemagick xdotool \
         ca-certificates curl xz-utils \
     && rm -rf /var/lib/apt/lists/*
 

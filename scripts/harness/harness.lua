@@ -29,6 +29,89 @@ function harness.item(track, pos, len)
   return it
 end
 
+-- Write a 16-bit PCM WAV of a sine at `freq` Hz (default 48 kHz stereo), so
+-- items have real audio: peaks, meters and the tuner then see a signal.
+function harness.wav(path, seconds, freq, channels, rate)
+  channels, rate = channels or 2, rate or 48000
+  local frames = math.floor(seconds * rate)
+  local parts = {}
+  local step = 2 * math.pi * freq / rate
+  for i = 0, frames - 1 do
+    local v = math.floor(math.sin(i * step) * 16000)
+    parts[#parts + 1] = string.rep(string.pack("<i2", v), channels)
+  end
+  local data = table.concat(parts)
+  local f = io.open(path, "wb")
+  f:write("RIFF", string.pack("<I4", 36 + #data), "WAVEfmt ",
+    string.pack("<I4I2I2I4I4I2I2", 16, 1, channels, rate, rate * channels * 2, channels * 2, 16),
+    "data", string.pack("<I4", #data), data)
+  f:close()
+  return path
+end
+
+-- Add an item on `track` at `pos` playing the audio file at `path`.
+-- Extra takes: harness.add_take(item, path).
+function harness.audio_item(track, pos, path, len)
+  local it = reaper.AddMediaItemToTrack(track)
+  local take = reaper.AddTakeToMediaItem(it)
+  local src = reaper.PCM_Source_CreateFromFile(path)
+  reaper.SetMediaItemTake_Source(take, src)
+  local srclen = reaper.GetMediaSourceLength(src)
+  reaper.SetMediaItemInfo_Value(it, "D_POSITION", pos)
+  reaper.SetMediaItemInfo_Value(it, "D_LENGTH", len or srclen)
+  return it, take
+end
+
+function harness.add_take(item, path, name)
+  local take = reaper.AddTakeToMediaItem(item)
+  reaper.SetMediaItemTake_Source(take, reaper.PCM_Source_CreateFromFile(path))
+  if name then reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", name, true) end
+  return take
+end
+
+-- A MIDI item with `notes` = {{start_qn, len_qn, pitch, vel}, ...} (quarter notes from item start).
+function harness.midi_item(track, pos, len, notes)
+  local it = reaper.CreateNewMIDIItemInProj(track, pos, pos + len, false)
+  local take = reaper.GetActiveTake(it)
+  local qn0 = reaper.TimeMap2_timeToQN(0, pos)
+  for _, n in ipairs(notes or {}) do
+    local s = reaper.MIDI_GetPPQPosFromProjQN(take, qn0 + n[1])
+    local e = reaper.MIDI_GetPPQPosFromProjQN(take, qn0 + n[1] + n[2])
+    reaper.MIDI_InsertNote(take, false, false, s, e, 0, n[3], n[4] or 100, true)
+  end
+  reaper.MIDI_Sort(take)
+  return it, take
+end
+
+-- Append raw RPP text inside a track's chunk, just before its closing ">"
+-- (for content the API cannot create, e.g. a plugin that is not installed).
+function harness.track_chunk_append(track, text)
+  local ok, chunk = reaper.GetTrackStateChunk(track, "", false)
+  assert(ok, "GetTrackStateChunk failed")
+  chunk = chunk:gsub(">%s*$", text .. "\n>\n")
+  assert(reaper.SetTrackStateChunk(track, chunk, false), "SetTrackStateChunk failed")
+end
+
+-- Save the project to `path`, then patch top-level RPP lines REAPER's API
+-- cannot set (e.g. PROJOFFS for the start measure, TIMELOCKMODE, SAMPLERATE).
+-- The test opens it with reamo_client.open_project(), which goes through
+-- REAPER's project-load path (and its dialogs) while clients are connected.
+function harness.save_project(path, patches)
+  reaper.Main_SaveProjectEx(0, path, 0)
+  local f = io.open(path, "r")
+  local text = f:read("a")
+  f:close()
+  for key, value in pairs(patches or {}) do
+    local n
+    text, n = text:gsub("\n  " .. key .. " [^\n]*", "\n  " .. key .. " " .. value, 1)
+    if n == 0 then text = text:gsub("\n", "\n  " .. key .. " " .. value .. "\n", 1) end
+  end
+  f = io.open(path, "w")
+  f:write(text)
+  f:close()
+  harness.log("saved %s: tracks=%d items=%d", path, reaper.CountTracks(0), reaper.CountMediaItems(0))
+end
+
 -- Record a ground-truth value computed by REAPER itself, for test.py to
 -- compare against (reamo_client.oracle()). Values are strings or numbers.
 function harness.oracle(key, value)
