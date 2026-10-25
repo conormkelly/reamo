@@ -21,12 +21,13 @@ f:close()
 
 -- One track cut into 120 quarter-second slices, as a chopped drum loop is.
 local t = harness.track("Drums")
-local src = reaper.PCM_Source_CreateFromFile(path)
-harness.build_peaks(src)
+-- A take owns its source, so each slice gets its own.
 for i = 0, 119 do
   local it = reaper.AddMediaItemToTrack(t)
   local take = reaper.AddTakeToMediaItem(it)
+  local src = reaper.PCM_Source_CreateFromFile(path)
   reaper.SetMediaItemTake_Source(take, src)
+  harness.build_peaks(src)
   reaper.SetMediaItemTakeInfo_Value(take, "D_STARTOFFS", i * 0.25)
   reaper.SetMediaItemInfo_Value(it, "D_POSITION", i * 0.25)
   reaper.SetMediaItemInfo_Value(it, "D_LENGTH", 0.25)

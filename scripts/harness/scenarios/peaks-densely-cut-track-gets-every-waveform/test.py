@@ -23,7 +23,7 @@ with Client(timeout=10) as c:
     r = c.command("peaks/subscribe", range={"start": 1, "end": 1},
                   viewport={"start": 0, "end": 30, "widthPx": 1200})
     assert r["success"], r
-    deadline = time.time() + 5
+    deadline = time.time() + 20
     while not c.binary and time.time() < deadline:
         c.drain(0.2)
     assert c.binary, "no peaks frame"
