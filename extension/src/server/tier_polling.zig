@@ -563,13 +563,23 @@ pub fn pollLowTier(
 
 /// Immediate tempo poll when CSurf dirty flag is set.
 fn pollTempoImmediate(ctx: *const TierContext) !void {
+    pollTempoMap(ctx);
+}
+
+/// Poll the tempo map and broadcast it if it changed. The markers go in the
+/// frame's scratch arena; the low tier keeps only their summary.
+fn pollTempoMap(ctx: *const TierContext) void {
     const low_state = ctx.tiered.low.currentState();
     const low_prev = ctx.tiered.low.previousState();
+    const scratch = ctx.scratchAllocator();
 
-    low_state.tempomap = tempomap.State.poll(ctx.backend);
-    if (low_state.tempomap.changed(&low_prev.tempomap)) {
-        const scratch = ctx.scratchAllocator();
-        if (low_state.tempomap.toJsonAlloc(scratch)) |json| {
+    const tempo = tempomap.State.poll(scratch, ctx.backend) catch |err| {
+        logging.err("Tempo map poll failed: {s}", .{@errorName(err)});
+        return;
+    };
+    low_state.tempomap = tempo.summary();
+    if (tempo.changed(low_prev.tempomap)) {
+        if (tempo.toJsonAlloc(scratch)) |json| {
             ctx.shared_state.broadcast(json);
         } else |_| {}
     }
@@ -581,20 +591,12 @@ fn pollLowTierRegular(
     mutable: *MutableState,
     notes_buf: *[256]u8,
 ) !void {
-    const low_state = ctx.tiered.low.currentState();
-    const low_prev = ctx.tiered.low.previousState();
     const low_alloc = ctx.tiered.low.currentAllocator();
 
     // ========================================================================
     // Tempomap
     // ========================================================================
-    low_state.tempomap = tempomap.State.poll(ctx.backend);
-    if (low_state.tempomap.changed(&low_prev.tempomap)) {
-        const scratch = ctx.scratchAllocator();
-        if (low_state.tempomap.toJsonAlloc(scratch)) |json| {
-            ctx.shared_state.broadcast(json);
-        } else |_| {}
-    }
+    pollTempoMap(ctx);
 
     // ========================================================================
     // Track skeleton

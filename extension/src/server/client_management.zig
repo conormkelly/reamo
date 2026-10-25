@@ -61,7 +61,6 @@ const Buffers = struct {
     var snap_transport: transport.State = .{};
     var snap_project: project.State = .{};
     var snap_markers: markers.State = .{};
-    var snap_tempomap: tempomap.State = .{};
 
     // Static backing buffers for snapshot pollInto (slice-based states)
     var snap_markers_buf: [markers.MAX_MARKERS]markers.Marker = undefined;
@@ -238,10 +237,10 @@ pub fn sendSnapshotsToNewClients(ctx: *const SnapshotContext) void {
     Buffers.snap_transport = transport.State.poll(ctx.backend);
     Buffers.snap_project = project.State.poll(ctx.backend);
     Buffers.snap_markers.pollInto(&Buffers.snap_markers_buf, &Buffers.snap_regions_buf, ctx.backend);
-    Buffers.snap_tempomap = tempomap.State.poll(ctx.backend);
 
-    // Poll track skeleton and items using scratch allocator
+    // Poll the tempo map, track skeleton and items using scratch allocator
     const scratch = ctx.scratchAllocator();
+    const snap_tempomap = tempomap.State.poll(scratch, ctx.backend) catch null;
     const snap_skeleton = track_skeleton.State.poll(scratch, ctx.backend) catch null;
     const snap_items = items.State.poll(scratch, ctx.backend) catch null;
 
@@ -257,7 +256,7 @@ pub fn sendSnapshotsToNewClients(ctx: *const SnapshotContext) void {
 
     // Send snapshot to each new client
     for (Buffers.snapshot_clients[0..snapshot_count]) |client_id| {
-        sendSnapshotToClient(ctx, client_id, snap_skeleton, snap_items, scratch);
+        sendSnapshotToClient(ctx, client_id, snap_skeleton, snap_items, snap_tempomap, scratch);
     }
 }
 
@@ -267,6 +266,7 @@ fn sendSnapshotToClient(
     client_id: usize,
     snap_skeleton: ?track_skeleton.State,
     snap_items: ?items.State,
+    snap_tempomap: ?tempomap.State,
     scratch: std.mem.Allocator,
 ) void {
     // Transport
@@ -304,9 +304,11 @@ fn sendSnapshotToClient(
     }
 
     // Tempo map
-    if (Buffers.snap_tempomap.toJsonAlloc(scratch)) |json| {
-        ctx.shared_state.sendToClient(client_id, json);
-    } else |_| {}
+    if (snap_tempomap) |tempo| {
+        if (tempo.toJsonAlloc(scratch)) |json| {
+            ctx.shared_state.sendToClient(client_id, json);
+        } else |_| {}
+    }
 
     // Playlist (cue list) - uses last_markers_regions for region resolution
     if (ctx.playlist_state.toJsonAlloc(scratch, ctx.last_markers_regions)) |json| {

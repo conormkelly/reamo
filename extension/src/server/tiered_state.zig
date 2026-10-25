@@ -11,6 +11,7 @@ const markers = @import("../state/markers.zig");
 const items = @import("../state/items.zig");
 const track_skeleton = @import("../state/track_skeleton.zig");
 const tempomap = @import("../state/tempomap.zig");
+const reaper = @import("../reaper.zig");
 const fx = @import("../state/fx.zig");
 const sends = @import("../state/sends.zig");
 
@@ -59,7 +60,9 @@ pub const MediumTierState = struct {
 /// LOW TIER: Rarely-changing state (1Hz)
 /// Tempo map, project notes
 pub const LowTierState = struct {
-    tempomap: tempomap.State = .{},
+    /// The markers are polled into the frame's scratch arena; only what
+    /// change detection needs is kept between polls.
+    tempomap: tempomap.Summary = .{},
 
     pub fn empty() LowTierState {
         return .{};
@@ -125,7 +128,9 @@ pub const EntitySizes = struct {
     pub const REGION: usize = 228; // Region struct
     pub const FX_SLOT: usize = 281; // FxSlot struct
     pub const SEND_SLOT: usize = 157; // SendSlot struct
-    pub const TEMPO_EVENT: usize = 32; // TempoEvent struct
+    pub const TEMPO_EVENT: usize = @sizeOf(reaper.TempoMarker);
+    /// One marker in the tempoMap event (its toJsonAlloc estimate).
+    pub const TEMPO_EVENT_JSON: usize = 128;
 };
 
 /// Default arena sizes (fallback when no API available, e.g. tests)
@@ -139,7 +144,7 @@ pub const ArenaSizes = struct {
     /// With 4x headroom: 4MB per buffer
     pub const MEDIUM: usize = 4 * 1024 * 1024;
 
-    /// LOW tier: tempomap (512 * ~32B) ≈ 16KB
+    /// LOW tier: track skeleton and tempo map summary
     /// With 4x headroom: 64KB per buffer
     pub const LOW: usize = 64 * 1024;
 
@@ -262,19 +267,21 @@ pub const CalculatedSizes = struct {
             (counts.sends_total * EntitySizes.SEND_SLOT) +
             4096; // Project state overhead
 
-        // LOW: tempo map + the track skeleton, which pollLowTier allocates here
-        const low_raw = (counts.tempo_events * EntitySizes.TEMPO_EVENT) +
-            (counts.tracks * @sizeOf(track_skeleton.SkeletonTrack)) +
+        // LOW: the track skeleton, which pollLowTier allocates here
+        const low_raw = (counts.tracks * @sizeOf(track_skeleton.SkeletonTrack)) +
             1024; // Overhead
 
         // SCRATCH: JSON serialization (scales with largest payload)
         // Now handles all toJson calls including tracks, items, skeleton, metering, toggles
         // The medium tier serializes items, markers, regions and FX in one frame;
         // per-entity sizes match the initial estimates in their *ToJsonAlloc.
+        // The tempo map is polled into scratch and serialized there in the
+        // same frame as either (a new client's snapshot sends it with the rest).
         const scratch_raw = @max(
             counts.tracks * 600, // ~600 bytes per track JSON (with GUID)
             counts.items * 512 + counts.markers * 224 + counts.regions * 320 + counts.fx_total * 320,
-        ) + 128 * 1024; // Increased base for skeleton (~200B/track), metering, toggles, errors
+        ) + counts.tempo_events * (EntitySizes.TEMPO_EVENT + EntitySizes.TEMPO_EVENT_JSON) +
+            128 * 1024; // Increased base for skeleton (~200B/track), metering, toggles, errors
 
         // Apply headroom multiplier
         var high = high_raw * MemoryBounds.HEADROOM_MULTIPLIER;
