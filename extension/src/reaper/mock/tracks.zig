@@ -23,6 +23,20 @@ pub const TracksMethods = struct {
         return state.encodeTrackPtr(idx + 1);
     }
 
+    /// The mock holds one project, `project_pointer` (null: the current one);
+    /// any other project has no tracks.
+    pub fn trackCountIn(self: anytype, project: ?*anyopaque) c_int {
+        self.recordCall(.trackCountIn);
+        return if (project == null or project == self.project_pointer) self.track_count else 0;
+    }
+
+    pub fn getTrackIn(self: anytype, project: ?*anyopaque, idx: c_int) ?*anyopaque {
+        self.recordCall(.getTrackIn);
+        if (project != null and project != self.project_pointer) return null;
+        if (idx < 0 or idx >= self.track_count) return null;
+        return state.encodeTrackPtr(idx + 1);
+    }
+
     pub fn getTrackByUnifiedIdx(self: anytype, idx: c_int) ?*anyopaque {
         self.recordCall(.getTrackByUnifiedIdx);
         // 0 = master, 1+ = regular tracks

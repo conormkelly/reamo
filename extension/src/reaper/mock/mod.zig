@@ -332,6 +332,8 @@ pub const MockBackend = struct {
     // =========================================================================
     pub const trackCount = tracks.TracksMethods.trackCount;
     pub const getTrackByIdx = tracks.TracksMethods.getTrackByIdx;
+    pub const trackCountIn = tracks.TracksMethods.trackCountIn;
+    pub const getTrackIn = tracks.TracksMethods.getTrackIn;
     pub const getTrackByUnifiedIdx = tracks.TracksMethods.getTrackByUnifiedIdx;
     pub const masterTrack = tracks.TracksMethods.masterTrack;
     pub const getTrackNameStr = tracks.TracksMethods.getTrackNameStr;

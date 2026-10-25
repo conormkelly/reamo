@@ -93,6 +93,8 @@ pub const Method = enum {
     markDirty,
     getFrameRate,
     enumCurrentProject,
+    trackCountIn,
+    getTrackIn,
     getProjectName,
     getCommandState,
     getCommandStateEx,
