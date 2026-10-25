@@ -23,8 +23,23 @@ afterwards**: a segfault is a failure even if the client saw no error.
   hello token the client reads, as the browser does
 - A REAPER licence file, see below
 
-The first run builds the `reamo-v1-harness` image (~30 s: Debian, pinned
-REAPER 7.83, xvfb/GTK/ALSA, python3, gdb).
+The first run builds the `reamo-v1-harness:reaper-7.83` image (~30 s:
+Debian, REAPER 7.83, xvfb/GTK/ALSA, python3, gdb).
+
+## Running against another REAPER release
+
+`REAPER_VERSION` picks the release, numbered as reaper.fm numbers it.
+Each version gets its own image, built on first use from that release's
+portable Linux tarball, so a run always says exactly which REAPER it
+tested:
+
+```sh
+REAPER_VERSION=6.0 make harness                    # the oldest REAPER we support
+REAPER_VERSION=6.0 make harness SCENARIOS=smoke
+```
+
+Screenshots in `out/` are per scenario, not per version: a later run of the
+same scenario on another version replaces them.
 
 ## REAPER licence (local only, never committed)
 

@@ -6,7 +6,10 @@
 # web UI and scenarios are bind-mounted at `docker run` time by run.sh, so
 # editing extension code never rebuilds this image.
 #
-#   docker build -t reamo-v1-harness scripts/harness
+#   docker build --build-arg REAPER_VERSION=7.83 -t reamo-v1-harness:reaper-7.83 scripts/harness
+#
+# run.sh builds one image per REAPER_VERSION, so scenarios can run against
+# any release reaper.fm still serves as a Linux tarball.
 #
 # BuildKit sets TARGETARCH for the host: arm64 natively on Apple Silicon,
 # amd64 on an x86 Linux host or CI runner.
@@ -35,8 +38,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # writable dir and puts a reaper.ini beside the binary, which makes REAPER
 # portable: the binary's dir becomes its resource dir.
 ARG TARGETARCH
-ARG REAPER_VERSION=7.83
+ARG REAPER_VERSION
 RUN set -eux; \
+    test -n "$REAPER_VERSION"; \
     case "$TARGETARCH" in \
         arm64) rarch=aarch64 ;; \
         amd64) rarch=x86_64 ;; \

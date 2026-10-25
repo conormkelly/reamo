@@ -176,9 +176,11 @@ test-ws:
 harness:
 	scripts/harness/run.sh $(SCENARIOS)
 
-# Rebuild the harness image (pinned REAPER); run.sh builds it on first use.
+# Rebuild the harness image for REAPER_VERSION (default 7.83); run.sh
+# builds it on first use.
+REAPER_VERSION ?= 7.83
 harness-image:
-	docker build -t reamo-v1-harness scripts/harness
+	docker build --build-arg REAPER_VERSION=$(REAPER_VERSION) -t reamo-v1-harness:reaper-$(REAPER_VERSION) scripts/harness
 
 # Run extension unit tests (zig)
 test-extension:
