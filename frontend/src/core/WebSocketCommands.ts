@@ -295,22 +295,11 @@ export const input = {
 // =============================================================================
 
 export const item = {
-  setActiveTake: (
-    trackIdx: number,
-    itemIdx: number,
-    takeIdx: number
-  ): WSCommand => ({
+  /** Items are named by GUID: REAPER keeps a track's items sorted by
+   * position, so an item's index changes when another item moves past it. */
+  setActiveTake: (itemGuid: string, takeIdx: number): WSCommand => ({
     command: 'item/setActiveTake',
-    params: { trackIdx, itemIdx, takeIdx },
-  }),
-  /** Set active take by GUIDs (stable across track reordering) */
-  setActiveTakeByGuid: (
-    trackGuid: string,
-    itemGuid: string,
-    takeIdx: number
-  ): WSCommand => ({
-    command: 'item/setActiveTakeByGuid',
-    params: { trackGuid, itemGuid, takeIdx },
+    params: { itemGuid, takeIdx },
   }),
   move: (trackIdx: number, itemIdx: number, position: number): WSCommand => ({
     command: 'item/move',
@@ -329,37 +318,29 @@ export const item = {
       ...(destTrackGuid !== undefined && { destTrackGuid }),
     },
   }),
-  setColor: (trackIdx: number, itemIdx: number, color: number): WSCommand => ({
+  setColor: (itemGuid: string, color: number): WSCommand => ({
     command: 'item/setColor',
-    params: { trackIdx, itemIdx, color },
+    params: { itemGuid, color },
   }),
-  setLock: (
-    trackIdx: number,
-    itemIdx: number,
-    locked?: number
-  ): WSCommand => ({
+  setLock: (itemGuid: string, locked?: number): WSCommand => ({
     command: 'item/setLock',
-    params: { trackIdx, itemIdx, locked },
+    params: { itemGuid, locked },
   }),
-  setNotes: (
-    trackIdx: number,
-    itemIdx: number,
-    notes: string
-  ): WSCommand => ({
+  setNotes: (itemGuid: string, notes: string): WSCommand => ({
     command: 'item/setNotes',
-    params: { trackIdx, itemIdx, notes },
+    params: { itemGuid, notes },
   }),
-  delete: (trackIdx: number, itemIdx: number): WSCommand => ({
+  delete: (itemGuid: string): WSCommand => ({
     command: 'item/delete',
-    params: { trackIdx, itemIdx },
+    params: { itemGuid },
   }),
-  goto: (trackIdx: number, itemIdx: number): WSCommand => ({
+  goto: (itemGuid: string): WSCommand => ({
     command: 'item/goto',
-    params: { trackIdx, itemIdx },
+    params: { itemGuid },
   }),
-  select: (trackIdx: number, itemIdx: number): WSCommand => ({
+  select: (itemGuid: string): WSCommand => ({
     command: 'item/select',
-    params: { trackIdx, itemIdx },
+    params: { itemGuid },
   }),
   selectInTimeSel: (): WSCommand => ({ command: 'item/selectInTimeSel' }),
   unselectAll: (): WSCommand => ({ command: 'item/unselectAll' }),
@@ -387,14 +368,14 @@ export const item = {
     params: { trackIdx, itemIdx, ...(wrap !== undefined && { wrap: wrap ? 1 : 0 }) },
   }),
   /** Get notes content for an item (on-demand) */
-  getNotes: (trackIdx: number, itemIdx: number): WSCommand => ({
+  getNotes: (itemGuid: string): WSCommand => ({
     command: 'item/getNotes',
-    params: { trackIdx, itemIdx },
+    params: { itemGuid },
   }),
   /** Get full take list for an item (on-demand) */
-  getTakes: (trackIdx: number, itemIdx: number): WSCommand => ({
+  getTakes: (itemGuid: string): WSCommand => ({
     command: 'item/getTakes',
-    params: { trackIdx, itemIdx },
+    params: { itemGuid },
   }),
 };
 
