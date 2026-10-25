@@ -5,7 +5,7 @@
     .minimum_zig_version = "0.15.0",
     .dependencies = .{
         .ztracy = .{
-            .url = "https://github.com/zig-gamedev/ztracy/archive/refs/heads/master.tar.gz",
+            .url = "https://github.com/zig-gamedev/ztracy/archive/d95d2a193b9f97944a17026c9a42b5d0f9a88c94.tar.gz",
             .hash = "ztracy-0.14.0-dev-zHJSqzUHGQAmhJybhlwtl1QKevUBw4M5YKZqPfWx2y99",
         },
         .httpz = .{
