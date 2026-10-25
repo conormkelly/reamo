@@ -445,9 +445,9 @@ pub fn handleDuplicate(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     }
 
-    // Find the unified index of the new track
-    // The duplicate is inserted immediately after the source, so it's at track_idx + 1
-    const new_unified_idx = resolution.idx + 1;
+    // REAPER places the copy after the source's whole folder, not always at
+    // source + 1, and leaves it selected.
+    const new_unified_idx = api.getTrackIdx(new_track.?);
 
     // Return the new track index
     var resp_buf: [64]u8 = undefined;
