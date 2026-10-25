@@ -85,22 +85,40 @@ pub const ResponseWriter = struct {
     gestures: ?*GestureState,
     playlist: ?*PlaylistState = null,
 
+    /// Payload responses larger than this are refused rather than sent: one
+    /// frame must fit the socket send buffer (see WsHandler.init).
+    const MAX_RESPONSE_PAYLOAD = 2 * 1024 * 1024;
+
     pub fn success(self: *ResponseWriter, payload: ?[]const u8) void {
         if (self.cmd_id == null) return; // No response expected if no id provided
 
+        // Most responses fit on the stack; larger ones get an exact-size heap
+        // buffer instead of being dropped (the client would wait forever).
         var buf: [512]u8 = undefined;
-        const json = if (payload) |p|
-            std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"payload\":{s}}}", .{ self.cmd_id.?, p }) catch {
-                logging.warn("ResponseWriter.success: buffer overflow for cmd_id={s}, payload_len={d}", .{ self.cmd_id.?, p.len });
+        if (payload) |p| {
+            const fmt = "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"payload\":{s}}}";
+            const args = .{ self.cmd_id.?, p };
+            if (std.fmt.bufPrint(&buf, fmt, args)) |json| {
+                self.shared_state.sendToClient(self.client_id, json);
+                return;
+            } else |_| {}
+            if (p.len > MAX_RESPONSE_PAYLOAD) {
+                self.err("RESPONSE_TOO_LARGE", "Response payload exceeds maximum size");
                 return;
             }
-        else
-            std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true}}", .{self.cmd_id.?}) catch {
-                logging.warn("ResponseWriter.success: buffer overflow for cmd_id={s}", .{self.cmd_id.?});
+            const json = std.fmt.allocPrint(std.heap.c_allocator, fmt, args) catch {
+                self.err("ALLOC_FAILED", "Failed to allocate response buffer");
                 return;
             };
-
-        self.shared_state.sendToClient(self.client_id, json);
+            defer std.heap.c_allocator.free(json);
+            self.shared_state.sendToClient(self.client_id, json);
+        } else {
+            const json = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true}}", .{self.cmd_id.?}) catch {
+                logging.warn("ResponseWriter.success: id too long for cmd_id={s}", .{self.cmd_id.?});
+                return;
+            };
+            self.shared_state.sendToClient(self.client_id, json);
+        }
     }
 
     /// Success response with an action string (for undo/redo commands)
@@ -146,30 +164,11 @@ pub const ResponseWriter = struct {
         self.shared_state.sendToClient(self.client_id, json);
     }
 
-    /// Success response for commands with large payloads (e.g., project notes).
-    /// Heap-allocates a 512KB buffer per call to avoid stack overflow and shared state issues.
-    /// Safe for timer callbacks since they run on main thread (not audio thread).
-    /// See DEVELOPMENT.md "Response Buffer Sizes" and research/ZIG_MEMORY_MANAGEMENT.md.
+    /// Success response for commands whose payload is routinely large (action
+    /// lists, FX/plugin lists, project notes). Same as `success`, which sizes
+    /// its buffer to the payload.
     pub fn successLargePayload(self: *ResponseWriter, payload: []const u8) void {
-        if (self.cmd_id == null) return;
-
-        // Heap allocation per call - safe on main thread, avoids shared state between commands
-        // c_allocator is safe for timer callbacks (see ZIG_MEMORY_MANAGEMENT.md)
-        // 2MB handles action list plus JSON wrapper overhead
-        const allocator = std.heap.c_allocator;
-        const buf = allocator.alloc(u8, 2 * 1024 * 1024) catch {
-            self.err("ALLOC_FAILED", "Failed to allocate response buffer");
-            return;
-        };
-        defer allocator.free(buf);
-
-        const json = std.fmt.bufPrint(buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"payload\":{s}}}", .{ self.cmd_id.?, payload }) catch {
-            // Payload too large even for this buffer - send error instead
-            self.err("RESPONSE_TOO_LARGE", "Response payload exceeds maximum size");
-            return;
-        };
-
-        self.shared_state.sendToClient(self.client_id, json);
+        self.success(payload);
     }
 
     pub fn err(self: *ResponseWriter, code: []const u8, message: []const u8) void {
