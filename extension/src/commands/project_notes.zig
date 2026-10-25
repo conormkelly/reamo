@@ -14,7 +14,7 @@ pub fn handleSubscribe(api: anytype, _: protocol.CommandMessage, response: *mod.
     };
 
     // Subscribe client
-    subs.subscribe(response.client_id) catch {
+    subs.subscribe(api, response.client_id) catch {
         response.err("SUBSCRIBE_FAILED", "Failed to subscribe to notes");
         return;
     };
@@ -104,11 +104,6 @@ pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     };
     if (api.getProjectNotes(verify_buf)) |saved_notes| {
         const new_hash = project_notes.computeHash(saved_notes);
-
-        // Update subscription cache if available
-        if (mod.g_ctx.notes_subs) |subs| {
-            _ = subs.getCurrentNotes(api);
-        }
 
         sendNotesResponse(response, saved_notes, new_hash);
     } else {
