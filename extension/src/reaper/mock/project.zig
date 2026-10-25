@@ -366,9 +366,9 @@ pub const ProjectMethods = struct {
     // Named command lookup
     // =========================================================================
 
-    pub fn namedCommandLookup(self: anytype, name: [*:0]const u8) c_int {
+    pub fn namedCommandLookup(self: anytype, name: []const u8) c_int {
         self.recordCall(.namedCommandLookup);
-        const name_slice = std.mem.sliceTo(name, 0);
+        const name_slice = name;
         // Simple mock: return hash of name as command ID
         var hash: c_int = 0;
         for (name_slice) |c| {

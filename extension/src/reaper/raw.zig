@@ -843,10 +843,12 @@ pub const Api = struct {
     // Returns 0 if command not found
     pub fn namedCommandLookup(self: *const Api, name: []const u8) c_int {
         const f = self.namedCommandLookup_fn orelse return 0;
-        // Need null-terminated string
+        // Need null-terminated string. A name too long for the buffer names
+        // no action; looking up a shortened copy could find a different one.
         var buf: [256]u8 = undefined;
-        const len = utf8.copyPrefix(buf[0 .. buf.len - 1], name);
-        buf[len] = 0;
+        if (name.len >= buf.len) return 0;
+        @memcpy(buf[0..name.len], name);
+        buf[name.len] = 0;
         return f(@ptrCast(&buf));
     }
 
