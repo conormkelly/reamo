@@ -588,6 +588,8 @@ Items are identified by track index + item index within that track, or by item G
 
 `trackIdx` in every item command is the unified track index (0 = master, 1+ = user tracks), the same index the [`items` event](#items-event) reports. The master track holds no items, so item commands address tracks 1+. `itemIdx` is the 0-based index of the item on its track.
 
+`item/setActiveTake`, `item/move`, `item/setColor`, `item/setLock`, `item/setNotes`, `item/delete`, `item/goto`, `item/select`, `item/getNotes` and `item/getTakes` also take `itemGuid` in place of `trackIdx` and `itemIdx`. REAPER keeps each track's items sorted by position, so an item's index changes when an item moves past it; its GUID doesn't. Given `itemGuid`, the command acts on that item or answers `NOT_FOUND` if it's gone, and ignores any `trackIdx`/`itemIdx`.
+
 ### `item/setActiveTake`
 
 Set the active take for an item.
