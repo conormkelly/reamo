@@ -23,8 +23,10 @@ pub const MAX_TRACK_TUNERS = 32; // Max concurrent tuner tracks
 /// Input FX index offset - all TrackFX_* calls for Input FX chain need this added to the index
 pub const INPUT_FX_OFFSET: c_int = 0x1000000;
 
-/// JSFX identifier for the tuner plugin
-pub const TUNER_JSFX_NAME = "JS:REAmo/PitchDetect";
+/// The tuner JSFX by its file name as installed, extension included: REAPER
+/// 6 finds a JSFX only by its exact file name (REAPER 7 also without the
+/// extension).
+pub const TUNER_JSFX_NAME = "JS:REAmo/PitchDetect.jsfx";
 
 /// Tuner parameter indices - CONTIGUOUS mapping from JSFX sliders
 /// JSFX sliders with gaps (1-5, 10-11) map to contiguous param indices (0-6)
