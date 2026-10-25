@@ -39,6 +39,7 @@ const csurf_dirty = @import("server/csurf_dirty.zig");
 const host_validation = @import("server/host_validation.zig");
 const network_action = @import("platform/network_action.zig");
 const menu = @import("platform/menu.zig");
+const install_leftovers = @import("platform/install_leftovers.zig");
 const swell = @import("platform/swell.zig");
 const fast_timer = @import("platform/fast_timer.zig");
 const compat = @import("platform/compat.zig");
@@ -1158,6 +1159,7 @@ export fn ReaperPluginEntry(hInstance: ?*anyopaque, rec: ?*reaper.PluginInfo) ca
         .reaper_version = g_api.?.appVersion(),
     });
     logging.info("REAmo v{s} starting", .{protocol.EXTENSION_VERSION});
+    if (g_api.?.resourcePath()) |res| _ = install_leftovers.remove(res);
 
     // Save plugin_register for CSurf integration
     g_plugin_register = info.Register;
@@ -1196,6 +1198,7 @@ export fn ReaperPluginEntry(hInstance: ?*anyopaque, rec: ?*reaper.PluginInfo) ca
 // Re-export tests from modules
 test {
     _ = @import("core/errors.zig");
+    _ = @import("platform/install_leftovers.zig");
     _ = @import("core/ffi.zig");
     _ = @import("core/logging.zig");
     _ = @import("core/protocol.zig");
