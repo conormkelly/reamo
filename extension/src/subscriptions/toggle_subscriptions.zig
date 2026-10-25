@@ -3,6 +3,7 @@ const reaper = @import("../reaper.zig");
 const ws_server = @import("../server/ws_server.zig");
 const logging = @import("../core/logging.zig");
 const constants = @import("../core/constants.zig");
+const protocol = @import("../core/protocol.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -332,25 +333,15 @@ pub const ToggleSubscriptions = struct {
         return stream.getWritten();
     }
 
-    /// Allocator-based version of changesToJson - dynamically sized.
-    /// Returns owned slice from allocator.
+    /// changesToJson into a buffer grown until the event fits.
     pub fn changesToJsonAlloc(changes: *const std.AutoHashMap(u64, i8), allocator: std.mem.Allocator) ![]const u8 {
         if (changes.count() == 0) return error.NoChanges;
-        // Estimate: ~30 bytes per entry ({"s":0,"c":40001,"v":1}) + 80 base overhead
-        const estimated_size = 80 + (changes.count() * 30);
-        const buf = try allocator.alloc(u8, estimated_size);
-        const json = changesToJson(changes, buf) orelse return error.JsonSerializationFailed;
-        return json; // Return slice of allocated buffer (arena-owned)
+        return protocol.serializeAlloc(allocator, 80 + changes.count() * 30, changes, changesToJson);
     }
 
-    /// Allocator-based version of statesToJson - dynamically sized.
-    /// Returns owned slice from allocator.
+    /// statesToJson into a buffer grown until the event fits.
     pub fn statesToJsonAlloc(states: *const std.AutoHashMap(u64, i8), allocator: std.mem.Allocator) ![]const u8 {
-        // Estimate: ~30 bytes per entry + 10 base overhead
-        const estimated_size = 10 + (states.count() * 30);
-        const buf = try allocator.alloc(u8, estimated_size);
-        const json = statesToJson(states, buf) orelse return error.JsonSerializationFailed;
-        return json; // Return slice of allocated buffer (arena-owned)
+        return protocol.serializeAlloc(allocator, 10 + states.count() * 30, states, statesToJson);
     }
 };
 

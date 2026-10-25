@@ -690,20 +690,17 @@ pub const State = struct {
 
     // Allocator-based version - returns owned slice from allocator
     // Allocates buffer from arena (sized for max playlists/entries) instead of stack
+    /// toJson into a buffer grown until the event fits.
     pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator, regions: ?[]const markers.Region) ![]const u8 {
-        // Calculate reasonable buffer size based on actual content
-        // Per entry: ~60 bytes ({"regionId":123,"loopCount":4,"deleted":true})
-        // Per playlist: ~200 bytes header + 60 * entries
-        // Engine state: ~200 bytes
-        const estimated_size = 512 + // Base overhead + engine state
-            self.playlist_count * (256 + 64 * 60);
-        const buf_size = @max(estimated_size, 4096); // Minimum 4KB
-
-        const buf = allocator.alloc(u8, buf_size) catch return error.OutOfMemory;
-        const json = self.toJson(buf, regions) orelse return error.JsonSerializationFailed;
-        // Return the slice - no need to dupe since it's already from the allocator
-        // (though the rest of buf is wasted, arena will reclaim it on swap)
-        return json;
+        const Ctx = struct {
+            state: *const State,
+            regions: ?[]const markers.Region,
+            fn toJson(ctx: @This(), buf: []u8) ?[]const u8 {
+                return ctx.state.toJson(buf, ctx.regions);
+            }
+        };
+        const estimated_size = 512 + self.playlist_count * (256 + 64 * 60);
+        return protocol.serializeAlloc(allocator, estimated_size, Ctx{ .state = self, .regions = regions }, Ctx.toJson);
     }
 
     // =========================================================================
