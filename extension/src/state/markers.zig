@@ -31,10 +31,10 @@ pub const Marker = struct {
     /// bar label without moving its time.
     pub fn eql(self: *const Marker, other: *const Marker) bool {
         if (self.id != other.id) return false;
-        if (@abs(self.position - other.position) > 0.001) return false;
-        if (@abs(self.position_beats - other.position_beats) > 0.001) return false;
+        if (@abs(self.position - other.position) > constants.TIME_EPSILON) return false;
+        if (@abs(self.position_beats - other.position_beats) > constants.TIME_EPSILON) return false;
         if (self.position_bar != other.position_bar) return false;
-        if (@abs(self.position_beat_in_bar - other.position_beat_in_bar) > 0.001) return false;
+        if (@abs(self.position_beat_in_bar - other.position_beat_in_bar) > constants.TIME_EPSILON) return false;
         if (self.position_beats_per_bar != other.position_beats_per_bar) return false;
         if (self.color != other.color) return false;
         if (self.name_len != other.name_len) return false;
@@ -67,14 +67,14 @@ pub const Region = struct {
     /// beat-derived bar labels and length (see Marker.eql).
     pub fn eql(self: *const Region, other: *const Region) bool {
         if (self.id != other.id) return false;
-        if (@abs(self.start - other.start) > 0.001) return false;
-        if (@abs(self.end - other.end) > 0.001) return false;
-        if (@abs(self.start_beats - other.start_beats) > 0.001) return false;
-        if (@abs(self.end_beats - other.end_beats) > 0.001) return false;
+        if (@abs(self.start - other.start) > constants.TIME_EPSILON) return false;
+        if (@abs(self.end - other.end) > constants.TIME_EPSILON) return false;
+        if (@abs(self.start_beats - other.start_beats) > constants.TIME_EPSILON) return false;
+        if (@abs(self.end_beats - other.end_beats) > constants.TIME_EPSILON) return false;
         if (self.start_bar != other.start_bar) return false;
         if (self.end_bar != other.end_bar) return false;
-        if (@abs(self.start_beat_in_bar - other.start_beat_in_bar) > 0.001) return false;
-        if (@abs(self.end_beat_in_bar - other.end_beat_in_bar) > 0.001) return false;
+        if (@abs(self.start_beat_in_bar - other.start_beat_in_bar) > constants.TIME_EPSILON) return false;
+        if (@abs(self.end_beat_in_bar - other.end_beat_in_bar) > constants.TIME_EPSILON) return false;
         if (self.start_beats_per_bar != other.start_beats_per_bar) return false;
         if (self.end_beats_per_bar != other.end_beats_per_bar) return false;
         if (self.color != other.color) return false;

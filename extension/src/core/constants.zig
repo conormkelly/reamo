@@ -39,6 +39,10 @@ pub const MAX_TAKES_PER_ITEM: usize = 8;
 /// Maximum markers in project
 pub const MAX_MARKERS: usize = 256;
 
+/// Two times (or beat positions) closer than this are the same. Far below a
+/// sample (2.6e-6 s at 384 kHz), so any real move counts as a change.
+pub const TIME_EPSILON: f64 = 1e-9;
+
 /// Maximum regions in project
 pub const MAX_REGIONS: usize = 256;
 
