@@ -313,6 +313,19 @@ pub const TunerSubscriptions = struct {
         return result;
     }
 
+    /// The track a tuner is on: "master" (whose Input FX are REAPER's
+    /// monitoring chain) or a user track by GUID. null once it's deleted.
+    fn findTrack(api: anytype, track_guid: []const u8) ?*anyopaque {
+        if (std.mem.eql(u8, track_guid, "master")) return api.masterTrack();
+        var i: c_int = 0;
+        while (i < api.trackCount()) : (i += 1) {
+            const track = api.getTrackByIdx(i) orelse continue;
+            var guid_buf: [64]u8 = undefined;
+            if (std.mem.eql(u8, api.formatTrackGuid(track, &guid_buf), track_guid)) return track;
+        }
+        return null;
+    }
+
     /// Internal unsubscribe (doesn't remove client from map)
     fn unsubscribeInternal(self: *TunerSubscriptions, client_id: usize, slot: usize, api: anytype) void {
         const client = &self.clients[slot];
@@ -332,42 +345,30 @@ pub const TunerSubscriptions = struct {
 
                 const stored_fx_guid = tuner.getFxGuid();
 
-                // Try to delete the JSFX if track still exists
-                // We iterate through tracks to find the one with matching GUID
-                const track_count = api.trackCount();
-                var i: c_int = 0;
-                track_loop: while (i < track_count) : (i += 1) {
-                    if (api.getTrackByIdx(i)) |track| {
-                        var guid_buf: [64]u8 = undefined;
-                        const this_guid = api.formatTrackGuid(track, &guid_buf);
-                        if (std.mem.eql(u8, this_guid, track_guid)) {
-                            // Found the track - search ALL Input FX by GUID
-                            // This handles when user has reordered the FX chain
-                            const input_fx_count = api.trackFxRecCount(track);
+                // Delete the JSFX if the track still exists (deleting a track
+                // takes its FX with it). Search all of its Input FX by GUID, in
+                // case the user has reordered the chain.
+                if (findTrack(api, track_guid)) |track| {
+                    const input_fx_count = api.trackFxRecCount(track);
+                    var found = false;
+                    var fx_idx: c_int = 0;
+                    while (fx_idx < input_fx_count) : (fx_idx += 1) {
+                        var fx_guid_buf: [64]u8 = undefined;
+                        const api_fx_idx = fx_idx + INPUT_FX_OFFSET;
+                        const current_fx_guid = api.trackFxGetGuid(track, api_fx_idx, &fx_guid_buf);
 
-                            var fx_idx: c_int = 0;
-                            while (fx_idx < input_fx_count) : (fx_idx += 1) {
-                                var fx_guid_buf: [64]u8 = undefined;
-                                const api_fx_idx = fx_idx + INPUT_FX_OFFSET;
-                                const current_fx_guid = api.trackFxGetGuid(track, api_fx_idx, &fx_guid_buf);
-
-                                if (current_fx_guid.len > 0 and std.mem.eql(u8, current_fx_guid, stored_fx_guid)) {
-                                    // Found our JSFX - delete it
-                                    _ = api.trackFxDelete(track, api_fx_idx);
-                                    logging.info("tuner: deleted JSFX from track {s} at Input FX position {d}", .{ track_guid, fx_idx });
-                                    break :track_loop;
-                                }
-                            }
-
-                            // If we get here, the FX was not found in the Input FX chain
-                            // User might have manually deleted it - just log and continue
-                            logging.warn("tuner: JSFX with GUID {s} not found in Input FX chain on track {s}", .{
-                                stored_fx_guid,
-                                track_guid,
-                            });
-                            break :track_loop;
+                        if (current_fx_guid.len > 0 and std.mem.eql(u8, current_fx_guid, stored_fx_guid)) {
+                            _ = api.trackFxDelete(track, api_fx_idx);
+                            logging.info("tuner: deleted JSFX from track {s} at Input FX position {d}", .{ track_guid, fx_idx });
+                            found = true;
+                            break;
                         }
                     }
+                    // The user may have deleted it by hand.
+                    if (!found) logging.warn("tuner: JSFX with GUID {s} not found in Input FX chain on track {s}", .{
+                        stored_fx_guid,
+                        track_guid,
+                    });
                 }
 
                 // Clean up our state
