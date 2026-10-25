@@ -584,7 +584,9 @@ pub fn buildEvent(buf: []u8, event_name: []const u8, payload_fn: fn (*JsonWriter
 /// no per-entity estimate is safe; a too-small fixed buffer silently dropped
 /// whole broadcasts for larger projects. Each failed attempt is freed before
 /// the next, which a frame arena (FixedBufferAllocator) reclaims, so retries
-/// don't consume scratch space. Logs if the allocator itself runs out.
+/// don't consume scratch space. Logs if the allocator itself runs out. The
+/// result is its own allocation, exactly the JSON's length, so any allocator
+/// can free it.
 pub fn serializeAlloc(
     allocator: std.mem.Allocator,
     initial_size: usize,
@@ -597,7 +599,15 @@ pub fn serializeAlloc(
             logging.warn("JSON serialization needs more than {d} bytes: {s}", .{ size, @errorName(err) });
             return err;
         };
-        if (toJson(ctx, buf)) |json| return json;
+        if (toJson(ctx, buf)) |json| {
+            if (allocator.resize(buf, json.len)) return buf[0..json.len];
+            const exact = allocator.dupe(u8, json) catch |err| {
+                allocator.free(buf);
+                return err;
+            };
+            allocator.free(buf);
+            return exact;
+        }
         allocator.free(buf);
         size = std.math.mul(usize, size, 2) catch return error.OutOfMemory;
     }
@@ -1126,8 +1136,12 @@ test "serializeAlloc grows past a too-small estimate and reclaims failed attempt
     const payload = Payload{ .len = 10_000 };
     const out = try serializeAlloc(fba.allocator(), 1, &payload, Payload.toJson);
     try std.testing.expectEqual(@as(usize, 10_000), out.len);
-    // 256 -> ... -> 16384: only the successful buffer remains allocated.
-    try std.testing.expectEqual(@as(usize, 16384), fba.end_index);
+    // 256 -> ... -> 16384, then shrunk to the JSON: nothing else stays allocated.
+    try std.testing.expectEqual(@as(usize, 10_000), fba.end_index);
+
+    // The result is an allocation of its own, freeable by a general allocator.
+    const owned = try serializeAlloc(std.testing.allocator, 1, &payload, Payload.toJson);
+    std.testing.allocator.free(owned);
 
     // An allocator that can't hold the payload is an error, not a silent drop.
     var small: [4096]u8 = undefined;

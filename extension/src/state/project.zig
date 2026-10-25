@@ -263,14 +263,34 @@ pub const State = struct {
     }
 
     // Allocator-based version - returns owned slice from allocator
+    /// Sized to fit: the undo/redo descriptions, project name and path have
+    /// no fixed total, and a dropped project event freezes every client's
+    /// undo, redo, repeat and metronome state.
     pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
-        var buf: [1024]u8 = undefined;
-        const json = self.toJson(&buf) orelse return error.JsonSerializationFailed;
-        return allocator.dupe(u8, json);
+        return protocol.serializeAlloc(allocator, 1024, self, toJson);
     }
 };
 
 // Tests
+test "toJsonAlloc keeps the event whatever the undo, redo and path lengths" {
+    // REAmo's own undo names ("REAmo: FX bypass toggle: Track 3 <name>: <fx>")
+    // plus a project in a deep folder pass 1 KB easily.
+    var state = State{};
+    @memset(state.undo_buf[0..255], 'u');
+    state.undo_len = 255;
+    @memset(state.redo_buf[0..255], 'r');
+    state.redo_len = 255;
+    @memset(state.project_path_buf[0..511], 'p');
+    state.project_path_len = 511;
+    @memset(state.project_name_buf[0..127], 'n');
+    state.project_name_len = 127;
+
+    const json = try state.toJsonAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(json);
+    try std.testing.expect(json.len > 1024);
+    try std.testing.expect(std.mem.endsWith(u8, json, "}}"));
+}
+
 test "State.eql compares all fields" {
     const a = State{ .state_change_count = 1 };
     const b = State{ .state_change_count = 1 };
