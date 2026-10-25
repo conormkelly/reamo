@@ -317,8 +317,6 @@ pub fn showAbout() void {
     );
 }
 
-/// Show dialog to change the server port.
-/// Persists new port in ExtState and restarts the server immediately.
 /// Why a port change failed, in words for the dialog.
 fn errorText(err: anyerror) []const u8 {
     return switch (err) {
@@ -328,6 +326,8 @@ fn errorText(err: anyerror) []const u8 {
     };
 }
 
+/// Show dialog to change the server port. The server moves, and the port
+/// is saved, only once the new port is listening.
 pub fn showChangePort() void {
     const get_input = g_get_user_inputs orelse {
         logging.err("Network action: GetUserInputs not available", .{});
