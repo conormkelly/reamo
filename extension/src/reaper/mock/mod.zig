@@ -843,3 +843,12 @@ test "MockBackend receive bounds checking" {
     _ = mock.trackReceiveSetVolume(track0, 0, 0.5);
     try std.testing.expect(!mock.trackReceiveSetMute(track0, 0, true));
 }
+
+test "MockBackend getTrackByIdx is 0-based over user tracks like REAPER's GetTrack" {
+    var m = MockBackend{ .track_count = 3 };
+    // Unified index 0 is master; GetTrack-style index 0 is the first user track.
+    try std.testing.expectEqual(m.getTrackByUnifiedIdx(1), m.getTrackByIdx(0));
+    try std.testing.expectEqual(m.getTrackByUnifiedIdx(3), m.getTrackByIdx(2));
+    try std.testing.expect(m.getTrackByIdx(0) != m.masterTrack());
+    try std.testing.expect(m.getTrackByIdx(3) == null);
+}

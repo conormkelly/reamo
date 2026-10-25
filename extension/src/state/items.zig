@@ -692,10 +692,9 @@ test "poll with MockBackend returns items from tracks" {
     var mock = MockBackend{
         .track_count = 1, // 1 user track
     };
-    // Set up track 0 (first user track) with one item
-    // Note: getTrackByIdx(0) returns track 0, not track 1
-    mock.tracks[0].item_count = 1;
-    mock.tracks[0].items[0] = .{
+    // Mock slot 1 is the first user track (unified index 1, GetTrack index 0)
+    mock.tracks[1].item_count = 1;
+    mock.tracks[1].items[0] = .{
         .position = 5.0,
         .length = 2.5,
         .color = 16711680,
@@ -704,7 +703,7 @@ test "poll with MockBackend returns items from tracks" {
         .active_take_idx = 0,
         .take_count = 2,
     };
-    mock.tracks[0].items[0].setNotes("Test note");
+    mock.tracks[1].items[0].setNotes("Test note");
 
     const state = State.pollStatic(&mock);
 
@@ -742,10 +741,10 @@ test "pollTimeRange filters items by time range" {
         .track_count = 1,
     };
     // Create 3 items at positions 0-10, 20-30, 50-60
-    mock.tracks[0].item_count = 3;
-    mock.tracks[0].items[0] = .{ .position = 0.0, .length = 10.0, .take_count = 1 };
-    mock.tracks[0].items[1] = .{ .position = 20.0, .length = 10.0, .take_count = 1 };
-    mock.tracks[0].items[2] = .{ .position = 50.0, .length = 10.0, .take_count = 1 };
+    mock.tracks[1].item_count = 3;
+    mock.tracks[1].items[0] = .{ .position = 0.0, .length = 10.0, .take_count = 1 };
+    mock.tracks[1].items[1] = .{ .position = 20.0, .length = 10.0, .take_count = 1 };
+    mock.tracks[1].items[2] = .{ .position = 50.0, .length = 10.0, .take_count = 1 };
 
     const allocator = std.testing.allocator;
 
@@ -761,8 +760,8 @@ test "pollTimeRange includes partially overlapping items" {
     var mock = MockBackend{
         .track_count = 1,
     };
-    mock.tracks[0].item_count = 1;
-    mock.tracks[0].items[0] = .{ .position = 5.0, .length = 10.0, .take_count = 1 }; // 5-15
+    mock.tracks[1].item_count = 1;
+    mock.tracks[1].items[0] = .{ .position = 5.0, .length = 10.0, .take_count = 1 }; // 5-15
 
     const allocator = std.testing.allocator;
 

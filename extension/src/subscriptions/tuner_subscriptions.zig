@@ -333,7 +333,7 @@ pub const TunerSubscriptions = struct {
                 // We iterate through tracks to find the one with matching GUID
                 const track_count = api.trackCount();
                 var i: c_int = 0;
-                track_loop: while (i <= track_count) : (i += 1) {
+                track_loop: while (i < track_count) : (i += 1) {
                     if (api.getTrackByIdx(i)) |track| {
                         var guid_buf: [64]u8 = undefined;
                         const this_guid = api.formatTrackGuid(track, &guid_buf);
