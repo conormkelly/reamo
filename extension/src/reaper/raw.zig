@@ -1800,16 +1800,20 @@ pub const Api = struct {
         // Get the source track from the receive
         const src_track = self.trackReceiveGetSrcTrack(dest_track, recv_idx) orelse return null;
 
-        // Count sends on source track
-        const send_count = self.trackSendCount(src_track);
+        // A source can send to this track more than once (e.g. pre- and
+        // post-fader): the k-th receive from it is its k-th send here.
+        var occurrence: c_int = 0;
+        var r: c_int = 0;
+        while (r < recv_idx) : (r += 1) {
+            if (self.trackReceiveGetSrcTrack(dest_track, r) == src_track) occurrence += 1;
+        }
 
-        // Find which send on source track points to dest_track
+        const send_count = self.trackSendCount(src_track);
         var i: c_int = 0;
         while (i < send_count) : (i += 1) {
-            const send_dest = self.trackSendGetDestTrack(src_track, i);
-            if (send_dest == dest_track) {
-                return .{ .src_track = src_track, .send_idx = i };
-            }
+            if (self.trackSendGetDestTrack(src_track, i) != dest_track) continue;
+            if (occurrence == 0) return .{ .src_track = src_track, .send_idx = i };
+            occurrence -= 1;
         }
         return null;
     }
