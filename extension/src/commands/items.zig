@@ -99,7 +99,7 @@ pub fn handleItemMoveByGuid(api: anytype, cmd: protocol.CommandMessage, response
             response.err("NOT_INITIALIZED", "GUID cache not initialized");
             return;
         };
-        const dest_track = guid_cache.resolve(dest_guid) orelse {
+        const dest_track = guid_cache.resolve(api, dest_guid) orelse {
             api.undoEndBlock("REAmo: Move item");
             response.err("NOT_FOUND", "Destination track not found");
             return;

@@ -175,7 +175,7 @@ pub fn pollRoutingSubscriptions(
 
             // CSurf: Force broadcast if this track's sends are dirty
             const sends_force = if (ctx.csurf_sends_dirty.all) true else blk: {
-                const track = ctx.guid_cache_ptr.resolve(entry.guid) orelse break :blk false;
+                const track = ctx.guid_cache_ptr.resolve(ctx.backend, entry.guid) orelse break :blk false;
                 const idx = ctx.guid_cache_ptr.resolveToIndex(track) orelse break :blk false;
                 break :blk if (idx >= 0 and idx < csurf_dirty.MAX_TRACKS) ctx.csurf_sends_dirty.bits.isSet(@intCast(idx)) else false;
             };
@@ -212,7 +212,7 @@ pub fn pollTrackFxSubscriptions(
 
             // CSurf: Force broadcast if this track's FX is dirty
             const fx_force = if (ctx.csurf_fx_dirty.all) true else blk: {
-                const track = ctx.guid_cache_ptr.resolve(entry.guid) orelse break :blk false;
+                const track = ctx.guid_cache_ptr.resolve(ctx.backend, entry.guid) orelse break :blk false;
                 const idx = ctx.guid_cache_ptr.resolveToIndex(track) orelse break :blk false;
                 break :blk if (idx >= 0 and idx < csurf_dirty.MAX_TRACKS) ctx.csurf_fx_dirty.bits.isSet(@intCast(idx)) else false;
             };
@@ -251,7 +251,7 @@ pub fn pollTrackFxParamSubscriptions(
 
             // CSurf: Force broadcast if this track's FX params are dirty
             const fx_force = if (ctx.csurf_fx_dirty.all) true else blk: {
-                const track = ctx.guid_cache_ptr.resolve(entry.track_guid) orelse break :blk false;
+                const track = ctx.guid_cache_ptr.resolve(ctx.backend, entry.track_guid) orelse break :blk false;
                 const idx = ctx.guid_cache_ptr.resolveToIndex(track) orelse break :blk false;
                 break :blk if (idx >= 0 and idx < csurf_dirty.MAX_TRACKS) ctx.csurf_fx_dirty.bits.isSet(@intCast(idx)) else false;
             };

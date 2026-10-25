@@ -20,7 +20,7 @@ pub fn generateTrackFxChain(
     track_guid: []const u8,
 ) ?[]const u8 {
     // Resolve GUID to track pointer
-    const track = guid_cache_ptr.resolve(track_guid) orelse {
+    const track = guid_cache_ptr.resolve(api, track_guid) orelse {
         logging.debug("trackfx_generator: GUID not found in cache: {s}", .{track_guid});
         return null;
     };

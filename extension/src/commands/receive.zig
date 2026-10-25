@@ -162,7 +162,7 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
         return;
     };
 
-    const dest_track = cache.resolve(dest_guid) orelse {
+    const dest_track = cache.resolve(api, dest_guid) orelse {
         response.err("NOT_FOUND", "Destination track not found");
         return;
     };
@@ -171,7 +171,7 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
         return;
     }
 
-    const src_track = cache.resolve(src_guid) orelse {
+    const src_track = cache.resolve(api, src_guid) orelse {
         response.err("NOT_FOUND", "Source track not found");
         return;
     };
