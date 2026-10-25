@@ -67,7 +67,7 @@ pub fn handleSeekBeats(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     };
     api.setCursorPos(time);
-    logging.info("Seek to bar {d}.{d:.1} ({d:.3}s)", .{ bar, beat, time });
+    logging.debug("Seek to bar {d}.{d:.1} ({d:.3}s)", .{ bar, beat, time });
 }
 
 // ============================================================================

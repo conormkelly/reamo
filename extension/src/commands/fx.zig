@@ -144,20 +144,20 @@ pub fn handleSetEnabled(api: anytype, cmd: protocol.CommandMessage, response: *m
 /// Response: { "fxGuid": "{...}", "fxIndex": N }
 pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const resolution = tracks.resolveTrack(api, cmd) orelse {
-        logging.warn("trackFx/add: track not found", .{});
+        logging.debug("trackFx/add: track not found", .{});
         response.err("NOT_FOUND", "trackGuid required, or track not found");
         return;
     };
 
     // Validate track pointer
     if (resolution.idx != 0 and !api.validateTrackPtr(resolution.track)) {
-        logging.warn("trackFx/add: invalid track pointer", .{});
+        logging.debug("trackFx/add: invalid track pointer", .{});
         response.err("INVALID_TRACK", "Track no longer exists");
         return;
     }
 
     const fx_name = (cmd.getTextAlloc("fxName", std.heap.c_allocator) catch null) orelse {
-        logging.warn("trackFx/add: missing fxName", .{});
+        logging.debug("trackFx/add: missing fxName", .{});
         response.err("MISSING_PARAM", "fxName is required");
         return;
     };
@@ -177,7 +177,7 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     api.undoEndBlock(undo_desc);
 
     if (fx_idx < 0) {
-        logging.warn("trackFx/add: TrackFX_AddByName failed for '{s}'", .{fx_name});
+        logging.warn("trackFx/add: REAPER couldn't add '{f}'", .{logging.untrusted(fx_name)});
         response.err("ADD_FAILED", "Failed to add FX - check FX name");
         return;
     }
@@ -215,21 +215,21 @@ fn addFxAt(api: anytype, track: *anyopaque, name: [*:0]const u8, position: ?c_in
 /// Params: trackGuid, fxGuid OR fxIndex
 pub fn handleDelete(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const resolution = tracks.resolveTrack(api, cmd) orelse {
-        logging.warn("trackFx/delete: track not found", .{});
+        logging.debug("trackFx/delete: track not found", .{});
         response.err("NOT_FOUND", "trackGuid required, or track not found");
         return;
     };
 
     // Validate track pointer
     if (resolution.idx != 0 and !api.validateTrackPtr(resolution.track)) {
-        logging.warn("trackFx/delete: invalid track pointer", .{});
+        logging.debug("trackFx/delete: invalid track pointer", .{});
         response.err("INVALID_TRACK", "Track no longer exists");
         return;
     }
 
     // Resolve FX by GUID or index
     const fx_idx = resolveFxIndex(api, resolution.track, cmd) orelse {
-        logging.warn("trackFx/delete: FX not found", .{});
+        logging.debug("trackFx/delete: FX not found", .{});
         response.err("FX_NOT_FOUND", "fxGuid or fxIndex required, or FX not found");
         return;
     };
@@ -259,33 +259,33 @@ pub fn handleDelete(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
 /// Response: { "newIndex": N }
 pub fn handleMove(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const resolution = tracks.resolveTrack(api, cmd) orelse {
-        logging.warn("trackFx/move: track not found", .{});
+        logging.debug("trackFx/move: track not found", .{});
         response.err("NOT_FOUND", "trackGuid required, or track not found");
         return;
     };
 
     // Validate track pointer
     if (resolution.idx != 0 and !api.validateTrackPtr(resolution.track)) {
-        logging.warn("trackFx/move: invalid track pointer", .{});
+        logging.debug("trackFx/move: invalid track pointer", .{});
         response.err("INVALID_TRACK", "Track no longer exists");
         return;
     }
 
     // Resolve FX by GUID
     const fx_guid = cmd.getString("fxGuid") orelse {
-        logging.warn("trackFx/move: missing fxGuid", .{});
+        logging.debug("trackFx/move: missing fxGuid", .{});
         response.err("MISSING_PARAM", "fxGuid is required");
         return;
     };
 
     const src_idx = findFxByGuid(api, resolution.track, fx_guid) orelse {
-        logging.warn("trackFx/move: FX GUID not found: {s}", .{fx_guid});
+        logging.debug("trackFx/move: FX GUID not found: {f}", .{logging.untrusted(fx_guid)});
         response.err("FX_NOT_FOUND", "FX with given GUID not found");
         return;
     };
 
     const to_index = cmd.getInt("toIndex") orelse {
-        logging.warn("trackFx/move: missing toIndex", .{});
+        logging.debug("trackFx/move: missing toIndex", .{});
         response.err("MISSING_PARAM", "toIndex is required");
         return;
     };
@@ -293,7 +293,7 @@ pub fn handleMove(api: anytype, cmd: protocol.CommandMessage, response: *mod.Res
     // Validate toIndex bounds
     const fx_count = api.trackFxCount(resolution.track);
     if (to_index < 0 or to_index >= fx_count) {
-        logging.warn("trackFx/move: toIndex out of range: {d} (count={d})", .{ to_index, fx_count });
+        logging.debug("trackFx/move: toIndex out of range: {d} (count={d})", .{ to_index, fx_count });
         response.err("INVALID_INDEX", "toIndex out of range");
         return;
     }
@@ -333,21 +333,21 @@ pub fn handleMove(api: anytype, cmd: protocol.CommandMessage, response: *mod.Res
 /// Response: { "trackGuid": "...", "fxGuid": "...", "paramCount": N, "params": ["name1", "name2", ...] }
 pub fn handleGetParams(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const resolution = tracks.resolveTrack(api, cmd) orelse {
-        logging.warn("trackFx/getParams: track not found", .{});
+        logging.debug("trackFx/getParams: track not found", .{});
         response.err("NOT_FOUND", "trackGuid required, or track not found");
         return;
     };
 
     // Validate track pointer
     if (resolution.idx != 0 and !api.validateTrackPtr(resolution.track)) {
-        logging.warn("trackFx/getParams: invalid track pointer", .{});
+        logging.debug("trackFx/getParams: invalid track pointer", .{});
         response.err("INVALID_TRACK", "Track no longer exists");
         return;
     }
 
     // Resolve FX by GUID or index
     const fx_idx = resolveFxIndex(api, resolution.track, cmd) orelse {
-        logging.warn("trackFx/getParams: FX not found", .{});
+        logging.debug("trackFx/getParams: FX not found", .{});
         response.err("FX_NOT_FOUND", "fxGuid or fxIndex required, or FX not found");
         return;
     };

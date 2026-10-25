@@ -262,7 +262,7 @@ pub fn dispatch(api: anytype, client_id: usize, data: []const u8, shared_state: 
     switch (msg_type) {
         .command => {
             const cmd = protocol.CommandMessage.parse(data) orelse {
-                logging.warn("Failed to parse command", .{});
+                logging.warn("Unparseable command from client {d} ({d} bytes)", .{ client_id, data.len });
                 return;
             };
 
@@ -287,7 +287,7 @@ pub fn dispatch(api: anytype, client_id: usize, data: []const u8, shared_state: 
                 }
             }
 
-            logging.warn("Unknown command: {s}", .{cmd.command});
+            logging.warn("Unknown command '{f}' from client {d} (a phone running a different REAmo version?)", .{ logging.untrusted(cmd.command), client_id });
             response.err("UNKNOWN_COMMAND", "Command not found");
         },
         .hello => {
@@ -306,7 +306,7 @@ pub fn dispatch(api: anytype, client_id: usize, data: []const u8, shared_state: 
             logging.warn("Unexpected ping message in dispatch", .{});
         },
         .unknown => {
-            logging.warn("Unknown message type", .{});
+            logging.warn("Message of unknown type from client {d} ({d} bytes)", .{ client_id, data.len });
         },
     }
 }

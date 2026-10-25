@@ -64,9 +64,9 @@ pub fn handleSubscribe(_: anytype, cmd: protocol.CommandMessage, response: *mod.
     // Parse optional viewport for adaptive resolution
     const viewport = parseViewport(cmd.raw);
     if (viewport) |vp| {
-        logging.info("peaks_subs: parsed viewport start={d:.2}, end={d:.2}, width={d}", .{ vp.start, vp.end, vp.width_px });
+        logging.debug("peaks_subs: parsed viewport start={d:.2}, end={d:.2}, width={d}", .{ vp.start, vp.end, vp.width_px });
     } else {
-        logging.info("peaks_subs: no viewport parsed from command", .{});
+        logging.debug("peaks_subs: no viewport parsed from command", .{});
     }
 
     // Try range mode first
@@ -169,7 +169,7 @@ pub fn handleUpdateViewport(_: anytype, cmd: protocol.CommandMessage, response: 
         return;
     };
 
-    logging.info("peaks_subs: updateViewport received start={d:.2}, end={d:.2}, width={d}", .{ viewport.start, viewport.end, viewport.width_px });
+    logging.debug("peaks_subs: updateViewport received start={d:.2}, end={d:.2}, width={d}", .{ viewport.start, viewport.end, viewport.width_px });
 
     if (!subs.updateViewport(response.client_id, viewport)) {
         response.err("NOT_SUBSCRIBED", "No active peaks subscription");
