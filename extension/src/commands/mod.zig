@@ -179,7 +179,11 @@ pub const ResponseWriter = struct {
             return;
         } else |_| {}
         const json = std.fmt.allocPrint(std.heap.c_allocator, fmt, args) catch {
-            logging.err("Reply to client {d} dropped: no memory for {d} bytes", .{ self.client_id, std.fmt.count(fmt, args) });
+            logging.err("Reply to client {d}: no memory for {d} bytes", .{ self.client_id, std.fmt.count(fmt, args) });
+            // A short failure reply instead, if the id leaves room for one.
+            const id = self.cmd_id orelse return;
+            const fallback = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":false,\"error\":{{\"code\":\"ALLOC_FAILED\",\"message\":\"Out of memory\"}}}}", .{id}) catch return;
+            self.shared_state.sendToClient(self.client_id, fallback);
             return;
         };
         defer std.heap.c_allocator.free(json);
