@@ -584,19 +584,43 @@ def _(t):
     hits = track_items(t, gk)
     by_pos = sorted(hits, key=lambda gi: gi[1]["pos"])
     ti = t.d["tracks"][gk]["pos"]
-    t.ok("item/select", trackIdx=ti, itemIdx=by_pos[0][1]["idx"])
-    t.expect(selection_is(t, {by_pos[0][0]}))
+    # REAPER records a change of item selection as an undo step when the
+    # user's undo settings include item selection (undomask bit 0, on by
+    # default), as for a click on an item. A phone tap is one such step, or
+    # none. REAPER 6.0 can't report undomask to a script: there, one step or
+    # none, whichever.
+    mask = reaper("return harness.config('undomask')")
+    records = None if mask is None else bool(int(mask) & 1)
+
+    def as_one_undo_step(before, prior):
+        after = t.flat
+        top = t.d["undo"]["can_undo"]
+        if top == prior and records is not True:
+            return
+        if top != "REAmo: Change item selection" or records is False:
+            raise Mismatch(f"a selection change from the phone left undo step {top!r} (before: {prior!r}; "
+                           f"undomask {mask})")
+        t.undo_redo(before, after)
+
+    def tap(cmd, want_selected, **kw):
+        before, prior = t.flat, t.d["undo"]["can_undo"]
+        r = t.send(cmd, awaited=True, **kw)
+        t.expect(selection_is(t, want_selected))
+        as_one_undo_step(before, prior)
+        return r
+
+    tap("item/select", {by_pos[0][0]}, trackIdx=ti, itemIdx=by_pos[0][1]["idx"])
 
     def step(cmd, cur, want, **kw):
-        r = t.send(cmd, awaited=True, trackIdx=ti, itemIdx=cur[1]["idx"], **kw)
         if want is None:
+            r = t.send(cmd, awaited=True, trackIdx=ti, itemIdx=cur[1]["idx"], **kw)
             if r.get("success"):
                 raise Mismatch(f"{cmd} from the first/last item without wrap: {r}")
             t.expect({})
             return
+        r = tap(cmd, {want[0]}, trackIdx=ti, itemIdx=cur[1]["idx"], **kw)
         if not r.get("success") or r["payload"] != {"trackIdx": ti, "itemIdx": want[1]["idx"]}:
             raise Mismatch(f"{cmd} answered {r}; REAPER's next item by position is #{want[1]['idx']}")
-        t.expect(selection_is(t, {want[0]}))
 
     step("item/selectNext", by_pos[0], by_pos[1])
     step("item/selectNext", by_pos[1], by_pos[2])
@@ -608,10 +632,8 @@ def _(t):
     step("item/selectNext", by_pos[-1], by_pos[0], wrap=1)
     # Multi-select: tap a second item on another track, then untap it.
     other = t.item(lambda g, it: it["track"] != gk)[0]
-    t.ok("item/toggleSelect", guid=other)
-    t.expect(selection_is(t, {by_pos[0][0], other}))
-    t.ok("item/toggleSelect", guid=other)
-    t.expect(selection_is(t, {by_pos[0][0]}))
+    tap("item/toggleSelect", {by_pos[0][0], other}, guid=other)
+    tap("item/toggleSelect", {by_pos[0][0]}, guid=other)
     t.ok("item/unselectAll")
     t.expect(selection_is(t, set()))
     restore_selection(t)
@@ -756,7 +778,10 @@ reaper.Undo_EndBlock("Delete comp area", -1)
 """
     like_native(t, native, lambda: t.ok("lanes/deleteCompArea", trackGuid=g, itemIdx=ii),
                 "deleting a comp area, keeping the user's selection")
-    revert(t, 6, f"the comp ({n0} lanes)")
+    # Two swipes, three moves and a delete, and the two taps on items where
+    # REAPER's undo settings include item selection.
+    taps = 2 if int(reaper("return harness.config('undomask')")) & 1 else 0
+    revert(t, 6 + taps, f"the comp ({n0} lanes)")
 
 
 @op("lanes/createCompLane on the vox keeps the user's track selection; setCompTarget picks where comps land",

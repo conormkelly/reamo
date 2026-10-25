@@ -235,13 +235,20 @@ pub fn handleItemSelect(api: anytype, cmd: protocol.CommandMessage, response: *m
         return;
     };
 
-    // Deselect all items first
-    api.runCommand(reaper.Command.UNSELECT_ALL_ITEMS);
+    selectOnly(api, item_info.item);
+    logging.debug("Selected item", .{});
+}
 
-    // Select the specified item
-    if (api.setItemSelected(item_info.item, true)) {
-        logging.debug("Selected item", .{});
-    }
+const ITEM_SELECTION_UNDO = "REAmo: Change item selection";
+
+/// Make `item` the only selected item, as one undo step. REAPER keeps a step
+/// that only changes item selection when the user's undo settings include
+/// item selection, as for a click on an item, and drops it otherwise.
+fn selectOnly(api: anytype, item: *anyopaque) void {
+    api.undoBeginBlock();
+    api.runCommand(reaper.Command.UNSELECT_ALL_ITEMS);
+    _ = api.setItemSelected(item, true);
+    api.undoEndBlock(ITEM_SELECTION_UNDO);
 }
 
 /// Select all items within time selection (on selected tracks)
@@ -278,10 +285,13 @@ pub fn handleItemToggleSelect(api: anytype, cmd: protocol.CommandMessage, respon
 
     const new_selected = !current_selected;
 
-    // Set new selection state (no undo - selection is UI state)
+    // One undo step, kept only if the user's undo settings include item
+    // selection (see selectOnly).
+    api.undoBeginBlock();
     if (api.setItemSelected(item, new_selected)) {
         logging.debug("Toggled item selection: {s} -> {}", .{ guid, new_selected });
     }
+    api.undoEndBlock(ITEM_SELECTION_UNDO);
 
     // Response confirms success
     response.success(null);
@@ -353,13 +363,11 @@ pub fn handleItemSelectNext(api: anytype, cmd: protocol.CommandMessage, response
         return;
     };
 
-    // Deselect all and select target
-    api.runCommand(reaper.Command.UNSELECT_ALL_ITEMS);
     const target_item = api.getItemByIdx(track, target_idx) orelse {
         response.err("NOT_FOUND", "Target item not found");
         return;
     };
-    _ = api.setItemSelected(target_item, true);
+    selectOnly(api, target_item);
 
     // Return new selection
     var buf: [128]u8 = undefined;
@@ -434,13 +442,11 @@ pub fn handleItemSelectPrev(api: anytype, cmd: protocol.CommandMessage, response
         return;
     };
 
-    // Deselect all and select target
-    api.runCommand(reaper.Command.UNSELECT_ALL_ITEMS);
     const target_item = api.getItemByIdx(track, target_idx) orelse {
         response.err("NOT_FOUND", "Target item not found");
         return;
     };
-    _ = api.setItemSelected(target_item, true);
+    selectOnly(api, target_item);
 
     // Return new selection
     var buf: [128]u8 = undefined;
