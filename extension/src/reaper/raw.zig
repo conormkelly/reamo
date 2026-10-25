@@ -897,8 +897,13 @@ pub const Api = struct {
     }
 
     // Undo: begin an undo block
+    /// Begin an undo block. Control-surface edits (fader and pan moves via
+    /// CSurf_On*Change, from any client) wait to be coalesced into one undo
+    /// point; they are flushed into their own point first, so this block
+    /// never absorbs another phone's in-progress drag.
     pub fn undoBeginBlock(self: *const Api) void {
         const f = self.undo_BeginBlock2 orelse return;
+        self.csurfFlushUndo(true);
         f(null);
     }
 

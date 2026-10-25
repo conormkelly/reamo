@@ -1,4 +1,5 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
@@ -299,7 +300,14 @@ pub fn handleRename(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         return;
     };
 
-    if (api.setTrackName(resolution.track, name)) {
+    // Setting P_NAME makes no undo point by itself; without one the user's
+    // next undo would also revert whatever they did before the rename.
+    api.undoBeginBlock();
+    const renamed = api.setTrackName(resolution.track, name);
+    var undo_buf: [256:0]u8 = undefined;
+    api.undoEndBlock(trackUndoDesc(api, &undo_buf, "Rename track", resolution));
+
+    if (renamed) {
         logging.debug("Renamed track {d}", .{resolution.idx});
         response.success(null);
     } else {
@@ -321,15 +329,8 @@ pub fn handleSetColor(api: anytype, cmd: protocol.CommandMessage, response: *mod
         return;
     };
 
-    // Build descriptive undo message
-    var track_name_buf: [128]u8 = undefined;
     var undo_buf: [256:0]u8 = undefined;
-    const track_name = api.getTrackNameStr(resolution.track, &track_name_buf);
-
-    const undo_desc: [*:0]const u8 = if (resolution.idx == 0)
-        std.fmt.bufPrintZ(&undo_buf, "REAmo: Set track color: Master", .{}) catch "REAmo: Set track color"
-    else
-        std.fmt.bufPrintZ(&undo_buf, "REAmo: Set track color: Track {d} {s}", .{ resolution.idx, track_name }) catch "REAmo: Set track color";
+    const undo_desc = trackUndoDesc(api, &undo_buf, "Set track color", resolution);
 
     api.undoBeginBlock();
     api.setTrackColor(resolution.track, color);
@@ -337,6 +338,15 @@ pub fn handleSetColor(api: anytype, cmd: protocol.CommandMessage, response: *mod
 
     logging.debug("Set color for track {d} to {d}", .{ resolution.idx, color });
     response.success(null);
+}
+
+/// "REAmo: <action>: Track N <name>" (or ": Master"), as REAPER's undo
+/// history and the clients' undo toast show it.
+fn trackUndoDesc(api: anytype, buf: *[256:0]u8, comptime action: []const u8, res: TrackResolution) [*:0]const u8 {
+    if (res.idx == 0) return std.fmt.bufPrintZ(buf, "REAmo: " ++ action ++ ": Master", .{}) catch "REAmo: " ++ action;
+    var name_buf: [128]u8 = undefined;
+    const name = api.getTrackNameStr(res.track, &name_buf);
+    return std.fmt.bufPrintZ(buf, "REAmo: " ++ action ++ ": Track {d} {s}", .{ res.idx, utf8.prefix(name, 200) }) catch "REAmo: " ++ action;
 }
 
 // Create a new track
@@ -361,6 +371,9 @@ pub fn handleCreate(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         break :blk current_count;
     };
 
+    // One undo step for the insert and its name (neither makes one itself).
+    api.undoBeginBlock();
+
     // Insert the track (wantDefaults=true for normal track settings)
     api.insertTrack(insert_idx, true);
 
@@ -376,6 +389,7 @@ pub fn handleCreate(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
             }
         }
     }
+    api.undoEndBlock("REAmo: Insert track");
 
     // Return the new track index
     var resp_buf: [64]u8 = undefined;
@@ -459,8 +473,12 @@ pub fn handleDelete(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         return;
     }
 
-    // Delete the track (REAPER creates undo point automatically)
+    // DeleteTrack makes no undo point by itself.
+    var undo_buf: [256:0]u8 = undefined;
+    const undo_desc = trackUndoDesc(api, &undo_buf, "Delete track", resolution);
+    api.undoBeginBlock();
     api.deleteTrackPtr(resolution.track);
+    api.undoEndBlock(undo_desc);
 
     logging.debug("Deleted track {d}", .{resolution.idx});
     response.success(null);
