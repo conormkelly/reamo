@@ -202,7 +202,10 @@ fn doInitialization() !void {
     g_allocator = std.heap.c_allocator;
 
     // Initialize logging with REAPER's resource path
-    logging.init(api.resourcePath());
+    logging.init(api.resourcePath(), .{
+        .reamo_version = protocol.EXTENSION_VERSION,
+        .reaper_version = api.appVersion(),
+    });
     logging.info("REAmo v{s} starting", .{protocol.EXTENSION_VERSION});
 
     // Initialize hot reload file path

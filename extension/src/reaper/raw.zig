@@ -511,6 +511,13 @@ pub const Api = struct {
         return std.mem.sliceTo(path, 0);
     }
 
+    /// GetAppVersion's text, e.g. "7.83/macOS-arm64", or null if REAPER
+    /// doesn't provide it.
+    pub fn appVersion(self: *const Api) ?[]const u8 {
+        const func = self.getAppVersion orelse return null;
+        return std.mem.sliceTo(func(), 0);
+    }
+
     /// REAPER's major version (6 for "6.0/linux-aarch64"), or null if REAPER
     /// doesn't say.
     pub fn majorVersion(self: *const Api) ?u32 {
