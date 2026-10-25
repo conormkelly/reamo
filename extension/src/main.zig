@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const reaper = @import("reaper.zig");
 const transport = @import("state/transport.zig");
 const project = @import("state/project.zig");
@@ -109,6 +110,8 @@ var g_last_skeleton_buf: []track_skeleton.SkeletonTrack = &.{};
 
 // CSurf: Hash-based track change detection
 var g_prev_tracks_hash: u64 = 0;
+/// Whether the last hot-reload check couldn't stat index.html.
+var g_html_stat_failed: bool = false;
 var g_last_drift_log_time: i64 = 0; // Rate-limit drift warnings (max 1/sec)
 var g_http_server: ?http_server.HttpServer = null;
 var g_port: u16 = 0;
@@ -403,7 +406,8 @@ fn doInitialization() !void {
         const hostname = compat.getHostname(&hostname_buf);
         if (hostname) |name| {
             _ = host_validation.addAllowedHost(name);
-            logging.info("Auto-detected hostname: {s}", .{name});
+            // Often the user's own name ("Jos-MacBook-Pro"): debug only.
+            logging.debug("Auto-detected hostname: {s}", .{name});
 
             // Also add hostname.local for mDNS (redundant with .local suffix match,
             // but makes getAllowedHosts() output clearer for the user dialog)
@@ -677,7 +681,11 @@ fn doProcessing() !void {
 
         // Start 100Hz command queue timer for reduced latency
         g_fast_timer.start(&commandQueueTimerCallback) catch |err| {
-            logging.warn("FastTimer failed to start: {s} - falling back to 30Hz", .{@errorName(err)});
+            if (builtin.os.tag == .linux) {
+                logging.debug("Commands run on the 30 Hz timer (no fast timer on Linux)", .{});
+            } else {
+                logging.warn("Fast command timer didn't start ({s}); commands run at 30 Hz", .{@errorName(err)});
+            }
         };
     }
 
@@ -874,6 +882,10 @@ fn doProcessing() !void {
 
         if (g_html_path) |path| {
             if (std.fs.cwd().statFile(path)) |stat| {
+                if (g_html_stat_failed) {
+                    g_html_stat_failed = false;
+                    logging.info("web/index.html is readable again", .{});
+                }
                 if (stat.mtime != g_html_mtime) {
                     logging.debug("HTML changed: mtime {} -> {}", .{ g_html_mtime, stat.mtime });
                     g_html_mtime = stat.mtime;
@@ -886,7 +898,11 @@ fn doProcessing() !void {
                     logging.debug("Broadcast reload event", .{});
                 }
             } else |err| {
-                logging.warn("Stat failed: {s}", .{@errorName(err)});
+                // Checked every 2 s: log the change, not every check.
+                if (!g_html_stat_failed) {
+                    g_html_stat_failed = true;
+                    logging.warn("Can't read web/index.html ({s}); phones can't load the page until it's back", .{@errorName(err)});
+                }
             }
         }
     }
@@ -927,21 +943,21 @@ fn shutdown() void {
     if (g_api) |*api| {
         api.unregisterTimer(&processTimerCallback);
     }
-    logging.info("timers stopped", .{});
+    logging.debug("timers stopped", .{});
 
     // Unregister and clean up CSurf before other cleanup
     if (g_csurf) |cs| {
-        logging.info("cleaning up CSurf", .{});
+        logging.debug("cleaning up CSurf", .{});
         cs.unregister();
         cs.deinit();
         g_allocator.destroy(cs);
         g_csurf = null;
     }
-    logging.info("CSurf cleaned up", .{});
+    logging.debug("CSurf cleaned up", .{});
 
     // Stop audio streaming (joins network thread, unregisters audio hook)
     if (g_audio_stream) |mgr| {
-        logging.info("cleaning up audio stream", .{});
+        logging.debug("cleaning up audio stream", .{});
         // Stop thread if running (will also unregister audio hook)
         if (mgr.hasSubscribers()) {
             // Force unsubscribe all to trigger stopStreaming
@@ -963,7 +979,7 @@ fn shutdown() void {
         g_allocator.destroy(mgr);
         g_audio_stream = null;
     }
-    logging.info("audio stream cleaned up", .{});
+    logging.debug("audio stream cleaned up", .{});
 
     // Unregister extension menu
     menu.unregister();
@@ -971,85 +987,85 @@ fn shutdown() void {
     if (g_plugin_register) |plugin_register| project_load.unregister(plugin_register);
 
     if (g_http_server) |*server| {
-        logging.info("stopping server", .{});
+        logging.debug("stopping server", .{});
         server.deinit();
         g_http_server = null;
     }
-    logging.info("server stopped", .{});
+    logging.debug("server stopped", .{});
 
     if (g_gesture_state) |gestures| {
-        logging.info("cleaning up gesture state", .{});
+        logging.debug("cleaning up gesture state", .{});
         gestures.deinit();
         g_allocator.destroy(gestures);
         g_gesture_state = null;
     }
-    logging.info("gesture state cleaned up", .{});
+    logging.debug("gesture state cleaned up", .{});
 
     if (g_toggle_subs) |toggles| {
-        logging.info("cleaning up toggle subscriptions", .{});
+        logging.debug("cleaning up toggle subscriptions", .{});
         commands.g_ctx.toggle_subs = null;
         toggles.deinit();
         g_allocator.destroy(toggles);
         g_toggle_subs = null;
     }
-    logging.info("toggle subscriptions cleaned up", .{});
+    logging.debug("toggle subscriptions cleaned up", .{});
 
     if (g_notes_subs) |notes| {
-        logging.info("cleaning up notes subscriptions", .{});
+        logging.debug("cleaning up notes subscriptions", .{});
         commands.g_ctx.notes_subs = null;
         notes.deinit();
         g_allocator.destroy(notes);
         g_notes_subs = null;
     }
-    logging.info("notes subscriptions cleaned up", .{});
+    logging.debug("notes subscriptions cleaned up", .{});
 
     if (g_track_subs) |subs| {
-        logging.info("cleaning up track subscriptions", .{});
+        logging.debug("cleaning up track subscriptions", .{});
         commands.g_ctx.track_subs = null;
         subs.deinit();
         g_allocator.destroy(subs);
         g_track_subs = null;
     }
-    logging.info("track subscriptions cleaned up", .{});
+    logging.debug("track subscriptions cleaned up", .{});
 
     if (g_peaks_subs) |subs| {
-        logging.info("cleaning up peaks subscriptions", .{});
+        logging.debug("cleaning up peaks subscriptions", .{});
         commands.g_ctx.peaks_subs = null;
         subs.deinit();
         g_allocator.destroy(subs);
         g_peaks_subs = null;
     }
-    logging.info("peaks subscriptions cleaned up", .{});
+    logging.debug("peaks subscriptions cleaned up", .{});
 
     if (g_routing_subs) |subs| {
-        logging.info("cleaning up routing subscriptions", .{});
+        logging.debug("cleaning up routing subscriptions", .{});
         commands.g_ctx.routing_subs = null;
         subs.deinit();
         g_allocator.destroy(subs);
         g_routing_subs = null;
     }
-    logging.info("routing subscriptions cleaned up", .{});
+    logging.debug("routing subscriptions cleaned up", .{});
 
     if (g_trackfx_subs) |subs| {
-        logging.info("cleaning up track FX subscriptions", .{});
+        logging.debug("cleaning up track FX subscriptions", .{});
         commands.g_ctx.trackfx_subs = null;
         subs.deinit();
         g_allocator.destroy(subs);
         g_trackfx_subs = null;
     }
-    logging.info("track FX subscriptions cleaned up", .{});
+    logging.debug("track FX subscriptions cleaned up", .{});
 
     if (g_trackfxparam_subs) |subs| {
-        logging.info("cleaning up track FX param subscriptions", .{});
+        logging.debug("cleaning up track FX param subscriptions", .{});
         commands.g_ctx.trackfxparam_subs = null;
         subs.deinit();
         g_allocator.destroy(subs);
         g_trackfxparam_subs = null;
     }
-    logging.info("track FX param subscriptions cleaned up", .{});
+    logging.debug("track FX param subscriptions cleaned up", .{});
 
     if (g_tuner_subs) |subs| {
-        logging.info("cleaning up tuner subscriptions", .{});
+        logging.debug("cleaning up tuner subscriptions", .{});
         commands.g_ctx.tuner_subs = null;
         // Remove all clients (cleans up JSFXs)
         if (g_api) |*api| {
@@ -1060,49 +1076,49 @@ fn shutdown() void {
         g_allocator.destroy(subs);
         g_tuner_subs = null;
     }
-    logging.info("tuner subscriptions cleaned up", .{});
+    logging.debug("tuner subscriptions cleaned up", .{});
 
     if (g_tile_cache) |t_cache| {
-        logging.info("cleaning up tile cache", .{});
+        logging.debug("cleaning up tile cache", .{});
         t_cache.deinit();
         g_allocator.destroy(t_cache);
         g_tile_cache = null;
     }
-    logging.info("tile cache cleaned up", .{});
+    logging.debug("tile cache cleaned up", .{});
 
     if (g_guid_cache) |cache| {
-        logging.info("cleaning up GUID cache", .{});
+        logging.debug("cleaning up GUID cache", .{});
         commands.g_ctx.guid_cache = null;
         cache.deinit();
         g_allocator.destroy(cache);
         g_guid_cache = null;
     }
-    logging.info("GUID cache cleaned up", .{});
+    logging.debug("GUID cache cleaned up", .{});
 
     if (g_item_cache) |icache| {
-        logging.info("cleaning up item GUID cache", .{});
+        logging.debug("cleaning up item GUID cache", .{});
         commands.g_ctx.item_cache = null;
         icache.deinit();
         g_allocator.destroy(icache);
         g_item_cache = null;
     }
-    logging.info("item GUID cache cleaned up", .{});
+    logging.debug("item GUID cache cleaned up", .{});
 
     if (g_shared_state) |state| {
-        logging.info("cleaning up shared state", .{});
+        logging.debug("cleaning up shared state", .{});
         state.deinit();
         g_allocator.destroy(state);
         g_shared_state = null;
     }
-    logging.info("shared state cleaned up", .{});
+    logging.debug("shared state cleaned up", .{});
 
     if (g_tiered) |*tiered| {
-        logging.info("cleaning up tiered arenas", .{});
+        logging.debug("cleaning up tiered arenas", .{});
         commands.g_ctx.tiered = null; // Clear global reference before deinit
         tiered.deinit(g_allocator);
         g_tiered = null;
     }
-    logging.info("tiered arenas cleaned up", .{});
+    logging.debug("tiered arenas cleaned up", .{});
 
     // Last: every thread that writes to a socket has been joined above.
     sigpipe.uninstall();

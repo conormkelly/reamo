@@ -120,7 +120,7 @@ pub fn pollPeaksSubscriptions(
         if (!any_forced and (now_ms - peaks_subs.last_broadcast_ms) < 100) return;
         peaks_subs.last_broadcast_ms = now_ms;
 
-        logging.info("peaks: broadcasting (content changed={}, forced={}, indices={})", .{ any_track_changed, any_forced, subscribed_indices.len });
+        logging.debug("peaks: broadcasting (content changed={}, forced={}, indices={})", .{ any_track_changed, any_forced, subscribed_indices.len });
         var iter = peaks_subs.activeSubscriptions();
         while (iter.next()) |entry| {
             const forced = peaks_subs.consumeForceBroadcast(entry.slot);
@@ -129,7 +129,7 @@ pub fn pollPeaksSubscriptions(
             const scratch = ctx.scratchAllocator();
 
             if (!entry.sub.hasViewport()) {
-                logging.info("peaks: skipping client {} (no viewport)", .{entry.client_id});
+                logging.debug("peaks: skipping client {} (no viewport)", .{entry.client_id});
                 continue;
             }
 
@@ -141,10 +141,10 @@ pub fn pollPeaksSubscriptions(
                 entry.sub,
             );
             if (bin) |b| {
-                logging.info("peaks: sending {} bytes (binary) to client {}", .{ b.len, entry.client_id });
+                logging.debug("peaks: sending {} bytes (binary) to client {}", .{ b.len, entry.client_id });
                 ctx.shared_state.sendBinToClient(entry.client_id, b);
             } else {
-                logging.info("peaks: binary generation returned null for client {}", .{entry.client_id});
+                logging.debug("peaks: binary generation returned null for client {}", .{entry.client_id});
             }
         }
     }

@@ -99,13 +99,13 @@ pub fn show(networks: []const network_detect.NetworkInfo, http_port: u16, parent
         @as(swell.HWND, null)
     else
         parent;
-    logging.info("qr_window: creating dialog, parent_is_null={}", .{dialog_parent == null});
+    logging.debug("qr_window: creating dialog, parent_is_null={}", .{dialog_parent == null});
     g_hwnd = swell.createModelessDialog(dialog_parent, &dlgProc, WINDOW_WIDTH, WINDOW_HEIGHT);
     if (g_hwnd == null) {
         logging.err("qr_window: failed to create window", .{});
         return;
     }
-    logging.info("qr_window: window created ok", .{});
+    logging.debug("qr_window: window created ok", .{});
 
     // Set window title and size, centered on parent window
     updateWindowTitle();
@@ -115,7 +115,7 @@ pub fn show(networks: []const network_detect.NetworkInfo, http_port: u16, parent
     if (pos[1] < 0) pos[1] = 100;
     if (pos[0] > 3000) pos[0] = 100;
     if (pos[1] > 2000) pos[1] = 100;
-    logging.info("qr_window: position ({d}, {d})", .{ pos[0], pos[1] });
+    logging.debug("qr_window: position ({d}, {d})", .{ pos[0], pos[1] });
     swell.setWindowPos(g_hwnd, null, pos[0], pos[1], WINDOW_WIDTH, WINDOW_HEIGHT, 0);
 
     // Make window float above others on macOS
@@ -125,10 +125,10 @@ pub fn show(networks: []const network_detect.NetworkInfo, http_port: u16, parent
         }
     }
 
-    logging.info("qr_window: calling ShowWindow", .{});
+    logging.debug("qr_window: calling ShowWindow", .{});
     swell.showWindow(g_hwnd, swell.SW_SHOW);
     swell.invalidateRect(g_hwnd, null, true);
-    logging.info("qr_window: show complete", .{});
+    logging.debug("qr_window: show complete", .{});
 }
 
 /// Hide and destroy the QR code window if open.
@@ -185,7 +185,7 @@ fn renderCurrentNetwork() void {
     };
 
     _ = qr_render.renderSliceToBGRA(url, &g_qr_buffer, QR_SIZE) catch |err| {
-        logging.err("qr_window: failed to render QR: {}", .{err});
+        logging.err("qr_window: failed to render QR: {s}", .{@errorName(err)});
         @memset(&g_qr_buffer, 0xFFFFFFFF);
     };
 }

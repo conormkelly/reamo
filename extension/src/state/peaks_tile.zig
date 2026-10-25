@@ -409,7 +409,7 @@ pub const TileCache = struct {
             if (self.epochs.checkAndUpdate(take_guid, api, take)) |new_epoch| {
                 // Epoch changed - remove cached tiles for this take
                 // Note: checkAndUpdate already stored the new epoch, so just remove tiles
-                logging.info("peaks_tile: epoch changed for take {s} (new epoch: {}), removing tiles", .{ take_guid, new_epoch });
+                logging.debug("peaks_tile: epoch changed for take {s} (new epoch: {}), removing tiles", .{ take_guid, new_epoch });
                 self.removeTilesForTake(take_guid);
                 changed = true;
             }
@@ -613,12 +613,12 @@ pub fn tilesForViewport(
     // Validate inputs
     const duration = viewport_end - viewport_start;
     if (!(duration > 0) or std.math.isInf(duration)) {
-        logging.warn("peaks_tile: invalid viewport duration {d}", .{duration});
+        logging.debug("peaks_tile: invalid viewport duration {d}", .{duration});
         return null;
     }
 
     if (viewport_width_px == 0) {
-        logging.warn("peaks_tile: viewport width is zero", .{});
+        logging.debug("peaks_tile: viewport width is zero", .{});
         return null;
     }
 
@@ -635,11 +635,11 @@ pub fn tilesForViewport(
     // Calculate tile indices. A viewport (client-supplied) too far out for
     // u32 tile indices has no tiles rather than trapping the conversion.
     const start_tile = ffi.safeFloatToInt(u32, @floor(buffered_start / config.duration)) catch {
-        logging.warn("peaks_tile: viewport start {d} out of range", .{viewport_start});
+        logging.debug("peaks_tile: viewport start {d} out of range", .{viewport_start});
         return null;
     };
     const end_tile = ffi.safeFloatToInt(u32, @ceil(buffered_end / config.duration)) catch {
-        logging.warn("peaks_tile: viewport end {d} out of range", .{viewport_end});
+        logging.debug("peaks_tile: viewport end {d} out of range", .{viewport_end});
         return null;
     };
 
