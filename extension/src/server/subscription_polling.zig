@@ -237,14 +237,15 @@ pub fn pollTrackFxParamSubscriptions(
         const scratch = ctx.scratchAllocator();
 
         // Generate param values JSON for this client's subscribed FX
-        if (trackfxparam_generator.generateParamValues(
+        const generated = trackfxparam_generator.generateParamValues(
             scratch,
             ctx.backend,
             ctx.guid_cache_ptr,
             entry.track_guid,
             entry.fx_guid,
             entry.client,
-        )) |result| {
+        );
+        if (generated) |result| {
             // Check if changed using hash
             const data_hash = trackfxparam_generator.hashParamValues(result.json);
             const hash_changed = trackfxparam_subs.checkChanged(entry.slot, data_hash);
@@ -261,7 +262,9 @@ pub fn pollTrackFxParamSubscriptions(
             }
             // Reset failure count on successful generation
             trackfxparam_subs.resetFailures(entry.client_id);
-        } else {
+        } else |err| {
+            // The message couldn't be built this tick; the FX is still there.
+            if (err == error.OutOfMemory) continue;
             // Track or FX not found - increment failure count
             if (trackfxparam_subs.recordFailure(entry.client_id)) {
                 // Auto-unsubscribe after 3 failures (~100ms at 30Hz)
