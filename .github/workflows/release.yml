@@ -158,4 +158,4 @@ jobs:
             artifacts/REAmo-v*.zip.sha256
           generate_release_notes: true
           draft: true
-          prerelease: ${{ contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
