@@ -364,9 +364,8 @@ pub const State = struct {
     // Allocator-based version - returns owned slice from allocator
     // Allocates from arena instead of stack to avoid stack overflow in timer callbacks
     pub fn itemsToJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
-        const buf = try allocator.alloc(u8, 32768);
-        const json = self.itemsToJson(buf) orelse return error.JsonSerializationFailed;
-        return json;
+        // ~365 B per item typically (GUID, take name, flags) + envelope
+        return protocol.serializeAlloc(allocator, 256 + self.items.len * 512, self, itemsToJson);
     }
 
     /// Poll items within a time range (for timeline subscriptions).
@@ -854,4 +853,20 @@ test "computeHash differs for different states" {
     const state2 = State{ .items = &buffer2 };
 
     try std.testing.expect(state1.computeHash() != state2.computeHash());
+}
+
+test "itemsToJsonAlloc serializes projects larger than one fixed buffer" {
+    // A fixed 32 KB buffer held ~89 items; the broadcast was silently dropped.
+    var backing: [1 << 20]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&backing);
+    var list: [400]Item = undefined;
+    for (&list, 0..) |*it, i| {
+        it.* = .{ .track_idx = @intCast(i % 8), .item_idx = @intCast(i), .take_count = 1 };
+        const guid = "{01234567-89AB-CDEF-0123-456789ABCDEF}";
+        @memcpy(it.guid[0..guid.len], guid);
+        it.guid_len = guid.len;
+    }
+    const state = State{ .items = &list };
+    const json = try state.itemsToJsonAlloc(fba.allocator());
+    try std.testing.expect(try std.json.validate(std.testing.allocator, json));
 }

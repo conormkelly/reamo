@@ -269,9 +269,11 @@ pub const CalculatedSizes = struct {
 
         // SCRATCH: JSON serialization (scales with largest payload)
         // Now handles all toJson calls including tracks, items, skeleton, metering, toggles
+        // The medium tier serializes items, markers, regions and FX in one frame;
+        // per-entity sizes match the initial estimates in their *ToJsonAlloc.
         const scratch_raw = @max(
             counts.tracks * 600, // ~600 bytes per track JSON (with GUID)
-            counts.items * 256, // ~256 bytes per item JSON
+            counts.items * 512 + counts.markers * 224 + counts.regions * 320 + counts.fx_total * 320,
         ) + 128 * 1024; // Increased base for skeleton (~200B/track), metering, toggles, errors
 
         // Apply headroom multiplier
