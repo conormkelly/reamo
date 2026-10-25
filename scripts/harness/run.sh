@@ -8,7 +8,9 @@
 #   ZIG             Zig 0.15.x binary (default: zig on PATH)
 #   REAPER_LICENSE  licence file (default: scripts/harness/reaper-license.rk)
 #   HARNESS_GDB=1   run REAPER under gdb; a crash prints all thread backtraces
-#   HARNESS_IMAGE   image tag (default: reamo-v1-harness)
+#   REAPER_VERSION  REAPER release to run, as reaper.fm numbers it (default: 7.83);
+#                   each version gets its own image, built on first use
+#   HARNESS_IMAGE   image name (default: reamo-v1-harness), tagged reaper-<version>
 #   HARNESS_JOBS    scenarios to run at once (default: 4); output is still
 #                   printed one scenario at a time, in order
 #   TOUR_ONLY       tour scenarios run only the ops whose name contains one of
@@ -21,7 +23,8 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-IMAGE="${HARNESS_IMAGE:-reamo-v1-harness}"
+REAPER_VERSION="${REAPER_VERSION:-7.83}"
+IMAGE="${HARNESS_IMAGE:-reamo-v1-harness}:reaper-$REAPER_VERSION"
 ZIG="${ZIG:-zig}"
 LICENSE="${REAPER_LICENSE:-$HERE/reaper-license.rk}"
 
@@ -34,7 +37,7 @@ esac
 [ -f "$ROOT/web/index.html" ] || { echo "error: no built frontend in web/; run: make frontend" >&2; exit 1; }
 
 # Cached after the first build; rebuilt only when the Dockerfile changes.
-docker build -q -t "$IMAGE" "$HERE" >/dev/null
+docker build -q --build-arg REAPER_VERSION="$REAPER_VERSION" -t "$IMAGE" "$HERE" >/dev/null
 
 # Screenshots and other per-scenario artifacts (gitignored).
 ARTIFACTS="$HERE/out"
@@ -54,7 +57,7 @@ trap 'rm -rf "$OUT"' EXIT
 mkdir -p "$OUT/harness"
 (cd "$HERE" && tar --exclude ./out --exclude ./reaper-license.rk -cf - .) | (cd "$OUT/harness" && tar -xf -)
 
-echo "Building extension for $arch-linux..."
+echo "Building extension for $arch-linux (REAPER $REAPER_VERSION)..."
 (cd "$ROOT/extension" && "$ZIG" build -Doptimize=ReleaseSafe -Dtarget="$arch-linux-gnu.2.28" --prefix "$OUT/build")
 cp "$OUT/build/lib/libreaper_reamo.so" "$OUT/reaper_reamo.so"
 
