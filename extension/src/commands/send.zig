@@ -26,6 +26,11 @@ pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     };
 
+    if (!mod.routeExists(api, track, .send, send_idx)) {
+        response.err("NOT_FOUND", "Send not found");
+        return;
+    }
+
     const control = gesture_state.ControlId.sendVolume(track_idx, send_idx);
     const in_gesture = mod.inGesture(response, control);
     if (!in_gesture) api.undoBeginBlock();
@@ -57,6 +62,11 @@ pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         response.err("NOT_FOUND", "Track not found");
         return;
     };
+
+    if (!mod.routeExists(api, track, .send, send_idx)) {
+        response.err("NOT_FOUND", "Send not found");
+        return;
+    }
 
     api.undoBeginBlock();
     const success = api.trackSendSetMute(track, send_idx, muted);
@@ -90,6 +100,11 @@ pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         response.err("NOT_FOUND", "Track not found");
         return;
     };
+
+    if (!mod.routeExists(api, track, .send, send_idx)) {
+        response.err("NOT_FOUND", "Send not found");
+        return;
+    }
 
     // Clamp pan to valid range
     const clamped = @max(-1.0, @min(1.0, pan));
@@ -130,6 +145,11 @@ pub fn handleSetMode(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         response.err("NOT_FOUND", "Track not found");
         return;
     };
+
+    if (!mod.routeExists(api, track, .send, send_idx)) {
+        response.err("NOT_FOUND", "Send not found");
+        return;
+    }
 
     api.undoBeginBlock();
     const success = api.trackSendSetMode(track, send_idx, mode);
@@ -215,6 +235,11 @@ pub fn handleRemove(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         response.err("MISSING_PARAM", "sendIdx is required");
         return;
     };
+
+    if (!mod.routeExists(api, resolution.track, .send, send_idx)) {
+        response.err("NOT_FOUND", "Send not found");
+        return;
+    }
 
     api.undoBeginBlock();
     const success = api.removeSend(resolution.track, 0, send_idx);

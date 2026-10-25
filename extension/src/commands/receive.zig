@@ -26,6 +26,11 @@ pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     };
 
+    if (!mod.routeExists(api, track, .receive, recv_idx)) {
+        response.err("NOT_FOUND", "Receive not found");
+        return;
+    }
+
     const control = gesture_state.ControlId.receiveVolume(track_idx, recv_idx);
     const in_gesture = mod.inGesture(response, control);
     if (!in_gesture) api.undoBeginBlock();
@@ -57,6 +62,11 @@ pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         response.err("NOT_FOUND", "Track not found");
         return;
     };
+
+    if (!mod.routeExists(api, track, .receive, recv_idx)) {
+        response.err("NOT_FOUND", "Receive not found");
+        return;
+    }
 
     api.undoBeginBlock();
     const success = api.trackReceiveSetMute(track, recv_idx, muted);
@@ -90,6 +100,11 @@ pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         response.err("NOT_FOUND", "Track not found");
         return;
     };
+
+    if (!mod.routeExists(api, track, .receive, recv_idx)) {
+        response.err("NOT_FOUND", "Receive not found");
+        return;
+    }
 
     // Clamp pan to valid range
     const clamped = @max(-1.0, @min(1.0, pan));
@@ -130,6 +145,11 @@ pub fn handleSetMode(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         response.err("NOT_FOUND", "Track not found");
         return;
     };
+
+    if (!mod.routeExists(api, track, .receive, recv_idx)) {
+        response.err("NOT_FOUND", "Receive not found");
+        return;
+    }
 
     api.undoBeginBlock();
     const success = api.trackReceiveSetMode(track, recv_idx, mode);
@@ -219,6 +239,11 @@ pub fn handleRemove(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
     };
 
     // category < 0 = receives
+    if (!mod.routeExists(api, resolution.track, .receive, recv_idx)) {
+        response.err("NOT_FOUND", "Receive not found");
+        return;
+    }
+
     api.undoBeginBlock();
     const success = api.removeSend(resolution.track, -1, recv_idx);
     api.undoEndBlock("REAmo: Remove receive");

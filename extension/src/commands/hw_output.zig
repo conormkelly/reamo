@@ -27,17 +27,19 @@ pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     };
 
-    // No undo block here - continuous control uses gesture-based undo coalescing
-    // (undoBeginBlock on gesture/start, undoEndBlock on gesture/end)
-    const success = api.trackHwOutputSetVolume(track, hw_idx, volume);
-    if (!success) {
-        response.err("SET_FAILED", "Failed to set HW output volume");
+    if (!mod.routeExists(api, track, .hw_output, hw_idx)) {
+        response.err("NOT_FOUND", "Hardware output not found");
         return;
     }
 
-    // Record activity for gesture timeout tracking
-    if (response.gestures) |gestures| {
-        gestures.recordActivity(gesture_state.ControlId.hwOutputVolume(track_idx, hw_idx));
+    const control = gesture_state.ControlId.hwOutputVolume(track_idx, hw_idx);
+    const in_gesture = mod.inGesture(response, control);
+    if (!in_gesture) api.undoBeginBlock();
+    const success = api.trackHwOutputSetVolume(track, hw_idx, volume);
+    if (in_gesture) response.gestures.?.recordActivity(control) else api.undoEndBlock("REAmo: Adjust audio hardware output volume");
+    if (!success) {
+        response.err("SET_FAILED", "Failed to set HW output volume");
+        return;
     }
 
     logging.debug("HW output volume set: track {} hw {} volume {d:.3}", .{ track_idx, hw_idx, volume });
@@ -65,6 +67,11 @@ pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         response.err("NOT_FOUND", "Track not found");
         return;
     };
+
+    if (!mod.routeExists(api, track, .hw_output, hw_idx)) {
+        response.err("NOT_FOUND", "Hardware output not found");
+        return;
+    }
 
     api.undoBeginBlock();
     const success = api.trackHwOutputSetMute(track, hw_idx, muted);
@@ -100,20 +107,22 @@ pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         return;
     };
 
-    // Clamp pan to valid range
-    const clamped = @max(-1.0, @min(1.0, pan));
-
-    // No undo block here - continuous control uses gesture-based undo coalescing
-    // (undoBeginBlock on gesture/start, undoEndBlock on gesture/end)
-    const success = api.trackHwOutputSetPan(track, hw_idx, clamped);
-    if (!success) {
-        response.err("SET_FAILED", "Failed to set HW output pan");
+    if (!mod.routeExists(api, track, .hw_output, hw_idx)) {
+        response.err("NOT_FOUND", "Hardware output not found");
         return;
     }
 
-    // Record activity for gesture timeout tracking
-    if (response.gestures) |gestures| {
-        gestures.recordActivity(gesture_state.ControlId.hwOutputPan(track_idx, hw_idx));
+    // Clamp pan to valid range
+    const clamped = @max(-1.0, @min(1.0, pan));
+
+    const control = gesture_state.ControlId.hwOutputPan(track_idx, hw_idx);
+    const in_gesture = mod.inGesture(response, control);
+    if (!in_gesture) api.undoBeginBlock();
+    const success = api.trackHwOutputSetPan(track, hw_idx, clamped);
+    if (in_gesture) response.gestures.?.recordActivity(control) else api.undoEndBlock("REAmo: Adjust audio hardware output pan");
+    if (!success) {
+        response.err("SET_FAILED", "Failed to set HW output pan");
+        return;
     }
 
     logging.debug("HW output pan set: track {} hw {} pan {d:.3}", .{ track_idx, hw_idx, clamped });
@@ -146,6 +155,11 @@ pub fn handleSetMode(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         response.err("NOT_FOUND", "Track not found");
         return;
     };
+
+    if (!mod.routeExists(api, track, .hw_output, hw_idx)) {
+        response.err("NOT_FOUND", "Hardware output not found");
+        return;
+    }
 
     api.undoBeginBlock();
     const success = api.trackHwOutputSetMode(track, hw_idx, mode);
@@ -202,8 +216,13 @@ pub fn handleRemove(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         return;
     };
 
-    // category > 0 = hw outputs
+    if (!mod.routeExists(api, resolution.track, .hw_output, hw_idx)) {
+        response.err("NOT_FOUND", "Hardware output not found");
+        return;
+    }
+
     api.undoBeginBlock();
+    // category > 0 = hw outputs
     const success = api.removeSend(resolution.track, 1, hw_idx);
     api.undoEndBlock("REAmo: Remove hardware output");
 
@@ -233,6 +252,11 @@ pub fn handleSetDestChannel(api: anytype, cmd: protocol.CommandMessage, response
         response.err("MISSING_PARAM", "destChannel is required");
         return;
     };
+
+    if (!mod.routeExists(api, resolution.track, .hw_output, hw_idx)) {
+        response.err("NOT_FOUND", "Hardware output not found");
+        return;
+    }
 
     api.undoBeginBlock();
     const success = api.trackHwOutputSetDestChannel(resolution.track, hw_idx, dest_channel);
