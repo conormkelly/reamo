@@ -55,6 +55,7 @@ import {
   parseBarBeatTicksToBeats,
 } from '../../utils';
 import { DEFAULT_ITEM_COLOR } from '../../constants/colors';
+import { useItemNotes } from './hooks/useItemNotes';
 import { ColorPickerInput } from '../Toolbar/ColorPickerInput';
 import { TrackPicker } from '../Mixer/RoutingModal/TrackPicker';
 import { EMPTY_SKELETON, EMPTY_ITEMS } from '../../store/stableRefs';
@@ -101,10 +102,10 @@ export function NavigateItemInfoBar({
   // Accordion state for selection details sheet
   const [expandedTracks, setExpandedTracks] = useState<Set<number>>(new Set());
 
-  // Notes state (fetched on-demand for single item)
+  // Notes: REAPER's copy (fetched while the sheet is open) and the draft being edited
+  const itemNotes = useItemNotes(singleItem?.guid ?? null, showItemSheet, connected, sendAsync);
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [notesValue, setNotesValue] = useState('');
-  const [notesLoading, setNotesLoading] = useState(false);
   const notesInputRef = useRef<HTMLTextAreaElement>(null);
 
   // Move item state
@@ -132,7 +133,7 @@ export function NavigateItemInfoBar({
       ? singleItem.takeCount - 1
       : singleItem.activeTakeIdx - 1;
     sendCommand(
-      itemCmd.setActiveTake(singleItem.trackIdx, singleItem.itemIdx, prevIdx)
+      itemCmd.setActiveTake(singleItem.guid, prevIdx)
     );
   }, [singleItem, sendCommand]);
 
@@ -142,7 +143,7 @@ export function NavigateItemInfoBar({
       ? 0
       : singleItem.activeTakeIdx + 1;
     sendCommand(
-      itemCmd.setActiveTake(singleItem.trackIdx, singleItem.itemIdx, nextIdx)
+      itemCmd.setActiveTake(singleItem.guid, nextIdx)
     );
   }, [singleItem, sendCommand]);
 
@@ -169,7 +170,7 @@ export function NavigateItemInfoBar({
       if (!singleItem) return;
       const reaperColor = hexToReaperColor(color);
       sendCommand(
-        itemCmd.setColor(singleItem.trackIdx, singleItem.itemIdx, reaperColor)
+        itemCmd.setColor(singleItem.guid, reaperColor)
       );
     },
     [singleItem, sendCommand]
@@ -188,15 +189,24 @@ export function NavigateItemInfoBar({
 
   const handleToggleLock = useCallback(() => {
     if (!singleItem) return;
-    sendCommand(itemCmd.setLock(singleItem.trackIdx, singleItem.itemIdx, singleItem.locked ? 0 : 1));
+    sendCommand(itemCmd.setLock(singleItem.guid, singleItem.locked ? 0 : 1));
   }, [singleItem, sendCommand]);
 
   // Notes handlers (single item)
+  // Editing starts from REAPER's notes, never from a failed or pending load:
+  // saving replaces them
+  const handleNotesEdit = useCallback(() => {
+    if (itemNotes.status !== 'loaded') return;
+    setNotesValue(itemNotes.notes);
+    setIsEditingNotes(true);
+  }, [itemNotes.status, itemNotes.notes]);
+
   const handleNotesSubmit = useCallback(() => {
-    if (!singleItem) return;
-    sendCommand(itemCmd.setNotes(singleItem.trackIdx, singleItem.itemIdx, notesValue));
+    if (!singleItem || itemNotes.status !== 'loaded') return;
+    sendCommand(itemCmd.setNotes(singleItem.guid, notesValue));
+    itemNotes.markSaved(notesValue);
     setIsEditingNotes(false);
-  }, [singleItem, sendCommand, notesValue]);
+  }, [singleItem, itemNotes, sendCommand, notesValue]);
 
   const handleNotesKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -210,37 +220,12 @@ export function NavigateItemInfoBar({
     setIsEditingNotes(false);
   }, [singleItem?.guid]);
 
-  // Fetch notes when sheet opens (if item has notes)
-  useEffect(() => {
-    if (!showItemSheet || !singleItem?.hasNotes || !connected) return;
-    if (notesValue) return; // Already fetched
-
-    const fetchNotes = async () => {
-      setNotesLoading(true);
-      try {
-        const cmd = itemCmd.getNotes(singleItem.trackIdx, singleItem.itemIdx);
-        const response = await sendAsync(cmd.command, cmd.params) as {
-          success: boolean;
-          payload?: { notes: string };
-        };
-        if (response.success && response.payload) {
-          setNotesValue(response.payload.notes || '');
-        }
-      } catch {
-        // Ignore fetch errors
-      } finally {
-        setNotesLoading(false);
-      }
-    };
-    fetchNotes();
-  }, [showItemSheet, singleItem, connected, sendAsync, notesValue]);
-
   // Focus notes input when editing starts
   useEffect(() => {
-    if (isEditingNotes && !notesLoading && notesInputRef.current) {
+    if (isEditingNotes && notesInputRef.current) {
       notesInputRef.current.focus();
     }
-  }, [isEditingNotes, notesLoading]);
+  }, [isEditingNotes]);
 
   // ========== Move Item Handlers ==========
 
@@ -284,6 +269,7 @@ export function NavigateItemInfoBar({
     if (!showItemSheet) {
       setShowMoveUI(false);
       setShowTrackPicker(false);
+      setIsEditingNotes(false);
     }
   }, [showItemSheet]);
 
@@ -339,7 +325,7 @@ export function NavigateItemInfoBar({
     (color: string) => {
       const reaperColor = hexToReaperColor(color);
       for (const item of selectedItems) {
-        sendCommand(itemCmd.setColor(item.trackIdx, item.itemIdx, reaperColor));
+        sendCommand(itemCmd.setColor(item.guid, reaperColor));
       }
     },
     [selectedItems, sendCommand]
@@ -349,7 +335,7 @@ export function NavigateItemInfoBar({
   const handleBatchLockAll = useCallback(() => {
     for (const item of selectedItems) {
       if (!item.locked) {
-        sendCommand(itemCmd.setLock(item.trackIdx, item.itemIdx, 1));
+        sendCommand(itemCmd.setLock(item.guid, 1));
       }
     }
   }, [selectedItems, sendCommand]);
@@ -358,7 +344,7 @@ export function NavigateItemInfoBar({
   const handleBatchUnlockAll = useCallback(() => {
     for (const item of selectedItems) {
       if (item.locked) {
-        sendCommand(itemCmd.setLock(item.trackIdx, item.itemIdx, 0));
+        sendCommand(itemCmd.setLock(item.guid, 0));
       }
     }
   }, [selectedItems, sendCommand]);
@@ -367,7 +353,7 @@ export function NavigateItemInfoBar({
   const handleBatchNextTake = useCallback(() => {
     for (const item of selectedItems) {
       if (item.takeCount > 1 && item.activeTakeIdx < item.takeCount - 1) {
-        sendCommand(itemCmd.setActiveTake(item.trackIdx, item.itemIdx, item.activeTakeIdx + 1));
+        sendCommand(itemCmd.setActiveTake(item.guid, item.activeTakeIdx + 1));
       }
     }
   }, [selectedItems, sendCommand]);
@@ -376,7 +362,7 @@ export function NavigateItemInfoBar({
   const handleBatchPrevTake = useCallback(() => {
     for (const item of selectedItems) {
       if (item.takeCount > 1 && item.activeTakeIdx > 0) {
-        sendCommand(itemCmd.setActiveTake(item.trackIdx, item.itemIdx, item.activeTakeIdx - 1));
+        sendCommand(itemCmd.setActiveTake(item.guid, item.activeTakeIdx - 1));
       }
     }
   }, [selectedItems, sendCommand]);
@@ -580,7 +566,7 @@ export function NavigateItemInfoBar({
                       key={i}
                       onClick={() => {
                         sendCommand(
-                          itemCmd.setActiveTake(singleItem.trackIdx, singleItem.itemIdx, i)
+                          itemCmd.setActiveTake(singleItem.guid, i)
                         );
                       }}
                       className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-sm transition-colors ${
@@ -684,23 +670,30 @@ export function NavigateItemInfoBar({
                     </button>
                   </div>
                 </div>
-              ) : notesLoading ? (
+              ) : itemNotes.status === 'failed' ? (
+                <button
+                  onClick={itemNotes.retry}
+                  className="w-full text-left bg-bg-elevated text-text-muted text-sm px-3 py-2 rounded-lg border border-border-default hover:border-text-tertiary transition-colors"
+                >
+                  Couldn't load notes. Tap to try again.
+                </button>
+              ) : itemNotes.status !== 'loaded' ? (
                 <div className="w-full bg-bg-elevated text-text-muted text-sm px-3 py-2 rounded-lg border border-border-default">
                   Loading...
                 </div>
-              ) : notesValue ? (
+              ) : itemNotes.notes ? (
                 <button
-                  onClick={() => setIsEditingNotes(true)}
+                  onClick={handleNotesEdit}
                   className="w-full text-left bg-bg-elevated text-text-primary text-sm px-3 py-2 rounded-lg border border-border-default hover:border-text-tertiary transition-colors"
                 >
-                  <span className="block truncate">{notesValue.split('\n')[0]}</span>
-                  {notesValue.includes('\n') && (
+                  <span className="block truncate">{itemNotes.notes.split('\n')[0]}</span>
+                  {itemNotes.notes.includes('\n') && (
                     <span className="text-text-muted text-xs">...</span>
                   )}
                 </button>
               ) : (
                 <button
-                  onClick={() => setIsEditingNotes(true)}
+                  onClick={handleNotesEdit}
                   className="w-full text-left bg-bg-elevated text-text-muted text-sm px-3 py-2 rounded-lg border border-border-default border-dashed hover:border-text-tertiary transition-colors"
                 >
                   Add notes...
