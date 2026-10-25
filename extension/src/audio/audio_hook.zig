@@ -49,11 +49,10 @@ pub fn register(api: *const raw.Api) bool {
 
     if (api.registerAudioHook(&g_hook_reg)) {
         g_registered = true;
-        logging.info("Audio hook registered", .{});
+        logging.debug("Audio hook registered", .{});
         return true;
     }
-    logging.err("Failed to register audio hook", .{});
-    return false;
+    return false; // the caller logs it, with its context
 }
 
 /// Unregister the audio hook from REAPER. Call from main thread.
@@ -61,7 +60,7 @@ pub fn unregister(api: *const raw.Api) void {
     if (!g_registered) return;
     api.unregisterAudioHook(&g_hook_reg);
     g_registered = false;
-    logging.info("Audio hook unregistered", .{});
+    logging.debug("Audio hook unregistered", .{});
 }
 
 /// Get a pointer to the ring buffer for the network thread to read from.

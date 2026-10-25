@@ -39,7 +39,7 @@ pub fn handleItemSetActiveTake(api: anytype, cmd: protocol.CommandMessage, respo
     // Bounds check: verify take index is valid
     const num_takes = api.itemTakeCount(item_info.item);
     if (take_idx < 0 or take_idx >= num_takes) {
-        logging.warn("Invalid take index {d} (item has {d} takes)", .{ take_idx, num_takes });
+        logging.debug("Invalid take index {d} (item has {d} takes)", .{ take_idx, num_takes });
         response.err("INVALID_TAKE_INDEX", "Take index out of range");
         return;
     }

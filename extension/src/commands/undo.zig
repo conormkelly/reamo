@@ -17,7 +17,7 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     defer std.heap.c_allocator.free(description);
 
     api.undoAddPoint(description.ptr);
-    logging.info("Added undo point: {s}", .{description});
+    logging.debug("Added undo point ({d}-byte description)", .{description.len});
     response.success(null);
 }
 
@@ -48,7 +48,7 @@ pub fn handleUndo(api: anytype, _: protocol.CommandMessage, response: *mod.Respo
         return;
     }
 
-    logging.info("Undo performed: {s}", .{action_desc.?});
+    logging.debug("Undo performed: {s}", .{action_desc.?});
 
     // Return success with the action that was undone
     response.successWithAction(action_desc.?);
@@ -70,7 +70,7 @@ pub fn handleRedo(api: anytype, _: protocol.CommandMessage, response: *mod.Respo
         return;
     }
 
-    logging.info("Redo performed: {s}", .{action_desc.?});
+    logging.debug("Redo performed: {s}", .{action_desc.?});
 
     // Return success with the action that was redone
     response.successWithAction(action_desc.?);

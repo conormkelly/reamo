@@ -446,6 +446,27 @@ pub fn setDebug(on: bool) void {
     sink.submit(timestamp, .info, std.fmt.bufPrint(&buf, "Log level {s} until REAPER restarts", .{level.name()}) catch unreachable);
 }
 
+/// Text a client sent, for a log line: `{f}` writes at most 64 bytes of it,
+/// with control characters escaped, so a client can't forge log lines or
+/// push the rest of the line out of the 512-byte message.
+pub fn untrusted(text: []const u8) Untrusted {
+    return .{ .text = text };
+}
+
+pub const Untrusted = struct {
+    text: []const u8,
+
+    const SHOWN = 64;
+
+    pub fn format(self: Untrusted, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        const shown = utf8.prefix(self.text, SHOWN);
+        for (shown) |c| {
+            if (c < 0x20 or c == 0x7f) try w.print("\\x{x:0>2}", .{c}) else try w.writeByte(c);
+        }
+        if (shown.len < self.text.len) try w.print("...(+{d} bytes)", .{self.text.len - shown.len});
+    }
+};
+
 /// Get the log file path (for error messages)
 pub fn getLogPath() ?[]const u8 {
     if (sink.path_len == 0) return null;
@@ -545,6 +566,14 @@ const TestSink = struct {
         return self.tmp.dir.readFile(name, buf);
     }
 };
+
+test "client text in a log line is cut short and can't start a line of its own" {
+    var buf: [MSG_CAP]u8 = undefined;
+    const msg = formatMessage(&buf, "unknown command '{f}'", .{untrusted("a\n[01.01.2026 00:00:00.000] ERROR forged" ++ "x" ** 100)});
+    try testing.expect(std.mem.indexOfScalar(u8, msg, '\n') == null);
+    try testing.expect(std.mem.indexOf(u8, msg, "a\\x0a[01.01.2026") != null);
+    try testing.expect(std.mem.endsWith(u8, msg, "bytes)'"));
+}
 
 test "Level.fromString" {
     try testing.expectEqual(Level.err, Level.fromString("error"));

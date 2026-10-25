@@ -84,7 +84,7 @@ pub fn handleGetList(api: anytype, _: protocol.CommandMessage, response: *mod.Re
         return;
     };
 
-    logging.info("fxPlugin/getList: returning {d} plugins, {d} bytes", .{ idx, stream.pos });
+    logging.debug("fxPlugin/getList: returning {d} plugins, {d} bytes", .{ idx, stream.pos });
     response.successLargePayload(stream.getWritten());
 }
 
