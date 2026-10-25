@@ -626,20 +626,8 @@ export const redo = {
 // ExtState Commands
 // =============================================================================
 
+// The extension only accepts extname "Reamo" with its own keys (see API.md).
 export const extstate = {
-  get: (section: string, key: string): WSCommand => ({
-    command: 'extstate/get',
-    params: { section, key },
-  }),
-  set: (
-    section: string,
-    key: string,
-    value: string,
-    persist?: number
-  ): WSCommand => ({
-    command: 'extstate/set',
-    params: { section, key, value, persist },
-  }),
   projGet: (extname: string, key: string): WSCommand => ({
     command: 'extstate/projGet',
     params: { extname, key },

@@ -23,7 +23,7 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 - [Tempo](#tempo-commands) — set, tap
 - [Time Signature](#time-signature-commands) — set
 - [Metronome](#metronome-commands) — toggle, getVolume, setVolume
-- [ExtState](#extstate-commands) — get, set, projGet, projSet
+- [ExtState](#extstate-commands) — projGet, projSet (REAmo data only)
 - [Project Notes](#project-notes-commands) — subscribe, unsubscribe, get, set
 - [Undo](#undo-commands) — add, begin, end, do, redo
 - [Gesture](#gesture-commands) — start, end
@@ -1695,19 +1695,26 @@ Set metronome volume. Accepts dB or linear.
 
 ## ExtState Commands
 
-Persistent key-value storage.
+Project-scoped storage for REAmo's own data. Clients have no general ExtState
+access: other extensions and scripts keep settings (and sometimes secrets) in
+ExtState, so only the `Reamo` extname and the keys below are accepted. Anything
+else fails with `FORBIDDEN`.
 
-### `extstate/get`
+| Key | Contents |
+|-----|----------|
+| `CustomBanks` | Mixer custom banks (JSON) |
 
-Get a global extended state value. **Returns data.**
+### `extstate/projGet`
+
+Get a value from the current project's `Reamo` state. **Returns data.**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `section` | string | Yes | Section name (max 64 chars) |
-| `key` | string | Yes | Key name (max 64 chars) |
+| `extname` | string | Yes | Must be `Reamo` |
+| `key` | string | Yes | One of the keys above |
 
 ```json
-{"type": "command", "command": "extstate/get", "section": "MyApp", "key": "setting1", "id": "1"}
+{"type": "command", "command": "extstate/projGet", "extname": "Reamo", "key": "CustomBanks", "id": "1"}
 ```
 
 Response:
@@ -1716,48 +1723,20 @@ Response:
 {"type": "response", "id": "1", "success": true, "payload": {"value": "stored_value"}}
 ```
 
-Returns `{"value": null}` if key doesn't exist.
-
-### `extstate/set`
-
-Set a global extended state value.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `section` | string | Yes | Section name |
-| `key` | string | Yes | Key name |
-| `value` | string | Yes | Value to store (max 1024 chars) |
-| `persist` | int | No | 1 = persist to reaper-extstate.ini |
-
-```json
-{"type": "command", "command": "extstate/set", "section": "MyApp", "key": "setting1", "value": "hello", "persist": 1}
-```
-
-### `extstate/projGet`
-
-Get a project-specific extended state value. **Returns data.**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `extname` | string | Yes | Extension name (max 64 chars) |
-| `key` | string | Yes | Key name (max 64 chars) |
-
-```json
-{"type": "command", "command": "extstate/projGet", "extname": "MyApp", "key": "projectSetting", "id": "1"}
-```
+Returns `{"value": null}` if the key isn't set.
 
 ### `extstate/projSet`
 
-Set a project-specific extended state value.
+Set a value in the current project's `Reamo` state.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `extname` | string | Yes | Extension name |
-| `key` | string | Yes | Key name |
+| `extname` | string | Yes | Must be `Reamo` |
+| `key` | string | Yes | One of the keys above |
 | `value` | string | Yes | Value to store (max 16384 chars) |
 
 ```json
-{"type": "command", "command": "extstate/projSet", "extname": "MyApp", "key": "projectSetting", "value": "data"}
+{"type": "command", "command": "extstate/projSet", "extname": "Reamo", "key": "CustomBanks", "value": "[]"}
 ```
 
 ---
