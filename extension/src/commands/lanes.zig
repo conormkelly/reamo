@@ -284,6 +284,27 @@ fn selectedTracks(api: anytype) ?[]*anyopaque {
     return list.toOwnedSlice(std.heap.c_allocator) catch null;
 }
 
+/// The items selected now, to give the user back after an action that works
+/// on the item selection (free with c_allocator); null if out of memory.
+fn selectedItems(api: anytype) ?[]*anyopaque {
+    var list: std.ArrayListUnmanaged(*anyopaque) = .empty;
+    var i: c_int = 1;
+    while (i <= api.trackCount()) : (i += 1) {
+        const track = api.getTrackByUnifiedIdx(i) orelse continue;
+        var j: c_int = 0;
+        while (j < api.trackItemCount(track)) : (j += 1) {
+            const item = api.getItemByIdx(track, j) orelse continue;
+            const selected = api.getItemSelected(item) catch false;
+            if (!selected) continue;
+            list.append(std.heap.c_allocator, item) catch {
+                list.deinit(std.heap.c_allocator);
+                return null;
+            };
+        }
+    }
+    return list.toOwnedSlice(std.heap.c_allocator) catch null;
+}
+
 /// A whole track state chunk, read into `buf` (free with c_allocator).
 const TrackChunk = struct { buf: []u8, text: []const u8 };
 
@@ -516,12 +537,23 @@ pub fn handleDeleteCompArea(api: anytype, cmd: protocol.CommandMessage, response
         return;
     };
 
-    // Unselect all items first, then select just this one
-    api.runCommand(ACTION_UNSELECT_ALL_ITEMS);
-    _ = api.setItemSelected(item, true);
+    // The action deletes the selected comp areas: select only this one, then
+    // give the user back the rest of their selection.
+    const saved = selectedItems(api) orelse {
+        response.err("ALLOC_FAILED", "Failed to save item selection");
+        return;
+    };
+    defer std.heap.c_allocator.free(saved);
 
     api.undoBeginBlock();
+    api.runCommand(ACTION_UNSELECT_ALL_ITEMS);
+    _ = api.setItemSelected(item, true);
     api.runCommand(ACTION_DELETE_COMP_AREA);
+    for (saved) |kept| {
+        // The deleted comp area is gone; never hand its pointer back to REAPER.
+        if (kept == item or !api.validateItemPtr(kept)) continue;
+        _ = api.setItemSelected(kept, true);
+    }
     api.updateTimeline();
     api.undoEndBlock("REAmo: Delete comp area");
 
