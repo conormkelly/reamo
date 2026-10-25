@@ -269,6 +269,21 @@ fn laneExists(api: anytype, track: *anyopaque, lane: c_int) bool {
     return lane >= 0 and lane < num_lanes;
 }
 
+/// The user tracks selected now (free with c_allocator), or null on OOM.
+fn selectedTracks(api: anytype) ?[]*anyopaque {
+    var list: std.ArrayListUnmanaged(*anyopaque) = .empty;
+    var i: c_int = 1;
+    while (i <= api.trackCount()) : (i += 1) {
+        const track = api.getTrackByUnifiedIdx(i) orelse continue;
+        if (!api.getTrackSelected(track)) continue;
+        list.append(std.heap.c_allocator, track) catch {
+            list.deinit(std.heap.c_allocator);
+            return null;
+        };
+    }
+    return list.toOwnedSlice(std.heap.c_allocator) catch null;
+}
+
 /// A whole track state chunk, read into `buf` (free with c_allocator).
 const TrackChunk = struct { buf: []u8, text: []const u8 };
 
@@ -421,11 +436,20 @@ pub fn handleCreateCompLane(api: anytype, cmd: protocol.CommandMessage, response
         return;
     };
 
-    // Select the track first (action operates on selected track)
-    _ = api.setTrackSelected(resolution.track, true);
+    // The action acts on every selected track: make the target the only
+    // one, then give the user back the selection they had.
+    const saved = selectedTracks(api) orelse {
+        response.err("ALLOC_FAILED", "Failed to save track selection");
+        return;
+    };
+    defer std.heap.c_allocator.free(saved);
 
     api.undoBeginBlock();
+    api.runCommand(reaper.Command.UNSELECT_ALL_TRACKS);
+    _ = api.setTrackSelected(resolution.track, true);
     api.runCommand(ACTION_CREATE_COMP_LANE);
+    api.runCommand(reaper.Command.UNSELECT_ALL_TRACKS);
+    for (saved) |track| _ = api.setTrackSelected(track, true);
     api.updateTimeline();
     api.undoEndBlock("REAmo: Create comp lane");
 
