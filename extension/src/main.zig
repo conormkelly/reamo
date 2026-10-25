@@ -709,6 +709,9 @@ fn doProcessing() !void {
     // Check for gesture timeouts
     client_management.checkGestureTimeouts(&client_ctx);
 
+    // Drain output queued behind slow clients' sockets before writing more
+    shared_state.flushPendingOutput();
+
     // Build snapshot context
     const snap_ctx = client_management.SnapshotContext{
         .shared_state = shared_state,
