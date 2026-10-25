@@ -7,7 +7,15 @@ const item_guid_cache = @import("../state/item_guid_cache.zig");
 
 /// Helper to get item by track and item index from command
 /// Uses unified indexing: 0 = master, 1+ = user tracks
-fn getItemFromCmd(api: anytype, cmd: protocol.CommandMessage) ?struct { track: *anyopaque, item: *anyopaque } {
+const ItemLocation = struct { track: *anyopaque, item: *anyopaque };
+
+/// The item a command names: by `itemGuid` when given, which stays on the
+/// same item however REAPER re-sorts the track, else by `trackIdx` and
+/// `itemIdx`. A GUID that no longer resolves finds nothing; the item now at
+/// the old index is someone else's.
+fn getItemFromCmd(api: anytype, cmd: protocol.CommandMessage) ?ItemLocation {
+    if (cmd.getString("itemGuid")) |guid| return findItemLocation(api, mod.g_ctx.item_cache, guid);
+
     const track_idx = cmd.getInt("trackIdx") orelse return null;
     const item_idx = cmd.getInt("itemIdx") orelse return null;
 
@@ -603,15 +611,21 @@ pub fn handleItemGetTakes(api: anytype, cmd: protocol.CommandMessage, response: 
 /// miss the cached track, then the whole project, is searched (that also
 /// finds items past the poll's item cap, which the cache never holds).
 pub fn findItemByGuid(api: anytype, cache: ?*const item_guid_cache.ItemGuidCache, guid: []const u8) ?*anyopaque {
+    const loc = findItemLocation(api, cache, guid) orelse return null;
+    return loc.item;
+}
+
+/// findItemByGuid, with the track the item is on.
+fn findItemLocation(api: anytype, cache: ?*const item_guid_cache.ItemGuidCache, guid: []const u8) ?ItemLocation {
     var hinted_track: ?*anyopaque = null;
     if (cache) |c| {
         if (c.resolve(guid)) |loc| {
             if (api.getTrackByUnifiedIdx(loc.track_idx)) |track| {
                 hinted_track = track;
                 if (api.getItemByIdx(track, loc.item_idx)) |item| {
-                    if (itemHasGuid(api, item, guid)) return item;
+                    if (itemHasGuid(api, item, guid)) return .{ .track = track, .item = item };
                 }
-                if (findItemOnTrack(api, track, guid)) |item| return item;
+                if (findItemOnTrack(api, track, guid)) |item| return .{ .track = track, .item = item };
             }
         }
     }
@@ -619,7 +633,7 @@ pub fn findItemByGuid(api: anytype, cache: ?*const item_guid_cache.ItemGuidCache
     while (t <= api.trackCount()) : (t += 1) {
         const track = api.getTrackByUnifiedIdx(t) orelse continue;
         if (track == hinted_track) continue;
-        if (findItemOnTrack(api, track, guid)) |item| return item;
+        if (findItemOnTrack(api, track, guid)) |item| return .{ .track = track, .item = item };
     }
     return null;
 }
@@ -675,4 +689,30 @@ test "findItemByGuid finds items the cache does not hold, and nothing for a dele
     try std.testing.expectEqual(m.getItemByIdx(m.getTrackByUnifiedIdx(2).?, 0), findItemByGuid(&m, &cache, GUID_C));
     try std.testing.expectEqual(m.getItemByIdx(m.getTrackByUnifiedIdx(2).?, 0), findItemByGuid(&m, null, "{cccccccc-0000-0000-0000-000000000000}"));
     try std.testing.expectEqual(@as(?*anyopaque, null), findItemByGuid(&m, &cache, GUID_A));
+}
+
+test "an item command naming itemGuid acts on that item after REAPER re-sorts the track" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{ .track_count = 2 };
+    m.tracks[2].item_count = 2;
+    // The phone saw A at index 0; another item moved before it since.
+    setMockItem(&m, 2, 0, GUID_B);
+    setMockItem(&m, 2, 1, GUID_A);
+    const cmd = protocol.CommandMessage.parse(
+        \\{"type":"command","command":"item/setNotes","itemGuid":"{AAAAAAAA-0000-0000-0000-000000000000}","trackIdx":2,"itemIdx":0}
+    ).?;
+    const found = getItemFromCmd(&m, cmd).?;
+    try std.testing.expectEqual(m.getTrackByUnifiedIdx(2).?, found.track);
+    try std.testing.expectEqual(m.getItemByIdx(m.getTrackByUnifiedIdx(2).?, 1).?, found.item);
+}
+
+test "an item command naming a deleted itemGuid finds nothing, not the item at its old index" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{ .track_count = 1 };
+    m.tracks[1].item_count = 1;
+    setMockItem(&m, 1, 0, GUID_B);
+    const cmd = protocol.CommandMessage.parse(
+        \\{"type":"command","command":"item/delete","itemGuid":"{AAAAAAAA-0000-0000-0000-000000000000}","trackIdx":1,"itemIdx":0}
+    ).?;
+    try std.testing.expect(getItemFromCmd(&m, cmd) == null);
 }
