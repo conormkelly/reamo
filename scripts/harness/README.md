@@ -136,3 +136,29 @@ invisible error dialog.
 
 Name scenarios after the behaviour they pin (`item-notes-poll`), and keep
 each to one concern so a failure points somewhere.
+
+## The operation tour
+
+The `tour-*` scenarios run every protocol command against a realistic
+project (`corpus/*.lua` builds it), with REAPER as the oracle. Each op in
+`tour_ops/` performs one user action with the parameters the frontend
+sends, then the tour (`tour.py`) checks four things:
+
+- REAPER shows exactly the change the op declares and nothing else. Every
+  user-visible fact is in `digest.lua`, so an edit that reaches the wrong
+  track, item or setting fails.
+- Undo and redo from the client return the project to its state before
+  and after the op, where the op is undoable.
+- Every event stream a client mirrors (`tour_mirror.py`) converges to
+  REAPER's state.
+- REAPER is still alive.
+
+```sh
+scripts/harness/check_tour_coverage.py    # every registry command toured or exempt?
+TOUR_ONLY="marker region" make harness SCENARIOS=tour-band-session   # ops whose name contains either word
+```
+
+A new command needs an op (or an `EXEMPT` entry with the reason) or the
+coverage check fails. Ops find their targets by name and raise `Skip` when
+a project lacks them. They leave the project as they found it, so a later
+op sees the same session whatever runs before it.

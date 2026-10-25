@@ -11,6 +11,8 @@
 #   HARNESS_IMAGE   image tag (default: reamo-v1-harness)
 #   HARNESS_JOBS    scenarios to run at once (default: 4); output is still
 #                   printed one scenario at a time, in order
+#   TOUR_ONLY       tour scenarios run only the ops whose name contains one of
+#                   these space-separated words
 #
 # Each scenario gets a fresh REAPER in its own --rm container with no network
 # and no published ports, so it can run beside a desktop REAPER (or another
@@ -84,7 +86,7 @@ run_one() {
         -v "$OUT/harness:/harness:ro" -v "$OUT:/ext:ro" -v "$ROOT/web:/web:ro" \
         -v "$ROOT/extension/effects:/effects:ro" -v "$ROOT/test-fixtures:/fixtures:ro" \
         -v "$ARTIFACTS:/out" \
-        ${lic_mount[@]+"${lic_mount[@]}"} -e HARNESS_GDB="${HARNESS_GDB:-0}" -e HARNESS_OUT_DIR="$out" \
+        ${lic_mount[@]+"${lic_mount[@]}"} -e HARNESS_GDB="${HARNESS_GDB:-0}" -e HARNESS_OUT_DIR="$out" -e TOUR_ONLY="${TOUR_ONLY:-}" \
         "$IMAGE" bash /harness/boot.sh "$s" >"$OUT/run-$i.log" 2>&1 && rc=0 || rc=$?
     echo "$rc" >"$OUT/run-$i.status"
 }
