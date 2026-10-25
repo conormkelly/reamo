@@ -160,7 +160,14 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     };
     defer std.heap.c_allocator.free(fx_name);
 
-    const position = cmd.getInt("position") orelse -1;
+    // TrackFX_AddByName's last argument is not a position: -1 adds at the
+    // end, 0 only looks an instance up, 1 adds if none exists, and
+    // -1000 - N inserts at N.
+    const fx_count = api.trackFxCount(resolution.track);
+    const instantiate: c_int = if (cmd.getInt("position")) |pos|
+        (if (pos >= 0 and pos < fx_count) -1000 - pos else -1)
+    else
+        -1;
 
     // Build null-terminated name for REAPER API
     var name_buf: [256:0]u8 = undefined;
@@ -172,7 +179,7 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     const undo_desc: [*:0]const u8 = std.fmt.bufPrintZ(&undo_buf, "REAmo: Add FX: {s}", .{fx_name}) catch "REAmo: Add FX";
 
     api.undoBeginBlock();
-    const fx_idx = api.trackFxAddByName(resolution.track, @ptrCast(&name_buf), false, position);
+    const fx_idx = api.trackFxAddByName(resolution.track, @ptrCast(&name_buf), false, instantiate);
     api.undoEndBlock(undo_desc);
 
     if (fx_idx < 0) {

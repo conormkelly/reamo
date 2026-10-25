@@ -1655,9 +1655,11 @@ pub const Api = struct {
     /// recFX: true for recording FX chain, false for normal FX chain
     /// position: -1 to add at end, or index to insert before
     /// Returns: FX index on success, -1 on failure
-    pub fn trackFxAddByName(self: *const Api, track: *anyopaque, name: [*:0]const u8, recFX: bool, position: c_int) c_int {
+    /// TrackFX_AddByName. `instantiate`: -1 always add at the end, 0 only
+    /// find an existing instance, 1 add if none exists, -1000 - N insert at N.
+    pub fn trackFxAddByName(self: *const Api, track: *anyopaque, name: [*:0]const u8, recFX: bool, instantiate: c_int) c_int {
         const f = self.trackFX_AddByName orelse return -1;
-        return f(track, name, recFX, position);
+        return f(track, name, recFX, instantiate);
     }
 
     /// Delete an FX from a track.
