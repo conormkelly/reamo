@@ -1121,7 +1121,9 @@ pub const Api = struct {
         const beats_in_measure = f(null, time, &measures, &cml, &fullbeats, &cdenom);
         return .{
             .beats = fullbeats, // Total beats from project start
-            .measures = measures + 1, // Convert to 1-based
+            // 1-based; saturating, as REAPER reports maxInt for a time past
+            // any bar it can count.
+            .measures = measures +| 1,
             .beats_in_measure = beats_in_measure, // Return value IS beats within measure (0-indexed)
             .time_sig_denom = cdenom,
             .time_sig_num = cml,
