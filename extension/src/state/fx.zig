@@ -202,9 +202,8 @@ pub const State = struct {
     // Allocator-based version - returns owned slice from allocator
     // Allocates from arena instead of stack to avoid stack overflow in timer callbacks
     pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
-        const buf = try allocator.alloc(u8, 32768);
-        const json = self.toJson(buf) orelse return error.JsonSerializationFailed;
-        return json;
+        // ~210 B per FX slot typically (names, preset) + envelope
+        return protocol.serializeAlloc(allocator, 256 + self.fx.len * 320, self, toJson);
     }
 };
 
@@ -334,4 +333,19 @@ test "poll with no FX returns empty state" {
     // No defer needed - empty slice doesn't need freeing
 
     try std.testing.expectEqual(@as(usize, 0), state.fx.len);
+}
+
+test "fx toJsonAlloc serializes projects larger than one fixed buffer" {
+    // A fixed 32 KB buffer held ~157 FX across the project; the event was dropped.
+    var backing: [1 << 20]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&backing);
+    var slots: [600]FxSlot = undefined;
+    const name = "VST3: Pro-Q 3 (FabFilter)";
+    for (&slots, 0..) |*s, i| {
+        s.* = .{ .track_idx = @intCast(i / 4), .fx_index = @intCast(i % 4) };
+        @memcpy(s.name[0..name.len], name);
+        s.name_len = name.len;
+    }
+    const state = State{ .fx = &slots };
+    try std.testing.expect(try std.json.validate(std.testing.allocator, try state.toJsonAlloc(fba.allocator())));
 }

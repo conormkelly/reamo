@@ -1,5 +1,6 @@
 const std = @import("std");
 const encoding = @import("../platform/encoding.zig");
+const logging = @import("logging.zig");
 
 // Protocol version - increment when breaking changes are made
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -610,6 +611,31 @@ pub fn buildEvent(buf: []u8, event_name: []const u8, payload_fn: fn (*JsonWriter
 // On Windows, transcodes from the system's active code page (e.g. Windows-1252)
 // to UTF-8 before escaping — REAPER's C API returns strings in the local code
 // page, not UTF-8, which would otherwise break WebSocket text frames.
+/// Serialize with `toJson(ctx, buf)` (which returns null when `buf` is too
+/// small) into a buffer from `allocator`, starting at `initial_size` and
+/// doubling until it fits. Entity JSON size depends on names and escaping, so
+/// no per-entity estimate is safe; a too-small fixed buffer silently dropped
+/// whole broadcasts for larger projects. Each failed attempt is freed before
+/// the next, which a frame arena (FixedBufferAllocator) reclaims, so retries
+/// don't consume scratch space. Logs if the allocator itself runs out.
+pub fn serializeAlloc(
+    allocator: std.mem.Allocator,
+    initial_size: usize,
+    ctx: anytype,
+    comptime toJson: fn (@TypeOf(ctx), []u8) ?[]const u8,
+) ![]const u8 {
+    var size = @max(initial_size, 256);
+    while (true) {
+        const buf = allocator.alloc(u8, size) catch |err| {
+            logging.warn("JSON serialization needs more than {d} bytes: {s}", .{ size, @errorName(err) });
+            return err;
+        };
+        if (toJson(ctx, buf)) |json| return json;
+        allocator.free(buf);
+        size = std.math.mul(usize, size, 2) catch return error.OutOfMemory;
+    }
+}
+
 pub fn writeJsonString(writer: anytype, s: []const u8) !void {
     // Transcode from system code page to UTF-8 (no-op on non-Windows / pure ASCII).
     // Keep buffer ≤1KB — this runs in timer callbacks with deep call stacks (see ZIG_GUIDE §1).
@@ -1041,4 +1067,27 @@ test "jsonGetIntArray accepts CRLF whitespace between elements" {
     const count = jsonGetIntArray(data, "indices", 10, &values).?;
     try std.testing.expectEqual(@as(usize, 2), count);
     try std.testing.expectEqual(@as(c_int, 2), values[1]);
+}
+
+test "serializeAlloc grows past a too-small estimate and reclaims failed attempts" {
+    const Payload = struct {
+        len: usize,
+        fn toJson(self: *const @This(), buf: []u8) ?[]const u8 {
+            if (buf.len < self.len) return null;
+            @memset(buf[0..self.len], 'x');
+            return buf[0..self.len];
+        }
+    };
+    var backing: [64 * 1024]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&backing);
+    const payload = Payload{ .len = 10_000 };
+    const out = try serializeAlloc(fba.allocator(), 1, &payload, Payload.toJson);
+    try std.testing.expectEqual(@as(usize, 10_000), out.len);
+    // 256 -> ... -> 16384: only the successful buffer remains allocated.
+    try std.testing.expectEqual(@as(usize, 16384), fba.end_index);
+
+    // An allocator that can't hold the payload is an error, not a silent drop.
+    var small: [4096]u8 = undefined;
+    var small_fba = std.heap.FixedBufferAllocator.init(&small);
+    try std.testing.expectError(error.OutOfMemory, serializeAlloc(small_fba.allocator(), 1, &payload, Payload.toJson));
 }

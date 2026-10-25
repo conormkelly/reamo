@@ -334,15 +334,11 @@ pub const State = struct {
     // Allocator-based versions - return owned slice from allocator
     // Allocates from arena instead of stack to avoid stack overflow in timer callbacks
     pub fn markersToJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
-        const buf = try allocator.alloc(u8, 8192);
-        const json = self.markersToJson(buf) orelse return error.JsonSerializationFailed;
-        return json;
+        return protocol.serializeAlloc(allocator, 256 + self.markers.len * 224, self, markersToJson);
     }
 
     pub fn regionsToJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
-        const buf = try allocator.alloc(u8, 8192);
-        const json = self.regionsToJson(buf) orelse return error.JsonSerializationFailed;
-        return json;
+        return protocol.serializeAlloc(allocator, 256 + self.regions.len * 320, self, regionsToJson);
     }
 
     /// Poll markers within a time range (for timeline subscriptions).
@@ -514,9 +510,7 @@ pub const MarkersOnlyState = struct {
     }
 
     pub fn markersToJsonAlloc(self: *const MarkersOnlyState, allocator: std.mem.Allocator) ![]const u8 {
-        const buf = try allocator.alloc(u8, 8192);
-        const json = self.markersToJson(buf) orelse return error.JsonSerializationFailed;
-        return json;
+        return protocol.serializeAlloc(allocator, 256 + self.markers.len * 224, self, markersToJson);
     }
 
     /// Compute a hash for change detection.
@@ -570,9 +564,7 @@ pub const RegionsOnlyState = struct {
     }
 
     pub fn regionsToJsonAlloc(self: *const RegionsOnlyState, allocator: std.mem.Allocator) ![]const u8 {
-        const buf = try allocator.alloc(u8, 8192);
-        const json = self.regionsToJson(buf) orelse return error.JsonSerializationFailed;
-        return json;
+        return protocol.serializeAlloc(allocator, 256 + self.regions.len * 320, self, regionsToJson);
     }
 
     /// Compute a hash for change detection.
@@ -917,4 +909,29 @@ test "regionOverlapsRange" {
 
     // Region starts exactly at range end (no overlap)
     try std.testing.expect(!regionOverlapsRange(30.0, 40.0, 10.0, 30.0));
+}
+
+test "marker and region JSON serializes projects larger than one fixed buffer" {
+    // Fixed 8 KB buffers held ~58 markers / ~36 regions; broadcasts were dropped.
+    var backing: [1 << 20]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&backing);
+    var ms: [300]Marker = undefined;
+    var rs: [300]Region = undefined;
+    const name = "Verse 2 (double-tracked vocals, alt take)";
+    for (&ms, &rs, 0..) |*m, *r, i| {
+        m.* = .{ .id = @intCast(i), .position = @floatFromInt(i), .color = 0 };
+        @memcpy(m.name[0..name.len], name);
+        m.name_len = name.len;
+        r.* = .{ .id = @intCast(i), .start = @floatFromInt(i), .end = @floatFromInt(i + 1), .color = 0 };
+        @memcpy(r.name[0..name.len], name);
+        r.name_len = name.len;
+    }
+    const alloc = fba.allocator();
+    const full = State{ .markers = &ms, .regions = &rs };
+    try std.testing.expect(try std.json.validate(std.testing.allocator, try full.markersToJsonAlloc(alloc)));
+    try std.testing.expect(try std.json.validate(std.testing.allocator, try full.regionsToJsonAlloc(alloc)));
+    const mo = MarkersOnlyState{ .markers = &ms };
+    try std.testing.expect(try std.json.validate(std.testing.allocator, try mo.markersToJsonAlloc(alloc)));
+    const ro = RegionsOnlyState{ .regions = &rs };
+    try std.testing.expect(try std.json.validate(std.testing.allocator, try ro.regionsToJsonAlloc(alloc)));
 }
