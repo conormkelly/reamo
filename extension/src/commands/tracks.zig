@@ -35,12 +35,7 @@ pub fn resolveTrack(api: anytype, cmd: protocol.CommandMessage) ?TrackResolution
     const guid = cmd.getString("trackGuid") orelse return null;
     const cache = mod.g_ctx.guid_cache orelse return null;
 
-    const track = cache.resolve(guid) orelse return null;
-
-    // Validate the pointer is still valid (O(n) scan for safety after track deletion)
-    if (!api.validateTrackPtr(track)) {
-        return null; // Stale GUID - track was deleted
-    }
+    const track = cache.resolve(api, guid) orelse return null;
 
     // Get the index for gesture tracking
     const idx = api.getTrackIdx(track);

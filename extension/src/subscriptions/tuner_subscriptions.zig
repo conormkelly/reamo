@@ -241,7 +241,7 @@ pub const TunerSubscriptions = struct {
         }
 
         // Resolve track GUID to track pointer
-        const track = guid_cache.resolve(track_guid) orelse return error.TrackNotFound;
+        const track = guid_cache.resolve(api, track_guid) orelse return error.TrackNotFound;
 
         // Check if there's already a tuner for this track
         var tuner = self.findTrackTuner(track_guid);
@@ -434,7 +434,7 @@ pub const TunerSubscriptions = struct {
         api: anytype,
     ) !void {
         const tuner = self.findTrackTuner(track_guid) orelse return error.NotSubscribed;
-        const track = guid_cache.resolve(track_guid) orelse return error.TrackNotFound;
+        const track = guid_cache.resolve(api, track_guid) orelse return error.TrackNotFound;
 
         // Search Input FX chain by GUID to find current index
         // This handles when user has reordered the FX chain - CRITICAL for safety

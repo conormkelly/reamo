@@ -14,7 +14,7 @@
 ///   var cache = GuidCache.init(allocator);
 ///   defer cache.deinit();
 ///   try cache.rebuild(&backend);
-///   const track = cache.resolve("{XXXXXXXX-...}");
+///   const track = cache.resolve(&mock, "{XXXXXXXX-...}");
 ///   const idx = cache.resolveToIndex(track_ptr);
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -96,15 +96,16 @@ pub const GuidCache = struct {
         self.generation +%= 1;
     }
 
-    /// Resolve GUID to track pointer.
-    /// Returns null if GUID not found (track was deleted).
-    /// "master" resolves to master track via special case.
-    pub fn resolve(self: *const GuidCache, guid: []const u8) ?*anyopaque {
-        // Special case: "master" → master track
-        if (std.mem.eql(u8, guid, "master")) {
-            return self.master_track;
-        }
-        return self.map.get(guid);
+    /// Resolve GUID to a track REAPER still has. The cache is rebuilt only
+    /// after REAPER reports a track-list change, and commands run on their
+    /// own timer, so a cached pointer can outlive its track (deleted, or its
+    /// project tab closed); passing it to REAPER would use freed memory.
+    /// Every pointer is checked with ValidatePtr2 first, and "master" is the
+    /// current project's master, never one cached from another tab.
+    pub fn resolve(self: *const GuidCache, api: anytype, guid: []const u8) ?*anyopaque {
+        if (std.mem.eql(u8, guid, "master")) return api.masterTrack();
+        const track = self.map.get(guid) orelse return null;
+        return if (api.validateTrackPtr(track)) track else null;
     }
 
     /// Resolve track pointer to unified index (0 = master, 1+ = user tracks).
@@ -148,22 +149,38 @@ test "GuidCache init and deinit" {
 }
 
 test "GuidCache resolve returns null for unknown GUID" {
+    const reaper = @import("../reaper.zig");
+    var mock = reaper.MockBackend{};
     var cache = GuidCache.init(std.testing.allocator);
     defer cache.deinit();
 
-    try std.testing.expect(cache.resolve("{unknown-guid}") == null);
+    try std.testing.expect(cache.resolve(&mock, "{unknown-guid}") == null);
 }
 
-test "GuidCache resolve master special case" {
+test "GuidCache resolves master to the current project's master, not a cached pointer" {
+    const reaper = @import("../reaper.zig");
+    var mock = reaper.MockBackend{};
     var cache = GuidCache.init(std.testing.allocator);
     defer cache.deinit();
 
-    // Manually set master track for test
+    // A master pointer cached from a project tab that has since closed.
     var dummy: u8 = 0;
-    const dummy_ptr: *anyopaque = @ptrCast(&dummy);
-    cache.master_track = dummy_ptr;
+    cache.master_track = @ptrCast(&dummy);
 
-    try std.testing.expect(cache.resolve("master") == dummy_ptr);
+    try std.testing.expect(cache.resolve(&mock, "master") == mock.masterTrack());
+}
+
+test "GuidCache never resolves a track deleted since the last rebuild" {
+    const reaper = @import("../reaper.zig");
+    var mock = reaper.MockBackend{ .track_count = 3 };
+    var cache = GuidCache.init(std.testing.allocator);
+    defer cache.deinit();
+    try cache.rebuild(&mock);
+
+    // REAPER deletes track 3; the cache has not been rebuilt yet.
+    mock.track_count = 2;
+    try std.testing.expect(cache.resolve(&mock, "{00000000-0000-0000-0000-000000000003}") == null);
+    try std.testing.expect(cache.resolve(&mock, "{00000000-0000-0000-0000-000000000002}") != null);
 }
 
 test "GuidCache rebuild with mock backend" {
@@ -181,14 +198,14 @@ test "GuidCache rebuild with mock backend" {
     try std.testing.expectEqual(@as(u32, 1), cache.generation);
 
     // Resolve by GUID (mock generates deterministic GUIDs)
-    const track1 = cache.resolve("{00000000-0000-0000-0000-000000000001}");
+    const track1 = cache.resolve(&mock, "{00000000-0000-0000-0000-000000000001}");
     try std.testing.expect(track1 != null);
 
-    const track2 = cache.resolve("{00000000-0000-0000-0000-000000000002}");
+    const track2 = cache.resolve(&mock, "{00000000-0000-0000-0000-000000000002}");
     try std.testing.expect(track2 != null);
 
     // Unknown GUID returns null
-    try std.testing.expect(cache.resolve("{unknown}") == null);
+    try std.testing.expect(cache.resolve(&mock, "{unknown}") == null);
 }
 
 test "GuidCache rebuild clears stale entries" {
@@ -210,8 +227,8 @@ test "GuidCache rebuild clears stale entries" {
     try std.testing.expectEqual(@as(u32, 2), cache.generation);
 
     // Old GUIDs should be gone
-    try std.testing.expect(cache.resolve("{00000000-0000-0000-0000-000000000002}") == null);
-    try std.testing.expect(cache.resolve("{00000000-0000-0000-0000-000000000003}") == null);
+    try std.testing.expect(cache.resolve(&mock, "{00000000-0000-0000-0000-000000000002}") == null);
+    try std.testing.expect(cache.resolve(&mock, "{00000000-0000-0000-0000-000000000003}") == null);
 }
 
 test "GuidCache resolveToIndex" {
@@ -224,8 +241,8 @@ test "GuidCache resolveToIndex" {
     try cache.rebuild(&mock);
 
     // Get track pointers via GUID
-    const track1 = cache.resolve("{00000000-0000-0000-0000-000000000001}").?;
-    const track2 = cache.resolve("{00000000-0000-0000-0000-000000000002}").?;
+    const track1 = cache.resolve(&mock, "{00000000-0000-0000-0000-000000000001}").?;
+    const track2 = cache.resolve(&mock, "{00000000-0000-0000-0000-000000000002}").?;
 
     // Resolve back to indices
     try std.testing.expectEqual(@as(c_int, 1), cache.resolveToIndex(track1).?);

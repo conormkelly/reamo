@@ -34,7 +34,7 @@ pub fn generateParamValues(
     client: *const ClientSubscription,
 ) ?GenerateResult {
     // Resolve GUID to track pointer
-    const track = guid_cache_ptr.resolve(track_guid) orelse {
+    const track = guid_cache_ptr.resolve(api, track_guid) orelse {
         logging.debug("trackfxparam_generator: Track GUID not found in cache: {s}", .{track_guid});
         return null;
     };

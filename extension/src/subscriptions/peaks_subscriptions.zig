@@ -467,7 +467,7 @@ pub const PeaksSubscriptions = struct {
                     // Resolve each GUID to an index
                     for (0..client.guid_count) |i| {
                         const guid = client.getGuid(i) orelse continue;
-                        const track = cache.resolve(guid) orelse continue;
+                        const track = cache.resolve(api, guid) orelse continue;
 
                         // Get index from pointer
                         const idx = api.getTrackIdx(track);

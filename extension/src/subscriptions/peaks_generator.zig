@@ -252,7 +252,7 @@ pub fn generateTilesForSubscriptionBinary(
             for (0..sub.guid_count) |i| {
                 if (track_count >= MAX_TRACKS_PER_BROADCAST) break;
                 const guid = sub.getGuid(i) orelse continue;
-                const track = guid_cache.resolve(guid) orelse continue;
+                const track = guid_cache.resolve(api, guid) orelse continue;
                 const idx = api.getTrackIdx(track);
                 if (idx >= 0) {
                     track_indices_buf[track_count] = idx;
