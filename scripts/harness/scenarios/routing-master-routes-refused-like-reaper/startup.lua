@@ -1,0 +1,8 @@
+dofile(reaper.GetResourcePath() .. "/Scripts/harness.lua")
+local tr = harness.track("Vox")
+harness.track("Bus")
+local it = reaper.AddMediaItemToTrack(tr)
+reaper.SetMediaItemInfo_Value(it, "D_POSITION", 2)
+reaper.SetMediaItemInfo_Value(it, "D_LENGTH", 2)
+reaper.AddTakeToMediaItem(it)
+harness.ready()

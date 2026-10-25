@@ -126,17 +126,25 @@ pub fn handleItemMoveByGuid(api: anytype, cmd: protocol.CommandMessage, response
             response.err("NOT_FOUND", "Destination track not found");
             return;
         };
+        // REAPER holds no items on the master track
+        if (dest_track == api.masterTrack()) {
+            response.err("INVALID_PARAM", "Items can't go on the master track");
+            return;
+        }
     }
 
+    // The track move goes first: if REAPER refuses it, nothing has changed.
     api.undoBeginBlock();
+    if (dest_track) |dest| {
+        if (!api.moveItemToTrack(item, dest)) {
+            api.undoEndBlock("REAmo: Move item");
+            response.err("MOVE_FAILED", "REAPER didn't move the item to that track");
+            return;
+        }
+    }
     if (position) |pos| {
         if (api.setItemPosition(item, pos)) {
             logging.debug("Moved item to {d:.2}", .{pos});
-        }
-    }
-    if (dest_track) |dest| {
-        if (api.moveItemToTrack(item, dest)) {
-            logging.debug("Moved item to different track", .{});
         }
     }
     api.undoEndBlock("REAmo: Move item");
