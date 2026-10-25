@@ -26,3 +26,10 @@ with Client(timeout=10) as c:
     assert any(m["id"] == 77 for m in markers), markers
     r = c.command("debug/memoryStats")
     assert r["success"], r
+
+    # The transport turns the edit cursor's position into bar.beat 30 times
+    # a second: the cursor parked on that marker must not crash or hang it.
+    reaper("reaper.SetEditCurPos(1e300, false, false)")
+    c.drain(1)
+    r = c.command("debug/memoryStats")
+    assert r["success"], r
