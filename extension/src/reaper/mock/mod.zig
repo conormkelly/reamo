@@ -114,6 +114,9 @@ pub const MockBackend = struct {
 
     // Project identity (for project switch detection)
     project_pointer: ?*anyopaque = null, // Simulated ReaProject* pointer
+    closed_project_pointer: ?*anyopaque = null, // A project tab that has been closed
+    project_loads: u32 = 0, // Project loads, as counted by platform/project_load
+    extstate_writes_to_other_project: usize = 0,
     project_path: [512]u8 = [_]u8{0} ** 512, // Full path to .rpp file
     project_path_len: usize = 0,
     project_name: [128]u8 = [_]u8{0} ** 128, // Filename only
@@ -541,6 +544,9 @@ pub const MockBackend = struct {
     pub const setExtStateValue = project.ProjectMethods.setExtStateValue;
     pub const getProjExtStateValue = project.ProjectMethods.getProjExtStateValue;
     pub const setProjExtStateValue = project.ProjectMethods.setProjExtStateValue;
+    pub const setProjExtStateValueIn = project.ProjectMethods.setProjExtStateValueIn;
+    pub const validateProjectPtr = project.ProjectMethods.validateProjectPtr;
+    pub const projectLoadCount = project.ProjectMethods.projectLoadCount;
     pub const getProjectNotes = project.ProjectMethods.getProjectNotes;
     // Note: setProjectNotes is a test helper defined above, not delegated
     pub const getFrameRate = project.ProjectMethods.getFrameRate;

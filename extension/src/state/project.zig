@@ -6,6 +6,7 @@ const protocol = @import("../core/protocol.zig");
 // Project state snapshot
 // Contains: undo/redo state + project-level settings (moved from transport for efficiency)
 pub const State = struct {
+    load_count: u32 = 0, // project loads seen (see projectChanged)
     state_change_count: c_int = 0,
 
     // Storage for string copies (REAPER returns temporary pointers)
@@ -65,29 +66,26 @@ pub const State = struct {
         return self.project_path_buf[0..self.project_path_len];
     }
 
-    /// Check if project changed (for resetting playlist engine state).
-    ///
-    /// Handles these scenarios while REAPER is running:
-    /// - Tab switch: pointer differs → change
-    /// - Open file in same tab: state count decreases (resets on load) → change
-    /// - Save As: pointer same, count increases → NO change
-    /// - Normal editing: pointer same, count increases → NO change
-    ///
-    /// Note: REAPER restart is a non-issue - extension restarts too, so there's
-    /// no prior state to compare against. We start fresh.
-    ///
-    /// Parameters:
-    /// - self: the PREVIOUS state (what we had before)
-    /// - other: the CURRENT state (what we just polled)
+    /// Whether `other` (just polled) is a different project from `self` (the
+    /// previous poll), as opposed to the same project edited or saved:
+    /// - another tab: the ReaProject* differs;
+    /// - a project opened in this tab: a project load happened in between
+    ///   (the pointer stays the same and the state-change count only rises,
+    ///   so neither tells);
+    /// - File > New in this tab: the saved project's path becomes empty.
+    /// Save As changes the path but is the same project; undo reloads state
+    /// but is not counted as a load.
     pub fn projectChanged(self: *const State, other: *const State) bool {
-        // Different pointer = different tab
         if (self.project_pointer != other.project_pointer) return true;
-
-        // Same pointer but state count decreased = project replaced in this tab
-        // (state count increases monotonically during editing, resets on project load)
-        if (other.state_change_count < self.state_change_count) return true;
-
+        if (self.load_count != other.load_count) return true;
+        if (self.project_path_len > 0 and other.project_path_len == 0) return true;
         return false;
+    }
+
+    /// Whether this change put a different project into the same tab, so the
+    /// previous project is gone and its pointer now names the new one.
+    pub fn replacedInSameTab(self: *const State, other: *const State) bool {
+        return self.project_pointer == other.project_pointer and self.projectChanged(other);
     }
 
     // Compare for change detection
@@ -139,6 +137,7 @@ pub const State = struct {
         const api_rate = api.getSampleRate();
 
         var state = State{
+            .load_count = api.projectLoadCount(),
             .state_change_count = api.projectStateChangeCount(),
             .project_length = api.projectLength(),
             .sample_rate = if (api_rate > 0) api_rate else 48000,
@@ -487,49 +486,37 @@ test "poll tracks API calls correctly" {
 // projectChanged() tests
 // =============================================================================
 
-fn makeStateWithPointerAndCount(pointer: ?*anyopaque, state_count: c_int) State {
-    var state = State{ .state_change_count = state_count };
-    state.project_pointer = pointer;
+fn projectState(pointer: usize, loads: u32, path: []const u8) State {
+    var state = State{ .load_count = loads, .state_change_count = 100 };
+    state.project_pointer = @ptrFromInt(pointer);
+    @memcpy(state.project_path_buf[0..path.len], path);
+    state.project_path_len = path.len;
     return state;
 }
 
-test "projectChanged: tab switch (different pointer) → change" {
-    const ptr1: *anyopaque = @ptrFromInt(0x1000);
-    const ptr2: *anyopaque = @ptrFromInt(0x2000);
-    const prev = makeStateWithPointerAndCount(ptr1, 100);
-    const curr = makeStateWithPointerAndCount(ptr2, 50);
+test "projectChanged: switching to another tab is a change" {
+    const prev = projectState(0x1000, 3, "/songs/a.rpp");
+    try std.testing.expect(prev.projectChanged(&projectState(0x2000, 3, "/songs/b.rpp")));
+    try std.testing.expect(!prev.replacedInSameTab(&projectState(0x2000, 3, "/songs/b.rpp")));
+}
 
+test "projectChanged: opening a project in the same tab is a change, even though REAPER's state count rises" {
+    const prev = projectState(0x1000, 3, "/songs/gig.rpp");
+    const curr = projectState(0x1000, 4, "/songs/other.rpp");
     try std.testing.expect(prev.projectChanged(&curr));
+    try std.testing.expect(prev.replacedInSameTab(&curr));
+    // Reopening the same file is a load too.
+    try std.testing.expect(prev.projectChanged(&projectState(0x1000, 4, "/songs/gig.rpp")));
 }
 
-test "projectChanged: open file in same tab (state count decreases) → change" {
-    const ptr: *anyopaque = @ptrFromInt(0x1000);
-    const prev = makeStateWithPointerAndCount(ptr, 100);
-    const curr = makeStateWithPointerAndCount(ptr, 5); // Reset to low value on load
-
-    try std.testing.expect(prev.projectChanged(&curr));
+test "projectChanged: File > New in the same tab is a change" {
+    const prev = projectState(0x1000, 3, "/songs/gig.rpp");
+    try std.testing.expect(prev.projectChanged(&projectState(0x1000, 3, "")));
 }
 
-test "projectChanged: Save As (same pointer, state count increases) → NO change" {
-    const ptr: *anyopaque = @ptrFromInt(0x1000);
-    const prev = makeStateWithPointerAndCount(ptr, 100);
-    const curr = makeStateWithPointerAndCount(ptr, 101); // Increased
-
-    try std.testing.expect(!prev.projectChanged(&curr));
-}
-
-test "projectChanged: normal editing (same pointer, state count increases) → NO change" {
-    const ptr: *anyopaque = @ptrFromInt(0x1000);
-    const prev = makeStateWithPointerAndCount(ptr, 100);
-    const curr = makeStateWithPointerAndCount(ptr, 150);
-
-    try std.testing.expect(!prev.projectChanged(&curr));
-}
-
-test "projectChanged: undo (same pointer, state count same) → NO change" {
-    const ptr: *anyopaque = @ptrFromInt(0x1000);
-    const prev = makeStateWithPointerAndCount(ptr, 100);
-    const curr = makeStateWithPointerAndCount(ptr, 100);
-
-    try std.testing.expect(!prev.projectChanged(&curr));
+test "projectChanged: editing, saving, Save As and undo are not" {
+    const prev = projectState(0x1000, 3, "/songs/gig.rpp");
+    try std.testing.expect(!prev.projectChanged(&projectState(0x1000, 3, "/songs/gig.rpp")));
+    try std.testing.expect(!prev.projectChanged(&projectState(0x1000, 3, "/songs/gig-v2.rpp")));
+    try std.testing.expect(!projectState(0x1000, 3, "").projectChanged(&projectState(0x1000, 3, "/songs/new.rpp")));
 }

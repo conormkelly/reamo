@@ -1098,6 +1098,18 @@ pub const RealBackend = struct {
         self.inner.setProjExtStateValue(extname, key, value);
     }
 
+    pub fn setProjExtStateValueIn(self: *const RealBackend, project: ?*anyopaque, extname: [*:0]const u8, key: [*:0]const u8, value: [*:0]const u8) void {
+        self.inner.setProjExtStateValueIn(project, extname, key, value);
+    }
+
+    pub fn validateProjectPtr(self: *const RealBackend, project: ?*anyopaque) bool {
+        return self.inner.validateProjectPtr(project);
+    }
+
+    pub fn projectLoadCount(self: *const RealBackend) u32 {
+        return self.inner.projectLoadCount();
+    }
+
     // =========================================================================
     // Project notes
     // =========================================================================

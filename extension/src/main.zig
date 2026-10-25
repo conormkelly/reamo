@@ -3,6 +3,7 @@ const reaper = @import("reaper.zig");
 const transport = @import("state/transport.zig");
 const project = @import("state/project.zig");
 const markers = @import("state/markers.zig");
+const project_load = @import("platform/project_load.zig");
 const items = @import("state/items.zig");
 const tracks = @import("state/tracks.zig");
 const tempomap = @import("state/tempomap.zig");
@@ -955,6 +956,8 @@ fn shutdown() void {
     // Unregister extension menu
     menu.unregister();
 
+    if (g_plugin_register) |plugin_register| project_load.unregister(plugin_register);
+
     if (g_http_server) |*server| {
         logging.info("stopping server", .{});
         server.deinit();
@@ -1123,6 +1126,11 @@ export fn ReaperPluginEntry(hInstance: ?*anyopaque, rec: ?*reaper.PluginInfo) ca
     // Save plugin_register for CSurf integration
     g_plugin_register = info.Register;
 
+    // Before any project loads: project-change detection counts loads.
+    if (!project_load.register(info.Register)) {
+        logging.warn("projectconfig registration failed; a project opened in the same tab may go unnoticed", .{});
+    }
+
     // Initialize SWELL bridge before menu registration.
     // Menu building (flag=0 callback) needs SWELL functions like CreatePopupMenu.
     // SWELLAPI_GetFunc must be obtained before any SWELL calls work.
@@ -1156,6 +1164,7 @@ test {
     _ = @import("core/logging.zig");
     _ = @import("core/protocol.zig");
     _ = @import("core/utf8.zig");
+    _ = @import("platform/project_load.zig");
     _ = @import("platform/sigpipe.zig");
     _ = @import("platform/network_action.zig");
     _ = @import("reaper/raw.zig");
