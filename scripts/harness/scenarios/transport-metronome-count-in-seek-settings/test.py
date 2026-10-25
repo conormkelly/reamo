@@ -6,11 +6,16 @@ project event must follow; nonsense values must not corrupt REAPER's prefs.
 """
 import time
 
-from reamo_client import Client, reaper
+from reamo_client import Client, reaper, skip
 
 
 def cfg(name):
-    return reaper(f"local ok, v = reaper.get_config_var_string('{name}'); return v")
+    return reaper(f"return harness.config('{name}')")
+
+
+# REAPER 6.0 can't read these settings from a script, so nothing can check them.
+if cfg("projmetrov1") is None:
+    skip(f"REAPER {reaper('return reaper.GetAppVersion()')} can't read its metronome settings from a script")
 
 
 def project_settles(c, pred):

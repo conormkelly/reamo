@@ -8,7 +8,7 @@ import math
 import time
 
 from reamo_client import reaper
-from tour import ANY, Mismatch, Skip, approx, diff, op, play_position
+from tour import ANY, Mismatch, Skip, approx, diff, matches, op, play_position
 
 
 # ----------------------------------------------------------------------------
@@ -594,13 +594,22 @@ def check_seven_eight(t, bar):
         raise Mismatch("7/8 conversions disagree with REAPER:\n    " + "\n    ".join(problems))
 
 
+def native_seven_eight(idx):
+    """REAPER's own edit of tempo marker `idx` to 7/8, keeping its position,
+    tempo and shape: what the phone's timesig/set asks of it."""
+    reaper(f"""reaper.Undo_BeginBlock2(0)
+      local _, pos, _, _, bpm, _, _, linear = reaper.GetTempoTimeSigMarker(0, {idx})
+      reaper.SetTempoTimeSigMarker(0, {idx}, pos, -1, -1, bpm, 7, 8, linear)
+      reaper.UpdateTimeline()
+      reaper.Undo_EndBlock2(0, "harness: REAPER's own 7/8", -1)""")
+
+
 @op("timesig: 7/8 from a bar with a tempo marker", "timesig/set")
 def _(t):
     start = t.flat
     bar = steady_bar(t)
     idx = setup_tempo_marker(t, f"{bar}.1.00")
     t.expect({"tempo.*": ANY, "tempo[]": ANY, "tracks.master.envs.Tempo map": ANY})
-    marked_markers = t.d["markers"]
     steps = 1
     restore = cleanup(t, lambda: undo_back(t, steps, start, "a 7/8 meter change"))
     try:
@@ -609,29 +618,42 @@ def _(t):
         here = parse_bars(f"{bar}.1.00")
         t.expect({"project.cursor": approx(here, 1e-6), **t.meter(here)})
         at_bar = t.flat
-        qn = beat_positions(t)
-        beats = list(reaper(TEMPO_BEATS))
+        # REAPER 6.0 moves a later marker differently on the first such edit
+        # of a session than on every one after, whoever makes it, so REAPER
+        # makes it once first; the phone's edit and REAPER's own below then
+        # start alike.
+        native_seven_eight(idx)
+        reaper("reaper.Undo_DoUndo2(0)")
+        t._wait_equal(at_bar, "undoing REAPER's own 7/8 did not restore the project")
         t.ok("timesig/set", numerator=7, denominator=8)
         steps += 1
-        changes = {f"tempo.{idx}.num": 7, f"tempo.{idx}.den": 8, "project.timesig.0": 7, "project.timesig.1": 8}
-        # The ruler from the marker on counts 7/8 bars.
-        for k, m in marked_markers.items():
-            if m["pos"] > here + 1e-6:
-                changes[f"markers.{k}.bars"] = ANY
-            if k.startswith("R") and m["end"] > here + 1e-6:
-                changes[f"markers.{k}.end_bars"] = ANY
-        # Later tempo markers stay on their bars, so with shorter bars before
-        # them they come earlier; items and markers keep their time or their
-        # beat in the tempo map that results, as their timebase says.
-        later = list(range(idx + 1, len(beats)))
-        if later:
-            changes.update(tempo_change_expectations(at_bar, qn))
-            now = lua_list([f"reaper.TimeMap2_beatsToTime(0, {beats[k][1]!r}, {beats[k][0]})" for k in later])
-            for k, pos in zip(later, now):
-                changes[f"tempo.{k}.pos"] = approx(pos, 1e-5)
-        t.expect(changes)
+        # The marker at the cursor's bar becomes 7/8; what else moves is
+        # REAPER's business, checked against REAPER's own edit below.
+        t.expect({f"tempo.{idx}.num": 7, f"tempo.{idx}.den": 8}, allow=("*",))
+        phone = t.flat
         check_seven_eight(t, bar)
-        t.undo_redo(at_bar, t.flat)
+        t.undo_redo(at_bar, phone)
+
+        # REAPER's own result of the same edit is the oracle: the marker at
+        # the cursor's bar gets 7/8, keeping its position, tempo and shape,
+        # and REAPER moves later markers, items and regions as its version
+        # and the project's timebase say.
+        r = t.send("undo/do", awaited=True)
+        if not r.get("success"):
+            raise Mismatch(f"undo/do failed: {r}")
+        steps -= 1
+        t._wait_equal(at_bar, "after undoing the phone's 7/8, the project did not return to how it was")
+        native_seven_eight(idx)
+        native = t.digest()
+        reaper("reaper.Undo_DoUndo2(0)")
+        t._wait_equal(at_bar, "undoing REAPER's own 7/8 did not restore the project")
+        want, got = diff(at_bar, native), diff(at_bar, phone)
+        off = sorted(k for k in set(want) | set(got)
+                     if not matches(want[k][1] if k in want else at_bar.get(k), got[k][1] if k in got else at_bar.get(k)))
+        if off:
+            raise Mismatch("the phone's 7/8 differs from REAPER's own:\n    " + "\n    ".join(
+                f"{k}: phone {got.get(k, (None, at_bar.get(k)))[1]!r}, REAPER {want.get(k, (None, at_bar.get(k)))[1]!r}"
+                for k in off[:20]))
     except BaseException:
         restore(True)
         raise
@@ -760,6 +782,7 @@ end""")
 @op("metronome: toggle, read and set the volume", "metronome/toggle", "metronome/getVolume",
     "metronome/setVolume")
 def _(t):
+    t.need("project.metro_flags", "project.metro_vol")
     start = t.flat
     flags = int(start["project.metro_flags"])
     on = start["project.metronome"]
@@ -786,6 +809,7 @@ def _(t):
 @op("countIn: toggle before playback and before recording", "countIn/togglePlayback",
     "countIn/toggleRecord")
 def _(t):
+    t.need("project.metro_flags")
     flags = int(t.flat["project.metro_flags"])
     for command, bit in (("countIn/togglePlayback", 8), ("countIn/toggleRecord", 16)):
         t.ok(command)

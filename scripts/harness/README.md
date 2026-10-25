@@ -149,6 +149,27 @@ the oracle depends on it, re-read it inside your wait loop rather than once.
 A Lua error raises `ReaperError`. `harness.ready()` starts the RPC loop, so
 every fixture has it.
 
+### Every supported REAPER
+
+Scenarios run on the oldest REAPER we support (6.0) as well as the newest,
+so fixture and test Lua sticks to what 6.0's ReaScript has, or goes through
+a harness helper that covers the difference:
+
+- `harness.save_as(path)` saves the project as `path` and carries on in it.
+  A fixture that saves starts with `harness.begin_project(path)` (6.0 can
+  save only to the file a project was opened from).
+- `harness.config(name)` reads a preference or project setting, or `nil`
+  where REAPER can't tell a script (6.0 can't read project settings).
+- `harness.build_peaks(src)` builds a source's peaks now.
+- Pass the buffer argument to calls that return text (`TrackFX_GetFXName(tr,
+  i, "")`, `GetMediaSourceFileName(src, "")`): 6.0 requires it.
+
+A scenario that checks something a REAPER release doesn't have ends with
+`reamo_client.skip(reason)` (exit 77), after checking the extension's answer
+there when it has one. A tour op raises `Skip`, and `t.need(key)` skips
+when the digest has no such fact on this REAPER. Skips are listed apart from
+passes and failures, so a run shows what it didn't check.
+
 ### Real projects
 
 `harness.open_fixture("test-project-1.RPP")` opens a project from the repo's

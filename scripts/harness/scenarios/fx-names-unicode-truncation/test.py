@@ -36,7 +36,13 @@ def wait_guid_cache(c, guid):
         time.sleep(0.05)
 
 
-def is_prefix(got, full, what):
+def is_prefix(got, key, what):
+    """`got` is a prefix of REAPER's name. Where REAPER itself cut the name
+    inside a character (REAPER 6), the extension can't tell that from a
+    Windows code-page byte, so it sends U+FFFD in its place: still valid."""
+    full = o[key]
+    if o[f"{key}_cut"] == "1" and got.endswith("\ufffd"):
+        got = got[:-1]
     assert got and full.startswith(got), f"{what}: {got!r} is not a prefix of REAPER's {full!r}"
 
 
@@ -49,12 +55,12 @@ with Client() as c:
     chain = c.wait_event("trackFxChain")["payload"]["fx"]
     for i, fx in enumerate(chain):
         print(f"chain fx{i}: {len(fx['name'].encode())} bytes")
-        is_prefix(fx["name"], o[f"fx{i}"], f"trackFxChain fx{i} name")
+        is_prefix(fx["name"], f"fx{i}", f"trackFxChain fx{i} name")
     r = c.command("trackFx/getParams", trackGuid=g, fxGuid=chain[0]["fxGuid"])
     assert r["success"], r
     for i in range(2):
         print(f"param{i}: {len(r['payload']['params'][i].encode())} bytes")
-        is_prefix(r["payload"]["params"][i], o[f"param{i}"], f"getParams name {i}")
+        is_prefix(r["payload"]["params"][i], f"param{i}", f"getParams name {i}")
     assert c.command("trackFxParams/subscribe", trackGuid=g, fxGuid=chain[0]["fxGuid"], indices=[0, 1])["success"]
     c.wait_event("trackFxParams")
     c.drain(1.0)  # fx_state (all FX in the project) is polled at 5 Hz

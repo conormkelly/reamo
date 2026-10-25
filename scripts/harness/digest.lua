@@ -18,6 +18,16 @@ local function str_hash(s)
   return string.format("%d:%08x", #s, h)
 end
 
+-- The project's start measure offset (Project Settings > "Project start
+-- measure", less one). Where REAPER can't read that from a script, read it off the
+-- ruler: the measure REAPER shows at time 0.
+local function start_measure()
+  local offs = harness.config("projmeasoffs")
+  if offs then return offs end
+  local shown = tonumber(reaper.format_timestr_pos(0, "", 2):match("^(-?%d+)"))
+  return tostring(shown - 1)
+end
+
 local function fx_list(tr, rec)
   local out = {}
   local count = rec and reaper.TrackFX_GetRecCount(tr) or reaper.TrackFX_GetCount(tr)
@@ -121,7 +131,7 @@ local function item_digest(it, track_guid, idx)
       midi = reaper.TakeIsMIDI(tk),
       src = src and reaper.GetMediaSourceType(src, "") or "",
       -- Which recording the take plays (comp areas differ only in this).
-      file = src and (reaper.GetMediaSourceFileName(src) or ""):match("[^/\\]*$") or "",
+      file = src and (reaper.GetMediaSourceFileName(src, "") or ""):match("[^/\\]*$") or "",
       fx = reaper.TakeFX_GetCount(tk),
     } or {empty = true}
   end
@@ -200,17 +210,15 @@ function D.digest()
       or {r6(loop_start), r6(loop_end)},
     ["repeat"] = reaper.GetSetRepeat(-1),
     metronome = reaper.GetToggleCommandState(40364),
-    metro_vol = select(2, reaper.get_config_var_string("projmetrov1")),
-    metro_flags = select(2, reaper.get_config_var_string("projmetroen")),
+    -- nil where REAPER can't read them from a script (6.0): ops on them skip.
+    metro_vol = harness.config("projmetrov1"),
+    metro_flags = harness.config("projmetroen"),
     bpm = r6(cursor_bpm),
     timesig = {num, den},
-    start_measure = select(2, reaper.get_config_var_string("projmeasoffs")),
+    start_measure = start_measure(),
     notes = str_hash(reaper.GetSetProjectNotes(0, false, "")),
     reamo = {},
-    seek = {
-      select(2, reaper.get_config_var_string("smoothseek")),
-      select(2, reaper.get_config_var_string("smoothseekmeas")),
-    },
+    seek = {harness.config("smoothseek"), harness.config("smoothseekmeas")},
   }
   -- REAmo's own project state (custom banks, playlists), every key.
   local k = 0

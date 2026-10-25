@@ -13,7 +13,17 @@ def bypassed(g, fg, f, enabled):
     """What the digest shows for an FX switched on or off: its enabled flag
     and, when it is among the parameters the digest records, the bypass
     parameter REAPER exposes for the same switch."""
-    bp = reaper(f"return reaper.TrackFX_GetParamFromIdent({track_expr(g)}, {f['pos']}, ':bypass')")
+    bp = reaper(f"""
+local tr, fx = {track_expr(g)}, {f['pos']}
+if reaper.TrackFX_GetParamFromIdent then return reaper.TrackFX_GetParamFromIdent(tr, fx, ":bypass") end
+-- Before TrackFX_GetParamFromIdent, the bypass parameter is the one REAPER
+-- names "Bypass" among those it appends to the plugin's own.
+for p = reaper.TrackFX_GetNumParams(tr, fx) - 1, 0, -1 do
+  local _, name = reaper.TrackFX_GetParamName(tr, fx, p, "")
+  if name == "Bypass" then return p end
+end
+return -1
+""")
     key = f"tracks.{g}.fx.{fg}"
     out = {f"{key}.enabled": enabled}
     if 0 <= bp < len(f["params"]):
@@ -227,6 +237,12 @@ def _(t):
     r = t.send("fxPlugin/getList", awaited=True)
     if not r.get("success"):
         raise Mismatch(f"fxPlugin/getList failed: {r}")
+    if not reaper("return reaper.APIExists('EnumInstalledFX')"):
+        # The plugin list isn't supported before REAPER has EnumInstalledFX:
+        # the browser is just empty.
+        if r["payload"] != []:
+            raise Mismatch(f"fxPlugin/getList without EnumInstalledFX: {r['payload'][:3]}..., not an empty list")
+        raise Skip("this REAPER has no EnumInstalledFX: the plugin browser is empty, as it should be")
     want = reaper("""
 local out = {}
 local i = 0
@@ -486,6 +502,10 @@ return reaper.TrackFX_GetFXGUID(tr, i)
         if r["payload"]["params"] != names:
             raise Mismatch(f"trackFx/getParams ({size} bytes) names differ from REAPER's {len(names)}")
         if size <= 65536:
+            longest = max(len(n.encode()) for n in names)
+            if len(names) < 256 or longest < 254:
+                raise Skip(f"this REAPER loads {len(names)} of the plugin's 256 sliders, with names of up to "
+                           f"{longest} bytes: the list ({size} bytes) can't exceed 64 KB")
             raise Mismatch(f"the fixture plugin's parameter list is only {size} bytes; it must exceed 64 KB")
 
         # The parameter list scrolls to show every row at once on a tablet.
@@ -637,9 +657,12 @@ return id
             want = 1 - t.d["project"]["metronome"]
             mark = since(t.c)
             t.ok("action/execute" if how == "id" else "action/executeByName", **params)
-            # REAPER keeps the metronome's on/off in bit 0 of its metronome flags.
-            flags = int(t.d["project"]["metro_flags"])
-            t.expect({"project.metronome": want, "project.metro_flags": str(flags & ~1 | want)})
+            # REAPER keeps the metronome's on/off in bit 0 of its metronome
+            # flags, where this REAPER can report them.
+            changes = {"project.metronome": want}
+            if "metro_flags" in t.d["project"]:
+                changes["project.metro_flags"] = str(int(t.d["project"]["metro_flags"]) & ~1 | want)
+            t.expect(changes)
             wait_payload(t.c, "actionToggleState", mark,
                          lambda pl: {"s": 0, "c": METRONOME, "v": want} in pl["changes"],
                          what=f"actionToggleState for the metronome (by {how})")
@@ -675,6 +698,10 @@ def _(t):
     if not r.get("success"):
         raise Mismatch(f"action/getActions failed: {r}")
     got = r["payload"]
+    if not reaper("return reaper.APIExists('kbd_enumerateActions') and reaper.APIExists('SectionFromUniqueID')"):
+        # REAPER 6.0 lists actions to an extension but not to a script, so
+        # there is no oracle for the list.
+        raise Skip(f"this REAPER can't list its actions to a script ({len(got)} from the extension, unchecked)")
     want = reaper("""
 local out = {}
 for _, sec in ipairs({0, 100, 32060, 32061, 32062, 32063}) do

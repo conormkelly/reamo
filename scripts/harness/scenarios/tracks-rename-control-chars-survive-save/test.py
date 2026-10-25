@@ -19,7 +19,7 @@ with Client() as c:
     assert c.command("track/rename", trackIdx=1, name=evil)["success"]
     assert c.command("track/rename", trackIdx=2, name="<TRACK\n>")["success"]
     before = reaper(NAMES)
-    reaper(f'reaper.Main_SaveProjectEx(0, "{PATH}", 0)')
+    reaper(f'harness.save_as("{PATH}")')
     rpp_names = reaper(f"""
 local t = {{}}
 for line in io.lines("{PATH}") do if line:match("^%s*NAME ") then t[#t + 1] = line end end

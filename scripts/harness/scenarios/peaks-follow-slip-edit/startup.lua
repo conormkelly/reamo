@@ -37,10 +37,7 @@ reaper.SetMediaItemTakeInfo_Value(take2, "D_STARTOFFS", 2)
 reaper.SetMediaItemInfo_Value(it2, "D_POSITION", 0)
 reaper.SetMediaItemInfo_Value(it2, "D_LENGTH", 2)
 -- Build the peak file now so GetMediaItemTake_Peaks has data.
-if reaper.PCM_Source_BuildPeaks(src, 0) ~= 0 then
-  while reaper.PCM_Source_BuildPeaks(src, 1) ~= 0 do end
-  reaper.PCM_Source_BuildPeaks(src, 2)
-end
+harness.build_peaks(src)
 reaper.UpdateArrange()
 harness.log("source len=%f", reaper.GetMediaSourceLength(src))
 harness.ready()
