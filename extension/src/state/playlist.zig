@@ -26,6 +26,11 @@ pub const Entry = struct {
     pub fn eql(self: Entry, other: Entry) bool {
         return self.region_id == other.region_id and self.loop_count == other.loop_count;
     }
+
+    /// Whether playback stops on this entry: loop count 0 means "Skip".
+    pub fn isPlayable(self: Entry) bool {
+        return self.loop_count != 0;
+    }
 };
 
 /// A playlist is an ordered list of region entries
@@ -108,6 +113,7 @@ pub const Playlist = struct {
     pub fn eql(self: Playlist, other: Playlist) bool {
         if (self.name_len != other.name_len) return false;
         if (!std.mem.eql(u8, self.name[0..self.name_len], other.name[0..other.name_len])) return false;
+        if (self.stop_after_last != other.stop_after_last) return false;
         if (self.entry_count != other.entry_count) return false;
         for (0..self.entry_count) |i| {
             if (!self.entries[i].eql(other.entries[i])) return false;
@@ -230,8 +236,10 @@ pub const NativeLoopInfo = struct {
     region_end: f64,
 };
 
-/// Info about the next entry (for tick function)
+/// The next entry playback will move to (skipped entries and entries whose
+/// region is gone are passed over), for the tick function.
 pub const NextEntryInfo = struct {
+    entry_idx: usize,
     loop_count: i32,
     region_start: f64,
     region_end: f64,
@@ -343,7 +351,6 @@ pub const Engine = struct {
         region_end: f64,
         region_start: f64,
         next_entry: ?NextEntryInfo,
-        entry_count: usize,
         bar_length: f64,
     ) Action {
         if (self.state != .playing) return .none;
@@ -375,7 +382,7 @@ pub const Engine = struct {
                     // Complete the transition
                     self.next_loop_pending = false;
                     self.advance_after_loop = false;
-                    self.entry_idx += 1;
+                    self.entry_idx = next_e.entry_idx;
                     self.loops_remaining = next_e.loop_count;
                     self.current_loop_iteration = 1;
                     return .broadcast_state;
@@ -409,8 +416,8 @@ pub const Engine = struct {
         const should_advance = self.advance_after_loop or self.loops_remaining == 1;
 
         if (should_advance and !self.next_loop_pending) {
-            // Check if this is the last entry
-            if (self.entry_idx + 1 >= entry_count) {
+            // Nothing playable follows: this is the last entry
+            if (next_entry == null) {
                 // Last entry - stop when we reach the end (use small margin)
                 if (current_pos > region_end - PROACTIVE_MARGIN) {
                     self.state = .idle;
@@ -432,10 +439,12 @@ pub const Engine = struct {
                 const approaching_end = if (is_contiguous)
                     current_pos > region_end - PROACTIVE_MARGIN
                 else blk: {
-                    // Trigger when clearly inside the final measure (not right at boundary)
+                    // Trigger when clearly inside the final measure (not right at
+                    // boundary). A region shorter than a bar (a pickup) has no
+                    // final measure of its own; the trigger stays inside it.
                     const MEASURE_ENTRY_BUFFER: f64 = 0.1; // 100ms past measure start
-                    const final_measure_start = region_end - bar_length;
-                    const trigger_point = final_measure_start + MEASURE_ENTRY_BUFFER;
+                    const final_measure_start = @max(region_end - bar_length, region_start);
+                    const trigger_point = @min(final_measure_start + MEASURE_ENTRY_BUFFER, region_end - PROACTIVE_MARGIN);
                     const was_before = self.prev_pos < trigger_point;
                     const now_past = current_pos >= trigger_point;
                     break :blk was_before and now_past;
@@ -455,32 +464,14 @@ pub const Engine = struct {
         return .none;
     }
 
-    /// Manually advance to next entry
-    pub fn next(self: *Engine, entry_count: usize, next_loop_count: i32) Action {
+    /// Jump to another entry (next, previous, or past a deleted region).
+    pub fn jumpTo(self: *Engine, entry_idx: usize, loop_count: i32) Action {
         if (self.state == .idle) return .none;
-
-        self.entry_idx += 1;
-        if (self.entry_idx >= entry_count) {
-            self.state = .idle;
-            self.advance_after_loop = false;
-            return .stop;
-        }
-
-        self.loops_remaining = next_loop_count;
+        self.entry_idx = entry_idx;
+        self.loops_remaining = loop_count;
         self.current_loop_iteration = 1;
         self.advance_after_loop = false;
-        return .broadcast_state;
-    }
-
-    /// Manually go to previous entry
-    pub fn prev(self: *Engine, prev_loop_count: i32) Action {
-        if (self.state == .idle) return .none;
-        if (self.entry_idx == 0) return .none;
-
-        self.entry_idx -= 1;
-        self.loops_remaining = prev_loop_count;
-        self.current_loop_iteration = 1;
-        self.advance_after_loop = false;
+        self.next_loop_pending = false;
         return .broadcast_state;
     }
 };
@@ -924,7 +915,7 @@ test "Engine tick - proactive loop setup on final loop (contiguous)" {
 
     // Next region starts where current ends (contiguous) - margin is 0.15s
     // Position 9.9 is within 0.15s of region_end (10.0), should trigger setup
-    const action1 = engine.tick(9.9, 10.0, 0.0, .{ .loop_count = 1, .region_start = 10.0, .region_end = 20.0 }, 2, bar_length);
+    const action1 = engine.tick(9.9, 10.0, 0.0, .{ .entry_idx = 1, .loop_count = 1, .region_start = 10.0, .region_end = 20.0 }, bar_length);
     try std.testing.expectEqual(Action{ .setup_native_loop = .{ .region_start = 10.0, .region_end = 20.0 } }, action1);
     try std.testing.expect(engine.next_loop_pending);
 }
@@ -938,7 +929,7 @@ test "Engine tick - proactive loop setup on final loop (non-contiguous)" {
     // Next region starts at 15.0, not contiguous with current end (10.0)
     // Should trigger setup when within bar_length (2.0s) of end
     // Position 8.5 is within 2.0s of region_end (10.0), should trigger setup
-    const action1 = engine.tick(8.5, 10.0, 0.0, .{ .loop_count = 1, .region_start = 15.0, .region_end = 20.0 }, 2, bar_length);
+    const action1 = engine.tick(8.5, 10.0, 0.0, .{ .entry_idx = 1, .loop_count = 1, .region_start = 15.0, .region_end = 20.0 }, bar_length);
     try std.testing.expectEqual(Action{ .setup_native_loop = .{ .region_start = 15.0, .region_end = 20.0 } }, action1);
     try std.testing.expect(engine.next_loop_pending);
 }
@@ -950,7 +941,7 @@ test "Engine infinite loop with advance after" {
     const bar_length = 2.0;
 
     // Should not advance yet (infinite loop, no advance flag)
-    const action1 = engine.tick(9.9, 10.0, 0.0, .{ .loop_count = 1, .region_start = 10.0, .region_end = 20.0 }, 2, bar_length);
+    const action1 = engine.tick(9.9, 10.0, 0.0, .{ .entry_idx = 1, .loop_count = 1, .region_start = 10.0, .region_end = 20.0 }, bar_length);
     try std.testing.expectEqual(Action.none, action1);
 
     // Set advance flag
@@ -958,7 +949,7 @@ test "Engine infinite loop with advance after" {
     try std.testing.expect(engine.advance_after_loop);
 
     // Should now trigger setup_native_loop
-    const action2 = engine.tick(9.9, 10.0, 0.0, .{ .loop_count = 1, .region_start = 10.0, .region_end = 20.0 }, 2, bar_length);
+    const action2 = engine.tick(9.9, 10.0, 0.0, .{ .entry_idx = 1, .loop_count = 1, .region_start = 10.0, .region_end = 20.0 }, bar_length);
     try std.testing.expectEqual(Action{ .setup_native_loop = .{ .region_start = 10.0, .region_end = 20.0 } }, action2);
 }
 
@@ -968,29 +959,70 @@ test "Engine tick - duplicate region entries (same region twice in playlist)" {
 
     const bar_length = 2.0;
     // Both entries use the SAME region (0-10)
-    const same_region_next = NextEntryInfo{ .loop_count = 1, .region_start = 0.0, .region_end = 10.0 };
+    const same_region_next = NextEntryInfo{ .entry_idx = 1, .loop_count = 1, .region_start = 0.0, .region_end = 10.0 };
 
     // Position 5: mid-playback of entry 0, approaching end triggers proactive setup
-    var action = engine.tick(5.0, 10.0, 0.0, same_region_next, 2, bar_length);
+    var action = engine.tick(5.0, 10.0, 0.0, same_region_next, bar_length);
     try std.testing.expectEqual(Action.none, action);
     try std.testing.expectEqual(@as(usize, 0), engine.entry_idx);
 
     // Position 9.9: near end, should trigger setup_native_loop
-    action = engine.tick(9.9, 10.0, 0.0, same_region_next, 2, bar_length);
+    action = engine.tick(9.9, 10.0, 0.0, same_region_next, bar_length);
     try std.testing.expectEqual(Action{ .setup_native_loop = .{ .region_start = 0.0, .region_end = 10.0 } }, action);
     try std.testing.expect(engine.next_loop_pending);
     try std.testing.expectEqual(@as(usize, 0), engine.entry_idx); // Still on entry 0!
 
     // Position 9.95: still near end, waiting for wrap-around - should NOT advance yet
-    action = engine.tick(9.95, 10.0, 0.0, same_region_next, 2, bar_length);
+    action = engine.tick(9.95, 10.0, 0.0, same_region_next, bar_length);
     try std.testing.expectEqual(Action.none, action);
     try std.testing.expectEqual(@as(usize, 0), engine.entry_idx); // Still on entry 0!
 
     // Position 0.02: wrapped around to start (within BOUNDARY_EPSILON), NOW we should advance to entry 1
-    action = engine.tick(0.02, 10.0, 0.0, same_region_next, 2, bar_length);
+    action = engine.tick(0.02, 10.0, 0.0, same_region_next, bar_length);
     try std.testing.expectEqual(Action.broadcast_state, action);
     try std.testing.expectEqual(@as(usize, 1), engine.entry_idx); // Now on entry 1!
     try std.testing.expect(!engine.next_loop_pending);
+}
+
+test "Engine passes over a skipped entry to the next playable one" {
+    // Intro x1, Verse skipped, Outro x1: after Intro's last loop the engine
+    // sets up Outro (entry 2), not the skipped Verse.
+    var engine = Engine{};
+    _ = engine.play(0, 1);
+    const outro = NextEntryInfo{ .entry_idx = 2, .loop_count = 1, .region_start = 20.0, .region_end = 30.0 };
+    const setup = engine.tick(9.95, 10.0, 0.0, outro, 2.0);
+    try std.testing.expect(setup == .setup_native_loop);
+    try std.testing.expectEqual(@as(f64, 20.0), setup.setup_native_loop.region_start);
+    _ = engine.tick(20.05, 10.0, 0.0, outro, 2.0);
+    try std.testing.expectEqual(@as(usize, 2), engine.entry_idx);
+}
+
+test "Engine stops after the last playable entry even when skipped entries follow" {
+    var engine = Engine{};
+    _ = engine.play(0, 1);
+    try std.testing.expect(engine.tick(5.0, 10.0, 0.0, null, 2.0) == .none);
+    try std.testing.expect(engine.tick(9.9, 10.0, 0.0, null, 2.0) == .stop);
+}
+
+test "Engine moves on from a region shorter than a bar to a non-adjacent one" {
+    // A 1 s pickup at 120 BPM (2 s bars), then the song at 4 s.
+    var engine = Engine{};
+    _ = engine.play(0, 1);
+    const song = NextEntryInfo{ .entry_idx = 1, .loop_count = 1, .region_start = 4.0, .region_end = 12.0 };
+    var setup = false;
+    var t: f64 = 0.0;
+    while (t < 1.0) : (t += 1.0 / 30.0) {
+        if (engine.tick(t, 1.0, 0.0, song, 2.0) == .setup_native_loop) setup = true;
+    }
+    try std.testing.expect(setup);
+}
+
+test "Playlist equality sees the stop-after-last switch" {
+    var a = Playlist{};
+    a.setName("Gig");
+    var b = a;
+    b.stop_after_last = !a.stop_after_last;
+    try std.testing.expect(!a.eql(b));
 }
 
 test "followProject keeps the playlists while the same project stays open" {

@@ -99,30 +99,21 @@ fn findRegionBounds(regions: []const markers.Region, region_id: i32) ?RegionBoun
     return null;
 }
 
-/// Get next entry info for the playlist engine tick.
+/// The next entry after `current_idx` that playback stops on: skipped
+/// entries (loop count 0) and entries whose region was deleted are passed
+/// over. null when none is left.
 fn getNextEntryInfo(
     playlist_entries: []const playlist.Entry,
     current_idx: usize,
-    entry_count: usize,
     regions: []const markers.Region,
 ) ?playlist.NextEntryInfo {
-    if (current_idx + 1 >= entry_count) {
-        return null;
+    var idx = current_idx + 1;
+    while (idx < playlist_entries.len) : (idx += 1) {
+        const next = &playlist_entries[idx];
+        if (!next.isPlayable()) continue;
+        const bounds = findRegionBounds(regions, next.region_id) orelse continue;
+        return .{ .entry_idx = idx, .loop_count = next.loop_count, .region_start = bounds.start, .region_end = bounds.end };
     }
-
-    const next = &playlist_entries[current_idx + 1];
-
-    // Find next region's bounds
-    for (regions) |*r| {
-        if (r.id == next.region_id) {
-            return playlist.NextEntryInfo{
-                .loop_count = next.loop_count,
-                .region_start = r.start,
-                .region_end = r.end,
-            };
-        }
-    }
-
     return null;
 }
 
@@ -174,22 +165,20 @@ fn tickWithRegion(
     const next_entry = getNextEntryInfo(
         p.entries[0..p.entry_count],
         ctx.playlist_state.engine.entry_idx,
-        p.entry_count,
         ctx.regions,
     );
 
-    // Calculate bar length for non-contiguous transition timing
-    // bar_length = beats_per_bar * seconds_per_beat
+    // Bar length for non-contiguous transition timing: numerator beats of
+    // 1/denominator notes, at quarter-note BPM.
     const bpm = ctx.transport_state.bpm;
-    const beats_per_bar = ctx.transport_state.time_sig_num;
-    const bar_length = if (bpm > 0) beats_per_bar * (60.0 / bpm) else 2.0;
+    const quarter_notes_per_bar = ctx.transport_state.time_sig_num * 4.0 / @as(f64, @floatFromInt(@max(ctx.transport_state.time_sig_denom, 1)));
+    const bar_length = if (bpm > 0) quarter_notes_per_bar * (60.0 / bpm) else 2.0;
 
     const action = ctx.playlist_state.engine.tick(
         current_pos,
         region_end,
         region_start,
         next_entry,
-        p.entry_count,
         bar_length,
     );
 
@@ -262,6 +251,7 @@ fn handleDeletedRegion(
 
     while (search_idx < p.entry_count) : (search_idx += 1) {
         const candidate = &p.entries[search_idx];
+        if (!candidate.isPlayable()) continue;
         if (findRegionBounds(ctx.regions, candidate.region_id)) |bounds| {
             next_valid_idx = search_idx;
             next_bounds = bounds;
