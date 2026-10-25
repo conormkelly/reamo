@@ -90,7 +90,7 @@ pub fn displayedBarBeatToTime(api: anytype, bar: c_int, beat: f64) ?f64 {
     const measure = std.math.cast(c_int, @as(i64, bar) - api.getBarOffset()) orelse return null;
     if (validateBar(measure) == null) return null;
     const time = api.barBeatToTime(measure, beat);
-    if (!(time >= -constants.TIME_EPSILON)) return null;
+    if (!(time >= -constants.TIME_EPSILON) or time > MAX_TIME_SECONDS) return null;
     return @max(time, 0.0);
 }
 
@@ -327,10 +327,22 @@ pub fn toNullTerminated(buf: *[65]u8, str: ?[]const u8) [*:0]const u8 {
 
 // Validate position value - returns null if invalid (NaN, Inf, or negative)
 pub fn validatePosition(pos: ?f64) ?f64 {
-    const p = pos orelse return null;
-    if (std.math.isNan(p) or std.math.isInf(p)) return null;
+    const p = validateTime(pos) orelse return null;
     if (p < 0) return null;
     return p;
+}
+
+/// Largest time magnitude, in seconds, accepted from clients: about 31 years,
+/// far past any project. Larger times overflow REAPER's bar numbers and
+/// don't fit a reply formatted to 15 decimals.
+pub const MAX_TIME_SECONDS: f64 = 1e9;
+
+/// Validate a client-supplied time, which may be negative (before the
+/// project start) - returns null if not finite or out of range.
+pub fn validateTime(time: ?f64) ?f64 {
+    const t = time orelse return null;
+    if (!std.math.isFinite(t) or @abs(t) > MAX_TIME_SECONDS) return null;
+    return t;
 }
 
 /// Largest bar number magnitude accepted from clients. Bars may be negative

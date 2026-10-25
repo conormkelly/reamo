@@ -5,12 +5,18 @@ const mod = @import("mod.zig");
 const logging = @import("../core/logging.zig");
 
 pub fn handleRegionAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const start = cmd.getFloat("start") orelse {
+    const start = mod.validatePosition(cmd.getFloat("start") orelse {
         response.err("MISSING_START", "Region start is required");
         return;
+    }) orelse {
+        response.err("INVALID_POSITION", "Position must be a non-negative number of seconds in range");
+        return;
     };
-    const end = cmd.getFloat("end") orelse {
+    const end = mod.validatePosition(cmd.getFloat("end") orelse {
         response.err("MISSING_END", "Region end is required");
+        return;
+    }) orelse {
+        response.err("INVALID_POSITION", "Position must be a non-negative number of seconds in range");
         return;
     };
     const color = cmd.getInt("color") orelse 0;
@@ -60,8 +66,14 @@ pub fn handleRegionUpdate(api: anytype, cmd: protocol.CommandMessage, response: 
     }
 
     // PATCH semantics: use provided values, fall back to current
-    const start = cmd.getFloat("start") orelse current_start;
-    const end = cmd.getFloat("end") orelse current_end;
+    const start = if (cmd.getFloat("start")) |s| mod.validatePosition(s) orelse {
+        response.err("INVALID_POSITION", "Position must be a non-negative number of seconds in range");
+        return;
+    } else current_start;
+    const end = if (cmd.getFloat("end")) |e| mod.validatePosition(e) orelse {
+        response.err("INVALID_POSITION", "Position must be a non-negative number of seconds in range");
+        return;
+    } else current_end;
 
     // Name: use provided if non-empty, else preserve current (whole: a
     // resize that sends only start/end must not shorten the name).
@@ -236,8 +248,8 @@ fn processUpdate(api: anytype, op_json: []const u8) OpResult {
     }
 
     // PATCH semantics: use provided values, fall back to current
-    const start = protocol.jsonGetFloat(op_json, "start") orelse current_start;
-    const end = protocol.jsonGetFloat(op_json, "end") orelse current_end;
+    const start = if (protocol.jsonGetFloat(op_json, "start")) |s| mod.validatePosition(s) orelse return .{ .skipped = "update start out of range" } else current_start;
+    const end = if (protocol.jsonGetFloat(op_json, "end")) |e| mod.validatePosition(e) orelse return .{ .skipped = "update end out of range" } else current_end;
 
     // Name: use provided if non-empty, else preserve current
     const provided_name = protocol.jsonGetTextAlloc(op_json, "name", std.heap.c_allocator) catch null;
@@ -266,12 +278,12 @@ fn processDelete(api: anytype, op_json: []const u8) OpResult {
 
 /// Process a create operation
 fn processCreate(api: anytype, op_json: []const u8) OpResult {
-    const start = protocol.jsonGetFloat(op_json, "start") orelse {
+    const start = mod.validatePosition(protocol.jsonGetFloat(op_json, "start") orelse {
         return .{ .skipped = "create missing start" };
-    };
-    const end = protocol.jsonGetFloat(op_json, "end") orelse {
+    }) orelse return .{ .skipped = "create start out of range" };
+    const end = mod.validatePosition(protocol.jsonGetFloat(op_json, "end") orelse {
         return .{ .skipped = "create missing end" };
-    };
+    }) orelse return .{ .skipped = "create end out of range" };
 
     const name = mod.resolveNameZ(protocol.jsonGetTextAlloc(op_json, "name", std.heap.c_allocator) catch null, "") catch return .{ .skipped = "out of memory" };
     defer std.heap.c_allocator.free(name);
