@@ -568,7 +568,11 @@ fn doProcessing() !void {
     const api = &(g_api orelse return error.ApiNotInitialized);
     const shared_state = g_shared_state orelse return error.StateNotInitialized;
 
-    // Begin new frame - resets scratch arena and swaps tier arenas based on frame counter
+    // Begin new frame - resets scratch arena and swaps tier arenas based on frame counter.
+    // The tier polls below use this same count: a tier swaps on the frame its
+    // regular poll runs, so between regular polls its current state is the
+    // latest poll, which the immediate (CSurf) polls compare against.
+    g_frame_counter +%= 1;
     var tiered = &(g_tiered orelse return error.TieredNotInitialized);
     try tiered.beginFrame(g_frame_counter);
 
@@ -725,9 +729,6 @@ fn doProcessing() !void {
 
     // Send snapshots to newly connected clients
     client_management.sendSnapshotsToNewClients(&snap_ctx);
-
-    // Increment frame counter for tiered polling
-    g_frame_counter +%= 1;
 
     // Skip all polling when no clients are connected.
     // CSurf dirty flags are already consumed above (they must be drained to avoid

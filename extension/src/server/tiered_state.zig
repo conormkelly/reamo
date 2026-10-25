@@ -57,6 +57,10 @@ pub const MediumTierState = struct {
     }
 };
 
+/// Frames between regular polls of the medium (5Hz) and low (1Hz) tiers at 30Hz.
+pub const MEDIUM_TIER_INTERVAL: u32 = 6;
+pub const LOW_TIER_INTERVAL: u32 = 30;
+
 /// LOW TIER: Rarely-changing state (1Hz)
 /// Tempo map, project notes
 pub const LowTierState = struct {
@@ -452,13 +456,12 @@ pub const TieredArenas = struct {
         // HIGH tier swaps every frame
         try self.high.beginFrame();
 
-        // MEDIUM tier swaps every 6 frames (5Hz)
-        if (frame_counter % 6 == 0) {
+        // A tier swaps on the frame its regular poll runs, so between
+        // regular polls the current state is always the latest poll.
+        if (frame_counter % MEDIUM_TIER_INTERVAL == 0) {
             try self.medium.beginFrame();
         }
-
-        // LOW tier swaps every 30 frames (1Hz)
-        if (frame_counter % 30 == 0) {
+        if (frame_counter % LOW_TIER_INTERVAL == 0) {
             try self.low.beginFrame();
         }
     }
