@@ -96,6 +96,12 @@ pub const SharedState = struct {
     clients: std.AutoArrayHashMap(usize, *websocket.Conn),
     next_client_id: usize = 1,
 
+    // Clients that completed the hello handshake (token checked). Only these
+    // receive broadcasts: a socket that never presented the session token
+    // must not see project names, paths, track or marker names.
+    // Protected by client_rwlock.
+    handshaken_clients: std.AutoArrayHashMap(usize, void),
+
     // Clients that need initial state snapshot (set by WS thread after hello, consumed by main thread)
     // Protected by client_rwlock since closely related to client lifecycle
     clients_needing_snapshot: std.AutoArrayHashMap(usize, void),
@@ -124,6 +130,7 @@ pub const SharedState = struct {
             .allocator = allocator,
             .clients = std.AutoArrayHashMap(usize, *websocket.Conn).init(allocator),
             .clients_needing_snapshot = std.AutoArrayHashMap(usize, void).init(allocator),
+            .handshaken_clients = std.AutoArrayHashMap(usize, void).init(allocator),
             .disconnected_clients = std.AutoArrayHashMap(usize, void).init(allocator),
         };
     }
@@ -207,13 +214,18 @@ pub const SharedState = struct {
         }
         self.clients.deinit();
         self.clients_needing_snapshot.deinit();
+        self.handshaken_clients.deinit();
         self.disconnected_clients.deinit();
     }
 
-    // Called by WebSocket thread after successful hello to request initial snapshot
+    // Called by WebSocket thread after successful hello: the client may now
+    // receive broadcasts, and needs an initial snapshot
     pub fn markNeedsSnapshot(self: *SharedState, client_id: usize) void {
         self.client_rwlock.lock();
         defer self.client_rwlock.unlock();
+        self.handshaken_clients.put(client_id, {}) catch |e| {
+            logging.warn("markNeedsSnapshot: client {d} not registered for broadcasts: {}", .{ client_id, e });
+        };
         self.clients_needing_snapshot.put(client_id, {}) catch |e| {
             logging.warn("markNeedsSnapshot failed for client {d}: {} - client won't receive initial state", .{ client_id, e });
         };
@@ -256,6 +268,7 @@ pub const SharedState = struct {
         self.client_rwlock.lock();
         defer self.client_rwlock.unlock();
         _ = self.clients.swapRemove(id);
+        _ = self.handshaken_clients.swapRemove(id);
         // Track disconnected client for gesture cleanup by main thread
         self.disconnected_clients.put(id, {}) catch |e| {
             logging.warn("Failed to track disconnected client {d}: {} - gesture cleanup may be incomplete", .{ id, e });
@@ -316,7 +329,8 @@ pub const SharedState = struct {
         defer self.client_rwlock.unlockShared();
 
         // writeText is thread-safe within the websocket library
-        for (self.clients.values()) |conn| {
+        for (self.clients.keys(), self.clients.values()) |id, conn| {
+            if (!self.handshaken_clients.contains(id)) continue;
             conn.writeText(message) catch |err| self.logWriteError(err);
         }
     }
