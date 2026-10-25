@@ -332,8 +332,6 @@ pub const MockBackend = struct {
     // =========================================================================
     pub const trackCount = tracks.TracksMethods.trackCount;
     pub const getTrackByIdx = tracks.TracksMethods.getTrackByIdx;
-    pub const trackCountIn = tracks.TracksMethods.trackCountIn;
-    pub const getTrackIn = tracks.TracksMethods.getTrackIn;
     pub const getTrackByUnifiedIdx = tracks.TracksMethods.getTrackByUnifiedIdx;
     pub const masterTrack = tracks.TracksMethods.masterTrack;
     pub const getTrackNameStr = tracks.TracksMethods.getTrackNameStr;
@@ -377,6 +375,7 @@ pub const MockBackend = struct {
     // Pointer Validation (delegated)
     // =========================================================================
     pub const validateTrackPtr = tracks.TracksMethods.validateTrackPtr;
+    pub const validateTrackPtrIn = tracks.TracksMethods.validateTrackPtrIn;
     pub const validateItemPtr = tracks.TracksMethods.validateItemPtr;
     pub const validateTakePtr = tracks.TracksMethods.validateTakePtr;
 

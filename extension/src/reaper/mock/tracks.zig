@@ -23,20 +23,6 @@ pub const TracksMethods = struct {
         return state.encodeTrackPtr(idx + 1);
     }
 
-    /// The mock holds one project, `project_pointer` (null: the current one);
-    /// any other project has no tracks.
-    pub fn trackCountIn(self: anytype, project: ?*anyopaque) c_int {
-        self.recordCall(.trackCountIn);
-        return if (project == null or project == self.project_pointer) self.track_count else 0;
-    }
-
-    pub fn getTrackIn(self: anytype, project: ?*anyopaque, idx: c_int) ?*anyopaque {
-        self.recordCall(.getTrackIn);
-        if (project != null and project != self.project_pointer) return null;
-        if (idx < 0 or idx >= self.track_count) return null;
-        return state.encodeTrackPtr(idx + 1);
-    }
-
     pub fn getTrackByUnifiedIdx(self: anytype, idx: c_int) ?*anyopaque {
         self.recordCall(.getTrackByUnifiedIdx);
         // 0 = master, 1+ = regular tracks
@@ -338,6 +324,14 @@ pub const TracksMethods = struct {
     /// Mock always returns true for valid-looking pointers.
     /// In tests, use track_count to control what's "valid".
     /// Uses <= because unified indexing: 0=master, 1..track_count=user tracks
+    /// The mock holds one project, `project_pointer` (null: the current one);
+    /// any other project has no tracks.
+    pub fn validateTrackPtrIn(self: anytype, project: ?*anyopaque, track: ?*anyopaque) bool {
+        self.recordCall(.validateTrackPtrIn);
+        if (project != null and project != self.project_pointer) return false;
+        return self.validateTrackPtr(track);
+    }
+
     pub fn validateTrackPtr(self: anytype, track: ?*anyopaque) bool {
         self.recordCall(.validateTrackPtr);
         if (track == null) return false;
