@@ -167,8 +167,6 @@ pub const all = .{
     .{ "master/toggleMono", master.handleToggleMono },
 
     // ExtState
-    .{ "extstate/get", extstate.handleGet },
-    .{ "extstate/set", extstate.handleSet },
     .{ "extstate/projGet", extstate.handleProjGet },
     .{ "extstate/projSet", extstate.handleProjSet },
 
