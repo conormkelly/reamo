@@ -115,6 +115,8 @@ pub const ResponseWriter = struct {
     shared_state: *ws_server.SharedState,
     gestures: ?*GestureState,
     playlist: ?*PlaylistState = null,
+    /// Whether this command has been answered (see dispatch).
+    responded: bool = false,
 
     /// Payload responses larger than this are refused rather than sent: one
     /// frame must fit the socket send buffer (see WsHandler.init).
@@ -122,6 +124,7 @@ pub const ResponseWriter = struct {
 
     pub fn success(self: *ResponseWriter, payload: ?[]const u8) void {
         if (self.cmd_id == null) return; // No response expected if no id provided
+        self.responded = true;
 
         // Most responses fit on the stack; larger ones get an exact-size heap
         // buffer instead of being dropped (the client would wait forever).
@@ -157,6 +160,7 @@ pub const ResponseWriter = struct {
     /// (track names and the like), so it is escaped like any other string.
     pub fn successWithAction(self: *ResponseWriter, action: []const u8) void {
         if (self.cmd_id == null) return;
+        self.responded = true;
 
         // REAPER's undo descriptions are short; 256 bytes escapes to at most
         // ~1.5 KB (control characters become \u00XX).
@@ -181,6 +185,7 @@ pub const ResponseWriter = struct {
 
     pub fn err(self: *ResponseWriter, code: []const u8, message: []const u8) void {
         if (self.cmd_id == null) return;
+        self.responded = true;
 
         var buf: [512]u8 = undefined;
         const json = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":false,\"error\":{{\"code\":\"{s}\",\"message\":\"{s}\"}}}}", .{ self.cmd_id.?, code, message }) catch {
@@ -196,6 +201,7 @@ pub const ResponseWriter = struct {
     /// Format: {"type":"response","id":"...","success":true,"warning":{"code":"...","message":"..."}}
     pub fn warn(self: *ResponseWriter, code: []const u8, message: []const u8) void {
         if (self.cmd_id == null) return;
+        self.responded = true;
 
         var buf: [512]u8 = undefined;
         const json = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"warning\":{{\"code\":\"{s}\",\"message\":\"{s}\"}}}}", .{ self.cmd_id.?, code, message }) catch {
@@ -247,6 +253,10 @@ pub fn dispatch(api: anytype, client_id: usize, data: []const u8, shared_state: 
             inline for (comptime_registry.all) |entry| {
                 if (std.mem.eql(u8, cmd.command, entry[0])) {
                     entry[1](api, cmd, &response);
+                    // A command sent with an id is always answered: many
+                    // handlers report only failures, and a client awaiting
+                    // one of them could not tell success from loss.
+                    if (!response.responded) response.success(null);
                     return;
                 }
             }
