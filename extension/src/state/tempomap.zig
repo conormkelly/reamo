@@ -1,4 +1,5 @@
 const std = @import("std");
+const protocol = @import("../core/protocol.zig");
 const reaper = @import("../reaper.zig");
 
 /// Maximum number of tempo markers to track
@@ -72,14 +73,24 @@ pub const State = struct {
     }
 
     // Allocator-based version - returns owned slice from allocator
+    /// Sized to fit the whole map (~100 bytes per marker).
     pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
-        var buf: [4096]u8 = undefined;
-        const json = self.toJson(&buf) orelse return error.JsonSerializationFailed;
-        return allocator.dupe(u8, json);
+        return protocol.serializeAlloc(allocator, 256 + @as(usize, @intCast(@max(self.count, 0))) * 128, self, toJson);
     }
 };
 
 // Tests
+test "toJsonAlloc keeps the event for a full tempo map" {
+    var state = State{ .count = MAX_MARKERS };
+    for (state.markers[0..MAX_MARKERS], 0..) |*m, i| {
+        m.* = .{ .position = @as(f64, @floatFromInt(i)) * 1.234567, .position_beats = @as(f64, @floatFromInt(i)) * 2.5, .bpm = 97.5, .timesig_num = 7, .timesig_denom = 8, .linear_tempo = true };
+    }
+    const json = try state.toJsonAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(json);
+    try std.testing.expect(json.len > 4096);
+    try std.testing.expect(std.mem.endsWith(u8, json, "]}}"));
+}
+
 test "State.poll returns empty for no markers" {
     // Can't test without REAPER API, but verify struct compiles
     const state = State{};
