@@ -102,19 +102,27 @@ def open_project(path, dialogs=LOAD_DIALOGS, timeout=30.0, on_dialog=None):
     blocks REAPER's main thread, before it is dismissed."""
     pending = submit(f'reaper.Main_openProject("noprompt:{path}")')
     seen = []
+    # Each dialog window is dismissed once. A dialog can stay visible for a
+    # moment after its key, and a second Return would land on the arrange
+    # view, where it is REAPER's default play/pause shortcut.
+    dismissed = set()
     deadline = time.time() + timeout
     while not pending.done():
         if time.time() > deadline:
             screenshot("open-project-timeout")
             raise TimeoutError(f"opening {path} did not finish; windows: {windows()}")
-        for title in windows():
+        for wid, title in _visible_windows():
+            if wid in dismissed:
+                continue
             for known, key in dialogs.items():
                 if known.lower() in title.lower():
+                    dismissed.add(wid)
                     seen.append(title)
                     screenshot(f"dialog-{len(seen)}")
                     if on_dialog:
                         on_dialog(title)
-                    press(title, key)
+                    _press_window(wid, key)
+                    break
         time.sleep(0.1)
     pending.result()
     return seen
@@ -130,9 +138,20 @@ def screenshot(name):
 def windows():
     """Titles of REAPER's visible windows: a dialog showing up here means a
     modal may be blocking REAPER's main thread."""
-    r = subprocess.run(["xdotool", "search", "--onlyvisible", "--name", ".", "getwindowname", "%@"],
+    return [title for _, title in _visible_windows()]
+
+
+def _visible_windows():
+    """[(X window id, title)] of the visible, titled windows."""
+    r = subprocess.run(["xdotool", "search", "--onlyvisible", "--name", "."],
                        capture_output=True, text=True, timeout=10)
-    return [line for line in r.stdout.splitlines() if line]
+    out = []
+    for wid in r.stdout.split():
+        name = subprocess.run(["xdotool", "getwindowname", wid], capture_output=True, text=True, timeout=10)
+        title = name.stdout.strip()
+        if name.returncode == 0 and title:  # a window can close between the two calls
+            out.append((wid, title))
+    return out
 
 
 def press(window_title, *keys):
@@ -143,7 +162,17 @@ def press(window_title, *keys):
     ids = r.stdout.split()
     if not ids:
         raise LookupError(f"no visible window titled like {window_title!r}; windows: {windows()}")
-    subprocess.run(["xdotool", "key", "--window", ids[0], *keys], check=True, timeout=10)
+    _press_window(ids[0], *keys)
+
+
+def _press_window(wid, *keys):
+    # Focus the window, then type into whatever has focus. `key --window`
+    # picks XTEST or a synthetic event per event by whether the window has
+    # focus. A dialog that closes on the key press loses focus before the
+    # release, so the release goes to a dead window, the X server never sees
+    # the key go up, and it auto-repeats into the arrange view (Return is
+    # REAPER's play/pause).
+    subprocess.run(["xdotool", "windowfocus", "--sync", wid, "key", *keys], check=True, timeout=10)
 
 
 class Closed(Exception):
