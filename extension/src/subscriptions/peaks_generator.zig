@@ -283,8 +283,8 @@ pub fn generateTilesForSubscriptionBinary(
         const item_count_raw = api.trackItemCount(track);
         if (item_count_raw <= 0) continue;
 
-        // Every item, not the first N: the viewport check below keeps the
-        // work to what's in view, wherever on the track that is.
+        // Every item on the track; the viewport check below keeps the work
+        // to what's in view, wherever on the track that is.
         var i: c_int = 0;
         while (i < item_count_raw) : (i += 1) {
             const item = api.getItemByIdx(track, i) orelse continue;
