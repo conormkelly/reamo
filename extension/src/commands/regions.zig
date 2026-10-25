@@ -174,13 +174,11 @@ pub fn handleRegionBatch(api: anytype, cmd: protocol.CommandMessage, response: *
 
     api.undoEndBlock("REAmo: Batch region edit");
 
-    // Build response
-    var resp_buf: [256]u8 = undefined;
+    // Room for every warning kept above plus the keys and two counts of up
+    // to 20 digits each.
+    var resp_buf: [warnings_buf.len + 96]u8 = undefined;
     const warnings_json = if (warnings_len > 0) warnings_buf[0..warnings_len] else "";
-    const resp = std.fmt.bufPrint(&resp_buf, "{{\"applied\":{d},\"skipped\":{d},\"warnings\":[{s}]}}", .{ applied, skipped, warnings_json }) catch {
-        response.success(null);
-        return;
-    };
+    const resp = std.fmt.bufPrint(&resp_buf, "{{\"applied\":{d},\"skipped\":{d},\"warnings\":[{s}]}}", .{ applied, skipped, warnings_json }) catch unreachable;
 
     response.success(resp);
     logging.debug("Batch region edit - applied {d}, skipped {d}", .{ applied, skipped });
