@@ -38,3 +38,7 @@ zig-out
 # Claude
 .claude
 *.bak
+
+# Live-REAPER harness: your personal REAPER licence (never commit)
+scripts/harness/reaper-license.rk
+*.rk

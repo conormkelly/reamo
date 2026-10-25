@@ -1,6 +1,6 @@
 .PHONY: all frontend extension dev-extension clean test test-frontend test-extension test-e2e \
         test-ws dev dev-notests dev-cycle stop-reaper start-reaper frontend-dev install typecheck \
-        tracy release-native release-dir
+        tracy release-native release-dir harness harness-image
 
 # Platform detection: library name and REAPER plugin directory
 ifeq ($(shell uname),Darwin)
@@ -169,6 +169,16 @@ test-ws:
 	@echo "Running WebSocket integration tests..."
 	@echo "(Requires REAPER running with the extension loaded)"
 	cd tests/ws-integration && npm test
+
+# Run live-REAPER harness scenarios: real headless REAPER in Docker, driven
+# over WebSocket. SCENARIOS="smoke item-notes-poll" runs a subset. See
+# scripts/harness/README.md (needs Docker, Zig 0.15 and a built web/).
+harness:
+	scripts/harness/run.sh $(SCENARIOS)
+
+# Rebuild the harness image (pinned REAPER); run.sh builds it on first use.
+harness-image:
+	docker build -t reamo-v1-harness scripts/harness
 
 # Run extension unit tests (zig)
 test-extension:
