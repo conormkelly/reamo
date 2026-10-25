@@ -55,9 +55,17 @@ pub fn handleDelete(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         return;
     };
 
+    const was_playing_it = state.engine.isActive() and state.engine.playlist_idx == idx_usize;
     if (!state.removePlaylist(idx_usize)) {
         response.err("NOT_FOUND", "Playlist not found");
         return;
+    }
+    if (was_playing_it) {
+        // Its playback ends as with playlist/stop: otherwise REAPER keeps
+        // repeating the current region with nothing left to advance it.
+        api.setRepeat(false);
+        api.clearLoopPoints();
+        api.runCommand(reaper.Command.STOP);
     }
 
     // Mark dirty for deferred persistence
@@ -599,26 +607,17 @@ pub fn handleNext(api: anytype, _: protocol.CommandMessage, response: *mod.Respo
         return;
     };
 
-    // Get next entry's loop count
-    const next_idx = state.engine.entry_idx + 1;
-    if (next_idx >= p.entry_count) {
-        // At last entry - stop and clean up native looping
+    const next = findFirstValidEntry(api, p, state.engine.entry_idx + 1) orelse {
+        // Nothing playable left - stop and clean up native looping
         _ = state.engine.stop();
         api.setRepeat(false);
         api.clearLoopPoints();
         response.success(null);
         return;
-    }
-
-    const next_loop_count = p.entries[next_idx].loop_count;
-    _ = state.engine.next(p.entry_count, next_loop_count);
-
-    // Set up native looping on next region
-    const region_id = p.entries[next_idx].region_id;
-    if (findRegionBounds(api, region_id)) |bounds| {
-        api.setCursorPos(bounds.start);
-        api.setLoopPoints(bounds.start, bounds.end);
-    }
+    };
+    _ = state.engine.jumpTo(next.entry_idx, p.entries[next.entry_idx].loop_count);
+    api.setCursorPos(next.bounds.start);
+    api.setLoopPoints(next.bounds.start, next.bounds.end);
 
     response.success(null);
     logging.debug("Advanced to next entry", .{});
@@ -646,16 +645,19 @@ pub fn handlePrev(api: anytype, _: protocol.CommandMessage, response: *mod.Respo
         return;
     };
 
-    const prev_idx = state.engine.entry_idx - 1;
-    const prev_loop_count = p.entries[prev_idx].loop_count;
-    _ = state.engine.prev(prev_loop_count);
-
-    // Set up native looping on previous region
-    const region_id = p.entries[prev_idx].region_id;
-    if (findRegionBounds(api, region_id)) |bounds| {
-        api.setCursorPos(bounds.start);
-        api.setLoopPoints(bounds.start, bounds.end);
-    }
+    // The nearest earlier entry playback stops on
+    var prev_idx = state.engine.entry_idx;
+    const prev = while (prev_idx > 0) {
+        prev_idx -= 1;
+        if (!p.entries[prev_idx].isPlayable()) continue;
+        if (findRegionBounds(api, p.entries[prev_idx].region_id)) |bounds| break .{ .idx = prev_idx, .bounds = bounds };
+    } else {
+        response.err("AT_START", "Already at first entry");
+        return;
+    };
+    _ = state.engine.jumpTo(prev.idx, p.entries[prev.idx].loop_count);
+    api.setCursorPos(prev.bounds.start);
+    api.setLoopPoints(prev.bounds.start, prev.bounds.end);
 
     response.success(null);
     logging.debug("Went to previous entry", .{});
@@ -691,10 +693,12 @@ const ValidEntryResult = struct {
     bounds: RegionBounds,
 };
 
-// Helper to find the first valid entry (whose region exists) starting from a given index
+// The first entry from `start_idx` on that playback stops on: not skipped
+// (loop count 0) and with its region still in the project.
 fn findFirstValidEntry(api: anytype, p: *const playlist_mod.Playlist, start_idx: usize) ?ValidEntryResult {
     var idx = start_idx;
     while (idx < p.entry_count) : (idx += 1) {
+        if (!p.entries[idx].isPlayable()) continue;
         const region_id = p.entries[idx].region_id;
         if (findRegionBounds(api, region_id)) |bounds| {
             return .{ .entry_idx = idx, .bounds = bounds };
