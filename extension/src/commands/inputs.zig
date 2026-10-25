@@ -1,4 +1,5 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
 const tracks = @import("tracks.zig");
@@ -58,15 +59,8 @@ pub fn handleEnumerateAudio(api: anytype, _: protocol.CommandMessage, response: 
         if (!first) writer.writeAll(",") catch return;
         first = false;
 
-        // Escape quotes in name for JSON safety
         writer.print("{{\"idx\":{d},\"name\":\"", .{i}) catch return;
-        for (name_str) |c| {
-            switch (c) {
-                '"' => writer.writeAll("\\\"") catch return,
-                '\\' => writer.writeAll("\\\\") catch return,
-                else => writer.writeByte(c) catch return,
-            }
-        }
+        protocol.writeJsonString(writer, name_str) catch return;
         writer.writeAll("\"}") catch return;
     }
 
@@ -118,15 +112,8 @@ pub fn handleEnumerateMidi(api: anytype, _: protocol.CommandMessage, response: *
 
             const name_len = std.mem.indexOfScalar(u8, &name_buf, 0) orelse 255;
 
-            // Escape quotes in name for JSON safety
             writer.print("{{\"idx\":{d},\"name\":\"", .{i}) catch return;
-            for (name_buf[0..name_len]) |c| {
-                switch (c) {
-                    '"' => writer.writeAll("\\\"") catch return,
-                    '\\' => writer.writeAll("\\\\") catch return,
-                    else => writer.writeByte(c) catch return,
-                }
-            }
+            protocol.writeJsonString(writer, utf8.trimTruncated(name_buf[0..name_len], name_buf.len)) catch return;
             writer.writeAll("\"}") catch return;
         }
     }

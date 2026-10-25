@@ -89,14 +89,5 @@ pub fn handleGetList(api: anytype, _: protocol.CommandMessage, response: *mod.Re
 }
 
 fn writeEscapedString(writer: anytype, str: []const u8) !void {
-    for (str) |c| {
-        switch (c) {
-            '"' => try writer.writeAll("\\\""),
-            '\\' => try writer.writeAll("\\\\"),
-            '\n' => try writer.writeAll("\\n"),
-            '\r' => try writer.writeAll("\\r"),
-            '\t' => try writer.writeAll("\\t"),
-            else => try writer.writeByte(c),
-        }
-    }
+    try protocol.writeJsonString(writer, str);
 }

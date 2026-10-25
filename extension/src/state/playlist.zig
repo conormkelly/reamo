@@ -1,4 +1,5 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const protocol = @import("../core/protocol.zig");
 const markers = @import("markers.zig");
 const constants = @import("../core/constants.zig");
@@ -39,8 +40,7 @@ pub const Playlist = struct {
     }
 
     pub fn setName(self: *Playlist, new_name: []const u8) void {
-        const copy_len = @min(new_name.len, MAX_NAME_LEN);
-        @memcpy(self.name[0..copy_len], new_name[0..copy_len]);
+        const copy_len = utf8.copyPrefix(self.name[0..MAX_NAME_LEN], new_name);
         self.name_len = copy_len;
     }
 

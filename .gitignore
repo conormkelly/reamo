@@ -48,3 +48,6 @@ handover/
 
 # Live-REAPER harness screenshots and artifacts
 scripts/harness/out/
+
+# Python bytecode from harness runs
+__pycache__/

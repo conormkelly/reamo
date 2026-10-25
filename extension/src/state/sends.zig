@@ -1,4 +1,5 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const Allocator = std.mem.Allocator;
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
@@ -136,8 +137,7 @@ pub const State = struct {
                     // Get destination name
                     var name_buf: [MAX_SEND_NAME_LEN]u8 = undefined;
                     const dest_name = api.trackSendGetDestName(track, send_idx, &name_buf);
-                    const name_len = @min(dest_name.len, MAX_SEND_NAME_LEN);
-                    @memcpy(slot.dest_name[0..name_len], dest_name[0..name_len]);
+                    const name_len = utf8.copyPrefix(slot.dest_name[0..MAX_SEND_NAME_LEN], dest_name);
                     slot.dest_name_len = name_len;
 
                     // Get send parameters

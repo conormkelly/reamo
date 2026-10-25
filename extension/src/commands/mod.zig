@@ -1,4 +1,5 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
 const ws_server = @import("../server/ws_server.zig");
@@ -121,47 +122,24 @@ pub const ResponseWriter = struct {
         }
     }
 
-    /// Success response with an action string (for undo/redo commands)
+    /// Success response with an action string (for undo/redo commands).
+    /// The action is REAPER's undo description, which can quote user text
+    /// (track names and the like), so it is escaped like any other string.
     pub fn successWithAction(self: *ResponseWriter, action: []const u8) void {
         if (self.cmd_id == null) return;
 
-        // Escape the action string for JSON
-        var escaped: [512]u8 = undefined;
-        var escaped_len: usize = 0;
-        for (action) |c| {
-            if (escaped_len + 2 > escaped.len) break;
-            switch (c) {
-                '"' => {
-                    escaped[escaped_len] = '\\';
-                    escaped[escaped_len + 1] = '"';
-                    escaped_len += 2;
-                },
-                '\\' => {
-                    escaped[escaped_len] = '\\';
-                    escaped[escaped_len + 1] = '\\';
-                    escaped_len += 2;
-                },
-                '\n' => {
-                    escaped[escaped_len] = '\\';
-                    escaped[escaped_len + 1] = 'n';
-                    escaped_len += 2;
-                },
-                else => {
-                    if (c >= 0x20) {
-                        escaped[escaped_len] = c;
-                        escaped_len += 1;
-                    }
-                },
-            }
-        }
-
-        var buf: [768]u8 = undefined;
-        const json = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"action\":\"{s}\"}}", .{ self.cmd_id.?, escaped[0..escaped_len] }) catch {
-            logging.warn("ResponseWriter.successWithAction: buffer overflow for cmd_id={s}", .{self.cmd_id.?});
+        // REAPER's undo descriptions are short; 256 bytes escapes to at most
+        // ~1.5 KB (control characters become \u00XX).
+        var buf: [2048]u8 = undefined;
+        var stream = std.io.fixedBufferStream(&buf);
+        const w = stream.writer();
+        w.print("{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"action\":\"", .{self.cmd_id.?}) catch {
+            logging.warn("ResponseWriter.successWithAction: id too long for cmd_id={s}", .{self.cmd_id.?});
             return;
         };
-
-        self.shared_state.sendToClient(self.client_id, json);
+        protocol.writeJsonString(w, utf8.prefix(action, 256)) catch return;
+        w.writeAll("\"}") catch return;
+        self.shared_state.sendToClient(self.client_id, stream.getWritten());
     }
 
     /// Success response for commands whose payload is routinely large (action
@@ -275,8 +253,7 @@ pub fn dispatch(api: anytype, client_id: usize, data: []const u8, shared_state: 
 // Returns pointer to buffer (null-terminated) or empty string literal
 pub fn toNullTerminated(buf: *[65]u8, str: ?[]const u8) [*:0]const u8 {
     const s = str orelse return "";
-    const len = @min(s.len, 64);
-    @memcpy(buf[0..len], s[0..len]);
+    const len = utf8.copyPrefix(buf[0..64], s);
     buf[len] = 0;
     // SAFETY: @alignCast unnecessary - u8 has alignment 1, always valid
     return @ptrCast(buf);
