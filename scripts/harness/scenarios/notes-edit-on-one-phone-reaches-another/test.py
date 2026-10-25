@@ -2,16 +2,9 @@
 the other must be told the notes changed (projectNotesChanged), exactly as
 it is told when someone edits the notes in REAPER itself.
 """
-import json
 import time
-import types
 
-import reamo_client
 from reamo_client import Client, reaper
-
-# Browser-shaped JSON: compact, raw UTF-8 (JSON.stringify does not \\u-escape).
-reamo_client.json = types.SimpleNamespace(
-    dumps=lambda o: json.dumps(o, separators=(",", ":"), ensure_ascii=False), loads=json.loads, load=json.load)
 
 
 def wait_changed(c, what, timeout=3.0):

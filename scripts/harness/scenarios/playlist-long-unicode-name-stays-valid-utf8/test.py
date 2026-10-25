@@ -6,13 +6,8 @@ character: browsers drop the whole WebSocket on a text frame with invalid
 UTF-8, and the playlist event goes to every client on every connect.
 """
 import json
-import types
 
-import reamo_client
 from reamo_client import Client
-
-reamo_client.json = types.SimpleNamespace(
-    dumps=lambda o: json.dumps(o, separators=(",", ":"), ensure_ascii=False), loads=json.loads, load=json.load)
 
 NAME = "Größte Hits! " + "ü" * 70  # 15 + 140 bytes: byte 128 falls inside a 2-byte char
 assert len(NAME.encode()) > 128

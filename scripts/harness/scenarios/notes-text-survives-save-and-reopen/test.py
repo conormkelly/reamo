@@ -3,13 +3,8 @@ and a reopen. Line breaks, unicode, and lines that start with characters the
 .rpp format uses itself (| < >) included.
 """
 import json
-import types
 
-import reamo_client
 from reamo_client import Client, reaper
-
-reamo_client.json = types.SimpleNamespace(
-    dumps=lambda o: json.dumps(o, separators=(",", ":"), ensure_ascii=False), loads=json.loads, load=json.load)
 
 TYPED = "Setlist 🎸 — Zürich\nVerse 1: \"quiet\"\n\tbridge\\coda\n| bar 12 tacet\n<intro> x2\n> fade\n\nend"
 GET = "return select(1, reaper.GetSetProjectNotes(0, false, ''))"
