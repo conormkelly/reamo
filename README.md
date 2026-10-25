@@ -98,6 +98,12 @@ REAmo runs an HTTP server on your computer (default port 9224).
 
 </details>
 
+## Reporting a Problem
+
+REAmo keeps a log in REAPER's resource folder, under `Logs/reamo.log`; **Extensions > REAmo > Open Log Folder** opens it. Each log file is at most 1 MB and REAmo keeps four, so the logs never use more than 4 MB on disk. Normally the log records connections, errors and warnings, with no project names, notes or other project content.
+
+If something goes wrong, turn on **Extensions > REAmo > Debug Logging**, make the problem happen again, and attach `reamo.log` to your issue. Debug logging records much more detail, including project and track names, and switches off when REAPER restarts.
+
 ## For Developers
 
 **Zig** extension (WebSocket server) + **React 19** / **TypeScript** / **Zustand** / **Tailwind CSS 4** frontend.
