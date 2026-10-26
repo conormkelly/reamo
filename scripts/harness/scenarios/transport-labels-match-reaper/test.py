@@ -15,7 +15,8 @@ def label(t):
 
 
 with Client() as c:
-    c.wait_event("transport")
+    # A seek that doesn't move the cursor sends no event; the last one stands.
+    last = c.wait_event("transport")
     assert reaper("return reaper.CountTempoTimeSigMarkers(0)") == 3
 
     # Stopped: seek to positions in each section, including a hair before bar lines.
@@ -26,7 +27,7 @@ with Client() as c:
         got = None
         while time.time() < deadline:
             c.drain(0.1)
-            ev = c.latest_event("transport")["payload"]
+            ev = (c.latest_event("transport") or last)["payload"]
             if abs(ev["cursorPosition"] - pos) < 0.002:
                 got = ev["positionBeats"]
                 break
