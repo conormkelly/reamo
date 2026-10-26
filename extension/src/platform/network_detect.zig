@@ -118,6 +118,64 @@ pub const detectNetworks = switch (builtin.os.tag) {
     else => detectNetworksStub,
 };
 
+/// Detect networks in the order to offer them (see `order`).
+pub fn detectOrdered(buf: []NetworkInfo) usize {
+    const count = detectNetworks(buf);
+    order(buf[0..count], defaultRouteAddress());
+    return count;
+}
+
+/// Order networks to offer the likeliest one first: USB tethering (a cable
+/// is the surest link at a venue), then `route`, the address this computer
+/// reaches other networks from, then every other address. Each group keeps
+/// the order the OS listed it in. The default route matters because the OS
+/// lists virtual adapters (VirtualBox, Hyper-V, Docker, VPNs) beside the real
+/// one, in no useful order, and a phone can't reach them.
+pub fn order(networks: []NetworkInfo, route: ?[4]u8) void {
+    std.sort.insertion(NetworkInfo, networks, route, struct {
+        fn rank(r: ?[4]u8, n: NetworkInfo) u2 {
+            if (n.network_type != .wifi_lan) return 0;
+            if (r) |ip| if (std.mem.eql(u8, &ip, &n.ip)) return 1;
+            return 2;
+        }
+        fn lessThan(r: ?[4]u8, a: NetworkInfo, b: NetworkInfo) bool {
+            return rank(r, a) < rank(r, b);
+        }
+    }.lessThan);
+}
+
+/// The local address the OS would send from to reach other networks: the
+/// one behind the default route. Null when there's no default route.
+/// Connecting a UDP socket picks a route without sending anything.
+pub fn defaultRouteAddress() ?[4]u8 {
+    // TEST-NET-1 (RFC 5737) is never a local network, so only the default
+    // route reaches it.
+    const probe = std.net.Address.initIp4(.{ 192, 0, 2, 1 }, 9);
+    const sock = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, std.posix.IPPROTO.UDP) catch |err| {
+        logging.debug("Default route: no socket: {s}", .{@errorName(err)});
+        return null;
+    };
+    defer if (builtin.os.tag == .windows) {
+        std.os.windows.closesocket(sock) catch {};
+    } else {
+        std.posix.close(sock);
+    };
+    std.posix.connect(sock, &probe.any, probe.getOsSockLen()) catch |err| {
+        logging.debug("Default route: none ({s})", .{@errorName(err)});
+        return null;
+    };
+    var local: std.net.Address = undefined;
+    var len: std.posix.socklen_t = @sizeOf(std.net.Address);
+    std.posix.getsockname(sock, &local.any, &len) catch |err| {
+        logging.debug("Default route: no local address: {s}", .{@errorName(err)});
+        return null;
+    };
+    if (local.any.family != std.posix.AF.INET) return null;
+    const ip: [4]u8 = @bitCast(local.in.sa.addr);
+    logging.debug("Default route is from {d}.{d}.{d}.{d}", .{ ip[0], ip[1], ip[2], ip[3] });
+    return ip;
+}
+
 // -----------------------------------------------------------------------------
 // POSIX implementation (macOS, Linux, BSD)
 // -----------------------------------------------------------------------------
@@ -364,4 +422,58 @@ test "classifyNetwork" {
     try std.testing.expectEqual(NetworkType.wifi_lan, classifyNetwork(.{ 10, 0, 0, 5 }).?);
     try std.testing.expect(classifyNetwork(.{ 127, 0, 0, 1 }) == null); // loopback
     try std.testing.expect(classifyNetwork(.{ 8, 8, 8, 8 }) == null); // public
+}
+
+fn testNetwork(ip: [4]u8, name: []const u8) NetworkInfo {
+    var n = NetworkInfo{
+        .ip = ip,
+        .interface_name = .{0} ** 16,
+        .interface_name_len = @intCast(name.len),
+        .network_type = classifyNetwork(ip).?,
+    };
+    @memcpy(n.interface_name[0..name.len], name);
+    return n;
+}
+
+fn expectOrder(networks: []const NetworkInfo, expected: []const [4]u8) !void {
+    try std.testing.expectEqual(expected.len, networks.len);
+    for (networks, expected) |n, ip| try std.testing.expectEqual(ip, n.ip);
+}
+
+test "order offers the default route's address before a virtual adapter listed ahead of it" {
+    var networks = [_]NetworkInfo{
+        testNetwork(.{ 192, 168, 56, 1 }, "VirtualBox"),
+        testNetwork(.{ 172, 25, 160, 1 }, "vEthernet"),
+        testNetwork(.{ 192, 168, 1, 18 }, "Ethernet"),
+    };
+    order(&networks, .{ 192, 168, 1, 18 });
+    try expectOrder(&networks, &.{ .{ 192, 168, 1, 18 }, .{ 192, 168, 56, 1 }, .{ 172, 25, 160, 1 } });
+}
+
+test "order keeps USB tethering ahead of the default route" {
+    var networks = [_]NetworkInfo{
+        testNetwork(.{ 192, 168, 1, 18 }, "Wi-Fi"),
+        testNetwork(.{ 192, 168, 56, 1 }, "VirtualBox"),
+        testNetwork(.{ 172, 20, 10, 2 }, "iPhone USB"),
+        testNetwork(.{ 192, 168, 42, 65 }, "Android USB"),
+    };
+    order(&networks, .{ 192, 168, 1, 18 });
+    try expectOrder(&networks, &.{
+        .{ 172, 20, 10, 2 }, .{ 192, 168, 42, 65 }, .{ 192, 168, 1, 18 }, .{ 192, 168, 56, 1 },
+    });
+}
+
+test "order keeps the OS's order without a default route, or when it's from no listed address" {
+    const listed = [_]NetworkInfo{
+        testNetwork(.{ 192, 168, 56, 1 }, "VirtualBox"),
+        testNetwork(.{ 192, 168, 1, 18 }, "Ethernet"),
+        testNetwork(.{ 10, 0, 0, 5 }, "Wi-Fi"),
+    };
+    const os_order = [_][4]u8{ .{ 192, 168, 56, 1 }, .{ 192, 168, 1, 18 }, .{ 10, 0, 0, 5 } };
+    var networks = listed;
+    order(&networks, null);
+    try expectOrder(&networks, &os_order);
+    networks = listed;
+    order(&networks, .{ 81, 2, 3, 4 });
+    try expectOrder(&networks, &os_order);
 }
