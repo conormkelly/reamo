@@ -62,6 +62,14 @@ def skip_before_lanes(c, command, **params):
     skip(f"comp lanes need REAPER 7: {command} is refused, as it should be")
 
 
+# What a run was built from: the extension binary and the installer
+# (EXT_DIR), the frontend (WEB_DIR) and REAmo's effects (EFFECTS_DIR).
+# The container mounts them; the Windows runner stages them and says where.
+EXT_DIR = os.environ.get("HARNESS_EXT", "/ext")
+WEB_DIR = os.environ.get("HARNESS_WEB", "/web")
+EFFECTS_DIR = os.environ.get("HARNESS_EFFECTS", "/effects")
+BINARY_NAME = "reaper_reamo.dll" if WINDOWS else "reaper_reamo.so"
+
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("REAMO_PORT", "9224"))
 

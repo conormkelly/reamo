@@ -116,6 +116,11 @@ try {
     $env:HARNESS_SCENARIO = $Scenario
     $env:HARNESS_OUT = $Out
     $env:TOUR_ONLY = "$($job.tour_only)"
+    # What this run was built from, for scenarios that install it (the
+    # container's /ext, /web and /effects).
+    $env:HARNESS_EXT = $Stage
+    $env:HARNESS_WEB = "$Stage\web"
+    $env:HARNESS_EFFECTS = "$Stage\effects"
     $env:PYTHONPATH = $Harness
     $env:PYTHONUTF8 = "1"
     $env:PYTHONIOENCODING = "utf-8"
