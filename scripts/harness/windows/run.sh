@@ -88,6 +88,8 @@ cp -R "$ROOT/web" "$stage/web"
 cp -R "$ROOT/extension/effects" "$stage/effects"
 cp -R "$ROOT/test-fixtures" "$stage/fixtures"
 cp "$OUT/build/bin/reaper_reamo.dll" "$stage/reaper_reamo.dll"
+# The release installer scripts, for scenarios that install over a running REAmo.
+cp -R "$ROOT/installer" "$stage/installer"
 if [ -f "$LICENSE" ]; then
     cp "$LICENSE" "$stage/reaper-license.rk"
 else
