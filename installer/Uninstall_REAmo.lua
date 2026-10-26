@@ -61,12 +61,23 @@ local function list_dir(dir)
   return files, dirs
 end
 
+-- Remove a directory if it's empty. Lua's os.remove does that on Linux and
+-- macOS; on Windows it only deletes files, so there it's cmd's rmdir, run by
+-- REAPER without a console window. Without /S, rmdir refuses a directory
+-- that isn't empty.
+local function remove_empty_dir(path)
+  if os.remove(path) then return true end
+  if not is_windows then return false end
+  local result = reaper.ExecProcess('cmd.exe /C rmdir "' .. path .. '"', 10000)
+  return result ~= nil and result:match("^0\n") ~= nil
+end
+
 -- Delete a directory and everything in it.
 local function remove_dir_recursive(dir)
   local files, dirs = list_dir(dir)
   for _, name in ipairs(files) do os.remove(dir .. sep .. name) end
   for _, name in ipairs(dirs) do remove_dir_recursive(dir .. sep .. name) end
-  os.remove(dir)
+  remove_empty_dir(dir)
 end
 
 -- 1. Extension binary, and anything an update left beside it
@@ -112,7 +123,7 @@ local effects_dir = resource_path .. sep .. "Effects" .. sep .. "REAmo"
 local jsfx_path = effects_dir .. sep .. "PitchDetect.jsfx"
 if os.remove(jsfx_path) then
   removed[#removed + 1] = "Tuner JSFX: PitchDetect.jsfx"
-  os.remove(effects_dir) -- only if now empty
+  remove_empty_dir(effects_dir)
 end
 
 local leftover_note = ""
