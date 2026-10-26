@@ -427,18 +427,16 @@ fn doInitialization() !void {
 
     // Read user-configured allowed hosts from ExtState (comma-separated)
     if (api.getExtStateValue("Reamo", "AllowedHosts")) |hosts_str| {
-        if (hosts_str.len > 0) {
-            var iter = std.mem.splitScalar(u8, hosts_str, ',');
-            while (iter.next()) |entry| {
-                const trimmed = std.mem.trim(u8, entry, " ");
-                if (trimmed.len > 0) {
-                    if (!host_validation.addAllowedHost(trimmed)) {
-                        logging.warn("An allowed host wasn't added ({d} characters): too long, or the list is full", .{trimmed.len});
-                    }
+        var iter = std.mem.splitScalar(u8, hosts_str, ',');
+        while (iter.next()) |entry| {
+            const trimmed = std.mem.trim(u8, entry, " ");
+            if (trimmed.len > 0) {
+                if (!host_validation.addAllowedHost(trimmed)) {
+                    logging.warn("An allowed host wasn't added ({d} characters): too long, or the list is full", .{trimmed.len});
                 }
             }
-            logging.info("Loaded {d} allowed hosts from ExtState", .{host_validation.getAllowedHostCount()});
         }
+        logging.info("Loaded {d} allowed hosts from ExtState", .{host_validation.getAllowedHostCount()});
     }
 
     // HTTP+WS server will be started in processTimerCallback after startup completes
