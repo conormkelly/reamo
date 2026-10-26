@@ -119,7 +119,7 @@ Response:
 ```json
 {
   "type": "hello",
-  "extensionVersion": "0.8.0-rc1",
+  "extensionVersion": "0.8.0",
   "protocolVersion": 1
 }
 ```
