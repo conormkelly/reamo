@@ -9,7 +9,7 @@
 dofile(reaper.GetResourcePath() .. "/Scripts/harness.lua")
 
 local dir = "/tmp/corpus/legacy-v6"
-os.execute("mkdir -p " .. dir)
+harness.mkdir(dir)
 local src = io.open("/harness/corpus/legacy-v6.RPP", "rb")
 local text = src:read("a")
 src:close()

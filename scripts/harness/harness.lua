@@ -12,6 +12,18 @@ function harness.log(fmt, ...)
   log:flush()
 end
 
+-- Create a directory and its parents, through REAPER (no shell: Windows'
+-- has no mkdir -p), and return its path as this OS writes it. On Windows a
+-- path starting with "/" is on the current drive, which REAPER's own file
+-- functions don't accept, so it gets the drive REAPER runs from in front.
+function harness.mkdir(path)
+  if reaper.GetOS():match("^Win") and path:sub(1, 1) == "/" then
+    path = reaper.GetResourcePath():sub(1, 2) .. path
+  end
+  reaper.RecursiveCreateDirectory(path, 0)
+  return path
+end
+
 -- Append a user track (optionally named) and return it.
 function harness.track(name)
   local idx = reaper.CountTracks(0)
@@ -270,7 +282,7 @@ end
 function harness.ready()
   reaper.UpdateArrange()
   harness.log("fixture ready: tracks=%d items=%d", reaper.CountTracks(0), reaper.CountMediaItems(0))
-  os.execute("mkdir -p " .. RPC)
+  harness.mkdir(RPC)
   serve()
   local f = io.open("/tmp/harness_fixture_ready", "w")
   f:write("1")

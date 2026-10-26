@@ -3,8 +3,7 @@
 -- low-disk-space warning and its save/delete prompt after recording are off
 -- (boot.sh's reaper.ini): either would block the main thread invisibly.
 dofile(reaper.GetResourcePath() .. "/Scripts/harness.lua")
-os.execute("mkdir -p /dev/shm/rec")
-reaper.GetSetProjectInfo_String(0, "RECORD_PATH", "/dev/shm/rec", true)
+reaper.GetSetProjectInfo_String(0, "RECORD_PATH", harness.mkdir("/dev/shm/rec"), true)
 local t = harness.track("Guitar DI")
 reaper.SetMediaTrackInfo_Value(t, "I_RECMODE", 1)  -- record output (stereo)
 reaper.SetMediaTrackInfo_Value(t, "I_RECARM", 1)
