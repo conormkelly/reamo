@@ -201,7 +201,7 @@ pub fn showNetworkAddresses() void {
     const count = network_detect.detectOrdered(&networks);
 
     // Format the message
-    var msg_buf: [2048]u8 = undefined;
+    var msg_buf: [4096]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&msg_buf);
     const writer = fbs.writer();
 
