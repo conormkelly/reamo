@@ -292,7 +292,7 @@ pub fn showAbout() void {
 
     _ = show_msg(
         "Remote control for REAPER." ++
-            "\nhttps://www.reamo.com",
+            "\nhttps://github.com/conormkelly/reamo",
         "REAmo v" ++ protocol.EXTENSION_VERSION,
         0, // OK button only
     );
