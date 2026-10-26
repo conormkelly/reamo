@@ -861,11 +861,13 @@ pub const Api = struct {
         return self.getCommandState(Command.METRONOME_TOGGLE) == 1;
     }
 
-    // ExtState: get global extended state value
+    /// Global extended state value, or null when the key is unset. REAPER
+    /// reads an unset key as "", so an empty value means nothing was saved.
     pub fn getExtStateValue(self: *const Api, section: [*:0]const u8, key: [*:0]const u8) ?[]const u8 {
         const f = self.getExtState orelse return null;
         const ptr = f(section, key) orelse return null;
-        return std.mem.sliceTo(ptr, 0);
+        const value = std.mem.sliceTo(ptr, 0);
+        return if (value.len == 0) null else value;
     }
 
     // ExtState: set global extended state (persist=true saves across sessions)
