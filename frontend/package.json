@@ -1,7 +1,7 @@
 {
   "name": "reamo",
   "private": false,
-  "version": "0.7.4-rc3",
+  "version": "0.7.4-rc4",
   "description": "A modern React-based web control surface for REAPER, designed for songwriting workflows",
   "type": "module",
   "scripts": {
