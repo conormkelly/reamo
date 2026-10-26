@@ -28,7 +28,7 @@ pub const NetworkType = enum {
 /// Information about a detected network interface
 pub const NetworkInfo = struct {
     ip: [4]u8,
-    interface_name: [16]u8,
+    interface_name: [64]u8,
     interface_name_len: u8,
     network_type: NetworkType,
 
@@ -221,12 +221,11 @@ fn detectNetworksPosix(buf: []NetworkInfo) usize {
 
         const net_type = classifyNetwork(ip) orelse continue;
 
-        // Copy interface name
-        var name_buf: [16]u8 = .{0} ** 16;
+        var name_buf: [64]u8 = .{0} ** 64;
         var name_len: u8 = 0;
         if (iface.ifa_name) |name_ptr| {
             const name = std.mem.sliceTo(name_ptr, 0);
-            const copy_len = @min(name.len, 15);
+            const copy_len = @min(name.len, name_buf.len);
             @memcpy(name_buf[0..copy_len], name[0..copy_len]);
             name_len = @intCast(copy_len);
         }
@@ -362,18 +361,10 @@ fn detectNetworksWindows(buf: []NetworkInfo) usize {
 
             const net_type = classifyNetwork(ip) orelse continue;
 
-            // Copy friendly_name (UTF-16) to UTF-8 for display
-            // adapter_name is a GUID like {4D36E972-...}, not useful
-            var name_buf: [16]u8 = .{0} ** 16;
-            var name_len: u8 = 0;
-            var i: usize = 0;
-            while (a.friendly_name[i] != 0 and name_len < 15) : (i += 1) {
-                const c = a.friendly_name[i];
-                if (c < 128) { // ASCII only, good enough for interface names
-                    name_buf[name_len] = @truncate(c);
-                    name_len += 1;
-                }
-            }
+            // friendly_name is what Windows shows ("VirtualBox Host-Only
+            // Network"); adapter_name is a GUID.
+            var name_buf: [64]u8 = .{0} ** 64;
+            const name_len: u8 = @intCast(utf16ToUtf8Prefix(std.mem.sliceTo(a.friendly_name, 0), &name_buf));
 
             buf[count] = .{
                 .ip = ip,
@@ -386,6 +377,22 @@ fn detectNetworksWindows(buf: []NetworkInfo) usize {
     }
 
     return count;
+}
+
+/// As much of `utf16` as fits in `out` as UTF-8, whole characters only;
+/// unpaired surrogates become U+FFFD. Returns the bytes written.
+fn utf16ToUtf8Prefix(utf16: []const u16, out: []u8) usize {
+    var len: usize = 0;
+    var it = std.unicode.Utf16LeIterator.init(utf16);
+    while (true) {
+        const cp = (it.nextCodepoint() catch std.unicode.replacement_character) orelse break;
+        var enc: [4]u8 = undefined;
+        const n = std.unicode.utf8Encode(cp, &enc) catch unreachable;
+        if (len + n > out.len) break;
+        @memcpy(out[len..][0..n], enc[0..n]);
+        len += n;
+    }
+    return len;
 }
 
 // -----------------------------------------------------------------------------
@@ -427,7 +434,7 @@ test "classifyNetwork" {
 fn testNetwork(ip: [4]u8, name: []const u8) NetworkInfo {
     var n = NetworkInfo{
         .ip = ip,
-        .interface_name = .{0} ** 16,
+        .interface_name = .{0} ** 64,
         .interface_name_len = @intCast(name.len),
         .network_type = classifyNetwork(ip).?,
     };
@@ -476,4 +483,14 @@ test "order keeps the OS's order without a default route, or when it's from no l
     networks = listed;
     order(&networks, .{ 81, 2, 3, 4 });
     try expectOrder(&networks, &os_order);
+}
+
+test "utf16ToUtf8Prefix keeps a whole adapter name and cuts a long one between characters" {
+    var out: [64]u8 = undefined;
+    const name = std.unicode.utf8ToUtf16LeStringLiteral("VirtualBox Host-Only Network");
+    try std.testing.expectEqualStrings("VirtualBox Host-Only Network", out[0..utf16ToUtf8Prefix(name, &out)]);
+    const japanese = std.unicode.utf8ToUtf16LeStringLiteral("イーサネット");
+    try std.testing.expectEqualStrings("イーサネット", out[0..utf16ToUtf8Prefix(japanese, &out)]);
+    var small: [7]u8 = undefined;
+    try std.testing.expectEqualStrings("イー", small[0..utf16ToUtf8Prefix(japanese, &small)]);
 }
