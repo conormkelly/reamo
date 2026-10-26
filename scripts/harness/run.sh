@@ -127,11 +127,16 @@ done
 run_one() {
     local i="$1" s="$2" out="$2"
     [ "$(printf '%s\n' "${scenarios[@]}" | grep -cxF "$s")" -eq 1 ] || out="$s.$i"
+    # Linux capabilities the scenario needs, one per line in its `capabilities`.
+    local caps=()
+    if [ -f "$HERE/scenarios/$s/capabilities" ]; then
+        while read -r cap; do [ -z "$cap" ] || caps+=(--cap-add "$cap"); done <"$HERE/scenarios/$s/capabilities"
+    fi
     docker run --rm --name "reamo-v1-harness-$s-$$-$i" --network none --label reamo.harness=v1 \
         -v "$OUT/harness:/harness:ro" -v "$OUT:/ext:ro" -v "$ROOT/web:/web:ro" \
         -v "$ROOT/extension/effects:/effects:ro" -v "$ROOT/test-fixtures:/fixtures:ro" \
         -v "$ARTIFACTS:/out" \
-        ${lic_mount[@]+"${lic_mount[@]}"} -e HARNESS_GDB="${HARNESS_GDB:-0}" -e HARNESS_OUT_DIR="$out" -e TOUR_ONLY="${TOUR_ONLY:-}" \
+        ${lic_mount[@]+"${lic_mount[@]}"} ${caps[@]+"${caps[@]}"} -e HARNESS_GDB="${HARNESS_GDB:-0}" -e HARNESS_OUT_DIR="$out" -e TOUR_ONLY="${TOUR_ONLY:-}" \
         "$IMAGE" bash /harness/boot.sh "$s" >"$OUT/run-$i.log" 2>&1 && rc=0 || rc=$?
     echo "$rc" >"$OUT/run-$i.status"
 }
