@@ -189,6 +189,17 @@ local function copy_tree(src, dst, rel, copied, errors)
   end
 end
 
+-- Remove a directory if it's empty. Lua's os.remove does that on Linux and
+-- macOS; on Windows it only deletes files, so there it's cmd's rmdir, run by
+-- REAPER without a console window. Without /S, rmdir refuses a directory
+-- that isn't empty.
+local function remove_empty_dir(path)
+  if os.remove(path) then return true end
+  if not is_windows then return false end
+  local result = reaper.ExecProcess('cmd.exe /C rmdir "' .. path .. '"', 10000)
+  return result ~= nil and result:match("^0\n") ~= nil
+end
+
 -- Delete files under dst that the new frontend doesn't have (old builds'
 -- hashed assets), and directories left empty.
 local function remove_stale(dst, rel, keep)
@@ -199,7 +210,7 @@ local function remove_stale(dst, rel, keep)
   end
   for _, name in ipairs(dirs) do
     removed = removed + remove_stale(dst .. sep .. name, rel .. name .. "/", keep)
-    os.remove(dst .. sep .. name) -- succeeds only if now empty
+    remove_empty_dir(dst .. sep .. name)
   end
   return removed
 end
