@@ -198,7 +198,7 @@ pub fn showNetworkAddresses() void {
 
     // Detect networks
     var networks: [16]network_detect.NetworkInfo = undefined;
-    const count = network_detect.detectNetworks(&networks);
+    const count = network_detect.detectOrdered(&networks);
 
     // Format the message
     var msg_buf: [2048]u8 = undefined;
@@ -260,7 +260,7 @@ pub fn showNetworkAddresses() void {
 pub fn showQRCode() void {
     // Detect networks
     var networks: [16]network_detect.NetworkInfo = undefined;
-    const count = network_detect.detectNetworks(&networks);
+    const count = network_detect.detectOrdered(&networks);
 
     if (count == 0) {
         // No networks - show error via message box
@@ -274,32 +274,13 @@ pub fn showQRCode() void {
         return;
     }
 
-    // Sort networks: USB first (preferred for venue use), then LAN
-    var sorted: [16]network_detect.NetworkInfo = undefined;
-    var sorted_count: usize = 0;
-
-    // First pass: USB networks
-    for (networks[0..count]) |n| {
-        if (n.network_type == .ios_usb or n.network_type == .android_usb) {
-            sorted[sorted_count] = n;
-            sorted_count += 1;
-        }
-    }
-    // Second pass: LAN networks
-    for (networks[0..count]) |n| {
-        if (n.network_type == .wifi_lan) {
-            sorted[sorted_count] = n;
-            sorted_count += 1;
-        }
-    }
-
     // Get main window for parenting
     const main_hwnd: ?*anyopaque = if (g_get_main_hwnd) |f| f() else null;
 
     // Show QR window with all networks
-    qr_window.show(sorted[0..sorted_count], g_server_port, main_hwnd);
+    qr_window.show(networks[0..count], g_server_port, main_hwnd);
 
-    logging.info("Network action: showing QR window with {d} networks", .{sorted_count});
+    logging.info("Network action: showing QR window with {d} networks", .{count});
 }
 
 /// Display the About REAmo dialog.
