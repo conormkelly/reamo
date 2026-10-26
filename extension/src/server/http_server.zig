@@ -88,9 +88,15 @@ pub const HttpServer = struct {
                 .min_conn = 16,
             },
             .thread_pool = .{
-                .count = 8, // In blocking mode (Windows), each WS client holds a thread.
-                            // 8 covers a few WS clients + concurrent HTTP bursts during page load.
-                            // Default is 32 which wastes ~1MB in thread buffers.
+                // Request handlers on macOS and Linux. On Windows (blocking
+                // mode) each connection gets a thread of its own instead, up to
+                // max_conn, so this isn't a limit there. Default is 32 which
+                // wastes ~1MB in thread buffers.
+                .count = 8,
+                // Windows commits a thread's whole stack when it starts, and
+                // there each connection is a thread. 1 MiB is Windows' own
+                // default; the handlers keep no more than a few KB on the stack.
+                .stack_size = 1024 * 1024,
             },
         }, handler);
 
