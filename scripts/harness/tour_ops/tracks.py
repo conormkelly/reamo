@@ -1161,8 +1161,17 @@ def _(t):
             if time.time() > deadline:
                 raise Mismatch(f"the kick never shows clip: meters {m and m['m'].get(g)}, REAPER holds {reaper(PEAK_HOLDS).get(g)}")
         reaper("reaper.OnStopButton()" + TRACK_VOL % (g, vol))
-        t.c.drain(0.3)
-        holds = reaper(PEAK_HOLDS)
+        # Audio already in flight still reaches the meters after the stop (on
+        # Windows' dummy device, a little later than on Linux); the tap comes
+        # once the holds have settled, or a last block would rightly
+        # re-latch the clip after it.
+        holds, deadline = reaper(PEAK_HOLDS), time.time() + 2
+        while True:
+            t.c.drain(0.3)
+            now = reaper(PEAK_HOLDS)
+            if now == holds or time.time() > deadline:
+                break
+            holds = now
         others = [x for x, h in holds.items() if x != g and max(h) > 0]
         # LevelMeter sends the track's index.
         t.ok("meter/clearClip", trackIdx=pos)
