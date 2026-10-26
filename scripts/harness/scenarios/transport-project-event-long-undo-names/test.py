@@ -31,7 +31,7 @@ def wait_project(c, pred, timeout=3.0):
 DIR = "/tmp/Music/REAPER Projects/2026 Album Sessions/07 - Midnight Train to Somewhere (Alt Version)"
 PATH = DIR + "/07 - Midnight Train to Somewhere (Alt Version) - final mix v3.RPP"
 reaper(f"""
-os.execute('mkdir -p "{DIR}"')
+harness.mkdir({json.dumps(DIR)})
 local f = io.open({json.dumps(PATH)}, "w")
 f:write('<REAPER_PROJECT 0.1 "7.0" 0\\n  TEMPO 120 4 4 0\\n>\\n')
 f:close()
