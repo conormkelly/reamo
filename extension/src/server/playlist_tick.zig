@@ -63,10 +63,11 @@ pub fn syncWithTransport(
     if (ctx.playlist_state.engine.isPlaying() and !transport_playing) {
         if (transport_stopped) {
             // Transport stopped externally - stop engine
+            const entry_idx = ctx.playlist_state.engine.entry_idx;
             _ = ctx.playlist_state.engine.stop();
             backend.setRepeat(false);
             backend.clearLoopPoints();
-            logging.debug("Stopped playlist engine - transport stopped externally", .{});
+            logging.debug("Stopped playlist engine - transport stopped externally at {d:.3}s, on entry {d}", .{ ctx.transport_state.play_position, entry_idx });
         } else {
             // Transport paused - pause engine
             _ = ctx.playlist_state.engine.pause();
@@ -201,15 +202,20 @@ fn tickWithRegion(
             const already_there = @abs(current_pos - loop_info.region_start) < 0.1;
             const needs_seek = !approaching_contiguous and !already_there;
 
-            if (needs_seek) {
-                // Non-contiguous transition - disable repeat first to prevent
-                // REAPER from looping back to old region while we transition
-                backend.setRepeat(false);
-                backend.setCursorPos(loop_info.region_start);
-            }
-            // Set loop points to new region boundaries
+            logging.debug("Playlist hand-over at {d:.3}s to [{d:.3}, {d:.3}]: {s}", .{
+                current_pos,
+                loop_info.region_start,
+                loop_info.region_end,
+                if (needs_seek) "seek" else if (approaching_contiguous) "contiguous" else "already there",
+            });
+            // The new region's loop points go first, so REAPER can't loop
+            // back to the old region; then, if it's elsewhere, the seek.
+            // Repeat stays on throughout: turning it off around a seek
+            // during playback stops REAPER on Windows now and then (3 of 25
+            // seeks, with Dummy Audio and DirectSound alike; 0 of 25 with
+            // repeat left on).
             backend.setLoopPoints(loop_info.region_start, loop_info.region_end);
-            // Enable repeat (re-enable after seek, or ensure it's on for contiguous)
+            if (needs_seek) backend.setCursorPos(loop_info.region_start);
             backend.setRepeat(true);
             // Note: Don't broadcast here - engine will broadcast when transition completes
         },
