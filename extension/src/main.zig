@@ -160,6 +160,15 @@ const FILE_CHECK_INTERVAL: u32 = 60; // Check every ~2 seconds (60 * 33ms)
 // LOW TIER (1Hz): Tempomap, Project Notes - every 30th frame
 var g_frame_counter: u32 = 0;
 var g_init_complete: bool = false; // Safety flag to prevent timer callback running before init
+/// Set while either timer callback runs (main thread only). Something it
+/// calls can open a modal dialog: a phone action's script asking a question,
+/// a plugin's licence nag. On Windows a modal loop keeps delivering timer
+/// messages, so the timers would run again inside it: a second phone command
+/// inside the first, nesting their undo blocks and acting on a track the
+/// first still holds, or a frame resetting (or resizing) arenas the
+/// suspended one is using. Each callback returns at once while it's set,
+/// leaving the queue for when the dialog closes.
+var g_in_timer_callback: bool = false;
 var g_ws_started: bool = false; // Track if WebSocket server has been started
 const WS_START_DELAY_FRAMES: u32 = 30; // Wait ~1 second before starting WebSocket server
 
@@ -487,6 +496,9 @@ comptime {
 // SAFETY: This is a C-callable entry point. All Zig errors must be caught here
 // to prevent error propagation across the FFI boundary which would crash REAPER.
 fn processTimerCallback() callconv(.c) void {
+    if (g_in_timer_callback) return;
+    g_in_timer_callback = true;
+    defer g_in_timer_callback = false;
     doProcessing() catch |err| {
         logging.err("processTimerCallback failed: {s}", .{@errorName(err)});
         // Error is logged but not propagated - REAPER must not see Zig errors
@@ -499,6 +511,10 @@ fn processTimerCallback() callconv(.c) void {
 ///
 /// SAFETY: This is a C-callable entry point.
 fn commandQueueTimerCallback() callconv(.c) void {
+    if (g_in_timer_callback) return;
+    g_in_timer_callback = true;
+    defer g_in_timer_callback = false;
+
     // Jitter tracking
     const now = std.time.milliTimestamp();
     if (g_fast_timer_last_tick != 0) {
