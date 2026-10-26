@@ -7,6 +7,7 @@
 #   scripts/harness/run.sh --reaper oldest         # the oldest REAPER we support
 #   scripts/harness/run.sh --reaper latest         # reaper.fm's current release
 #   scripts/harness/run.sh --reaper 6.0 --image-only   # just build that image
+#   scripts/harness/run.sh --os windows smoke      # on a Windows PC, over ssh
 #
 # --reaper takes a release as reaper.fm numbers it, or one of: pinned (the
 # default, the newest release we have checked), oldest, latest (looked up on
@@ -27,6 +28,10 @@
 # Each scenario gets a fresh REAPER in its own --rm container with no network
 # and no published ports, so it can run beside a desktop REAPER (or another
 # project's harness) without contention.
+#
+# --os windows runs the scenarios on a Windows PC instead (windows/run.sh;
+# README, "Windows runner"): Windows containers have no desktop to show
+# REAPER on, so there is no Windows image.
 set -euo pipefail
 
 PINNED_REAPER=7.83
@@ -36,9 +41,11 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 REAPER_VERSION="${REAPER_VERSION:-pinned}"
 image_only=0
+target_os=linux
 while [ $# -gt 0 ]; do
     case "$1" in
         --reaper) REAPER_VERSION="${2:?--reaper needs a version}"; shift 2 ;;
+        --os) target_os="${2:?--os needs linux or windows}"; shift 2 ;;
         --image-only) image_only=1; shift ;;
         --) shift; break ;;
         -*) echo "error: unknown option $1" >&2; exit 1 ;;
@@ -61,6 +68,14 @@ case "$REAPER_VERSION" in
 esac
 printf '%s' "$REAPER_VERSION" | grep -qE '^[0-9]+\.[0-9]+$' \
     || { echo "error: REAPER version '$REAPER_VERSION' isn't like 7.83" >&2; exit 1; }
+case "$target_os" in
+    linux) ;;
+    windows)
+        [ "$image_only" = 0 ] || { echo "error: --image-only is for the Linux harness" >&2; exit 1; }
+        REAPER_VERSION="$REAPER_VERSION" exec bash "$HERE/windows/run.sh" "$@"
+        ;;
+    *) echo "error: --os takes linux or windows, not '$target_os'" >&2; exit 1 ;;
+esac
 IMAGE="${HARNESS_IMAGE:-reamo-v1-harness}:reaper-$REAPER_VERSION"
 ZIG="${ZIG:-zig}"
 LICENSE="${REAPER_LICENSE:-$HERE/reaper-license.rk}"

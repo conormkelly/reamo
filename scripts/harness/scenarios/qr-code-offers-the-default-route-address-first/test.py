@@ -10,7 +10,9 @@ nothing to go on, and the adapters keep the order the OS lists them in.
 import subprocess
 import time
 
-from reamo_client import Client, reaper, windows
+from reamo_client import Client, reaper, windows, skip_unless_linux
+
+skip_unless_linux("makes network adapters with Linux's ip command")
 
 
 def ip(*args):

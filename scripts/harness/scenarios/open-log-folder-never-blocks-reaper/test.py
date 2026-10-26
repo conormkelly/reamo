@@ -8,7 +8,9 @@ import os
 import shutil
 import time
 
-from reamo_client import Client, press, reaper, submit, windows
+from reamo_client import Client, press, reaper, submit, windows, skip_unless_linux
+
+skip_unless_linux('checks the folder opens with xdg-open')
 
 with Client(timeout=10) as c:
     c.wait_event("trackSkeleton")

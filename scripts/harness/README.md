@@ -48,6 +48,93 @@ REAPER comes out, run on `latest`, then move `PINNED_REAPER` in `run.sh`.
 Screenshots in `out/` are per scenario, not per version: a later run of the
 same scenario on another version replaces them.
 
+## Running on Windows
+
+`run.sh --os windows` runs scenarios on a real Windows PC, driven over SSH:
+
+```sh
+scripts/harness/run.sh --os windows smoke
+scripts/harness/run.sh --os windows                  # every scenario
+```
+
+It finds bugs the Linux container can't: http.zig's Windows-only blocking
+mode, MSVC's C++ ABI, Win32 modal loops, Winsock. There is no Windows image:
+Windows containers have no desktop, so REAPER's windows, dialogs and
+screenshots wouldn't exist (Microsoft: containers "were designed to not have
+RDP or GUI support"), and a Windows VM needs its own licence.
+
+**How it runs.** `windows/run.sh` (on the controller) builds
+`reaper_reamo.dll`, copies a snapshot of this directory, `web/`, the effects,
+the fixtures and the licence to the PC, and runs each scenario there in turn.
+A process started over SSH has no desktop, so `windows/run-scenario.ps1`
+hands the scenario to `windows/boot.ps1` through a scheduled task in the
+logged-in session, which:
+
+- copies a fresh portable REAPER per scenario and starts it with
+  `-cfgfile reaper.ini` (a `reaper.ini` beside `reaper.exe` alone doesn't
+  make it portable on Windows: REAPER sets up `%APPDATA%\REAPER`);
+- sets plugin paths to an empty folder and Dummy Audio (`[audioconfig]
+  mode=4`, as on Linux); REAPER still scans the standard VST3 folder, which
+  the setup keeps the test user from listing;
+- runs `test.py`, then copies its log and screenshots back to `out/`.
+
+The PC runs one scenario at a time (one desktop, one port), and a new run
+ends any in progress, so don't start two Windows runs at once.
+`reamo_client` drives windows with Win32 there (`win_desktop.py`): window
+lists, key presses, button clicks, screenshots.
+
+**Paths.** Windows reads a path starting with `/` as on the current drive,
+so `/tmp` is `C:\tmp` (emptied per scenario) and `/harness` is `C:\harness`
+(a junction to the staged copy). Any other `/`-rooted path lands among the
+PC's own folders on `C:`: a scenario writes only under `/tmp`, makes
+directories with `harness.mkdir` (no shell commands; Windows has no
+`mkdir -p`), and one built on Linux itself calls
+`reamo_client.skip_unless_linux(reason)` first.
+
+### Setting up the PC
+
+On the controller (the Mac or Linux machine that runs `run.sh`):
+
+1. Give the controller a fixed address (reserve it in the router; on macOS
+   set the Wi-Fi's Private Wi-Fi address to Fixed), and the PC one too.
+2. Make a key just for the PC: `ssh-keygen -t ed25519 -f
+   ~/.ssh/id_ed25519_reamo_win -C reamo-harness`.
+3. Add it to `~/.ssh/config` as `reamo-win` (`run.sh` uses that name;
+   `HARNESS_WINDOWS_HOST` overrides it):
+
+   ```
+   Host reamo-win
+    HostName <the PC's address>
+    User reamotest
+    IdentityFile ~/.ssh/id_ed25519_reamo_win
+    IdentitiesOnly yes
+   ```
+
+On the PC, in an elevated PowerShell while it still has internet access,
+run `windows/setup-test-pc.ps1 -ControllerIp <controller address>
+-PublicKey "<the .pub file's line>"`. It:
+
+- creates `reamotest`, a standard (non-admin) user, and logs it in at boot
+  (Sysinternals Autologon), since tests need its desktop;
+- installs OpenSSH Server: only that user, only by key, the key only from
+  the controller's address (`from=`, in an admin-owned key file the test
+  user can't add to), the firewall rule likewise, on every network type;
+- installs Python;
+- hides the standard VST3 and CLAP folders from the test user, so no
+  plugin's activation window blocks REAPER's startup (undo:
+  `icacls "<folder>" /remove:d reamotest`);
+- refuses network connections to the test REAPER and Python, so Windows
+  never asks to let them through the firewall (tests connect from the PC
+  itself, which the firewall doesn't filter).
+
+The controller downloads REAPER for Windows (`7zz` unpacks its installer;
+`brew install sevenzip`) and copies it across, so the PC can then go
+offline: a fixed address with no gateway or DNS, IPv6 off on its adapter
+(a router may give it an IPv6 route out), and Windows Firewall blocking
+outbound traffic except to the local subnet. With no gateway Windows calls
+the network "Unidentified" and applies the Public profile, which the SSH
+rule covers.
+
 ## REAPER licence (local only, never committed)
 
 Unlicensed REAPER shows an evaluation dialog at startup. Under the harness it

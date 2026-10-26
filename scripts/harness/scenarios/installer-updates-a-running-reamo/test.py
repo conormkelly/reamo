@@ -11,7 +11,9 @@ import os
 import shutil
 import time
 
-from reamo_client import Client, press, reaper, submit, windows
+from reamo_client import Client, press, reaper, submit, windows, skip_unless_linux
+
+skip_unless_linux("installs the Linux build from the container's /ext mount")
 
 RES = reaper("return reaper.GetResourcePath()")
 PLUGINS = os.path.join(RES, "UserPlugins")
