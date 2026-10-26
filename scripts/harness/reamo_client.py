@@ -18,8 +18,14 @@ import re
 import socket
 import struct
 import subprocess
+import sys
 import time
 import urllib.request
+
+# On the Windows runner (windows/boot.ps1), REAPER's windows are Win32 ones.
+WINDOWS = sys.platform == "win32"
+if WINDOWS:
+    import win_desktop
 
 # Exit status for a scenario this REAPER can't run (boot.sh reports SKIP).
 SKIP_STATUS = 77
@@ -31,6 +37,14 @@ def skip(reason):
     import sys
     print(f"SKIP: {reason}")
     sys.exit(SKIP_STATUS)
+
+
+def skip_unless_linux(why):
+    """Skip on the Windows runner a scenario built on Linux itself (its
+    commands, its paths, the container's mounts). Its /-rooted paths would
+    land on the PC's C: drive, among the owner's own folders."""
+    if WINDOWS:
+        skip(f"Linux only: {why}")
 
 
 def reaper_major():
@@ -86,14 +100,30 @@ class Pending:
                 raise TimeoutError(f"REAPER did not run rpc {self.n} within {timeout} s "
                                    f"(a modal dialog may be blocking it; windows: {windows()})")
             time.sleep(0.01)
-        with open(self.out, "rb") as f:
-            raw = f.read()
+        # On Windows a file just written can be held open for a moment by
+        # another reader (the antivirus scanner), refusing ours.
+        for attempt in range(50):
+            try:
+                with open(self.out, "rb") as f:
+                    raw = f.read()
+                break
+            except PermissionError:
+                if attempt == 49:
+                    raise
+                time.sleep(0.02)
         try:
             res = json.loads(raw.decode("utf-8"))
         except UnicodeDecodeError as e:
             raise ReaperError(f"REAPER returned a string that is not valid UTF-8 "
                               f"(byte {e.start}: {raw[max(0, e.start - 40):e.start + 8]!r})") from None
-        os.remove(self.out)
+        for attempt in range(50):
+            try:
+                os.remove(self.out)
+                break
+            except PermissionError:
+                if attempt == 49:
+                    raise
+                time.sleep(0.02)
         if not res["ok"]:
             raise ReaperError(res["error"])
         vals = res["result"]
@@ -122,6 +152,9 @@ def _ignore_all_missing(wid):
     dialog, as a user opening a project from another machine does. Return
     would press the focused "Browse for file..." and open a file chooser. The
     button is the dialog's bottom-right one (REAPER 7's fixed layout)."""
+    if WINDOWS:
+        win_desktop.click_button(wid, "Ignore all missing")
+        return
     geo = subprocess.run(["xdotool", "getwindowgeometry", "--shell", wid],
                          capture_output=True, text=True, check=True, timeout=10).stdout
     size = dict(line.split("=", 1) for line in geo.split())
@@ -175,6 +208,8 @@ def open_project(path, dialogs=LOAD_DIALOGS, timeout=30.0, on_dialog=None):
 def screenshot(name):
     """Save REAPER's whole X display as out/<scenario>/<name>.png on the host."""
     path = os.path.join(os.environ.get("HARNESS_OUT", "/tmp"), f"{name}.png")
+    if WINDOWS:
+        return win_desktop.screenshot(path)
     subprocess.run(["import", "-window", "root", path], check=True, timeout=10)
     return path
 
@@ -186,7 +221,9 @@ def windows():
 
 
 def _visible_windows():
-    """[(X window id, title)] of the visible, titled windows."""
+    """[(window id, title)] of the visible, titled windows."""
+    if WINDOWS:
+        return win_desktop.visible_windows()
     r = subprocess.run(["xdotool", "search", "--onlyvisible", "--name", "."],
                        capture_output=True, text=True, timeout=10)
     out = []
@@ -201,6 +238,16 @@ def _visible_windows():
 def press(window_title, *keys):
     """Send keys (xdotool names, e.g. "Return", "Escape") to the first visible
     window whose title contains `window_title`, as a user dismissing a dialog."""
+    if WINDOWS:
+        # An exact title first: a dialog that's closing ("REAmo Server Port")
+        # can still be listed above the one meant ("REAmo").
+        found = win_desktop.visible_windows()
+        ids = [wid for wid, title in found if title == window_title] or \
+            [wid for wid, title in found if window_title in title]
+        if not ids:
+            raise LookupError(f"no visible window titled like {window_title!r}; windows: {windows()}")
+        win_desktop.press_window(ids[0], *keys)
+        return
     r = subprocess.run(["xdotool", "search", "--onlyvisible", "--name", window_title],
                        capture_output=True, text=True, timeout=10)
     ids = r.stdout.split()
@@ -210,6 +257,9 @@ def press(window_title, *keys):
 
 
 def _press_window(wid, *keys):
+    if WINDOWS:
+        win_desktop.press_window(wid, *keys)
+        return
     # Focus the window, then type into whatever has focus. `key --window`
     # picks XTEST or a synthetic event per event by whether the window has
     # focus. A dialog that closes on the key press loses focus before the
