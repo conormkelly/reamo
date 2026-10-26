@@ -70,7 +70,9 @@ with Client() as c:
         problems.append(f"stopAndDelete should discard the take: before {items}, after {after}")
     if client_item_count(c) != len(after):
         problems.append(f"items event shows {client_item_count(c)} items, REAPER {len(after)}")
-    files = reaper("local out = {}; for f in io.popen('ls /dev/shm/rec'):lines() do out[#out + 1] = f end; return out")
+    files = reaper("""local dir, out, i = harness.mkdir("/tmp/rec"), {}, 0
+        while reaper.EnumerateFiles(dir, i) do out[#out + 1] = reaper.EnumerateFiles(dir, i); i = i + 1 end
+        return out""")
     print("  files in record path:", files)
     if len([f for f in files if f.lower().endswith(".wav")]) != 1:
         problems.append(f"stopAndDelete should delete the discarded take's file; record path holds {files}")
