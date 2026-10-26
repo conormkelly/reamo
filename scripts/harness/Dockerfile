@@ -26,11 +26,12 @@ FROM debian:bookworm-slim
 #   gdb          backtraces when REAPER crashes (HARNESS_GDB=1)
 #   imagemagick  screenshots of REAPER's display (`import -window root`)
 #   xdotool      list REAPER's windows (is a modal open?) and press keys in them
+#   iproute2     give a scenario network adapters (with NET_ADMIN, see README)
 # DOWNLOAD (image build only):
 #   ca-certificates curl xz-utils
 RUN apt-get update && apt-get install -y --no-install-recommends \
         xvfb xauth libgtk-3-0 libasound2 \
-        python3 procps gdb imagemagick xdotool \
+        python3 procps gdb imagemagick xdotool iproute2 \
         ca-certificates curl xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
