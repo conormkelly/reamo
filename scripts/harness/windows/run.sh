@@ -9,6 +9,7 @@
 #
 # Env (as ../run.sh, TOUR_ONLY included, plus):
 #   HARNESS_WINDOWS_HOST  ssh host for the PC (default: reamo-win)
+#   HARNESS_WINDOWS_TIMEOUT  seconds a scenario may take there (default 900)
 #   HARNESS_CACHE         where REAPER for Windows is kept, unpacked
 #                         (default: ~/.cache/reamo-harness)
 set -euo pipefail
@@ -114,6 +115,7 @@ for i in "${!scenarios[@]}"; do
     # -TourOnly goes only with words to pass.
     tour_only=""
     [ -z "${TOUR_ONLY:-}" ] || tour_only=" -TourOnly '$TOUR_ONLY'"
+    [ -z "${HARNESS_WINDOWS_TIMEOUT:-}" ] || tour_only="$tour_only -TimeoutSeconds $HARNESS_WINDOWS_TIMEOUT"
     # A run that fails to start mustn't leave the last run's log to be read as its own.
     ssh -o BatchMode=yes "$HOST" "Remove-Item $REMOTE\\boot.log -ErrorAction SilentlyContinue" || true
     ssh -o BatchMode=yes "$HOST" "powershell -NoProfile -ExecutionPolicy Bypass -File $REMOTE\\stage\\harness\\windows\\run-scenario.ps1 $s $REAPER_VERSION $out$tour_only; exit \$LASTEXITCODE" || rc=$?
