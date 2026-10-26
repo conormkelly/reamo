@@ -5,7 +5,7 @@ const utf8 = @import("utf8.zig");
 
 // Protocol version - increment when breaking changes are made
 pub const PROTOCOL_VERSION: u32 = 1;
-pub const EXTENSION_VERSION = "0.7.4-rc3";
+pub const EXTENSION_VERSION = "0.7.4-rc4";
 
 // Incoming message types
 pub const MessageType = enum {
