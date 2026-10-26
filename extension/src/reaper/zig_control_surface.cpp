@@ -4,11 +4,13 @@
 #include "zig_control_surface.h"
 #include "reaper_csurf.h"
 
-class ZigControlSurface : public IReaperControlSurface {
+class ZigControlSurface final : public IReaperControlSurface {
     ZigCSurfCallbacks m_cb;
 public:
     ZigControlSurface(const ZigCSurfCallbacks* cb) : m_cb(*cb) {}
-    virtual ~ZigControlSurface() {}
+    // Not virtual: on Windows the interface has no virtual destructor (see
+    // reaper_csurf.h), and this class is only ever deleted as itself.
+    ~ZigControlSurface() {}
 
     const char* GetTypeString() override {
         if (m_cb.get_type_string) return m_cb.get_type_string(m_cb.user_context);
