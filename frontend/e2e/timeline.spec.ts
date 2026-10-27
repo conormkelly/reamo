@@ -7,11 +7,6 @@
 
 import { test, expect, Page } from '@playwright/test'
 
-// Helper to get the RegionEditActionBar (pending background bar that appears when there are pending changes)
-function getRegionEditActionBar(page: Page) {
-  return page.locator('[data-testid="region-edit-action-bar"]')
-}
-
 // Wait for store to be available and inject test fixtures
 async function setupTestFixtures(page: Page) {
   // Wait for the store to be exposed on window
@@ -37,10 +32,6 @@ async function setupTestFixtures(page: Page) {
       // Bypass loading screen (no real REAPER in e2e tests)
       connected: true,
 
-      // Enable regions mode prerequisites
-      luaScriptInstalled: true,
-      luaScriptChecked: true,
-
       // Test regions: Intro[0-10], Verse[10-20], Chorus[20-30]
       // Timeline duration is ~31.5s (30s + 5% padding)
       // Intro: 0-31.7%, Verse: 31.7-63.5%, Chorus: 63.5-95.2%
@@ -55,17 +46,7 @@ async function setupTestFixtures(page: Page) {
       // Note: Timeline duration includes playhead, so 31s → ~32.5s timeline
       positionSeconds: 31,
 
-      // Reset edit state
       selectedRegionIds: [],
-      pendingChanges: {},
-      nextNewRegionKey: -1,
-      dragType: 'none',
-      dragRegionId: null,
-      dragStartX: null,
-      dragStartTime: null,
-      dragCurrentTime: null,
-      insertionPoint: null,
-      resizeEdgePosition: null,
     })
 
     // Use the store action to switch to regions mode
@@ -75,6 +56,10 @@ async function setupTestFixtures(page: Page) {
 
   // Wait for component to re-render
   await page.waitForTimeout(100)
+
+  // Mixer is the default view
+  await page.getByRole('button', { name: 'Timeline' }).click()
+  await page.waitForSelector('[data-view="timeline"]', { state: 'visible' })
 }
 
 // Get the interactive timeline container
@@ -164,7 +149,7 @@ test.describe('Timeline gestures', () => {
     expect(selected).toEqual([1])
   })
 
-  test('tap empty area clears selection', async ({ page }) => {
+  test('tapping a selected region again deselects it', async ({ page }) => {
     // First select a region
     await clickAtPercent(page, 15)
 
@@ -175,8 +160,8 @@ test.describe('Timeline gestures', () => {
     })
     expect(selected).toEqual([0])
 
-    // Click empty area (98% - after all regions)
-    await clickAtPercent(page, 98)
+    // Tap the same region again
+    await clickAtPercent(page, 15)
 
     // Selection should be cleared
     selected = await page.evaluate(() => {
@@ -184,220 +169,6 @@ test.describe('Timeline gestures', () => {
       return store.getState().selectedRegionIds
     })
     expect(selected).toEqual([])
-  })
-
-  test('drag region to move shows pending changes', async ({ page }) => {
-    // First select Intro
-    await clickAtPercent(page, 15)
-
-    // Drag from 15% to 50%
-    await dragPercent(page, 15, 50)
-
-    // Should have pending changes - region edit Save button visible in the RegionEditActionBar
-    const actionBar = getRegionEditActionBar(page)
-    await expect(actionBar.getByRole('button', { name: 'Save' })).toBeVisible({ timeout: 2000 })
-  })
-
-  test('cancel reverts pending changes', async ({ page }) => {
-    // Make an edit via store
-    await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      const state = store.getState()
-      state.moveRegion([0], 5, state.regions)
-    })
-
-    // Should show Save/Cancel
-    await expect(page.getByRole('button', { name: /cancel/i })).toBeVisible()
-
-    // Click Cancel
-    await page.getByRole('button', { name: /cancel/i }).click()
-
-    // Pending changes should be cleared
-    const hasPending = await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      return store.getState().hasPendingChanges()
-    })
-    expect(hasPending).toBe(false)
-  })
-})
-
-test.describe('Undo/Redo', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/')
-    await setupTestFixtures(page)
-  })
-
-  test('undo button appears and reverts changes', async ({ page }) => {
-    // Make an edit via store
-    await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      const state = store.getState()
-      state.moveRegion([0], 5, state.regions)
-    })
-
-    // Should show Undo button (now enabled) - scoped to RegionEditActionBar
-    const actionBar = getRegionEditActionBar(page)
-    const undoButton = actionBar.getByRole('button', { name: /undo/i })
-    await expect(undoButton).toBeVisible()
-    await expect(undoButton).toBeEnabled()
-
-    // Click Undo
-    await undoButton.click()
-
-    // Pending changes should be cleared
-    const hasPending = await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      return store.getState().hasPendingChanges()
-    })
-    expect(hasPending).toBe(false)
-  })
-
-  test('redo button restores undone changes', async ({ page }) => {
-    // Make an edit via store
-    await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      const state = store.getState()
-      state.moveRegion([0], 5, state.regions)
-    })
-
-    // Click Undo - scoped to RegionEditActionBar
-    const actionBar = getRegionEditActionBar(page)
-    await actionBar.getByRole('button', { name: /undo/i }).click()
-
-    // Need to make another change to show the action bar again
-    // since hasPendingChanges is now false
-    // Actually, after undo we should have redo available but no pending changes
-    // The action bar won't show if no pending changes...
-    // Let me check if redo can work differently
-
-    // Actually the redo button is only visible when the action bar is visible
-    // which requires pending changes. After undo, if there are no pending changes,
-    // the action bar disappears. Let's test the undo/redo flow with multiple changes.
-
-    // Make two edits
-    await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      const state = store.getState()
-      state.moveRegion([0], 5, state.regions)
-      state.moveRegion([1], 5, state.regions)
-    })
-
-    // Undo once (should still have pending changes from first edit)
-    await actionBar.getByRole('button', { name: /undo/i }).click()
-
-    // Should still have pending changes (from first move)
-    const hasPending = await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      return store.getState().hasPendingChanges()
-    })
-    expect(hasPending).toBe(true)
-
-    // Redo button should be enabled now
-    const redoButton = actionBar.getByRole('button', { name: /redo/i })
-    await expect(redoButton).toBeEnabled()
-
-    // Click Redo
-    await redoButton.click()
-
-    // Should have both changes back
-    const historyLength = await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      return store.getState().historyStack.length
-    })
-    expect(historyLength).toBe(2)
-  })
-
-  test('undo multiple edits sequentially', async ({ page }) => {
-    // Make 3 edits via store
-    await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      const state = store.getState()
-      state.resizeRegion(0, 'end', 15, state.regions, 120)
-      state.resizeRegion(1, 'end', 25, state.regions, 120)
-      state.resizeRegion(2, 'end', 35, state.regions, 120)
-    })
-
-    // Verify history has 3 items
-    const historyLength = await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      return store.getState().historyStack.length
-    })
-    expect(historyLength).toBe(3)
-
-    // Undo 3 times - scoped to RegionEditActionBar
-    const actionBar = getRegionEditActionBar(page)
-    await actionBar.getByRole('button', { name: /undo/i }).click()
-    await actionBar.getByRole('button', { name: /undo/i }).click()
-    await actionBar.getByRole('button', { name: /undo/i }).click()
-
-    // Should have no pending changes
-    const hasPending = await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      return store.getState().hasPendingChanges()
-    })
-    expect(hasPending).toBe(false)
-  })
-
-  test('new edit after undo clears redo stack', async ({ page }) => {
-    // Make 2 edits
-    await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      const state = store.getState()
-      state.moveRegion([0], 5, state.regions)
-      state.moveRegion([1], 5, state.regions)
-    })
-
-    // Undo once - scoped to RegionEditActionBar
-    const actionBar = getRegionEditActionBar(page)
-    await actionBar.getByRole('button', { name: /undo/i }).click()
-
-    // Verify redo is available
-    let canRedo = await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      return store.getState().canRedo()
-    })
-    expect(canRedo).toBe(true)
-
-    // Make a new edit
-    await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      const state = store.getState()
-      state.moveRegion([2], 5, state.regions)
-    })
-
-    // Redo should no longer be available
-    canRedo = await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      return store.getState().canRedo()
-    })
-    expect(canRedo).toBe(false)
-  })
-
-  test('cancel clears undo/redo history', async ({ page }) => {
-    // Make an edit
-    await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      const state = store.getState()
-      state.moveRegion([0], 5, state.regions)
-    })
-
-    // Verify we can undo
-    const canUndo = await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      return store.getState().canUndo()
-    })
-    expect(canUndo).toBe(true)
-
-    // Click Cancel
-    await page.getByRole('button', { name: /cancel/i }).click()
-
-    // History should be cleared
-    const historyCleared = await page.evaluate(() => {
-      const store = (window as any).__REAPER_STORE__
-      const state = store.getState()
-      return state.historyStack.length === 0 && state.redoStack.length === 0
-    })
-    expect(historyCleared).toBe(true)
   })
 })
 

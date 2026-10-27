@@ -3,7 +3,7 @@
  * Shows item info when items are selected in the timeline.
  *
  * Mode-based display:
- * - 0 items selected: "Tap an item to select" message
+ * - 0 items selected: "Tap a marker pill or item" prompt
  * - 1 item selected: Full single-item controls (take nav, color, more)
  * - 2+ items selected: Batch mode with Group button for batch operations
  *

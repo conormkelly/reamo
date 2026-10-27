@@ -50,20 +50,19 @@ test.describe('View Navigation', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await setupTestStore(page);
-    // Default view is timeline
-    await page.waitForSelector('[data-view="timeline"]', { state: 'visible' });
+    // Default view is mixer
+    await page.waitForSelector('[data-view="mixer"]', { state: 'visible' });
   });
 
-  test('default view is Timeline', async ({ page }) => {
-    const timelineView = page.locator('[data-view="timeline"]');
-    await expect(timelineView).toBeVisible();
-  });
-
-  test('can switch to Mixer view', async ({ page }) => {
-    await page.getByRole('button', { name: 'Mixer' }).click();
+  test('default view is Mixer', async ({ page }) => {
     await expect(page.locator('[data-view="mixer"]')).toBeVisible();
     // Mixer should show mixer strips
     await expect(page.locator('[data-testid^="mixer-strip"]').first()).toBeVisible();
+  });
+
+  test('can switch to Timeline view', async ({ page }) => {
+    await page.getByRole('button', { name: 'Timeline' }).click();
+    await expect(page.locator('[data-view="timeline"]')).toBeVisible();
   });
 
   test('can switch to Clock view', async ({ page }) => {
@@ -73,9 +72,8 @@ test.describe('View Navigation', () => {
     await expect(page.locator('[data-testid="transport-controls"]')).toBeVisible();
   });
 
-  test('can switch to Playlist view', async ({ page }) => {
-    await page.getByRole('button', { name: 'Playlist' }).click();
-    await expect(page.locator('[data-view="playlist"]')).toBeVisible();
+  test('Playlist view is not offered in navigation', async ({ page }) => {
+    await expect(page.getByRole('button', { name: 'Playlist' })).toHaveCount(0);
   });
 
   test('can switch to Actions view', async ({ page }) => {
@@ -84,13 +82,13 @@ test.describe('View Navigation', () => {
   });
 
   test('navigating away and back preserves connection state', async ({ page }) => {
-    // Navigate to Mixer
-    await page.getByRole('button', { name: 'Mixer' }).click();
-    await expect(page.locator('[data-view="mixer"]')).toBeVisible();
-
-    // Navigate back to Timeline
+    // Navigate to Timeline
     await page.getByRole('button', { name: 'Timeline' }).click();
     await expect(page.locator('[data-view="timeline"]')).toBeVisible();
+
+    // Navigate back to Mixer
+    await page.getByRole('button', { name: 'Mixer' }).click();
+    await expect(page.locator('[data-view="mixer"]')).toBeVisible();
 
     // Verify still connected (no loading screen / connection banner)
     const connected = await page.evaluate(() => {
@@ -100,15 +98,15 @@ test.describe('View Navigation', () => {
   });
 
   test('tab bar highlights active view', async ({ page }) => {
-    // Timeline tab should be active initially
-    const timelineTab = page.getByRole('button', { name: 'Timeline' });
-    await expect(timelineTab).toHaveClass(/text-text-primary/);
-
-    // Switch to Mixer
+    // Mixer tab should be active initially
     const mixerTab = page.getByRole('button', { name: 'Mixer' });
-    await mixerTab.click();
     await expect(mixerTab).toHaveClass(/text-text-primary/);
-    // Timeline tab should no longer be active
-    await expect(timelineTab).toHaveClass(/text-text-secondary/);
+
+    // Switch to Timeline
+    const timelineTab = page.getByRole('button', { name: 'Timeline' });
+    await timelineTab.click();
+    await expect(timelineTab).toHaveClass(/text-text-primary/);
+    // Mixer tab should no longer be active
+    await expect(mixerTab).toHaveClass(/text-text-secondary/);
   });
 });
