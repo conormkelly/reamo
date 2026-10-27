@@ -1,0 +1,5 @@
+# Commits that git blame skips: they change formatting only.
+# Locally: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# chore: store every text file with LF line endings
+f931e75374506dd2eafe5dacebe9c8b2e2cd8834
