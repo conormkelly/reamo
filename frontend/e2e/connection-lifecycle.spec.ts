@@ -76,8 +76,8 @@ test.describe('Connection Lifecycle', () => {
       });
     });
 
-    // Wait for app to render
-    await page.waitForSelector('[data-view="timeline"]', { state: 'visible' });
+    // Wait for app to render (Mixer is the default view)
+    await page.waitForSelector('[data-view="mixer"]', { state: 'visible' });
 
     // Connection banner should not be visible
     const banner = page.locator('[data-testid="connection-banner"]');
@@ -108,7 +108,7 @@ test.describe('Connection Lifecycle', () => {
     });
 
     // Navigate to Clock, then back
-    await page.waitForSelector('[data-view="timeline"]', { state: 'visible' });
+    await page.waitForSelector('[data-view="mixer"]', { state: 'visible' });
     await page.getByRole('button', { name: 'Clock' }).click();
     await page.waitForSelector('[data-view="clock"]', { state: 'visible' });
 
@@ -119,8 +119,8 @@ test.describe('Connection Lifecycle', () => {
     expect(bpm).toBe(135);
 
     // Navigate back
-    await page.getByRole('button', { name: 'Timeline' }).click();
-    await page.waitForSelector('[data-view="timeline"]', { state: 'visible' });
+    await page.getByRole('button', { name: 'Mixer' }).click();
+    await page.waitForSelector('[data-view="mixer"]', { state: 'visible' });
 
     // Still connected
     const connected = await page.evaluate(() => {

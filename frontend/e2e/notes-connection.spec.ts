@@ -40,7 +40,8 @@ async function setupTestMode(page: Page) {
     });
   });
 
-  // Wait for the app to fully render (default view is timeline)
+  // Mixer is the default view; these tests start from the timeline
+  await page.getByRole('button', { name: 'Timeline' }).click();
   await page.waitForSelector('[data-view="timeline"]', { state: 'visible' });
 }
 

@@ -46,6 +46,10 @@ async function setupViewportTest(page: Page) {
   });
 
   await page.waitForTimeout(100);
+
+  // Mixer is the default view
+  await page.getByRole('button', { name: 'Timeline' }).click();
+  await page.waitForSelector('[data-view="timeline"]', { state: 'visible' });
 }
 
 async function getTimeline(page: Page) {
