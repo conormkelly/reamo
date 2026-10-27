@@ -24,7 +24,7 @@ local OLD_PREFIX = "old_reaper_reamo"
 local confirm = reaper.ShowMessageBox(
   "This will remove REAmo from REAPER:\n\n" ..
   "  - Extension: UserPlugins/" .. ext_name .. "\n" ..
-  "  - Frontend: reaper_www_root/web/\n" ..
+  "  - Frontend: reaper_www_root/reamo/\n" ..
   "  - Tuner JSFX: Effects/REAmo/\n\n" ..
   "Continue?",
   "Uninstall REAmo", 4) -- 4 = Yes/No
@@ -72,6 +72,17 @@ local function remove_empty_dir(path)
   return result ~= nil and result:match("^0\n") ~= nil
 end
 
+-- Whether `dir` holds REAmo's page: every release's index.html has this
+-- title. Other web control surfaces use reaper_www_root/web/ too, and theirs
+-- may mention REAmo, so the title must match exactly.
+local function is_reamo_page(dir)
+  local f = io.open(dir .. sep .. "index.html", "rb")
+  if not f then return false end
+  local html = f:read("*a")
+  f:close()
+  return html ~= nil and html:find("<title>REAmo</title>", 1, true) ~= nil
+end
+
 -- Delete a directory and everything in it.
 local function remove_dir_recursive(dir)
   local files, dirs = list_dir(dir)
@@ -112,10 +123,16 @@ for _, name in ipairs((list_dir(plugins_dir))) do
 end
 
 -- 2. Web frontend directory
-local web_dir = resource_path .. sep .. "reaper_www_root" .. sep .. "web"
+local web_dir = resource_path .. sep .. "reaper_www_root" .. sep .. "reamo"
 if reaper.EnumerateFiles(web_dir, 0) or reaper.EnumerateSubdirectories(web_dir, 0) then
   remove_dir_recursive(web_dir)
-  removed[#removed + 1] = "Frontend: reaper_www_root/web/"
+  removed[#removed + 1] = "Frontend: reaper_www_root/reamo/"
+end
+-- Where versions before 0.8.1 installed it; left alone unless it's REAmo's.
+local old_web_dir = resource_path .. sep .. "reaper_www_root" .. sep .. "web"
+if is_reamo_page(old_web_dir) then
+  remove_dir_recursive(old_web_dir)
+  removed[#removed + 1] = "Frontend: reaper_www_root/web/ (from an older version)"
 end
 
 -- 3. JSFX tuner + Effects/REAmo/ directory

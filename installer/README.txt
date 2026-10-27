@@ -28,6 +28,10 @@ Run Install_REAmo.lua from the new version's folder, the same way as above.
 REAPER can stay open: the new version is put in place, and the old one keeps
 running until you restart REAPER. Restart to finish the update.
 
+Versions before 0.8.1 put REAmo's web files in reaper_www_root/web/, a folder
+other web control surfaces use too. They are now in reaper_www_root/reamo/,
+and the installer removes the old folder if it holds REAmo's files.
+
 ================================================================================
 UNINSTALL
 ================================================================================
@@ -44,17 +48,17 @@ Option B: Manual uninstall
 
   WINDOWS:
     C:\Users\<you>\AppData\Roaming\REAPER\UserPlugins\reaper_reamo.dll
-    C:\Users\<you>\AppData\Roaming\REAPER\reaper_www_root\web\
+    C:\Users\<you>\AppData\Roaming\REAPER\reaper_www_root\reamo\
     C:\Users\<you>\AppData\Roaming\REAPER\Effects\REAmo\
 
   macOS:
     ~/Library/Application Support/REAPER/UserPlugins/reaper_reamo.dylib
-    ~/Library/Application Support/REAPER/reaper_www_root/web/
+    ~/Library/Application Support/REAPER/reaper_www_root/reamo/
     ~/Library/Application Support/REAPER/Effects/REAmo/
 
   LINUX:
     ~/.config/REAPER/UserPlugins/reaper_reamo.so
-    ~/.config/REAPER/reaper_www_root/web/
+    ~/.config/REAPER/reaper_www_root/reamo/
     ~/.config/REAPER/Effects/REAmo/
 
   PORTABLE INSTALL (any OS):

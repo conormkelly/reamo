@@ -6,52 +6,31 @@ The installer writes the new binary beside it and renames it into place;
 on Windows the loaded DLL is first moved aside as old_reaper_reamo.*, which
 REAmo deletes at its next start. Web files the new build doesn't have are
 removed, and leftovers of earlier updates are cleaned up.
+
+Versions before 0.8.1 put the web UI in reaper_www_root/web/, a name other
+web control surfaces use too. Installing or uninstalling removes that
+folder when it holds REAmo's UI.
 """
 import glob
 import os
 import shutil
-import time
 
-from reamo_client import (BINARY_NAME, EFFECTS_DIR, EXT_DIR, WEB_DIR, WINDOWS, Client, press, reaper,
-                          submit, windows)
+from reamo_client import BINARY_NAME, WEB_DIR, WINDOWS, Client, reaper
+from release_package import BUILT, make_package, run_script
 
 RES = reaper("return reaper.GetResourcePath()")
 PLUGINS = os.path.join(RES, "UserPlugins")
 BINARY = os.path.join(PLUGINS, BINARY_NAME)
 EXT = os.path.splitext(BINARY_NAME)[1]
-WEB = os.path.join(RES, "reaper_www_root", "web")
-PKG = "/tmp/reamo-package"
-BUILT = os.path.join(EXT_DIR, BINARY_NAME)
+WEB = os.path.join(RES, "reaper_www_root", "reamo")
+OLD_WEB = os.path.join(RES, "reaper_www_root", "web")
 
 
-def make_package(version):
-    shutil.rmtree(PKG, ignore_errors=True)
-    os.makedirs(os.path.join(PKG, "effects", "REAmo"))
-    shutil.copy(os.path.join(EXT_DIR, "installer", "Install_REAmo.lua"), PKG)
-    shutil.copy(os.path.join(EXT_DIR, "installer", "Uninstall_REAmo.lua"), PKG)
-    with open(os.path.join(PKG, "README.txt"), "w") as f:
-        f.write(f"REAmo v{version}\n")
-    shutil.copy(BUILT, PKG)
-    shutil.copytree(WEB_DIR, os.path.join(PKG, "web"))
-    shutil.copy(os.path.join(EFFECTS_DIR, "REAmo", "PitchDetect.jsfx"), os.path.join(PKG, "effects", "REAmo"))
-
-
-def run_script(name, *keys):
-    """Run a package script as REAPER's Run ReaScript does, answering its dialogs."""
-    path = os.path.abspath(os.path.join(PKG, name)).replace("\\", "/")
-    cmd = reaper(f"return reaper.AddRemoveReaScript(true, 0, '{path}', true)")
-    assert cmd, f"REAPER didn't register {name}"
-    pending = submit(f"reaper.Main_OnCommand({cmd}, 0)")
-    for key in keys:
-        deadline = time.time() + 15
-        while not any(w.startswith("REAmo") or w.startswith("Uninstall REAmo") for w in windows()):
-            assert time.time() < deadline, f"{name} showed no dialog; windows: {windows()}"
-            time.sleep(0.1)
-        title = next(w for w in windows() if w.startswith("REAmo") or w.startswith("Uninstall REAmo"))
-        time.sleep(0.3)
-        press(title, key)
-        time.sleep(0.5)
-    pending.result(15)
+def seed_old_web():
+    """REAmo's UI where versions before 0.8.1 installed it."""
+    os.makedirs(os.path.join(OLD_WEB, "assets"), exist_ok=True)
+    shutil.copy(os.path.join(WEB_DIR, "index.html"), OLD_WEB)
+    open(os.path.join(OLD_WEB, "assets", "index-OLDBUILD.js"), "w").write("old")
 
 
 def ours():
@@ -61,12 +40,14 @@ def ours():
 with Client(timeout=10) as c:
     c.wait_event("trackSkeleton")
 
-    # Leftovers of earlier updates, and a hashed asset an old build had.
+    # Leftovers of earlier updates, a hashed asset an old build had, and the
+    # UI where an older version installed it.
     for name in (f"old_reaper_reamo.1761400000{EXT}", "reamo_install.tmp"):
         open(os.path.join(PLUGINS, name), "w").write("leftover")
     os.makedirs(os.path.join(WEB, "assets"), exist_ok=True)
     stale = os.path.join(WEB, "assets", "index-OLDBUILD.js")
     open(stale, "w").write("old")
+    seed_old_web()
     original = open(BINARY, "rb").read()
     before = os.stat(BINARY).st_ino
 
@@ -88,12 +69,15 @@ with Client(timeout=10) as c:
         assert ours() == [BINARY_NAME], ours()
     assert not os.path.exists(stale), "a stale web file from an old build was kept"
     assert os.path.exists(os.path.join(WEB, "index.html"))
+    assert not os.path.exists(OLD_WEB), "REAmo's UI from an older version was left in reaper_www_root/web/"
     assert os.path.exists(os.path.join(RES, "Effects", "REAmo", "PitchDetect.jsfx"))
     print(f"installed twice over the running extension: plugins {ours()}")
 
+    # Someone on an older version who uninstalls with this package.
+    seed_old_web()
     run_script("Uninstall_REAmo.lua", "Return", "Return")  # confirm, then the result
     assert c.command("debug/memoryStats")["success"], "REAPER stopped answering after the uninstall"
-    gone = [p for p in (BINARY, WEB, os.path.join(RES, "Effects", "REAmo")) if os.path.exists(p)]
+    gone = [p for p in (BINARY, WEB, OLD_WEB, os.path.join(RES, "Effects", "REAmo")) if os.path.exists(p)]
     assert not gone, f"left behind: {gone}"
     if WINDOWS:
         # Only the DLL REAPER still has loaded, moved aside until it restarts.

@@ -575,7 +575,7 @@ fn injectTokenMeta(allocator: Allocator, html: []const u8, state: *ws_server.Sha
     const needle = "</head>";
     const pos = std.mem.indexOf(u8, html, needle) orelse {
         // Served without the token, every phone's hello is refused.
-        logging.warn("web/index.html has no </head>; phones can't authenticate (reinstall REAmo's web files)", .{});
+        logging.warn("reamo/index.html has no </head>; phones can't authenticate (reinstall REAmo's web files)", .{});
         return html;
     };
 

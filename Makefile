@@ -9,21 +9,21 @@ ifeq ($(shell uname),Darwin)
     EXT_OUT_DIR = lib
     PLATFORM = macos
     REAPER_PLUGINS = $(HOME)/Library/Application Support/REAPER/UserPlugins
-    REAPER_WWW = $(HOME)/Library/Application Support/REAPER/reaper_www_root/web
+    REAPER_WWW = $(HOME)/Library/Application Support/REAPER/reaper_www_root/reamo
 else ifeq ($(OS),Windows_NT)
     EXT_LIB = reaper_reamo.dll
     EXT_DEST = reaper_reamo.dll
     EXT_OUT_DIR = bin
     PLATFORM = windows
     REAPER_PLUGINS = $(APPDATA)/REAPER/UserPlugins
-    REAPER_WWW = $(APPDATA)/REAPER/reaper_www_root/web
+    REAPER_WWW = $(APPDATA)/REAPER/reaper_www_root/reamo
 else
     EXT_LIB = libreaper_reamo.so
     EXT_DEST = reaper_reamo.so
     EXT_OUT_DIR = lib
     PLATFORM = linux
     REAPER_PLUGINS = $(HOME)/.config/REAPER/UserPlugins
-    REAPER_WWW = $(HOME)/.config/REAPER/reaper_www_root/web
+    REAPER_WWW = $(HOME)/.config/REAPER/reaper_www_root/reamo
 endif
 
 # Default target: run tests first, then build
@@ -34,8 +34,8 @@ frontend:
 	@echo "Building frontend..."
 	cd frontend && npm run build
 	@mkdir -p "$(REAPER_WWW)"
-	@if [ "$$(cd web && pwd)" != "$$(cd "$(REAPER_WWW)" && pwd)" ]; then \
-		cp -r web/* "$(REAPER_WWW)/"; \
+	@if [ "$$(cd reamo && pwd)" != "$$(cd "$(REAPER_WWW)" && pwd)" ]; then \
+		cp -r reamo/* "$(REAPER_WWW)/"; \
 		echo "Frontend installed to $(REAPER_WWW)"; \
 	else \
 		echo "Build output already in place (repo is inside reaper_www_root)."; \
@@ -172,7 +172,7 @@ test-ws:
 
 # Run live-REAPER harness scenarios: real headless REAPER in Docker, driven
 # over WebSocket. SCENARIOS="smoke item-notes-poll" runs a subset. See
-# scripts/harness/README.md (needs Docker, Zig 0.15 and a built web/).
+# scripts/harness/README.md (needs Docker, Zig 0.15 and a built reamo/).
 harness:
 	scripts/harness/run.sh $(SCENARIOS)
 
@@ -234,12 +234,12 @@ endif
 # Create release directory structure with installer + frontend + JSFX
 release-dir:
 	@rm -rf "$(RELEASE_DIR)"
-	@mkdir -p "$(RELEASE_DIR)/web" "$(RELEASE_DIR)/effects/REAmo"
+	@mkdir -p "$(RELEASE_DIR)/reamo" "$(RELEASE_DIR)/effects/REAmo"
 	@# Installer scripts and README
 	cp installer/Install_REAmo.lua "$(RELEASE_DIR)/"
 	cp installer/Uninstall_REAmo.lua "$(RELEASE_DIR)/"
 	cp installer/README.txt "$(RELEASE_DIR)/"
 	@# Frontend (built by 'frontend' target)
-	cp -r web/* "$(RELEASE_DIR)/web/"
+	cp -r reamo/* "$(RELEASE_DIR)/reamo/"
 	@# JSFX tuner plugin
 	cp extension/effects/REAmo/PitchDetect.jsfx "$(RELEASE_DIR)/effects/REAmo/"

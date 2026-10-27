@@ -220,9 +220,9 @@ fn doInitialization() !void {
     // Initialize hot reload file path
     if (api.resourcePath()) |res_path| {
         logging.debug("Resource path: {s}", .{res_path});
-        const web_dir = std.fmt.bufPrint(&g_web_dir_buf, "{s}/reaper_www_root/web", .{res_path}) catch null;
+        const web_dir = std.fmt.bufPrint(&g_web_dir_buf, "{s}/reaper_www_root/reamo", .{res_path}) catch null;
         g_web_dir = web_dir;
-        const written = std.fmt.bufPrint(&g_html_path_buf, "{s}/reaper_www_root/web/index.html", .{res_path}) catch null;
+        const written = std.fmt.bufPrint(&g_html_path_buf, "{s}/reaper_www_root/reamo/index.html", .{res_path}) catch null;
         if (written) |path| {
             g_html_path = path;
             logging.debug("Watching: {s}", .{path});
@@ -902,7 +902,7 @@ fn doProcessing() !void {
             if (std.fs.cwd().statFile(path)) |stat| {
                 if (g_html_stat_failed) {
                     g_html_stat_failed = false;
-                    logging.info("web/index.html is readable again", .{});
+                    logging.info("reamo/index.html is readable again", .{});
                 }
                 if (stat.mtime != g_html_mtime) {
                     logging.debug("HTML changed: mtime {} -> {}", .{ g_html_mtime, stat.mtime });
@@ -919,7 +919,7 @@ fn doProcessing() !void {
                 // Checked every 2 s: log the change, not every check.
                 if (!g_html_stat_failed) {
                     g_html_stat_failed = true;
-                    logging.warn("Can't read web/index.html ({s}); phones can't load the page until it's back", .{@errorName(err)});
+                    logging.warn("Can't read reamo/index.html ({s}); phones can't load the page until it's back", .{@errorName(err)});
                 }
             }
         }
