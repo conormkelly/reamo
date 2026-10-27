@@ -242,7 +242,7 @@ pub const all = .{
     .{ "hw/setDestChannel", hw_output.handleSetDestChannel },
     .{ "hw/listOutputs", hw_output.handleListOutputs },
 
-    // Playlists (Cue List)
+    // Playlists
     .{ "playlist/create", playlist_cmds.handleCreate },
     .{ "playlist/delete", playlist_cmds.handleDelete },
     .{ "playlist/rename", playlist_cmds.handleRename },

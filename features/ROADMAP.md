@@ -327,7 +327,7 @@ Tap time display to cycle: Bar.Beat → Seconds → SMPTE → Bar.Beat
 
 ### SWS Region Playlist Import
 
-Parse existing SWS playlists from .RPP files for migration into REAmo cue lists.
+Parse existing SWS playlists from .RPP files for migration into REAmo playlists.
 
 **Effort:** ~1 day (backend) + UI
 

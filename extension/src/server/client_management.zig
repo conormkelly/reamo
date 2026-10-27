@@ -316,7 +316,7 @@ fn sendSnapshotToClient(
         } else |err| snapshotFailed(client_id, "tempo map", err);
     }
 
-    // Playlist (cue list) - uses last_markers_regions for region resolution
+    // Playlist - uses last_markers_regions for region resolution
     if (ctx.playlist_state.toJsonAlloc(scratch, ctx.last_markers_regions)) |json| {
         ctx.shared_state.sendToClient(client_id, json);
     } else |err| snapshotFailed(client_id, "playlist", err);

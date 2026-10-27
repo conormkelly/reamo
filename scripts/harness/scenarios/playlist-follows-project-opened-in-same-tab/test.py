@@ -1,6 +1,6 @@
 """Playlists belong to their project. Opening another project in the same
 tab (File > Open, the usual way) shows that project's playlists, and edits
-then are saved into that project only. Reopening brings a setlist back
+then are saved into that project only. Reopening brings a playlist back
 intact (name with | and \\, loop counts, stop-after-last).
 """
 import time
@@ -32,7 +32,7 @@ with Client() as c:
     c.wait_event("playlist")
     reaper('harness.save_as("/tmp/other.rpp")')  # a project with no playlists
 
-    # The gig project: one setlist.
+    # The gig project: one playlist.
     assert c.command("playlist/create", name=NAME)["success"]
     for rid, loops in [(3, 2), (1, -1), (2, 1)]:
         assert c.command("playlist/addEntry", playlistIdx=0, regionId=rid, loopCount=loops)["success"]

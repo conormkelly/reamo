@@ -27,14 +27,14 @@ def lua_str(s):
 # ----------------------------------------------------------------------------
 # Playlists
 
-def setlist_regions(t):
-    """(id, start, end) of the regions a setlist is built from: the first two
+def playlist_regions(t):
+    """(id, start, end) of the regions a playlist is built from: the first two
     in the arrangement (intro, verse) and the shortest after the first
     (the chorus the band vamps on, so waiting for its end stays short)."""
     rg = sorted(((int(k[1:]), m["pos"], m["end"]) for k, m in t.d["markers"].items() if k.startswith("R")),
                 key=lambda r: r[1])
     if len(rg) < 2:
-        raise Skip("fewer than two regions to build a setlist from")
+        raise Skip("fewer than two regions to build a playlist from")
     return rg[0], rg[1], min(rg[1:], key=lambda r: r[2] - r[1])
 
 
@@ -127,18 +127,18 @@ def cleanup_extstate(t, key, was_present):
         reaper(f'reaper.SetProjExtState(0, "Reamo", "{key}", "")')
 
 
-@op("playlist: build a gig setlist, edit it, delete it",
+@op("playlist: build a gig playlist, edit it, delete it",
     "playlist/create", "playlist/addEntry", "playlist/setLoopCount", "playlist/setStopAfterLast",
     "playlist/rename", "playlist/reorderEntry", "playlist/removeEntry", "playlist/delete")
 def _(t):
-    intro, verse, chorus = setlist_regions(t)
+    intro, verse, chorus = playlist_regions(t)
     had_count = "PLAYLISTCOUNT" in t.d["project"]["reamo"]
     lists = saved_playlists(t)
     if len(lists) >= MAX_PLAYLISTS:
         raise Skip("the project has the maximum number of playlists")
     keep = len(lists)
     try:
-        _build_setlist(t, lists, intro, verse, chorus)
+        _build_playlist(t, lists, intro, verse, chorus)
     except BaseException:
         end_playlists(t, keep)
         raise
@@ -147,7 +147,7 @@ def _(t):
         t.digest()
 
 
-def _build_setlist(t, lists, intro, verse, chorus):
+def _build_playlist(t, lists, intro, verse, chorus):
     idx = len(lists)
     r = t.ok("playlist/create", name="Friday gig")
     if r is not None and r["payload"]["playlistIdx"] != idx:
@@ -169,12 +169,12 @@ def _build_setlist(t, lists, intro, verse, chorus):
             gig["entries"][entry] = (rid, count)
             expect_saved(t, lists)
 
-    # A phone that connects now loads the same setlist.
+    # A phone that connects now loads the same playlist.
     with Client() as phone2:
         ev = phone2.wait_event("playlist")["payload"]
         got = [(e["regionId"], e["loopCount"]) for e in ev["playlists"][idx]["entries"]]
         if ev["playlists"][idx]["name"] != gig["name"] or got != gig["entries"]:
-            raise Mismatch(f"a newly connected phone shows {ev['playlists'][idx]}, the setlist is {gig}")
+            raise Mismatch(f"a newly connected phone shows {ev['playlists'][idx]}, the playlist is {gig}")
 
     t.ok("playlist/setStopAfterLast", playlistIdx=idx, stopAfterLast=0)
     gig["stopAfterLast"] = False
@@ -204,11 +204,11 @@ def _build_setlist(t, lists, intro, verse, chorus):
     expect_saved(t, lists)
 
 
-@op("playlist: play a setlist with next, prev, loop counts, pause and stop",
+@op("playlist: play a playlist with next, prev, loop counts, pause and stop",
     "playlist/play", "playlist/playFromEntry", "playlist/pause", "playlist/stop",
     "playlist/next", "playlist/prev", "playlist/advanceAfterLoop")
 def _(t):
-    intro, verse, chorus = setlist_regions(t)
+    intro, verse, chorus = playlist_regions(t)
     had_count = "PLAYLISTCOUNT" in t.d["project"]["reamo"]
     lists = saved_playlists(t)
     if len(lists) >= MAX_PLAYLISTS:
@@ -232,7 +232,7 @@ def _(t):
     t.digest()
     keep = len(lists)
     try:
-        _play_setlist(t, lists, (pickup_id, ps, pe), intro, verse, chorus)
+        _play_playlist(t, lists, (pickup_id, ps, pe), intro, verse, chorus)
     except BaseException:
         end_playlists(t, keep)
         raise
@@ -242,7 +242,7 @@ def _(t):
         t.digest()
 
 
-def _play_setlist(t, lists, pickup, intro, verse, chorus):
+def _play_playlist(t, lists, pickup, intro, verse, chorus):
     idx = len(lists)
     t.ok("playlist/create", name="Rehearsal")
     plan = [(intro, 2), (verse, 1), (verse, 0), (pickup, 2), (chorus, -1)]
@@ -289,11 +289,11 @@ def _play_setlist(t, lists, pickup, intro, verse, chorus):
     t.expect(looping(chorus), timeout=4.0)
     wait_play_in(t, chorus[1], chorus[2], "after the pickup")
 
-    # The Chorus vamps until the band leader cues the end; the setlist then stops.
+    # The Chorus vamps until the band leader cues the end; the playlist then stops.
     t.ok("playlist/advanceAfterLoop")
     playlist_event(t, lambda p: p["advanceAfterLoop"], "advanceAfterLoop")
     t.expect(ended, timeout=chorus[2] - chorus[1] + 4.0)
-    playlist_event(t, lambda p: not p["isPlaylistActive"], "the setlist ended")
+    playlist_event(t, lambda p: not p["isPlaylistActive"], "the playlist ended")
 
     # Pause and resume from an entry.
     t.ok("playlist/playFromEntry", playlistIdx=idx, entryIdx=1)
@@ -322,7 +322,7 @@ def _play_setlist(t, lists, pickup, intro, verse, chorus):
 
 @op("playlist: drop the playing song; playback moves on past a skipped entry", "playlist/removeEntry")
 def _(t):
-    intro, verse, chorus = setlist_regions(t)
+    intro, verse, chorus = playlist_regions(t)
     if len({intro, verse, chorus}) < 3:
         raise Skip("needs three regions")
     had_count = "PLAYLISTCOUNT" in t.d["project"]["reamo"]
