@@ -10,7 +10,7 @@ import { useState, useCallback, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, Info, X } from 'lucide-react';
 import { useReaperStore } from '../store';
-import { useReaper } from './ReaperProvider';
+import { useReaper } from '../hooks/useReaper';
 
 interface MemoryStats {
   high: { used: number; capacity: number; peak: number; utilization: number };

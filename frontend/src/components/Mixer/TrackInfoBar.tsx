@@ -9,7 +9,7 @@
 import { useState, useRef, useEffect, useCallback, type ReactElement } from 'react';
 import { Copy, Trash2, Folder } from 'lucide-react';
 import { useReaperStore } from '../../store';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useTrack } from '../../hooks/useTrack';
 import { track as trackCmd } from '../../core/WebSocketCommands';
 import { reaperColorToHex, hexToReaperColor, formatInputLabel } from '../../utils';

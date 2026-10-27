@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, useRef, type ReactElement } from 'react';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useReaperStore } from '../../store';
 import { useBarPositions, parseBarPosition } from '../../hooks/useBarPositions';
 import { timeSelection as timeSelCmd } from '../../core/WebSocketCommands';

@@ -15,7 +15,7 @@ import {
   formatBeatsToBarBeatTicks,
   parseBarBeatTicksToBeats,
 } from '../../utils';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { marker as markerCmd } from '../../core/WebSocketCommands';
 import { DEFAULT_MARKER_COLOR } from '../../constants/colors';
 import { Modal, ModalFooter } from '../Modal';

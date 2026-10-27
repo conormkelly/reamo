@@ -14,7 +14,7 @@ import { MoveHorizontal } from 'lucide-react';
 import { ViewHeader, ViewLayout } from '../../components';
 import { BottomSheet } from '../../components/Modal/BottomSheet';
 import { useIsLandscape } from '../../hooks';
-import { useReaper } from '../../components/ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useReaperStore } from '../../store';
 import {
   InstrumentSelector,

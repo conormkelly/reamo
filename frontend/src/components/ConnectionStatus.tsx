@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback, useRef, type ReactElement } from 'react';
 import { Wifi, WifiOff, RefreshCw } from 'lucide-react';
-import { useReaper } from './ReaperProvider';
+import { useReaper } from '../hooks/useReaper';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
 import { NetworkStatsModal } from './NetworkStatsModal';
 import type { NetworkQuality } from '../lib/transport-sync';

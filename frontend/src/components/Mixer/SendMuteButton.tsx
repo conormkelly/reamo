@@ -5,7 +5,7 @@
  */
 
 import type { ReactElement } from 'react';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useSends } from '../../hooks/useSends';
 import { send } from '../../core/WebSocketCommands';
 

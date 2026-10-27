@@ -5,7 +5,7 @@
 
 import { useEffect, useCallback, type ReactElement } from 'react';
 import { useReaperStore, getNotesIsDirty, getNotesIsOverLimit, getNotesCanSave } from '../../store';
-import { useReaper } from '../../components/ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { ViewHeader, ViewLayout, TextSizeControl } from '../../components';
 import { useUIPreferences } from '../../hooks';
 import { projectNotes } from '../../core/WebSocketCommands';

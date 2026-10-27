@@ -18,7 +18,7 @@ import {
   ListMusic,
 } from 'lucide-react';
 import { useReaperStore } from '../../store';
-import { useReaper } from '../../components/ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { ViewHeader, ViewLayout } from '../../components';
 import { playlist as playlistCmd } from '../../core/WebSocketCommands';
 import type { WSPlaylist } from '../../core/WebSocketTypes';

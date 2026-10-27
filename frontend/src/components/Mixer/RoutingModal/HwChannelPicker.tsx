@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback, useMemo, type ReactElement } from 'react';
 import { Loader2 } from 'lucide-react';
-import { useReaper } from '../../ReaperProvider';
+import { useReaper } from '../../../hooks/useReaper';
 import { hw as hwCmd } from '../../../core/WebSocketCommands';
 
 interface OutputChannel {

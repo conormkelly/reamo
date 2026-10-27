@@ -4,7 +4,7 @@
 
 import { useCallback, useRef } from 'react';
 import { Pencil } from 'lucide-react';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { action as actionCmd, midi as midiCmd } from '../../core/WebSocketCommands';
 import type { ToolbarAction, ToggleState } from '../../store/slices/toolbarSlice';
 import { DynamicIcon } from './DynamicIcon';

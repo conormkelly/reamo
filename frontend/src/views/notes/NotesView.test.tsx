@@ -14,7 +14,7 @@ vi.hoisted(() => vi.resetModules());
 
 const sendCommand = vi.fn();
 const sendCommandAsync = vi.fn();
-vi.mock('../../components/ReaperProvider', () => ({
+vi.mock('../../hooks/useReaper', () => ({
   useReaper: () => ({ connected: true, sendCommand, sendCommandAsync }),
 }));
 vi.mock('../../components', () => ({

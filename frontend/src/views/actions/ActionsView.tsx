@@ -13,7 +13,7 @@ import {
   AlignVerticalJustifyEnd,
 } from 'lucide-react';
 import { useReaperStore } from '../../store';
-import { useReaper } from '../../components/ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { ViewHeader, ViewLayout } from '../../components';
 import { actionToggleState } from '../../core/WebSocketCommands';
 import { ActionsSection, SectionEditor } from './components';

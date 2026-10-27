@@ -31,7 +31,7 @@
  */
 
 import { useEffect, useRef } from 'react';
-import { useReaper } from '../components/ReaperProvider';
+import { useReaper } from './useReaper';
 import { useReaperStore } from '../store';
 import { peaks, type PeaksViewport } from '../core/WebSocketCommands';
 import type { LODLevel } from '../core/WebSocketTypes';

@@ -6,9 +6,8 @@ export { MixerModeSelector, type MixerModeSelectorProps } from './MixerModeSelec
 export { SendFader, type SendFaderProps } from './SendFader';
 export { SendMuteButton, type SendMuteButtonProps } from './SendMuteButton';
 export { SendDestinationSelector, type SendDestinationSelectorProps } from './SendDestinationSelector';
+export { BankSelector, type BankSelectorProps } from './BankSelector';
 export {
-  BankSelector,
-  type BankSelectorProps,
   type CustomBank,
   type BankType,
   type BuiltinBankId,
@@ -16,7 +15,7 @@ export {
   QUICK_FILTERS,
   isBuiltinBank,
   isQuickFilter,
-} from './BankSelector';
+} from './banks';
 export { BankEditorModal, type BankEditorModalProps } from './BankEditorModal';
 export { TrackInfoBar, type TrackInfoBarProps } from './TrackInfoBar';
 export { RoutingModal, type RoutingModalProps } from './RoutingModal/';
