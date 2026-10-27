@@ -11,8 +11,11 @@ pub fn handleMarkerAdd(api: anytype, cmd: protocol.CommandMessage, response: *mo
     };
     const color = cmd.getInt("color") orelse 0;
 
-    var name_buf: [65]u8 = undefined;
-    const name = mod.toNullTerminated(&name_buf, cmd.getString("name"));
+    const name = mod.resolveNameZ(cmd.getTextAlloc("name", std.heap.c_allocator) catch null, "") catch {
+        response.err("ALLOC_FAILED", "Failed to read name");
+        return;
+    };
+    defer std.heap.c_allocator.free(name);
 
     api.undoBeginBlock();
     const id = api.addMarker(pos, name, color);
@@ -51,36 +54,27 @@ pub fn handleMarkerUpdate(api: anytype, cmd: protocol.CommandMessage, response: 
     }
 
     // PATCH semantics: use provided values, fall back to current
-    const pos = cmd.getFloat("position") orelse current_pos;
+    const pos = if (cmd.getFloat("position")) |p| mod.validatePosition(p) orelse {
+        response.err("INVALID_POSITION", "Position must be a non-negative number of seconds in range");
+        return;
+    } else current_pos;
 
-    // Name: use provided if non-empty, else preserve current
-    var name_buf: [65]u8 = undefined;
-    const provided_name = cmd.getString("name");
-    const name = if (provided_name) |n| blk: {
-        if (n.len == 0) break :blk mod.toNullTerminated(&name_buf, current_name);
-        break :blk mod.toNullTerminated(&name_buf, n);
-    } else mod.toNullTerminated(&name_buf, current_name);
+    // Name: use provided if non-empty, else preserve current (whole: a
+    // drag that sends only a position must not shorten the name).
+    const provided_name = cmd.getTextAlloc("name", std.heap.c_allocator) catch null;
+    defer if (provided_name) |n| std.heap.c_allocator.free(n);
+    const name = mod.resolveNameZ(provided_name, current_name) catch {
+        response.err("ALLOC_FAILED", "Failed to read name");
+        return;
+    };
+    defer std.heap.c_allocator.free(name);
 
-    // Color: null = preserve, 0 = reset to default, other = use value
-    const color_provided = cmd.getInt("color");
-    const color = color_provided orelse current_color;
-    const reset_to_default = color_provided != null and color_provided.? == 0;
+    const color = mod.markerColor(current_color, cmd.getInt("color"));
 
     api.undoBeginBlock();
-
-    // Special case: color=0 explicitly means "reset to default"
-    // REAPER's SetProjectMarker4 treats 0 as "don't modify color"
-    // Workaround: delete and recreate marker with same ID
-    if (reset_to_default) {
-        _ = api.deleteMarker(id);
-        _ = api.addMarkerWithId(pos, name, 0, id);
-        logging.debug("Reset marker {d} to default color", .{id});
-    } else {
-        if (api.updateMarker(id, pos, name, color)) {
-            logging.debug("Updated marker {d}", .{id});
-        }
+    if (api.updateMarker(id, pos, name, color)) {
+        logging.debug("Updated marker {d}", .{id});
     }
-
     api.undoEndBlock("REAmo: Update marker");
 }
 

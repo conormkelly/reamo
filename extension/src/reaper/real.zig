@@ -10,6 +10,7 @@ const std = @import("std");
 const raw = @import("raw.zig");
 const types = @import("types.zig");
 const ffi = @import("../core/ffi.zig");
+const constants = @import("../core/constants.zig");
 const backend = @import("backend.zig");
 
 pub const RealBackend = struct {
@@ -339,6 +340,10 @@ pub const RealBackend = struct {
         self.inner.undoEndBlock(description);
     }
 
+    pub fn undoRecordChange(self: *const RealBackend, description: [*:0]const u8) void {
+        self.inner.undoRecordChange(description);
+    }
+
     pub fn undoAddPoint(self: *const RealBackend, description: [*:0]const u8) void {
         self.inner.undoAddPoint(description);
     }
@@ -401,9 +406,7 @@ pub const RealBackend = struct {
 
     pub fn getTrackColor(self: *const RealBackend, track: *anyopaque) ffi.FFIError!c_int {
         const color_val = try ffi.safeFloatToInt(c_int, self.inner.getTrackColor(track));
-        // REAPER uses bit 24 (0x01000000) as an "enabled" flag - if not set, track uses theme default
-        const CUSTOM_COLOR_FLAG: c_int = 0x01000000;
-        if ((color_val & CUSTOM_COLOR_FLAG) == 0) {
+        if ((color_val & constants.CUSTOM_COLOR_FLAG) == 0) {
             return 0; // No custom color - uses theme default
         }
         return color_val;
@@ -559,6 +562,10 @@ pub const RealBackend = struct {
         return self.inner.validateTrackPtr(track);
     }
 
+    pub fn validateTrackPtrIn(self: *const RealBackend, project: ?*anyopaque, track: ?*anyopaque) bool {
+        return self.inner.validateTrackPtrIn(project, track);
+    }
+
     /// Validate an item pointer using REAPER's ValidatePtr2.
     /// Returns true if the item still exists in the current project.
     pub fn validateItemPtr(self: *const RealBackend, item: ?*anyopaque) bool {
@@ -683,6 +690,12 @@ pub const RealBackend = struct {
     /// Get formatted parameter value string (e.g., "-6.0 dB", "250 Hz"). Returns empty string on failure.
     pub fn trackFxGetFormattedParamValue(self: *const RealBackend, track: *anyopaque, fx_idx: c_int, param_idx: c_int, buf: []u8) []const u8 {
         return self.inner.trackFxGetFormattedParamValue(track, fx_idx, param_idx, buf);
+    }
+
+    /// REAPER's major version (6 for "6.0/linux-aarch64"), or null if REAPER
+    /// doesn't say.
+    pub fn majorVersion(self: *const RealBackend) ?u32 {
+        return self.inner.majorVersion();
     }
 
     /// Enumerate installed FX plugins (global, not per-track).
@@ -889,6 +902,10 @@ pub const RealBackend = struct {
         return ffi.safeFloatToInt(c_int, self.inner.getItemActiveTakeIdx(item));
     }
 
+    pub fn itemNotes(self: *const RealBackend, item: *anyopaque) []const u8 {
+        return self.inner.itemNotes(item);
+    }
+
     pub fn getItemNotes(self: *const RealBackend, item: *anyopaque, buf: []u8) []const u8 {
         return self.inner.getItemNotes(item, buf);
     }
@@ -914,7 +931,7 @@ pub const RealBackend = struct {
         return self.inner.setItemSelected(item, selected);
     }
 
-    pub fn setItemNotes(self: *const RealBackend, item: *anyopaque, notes: []const u8) bool {
+    pub fn setItemNotes(self: *const RealBackend, item: *anyopaque, notes: [:0]const u8) bool {
         return self.inner.setItemNotes(item, notes);
     }
 
@@ -1026,16 +1043,8 @@ pub const RealBackend = struct {
         return self.inner.addMarker(pos, name, color);
     }
 
-    pub fn addMarkerWithId(self: *const RealBackend, pos: f64, name: [*:0]const u8, color: c_int, id: c_int) c_int {
-        return self.inner.addMarkerWithId(pos, name, color, id);
-    }
-
     pub fn addRegion(self: *const RealBackend, start: f64, end: f64, name: [*:0]const u8, color: c_int) c_int {
         return self.inner.addRegion(start, end, name, color);
-    }
-
-    pub fn addRegionWithId(self: *const RealBackend, start: f64, end: f64, name: [*:0]const u8, color: c_int, id: c_int) c_int {
-        return self.inner.addRegionWithId(start, end, name, color, id);
     }
 
     pub fn updateMarker(self: *const RealBackend, id: c_int, pos: f64, name: [*:0]const u8, color: c_int) bool {
@@ -1088,6 +1097,18 @@ pub const RealBackend = struct {
 
     pub fn setProjExtStateValue(self: *const RealBackend, extname: [*:0]const u8, key: [*:0]const u8, value: [*:0]const u8) void {
         self.inner.setProjExtStateValue(extname, key, value);
+    }
+
+    pub fn setProjExtStateValueIn(self: *const RealBackend, project: ?*anyopaque, extname: [*:0]const u8, key: [*:0]const u8, value: [*:0]const u8) void {
+        self.inner.setProjExtStateValueIn(project, extname, key, value);
+    }
+
+    pub fn validateProjectPtr(self: *const RealBackend, project: ?*anyopaque) bool {
+        return self.inner.validateProjectPtr(project);
+    }
+
+    pub fn projectLoadCount(self: *const RealBackend) u32 {
+        return self.inner.projectLoadCount();
     }
 
     // =========================================================================

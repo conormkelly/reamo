@@ -6,8 +6,11 @@ const logging = @import("../core/logging.zig");
 const Allocator = std.mem.Allocator;
 const Thread = std.Thread;
 
-// Maximum pending commands in queue
-const MAX_COMMAND_QUEUE = 256;
+// Commands waiting for the main thread, which drains them all every tick.
+// A phone that loses Wi-Fi for a few seconds can deliver a pad roll's worth
+// at once; past these limits a command is refused, never dropped silently.
+const MAX_COMMAND_QUEUE = 4096;
+const MAX_QUEUED_COMMAND_BYTES = 8 * 1024 * 1024;
 // Maximum concurrent clients for broadcast buffer
 const MAX_CLIENTS = 64;
 // Session token length (hex string = 32 chars for 16 bytes)
@@ -26,16 +29,21 @@ pub const Command = struct {
 
 // Ring buffer for commands - O(1) push and pop
 const CommandRingBuffer = struct {
-    items: [MAX_COMMAND_QUEUE]Command = undefined,
+    /// Allocated on the first push, so SharedState (built by value) stays small.
+    items: []Command = &.{},
     head: usize = 0, // Next position to read from
     tail: usize = 0, // Next position to write to
     len: usize = 0,
+    bytes: usize = 0, // Total data bytes queued
 
-    fn push(self: *CommandRingBuffer, cmd: Command) !void {
+    fn push(self: *CommandRingBuffer, allocator: Allocator, cmd: Command) !void {
         if (self.len >= MAX_COMMAND_QUEUE) return error.QueueFull;
+        if (cmd.data.len > MAX_QUEUED_COMMAND_BYTES - self.bytes) return error.QueueFull;
+        if (self.items.len == 0) self.items = try allocator.alloc(Command, MAX_COMMAND_QUEUE);
         self.items[self.tail] = cmd;
         self.tail = (self.tail + 1) % MAX_COMMAND_QUEUE;
         self.len += 1;
+        self.bytes += cmd.data.len;
     }
 
     fn pop(self: *CommandRingBuffer) ?Command {
@@ -43,7 +51,13 @@ const CommandRingBuffer = struct {
         const cmd = self.items[self.head];
         self.head = (self.head + 1) % MAX_COMMAND_QUEUE;
         self.len -= 1;
+        self.bytes -= cmd.data.len;
         return cmd;
+    }
+
+    fn deinit(self: *CommandRingBuffer, allocator: Allocator) void {
+        if (self.items.len > 0) allocator.free(self.items);
+        self.* = .{};
     }
 
     // For cleanup - iterate remaining items
@@ -96,6 +110,12 @@ pub const SharedState = struct {
     clients: std.AutoArrayHashMap(usize, *websocket.Conn),
     next_client_id: usize = 1,
 
+    // Clients that completed the hello handshake (token checked). Only these
+    // receive broadcasts: a socket that never presented the session token
+    // must not see project names, paths, track or marker names.
+    // Protected by client_rwlock.
+    handshaken_clients: std.AutoArrayHashMap(usize, void),
+
     // Clients that need initial state snapshot (set by WS thread after hello, consumed by main thread)
     // Protected by client_rwlock since closely related to client lifecycle
     clients_needing_snapshot: std.AutoArrayHashMap(usize, void),
@@ -124,6 +144,7 @@ pub const SharedState = struct {
             .allocator = allocator,
             .clients = std.AutoArrayHashMap(usize, *websocket.Conn).init(allocator),
             .clients_needing_snapshot = std.AutoArrayHashMap(usize, void).init(allocator),
+            .handshaken_clients = std.AutoArrayHashMap(usize, void).init(allocator),
             .disconnected_clients = std.AutoArrayHashMap(usize, void).init(allocator),
         };
     }
@@ -205,15 +226,21 @@ pub const SharedState = struct {
         while (iter.next()) |cmd| {
             cmd.deinit();
         }
+        self.commands.deinit(self.allocator);
         self.clients.deinit();
         self.clients_needing_snapshot.deinit();
+        self.handshaken_clients.deinit();
         self.disconnected_clients.deinit();
     }
 
-    // Called by WebSocket thread after successful hello to request initial snapshot
+    // Called by WebSocket thread after successful hello: the client may now
+    // receive broadcasts, and needs an initial snapshot
     pub fn markNeedsSnapshot(self: *SharedState, client_id: usize) void {
         self.client_rwlock.lock();
         defer self.client_rwlock.unlock();
+        self.handshaken_clients.put(client_id, {}) catch |e| {
+            logging.warn("markNeedsSnapshot: client {d} not registered for broadcasts: {}", .{ client_id, e });
+        };
         self.clients_needing_snapshot.put(client_id, {}) catch |e| {
             logging.warn("markNeedsSnapshot failed for client {d}: {} - client won't receive initial state", .{ client_id, e });
         };
@@ -247,7 +274,7 @@ pub const SharedState = struct {
             logging.err("CLIENT ADD FAILED id={d}: {}", .{ id, e });
             return null;
         };
-        logging.info("CLIENT ADD id={d} total={d}", .{ id, self.clients.count() });
+        logging.debug("Socket {d} opened ({d} open)", .{ id, self.clients.count() });
         return id;
     }
 
@@ -256,11 +283,12 @@ pub const SharedState = struct {
         self.client_rwlock.lock();
         defer self.client_rwlock.unlock();
         _ = self.clients.swapRemove(id);
+        _ = self.handshaken_clients.swapRemove(id);
         // Track disconnected client for gesture cleanup by main thread
         self.disconnected_clients.put(id, {}) catch |e| {
             logging.warn("Failed to track disconnected client {d}: {} - gesture cleanup may be incomplete", .{ id, e });
         };
-        logging.info("CLIENT REMOVE id={d} total={d}", .{ id, self.clients.count() });
+        logging.debug("Socket {d} closed ({d} open)", .{ id, self.clients.count() });
     }
 
     // Called by main thread to get and clear disconnected clients
@@ -288,7 +316,7 @@ pub const SharedState = struct {
         self.command_mutex.lock();
         defer self.command_mutex.unlock();
 
-        self.commands.push(.{
+        self.commands.push(self.allocator, .{
             .client_id = client_id,
             .data = data_copy,
             .allocator = self.allocator,
@@ -316,7 +344,8 @@ pub const SharedState = struct {
         defer self.client_rwlock.unlockShared();
 
         // writeText is thread-safe within the websocket library
-        for (self.clients.values()) |conn| {
+        for (self.clients.keys(), self.clients.values()) |id, conn| {
+            if (!self.handshaken_clients.contains(id)) continue;
             conn.writeText(message) catch |err| self.logWriteError(err);
         }
     }
@@ -344,6 +373,16 @@ pub const SharedState = struct {
         }
     }
 
+    /// Send output queued behind clients' full sockets (a phone on slow
+    /// Wi-Fi or backgrounded mid-stream). Never blocks; called every tick.
+    pub fn flushPendingOutput(self: *SharedState) void {
+        self.client_rwlock.lockShared();
+        defer self.client_rwlock.unlockShared();
+        for (self.clients.values()) |conn| {
+            conn.flushPending() catch |err| self.logWriteError(err);
+        }
+    }
+
     // Get client count (for logging)
     // Uses RwLock read lock since we're only reading
     pub fn clientCount(self: *SharedState) usize {
@@ -356,57 +395,67 @@ pub const SharedState = struct {
 // Tests
 test "CommandRingBuffer push and pop" {
     var ring = CommandRingBuffer{};
+    defer ring.deinit(std.testing.allocator);
 
-    // Create test commands (we won't actually free them in this test)
-    const cmd1 = Command{ .client_id = 1, .data = "test1", .allocator = std.testing.allocator };
-    const cmd2 = Command{ .client_id = 2, .data = "test2", .allocator = std.testing.allocator };
+    // Test commands borrow static data; nothing to free per command.
+    try ring.push(std.testing.allocator, .{ .client_id = 1, .data = "test1", .allocator = std.testing.allocator });
+    try ring.push(std.testing.allocator, .{ .client_id = 2, .data = "test2", .allocator = std.testing.allocator });
+    try std.testing.expectEqual(@as(usize, 10), ring.bytes);
 
-    try ring.push(cmd1);
-    try ring.push(cmd2);
-
-    const popped1 = ring.pop().?;
-    try std.testing.expectEqual(@as(usize, 1), popped1.client_id);
-
-    const popped2 = ring.pop().?;
-    try std.testing.expectEqual(@as(usize, 2), popped2.client_id);
-
+    try std.testing.expectEqual(@as(usize, 1), ring.pop().?.client_id);
+    try std.testing.expectEqual(@as(usize, 2), ring.pop().?.client_id);
     try std.testing.expect(ring.pop() == null);
+    try std.testing.expectEqual(@as(usize, 0), ring.bytes);
 }
 
 test "CommandRingBuffer wraps around" {
     var ring = CommandRingBuffer{};
+    defer ring.deinit(std.testing.allocator);
 
-    // Fill partially
-    for (0..10) |i| {
-        try ring.push(.{ .client_id = i, .data = "", .allocator = std.testing.allocator });
+    for (0..MAX_COMMAND_QUEUE - 5) |i| {
+        try ring.push(std.testing.allocator, .{ .client_id = i, .data = "", .allocator = std.testing.allocator });
     }
-
-    // Pop some
-    for (0..5) |_| {
+    for (0..MAX_COMMAND_QUEUE - 10) |_| {
         _ = ring.pop();
     }
-
-    // Push more (should wrap)
-    for (10..20) |i| {
-        try ring.push(.{ .client_id = i, .data = "", .allocator = std.testing.allocator });
+    // Push past the end of the storage (wraps)
+    for (MAX_COMMAND_QUEUE - 5..MAX_COMMAND_QUEUE + 10) |i| {
+        try ring.push(std.testing.allocator, .{ .client_id = i, .data = "", .allocator = std.testing.allocator });
     }
+    for (MAX_COMMAND_QUEUE - 10..MAX_COMMAND_QUEUE + 10) |i| {
+        try std.testing.expectEqual(i, ring.pop().?.client_id);
+    }
+}
 
-    // Verify order
-    for (5..20) |i| {
-        const cmd = ring.pop().?;
-        try std.testing.expectEqual(i, cmd.client_id);
+test "a burst of pad hits from a phone back on Wi-Fi fits in the queue" {
+    var ring = CommandRingBuffer{};
+    defer ring.deinit(std.testing.allocator);
+    // Three seconds of a pad roll at 100 hits/s, note-on and note-off each.
+    const hit = "{\"type\":\"command\",\"command\":\"midi/noteOn\",\"note\":36,\"velocity\":100,\"channel\":9}";
+    for (0..600) |i| {
+        try ring.push(std.testing.allocator, .{ .client_id = i, .data = hit, .allocator = std.testing.allocator });
     }
 }
 
 test "CommandRingBuffer full error" {
     var ring = CommandRingBuffer{};
+    defer ring.deinit(std.testing.allocator);
 
-    // Fill completely
     for (0..MAX_COMMAND_QUEUE) |i| {
-        try ring.push(.{ .client_id = i, .data = "", .allocator = std.testing.allocator });
+        try ring.push(std.testing.allocator, .{ .client_id = i, .data = "", .allocator = std.testing.allocator });
     }
-
-    // Should fail
-    const result = ring.push(.{ .client_id = 999, .data = "", .allocator = std.testing.allocator });
+    const result = ring.push(std.testing.allocator, .{ .client_id = 999, .data = "", .allocator = std.testing.allocator });
     try std.testing.expectError(error.QueueFull, result);
+}
+
+test "CommandRingBuffer refuses a command that would pass the byte limit" {
+    var ring = CommandRingBuffer{};
+    defer ring.deinit(std.testing.allocator);
+    const big = try std.testing.allocator.alloc(u8, MAX_QUEUED_COMMAND_BYTES / 2 + 1);
+    defer std.testing.allocator.free(big);
+
+    try ring.push(std.testing.allocator, .{ .client_id = 1, .data = big, .allocator = std.testing.allocator });
+    try std.testing.expectError(error.QueueFull, ring.push(std.testing.allocator, .{ .client_id = 2, .data = big, .allocator = std.testing.allocator }));
+    _ = ring.pop();
+    try ring.push(std.testing.allocator, .{ .client_id = 3, .data = big, .allocator = std.testing.allocator });
 }

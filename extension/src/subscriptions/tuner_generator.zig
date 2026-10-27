@@ -39,7 +39,7 @@ pub fn generateTunerEvent(
 ) ?[]const u8 {
 
     // Resolve track GUID to track pointer
-    const track = guid_cache.resolve(track_guid) orelse {
+    const track = guid_cache.resolve(api, track_guid) orelse {
         logging.debug("tuner_generator: Track GUID not found: {s}", .{track_guid});
         return null;
     };

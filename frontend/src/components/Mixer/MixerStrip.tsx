@@ -6,7 +6,7 @@
 
 import type { ReactElement } from 'react';
 import { useTrack } from '../../hooks/useTrack';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { track as trackCmd } from '../../core/WebSocketCommands';
 import {
   MuteButton,

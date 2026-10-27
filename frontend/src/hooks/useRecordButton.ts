@@ -6,7 +6,7 @@
  */
 
 import { useRef, useCallback, useEffect } from 'react';
-import { useReaper } from '../components/ReaperProvider';
+import { useReaper } from './useReaper';
 import { useTransport } from './useTransport';
 import { useReaperStore } from '../store';
 import { action } from '../core/WebSocketCommands';

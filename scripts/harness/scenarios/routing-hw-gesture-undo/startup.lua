@@ -1,0 +1,7 @@
+dofile(reaper.GetResourcePath() .. "/Scripts/harness.lua")
+local t = harness.track("Click")
+local rev = harness.track("Reverb")
+reaper.CreateTrackSend(t, nil)
+reaper.CreateTrackSend(t, rev)
+reaper.Undo_OnStateChange("Harness fixture")
+harness.ready()

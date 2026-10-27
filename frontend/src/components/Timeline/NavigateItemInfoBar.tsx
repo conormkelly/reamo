@@ -42,19 +42,17 @@ import {
 } from 'lucide-react';
 import { BottomSheet } from '../Modal/BottomSheet';
 import { useReaperStore } from '../../store';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useTimeFormatters } from '../../hooks';
 import { item as itemCmd, take as takeCmd } from '../../core/WebSocketCommands';
 import {
   hexToReaperColor,
   reaperColorToHexWithFallback,
   formatTime,
-  secondsToBeats,
-  beatsToSeconds,
-  formatBeatsToBarBeatTicks,
-  parseBarBeatTicksToBeats,
 } from '../../utils';
 import { DEFAULT_ITEM_COLOR } from '../../constants/colors';
+import { useItemNotes } from './hooks/useItemNotes';
+import { useBarPositions, parseBarPosition } from '../../hooks/useBarPositions';
 import { ColorPickerInput } from '../Toolbar/ColorPickerInput';
 import { TrackPicker } from '../Mixer/RoutingModal/TrackPicker';
 import { EMPTY_SKELETON, EMPTY_ITEMS } from '../../store/stableRefs';
@@ -79,7 +77,8 @@ export function NavigateItemInfoBar({
   layout = 'horizontal',
 }: NavigateItemInfoBarProps): ReactElement | null {
   const { sendCommand, sendAsync, connected } = useReaper();
-  const { formatBeats, formatDuration, bpm, beatsPerBar, denominator, barOffset } = useTimeFormatters();
+  const { formatBeats, formatDuration } = useTimeFormatters();
+  const { barsToSeconds, secondsToBars, barLengthAt } = useBarPositions();
 
   // Store state
   const items = useReaperStore((s) => s?.items ?? EMPTY_ITEMS);
@@ -101,10 +100,10 @@ export function NavigateItemInfoBar({
   // Accordion state for selection details sheet
   const [expandedTracks, setExpandedTracks] = useState<Set<number>>(new Set());
 
-  // Notes state (fetched on-demand for single item)
+  // Notes: REAPER's copy (fetched while the sheet is open) and the draft being edited
+  const itemNotes = useItemNotes(singleItem?.guid ?? null, showItemSheet, connected, sendAsync);
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [notesValue, setNotesValue] = useState('');
-  const [notesLoading, setNotesLoading] = useState(false);
   const notesInputRef = useRef<HTMLTextAreaElement>(null);
 
   // Move item state
@@ -132,7 +131,7 @@ export function NavigateItemInfoBar({
       ? singleItem.takeCount - 1
       : singleItem.activeTakeIdx - 1;
     sendCommand(
-      itemCmd.setActiveTake(singleItem.trackIdx, singleItem.itemIdx, prevIdx)
+      itemCmd.setActiveTake(singleItem.guid, prevIdx)
     );
   }, [singleItem, sendCommand]);
 
@@ -142,7 +141,7 @@ export function NavigateItemInfoBar({
       ? 0
       : singleItem.activeTakeIdx + 1;
     sendCommand(
-      itemCmd.setActiveTake(singleItem.trackIdx, singleItem.itemIdx, nextIdx)
+      itemCmd.setActiveTake(singleItem.guid, nextIdx)
     );
   }, [singleItem, sendCommand]);
 
@@ -169,7 +168,7 @@ export function NavigateItemInfoBar({
       if (!singleItem) return;
       const reaperColor = hexToReaperColor(color);
       sendCommand(
-        itemCmd.setColor(singleItem.trackIdx, singleItem.itemIdx, reaperColor)
+        itemCmd.setColor(singleItem.guid, reaperColor)
       );
     },
     [singleItem, sendCommand]
@@ -188,15 +187,24 @@ export function NavigateItemInfoBar({
 
   const handleToggleLock = useCallback(() => {
     if (!singleItem) return;
-    sendCommand(itemCmd.setLock(singleItem.trackIdx, singleItem.itemIdx, singleItem.locked ? 0 : 1));
+    sendCommand(itemCmd.setLock(singleItem.guid, singleItem.locked ? 0 : 1));
   }, [singleItem, sendCommand]);
 
   // Notes handlers (single item)
+  // Editing starts from REAPER's notes, never from a failed or pending load:
+  // saving replaces them
+  const handleNotesEdit = useCallback(() => {
+    if (itemNotes.status !== 'loaded') return;
+    setNotesValue(itemNotes.notes);
+    setIsEditingNotes(true);
+  }, [itemNotes.status, itemNotes.notes]);
+
   const handleNotesSubmit = useCallback(() => {
-    if (!singleItem) return;
-    sendCommand(itemCmd.setNotes(singleItem.trackIdx, singleItem.itemIdx, notesValue));
+    if (!singleItem || itemNotes.status !== 'loaded') return;
+    sendCommand(itemCmd.setNotes(singleItem.guid, notesValue));
+    itemNotes.markSaved(notesValue);
     setIsEditingNotes(false);
-  }, [singleItem, sendCommand, notesValue]);
+  }, [singleItem, itemNotes, sendCommand, notesValue]);
 
   const handleNotesKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -210,43 +218,14 @@ export function NavigateItemInfoBar({
     setIsEditingNotes(false);
   }, [singleItem?.guid]);
 
-  // Fetch notes when sheet opens (if item has notes)
-  useEffect(() => {
-    if (!showItemSheet || !singleItem?.hasNotes || !connected) return;
-    if (notesValue) return; // Already fetched
-
-    const fetchNotes = async () => {
-      setNotesLoading(true);
-      try {
-        const cmd = itemCmd.getNotes(singleItem.trackIdx, singleItem.itemIdx);
-        const response = await sendAsync(cmd.command, cmd.params) as {
-          success: boolean;
-          payload?: { notes: string };
-        };
-        if (response.success && response.payload) {
-          setNotesValue(response.payload.notes || '');
-        }
-      } catch {
-        // Ignore fetch errors
-      } finally {
-        setNotesLoading(false);
-      }
-    };
-    fetchNotes();
-  }, [showItemSheet, singleItem, connected, sendAsync, notesValue]);
-
   // Focus notes input when editing starts
   useEffect(() => {
-    if (isEditingNotes && !notesLoading && notesInputRef.current) {
+    if (isEditingNotes && notesInputRef.current) {
       notesInputRef.current.focus();
     }
-  }, [isEditingNotes, notesLoading]);
+  }, [isEditingNotes]);
 
   // ========== Move Item Handlers ==========
-
-  // Compute nudge amounts in seconds from BPM
-  const beatDurationSeconds = bpm ? 60 / bpm : 0.5;
-  const barDurationSeconds = beatDurationSeconds * beatsPerBar;
 
   // Parse time string (MM:SS.ms or SS.ms) to seconds
   const parseTime = useCallback((timeStr: string): number | null => {
@@ -262,17 +241,22 @@ export function NavigateItemInfoBar({
     return null;
   }, []);
 
-  // Initialize move values when move UI opens or position changes
+  // Initialize move values when move UI opens or position changes. The
+  // bar.beat label comes from REAPER, through the project's tempo map.
   const singleItemPosition = singleItem?.position ?? null;
   useEffect(() => {
-    if (showMoveUI && singleItemPosition !== null && bpm) {
-      setMoveTimeValue(formatTime(singleItemPosition, { precision: 3 }));
-      const quarterNoteBeats = secondsToBeats(singleItemPosition, bpm);
-      const denominatorBeats = quarterNoteBeats * (denominator / 4);
-      setMoveBeatsValue(formatBeatsToBarBeatTicks(denominatorBeats, beatsPerBar, true, barOffset));
-      setMovePosError(null);
-    }
-  }, [showMoveUI, singleItemPosition, bpm, beatsPerBar, denominator, barOffset]);
+    if (!showMoveUI || singleItemPosition === null) return;
+    setMoveTimeValue(formatTime(singleItemPosition, { precision: 3 }));
+    setMoveBeatsValue('');
+    setMovePosError(null);
+    let current = true;
+    void secondsToBars(singleItemPosition).then((bars) => {
+      if (current && bars !== null) setMoveBeatsValue(bars);
+    });
+    return () => {
+      current = false;
+    };
+  }, [showMoveUI, singleItemPosition, secondsToBars]);
 
   // Reset move UI when item changes or sheet closes
   useEffect(() => {
@@ -284,22 +268,26 @@ export function NavigateItemInfoBar({
     if (!showItemSheet) {
       setShowMoveUI(false);
       setShowTrackPicker(false);
+      setIsEditingNotes(false);
     }
   }, [showItemSheet]);
 
-  // Set position from input
-  const handleSetPosition = useCallback(() => {
+  // Set position from input; a bar.beat position is placed by REAPER
+  const handleSetPosition = useCallback(async () => {
     if (!singleItem) return;
-    let newPositionSeconds: number | null = null;
+    let newPositionSeconds: number | null;
 
     if (moveEditMode === 'time') {
       newPositionSeconds = parseTime(moveTimeValue);
     } else {
-      const denominatorBeats = parseBarBeatTicksToBeats(moveBeatsValue, beatsPerBar, barOffset);
-      if (denominatorBeats !== null) {
-        const quarterNoteBeats = denominatorBeats * (4 / denominator);
-        const beats = quarterNoteBeats >= 0 ? quarterNoteBeats : 0;
-        newPositionSeconds = beatsToSeconds(beats, bpm!);
+      if (!parseBarPosition(moveBeatsValue)) {
+        setMovePosError('Invalid position');
+        return;
+      }
+      newPositionSeconds = await barsToSeconds(moveBeatsValue);
+      if (newPositionSeconds === null) {
+        setMovePosError("REAPER couldn't place that position");
+        return;
       }
     }
 
@@ -310,7 +298,7 @@ export function NavigateItemInfoBar({
 
     setMovePosError(null);
     sendCommand(itemCmd.moveByGuid(singleItem.guid, newPositionSeconds));
-  }, [singleItem, moveEditMode, moveTimeValue, moveBeatsValue, bpm, beatsPerBar, denominator, barOffset, sendCommand, parseTime]);
+  }, [singleItem, moveEditMode, moveTimeValue, moveBeatsValue, barsToSeconds, sendCommand, parseTime]);
 
   // Nudge position by delta seconds
   const handleNudge = useCallback(
@@ -320,6 +308,23 @@ export function NavigateItemInfoBar({
       sendCommand(itemCmd.moveByGuid(singleItem.guid, newPos));
     },
     [singleItem, sendCommand]
+  );
+
+  // Nudge by one bar or beat as long as REAPER says it is where the item
+  // moves through: the bar it starts in going forward, the bar before going back
+  const handleNudgeMusical = useCallback(
+    async (unit: 'bar' | 'beat', direction: 1 | -1) => {
+      if (!singleItem) return;
+      const at = direction > 0 ? singleItem.position : Math.max(0, singleItem.position - 1e-6);
+      const length = await barLengthAt(at);
+      if (length === null) {
+        setMovePosError("Couldn't get the bar length from REAPER");
+        return;
+      }
+      setMovePosError(null);
+      handleNudge(direction * (unit === 'bar' ? length.bar : length.beat));
+    },
+    [singleItem, barLengthAt, handleNudge]
   );
 
   // Move item to a different track
@@ -339,7 +344,7 @@ export function NavigateItemInfoBar({
     (color: string) => {
       const reaperColor = hexToReaperColor(color);
       for (const item of selectedItems) {
-        sendCommand(itemCmd.setColor(item.trackIdx, item.itemIdx, reaperColor));
+        sendCommand(itemCmd.setColor(item.guid, reaperColor));
       }
     },
     [selectedItems, sendCommand]
@@ -349,7 +354,7 @@ export function NavigateItemInfoBar({
   const handleBatchLockAll = useCallback(() => {
     for (const item of selectedItems) {
       if (!item.locked) {
-        sendCommand(itemCmd.setLock(item.trackIdx, item.itemIdx, 1));
+        sendCommand(itemCmd.setLock(item.guid, 1));
       }
     }
   }, [selectedItems, sendCommand]);
@@ -358,7 +363,7 @@ export function NavigateItemInfoBar({
   const handleBatchUnlockAll = useCallback(() => {
     for (const item of selectedItems) {
       if (item.locked) {
-        sendCommand(itemCmd.setLock(item.trackIdx, item.itemIdx, 0));
+        sendCommand(itemCmd.setLock(item.guid, 0));
       }
     }
   }, [selectedItems, sendCommand]);
@@ -367,7 +372,7 @@ export function NavigateItemInfoBar({
   const handleBatchNextTake = useCallback(() => {
     for (const item of selectedItems) {
       if (item.takeCount > 1 && item.activeTakeIdx < item.takeCount - 1) {
-        sendCommand(itemCmd.setActiveTake(item.trackIdx, item.itemIdx, item.activeTakeIdx + 1));
+        sendCommand(itemCmd.setActiveTake(item.guid, item.activeTakeIdx + 1));
       }
     }
   }, [selectedItems, sendCommand]);
@@ -376,7 +381,7 @@ export function NavigateItemInfoBar({
   const handleBatchPrevTake = useCallback(() => {
     for (const item of selectedItems) {
       if (item.takeCount > 1 && item.activeTakeIdx > 0) {
-        sendCommand(itemCmd.setActiveTake(item.trackIdx, item.itemIdx, item.activeTakeIdx - 1));
+        sendCommand(itemCmd.setActiveTake(item.guid, item.activeTakeIdx - 1));
       }
     }
   }, [selectedItems, sendCommand]);
@@ -580,7 +585,7 @@ export function NavigateItemInfoBar({
                       key={i}
                       onClick={() => {
                         sendCommand(
-                          itemCmd.setActiveTake(singleItem.trackIdx, singleItem.itemIdx, i)
+                          itemCmd.setActiveTake(singleItem.guid, i)
                         );
                       }}
                       className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-sm transition-colors ${
@@ -684,23 +689,30 @@ export function NavigateItemInfoBar({
                     </button>
                   </div>
                 </div>
-              ) : notesLoading ? (
+              ) : itemNotes.status === 'failed' ? (
+                <button
+                  onClick={itemNotes.retry}
+                  className="w-full text-left bg-bg-elevated text-text-muted text-sm px-3 py-2 rounded-lg border border-border-default hover:border-text-tertiary transition-colors"
+                >
+                  Couldn't load notes. Tap to try again.
+                </button>
+              ) : itemNotes.status !== 'loaded' ? (
                 <div className="w-full bg-bg-elevated text-text-muted text-sm px-3 py-2 rounded-lg border border-border-default">
                   Loading...
                 </div>
-              ) : notesValue ? (
+              ) : itemNotes.notes ? (
                 <button
-                  onClick={() => setIsEditingNotes(true)}
+                  onClick={handleNotesEdit}
                   className="w-full text-left bg-bg-elevated text-text-primary text-sm px-3 py-2 rounded-lg border border-border-default hover:border-text-tertiary transition-colors"
                 >
-                  <span className="block truncate">{notesValue.split('\n')[0]}</span>
-                  {notesValue.includes('\n') && (
+                  <span className="block truncate">{itemNotes.notes.split('\n')[0]}</span>
+                  {itemNotes.notes.includes('\n') && (
                     <span className="text-text-muted text-xs">...</span>
                   )}
                 </button>
               ) : (
                 <button
-                  onClick={() => setIsEditingNotes(true)}
+                  onClick={handleNotesEdit}
                   className="w-full text-left bg-bg-elevated text-text-muted text-sm px-3 py-2 rounded-lg border border-border-default border-dashed hover:border-text-tertiary transition-colors"
                 >
                   Add notes...
@@ -781,7 +793,7 @@ export function NavigateItemInfoBar({
                         : setMoveBeatsValue(e.target.value)
                     }
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSetPosition();
+                      if (e.key === 'Enter') void handleSetPosition();
                     }}
                     className="w-full px-3 py-2 bg-bg-deep border border-border-default rounded text-text-primary text-sm font-mono focus:outline-none focus:border-focus-border"
                     placeholder={moveEditMode === 'time' ? 'MM:SS.ms (e.g. 1:30.000)' : 'Bar.Beat.Ticks (e.g. 5.3.00)'}
@@ -792,7 +804,7 @@ export function NavigateItemInfoBar({
 
                   {/* Set Position button */}
                   <button
-                    onClick={handleSetPosition}
+                    onClick={() => void handleSetPosition()}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded font-medium transition-colors bg-primary hover:bg-primary-hover text-text-on-primary text-sm"
                   >
                     <Move size={14} />
@@ -801,12 +813,12 @@ export function NavigateItemInfoBar({
 
                   {/* Nudge buttons */}
                   <div className="flex gap-1 justify-center flex-wrap">
-                    <button onClick={() => handleNudge(-barDurationSeconds)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">-1 bar</button>
-                    <button onClick={() => handleNudge(-beatDurationSeconds)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">-1 beat</button>
+                    <button onClick={() => void handleNudgeMusical('bar', -1)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">-1 bar</button>
+                    <button onClick={() => void handleNudgeMusical('beat', -1)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">-1 beat</button>
                     <button onClick={() => handleNudge(-0.1)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">-0.1s</button>
                     <button onClick={() => handleNudge(0.1)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">+0.1s</button>
-                    <button onClick={() => handleNudge(beatDurationSeconds)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">+1 beat</button>
-                    <button onClick={() => handleNudge(barDurationSeconds)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">+1 bar</button>
+                    <button onClick={() => void handleNudgeMusical('beat', 1)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">+1 beat</button>
+                    <button onClick={() => void handleNudgeMusical('bar', 1)} className="px-2 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-mono hover:bg-bg-surface active:bg-accent-primary/20 transition-colors">+1 bar</button>
                   </div>
 
                   {/* Move to track (hidden if only 1 user track) */}

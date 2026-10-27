@@ -7,7 +7,6 @@ import { useState, useEffect, useMemo } from 'react';
 import './index.css';
 import {
   ReaperProvider,
-  useReaper,
   TabBar,
   PersistentTransport,
   ConnectionBanner,
@@ -22,7 +21,7 @@ import {
   type ContextRailTabConfig,
 } from './components';
 import { Info, Wrench } from 'lucide-react';
-import { useUIPreferences, useTransport, useLayoutContext } from './hooks';
+import { useReaper, useUIPreferences, useTransport, useLayoutContext } from './hooks';
 import { useReaperStore } from './store';
 import { views, type ViewId, VIEW_STORAGE_KEY, DEFAULT_VIEW } from './viewRegistry';
 import { NAV_RAIL_WIDTH, CONTEXT_RAIL_WIDTH } from './constants/layout';

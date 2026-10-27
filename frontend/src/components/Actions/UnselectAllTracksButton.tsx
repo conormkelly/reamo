@@ -5,7 +5,7 @@
 
 import type { ReactElement } from 'react';
 import { XCircle } from 'lucide-react';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useTracks } from '../../hooks';
 import { track as trackCmd } from '../../core/WebSocketCommands';
 

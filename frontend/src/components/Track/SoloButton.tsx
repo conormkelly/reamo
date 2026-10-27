@@ -6,7 +6,7 @@
  */
 
 import { useCallback, type ReactElement } from 'react';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useTrack } from '../../hooks/useTrack';
 import { useReaperStore } from '../../store';
 import { useLongPress } from '../../hooks';

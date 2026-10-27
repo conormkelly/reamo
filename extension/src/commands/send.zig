@@ -26,13 +26,16 @@ pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     };
 
-    // Use CSurf for undo coalescing
-    _ = api.trackSendSetVolume(track, send_idx, volume);
-
-    // Record activity for gesture timeout tracking
-    if (response.gestures) |gestures| {
-        gestures.recordActivity(gesture_state.ControlId.sendVolume(track_idx, send_idx));
+    if (!mod.routeExists(api, track, .send, send_idx)) {
+        response.err("NOT_FOUND", "Send not found");
+        return;
     }
+
+    const control = gesture_state.ControlId.sendVolume(track_idx, send_idx);
+    const in_gesture = mod.inGesture(response, control);
+    if (!in_gesture) api.undoBeginBlock();
+    _ = api.trackSendSetVolume(track, send_idx, volume);
+    if (in_gesture) response.gestures.?.recordActivity(control) else api.undoEndBlock("REAmo: Adjust send volume");
 
     logging.debug("Send volume set: track {} send {} volume {d:.3}", .{ track_idx, send_idx, volume });
     response.success(null);
@@ -60,7 +63,14 @@ pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         return;
     };
 
+    if (!mod.routeExists(api, track, .send, send_idx)) {
+        response.err("NOT_FOUND", "Send not found");
+        return;
+    }
+
+    api.undoBeginBlock();
     const success = api.trackSendSetMute(track, send_idx, muted);
+    api.undoEndBlock("REAmo: Toggle send mute");
     if (!success) {
         response.err("SET_FAILED", "Failed to set send mute state");
         return;
@@ -91,16 +101,19 @@ pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         return;
     };
 
+    if (!mod.routeExists(api, track, .send, send_idx)) {
+        response.err("NOT_FOUND", "Send not found");
+        return;
+    }
+
     // Clamp pan to valid range
     const clamped = @max(-1.0, @min(1.0, pan));
 
-    // Use CSurf for undo coalescing
+    const control = gesture_state.ControlId.sendPan(track_idx, send_idx);
+    const in_gesture = mod.inGesture(response, control);
+    if (!in_gesture) api.undoBeginBlock();
     _ = api.trackSendSetPan(track, send_idx, clamped);
-
-    // Record activity for gesture timeout tracking
-    if (response.gestures) |gestures| {
-        gestures.recordActivity(gesture_state.ControlId.sendPan(track_idx, send_idx));
-    }
+    if (in_gesture) response.gestures.?.recordActivity(control) else api.undoEndBlock("REAmo: Adjust send pan");
 
     logging.debug("Send pan set: track {} send {} pan {d:.3}", .{ track_idx, send_idx, clamped });
     response.success(null);
@@ -133,7 +146,14 @@ pub fn handleSetMode(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         return;
     };
 
+    if (!mod.routeExists(api, track, .send, send_idx)) {
+        response.err("NOT_FOUND", "Send not found");
+        return;
+    }
+
+    api.undoBeginBlock();
     const success = api.trackSendSetMode(track, send_idx, mode);
+    api.undoEndBlock("REAmo: Set send mode");
     if (!success) {
         response.err("SET_FAILED", "Failed to set send mode");
         return;
@@ -141,6 +161,16 @@ pub fn handleSetMode(api: anytype, cmd: protocol.CommandMessage, response: *mod.
 
     logging.debug("Send mode set: track {} send {} mode {}", .{ track_idx, send_idx, mode });
     response.success(null);
+}
+
+/// CreateTrackSend, believed only if REAPER added a send: it returns an
+/// index even for a route it declines (from or to the master track, which
+/// tracks reach through their master send instead).
+pub fn createSendChecked(api: anytype, src: *anyopaque, dest: *anyopaque) ?c_int {
+    const before = api.trackSendCount(src);
+    const idx = api.createSend(src, dest);
+    if (idx < 0 or api.trackSendCount(src) != before + 1) return null;
+    return idx;
 }
 
 /// Create a new send from source track to destination track.
@@ -161,7 +191,7 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
         return;
     };
 
-    const src_track = cache.resolve(src_guid) orelse {
+    const src_track = cache.resolve(api, src_guid) orelse {
         response.err("NOT_FOUND", "Source track not found");
         return;
     };
@@ -170,7 +200,7 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
         return;
     }
 
-    const dest_track = cache.resolve(dest_guid) orelse {
+    const dest_track = cache.resolve(api, dest_guid) orelse {
         response.err("NOT_FOUND", "Destination track not found");
         return;
     };
@@ -185,13 +215,13 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     }
 
     api.undoBeginBlock();
-    const send_idx = api.createSend(src_track, dest_track);
+    const created = createSendChecked(api, src_track, dest_track);
     api.undoEndBlock("REAmo: Create send");
 
-    if (send_idx < 0) {
-        response.err("CREATE_FAILED", "Failed to create send");
+    const send_idx = created orelse {
+        response.err("CREATE_FAILED", "REAPER didn't create the send");
         return;
-    }
+    };
 
     var resp_buf: [64]u8 = undefined;
     const resp_json = std.fmt.bufPrint(&resp_buf, "{{\"sendIndex\":{d}}}", .{send_idx}) catch {
@@ -215,6 +245,11 @@ pub fn handleRemove(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         response.err("MISSING_PARAM", "sendIdx is required");
         return;
     };
+
+    if (!mod.routeExists(api, resolution.track, .send, send_idx)) {
+        response.err("NOT_FOUND", "Send not found");
+        return;
+    }
 
     api.undoBeginBlock();
     const success = api.removeSend(resolution.track, 0, send_idx);

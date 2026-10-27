@@ -5,7 +5,7 @@
 
 import { useEffect, useCallback, type ReactElement } from 'react';
 import { useReaperStore, getNotesIsDirty, getNotesIsOverLimit, getNotesCanSave } from '../../store';
-import { useReaper } from '../../components/ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { ViewHeader, ViewLayout, TextSizeControl } from '../../components';
 import { useUIPreferences } from '../../hooks';
 import { projectNotes } from '../../core/WebSocketCommands';
@@ -19,6 +19,8 @@ interface NotesResponse {
   payload?: {
     notes: string;
     hash: string;
+    /** REAPER's notes are longer than a phone can carry; `notes` is their beginning */
+    truncated?: boolean;
   };
   error?: {
     code: string;
@@ -36,6 +38,7 @@ export function NotesView(): ReactElement {
   const serverNotes = useReaperStore((s) => s.serverNotes);
   const localNotes = useReaperStore((s) => s.localNotes);
   const hasExternalChange = useReaperStore((s) => s.hasExternalChange);
+  const isTruncated = useReaperStore((s) => s.serverNotesTruncated);
   const isLoading = useReaperStore((s) => s.isNotesLoading);
   const isSaving = useReaperStore((s) => s.isNotesSaving);
   const notesError = useReaperStore((s) => s.notesError);
@@ -52,7 +55,10 @@ export function NotesView(): ReactElement {
   // Derived state
   const isDirty = getNotesIsDirty({ localNotes, serverNotes });
   const isOverLimit = getNotesIsOverLimit({ localNotes }, NOTES_LIMIT);
-  const canSave = getNotesCanSave({ localNotes, serverNotes, hasExternalChange }, NOTES_LIMIT);
+  const canSave = getNotesCanSave(
+    { localNotes, serverNotes, hasExternalChange, serverNotesTruncated: isTruncated },
+    NOTES_LIMIT
+  );
 
   // Character counter display logic
   const charCount = localNotes.length;
@@ -69,7 +75,7 @@ export function NotesView(): ReactElement {
       .then((response) => {
         const resp = response as NotesResponse;
         if (resp.success && resp.payload) {
-          setServerNotes(resp.payload.notes, resp.payload.hash);
+          setServerNotes(resp.payload.notes, resp.payload.hash, resp.payload.truncated === true);
         } else if (resp.error) {
           setNotesError(resp.error.message);
         }
@@ -98,7 +104,7 @@ export function NotesView(): ReactElement {
       .then((response) => {
         const resp = response as NotesResponse;
         if (resp.success && resp.payload) {
-          setServerNotes(resp.payload.notes, resp.payload.hash);
+          setServerNotes(resp.payload.notes, resp.payload.hash, resp.payload.truncated === true);
         } else if (resp.error) {
           setNotesError(resp.error.message);
         }
@@ -118,7 +124,7 @@ export function NotesView(): ReactElement {
       .then((response) => {
         const resp = response as NotesResponse;
         if (resp.success && resp.payload) {
-          setServerNotes(resp.payload.notes, resp.payload.hash);
+          setServerNotes(resp.payload.notes, resp.payload.hash, resp.payload.truncated === true);
         }
       })
       .catch((err) => {
@@ -234,6 +240,12 @@ export function NotesView(): ReactElement {
         </div>
       )}
 
+      {isTruncated && (
+        <div className="mb-4 p-3 bg-external-bar-bg border border-external-bar-border rounded-lg text-external-bar-text">
+          These notes are longer than the phone can carry (64 KB), so only the beginning is shown. Edit them in REAPER.
+        </div>
+      )}
+
       {/* Textarea */}
       <div className="h-full flex flex-col pb-4">
         <textarea
@@ -245,6 +257,7 @@ export function NotesView(): ReactElement {
           value={localNotes}
           onChange={(e) => setLocalNotes(e.target.value)}
           disabled={hasExternalChange}
+          readOnly={isTruncated}
           aria-describedby={showCounter ? 'notes-counter' : undefined}
         />
 

@@ -8,7 +8,7 @@
 
 import { useState, useCallback, type ReactElement } from 'react';
 import { Modal, ModalContent, ModalFooter } from '../Modal';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { track as trackCmd } from '../../core/WebSocketCommands';
 
 export interface CreateTrackModalProps {

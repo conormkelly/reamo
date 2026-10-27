@@ -191,6 +191,6 @@ pub fn handleGetActions(api: anytype, _: protocol.CommandMessage, response: *mod
         return;
     };
 
-    logging.info("action/getActions: returning {d} actions, {d} bytes", .{ total_count, stream.pos });
+    logging.debug("action/getActions: returning {d} actions, {d} bytes", .{ total_count, stream.pos });
     response.successLargePayload(stream.getWritten());
 }

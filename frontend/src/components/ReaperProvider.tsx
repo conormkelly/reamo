@@ -3,15 +3,12 @@
  * Wraps the app and manages the connection lifecycle
  */
 
-import { type ReactNode, type ReactElement, createContext, useContext } from 'react';
+import type { ReactNode, ReactElement } from 'react';
 import {
   useReaperConnection,
   type UseReaperConnectionOptions,
-  type UseReaperConnectionReturn,
 } from '../hooks/useReaperConnection';
-
-// Context for the connection
-const ReaperContext = createContext<UseReaperConnectionReturn | null>(null);
+import { ReaperContext } from '../hooks/useReaper';
 
 export interface ReaperProviderProps extends UseReaperConnectionOptions {
   children: ReactNode;
@@ -32,15 +29,4 @@ export function ReaperProvider({
       {children}
     </ReaperContext.Provider>
   );
-}
-
-/**
- * Hook to access the REAPER connection from child components
- */
-export function useReaper(): UseReaperConnectionReturn {
-  const context = useContext(ReaperContext);
-  if (!context) {
-    throw new Error('useReaper must be used within a ReaperProvider');
-  }
-  return context;
 }

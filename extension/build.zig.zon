@@ -1,16 +1,16 @@
 .{
     .name = .reaper_reamo,
-    .version = "0.7.3",
+    .version = "0.8.0",
     .fingerprint = 0x8924e6b0cb02f313,
     .minimum_zig_version = "0.15.0",
     .dependencies = .{
         .ztracy = .{
-            .url = "https://github.com/zig-gamedev/ztracy/archive/refs/heads/master.tar.gz",
+            .url = "https://github.com/zig-gamedev/ztracy/archive/d95d2a193b9f97944a17026c9a42b5d0f9a88c94.tar.gz",
             .hash = "ztracy-0.14.0-dev-zHJSqzUHGQAmhJybhlwtl1QKevUBw4M5YKZqPfWx2y99",
         },
         .httpz = .{
-            .url = "https://github.com/conormkelly/http.zig/archive/86d8ec7.tar.gz",
-            .hash = "httpz-0.0.0-PNVzrEN5BwAM3R6RalXvnNxC_uyhn2sUhkgeA2kOrZrC",
+            .url = "https://github.com/conormkelly/http.zig/archive/1b98e5af2f75f37f2d63fcb48e0232d368dd810c.tar.gz",
+            .hash = "httpz-0.0.0-PNVzrBXCBwDgiRMlq-GLxDPWKyAdN2PaT4SiLUnrqZ1b",
         },
     },
     .paths = .{

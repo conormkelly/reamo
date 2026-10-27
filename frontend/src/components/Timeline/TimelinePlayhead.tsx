@@ -13,7 +13,7 @@ import type { TimelineMode } from '../../store';
 import { transportEngine } from '../../core/TransportAnimationEngine';
 import { formatBeats, formatTime, reaperColorToHex } from '../../utils';
 import { useTransportAnimation } from '../../hooks';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { tempo as tempoCmd } from '../../core/WebSocketCommands';
 
 export interface TimelinePlayheadProps {

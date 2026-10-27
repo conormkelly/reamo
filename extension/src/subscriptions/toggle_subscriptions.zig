@@ -3,6 +3,7 @@ const reaper = @import("../reaper.zig");
 const ws_server = @import("../server/ws_server.zig");
 const logging = @import("../core/logging.zig");
 const constants = @import("../core/constants.zig");
+const protocol = @import("../core/protocol.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -54,8 +55,12 @@ pub const ToggleSubscriptions = struct {
     /// Map from client_id to client slot index
     client_id_to_slot: std.AutoHashMap(usize, usize),
 
-    /// Next available slot
+    /// Next never-used slot
     next_slot: usize,
+
+    /// Slots released by disconnected clients, reused before new ones
+    free_slots: [MAX_CLIENTS]usize = undefined,
+    free_count: usize = 0,
 
     pub fn init(allocator: Allocator) ToggleSubscriptions {
         var subs = ToggleSubscriptions{
@@ -91,19 +96,17 @@ pub const ToggleSubscriptions = struct {
             return slot;
         }
 
-        // Find an available slot
-        if (self.next_slot >= MAX_CLIENTS) {
-            // Try to find a reusable slot (client that disconnected)
-            // For now, just fail - we'll clean up on disconnect
-            return null;
-        }
-
-        const slot = self.next_slot;
-        self.next_slot += 1;
+        // Reuse a disconnected client's slot first, then a new one.
+        const from_free_list = self.free_count > 0;
+        const slot = if (from_free_list) self.free_slots[self.free_count - 1] else blk: {
+            if (self.next_slot >= MAX_CLIENTS) return null;
+            break :blk self.next_slot;
+        };
         self.client_id_to_slot.put(client_id, slot) catch |e| {
             logging.warn("toggle_subscriptions: slot allocation failed for client {d}: {}", .{ client_id, e });
             return null;
         };
+        if (from_free_list) self.free_count -= 1 else self.next_slot += 1;
         return slot;
     }
 
@@ -237,8 +240,10 @@ pub const ToggleSubscriptions = struct {
         // Clear client's subscription set
         client_subs.clearRetainingCapacity();
 
-        // Remove client from slot mapping
+        // Remove client from slot mapping and release the slot for reuse
         _ = self.client_id_to_slot.remove(client_id);
+        self.free_slots[self.free_count] = slot;
+        self.free_count += 1;
     }
 
     /// Poll all subscribed (sectionId, commandId) pairs and return changes.
@@ -328,25 +333,15 @@ pub const ToggleSubscriptions = struct {
         return stream.getWritten();
     }
 
-    /// Allocator-based version of changesToJson - dynamically sized.
-    /// Returns owned slice from allocator.
+    /// changesToJson into a buffer grown until the event fits.
     pub fn changesToJsonAlloc(changes: *const std.AutoHashMap(u64, i8), allocator: std.mem.Allocator) ![]const u8 {
         if (changes.count() == 0) return error.NoChanges;
-        // Estimate: ~30 bytes per entry ({"s":0,"c":40001,"v":1}) + 80 base overhead
-        const estimated_size = 80 + (changes.count() * 30);
-        const buf = try allocator.alloc(u8, estimated_size);
-        const json = changesToJson(changes, buf) orelse return error.JsonSerializationFailed;
-        return json; // Return slice of allocated buffer (arena-owned)
+        return protocol.serializeAlloc(allocator, 80 + changes.count() * 30, changes, changesToJson);
     }
 
-    /// Allocator-based version of statesToJson - dynamically sized.
-    /// Returns owned slice from allocator.
+    /// statesToJson into a buffer grown until the event fits.
     pub fn statesToJsonAlloc(states: *const std.AutoHashMap(u64, i8), allocator: std.mem.Allocator) ![]const u8 {
-        // Estimate: ~30 bytes per entry + 10 base overhead
-        const estimated_size = 10 + (states.count() * 30);
-        const buf = try allocator.alloc(u8, estimated_size);
-        const json = statesToJson(states, buf) orelse return error.JsonSerializationFailed;
-        return json; // Return slice of allocated buffer (arena-owned)
+        return protocol.serializeAlloc(allocator, 10 + states.count() * 30, states, statesToJson);
     }
 };
 
@@ -464,6 +459,22 @@ test "removeClient cleans up all subscriptions" {
     subs.removeClient(1);
 
     try std.testing.expect(!subs.hasSubscriptions());
+    try std.testing.expectEqual(@as(usize, 0), subs.ref_counts.count());
+}
+
+test "slots of disconnected clients are reused" {
+    // Phones reconnect constantly (iOS drops the socket whenever the app is
+    // backgrounded); every reconnect is a new client id.
+    var subs = ToggleSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+    var mock = reaper.MockBackend{};
+
+    var client_id: usize = 1;
+    while (client_id <= MAX_CLIENTS * 3) : (client_id += 1) {
+        var states = try subs.subscribe(&mock, client_id, &[_]ActionKey{ActionKey.init(0, 40364)});
+        states.deinit();
+        subs.removeClient(client_id);
+    }
     try std.testing.expectEqual(@as(usize, 0), subs.ref_counts.count());
 }
 

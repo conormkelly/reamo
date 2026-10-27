@@ -18,6 +18,9 @@ export { useTimelineSelectors } from './useTimelineSelectors';
 
 export { useItemTapHandler } from './useItemTapHandler';
 
+export { useItemNotes } from './useItemNotes';
+export type { UseItemNotesReturn, ItemNotesStatus } from './useItemNotes';
+
 export { useTimelineViewport } from './useTimelineViewport';
 export type { UseTimelineViewportParams, UseTimelineViewportReturn } from './useTimelineViewport';
 

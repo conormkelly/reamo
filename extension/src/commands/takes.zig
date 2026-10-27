@@ -68,7 +68,7 @@ pub fn handleSetColor(api: anytype, cmd: protocol.CommandMessage, response: *mod
     // Bounds check take index
     const num_takes = api.itemTakeCount(item);
     if (take_idx < 0 or take_idx >= num_takes) {
-        logging.warn("Invalid take index {d} (item has {d} takes)", .{ take_idx, num_takes });
+        logging.debug("Invalid take index {d} (item has {d} takes)", .{ take_idx, num_takes });
         response.err("INVALID_TAKE_INDEX", "Take index out of range");
         return;
     }

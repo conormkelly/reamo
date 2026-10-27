@@ -145,7 +145,8 @@ const GetUserInputsFn = *const fn ([*:0]const u8, c_int, [*:0]const u8, [*]u8, c
 const SetExtStateFn = *const fn ([*:0]const u8, [*:0]const u8, [*:0]const u8, c_int) callconv(.c) void;
 
 /// Callback for requesting a server restart on a new port
-const RestartServerFn = *const fn (u16) void;
+/// Moves the server to a port; on error it is still serving on the old one.
+const RestartServerFn = *const fn (u16) anyerror!void;
 
 // Global state
 var g_show_message_box: ?ShowMessageBoxFn = null;
@@ -197,10 +198,10 @@ pub fn showNetworkAddresses() void {
 
     // Detect networks
     var networks: [16]network_detect.NetworkInfo = undefined;
-    const count = network_detect.detectNetworks(&networks);
+    const count = network_detect.detectOrdered(&networks);
 
     // Format the message
-    var msg_buf: [2048]u8 = undefined;
+    var msg_buf: [4096]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&msg_buf);
     const writer = fbs.writer();
 
@@ -259,7 +260,7 @@ pub fn showNetworkAddresses() void {
 pub fn showQRCode() void {
     // Detect networks
     var networks: [16]network_detect.NetworkInfo = undefined;
-    const count = network_detect.detectNetworks(&networks);
+    const count = network_detect.detectOrdered(&networks);
 
     if (count == 0) {
         // No networks - show error via message box
@@ -273,32 +274,13 @@ pub fn showQRCode() void {
         return;
     }
 
-    // Sort networks: USB first (preferred for venue use), then LAN
-    var sorted: [16]network_detect.NetworkInfo = undefined;
-    var sorted_count: usize = 0;
-
-    // First pass: USB networks
-    for (networks[0..count]) |n| {
-        if (n.network_type == .ios_usb or n.network_type == .android_usb) {
-            sorted[sorted_count] = n;
-            sorted_count += 1;
-        }
-    }
-    // Second pass: LAN networks
-    for (networks[0..count]) |n| {
-        if (n.network_type == .wifi_lan) {
-            sorted[sorted_count] = n;
-            sorted_count += 1;
-        }
-    }
-
     // Get main window for parenting
     const main_hwnd: ?*anyopaque = if (g_get_main_hwnd) |f| f() else null;
 
     // Show QR window with all networks
-    qr_window.show(sorted[0..sorted_count], g_server_port, main_hwnd);
+    qr_window.show(networks[0..count], g_server_port, main_hwnd);
 
-    logging.info("Network action: showing QR window with {d} networks", .{sorted_count});
+    logging.info("Network action: showing QR window with {d} networks", .{count});
 }
 
 /// Display the About REAmo dialog.
@@ -310,14 +292,112 @@ pub fn showAbout() void {
 
     _ = show_msg(
         "Remote control for REAPER." ++
-            "\nhttps://www.reamo.com",
+            "\nhttps://github.com/conormkelly/reamo",
         "REAmo v" ++ protocol.EXTENSION_VERSION,
         0, // OK button only
     );
 }
 
-/// Show dialog to change the server port.
-/// Persists new port in ExtState and restarts the server immediately.
+/// Open the folder holding reamo.log in the system file browser. If that
+/// can't be done, say where the folder is instead.
+pub fn openLogFolder() void {
+    const log_path = logging.getLogPath() orelse {
+        showMessage("REAmo has no log file this session (REAPER's resource folder wasn't available).");
+        return;
+    };
+    var dir_buf: [512]u8 = undefined;
+    const dir = nativeSeparators(std.fs.path.dirname(log_path) orelse log_path, &dir_buf);
+    const opener: []const u8 = switch (builtin.os.tag) {
+        .macos => "open",
+        .windows => "explorer.exe",
+        else => "xdg-open",
+    };
+    // A failed exec only surfaces when the child is reaped, off the main
+    // thread, so check first for the one opener a system may lack.
+    const available = builtin.os.tag == .macos or builtin.os.tag == .windows or onPath(opener);
+    if (!available) {
+        logging.warn("Open Log Folder: couldn't run {s}: not installed", .{opener});
+    }
+    (if (available) spawnDetached(&.{ opener, dir }) else error.FileNotFound) catch |err| {
+        if (available) logging.warn("Open Log Folder: couldn't run {s}: {s}", .{ opener, @errorName(err) });
+        var buf: [600]u8 = undefined;
+        const msg = std.fmt.bufPrintZ(&buf, "REAmo's log is in:\n{s}", .{dir}) catch "REAmo's log is in REAPER's resource folder, under Logs.";
+        showMessage(msg);
+    };
+}
+
+/// `path` with Windows' separators on Windows, where REAPER's resource path
+/// uses backslashes but REAmo appends "/Logs", and Explorer may open
+/// somewhere else for a mixed path. Other platforms use it as is.
+fn nativeSeparators(path: []const u8, buf: []u8) []const u8 {
+    if (builtin.os.tag != .windows or path.len > buf.len) return path;
+    for (path, 0..) |c, i| buf[i] = if (c == '/') '\\' else c;
+    return buf[0..path.len];
+}
+
+/// Whether an executable named `name` is in a PATH directory.
+fn onPath(name: []const u8) bool {
+    const path = std.posix.getenv("PATH") orelse return false;
+    var dirs = std.mem.tokenizeScalar(u8, path, ':');
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    while (dirs.next()) |d| {
+        const candidate = std.fmt.bufPrint(&buf, "{s}/{s}", .{ d, name }) catch continue;
+        std.fs.cwd().access(candidate, .{}) catch continue;
+        return true;
+    }
+    return false;
+}
+
+/// Run a program without waiting for it; a thread reaps it so it never
+/// lingers as a zombie, and REAPER's main thread never blocks on it.
+fn spawnDetached(argv: []const []const u8) !void {
+    const child = try std.heap.c_allocator.create(std.process.Child);
+    errdefer std.heap.c_allocator.destroy(child);
+    child.* = std.process.Child.init(argv, std.heap.c_allocator);
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Ignore;
+    child.stderr_behavior = .Ignore;
+    try child.spawn();
+    const reaper_thread = std.Thread.spawn(.{}, reapChild, .{child}) catch |err| {
+        // Without the thread, reap here: the opener returns at once.
+        reapChild(child);
+        return err;
+    };
+    reaper_thread.detach();
+}
+
+/// Wait for `child` to exit and free it. On POSIX this calls waitpid
+/// directly: std's wait treats ECHILD as unreachable, and REAPER or another
+/// extension may already reap children (SIGCHLD ignored, or waitpid(-1)).
+fn reapChild(child: *std.process.Child) void {
+    defer std.heap.c_allocator.destroy(child);
+    if (comptime builtin.os.tag == .windows) {
+        _ = child.wait() catch |err| logging.warn("Open Log Folder: the file browser failed: {s}", .{@errorName(err)});
+    } else {
+        var status: c_int = 0;
+        while (std.c.waitpid(child.id, &status, 0) == -1) {
+            if (std.posix.errno(@as(c_int, -1)) != .INTR) break;
+        }
+        if (child.err_pipe) |fd| std.posix.close(fd);
+    }
+}
+
+fn showMessage(msg: [*:0]const u8) void {
+    const show_msg = g_show_message_box orelse return;
+    _ = show_msg(msg, "REAmo", 0);
+}
+
+/// Why a port change failed, in words for the dialog.
+fn errorText(err: anyerror) []const u8 {
+    return switch (err) {
+        error.AddressInUse => "another program is using it",
+        error.AccessDenied => "permission denied",
+        else => @errorName(err),
+    };
+}
+
+/// Show dialog to change the server port. The server moves, and the port
+/// is saved, only once the new port is listening.
 pub fn showChangePort() void {
     const get_input = g_get_user_inputs orelse {
         logging.err("Network action: GetUserInputs not available", .{});
@@ -358,29 +438,20 @@ pub fn showChangePort() void {
         return; // No change
     }
 
-    // Persist the new port in ExtState
-    if (g_set_ext_state) |set_state| {
-        var port_z: [8]u8 = undefined;
-        const port_str = std.fmt.bufPrint(&port_z, "{d}", .{new_port}) catch "9224";
-        port_z[port_str.len] = 0;
-        set_state("Reamo", "ServerPort", @ptrCast(&port_z), 1); // persist=true
-    }
-
-    // Restart the server on the new port
-    if (g_restart_server) |restart| {
-        restart(new_port);
-
-        // Show confirmation
-        if (g_show_message_box) |show_msg| {
-            var msg_buf: [128]u8 = undefined;
-            var fbs = std.io.fixedBufferStream(&msg_buf);
-            fbs.writer().print("Server restarted on port {d}.\nClients should reconnect.", .{new_port}) catch {};
-            const written = fbs.getWritten();
-            if (written.len < msg_buf.len) {
-                msg_buf[written.len] = 0;
-            }
-            _ = show_msg(@ptrCast(&msg_buf), "REAmo", 0);
+    const restart = g_restart_server orelse return;
+    var msg_buf: [192]u8 = undefined;
+    const msg: [:0]const u8 = if (restart(new_port)) |_| blk: {
+        // Saved only once the server is listening there, so a port that
+        // failed is never the one REAmo tries at the next start.
+        if (g_set_ext_state) |set_state| {
+            var port_z: [8]u8 = undefined;
+            const port_str = std.fmt.bufPrintZ(&port_z, "{d}", .{new_port}) catch unreachable;
+            set_state("Reamo", "ServerPort", port_str.ptr, 1); // persist=true
         }
+        break :blk std.fmt.bufPrintZ(&msg_buf, "Server restarted on port {d}.\nClients should reconnect.", .{new_port}) catch unreachable;
+    } else |err| std.fmt.bufPrintZ(&msg_buf, "Couldn't start the server on port {d} ({s}).\nREAmo is still on port {d}.", .{ new_port, errorText(err), g_server_port }) catch unreachable;
+    if (g_show_message_box) |show_msg| {
+        _ = show_msg(msg.ptr, "REAmo", 0);
     }
 }
 
@@ -397,19 +468,20 @@ pub fn showAllowedHosts() void {
     var host_slices: [16][]const u8 = undefined;
     const count = host_validation.getAllowedHosts(&host_slices);
 
-    var default_buf: [512]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&default_buf);
-    const writer = fbs.writer();
-    for (0..count) |i| {
-        if (i > 0) writer.writeAll(",") catch {};
-        writer.writeAll(host_slices[i]) catch {};
-    }
-    const default_written = fbs.getWritten();
-
     // GetUserInputs writes result into this buffer
     var input_buf: [512]u8 = undefined;
-    @memcpy(input_buf[0..default_written.len], default_written);
-    input_buf[default_written.len] = 0;
+
+    // Whole entries only, leaving room for the NUL: up to 16 hosts of 128
+    // chars don't fit, and a host cut mid-name would be saved back on OK.
+    var default_len: usize = 0;
+    for (host_slices[0..count]) |host| {
+        const sep: usize = if (default_len > 0) 1 else 0;
+        if (default_len + sep + host.len > input_buf.len - 1) break;
+        if (sep == 1) input_buf[default_len] = ',';
+        @memcpy(input_buf[default_len + sep ..][0..host.len], host);
+        default_len += sep + host.len;
+    }
+    input_buf[default_len] = 0;
 
     if (!get_input(
         "REAmo Allowed Hosts",
@@ -474,7 +546,10 @@ pub fn showAllowedHosts() void {
         else
             false;
 
-        _ = host_validation.addAllowedHost(trimmed);
+        if (!host_validation.addAllowedHost(trimmed)) {
+            logging.warn("An allowed host wasn't added ({d} characters): too long, or the list is full", .{trimmed.len});
+            continue;
+        }
 
         // Only persist non-auto entries to ExtState
         if (!is_auto) {
@@ -509,4 +584,46 @@ pub fn showAllowedHosts() void {
         }
         _ = show_msg(@ptrCast(&msg_buf), "REAmo", 0);
     }
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+var test_dialog_default: [512]u8 = undefined;
+var test_dialog_default_len: usize = 0;
+
+/// GetUserInputs stand-in: records the default value it was handed, then cancels.
+fn captureDefaultAndCancel(_: [*:0]const u8, _: c_int, _: [*:0]const u8, buf: [*]u8, buf_len: c_int) callconv(.c) bool {
+    const len = std.mem.indexOfScalar(u8, buf[0..@intCast(buf_len)], 0) orelse @as(usize, @intCast(buf_len));
+    @memcpy(test_dialog_default[0..len], buf[0..len]);
+    test_dialog_default_len = len;
+    return false;
+}
+
+test "showAllowedHosts hands the dialog a NUL-terminated default of whole hosts when the list exceeds its buffer" {
+    host_validation.clearAllowedHosts();
+    defer host_validation.clearAllowedHosts();
+    defer init(null, null, null, null, null);
+
+    // 15 hosts of 36 chars joined by commas is 554 bytes, more than the
+    // dialog's 512-byte buffer; writing the terminator past it panicked.
+    var names: [15][40]u8 = undefined;
+    var hosts: [15][]const u8 = undefined;
+    for (&names, &hosts, 0..) |*name, *host, i| {
+        host.* = try std.fmt.bufPrint(name, "host-{d:0>3}-macbook-pro.tail1234.ts.net", .{i});
+        try std.testing.expect(host_validation.addAllowedHost(host.*));
+    }
+
+    init(null, null, &captureDefaultAndCancel, null, null);
+    showAllowedHosts();
+
+    const default = test_dialog_default[0..test_dialog_default_len];
+    try std.testing.expect(default.len < 512);
+    var it = std.mem.splitScalar(u8, default, ',');
+    var seen: usize = 0;
+    while (it.next()) |entry| : (seen += 1) {
+        try std.testing.expectEqualStrings(hosts[seen], entry);
+    }
+    try std.testing.expectEqual(@as(usize, 13), seen);
 }

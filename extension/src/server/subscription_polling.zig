@@ -90,21 +90,20 @@ pub fn pollPeaksSubscriptions(
     // Tick the cache for LRU tracking
     tile_cache.tick();
 
-    // Check if any subscription needs immediate data (new subscription)
-    const force_broadcast = peaks_subs.consumeForceBroadcast();
-    if (force_broadcast) {
-        logging.info("peaks: force_broadcast triggered", .{});
-    }
+    // Some client subscribed or moved its viewport and needs its own tiles now.
+    const any_forced = peaks_subs.anyForceBroadcast();
 
     // Get all subscribed track indices across all clients
     var indices_buf: [128]c_int = undefined;
     const subscribed_indices = peaks_subs.getSubscribedIndices(ctx.guid_cache_ptr, ctx.backend, &indices_buf);
 
-    // Check if any track has epoch changes (audio source modified)
-    var any_track_changed = force_broadcast;
-    if (!force_broadcast) {
+    // Check if any track has epoch changes (audio source modified); that goes to
+    // every client. Skipped on a forced tick, as before: the next tick sees it.
+    var any_track_changed = false;
+    if (!any_forced) {
         for (subscribed_indices) |track_idx| {
-            const track = ctx.backend.getTrackByIdx(track_idx) orelse continue;
+            // Unified index (0 = master), as the generator resolves it.
+            const track = ctx.backend.getTrackByUnifiedIdx(track_idx) orelse continue;
             var guid_buf: [64]u8 = undefined;
             const track_guid = ctx.backend.formatTrackGuid(track, &guid_buf);
             if (tile_cache.trackChanged(track_guid, ctx.backend, track)) {
@@ -114,19 +113,23 @@ pub fn pollPeaksSubscriptions(
         }
     }
 
-    // Only broadcast if something changed, with rate limiting
-    if (any_track_changed) {
+    // Only broadcast if something changed, with rate limiting (forced
+    // per-client sends bypass the limit, as initial data always did)
+    if (any_track_changed or any_forced) {
         const now_ms = std.time.milliTimestamp();
-        if (!force_broadcast and (now_ms - peaks_subs.last_broadcast_ms) < 100) return;
+        if (!any_forced and (now_ms - peaks_subs.last_broadcast_ms) < 100) return;
         peaks_subs.last_broadcast_ms = now_ms;
 
-        logging.info("peaks: broadcasting to clients (force={}, indices={})", .{ force_broadcast, subscribed_indices.len });
+        logging.debug("peaks: broadcasting (content changed={}, forced={}, indices={})", .{ any_track_changed, any_forced, subscribed_indices.len });
         var iter = peaks_subs.activeSubscriptions();
         while (iter.next()) |entry| {
+            const forced = peaks_subs.consumeForceBroadcast(entry.slot);
+            if (!forced and !any_track_changed) continue;
+
             const scratch = ctx.scratchAllocator();
 
             if (!entry.sub.hasViewport()) {
-                logging.info("peaks: skipping client {} (no viewport)", .{entry.client_id});
+                logging.debug("peaks: skipping client {} (no viewport)", .{entry.client_id});
                 continue;
             }
 
@@ -138,10 +141,10 @@ pub fn pollPeaksSubscriptions(
                 entry.sub,
             );
             if (bin) |b| {
-                logging.info("peaks: sending {} bytes (binary) to client {}", .{ b.len, entry.client_id });
+                logging.debug("peaks: sending {} bytes (binary) to client {}", .{ b.len, entry.client_id });
                 ctx.shared_state.sendBinToClient(entry.client_id, b);
             } else {
-                logging.info("peaks: binary generation returned null for client {}", .{entry.client_id});
+                logging.debug("peaks: binary generation returned null for client {}", .{entry.client_id});
             }
         }
     }
@@ -172,7 +175,7 @@ pub fn pollRoutingSubscriptions(
 
             // CSurf: Force broadcast if this track's sends are dirty
             const sends_force = if (ctx.csurf_sends_dirty.all) true else blk: {
-                const track = ctx.guid_cache_ptr.resolve(entry.guid) orelse break :blk false;
+                const track = ctx.guid_cache_ptr.resolve(ctx.backend, entry.guid) orelse break :blk false;
                 const idx = ctx.guid_cache_ptr.resolveToIndex(track) orelse break :blk false;
                 break :blk if (idx >= 0 and idx < csurf_dirty.MAX_TRACKS) ctx.csurf_sends_dirty.bits.isSet(@intCast(idx)) else false;
             };
@@ -209,7 +212,7 @@ pub fn pollTrackFxSubscriptions(
 
             // CSurf: Force broadcast if this track's FX is dirty
             const fx_force = if (ctx.csurf_fx_dirty.all) true else blk: {
-                const track = ctx.guid_cache_ptr.resolve(entry.guid) orelse break :blk false;
+                const track = ctx.guid_cache_ptr.resolve(ctx.backend, entry.guid) orelse break :blk false;
                 const idx = ctx.guid_cache_ptr.resolveToIndex(track) orelse break :blk false;
                 break :blk if (idx >= 0 and idx < csurf_dirty.MAX_TRACKS) ctx.csurf_fx_dirty.bits.isSet(@intCast(idx)) else false;
             };
@@ -234,21 +237,22 @@ pub fn pollTrackFxParamSubscriptions(
         const scratch = ctx.scratchAllocator();
 
         // Generate param values JSON for this client's subscribed FX
-        if (trackfxparam_generator.generateParamValues(
+        const generated = trackfxparam_generator.generateParamValues(
             scratch,
             ctx.backend,
             ctx.guid_cache_ptr,
             entry.track_guid,
             entry.fx_guid,
             entry.client,
-        )) |result| {
+        );
+        if (generated) |result| {
             // Check if changed using hash
             const data_hash = trackfxparam_generator.hashParamValues(result.json);
             const hash_changed = trackfxparam_subs.checkChanged(entry.slot, data_hash);
 
             // CSurf: Force broadcast if this track's FX params are dirty
             const fx_force = if (ctx.csurf_fx_dirty.all) true else blk: {
-                const track = ctx.guid_cache_ptr.resolve(entry.track_guid) orelse break :blk false;
+                const track = ctx.guid_cache_ptr.resolve(ctx.backend, entry.track_guid) orelse break :blk false;
                 const idx = ctx.guid_cache_ptr.resolveToIndex(track) orelse break :blk false;
                 break :blk if (idx >= 0 and idx < csurf_dirty.MAX_TRACKS) ctx.csurf_fx_dirty.bits.isSet(@intCast(idx)) else false;
             };
@@ -258,7 +262,9 @@ pub fn pollTrackFxParamSubscriptions(
             }
             // Reset failure count on successful generation
             trackfxparam_subs.resetFailures(entry.client_id);
-        } else {
+        } else |err| {
+            // The message couldn't be built this tick; the FX is still there.
+            if (err == error.OutOfMemory) continue;
             // Track or FX not found - increment failure count
             if (trackfxparam_subs.recordFailure(entry.client_id)) {
                 // Auto-unsubscribe after 3 failures (~100ms at 30Hz)

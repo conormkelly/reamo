@@ -1,4 +1,5 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const Allocator = std.mem.Allocator;
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
@@ -136,8 +137,7 @@ pub const State = struct {
                     // Get destination name
                     var name_buf: [MAX_SEND_NAME_LEN]u8 = undefined;
                     const dest_name = api.trackSendGetDestName(track, send_idx, &name_buf);
-                    const name_len = @min(dest_name.len, MAX_SEND_NAME_LEN);
-                    @memcpy(slot.dest_name[0..name_len], dest_name[0..name_len]);
+                    const name_len = utf8.copyPrefix(slot.dest_name[0..MAX_SEND_NAME_LEN], dest_name);
                     slot.dest_name_len = name_len;
 
                     // Get send parameters
@@ -184,14 +184,9 @@ pub const State = struct {
         return stream.getWritten();
     }
 
-    /// Allocator-based version - dynamically sized, supports extreme projects.
-    /// Estimates buffer size based on send count, allocates from arena, returns trimmed slice.
+    /// toJson into a buffer grown until the event fits.
     pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
-        // Estimate: ~200 bytes per send (name + volume + pan + mode + JSON overhead) + 100 base
-        const estimated_size = 100 + (self.sends.len * 200);
-        const buf = try allocator.alloc(u8, estimated_size);
-        const json = self.toJson(buf) orelse return error.JsonSerializationFailed;
-        return json; // Return slice of allocated buffer (no copy needed, arena-owned)
+        return protocol.serializeAlloc(allocator, 100 + self.sends.len * 200, self, toJson);
     }
 };
 
@@ -302,14 +297,9 @@ pub const HwOutputsState = struct {
         return stream.getWritten();
     }
 
-    /// Allocator-based version - dynamically sized, supports extreme projects.
-    /// Estimates buffer size based on hw output count, allocates from arena, returns trimmed slice.
+    /// toJson into a buffer grown until the event fits.
     pub fn toJsonAlloc(self: *const HwOutputsState, allocator: std.mem.Allocator) ![]const u8 {
-        // Estimate: ~150 bytes per hw output (name + volume + pan + channel + JSON overhead) + 100 base
-        const estimated_size = 100 + (self.hw_outputs.len * 150);
-        const buf = try allocator.alloc(u8, estimated_size);
-        const json = self.toJson(buf) orelse return error.JsonSerializationFailed;
-        return json; // Return slice of allocated buffer (no copy needed, arena-owned)
+        return protocol.serializeAlloc(allocator, 100 + self.hw_outputs.len * 150, self, toJson);
     }
 };
 

@@ -1,0 +1,7 @@
+dofile(reaper.GetResourcePath() .. "/Scripts/harness.lua")
+local gtr = harness.track("Gtr")
+harness.item(gtr, 0, 2)
+harness.item(gtr, 4, 2)
+harness.track("Gtr 2")
+harness.track("Bass")
+harness.ready()

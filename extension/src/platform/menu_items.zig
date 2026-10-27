@@ -20,6 +20,8 @@ pub const Group = enum {
     connection,
     /// Settings and configuration items
     settings,
+    /// Logging, for reporting a problem
+    diagnostics,
 };
 
 /// All menu items, evaluated at comptime.
@@ -32,6 +34,9 @@ pub const items = [_]MenuItem{
     // ── Settings ──
     .{ .action_id = "REAMO_CHANGE_PORT", .label = "Change Server Port...", .group = .settings },
     .{ .action_id = "REAMO_ALLOWED_HOSTS", .label = "Allowed Hosts...", .group = .settings },
+    // ── Diagnostics ──
+    .{ .action_id = "REAMO_DEBUG_LOGGING", .label = "Debug Logging (until REAPER restarts)", .is_toggle = true, .group = .diagnostics },
+    .{ .action_id = "REAMO_OPEN_LOG_FOLDER", .label = "Open Log Folder", .group = .diagnostics },
     // ── Top-level (no group) ──
     .{ .action_id = "REAMO_ABOUT", .label = "About REAmo" },
 };

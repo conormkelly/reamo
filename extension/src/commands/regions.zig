@@ -5,18 +5,27 @@ const mod = @import("mod.zig");
 const logging = @import("../core/logging.zig");
 
 pub fn handleRegionAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const start = cmd.getFloat("start") orelse {
+    const start = mod.validatePosition(cmd.getFloat("start") orelse {
         response.err("MISSING_START", "Region start is required");
         return;
+    }) orelse {
+        response.err("INVALID_POSITION", "Position must be a non-negative number of seconds in range");
+        return;
     };
-    const end = cmd.getFloat("end") orelse {
+    const end = mod.validatePosition(cmd.getFloat("end") orelse {
         response.err("MISSING_END", "Region end is required");
+        return;
+    }) orelse {
+        response.err("INVALID_POSITION", "Position must be a non-negative number of seconds in range");
         return;
     };
     const color = cmd.getInt("color") orelse 0;
 
-    var name_buf: [65]u8 = undefined;
-    const name = mod.toNullTerminated(&name_buf, cmd.getString("name"));
+    const name = mod.resolveNameZ(cmd.getTextAlloc("name", std.heap.c_allocator) catch null, "") catch {
+        response.err("ALLOC_FAILED", "Failed to read name");
+        return;
+    };
+    defer std.heap.c_allocator.free(name);
 
     api.undoBeginBlock();
     const id = api.addRegion(start, end, name, color);
@@ -57,30 +66,29 @@ pub fn handleRegionUpdate(api: anytype, cmd: protocol.CommandMessage, response: 
     }
 
     // PATCH semantics: use provided values, fall back to current
-    const start = cmd.getFloat("start") orelse current_start;
-    const end = cmd.getFloat("end") orelse current_end;
+    const start = if (cmd.getFloat("start")) |s| mod.validatePosition(s) orelse {
+        response.err("INVALID_POSITION", "Position must be a non-negative number of seconds in range");
+        return;
+    } else current_start;
+    const end = if (cmd.getFloat("end")) |e| mod.validatePosition(e) orelse {
+        response.err("INVALID_POSITION", "Position must be a non-negative number of seconds in range");
+        return;
+    } else current_end;
 
-    var name_buf: [65]u8 = undefined;
-    const provided_name = cmd.getString("name");
-    const name = if (provided_name) |n|
-        mod.toNullTerminated(&name_buf, n)
-    else
-        mod.toNullTerminated(&name_buf, current_name);
+    // Name: use provided if non-empty, else preserve current (whole: a
+    // resize that sends only start/end must not shorten the name).
+    const provided_name = cmd.getTextAlloc("name", std.heap.c_allocator) catch null;
+    defer if (provided_name) |n| std.heap.c_allocator.free(n);
+    const name = mod.resolveNameZ(provided_name, current_name) catch {
+        response.err("ALLOC_FAILED", "Failed to read name");
+        return;
+    };
+    defer std.heap.c_allocator.free(name);
 
-    // Color: null = preserve, 0 = reset to default, other = use value
-    const color_provided = cmd.getInt("color");
-    const color = color_provided orelse current_color;
-    const reset_to_default = color_provided != null and color_provided.? == 0;
+    const color = mod.markerColor(current_color, cmd.getInt("color"));
 
     api.undoBeginBlock();
-    // color=0 means "reset to default" but REAPER's SetProjectMarker4
-    // treats 0 as "don't modify color" — workaround: delete + recreate
-    if (reset_to_default) {
-        _ = api.deleteRegion(id);
-        _ = api.addRegionWithId(start, end, name, 0, id);
-    } else {
-        _ = api.updateRegion(id, start, end, name, color);
-    }
+    _ = api.updateRegion(id, start, end, name, color);
     logging.debug("Updated region {d}", .{id});
     api.undoEndBlock("REAmo: Update region");
 }
@@ -178,13 +186,11 @@ pub fn handleRegionBatch(api: anytype, cmd: protocol.CommandMessage, response: *
 
     api.undoEndBlock("REAmo: Batch region edit");
 
-    // Build response
-    var resp_buf: [256]u8 = undefined;
+    // Room for every warning kept above plus the keys and two counts of up
+    // to 20 digits each.
+    var resp_buf: [warnings_buf.len + 96]u8 = undefined;
     const warnings_json = if (warnings_len > 0) warnings_buf[0..warnings_len] else "";
-    const resp = std.fmt.bufPrint(&resp_buf, "{{\"applied\":{d},\"skipped\":{d},\"warnings\":[{s}]}}", .{ applied, skipped, warnings_json }) catch {
-        response.success(null);
-        return;
-    };
+    const resp = std.fmt.bufPrint(&resp_buf, "{{\"applied\":{d},\"skipped\":{d},\"warnings\":[{s}]}}", .{ applied, skipped, warnings_json }) catch unreachable;
 
     response.success(resp);
     logging.debug("Batch region edit - applied {d}, skipped {d}", .{ applied, skipped });
@@ -242,31 +248,17 @@ fn processUpdate(api: anytype, op_json: []const u8) OpResult {
     }
 
     // PATCH semantics: use provided values, fall back to current
-    const start = protocol.jsonGetFloat(op_json, "start") orelse current_start;
-    const end = protocol.jsonGetFloat(op_json, "end") orelse current_end;
+    const start = if (protocol.jsonGetFloat(op_json, "start")) |s| mod.validatePosition(s) orelse return .{ .skipped = "update start out of range" } else current_start;
+    const end = if (protocol.jsonGetFloat(op_json, "end")) |e| mod.validatePosition(e) orelse return .{ .skipped = "update end out of range" } else current_end;
 
-    // Name: use provided if exists, else preserve current
-    var name_buf: [65]u8 = undefined;
-    const provided_name = protocol.jsonGetString(op_json, "name");
-    const name = if (provided_name) |n|
-        mod.toNullTerminated(&name_buf, n)
-    else
-        mod.toNullTerminated(&name_buf, current_name);
+    // Name: use provided if non-empty, else preserve current
+    const provided_name = protocol.jsonGetTextAlloc(op_json, "name", std.heap.c_allocator) catch null;
+    defer if (provided_name) |n| std.heap.c_allocator.free(n);
+    const name = mod.resolveNameZ(provided_name, current_name) catch return .{ .skipped = "out of memory" };
+    defer std.heap.c_allocator.free(name);
 
-    // Color: null = preserve, 0 = reset to default, other = use value
-    const color_provided = protocol.jsonGetInt(op_json, "color");
-    const color = color_provided orelse current_color;
-    const reset_to_default = color_provided != null and color_provided.? == 0;
-
-    // Special case: color=0 explicitly means "reset to default"
-    // REAPER's SetProjectMarker4 treats 0 as "don't modify color"
-    // Workaround: delete and recreate region with same ID
-    if (reset_to_default) {
-        _ = api.deleteRegion(id);
-        _ = api.addRegionWithId(start, end, name, 0, id);
-    } else {
-        _ = api.updateRegion(id, start, end, name, color);
-    }
+    const color = mod.markerColor(current_color, protocol.jsonGetInt(op_json, "color"));
+    _ = api.updateRegion(id, start, end, name, color);
 
     return .success;
 }
@@ -286,15 +278,15 @@ fn processDelete(api: anytype, op_json: []const u8) OpResult {
 
 /// Process a create operation
 fn processCreate(api: anytype, op_json: []const u8) OpResult {
-    const start = protocol.jsonGetFloat(op_json, "start") orelse {
+    const start = mod.validatePosition(protocol.jsonGetFloat(op_json, "start") orelse {
         return .{ .skipped = "create missing start" };
-    };
-    const end = protocol.jsonGetFloat(op_json, "end") orelse {
+    }) orelse return .{ .skipped = "create start out of range" };
+    const end = mod.validatePosition(protocol.jsonGetFloat(op_json, "end") orelse {
         return .{ .skipped = "create missing end" };
-    };
+    }) orelse return .{ .skipped = "create end out of range" };
 
-    var name_buf: [65]u8 = undefined;
-    const name = mod.toNullTerminated(&name_buf, protocol.jsonGetString(op_json, "name"));
+    const name = mod.resolveNameZ(protocol.jsonGetTextAlloc(op_json, "name", std.heap.c_allocator) catch null, "") catch return .{ .skipped = "out of memory" };
+    defer std.heap.c_allocator.free(name);
     const color = protocol.jsonGetInt(op_json, "color") orelse 0;
 
     const id = api.addRegion(start, end, name, color);
@@ -321,7 +313,10 @@ fn findMatchingBracket(data: []const u8, start: usize) ?usize {
         const c = data[i];
 
         if (in_string) {
-            if (c == '"' and (i == 0 or data[i - 1] != '\\')) {
+            // Skip the character after a backslash: `\\"` ends the string.
+            if (c == '\\') {
+                i += 1;
+            } else if (c == '"') {
                 in_string = false;
             }
         } else {
@@ -389,7 +384,9 @@ fn findMatchingBrace(data: []const u8, start: usize) ?usize {
         const c = data[i];
 
         if (in_string) {
-            if (c == '"' and (i == 0 or data[i - 1] != '\\')) {
+            if (c == '\\') {
+                i += 1;
+            } else if (c == '"') {
                 in_string = false;
             }
         } else {
@@ -411,6 +408,16 @@ fn findMatchingBrace(data: []const u8, start: usize) ?usize {
 // ============================================================================
 // Tests
 // ============================================================================
+
+test "a name ending in a backslash does not swallow the closing quote" {
+    // [{"op":"update","id":1,"name":"Bridge \\"},{"op":"delete","id":2}]
+    const ops = "[{\"op\":\"update\",\"id\":1,\"name\":\"Bridge \\\\\"},{\"op\":\"delete\",\"id\":2}]";
+    try std.testing.expectEqual(@as(?usize, ops.len - 1), findMatchingBracket(ops, 0));
+    var it = JsonArrayIterator.init(ops);
+    try std.testing.expect(std.mem.endsWith(u8, it.next().?, "\\\\\"}"));
+    try std.testing.expectEqualStrings("{\"op\":\"delete\",\"id\":2}", it.next().?);
+    try std.testing.expect(it.next() == null);
+}
 
 test "findMatchingBracket" {
     const data = "[{\"a\":1},{\"b\":2}]";

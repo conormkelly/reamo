@@ -20,7 +20,7 @@
 
 import { useState, useRef, useEffect, useCallback, type ReactElement } from 'react';
 import { useReaperStore } from '../../store';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useCurrentMarker, useTimeFormatters } from '../../hooks';
 import { marker as markerCmd } from '../../core/WebSocketCommands';
 import { reaperColorToHex, hexToReaperColor, formatTime } from '../../utils';

@@ -8,7 +8,7 @@ import { BottomSheet } from '../../Modal/BottomSheet';
 import { useTrack } from '../../../hooks/useTrack';
 import { useTrackSkeleton } from '../../../hooks';
 import { useReaperStore, getSendsFromTrack, getSendsToTrack } from '../../../store';
-import { useReaper } from '../../ReaperProvider';
+import { useReaper } from '../../../hooks/useReaper';
 import { routing as routingCmd } from '../../../core/WebSocketCommands';
 import { SendsTab, type SendData } from './SendsTab';
 import { ReceivesTab, type ReceiveData } from './ReceivesTab';

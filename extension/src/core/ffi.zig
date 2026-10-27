@@ -115,6 +115,17 @@ pub fn clampFloatToInt(comptime T: type, value: f64, min: T, max: T) FFIError!T 
     return @intFromFloat(clamped);
 }
 
+/// Convert a count from REAPER (c_int, -1 or negative on error) to an
+/// unsigned field, saturating instead of trapping when it exceeds the type.
+///
+/// Example:
+///   t.send_count = ffi.clampCount(u16, api.trackSendCount(track));
+///
+pub fn clampCount(comptime T: type, count: c_int) T {
+    if (count <= 0) return 0;
+    return std.math.cast(T, count) orelse std.math.maxInt(T);
+}
+
 /// Round and convert to int, returning error on NaN/Inf/out-of-range.
 ///
 /// Example:
@@ -252,4 +263,11 @@ test "roundFloatToInt rejects NaN and Inf" {
 test "roundFloatToInt rejects overflow" {
     try std.testing.expectError(error.IntegerOverflow, roundFloatToInt(u8, 256.0));
     try std.testing.expectError(error.NegativeToUnsigned, roundFloatToInt(u8, -1.0));
+}
+
+test "clampCount maps negative counts to zero and saturates at the target type" {
+    try std.testing.expectEqual(@as(u16, 0), clampCount(u16, -1));
+    try std.testing.expectEqual(@as(u16, 12), clampCount(u16, 12));
+    try std.testing.expectEqual(@as(u16, std.math.maxInt(u16)), clampCount(u16, 70_000));
+    try std.testing.expectEqual(@as(u32, 70_000), clampCount(u32, 70_000));
 }

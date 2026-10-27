@@ -42,7 +42,14 @@ That's it.
 
 ## Coming Soon
 
-- **Cue Lists** — Build playlists from regions for rehearsal and arrangement
+- **Playlists** — Arrange regions into playlists for rehearsal and performance
+
+## Requirements
+
+REAPER 6.0 or later, on macOS, Windows or Linux. A few features need a newer REAPER:
+
+- **Comp lanes** (fixed item lanes) need REAPER 7.
+- On **REAPER 6.0**, the FX browser can't list your installed plugins.
 
 ## Installation
 
@@ -91,6 +98,12 @@ REAmo runs an HTTP server on your computer (default port 9224).
 
 </details>
 
+## Reporting a Problem
+
+REAmo keeps a log in REAPER's resource folder, under `Logs/reamo.log`; **Extensions > REAmo > Open Log Folder** opens it. Each log file is at most 1 MB and REAmo keeps four, so the logs never use more than 4 MB on disk. Normally the log records connections, errors and warnings, with no project names, notes or other project content.
+
+If something goes wrong, turn on **Extensions > REAmo > Debug Logging**, make the problem happen again, and attach `reamo.log` to your issue. Debug logging records much more detail, including project and track names, and switches off when REAPER restarts.
+
 ## For Developers
 
 **Zig** extension (WebSocket server) + **React 19** / **TypeScript** / **Zustand** / **Tailwind CSS 4** frontend.
@@ -101,6 +114,18 @@ make all                                     # Test + build everything
 ```
 
 See [extension/API.md](extension/API.md) for the WebSocket API.
+
+### Testing against real REAPER
+
+The [live-REAPER harness](scripts/harness/README.md) runs the extension inside a headless REAPER in Docker and drives it as the web UI does, with REAPER as the judge of what's correct.
+
+```bash
+make harness                         # every scenario, on the pinned REAPER
+make harness SCENARIOS="smoke"       # a subset
+make release-check                   # everything on the oldest supported REAPER (6.0) and the pinned newest
+```
+
+A release needs `make release-check` to pass.
 
 ## Contributing
 

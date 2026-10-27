@@ -1,8 +1,11 @@
 const std = @import("std");
 const logging = @import("../core/logging.zig");
 
-/// Timeout for gesture inactivity (500ms)
-pub const GESTURE_TIMEOUT_NS: i128 = 500 * std.time.ns_per_ms;
+/// A gesture with no activity for this long is ended as if gesture/end had
+/// arrived. It only recovers from a lost gesture/end (a disconnect ends a
+/// client's gestures at once), so it is long enough that a finger resting
+/// mid-drag doesn't split the drag into two undo steps.
+pub const GESTURE_TIMEOUT_NS: i128 = 10 * std.time.ns_per_s;
 
 /// Identifies a continuous control that can have an active gesture
 pub const ControlId = struct {
@@ -126,82 +129,63 @@ pub const ControlIdContext = struct {
     }
 };
 
-/// Control types that require manual undo blocks (no CSurf support).
+/// Control types whose drags CSurf_FlushUndo does not turn into an undo
+/// point: hardware outputs and FX parameters have no CSurf call, and REAPER
+/// registers no undo for CSurf_OnSendVolume/PanChange.
 pub const ManualUndoControlType = enum(u8) {
     hw_output_volume = 0,
     hw_output_pan = 1,
     fx_param = 2,
+    send = 3,
+    receive = 4,
 };
 
-/// Manages manual undo blocks for control types without CSurf support.
-/// REAPER doesn't support nested undo blocks, so this uses a unified counter
-/// with a bitfield to track which control types are active.
+/// Undo for manual-undo drags. No REAPER undo block is held open across
+/// timer ticks (anything the user did in REAPER meanwhile would join it, and
+/// a block never closed leaves undo dead for the session): the changes are
+/// applied as they come, and when the last such gesture ends, however it
+/// ends, the caller records one undo point for all of them.
 pub const ManualUndoState = struct {
     gesture_count: usize = 0,
-    active_types: u8 = 0, // bitfield
+    touched_types: u8 = 0, // bitfield of ManualUndoControlType
 
-    /// Called when a NEW gesture starts for a manual-undo control type.
-    /// Returns true if caller should open an undo block (this is the first gesture).
-    pub fn beginBlock(self: *ManualUndoState, control_type: ManualUndoControlType) bool {
-        const was_zero = self.gesture_count == 0;
+    /// A new manual-undo gesture started.
+    pub fn begin(self: *ManualUndoState, control_type: ManualUndoControlType) void {
         self.gesture_count += 1;
-        const shift: u3 = @intCast(@intFromEnum(control_type));
-        self.active_types |= (@as(u8, 1) << shift);
-        logging.debug("Manual undo block: begin type {} (count {} -> {})", .{
-            control_type,
-            self.gesture_count - 1,
-            self.gesture_count,
-        });
-        return was_zero;
+        self.touched_types |= @as(u8, 1) << @intCast(@intFromEnum(control_type));
     }
 
-    /// Called when a gesture ends for a manual-undo control type.
-    /// Returns true if caller should close the undo block (this was the last gesture).
-    pub fn endBlock(self: *ManualUndoState, control_type: ManualUndoControlType) bool {
+    /// A manual-undo gesture ended. Returns true when it was the last one:
+    /// record the undo point now (see takeUndoMessage).
+    pub fn end(self: *ManualUndoState) bool {
         if (self.gesture_count == 0) {
-            logging.warn("ManualUndoState.endBlock called but count already 0 for type {}", .{control_type});
+            logging.warn("ManualUndoState.end with no gesture open", .{});
             return false;
         }
         self.gesture_count -= 1;
-        // Don't clear the bit - remember all types touched during this block
-        logging.debug("Manual undo block: end type {} (count {} -> {})", .{
-            control_type,
-            self.gesture_count + 1,
-            self.gesture_count,
-        });
-
-        if (self.gesture_count == 0) {
-            // Don't clear active_types here - caller needs to read it via buildUndoMessage first
-            return true;
-        }
-        return false;
+        return self.gesture_count == 0;
     }
 
-    /// Returns null-terminated string literal for REAPER's Undo_EndBlock2.
-    /// Message reflects all control types touched during the block.
-    /// Clears active_types after building the message (consumes the state).
-    pub fn buildUndoMessage(self: *ManualUndoState) [*:0]const u8 {
-        const hw_vol = (self.active_types & (1 << 0)) != 0;
-        const hw_pan = (self.active_types & (1 << 1)) != 0;
-        const fx_param = (self.active_types & (1 << 2)) != 0;
-
-        // Reset for next block after reading bits
-        self.active_types = 0;
-
-        const hw = hw_vol or hw_pan;
-
-        // Single category - specific message
-        if (hw and !fx_param) return "REAmo: Adjust hardware outputs";
-        if (fx_param and !hw) return "REAmo: Adjust FX parameters";
-
-        // Mixed - combined message
-        if (hw and fx_param) return "REAmo: Adjust parameters";
-
+    /// The undo description for everything touched since the last point;
+    /// resets for the next one.
+    pub fn takeUndoMessage(self: *ManualUndoState) [*:0]const u8 {
+        const t = self.touched_types;
+        self.touched_types = 0;
+        const hw = (t & 0b11) != 0;
+        const fx = (t & (1 << @intFromEnum(ManualUndoControlType.fx_param))) != 0;
+        const send = (t & (1 << @intFromEnum(ManualUndoControlType.send))) != 0;
+        const receive = (t & (1 << @intFromEnum(ManualUndoControlType.receive))) != 0;
+        const kinds = @as(u8, @intFromBool(hw)) + @intFromBool(fx) + @intFromBool(send) + @intFromBool(receive);
+        if (kinds == 1) {
+            if (hw) return "REAmo: Adjust hardware outputs";
+            if (fx) return "REAmo: Adjust FX parameters";
+            if (send) return "REAmo: Adjust sends";
+            return "REAmo: Adjust receives";
+        }
         return "REAmo: Adjust parameters";
     }
 
-    /// Check if there's an active manual undo block
-    pub fn hasActiveBlock(self: *const ManualUndoState) bool {
+    pub fn isOpen(self: *const ManualUndoState) bool {
         return self.gesture_count > 0;
     }
 };
@@ -236,7 +220,7 @@ pub const GestureState = struct {
     gestures: std.HashMap(ControlId, ActiveGesture, ControlIdContext, std.hash_map.default_max_load_percentage),
     last_any_activity_ns: i128,
     allocator: std.mem.Allocator,
-    /// Unified undo block state for controls without CSurf support (hw outputs, FX params).
+    /// Pending undo for controls CSurf can't coalesce (see ManualUndoState).
     manual_undo: ManualUndoState,
 
     pub fn init(allocator: std.mem.Allocator) GestureState {
@@ -371,76 +355,73 @@ pub const GestureState = struct {
         return expired_count;
     }
 
+    /// Whether some client is mid-drag on this control.
+    pub fn isActive(self: *const GestureState, control: ControlId) bool {
+        return self.gestures.contains(control);
+    }
+
     /// Check if there are any active gestures
     pub fn hasActiveGestures(self: *const GestureState) bool {
         return self.gestures.count() > 0;
     }
 
-    /// Check if a control type is a hardware output type
-    pub fn isHwOutputControl(control_type: ControlId.ControlType) bool {
-        return control_type == .hw_output_volume or control_type == .hw_output_pan;
-    }
-
-    /// Check if a control type requires manual undo blocks (no CSurf support).
+    /// Check if a control type's drag is recorded as one manual undo point
+    /// when it ends (see ManualUndoState).
     pub fn needsManualUndo(control_type: ControlId.ControlType) bool {
-        return switch (control_type) {
-            .hw_output_volume, .hw_output_pan, .fx_param => true,
-            else => false,
-        };
+        return getManualUndoType(control_type) != null;
     }
 
-    /// Get the ManualUndoControlType for a ControlType (only valid for manual undo types).
     pub fn getManualUndoType(control_type: ControlId.ControlType) ?ManualUndoControlType {
         return switch (control_type) {
             .hw_output_volume => .hw_output_volume,
             .hw_output_pan => .hw_output_pan,
             .fx_param => .fx_param,
-            else => null,
+            .send_volume, .send_pan => .send,
+            .receive_volume, .receive_pan => .receive,
+            .volume, .pan => null,
         };
     }
 
-    /// Called when a NEW gesture starts for a manual-undo control (is_new=true from beginGesture).
-    /// Returns true if caller should open an undo block.
-    /// REAPER doesn't support nested undo blocks, so all manual-undo gestures share one block.
-    pub fn beginManualUndoBlock(self: *GestureState, control_type: ControlId.ControlType) bool {
-        const undo_type = getManualUndoType(control_type) orelse return false;
-        return self.manual_undo.beginBlock(undo_type);
+    /// A new gesture on a manual-undo control started.
+    pub fn beginManualUndo(self: *GestureState, control_type: ControlId.ControlType) void {
+        const undo_type = getManualUndoType(control_type) orelse return;
+        self.manual_undo.begin(undo_type);
     }
 
-    /// Called when a gesture ends for a manual-undo control (should_flush=true from endGesture).
-    /// Returns true if caller should close the undo block.
-    pub fn endManualUndoBlock(self: *GestureState, control_type: ControlId.ControlType) bool {
-        const undo_type = getManualUndoType(control_type) orelse return false;
-        return self.manual_undo.endBlock(undo_type);
-    }
-
-    /// Get the undo message for the current manual undo block.
-    /// Consumes the active_types state (clears it after building message).
-    pub fn getManualUndoMessage(self: *GestureState) [*:0]const u8 {
-        return self.manual_undo.buildUndoMessage();
-    }
-
-    /// Check if there's an active manual undo block.
-    pub fn hasManualUndoBlock(self: *const GestureState) bool {
-        return self.manual_undo.hasActiveBlock();
-    }
-
-    // Backwards compatibility aliases for existing hw-specific code
-    pub fn beginHwUndoBlock(self: *GestureState) bool {
-        // Use hw_output_volume as default - both hw types trigger the same undo behavior
-        return self.manual_undo.beginBlock(.hw_output_volume);
-    }
-
-    pub fn endHwUndoBlock(self: *GestureState) bool {
-        return self.manual_undo.endBlock(.hw_output_volume);
-    }
-
-    pub fn hasHwUndoBlock(self: *const GestureState) bool {
-        return self.manual_undo.hasActiveBlock();
+    /// The last client's gesture on a manual-undo control ended (gesture/end,
+    /// timeout or disconnect). Returns the undo description to record now,
+    /// or null while other manual-undo gestures are still open.
+    pub fn endManualUndo(self: *GestureState, control_type: ControlId.ControlType) ?[*:0]const u8 {
+        if (getManualUndoType(control_type) == null) return null;
+        if (!self.manual_undo.end()) return null;
+        return self.manual_undo.takeUndoMessage();
     }
 };
 
 // Tests
+test "manual-undo gestures record one point when the last one ends" {
+    var state = GestureState.init(std.testing.allocator);
+    defer state.deinit();
+
+    state.beginManualUndo(.fx_param);
+    state.beginManualUndo(.send_volume);
+    try std.testing.expect(state.endManualUndo(.fx_param) == null); // the send drag is still open
+    const msg = state.endManualUndo(.send_volume).?;
+    try std.testing.expectEqualStrings("REAmo: Adjust parameters", std.mem.sliceTo(msg, 0));
+
+    // The next drag starts a fresh description and nothing is left open.
+    try std.testing.expect(!state.manual_undo.isOpen());
+    state.beginManualUndo(.fx_param);
+    try std.testing.expectEqualStrings("REAmo: Adjust FX parameters", std.mem.sliceTo(state.endManualUndo(.fx_param).?, 0));
+}
+
+test "track volume and pan are not manual-undo controls" {
+    try std.testing.expect(!GestureState.needsManualUndo(.volume));
+    try std.testing.expect(!GestureState.needsManualUndo(.pan));
+    try std.testing.expect(GestureState.needsManualUndo(.send_pan));
+    try std.testing.expect(GestureState.needsManualUndo(.receive_volume));
+}
+
 test "gesture lifecycle" {
     var state = GestureState.init(std.testing.allocator);
     defer state.deinit();

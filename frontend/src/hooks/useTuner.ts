@@ -21,7 +21,7 @@
 
 import { useCallback } from 'react';
 import { useReaperStore } from '../store';
-import { useReaper } from '../components/ReaperProvider';
+import { useReaper } from './useReaper';
 import { tuner } from '../core/WebSocketCommands';
 
 export interface UseTunerReturn {

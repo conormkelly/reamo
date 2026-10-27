@@ -33,7 +33,8 @@ import {
   useFolderHierarchy,
   useAvailableContentHeight,
 } from '../../hooks';
-import { useReaper } from '../../components/ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
+import { useInfoSelectedTrack } from './useInfoSelectedTrack';
 import { track } from '../../core/WebSocketCommands';
 import { useReaperStore } from '../../store';
 import { EMPTY_TRACKS, EMPTY_STRING_ARRAY } from '../../store/stableRefs';
@@ -47,7 +48,6 @@ import {
 } from '../../constants/layout';
 
 /** Storage key for info-selected track */
-const INFO_SELECTED_STORAGE_KEY = 'reamo-mixer-info-selected';
 
 export function MixerView(): ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -162,35 +162,12 @@ export function MixerView(): ReactElement {
   // Create track modal state
   const [createTrackModalOpen, setCreateTrackModalOpen] = useState(false);
 
-  // Track info selection state (which track shows in InfoBar) - persisted in localStorage
-  const [infoSelectedTrackIdx, setInfoSelectedTrackIdx] = useState<number | null>(() => {
-    try {
-      const stored = localStorage.getItem(INFO_SELECTED_STORAGE_KEY);
-      if (stored !== null) {
-        const parsed = parseInt(stored, 10);
-        return isNaN(parsed) ? null : parsed;
-      }
-    } catch {
-      // Ignore localStorage errors
-    }
-    return null;
-  });
-
-  // Persist info selection to localStorage
-  useEffect(() => {
-    try {
-      if (infoSelectedTrackIdx !== null) {
-        localStorage.setItem(INFO_SELECTED_STORAGE_KEY, String(infoSelectedTrackIdx));
-      } else {
-        localStorage.removeItem(INFO_SELECTED_STORAGE_KEY);
-      }
-    } catch {
-      // Ignore localStorage errors
-    }
-  }, [infoSelectedTrackIdx]);
-
   // Get skeleton for custom bank filtering
   const { skeleton } = useTrackSkeleton();
+
+  // The track the info bar shows, held by GUID (persisted in localStorage)
+  const { selectedIdx: infoSelectedTrackIdx, selectedGuid: infoSelectedTrackGuid, select: selectInfoTrack } =
+    useInfoSelectedTrack(skeleton);
 
   // Check if we have any active filtering (built-in bank, custom bank, or text filter)
   const hasTextFilter = filterQuery.trim().length > 0;
@@ -377,9 +354,9 @@ export function MixerView(): ReactElement {
 
   // Handle track selection for info panel - also expands panel if collapsed
   const handleSelectForInfo = useCallback((trackIndex: number) => {
-    setInfoSelectedTrackIdx(trackIndex);
+    selectInfoTrack(trackIndex);
     setSecondaryPanelExpanded('mixer', true);
-  }, [setSecondaryPanelExpanded]);
+  }, [selectInfoTrack, setSecondaryPanelExpanded]);
 
   // Handle track selection from folder sheet
   const handleFolderSheetSelectTrack = useCallback((trackIndex: number) => {
@@ -390,20 +367,22 @@ export function MixerView(): ReactElement {
   const infoTabContent = useMemo(() => (
     <TrackInfoBar
       selectedTrackIdx={infoSelectedTrackIdx}
+      selectedTrackGuid={infoSelectedTrackGuid}
       onShowRouting={handleShowRouting}
       onFolderClick={handleFolderClick}
       layout="horizontal"
     />
-  ), [infoSelectedTrackIdx, handleShowRouting, handleFolderClick]);
+  ), [infoSelectedTrackIdx, infoSelectedTrackGuid, handleShowRouting, handleFolderClick]);
 
   const infoTabContentVertical = useMemo(() => (
     <TrackInfoBar
       selectedTrackIdx={infoSelectedTrackIdx}
+      selectedTrackGuid={infoSelectedTrackGuid}
       onShowRouting={handleShowRouting}
       onFolderClick={handleFolderClick}
       layout="vertical"
     />
-  ), [infoSelectedTrackIdx, handleShowRouting, handleFolderClick]);
+  ), [infoSelectedTrackIdx, infoSelectedTrackGuid, handleShowRouting, handleFolderClick]);
 
   // Secondary panel tab configuration - just Info tab (filter/nav now in header)
   const secondaryTabs: SecondaryPanelTabConfig[] = useMemo(() => [
@@ -509,13 +488,8 @@ export function MixerView(): ReactElement {
   // This keeps track data flowing even when the selected track is paged out
   // Uses EMPTY_STRING_ARRAY for stable reference when no extra GUIDs needed
   const extraGuidsForInfoTrack = useMemo((): readonly string[] => {
-    if (infoSelectedTrackIdx === null || infoSelectedTrackIdx < 0) return EMPTY_STRING_ARRAY;
-
-    // Get the GUID for the info-selected track from skeleton
-    const trackSkeleton = skeleton[infoSelectedTrackIdx];
-    if (!trackSkeleton?.g) return EMPTY_STRING_ARRAY;
-
-    const infoGuid = trackSkeleton.g;
+    if (infoSelectedTrackIdx === null || infoSelectedTrackGuid === null) return EMPTY_STRING_ARRAY;
+    const infoGuid = infoSelectedTrackGuid;
 
     if (isFiltered) {
       // In filtered mode: check if GUID is already in the subscription list
@@ -526,7 +500,7 @@ export function MixerView(): ReactElement {
       if (infoSelectedTrackIdx >= prefetchStart && infoSelectedTrackIdx <= prefetchEnd) return EMPTY_STRING_ARRAY;
       return [infoGuid];
     }
-  }, [infoSelectedTrackIdx, skeleton, isFiltered, filteredGuidsToSubscribe, prefetchStart, prefetchEnd]);
+  }, [infoSelectedTrackIdx, infoSelectedTrackGuid, isFiltered, filteredGuidsToSubscribe, prefetchStart, prefetchEnd]);
 
   // Subscribe to tracks - range mode for unfiltered, GUID mode for filtered
   // When master is pinned, explicitly include it (it's outside the bank range)

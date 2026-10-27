@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback, type ReactElement } from 'react';
 import { Loader2, Check, X, ChevronDown } from 'lucide-react';
 import { BottomSheet } from '../Modal/BottomSheet';
 import { useTrack } from '../../hooks/useTrack';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { input as inputCmd, track as trackCmd } from '../../core/WebSocketCommands';
 import type { AudioInput, MidiDevice, InputConfig } from '../../core/types';
 import { MidiDeviceIndex } from '../../core/types';

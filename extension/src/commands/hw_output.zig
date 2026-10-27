@@ -1,4 +1,5 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
 const tracks = @import("tracks.zig");
@@ -26,17 +27,19 @@ pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     };
 
-    // No undo block here - continuous control uses gesture-based undo coalescing
-    // (undoBeginBlock on gesture/start, undoEndBlock on gesture/end)
-    const success = api.trackHwOutputSetVolume(track, hw_idx, volume);
-    if (!success) {
-        response.err("SET_FAILED", "Failed to set HW output volume");
+    if (!mod.routeExists(api, track, .hw_output, hw_idx)) {
+        response.err("NOT_FOUND", "Hardware output not found");
         return;
     }
 
-    // Record activity for gesture timeout tracking
-    if (response.gestures) |gestures| {
-        gestures.recordActivity(gesture_state.ControlId.hwOutputVolume(track_idx, hw_idx));
+    const control = gesture_state.ControlId.hwOutputVolume(track_idx, hw_idx);
+    const in_gesture = mod.inGesture(response, control);
+    if (!in_gesture) api.undoBeginBlock();
+    const success = api.trackHwOutputSetVolume(track, hw_idx, volume);
+    if (in_gesture) response.gestures.?.recordActivity(control) else api.undoEndBlock("REAmo: Adjust audio hardware output volume");
+    if (!success) {
+        response.err("SET_FAILED", "Failed to set HW output volume");
+        return;
     }
 
     logging.debug("HW output volume set: track {} hw {} volume {d:.3}", .{ track_idx, hw_idx, volume });
@@ -64,6 +67,11 @@ pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         response.err("NOT_FOUND", "Track not found");
         return;
     };
+
+    if (!mod.routeExists(api, track, .hw_output, hw_idx)) {
+        response.err("NOT_FOUND", "Hardware output not found");
+        return;
+    }
 
     api.undoBeginBlock();
     const success = api.trackHwOutputSetMute(track, hw_idx, muted);
@@ -99,20 +107,22 @@ pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         return;
     };
 
-    // Clamp pan to valid range
-    const clamped = @max(-1.0, @min(1.0, pan));
-
-    // No undo block here - continuous control uses gesture-based undo coalescing
-    // (undoBeginBlock on gesture/start, undoEndBlock on gesture/end)
-    const success = api.trackHwOutputSetPan(track, hw_idx, clamped);
-    if (!success) {
-        response.err("SET_FAILED", "Failed to set HW output pan");
+    if (!mod.routeExists(api, track, .hw_output, hw_idx)) {
+        response.err("NOT_FOUND", "Hardware output not found");
         return;
     }
 
-    // Record activity for gesture timeout tracking
-    if (response.gestures) |gestures| {
-        gestures.recordActivity(gesture_state.ControlId.hwOutputPan(track_idx, hw_idx));
+    // Clamp pan to valid range
+    const clamped = @max(-1.0, @min(1.0, pan));
+
+    const control = gesture_state.ControlId.hwOutputPan(track_idx, hw_idx);
+    const in_gesture = mod.inGesture(response, control);
+    if (!in_gesture) api.undoBeginBlock();
+    const success = api.trackHwOutputSetPan(track, hw_idx, clamped);
+    if (in_gesture) response.gestures.?.recordActivity(control) else api.undoEndBlock("REAmo: Adjust audio hardware output pan");
+    if (!success) {
+        response.err("SET_FAILED", "Failed to set HW output pan");
+        return;
     }
 
     logging.debug("HW output pan set: track {} hw {} pan {d:.3}", .{ track_idx, hw_idx, clamped });
@@ -145,6 +155,11 @@ pub fn handleSetMode(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         response.err("NOT_FOUND", "Track not found");
         return;
     };
+
+    if (!mod.routeExists(api, track, .hw_output, hw_idx)) {
+        response.err("NOT_FOUND", "Hardware output not found");
+        return;
+    }
 
     api.undoBeginBlock();
     const success = api.trackHwOutputSetMode(track, hw_idx, mode);
@@ -201,8 +216,13 @@ pub fn handleRemove(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         return;
     };
 
-    // category > 0 = hw outputs
+    if (!mod.routeExists(api, resolution.track, .hw_output, hw_idx)) {
+        response.err("NOT_FOUND", "Hardware output not found");
+        return;
+    }
+
     api.undoBeginBlock();
+    // category > 0 = hw outputs
     const success = api.removeSend(resolution.track, 1, hw_idx);
     api.undoEndBlock("REAmo: Remove hardware output");
 
@@ -233,6 +253,11 @@ pub fn handleSetDestChannel(api: anytype, cmd: protocol.CommandMessage, response
         return;
     };
 
+    if (!mod.routeExists(api, resolution.track, .hw_output, hw_idx)) {
+        response.err("NOT_FOUND", "Hardware output not found");
+        return;
+    }
+
     api.undoBeginBlock();
     const success = api.trackHwOutputSetDestChannel(resolution.track, hw_idx, dest_channel);
     api.undoEndBlock("REAmo: Set hardware output destination");
@@ -256,22 +281,26 @@ pub fn handleListOutputs(api: anytype, _: protocol.CommandMessage, response: *mo
         response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
         return;
     };
-    const allocator = tiered.scratchAllocator();
 
-    const estimated_size: usize = @intCast(@max(4096, @as(c_int, @intCast(count)) * 120 + 200));
-    const buf = allocator.alloc(u8, estimated_size) catch {
-        response.err("ALLOC_FAILED", "Failed to allocate response buffer");
-        return;
-    };
-
-    var stream = std.io.fixedBufferStream(buf);
-    const writer = stream.writer();
-
-    writer.writeAll("{\"outputs\":[") catch {
+    // Grows to fit: a multichannel interface's long channel names can run
+    // past any estimate, and the UI awaits this list to open the picker.
+    const estimate: usize = 200 + @as(usize, @intCast(@max(count, 0))) * 160;
+    const json = protocol.writeAlloc(tiered.scratchAllocator(), estimate, OutputsCtx(@TypeOf(api)){ .api = api, .count = count }, writeOutputs) catch {
         response.err("SERIALIZE_ERROR", "Failed to write response");
         return;
     };
+    response.successLargePayload(json);
+}
 
+fn OutputsCtx(comptime Api: type) type {
+    return struct { api: Api, count: c_int };
+}
+
+fn writeOutputs(ctx: anytype, writer: anytype) !void {
+    const api = ctx.api;
+    const count = ctx.count;
+
+    try writer.writeAll("{\"outputs\":[");
     var first = true;
 
     // GetOutputChannelName returns a pointer to a static internal buffer that is
@@ -282,26 +311,22 @@ pub fn handleListOutputs(api: anytype, _: protocol.CommandMessage, response: *mo
     {
         var ch: c_int = 0;
         while (ch + 1 < count) : (ch += 2) {
-            if (!first) writer.writeAll(",") catch return;
+            if (!first) try writer.writeAll(",");
             first = false;
 
             // Get first name and copy it before the second call overwrites the static buffer
             const raw1 = if (api.audioOutputName(ch)) |n| std.mem.sliceTo(n, 0) else "Unknown";
-            const len1 = @min(raw1.len, name_copy_buf.len);
-            @memcpy(name_copy_buf[0..len1], raw1[0..len1]);
-            const s1 = name_copy_buf[0..len1];
+            const s1 = name_copy_buf[0..utf8.copyPrefix(&name_copy_buf, raw1)];
 
             // Now safe to call again — s1 is in our local buffer
             const s2 = if (api.audioOutputName(ch + 1)) |n| std.mem.sliceTo(n, 0) else "Unknown";
 
             // I_DSTCHAN for stereo: just the channel index
-            const dest_chan = ch;
-
-            writer.print("{{\"destChan\":{d},\"name\":\"", .{dest_chan}) catch return;
-            protocol.writeJsonString(writer, s1) catch return;
-            writer.writeAll(" / ") catch return;
-            protocol.writeJsonString(writer, s2) catch return;
-            writer.writeAll("\",\"stereo\":true}") catch return;
+            try writer.print("{{\"destChan\":{d},\"name\":\"", .{ch});
+            try protocol.writeJsonString(writer, s1);
+            try writer.writeAll(" / ");
+            try protocol.writeJsonString(writer, s2);
+            try writer.writeAll("\",\"stereo\":true}");
         }
     }
 
@@ -309,21 +334,18 @@ pub fn handleListOutputs(api: anytype, _: protocol.CommandMessage, response: *mo
     {
         var ch: c_int = 0;
         while (ch < count) : (ch += 1) {
-            if (!first) writer.writeAll(",") catch return;
+            if (!first) try writer.writeAll(",");
             first = false;
 
             const name = if (api.audioOutputName(ch)) |n| std.mem.sliceTo(n, 0) else "Unknown";
             // I_DSTCHAN for mono: channel index | 1024
-            const dest_chan = ch | 1024;
-
-            writer.print("{{\"destChan\":{d},\"name\":\"", .{dest_chan}) catch return;
-            protocol.writeJsonString(writer, name) catch return;
-            writer.writeAll("\",\"stereo\":false}") catch return;
+            try writer.print("{{\"destChan\":{d},\"name\":\"", .{ch | 1024});
+            try protocol.writeJsonString(writer, name);
+            try writer.writeAll("\",\"stereo\":false}");
         }
     }
 
-    writer.writeAll("]}") catch return;
-    response.successLargePayload(stream.getWritten());
+    try writer.writeAll("]}");
 }
 
 // ============================================================================

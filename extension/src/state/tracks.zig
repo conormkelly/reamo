@@ -1,4 +1,6 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
+const ffi = @import("../core/ffi.zig");
 const Allocator = std.mem.Allocator;
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
@@ -228,8 +230,7 @@ pub const State = struct {
                 // Get track name (master track returns "MASTER" from REAPER)
                 var name_buf: [MAX_NAME_LEN]u8 = undefined;
                 const name = api.getTrackNameStr(track, &name_buf);
-                const name_copy_len = @min(name.len, MAX_NAME_LEN);
-                @memcpy(t.name[0..name_copy_len], name[0..name_copy_len]);
+                const name_copy_len = utf8.copyPrefix(t.name[0..MAX_NAME_LEN], name);
                 t.name_len = name_copy_len;
 
                 // getTrackColor returns error on NaN/Inf - propagate as null to client
@@ -258,13 +259,13 @@ pub const State = struct {
                 t.folder_depth = api.getTrackFolderDepth(track) catch 0;
                 // Sparse counts - full data fetched on-demand via track/getFx, track/getSends
                 const fx_c = api.trackFxCount(track);
-                t.fx_count = if (fx_c >= 0) @intCast(fx_c) else 0;
+                t.fx_count = ffi.clampCount(u16, fx_c);
                 const send_c = api.trackSendCount(track);
-                t.send_count = if (send_c >= 0) @intCast(send_c) else 0;
+                t.send_count = ffi.clampCount(u16, send_c);
                 const recv_c = api.trackReceiveCount(track);
-                t.receive_count = if (recv_c >= 0) @intCast(recv_c) else 0;
+                t.receive_count = ffi.clampCount(u16, recv_c);
                 const hw_c = api.trackHwOutputCount(track);
-                t.hw_output_count = if (hw_c >= 0) @intCast(hw_c) else 0;
+                t.hw_output_count = ffi.clampCount(u16, hw_c);
 
                 // GUID for stable identification (master uses literal "master")
                 if (idx == 0) {
@@ -274,8 +275,7 @@ pub const State = struct {
                 } else {
                     var guid_buf: [64]u8 = undefined;
                     const guid = api.formatTrackGuid(track, &guid_buf);
-                    const guid_copy_len = @min(guid.len, 40);
-                    @memcpy(t.guid[0..guid_copy_len], guid[0..guid_copy_len]);
+                    const guid_copy_len = utf8.copyPrefix(t.guid[0..40], guid);
                     t.guid_len = guid_copy_len;
                 }
             } else {
@@ -311,8 +311,7 @@ pub const State = struct {
                 // Get track name
                 var name_buf: [MAX_NAME_LEN]u8 = undefined;
                 const name = api.getTrackNameStr(track, &name_buf);
-                const name_copy_len = @min(name.len, MAX_NAME_LEN);
-                @memcpy(t.name[0..name_copy_len], name[0..name_copy_len]);
+                const name_copy_len = utf8.copyPrefix(t.name[0..MAX_NAME_LEN], name);
                 t.name_len = name_copy_len;
 
                 t.color = api.getTrackColor(track) catch null;
@@ -338,13 +337,13 @@ pub const State = struct {
                 t.folder_depth = api.getTrackFolderDepth(track) catch 0;
 
                 const fx_c = api.trackFxCount(track);
-                t.fx_count = if (fx_c >= 0) @intCast(fx_c) else 0;
+                t.fx_count = ffi.clampCount(u16, fx_c);
                 const send_c = api.trackSendCount(track);
-                t.send_count = if (send_c >= 0) @intCast(send_c) else 0;
+                t.send_count = ffi.clampCount(u16, send_c);
                 const recv_c = api.trackReceiveCount(track);
-                t.receive_count = if (recv_c >= 0) @intCast(recv_c) else 0;
+                t.receive_count = ffi.clampCount(u16, recv_c);
                 const hw_c = api.trackHwOutputCount(track);
-                t.hw_output_count = if (hw_c >= 0) @intCast(hw_c) else 0;
+                t.hw_output_count = ffi.clampCount(u16, hw_c);
 
                 // GUID for stable identification
                 if (idx == 0) {
@@ -354,8 +353,7 @@ pub const State = struct {
                 } else {
                     var guid_buf: [64]u8 = undefined;
                     const guid = api.formatTrackGuid(track, &guid_buf);
-                    const guid_copy_len = @min(guid.len, 40);
-                    @memcpy(t.guid[0..guid_copy_len], guid[0..guid_copy_len]);
+                    const guid_copy_len = utf8.copyPrefix(t.guid[0..40], guid);
                     t.guid_len = guid_copy_len;
                 }
 
@@ -461,12 +459,16 @@ pub const State = struct {
         return stream.getWritten();
     }
 
-    // Allocator-based version - returns owned slice from allocator
-    // Allocates from arena instead of stack to avoid stack overflow in timer callbacks (§1)
+    /// toJson into a buffer grown until the event fits.
     pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator, metering: ?*const MeteringState) ![]const u8 {
-        const buf = try allocator.alloc(u8, 16384);
-        const json = self.toJson(buf, metering) orelse return error.JsonSerializationFailed;
-        return json;
+        const Ctx = struct {
+            state: *const State,
+            metering: ?*const MeteringState,
+            fn toJson(ctx: @This(), buf: []u8) ?[]const u8 {
+                return ctx.state.toJson(buf, ctx.metering);
+            }
+        };
+        return protocol.serializeAlloc(allocator, 200 + self.tracks.len * 600, Ctx{ .state = self, .metering = metering }, Ctx.toJson);
     }
 
     /// Build JSON event with total track count (for viewport-driven subscriptions).
@@ -563,15 +565,19 @@ pub const State = struct {
         return stream.getWritten();
     }
 
-    /// Allocator-based version of toJsonWithTotal - dynamically sized for extreme projects.
-    /// Returns owned slice from allocator.
+    /// toJsonWithTotal into a buffer grown until the event fits.
     pub fn toJsonWithTotalAlloc(self: *const State, allocator: std.mem.Allocator, metering: ?*const MeteringState, total: usize) ![]const u8 {
-        // Estimate: ~600 bytes per track (with GUID) + ~65 bytes per meter + 200 base
+        const Ctx = struct {
+            state: *const State,
+            metering: ?*const MeteringState,
+            total: usize,
+            fn toJson(ctx: @This(), buf: []u8) ?[]const u8 {
+                return ctx.state.toJsonWithTotal(buf, ctx.metering, ctx.total);
+            }
+        };
         const meter_count = if (metering) |m| m.count else 0;
         const estimated_size = 200 + (self.tracks.len * 600) + (meter_count * 65);
-        const buf = try allocator.alloc(u8, estimated_size);
-        const json = self.toJsonWithTotal(buf, metering, total) orelse return error.JsonSerializationFailed;
-        return json; // Return slice of allocated buffer (arena-owned)
+        return protocol.serializeAlloc(allocator, estimated_size, Ctx{ .state = self, .metering = metering, .total = total }, Ctx.toJson);
     }
 };
 
@@ -710,15 +716,17 @@ pub const MeteringState = struct {
         return stream.getWritten();
     }
 
-    /// Allocator-based version of toJsonEvent - dynamically sized for extreme projects.
-    /// Returns owned slice from allocator.
+    /// toJsonEvent into a buffer grown until the event fits.
     pub fn toJsonEventAlloc(self: *const MeteringState, allocator: std.mem.Allocator, track_slice: []const Track) ![]const u8 {
         if (self.count == 0) return error.NoMeteringData;
-        // Estimate: ~100 bytes per meter entry (GUID key + values) + 50 base
-        const estimated_size = 50 + (self.count * 100);
-        const buf = try allocator.alloc(u8, estimated_size);
-        const json = self.toJsonEvent(buf, track_slice) orelse return error.JsonSerializationFailed;
-        return json; // Return slice of allocated buffer (arena-owned)
+        const Ctx = struct {
+            metering: *const MeteringState,
+            tracks: []const Track,
+            fn toJson(ctx: @This(), buf: []u8) ?[]const u8 {
+                return ctx.metering.toJsonEvent(buf, ctx.tracks);
+            }
+        };
+        return protocol.serializeAlloc(allocator, 50 + self.count * 100, Ctx{ .metering = self, .tracks = track_slice }, Ctx.toJson);
     }
 };
 

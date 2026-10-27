@@ -1,8 +1,10 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const protocol = @import("../core/protocol.zig");
 const markers = @import("markers.zig");
 const constants = @import("../core/constants.zig");
 const logging = @import("../core/logging.zig");
+const project_mod = @import("project.zig");
 
 // Maximum playlists per project
 pub const MAX_PLAYLISTS: usize = 16;
@@ -24,6 +26,11 @@ pub const Entry = struct {
     pub fn eql(self: Entry, other: Entry) bool {
         return self.region_id == other.region_id and self.loop_count == other.loop_count;
     }
+
+    /// Whether playback stops on this entry: loop count 0 means "Skip".
+    pub fn isPlayable(self: Entry) bool {
+        return self.loop_count != 0;
+    }
 };
 
 /// A playlist is an ordered list of region entries
@@ -39,8 +46,7 @@ pub const Playlist = struct {
     }
 
     pub fn setName(self: *Playlist, new_name: []const u8) void {
-        const copy_len = @min(new_name.len, MAX_NAME_LEN);
-        @memcpy(self.name[0..copy_len], new_name[0..copy_len]);
+        const copy_len = utf8.copyPrefix(self.name[0..MAX_NAME_LEN], new_name);
         self.name_len = copy_len;
     }
 
@@ -107,6 +113,7 @@ pub const Playlist = struct {
     pub fn eql(self: Playlist, other: Playlist) bool {
         if (self.name_len != other.name_len) return false;
         if (!std.mem.eql(u8, self.name[0..self.name_len], other.name[0..other.name_len])) return false;
+        if (self.stop_after_last != other.stop_after_last) return false;
         if (self.entry_count != other.entry_count) return false;
         for (0..self.entry_count) |i| {
             if (!self.entries[i].eql(other.entries[i])) return false;
@@ -144,7 +151,7 @@ pub const Playlist = struct {
     /// Deserialize from pipe-delimited format
     pub fn deserialize(buf: []const u8) ?Playlist {
         var playlist = Playlist{};
-        const allocator = std.heap.page_allocator;
+        const allocator = std.heap.c_allocator;
 
         // Split on unescaped pipes
         var segments: std.ArrayList([]const u8) = .empty;
@@ -229,8 +236,10 @@ pub const NativeLoopInfo = struct {
     region_end: f64,
 };
 
-/// Info about the next entry (for tick function)
+/// The next entry playback will move to (skipped entries and entries whose
+/// region is gone are passed over), for the tick function.
 pub const NextEntryInfo = struct {
+    entry_idx: usize,
     loop_count: i32,
     region_start: f64,
     region_end: f64,
@@ -342,7 +351,6 @@ pub const Engine = struct {
         region_end: f64,
         region_start: f64,
         next_entry: ?NextEntryInfo,
-        entry_count: usize,
         bar_length: f64,
     ) Action {
         if (self.state != .playing) return .none;
@@ -374,7 +382,7 @@ pub const Engine = struct {
                     // Complete the transition
                     self.next_loop_pending = false;
                     self.advance_after_loop = false;
-                    self.entry_idx += 1;
+                    self.entry_idx = next_e.entry_idx;
                     self.loops_remaining = next_e.loop_count;
                     self.current_loop_iteration = 1;
                     return .broadcast_state;
@@ -408,8 +416,8 @@ pub const Engine = struct {
         const should_advance = self.advance_after_loop or self.loops_remaining == 1;
 
         if (should_advance and !self.next_loop_pending) {
-            // Check if this is the last entry
-            if (self.entry_idx + 1 >= entry_count) {
+            // Nothing playable follows: this is the last entry
+            if (next_entry == null) {
                 // Last entry - stop when we reach the end (use small margin)
                 if (current_pos > region_end - PROACTIVE_MARGIN) {
                     self.state = .idle;
@@ -431,10 +439,12 @@ pub const Engine = struct {
                 const approaching_end = if (is_contiguous)
                     current_pos > region_end - PROACTIVE_MARGIN
                 else blk: {
-                    // Trigger when clearly inside the final measure (not right at boundary)
+                    // Trigger when clearly inside the final measure (not right at
+                    // boundary). A region shorter than a bar (a pickup) has no
+                    // final measure of its own; the trigger stays inside it.
                     const MEASURE_ENTRY_BUFFER: f64 = 0.1; // 100ms past measure start
-                    const final_measure_start = region_end - bar_length;
-                    const trigger_point = final_measure_start + MEASURE_ENTRY_BUFFER;
+                    const final_measure_start = @max(region_end - bar_length, region_start);
+                    const trigger_point = @min(final_measure_start + MEASURE_ENTRY_BUFFER, region_end - PROACTIVE_MARGIN);
                     const was_before = self.prev_pos < trigger_point;
                     const now_past = current_pos >= trigger_point;
                     break :blk was_before and now_past;
@@ -454,32 +464,14 @@ pub const Engine = struct {
         return .none;
     }
 
-    /// Manually advance to next entry
-    pub fn next(self: *Engine, entry_count: usize, next_loop_count: i32) Action {
+    /// Jump to another entry (next, previous, or past a deleted region).
+    pub fn jumpTo(self: *Engine, entry_idx: usize, loop_count: i32) Action {
         if (self.state == .idle) return .none;
-
-        self.entry_idx += 1;
-        if (self.entry_idx >= entry_count) {
-            self.state = .idle;
-            self.advance_after_loop = false;
-            return .stop;
-        }
-
-        self.loops_remaining = next_loop_count;
+        self.entry_idx = entry_idx;
+        self.loops_remaining = loop_count;
         self.current_loop_iteration = 1;
         self.advance_after_loop = false;
-        return .broadcast_state;
-    }
-
-    /// Manually go to previous entry
-    pub fn prev(self: *Engine, prev_loop_count: i32) Action {
-        if (self.state == .idle) return .none;
-        if (self.entry_idx == 0) return .none;
-
-        self.entry_idx -= 1;
-        self.loops_remaining = prev_loop_count;
-        self.current_loop_iteration = 1;
-        self.advance_after_loop = false;
+        self.next_loop_pending = false;
         return .broadcast_state;
     }
 };
@@ -496,6 +488,8 @@ pub const State = struct {
     dirty: bool = false,
     /// Timestamp when dirty flag was set (for debounce)
     dirty_since: f64 = 0,
+    /// The project these playlists were loaded from and are saved to.
+    project: project_mod.Identity = .{},
 
     pub fn addPlaylist(self: *State, name: []const u8) ?usize {
         if (self.playlist_count >= MAX_PLAYLISTS) return null;
@@ -531,6 +525,38 @@ pub const State = struct {
     pub fn getPlaylist(self: *State, idx: usize) ?*Playlist {
         if (idx >= self.playlist_count) return null;
         return &self.playlists[idx];
+    }
+
+    /// Make these the playlists of the project open now. Nothing happens while
+    /// it is the project they were loaded from. When it isn't, playback of
+    /// the old project's playlist ends (repeat and loop points it set are
+    /// cleared), edits not yet saved go to the old project if it is still
+    /// open in another tab (never into the new one: a project replaced in
+    /// the same tab is gone with them), and the new project's playlists are
+    /// loaded. Runs before playlist commands and on the medium tick, so a
+    /// command never edits another project's playlists. Returns true when
+    /// the playlists were replaced.
+    pub fn followProject(self: *State, api: anytype, now: project_mod.Identity) bool {
+        if (!self.project.isDifferentFrom(now)) return false;
+        if (self.engine.isActive()) {
+            _ = self.engine.stop();
+            api.setRepeat(false);
+            api.clearLoopPoints();
+            logging.info("Stopped playlist engine: project changed", .{});
+        }
+        if (self.dirty) {
+            const old = self.project;
+            if (!old.replacedBy(now) and api.validateProjectPtr(old.pointer)) {
+                self.saveAllTo(api, old.pointer);
+            } else {
+                logging.warn("Playlist edits not yet saved were lost: their project was replaced", .{});
+            }
+        }
+        self.reset();
+        self.loadAll(api);
+        self.project = now;
+        logging.info("Loaded {d} playlists for the open project", .{self.playlist_count});
+        return true;
     }
 
     /// Reset all state (clear playlists and stop engine).
@@ -664,20 +690,17 @@ pub const State = struct {
 
     // Allocator-based version - returns owned slice from allocator
     // Allocates buffer from arena (sized for max playlists/entries) instead of stack
+    /// toJson into a buffer grown until the event fits.
     pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator, regions: ?[]const markers.Region) ![]const u8 {
-        // Calculate reasonable buffer size based on actual content
-        // Per entry: ~60 bytes ({"regionId":123,"loopCount":4,"deleted":true})
-        // Per playlist: ~200 bytes header + 60 * entries
-        // Engine state: ~200 bytes
-        const estimated_size = 512 + // Base overhead + engine state
-            self.playlist_count * (256 + 64 * 60);
-        const buf_size = @max(estimated_size, 4096); // Minimum 4KB
-
-        const buf = allocator.alloc(u8, buf_size) catch return error.OutOfMemory;
-        const json = self.toJson(buf, regions) orelse return error.JsonSerializationFailed;
-        // Return the slice - no need to dupe since it's already from the allocator
-        // (though the rest of buf is wasted, arena will reclaim it on swap)
-        return json;
+        const Ctx = struct {
+            state: *const State,
+            regions: ?[]const markers.Region,
+            fn toJson(ctx: @This(), buf: []u8) ?[]const u8 {
+                return ctx.state.toJson(buf, ctx.regions);
+            }
+        };
+        const estimated_size = 512 + self.playlist_count * (256 + 64 * 60);
+        return protocol.serializeAlloc(allocator, estimated_size, Ctx{ .state = self, .regions = regions }, Ctx.toJson);
     }
 
     // =========================================================================
@@ -685,7 +708,7 @@ pub const State = struct {
     // =========================================================================
 
     /// Save a single playlist to ProjExtState
-    pub fn savePlaylist(self: *const State, api: anytype, idx: usize) void {
+    pub fn savePlaylist(self: *const State, api: anytype, project: ?*anyopaque, idx: usize) void {
         if (idx >= self.playlist_count) return;
 
         // Build key: "Playlist_0", "Playlist_1", etc.
@@ -705,39 +728,44 @@ pub const State = struct {
         @memcpy(value_z_buf[0..value.len], value);
         value_z_buf[value.len] = 0;
 
-        api.setProjExtStateValue("Reamo", key, value_z_buf[0..value.len :0]);
+        api.setProjExtStateValueIn(project, "Reamo", key, value_z_buf[0..value.len :0]);
     }
 
     /// Clear a playlist from ProjExtState (for deletion)
-    pub fn clearPlaylist(api: anytype, idx: usize) void {
+    pub fn clearPlaylist(api: anytype, project: ?*anyopaque, idx: usize) void {
         var key_buf: [32]u8 = undefined;
         const key = std.fmt.bufPrintZ(&key_buf, "Playlist_{d}", .{idx}) catch {
             logging.warn("playlist: clearPlaylist key format failed for idx={d}", .{idx});
             return;
         };
         // Setting empty string clears the key
-        api.setProjExtStateValue("Reamo", key, "");
+        api.setProjExtStateValueIn(project, "Reamo", key, "");
     }
 
     /// Save playlist count to ProjExtState
-    pub fn savePlaylistCount(self: *const State, api: anytype) void {
+    pub fn savePlaylistCount(self: *const State, api: anytype, project: ?*anyopaque) void {
         var count_buf: [16]u8 = undefined;
         const count_str = std.fmt.bufPrintZ(&count_buf, "{d}", .{self.playlist_count}) catch {
             logging.warn("playlist: savePlaylistCount format failed for count={d}", .{self.playlist_count});
             return;
         };
-        api.setProjExtStateValue("Reamo", "PlaylistCount", count_str);
+        api.setProjExtStateValueIn(project, "Reamo", "PlaylistCount", count_str);
     }
 
-    /// Save all playlists to ProjExtState
+    /// Save all playlists to the current project's ProjExtState
     pub fn saveAll(self: *const State, api: anytype) void {
-        self.savePlaylistCount(api);
+        self.saveAllTo(api, null);
+    }
+
+    /// Save all playlists into `project` (null = the current project tab).
+    pub fn saveAllTo(self: *const State, api: anytype, project: ?*anyopaque) void {
+        self.savePlaylistCount(api, project);
         for (0..self.playlist_count) |i| {
-            self.savePlaylist(api, i);
+            self.savePlaylist(api, project, i);
         }
         // Clear any stale playlists beyond current count
         for (self.playlist_count..MAX_PLAYLISTS) |i| {
-            clearPlaylist(api, i);
+            clearPlaylist(api, project, i);
         }
     }
 
@@ -767,6 +795,10 @@ pub const State = struct {
         };
 
         const count = std.fmt.parseInt(usize, count_str, 10) catch {
+            // The next playlist edit saves a count of 0 and clears the
+            // Playlist_N keys, so say so (the key, never the values: those
+            // hold the user's playlist names).
+            logging.warn("This project's Reamo/PlaylistCount isn't a number; its playlists aren't loaded, and editing playlists will replace them", .{});
             self.playlist_count = 0;
             return;
         };
@@ -884,7 +916,7 @@ test "Engine tick - proactive loop setup on final loop (contiguous)" {
 
     // Next region starts where current ends (contiguous) - margin is 0.15s
     // Position 9.9 is within 0.15s of region_end (10.0), should trigger setup
-    const action1 = engine.tick(9.9, 10.0, 0.0, .{ .loop_count = 1, .region_start = 10.0, .region_end = 20.0 }, 2, bar_length);
+    const action1 = engine.tick(9.9, 10.0, 0.0, .{ .entry_idx = 1, .loop_count = 1, .region_start = 10.0, .region_end = 20.0 }, bar_length);
     try std.testing.expectEqual(Action{ .setup_native_loop = .{ .region_start = 10.0, .region_end = 20.0 } }, action1);
     try std.testing.expect(engine.next_loop_pending);
 }
@@ -898,7 +930,7 @@ test "Engine tick - proactive loop setup on final loop (non-contiguous)" {
     // Next region starts at 15.0, not contiguous with current end (10.0)
     // Should trigger setup when within bar_length (2.0s) of end
     // Position 8.5 is within 2.0s of region_end (10.0), should trigger setup
-    const action1 = engine.tick(8.5, 10.0, 0.0, .{ .loop_count = 1, .region_start = 15.0, .region_end = 20.0 }, 2, bar_length);
+    const action1 = engine.tick(8.5, 10.0, 0.0, .{ .entry_idx = 1, .loop_count = 1, .region_start = 15.0, .region_end = 20.0 }, bar_length);
     try std.testing.expectEqual(Action{ .setup_native_loop = .{ .region_start = 15.0, .region_end = 20.0 } }, action1);
     try std.testing.expect(engine.next_loop_pending);
 }
@@ -910,7 +942,7 @@ test "Engine infinite loop with advance after" {
     const bar_length = 2.0;
 
     // Should not advance yet (infinite loop, no advance flag)
-    const action1 = engine.tick(9.9, 10.0, 0.0, .{ .loop_count = 1, .region_start = 10.0, .region_end = 20.0 }, 2, bar_length);
+    const action1 = engine.tick(9.9, 10.0, 0.0, .{ .entry_idx = 1, .loop_count = 1, .region_start = 10.0, .region_end = 20.0 }, bar_length);
     try std.testing.expectEqual(Action.none, action1);
 
     // Set advance flag
@@ -918,7 +950,7 @@ test "Engine infinite loop with advance after" {
     try std.testing.expect(engine.advance_after_loop);
 
     // Should now trigger setup_native_loop
-    const action2 = engine.tick(9.9, 10.0, 0.0, .{ .loop_count = 1, .region_start = 10.0, .region_end = 20.0 }, 2, bar_length);
+    const action2 = engine.tick(9.9, 10.0, 0.0, .{ .entry_idx = 1, .loop_count = 1, .region_start = 10.0, .region_end = 20.0 }, bar_length);
     try std.testing.expectEqual(Action{ .setup_native_loop = .{ .region_start = 10.0, .region_end = 20.0 } }, action2);
 }
 
@@ -928,29 +960,106 @@ test "Engine tick - duplicate region entries (same region twice in playlist)" {
 
     const bar_length = 2.0;
     // Both entries use the SAME region (0-10)
-    const same_region_next = NextEntryInfo{ .loop_count = 1, .region_start = 0.0, .region_end = 10.0 };
+    const same_region_next = NextEntryInfo{ .entry_idx = 1, .loop_count = 1, .region_start = 0.0, .region_end = 10.0 };
 
     // Position 5: mid-playback of entry 0, approaching end triggers proactive setup
-    var action = engine.tick(5.0, 10.0, 0.0, same_region_next, 2, bar_length);
+    var action = engine.tick(5.0, 10.0, 0.0, same_region_next, bar_length);
     try std.testing.expectEqual(Action.none, action);
     try std.testing.expectEqual(@as(usize, 0), engine.entry_idx);
 
     // Position 9.9: near end, should trigger setup_native_loop
-    action = engine.tick(9.9, 10.0, 0.0, same_region_next, 2, bar_length);
+    action = engine.tick(9.9, 10.0, 0.0, same_region_next, bar_length);
     try std.testing.expectEqual(Action{ .setup_native_loop = .{ .region_start = 0.0, .region_end = 10.0 } }, action);
     try std.testing.expect(engine.next_loop_pending);
     try std.testing.expectEqual(@as(usize, 0), engine.entry_idx); // Still on entry 0!
 
     // Position 9.95: still near end, waiting for wrap-around - should NOT advance yet
-    action = engine.tick(9.95, 10.0, 0.0, same_region_next, 2, bar_length);
+    action = engine.tick(9.95, 10.0, 0.0, same_region_next, bar_length);
     try std.testing.expectEqual(Action.none, action);
     try std.testing.expectEqual(@as(usize, 0), engine.entry_idx); // Still on entry 0!
 
     // Position 0.02: wrapped around to start (within BOUNDARY_EPSILON), NOW we should advance to entry 1
-    action = engine.tick(0.02, 10.0, 0.0, same_region_next, 2, bar_length);
+    action = engine.tick(0.02, 10.0, 0.0, same_region_next, bar_length);
     try std.testing.expectEqual(Action.broadcast_state, action);
     try std.testing.expectEqual(@as(usize, 1), engine.entry_idx); // Now on entry 1!
     try std.testing.expect(!engine.next_loop_pending);
+}
+
+test "Engine passes over a skipped entry to the next playable one" {
+    // Intro x1, Verse skipped, Outro x1: after Intro's last loop the engine
+    // sets up Outro (entry 2), not the skipped Verse.
+    var engine = Engine{};
+    _ = engine.play(0, 1);
+    const outro = NextEntryInfo{ .entry_idx = 2, .loop_count = 1, .region_start = 20.0, .region_end = 30.0 };
+    const setup = engine.tick(9.95, 10.0, 0.0, outro, 2.0);
+    try std.testing.expect(setup == .setup_native_loop);
+    try std.testing.expectEqual(@as(f64, 20.0), setup.setup_native_loop.region_start);
+    _ = engine.tick(20.05, 10.0, 0.0, outro, 2.0);
+    try std.testing.expectEqual(@as(usize, 2), engine.entry_idx);
+}
+
+test "Engine stops after the last playable entry even when skipped entries follow" {
+    var engine = Engine{};
+    _ = engine.play(0, 1);
+    try std.testing.expect(engine.tick(5.0, 10.0, 0.0, null, 2.0) == .none);
+    try std.testing.expect(engine.tick(9.9, 10.0, 0.0, null, 2.0) == .stop);
+}
+
+test "Engine moves on from a region shorter than a bar to a non-adjacent one" {
+    // A 1 s pickup at 120 BPM (2 s bars), then the song at 4 s.
+    var engine = Engine{};
+    _ = engine.play(0, 1);
+    const song = NextEntryInfo{ .entry_idx = 1, .loop_count = 1, .region_start = 4.0, .region_end = 12.0 };
+    var setup = false;
+    var t: f64 = 0.0;
+    while (t < 1.0) : (t += 1.0 / 30.0) {
+        if (engine.tick(t, 1.0, 0.0, song, 2.0) == .setup_native_loop) setup = true;
+    }
+    try std.testing.expect(setup);
+}
+
+test "Playlist equality sees the stop-after-last switch" {
+    var a = Playlist{};
+    a.setName("Gig");
+    var b = a;
+    b.stop_after_last = !a.stop_after_last;
+    try std.testing.expect(!a.eql(b));
+}
+
+test "followProject keeps the playlists while the same project stays open" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{};
+    var state = State{ .project = .{ .pointer = @ptrFromInt(0x1000), .loads = 2, .has_path = true } };
+    _ = state.addPlaylist("Gig");
+    try std.testing.expect(!state.followProject(&m, .{ .pointer = @ptrFromInt(0x1000), .loads = 2, .has_path = true }));
+    try std.testing.expectEqual(@as(usize, 1), state.playlist_count);
+}
+
+test "followProject saves pending edits into the tab being left, never into the new project" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{ .project_pointer = @ptrFromInt(0x2000) };
+    var state = State{ .project = .{ .pointer = @ptrFromInt(0x1000), .loads = 2, .has_path = true } };
+    _ = state.addPlaylist("Gig");
+    state.markDirty(0);
+    _ = state.engine.play(0, 1);
+
+    try std.testing.expect(state.followProject(&m, .{ .pointer = @ptrFromInt(0x2000), .loads = 2, .has_path = true }));
+    try std.testing.expect(m.extstate_writes_to_other_project > 0);
+    try std.testing.expect(!state.engine.isActive());
+    try std.testing.expect(!state.dirty);
+    try std.testing.expectEqual(@as(usize, 0), state.playlist_count); // the new project has none
+}
+
+test "followProject writes nothing anywhere when the project was replaced in the same tab" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{ .project_pointer = @ptrFromInt(0x1000) };
+    var state = State{ .project = .{ .pointer = @ptrFromInt(0x1000), .loads = 2, .has_path = true } };
+    _ = state.addPlaylist("Gig");
+    state.markDirty(0);
+
+    try std.testing.expect(state.followProject(&m, .{ .pointer = @ptrFromInt(0x1000), .loads = 3, .has_path = true }));
+    try std.testing.expectEqual(@as(usize, 0), m.extstate_writes_to_other_project);
+    try std.testing.expectEqual(@as(usize, 0), m.ext_state_count); // nothing written into the new project
 }
 
 test "State toJson" {

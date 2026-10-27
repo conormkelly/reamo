@@ -1,4 +1,5 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
@@ -35,12 +36,7 @@ pub fn resolveTrack(api: anytype, cmd: protocol.CommandMessage) ?TrackResolution
     const guid = cmd.getString("trackGuid") orelse return null;
     const cache = mod.g_ctx.guid_cache orelse return null;
 
-    const track = cache.resolve(guid) orelse return null;
-
-    // Validate the pointer is still valid (O(n) scan for safety after track deletion)
-    if (!api.validateTrackPtr(track)) {
-        return null; // Stale GUID - track was deleted
-    }
+    const track = cache.resolve(api, guid) orelse return null;
 
     // Get the index for gesture tracking
     const idx = api.getTrackIdx(track);
@@ -114,7 +110,7 @@ pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.
     // Toggle if no explicit value
     // For master track (idx=0), use GetMasterMuteSoloFlags for reliable state
     const current_mute = if (resolution.idx == 0) api.isMasterMuted() else api.getTrackMute(resolution.track);
-    const mute = if (cmd.getInt("mute")) |v| v != 0 else !current_mute;
+    const mute = cmd.getFlag("mute") orelse !current_mute;
     // Use CSurf API - properly handles master track unlike SetMediaTrackInfo_Value
     if (api.csurfSetMute(resolution.track, mute, true)) {
         logging.debug("Set track mute to {}", .{mute});
@@ -183,7 +179,7 @@ pub fn handleSetRecArm(api: anytype, cmd: protocol.CommandMessage, response: *mo
         response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
-    const arm = if (cmd.getInt("arm")) |v| v != 0 else !api.getTrackRecArm(resolution.track);
+    const arm = cmd.getFlag("arm") orelse !api.getTrackRecArm(resolution.track);
     // Use CSurf API for gang support
     if (api.csurfSetRecArm(resolution.track, arm, true)) {
         logging.debug("Set track rec arm to {}", .{arm});
@@ -222,7 +218,7 @@ pub fn handleSetFxEnabled(api: anytype, cmd: protocol.CommandMessage, response: 
         response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
-    const enabled = if (cmd.getInt("enabled")) |v| v != 0 else !api.getTrackFxEnabled(resolution.track);
+    const enabled = cmd.getFlag("enabled") orelse !api.getTrackFxEnabled(resolution.track);
     if (api.setTrackFxEnabled(resolution.track, enabled)) {
         logging.debug("Set track FX enabled to {}", .{enabled});
     }
@@ -236,7 +232,7 @@ pub fn handleSetSelected(api: anytype, cmd: protocol.CommandMessage, response: *
         response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
-    const selected = if (cmd.getInt("selected")) |v| v != 0 else !api.getTrackSelected(resolution.track);
+    const selected = cmd.getFlag("selected") orelse !api.getTrackSelected(resolution.track);
     if (api.setTrackSelected(resolution.track, selected)) {
         logging.debug("Set track selected to {}", .{selected});
     }
@@ -304,7 +300,14 @@ pub fn handleRename(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         return;
     };
 
-    if (api.setTrackName(resolution.track, name)) {
+    // Setting P_NAME makes no undo point by itself; without one the user's
+    // next undo would also revert whatever they did before the rename.
+    api.undoBeginBlock();
+    const renamed = api.setTrackName(resolution.track, name);
+    var undo_buf: [256:0]u8 = undefined;
+    api.undoEndBlock(trackUndoDesc(api, &undo_buf, "Rename track", resolution));
+
+    if (renamed) {
         logging.debug("Renamed track {d}", .{resolution.idx});
         response.success(null);
     } else {
@@ -326,15 +329,8 @@ pub fn handleSetColor(api: anytype, cmd: protocol.CommandMessage, response: *mod
         return;
     };
 
-    // Build descriptive undo message
-    var track_name_buf: [128]u8 = undefined;
     var undo_buf: [256:0]u8 = undefined;
-    const track_name = api.getTrackNameStr(resolution.track, &track_name_buf);
-
-    const undo_desc: [*:0]const u8 = if (resolution.idx == 0)
-        std.fmt.bufPrintZ(&undo_buf, "REAmo: Set track color: Master", .{}) catch "REAmo: Set track color"
-    else
-        std.fmt.bufPrintZ(&undo_buf, "REAmo: Set track color: Track {d} {s}", .{ resolution.idx, track_name }) catch "REAmo: Set track color";
+    const undo_desc = trackUndoDesc(api, &undo_buf, "Set track color", resolution);
 
     api.undoBeginBlock();
     api.setTrackColor(resolution.track, color);
@@ -342,6 +338,15 @@ pub fn handleSetColor(api: anytype, cmd: protocol.CommandMessage, response: *mod
 
     logging.debug("Set color for track {d} to {d}", .{ resolution.idx, color });
     response.success(null);
+}
+
+/// "REAmo: <action>: Track N <name>" (or ": Master"), as REAPER's undo
+/// history and the clients' undo toast show it.
+fn trackUndoDesc(api: anytype, buf: *[256:0]u8, comptime action: []const u8, res: TrackResolution) [*:0]const u8 {
+    if (res.idx == 0) return std.fmt.bufPrintZ(buf, "REAmo: " ++ action ++ ": Master", .{}) catch "REAmo: " ++ action;
+    var name_buf: [128]u8 = undefined;
+    const name = api.getTrackNameStr(res.track, &name_buf);
+    return std.fmt.bufPrintZ(buf, "REAmo: " ++ action ++ ": Track {d} {s}", .{ res.idx, utf8.prefix(name, 200) }) catch "REAmo: " ++ action;
 }
 
 // Create a new track
@@ -366,6 +371,9 @@ pub fn handleCreate(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         break :blk current_count;
     };
 
+    // One undo step for the insert and its name (neither makes one itself).
+    api.undoBeginBlock();
+
     // Insert the track (wantDefaults=true for normal track settings)
     api.insertTrack(insert_idx, true);
 
@@ -381,6 +389,7 @@ pub fn handleCreate(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
             }
         }
     }
+    api.undoEndBlock("REAmo: Insert track");
 
     // Return the new track index
     var resp_buf: [64]u8 = undefined;
@@ -436,9 +445,9 @@ pub fn handleDuplicate(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     }
 
-    // Find the unified index of the new track
-    // The duplicate is inserted immediately after the source, so it's at track_idx + 1
-    const new_unified_idx = resolution.idx + 1;
+    // REAPER places the copy after the source's whole folder, not always at
+    // source + 1, and leaves it selected.
+    const new_unified_idx = api.getTrackIdx(new_track.?);
 
     // Return the new track index
     var resp_buf: [64]u8 = undefined;
@@ -464,8 +473,12 @@ pub fn handleDelete(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         return;
     }
 
-    // Delete the track (REAPER creates undo point automatically)
+    // DeleteTrack makes no undo point by itself.
+    var undo_buf: [256:0]u8 = undefined;
+    const undo_desc = trackUndoDesc(api, &undo_buf, "Delete track", resolution);
+    api.undoBeginBlock();
     api.deleteTrackPtr(resolution.track);
+    api.undoEndBlock(undo_desc);
 
     logging.debug("Deleted track {d}", .{resolution.idx});
     response.success(null);

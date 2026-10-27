@@ -1,0 +1,5 @@
+dofile(reaper.GetResourcePath() .. "/Scripts/harness.lua")
+local t = harness.track("Bass")
+reaper.TrackFX_AddByName(t, "JS:sstillwell/rbj7eq", false, -1)
+harness.oracle("params", reaper.TrackFX_GetNumParams(t, 0))
+harness.ready()

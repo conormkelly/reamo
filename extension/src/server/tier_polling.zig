@@ -43,8 +43,8 @@ const commands = @import("../commands/mod.zig");
 const item_guid_cache = @import("../state/item_guid_cache.zig");
 
 // Constants
-pub const MEDIUM_TIER_INTERVAL: u32 = 6; // 30Hz / 6 = 5Hz
-pub const LOW_TIER_INTERVAL: u32 = 30; // 30Hz / 30 = 1Hz
+pub const MEDIUM_TIER_INTERVAL = tiered_state.MEDIUM_TIER_INTERVAL; // 30Hz / 6 = 5Hz
+pub const LOW_TIER_INTERVAL = tiered_state.LOW_TIER_INTERVAL; // 30Hz / 30 = 1Hz
 
 /// Context shared across all tier polling functions.
 /// Contains references to infrastructure needed for polling and broadcasting.
@@ -100,6 +100,28 @@ pub const MutableState = struct {
     playlist_state: *playlist.State,
 };
 
+/// Logs when a polled list reaches the cap on what phones are sent, and when
+/// it falls back under: a project past a cap otherwise loses the rest on
+/// every phone without a trace, polled 5 times a second.
+const CapLatch = struct {
+    capped: bool = false,
+
+    fn update(self: *CapLatch, what: []const u8, len: usize, cap: usize) void {
+        const capped = len >= cap;
+        if (capped == self.capped) return;
+        self.capped = capped;
+        if (capped) {
+            logging.warn("The project has {d} or more {s}; phones get the first {d}", .{ cap, what, cap });
+        } else {
+            logging.info("All the project's {s} reach phones again", .{what});
+        }
+    }
+};
+
+var g_markers_cap: CapLatch = .{};
+var g_regions_cap: CapLatch = .{};
+var g_items_cap: CapLatch = .{};
+
 /// Result from HIGH tier polling.
 /// Contains transport state for use by playlist engine in main.zig.
 pub const HighTierResult = struct {
@@ -112,24 +134,6 @@ pub const HighTierResult = struct {
 // ============================================================================
 // Helper functions (moved from main.zig)
 // ============================================================================
-
-/// Compare marker slices for change detection
-fn markersSliceEql(a: []const markers.Marker, b: []const markers.Marker) bool {
-    if (a.len != b.len) return false;
-    for (a, b) |*marker_a, *marker_b| {
-        if (!marker_a.eql(marker_b)) return false;
-    }
-    return true;
-}
-
-/// Compare region slices for change detection
-fn regionsSliceEql(a: []const markers.Region, b: []const markers.Region) bool {
-    if (a.len != b.len) return false;
-    for (a, b) |*region_a, *region_b| {
-        if (!region_a.eql(region_b)) return false;
-    }
-    return true;
-}
 
 /// Compare item slices for change detection
 fn itemsSliceEql(a: []const items.Item, b: []const items.Item) bool {
@@ -243,7 +247,7 @@ pub fn pollHighTier(
             if (csurf.enabled and hash_changed and !csurf_track_dirty and !force_broadcast) {
                 const now_ms = std.time.milliTimestamp();
                 if (now_ms - mutable.last_drift_log_time.* > 1000) {
-                    logging.warn("Track state drift detected without dirty flag (undo/selection/FX drag?)", .{});
+                    logging.debug("Track state drift detected without dirty flag (undo/selection/FX drag?)", .{});
                     mutable.last_drift_log_time.* = now_ms;
                 }
             }
@@ -289,7 +293,7 @@ pub fn pollHighTier(
         if (csurf.enabled and hash_changed and !csurf_track_dirty) {
             const now_ms = std.time.milliTimestamp();
             if (now_ms - mutable.last_drift_log_time.* > 1000) {
-                logging.warn("Track state drift detected without dirty flag (undo/selection/FX drag?)", .{});
+                logging.debug("Track state drift detected without dirty flag (undo/selection/FX drag?)", .{});
                 mutable.last_drift_log_time.* = now_ms;
             }
         }
@@ -350,8 +354,13 @@ pub fn pollMediumTier(
 fn pollMarkersImmediate(ctx: *const TierContext, mutable: *MutableState) !void {
     const medium_alloc = ctx.tiered.medium.currentAllocator();
     const medium_state = ctx.tiered.medium.currentState();
-    const medium_prev = ctx.tiered.medium.previousState();
     const scratch = ctx.scratchAllocator();
+
+    // Compare with this period's latest poll, which is what clients last
+    // heard, not with the previous period's: an edit undone within one
+    // period would otherwise match the previous period and never be sent,
+    // leaving clients showing the edit.
+    const last_sent = medium_state.*;
 
     // Poll markers/regions into MEDIUM arena
     const marker_state = markers.State.poll(medium_alloc, ctx.backend) catch |err| {
@@ -362,29 +371,7 @@ fn pollMarkersImmediate(ctx: *const TierContext, mutable: *MutableState) !void {
     medium_state.regions = marker_state.regions;
     medium_state.bar_offset = marker_state.bar_offset;
 
-    // Broadcast markers if changed
-    if (!markersSliceEql(medium_state.markers, medium_prev.markers)) {
-        const temp_marker_state = markers.State{
-            .markers = medium_state.markers,
-            .regions = medium_state.regions,
-            .bar_offset = medium_state.bar_offset,
-        };
-        if (temp_marker_state.markersToJsonAlloc(scratch)) |json| {
-            ctx.shared_state.broadcast(json);
-        } else |_| {}
-    }
-
-    // Broadcast regions if changed
-    if (!regionsSliceEql(medium_state.regions, medium_prev.regions)) {
-        const temp_marker_state = markers.State{
-            .markers = medium_state.markers,
-            .regions = medium_state.regions,
-            .bar_offset = medium_state.bar_offset,
-        };
-        if (temp_marker_state.regionsToJsonAlloc(scratch)) |json| {
-            ctx.shared_state.broadcast(json);
-        } else |_| {}
-    }
+    broadcastMarkersIfChanged(ctx, medium_state, &last_sent, scratch);
 
     // Update g_last_markers cache for playlist engine
     updateMarkersCache(mutable, medium_state.markers, medium_state.regions, medium_state.bar_offset);
@@ -405,16 +392,9 @@ fn pollMediumTierRegular(ctx: *const TierContext, mutable: *MutableState) !void 
 
     // Check for project identity change
     if (medium_prev.project.projectChanged(&medium_state.project)) {
-        logging.info("Project changed: {s}", .{
-            if (medium_state.project.projectName().len > 0) medium_state.project.projectName() else "(Unsaved)",
-        });
-
-        // Stop playlist engine if playing
-        if (mutable.playlist_state.engine.isActive()) {
-            _ = mutable.playlist_state.engine.stop();
-            ctx.backend.clearLoopPoints();
-            logging.info("Stopped playlist engine due to project change", .{});
-        }
+        // The name is the user's (often a client's or artist's): debug only.
+        logging.info("Project changed ({s})", .{if (medium_state.project.projectName().len > 0) "saved project" else "unsaved project"});
+        logging.debug("Project name: {s}", .{medium_state.project.projectName()});
 
         // Resize arenas if new project has significantly different entity counts
         const new_counts = tiered_state.EntityCounts.countFromApi(ctx.backend);
@@ -430,24 +410,15 @@ fn pollMediumTierRegular(ctx: *const TierContext, mutable: *MutableState) !void 
                 logging.info("Resizing arenas: {s}", .{sizes_str});
             }
 
-            ctx.tiered.resize(ctx.allocator, new_sizes) catch |err| {
-                logging.err("Failed to resize arenas: {s}", .{@errorName(err)});
-            };
-            logging.info("Arena resize complete: {d}MB total", .{new_sizes.totalAllocated() >> 20});
+            // This poll holds state from the arenas, so the resize waits for
+            // the next frame boundary.
+            ctx.tiered.requestResize(new_sizes);
         }
 
-        // Flush pending playlist changes to old project
-        if (mutable.playlist_state.dirty) {
-            mutable.playlist_state.saveAll(ctx.backend);
-            mutable.playlist_state.dirty = false;
-        }
+    }
 
-        // Reload playlists from new project
-        mutable.playlist_state.reset();
-        mutable.playlist_state.loadAll(ctx.backend);
-        logging.info("Loaded {d} playlists from new project", .{mutable.playlist_state.playlist_count});
-
-        // Broadcast updated playlist state
+    // Playlists belong to the project now open (usually a no-op; see followProject).
+    if (mutable.playlist_state.followProject(ctx.backend, medium_state.project.identity())) {
         if (mutable.playlist_state.toJsonAlloc(scratch, null)) |json| {
             ctx.shared_state.broadcast(json);
         } else |_| {}
@@ -471,30 +442,10 @@ fn pollMediumTierRegular(ctx: *const TierContext, mutable: *MutableState) !void 
     medium_state.markers = marker_state.markers;
     medium_state.regions = marker_state.regions;
     medium_state.bar_offset = marker_state.bar_offset;
+    g_markers_cap.update("markers", marker_state.markers.len, markers.MAX_MARKERS);
+    g_regions_cap.update("regions", marker_state.regions.len, markers.MAX_REGIONS);
 
-    // Broadcast markers if changed
-    if (!markersSliceEql(medium_state.markers, medium_prev.markers)) {
-        const temp_marker_state = markers.State{
-            .markers = medium_state.markers,
-            .regions = medium_state.regions,
-            .bar_offset = medium_state.bar_offset,
-        };
-        if (temp_marker_state.markersToJsonAlloc(scratch)) |json| {
-            ctx.shared_state.broadcast(json);
-        } else |_| {}
-    }
-
-    // Broadcast regions if changed
-    if (!regionsSliceEql(medium_state.regions, medium_prev.regions)) {
-        const temp_marker_state = markers.State{
-            .markers = medium_state.markers,
-            .regions = medium_state.regions,
-            .bar_offset = medium_state.bar_offset,
-        };
-        if (temp_marker_state.regionsToJsonAlloc(scratch)) |json| {
-            ctx.shared_state.broadcast(json);
-        } else |_| {}
-    }
+    broadcastMarkersIfChanged(ctx, medium_state, medium_prev, scratch);
 
     // Update markers cache for playlist engine
     updateMarkersCache(mutable, medium_state.markers, medium_state.regions, medium_state.bar_offset);
@@ -507,6 +458,7 @@ fn pollMediumTierRegular(ctx: *const TierContext, mutable: *MutableState) !void 
         return err;
     };
     medium_state.items = item_state.items;
+    g_items_cap.update("items", item_state.items.len, items.MAX_ITEMS);
 
     // Rebuild item GUID cache
     if (ctx.item_cache_ptr) |icache| {
@@ -569,6 +521,29 @@ fn pollMediumTierRegular(ctx: *const TierContext, mutable: *MutableState) !void 
     }
 }
 
+/// Broadcast the markers and regions events whose content differs from the
+/// previous medium-tier poll.
+fn broadcastMarkersIfChanged(
+    ctx: *const TierContext,
+    cur: *const tiered_state.MediumTierState,
+    prev: *const tiered_state.MediumTierState,
+    scratch: std.mem.Allocator,
+) void {
+    const cur_view = markers.State{ .markers = cur.markers, .regions = cur.regions, .bar_offset = cur.bar_offset };
+    const prev_view = markers.State{ .markers = prev.markers, .regions = prev.regions, .bar_offset = prev.bar_offset };
+
+    if (cur_view.markersChanged(&prev_view)) {
+        if (cur_view.markersToJsonAlloc(scratch)) |json| {
+            ctx.shared_state.broadcast(json);
+        } else |_| {}
+    }
+    if (cur_view.regionsChanged(&prev_view)) {
+        if (cur_view.regionsToJsonAlloc(scratch)) |json| {
+            ctx.shared_state.broadcast(json);
+        } else |_| {}
+    }
+}
+
 /// Update the persistent markers cache for playlist engine.
 fn updateMarkersCache(
     mutable: *MutableState,
@@ -617,13 +592,28 @@ pub fn pollLowTier(
 
 /// Immediate tempo poll when CSurf dirty flag is set.
 fn pollTempoImmediate(ctx: *const TierContext) !void {
-    const low_state = ctx.tiered.low.currentState();
-    const low_prev = ctx.tiered.low.previousState();
+    // This period's latest poll is what clients last heard (see
+    // pollMarkersImmediate).
+    pollTempoMap(ctx, ctx.tiered.low.currentState().tempomap);
+}
 
-    low_state.tempomap = tempomap.State.poll(ctx.backend);
-    if (low_state.tempomap.changed(&low_prev.tempomap)) {
-        const scratch = ctx.scratchAllocator();
-        if (low_state.tempomap.toJsonAlloc(scratch)) |json| {
+/// Poll the tempo map and broadcast it if it differs from `last_sent`. The
+/// markers go in the frame's scratch arena; the low tier keeps only their
+/// summary.
+fn pollTempoMap(ctx: *const TierContext, last_sent: tempomap.Summary) void {
+    const low_state = ctx.tiered.low.currentState();
+    const scratch = ctx.scratchAllocator();
+
+    const tempo = tempomap.State.poll(scratch, ctx.backend) catch |err| {
+        logging.err("Tempo map poll failed: {s}", .{@errorName(err)});
+        return;
+    };
+    // Decide before storing the summary: `last_sent` may be the very field
+    // being overwritten (Zig can pass a struct parameter by reference).
+    const changed = tempo.changed(last_sent);
+    low_state.tempomap = tempo.summary();
+    if (changed) {
+        if (tempo.toJsonAlloc(scratch)) |json| {
             ctx.shared_state.broadcast(json);
         } else |_| {}
     }
@@ -635,20 +625,12 @@ fn pollLowTierRegular(
     mutable: *MutableState,
     notes_buf: *[256]u8,
 ) !void {
-    const low_state = ctx.tiered.low.currentState();
-    const low_prev = ctx.tiered.low.previousState();
     const low_alloc = ctx.tiered.low.currentAllocator();
 
     // ========================================================================
     // Tempomap
     // ========================================================================
-    low_state.tempomap = tempomap.State.poll(ctx.backend);
-    if (low_state.tempomap.changed(&low_prev.tempomap)) {
-        const scratch = ctx.scratchAllocator();
-        if (low_state.tempomap.toJsonAlloc(scratch)) |json| {
-            ctx.shared_state.broadcast(json);
-        } else |_| {}
-    }
+    pollTempoMap(ctx, ctx.tiered.low.previousState().tempomap);
 
     // ========================================================================
     // Track skeleton
@@ -672,22 +654,24 @@ fn pollLowTierRegular(
             ctx.shared_state.broadcast(json);
         } else |_| {}
 
-        logging.info("Track skeleton changed: {d} tracks", .{current_skeleton.count()});
+        logging.debug("Track skeleton changed: {d} tracks", .{current_skeleton.count()});
     }
 
-    // Update persistent skeleton state for next comparison
-    if (current_skeleton.tracks.len <= tracks.MAX_TRACKS) {
-        if (mutable.last_skeleton_buf.len < current_skeleton.tracks.len) {
-            // Reallocate if needed
-            if (mutable.last_skeleton_buf.len > 0) {
-                ctx.allocator.free(mutable.last_skeleton_buf.*);
-            }
-            mutable.last_skeleton_buf.* = ctx.allocator.alloc(track_skeleton.SkeletonTrack, current_skeleton.tracks.len) catch &.{};
+    // Keep a copy for the next comparison: current_skeleton lives in the low
+    // tier's arena, which is reset before the next poll. If the copy can't
+    // be made, the next poll sees a change and broadcasts again.
+    const n = current_skeleton.tracks.len;
+    if (mutable.last_skeleton_buf.len < n) {
+        if (ctx.allocator.alloc(track_skeleton.SkeletonTrack, n)) |grown| {
+            if (mutable.last_skeleton_buf.len > 0) ctx.allocator.free(mutable.last_skeleton_buf.*);
+            mutable.last_skeleton_buf.* = grown;
+        } else |err| {
+            logging.warn("Track skeleton: can't keep a copy of {d} tracks ({s}); it will be resent every poll", .{ n, @errorName(err) });
         }
-        if (mutable.last_skeleton_buf.len >= current_skeleton.tracks.len) {
-            @memcpy(mutable.last_skeleton_buf.*[0..current_skeleton.tracks.len], current_skeleton.tracks);
-            mutable.last_skeleton.tracks = mutable.last_skeleton_buf.*[0..current_skeleton.tracks.len];
-        }
+    }
+    if (mutable.last_skeleton_buf.len >= n) {
+        @memcpy(mutable.last_skeleton_buf.*[0..n], current_skeleton.tracks);
+        mutable.last_skeleton.tracks = mutable.last_skeleton_buf.*[0..n];
     }
 
     // ========================================================================
