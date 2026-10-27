@@ -4,7 +4,7 @@
  */
 
 import { useState, type ReactElement } from 'react';
-import { useReaper } from '../../ReaperProvider';
+import { useReaper } from '../../../hooks/useReaper';
 import { useTrack } from '../../../hooks/useTrack';
 import { hw as hwCmd, gesture } from '../../../core/WebSocketCommands';
 import { HorizontalRoutingFader } from './HorizontalRoutingFader';

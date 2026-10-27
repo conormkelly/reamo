@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback, useRef, type ReactElement } from 'rea
 import { ChevronLeft, ChevronRight, CircleDot, Plus, Trash2 } from 'lucide-react';
 import { BottomSheet } from '../Modal/BottomSheet';
 import { useTrack } from '../../hooks/useTrack';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useReaperStore } from '../../store';
 import { fx as fxCmd, track as trackCmd, trackFx } from '../../core/WebSocketCommands';
 import type { WSFxChainSlot } from '../../core/WebSocketTypes';

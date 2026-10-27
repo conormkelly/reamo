@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useRef, type ReactElement } from 'react';
 import { useReaperStore } from '../../store';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { region as regionCmd, tempo as tempoCmd } from '../../core/WebSocketCommands';
 import {
   hexToReaperColor,

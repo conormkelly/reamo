@@ -6,7 +6,7 @@
 
 import { useCallback, type ReactElement } from 'react';
 import { useReaperStore } from '../../store';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useTimeSignature, useBarOffset } from '../../hooks';
 import { marker as markerCmd } from '../../core/WebSocketCommands';
 

@@ -37,7 +37,7 @@ const createMockReaperReturn = (overrides: Partial<UseReaperConnectionReturn> = 
   ...overrides,
 });
 
-vi.mock('./ReaperProvider', () => ({
+vi.mock('../hooks/useReaper', () => ({
   useReaper: vi.fn(() => createMockReaperReturn()),
 }));
 
@@ -58,7 +58,7 @@ vi.mock('./NetworkStatsModal', () => ({
 }));
 
 // Import mocks for manipulation
-import { useReaper } from './ReaperProvider';
+import { useReaper } from '../hooks/useReaper';
 import { transportSyncEngine } from '../core/TransportSyncEngine';
 
 describe('ConnectionStatus', () => {

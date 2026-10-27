@@ -18,7 +18,7 @@ import { useReaperStore } from '../../store';
 import { useTimeFormatters } from '../../hooks';
 import { hexToReaperColor, reaperColorToHexWithFallback } from '../../utils';
 import type { Region } from '../../core/types';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { region as regionCmd, tempo as tempoCmd, timeSelection } from '../../core/WebSocketCommands';
 import { DEFAULT_REGION_COLOR } from '../../constants/colors';
 

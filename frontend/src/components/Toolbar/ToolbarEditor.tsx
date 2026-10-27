@@ -10,7 +10,7 @@ import { X, Trash2, ToggleLeft } from 'lucide-react';
 import { LazyIconPicker } from './LazyIconPicker';
 import { ColorPickerInput } from './ColorPickerInput';
 import { ActionSearch, getStableActionId } from './ActionSearch';
-import { getIconComponent } from './DynamicIcon';
+import { getIconComponent } from '../../icons/iconLookup';
 import type { ToolbarAction } from '../../store/slices/toolbarSlice';
 import { useReaperStore, type ReaperAction } from '../../store';
 import { getSectionName } from '../../core/constants';

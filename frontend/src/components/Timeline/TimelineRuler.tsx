@@ -19,7 +19,7 @@ import { useMemo, useCallback, memo } from 'react';
 import { generateTimelineTicks, formatRulerTime, type TimelineTick } from '../../utils/timelineTicks';
 import type { WSTempoMarker } from '../../core/WebSocketTypes';
 import { useLongPress } from '../../hooks/useLongPress';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { transport } from '../../core/WebSocketCommands';
 
 /** Individual labeled tick (bar or beat) with long-press to seek */

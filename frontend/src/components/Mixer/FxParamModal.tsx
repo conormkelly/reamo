@@ -10,7 +10,7 @@
 import { useEffect, useCallback, useRef, useState, useMemo, type ReactElement } from 'react';
 import { Loader2, Search, X } from 'lucide-react';
 import { BottomSheet } from '../Modal/BottomSheet';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useReaperStore } from '../../store';
 import { trackFxParams, gesture } from '../../core/WebSocketCommands';
 

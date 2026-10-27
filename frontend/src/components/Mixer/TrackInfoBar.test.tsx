@@ -13,7 +13,7 @@ import type { Track } from '../../core/types';
 vi.hoisted(() => vi.resetModules());
 
 const sendCommand = vi.fn();
-vi.mock('../ReaperProvider', () => ({
+vi.mock('../../hooks/useReaper', () => ({
   useReaper: () => ({ sendCommand, sendAsync: vi.fn(), connected: true }),
 }));
 

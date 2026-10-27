@@ -33,7 +33,7 @@ import {
   useFolderHierarchy,
   useAvailableContentHeight,
 } from '../../hooks';
-import { useReaper } from '../../components/ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useInfoSelectedTrack } from './useInfoSelectedTrack';
 import { track } from '../../core/WebSocketCommands';
 import { useReaperStore } from '../../store';

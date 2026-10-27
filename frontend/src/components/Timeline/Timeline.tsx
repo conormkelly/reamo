@@ -4,7 +4,7 @@
  */
 
 import { useRef, useCallback, useMemo, type ReactElement } from 'react';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import {
   useTimeSignature,
   useBarOffset,

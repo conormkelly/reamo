@@ -5,7 +5,7 @@
 
 import type { ReactElement } from 'react';
 import { Play, Pause, Square, SkipBack } from 'lucide-react';
-import { useReaper } from '../../../components/ReaperProvider';
+import { useReaper } from '../../../hooks/useReaper';
 import { useTransport } from '../../../hooks';
 import { useRecordButton } from '../../../hooks/useRecordButton';
 import { transport } from '../../../core/WebSocketCommands';

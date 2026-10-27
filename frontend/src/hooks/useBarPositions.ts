@@ -9,7 +9,7 @@
  */
 
 import { useCallback } from 'react';
-import { useReaper } from '../components/ReaperProvider';
+import { useReaper } from './useReaper';
 import { tempo as tempoCmd } from '../core/WebSocketCommands';
 
 export interface BarPosition {

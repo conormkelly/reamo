@@ -42,7 +42,7 @@ import {
 } from 'lucide-react';
 import { BottomSheet } from '../Modal/BottomSheet';
 import { useReaperStore } from '../../store';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useTimeFormatters } from '../../hooks';
 import { item as itemCmd, take as takeCmd } from '../../core/WebSocketCommands';
 import {

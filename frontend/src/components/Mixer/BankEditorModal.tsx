@@ -9,7 +9,7 @@ import { useState, useEffect, useMemo, useCallback, type ReactElement } from 're
 import { Layers, Zap, List, AlertTriangle, X } from 'lucide-react';
 import { Modal, ModalContent, ModalFooter } from '../Modal';
 import { useTrackSkeleton } from '../../hooks';
-import type { CustomBank, BankType } from './BankSelector';
+import type { CustomBank, BankType } from './banks';
 
 /** Generate a unique ID (works without HTTPS on iOS) */
 function generateBankId(): string {

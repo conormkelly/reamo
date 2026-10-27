@@ -16,7 +16,7 @@
 import { useState, useRef, useEffect, type ReactElement } from 'react';
 import { Plus, Trash2, CopyPlus, Crosshair } from 'lucide-react';
 import { useReaperStore } from '../../store';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useTimeFormatters } from '../../hooks';
 import { reaperColorToHexWithFallback } from '../../utils';
 import type { Region } from '../../core/types';

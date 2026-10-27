@@ -5,7 +5,7 @@
 
 import { type ReactElement } from 'react';
 import { Trash2, RotateCcw, Check } from 'lucide-react';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useTransport } from '../../hooks/useTransport';
 import { transport } from '../../core/WebSocketCommands';
 

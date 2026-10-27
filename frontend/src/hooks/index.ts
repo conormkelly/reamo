@@ -1,4 +1,5 @@
 export { useReaperConnection, type UseReaperConnectionOptions, type UseReaperConnectionReturn } from './useReaperConnection';
+export { useReaper } from './useReaper';
 export { useTransport, type UseTransportReturn } from './useTransport';
 export { useTracks, type UseTracksReturn } from './useTracks';
 export { useTrack, type UseTrackReturn } from './useTrack';

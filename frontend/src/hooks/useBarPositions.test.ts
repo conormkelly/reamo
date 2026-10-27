@@ -12,7 +12,7 @@ import { renderHook } from '@testing-library/react';
 vi.hoisted(() => vi.resetModules());
 
 const sendAsync = vi.fn();
-vi.mock('../components/ReaperProvider', () => ({
+vi.mock('./useReaper', () => ({
   useReaper: () => ({ sendAsync }),
 }));
 
