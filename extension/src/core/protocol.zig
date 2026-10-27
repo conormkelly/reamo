@@ -1,9 +1,11 @@
 const std = @import("std");
 const encoding = @import("../platform/encoding.zig");
+const logging = @import("logging.zig");
+const utf8 = @import("utf8.zig");
 
 // Protocol version - increment when breaking changes are made
 pub const PROTOCOL_VERSION: u32 = 1;
-pub const EXTENSION_VERSION = "0.7.3";
+pub const EXTENSION_VERSION = "0.8.0";
 
 // Incoming message types
 pub const MessageType = enum {
@@ -64,9 +66,24 @@ pub const CommandMessage = struct {
         return jsonGetString(self.raw, key);
     }
 
+    /// A text parameter (a name, notes, a stored value) as the user typed it:
+    /// unescaped, whole, NUL-terminated, in a new allocation from `allocator`.
+    /// null when the key is absent.
+    pub fn getTextAlloc(self: CommandMessage, key: []const u8, allocator: std.mem.Allocator) !?[:0]u8 {
+        return jsonGetTextAlloc(self.raw, key, allocator);
+    }
+
     // Get a string parameter with JSON unescaping (for content that may contain \n, \t, etc.)
     pub fn getStringUnescaped(self: CommandMessage, key: []const u8, out_buf: []u8) ?[]const u8 {
         return jsonGetStringUnescaped(self.raw, key, out_buf);
+    }
+
+    /// An on/off parameter, sent as a JSON boolean or as 0/1 (the frontend
+    /// uses both). null when absent.
+    pub fn getFlag(self: CommandMessage, key: []const u8) ?bool {
+        if (jsonGetBool(self.raw, key)) |b| return b;
+        if (jsonGetInt(self.raw, key)) |v| return v != 0;
+        return null;
     }
 
     // Get an integer parameter from the message
@@ -101,8 +118,10 @@ pub fn jsonGetString(data: []const u8, key: []const u8) ?[]const u8 {
     // Find the colon
     const colon = std.mem.indexOfPos(u8, data, after_key, ":") orelse return null;
 
-    // Find opening quote
-    const quote1 = std.mem.indexOfPos(u8, data, colon + 1, "\"") orelse return null;
+    // The value must be a string: any other type is absent, not the next
+    // quoted text further on (which may belong to another key).
+    const quote1 = skipJsonWhitespace(data, colon + 1, data.len);
+    if (quote1 >= data.len or data[quote1] != '"') return null;
 
     // Find closing quote (handling escaped quotes)
     var i = quote1 + 1;
@@ -113,6 +132,22 @@ pub fn jsonGetString(data: []const u8, key: []const u8) ?[]const u8 {
     if (i >= data.len) return null;
 
     return data[quote1 + 1 .. i];
+}
+
+/// See CommandMessage.getTextAlloc. Unescaping never lengthens JSON text,
+/// so a buffer the size of the escaped value always holds all of it.
+pub fn jsonGetTextAlloc(data: []const u8, key: []const u8, allocator: std.mem.Allocator) !?[:0]u8 {
+    const escaped = jsonGetString(data, key) orelse return null;
+    const tmp = try allocator.alloc(u8, escaped.len);
+    defer allocator.free(tmp);
+    const text = jsonGetStringUnescaped(data, key, tmp) orelse return null;
+    return try allocator.dupeZ(u8, text);
+}
+
+/// The 4-hex-digit code unit of a \\uXXXX escape starting at data[at], or null.
+fn parseHex4(data: []const u8, at: usize) ?u16 {
+    if (at + 4 > data.len) return null;
+    return std.fmt.parseInt(u16, data[at .. at + 4], 16) catch null;
 }
 
 /// Get a JSON string value and unescape it into the provided buffer.
@@ -128,98 +163,59 @@ pub fn jsonGetStringUnescaped(data: []const u8, key: []const u8, out_buf: []u8) 
     // Find the colon
     const colon = std.mem.indexOfPos(u8, data, after_key, ":") orelse return null;
 
-    // Find opening quote
-    const quote1 = std.mem.indexOfPos(u8, data, colon + 1, "\"") orelse return null;
+    // The value must be a string (see jsonGetString).
+    const quote1 = skipJsonWhitespace(data, colon + 1, data.len);
+    if (quote1 >= data.len or data[quote1] != '"') return null;
 
-    // Parse and unescape the string content
+    // Parse and unescape the string content. Output stops at the last whole
+    // character that fits: a name cut mid-character would be invalid UTF-8
+    // in REAPER and in every event that later carries it.
     var out_idx: usize = 0;
     var i = quote1 + 1;
-    while (i < data.len and out_idx < out_buf.len) {
+    while (i < data.len) {
         const c = data[i];
         if (c == '"') break; // End of string
 
+        var enc: [4]u8 = undefined;
+        var piece: []const u8 = undefined;
         if (c == '\\' and i + 1 < data.len) {
-            // Escape sequence
             const next = data[i + 1];
-            switch (next) {
-                'n' => {
-                    out_buf[out_idx] = '\n';
-                    out_idx += 1;
-                    i += 2;
-                },
-                'r' => {
-                    out_buf[out_idx] = '\r';
-                    out_idx += 1;
-                    i += 2;
-                },
-                't' => {
-                    out_buf[out_idx] = '\t';
-                    out_idx += 1;
-                    i += 2;
-                },
-                '\\' => {
-                    out_buf[out_idx] = '\\';
-                    out_idx += 1;
-                    i += 2;
-                },
-                '"' => {
-                    out_buf[out_idx] = '"';
-                    out_idx += 1;
-                    i += 2;
-                },
-                '/' => {
-                    out_buf[out_idx] = '/';
-                    out_idx += 1;
-                    i += 2;
-                },
-                'u' => {
-                    // \uXXXX - decode to UTF-8
-                    if (i + 5 < data.len) {
-                        // Parse hex digits
-                        const hex = data[i + 2 .. i + 6];
-                        const codepoint = std.fmt.parseInt(u16, hex, 16) catch {
-                            out_buf[out_idx] = '?';
-                            out_idx += 1;
+            i += 2;
+            piece = switch (next) {
+                'n' => "\n",
+                'r' => "\r",
+                't' => "\t",
+                'b' => "\x08",
+                'f' => "\x0C",
+                '\\' => "\\",
+                '"' => "\"",
+                '/' => "/",
+                'u' => blk: {
+                    const unit = parseHex4(data, i) orelse break :blk "?";
+                    i += 4;
+                    var cp: u21 = unit;
+                    if (unit >= 0xD800 and unit <= 0xDBFF) {
+                        // A high surrogate must pair with a following \uDC00-\uDFFF.
+                        const low = if (i + 1 < data.len and data[i] == '\\' and data[i + 1] == 'u') parseHex4(data, i + 2) else null;
+                        if (low != null and low.? >= 0xDC00 and low.? <= 0xDFFF) {
+                            cp = 0x10000 + ((@as(u21, unit) - 0xD800) << 10) + (low.? - 0xDC00);
                             i += 6;
-                            continue;
-                        };
-                        // Encode as UTF-8
-                        if (codepoint < 0x80) {
-                            // 1-byte UTF-8 (ASCII)
-                            out_buf[out_idx] = @intCast(codepoint);
-                            out_idx += 1;
-                        } else if (codepoint < 0x800) {
-                            // 2-byte UTF-8
-                            if (out_idx + 2 > out_buf.len) break;
-                            out_buf[out_idx] = @intCast(0xC0 | (codepoint >> 6));
-                            out_buf[out_idx + 1] = @intCast(0x80 | (codepoint & 0x3F));
-                            out_idx += 2;
-                        } else {
-                            // 3-byte UTF-8 (covers all of BMP: U+0800 to U+FFFF)
-                            if (out_idx + 3 > out_buf.len) break;
-                            out_buf[out_idx] = @intCast(0xE0 | (codepoint >> 12));
-                            out_buf[out_idx + 1] = @intCast(0x80 | ((codepoint >> 6) & 0x3F));
-                            out_buf[out_idx + 2] = @intCast(0x80 | (codepoint & 0x3F));
-                            out_idx += 3;
-                        }
-                        i += 6;
-                    } else {
-                        i += 2;
-                    }
+                        } else break :blk utf8.replacement;
+                    } else if (unit >= 0xDC00 and unit <= 0xDFFF) break :blk utf8.replacement;
+                    const n = utf8.encode(cp, &enc) orelse break :blk utf8.replacement;
+                    break :blk enc[0..n];
                 },
-                else => {
-                    // Unknown escape, just output the character after backslash
-                    out_buf[out_idx] = next;
-                    out_idx += 1;
-                    i += 2;
-                },
-            }
+                else => data[i - 1 .. i], // unknown escape: the character itself
+            };
         } else {
-            // Regular character
-            out_buf[out_idx] = c;
-            out_idx += 1;
-            i += 1;
+            // Copy raw UTF-8 a whole character at a time.
+            const n = std.unicode.utf8ByteSequenceLength(c) catch 1;
+            piece = data[i..@min(i + n, data.len)];
+            i += piece.len;
         }
+        if (out_idx + piece.len > out_buf.len) break;
+        @memcpy(out_buf[out_idx..][0..piece.len], piece);
+        out_idx += piece.len;
     }
 
     return out_buf[0..out_idx];
@@ -287,11 +283,17 @@ pub fn jsonGetInt(data: []const u8, key: []const u8) ?c_int {
         }
     }
 
+    // A whole number ends at a delimiter: 1.5 or 1e30 is not an integer
+    // parameter (read as 1, 1e30 ran action 1).
+    const after = skipJsonWhitespace(data, num_end, data.len);
+    if (after < data.len and data[after] != ',' and data[after] != '}' and data[after] != ']') return null;
+
     if (num_end > num_start) {
         return std.fmt.parseInt(c_int, data[num_start..num_end], 10) catch null;
     }
     return null;
 }
+
 
 /// Get a boolean value by key.
 /// Handles "key":true and "key":false (not quoted).
@@ -455,7 +457,8 @@ pub fn jsonGetStringArray(
 
 /// Get an integer array from JSON.
 /// E.g., for {"indices": [0, 5, 10]}, call jsonGetIntArray(data, "indices", ...)
-/// Returns the number of integers parsed, or null if the key is not found.
+/// Returns the number of integers parsed, or null if the key is not found or
+/// the array holds anything other than integers.
 pub fn jsonGetIntArray(
     data: []const u8,
     key: []const u8,
@@ -482,31 +485,42 @@ pub fn jsonGetIntArray(
     var count: usize = 0;
     var pos = open_bracket + 1;
 
-    while (pos < close_bracket and count < max_items) {
-        // Skip whitespace and commas
-        while (pos < close_bracket and (data[pos] == ' ' or data[pos] == ',' or data[pos] == '\t' or data[pos] == '\n')) {
-            pos += 1;
-        }
-
+    // Every iteration must consume a number or bail out: an element the
+    // scanner cannot advance past would otherwise spin forever.
+    while (count < max_items) {
+        pos = skipJsonWhitespace(data, pos, close_bracket);
         if (pos >= close_bracket) break;
 
         // Find start of number (handles negative)
         const num_start = pos;
         if (data[pos] == '-') pos += 1;
+        const digits_start = pos;
 
         // Find end of number
         while (pos < close_bracket and data[pos] >= '0' and data[pos] <= '9') {
             pos += 1;
         }
+        if (pos == digits_start) return null;
 
-        if (pos > num_start) {
-            const value = std.fmt.parseInt(c_int, data[num_start..pos], 10) catch continue;
-            out_values[count] = value;
-            count += 1;
-        }
+        const value = std.fmt.parseInt(c_int, data[num_start..pos], 10) catch return null;
+        out_values[count] = value;
+        count += 1;
+
+        // A number must be followed by a separator or the end of the array.
+        pos = skipJsonWhitespace(data, pos, close_bracket);
+        if (pos >= close_bracket) break;
+        if (data[pos] != ',') return null;
+        pos += 1;
     }
 
     return count;
+}
+
+/// Index of the first non-whitespace byte in data[pos..end], or `end`.
+fn skipJsonWhitespace(data: []const u8, pos: usize, end: usize) usize {
+    var i = pos;
+    while (i < end and (data[i] == ' ' or data[i] == '\t' or data[i] == '\n' or data[i] == '\r')) i += 1;
+    return i;
 }
 
 // JSON building helpers
@@ -594,10 +608,74 @@ pub fn buildEvent(buf: []u8, event_name: []const u8, payload_fn: fn (*JsonWriter
     return w.slice();
 }
 
-// Helper to escape JSON strings - used by state modules for serialization.
-// On Windows, transcodes from the system's active code page (e.g. Windows-1252)
-// to UTF-8 before escaping — REAPER's C API returns strings in the local code
-// page, not UTF-8, which would otherwise break WebSocket text frames.
+/// Largest message serializeAlloc builds. A 10,000-track project's track
+/// list is a few MB; a WebSocket frame this size would already stall a phone.
+pub const MAX_SERIALIZED_SIZE: usize = 64 * 1024 * 1024;
+
+/// Serialize with `toJson(ctx, buf)` (which returns null when `buf` is too
+/// small) into a buffer from `allocator`, starting at `initial_size` and
+/// doubling until it fits. Entity JSON size depends on names and escaping, so
+/// no per-entity estimate is safe; a too-small fixed buffer silently dropped
+/// whole broadcasts for larger projects. Each failed attempt is freed before
+/// the next, which a frame arena (FixedBufferAllocator) reclaims, so retries
+/// don't consume scratch space. Logs if the allocator itself runs out. The
+/// result is its own allocation, exactly the JSON's length, so any allocator
+/// can free it.
+///
+/// `toJson` must return null only when the buffer is too small. Any other
+/// failure looks the same, so growth stops at MAX_SERIALIZED_SIZE, far past
+/// any real event, rather than doubling until memory runs out.
+pub fn serializeAlloc(
+    allocator: std.mem.Allocator,
+    initial_size: usize,
+    ctx: anytype,
+    comptime toJson: fn (@TypeOf(ctx), []u8) ?[]const u8,
+) ![]const u8 {
+    const what = @typeName(@TypeOf(ctx));
+    var size = @max(initial_size, 256);
+    while (true) {
+        if (size > MAX_SERIALIZED_SIZE) {
+            logging.err("JSON serialization of {s} failed below {d} bytes; its toJson fails for a reason other than space", .{ what, MAX_SERIALIZED_SIZE });
+            return error.SerializationFailed;
+        }
+        const buf = allocator.alloc(u8, size) catch |err| {
+            logging.warn("JSON serialization of {s} needs more than {d} bytes: {s}", .{ what, size, @errorName(err) });
+            return err;
+        };
+        if (toJson(ctx, buf)) |json| {
+            if (allocator.resize(buf, json.len)) return buf[0..json.len];
+            const exact = allocator.dupe(u8, json) catch |err| {
+                allocator.free(buf);
+                return err;
+            };
+            allocator.free(buf);
+            return exact;
+        }
+        allocator.free(buf);
+        size = std.math.mul(usize, size, 2) catch return error.OutOfMemory;
+    }
+}
+
+/// serializeAlloc for code that formats through a writer: `write(ctx, w)`
+/// writes the whole message to `w`, a fixed-buffer writer that fails with
+/// NoSpaceLeft when the buffer is too small, and the buffer doubles until the
+/// message fits. `write` must fail only through the writer, or it retries
+/// until the allocator runs out.
+pub fn writeAlloc(allocator: std.mem.Allocator, initial_size: usize, ctx: anytype, comptime write: anytype) ![]const u8 {
+    const Wrap = struct {
+        fn toJson(c: @TypeOf(ctx), buf: []u8) ?[]const u8 {
+            var stream = std.io.fixedBufferStream(buf);
+            write(c, stream.writer()) catch return null;
+            return stream.getWritten();
+        }
+    };
+    return serializeAlloc(allocator, initial_size, ctx, Wrap.toJson);
+}
+
+/// Write `s` as the body of a JSON string, escaped. On Windows it is first
+/// transcoded from the system's active code page (e.g. Windows-1252) to
+/// UTF-8: REAPER's C API returns strings in the local code page, which
+/// would otherwise break WebSocket text frames.
 pub fn writeJsonString(writer: anytype, s: []const u8) !void {
     // Transcode from system code page to UTF-8 (no-op on non-Windows / pure ASCII).
     // Keep buffer ≤1KB — this runs in timer callbacks with deep call stacks (see ZIG_GUIDE §1).
@@ -606,7 +684,23 @@ pub fn writeJsonString(writer: anytype, s: []const u8) !void {
     var utf8_buf: [512]u8 = undefined;
     const str = encoding.toUtf8(s, &utf8_buf) orelse s;
 
-    for (str) |c| {
+    // Whatever is still not UTF-8 (a string cut mid-character, or one that
+    // could not be transcoded) is replaced, never sent: one invalid byte
+    // makes a browser drop the whole connection.
+    var i: usize = 0;
+    while (i < str.len) {
+        const c = str[i];
+        if (c >= 0x80) {
+            const n = std.unicode.utf8ByteSequenceLength(c) catch 0;
+            if (n == 0 or i + n > str.len or !isValidSequence(str[i .. i + n])) {
+                try writer.writeAll(utf8.replacement);
+                i += 1;
+                continue;
+            }
+            try writer.writeAll(str[i .. i + n]);
+            i += n;
+            continue;
+        }
         switch (c) {
             '"' => try writer.writeAll("\\\""),
             '\\' => try writer.writeAll("\\\\"),
@@ -621,7 +715,15 @@ pub fn writeJsonString(writer: anytype, s: []const u8) !void {
                 }
             },
         }
+        i += 1;
     }
+}
+
+/// A complete, well-formed sequence (no overlong forms, surrogates or
+/// code points past U+10FFFF).
+fn isValidSequence(seq: []const u8) bool {
+    _ = std.unicode.utf8Decode(seq) catch return false;
+    return true;
 }
 
 // Build error response
@@ -756,9 +858,70 @@ test "writeJsonString produces valid UTF-8 from Windows-1252 bytes" {
         // On Windows: should be transcoded to valid UTF-8 "Café"
         try std.testing.expectEqualStrings("Caf\xc3\xa9", output);
     } else {
-        // On non-Windows: passthrough (raw bytes unchanged)
-        try std.testing.expectEqualStrings("Caf\xe9", output);
+        // Elsewhere REAPER strings are UTF-8 already; an invalid byte is
+        // replaced rather than sent, so the frame stays valid UTF-8.
+        try std.testing.expectEqualStrings("Caf\u{FFFD}", output);
     }
+}
+
+test "writeJsonString never emits invalid UTF-8" {
+    const inputs = [_][]const u8{
+        "\u{E9}" ** 63 ++ "\xC3", // cut inside a character
+        "tail \xF0\x9F", // cut inside an emoji
+        "lone \x80 continuation",
+        "bad lead \xFF here",
+        "CESU-8 \xED\xA0\xBC\xED\xBE\xA4", // surrogates encoded as UTF-8
+        "fine \u{1F3A4} \u{3042}",
+    };
+    for (inputs) |input| {
+        var buf: [512]u8 = undefined;
+        var stream = std.io.fixedBufferStream(&buf);
+        try writeJsonString(stream.writer(), input);
+        try std.testing.expect(std.unicode.utf8ValidateSlice(stream.getWritten()));
+    }
+    var buf: [64]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    try writeJsonString(stream.writer(), "ok \u{1F3A4}\"");
+    try std.testing.expectEqualStrings("ok \u{1F3A4}\\\"", stream.getWritten());
+}
+
+test "jsonGetTextAlloc returns the whole name unescaped" {
+    const long = "Estribillo \\\"final\\\" \\\\ versi\u{F3}n ac\u{FA}stica, guitarra y voz principal, \u{A1}\u{FA}ltima!";
+    const json = "{\"name\":\"" ++ long ++ "\",\"color\":0}";
+    const text = (try jsonGetTextAlloc(json, "name", std.testing.allocator)).?;
+    defer std.testing.allocator.free(text);
+    try std.testing.expectEqualStrings("Estribillo \"final\" \\ versi\u{F3}n ac\u{FA}stica, guitarra y voz principal, \u{A1}\u{FA}ltima!", text);
+    try std.testing.expect((try jsonGetTextAlloc(json, "missing", std.testing.allocator)) == null);
+}
+
+test "jsonGetStringUnescaped decodes surrogate pairs to one character" {
+    var buf: [64]u8 = undefined;
+    const r = jsonGetStringUnescaped("{\"name\":\"mic \\uD83C\\uDFA4\"}", "name", &buf).?;
+    try std.testing.expectEqualStrings("mic \u{1F3A4}", r);
+}
+
+test "jsonGetStringUnescaped replaces lone surrogates" {
+    var buf: [64]u8 = undefined;
+    const r = jsonGetStringUnescaped("{\"name\":\"a\\uD83Cb\\uDFA4c\"}", "name", &buf).?;
+    try std.testing.expectEqualStrings("a\u{FFFD}b\u{FFFD}c", r);
+}
+
+test "jsonGetStringUnescaped decodes backspace and form feed" {
+    var buf: [64]u8 = undefined;
+    const r = jsonGetStringUnescaped("{\"name\":\"A\\bB\\fC\"}", "name", &buf).?;
+    try std.testing.expectEqualStrings("A\x08B\x0CC", r);
+}
+
+test "jsonGetStringUnescaped stops on a character boundary when the buffer is full" {
+    var buf: [5]u8 = undefined;
+    // Raw UTF-8, as browsers send it: "ab" + 3-byte char + "c" does not fit in 5.
+    try std.testing.expectEqualStrings("ab\u{3042}", jsonGetStringUnescaped("{\"n\":\"ab\u{3042}\u{3042}\"}", "n", &buf).?);
+    var small: [3]u8 = undefined;
+    try std.testing.expectEqualStrings("ab", jsonGetStringUnescaped("{\"n\":\"ab\u{3042}\"}", "n", &small).?);
+    // An escape whose encoding does not fit is dropped, not split.
+    try std.testing.expectEqualStrings("ab", jsonGetStringUnescaped("{\"n\":\"ab\\u3042\"}", "n", &small).?);
+    var four: [4]u8 = undefined;
+    try std.testing.expectEqualStrings("ab", jsonGetStringUnescaped("{\"n\":\"ab\\uD83C\\uDFA4\"}", "n", &four).?);
 }
 
 test "MessageType.parse recognizes hello" {
@@ -861,6 +1024,41 @@ test "jsonGetString handles escaped quotes in string" {
     try std.testing.expect(result != null);
     // Raw result includes the escape sequences
     try std.testing.expectEqualStrings("say \\\"hello\\\"", result.?);
+}
+
+test "getFlag reads booleans and 0/1 alike" {
+    const msg = CommandMessage{ .command = "track/setInput", .raw = "{\"stereo\":true,\"multi\":0,\"rearoute\":1,\"wrap\":false}" };
+    try std.testing.expectEqual(@as(?bool, true), msg.getFlag("stereo"));
+    try std.testing.expectEqual(@as(?bool, false), msg.getFlag("multi"));
+    try std.testing.expectEqual(@as(?bool, true), msg.getFlag("rearoute"));
+    try std.testing.expectEqual(@as(?bool, false), msg.getFlag("wrap"));
+    try std.testing.expectEqual(@as(?bool, null), msg.getFlag("missing"));
+}
+
+test "string parameters must be JSON strings" {
+    // A value of another type is absent, never the next quoted text.
+    try std.testing.expect(jsonGetString("{\"name\":[\"a\"]}", "name") == null);
+    var buf: [16]u8 = undefined;
+    try std.testing.expect(jsonGetStringUnescaped("{\"name\":[\"a\"]}", "name", &buf) == null);
+    try std.testing.expect(jsonGetStringUnescaped("{\"name\":{\"x\":\"y\"}}", "name", &buf) == null);
+    try std.testing.expect(jsonGetString("{\"name\":{\"x\":\"y\"}}", "name") == null);
+    try std.testing.expect(jsonGetString("{\"name\":3,\"color\":\"red\"}", "name") == null);
+    try std.testing.expectEqualStrings("Verse", jsonGetString("{\"name\": \"Verse\"}", "name").?);
+    // A marker command fired without a request id: its numeric marker id is
+    // not a request id.
+    const marker_update = CommandMessage{ .command = "marker/update", .raw = "{\"type\":\"command\",\"command\":\"marker/update\",\"id\":3,\"name\":\"Verse\"}" };
+    try std.testing.expect(marker_update.getId() == null);
+    try std.testing.expectEqual(@as(?c_int, 3), marker_update.getInt("id"));
+}
+
+test "integer parameters must be whole numbers in range" {
+    try std.testing.expect(jsonGetInt("{\"cc\":1.5}", "cc") == null);
+    try std.testing.expect(jsonGetInt("{\"commandId\":1e30}", "commandId") == null);
+    try std.testing.expect(jsonGetInt("{\"commandId\":99999999999}", "commandId") == null);
+    try std.testing.expect(jsonGetInt("{\"cc\":\"7\"}", "cc") == null);
+    try std.testing.expectEqual(@as(?c_int, -12), jsonGetInt("{\"bar\": -12 }", "bar"));
+    try std.testing.expectEqual(@as(?c_int, 40364), jsonGetInt("{\"commandId\":40364,\"sectionId\":0}", "commandId"));
+    try std.testing.expectEqual(@as(?c_int, 4), jsonGetInt("[{\"n\":4}]", "n"));
 }
 
 test "jsonGetBool true" {
@@ -1003,4 +1201,79 @@ test "jsonGetIntArray respects max_items" {
     var values: [2]c_int = undefined;
     const count = jsonGetIntArray(data, "values", 2, &values).?;
     try std.testing.expectEqual(@as(usize, 2), count);
+}
+
+test "jsonGetIntArray returns null for non-integer elements instead of looping forever" {
+    // Each of these once spun REAPER's main thread forever: the scanner never
+    // advanced past a byte that was not whitespace, a comma, '-' or a digit.
+    const malformed = [_][]const u8{
+        "{\"indices\":[1,x]}",
+        "{\"indices\":[1.5]}",
+        "{\"indices\":[true]}",
+        "{\"indices\":[null]}",
+        "{\"indices\":[\"0\"]}",
+        "{\"indices\":[-]}",
+        "{\"indices\":[1 2]}",
+    };
+    var values: [10]c_int = undefined;
+    for (malformed) |data| {
+        try std.testing.expectEqual(@as(?usize, null), jsonGetIntArray(data, "indices", 10, &values));
+    }
+}
+
+test "jsonGetIntArray accepts CRLF whitespace between elements" {
+    const data = "{\"indices\":[\r\n1,\r\n2\r\n]}";
+    var values: [10]c_int = undefined;
+    const count = jsonGetIntArray(data, "indices", 10, &values).?;
+    try std.testing.expectEqual(@as(usize, 2), count);
+    try std.testing.expectEqual(@as(c_int, 2), values[1]);
+}
+
+test "writeAlloc grows the buffer until the writer's output fits" {
+    const write = struct {
+        fn f(n: usize, w: anytype) !void {
+            for (0..n) |_| try w.writeAll("0123456789");
+        }
+    }.f;
+    const out = try writeAlloc(std.testing.allocator, 16, @as(usize, 5000), write);
+    defer std.testing.allocator.free(out);
+    try std.testing.expectEqual(@as(usize, 50_000), out.len);
+}
+
+test "serializeAlloc grows past a too-small estimate and reclaims failed attempts" {
+    const Payload = struct {
+        len: usize,
+        fn toJson(self: *const @This(), buf: []u8) ?[]const u8 {
+            if (buf.len < self.len) return null;
+            @memset(buf[0..self.len], 'x');
+            return buf[0..self.len];
+        }
+    };
+    var backing: [64 * 1024]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&backing);
+    const payload = Payload{ .len = 10_000 };
+    const out = try serializeAlloc(fba.allocator(), 1, &payload, Payload.toJson);
+    try std.testing.expectEqual(@as(usize, 10_000), out.len);
+    // 256 -> ... -> 16384, then shrunk to the JSON: nothing else stays allocated.
+    try std.testing.expectEqual(@as(usize, 10_000), fba.end_index);
+
+    // The result is an allocation of its own, freeable by a general allocator.
+    const owned = try serializeAlloc(std.testing.allocator, 1, &payload, Payload.toJson);
+    std.testing.allocator.free(owned);
+
+    // An allocator that can't hold the payload is an error, not a silent drop.
+    var small: [4096]u8 = undefined;
+    var small_fba = std.heap.FixedBufferAllocator.init(&small);
+    try std.testing.expectError(error.OutOfMemory, serializeAlloc(small_fba.allocator(), 1, &payload, Payload.toJson));
+}
+
+test "serializeAlloc gives up on a toJson that fails for a reason other than space" {
+    const Broken = struct {
+        fn toJson(_: void, _: []u8) ?[]const u8 {
+            return null;
+        }
+    };
+    // Would otherwise double until the allocator gave out (a general
+    // allocator could hand over gigabytes first).
+    try std.testing.expectError(error.SerializationFailed, serializeAlloc(std.testing.allocator, 1, {}, Broken.toJson));
 }

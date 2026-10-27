@@ -113,6 +113,11 @@ pub const ProjectMethods = struct {
         return null;
     }
 
+    pub fn majorVersion(self: anytype) ?u32 {
+        self.recordCall(.majorVersion);
+        return self.major_version;
+    }
+
     // FX plugin enumeration (global)
     pub fn enumInstalledFX(self: anytype, index: c_int, name_out: *[*:0]const u8, ident_out: *[*:0]const u8) bool {
         self.recordCall(.enumInstalledFX);
@@ -224,6 +229,11 @@ pub const ProjectMethods = struct {
         self.undo_block_active = true;
     }
 
+    pub fn undoRecordChange(self: anytype, desc: [*:0]const u8) void {
+        self.recordCall(.undoRecordChange);
+        _ = desc;
+    }
+
     pub fn undoEndBlock(self: anytype, desc: [*:0]const u8, _: c_int) void {
         self.recordCall(.undoEndBlock);
         self.undo_block_active = false;
@@ -315,6 +325,22 @@ pub const ProjectMethods = struct {
         self.setExtStateValue(extname, key, value, false);
     }
 
+    /// Writes aimed at another project tab are counted, not stored: the
+    /// mock holds only the current project's state.
+    pub fn setProjExtStateValueIn(self: anytype, project: ?*anyopaque, extname: [*:0]const u8, key: [*:0]const u8, value: [*:0]const u8) void {
+        if (project == null or project == self.project_pointer) return self.setProjExtStateValue(extname, key, value);
+        self.recordCall(.setProjExtStateValue);
+        self.extstate_writes_to_other_project += 1;
+    }
+
+    pub fn validateProjectPtr(self: anytype, project: ?*anyopaque) bool {
+        return project != null and project != self.closed_project_pointer;
+    }
+
+    pub fn projectLoadCount(self: anytype) u32 {
+        return self.project_loads;
+    }
+
     // =========================================================================
     // Project notes
     // =========================================================================
@@ -338,9 +364,9 @@ pub const ProjectMethods = struct {
     // Named command lookup
     // =========================================================================
 
-    pub fn namedCommandLookup(self: anytype, name: [*:0]const u8) c_int {
+    pub fn namedCommandLookup(self: anytype, name: []const u8) c_int {
         self.recordCall(.namedCommandLookup);
-        const name_slice = std.mem.sliceTo(name, 0);
+        const name_slice = name;
         // Simple mock: return hash of name as command ID
         var hash: c_int = 0;
         for (name_slice) |c| {

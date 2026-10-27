@@ -1,17 +1,19 @@
 /// Cross-platform string encoding.
 ///
-/// REAPER's C API returns strings in the system's local code page on Windows
-/// (e.g., Windows-1252 for Western European locales). macOS and Linux use UTF-8
-/// natively, so no transcoding is needed there.
+/// REAPER itself is UTF-8 on every platform, but on Windows some strings it
+/// relays (e.g. names reported by older plugins) arrive in the system's local
+/// code page (e.g. Windows-1252). Those bytes are invalid UTF-8, and a single
+/// invalid byte makes browsers reject the whole WebSocket text frame.
 ///
-/// This module provides `toUtf8()` which transcodes from the active code page
-/// to UTF-8 on Windows (via MultiByteToWideChar → WideCharToMultiByte), and
-/// is a no-op passthrough on other platforms.
+/// `toUtf8()` passes valid UTF-8 through unchanged and transcodes anything else
+/// from the active code page on Windows (MultiByteToWideChar →
+/// WideCharToMultiByte). It is a no-op passthrough on other platforms.
 
 const std = @import("std");
 const builtin = @import("builtin");
 
-/// Transcode a string from the system's active code page to UTF-8.
+/// Return `input` as UTF-8, transcoding from the active code page only when it
+/// is not already valid UTF-8.
 ///
 /// On Windows: uses Win32 APIs to convert ACP → UTF-16 → UTF-8.
 /// On other platforms: returns the input unchanged (already UTF-8).
@@ -23,17 +25,7 @@ pub fn toUtf8(input: []const u8, buf: []u8) ?[]const u8 {
         return input;
     }
 
-    if (input.len == 0) return input;
-
-    // Quick check: if all bytes are ASCII (< 0x80), no transcoding needed.
-    var needs_transcode = false;
-    for (input) |b| {
-        if (b >= 0x80) {
-            needs_transcode = true;
-            break;
-        }
-    }
-    if (!needs_transcode) return input;
+    if (!needsTranscode(input)) return input;
 
     // Step 1: ACP → UTF-16 (query required size first)
     const CP_ACP = 0;
@@ -86,6 +78,13 @@ pub fn toUtf8(input: []const u8, buf: []u8) ?[]const u8 {
     if (utf8_len <= 0) return null;
 
     return buf[0..@intCast(utf8_len)];
+}
+
+/// Whether `input` must be transcoded: valid UTF-8 (including pure ASCII) is
+/// already what the WebSocket protocol needs, and reinterpreting it as a code
+/// page would double-encode every non-ASCII character.
+pub fn needsTranscode(input: []const u8) bool {
+    return !std.unicode.utf8ValidateSlice(input);
 }
 
 const win32 = if (builtin.os.tag == .windows) struct {
@@ -228,4 +227,16 @@ test "FIX: toUtf8 handles Windows-1252 special range 0x80-0x9F" {
     try std.testing.expect(smart_quotes != null);
     try std.testing.expect(isValidUtf8(smart_quotes.?));
     // The exact UTF-8 output depends on the system code page, but it must be valid UTF-8.
+}
+
+test "needsTranscode leaves valid UTF-8 alone and flags code-page bytes" {
+    // ASCII and valid UTF-8 ("Bën" as C3 AB) must pass through untouched;
+    // transcoding them as Windows-1252 would turn "ë" into "Ã«".
+    try std.testing.expect(!needsTranscode("Vocals"));
+    try std.testing.expect(!needsTranscode("B\xc3\xabn"));
+    try std.testing.expect(!needsTranscode("\xe2\x80\x94 Reverb \xf0\x9f\x8e\xb8"));
+    // A lone Windows-1252 "ë" (0xEB) is not valid UTF-8: the bytes from #29
+    // that made browsers reject the WebSocket frame.
+    try std.testing.expect(needsTranscode("B\xebn"));
+    try std.testing.expect(needsTranscode("Caf\xe9"));
 }

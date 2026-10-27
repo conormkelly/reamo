@@ -7,7 +7,7 @@
 import type { ReactElement } from 'react';
 import { useState, useRef, useCallback } from 'react';
 import { SkipBack, Play, Pause, Square } from 'lucide-react';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useTransport } from '../../hooks/useTransport';
 import { useReaperStore } from '../../store';
 import { useRecordButton } from '../../hooks/useRecordButton';

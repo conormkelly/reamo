@@ -6,7 +6,7 @@
 
 import { useCallback, type ReactElement } from 'react';
 import { CircleSmall, Unlink2 } from 'lucide-react';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useReaperStore } from '../../store';
 import { master } from '../../core/WebSocketCommands';
 import { getInactiveClasses, trackControlBaseClasses } from './trackControlStyles';

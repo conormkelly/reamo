@@ -1,47 +1,79 @@
 const std = @import("std");
 const reaper = @import("../reaper.zig");
+const utf8 = @import("../core/utf8.zig");
 
 const Allocator = std.mem.Allocator;
 
-/// Maximum buffer size for project notes (64KB ceiling per research)
+/// Notes a phone can read and edit are shorter than this, in bytes. Longer
+/// notes are read cut off, flagged as such, and can't be saved over from a
+/// phone: the save would replace them with the part it was sent.
 pub const MAX_NOTES_SIZE: usize = 65536;
+
+/// Notes are read into buffers one byte longer than the longest whole notes
+/// plus REAPER's NUL, so notes that fill one are known to be cut off.
+pub const READ_BUF_SIZE: usize = MAX_NOTES_SIZE + 1;
+
+/// REAPER's notes as read into a buffer: `complete` is false when they
+/// didn't fit, and `text` is then the part that did, ending on a character
+/// boundary.
+pub const NotesRead = struct {
+    text: []const u8,
+    complete: bool,
+};
+
+/// Read REAPER's notes into `buf`. REAPER cuts notes that don't fit, inside
+/// a character if need be; notes that fill all of `buf` but the NUL may be
+/// longer, so they are reported incomplete.
+pub fn readNotesInto(api: anytype, buf: []u8) ?NotesRead {
+    const read: ?[]const u8 = api.getProjectNotes(buf);
+    const text = read orelse return null;
+    if (text.len + 1 < buf.len) return .{ .text = text, .complete = true };
+    return .{ .text = utf8.trimIncompleteTail(text[0..@min(text.len, buf.len -| 1)]), .complete = false };
+}
 
 /// Buffer size for initial fetch (will grow if needed)
 const INITIAL_BUFFER_SIZE: usize = 4096;
 
 /// Manages project notes subscriptions and change detection.
-/// Tracks which clients want notes updates and detects external changes via hashing.
+/// Tracks which clients want notes updates and detects changes via hashing.
 pub const NotesSubscriptions = struct {
     allocator: Allocator,
 
     /// Set of subscribed client IDs
     subscribers: std.AutoHashMap(usize, void),
 
-    /// Hash of last known notes content (for change detection)
+    /// Hash of the notes subscribers were last told about. Only poll()
+    /// advances it, by broadcasting the change: a snapshot taken for one
+    /// client (subscribe, set) must not, or the change never reaches the
+    /// others.
     last_hash: u64,
 
-    /// Cached notes content (owned memory)
-    cached_notes: ?[]u8,
+    /// Notes are read into this (READ_BUF_SIZE, allocated on first use)
+    /// rather than onto the timer callback's stack.
+    read_buf: ?[]u8,
 
     pub fn init(allocator: Allocator) NotesSubscriptions {
         return .{
             .allocator = allocator,
             .subscribers = std.AutoHashMap(usize, void).init(allocator),
             .last_hash = 0,
-            .cached_notes = null,
+            .read_buf = null,
         };
     }
 
     pub fn deinit(self: *NotesSubscriptions) void {
         self.subscribers.deinit();
-        if (self.cached_notes) |notes| {
-            self.allocator.free(notes);
-        }
+        if (self.read_buf) |buf| self.allocator.free(buf);
     }
 
-    /// Subscribe a client to notes updates
-    pub fn subscribe(self: *NotesSubscriptions, client_id: usize) !void {
+    /// Subscribe a client to notes updates. The first subscriber sets the
+    /// baseline: nothing was being watched before it, so nothing is missed.
+    pub fn subscribe(self: *NotesSubscriptions, api: anytype, client_id: usize) !void {
+        const first = !self.hasSubscribers();
         try self.subscribers.put(client_id, {});
+        if (first) {
+            if (self.readNotes(api)) |notes| self.last_hash = computeHash(notes.text);
+        }
     }
 
     /// Unsubscribe a client from notes updates
@@ -64,66 +96,29 @@ pub const NotesSubscriptions = struct {
         return self.subscribers.count();
     }
 
-    /// Poll for notes changes. Returns new hash if changed, null otherwise.
-    /// Only polls REAPER if there are subscribers.
+    fn readNotes(self: *NotesSubscriptions, api: anytype) ?NotesRead {
+        if (self.read_buf == null) self.read_buf = self.allocator.alloc(u8, READ_BUF_SIZE) catch return null;
+        return readNotesInto(api, self.read_buf.?);
+    }
+
+    /// Poll for notes changes, from REAPER or from any client. Returns the
+    /// change to broadcast to subscribers, or null. Only polls REAPER if
+    /// there are subscribers.
     pub fn poll(self: *NotesSubscriptions, api: anytype) ?NotesChange {
         if (!self.hasSubscribers()) return null;
-
-        // Get current notes
-        var buf: [MAX_NOTES_SIZE]u8 = undefined;
-        const notes = api.getProjectNotes(&buf) orelse return null;
-
-        // Compute hash
-        const new_hash = computeHash(notes);
-
-        // Check if changed
+        const notes = self.readNotes(api) orelse return null;
+        const new_hash = computeHash(notes.text);
         if (new_hash == self.last_hash) return null;
-
-        // Notes changed - update cache
         const old_hash = self.last_hash;
         self.last_hash = new_hash;
-
-        // Update cached notes
-        if (self.cached_notes) |old| {
-            self.allocator.free(old);
-        }
-        self.cached_notes = self.allocator.dupe(u8, notes) catch null;
-
-        return .{
-            .hash = new_hash,
-            .old_hash = old_hash,
-        };
+        return .{ .hash = new_hash, .old_hash = old_hash };
     }
 
-    /// Get current notes and hash (for subscribe response)
+    /// Current notes and hash, for one client's response. Valid until the
+    /// next read; does not affect change detection.
     pub fn getCurrentNotes(self: *NotesSubscriptions, api: anytype) ?NotesSnapshot {
-        var buf: [MAX_NOTES_SIZE]u8 = undefined;
-        const notes = api.getProjectNotes(&buf) orelse return null;
-
-        const hash = computeHash(notes);
-
-        // Update our tracking
-        self.last_hash = hash;
-        if (self.cached_notes) |old| {
-            self.allocator.free(old);
-        }
-        self.cached_notes = self.allocator.dupe(u8, notes) catch null;
-
-        // Return the heap-allocated copy, not the stack buffer
-        return .{
-            .notes = self.cached_notes orelse return null,
-            .hash = hash,
-        };
-    }
-
-    /// Get cached notes (may be null if never fetched)
-    pub fn getCachedNotes(self: *const NotesSubscriptions) ?[]const u8 {
-        return self.cached_notes;
-    }
-
-    /// Get last known hash
-    pub fn getLastHash(self: *const NotesSubscriptions) u64 {
-        return self.last_hash;
+        const notes = self.readNotes(api) orelse return null;
+        return .{ .notes = notes.text, .complete = notes.complete, .hash = computeHash(notes.text) };
     }
 };
 
@@ -136,6 +131,8 @@ pub const NotesChange = struct {
 /// Snapshot of notes for subscribe response
 pub const NotesSnapshot = struct {
     notes: []const u8,
+    /// False when REAPER's notes are longer than a phone can carry
+    complete: bool,
     hash: u64,
 };
 
@@ -149,51 +146,30 @@ pub fn hashToHex(hash: u64, buf: *[16]u8) []const u8 {
     return std.fmt.bufPrint(buf, "{x:0>16}", .{hash}) catch "0000000000000000";
 }
 
-/// Sanitize notes for safe storage in REAPER
-/// - Strips null bytes
-/// - Normalizes newlines to \r\n
-/// - Escapes problematic characters at line starts
-pub fn sanitizeNotes(input: []const u8, output: []u8) []const u8 {
-    var out_idx: usize = 0;
-    var at_line_start = true;
-
+/// Prepare notes for REAPER: strip NUL bytes and normalize newlines to
+/// \r\n. Everything else is kept as typed; REAPER stores and reloads lines
+/// starting with |, < or > intact itself. Returns null when the result and
+/// REAPER's NUL don't fit in `output`: each \n grows to \r\n, so typed text
+/// shorter than `output` can still not fit, and cutting it would lose its end.
+pub fn sanitizeNotes(input: []const u8, output: []u8) ?[]const u8 {
+    if (output.len == 0) return null;
+    const cap = output.len - 1;
+    var n: usize = 0;
     for (input) |c| {
-        if (out_idx >= output.len - 1) break;
-
-        // Skip null bytes
-        if (c == 0) continue;
-
-        // Handle newlines - normalize to \r\n
+        // NULs are dropped; \r is dropped and re-added before every \n
+        if (c == 0 or c == '\r') continue;
         if (c == '\n') {
-            if (out_idx > 0 and output[out_idx - 1] != '\r') {
-                if (out_idx < output.len - 2) {
-                    output[out_idx] = '\r';
-                    out_idx += 1;
-                }
-            }
-            output[out_idx] = '\n';
-            out_idx += 1;
-            at_line_start = true;
+            if (n + 2 > cap) return null;
+            output[n] = '\r';
+            output[n + 1] = '\n';
+            n += 2;
             continue;
         }
-
-        // Skip lone \r (will be added with \n)
-        if (c == '\r') continue;
-
-        // Escape problematic chars at line start (|, <, >)
-        if (at_line_start and (c == '|' or c == '<' or c == '>')) {
-            if (out_idx < output.len - 2) {
-                output[out_idx] = ' '; // Prepend space
-                out_idx += 1;
-            }
-        }
-
-        output[out_idx] = c;
-        out_idx += 1;
-        at_line_start = false;
+        if (n + 1 > cap) return null;
+        output[n] = c;
+        n += 1;
     }
-
-    return output[0..out_idx];
+    return output[0..n];
 }
 
 // Tests
@@ -214,35 +190,20 @@ test "hashToHex formats correctly" {
 
 test "sanitizeNotes strips null bytes" {
     var output: [256]u8 = undefined;
-    const result = sanitizeNotes("Hello\x00World", &output);
+    const result = sanitizeNotes("Hello\x00World", &output).?;
     try std.testing.expectEqualStrings("HelloWorld", result);
 }
 
 test "sanitizeNotes normalizes newlines" {
     var output: [256]u8 = undefined;
-    const result = sanitizeNotes("Line1\nLine2", &output);
+    const result = sanitizeNotes("Line1\nLine2", &output).?;
     try std.testing.expectEqualStrings("Line1\r\nLine2", result);
 }
 
-test "sanitizeNotes escapes pipe at line start" {
+test "sanitizeNotes keeps lines starting with |, < and > as typed" {
     var output: [256]u8 = undefined;
-    const result = sanitizeNotes("|pipe at start", &output);
-    try std.testing.expectEqualStrings(" |pipe at start", result);
-}
-
-test "sanitizeNotes escapes angle brackets at line start" {
-    var output: [256]u8 = undefined;
-    const result1 = sanitizeNotes("<tag>", &output);
-    try std.testing.expectEqualStrings(" <tag>", result1);
-
-    const result2 = sanitizeNotes(">arrow", &output);
-    try std.testing.expectEqualStrings(" >arrow", result2);
-}
-
-test "sanitizeNotes handles complex input" {
-    var output: [256]u8 = undefined;
-    const result = sanitizeNotes("Normal text\n|piped\n<angled>\nMore text", &output);
-    try std.testing.expectEqualStrings("Normal text\r\n |piped\r\n <angled>\r\nMore text", result);
+    const result = sanitizeNotes("Normal text\n| bar 12 tacet\n<intro> x2\n> fade\nMore text", &output).?;
+    try std.testing.expectEqualStrings("Normal text\r\n| bar 12 tacet\r\n<intro> x2\r\n> fade\r\nMore text", result);
 }
 
 test "NotesSubscriptions init and deinit" {
@@ -256,11 +217,12 @@ test "NotesSubscriptions subscribe and unsubscribe" {
     var subs = NotesSubscriptions.init(std.testing.allocator);
     defer subs.deinit();
 
-    try subs.subscribe(1);
+    var mock = reaper.MockBackend{};
+    try subs.subscribe(&mock, 1);
     try std.testing.expect(subs.hasSubscribers());
     try std.testing.expectEqual(@as(usize, 1), subs.subscriberCount());
 
-    try subs.subscribe(2);
+    try subs.subscribe(&mock, 2);
     try std.testing.expectEqual(@as(usize, 2), subs.subscriberCount());
 
     subs.unsubscribe(1);
@@ -268,4 +230,45 @@ test "NotesSubscriptions subscribe and unsubscribe" {
 
     subs.removeClient(2);
     try std.testing.expect(!subs.hasSubscribers());
+}
+
+test "a change saved by one client is reported to the others" {
+    var subs = NotesSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+    var mock = reaper.MockBackend{};
+    try subs.subscribe(&mock, 1);
+    try subs.subscribe(&mock, 2);
+    try std.testing.expect(subs.poll(&mock) == null);
+
+    // Client 1 saves; its own response reads the notes back.
+    mock.setProjectNotes("Setlist\r\n1. Intro");
+    _ = subs.getCurrentNotes(&mock);
+    // A third client subscribing in the same second must not swallow it either.
+    try subs.subscribe(&mock, 3);
+
+    const change = subs.poll(&mock) orelse return error.ChangeNotReported;
+    try std.testing.expectEqual(computeHash("Setlist\r\n1. Intro"), change.hash);
+    try std.testing.expect(subs.poll(&mock) == null);
+}
+
+test "notes that fill the read buffer are reported as cut off, at a character boundary" {
+    var mock = reaper.MockBackend{};
+    // A 12-byte buffer carries at most 10 bytes of notes whole.
+    var buf: [12]u8 = undefined;
+    mock.setProjectNotes("0123456789");
+    const fits = readNotesInto(&mock, &buf).?;
+    try std.testing.expect(fits.complete);
+    try std.testing.expectEqualStrings("0123456789", fits.text);
+
+    mock.setProjectNotes("0123456789\u{e9}xyz"); // é straddles the cut
+    const cut = readNotesInto(&mock, &buf).?;
+    try std.testing.expect(!cut.complete);
+    try std.testing.expectEqualStrings("0123456789", cut.text);
+}
+
+test "sanitizeNotes refuses notes whose CRLF expansion does not fit, rather than cutting them" {
+    var output: [8]u8 = undefined;
+    try std.testing.expectEqualStrings("a\r\nb", sanitizeNotes("a\nb", &output).?);
+    // 6 bytes typed, 9 once each \n becomes \r\n: more than the 7 before the NUL.
+    try std.testing.expect(sanitizeNotes("a\nb\nc\n", &output) == null);
 }

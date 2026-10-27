@@ -409,7 +409,7 @@ pub const TileCache = struct {
             if (self.epochs.checkAndUpdate(take_guid, api, take)) |new_epoch| {
                 // Epoch changed - remove cached tiles for this take
                 // Note: checkAndUpdate already stored the new epoch, so just remove tiles
-                logging.info("peaks_tile: epoch changed for take {s} (new epoch: {}), removing tiles", .{ take_guid, new_epoch });
+                logging.debug("peaks_tile: epoch changed for take {s} (new epoch: {}), removing tiles", .{ take_guid, new_epoch });
                 self.removeTilesForTake(take_guid);
                 changed = true;
             }
@@ -518,9 +518,10 @@ pub const EpochTracker = struct {
     }
 };
 
-/// Compute epoch from take's PCM_source properties.
-/// Hash: source_ptr + channel count. This changes when the source is replaced
-/// or channel count changes (e.g. mono -> stereo render).
+/// Compute epoch: what the take plays at each item-relative time. Tiles are
+/// indexed from the item start, so besides the source (replaced, or its
+/// channel count changed by a render) a slip edit or left trim (start
+/// offset) and a playrate change make every cached tile wrong.
 fn computeEpoch(api: anytype, take: *anyopaque) u32 {
     const source = api.getTakeSource(take) orelse {
         return 0; // No source
@@ -534,6 +535,11 @@ fn computeEpoch(api: anytype, take: *anyopaque) u32 {
     // Hash channel count (GetMediaSourceNumChannels is reliable on all platforms)
     const channels = api.getMediaSourceChannels(source);
     hasher.update(std.mem.asBytes(&channels));
+
+    const start_offset = api.getTakeStartOffset(take);
+    hasher.update(std.mem.asBytes(&start_offset));
+    const playrate = api.getTakePlayrate(take);
+    hasher.update(std.mem.asBytes(&playrate));
 
     // Truncate to u32
     return @truncate(hasher.final());
@@ -606,13 +612,13 @@ pub fn tilesForViewport(
 ) ?TileRange {
     // Validate inputs
     const duration = viewport_end - viewport_start;
-    if (duration <= 0) {
-        logging.warn("peaks_tile: invalid viewport duration {d}", .{duration});
+    if (!(duration > 0) or std.math.isInf(duration)) {
+        logging.debug("peaks_tile: invalid viewport duration {d}", .{duration});
         return null;
     }
 
     if (viewport_width_px == 0) {
-        logging.warn("peaks_tile: viewport width is zero", .{});
+        logging.debug("peaks_tile: viewport width is zero", .{});
         return null;
     }
 
@@ -626,9 +632,16 @@ pub fn tilesForViewport(
     const buffered_start = @max(0.0, viewport_start - buffer);
     const buffered_end = viewport_end + buffer;
 
-    // Calculate tile indices
-    const start_tile: u32 = @intFromFloat(@floor(buffered_start / config.duration));
-    const end_tile: u32 = @intFromFloat(@ceil(buffered_end / config.duration));
+    // Calculate tile indices. A viewport (client-supplied) too far out for
+    // u32 tile indices has no tiles rather than trapping the conversion.
+    const start_tile = ffi.safeFloatToInt(u32, @floor(buffered_start / config.duration)) catch {
+        logging.debug("peaks_tile: viewport start {d} out of range", .{viewport_start});
+        return null;
+    };
+    const end_tile = ffi.safeFloatToInt(u32, @ceil(buffered_end / config.duration)) catch {
+        logging.debug("peaks_tile: viewport end {d} out of range", .{viewport_end});
+        return null;
+    };
 
     return TileRange{
         .lod = lod,
@@ -813,4 +826,29 @@ test "tilesForViewport invalid inputs" {
     // Zero width
     const zero_width = tilesForViewport(0.0, 10.0, 0, 0.0);
     try std.testing.expect(zero_width == null);
+}
+
+test "tilesForViewport returns null when the buffered viewport's tile indices don't fit u32" {
+    // Each once panicked converting the tile index (+inf, or > maxInt(u32) tiles).
+    try std.testing.expect(tilesForViewport(0, std.math.inf(f64), 400, 0.5) == null);
+    try std.testing.expect(tilesForViewport(0, 1e20, 400, 0.5) == null);
+    try std.testing.expect(tilesForViewport(-1e308, 0, 400, 0.5) == null);
+    // A realistic long viewport still resolves.
+    try std.testing.expect(tilesForViewport(0, 3600, 400, 0.5) != null);
+}
+
+test "a slip edit or playrate change gives the take a new epoch" {
+    const reaper = @import("../reaper.zig");
+    var m = reaper.MockBackend{ .track_count = 1 };
+    m.tracks[1].item_count = 1;
+    m.tracks[1].items[0].take_count = 1;
+    const take = m.getItemActiveTake(m.getItemByIdx(m.getTrackByUnifiedIdx(1).?, 0).?).?;
+
+    const original = computeEpoch(&m, take);
+    try std.testing.expectEqual(original, computeEpoch(&m, take));
+    m.tracks[1].items[0].takes[0].start_offset = 2.0;
+    const slipped = computeEpoch(&m, take);
+    try std.testing.expect(slipped != original);
+    m.tracks[1].items[0].takes[0].playrate = 1.5;
+    try std.testing.expect(computeEpoch(&m, take) != slipped);
 }

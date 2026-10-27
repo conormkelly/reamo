@@ -7,6 +7,7 @@
 ///
 /// Single track per client - subscribing auto-unsubscribes from previous track.
 const std = @import("std");
+const logging = @import("../core/logging.zig");
 const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
 const tuner_subscriptions = @import("../subscriptions/tuner_subscriptions.zig");
@@ -49,26 +50,34 @@ pub fn handleSubscribe(api: anytype, cmd: protocol.CommandMessage, response: *mo
         switch (err) {
             error.TooManyClients => response.err("TOO_MANY_CLIENTS", "Maximum client limit reached"),
             error.TrackNotFound => response.err("TRACK_NOT_FOUND", "Track GUID not found in cache"),
-            error.FxInsertFailed => response.err("FX_INSERT_FAILED", "Failed to insert tuner JSFX (not installed?)"),
+            error.FxInsertFailed => {
+                // The tuner's commonest support case: REAmo's JSFX isn't where REAPER looks.
+                logging.warn("tuner: REAPER couldn't insert the tuner JSFX on track {f}; is REAmo/PitchDetect.jsfx installed in Effects?", .{logging.untrusted(track_guid)});
+                response.err("FX_INSERT_FAILED", "Failed to insert tuner JSFX (not installed?)");
+            },
             error.TooManyTuners => response.err("TOO_MANY_TUNERS", "Maximum tuner track limit reached"),
         }
         return;
     };
 
     // Build success response with subscribe result
-    var payload_buf: [512]u8 = undefined;
-    const payload = std.fmt.bufPrint(&payload_buf, "{{\"trackGuid\":\"{s}\",\"fxGuid\":\"{s}\",\"trackName\":\"{s}\",\"reference\":{d:.1},\"threshold\":{d:.1}}}", .{
-        result.track_guid,
-        result.fx_guid,
-        result.track_name,
-        result.reference_hz,
-        result.threshold_db,
-    }) catch {
+    var payload_buf: [1024]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&payload_buf);
+    writeSubscribeResult(stream.writer(), &result) catch {
         response.err("INTERNAL_ERROR", "Failed to format response");
         return;
     };
+    response.success(stream.getWritten());
+}
 
-    response.success(payload);
+fn writeSubscribeResult(w: anytype, result: *const tuner_subscriptions.SubscribeResult) !void {
+    try w.writeAll("{\"trackGuid\":\"");
+    try protocol.writeJsonString(w, result.track_guid);
+    try w.writeAll("\",\"fxGuid\":\"");
+    try protocol.writeJsonString(w, result.fx_guid);
+    try w.writeAll("\",\"trackName\":\"");
+    try protocol.writeJsonString(w, result.trackName());
+    try w.print("\",\"reference\":{d:.1},\"threshold\":{d:.1}}}", .{ result.reference_hz, result.threshold_db });
 }
 
 /// Unsubscribe from tuner.

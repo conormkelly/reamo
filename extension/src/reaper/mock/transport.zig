@@ -74,6 +74,7 @@ pub const TransportMethods = struct {
             .measures = bar + 1,
             .beats_in_measure = beat_in_bar,
             .time_sig_denom = self.timesig_denom,
+            .time_sig_num = self.timesig_num,
         };
     }
 
@@ -83,12 +84,14 @@ pub const TransportMethods = struct {
         return beats / beats_per_second;
     }
 
+    /// Like TimeMap2_beatsToTime with a measure: `beat` counts the meter's
+    /// own beats (eighths in 6/8), while BPM counts quarter notes.
     pub fn barBeatToTime(self: anytype, bar: c_int, beat: f64) f64 {
         self.recordCall(.barBeatToTime);
+        const qn_per_beat = 4.0 / @as(f64, @floatFromInt(self.timesig_denom));
         const beats_per_bar: f64 = @floatFromInt(self.timesig_num);
-        const total_beats = @as(f64, @floatFromInt(bar - 1)) * beats_per_bar + (beat - 1.0);
-        const beats_per_second = self.bpm / 60.0;
-        return total_beats / beats_per_second;
+        const total_qn = (@as(f64, @floatFromInt(bar - 1)) * beats_per_bar + (beat - 1.0)) * qn_per_beat;
+        return total_qn * 60.0 / self.bpm;
     }
 
     // =========================================================================

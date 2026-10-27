@@ -3,7 +3,7 @@ const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../core/logging.zig");
-const ffi = @import("../core/ffi.zig");
+const bar_beat = @import("../state/bar_beat.zig");
 
 // Set tempo (BPM)
 pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
@@ -12,9 +12,9 @@ pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
         return;
     };
 
-    // Validate range (REAPER supports 2-960 BPM)
-    if (bpm < 2.0 or bpm > 960.0) {
-        response.err("INVALID_BPM", "bpm must be between 2 and 960");
+    // REAPER's tempo range (SetCurrentBPM clamps to 1-960)
+    if (bpm < 1.0 or bpm > 960.0) {
+        response.err("INVALID_BPM", "bpm must be between 1 and 960");
         return;
     }
 
@@ -31,8 +31,11 @@ pub fn handleTap(api: anytype, _: protocol.CommandMessage, _: *mod.ResponseWrite
 // Request: { "time": 15.7, "subdivision": 1 }
 // Response: { "snappedTime": 16.0, "snappedBeats": 32.0 }
 pub fn handleSnap(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const time = cmd.getFloat("time") orelse {
+    const time = mod.validateTime(cmd.getFloat("time") orelse {
         response.err("MISSING_TIME", "time is required");
+        return;
+    }) orelse {
+        response.err("INVALID_TIME", "time is out of range");
         return;
     };
 
@@ -66,16 +69,14 @@ pub fn handleSnap(api: anytype, cmd: protocol.CommandMessage, response: *mod.Res
 // Request: { "time": 10.5 }
 // Response: { "duration": 2.0, "durationBeats": 4.0, "bpm": 120.0, "timesigNum": 4, "timesigDenom": 4 }
 pub fn handleGetBarDuration(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const time = cmd.getFloat("time") orelse 0.0;
+    const time = mod.validateTime(cmd.getFloat("time") orelse 0.0) orelse {
+        response.err("INVALID_TIME", "time is out of range");
+        return;
+    };
 
-    // Get tempo at position
     const tempo = api.getTempoAtPosition(time);
-
-    // Calculate bar duration in beats (numerator in the time signature's denominator units)
     const beats_per_bar: f64 = @floatFromInt(tempo.timesig_num);
-
-    // Convert beats to seconds: beats / (bpm / 60) = beats * 60 / bpm
-    const duration = beats_per_bar * 60.0 / tempo.bpm;
+    const duration = barDurationAt(api, time);
 
     var buf: [192]u8 = undefined;
     const payload = std.fmt.bufPrint(&buf, "{{\"duration\":{d:.15},\"durationBeats\":{d:.6},\"bpm\":{d:.2},\"timesigNum\":{d},\"timesigDenom\":{d}}}", .{
@@ -91,12 +92,23 @@ pub fn handleGetBarDuration(api: anytype, cmd: protocol.CommandMessage, response
     response.success(payload);
 }
 
+/// Length in seconds of the bar containing `time`, from REAPER's own bar
+/// starts. Through a tempo ramp the BPM differs across the bar, so no
+/// single BPM gives its length.
+fn barDurationAt(api: anytype, time: f64) f64 {
+    const bar = api.timeToBeats(time).measures;
+    return api.barBeatToTime(bar +| 1, 1.0) - api.barBeatToTime(bar, 1.0);
+}
+
 // Convert time to beats with formatted bar string
 // Request: { "time": 16.0 }
 // Response: { "beats": 32.0, "bars": "9.1.00" }
 pub fn handleTimeToBeats(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const time = cmd.getFloat("time") orelse {
+    const time = mod.validateTime(cmd.getFloat("time") orelse {
         response.err("MISSING_TIME", "time is required");
+        return;
+    }) orelse {
+        response.err("INVALID_TIME", "time is out of range");
         return;
     };
 
@@ -104,22 +116,18 @@ pub fn handleTimeToBeats(api: anytype, cmd: protocol.CommandMessage, response: *
     const beats_info = api.timeToBeats(time);
     const bar_offset = api.getBarOffset();
 
-    // Format bar string (same logic as markers.zig)
-    const display_bar = beats_info.measures + bar_offset;
-    // roundFloatToInt validates NaN/Inf from corrupt project data
-    const scaled: u32 = ffi.roundFloatToInt(u32, (beats_info.beats_in_measure + 1.0) * 100.0) catch {
+    // Same bar.beat.ticks label as markers and regions
+    var bars_buf: [48]u8 = undefined;
+    var bars_stream = std.io.fixedBufferStream(&bars_buf);
+    bar_beat.write(bars_stream.writer(), beats_info.measures, beats_info.beats_in_measure, beats_info.time_sig_num, bar_offset) catch {
         response.err("INVALID_BEAT", "Invalid beat position value");
         return;
     };
-    const beat_int: u32 = @max(1, scaled / 100);
-    const ticks: u32 = scaled % 100;
 
     var buf: [192]u8 = undefined;
-    const payload = std.fmt.bufPrint(&buf, "{{\"beats\":{d:.6},\"bars\":\"{d}.{d}.{d:0>2}\"}}", .{
+    const payload = std.fmt.bufPrint(&buf, "{{\"beats\":{d:.6},\"bars\":\"{s}\"}}", .{
         beats_info.beats,
-        display_bar,
-        beat_int,
-        ticks,
+        bars_stream.getWritten(),
     }) catch {
         logging.warn("tempo: timeToBeats response format failed", .{});
         return;
@@ -130,43 +138,31 @@ pub fn handleTimeToBeats(api: anytype, cmd: protocol.CommandMessage, response: *
 // Convert bar.beat.ticks to time in seconds (tempo-aware)
 // Request: { "bar": 15, "beat": 1, "ticks": 0 }
 // Response: { "time": 28.0 }
-//
-// IMPORTANT: User input uses "denominator beats" (e.g., beat 2 in 6/8 = second eighth note)
-// but REAPER's TimeMap2_beatsToTime expects quarter notes as tpos.
-// We must convert: qn_offset = (beat - 1) * (4.0 / denominator)
+// bar.beat.ticks as displayed: beat in the meter's own beats, ticks hundredths of a beat.
 pub fn handleBarsToTime(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const bar = cmd.getInt("bar") orelse {
         response.err("MISSING_BAR", "bar is required");
         return;
     };
+    if (mod.validateBar(bar) == null) {
+        response.err("INVALID_BAR", "bar is out of range");
+        return;
+    }
 
     // Beat is 1-indexed in the input (like display), default to 1
     const beat_input = cmd.getInt("beat") orelse 1;
     // Ticks are 0-99, default to 0
     const ticks_input = cmd.getInt("ticks") orelse 0;
+    if (beat_input < 1 or ticks_input < 0 or ticks_input > 99) {
+        response.err("INVALID_BEAT", "beat must be >= 1 and ticks 0-99");
+        return;
+    }
 
-    // Apply bar offset (reverse of what we do in timeToBeats)
-    const bar_offset = api.getBarOffset();
-    const actual_bar = bar - bar_offset;
-
-    // Step 1: Get time at bar start (beat 1 = 0 QN offset)
-    const bar_start_time = api.barBeatToTime(actual_bar, 1.0);
-
-    // Step 2: Get time signature at bar start to know the denominator
-    const tempo = api.getTempoAtPosition(bar_start_time);
-    const denom: f64 = @floatFromInt(tempo.timesig_denom);
-
-    // Step 3: Convert beat/ticks from denominator units to quarter notes
-    // In 6/8: beat 2 = (2-1) * (4/8) = 0.5 QN
-    // In 4/4: beat 2 = (2-1) * (4/4) = 1.0 QN
-    const beat_f: f64 = @floatFromInt(beat_input - 1);
-    const ticks_f: f64 = @as(f64, @floatFromInt(ticks_input)) / 100.0;
-    const qn_offset = (beat_f + ticks_f) * (4.0 / denom);
-
-    // Step 4: barBeatToTime expects beat where beat-1.0 = QN offset
-    // So beat = qn_offset + 1.0
-    const beat_for_api = qn_offset + 1.0;
-    const time = api.barBeatToTime(actual_bar, beat_for_api);
+    const beat: f64 = @as(f64, @floatFromInt(beat_input)) + @as(f64, @floatFromInt(ticks_input)) / 100.0;
+    const time = mod.displayedBarBeatToTime(api, bar, beat) orelse {
+        response.err("INVALID_BAR", "bar is out of range");
+        return;
+    };
 
     var buf: [64]u8 = undefined;
     const payload = std.fmt.bufPrint(&buf, "{{\"time\":{d:.15}}}", .{time}) catch {
@@ -174,4 +170,49 @@ pub fn handleBarsToTime(api: anytype, cmd: protocol.CommandMessage, response: *m
         return;
     };
     response.success(payload);
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "bar.beat counts the meter's own beats in compound meters" {
+    const mock = @import("../reaper/mock/mod.zig");
+    // 6/8 at 90 BPM (quarter notes): an eighth is 1/3 s, a bar 2 s.
+    var m = mock.MockBackend{ .bpm = 90, .timesig_num = 6, .timesig_denom = 8 };
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0 + 1.0), mod.displayedBarBeatToTime(&m, 2, 4.0).?, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), barDurationAt(&m, 0), 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), barDurationAt(&m, 1.0), 1e-9);
+}
+
+test "a bar before the project start has no time" {
+    const mock = @import("../reaper/mock/mod.zig");
+    // The ruler starts at -4 (start measure offset -5), as in most projects.
+    var m = mock.MockBackend{ .bpm = 120, .bar_offset = -5 };
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), mod.displayedBarBeatToTime(&m, -4, 1.0).?, 1e-12);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.5), mod.displayedBarBeatToTime(&m, -3, 2.0).?, 1e-9);
+    try std.testing.expectEqual(@as(?f64, null), mod.displayedBarBeatToTime(&m, -5, 1.0));
+    try std.testing.expectEqual(@as(?f64, null), mod.displayedBarBeatToTime(&m, -4, 0.5));
+}
+
+test "tempo/barsToTime rejects bar, beat and ticks that would overflow before converting" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{};
+    const rejected = [_][]const u8{
+        \\{"type":"command","command":"tempo/barsToTime","bar":-2147483648}
+        ,
+        \\{"type":"command","command":"tempo/barsToTime","bar":1,"beat":-2147483648}
+        ,
+        \\{"type":"command","command":"tempo/barsToTime","bar":1,"beat":0}
+        ,
+        \\{"type":"command","command":"tempo/barsToTime","bar":1,"ticks":100}
+        ,
+    };
+    for (rejected) |json| mod.testRunHandler(&m, handleBarsToTime, json);
+    try std.testing.expectEqual(@as(usize, 0), m.getCallCount(.barBeatToTime));
+
+    mod.testRunHandler(&m, handleBarsToTime,
+        \\{"type":"command","command":"tempo/barsToTime","bar":2,"beat":3,"ticks":50}
+    );
+    try std.testing.expect(m.getCallCount(.barBeatToTime) > 0);
 }

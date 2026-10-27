@@ -84,19 +84,10 @@ pub fn handleGetList(api: anytype, _: protocol.CommandMessage, response: *mod.Re
         return;
     };
 
-    logging.info("fxPlugin/getList: returning {d} plugins, {d} bytes", .{ idx, stream.pos });
+    logging.debug("fxPlugin/getList: returning {d} plugins, {d} bytes", .{ idx, stream.pos });
     response.successLargePayload(stream.getWritten());
 }
 
 fn writeEscapedString(writer: anytype, str: []const u8) !void {
-    for (str) |c| {
-        switch (c) {
-            '"' => try writer.writeAll("\\\""),
-            '\\' => try writer.writeAll("\\\\"),
-            '\n' => try writer.writeAll("\\n"),
-            '\r' => try writer.writeAll("\\r"),
-            '\t' => try writer.writeAll("\\t"),
-            else => try writer.writeByte(c),
-        }
-    }
+    try protocol.writeJsonString(writer, str);
 }

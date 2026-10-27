@@ -1,25 +1,23 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../core/logging.zig");
 
-// Add a simple undo point with description
+// Add a simple undo point with description, stored as the user typed it
 pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const description = cmd.getString("description") orelse {
+    const description = (cmd.getTextAlloc("description", std.heap.c_allocator) catch {
+        response.err("ALLOC_FAILED", "Failed to read description");
+        return;
+    }) orelse {
         response.err("MISSING_DESCRIPTION", "description is required");
         return;
     };
+    defer std.heap.c_allocator.free(description);
 
-    var desc_buf: [256]u8 = undefined;
-    const len = @min(description.len, 255);
-    @memcpy(desc_buf[0..len], description[0..len]);
-    desc_buf[len] = 0;
-    // SAFETY: @alignCast unnecessary - u8 has alignment 1, always valid
-    const desc_z: [*:0]const u8 = @ptrCast(&desc_buf);
-
-    api.undoAddPoint(desc_z);
-    logging.info("Added undo point: {s}", .{description});
+    api.undoAddPoint(description.ptr);
+    logging.debug("Added undo point ({d}-byte description)", .{description.len});
     response.success(null);
 }
 
@@ -27,10 +25,18 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
 // clients as REAPER doesn't support nested undo blocks. See research/REAPER_UNDO_BLOCKS.md
 // Use gesture-based undo coalescing instead (gesture/start, gesture/end).
 
+/// REAPER's description of the step, copied (at a character boundary, as
+/// much as the response sends). REAPER owns the string, and undoing or
+/// redoing rearranges the history it lives in, so it can't be read after.
+fn copyDescription(desc: []const u8, buf: *[256]u8) []const u8 {
+    return buf[0..utf8.copyPrefix(buf, desc)];
+}
+
 // Perform undo
 pub fn handleUndo(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     // Get the description of what will be undone BEFORE doing it
-    const action_desc = api.canUndo();
+    var desc_buf: [256]u8 = undefined;
+    const action_desc = if (api.canUndo()) |desc| copyDescription(desc, &desc_buf) else null;
 
     if (action_desc == null) {
         response.err("NOTHING_TO_UNDO", "No undo action available");
@@ -42,7 +48,7 @@ pub fn handleUndo(api: anytype, _: protocol.CommandMessage, response: *mod.Respo
         return;
     }
 
-    logging.info("Undo performed: {s}", .{action_desc.?});
+    logging.debug("Undo performed: {s}", .{action_desc.?});
 
     // Return success with the action that was undone
     response.successWithAction(action_desc.?);
@@ -51,7 +57,8 @@ pub fn handleUndo(api: anytype, _: protocol.CommandMessage, response: *mod.Respo
 // Perform redo
 pub fn handleRedo(api: anytype, _: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     // Get the description of what will be redone BEFORE doing it
-    const action_desc = api.canRedo();
+    var desc_buf: [256]u8 = undefined;
+    const action_desc = if (api.canRedo()) |desc| copyDescription(desc, &desc_buf) else null;
 
     if (action_desc == null) {
         response.err("NOTHING_TO_REDO", "No redo action available");
@@ -63,7 +70,7 @@ pub fn handleRedo(api: anytype, _: protocol.CommandMessage, response: *mod.Respo
         return;
     }
 
-    logging.info("Redo performed: {s}", .{action_desc.?});
+    logging.debug("Redo performed: {s}", .{action_desc.?});
 
     // Return success with the action that was redone
     response.successWithAction(action_desc.?);

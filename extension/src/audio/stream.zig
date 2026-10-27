@@ -66,7 +66,7 @@ pub const AudioStreamManager = struct {
 
         // Check capacity
         if (count >= MAX_AUDIO_CLIENTS) {
-            logging.warn("Audio stream: max clients ({d}) reached, rejecting client {d}", .{ MAX_AUDIO_CLIENTS, client_id });
+            logging.debug("Audio stream: max clients ({d}) reached, rejecting client {d}", .{ MAX_AUDIO_CLIENTS, client_id });
             return false;
         }
 
@@ -145,7 +145,7 @@ pub const AudioStreamManager = struct {
         // Register audio hook
         if (self.api) |api| {
             if (!audio_hook.register(api)) {
-                logging.err("Audio stream: failed to register audio hook (api fn={?})", .{@as(?*const anyopaque, if (api.audioRegHardwareHook) |f| @ptrCast(f) else null)});
+                logging.err("Audio stream: REAPER {s} the audio hook", .{if (api.audioRegHardwareHook == null) "has no API for" else "refused"});
                 return false;
             }
         } else {
@@ -163,7 +163,7 @@ pub const AudioStreamManager = struct {
             if (self.api) |api| audio_hook.unregister(api);
             return false;
         };
-        logging.info("Audio stream: network thread started", .{});
+        logging.debug("Audio stream: network thread started", .{});
         return true;
     }
 
@@ -176,7 +176,7 @@ pub const AudioStreamManager = struct {
         if (self.thread) |t| {
             t.join();
             self.thread = null;
-            logging.info("Audio stream: network thread stopped", .{});
+            logging.debug("Audio stream: network thread stopped", .{});
         }
 
         // Unregister audio hook

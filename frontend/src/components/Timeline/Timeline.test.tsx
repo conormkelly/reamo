@@ -35,7 +35,7 @@ import {
 vi.hoisted(() => vi.resetModules());
 
 // Mock useReaper hook
-vi.mock('../ReaperProvider', () => ({
+vi.mock('../../hooks/useReaper', () => ({
   useReaper: () => ({
     send: vi.fn(),
     sendCommand: vi.fn(),

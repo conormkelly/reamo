@@ -8,6 +8,7 @@ pub const BeatsInfo = struct {
     measures: c_int, // Measure number (1-based)
     beats_in_measure: f64, // Beat position within measure (0-indexed with fraction)
     time_sig_denom: c_int, // Time signature denominator
+    time_sig_num: c_int = 4, // Time signature numerator (beats per measure) at the position
 };
 
 /// Position-aware tempo info

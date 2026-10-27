@@ -1,4 +1,5 @@
 const std = @import("std");
+const protocol = @import("protocol.zig");
 
 // =============================================================================
 // Error Type Hierarchy for Reamo Extension
@@ -259,21 +260,7 @@ pub const ErrorEvent = struct {
         // Optional detail field
         if (self.detail) |d| {
             writer.writeAll("\"detail\":\"") catch return null;
-            // Escape JSON string (simple escaping for common cases)
-            for (d) |c| {
-                switch (c) {
-                    '"' => writer.writeAll("\\\"") catch return null,
-                    '\\' => writer.writeAll("\\\\") catch return null,
-                    '\n' => writer.writeAll("\\n") catch return null,
-                    '\r' => writer.writeAll("\\r") catch return null,
-                    '\t' => writer.writeAll("\\t") catch return null,
-                    else => {
-                        if (c >= 0x20) {
-                            writer.writeByte(c) catch return null;
-                        }
-                    },
-                }
-            }
+            protocol.writeJsonString(writer, d) catch return null;
             writer.writeAll("\",") catch return null;
         }
 

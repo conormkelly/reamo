@@ -7,7 +7,7 @@
 import { useEffect, useCallback, useState, useRef, type ReactElement } from 'react';
 import { Plus, Pencil } from 'lucide-react';
 import { useReaperStore } from '../../store';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useListReorder } from '../../hooks';
 import { actionToggleState } from '../../core/WebSocketCommands';
 import { ToolbarButton, type ToolbarLayout } from './ToolbarButton';

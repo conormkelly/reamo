@@ -2,6 +2,7 @@ const std = @import("std");
 const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
 const tracks = @import("tracks.zig");
+const send = @import("send.zig");
 const gesture_state = @import("../server/gesture_state.zig");
 const logging = @import("../core/logging.zig");
 
@@ -26,13 +27,16 @@ pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     };
 
-    // Uses CSurf via source track's send for proper undo coalescing
-    _ = api.trackReceiveSetVolume(track, recv_idx, volume);
-
-    // Record activity for gesture timeout tracking
-    if (response.gestures) |gestures| {
-        gestures.recordActivity(gesture_state.ControlId.receiveVolume(track_idx, recv_idx));
+    if (!mod.routeExists(api, track, .receive, recv_idx)) {
+        response.err("NOT_FOUND", "Receive not found");
+        return;
     }
+
+    const control = gesture_state.ControlId.receiveVolume(track_idx, recv_idx);
+    const in_gesture = mod.inGesture(response, control);
+    if (!in_gesture) api.undoBeginBlock();
+    _ = api.trackReceiveSetVolume(track, recv_idx, volume);
+    if (in_gesture) response.gestures.?.recordActivity(control) else api.undoEndBlock("REAmo: Adjust receive volume");
 
     logging.debug("Receive volume set: track {} recv {} volume {d:.3}", .{ track_idx, recv_idx, volume });
     response.success(null);
@@ -60,7 +64,14 @@ pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         return;
     };
 
+    if (!mod.routeExists(api, track, .receive, recv_idx)) {
+        response.err("NOT_FOUND", "Receive not found");
+        return;
+    }
+
+    api.undoBeginBlock();
     const success = api.trackReceiveSetMute(track, recv_idx, muted);
+    api.undoEndBlock("REAmo: Toggle receive mute");
     if (!success) {
         response.err("SET_FAILED", "Failed to set receive mute state");
         return;
@@ -91,16 +102,19 @@ pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         return;
     };
 
+    if (!mod.routeExists(api, track, .receive, recv_idx)) {
+        response.err("NOT_FOUND", "Receive not found");
+        return;
+    }
+
     // Clamp pan to valid range
     const clamped = @max(-1.0, @min(1.0, pan));
 
-    // Uses CSurf via source track's send for proper undo coalescing
+    const control = gesture_state.ControlId.receivePan(track_idx, recv_idx);
+    const in_gesture = mod.inGesture(response, control);
+    if (!in_gesture) api.undoBeginBlock();
     _ = api.trackReceiveSetPan(track, recv_idx, clamped);
-
-    // Record activity for gesture timeout tracking
-    if (response.gestures) |gestures| {
-        gestures.recordActivity(gesture_state.ControlId.receivePan(track_idx, recv_idx));
-    }
+    if (in_gesture) response.gestures.?.recordActivity(control) else api.undoEndBlock("REAmo: Adjust receive pan");
 
     logging.debug("Receive pan set: track {} recv {} pan {d:.3}", .{ track_idx, recv_idx, clamped });
     response.success(null);
@@ -133,7 +147,14 @@ pub fn handleSetMode(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         return;
     };
 
+    if (!mod.routeExists(api, track, .receive, recv_idx)) {
+        response.err("NOT_FOUND", "Receive not found");
+        return;
+    }
+
+    api.undoBeginBlock();
     const success = api.trackReceiveSetMode(track, recv_idx, mode);
+    api.undoEndBlock("REAmo: Set receive mode");
     if (!success) {
         response.err("SET_FAILED", "Failed to set receive mode");
         return;
@@ -162,7 +183,7 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
         return;
     };
 
-    const dest_track = cache.resolve(dest_guid) orelse {
+    const dest_track = cache.resolve(api, dest_guid) orelse {
         response.err("NOT_FOUND", "Destination track not found");
         return;
     };
@@ -171,7 +192,7 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
         return;
     }
 
-    const src_track = cache.resolve(src_guid) orelse {
+    const src_track = cache.resolve(api, src_guid) orelse {
         response.err("NOT_FOUND", "Source track not found");
         return;
     };
@@ -187,13 +208,13 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
 
     // CreateTrackSend creates a send FROM src TO dest
     api.undoBeginBlock();
-    const send_idx = api.createSend(src_track, dest_track);
+    const created = send.createSendChecked(api, src_track, dest_track);
     api.undoEndBlock("REAmo: Create receive");
 
-    if (send_idx < 0) {
-        response.err("CREATE_FAILED", "Failed to create receive");
+    const send_idx = created orelse {
+        response.err("CREATE_FAILED", "REAPER didn't create the receive");
         return;
-    }
+    };
 
     var resp_buf: [64]u8 = undefined;
     const resp_json = std.fmt.bufPrint(&resp_buf, "{{\"sendIndex\":{d}}}", .{send_idx}) catch {
@@ -219,6 +240,11 @@ pub fn handleRemove(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
     };
 
     // category < 0 = receives
+    if (!mod.routeExists(api, resolution.track, .receive, recv_idx)) {
+        response.err("NOT_FOUND", "Receive not found");
+        return;
+    }
+
     api.undoBeginBlock();
     const success = api.removeSend(resolution.track, -1, recv_idx);
     api.undoEndBlock("REAmo: Remove receive");

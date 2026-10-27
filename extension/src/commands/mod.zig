@@ -1,4 +1,5 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
 const ws_server = @import("../server/ws_server.zig");
@@ -6,6 +7,7 @@ const gesture_state = @import("../server/gesture_state.zig");
 const playlist_mod = @import("../state/playlist.zig");
 const errors = @import("../core/errors.zig");
 const logging = @import("../core/logging.zig");
+const constants = @import("../core/constants.zig");
 const toggle_subscriptions = @import("../subscriptions/toggle_subscriptions.zig");
 const project_notes = @import("../subscriptions/project_notes.zig");
 const guid_cache = @import("../state/guid_cache.zig");
@@ -77,6 +79,81 @@ pub const CommandContext = struct {
 /// Global command context - initialized by main.zig
 pub var g_ctx: CommandContext = .{};
 
+/// Time of a bar.beat as the user reads it on REAPER's ruler: `bar` as
+/// displayed (the project start measure shifts it; 58% of real projects
+/// start at -5 or similar) and `beat` 1-based in the meter's own beats
+/// (eighths in 6/8), which is how TimeMap2_beatsToTime takes them. null if
+/// the bar is out of range once the start measure is applied, or falls
+/// before the project start: REAPER has no time there, and TimeMap2 would
+/// extrapolate one (a time selection at negative seconds).
+pub fn displayedBarBeatToTime(api: anytype, bar: c_int, beat: f64) ?f64 {
+    const measure = std.math.cast(c_int, @as(i64, bar) - api.getBarOffset()) orelse return null;
+    if (validateBar(measure) == null) return null;
+    const time = api.barBeatToTime(measure, beat);
+    if (!(time >= -constants.TIME_EPSILON) or time > MAX_TIME_SECONDS) return null;
+    return @max(time, 0.0);
+}
+
+/// Whether a client is mid-drag on `control`. A change inside a drag is
+/// covered by the undo point recorded when the drag ends; a change outside
+/// one (a double-tap reset) needs an undo point of its own.
+pub fn inGesture(response: *const ResponseWriter, control: gesture_state.ControlId) bool {
+    const gestures = response.gestures orelse return false;
+    return gestures.isActive(control);
+}
+
+/// The colour a marker or region update stores, from its `current` colour
+/// and the colour the client sent (null: unchanged). 0 asks for the theme's
+/// colour, which REAPER's own "Set marker/region to default color" gives by
+/// clearing the custom flag and keeping the RGB, so the marker or region
+/// keeps its GUID and render routing. SetProjectMarker4 reads 0 as
+/// "unchanged": a black custom colour (RGB 0) clears to 1, which shows the
+/// theme's colour too, and one already showing it stays as it is (the UI
+/// sends 0 with every rename).
+pub fn markerColor(current: c_int, requested: ?c_int) c_int {
+    const want = requested orelse return current;
+    if (want != 0) return want;
+    if (current & constants.CUSTOM_COLOR_FLAG == 0) return 0;
+    const rgb = current & ~constants.CUSTOM_COLOR_FLAG;
+    return if (rgb != 0) rgb else 1;
+}
+
+/// Comp lanes (fixed item lanes) are REAPER 7's. On an older REAPER a lane
+/// command answers NEEDS_REAPER_7 and does nothing: this returns false.
+pub fn requireLanes(api: anytype, response: *ResponseWriter) bool {
+    const major = api.majorVersion() orelse return true;
+    if (major >= 7) return true;
+    response.err("NEEDS_REAPER_7", "Comp lanes need REAPER 7 or later");
+    return false;
+}
+
+/// The kinds of route a track has, each addressed by its own 0-based index.
+pub const Route = enum { send, receive, hw_output };
+
+/// Whether `idx` names an existing route of `track`. A row on a phone can
+/// outlive its route (another phone removed it), so handlers check this
+/// before opening an undo block: a stale index changes nothing, leaves no
+/// empty undo point and is refused.
+pub fn routeExists(api: anytype, track: *anyopaque, route: Route, idx: c_int) bool {
+    const count = switch (route) {
+        .send => api.trackSendCount(track),
+        .receive => api.trackReceiveCount(track),
+        .hw_output => api.trackHwOutputCount(track),
+    };
+    return idx >= 0 and idx < count;
+}
+
+/// The name a marker/region add or update should store, NUL-terminated and
+/// whole: the client's text (unescaped) when it sent a non-empty one, else a
+/// copy of `current` (REAPER's own string must not be passed back into the
+/// setter that may free it). Free with c_allocator.
+pub fn resolveNameZ(provided: ?[:0]u8, current: []const u8) ![:0]u8 {
+    if (provided) |p| {
+        if (p.len > 0) return std.heap.c_allocator.dupeZ(u8, p);
+    }
+    return std.heap.c_allocator.dupeZ(u8, current);
+}
+
 // Response writer for sending responses to the requesting client only
 pub const ResponseWriter = struct {
     client_id: usize,
@@ -84,104 +161,76 @@ pub const ResponseWriter = struct {
     shared_state: *ws_server.SharedState,
     gestures: ?*GestureState,
     playlist: ?*PlaylistState = null,
+    /// Whether this command has been answered (see dispatch).
+    responded: bool = false,
+
+    /// Payload responses larger than this are refused rather than sent: one
+    /// frame must fit the socket send buffer (see WsHandler.init).
+    const MAX_RESPONSE_PAYLOAD = 2 * 1024 * 1024;
+
+    /// Format a reply and send it to the requesting client. Most replies fit
+    /// on the stack; larger ones (a long payload, or a long id echoed back)
+    /// get an exact-size heap buffer instead of being dropped, since the
+    /// client would wait for them forever.
+    fn reply(self: *ResponseWriter, comptime fmt: []const u8, args: anytype) void {
+        var buf: [512]u8 = undefined;
+        if (std.fmt.bufPrint(&buf, fmt, args)) |json| {
+            self.shared_state.sendToClient(self.client_id, json);
+            return;
+        } else |_| {}
+        const json = std.fmt.allocPrint(std.heap.c_allocator, fmt, args) catch {
+            logging.err("Reply to client {d}: no memory for {d} bytes", .{ self.client_id, std.fmt.count(fmt, args) });
+            // A short failure reply instead, if the id leaves room for one.
+            const id = self.cmd_id orelse return;
+            const fallback = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":false,\"error\":{{\"code\":\"ALLOC_FAILED\",\"message\":\"Out of memory\"}}}}", .{id}) catch return;
+            self.shared_state.sendToClient(self.client_id, fallback);
+            return;
+        };
+        defer std.heap.c_allocator.free(json);
+        self.shared_state.sendToClient(self.client_id, json);
+    }
 
     pub fn success(self: *ResponseWriter, payload: ?[]const u8) void {
         if (self.cmd_id == null) return; // No response expected if no id provided
+        self.responded = true;
 
-        var buf: [512]u8 = undefined;
-        const json = if (payload) |p|
-            std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"payload\":{s}}}", .{ self.cmd_id.?, p }) catch {
-                logging.warn("ResponseWriter.success: buffer overflow for cmd_id={s}, payload_len={d}", .{ self.cmd_id.?, p.len });
+        if (payload) |p| {
+            if (p.len > MAX_RESPONSE_PAYLOAD) {
+                self.err("RESPONSE_TOO_LARGE", "Response payload exceeds maximum size");
                 return;
             }
-        else
-            std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true}}", .{self.cmd_id.?}) catch {
-                logging.warn("ResponseWriter.success: buffer overflow for cmd_id={s}", .{self.cmd_id.?});
-                return;
-            };
-
-        self.shared_state.sendToClient(self.client_id, json);
+            self.reply("{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"payload\":{s}}}", .{ self.cmd_id.?, p });
+        } else {
+            self.reply("{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true}}", .{self.cmd_id.?});
+        }
     }
 
-    /// Success response with an action string (for undo/redo commands)
+    /// Success response with an action string (for undo/redo commands).
+    /// The action is REAPER's undo description, which can quote user text
+    /// (track names and the like), so it is escaped like any other string.
     pub fn successWithAction(self: *ResponseWriter, action: []const u8) void {
         if (self.cmd_id == null) return;
+        self.responded = true;
 
-        // Escape the action string for JSON
-        var escaped: [512]u8 = undefined;
-        var escaped_len: usize = 0;
-        for (action) |c| {
-            if (escaped_len + 2 > escaped.len) break;
-            switch (c) {
-                '"' => {
-                    escaped[escaped_len] = '\\';
-                    escaped[escaped_len + 1] = '"';
-                    escaped_len += 2;
-                },
-                '\\' => {
-                    escaped[escaped_len] = '\\';
-                    escaped[escaped_len + 1] = '\\';
-                    escaped_len += 2;
-                },
-                '\n' => {
-                    escaped[escaped_len] = '\\';
-                    escaped[escaped_len + 1] = 'n';
-                    escaped_len += 2;
-                },
-                else => {
-                    if (c >= 0x20) {
-                        escaped[escaped_len] = c;
-                        escaped_len += 1;
-                    }
-                },
-            }
-        }
-
-        var buf: [768]u8 = undefined;
-        const json = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"action\":\"{s}\"}}", .{ self.cmd_id.?, escaped[0..escaped_len] }) catch {
-            logging.warn("ResponseWriter.successWithAction: buffer overflow for cmd_id={s}", .{self.cmd_id.?});
-            return;
-        };
-
-        self.shared_state.sendToClient(self.client_id, json);
+        // REAPER's undo descriptions are short; 256 bytes escapes to at most
+        // 1536 (a control character becomes \u00XX).
+        var escaped_buf: [256 * 6]u8 = undefined;
+        var stream = std.io.fixedBufferStream(&escaped_buf);
+        protocol.writeJsonString(stream.writer(), utf8.prefix(action, 256)) catch unreachable;
+        self.reply("{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"action\":\"{s}\"}}", .{ self.cmd_id.?, stream.getWritten() });
     }
 
-    /// Success response for commands with large payloads (e.g., project notes).
-    /// Heap-allocates a 512KB buffer per call to avoid stack overflow and shared state issues.
-    /// Safe for timer callbacks since they run on main thread (not audio thread).
-    /// See DEVELOPMENT.md "Response Buffer Sizes" and research/ZIG_MEMORY_MANAGEMENT.md.
+    /// Success response for commands whose payload is routinely large (action
+    /// lists, FX/plugin lists, project notes). Same as `success`, which sizes
+    /// its buffer to the payload.
     pub fn successLargePayload(self: *ResponseWriter, payload: []const u8) void {
-        if (self.cmd_id == null) return;
-
-        // Heap allocation per call - safe on main thread, avoids shared state between commands
-        // c_allocator is safe for timer callbacks (see ZIG_MEMORY_MANAGEMENT.md)
-        // 2MB handles action list plus JSON wrapper overhead
-        const allocator = std.heap.c_allocator;
-        const buf = allocator.alloc(u8, 2 * 1024 * 1024) catch {
-            self.err("ALLOC_FAILED", "Failed to allocate response buffer");
-            return;
-        };
-        defer allocator.free(buf);
-
-        const json = std.fmt.bufPrint(buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"payload\":{s}}}", .{ self.cmd_id.?, payload }) catch {
-            // Payload too large even for this buffer - send error instead
-            self.err("RESPONSE_TOO_LARGE", "Response payload exceeds maximum size");
-            return;
-        };
-
-        self.shared_state.sendToClient(self.client_id, json);
+        self.success(payload);
     }
 
     pub fn err(self: *ResponseWriter, code: []const u8, message: []const u8) void {
         if (self.cmd_id == null) return;
-
-        var buf: [512]u8 = undefined;
-        const json = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":false,\"error\":{{\"code\":\"{s}\",\"message\":\"{s}\"}}}}", .{ self.cmd_id.?, code, message }) catch {
-            logging.warn("ResponseWriter.err: buffer overflow for cmd_id={s}, code={s}", .{ self.cmd_id.?, code });
-            return;
-        };
-
-        self.shared_state.sendToClient(self.client_id, json);
+        self.responded = true;
+        self.reply("{{\"type\":\"response\",\"id\":\"{s}\",\"success\":false,\"error\":{{\"code\":\"{s}\",\"message\":\"{s}\"}}}}", .{ self.cmd_id.?, code, message });
     }
 
     /// Send a non-fatal warning to the client
@@ -189,14 +238,8 @@ pub const ResponseWriter = struct {
     /// Format: {"type":"response","id":"...","success":true,"warning":{"code":"...","message":"..."}}
     pub fn warn(self: *ResponseWriter, code: []const u8, message: []const u8) void {
         if (self.cmd_id == null) return;
-
-        var buf: [512]u8 = undefined;
-        const json = std.fmt.bufPrint(&buf, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"warning\":{{\"code\":\"{s}\",\"message\":\"{s}\"}}}}", .{ self.cmd_id.?, code, message }) catch {
-            logging.warn("ResponseWriter.warn: buffer overflow for cmd_id={s}, code={s}", .{ self.cmd_id.?, code });
-            return;
-        };
-
-        self.shared_state.sendToClient(self.client_id, json);
+        self.responded = true;
+        self.reply("{{\"type\":\"response\",\"id\":\"{s}\",\"success\":true,\"warning\":{{\"code\":\"{s}\",\"message\":\"{s}\"}}}}", .{ self.cmd_id.?, code, message });
     }
 
     /// Broadcast an error event to ALL connected clients
@@ -223,7 +266,7 @@ pub fn dispatch(api: anytype, client_id: usize, data: []const u8, shared_state: 
     switch (msg_type) {
         .command => {
             const cmd = protocol.CommandMessage.parse(data) orelse {
-                logging.warn("Failed to parse command", .{});
+                logging.warn("Unparseable command from client {d} ({d} bytes)", .{ client_id, data.len });
                 return;
             };
 
@@ -240,11 +283,15 @@ pub fn dispatch(api: anytype, client_id: usize, data: []const u8, shared_state: 
             inline for (comptime_registry.all) |entry| {
                 if (std.mem.eql(u8, cmd.command, entry[0])) {
                     entry[1](api, cmd, &response);
+                    // A command sent with an id is always answered: many
+                    // handlers report only failures, and a client awaiting
+                    // one of them could not tell success from loss.
+                    if (!response.responded) response.success(null);
                     return;
                 }
             }
 
-            logging.warn("Unknown command: {s}", .{cmd.command});
+            logging.warn("Unknown command '{f}' from client {d} (a phone running a different REAmo version?)", .{ logging.untrusted(cmd.command), client_id });
             response.err("UNKNOWN_COMMAND", "Command not found");
         },
         .hello => {
@@ -263,7 +310,7 @@ pub fn dispatch(api: anytype, client_id: usize, data: []const u8, shared_state: 
             logging.warn("Unexpected ping message in dispatch", .{});
         },
         .unknown => {
-            logging.warn("Unknown message type", .{});
+            logging.warn("Message of unknown type from client {d} ({d} bytes)", .{ client_id, data.len });
         },
     }
 }
@@ -276,8 +323,7 @@ pub fn dispatch(api: anytype, client_id: usize, data: []const u8, shared_state: 
 // Returns pointer to buffer (null-terminated) or empty string literal
 pub fn toNullTerminated(buf: *[65]u8, str: ?[]const u8) [*:0]const u8 {
     const s = str orelse return "";
-    const len = @min(s.len, 64);
-    @memcpy(buf[0..len], s[0..len]);
+    const len = utf8.copyPrefix(buf[0..64], s);
     buf[len] = 0;
     // SAFETY: @alignCast unnecessary - u8 has alignment 1, always valid
     return @ptrCast(buf);
@@ -285,10 +331,56 @@ pub fn toNullTerminated(buf: *[65]u8, str: ?[]const u8) [*:0]const u8 {
 
 // Validate position value - returns null if invalid (NaN, Inf, or negative)
 pub fn validatePosition(pos: ?f64) ?f64 {
-    const p = pos orelse return null;
-    if (std.math.isNan(p) or std.math.isInf(p)) return null;
+    const p = validateTime(pos) orelse return null;
     if (p < 0) return null;
     return p;
+}
+
+/// Largest time magnitude, in seconds, accepted from clients: about 31 years,
+/// far past any project. Larger times overflow REAPER's bar numbers and
+/// don't fit a reply formatted to 15 decimals.
+pub const MAX_TIME_SECONDS: f64 = 1e9;
+
+/// Validate a client-supplied time, which may be negative (before the
+/// project start) - returns null if not finite or out of range.
+pub fn validateTime(time: ?f64) ?f64 {
+    const t = time orelse return null;
+    if (!std.math.isFinite(t) or @abs(t) > MAX_TIME_SECONDS) return null;
+    return t;
+}
+
+/// Largest bar number magnitude accepted from clients. Bars may be negative
+/// (project measure offset), but nothing real is a million bars from zero, and
+/// the bound keeps `bar - 1` / `bar - offset` arithmetic inside c_int.
+pub const MAX_BAR_MAGNITUDE: c_int = 1_000_000;
+
+// Validate a client-supplied bar number - returns null if out of range
+pub fn validateBar(bar: ?c_int) ?c_int {
+    const b = bar orelse return null;
+    if (b < -MAX_BAR_MAGNITUDE or b > MAX_BAR_MAGNITUDE) return null;
+    return b;
+}
+
+/// Test helper: run a handler on a raw client message, as dispatch would.
+/// The message must carry no "id", so the ResponseWriter never touches
+/// shared_state and handlers can be exercised against MockBackend directly.
+pub fn testRunHandler(api: anytype, comptime handler: anytype, json: []const u8) void {
+    testRunPlaylistHandler(api, handler, json, null);
+}
+
+/// testRunHandler for handlers that read playlist state from the ResponseWriter.
+pub fn testRunPlaylistHandler(api: anytype, comptime handler: anytype, json: []const u8, playlist: ?*PlaylistState) void {
+    const cmd = protocol.CommandMessage.parse(json).?;
+    std.debug.assert(cmd.getId() == null);
+    var shared: ws_server.SharedState = undefined;
+    var response = ResponseWriter{
+        .client_id = 1,
+        .cmd_id = null,
+        .shared_state = &shared,
+        .gestures = null,
+        .playlist = playlist,
+    };
+    handler(api, cmd, &response);
 }
 
 // ============================================================================
@@ -391,4 +483,17 @@ test {
     _ = @import("send.zig");
     _ = @import("receive.zig");
     _ = @import("hw_output.zig");
+}
+
+test "markerColor clears only the custom flag to give the theme's colour back" {
+    const red = 0x2828DC | constants.CUSTOM_COLOR_FLAG;
+    try std.testing.expectEqual(@as(c_int, 0x2828DC), markerColor(red, 0));
+    // Black: RGB 0 would read as "unchanged".
+    try std.testing.expectEqual(@as(c_int, 1), markerColor(constants.CUSTOM_COLOR_FLAG, 0));
+    // Already the theme's colour (never coloured, or reset before): unchanged.
+    try std.testing.expectEqual(@as(c_int, 0), markerColor(0, 0));
+    try std.testing.expectEqual(@as(c_int, 0), markerColor(0x2828DC, 0));
+    // A colour, or nothing sent.
+    try std.testing.expectEqual(@as(c_int, 0x10000FF), markerColor(red, 0x10000FF));
+    try std.testing.expectEqual(red, markerColor(red, null));
 }

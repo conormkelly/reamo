@@ -13,6 +13,8 @@
 /// Filter fields enable built-in banks (Muted, Soloed, Armed, Selected, Folders, With Sends)
 /// without requiring full track subscriptions. Polled in same loop - no extra overhead.
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
+const ffi = @import("../core/ffi.zig");
 const Allocator = std.mem.Allocator;
 const protocol = @import("../core/protocol.zig");
 const constants = @import("../core/constants.zig");
@@ -37,7 +39,7 @@ pub const SkeletonTrack = struct {
     send_count: u16 = 0,
     hw_output_count: u16 = 0,
     clipped: bool = false, // Sticky clip flag (L or R channel exceeded 0dB)
-    item_count: u16 = 0, // Number of media items on track
+    item_count: u32 = 0, // Number of media items on track
     input_type: u8 = 0, // 0=none, 1=audio, 2=midi (from I_RECINPUT)
     free_mode: u8 = 0, // 0=normal, 1=free positioning, 2=fixed lanes (for comping)
     color: c_int = 0, // Native OS color (0x01rrggbb), 0 = theme default
@@ -112,8 +114,7 @@ pub const State = struct {
                 // Get track name
                 var name_buf: [MAX_NAME_LEN]u8 = undefined;
                 const name = api.getTrackNameStr(track, &name_buf);
-                const name_copy_len = @min(name.len, MAX_NAME_LEN);
-                @memcpy(t.name[0..name_copy_len], name[0..name_copy_len]);
+                const name_copy_len = utf8.copyPrefix(t.name[0..MAX_NAME_LEN], name);
                 t.name_len = name_copy_len;
 
                 // Get GUID (master uses "master" literal)
@@ -124,8 +125,7 @@ pub const State = struct {
                 } else {
                     var guid_buf: [64]u8 = undefined;
                     const guid = api.formatTrackGuid(track, &guid_buf);
-                    const guid_copy_len = @min(guid.len, MAX_GUID_LEN);
-                    @memcpy(t.guid[0..guid_copy_len], guid[0..guid_copy_len]);
+                    const guid_copy_len = utf8.copyPrefix(t.guid[0..MAX_GUID_LEN], guid);
                     t.guid_len = guid_copy_len;
                 }
 
@@ -142,9 +142,9 @@ pub const State = struct {
                 t.rec_arm = api.getTrackRecArm(track);
                 t.folder_depth = api.getTrackFolderDepth(track) catch 0;
                 const send_c = api.trackSendCount(track);
-                t.send_count = if (send_c >= 0) @intCast(send_c) else 0;
+                t.send_count = ffi.clampCount(u16, send_c);
                 const hw_c = api.trackHwOutputCount(track);
-                t.hw_output_count = if (hw_c >= 0) @intCast(hw_c) else 0;
+                t.hw_output_count = ffi.clampCount(u16, hw_c);
 
                 // Clipped: check peak hold on L/R channels (sticky until cleared, use clear=false)
                 const hold_l = api.getTrackPeakHoldDB(track, 0, false);
@@ -153,7 +153,7 @@ pub const State = struct {
 
                 // Item count (master track can have items too)
                 const item_c = api.trackItemCount(track);
-                t.item_count = if (item_c >= 0) @intCast(item_c) else 0;
+                t.item_count = ffi.clampCount(u32, item_c);
 
                 // Free mode: 0=normal, 1=free positioning, 2=fixed lanes
                 // Master track (idx 0) doesn't support free mode
@@ -262,14 +262,10 @@ pub const State = struct {
         return buf[0..stream.pos];
     }
 
-    /// Allocator-based version - dynamically sized, supports extreme projects.
-    /// Estimates buffer size based on track count, allocates from arena, returns trimmed slice.
+    /// toJson into a buffer grown until the event fits: names escape to
+    /// several times their length, so no per-track estimate is safe.
     pub fn toJsonAlloc(self: *const State, allocator: Allocator) ![]const u8 {
-        // Estimate: ~250 bytes per track (name + GUID + filter fields + JSON overhead) + 100 base
-        const estimated_size = 100 + (self.tracks.len * 250);
-        const buf = try allocator.alloc(u8, estimated_size);
-        const json = self.toJson(buf) orelse return error.JsonSerializationFailed;
-        return json; // Return slice of allocated buffer (no copy needed, arena-owned)
+        return protocol.serializeAlloc(allocator, 100 + self.tracks.len * 250, self, toJson);
     }
 };
 
@@ -389,4 +385,35 @@ test "State toJsonAlloc dynamically sizes buffer" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"event\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"event\":\"trackSkeleton\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"g\":\"master\"") != null);
+}
+
+test "a track list of long names that need escaping reaches the phone whole" {
+    // Every name at the 128-byte cap, all quotes: each escapes to 256 bytes,
+    // well past any fixed per-track estimate.
+    var tracks_buf: [64]SkeletonTrack = undefined;
+    for (&tracks_buf, 0..) |*t, i| {
+        t.* = .{};
+        @memset(t.name[0..MAX_NAME_LEN], '"');
+        t.name_len = MAX_NAME_LEN;
+        const g = std.fmt.bufPrint(&t.guid, "{{{d:0>36}}}", .{i}) catch unreachable;
+        t.guid_len = g.len;
+    }
+    const state = State{ .tracks = &tracks_buf };
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const json = try state.toJsonAlloc(arena.allocator());
+    try std.testing.expect(try std.json.validate(std.testing.allocator, json));
+    try std.testing.expectEqual(@as(usize, 64), std.mem.count(u8, json, "\"g\":"));
+}
+
+test "State poll reports a track with more than 65535 items instead of overflowing" {
+    const reaper = @import("../reaper.zig");
+    var mock = reaper.MockBackend{ .track_count = 1 };
+    // Unified index 1 is the first user track. REAPER reports the real count.
+    mock.tracks[1].item_count = 70_000;
+
+    const state = try State.poll(std.testing.allocator, &mock);
+    defer std.testing.allocator.free(state.tracks);
+
+    try std.testing.expectEqual(@as(u32, 70_000), state.tracks[1].item_count);
 }

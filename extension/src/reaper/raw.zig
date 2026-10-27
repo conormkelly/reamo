@@ -2,6 +2,9 @@
 /// This module contains the C function pointers loaded at runtime from REAPER.
 /// For the abstract interface used by state modules, see api.zig.
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
+const constants = @import("../core/constants.zig");
+const project_load = @import("../platform/project_load.zig");
 const types = @import("types.zig");
 
 // Re-export types for convenience
@@ -13,9 +16,6 @@ pub const TimeSignature = types.TimeSignature;
 pub const MarkerInfo = types.MarkerInfo;
 pub const MarkerCount = types.MarkerCount;
 pub const FxPresetInfo = types.FxPresetInfo;
-
-// Debug logging - set to false for release builds
-pub const DEBUG_LOGGING = false;
 
 // REAPER plugin API version
 pub const PLUGIN_VERSION: c_int = 0x20E;
@@ -80,6 +80,8 @@ pub const Api = struct {
     timeMap_GetTimeSigAtTime: ?*const fn (?*anyopaque, f64, *c_int, *c_int, *f64) callconv(.c) void = null,
     countTempoTimeSigMarkers: ?*const fn (?*anyopaque) callconv(.c) c_int = null,
     getTempoTimeSigMarker: ?*const fn (?*anyopaque, c_int, ?*f64, ?*c_int, ?*f64, ?*f64, ?*c_int, ?*c_int, ?*bool) callconv(.c) bool = null,
+    findTempoTimeSigMarker: ?*const fn (?*anyopaque, f64) callconv(.c) c_int = null,
+    setTempoTimeSigMarker: ?*const fn (?*anyopaque, c_int, f64, c_int, f64, f64, c_int, c_int, bool) callconv(.c) bool = null,
 
     // Project info
     getProjectLength: ?*const fn (?*anyopaque) callconv(.c) f64 = null,
@@ -112,6 +114,9 @@ pub const Api = struct {
     getMediaTrackInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8) callconv(.c) f64 = null,
     setMediaTrackInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8, f64) callconv(.c) bool = null,
     getSetMediaTrackInfo_String: ?*const fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool = null,
+    // Pointer-returning form: for char* attributes (P_LANENAME:n) this returns
+    // REAPER's own string, so reads never depend on a caller buffer size.
+    getSetMediaTrackInfo: ?*const fn (?*anyopaque, [*:0]const u8, ?*anyopaque) callconv(.c) ?*anyopaque = null,
     insertTrackAtIndex: ?*const fn (c_int, bool) callconv(.c) void = null,
     deleteTrack: ?*const fn (?*anyopaque) callconv(.c) void = null,
     setTrackColor: ?*const fn (?*anyopaque, c_int) callconv(.c) void = null,
@@ -125,6 +130,8 @@ pub const Api = struct {
     getMediaItemInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8) callconv(.c) f64 = null,
     setMediaItemInfo_Value: ?*const fn (?*anyopaque, [*:0]const u8, f64) callconv(.c) bool = null,
     getSetMediaItemInfo_String: ?*const fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool = null,
+    // Pointer-returning form: for P_NOTES this returns REAPER's own string.
+    getSetMediaItemInfo: ?*const fn (?*anyopaque, [*:0]const u8, ?*anyopaque) callconv(.c) ?*anyopaque = null,
     deleteTrackMediaItem: ?*const fn (?*anyopaque, ?*anyopaque) callconv(.c) bool = null,
     moveMediaItemToTrack: ?*const fn (?*anyopaque, ?*anyopaque) callconv(.c) bool = null,
 
@@ -155,6 +162,7 @@ pub const Api = struct {
     // Undo
     undo_BeginBlock2: ?*const fn (?*anyopaque) callconv(.c) void = null,
     undo_EndBlock2: ?*const fn (?*anyopaque, [*:0]const u8, c_int) callconv(.c) void = null,
+    undo_OnStateChangeEx2: ?*const fn (?*anyopaque, [*:0]const u8, c_int, c_int) callconv(.c) void = null,
     undo_OnStateChange: ?*const fn ([*:0]const u8) callconv(.c) void = null,
     undo_CanUndo2: ?*const fn (?*anyopaque) callconv(.c) ?[*:0]const u8 = null,
     undo_CanRedo2: ?*const fn (?*anyopaque) callconv(.c) ?[*:0]const u8 = null,
@@ -199,6 +207,7 @@ pub const Api = struct {
 
     // Resource path
     getResourcePath: ?*const fn () callconv(.c) [*:0]const u8 = null,
+    getAppVersion: ?*const fn () callconv(.c) [*:0]const u8 = null,
 
     // High-precision timing (for transport sync)
     time_precise: ?*const fn () callconv(.c) f64 = null,
@@ -312,6 +321,8 @@ pub const Api = struct {
             .timeMap_GetTimeSigAtTime = getFunc(info, "TimeMap_GetTimeSigAtTime", fn (?*anyopaque, f64, *c_int, *c_int, *f64) callconv(.c) void),
             .countTempoTimeSigMarkers = getFunc(info, "CountTempoTimeSigMarkers", fn (?*anyopaque) callconv(.c) c_int),
             .getTempoTimeSigMarker = getFunc(info, "GetTempoTimeSigMarker", fn (?*anyopaque, c_int, ?*f64, ?*c_int, ?*f64, ?*f64, ?*c_int, ?*c_int, ?*bool) callconv(.c) bool),
+            .findTempoTimeSigMarker = getFunc(info, "FindTempoTimeSigMarker", fn (?*anyopaque, f64) callconv(.c) c_int),
+            .setTempoTimeSigMarker = getFunc(info, "SetTempoTimeSigMarker", fn (?*anyopaque, c_int, f64, c_int, f64, f64, c_int, c_int, bool) callconv(.c) bool),
             // Project info
             .getProjectLength = getFunc(info, "GetProjectLength", fn (?*anyopaque) callconv(.c) f64),
             .getSetProjectInfo = getFunc(info, "GetSetProjectInfo", fn (?*anyopaque, [*:0]const u8, f64, bool) callconv(.c) f64),
@@ -338,6 +349,7 @@ pub const Api = struct {
             .getMediaTrackInfo_Value = getFunc(info, "GetMediaTrackInfo_Value", fn (?*anyopaque, [*:0]const u8) callconv(.c) f64),
             .setMediaTrackInfo_Value = getFunc(info, "SetMediaTrackInfo_Value", fn (?*anyopaque, [*:0]const u8, f64) callconv(.c) bool),
             .getSetMediaTrackInfo_String = getFunc(info, "GetSetMediaTrackInfo_String", fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool),
+            .getSetMediaTrackInfo = getFunc(info, "GetSetMediaTrackInfo", fn (?*anyopaque, [*:0]const u8, ?*anyopaque) callconv(.c) ?*anyopaque),
             .insertTrackAtIndex = getFunc(info, "InsertTrackAtIndex", fn (c_int, bool) callconv(.c) void),
             .deleteTrack = getFunc(info, "DeleteTrack", fn (?*anyopaque) callconv(.c) void),
             .setTrackColor = getFunc(info, "SetTrackColor", fn (?*anyopaque, c_int) callconv(.c) void),
@@ -350,6 +362,7 @@ pub const Api = struct {
             .getMediaItemInfo_Value = getFunc(info, "GetMediaItemInfo_Value", fn (?*anyopaque, [*:0]const u8) callconv(.c) f64),
             .setMediaItemInfo_Value = getFunc(info, "SetMediaItemInfo_Value", fn (?*anyopaque, [*:0]const u8, f64) callconv(.c) bool),
             .getSetMediaItemInfo_String = getFunc(info, "GetSetMediaItemInfo_String", fn (?*anyopaque, [*:0]const u8, [*]u8, bool) callconv(.c) bool),
+            .getSetMediaItemInfo = getFunc(info, "GetSetMediaItemInfo", fn (?*anyopaque, [*:0]const u8, ?*anyopaque) callconv(.c) ?*anyopaque),
             .deleteTrackMediaItem = getFunc(info, "DeleteTrackMediaItem", fn (?*anyopaque, ?*anyopaque) callconv(.c) bool),
             .moveMediaItemToTrack = getFunc(info, "MoveMediaItemToTrack", fn (?*anyopaque, ?*anyopaque) callconv(.c) bool),
             // Takes
@@ -376,6 +389,7 @@ pub const Api = struct {
             // Undo
             .undo_BeginBlock2 = getFunc(info, "Undo_BeginBlock2", fn (?*anyopaque) callconv(.c) void),
             .undo_EndBlock2 = getFunc(info, "Undo_EndBlock2", fn (?*anyopaque, [*:0]const u8, c_int) callconv(.c) void),
+            .undo_OnStateChangeEx2 = getFunc(info, "Undo_OnStateChangeEx2", fn (?*anyopaque, [*:0]const u8, c_int, c_int) callconv(.c) void),
             .undo_OnStateChange = getFunc(info, "Undo_OnStateChange", fn ([*:0]const u8) callconv(.c) void),
             .undo_CanUndo2 = getFunc(info, "Undo_CanUndo2", fn (?*anyopaque) callconv(.c) ?[*:0]const u8),
             .undo_CanRedo2 = getFunc(info, "Undo_CanRedo2", fn (?*anyopaque) callconv(.c) ?[*:0]const u8),
@@ -412,6 +426,7 @@ pub const Api = struct {
             .updateTimeline_fn = getFunc(info, "UpdateTimeline", fn () callconv(.c) void),
             // Resource path
             .getResourcePath = getFunc(info, "GetResourcePath", fn () callconv(.c) [*:0]const u8),
+            .getAppVersion = getFunc(info, "GetAppVersion", fn () callconv(.c) [*:0]const u8),
             // High-precision timing
             .time_precise = getFunc(info, "time_precise", fn () callconv(.c) f64),
             // MIDI injection
@@ -493,40 +508,26 @@ pub const Api = struct {
         return std.mem.sliceTo(path, 0);
     }
 
+    /// GetAppVersion's text, e.g. "7.83/macOS-arm64", or null if REAPER
+    /// doesn't provide it.
+    pub fn appVersion(self: *const Api) ?[]const u8 {
+        const func = self.getAppVersion orelse return null;
+        return std.mem.sliceTo(func(), 0);
+    }
+
+    /// REAPER's major version (6 for "6.0/linux-aarch64"), or null if REAPER
+    /// doesn't say.
+    pub fn majorVersion(self: *const Api) ?u32 {
+        const func = self.getAppVersion orelse return null;
+        return parseMajorVersion(std.mem.sliceTo(func(), 0));
+    }
+
     fn getFunc(info: *PluginInfo, name: [*:0]const u8, comptime T: type) ?*const T {
         const ptr = info.GetFunc(name) orelse return null;
         return @ptrCast(@alignCast(ptr));
     }
 
     // Safe wrapper methods
-
-    /// Debug log - only outputs when DEBUG_LOGGING is true
-    pub fn log(self: *const Api, comptime fmt: []const u8, args: anytype) void {
-        if (!DEBUG_LOGGING) return;
-        var buf: [512]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
-        if (msg.len < buf.len) {
-            buf[msg.len] = 0;
-            self.showConsoleMsg(@ptrCast(&buf));
-        }
-    }
-
-    /// Debug log (simple) - only outputs when DEBUG_LOGGING is true
-    pub fn logSimple(self: *const Api, msg: [*:0]const u8) void {
-        if (!DEBUG_LOGGING) return;
-        self.showConsoleMsg(msg);
-        self.showConsoleMsg("\n");
-    }
-
-    /// Always log - for critical messages that should appear regardless of DEBUG_LOGGING
-    pub fn logAlways(self: *const Api, comptime fmt: []const u8, args: anytype) void {
-        var buf: [512]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
-        if (msg.len < buf.len) {
-            buf[msg.len] = 0;
-            self.showConsoleMsg(@ptrCast(&buf));
-        }
-    }
 
     /// Show a single-input dialog and return the user's input, or null if cancelled.
     /// `title`: dialog title, `caption`: field label, `default_val`: pre-filled value.
@@ -536,8 +537,7 @@ pub const Api = struct {
         if (buf.len < 2) return null;
 
         // Pre-fill buffer with default value, null-terminated
-        const copy_len = @min(default_val.len, buf.len - 1);
-        @memcpy(buf[0..copy_len], default_val[0..copy_len]);
+        const copy_len = utf8.copyPrefix(buf[0 .. buf.len - 1], default_val);
         buf[copy_len] = 0;
 
         if (f(title, 1, caption, buf.ptr, @intCast(buf.len))) {
@@ -724,8 +724,8 @@ pub const Api = struct {
     // Tempo: set BPM for current project
     pub fn setTempo(self: *const Api, bpm: f64) void {
         const f = self.setCurrentBPM orelse return;
-        // Clamp to REAPER's valid range (2-960 BPM)
-        const clamped = @max(2.0, @min(960.0, bpm));
+        // REAPER's valid range (1-960 BPM)
+        const clamped = @max(1.0, @min(960.0, bpm));
         f(null, clamped, true); // true = add undo point
     }
 
@@ -825,11 +825,12 @@ pub const Api = struct {
     // Returns 0 if command not found
     pub fn namedCommandLookup(self: *const Api, name: []const u8) c_int {
         const f = self.namedCommandLookup_fn orelse return 0;
-        // Need null-terminated string
+        // Need null-terminated string. A name too long for the buffer names
+        // no action; looking up a shortened copy could find a different one.
         var buf: [256]u8 = undefined;
-        const len = @min(name.len, buf.len - 1);
-        @memcpy(buf[0..len], name[0..len]);
-        buf[len] = 0;
+        if (name.len >= buf.len) return 0;
+        @memcpy(buf[0..name.len], name);
+        buf[name.len] = 0;
         return f(@ptrCast(&buf));
     }
 
@@ -860,11 +861,13 @@ pub const Api = struct {
         return self.getCommandState(Command.METRONOME_TOGGLE) == 1;
     }
 
-    // ExtState: get global extended state value
+    /// Global extended state value, or null when the key is unset. REAPER
+    /// reads an unset key as "", so an empty value means nothing was saved.
     pub fn getExtStateValue(self: *const Api, section: [*:0]const u8, key: [*:0]const u8) ?[]const u8 {
         const f = self.getExtState orelse return null;
         const ptr = f(section, key) orelse return null;
-        return std.mem.sliceTo(ptr, 0);
+        const value = std.mem.sliceTo(ptr, 0);
+        return if (value.len == 0) null else value;
     }
 
     // ExtState: set global extended state (persist=true saves across sessions)
@@ -886,13 +889,33 @@ pub const Api = struct {
 
     // ExtState: set project-specific extended state
     pub fn setProjExtStateValue(self: *const Api, extname: [*:0]const u8, key: [*:0]const u8, value: [*:0]const u8) void {
+        self.setProjExtStateValueIn(null, extname, key, value);
+    }
+
+    /// setProjExtStateValue for a given project tab (null = the current one).
+    pub fn setProjExtStateValueIn(self: *const Api, project: ?*anyopaque, extname: [*:0]const u8, key: [*:0]const u8, value: [*:0]const u8) void {
         const f = self.setProjExtState orelse return;
-        _ = f(null, extname, key, value);
+        _ = f(project, extname, key, value);
+    }
+
+    /// Whether `project` is still an open project tab.
+    pub fn validateProjectPtr(self: *const Api, project: ?*anyopaque) bool {
+        return self.validatePtr2(project, "ReaProject*");
+    }
+
+    /// Project loads (not undo reloads) since the extension started.
+    pub fn projectLoadCount(_: *const Api) u32 {
+        return project_load.loadCount();
     }
 
     // Undo: begin an undo block
+    /// Begin an undo block. Control-surface edits (fader and pan moves via
+    /// CSurf_On*Change, from any client) wait to be coalesced into one undo
+    /// point; they are flushed into their own point first, so this block
+    /// never absorbs another phone's in-progress drag.
     pub fn undoBeginBlock(self: *const Api) void {
         const f = self.undo_BeginBlock2 orelse return;
+        self.csurfFlushUndo(true);
         f(null);
     }
 
@@ -900,6 +923,14 @@ pub const Api = struct {
     pub fn undoEndBlock(self: *const Api, description: [*:0]const u8) void {
         const f = self.undo_EndBlock2 orelse return;
         f(null, description, -1); // -1 = all undo states
+    }
+
+    /// Record an undo point for changes already made without a block (a
+    /// fader or knob drag applied over many timer ticks). Undo returns to the
+    /// state of the previous point, i.e. before the changes.
+    pub fn undoRecordChange(self: *const Api, description: [*:0]const u8) void {
+        const f = self.undo_OnStateChangeEx2 orelse return;
+        f(null, description, -1, -1); // all state categories, all tracks
     }
 
     // Undo: add simple undo point
@@ -1054,15 +1085,19 @@ pub const Api = struct {
         var measures: c_int = 0;
         var fullbeats: f64 = 0;
         var cdenom: c_int = 4;
+        var cml: c_int = 4;
         // The RETURN VALUE is beats within measure (0-indexed with fraction)
-        // cml (4th param) is just the time sig numerator, so we pass null
+        // cml (4th param) is the time sig numerator at this position
         // fullbeats is cumulative from project start
-        const beats_in_measure = f(null, time, &measures, null, &fullbeats, &cdenom);
+        const beats_in_measure = f(null, time, &measures, &cml, &fullbeats, &cdenom);
         return .{
             .beats = fullbeats, // Total beats from project start
-            .measures = measures + 1, // Convert to 1-based
+            // 1-based; saturating, as REAPER reports maxInt for a time past
+            // any bar it can count.
+            .measures = measures +| 1,
             .beats_in_measure = beats_in_measure, // Return value IS beats within measure (0-indexed)
             .time_sig_denom = cdenom,
+            .time_sig_num = cml,
         };
     }
 
@@ -1112,8 +1147,7 @@ pub const Api = struct {
 
         // Need null-terminated buffer for API
         var buf: [65536]u8 = undefined; // 64KB max
-        const copy_len = @min(notes.len, buf.len - 1);
-        @memcpy(buf[0..copy_len], notes[0..copy_len]);
+        const copy_len = utf8.copyPrefix(buf[0 .. buf.len - 1], notes);
         buf[copy_len] = 0;
 
         // Call API - set=true means set
@@ -1197,21 +1231,9 @@ pub const Api = struct {
         return f(null, false, pos, 0, name, -1, color);
     }
 
-    /// Add marker with a specific ID (for delete/recreate workflows)
-    pub fn addMarkerWithId(self: *const Api, pos: f64, name: [*:0]const u8, color: c_int, wanted_id: c_int) c_int {
-        const f = self.addProjectMarker2 orelse return -1;
-        return f(null, false, pos, 0, name, wanted_id, color);
-    }
-
     pub fn addRegion(self: *const Api, start: f64, end: f64, name: [*:0]const u8, color: c_int) c_int {
         const f = self.addProjectMarker2 orelse return -1;
         return f(null, true, start, end, name, -1, color);
-    }
-
-    /// Add region with a specific ID (for delete/recreate workflows like color reset)
-    pub fn addRegionWithId(self: *const Api, start: f64, end: f64, name: [*:0]const u8, color: c_int, wanted_id: c_int) c_int {
-        const f = self.addProjectMarker2 orelse return -1;
-        return f(null, true, start, end, name, wanted_id, color);
     }
 
     pub fn updateMarker(self: *const Api, id: c_int, pos: f64, name: [*:0]const u8, color: c_int) bool {
@@ -1253,7 +1275,9 @@ pub const Api = struct {
 
     /// Get track by unified index: 0 = master, 1+ = user tracks
     /// This matches REAPER's HTTP API convention where track 0 is master
+    /// Negative indices (client-supplied) resolve to no track.
     pub fn getTrackByUnifiedIdx(self: *const Api, idx: c_int) ?*anyopaque {
+        if (idx < 0) return null;
         if (idx == 0) {
             return self.masterTrack();
         } else {
@@ -1264,7 +1288,7 @@ pub const Api = struct {
     pub fn getTrackNameStr(self: *const Api, track: *anyopaque, buf: []u8) []const u8 {
         const f = self.getTrackName orelse return "";
         if (f(track, buf.ptr, @intCast(buf.len))) {
-            return std.mem.sliceTo(buf, 0);
+            return utf8.trimTruncated(std.mem.sliceTo(buf, 0), buf.len);
         }
         return "";
     }
@@ -1279,8 +1303,7 @@ pub const Api = struct {
     pub fn setTrackName(self: *const Api, track: *anyopaque, name: []const u8) bool {
         const f = self.getSetMediaTrackInfo_String orelse return false;
         var buf: [256]u8 = undefined;
-        const len = @min(name.len, buf.len - 1);
-        @memcpy(buf[0..len], name[0..len]);
+        const len = utf8.copyPrefix(buf[0 .. buf.len - 1], name);
         buf[len] = 0;
         return f(track, "P_NAME", &buf, true);
     }
@@ -1482,8 +1505,7 @@ pub const Api = struct {
     pub fn setRazorEditsExt(self: *const Api, track: *anyopaque, razor_str: []const u8) bool {
         const f = self.getSetMediaTrackInfo_String orelse return false;
         var buf: [1024]u8 = undefined;
-        const len = @min(razor_str.len, buf.len - 1);
-        @memcpy(buf[0..len], razor_str[0..len]);
+        const len = utf8.copyPrefix(buf[0 .. buf.len - 1], razor_str);
         buf[len] = 0;
         return f(track, "P_RAZOREDITS_EXT", &buf, true);
     }
@@ -1526,25 +1548,18 @@ pub const Api = struct {
         return f(item, "C_LANEPLAYS");
     }
 
-    /// Get lane name (P_LANENAME:N) - returns slice of name or empty string
+    /// Get lane name (P_LANENAME:N), truncated to `buf`, or empty string.
+    ///
+    /// Reads through the pointer-returning GetSetMediaTrackInfo, never the
+    /// _String form: REAPER's _String getters ("stringNeedBig") copy the whole
+    /// value without knowing the buffer size, so a long lane name overflowed
+    /// the caller's stack buffer.
     pub fn getLaneName(self: *const Api, track: *anyopaque, lane_idx: c_int, buf: []u8) []const u8 {
-        const f = self.getSetMediaTrackInfo_String orelse return "";
-        if (buf.len == 0) return "";
-
-        // Build parameter name "P_LANENAME:N" with null terminator
+        const f = self.getSetMediaTrackInfo orelse return "";
         var param_buf: [32]u8 = undefined;
-        const param = std.fmt.bufPrint(&param_buf, "P_LANENAME:{d}", .{lane_idx}) catch return "";
-        param_buf[param.len] = 0; // null terminate
-
-        // GetSetMediaTrackInfo_String with setnewvalue=false reads into the buffer
-        // Use sentinel-terminated slice to get correct pointer type for C ABI
-        const param_ptr: [*:0]const u8 = param_buf[0..param.len :0];
-        const success = f(track, param_ptr, buf.ptr, false);
-        if (!success) return "";
-
-        // Find null terminator
-        const len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
-        return buf[0..len];
+        const param = std.fmt.bufPrintZ(&param_buf, "P_LANENAME:{d}", .{lane_idx}) catch return "";
+        const ptr = f(track, param, null) orelse return ""; // NULL: not a fixed-lane track
+        return copyBounded(std.mem.span(@as([*:0]const u8, @ptrCast(ptr))), buf);
     }
 
     // Track FX methods
@@ -1569,7 +1584,7 @@ pub const Api = struct {
         if (!success) return "";
         // Find null terminator
         const len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
-        return buf[0..len];
+        return utf8.trimTruncated(buf[0..len], buf.len);
     }
 
     /// Get preset index and count. Returns -1 on error.
@@ -1588,7 +1603,7 @@ pub const Api = struct {
         const matches = f(track, fx_idx, buf.ptr, @intCast(buf.len));
         // Find null terminator
         const len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
-        return .{ .name = buf[0..len], .matches_preset = matches };
+        return .{ .name = utf8.trimTruncated(buf[0..len], buf.len), .matches_preset = matches };
     }
 
     /// Navigate to next/prev preset. presetmove: +1=next, -1=prev
@@ -1620,9 +1635,11 @@ pub const Api = struct {
     /// recFX: true for recording FX chain, false for normal FX chain
     /// position: -1 to add at end, or index to insert before
     /// Returns: FX index on success, -1 on failure
-    pub fn trackFxAddByName(self: *const Api, track: *anyopaque, name: [*:0]const u8, recFX: bool, position: c_int) c_int {
+    /// TrackFX_AddByName. `instantiate`: -1 always add at the end, 0 only
+    /// find an existing instance, 1 add if none exists, -1000 - N insert at N.
+    pub fn trackFxAddByName(self: *const Api, track: *anyopaque, name: [*:0]const u8, recFX: bool, instantiate: c_int) c_int {
         const f = self.trackFX_AddByName orelse return -1;
-        return f(track, name, recFX, position);
+        return f(track, name, recFX, instantiate);
     }
 
     /// Delete an FX from a track.
@@ -1670,11 +1687,8 @@ pub const Api = struct {
         const f = self.trackFX_GetParamName orelse return "";
         if (buf.len == 0) return "";
         if (!f(track, fx_idx, param_idx, buf.ptr, @intCast(buf.len))) return "";
-        // Find null terminator
-        for (buf, 0..) |c, i| {
-            if (c == 0) return buf[0..i];
-        }
-        return buf;
+        const len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
+        return utf8.trimTruncated(buf[0..len], buf.len);
     }
 
     /// Get normalized parameter value (0.0 to 1.0). Returns 0.0 on failure or invalid index.
@@ -1700,11 +1714,8 @@ pub const Api = struct {
         const f = self.trackFX_GetFormattedParamValue orelse return "";
         if (buf.len == 0) return "";
         if (!f(track, fx_idx, param_idx, buf.ptr, @intCast(buf.len))) return "";
-        // Find null terminator
-        for (buf, 0..) |c, i| {
-            if (c == 0) return buf[0..i];
-        }
-        return buf;
+        const len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
+        return utf8.trimTruncated(buf[0..len], buf.len);
     }
 
     // Track Send methods
@@ -1769,16 +1780,20 @@ pub const Api = struct {
         // Get the source track from the receive
         const src_track = self.trackReceiveGetSrcTrack(dest_track, recv_idx) orelse return null;
 
-        // Count sends on source track
-        const send_count = self.trackSendCount(src_track);
+        // A source can send to this track more than once (e.g. pre- and
+        // post-fader): the k-th receive from it is its k-th send here.
+        var occurrence: c_int = 0;
+        var r: c_int = 0;
+        while (r < recv_idx) : (r += 1) {
+            if (self.trackReceiveGetSrcTrack(dest_track, r) == src_track) occurrence += 1;
+        }
 
-        // Find which send on source track points to dest_track
+        const send_count = self.trackSendCount(src_track);
         var i: c_int = 0;
         while (i < send_count) : (i += 1) {
-            const send_dest = self.trackSendGetDestTrack(src_track, i);
-            if (send_dest == dest_track) {
-                return .{ .src_track = src_track, .send_idx = i };
-            }
+            if (self.trackSendGetDestTrack(src_track, i) != dest_track) continue;
+            if (occurrence == 0) return .{ .src_track = src_track, .send_idx = i };
+            occurrence -= 1;
         }
         return null;
     }
@@ -2076,21 +2091,28 @@ pub const Api = struct {
         return f(item, "I_CURTAKE", @floatFromInt(take_idx));
     }
 
-    pub fn getItemNotes(self: *const Api, item: *anyopaque, buf: []u8) []const u8 {
-        const f = self.getSetMediaItemInfo_String orelse return "";
-        if (f(item, "P_NOTES", buf.ptr, false)) {
-            return std.mem.sliceTo(buf, 0);
-        }
-        return "";
+    /// Item notes as REAPER's own string, any length. Valid until the item's
+    /// notes change: use it on the main thread and copy before yielding.
+    ///
+    /// Reads through the pointer-returning GetSetMediaItemInfo, never the
+    /// _String form: REAPER's _String getters ("stringNeedBig") copy the whole
+    /// value without knowing the buffer size, so long notes overflowed the
+    /// caller's stack buffer.
+    pub fn itemNotes(self: *const Api, item: *anyopaque) []const u8 {
+        const f = self.getSetMediaItemInfo orelse return "";
+        const ptr = f(item, "P_NOTES", null) orelse return "";
+        return std.mem.span(@as([*:0]const u8, @ptrCast(ptr)));
     }
 
-    pub fn setItemNotes(self: *const Api, item: *anyopaque, notes: []const u8) bool {
+    /// Item notes truncated to `buf` (for callers that only need a prefix).
+    pub fn getItemNotes(self: *const Api, item: *anyopaque, buf: []u8) []const u8 {
+        return copyBounded(self.itemNotes(item), buf);
+    }
+
+    /// Replace the item's notes. Setting reads our string, so any length works.
+    pub fn setItemNotes(self: *const Api, item: *anyopaque, notes: [:0]const u8) bool {
         const f = self.getSetMediaItemInfo_String orelse return false;
-        var buf: [1024]u8 = undefined;
-        const len = @min(notes.len, buf.len - 1);
-        @memcpy(buf[0..len], notes[0..len]);
-        buf[len] = 0;
-        return f(item, "P_NOTES", &buf, true);
+        return f(item, "P_NOTES", @constCast(notes.ptr), true);
     }
 
     pub fn deleteItem(self: *const Api, track: *anyopaque, item: *anyopaque) bool {
@@ -2425,7 +2447,39 @@ pub const Api = struct {
     }
 
     /// Set project time signature (fixed project-level, no tempo markers)
+    /// Set the meter where the user is. In a project with a tempo map REAPER
+    /// ignores the project-default meter, and SetCurrentBPM edits or inserts
+    /// a tempo marker at the edit cursor, so the meter goes on the tempo/meter
+    /// marker in effect at the cursor, keeping its time, tempo and shape.
     pub fn setTimeSignature(self: *const Api, numerator: c_int, denominator: c_int) bool {
+        if (self.tempoMarkerCount() > 0) {
+            const find = self.findTempoTimeSigMarker orelse return false;
+            const get = self.getTempoTimeSigMarker orelse return false;
+            const set = self.setTempoTimeSigMarker orelse return false;
+            // A marker REAPER placed at the cursor's bar can sit a float
+            // rounding after the cursor (12.10361067503925 vs ...931), and
+            // must still count as the one at the cursor.
+            const idx = find(null, self.cursorPosition() + constants.TIME_EPSILON);
+            if (idx >= 0) {
+                var pos: f64 = 0;
+                var bpm: f64 = 0;
+                var linear = false;
+                if (!get(null, idx, &pos, null, null, &bpm, null, null, &linear)) return false;
+                if (!set(null, idx, pos, -1, -1, bpm, numerator, denominator, linear)) return false;
+                self.updateTimeline();
+                return true;
+            }
+            // Before the first marker the project default applies, but its
+            // tempo must not be re-set (that would insert a marker).
+            return self.setDefaultTimeSignature(numerator, denominator, false);
+        }
+        return self.setDefaultTimeSignature(numerator, denominator, true);
+    }
+
+    /// The project-default meter (projmeaslen/projtsdenom). With
+    /// `normalize_bpm`, the tempo is re-set so it stays the same in quarter
+    /// notes when the denominator changes.
+    fn setDefaultTimeSignature(self: *const Api, numerator: c_int, denominator: c_int, normalize_bpm: bool) bool {
         const getoffs = self.projectconfig_var_getoffs orelse return false;
         const getaddr = self.projectconfig_var_addr orelse return false;
 
@@ -2454,10 +2508,11 @@ pub const Api = struct {
         // Normalize BPM to quarter notes before setting
         // REAPER's BPM is in denominator-note units (e.g., eighths for 6/8)
         // Convert to quarter-note BPM which is the standard reference
-        const old_denom_f: f64 = @floatFromInt(old_denom);
-        const quarter_note_bpm = current_bpm * (4.0 / old_denom_f);
-
-        self.setTempo(quarter_note_bpm);
+        if (normalize_bpm) {
+            const old_denom_f: f64 = @floatFromInt(old_denom);
+            const quarter_note_bpm = current_bpm * (4.0 / old_denom_f);
+            self.setTempo(quarter_note_bpm);
+        }
 
         // Refresh timeline to show changes
         self.updateTimeline();
@@ -2568,6 +2623,13 @@ pub const Api = struct {
     /// Validate a track pointer.
     pub fn validateTrackPtr(self: *const Api, track: ?*anyopaque) bool {
         return self.validatePtr2(track, "MediaTrack*");
+    }
+
+    /// Whether `track` is a track in `project` (a ReaProject*, which may be a
+    /// background tab; validateTrackPtr only looks in the current one).
+    pub fn validateTrackPtrIn(self: *const Api, project: ?*anyopaque, track: ?*anyopaque) bool {
+        const f = self.validatePtr2_fn orelse return false;
+        return f(project, track, "MediaTrack*");
     }
 
     /// Validate an item pointer.
@@ -2694,3 +2756,30 @@ pub const Command = struct {
     pub const DUPLICATE_TRACKS: c_int = 40062; // Track: Duplicate tracks
     pub const DELETE_SELECTED_TRACKS: c_int = 40005; // Track: Remove tracks
 };
+
+/// Copy as much of `src` as fits into `buf`; returns the copied prefix.
+fn copyBounded(src: []const u8, buf: []u8) []const u8 {
+    return buf[0..utf8.copyPrefix(buf, src)];
+}
+
+test "getTrackByUnifiedIdx returns null for negative indices instead of overflowing" {
+    // Function pointers are all null: a negative index must be rejected before
+    // any arithmetic, since `idx - 1` on minInt(c_int) traps in ReleaseSafe.
+    const api = Api{ .showConsoleMsg = undefined, .register = undefined };
+    try std.testing.expectEqual(@as(?*anyopaque, null), api.getTrackByUnifiedIdx(std.math.minInt(c_int)));
+    try std.testing.expectEqual(@as(?*anyopaque, null), api.getTrackByUnifiedIdx(-1));
+}
+
+/// The major version at the start of GetAppVersion's text ("7.83/macOS-arm64").
+fn parseMajorVersion(version: []const u8) ?u32 {
+    const end = std.mem.indexOfNone(u8, version, "0123456789") orelse version.len;
+    return std.fmt.parseInt(u32, version[0..end], 10) catch null;
+}
+
+test "parseMajorVersion reads the major version REAPER reports" {
+    try std.testing.expectEqual(@as(?u32, 7), parseMajorVersion("7.83/macOS-arm64"));
+    try std.testing.expectEqual(@as(?u32, 6), parseMajorVersion("6.0/linux-aarch64"));
+    try std.testing.expectEqual(@as(?u32, 10), parseMajorVersion("10.1+dev0102/x64"));
+    try std.testing.expectEqual(@as(?u32, null), parseMajorVersion("/x64"));
+    try std.testing.expectEqual(@as(?u32, null), parseMajorVersion(""));
+}

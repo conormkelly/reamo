@@ -1,5 +1,5 @@
 // Root-level components (framework-level concerns)
-export { ReaperProvider, useReaper, type ReaperProviderProps } from './ReaperProvider';
+export { ReaperProvider, type ReaperProviderProps } from './ReaperProvider';
 export { ErrorBoundary } from './ErrorBoundary';
 export { ConnectionStatus, ConnectionBanner, type ConnectionStatusProps, type ConnectionBannerProps } from './ConnectionStatus';
 export { NetworkStatsModal, type NetworkStatsModalProps } from './NetworkStatsModal';

@@ -1,10 +1,50 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
+
+/// Which project is open, as far as telling one project from another needs.
+pub const Identity = struct {
+    pointer: ?*anyopaque = null,
+    loads: u32 = 0, // project loads seen (platform/project_load)
+    has_path: bool = false,
+
+    pub fn current(api: anytype) Identity {
+        var path_buf: [512]u8 = undefined;
+        const info = api.enumCurrentProject(&path_buf);
+        return .{
+            .pointer = if (info) |i| i.project else null,
+            .loads = api.projectLoadCount(),
+            .has_path = if (info) |i| i.path.len > 0 else false,
+        };
+    }
+
+    /// Whether `now` is a different project from `self`, as opposed to the
+    /// same project edited or saved:
+    /// - another tab: the ReaProject* differs;
+    /// - a project opened in this tab: a project load happened in between
+    ///   (the pointer stays the same and REAPER's state-change count only
+    ///   rises, so neither tells);
+    /// - File > New in this tab: the saved project's path becomes empty.
+    /// Save As changes the path but is the same project; undo reloads state
+    /// but is not counted as a load.
+    pub fn isDifferentFrom(self: Identity, now: Identity) bool {
+        if (self.pointer != now.pointer) return true;
+        if (self.loads != now.loads) return true;
+        return self.has_path and !now.has_path;
+    }
+
+    /// Whether `now` replaced this project in the same tab, so this project
+    /// is gone and its pointer names the new one.
+    pub fn replacedBy(self: Identity, now: Identity) bool {
+        return self.pointer == now.pointer and self.isDifferentFrom(now);
+    }
+};
 
 // Project state snapshot
 // Contains: undo/redo state + project-level settings (moved from transport for efficiency)
 pub const State = struct {
+    load_count: u32 = 0, // project loads seen (see projectChanged)
     state_change_count: c_int = 0,
 
     // Storage for string copies (REAPER returns temporary pointers)
@@ -64,29 +104,13 @@ pub const State = struct {
         return self.project_path_buf[0..self.project_path_len];
     }
 
-    /// Check if project changed (for resetting playlist engine state).
-    ///
-    /// Handles these scenarios while REAPER is running:
-    /// - Tab switch: pointer differs → change
-    /// - Open file in same tab: state count decreases (resets on load) → change
-    /// - Save As: pointer same, count increases → NO change
-    /// - Normal editing: pointer same, count increases → NO change
-    ///
-    /// Note: REAPER restart is a non-issue - extension restarts too, so there's
-    /// no prior state to compare against. We start fresh.
-    ///
-    /// Parameters:
-    /// - self: the PREVIOUS state (what we had before)
-    /// - other: the CURRENT state (what we just polled)
+    pub fn identity(self: *const State) Identity {
+        return .{ .pointer = self.project_pointer, .loads = self.load_count, .has_path = self.project_path_len > 0 };
+    }
+
+    /// Whether `other` (just polled) is a different project from `self`.
     pub fn projectChanged(self: *const State, other: *const State) bool {
-        // Different pointer = different tab
-        if (self.project_pointer != other.project_pointer) return true;
-
-        // Same pointer but state count decreased = project replaced in this tab
-        // (state count increases monotonically during editing, resets on project load)
-        if (other.state_change_count < self.state_change_count) return true;
-
-        return false;
+        return self.identity().isDifferentFrom(other.identity());
     }
 
     // Compare for change detection
@@ -138,6 +162,7 @@ pub const State = struct {
         const api_rate = api.getSampleRate();
 
         var state = State{
+            .load_count = api.projectLoadCount(),
             .state_change_count = api.projectStateChangeCount(),
             .project_length = api.projectLength(),
             .sample_rate = if (api_rate > 0) api_rate else 48000,
@@ -168,16 +193,14 @@ pub const State = struct {
 
         // Copy undo description if available
         if (api.canUndo()) |desc| {
-            const len = @min(desc.len, state.undo_buf.len - 1);
-            @memcpy(state.undo_buf[0..len], desc[0..len]);
+            const len = utf8.copyPrefix(state.undo_buf[0 .. state.undo_buf.len - 1], desc);
             state.undo_buf[len] = 0;
             state.undo_len = len;
         }
 
         // Copy redo description if available
         if (api.canRedo()) |desc| {
-            const len = @min(desc.len, state.redo_buf.len - 1);
-            @memcpy(state.redo_buf[0..len], desc[0..len]);
+            const len = utf8.copyPrefix(state.redo_buf[0 .. state.redo_buf.len - 1], desc);
             state.redo_buf[len] = 0;
             state.redo_len = len;
         }
@@ -264,14 +287,34 @@ pub const State = struct {
     }
 
     // Allocator-based version - returns owned slice from allocator
+    /// Sized to fit: the undo/redo descriptions, project name and path have
+    /// no fixed total, and a dropped project event freezes every client's
+    /// undo, redo, repeat and metronome state.
     pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
-        var buf: [1024]u8 = undefined;
-        const json = self.toJson(&buf) orelse return error.JsonSerializationFailed;
-        return allocator.dupe(u8, json);
+        return protocol.serializeAlloc(allocator, 1024, self, toJson);
     }
 };
 
 // Tests
+test "toJsonAlloc keeps the event whatever the undo, redo and path lengths" {
+    // REAmo's own undo names ("REAmo: FX bypass toggle: Track 3 <name>: <fx>")
+    // plus a project in a deep folder pass 1 KB easily.
+    var state = State{};
+    @memset(state.undo_buf[0..255], 'u');
+    state.undo_len = 255;
+    @memset(state.redo_buf[0..255], 'r');
+    state.redo_len = 255;
+    @memset(state.project_path_buf[0..511], 'p');
+    state.project_path_len = 511;
+    @memset(state.project_name_buf[0..127], 'n');
+    state.project_name_len = 127;
+
+    const json = try state.toJsonAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(json);
+    try std.testing.expect(json.len > 1024);
+    try std.testing.expect(std.mem.endsWith(u8, json, "}}"));
+}
+
 test "State.eql compares all fields" {
     const a = State{ .state_change_count = 1 };
     const b = State{ .state_change_count = 1 };
@@ -468,49 +511,37 @@ test "poll tracks API calls correctly" {
 // projectChanged() tests
 // =============================================================================
 
-fn makeStateWithPointerAndCount(pointer: ?*anyopaque, state_count: c_int) State {
-    var state = State{ .state_change_count = state_count };
-    state.project_pointer = pointer;
+fn projectState(pointer: usize, loads: u32, path: []const u8) State {
+    var state = State{ .load_count = loads, .state_change_count = 100 };
+    state.project_pointer = @ptrFromInt(pointer);
+    @memcpy(state.project_path_buf[0..path.len], path);
+    state.project_path_len = path.len;
     return state;
 }
 
-test "projectChanged: tab switch (different pointer) → change" {
-    const ptr1: *anyopaque = @ptrFromInt(0x1000);
-    const ptr2: *anyopaque = @ptrFromInt(0x2000);
-    const prev = makeStateWithPointerAndCount(ptr1, 100);
-    const curr = makeStateWithPointerAndCount(ptr2, 50);
+test "projectChanged: switching to another tab is a change" {
+    const prev = projectState(0x1000, 3, "/songs/a.rpp");
+    try std.testing.expect(prev.projectChanged(&projectState(0x2000, 3, "/songs/b.rpp")));
+    try std.testing.expect(!prev.identity().replacedBy(projectState(0x2000, 3, "/songs/b.rpp").identity()));
+}
 
+test "projectChanged: opening a project in the same tab is a change, even though REAPER's state count rises" {
+    const prev = projectState(0x1000, 3, "/songs/gig.rpp");
+    const curr = projectState(0x1000, 4, "/songs/other.rpp");
     try std.testing.expect(prev.projectChanged(&curr));
+    try std.testing.expect(prev.identity().replacedBy(curr.identity()));
+    // Reopening the same file is a load too.
+    try std.testing.expect(prev.projectChanged(&projectState(0x1000, 4, "/songs/gig.rpp")));
 }
 
-test "projectChanged: open file in same tab (state count decreases) → change" {
-    const ptr: *anyopaque = @ptrFromInt(0x1000);
-    const prev = makeStateWithPointerAndCount(ptr, 100);
-    const curr = makeStateWithPointerAndCount(ptr, 5); // Reset to low value on load
-
-    try std.testing.expect(prev.projectChanged(&curr));
+test "projectChanged: File > New in the same tab is a change" {
+    const prev = projectState(0x1000, 3, "/songs/gig.rpp");
+    try std.testing.expect(prev.projectChanged(&projectState(0x1000, 3, "")));
 }
 
-test "projectChanged: Save As (same pointer, state count increases) → NO change" {
-    const ptr: *anyopaque = @ptrFromInt(0x1000);
-    const prev = makeStateWithPointerAndCount(ptr, 100);
-    const curr = makeStateWithPointerAndCount(ptr, 101); // Increased
-
-    try std.testing.expect(!prev.projectChanged(&curr));
-}
-
-test "projectChanged: normal editing (same pointer, state count increases) → NO change" {
-    const ptr: *anyopaque = @ptrFromInt(0x1000);
-    const prev = makeStateWithPointerAndCount(ptr, 100);
-    const curr = makeStateWithPointerAndCount(ptr, 150);
-
-    try std.testing.expect(!prev.projectChanged(&curr));
-}
-
-test "projectChanged: undo (same pointer, state count same) → NO change" {
-    const ptr: *anyopaque = @ptrFromInt(0x1000);
-    const prev = makeStateWithPointerAndCount(ptr, 100);
-    const curr = makeStateWithPointerAndCount(ptr, 100);
-
-    try std.testing.expect(!prev.projectChanged(&curr));
+test "projectChanged: editing, saving, Save As and undo are not" {
+    const prev = projectState(0x1000, 3, "/songs/gig.rpp");
+    try std.testing.expect(!prev.projectChanged(&projectState(0x1000, 3, "/songs/gig.rpp")));
+    try std.testing.expect(!prev.projectChanged(&projectState(0x1000, 3, "/songs/gig-v2.rpp")));
+    try std.testing.expect(!projectState(0x1000, 3, "").projectChanged(&projectState(0x1000, 3, "/songs/new.rpp")));
 }

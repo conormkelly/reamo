@@ -74,6 +74,7 @@ pub fn validateBackend(comptime T: type) void {
         "enumerateActions",
         "reverseNamedCommandLookup",
         "enumInstalledFX",
+        "majorVersion",
         "isMetronomeEnabled",
         "getMetronomeVolume",
         "setMetronomeVolume",
@@ -85,6 +86,7 @@ pub fn validateBackend(comptime T: type) void {
         "doRedo",
         "undoBeginBlock",
         "undoEndBlock",
+        "undoRecordChange",
 
         // Tracks
         "trackCount",
@@ -130,6 +132,7 @@ pub fn validateBackend(comptime T: type) void {
 
         // Pointer Validation
         "validateTrackPtr",
+        "validateTrackPtrIn",
         "validateItemPtr",
         "validateTakePtr",
 
@@ -142,6 +145,7 @@ pub fn validateBackend(comptime T: type) void {
         "getItemLocked",
         "getItemSelected",
         "getItemActiveTakeIdx",
+        "itemNotes",
         "getItemNotes",
         "getItemGUID",
         "setItemPosition",
@@ -178,9 +182,7 @@ pub fn validateBackend(comptime T: type) void {
         "markerCount",
         "enumMarker",
         "addMarker",
-        "addMarkerWithId",
         "addRegion",
-        "addRegionWithId",
         "updateMarker",
         "updateRegion",
         "deleteMarker",
@@ -249,6 +251,9 @@ pub fn validateBackend(comptime T: type) void {
         "setExtStateValue",
         "getProjExtStateValue",
         "setProjExtStateValue",
+        "setProjExtStateValueIn",
+        "validateProjectPtr",
+        "projectLoadCount",
 
         // Project notes
         "getProjectNotes",

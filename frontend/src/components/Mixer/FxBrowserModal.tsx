@@ -9,7 +9,7 @@
 import { useState, useMemo, useEffect, useCallback, type ReactElement } from 'react';
 import { Search, X, Loader2 } from 'lucide-react';
 import { BottomSheet } from '../Modal/BottomSheet';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useReaperStore } from '../../store';
 import { fxPlugin, trackFx } from '../../core/WebSocketCommands';
 import { getPluginType, getPluginTypeBadge, type PluginType, type FxPlugin } from '../../store/slices/fxBrowserSlice';

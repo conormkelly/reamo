@@ -37,19 +37,9 @@ pub const MarkersMethods = struct {
         return self.addMarkerInternal(false, pos, name, 0);
     }
 
-    pub fn addMarkerWithId(self: anytype, pos: f64, name: ?[*:0]const u8, id: c_int) c_int {
-        self.recordCall(.addMarkerWithId);
-        return self.addMarkerInternal(false, pos, name, id);
-    }
-
     pub fn addRegion(self: anytype, start: f64, end: f64, name: ?[*:0]const u8) c_int {
         self.recordCall(.addRegion);
         return self.addRegionInternal(start, end, name, 0);
-    }
-
-    pub fn addRegionWithId(self: anytype, start: f64, end: f64, name: ?[*:0]const u8, id: c_int) c_int {
-        self.recordCall(.addRegionWithId);
-        return self.addRegionInternal(start, end, name, id);
     }
 
     pub fn updateMarker(self: anytype, idx: c_int, pos: f64, name: ?[*:0]const u8) bool {

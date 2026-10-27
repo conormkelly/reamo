@@ -7,6 +7,7 @@
 /// - WiFi/Ethernet: Other private IP ranges
 
 const std = @import("std");
+const logging = @import("../core/logging.zig");
 const builtin = @import("builtin");
 
 /// Network type classification
@@ -27,7 +28,7 @@ pub const NetworkType = enum {
 /// Information about a detected network interface
 pub const NetworkInfo = struct {
     ip: [4]u8,
-    interface_name: [16]u8,
+    interface_name: [64]u8,
     interface_name_len: u8,
     network_type: NetworkType,
 
@@ -117,6 +118,64 @@ pub const detectNetworks = switch (builtin.os.tag) {
     else => detectNetworksStub,
 };
 
+/// Detect networks in the order to offer them (see `order`).
+pub fn detectOrdered(buf: []NetworkInfo) usize {
+    const count = detectNetworks(buf);
+    order(buf[0..count], defaultRouteAddress());
+    return count;
+}
+
+/// Order networks to offer the likeliest one first: USB tethering (a cable
+/// is the surest link at a venue), then `route`, the address this computer
+/// reaches other networks from, then every other address. Each group keeps
+/// the order the OS listed it in. The default route matters because the OS
+/// lists virtual adapters (VirtualBox, Hyper-V, Docker, VPNs) beside the real
+/// one, in no useful order, and a phone can't reach them.
+pub fn order(networks: []NetworkInfo, route: ?[4]u8) void {
+    std.sort.insertion(NetworkInfo, networks, route, struct {
+        fn rank(r: ?[4]u8, n: NetworkInfo) u2 {
+            if (n.network_type != .wifi_lan) return 0;
+            if (r) |ip| if (std.mem.eql(u8, &ip, &n.ip)) return 1;
+            return 2;
+        }
+        fn lessThan(r: ?[4]u8, a: NetworkInfo, b: NetworkInfo) bool {
+            return rank(r, a) < rank(r, b);
+        }
+    }.lessThan);
+}
+
+/// The local address the OS would send from to reach other networks: the
+/// one behind the default route. Null when there's no default route.
+/// Connecting a UDP socket picks a route without sending anything.
+pub fn defaultRouteAddress() ?[4]u8 {
+    // TEST-NET-1 (RFC 5737) is never a local network, so only the default
+    // route reaches it.
+    const probe = std.net.Address.initIp4(.{ 192, 0, 2, 1 }, 9);
+    const sock = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, std.posix.IPPROTO.UDP) catch |err| {
+        logging.debug("Default route: no socket: {s}", .{@errorName(err)});
+        return null;
+    };
+    defer if (builtin.os.tag == .windows) {
+        std.os.windows.closesocket(sock) catch {};
+    } else {
+        std.posix.close(sock);
+    };
+    std.posix.connect(sock, &probe.any, probe.getOsSockLen()) catch |err| {
+        logging.debug("Default route: none ({s})", .{@errorName(err)});
+        return null;
+    };
+    var local: std.net.Address = undefined;
+    var len: std.posix.socklen_t = @sizeOf(std.net.Address);
+    std.posix.getsockname(sock, &local.any, &len) catch |err| {
+        logging.debug("Default route: no local address: {s}", .{@errorName(err)});
+        return null;
+    };
+    if (local.any.family != std.posix.AF.INET) return null;
+    const ip: [4]u8 = @bitCast(local.in.sa.addr);
+    logging.debug("Default route is from {d}.{d}.{d}.{d}", .{ ip[0], ip[1], ip[2], ip[3] });
+    return ip;
+}
+
 // -----------------------------------------------------------------------------
 // POSIX implementation (macOS, Linux, BSD)
 // -----------------------------------------------------------------------------
@@ -133,6 +192,7 @@ fn detectNetworksPosix(buf: []NetworkInfo) usize {
     var ifap: ?*posix.ifaddrs = null;
 
     if (posix.getifaddrs(&ifap) != 0) {
+        logging.warn("Can't list network interfaces (getifaddrs errno {d})", .{@intFromEnum(std.posix.errno(@as(c_int, -1)))});
         return 0;
     }
     defer posix.freeifaddrs(ifap);
@@ -161,12 +221,11 @@ fn detectNetworksPosix(buf: []NetworkInfo) usize {
 
         const net_type = classifyNetwork(ip) orelse continue;
 
-        // Copy interface name
-        var name_buf: [16]u8 = .{0} ** 16;
+        var name_buf: [64]u8 = .{0} ** 64;
         var name_len: u8 = 0;
         if (iface.ifa_name) |name_ptr| {
             const name = std.mem.sliceTo(name_ptr, 0);
-            const copy_len = @min(name.len, 15);
+            const copy_len = @min(name.len, name_buf.len);
             @memcpy(name_buf[0..copy_len], name[0..copy_len]);
             name_len = @intCast(copy_len);
         }
@@ -302,18 +361,10 @@ fn detectNetworksWindows(buf: []NetworkInfo) usize {
 
             const net_type = classifyNetwork(ip) orelse continue;
 
-            // Copy friendly_name (UTF-16) to UTF-8 for display
-            // adapter_name is a GUID like {4D36E972-...}, not useful
-            var name_buf: [16]u8 = .{0} ** 16;
-            var name_len: u8 = 0;
-            var i: usize = 0;
-            while (a.friendly_name[i] != 0 and name_len < 15) : (i += 1) {
-                const c = a.friendly_name[i];
-                if (c < 128) { // ASCII only, good enough for interface names
-                    name_buf[name_len] = @truncate(c);
-                    name_len += 1;
-                }
-            }
+            // friendly_name is what Windows shows ("VirtualBox Host-Only
+            // Network"); adapter_name is a GUID.
+            var name_buf: [64]u8 = .{0} ** 64;
+            const name_len: u8 = @intCast(utf16ToUtf8Prefix(std.mem.sliceTo(a.friendly_name, 0), &name_buf));
 
             buf[count] = .{
                 .ip = ip,
@@ -326,6 +377,22 @@ fn detectNetworksWindows(buf: []NetworkInfo) usize {
     }
 
     return count;
+}
+
+/// As much of `utf16` as fits in `out` as UTF-8, whole characters only;
+/// unpaired surrogates become U+FFFD. Returns the bytes written.
+fn utf16ToUtf8Prefix(utf16: []const u16, out: []u8) usize {
+    var len: usize = 0;
+    var it = std.unicode.Utf16LeIterator.init(utf16);
+    while (true) {
+        const cp = (it.nextCodepoint() catch std.unicode.replacement_character) orelse break;
+        var enc: [4]u8 = undefined;
+        const n = std.unicode.utf8Encode(cp, &enc) catch unreachable;
+        if (len + n > out.len) break;
+        @memcpy(out[len..][0..n], enc[0..n]);
+        len += n;
+    }
+    return len;
 }
 
 // -----------------------------------------------------------------------------
@@ -362,4 +429,68 @@ test "classifyNetwork" {
     try std.testing.expectEqual(NetworkType.wifi_lan, classifyNetwork(.{ 10, 0, 0, 5 }).?);
     try std.testing.expect(classifyNetwork(.{ 127, 0, 0, 1 }) == null); // loopback
     try std.testing.expect(classifyNetwork(.{ 8, 8, 8, 8 }) == null); // public
+}
+
+fn testNetwork(ip: [4]u8, name: []const u8) NetworkInfo {
+    var n = NetworkInfo{
+        .ip = ip,
+        .interface_name = .{0} ** 64,
+        .interface_name_len = @intCast(name.len),
+        .network_type = classifyNetwork(ip).?,
+    };
+    @memcpy(n.interface_name[0..name.len], name);
+    return n;
+}
+
+fn expectOrder(networks: []const NetworkInfo, expected: []const [4]u8) !void {
+    try std.testing.expectEqual(expected.len, networks.len);
+    for (networks, expected) |n, ip| try std.testing.expectEqual(ip, n.ip);
+}
+
+test "order offers the default route's address before a virtual adapter listed ahead of it" {
+    var networks = [_]NetworkInfo{
+        testNetwork(.{ 192, 168, 56, 1 }, "VirtualBox"),
+        testNetwork(.{ 172, 25, 160, 1 }, "vEthernet"),
+        testNetwork(.{ 192, 168, 1, 18 }, "Ethernet"),
+    };
+    order(&networks, .{ 192, 168, 1, 18 });
+    try expectOrder(&networks, &.{ .{ 192, 168, 1, 18 }, .{ 192, 168, 56, 1 }, .{ 172, 25, 160, 1 } });
+}
+
+test "order keeps USB tethering ahead of the default route" {
+    var networks = [_]NetworkInfo{
+        testNetwork(.{ 192, 168, 1, 18 }, "Wi-Fi"),
+        testNetwork(.{ 192, 168, 56, 1 }, "VirtualBox"),
+        testNetwork(.{ 172, 20, 10, 2 }, "iPhone USB"),
+        testNetwork(.{ 192, 168, 42, 65 }, "Android USB"),
+    };
+    order(&networks, .{ 192, 168, 1, 18 });
+    try expectOrder(&networks, &.{
+        .{ 172, 20, 10, 2 }, .{ 192, 168, 42, 65 }, .{ 192, 168, 1, 18 }, .{ 192, 168, 56, 1 },
+    });
+}
+
+test "order keeps the OS's order without a default route, or when it's from no listed address" {
+    const listed = [_]NetworkInfo{
+        testNetwork(.{ 192, 168, 56, 1 }, "VirtualBox"),
+        testNetwork(.{ 192, 168, 1, 18 }, "Ethernet"),
+        testNetwork(.{ 10, 0, 0, 5 }, "Wi-Fi"),
+    };
+    const os_order = [_][4]u8{ .{ 192, 168, 56, 1 }, .{ 192, 168, 1, 18 }, .{ 10, 0, 0, 5 } };
+    var networks = listed;
+    order(&networks, null);
+    try expectOrder(&networks, &os_order);
+    networks = listed;
+    order(&networks, .{ 81, 2, 3, 4 });
+    try expectOrder(&networks, &os_order);
+}
+
+test "utf16ToUtf8Prefix keeps a whole adapter name and cuts a long one between characters" {
+    var out: [64]u8 = undefined;
+    const name = std.unicode.utf8ToUtf16LeStringLiteral("VirtualBox Host-Only Network");
+    try std.testing.expectEqualStrings("VirtualBox Host-Only Network", out[0..utf16ToUtf8Prefix(name, &out)]);
+    const japanese = std.unicode.utf8ToUtf16LeStringLiteral("イーサネット");
+    try std.testing.expectEqualStrings("イーサネット", out[0..utf16ToUtf8Prefix(japanese, &out)]);
+    var small: [7]u8 = undefined;
+    try std.testing.expectEqualStrings("イー", small[0..utf16ToUtf8Prefix(japanese, &small)]);
 }

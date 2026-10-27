@@ -69,7 +69,7 @@ pub const FastTimer = struct {
             // Windows: Use SetTimer with TIMERPROC wrapper
             const id = win32.SetTimer(null, 0, COMMAND_TIMER_INTERVAL, &win32TimerProc);
             if (id == 0) {
-                logging.err("FastTimer: Win32 SetTimer failed", .{});
+                logging.warn("FastTimer: SetTimer failed (Win32 error {d})", .{@intFromEnum(std.os.windows.GetLastError())});
                 return error.TimerCreationFailed;
             }
             self.timer_id = id;
@@ -80,9 +80,9 @@ pub const FastTimer = struct {
             // macOS/Linux: Use native implementation
             if (zig_fast_timer_start(COMMAND_TIMER_INTERVAL, callback)) {
                 self.running = true;
-                logging.info("FastTimer: started at {}ms interval (native)", .{COMMAND_TIMER_INTERVAL});
+                logging.debug("FastTimer: started at {}ms interval (native)", .{COMMAND_TIMER_INTERVAL});
             } else {
-                logging.err("FastTimer: native timer failed to start", .{});
+                // Linux has no native timer; macOS failing is the caller's to log.
                 return error.TimerCreationFailed;
             }
         }
@@ -99,7 +99,7 @@ pub const FastTimer = struct {
             zig_fast_timer_stop();
         }
 
-        logging.info("FastTimer: stopped", .{});
+        logging.debug("FastTimer: stopped", .{});
         self.running = false;
         self.timer_id = 0;
         self.callback = null;

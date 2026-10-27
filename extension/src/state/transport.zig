@@ -81,21 +81,14 @@ pub const State = struct {
         if (!ffi.isFinite(beats_in_measure)) return null;
         if (beats_per_bar <= 0) return null;
 
-        var bar = measures;
-        var beat = beats_in_measure;
         const bpb: f64 = @floatFromInt(beats_per_bar);
-
-        // Normalize negative beats_in_measure into [0, bpb)
-        while (beat < 0.0) {
-            bar -= 1;
-            beat += bpb;
-        }
-        // Also handle overflow (beat >= beats_per_bar)
-        while (beat >= bpb) {
-            bar += 1;
-            beat -= bpb;
-        }
-
+        // Whole bars carried out of beats_in_measure, either way. Arithmetic,
+        // not a loop: a huge value can't be counted down a bar at a time.
+        const beat = @mod(beats_in_measure, bpb);
+        const carried = @round((beats_in_measure - beat) / bpb);
+        if (!(@abs(carried) <= std.math.maxInt(c_int))) return null;
+        // REAPER reports the largest measure for a time past its last bar.
+        const bar = std.math.add(c_int, measures, @as(c_int, @intFromFloat(carried))) catch return null;
         return .{ .bar = bar, .beat = beat };
     }
 
@@ -613,6 +606,19 @@ test "normalizeBeats handles beat overflow" {
     const result = State.normalizeBeats(3, 5.0, 4).?;
     try std.testing.expectEqual(@as(c_int, 4), result.bar);
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), result.beat, 0.001);
+}
+
+test "normalizeBeats refuses a bar past c_int instead of overflowing" {
+    try std.testing.expect(State.normalizeBeats(std.math.maxInt(c_int), 4.0, 4) == null);
+    const at_last = State.normalizeBeats(std.math.maxInt(c_int), 0.5, 4).?;
+    try std.testing.expectEqual(@as(c_int, std.math.maxInt(c_int)), at_last.bar);
+}
+
+test "normalizeBeats returns at once for an absurd beat count" {
+    // A loop subtracting one bar at a time never finishes here: 1e300 - 4
+    // is 1e300.
+    try std.testing.expect(State.normalizeBeats(0, 1e300, 4) == null);
+    try std.testing.expect(State.normalizeBeats(0, -1e300, 4) == null);
 }
 
 test "normalizeBeats returns null for NaN" {

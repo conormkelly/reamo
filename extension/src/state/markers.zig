@@ -1,5 +1,7 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const ffi = @import("../core/ffi.zig");
+const bar_beat = @import("bar_beat.zig");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
 const constants = @import("../core/constants.zig");
@@ -15,6 +17,7 @@ pub const Marker = struct {
     position_beats: f64 = 0,
     position_bar: c_int = 1,
     position_beat_in_bar: f64 = 0, // 0-indexed beat within bar
+    position_beats_per_bar: c_int = 4, // Time sig numerator at the position
     name: [128]u8 = undefined,
     name_len: usize = 0,
     color: c_int,
@@ -23,9 +26,16 @@ pub const Marker = struct {
         return self.name[0..self.name_len];
     }
 
+    /// True when a client would see the same marker. Covers the
+    /// beat-derived fields too: a tempo or meter change moves a marker's
+    /// bar label without moving its time.
     pub fn eql(self: *const Marker, other: *const Marker) bool {
         if (self.id != other.id) return false;
-        if (@abs(self.position - other.position) > 0.001) return false;
+        if (@abs(self.position - other.position) > constants.TIME_EPSILON) return false;
+        if (@abs(self.position_beats - other.position_beats) > constants.TIME_EPSILON) return false;
+        if (self.position_bar != other.position_bar) return false;
+        if (@abs(self.position_beat_in_bar - other.position_beat_in_bar) > constants.TIME_EPSILON) return false;
+        if (self.position_beats_per_bar != other.position_beats_per_bar) return false;
         if (self.color != other.color) return false;
         if (self.name_len != other.name_len) return false;
         return std.mem.eql(u8, self.getName(), other.getName());
@@ -44,6 +54,7 @@ pub const Region = struct {
     end_bar: c_int = 1,
     end_beat_in_bar: f64 = 0, // 0-indexed beat within bar
     start_beats_per_bar: c_int = 4, // Time sig numerator at start (for length borrowing)
+    end_beats_per_bar: c_int = 4, // Time sig numerator at end (for its label)
     name: [128]u8 = undefined,
     name_len: usize = 0,
     color: c_int,
@@ -52,10 +63,20 @@ pub const Region = struct {
         return self.name[0..self.name_len];
     }
 
+    /// True when a client would see the same region, including the
+    /// beat-derived bar labels and length (see Marker.eql).
     pub fn eql(self: *const Region, other: *const Region) bool {
         if (self.id != other.id) return false;
-        if (@abs(self.start - other.start) > 0.001) return false;
-        if (@abs(self.end - other.end) > 0.001) return false;
+        if (@abs(self.start - other.start) > constants.TIME_EPSILON) return false;
+        if (@abs(self.end - other.end) > constants.TIME_EPSILON) return false;
+        if (@abs(self.start_beats - other.start_beats) > constants.TIME_EPSILON) return false;
+        if (@abs(self.end_beats - other.end_beats) > constants.TIME_EPSILON) return false;
+        if (self.start_bar != other.start_bar) return false;
+        if (self.end_bar != other.end_bar) return false;
+        if (@abs(self.start_beat_in_bar - other.start_beat_in_bar) > constants.TIME_EPSILON) return false;
+        if (@abs(self.end_beat_in_bar - other.end_beat_in_bar) > constants.TIME_EPSILON) return false;
+        if (self.start_beats_per_bar != other.start_beats_per_bar) return false;
+        if (self.end_beats_per_bar != other.end_beats_per_bar) return false;
         if (self.color != other.color) return false;
         if (self.name_len != other.name_len) return false;
         return std.mem.eql(u8, self.getName(), other.getName());
@@ -141,7 +162,7 @@ pub const State = struct {
                     region.id = info.id;
                     region.start = info.pos;
                     region.end = info.end;
-                    region.color = info.color;
+                    region.color = shownColor(info.color);
 
                     // Compute beat positions
                     const start_beats = api.timeToBeats(info.pos);
@@ -153,14 +174,14 @@ pub const State = struct {
                     region.end_beats = end_beats.beats;
                     region.end_bar = end_beats.measures;
                     region.end_beat_in_bar = end_beats.beats_in_measure;
+                    region.end_beats_per_bar = end_beats.time_sig_num;
 
                     // Get time sig at start for length borrowing calculation
                     // When borrowing beats, we use the time signature of the bar we're borrowing FROM
                     const start_timesig = api.getTempoAtPosition(info.pos);
                     region.start_beats_per_bar = start_timesig.timesig_num;
 
-                    const copy_len = @min(info.name.len, region.name.len);
-                    @memcpy(region.name[0..copy_len], info.name[0..copy_len]);
+                    const copy_len = utf8.copyPrefix(&region.name, info.name);
                     region.name_len = copy_len;
 
                     region_count += 1;
@@ -170,16 +191,16 @@ pub const State = struct {
                     var marker = &marker_buffer[marker_count];
                     marker.id = info.id;
                     marker.position = info.pos;
-                    marker.color = info.color;
+                    marker.color = shownColor(info.color);
 
                     // Compute beat position
                     const beats_info = api.timeToBeats(info.pos);
                     marker.position_beats = beats_info.beats;
                     marker.position_bar = beats_info.measures;
                     marker.position_beat_in_bar = beats_info.beats_in_measure;
+                    marker.position_beats_per_bar = beats_info.time_sig_num;
 
-                    const copy_len = @min(info.name.len, marker.name.len);
-                    @memcpy(marker.name[0..copy_len], info.name[0..copy_len]);
+                    const copy_len = utf8.copyPrefix(&marker.name, info.name);
                     marker.name_len = copy_len;
 
                     marker_count += 1;
@@ -203,9 +224,11 @@ pub const State = struct {
         return state;
     }
 
-    // Check if markers have changed
+    /// True when the markers event clients hold is out of date. The
+    /// project start measure (bar_offset) shifts every bar label.
     pub fn markersChanged(self: *const State, other: *const State) bool {
         if (self.markers.len != other.markers.len) return true;
+        if (self.markers.len > 0 and self.bar_offset != other.bar_offset) return true;
 
         for (0..self.markers.len) |i| {
             if (!self.markers[i].eql(&other.markers[i])) return true;
@@ -213,9 +236,10 @@ pub const State = struct {
         return false;
     }
 
-    // Check if regions have changed
+    /// True when the regions event clients hold is out of date (see markersChanged).
     pub fn regionsChanged(self: *const State, other: *const State) bool {
         if (self.regions.len != other.regions.len) return true;
+        if (self.regions.len > 0 and self.bar_offset != other.bar_offset) return true;
 
         for (0..self.regions.len) |i| {
             if (!self.regions[i].eql(&other.regions[i])) return true;
@@ -226,16 +250,16 @@ pub const State = struct {
     // Format bar.beat.ticks string (e.g., "5.2.50")
     // bar: measure number from timeToBeats (before offset applied)
     // beat_in_bar: 0-indexed beat within measure (from timeToBeats)
+    // beats_per_bar: time sig numerator at the position (rounding can carry a bar)
     // bar_offset: project bar offset to apply
-    pub fn formatBars(w: anytype, bar: c_int, beat_in_bar: f64, bar_offset: c_int) !void {
-        const display_bar = bar + bar_offset;
-        // Convert 0-indexed to 1-indexed and extract ticks
-        // Use integer arithmetic to avoid floating-point precision issues
-        // roundFloatToInt validates NaN/Inf from corrupt project data
-        const scaled: u32 = ffi.roundFloatToInt(u32, (beat_in_bar + 1.0) * 100.0) catch return error.InvalidBeatValue;
-        const beat_int: u32 = @max(1, scaled / 100);
-        const ticks: u32 = scaled % 100;
-        try w.print("{d}.{d}.{d:0>2}", .{ display_bar, beat_int, ticks });
+    // A position REAPER reports that can't be formatted (NaN, or a bar out of
+    // range in a corrupt project) is written as nothing: failing would read
+    // to serializeAlloc as "buffer too small" and drop every marker.
+    pub fn formatBars(w: anytype, bar: c_int, beat_in_bar: f64, beats_per_bar: c_int, bar_offset: c_int) !void {
+        bar_beat.write(w, bar, beat_in_bar, beats_per_bar, bar_offset) catch |e| switch (e) {
+            error.InvalidBeatValue => {},
+            else => |write_err| return write_err,
+        };
     }
 
     // Format length as bar.beat.ticks string (e.g., "10.1.50")
@@ -252,23 +276,27 @@ pub const State = struct {
         // Convert beat_in_bar (0-indexed with fraction) to scaled integers (ticks = fraction * 100)
         // start_beat_in_bar=0.0 means beat 1.00, start_beat_in_bar=1.5 means beat 2.50
         // roundFloatToInt validates NaN/Inf from corrupt project data
-        const start_scaled: i32 = ffi.roundFloatToInt(i32, start_beat_in_bar * 100.0) catch return error.InvalidBeatValue;
-        const end_scaled: i32 = ffi.roundFloatToInt(i32, end_beat_in_bar * 100.0) catch return error.InvalidBeatValue;
+        // Unformattable positions write nothing (see formatBars).
+        const start_scaled: i32 = ffi.roundFloatToInt(i32, start_beat_in_bar * 100.0) catch return;
+        const end_scaled: i32 = ffi.roundFloatToInt(i32, end_beat_in_bar * 100.0) catch return;
 
-        var bar_diff: i32 = end_bar - start_bar;
-        var beat_diff: i32 = end_scaled - start_scaled;
+        var bar_diff: i32 = std.math.sub(i32, end_bar, start_bar) catch return;
+        var beat_diff: i32 = std.math.sub(i32, end_scaled, start_scaled) catch return;
 
         // Handle borrowing: if beat_diff is negative, borrow from bars
         // Use time signature at START - when borrowing a bar, you're taking beats from the start position's bar
         if (beat_diff < 0) {
-            bar_diff -= 1;
+            bar_diff = std.math.sub(i32, bar_diff, 1) catch return;
             // Add one full bar worth of beats (in scaled units: beats_per_bar * 100)
-            beat_diff += start_beats_per_bar * 100;
+            const bar_beats = std.math.mul(i32, start_beats_per_bar, 100) catch return;
+            beat_diff = std.math.add(i32, beat_diff, bar_beats) catch return;
         }
 
         // Extract beat and ticks from the scaled difference
         // beat_diff is now the total scaled difference (whole beats * 100 + ticks)
-        const beat_int: u32 = @intCast(@divFloor(beat_diff, 100));
+        // A region ending before it starts (never from REAPER, but the data is
+        // REAPER's) still has a negative difference after one borrow.
+        const beat_int = std.math.cast(u32, @divFloor(beat_diff, 100)) orelse return;
         const ticks: u32 = @intCast(@mod(beat_diff, 100));
 
         // Display as bar.beat.ticks (NOT 1-indexed for lengths - 0 beats = "0.0.00")
@@ -290,7 +318,7 @@ pub const State = struct {
                 m.position,
                 m.position_beats,
             }) catch return null;
-            formatBars(w, m.position_bar, m.position_beat_in_bar, self.bar_offset) catch return null;
+            formatBars(w, m.position_bar, m.position_beat_in_bar, m.position_beats_per_bar, self.bar_offset) catch return null;
             w.writeAll("\",\"name\":\"") catch return null;
             protocol.writeJsonString(w, m.getName()) catch return null;
             w.print("\",\"color\":{d}}}", .{m.color}) catch return null;
@@ -317,9 +345,9 @@ pub const State = struct {
                 r.start_beats,
                 r.end_beats,
             }) catch return null;
-            formatBars(w, r.start_bar, r.start_beat_in_bar, self.bar_offset) catch return null;
+            formatBars(w, r.start_bar, r.start_beat_in_bar, r.start_beats_per_bar, self.bar_offset) catch return null;
             w.writeAll("\",\"endBars\":\"") catch return null;
-            formatBars(w, r.end_bar, r.end_beat_in_bar, self.bar_offset) catch return null;
+            formatBars(w, r.end_bar, r.end_beat_in_bar, r.end_beats_per_bar, self.bar_offset) catch return null;
             w.writeAll("\",\"lengthBars\":\"") catch return null;
             formatLengthBars(w, r.start_bar, r.start_beat_in_bar, r.end_bar, r.end_beat_in_bar, r.start_beats_per_bar) catch return null;
             w.writeAll("\",\"name\":\"") catch return null;
@@ -334,15 +362,11 @@ pub const State = struct {
     // Allocator-based versions - return owned slice from allocator
     // Allocates from arena instead of stack to avoid stack overflow in timer callbacks
     pub fn markersToJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
-        const buf = try allocator.alloc(u8, 8192);
-        const json = self.markersToJson(buf) orelse return error.JsonSerializationFailed;
-        return json;
+        return protocol.serializeAlloc(allocator, 256 + self.markers.len * 224, self, markersToJson);
     }
 
     pub fn regionsToJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
-        const buf = try allocator.alloc(u8, 8192);
-        const json = self.regionsToJson(buf) orelse return error.JsonSerializationFailed;
-        return json;
+        return protocol.serializeAlloc(allocator, 256 + self.regions.len * 320, self, regionsToJson);
     }
 
     /// Poll markers within a time range (for timeline subscriptions).
@@ -377,16 +401,16 @@ pub const State = struct {
             var marker = &marker_buf[write_idx];
             marker.id = info.id;
             marker.position = info.pos;
-            marker.color = info.color;
+            marker.color = shownColor(info.color);
 
             // Compute beat position
             const beats_info = api.timeToBeats(info.pos);
             marker.position_beats = beats_info.beats;
             marker.position_bar = beats_info.measures;
             marker.position_beat_in_bar = beats_info.beats_in_measure;
+            marker.position_beats_per_bar = beats_info.time_sig_num;
 
-            const copy_len = @min(info.name.len, marker.name.len);
-            @memcpy(marker.name[0..copy_len], info.name[0..copy_len]);
+            const copy_len = utf8.copyPrefix(&marker.name, info.name);
             marker.name_len = copy_len;
 
             write_idx += 1;
@@ -428,7 +452,7 @@ pub const State = struct {
             region.id = info.id;
             region.start = info.pos;
             region.end = info.end;
-            region.color = info.color;
+            region.color = shownColor(info.color);
 
             // Compute beat positions
             const start_beats = api.timeToBeats(info.pos);
@@ -440,13 +464,13 @@ pub const State = struct {
             region.end_beats = end_beats.beats;
             region.end_bar = end_beats.measures;
             region.end_beat_in_bar = end_beats.beats_in_measure;
+            region.end_beats_per_bar = end_beats.time_sig_num;
 
             // Get time sig at start for length borrowing calculation
             const start_timesig = api.getTempoAtPosition(info.pos);
             region.start_beats_per_bar = start_timesig.timesig_num;
 
-            const copy_len = @min(info.name.len, region.name.len);
-            @memcpy(region.name[0..copy_len], info.name[0..copy_len]);
+            const copy_len = utf8.copyPrefix(&region.name, info.name);
             region.name_len = copy_len;
 
             write_idx += 1;
@@ -503,7 +527,7 @@ pub const MarkersOnlyState = struct {
                 m.position,
                 m.position_beats,
             }) catch return null;
-            State.formatBars(w, m.position_bar, m.position_beat_in_bar, self.bar_offset) catch return null;
+            State.formatBars(w, m.position_bar, m.position_beat_in_bar, m.position_beats_per_bar, self.bar_offset) catch return null;
             w.writeAll("\",\"name\":\"") catch return null;
             protocol.writeJsonString(w, m.getName()) catch return null;
             w.print("\",\"color\":{d}}}", .{m.color}) catch return null;
@@ -514,9 +538,7 @@ pub const MarkersOnlyState = struct {
     }
 
     pub fn markersToJsonAlloc(self: *const MarkersOnlyState, allocator: std.mem.Allocator) ![]const u8 {
-        const buf = try allocator.alloc(u8, 8192);
-        const json = self.markersToJson(buf) orelse return error.JsonSerializationFailed;
-        return json;
+        return protocol.serializeAlloc(allocator, 256 + self.markers.len * 224, self, markersToJson);
     }
 
     /// Compute a hash for change detection.
@@ -555,9 +577,9 @@ pub const RegionsOnlyState = struct {
                 r.start_beats,
                 r.end_beats,
             }) catch return null;
-            State.formatBars(w, r.start_bar, r.start_beat_in_bar, self.bar_offset) catch return null;
+            State.formatBars(w, r.start_bar, r.start_beat_in_bar, r.start_beats_per_bar, self.bar_offset) catch return null;
             w.writeAll("\",\"endBars\":\"") catch return null;
-            State.formatBars(w, r.end_bar, r.end_beat_in_bar, self.bar_offset) catch return null;
+            State.formatBars(w, r.end_bar, r.end_beat_in_bar, r.end_beats_per_bar, self.bar_offset) catch return null;
             w.writeAll("\",\"lengthBars\":\"") catch return null;
             State.formatLengthBars(w, r.start_bar, r.start_beat_in_bar, r.end_bar, r.end_beat_in_bar, r.start_beats_per_bar) catch return null;
             w.writeAll("\",\"name\":\"") catch return null;
@@ -570,9 +592,7 @@ pub const RegionsOnlyState = struct {
     }
 
     pub fn regionsToJsonAlloc(self: *const RegionsOnlyState, allocator: std.mem.Allocator) ![]const u8 {
-        const buf = try allocator.alloc(u8, 8192);
-        const json = self.regionsToJson(buf) orelse return error.JsonSerializationFailed;
-        return json;
+        return protocol.serializeAlloc(allocator, 256 + self.regions.len * 320, self, regionsToJson);
     }
 
     /// Compute a hash for change detection.
@@ -655,6 +675,26 @@ test "State markers JSON output" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"color\":16711680") != null);
 }
 
+test "a marker whose bar position can't be formatted doesn't take the other markers with it" {
+    var marker_buffer: [2]Marker = undefined;
+    marker_buffer[0] = .{ .id = 1, .position = 1, .position_beat_in_bar = std.math.nan(f64), .color = 0 };
+    marker_buffer[1] = .{ .id = 2, .position = 2, .position_bar = 2, .color = 0 };
+    var region_buffer: [1]Region = undefined;
+    region_buffer[0] = .{ .id = 3, .start = 0, .end = 4, .start_beat_in_bar = std.math.inf(f64), .color = 0 };
+    const state = State{ .markers = &marker_buffer, .regions = &region_buffer };
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const markers_json = try state.markersToJsonAlloc(arena.allocator());
+    try std.testing.expect(try std.json.validate(std.testing.allocator, markers_json));
+    try std.testing.expect(std.mem.indexOf(u8, markers_json, "\"id\":1,") != null);
+    try std.testing.expect(std.mem.indexOf(u8, markers_json, "\"positionBars\":\"\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, markers_json, "\"positionBars\":\"2.1.00\"") != null);
+    const regions_json = try state.regionsToJsonAlloc(arena.allocator());
+    try std.testing.expect(try std.json.validate(std.testing.allocator, regions_json));
+    try std.testing.expect(std.mem.indexOf(u8, regions_json, "\"id\":3,") != null);
+}
+
 test "State regions JSON output" {
     // Use a static buffer for testing
     var region_buffer: [1]Region = undefined;
@@ -708,6 +748,64 @@ test "markers changed detection" {
     try std.testing.expect(state1.markersChanged(&state2));
 }
 
+test "a tempo change that keeps marker times still counts as a change" {
+    // 4 s is bar 3.1.00 at 120 BPM and bar 2.1.00 at 60 BPM.
+    var at_120: [1]Marker = .{.{ .id = 1, .position = 4.0, .position_beats = 8, .position_bar = 2, .color = 0 }};
+    var at_60: [1]Marker = .{.{ .id = 1, .position = 4.0, .position_beats = 4, .position_bar = 1, .color = 0 }};
+    at_120[0].name_len = 0;
+    at_60[0].name_len = 0;
+
+    const before = State{ .markers = &at_120, .regions = &.{} };
+    const after = State{ .markers = &at_60, .regions = &.{} };
+    try std.testing.expect(after.markersChanged(&before));
+
+    // The meter and the beat within the bar feed the label on their own as well.
+    var meter: [1]Marker = at_120;
+    meter[0].position_beats_per_bar = 3;
+    try std.testing.expect((State{ .markers = &meter, .regions = &.{} }).markersChanged(&before));
+
+    var beat: [1]Marker = at_120;
+    beat[0].position_beat_in_bar = 0.5;
+    try std.testing.expect((State{ .markers = &beat, .regions = &.{} }).markersChanged(&before));
+}
+
+test "a tempo change that keeps region times still counts as a change" {
+    var at_120: [1]Region = .{.{ .id = 1, .start = 4, .end = 12, .start_beats = 8, .end_beats = 24, .start_bar = 2, .end_bar = 6, .color = 0 }};
+    at_120[0].name_len = 0;
+    const before = State{ .markers = &.{}, .regions = &at_120 };
+
+    var end_moved: [1]Region = at_120;
+    end_moved[0].end_beats = 12;
+    end_moved[0].end_bar = 3;
+    try std.testing.expect((State{ .markers = &.{}, .regions = &end_moved }).regionsChanged(&before));
+
+    var start_meter: [1]Region = at_120;
+    start_meter[0].start_beats_per_bar = 7; // changes lengthBars borrowing
+    try std.testing.expect((State{ .markers = &.{}, .regions = &start_meter }).regionsChanged(&before));
+}
+
+test "changing the project start measure counts as a change for every label" {
+    var m: [1]Marker = .{.{ .id = 1, .position = 4.0, .color = 0 }};
+    m[0].name_len = 0;
+    var r: [1]Region = .{.{ .id = 1, .start = 4, .end = 12, .color = 0 }};
+    r[0].name_len = 0;
+
+    const before = State{ .markers = &m, .regions = &r, .bar_offset = 0 };
+    const after = State{ .markers = &m, .regions = &r, .bar_offset = -5 };
+    try std.testing.expect(after.markersChanged(&before));
+    try std.testing.expect(after.regionsChanged(&before));
+    try std.testing.expect(!before.markersChanged(&before));
+    try std.testing.expect(!before.regionsChanged(&before));
+}
+
+test "empty marker lists do not change when only the start measure does" {
+    // Nothing on the wire depends on bar_offset when there is nothing to label.
+    const before = State{ .markers = &.{}, .regions = &.{}, .bar_offset = 0 };
+    const after = State{ .markers = &.{}, .regions = &.{}, .bar_offset = 3 };
+    try std.testing.expect(!after.markersChanged(&before));
+    try std.testing.expect(!after.regionsChanged(&before));
+}
+
 test "marker position preserves sub-millisecond precision" {
     // Regression test: Position 17.333333... must not be truncated to 17.333
     // because that causes beat display errors (4.4.99 instead of 4.5.00)
@@ -747,7 +845,26 @@ test "region position preserves sub-millisecond precision" {
 // MockBackend-based tests
 // =============================================================================
 
+/// The colour phones show for a marker or region: 0 (the theme's) unless
+/// REAPER's custom flag is set. Resetting to the theme's colour, in REAPER or
+/// from a phone, clears only the flag and leaves the RGB behind.
+fn shownColor(raw: c_int) c_int {
+    return if (raw & constants.CUSTOM_COLOR_FLAG != 0) raw else 0;
+}
+
 const MockBackend = reaper.MockBackend;
+
+test "a marker or region reset to the theme's colour shows as 0, whatever RGB is left" {
+    var mock = MockBackend{ .marker_count = 1, .region_count = 1 };
+    mock.markers[0] = .{ .idx = 0, .id = 1, .pos = 2.0, .end = 0.0, .is_region = false, .color = 0x2828DC };
+    mock.markers[0].setName("Verse");
+    mock.markers[1] = .{ .idx = 1, .id = 2, .pos = 0.0, .end = 8.0, .is_region = true, .color = 0x2828DC | constants.CUSTOM_COLOR_FLAG };
+    mock.markers[1].setName("Intro");
+
+    const state = State.pollStatic(&mock);
+    try std.testing.expectEqual(@as(c_int, 0), state.markers[0].color);
+    try std.testing.expectEqual(@as(c_int, 0x2828DC | constants.CUSTOM_COLOR_FLAG), state.regions[0].color);
+}
 
 test "poll with MockBackend returns markers and regions" {
     var mock = MockBackend{
@@ -917,4 +1034,29 @@ test "regionOverlapsRange" {
 
     // Region starts exactly at range end (no overlap)
     try std.testing.expect(!regionOverlapsRange(30.0, 40.0, 10.0, 30.0));
+}
+
+test "marker and region JSON serializes projects larger than one fixed buffer" {
+    // Fixed 8 KB buffers held ~58 markers / ~36 regions; broadcasts were dropped.
+    var backing: [1 << 20]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&backing);
+    var ms: [300]Marker = undefined;
+    var rs: [300]Region = undefined;
+    const name = "Verse 2 (double-tracked vocals, alt take)";
+    for (&ms, &rs, 0..) |*m, *r, i| {
+        m.* = .{ .id = @intCast(i), .position = @floatFromInt(i), .color = 0 };
+        @memcpy(m.name[0..name.len], name);
+        m.name_len = name.len;
+        r.* = .{ .id = @intCast(i), .start = @floatFromInt(i), .end = @floatFromInt(i + 1), .color = 0 };
+        @memcpy(r.name[0..name.len], name);
+        r.name_len = name.len;
+    }
+    const alloc = fba.allocator();
+    const full = State{ .markers = &ms, .regions = &rs };
+    try std.testing.expect(try std.json.validate(std.testing.allocator, try full.markersToJsonAlloc(alloc)));
+    try std.testing.expect(try std.json.validate(std.testing.allocator, try full.regionsToJsonAlloc(alloc)));
+    const mo = MarkersOnlyState{ .markers = &ms };
+    try std.testing.expect(try std.json.validate(std.testing.allocator, try mo.markersToJsonAlloc(alloc)));
+    const ro = RegionsOnlyState{ .regions = &rs };
+    try std.testing.expect(try std.json.validate(std.testing.allocator, try ro.regionsToJsonAlloc(alloc)));
 }

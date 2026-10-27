@@ -23,9 +23,9 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useReaper } from '../components/ReaperProvider';
+import { useReaper } from './useReaper';
 import { extstate } from '../core/WebSocketCommands';
-import type { CustomBank } from '../components/Mixer/BankSelector';
+import type { CustomBank } from '../components/Mixer/banks';
 
 /** ProjExtState key for custom banks */
 const EXTNAME = 'Reamo';

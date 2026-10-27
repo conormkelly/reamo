@@ -14,7 +14,17 @@ class MediaTrack;
 class IReaperControlSurface {
 public:
     IReaperControlSurface() {}
+#if defined(_WIN32) && !defined(_MSC_VER)
+    // REAPER for Windows is built with MSVC, whose vtable gives a virtual
+    // destructor one slot. This compiler (MinGW's ABI) would give it two
+    // and shift every method after it by one, so REAPER's calls would land
+    // on the wrong methods (GetTouchState on SetTrackTitle, Run on
+    // CloseNoReset). One plain virtual keeps the slot. The surface is only
+    // deleted through its own type (zig_csurf_destroy), never by REAPER.
+    virtual void msvcDestructorSlot() {}
+#else
     virtual ~IReaperControlSurface() {}
+#endif
 
     // Identity (not callbacks - configuration methods)
     virtual const char *GetTypeString() = 0;  // Unique ID (A-Z, 0-9)

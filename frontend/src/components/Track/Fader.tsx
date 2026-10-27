@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect, type ReactElement } from 'react';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useTrack } from '../../hooks/useTrack';
 import { useReaperStore } from '../../store';
 import { gesture, track as trackCmd } from '../../core/WebSocketCommands';

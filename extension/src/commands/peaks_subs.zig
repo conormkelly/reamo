@@ -18,6 +18,8 @@ fn parseViewport(raw: []const u8) ?ViewportParams {
     const end = protocol.jsonGetFloatFromObject(raw, "viewport", "end") orelse return null;
     const width_px = protocol.jsonGetIntFromObject(raw, "viewport", "widthPx") orelse return null;
     if (width_px <= 0) return null;
+    // jsonGetFloat parses e.g. 1e999 as inf.
+    if (!std.math.isFinite(start) or !std.math.isFinite(end)) return null;
     return ViewportParams{
         .start = start,
         .end = end,
@@ -62,9 +64,9 @@ pub fn handleSubscribe(_: anytype, cmd: protocol.CommandMessage, response: *mod.
     // Parse optional viewport for adaptive resolution
     const viewport = parseViewport(cmd.raw);
     if (viewport) |vp| {
-        logging.info("peaks_subs: parsed viewport start={d:.2}, end={d:.2}, width={d}", .{ vp.start, vp.end, vp.width_px });
+        logging.debug("peaks_subs: parsed viewport start={d:.2}, end={d:.2}, width={d}", .{ vp.start, vp.end, vp.width_px });
     } else {
-        logging.info("peaks_subs: no viewport parsed from command", .{});
+        logging.debug("peaks_subs: no viewport parsed from command", .{});
     }
 
     // Try range mode first
@@ -167,7 +169,7 @@ pub fn handleUpdateViewport(_: anytype, cmd: protocol.CommandMessage, response: 
         return;
     };
 
-    logging.info("peaks_subs: updateViewport received start={d:.2}, end={d:.2}, width={d}", .{ viewport.start, viewport.end, viewport.width_px });
+    logging.debug("peaks_subs: updateViewport received start={d:.2}, end={d:.2}, width={d}", .{ viewport.start, viewport.end, viewport.width_px });
 
     if (!subs.updateViewport(response.client_id, viewport)) {
         response.err("NOT_SUBSCRIBED", "No active peaks subscription");
@@ -180,4 +182,16 @@ pub fn handleUpdateViewport(_: anytype, cmd: protocol.CommandMessage, response: 
 // Tests
 test "handleSubscribe and handleUnsubscribe compile" {
     // Just verify the module compiles - full tests need mock ResponseWriter
+}
+
+test "parseViewport rejects non-finite viewport bounds" {
+    try std.testing.expect(parseViewport(
+        \\{"viewport":{"start":0,"end":1e999,"widthPx":400}}
+    ) == null);
+    try std.testing.expect(parseViewport(
+        \\{"viewport":{"start":-1e999,"end":10,"widthPx":400}}
+    ) == null);
+    try std.testing.expect(parseViewport(
+        \\{"viewport":{"start":0,"end":30,"widthPx":400}}
+    ) != null);
 }

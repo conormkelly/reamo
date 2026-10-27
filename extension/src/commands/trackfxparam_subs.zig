@@ -55,9 +55,10 @@ pub fn handleSubscribe(_: anytype, cmd: protocol.CommandMessage, response: *mod.
             return;
         };
     } else {
-        // Range mode (default to 0-20 if not specified)
-        const range_start: c_int = if (cmd.getInt("rangeStart")) |v| @intCast(v) else 0;
-        const range_end: c_int = if (cmd.getInt("rangeEnd")) |v| @intCast(v) else 20;
+        // Range mode, inclusive (default 0-20). The frontend builder sends
+        // "range": {"start", "end"}; API.md's flat rangeStart/rangeEnd also work.
+        const range_start: c_int = protocol.jsonGetIntFromObject(cmd.raw, "range", "start") orelse cmd.getInt("rangeStart") orelse 0;
+        const range_end: c_int = protocol.jsonGetIntFromObject(cmd.raw, "range", "end") orelse cmd.getInt("rangeEnd") orelse 20;
 
         subs.subscribeRange(response.client_id, track_guid, fx_guid, range_start, range_end) catch |err| {
             switch (err) {

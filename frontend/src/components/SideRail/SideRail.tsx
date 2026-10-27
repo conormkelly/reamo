@@ -27,7 +27,7 @@ import {
   ChartBarBig,
   AudioWaveform,
 } from 'lucide-react';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useTransport } from '../../hooks/useTransport';
 import { useReaperStore } from '../../store';
 import { useRecordButton } from '../../hooks/useRecordButton';

@@ -12,6 +12,8 @@
 //! do work when there are relevant events to process.
 
 const std = @import("std");
+const item_guid_cache = @import("../state/item_guid_cache.zig");
+const guid_cache = @import("../state/guid_cache.zig");
 const reaper = @import("../reaper.zig");
 const logging = @import("../core/logging.zig");
 const ws_server = @import("ws_server.zig");
@@ -59,7 +61,6 @@ const Buffers = struct {
     var snap_transport: transport.State = .{};
     var snap_project: project.State = .{};
     var snap_markers: markers.State = .{};
-    var snap_tempomap: tempomap.State = .{};
 
     // Static backing buffers for snapshot pollInto (slice-based states)
     var snap_markers_buf: [markers.MAX_MARKERS]markers.Marker = undefined;
@@ -112,6 +113,9 @@ pub const SnapshotContext = struct {
     playlist_state: *const playlist.State,
     /// Cached regions for playlist serialization
     last_markers_regions: []const markers.Region,
+    /// GUID caches, rebuilt from the same poll the snapshot sends
+    guid_cache: ?*guid_cache.GuidCache,
+    item_cache: ?*item_guid_cache.ItemGuidCache,
 
     /// Create a scratch allocator from the tiered arenas
     pub fn scratchAllocator(self: *const SnapshotContext) std.mem.Allocator {
@@ -142,7 +146,7 @@ pub fn cleanupDisconnectedClients(ctx: *const ClientContext) void {
         if (ctx.gestures) |gestures| {
             const flush_count = gestures.removeClientFromAll(client_id, &Buffers.flush);
             if (flush_count > 0) {
-                logging.info("Client {d} disconnected, flushing {d} gestures", .{ client_id, flush_count });
+                logging.debug("Client {d} disconnected, flushing {d} gestures", .{ client_id, flush_count });
                 handleFlushedGestures(ctx, gestures, Buffers.flush[0..flush_count], "client disconnect");
             }
         }
@@ -182,12 +186,12 @@ pub fn checkGestureTimeouts(ctx: *const ClientContext) void {
         return;
     }
 
-    logging.info("Flushing {d} timed-out gestures", .{timeout_count});
+    logging.debug("Flushing {d} timed-out gestures", .{timeout_count});
     handleFlushedGestures(ctx, gestures, Buffers.timeout[0..timeout_count], "gesture timeout");
 }
 
-/// Handle flushed gestures by closing undo blocks appropriately.
-/// Shared logic between disconnect cleanup and timeout handling.
+/// End gestures whose client disconnected or went quiet, exactly as
+/// gesture/end would: every kind of control gets its undo point.
 fn handleFlushedGestures(
     ctx: *const ClientContext,
     gestures: *gesture_state.GestureState,
@@ -197,11 +201,10 @@ fn handleFlushedGestures(
     var had_csurf_gesture = false;
 
     for (flushed_controls) |control| {
-        if (gesture_state.GestureState.isHwOutputControl(control.control_type)) {
-            // Hardware output control - uses separate undo block tracking
-            if (gestures.endHwUndoBlock()) {
-                logging.info("Closing HW undo block ({s})", .{reason});
-                ctx.api.undoEndBlock("REAmo: Adjust audio hardware outputs");
+        if (gesture_state.GestureState.needsManualUndo(control.control_type)) {
+            if (gestures.endManualUndo(control.control_type)) |undo_msg| {
+                logging.debug("Recording manual undo point ({s})", .{reason});
+                ctx.api.undoRecordChange(undo_msg);
             }
         } else {
             had_csurf_gesture = true;
@@ -234,17 +237,33 @@ pub fn sendSnapshotsToNewClients(ctx: *const SnapshotContext) void {
     Buffers.snap_transport = transport.State.poll(ctx.backend);
     Buffers.snap_project = project.State.poll(ctx.backend);
     Buffers.snap_markers.pollInto(&Buffers.snap_markers_buf, &Buffers.snap_regions_buf, ctx.backend);
-    Buffers.snap_tempomap = tempomap.State.poll(ctx.backend);
 
-    // Poll track skeleton and items using scratch allocator
+    // Poll the tempo map, track skeleton and items using scratch allocator
     const scratch = ctx.scratchAllocator();
+    const snap_tempomap = tempomap.State.poll(scratch, ctx.backend) catch null;
     const snap_skeleton = track_skeleton.State.poll(scratch, ctx.backend) catch null;
     const snap_items = items.State.poll(scratch, ctx.backend) catch null;
 
+    // A client acts on the GUIDs in its snapshot at once (a fader moved by
+    // trackGuid), so the caches must resolve every one of them now, not
+    // after the next track-list change.
+    if (ctx.guid_cache) |cache| {
+        cache.rebuild(ctx.backend) catch |err| logging.warn("snapshot: track GUID cache rebuild failed: {s}", .{@errorName(err)});
+    }
+    if (ctx.item_cache) |cache| {
+        if (snap_items) |si| cache.rebuildFromItems(items, si.items) catch |err| logging.warn("snapshot: item GUID cache rebuild failed: {s}", .{@errorName(err)});
+    }
+
     // Send snapshot to each new client
     for (Buffers.snapshot_clients[0..snapshot_count]) |client_id| {
-        sendSnapshotToClient(ctx, client_id, snap_skeleton, snap_items, scratch);
+        sendSnapshotToClient(ctx, client_id, snap_skeleton, snap_items, snap_tempomap, scratch);
     }
+}
+
+/// A section of a new client's snapshot that couldn't be built: the phone
+/// starts without it until that state next changes.
+fn snapshotFailed(client_id: usize, section: []const u8, err: anyerror) void {
+    logging.warn("Client {d} started without the {s}: {s}", .{ client_id, section, @errorName(err) });
 }
 
 /// Send complete state snapshot to a single client.
@@ -253,51 +272,54 @@ fn sendSnapshotToClient(
     client_id: usize,
     snap_skeleton: ?track_skeleton.State,
     snap_items: ?items.State,
+    snap_tempomap: ?tempomap.State,
     scratch: std.mem.Allocator,
 ) void {
     // Transport
     if (Buffers.snap_transport.toJsonAlloc(scratch)) |json| {
         ctx.shared_state.sendToClient(client_id, json);
-    } else |_| {}
+    } else |err| snapshotFailed(client_id, "transport", err);
 
     // Project (undo/redo state)
     if (Buffers.snap_project.toJsonAlloc(scratch)) |json| {
         ctx.shared_state.sendToClient(client_id, json);
-    } else |_| {}
+    } else |err| snapshotFailed(client_id, "project", err);
 
     // Markers (broadcast - no subscription required)
     if (Buffers.snap_markers.markersToJsonAlloc(scratch)) |json| {
         ctx.shared_state.sendToClient(client_id, json);
-    } else |_| {}
+    } else |err| snapshotFailed(client_id, "markers", err);
 
     // Regions (broadcast - no subscription required)
     if (Buffers.snap_markers.regionsToJsonAlloc(scratch)) |json| {
         ctx.shared_state.sendToClient(client_id, json);
-    } else |_| {}
+    } else |err| snapshotFailed(client_id, "regions", err);
 
     // Items (broadcast - no subscription required)
     if (snap_items) |item_state| {
         if (item_state.itemsToJsonAlloc(scratch)) |json| {
             ctx.shared_state.sendToClient(client_id, json);
-        } else |_| {}
+        } else |err| snapshotFailed(client_id, "items", err);
     }
 
     // Track skeleton (client must subscribe to receive full track data)
     if (snap_skeleton) |skeleton| {
         if (skeleton.toJsonAlloc(scratch)) |json| {
             ctx.shared_state.sendToClient(client_id, json);
-        } else |_| {}
+        } else |err| snapshotFailed(client_id, "track list", err);
     }
 
     // Tempo map
-    if (Buffers.snap_tempomap.toJsonAlloc(scratch)) |json| {
-        ctx.shared_state.sendToClient(client_id, json);
-    } else |_| {}
+    if (snap_tempomap) |tempo| {
+        if (tempo.toJsonAlloc(scratch)) |json| {
+            ctx.shared_state.sendToClient(client_id, json);
+        } else |err| snapshotFailed(client_id, "tempo map", err);
+    }
 
-    // Playlist (cue list) - uses last_markers_regions for region resolution
+    // Playlist - uses last_markers_regions for region resolution
     if (ctx.playlist_state.toJsonAlloc(scratch, ctx.last_markers_regions)) |json| {
         ctx.shared_state.sendToClient(client_id, json);
-    } else |_| {}
+    } else |err| snapshotFailed(client_id, "playlist", err);
 }
 
 // ============================================================================

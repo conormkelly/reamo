@@ -9,7 +9,9 @@ const tracks = @import("../state/tracks.zig");
 const project = @import("../state/project.zig");
 const markers = @import("../state/markers.zig");
 const items = @import("../state/items.zig");
+const track_skeleton = @import("../state/track_skeleton.zig");
 const tempomap = @import("../state/tempomap.zig");
+const reaper = @import("../reaper.zig");
 const fx = @import("../state/fx.zig");
 const sends = @import("../state/sends.zig");
 
@@ -55,10 +57,16 @@ pub const MediumTierState = struct {
     }
 };
 
+/// Frames between regular polls of the medium (5Hz) and low (1Hz) tiers at 30Hz.
+pub const MEDIUM_TIER_INTERVAL: u32 = 6;
+pub const LOW_TIER_INTERVAL: u32 = 30;
+
 /// LOW TIER: Rarely-changing state (1Hz)
 /// Tempo map, project notes
 pub const LowTierState = struct {
-    tempomap: tempomap.State = .{},
+    /// The markers are polled into the frame's scratch arena; only what
+    /// change detection needs is kept between polls.
+    tempomap: tempomap.Summary = .{},
 
     pub fn empty() LowTierState {
         return .{};
@@ -124,7 +132,9 @@ pub const EntitySizes = struct {
     pub const REGION: usize = 228; // Region struct
     pub const FX_SLOT: usize = 281; // FxSlot struct
     pub const SEND_SLOT: usize = 157; // SendSlot struct
-    pub const TEMPO_EVENT: usize = 32; // TempoEvent struct
+    pub const TEMPO_EVENT: usize = @sizeOf(reaper.TempoMarker);
+    /// One marker in the tempoMap event (its toJsonAlloc estimate).
+    pub const TEMPO_EVENT_JSON: usize = 128;
 };
 
 /// Default arena sizes (fallback when no API available, e.g. tests)
@@ -138,7 +148,7 @@ pub const ArenaSizes = struct {
     /// With 4x headroom: 4MB per buffer
     pub const MEDIUM: usize = 4 * 1024 * 1024;
 
-    /// LOW tier: tempomap (512 * ~32B) ≈ 16KB
+    /// LOW tier: track skeleton and tempo map summary
     /// With 4x headroom: 64KB per buffer
     pub const LOW: usize = 64 * 1024;
 
@@ -261,16 +271,21 @@ pub const CalculatedSizes = struct {
             (counts.sends_total * EntitySizes.SEND_SLOT) +
             4096; // Project state overhead
 
-        // LOW: tempo map
-        const low_raw = (counts.tempo_events * EntitySizes.TEMPO_EVENT) +
+        // LOW: the track skeleton, which pollLowTier allocates here
+        const low_raw = (counts.tracks * @sizeOf(track_skeleton.SkeletonTrack)) +
             1024; // Overhead
 
         // SCRATCH: JSON serialization (scales with largest payload)
         // Now handles all toJson calls including tracks, items, skeleton, metering, toggles
+        // The medium tier serializes items, markers, regions and FX in one frame;
+        // per-entity sizes match the initial estimates in their *ToJsonAlloc.
+        // The tempo map is polled into scratch and serialized there in the
+        // same frame as either (a new client's snapshot sends it with the rest).
         const scratch_raw = @max(
             counts.tracks * 600, // ~600 bytes per track JSON (with GUID)
-            counts.items * 256, // ~256 bytes per item JSON
-        ) + 128 * 1024; // Increased base for skeleton (~200B/track), metering, toggles, errors
+            counts.items * 512 + counts.markers * 224 + counts.regions * 320 + counts.fx_total * 320,
+        ) + counts.tempo_events * (EntitySizes.TEMPO_EVENT + EntitySizes.TEMPO_EVENT_JSON) +
+            128 * 1024; // Increased base for skeleton (~200B/track), metering, toggles, errors
 
         // Apply headroom multiplier
         var high = high_raw * MemoryBounds.HEADROOM_MULTIPLIER;
@@ -345,6 +360,8 @@ pub const TieredArenas = struct {
     low: DoubleBufferedState(LowTierState),
     scratch: FrameArena,
     sizes: CalculatedSizes, // Store sizes for diagnostics
+    /// Sizes requested by requestResize, applied by the caller between frames.
+    pending_sizes: ?CalculatedSizes = null,
 
     const Self = @This();
 
@@ -354,6 +371,7 @@ pub const TieredArenas = struct {
     pub fn initWithSizes(backing: Allocator, sizes: CalculatedSizes) !Self {
         var self: Self = undefined;
         self.sizes = sizes;
+        self.pending_sizes = null;
 
         // Initialize HIGH tier
         self.high = try DoubleBufferedState(HighTierState).init(backing, sizes.high);
@@ -387,33 +405,30 @@ pub const TieredArenas = struct {
         self.* = undefined;
     }
 
-    /// Resize all arenas to new sizes.
-    /// Call this on project change when entity counts have changed significantly.
-    /// Invalidates all existing state - caller must repopulate.
+    /// Resize all arenas to new sizes. Every tier state lives inside these
+    /// arenas, so this invalidates every state pointer and slice taken from
+    /// them: call it between frames, never during a poll (see requestResize).
+    /// The new arenas are allocated before the old ones are freed, so on
+    /// failure the old ones are untouched and still in use.
     pub fn resize(self: *Self, backing: Allocator, new_sizes: CalculatedSizes) !void {
-        // Deinit all existing arenas
-        self.high.deinit(backing);
-        self.medium.deinit(backing);
-        self.low.deinit(backing);
-        self.scratch.deinit(backing);
+        const fresh = try initWithSizes(backing, new_sizes);
+        self.deinit(backing);
+        self.* = fresh;
+    }
 
-        // Reinitialize with new sizes
-        self.sizes = new_sizes;
+    /// Ask for a resize at the next frame boundary. Polls that find the
+    /// project has changed size call this instead of resize, since they are
+    /// holding state from these arenas.
+    pub fn requestResize(self: *Self, new_sizes: CalculatedSizes) void {
+        self.pending_sizes = new_sizes;
+    }
 
-        // Initialize HIGH tier
-        self.high = try DoubleBufferedState(HighTierState).init(backing, new_sizes.high);
-        errdefer self.high.deinit(backing);
-
-        // Initialize MEDIUM tier
-        self.medium = try DoubleBufferedState(MediumTierState).init(backing, new_sizes.medium);
-        errdefer self.medium.deinit(backing);
-
-        // Initialize LOW tier
-        self.low = try DoubleBufferedState(LowTierState).init(backing, new_sizes.low);
-        errdefer self.low.deinit(backing);
-
-        // Initialize SCRATCH arena
-        self.scratch = try FrameArena.init(backing, new_sizes.scratch);
+    /// Apply a requested resize; call before beginFrame, while nothing holds
+    /// state from the arenas.
+    pub fn applyPendingResize(self: *Self, backing: Allocator) !void {
+        const sizes = self.pending_sizes orelse return;
+        self.pending_sizes = null;
+        try self.resize(backing, sizes);
     }
 
     /// Check if resize is warranted based on new counts.
@@ -441,13 +456,12 @@ pub const TieredArenas = struct {
         // HIGH tier swaps every frame
         try self.high.beginFrame();
 
-        // MEDIUM tier swaps every 6 frames (5Hz)
-        if (frame_counter % 6 == 0) {
+        // A tier swaps on the frame its regular poll runs, so between
+        // regular polls the current state is always the latest poll.
+        if (frame_counter % MEDIUM_TIER_INTERVAL == 0) {
             try self.medium.beginFrame();
         }
-
-        // LOW tier swaps every 30 frames (1Hz)
-        if (frame_counter % 30 == 0) {
+        if (frame_counter % LOW_TIER_INTERVAL == 0) {
             try self.low.beginFrame();
         }
     }
@@ -847,6 +861,35 @@ test "TieredArenas resize preserves functionality" {
     try testing.expectEqual(@as(f64, 160.0), arenas.high.currentState().transport.bpm);
 }
 
+test "a resize that can't allocate leaves the current arenas and their state in use" {
+    const sizes = CalculatedSizes{ .high = 128 * 1024, .medium = 512 * 1024, .low = 32 * 1024, .scratch = 128 * 1024 };
+    var arenas = try TieredArenas.initWithSizes(testing.allocator, sizes);
+    defer arenas.deinit(testing.allocator);
+    try arenas.beginFrame(0);
+    arenas.high.currentState().transport.bpm = 140.0;
+
+    // Enough for some of the new arenas, not all of them.
+    var failing = std.testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 3 });
+    const bigger = CalculatedSizes{ .high = 256 * 1024, .medium = 1024 * 1024, .low = 64 * 1024, .scratch = 256 * 1024 };
+    try testing.expectError(error.OutOfMemory, arenas.resize(failing.allocator(), bigger));
+
+    try testing.expectEqual(sizes.high, arenas.sizes.high);
+    try testing.expectEqual(@as(f64, 140.0), arenas.high.currentState().transport.bpm);
+    try arenas.beginFrame(1);
+}
+
+test "a requested resize waits for applyPendingResize" {
+    var arenas = try TieredArenas.init(testing.allocator);
+    defer arenas.deinit(testing.allocator);
+    const before = arenas.sizes;
+    const smaller = CalculatedSizes{ .high = 128 * 1024, .medium = 512 * 1024, .low = 32 * 1024, .scratch = 128 * 1024 };
+    arenas.requestResize(smaller);
+    try testing.expectEqual(before.high, arenas.sizes.high);
+    try arenas.applyPendingResize(testing.allocator);
+    try testing.expectEqual(smaller.high, arenas.sizes.high);
+    try testing.expect(arenas.pending_sizes == null);
+}
+
 test "DiagnosticUsage isMemoryWarning threshold" {
     // Under threshold (79%)
     const usage_ok = TieredArenas.DiagnosticUsage{
@@ -943,4 +986,22 @@ test "TieredArenas shouldResize detects significant changes" {
         .scratch = 32 * 1024,
     };
     try testing.expect(arenas.shouldResize(much_smaller, 20));
+}
+
+test "CalculatedSizes low tier fits the track skeleton polled into it" {
+    // Shapes where the low arena (sized for the tempo map only) ran out of
+    // memory every second and the skeleton poll aborted the low tier.
+    const shapes = [_]EntityCounts{
+        .{ .tracks = 201, .items = 5000, .fx_total = 800, .sends_total = 400, .markers = 250, .regions = 250, .tempo_events = 10 },
+        .{ .tracks = 301, .items = 3000, .tempo_events = 1 },
+        .{ .tracks = 1001, .items = 20000, .tempo_events = 50 },
+    };
+    for (shapes) |counts| {
+        const sizes = CalculatedSizes.fromCounts(counts);
+        const skeleton_bytes = counts.tracks * @sizeOf(track_skeleton.SkeletonTrack);
+        if (sizes.low < skeleton_bytes) {
+            std.debug.print("tracks={d}: low={d} < skeleton={d}\n", .{ counts.tracks, sizes.low, skeleton_bytes });
+            return error.LowTierTooSmallForSkeleton;
+        }
+    }
 }

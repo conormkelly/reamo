@@ -7,7 +7,7 @@
 import type { ReactElement } from 'react';
 import { useTrack } from '../../hooks/useTrack';
 import { useLongPress } from '../../hooks/useLongPress';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { track } from '../../core/WebSocketCommands';
 import { MuteButton } from './MuteButton';
 import { SoloButton } from './SoloButton';

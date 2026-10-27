@@ -9,7 +9,7 @@
 import { useCallback, useMemo, type ReactElement } from 'react';
 import { MapPin, Layers, ArrowLeftToLine, ArrowRightToLine } from 'lucide-react';
 import { BottomSheet } from '../Modal/BottomSheet';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useReaperStore } from '../../store';
 import { transport, action } from '../../core/WebSocketCommands';
 import { formatTime, reaperColorToHexWithFallback } from '../../utils';

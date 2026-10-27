@@ -1,27 +1,57 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const protocol = @import("../core/protocol.zig");
 const mod = @import("mod.zig");
 const logging = @import("../core/logging.zig");
 const tracks = @import("tracks.zig");
 
-/// Navigate to next preset for the specified FX
-/// Params: trackIdx (unified: 0=master, 1+=user tracks), fxIdx (0-based)
-pub fn handlePresetNext(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("MISSING_TRACK_IDX", "trackIdx is required");
-        return;
-    };
-    const fx_idx = cmd.getInt("fxIdx") orelse {
-        response.err("MISSING_FX_IDX", "fxIdx is required");
-        return;
-    };
+/// The track and FX a preset or bypass command names. The track is found by
+/// trackIdx or trackGuid, the FX by fxGuid when given, else by fxIdx: an
+/// FX's index changes when the chain is reordered, its GUID doesn't. On
+/// failure answers the error and returns null; `out_of_range` is the error
+/// code for an fxIdx past the chain.
+const FxTarget = struct { track: *anyopaque, track_idx: c_int, fx_idx: c_int };
 
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
+fn resolveFxTarget(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter, comptime out_of_range: []const u8) ?FxTarget {
+    if (cmd.getInt("trackIdx") == null and cmd.getString("trackGuid") == null) {
+        response.err("MISSING_TRACK_IDX", "trackIdx or trackGuid is required");
+        return null;
+    }
+    const resolution = tracks.resolveTrack(api, cmd) orelse {
         response.err("NOT_FOUND", "Track not found");
-        return;
+        return null;
     };
+    if (cmd.getString("fxGuid")) |fx_guid| {
+        const fx_idx = findFxByGuid(api, resolution.track, fx_guid) orelse {
+            response.err("NOT_FOUND", "FX not found");
+            return null;
+        };
+        return .{ .track = resolution.track, .track_idx = resolution.idx, .fx_idx = fx_idx };
+    }
+    const fx_idx = cmd.getInt("fxIdx") orelse {
+        response.err("MISSING_FX_IDX", "fxIdx or fxGuid is required");
+        return null;
+    };
+    if (fx_idx < 0 or fx_idx >= api.trackFxCount(resolution.track)) {
+        response.err(out_of_range, "FX not found");
+        return null;
+    }
+    return .{ .track = resolution.track, .track_idx = resolution.idx, .fx_idx = fx_idx };
+}
 
+/// Navigate to next preset for the specified FX
+/// Params: see resolveFxTarget
+pub fn handlePresetNext(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+    const target = resolveFxTarget(api, cmd, response, "NOT_FOUND") orelse return;
+    const track = target.track;
+    const track_idx = target.track_idx;
+    const fx_idx = target.fx_idx;
+
+    // Loading a preset rewrites the plugin's state; Ctrl+Z should return
+    // to the sound before it. (REAPER drops the point if nothing changed.)
+    api.undoBeginBlock();
     const success = api.trackFxNavigatePresets(track, fx_idx, 1);
+    api.undoEndBlock("REAmo: Change FX preset");
     if (!success) {
         response.err("NAVIGATE_FAILED", "Failed to navigate to next preset");
         return;
@@ -31,23 +61,18 @@ pub fn handlePresetNext(api: anytype, cmd: protocol.CommandMessage, response: *m
 }
 
 /// Navigate to previous preset for the specified FX
-/// Params: trackIdx (unified: 0=master, 1+=user tracks), fxIdx (0-based)
+/// Params: see resolveFxTarget
 pub fn handlePresetPrev(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("MISSING_TRACK_IDX", "trackIdx is required");
-        return;
-    };
-    const fx_idx = cmd.getInt("fxIdx") orelse {
-        response.err("MISSING_FX_IDX", "fxIdx is required");
-        return;
-    };
+    const target = resolveFxTarget(api, cmd, response, "NOT_FOUND") orelse return;
+    const track = target.track;
+    const track_idx = target.track_idx;
+    const fx_idx = target.fx_idx;
 
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
-        response.err("NOT_FOUND", "Track not found");
-        return;
-    };
-
+    // Loading a preset rewrites the plugin's state; Ctrl+Z should return
+    // to the sound before it. (REAPER drops the point if nothing changed.)
+    api.undoBeginBlock();
     const success = api.trackFxNavigatePresets(track, fx_idx, -1);
+    api.undoEndBlock("REAmo: Change FX preset");
     if (!success) {
         response.err("NAVIGATE_FAILED", "Failed to navigate to previous preset");
         return;
@@ -57,27 +82,22 @@ pub fn handlePresetPrev(api: anytype, cmd: protocol.CommandMessage, response: *m
 }
 
 /// Set preset by index for the specified FX
-/// Params: trackIdx, fxIdx, presetIdx (-1=default user, -2=factory, 0+=preset index)
+/// Params: see resolveFxTarget, and presetIdx (-1=default user, -2=factory, 0+=preset index)
 pub fn handlePresetSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("MISSING_TRACK_IDX", "trackIdx is required");
-        return;
-    };
-    const fx_idx = cmd.getInt("fxIdx") orelse {
-        response.err("MISSING_FX_IDX", "fxIdx is required");
-        return;
-    };
+    const target = resolveFxTarget(api, cmd, response, "NOT_FOUND") orelse return;
+    const track = target.track;
+    const track_idx = target.track_idx;
+    const fx_idx = target.fx_idx;
     const preset_idx = cmd.getInt("presetIdx") orelse {
         response.err("MISSING_PRESET_IDX", "presetIdx is required (-1=default, -2=factory, or 0+)");
         return;
     };
 
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
-        response.err("NOT_FOUND", "Track not found");
-        return;
-    };
-
+    // Loading a preset rewrites the plugin's state; Ctrl+Z should return
+    // to the sound before it. (REAPER drops the point if nothing changed.)
+    api.undoBeginBlock();
     const success = api.trackFxSetPresetByIndex(track, fx_idx, preset_idx);
+    api.undoEndBlock("REAmo: Change FX preset");
     if (!success) {
         response.err("SET_FAILED", "Failed to set preset");
         return;
@@ -87,32 +107,16 @@ pub fn handlePresetSet(api: anytype, cmd: protocol.CommandMessage, response: *mo
 }
 
 /// Set FX enabled/bypassed state
-/// Params: trackIdx or trackGuid (unified: 0=master, 1+=user tracks), fxIdx (0-based)
+/// Params: see resolveFxTarget
 /// Optional: enabled (0=bypass, 1=enabled) - toggles if omitted
 pub fn handleSetEnabled(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const resolution = tracks.resolveTrack(api, cmd) orelse {
-        response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
-        return;
-    };
-    const fx_idx = cmd.getInt("fxIdx") orelse {
-        response.err("MISSING_FX_IDX", "fxIdx is required");
-        return;
-    };
-
-    // Validate fx_idx bounds
-    if (fx_idx < 0) {
-        response.err("INVALID_FX_IDX", "fxIdx must be non-negative");
-        return;
-    }
-    const fx_count = api.trackFxCount(resolution.track);
-    if (fx_idx >= fx_count) {
-        response.err("INVALID_FX_IDX", "fxIdx out of range");
-        return;
-    }
+    const target = resolveFxTarget(api, cmd, response, "INVALID_FX_IDX") orelse return;
+    const resolution = tracks.TrackResolution{ .track = target.track, .idx = target.track_idx };
+    const fx_idx = target.fx_idx;
 
     // Get current state for toggle, or use explicit enabled param
     const current = api.trackFxGetEnabled(resolution.track, fx_idx);
-    const enabled = if (cmd.getInt("enabled")) |e| e != 0 else !current;
+    const enabled = cmd.getFlag("enabled") orelse !current;
 
     // Build undo description with track/FX names
     var track_name_buf: [128]u8 = undefined;
@@ -140,30 +144,28 @@ pub fn handleSetEnabled(api: anytype, cmd: protocol.CommandMessage, response: *m
 /// Response: { "fxGuid": "{...}", "fxIndex": N }
 pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const resolution = tracks.resolveTrack(api, cmd) orelse {
-        logging.warn("trackFx/add: track not found", .{});
+        logging.debug("trackFx/add: track not found", .{});
         response.err("NOT_FOUND", "trackGuid required, or track not found");
         return;
     };
 
     // Validate track pointer
     if (resolution.idx != 0 and !api.validateTrackPtr(resolution.track)) {
-        logging.warn("trackFx/add: invalid track pointer", .{});
+        logging.debug("trackFx/add: invalid track pointer", .{});
         response.err("INVALID_TRACK", "Track no longer exists");
         return;
     }
 
-    const fx_name = cmd.getString("fxName") orelse {
-        logging.warn("trackFx/add: missing fxName", .{});
+    const fx_name = (cmd.getTextAlloc("fxName", std.heap.c_allocator) catch null) orelse {
+        logging.debug("trackFx/add: missing fxName", .{});
         response.err("MISSING_PARAM", "fxName is required");
         return;
     };
-
-    const position = cmd.getInt("position") orelse -1;
+    defer std.heap.c_allocator.free(fx_name);
 
     // Build null-terminated name for REAPER API
     var name_buf: [256:0]u8 = undefined;
-    const name_len = @min(fx_name.len, name_buf.len - 1);
-    @memcpy(name_buf[0..name_len], fx_name[0..name_len]);
+    const name_len = utf8.copyPrefix(name_buf[0 .. name_buf.len - 1], fx_name);
     name_buf[name_len] = 0;
 
     // Build undo description
@@ -171,11 +173,11 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     const undo_desc: [*:0]const u8 = std.fmt.bufPrintZ(&undo_buf, "REAmo: Add FX: {s}", .{fx_name}) catch "REAmo: Add FX";
 
     api.undoBeginBlock();
-    const fx_idx = api.trackFxAddByName(resolution.track, @ptrCast(&name_buf), false, position);
+    const fx_idx = addFxAt(api, resolution.track, @ptrCast(&name_buf), cmd.getInt("position"));
     api.undoEndBlock(undo_desc);
 
     if (fx_idx < 0) {
-        logging.warn("trackFx/add: TrackFX_AddByName failed for '{s}'", .{fx_name});
+        logging.warn("trackFx/add: REAPER couldn't add '{f}'", .{logging.untrusted(fx_name)});
         response.err("ADD_FAILED", "Failed to add FX - check FX name");
         return;
     }
@@ -195,25 +197,39 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     response.success(resp_json);
 }
 
+/// Add an FX by name at `position` and return its index, or -1 if REAPER
+/// can't add it. A position that is null, negative or past the end adds at
+/// the end.
+fn addFxAt(api: anytype, track: *anyopaque, name: [*:0]const u8, position: ?c_int) c_int {
+    // Added at the end, then moved: TrackFX_AddByName can insert at N
+    // itself (-1000 - N), but REAPER 6.0 appends instead.
+    const added = api.trackFxAddByName(track, name, false, -1);
+    if (added < 0) return added;
+    const pos = position orelse return added;
+    if (pos < 0 or pos >= added) return added;
+    api.trackFxCopyToTrack(track, added, track, pos, true);
+    return pos;
+}
+
 /// Delete an FX from a track.
 /// Params: trackGuid, fxGuid OR fxIndex
 pub fn handleDelete(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const resolution = tracks.resolveTrack(api, cmd) orelse {
-        logging.warn("trackFx/delete: track not found", .{});
+        logging.debug("trackFx/delete: track not found", .{});
         response.err("NOT_FOUND", "trackGuid required, or track not found");
         return;
     };
 
     // Validate track pointer
     if (resolution.idx != 0 and !api.validateTrackPtr(resolution.track)) {
-        logging.warn("trackFx/delete: invalid track pointer", .{});
+        logging.debug("trackFx/delete: invalid track pointer", .{});
         response.err("INVALID_TRACK", "Track no longer exists");
         return;
     }
 
     // Resolve FX by GUID or index
     const fx_idx = resolveFxIndex(api, resolution.track, cmd) orelse {
-        logging.warn("trackFx/delete: FX not found", .{});
+        logging.debug("trackFx/delete: FX not found", .{});
         response.err("FX_NOT_FOUND", "fxGuid or fxIndex required, or FX not found");
         return;
     };
@@ -243,33 +259,33 @@ pub fn handleDelete(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
 /// Response: { "newIndex": N }
 pub fn handleMove(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const resolution = tracks.resolveTrack(api, cmd) orelse {
-        logging.warn("trackFx/move: track not found", .{});
+        logging.debug("trackFx/move: track not found", .{});
         response.err("NOT_FOUND", "trackGuid required, or track not found");
         return;
     };
 
     // Validate track pointer
     if (resolution.idx != 0 and !api.validateTrackPtr(resolution.track)) {
-        logging.warn("trackFx/move: invalid track pointer", .{});
+        logging.debug("trackFx/move: invalid track pointer", .{});
         response.err("INVALID_TRACK", "Track no longer exists");
         return;
     }
 
     // Resolve FX by GUID
     const fx_guid = cmd.getString("fxGuid") orelse {
-        logging.warn("trackFx/move: missing fxGuid", .{});
+        logging.debug("trackFx/move: missing fxGuid", .{});
         response.err("MISSING_PARAM", "fxGuid is required");
         return;
     };
 
     const src_idx = findFxByGuid(api, resolution.track, fx_guid) orelse {
-        logging.warn("trackFx/move: FX GUID not found: {s}", .{fx_guid});
+        logging.debug("trackFx/move: FX GUID not found: {f}", .{logging.untrusted(fx_guid)});
         response.err("FX_NOT_FOUND", "FX with given GUID not found");
         return;
     };
 
     const to_index = cmd.getInt("toIndex") orelse {
-        logging.warn("trackFx/move: missing toIndex", .{});
+        logging.debug("trackFx/move: missing toIndex", .{});
         response.err("MISSING_PARAM", "toIndex is required");
         return;
     };
@@ -277,7 +293,7 @@ pub fn handleMove(api: anytype, cmd: protocol.CommandMessage, response: *mod.Res
     // Validate toIndex bounds
     const fx_count = api.trackFxCount(resolution.track);
     if (to_index < 0 or to_index >= fx_count) {
-        logging.warn("trackFx/move: toIndex out of range: {d} (count={d})", .{ to_index, fx_count });
+        logging.debug("trackFx/move: toIndex out of range: {d} (count={d})", .{ to_index, fx_count });
         response.err("INVALID_INDEX", "toIndex out of range");
         return;
     }
@@ -317,21 +333,21 @@ pub fn handleMove(api: anytype, cmd: protocol.CommandMessage, response: *mod.Res
 /// Response: { "trackGuid": "...", "fxGuid": "...", "paramCount": N, "params": ["name1", "name2", ...] }
 pub fn handleGetParams(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const resolution = tracks.resolveTrack(api, cmd) orelse {
-        logging.warn("trackFx/getParams: track not found", .{});
+        logging.debug("trackFx/getParams: track not found", .{});
         response.err("NOT_FOUND", "trackGuid required, or track not found");
         return;
     };
 
     // Validate track pointer
     if (resolution.idx != 0 and !api.validateTrackPtr(resolution.track)) {
-        logging.warn("trackFx/getParams: invalid track pointer", .{});
+        logging.debug("trackFx/getParams: invalid track pointer", .{});
         response.err("INVALID_TRACK", "Track no longer exists");
         return;
     }
 
     // Resolve FX by GUID or index
     const fx_idx = resolveFxIndex(api, resolution.track, cmd) orelse {
-        logging.warn("trackFx/getParams: FX not found", .{});
+        logging.debug("trackFx/getParams: FX not found", .{});
         response.err("FX_NOT_FOUND", "fxGuid or fxIndex required, or FX not found");
         return;
     };
@@ -340,76 +356,50 @@ pub fn handleGetParams(api: anytype, cmd: protocol.CommandMessage, response: *mo
     var fx_guid_buf: [64]u8 = undefined;
     const fx_guid = api.trackFxGetGuid(resolution.track, fx_idx, &fx_guid_buf);
 
-    // Get track GUID from command parameters (client must provide it)
-    const track_guid = cmd.getString("trackGuid") orelse {
-        response.err("MISSING_PARAM", "trackGuid required");
-        return;
-    };
+    // The GUID of the track the request resolved to, by trackIdx or trackGuid
+    // ("master" for the master, as clients address it).
+    var track_guid_buf: [64]u8 = undefined;
+    const track_guid = if (resolution.idx == 0) "master" else api.formatTrackGuid(resolution.track, &track_guid_buf);
 
     // Get param count
     const param_count = api.trackFxGetNumParams(resolution.track, fx_idx);
 
-    // Use scratch arena for JSON buffer (64KB supports ~1000 param names)
     const tiered = mod.g_ctx.tiered orelse {
         response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
         return;
     };
-    const scratch = tiered.scratchAllocator();
-    const buf = scratch.alloc(u8, 64 * 1024) catch {
-        response.err("ALLOC_FAILED", "Failed to allocate buffer");
-        return;
-    };
-
-    var stream = std.io.fixedBufferStream(buf);
-    var w = stream.writer();
-
-    // Write JSON header
-    w.print("{{\"trackGuid\":\"{s}\",\"fxGuid\":\"{s}\",\"paramCount\":{d},\"params\":[", .{ track_guid, fx_guid, param_count }) catch {
-        response.err("BUFFER_OVERFLOW", "Response too large");
-        return;
-    };
-
-    // Write param names
-    var name_buf: [256]u8 = undefined;
-    var i: c_int = 0;
-    while (i < param_count) : (i += 1) {
-        if (i > 0) w.writeByte(',') catch {
-            response.err("BUFFER_OVERFLOW", "Response too large");
-            return;
-        };
-
-        const name = api.trackFxGetParamName(resolution.track, fx_idx, i, &name_buf);
-
-        w.writeByte('"') catch {
-            response.err("BUFFER_OVERFLOW", "Response too large");
-            return;
-        };
-
-        // Escape JSON special characters in name
-        for (name) |c| {
-            switch (c) {
-                '"' => w.writeAll("\\\"") catch return,
-                '\\' => w.writeAll("\\\\") catch return,
-                '\n' => w.writeAll("\\n") catch return,
-                '\r' => w.writeAll("\\r") catch return,
-                '\t' => w.writeAll("\\t") catch return,
-                else => w.writeByte(c) catch return,
-            }
-        }
-
-        w.writeByte('"') catch {
-            response.err("BUFFER_OVERFLOW", "Response too large");
-            return;
-        };
-    }
-
-    w.writeAll("]}") catch {
-        response.err("BUFFER_OVERFLOW", "Response too large");
+    // Sized to fit: synths expose thousands of parameters (~20-40 bytes of
+    // name each), and the UI awaits this response to open the parameter page.
+    const ctx = ParamNamesCtx(@TypeOf(api)){ .api = api, .track = resolution.track, .fx_idx = fx_idx, .track_guid = track_guid, .fx_guid = fx_guid, .param_count = param_count };
+    const estimate = 128 + @as(usize, @intCast(@max(param_count, 0))) * 48;
+    const json = protocol.writeAlloc(tiered.scratchAllocator(), estimate, ctx, writeParamNames) catch {
+        response.err("RESPONSE_TOO_LARGE", "Parameter list too large");
         return;
     };
 
     logging.debug("trackFx/getParams: returning {d} params for track {s} fx {s}", .{ param_count, track_guid, fx_guid });
-    response.successLargePayload(stream.getWritten());
+    response.successLargePayload(json);
+}
+
+fn ParamNamesCtx(comptime Api: type) type {
+    return struct { api: Api, track: *anyopaque, fx_idx: c_int, track_guid: []const u8, fx_guid: []const u8, param_count: c_int };
+}
+
+fn writeParamNames(ctx: anytype, w: anytype) !void {
+    try w.writeAll("{\"trackGuid\":\"");
+    try protocol.writeJsonString(w, ctx.track_guid);
+    try w.writeAll("\",\"fxGuid\":\"");
+    try protocol.writeJsonString(w, ctx.fx_guid);
+    try w.print("\",\"paramCount\":{d},\"params\":[", .{ctx.param_count});
+    var name_buf: [256]u8 = undefined;
+    var i: c_int = 0;
+    while (i < ctx.param_count) : (i += 1) {
+        if (i > 0) try w.writeByte(',');
+        try w.writeByte('"');
+        try protocol.writeJsonString(w, ctx.api.trackFxGetParamName(ctx.track, ctx.fx_idx, i, &name_buf));
+        try w.writeByte('"');
+    }
+    try w.writeAll("]}");
 }
 
 /// Helper: Resolve FX index from fxGuid or fxIndex parameter.
@@ -461,4 +451,24 @@ test "handleSetEnabled validates fx_idx bounds" {
 
 test "resolveFxIndex and findFxByGuid compile" {
     // Integration tests via websocat verify full behavior.
+}
+
+test "an FX added at a position lands there even where REAPER only appends" {
+    const mock = @import("../reaper/mock/mod.zig");
+    // The mock appends whatever position it is asked for, as REAPER 6.0 does.
+    var m = mock.MockBackend{ .track_count = 1 };
+    m.tracks[1].fx[0].setName("ReaComp");
+    m.tracks[1].fx[1].setName("ReaVerb");
+    m.tracks[1].fx_count = 2;
+    const track = m.getTrackByIdx(0).?;
+
+    try std.testing.expectEqual(@as(c_int, 0), addFxAt(&m, track, "ReaEQ", 0));
+    try std.testing.expectEqualStrings("ReaEQ", m.tracks[1].fx[0].getName());
+    try std.testing.expectEqualStrings("ReaComp", m.tracks[1].fx[1].getName());
+    try std.testing.expectEqualStrings("ReaVerb", m.tracks[1].fx[2].getName());
+
+    // Past the end, or no position: at the end.
+    try std.testing.expectEqual(@as(c_int, 3), addFxAt(&m, track, "ReaDelay", 7));
+    try std.testing.expectEqual(@as(c_int, 4), addFxAt(&m, track, "ReaGate", null));
+    try std.testing.expectEqualStrings("ReaGate", m.tracks[1].fx[4].getName());
 }

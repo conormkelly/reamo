@@ -7,7 +7,7 @@
 import { useState, useEffect, type ReactElement } from 'react';
 import { useTrack } from '../../hooks/useTrack';
 import { usePeakHold } from '../../hooks/usePeakHold';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { meter } from '../../core/WebSocketCommands';
 import { volumeToDb, clampDb } from '../../utils/volume';
 

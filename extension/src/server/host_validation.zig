@@ -62,48 +62,22 @@ pub fn getAllowedHostCount() usize {
 /// Note: 0.0.0.0 is explicitly rejected (0.0.0.0-day attack vector) even though
 /// the server binds to 0.0.0.0 to listen on all interfaces — these are different things.
 pub fn isValidLocalHost(host: []const u8) bool {
-    if (host.len == 0) return false;
-
-    // Reject 0.0.0.0 — valid bind address but not a valid Host header
-    if (std.mem.startsWith(u8, host, "0.0.0.0")) return false;
+    // Every check below runs on the bare hostname: an attacker chooses the
+    // whole Host string, so prefix tests on it ("127." ...) also match names
+    // like 127.rebind.evil.example that resolve wherever the attacker wants.
+    const hostname = hostWithoutPort(host) orelse return false;
+    if (hostname.len == 0) return false;
 
     // Localhost patterns
-    if (std.mem.startsWith(u8, host, "127.") or
-        std.mem.startsWith(u8, host, "localhost:") or
-        std.mem.eql(u8, host, "localhost") or
-        std.mem.startsWith(u8, host, "[::1]:") or
-        std.mem.eql(u8, host, "[::1]"))
-    {
+    if (std.mem.eql(u8, hostname, "localhost") or std.mem.eql(u8, hostname, "[::1]")) {
         return true;
     }
 
-    // Private network: 10.x.x.x
-    if (std.mem.startsWith(u8, host, "10.")) {
-        return true;
+    // IPv4 literals: loopback and private ranges only. 0.0.0.0 is excluded —
+    // a valid bind address but not a valid Host header.
+    if (parseIpv4(hostname)) |ip| {
+        return isLocalIpv4(ip);
     }
-
-    // Private network: 192.168.x.x
-    if (std.mem.startsWith(u8, host, "192.168.")) {
-        return true;
-    }
-
-    // Link-local: 169.254.x.x (used for direct device-to-device connections)
-    if (std.mem.startsWith(u8, host, "169.254.")) {
-        return true;
-    }
-
-    // Private network: 172.16.x.x - 172.31.x.x
-    if (std.mem.startsWith(u8, host, "172.")) {
-        const rest = host[4..];
-        const dot_pos = std.mem.indexOfScalar(u8, rest, '.') orelse return false;
-        const second_octet = std.fmt.parseInt(u8, rest[0..dot_pos], 10) catch return false;
-        if (second_octet >= 16 and second_octet <= 31) {
-            return true;
-        }
-    }
-
-    // Strip port from host for hostname matching ("mypc:9224" → "mypc")
-    const hostname = stripPort(host);
 
     // Allow any .local hostname — mDNS resolution is LAN-only by definition,
     // so a .local Host header proves the client resolved via multicast DNS
@@ -154,27 +128,37 @@ fn extractOriginHost(origin: []const u8) []const u8 {
     return origin;
 }
 
-/// Strip the port suffix from a host string.
-/// "mypc:9224" → "mypc"
-/// "mypc.local:9224" → "mypc.local"
-/// "mypc" → "mypc" (no port)
-/// "[::1]:9224" → "[::1]:9224" (IPv6 — don't strip, handled separately)
-fn stripPort(host: []const u8) []const u8 {
-    // Don't strip from IPv6 addresses (contain multiple colons)
-    if (std.mem.startsWith(u8, host, "[")) return host;
-
-    // Find the last colon — if the part after it is all digits, it's a port
-    if (std.mem.lastIndexOfScalar(u8, host, ':')) |colon_pos| {
-        const after = host[colon_pos + 1 ..];
-        if (after.len > 0 and after.len <= 5) {
-            // Verify all digits
-            for (after) |c| {
-                if (c < '0' or c > '9') return host; // Not a port
-            }
-            return host[0..colon_pos];
-        }
+/// Split the hostname from a Host header value, or null if what follows the
+/// hostname is not a numeric port.
+/// "mypc:9224" → "mypc", "mypc" → "mypc", "[::1]:9224" → "[::1]",
+/// "127.0.0.1:x" → null, "[::1]x" → null
+fn hostWithoutPort(host: []const u8) ?[]const u8 {
+    var name_end: usize = undefined;
+    if (std.mem.startsWith(u8, host, "[")) {
+        name_end = (std.mem.indexOfScalar(u8, host, ']') orelse return null) + 1;
+    } else {
+        name_end = std.mem.indexOfScalar(u8, host, ':') orelse host.len;
     }
-    return host;
+    const rest = host[name_end..];
+    if (rest.len == 0) return host;
+    if (rest[0] != ':') return null;
+    _ = std.fmt.parseInt(u16, rest[1..], 10) catch return null;
+    return host[0..name_end];
+}
+
+/// Parse a dotted-quad IPv4 literal, or null for anything else (hostnames).
+fn parseIpv4(hostname: []const u8) ?[4]u8 {
+    const addr = std.net.Ip4Address.parse(hostname, 0) catch return null;
+    return @bitCast(addr.sa.addr);
+}
+
+/// Loopback 127/8, private 10/8, 172.16/12, 192.168/16, link-local 169.254/16.
+fn isLocalIpv4(ip: [4]u8) bool {
+    return ip[0] == 127 or
+        ip[0] == 10 or
+        (ip[0] == 172 and ip[1] >= 16 and ip[1] <= 31) or
+        (ip[0] == 192 and ip[1] == 168) or
+        (ip[0] == 169 and ip[1] == 254);
 }
 
 // ── Tests ──────────────────────────────────────────────────────────
@@ -300,22 +284,29 @@ test "allowed host rejects unlisted hostname" {
     clearAllowedHosts();
 }
 
-// ── stripPort tests ──
+// ── hostWithoutPort tests ──
 
-test "stripPort removes port" {
-    try std.testing.expectEqualStrings("mypc", stripPort("mypc:9224"));
+test "hostWithoutPort removes port" {
+    try std.testing.expectEqualStrings("mypc", hostWithoutPort("mypc:9224").?);
 }
 
-test "stripPort preserves bare hostname" {
-    try std.testing.expectEqualStrings("mypc", stripPort("mypc"));
+test "hostWithoutPort preserves bare hostname" {
+    try std.testing.expectEqualStrings("mypc", hostWithoutPort("mypc").?);
 }
 
-test "stripPort preserves IPv6" {
-    try std.testing.expectEqualStrings("[::1]:9224", stripPort("[::1]:9224"));
+test "hostWithoutPort keeps the brackets of an IPv6 literal" {
+    try std.testing.expectEqualStrings("[::1]", hostWithoutPort("[::1]:9224").?);
+    try std.testing.expectEqualStrings("[::1]", hostWithoutPort("[::1]").?);
 }
 
-test "stripPort handles dotted hostname with port" {
-    try std.testing.expectEqualStrings("mypc.local", stripPort("mypc.local:9224"));
+test "hostWithoutPort handles dotted hostname with port" {
+    try std.testing.expectEqualStrings("mypc.local", hostWithoutPort("mypc.local:9224").?);
+}
+
+test "hostWithoutPort rejects anything but a numeric port after the hostname" {
+    try std.testing.expect(hostWithoutPort("127.0.0.1:9224.evil.example") == null);
+    try std.testing.expect(hostWithoutPort("[::1].evil.example") == null);
+    try std.testing.expect(hostWithoutPort("mypc:99999") == null);
 }
 
 // ── Origin tests ──
@@ -358,4 +349,47 @@ test "extractOriginHost strips scheme" {
 
 test "extractOriginHost handles bare host" {
     try std.testing.expectEqualStrings("192.168.1.5:9224", extractOriginHost("192.168.1.5:9224"));
+}
+
+test "rejects attacker hostnames that merely start like a private IPv4 address (DNS rebinding)" {
+    // Each of these resolves wherever the attacker's DNS says, then arrives
+    // with its own name as Host and Origin. A string-prefix check let all of
+    // them through; only a parsed IPv4 literal may claim a private range.
+    const rebinding_hosts = [_][]const u8{
+        "127.rebind.evil.example:9224",
+        "127.0.0.1.nip.io:9224",
+        "10.evil.example:9224",
+        "192.168.evil.example:9224",
+        "172.16.evil.example:9224",
+        "169.254.evil.example:9224",
+        "localhost.evil.example:9224",
+        "localhost:9224.evil.example",
+        "[::1].evil.example:9224",
+    };
+    for (rebinding_hosts) |host| {
+        if (isValidLocalHost(host)) {
+            std.debug.print("accepted rebinding host: {s}\n", .{host});
+            return error.AcceptedRebindingHost;
+        }
+        const origin = try std.fmt.allocPrint(std.testing.allocator, "http://{s}", .{host});
+        defer std.testing.allocator.free(origin);
+        try std.testing.expect(!isValidOrigin(origin, host));
+    }
+}
+
+test "still accepts private IPv4 literals, loopback names and ports in every form" {
+    const local_hosts = [_][]const u8{
+        "127.0.0.1",        "127.0.0.1:9224",     "127.255.255.254:80",
+        "10.0.0.5:9224",    "192.168.1.141:9224", "172.16.0.1:9224",
+        "172.31.255.255",   "169.254.10.20:9224", "localhost",
+        "localhost:9224",   "[::1]",              "[::1]:9224",
+    };
+    for (local_hosts) |host| {
+        if (!isValidLocalHost(host)) {
+            std.debug.print("rejected local host: {s}\n", .{host});
+            return error.RejectedLocalHost;
+        }
+    }
+    const not_private = [_][]const u8{ "172.15.0.1:9224", "172.32.0.1", "8.8.8.8:9224", "0.0.0.0:9224", "127.0.0.1:notaport" };
+    for (not_private) |host| try std.testing.expect(!isValidLocalHost(host));
 }

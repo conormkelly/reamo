@@ -72,15 +72,31 @@ pub const HttpServer = struct {
             .address = .{ .ip = .{ .host = "0.0.0.0", .port = port } },
             .timeout = .{
                 .request = 5, // 5s header read timeout (Slowloris defense)
-                .keepalive = 30, // 30s keepalive (LAN latency is <1ms)
+                // Short: page loads finish in well under a second on a LAN, and
+                // a web page can park idle keep-alive sockets on our loopback
+                // addresses to exhaust max_conn.
+                .keepalive = 5,
             },
             .workers = .{
-                .max_conn = 16, // Home studio: phone + tablet + laptop
+                // Home studio needs a handful (phone + tablet + laptop). The cap is
+                // set above what one browser can hold idle against us (~6 sockets
+                // per host and pool across 127.0.0.1, localhost, [::1] and the LAN
+                // IP), so a hostile page can't lock real clients out.
+                .max_conn = 64,
+                // Connections preallocated up front (httpz defaults this to
+                // max_conn); keeps the idle footprint at what 16 cost.
+                .min_conn = 16,
             },
             .thread_pool = .{
-                .count = 8, // In blocking mode (Windows), each WS client holds a thread.
-                            // 8 covers a few WS clients + concurrent HTTP bursts during page load.
-                            // Default is 32 which wastes ~1MB in thread buffers.
+                // Request handlers on macOS and Linux. On Windows (blocking
+                // mode) each connection gets a thread of its own instead, up to
+                // max_conn, so this isn't a limit there. Default is 32 which
+                // wastes ~1MB in thread buffers.
+                .count = 8,
+                // Windows commits a thread's whole stack when it starts, and
+                // there each connection is a thread. 1 MiB is Windows' own
+                // default; the handlers keep no more than a few KB on the stack.
+                .stack_size = 1024 * 1024,
             },
         }, handler);
 
@@ -108,11 +124,12 @@ pub const HttpServer = struct {
 
     /// Stop the server and clean up.
     pub fn stop(self: *HttpServer) void {
+        // A server that never listened (its port was taken) has nothing to
+        // stop, and httpz logs an error if asked to.
+        const t = self.listen_thread orelse return;
         self.server.stop();
-        if (self.listen_thread) |t| {
-            t.join();
-            self.listen_thread = null;
-        }
+        t.join();
+        self.listen_thread = null;
     }
 
     pub fn deinit(self: *HttpServer) void {
@@ -163,9 +180,25 @@ const Handler = struct {
     html_path: ?[]const u8 = null,
 
     pub const WebsocketHandler = WsHandler;
+
+    /// A route handler failed. httpz's own report quotes the raw URL, which
+    /// a client controls; this one keeps it contained.
+    pub fn uncaughtError(_: Handler, req: *httpz.Request, res: *httpz.Response, err: anyerror) void {
+        logging.warn("HTTP request for '{f}' failed: {s}", .{ logging.untrusted(req.url.path), @errorName(err) });
+        res.status = 500;
+        res.body = "Internal Server Error";
+    }
 };
 
 // ── HTTP Route Handlers ────────────────────────────────────────────
+
+/// A browser reached REAmo by a name it doesn't serve: the usual cause of
+/// "the page won't load" with a VPN or custom hostname.
+/// The name itself is often the user's machine or domain, so it is debug.
+fn logRefusedHost(host: []const u8) void {
+    logging.info("Refused a request for a host name REAmo doesn't serve; if it's this computer, add it under Extensions > REAmo > Allowed Hosts", .{});
+    logging.debug("Refused host: '{f}'", .{logging.untrusted(host)});
+}
 
 fn serveIndex(handler: Handler, req: *httpz.Request, res: *httpz.Response) !void {
     // Host header validation (DNS rebinding protection)
@@ -175,6 +208,7 @@ fn serveIndex(handler: Handler, req: *httpz.Request, res: *httpz.Response) !void
         return;
     };
     if (!host_validation.isValidLocalHost(host)) {
+        logRefusedHost(host);
         res.status = 403;
         res.body = "Forbidden: invalid Host header";
         return;
@@ -226,6 +260,7 @@ fn serveWsUpgrade(handler: Handler, req: *httpz.Request, res: *httpz.Response) !
         return;
     };
     if (!host_validation.isValidLocalHost(host)) {
+        logRefusedHost(host);
         res.status = 403;
         res.body = "Forbidden: invalid Host header";
         return;
@@ -234,6 +269,8 @@ fn serveWsUpgrade(handler: Handler, req: *httpz.Request, res: *httpz.Response) !
     // Origin validation (CSRF protection for WebSocket upgrade)
     const origin = req.header("origin");
     if (!host_validation.isValidOrigin(origin, host)) {
+        logging.info("Refused a WebSocket whose page came from another site (Origin doesn't match Host)", .{});
+        logging.debug("Refused origin '{f}' for host '{f}'", .{ logging.untrusted(origin orelse "(none)"), logging.untrusted(host) });
         res.status = 403;
         res.body = "Forbidden: invalid Origin header";
         return;
@@ -253,6 +290,7 @@ fn serveStatic(handler: Handler, req: *httpz.Request, res: *httpz.Response) !voi
         return;
     };
     if (!host_validation.isValidLocalHost(host)) {
+        logRefusedHost(host);
         res.status = 403;
         res.body = "Forbidden: invalid Host header";
         return;
@@ -314,24 +352,30 @@ fn serveStatic(handler: Handler, req: *httpz.Request, res: *httpz.Response) !voi
 // ── WebSocket Handler ──────────────────────────────────────────────
 
 /// WebSocket handler for httpz. Mirrors the old ws_server.Client logic.
+var sndbuf_warned = std.atomic.Value(bool).init(false);
+
 const WsHandler = struct {
     id: usize,
     conn: *websocket.Conn,
     state: *ws_server.SharedState,
     authenticated: bool = false,
     closed: bool = false,
+    connected_ms: i64 = 0,
 
     const Context = struct {
         state: *ws_server.SharedState,
     };
 
     pub fn init(conn: *websocket.Conn, ctx: *const Context) !WsHandler {
-        // Increase send buffer for large messages (e.g., action/getActions ~1.1MB).
-        // httpz uses non-blocking sockets; websocket.zig's write loop doesn't
-        // retry on WouldBlock, so the buffer must fit the largest message.
+        // A larger send buffer lets big messages (action/getActions ~1.1 MB)
+        // go out in one write. Output the socket can't take yet is queued by
+        // websocket.zig and drained by SharedState.flushPendingOutput.
         const sndbuf: c_int = 4 * 1024 * 1024;
         std.posix.setsockopt(conn.stream.handle, SOL_SOCKET, SO_SNDBUF, std.mem.asBytes(&sndbuf)) catch |err| {
-            logging.warn("WsHandler: failed to set SO_SNDBUF: {}", .{err});
+            // Same cause for every connection: say it once.
+            if (!sndbuf_warned.swap(true, .monotonic)) {
+                logging.warn("Can't enlarge WebSocket send buffers ({s}); large lists go out in pieces", .{@errorName(err)});
+            }
         };
 
         const id = ctx.state.addClient(conn) orelse {
@@ -343,6 +387,7 @@ const WsHandler = struct {
             .id = id,
             .conn = conn,
             .state = ctx.state,
+            .connected_ms = std.time.milliTimestamp(),
         };
     }
 
@@ -356,6 +401,7 @@ const WsHandler = struct {
                 const hello = protocol.HelloMessage.parse(data);
 
                 if (!self.state.validateToken(hello.token)) {
+                    logging.info("Client {d} refused: stale or missing session token (a page from before REAPER restarted?)", .{self.id});
                     self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"INVALID_TOKEN\",\"message\":\"Invalid or missing authentication token\"}}") catch {};
                     self.conn.close(.{ .code = 4001, .reason = "Invalid token" }) catch {};
                     return;
@@ -363,6 +409,7 @@ const WsHandler = struct {
 
                 if (hello.protocol_version) |client_version| {
                     if (client_version != protocol.PROTOCOL_VERSION) {
+                        logging.warn("Client {d} refused: it speaks protocol {d}, REAmo {d} (a cached page from another version?)", .{ self.id, client_version, protocol.PROTOCOL_VERSION });
                         var buf: [128]u8 = undefined;
                         const err_json = std.fmt.bufPrint(&buf, "{{\"type\":\"error\",\"error\":{{\"code\":\"PROTOCOL_MISMATCH\",\"message\":\"Expected protocol version {d}\"}}}}", .{protocol.PROTOCOL_VERSION}) catch {
                             logging.warn("http_server: protocol mismatch response buffer overflow", .{});
@@ -375,6 +422,7 @@ const WsHandler = struct {
                 }
 
                 self.authenticated = true;
+                logging.info("Client {d} connected", .{self.id});
                 var buf: [256]u8 = undefined;
                 const response = protocol.buildHelloResponse(&buf, self.state.getHtmlMtime());
                 self.conn.writeText(response) catch |err| {
@@ -442,11 +490,7 @@ const WsHandler = struct {
                     return;
                 }
 
-                if (!self.state.pushCommand(self.id, data)) {
-                    self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"QUEUE_FULL\",\"message\":\"Command queue full\"}}") catch |err| {
-                        self.state.logWriteError(err);
-                    };
-                }
+                if (!self.state.pushCommand(self.id, data)) self.refuseQueueFull(data);
             },
             .unknown => {
                 self.conn.writeText("{\"type\":\"error\",\"error\":{\"code\":\"UNKNOWN_MESSAGE\",\"message\":\"Unknown message type\"}}") catch |err| {
@@ -456,10 +500,35 @@ const WsHandler = struct {
         }
     }
 
+    /// Tell the client its command was refused. A command with an id gets a
+    /// response carrying that id, so a UI awaiting it fails at once rather
+    /// than at its timeout.
+    fn refuseQueueFull(self: *WsHandler, data: []const u8) void {
+        logging.warn("Client {d}: command queue full, refused a command", .{self.id});
+        const err_body = "\"error\":{\"code\":\"QUEUE_FULL\",\"message\":\"Too many commands at once; try again\"}";
+        const id = protocol.jsonGetString(data, "id") orelse {
+            self.conn.writeText("{\"type\":\"error\"," ++ err_body ++ "}") catch |err| self.state.logWriteError(err);
+            return;
+        };
+        // Exact-size, so the reply carries the id however long it is.
+        const msg = std.fmt.allocPrint(std.heap.c_allocator, "{{\"type\":\"response\",\"id\":\"{s}\",\"success\":false,{s}}}", .{ id, err_body }) catch {
+            logging.err("Client {d}: no memory to refuse a command", .{self.id});
+            return;
+        };
+        defer std.heap.c_allocator.free(msg);
+        self.conn.writeText(msg) catch |err| {
+            self.state.logWriteError(err);
+        };
+    }
+
     pub fn close(self: *WsHandler) void {
         if (self.closed) return;
         self.closed = true;
         self.state.removeClient(self.id);
+        if (self.authenticated) {
+            const secs = @divFloor(std.time.milliTimestamp() - self.connected_ms, std.time.ms_per_s);
+            logging.info("Client {d} disconnected after {d}m{d:0>2}s", .{ self.id, @divFloor(secs, 60), @as(u64, @intCast(@mod(secs, 60))) });
+        }
     }
 };
 
@@ -504,7 +573,11 @@ fn setSecurityHeaders(res: *httpz.Response) void {
 fn injectTokenMeta(allocator: Allocator, html: []const u8, state: *ws_server.SharedState) ![]const u8 {
     const token = state.getToken() orelse return html;
     const needle = "</head>";
-    const pos = std.mem.indexOf(u8, html, needle) orelse return html;
+    const pos = std.mem.indexOf(u8, html, needle) orelse {
+        // Served without the token, every phone's hello is refused.
+        logging.warn("web/index.html has no </head>; phones can't authenticate (reinstall REAmo's web files)", .{});
+        return html;
+    };
 
     const meta_tag = try std.fmt.allocPrint(allocator, "<meta name=\"reamo-token\" content=\"{s}\">\n", .{token});
     defer allocator.free(meta_tag);

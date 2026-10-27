@@ -7,7 +7,15 @@ const item_guid_cache = @import("../state/item_guid_cache.zig");
 
 /// Helper to get item by track and item index from command
 /// Uses unified indexing: 0 = master, 1+ = user tracks
-fn getItemFromCmd(api: anytype, cmd: protocol.CommandMessage) ?struct { track: *anyopaque, item: *anyopaque } {
+const ItemLocation = struct { track: *anyopaque, item: *anyopaque };
+
+/// The item a command names: by `itemGuid` when given, which stays on the
+/// same item however REAPER re-sorts the track, else by `trackIdx` and
+/// `itemIdx`. A GUID that no longer resolves finds nothing; the item now at
+/// the old index is someone else's.
+fn getItemFromCmd(api: anytype, cmd: protocol.CommandMessage) ?ItemLocation {
+    if (cmd.getString("itemGuid")) |guid| return findItemLocation(api, mod.g_ctx.item_cache, guid);
+
     const track_idx = cmd.getInt("trackIdx") orelse return null;
     const item_idx = cmd.getInt("itemIdx") orelse return null;
 
@@ -22,6 +30,7 @@ pub fn handleItemSetActiveTake(api: anytype, cmd: protocol.CommandMessage, respo
         response.err("NOT_FOUND", "Item not found");
         return;
     };
+    if (!refuseIfLocked(api, item_info.item, response)) return;
     const take_idx = cmd.getInt("takeIdx") orelse {
         response.err("MISSING_TAKE_IDX", "Take index is required");
         return;
@@ -30,7 +39,7 @@ pub fn handleItemSetActiveTake(api: anytype, cmd: protocol.CommandMessage, respo
     // Bounds check: verify take index is valid
     const num_takes = api.itemTakeCount(item_info.item);
     if (take_idx < 0 or take_idx >= num_takes) {
-        logging.warn("Invalid take index {d} (item has {d} takes)", .{ take_idx, num_takes });
+        logging.debug("Invalid take index {d} (item has {d} takes)", .{ take_idx, num_takes });
         response.err("INVALID_TAKE_INDEX", "Take index out of range");
         return;
     }
@@ -43,6 +52,22 @@ pub fn handleItemSetActiveTake(api: anytype, cmd: protocol.CommandMessage, respo
     api.updateTimeline();
 }
 
+/// REAPER doesn't move, delete or switch the take of a locked item (its
+/// nudge, drag, remove, cut, split and take actions all leave it alone), and
+/// neither does a phone. Refuses the command when `item` is locked or its
+/// lock can't be read; returns whether the edit may go ahead.
+fn refuseIfLocked(api: anytype, item: *anyopaque, response: *mod.ResponseWriter) bool {
+    const locked = api.getItemLocked(item) catch {
+        response.err("READ_FAILED", "Could not read the item's lock");
+        return false;
+    };
+    if (locked) {
+        response.err("ITEM_LOCKED", "Item is locked");
+        return false;
+    }
+    return true;
+}
+
 pub fn handleItemMove(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const item_info = getItemFromCmd(api, cmd) orelse {
         response.err("NOT_FOUND", "Item not found");
@@ -52,6 +77,7 @@ pub fn handleItemMove(api: anytype, cmd: protocol.CommandMessage, response: *mod
         response.err("INVALID_POSITION", "Position must be a non-negative number");
         return;
     };
+    if (!refuseIfLocked(api, item_info.item, response)) return;
 
     api.undoBeginBlock();
     if (api.setItemPosition(item_info.item, position)) {
@@ -70,58 +96,57 @@ pub fn handleItemMoveByGuid(api: anytype, cmd: protocol.CommandMessage, response
         return;
     };
 
-    // Validate: at least one action
-    const position = mod.validatePosition(cmd.getFloat("position"));
+    // Validate: at least one action. Everything is resolved before the undo
+    // block opens, so a refused move changes nothing.
+    const raw_position = cmd.getFloat("position");
+    const position = mod.validatePosition(raw_position);
+    if (raw_position != null and position == null) {
+        response.err("INVALID_POSITION", "Position must be a non-negative number");
+        return;
+    }
     const dest_track_guid = cmd.getString("destTrackGuid");
     if (position == null and dest_track_guid == null) {
         response.err("MISSING_PARAMS", "At least one of position or destTrackGuid required");
         return;
     }
 
-    // Resolve item from GUID cache
-    const cache = mod.g_ctx.item_cache orelse {
-        response.err("NOT_INITIALIZED", "Item cache not initialized");
-        return;
-    };
-    const location = cache.resolve(guid) orelse {
+    const item = findItemByGuid(api, mod.g_ctx.item_cache, guid) orelse {
         response.err("NOT_FOUND", "Item not found (may have been deleted)");
         return;
     };
-    const track = api.getTrackByUnifiedIdx(location.track_idx) orelse {
-        response.err("NOT_FOUND", "Track not found");
-        return;
-    };
-    const item = api.getItemByIdx(track, location.item_idx) orelse {
-        response.err("NOT_FOUND", "Item not found at expected position");
-        return;
-    };
+    if (!refuseIfLocked(api, item, response)) return;
 
+    var dest_track: ?*anyopaque = null;
+    if (dest_track_guid) |dest_guid| {
+        const guid_cache = mod.g_ctx.guid_cache orelse {
+            response.err("NOT_INITIALIZED", "GUID cache not initialized");
+            return;
+        };
+        dest_track = guid_cache.resolve(api, dest_guid) orelse {
+            response.err("NOT_FOUND", "Destination track not found");
+            return;
+        };
+        // REAPER holds no items on the master track
+        if (dest_track == api.masterTrack()) {
+            response.err("INVALID_PARAM", "Items can't go on the master track");
+            return;
+        }
+    }
+
+    // The track move goes first: if REAPER refuses it, nothing has changed.
     api.undoBeginBlock();
-
-    // Set position if provided
+    if (dest_track) |dest| {
+        if (!api.moveItemToTrack(item, dest)) {
+            api.undoEndBlock("REAmo: Move item");
+            response.err("MOVE_FAILED", "REAPER didn't move the item to that track");
+            return;
+        }
+    }
     if (position) |pos| {
         if (api.setItemPosition(item, pos)) {
             logging.debug("Moved item to {d:.2}", .{pos});
         }
     }
-
-    // Move to destination track if provided
-    if (dest_track_guid) |dest_guid| {
-        const guid_cache = mod.g_ctx.guid_cache orelse {
-            api.undoEndBlock("REAmo: Move item");
-            response.err("NOT_INITIALIZED", "GUID cache not initialized");
-            return;
-        };
-        const dest_track = guid_cache.resolve(dest_guid) orelse {
-            api.undoEndBlock("REAmo: Move item");
-            response.err("NOT_FOUND", "Destination track not found");
-            return;
-        };
-        if (api.moveItemToTrack(item, dest_track)) {
-            logging.debug("Moved item to different track", .{});
-        }
-    }
-
     api.undoEndBlock("REAmo: Move item");
     api.updateTimeline();
     response.success(null);
@@ -152,7 +177,7 @@ pub fn handleItemLock(api: anytype, cmd: protocol.CommandMessage, response: *mod
     };
 
     // Toggle lock state if no explicit value provided
-    const locked = if (cmd.getInt("locked")) |v| v != 0 else blk: {
+    const locked = cmd.getFlag("locked") orelse blk: {
         const current = api.getItemLocked(item_info.item) catch {
             response.err("CORRUPT_DATA", "Cannot read item lock state");
             return;
@@ -173,14 +198,29 @@ pub fn handleItemNotes(api: anytype, cmd: protocol.CommandMessage, response: *mo
         response.err("NOT_FOUND", "Item not found");
         return;
     };
-    const notes = cmd.getString("notes") orelse "";
+    // Unescaped text (real newlines, quotes), NUL-terminated for REAPER. The
+    // raw JSON value is never shorter than its unescaped form.
+    const raw = cmd.getString("notes") orelse "";
+    const scratch = (mod.g_ctx.tiered orelse {
+        response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
+        return;
+    }).scratchAllocator();
+    const notes_buf = scratch.alloc(u8, raw.len + 1) catch {
+        response.err("ALLOC_FAILED", "Failed to allocate notes buffer");
+        return;
+    };
+    const notes = cmd.getStringUnescaped("notes", notes_buf[0..raw.len]) orelse "";
+    notes_buf[notes.len] = 0;
 
     api.undoBeginBlock();
-    if (api.setItemNotes(item_info.item, notes)) {
-        logging.debug("Updated item notes", .{});
-    }
+    const ok = api.setItemNotes(item_info.item, notes_buf[0..notes.len :0]);
     api.undoEndBlock("REAmo: Set item notes");
     // Notes don't need visual refresh (not displayed in arrange view)
+    if (!ok) {
+        response.err("SET_FAILED", "Failed to set item notes");
+        return;
+    }
+    response.success(null);
 }
 
 pub fn handleItemDelete(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
@@ -188,6 +228,7 @@ pub fn handleItemDelete(api: anytype, cmd: protocol.CommandMessage, response: *m
         response.err("NOT_FOUND", "Item not found");
         return;
     };
+    if (!refuseIfLocked(api, item_info.item, response)) return;
 
     api.undoBeginBlock();
     if (api.deleteItem(item_info.track, item_info.item)) {
@@ -213,13 +254,20 @@ pub fn handleItemSelect(api: anytype, cmd: protocol.CommandMessage, response: *m
         return;
     };
 
-    // Deselect all items first
-    api.runCommand(reaper.Command.UNSELECT_ALL_ITEMS);
+    selectOnly(api, item_info.item);
+    logging.debug("Selected item", .{});
+}
 
-    // Select the specified item
-    if (api.setItemSelected(item_info.item, true)) {
-        logging.debug("Selected item", .{});
-    }
+const ITEM_SELECTION_UNDO = "REAmo: Change item selection";
+
+/// Make `item` the only selected item, as one undo step. REAPER keeps a step
+/// that only changes item selection when the user's undo settings include
+/// item selection, as for a click on an item, and drops it otherwise.
+fn selectOnly(api: anytype, item: *anyopaque) void {
+    api.undoBeginBlock();
+    api.runCommand(reaper.Command.UNSELECT_ALL_ITEMS);
+    _ = api.setItemSelected(item, true);
+    api.undoEndBlock(ITEM_SELECTION_UNDO);
 }
 
 /// Select all items within time selection (on selected tracks)
@@ -243,25 +291,8 @@ pub fn handleItemToggleSelect(api: anytype, cmd: protocol.CommandMessage, respon
         return;
     };
 
-    // Look up item location from cache
-    const cache = mod.g_ctx.item_cache orelse {
-        response.err("NOT_INITIALIZED", "Item cache not initialized");
-        return;
-    };
-
-    const location = cache.resolve(guid) orelse {
+    const item = findItemByGuid(api, mod.g_ctx.item_cache, guid) orelse {
         response.err("NOT_FOUND", "Item not found (may have been deleted)");
-        return;
-    };
-
-    // Get track and item pointers from indices
-    const track = api.getTrackByUnifiedIdx(location.track_idx) orelse {
-        response.err("NOT_FOUND", "Track not found");
-        return;
-    };
-
-    const item = api.getItemByIdx(track, location.item_idx) orelse {
-        response.err("NOT_FOUND", "Item not found at expected position");
         return;
     };
 
@@ -273,10 +304,13 @@ pub fn handleItemToggleSelect(api: anytype, cmd: protocol.CommandMessage, respon
 
     const new_selected = !current_selected;
 
-    // Set new selection state (no undo - selection is UI state)
+    // One undo step, kept only if the user's undo settings include item
+    // selection (see selectOnly).
+    api.undoBeginBlock();
     if (api.setItemSelected(item, new_selected)) {
         logging.debug("Toggled item selection: {s} -> {}", .{ guid, new_selected });
     }
+    api.undoEndBlock(ITEM_SELECTION_UNDO);
 
     // Response confirms success
     response.success(null);
@@ -297,7 +331,7 @@ pub fn handleItemSelectNext(api: anytype, cmd: protocol.CommandMessage, response
         response.err("MISSING_ITEM_IDX", "Item index required");
         return;
     };
-    const wrap = if (cmd.getInt("wrap")) |w| w != 0 else false;
+    const wrap = cmd.getFlag("wrap") orelse false;
 
     const track = api.getTrackByUnifiedIdx(track_idx) orelse {
         response.err("NOT_FOUND", "Track not found");
@@ -348,13 +382,11 @@ pub fn handleItemSelectNext(api: anytype, cmd: protocol.CommandMessage, response
         return;
     };
 
-    // Deselect all and select target
-    api.runCommand(reaper.Command.UNSELECT_ALL_ITEMS);
     const target_item = api.getItemByIdx(track, target_idx) orelse {
         response.err("NOT_FOUND", "Target item not found");
         return;
     };
-    _ = api.setItemSelected(target_item, true);
+    selectOnly(api, target_item);
 
     // Return new selection
     var buf: [128]u8 = undefined;
@@ -378,7 +410,7 @@ pub fn handleItemSelectPrev(api: anytype, cmd: protocol.CommandMessage, response
         response.err("MISSING_ITEM_IDX", "Item index required");
         return;
     };
-    const wrap = if (cmd.getInt("wrap")) |w| w != 0 else false;
+    const wrap = cmd.getFlag("wrap") orelse false;
 
     const track = api.getTrackByUnifiedIdx(track_idx) orelse {
         response.err("NOT_FOUND", "Track not found");
@@ -429,13 +461,11 @@ pub fn handleItemSelectPrev(api: anytype, cmd: protocol.CommandMessage, response
         return;
     };
 
-    // Deselect all and select target
-    api.runCommand(reaper.Command.UNSELECT_ALL_ITEMS);
     const target_item = api.getItemByIdx(track, target_idx) orelse {
         response.err("NOT_FOUND", "Target item not found");
         return;
     };
-    _ = api.setItemSelected(target_item, true);
+    selectOnly(api, target_item);
 
     // Return new selection
     var buf: [128]u8 = undefined;
@@ -454,8 +484,6 @@ pub fn handleItemSelectPrev(api: anytype, cmd: protocol.CommandMessage, response
 // item polling events (which only contain sparse hints like has_notes, take_count).
 // Frontend calls these when user opens item notes or take details.
 
-// Notes buffer size
-const NOTES_BUF_SIZE = 8192;
 // GUID buffer size
 const GUID_BUF_SIZE = 64;
 
@@ -467,32 +495,33 @@ pub fn handleItemGetNotes(api: anytype, cmd: protocol.CommandMessage, response: 
         response.err("NOT_FOUND", "Item not found");
         return;
     };
+    const scratch = (mod.g_ctx.tiered orelse {
+        response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
+        return;
+    }).scratchAllocator();
 
-    // Get notes content
-    var notes_buf: [NOTES_BUF_SIZE]u8 = undefined;
-    const notes = api.getItemNotes(item_info.item, &notes_buf);
-
-    // Serialize response with escaped notes
-    var buf: [NOTES_BUF_SIZE + 256]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
-    var w = stream.writer();
-
-    w.writeAll("{\"notes\":\"") catch {
-        response.err("SERIALIZE_ERROR", "Buffer overflow");
+    // REAPER's own string, any length; serialized before anything can change it.
+    const notes = NotesPayload{ .notes = api.itemNotes(item_info.item) };
+    const payload = protocol.serializeAlloc(scratch, notes.notes.len + 32, &notes, NotesPayload.toJson) catch {
+        response.err("NOTES_TOO_LARGE", "Item notes exceed the response buffer");
         return;
     };
-    protocol.writeJsonString(w, notes) catch {
-        response.err("SERIALIZE_ERROR", "Buffer overflow");
-        return;
-    };
-    w.writeAll("\"}") catch {
-        response.err("SERIALIZE_ERROR", "Buffer overflow");
-        return;
-    };
-
-    response.success(stream.getWritten());
+    response.success(payload);
     logging.debug("Returned notes for item", .{});
 }
+
+const NotesPayload = struct {
+    notes: []const u8,
+
+    fn toJson(self: *const NotesPayload, buf: []u8) ?[]const u8 {
+        var stream = std.io.fixedBufferStream(buf);
+        var w = stream.writer();
+        w.writeAll("{\"notes\":\"") catch return null;
+        protocol.writeJsonString(w, self.notes) catch return null;
+        w.writeAll("\"}") catch return null;
+        return stream.getWritten();
+    }
+};
 
 /// Get full take list for a single item.
 /// Input: { trackIdx: number, itemIdx: number }
@@ -586,24 +615,115 @@ pub fn handleItemGetTakes(api: anytype, cmd: protocol.CommandMessage, response: 
     logging.debug("Returned {d} takes for item", .{take_count});
 }
 
-test "handleItemMoveByGuid requires guid parameter" {
-    // Command handlers require ResponseWriter with SharedState.
-    // Integration tests via websocat verify full behavior.
-    // Key behaviors:
-    // - Requires guid string parameter
-    // - Requires at least one of position (f64) or destTrackGuid (string)
-    // - Resolves item via item_guid_cache (O(1) GUID → indices)
-    // - Resolves dest track via guid_cache (O(1) GUID → track pointer)
-    // - Both position + track changes happen in single undo block
-    // - Returns success(null) — frontend polls for updated item data
+/// The item with this GUID, wherever it is now. The cache is rebuilt by the
+/// 5 Hz item poll, but REAPER re-sorts a track's items as soon as one moves,
+/// so between polls a cached index can name a different item: the cached
+/// location is a hint, used only once the item there has this GUID. On a
+/// miss the cached track, then the whole project, is searched (that also
+/// finds items past the poll's item cap, which the cache never holds).
+pub fn findItemByGuid(api: anytype, cache: ?*const item_guid_cache.ItemGuidCache, guid: []const u8) ?*anyopaque {
+    const loc = findItemLocation(api, cache, guid) orelse return null;
+    return loc.item;
 }
 
-test "handleItemMoveByGuid rejects missing action params" {
-    // Sending guid without position or destTrackGuid should return MISSING_PARAMS error.
-    // Both are optional individually, but at least one must be present.
+/// findItemByGuid, with the track the item is on.
+fn findItemLocation(api: anytype, cache: ?*const item_guid_cache.ItemGuidCache, guid: []const u8) ?ItemLocation {
+    var hinted_track: ?*anyopaque = null;
+    if (cache) |c| {
+        if (c.resolve(guid)) |loc| {
+            if (api.getTrackByUnifiedIdx(loc.track_idx)) |track| {
+                hinted_track = track;
+                if (api.getItemByIdx(track, loc.item_idx)) |item| {
+                    if (itemHasGuid(api, item, guid)) return .{ .track = track, .item = item };
+                }
+                if (findItemOnTrack(api, track, guid)) |item| return .{ .track = track, .item = item };
+            }
+        }
+    }
+    var t: c_int = 1;
+    while (t <= api.trackCount()) : (t += 1) {
+        const track = api.getTrackByUnifiedIdx(t) orelse continue;
+        if (track == hinted_track) continue;
+        if (findItemOnTrack(api, track, guid)) |item| return .{ .track = track, .item = item };
+    }
+    return null;
 }
 
-test "handleItemMoveByGuid supports combined position and track move" {
-    // When both position and destTrackGuid are provided, both operations
-    // happen in a single undo block — position is set first, then track move.
+fn findItemOnTrack(api: anytype, track: *anyopaque, guid: []const u8) ?*anyopaque {
+    var i: c_int = 0;
+    while (i < api.trackItemCount(track)) : (i += 1) {
+        const item = api.getItemByIdx(track, i) orelse continue;
+        if (itemHasGuid(api, item, guid)) return item;
+    }
+    return null;
+}
+
+fn itemHasGuid(api: anytype, item: *anyopaque, guid: []const u8) bool {
+    var buf: [64]u8 = undefined;
+    return std.ascii.eqlIgnoreCase(api.getItemGUID(item, &buf), guid);
+}
+
+fn setMockItem(m: anytype, track: usize, idx: usize, guid: []const u8) void {
+    const it = &m.tracks[track].items[idx];
+    @memcpy(it.guid[0..guid.len], guid);
+    it.guid_len = guid.len;
+}
+
+const GUID_A = "{AAAAAAAA-0000-0000-0000-000000000000}";
+const GUID_B = "{BBBBBBBB-0000-0000-0000-000000000000}";
+const GUID_C = "{CCCCCCCC-0000-0000-0000-000000000000}";
+
+test "findItemByGuid finds the item REAPER re-sorted after the last poll, not its neighbour" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{ .track_count = 1 };
+    m.tracks[1].item_count = 2;
+    // The poll saw A at index 0; then A moved past B and REAPER re-sorted.
+    setMockItem(&m, 1, 0, GUID_B);
+    setMockItem(&m, 1, 1, GUID_A);
+    var cache = item_guid_cache.ItemGuidCache.init(std.testing.allocator);
+    defer cache.deinit();
+    try cache.put(GUID_A, .{ .track_idx = 1, .item_idx = 0 });
+    try cache.put(GUID_B, .{ .track_idx = 1, .item_idx = 1 });
+
+    try std.testing.expectEqual(m.getItemByIdx(m.getTrackByUnifiedIdx(1).?, 1), findItemByGuid(&m, &cache, GUID_A));
+    try std.testing.expectEqual(m.getItemByIdx(m.getTrackByUnifiedIdx(1).?, 0), findItemByGuid(&m, &cache, GUID_B));
+}
+
+test "findItemByGuid finds items the cache does not hold, and nothing for a deleted item" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{ .track_count = 2 };
+    m.tracks[2].item_count = 1;
+    setMockItem(&m, 2, 0, GUID_C);
+    var cache = item_guid_cache.ItemGuidCache.init(std.testing.allocator);
+    defer cache.deinit();
+
+    try std.testing.expectEqual(m.getItemByIdx(m.getTrackByUnifiedIdx(2).?, 0), findItemByGuid(&m, &cache, GUID_C));
+    try std.testing.expectEqual(m.getItemByIdx(m.getTrackByUnifiedIdx(2).?, 0), findItemByGuid(&m, null, "{cccccccc-0000-0000-0000-000000000000}"));
+    try std.testing.expectEqual(@as(?*anyopaque, null), findItemByGuid(&m, &cache, GUID_A));
+}
+
+test "an item command naming itemGuid acts on that item after REAPER re-sorts the track" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{ .track_count = 2 };
+    m.tracks[2].item_count = 2;
+    // The phone saw A at index 0; another item moved before it since.
+    setMockItem(&m, 2, 0, GUID_B);
+    setMockItem(&m, 2, 1, GUID_A);
+    const cmd = protocol.CommandMessage.parse(
+        \\{"type":"command","command":"item/setNotes","itemGuid":"{AAAAAAAA-0000-0000-0000-000000000000}","trackIdx":2,"itemIdx":0}
+    ).?;
+    const found = getItemFromCmd(&m, cmd).?;
+    try std.testing.expectEqual(m.getTrackByUnifiedIdx(2).?, found.track);
+    try std.testing.expectEqual(m.getItemByIdx(m.getTrackByUnifiedIdx(2).?, 1).?, found.item);
+}
+
+test "an item command naming a deleted itemGuid finds nothing, not the item at its old index" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{ .track_count = 1 };
+    m.tracks[1].item_count = 1;
+    setMockItem(&m, 1, 0, GUID_B);
+    const cmd = protocol.CommandMessage.parse(
+        \\{"type":"command","command":"item/delete","itemGuid":"{AAAAAAAA-0000-0000-0000-000000000000}","trackIdx":1,"itemIdx":0}
+    ).?;
+    try std.testing.expect(getItemFromCmd(&m, cmd) == null);
 }

@@ -13,6 +13,7 @@
 const std = @import("std");
 const logging = @import("../core/logging.zig");
 const constants = @import("../core/constants.zig");
+const project = @import("../state/project.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -23,8 +24,10 @@ pub const MAX_TRACK_TUNERS = 32; // Max concurrent tuner tracks
 /// Input FX index offset - all TrackFX_* calls for Input FX chain need this added to the index
 pub const INPUT_FX_OFFSET: c_int = 0x1000000;
 
-/// JSFX identifier for the tuner plugin
-pub const TUNER_JSFX_NAME = "JS:REAmo/PitchDetect";
+/// The tuner JSFX by its file name as installed, extension included: REAPER
+/// 6 finds a JSFX only by its exact file name (REAPER 7 also without the
+/// extension).
+pub const TUNER_JSFX_NAME = "JS:REAmo/PitchDetect.jsfx";
 
 /// Tuner parameter indices - CONTIGUOUS mapping from JSFX sliders
 /// JSFX sliders with gaps (1-5, 10-11) map to contiguous param indices (0-6)
@@ -39,13 +42,19 @@ pub const TunerParam = enum(c_int) {
     threshold = 6, // Write: silence threshold (dB, -90 to -30) - slider11
 };
 
-/// Result from subscribe operation
+/// Result from subscribe operation. The track name is held in the result
+/// itself: it is read after subscribe() returns.
 pub const SubscribeResult = struct {
     track_guid: []const u8,
     fx_guid: []const u8,
-    track_name: []const u8,
+    track_name_buf: [256]u8 = undefined,
+    track_name_len: usize = 0,
     reference_hz: f32,
     threshold_db: f32,
+
+    pub fn trackName(self: *const SubscribeResult) []const u8 {
+        return self.track_name_buf[0..self.track_name_len];
+    }
 };
 
 /// Per-track tuner state (shared across clients subscribing to same track)
@@ -56,6 +65,10 @@ pub const TrackTuner = struct {
     fx_guid_len: u8 = 0,
     fx_index: c_int = -1, // Raw index in Input FX chain (0, 1, 2...)
     ref_count: u8 = 0, // Number of clients subscribed to this track
+    // The track and project tab (ReaProject*) the JSFX went into: the user
+    // may have switched tabs by the time it comes out
+    track: ?*anyopaque = null,
+    project: ?*anyopaque = null,
 
     // Configurable params (shared across subscribers to this track)
     reference_hz: f32 = 440.0, // A4 reference frequency
@@ -241,7 +254,7 @@ pub const TunerSubscriptions = struct {
         }
 
         // Resolve track GUID to track pointer
-        const track = guid_cache.resolve(track_guid) orelse return error.TrackNotFound;
+        const track = guid_cache.resolve(api, track_guid) orelse return error.TrackNotFound;
 
         // Check if there's already a tuner for this track
         var tuner = self.findTrackTuner(track_guid);
@@ -273,6 +286,8 @@ pub const TunerSubscriptions = struct {
             @memcpy(tuner.?.track_guid[0..track_len], track_guid[0..track_len]);
             tuner.?.track_guid_len = track_len;
 
+            tuner.?.track = track;
+            tuner.?.project = project.Identity.current(api).pointer;
             tuner.?.fx_index = 0; // Always at position 0 after move
             tuner.?.ref_count = 0;
             tuner.?.reference_hz = 440.0;
@@ -295,19 +310,31 @@ pub const TunerSubscriptions = struct {
         self.force_broadcast_clients[slot] = true;
         self.prev_hash[slot] = 0;
 
-        // Get track name for response
-        var name_buf: [256]u8 = undefined;
-        const track_name = api.getTrackNameStr(track, &name_buf);
-
         logging.debug("tuner: client {d} subscribed to track {s} (ref_count={d})", .{ client_id, track_guid, tuner.?.ref_count });
 
-        return SubscribeResult{
+        var result = SubscribeResult{
             .track_guid = tuner.?.getTrackGuid(),
             .fx_guid = tuner.?.getFxGuid(),
-            .track_name = track_name,
             .reference_hz = tuner.?.reference_hz,
             .threshold_db = tuner.?.silence_threshold,
         };
+        result.track_name_len = api.getTrackNameStr(track, &result.track_name_buf).len;
+        return result;
+    }
+
+    /// The track a tuner is on: "master" (whose Input FX are REAPER's
+    /// monitoring chain, shared by every tab), or the track the JSFX went
+    /// into, checked against the tab it went into, which needn't be the tab
+    /// shown now. null once the track or its tab is gone. Found by pointer,
+    /// not GUID: REAPER 6.0's GetTrackGUID gives nothing for a track in a
+    /// background tab. A stale pointer reused by another track is harmless:
+    /// the JSFX is deleted only where its own FX GUID is found.
+    fn findTrack(api: anytype, tuner: *const TrackTuner) ?*anyopaque {
+        if (std.mem.eql(u8, tuner.getTrackGuid(), "master")) return api.masterTrack();
+        const track = tuner.track orelse return null;
+        if (tuner.project != null and !api.validateProjectPtr(tuner.project)) return null;
+        if (!api.validateTrackPtrIn(tuner.project, track)) return null;
+        return track;
     }
 
     /// Internal unsubscribe (doesn't remove client from map)
@@ -329,48 +356,41 @@ pub const TunerSubscriptions = struct {
 
                 const stored_fx_guid = tuner.getFxGuid();
 
-                // Try to delete the JSFX if track still exists
-                // We iterate through tracks to find the one with matching GUID
-                const track_count = api.trackCount();
-                var i: c_int = 0;
-                track_loop: while (i <= track_count) : (i += 1) {
-                    if (api.getTrackByIdx(i)) |track| {
-                        var guid_buf: [64]u8 = undefined;
-                        const this_guid = api.formatTrackGuid(track, &guid_buf);
-                        if (std.mem.eql(u8, this_guid, track_guid)) {
-                            // Found the track - search ALL Input FX by GUID
-                            // This handles when user has reordered the FX chain
-                            const input_fx_count = api.trackFxRecCount(track);
+                // Delete the JSFX if the track still exists (deleting a track
+                // takes its FX with it). Search all of its Input FX by GUID, in
+                // case the user has reordered the chain.
+                if (findTrack(api, tuner)) |track| {
+                    const input_fx_count = api.trackFxRecCount(track);
+                    var found = false;
+                    var fx_idx: c_int = 0;
+                    while (fx_idx < input_fx_count) : (fx_idx += 1) {
+                        var fx_guid_buf: [64]u8 = undefined;
+                        const api_fx_idx = fx_idx + INPUT_FX_OFFSET;
+                        const current_fx_guid = api.trackFxGetGuid(track, api_fx_idx, &fx_guid_buf);
 
-                            var fx_idx: c_int = 0;
-                            while (fx_idx < input_fx_count) : (fx_idx += 1) {
-                                var fx_guid_buf: [64]u8 = undefined;
-                                const api_fx_idx = fx_idx + INPUT_FX_OFFSET;
-                                const current_fx_guid = api.trackFxGetGuid(track, api_fx_idx, &fx_guid_buf);
-
-                                if (current_fx_guid.len > 0 and std.mem.eql(u8, current_fx_guid, stored_fx_guid)) {
-                                    // Found our JSFX - delete it
-                                    _ = api.trackFxDelete(track, api_fx_idx);
-                                    logging.info("tuner: deleted JSFX from track {s} at Input FX position {d}", .{ track_guid, fx_idx });
-                                    break :track_loop;
-                                }
+                        if (current_fx_guid.len > 0 and std.mem.eql(u8, current_fx_guid, stored_fx_guid)) {
+                            if (api.trackFxDelete(track, api_fx_idx)) {
+                                logging.debug("tuner: deleted JSFX from track {s} at Input FX position {d}", .{ track_guid, fx_idx });
+                            } else {
+                                logging.warn("tuner: REAPER wouldn't remove the tuner JSFX from track {s}; it stays in the Input FX chain", .{track_guid});
                             }
-
-                            // If we get here, the FX was not found in the Input FX chain
-                            // User might have manually deleted it - just log and continue
-                            logging.warn("tuner: JSFX with GUID {s} not found in Input FX chain on track {s}", .{
-                                stored_fx_guid,
-                                track_guid,
-                            });
-                            break :track_loop;
+                            found = true;
+                            break;
                         }
                     }
+                    // The user may have deleted it by hand.
+                    if (!found) logging.warn("tuner: JSFX with GUID {s} not found in Input FX chain on track {s}", .{
+                        stored_fx_guid,
+                        track_guid,
+                    });
                 }
 
                 // Clean up our state
                 tuner.track_guid_len = 0;
                 tuner.fx_guid_len = 0;
                 tuner.fx_index = -1;
+                tuner.track = null;
+                tuner.project = null;
             }
         }
 
@@ -434,7 +454,7 @@ pub const TunerSubscriptions = struct {
         api: anytype,
     ) !void {
         const tuner = self.findTrackTuner(track_guid) orelse return error.NotSubscribed;
-        const track = guid_cache.resolve(track_guid) orelse return error.TrackNotFound;
+        const track = guid_cache.resolve(api, track_guid) orelse return error.TrackNotFound;
 
         // Search Input FX chain by GUID to find current index
         // This handles when user has reordered the FX chain - CRITICAL for safety

@@ -1,4 +1,5 @@
 const std = @import("std");
+const utf8 = @import("../core/utf8.zig");
 const reaper = @import("../reaper.zig");
 const constants = @import("../core/constants.zig");
 const protocol = @import("../core/protocol.zig");
@@ -90,8 +91,8 @@ pub const Item = struct {
         if (!std.mem.eql(u8, self.getGUID(), other.getGUID())) return false;
         if (self.track_idx != other.track_idx) return false;
         if (self.item_idx != other.item_idx) return false;
-        if (@abs(self.position - other.position) > 0.001) return false;
-        if (@abs(self.length - other.length) > 0.001) return false;
+        if (@abs(self.position - other.position) > constants.TIME_EPSILON) return false;
+        if (@abs(self.length - other.length) > constants.TIME_EPSILON) return false;
         if (self.color != other.color) return false;
         if (self.locked != other.locked) return false;
         if (self.selected != other.selected) return false;
@@ -204,8 +205,7 @@ pub const State = struct {
                 // Get item GUID
                 var guid_buf: [64]u8 = undefined;
                 const item_guid = api.getItemGUID(item_ptr, &guid_buf);
-                const guid_copy_len = @min(item_guid.len, item.guid.len);
-                @memcpy(item.guid[0..guid_copy_len], item_guid[0..guid_copy_len]);
+                const guid_copy_len = utf8.copyPrefix(&item.guid, item_guid);
                 item.guid_len = guid_copy_len;
 
                 item.track_idx = track_idx;
@@ -236,15 +236,13 @@ pub const State = struct {
                 if (api.getItemActiveTake(item_ptr)) |take| {
                     // Name
                     const take_name = api.getTakeNameStr(take);
-                    const copy_len = @min(take_name.len, item.active_take_name.len);
-                    @memcpy(item.active_take_name[0..copy_len], take_name[0..copy_len]);
+                    const copy_len = utf8.copyPrefix(&item.active_take_name, take_name);
                     item.active_take_name_len = copy_len;
 
                     // GUID (for peaks cache lookup)
                     var take_guid_buf: [64]u8 = undefined;
                     const take_guid = api.getTakeGUID(take, &take_guid_buf);
-                    const take_guid_copy_len = @min(take_guid.len, item.active_take_guid.len);
-                    @memcpy(item.active_take_guid[0..take_guid_copy_len], take_guid[0..take_guid_copy_len]);
+                    const take_guid_copy_len = utf8.copyPrefix(&item.active_take_guid, take_guid);
                     item.active_take_guid_len = take_guid_copy_len;
 
                     // MIDI flag (skip peaks for MIDI items)
@@ -303,7 +301,7 @@ pub const State = struct {
             w.writeAll("{\"guid\":\"") catch return null;
             w.writeAll(item.getGUID()) catch return null;
             // Output unified trackIdx (0 = master, 1+ = user tracks)
-            w.print("\",\"trackIdx\":{d},\"itemIdx\":{d},\"position\":{d:.3},\"length\":{d:.3},", .{
+            w.print("\",\"trackIdx\":{d},\"itemIdx\":{d},\"position\":{d:.15},\"length\":{d:.15},", .{
                 item.track_idx + 1, item.item_idx, item.position, item.length,
             }) catch return null;
             // Write nullable fields
@@ -364,9 +362,8 @@ pub const State = struct {
     // Allocator-based version - returns owned slice from allocator
     // Allocates from arena instead of stack to avoid stack overflow in timer callbacks
     pub fn itemsToJsonAlloc(self: *const State, allocator: std.mem.Allocator) ![]const u8 {
-        const buf = try allocator.alloc(u8, 32768);
-        const json = self.itemsToJson(buf) orelse return error.JsonSerializationFailed;
-        return json;
+        // ~365 B per item typically (GUID, take name, flags) + envelope
+        return protocol.serializeAlloc(allocator, 256 + self.items.len * 512, self, itemsToJson);
     }
 
     /// Poll items within a time range (for timeline subscriptions).
@@ -431,8 +428,7 @@ pub const State = struct {
                 // Get item GUID
                 var guid_buf: [64]u8 = undefined;
                 const item_guid = api.getItemGUID(item_ptr, &guid_buf);
-                const guid_copy_len = @min(item_guid.len, item.guid.len);
-                @memcpy(item.guid[0..guid_copy_len], item_guid[0..guid_copy_len]);
+                const guid_copy_len = utf8.copyPrefix(&item.guid, item_guid);
                 item.guid_len = guid_copy_len;
 
                 item.track_idx = track_idx;
@@ -461,15 +457,13 @@ pub const State = struct {
                 if (api.getItemActiveTake(item_ptr)) |take| {
                     // Name
                     const take_name = api.getTakeNameStr(take);
-                    const copy_len = @min(take_name.len, item.active_take_name.len);
-                    @memcpy(item.active_take_name[0..copy_len], take_name[0..copy_len]);
+                    const copy_len = utf8.copyPrefix(&item.active_take_name, take_name);
                     item.active_take_name_len = copy_len;
 
                     // GUID
                     var take_guid_buf: [64]u8 = undefined;
                     const take_guid = api.getTakeGUID(take, &take_guid_buf);
-                    const take_guid_copy_len = @min(take_guid.len, item.active_take_guid.len);
-                    @memcpy(item.active_take_guid[0..take_guid_copy_len], take_guid[0..take_guid_copy_len]);
+                    const take_guid_copy_len = utf8.copyPrefix(&item.active_take_guid, take_guid);
                     item.active_take_guid_len = take_guid_copy_len;
 
                     // MIDI flag
@@ -546,6 +540,21 @@ test "Take equality" {
     t2.is_active = true;
     t2.is_midi = true;
     try std.testing.expect(!t1.eql(&t2));
+}
+
+test "a sample-length nudge is a change, and reaches clients to the sample" {
+    // One sample at 48 kHz.
+    const a = Item{ .position = 1.0, .length = 2.0, .color = 0, .active_take_idx = 0 };
+    var b = a;
+    b.position = 1.0 + 1.0 / 48000.0;
+    try std.testing.expect(!a.eql(&b));
+
+    var buf: [1]Item = .{b};
+    buf[0].guid_len = 0;
+    const state = State{ .items = &buf };
+    var json_buf: [2048]u8 = undefined;
+    const json = state.itemsToJson(&json_buf).?;
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"position\":1.00002083333333") != null);
 }
 
 test "Item equality" {
@@ -629,7 +638,7 @@ test "State items JSON output" {
     // Sparse fields: hasNotes, takeCount, activeTakeName, activeTakeGuid, activeTakeIsMidi, activeTakeColor
     // Fixed lane for swipe comping
     try std.testing.expectEqualStrings(
-        "{\"type\":\"event\",\"event\":\"items\",\"payload\":{\"items\":[{\"guid\":\"{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}\",\"trackIdx\":1,\"itemIdx\":0,\"position\":10.000,\"length\":5.000,\"color\":16711680,\"locked\":false,\"selected\":false,\"activeTakeIdx\":0,\"fixedLane\":0,\"hasNotes\":true,\"takeCount\":2,\"activeTakeName\":\"Test Take\",\"activeTakeGuid\":\"{11111111-2222-3333-4444-555555555555}\",\"activeTakeIsMidi\":false,\"activeTakeColor\":null}]}}",
+        "{\"type\":\"event\",\"event\":\"items\",\"payload\":{\"items\":[{\"guid\":\"{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}\",\"trackIdx\":1,\"itemIdx\":0,\"position\":10.000000000000000,\"length\":5.000000000000000,\"color\":16711680,\"locked\":false,\"selected\":false,\"activeTakeIdx\":0,\"fixedLane\":0,\"hasNotes\":true,\"takeCount\":2,\"activeTakeName\":\"Test Take\",\"activeTakeGuid\":\"{11111111-2222-3333-4444-555555555555}\",\"activeTakeIsMidi\":false,\"activeTakeColor\":null}]}}",
         json,
     );
 }
@@ -692,10 +701,9 @@ test "poll with MockBackend returns items from tracks" {
     var mock = MockBackend{
         .track_count = 1, // 1 user track
     };
-    // Set up track 0 (first user track) with one item
-    // Note: getTrackByIdx(0) returns track 0, not track 1
-    mock.tracks[0].item_count = 1;
-    mock.tracks[0].items[0] = .{
+    // Mock slot 1 is the first user track (unified index 1, GetTrack index 0)
+    mock.tracks[1].item_count = 1;
+    mock.tracks[1].items[0] = .{
         .position = 5.0,
         .length = 2.5,
         .color = 16711680,
@@ -704,7 +712,7 @@ test "poll with MockBackend returns items from tracks" {
         .active_take_idx = 0,
         .take_count = 2,
     };
-    mock.tracks[0].items[0].setNotes("Test note");
+    mock.tracks[1].items[0].setNotes("Test note");
 
     const state = State.pollStatic(&mock);
 
@@ -742,10 +750,10 @@ test "pollTimeRange filters items by time range" {
         .track_count = 1,
     };
     // Create 3 items at positions 0-10, 20-30, 50-60
-    mock.tracks[0].item_count = 3;
-    mock.tracks[0].items[0] = .{ .position = 0.0, .length = 10.0, .take_count = 1 };
-    mock.tracks[0].items[1] = .{ .position = 20.0, .length = 10.0, .take_count = 1 };
-    mock.tracks[0].items[2] = .{ .position = 50.0, .length = 10.0, .take_count = 1 };
+    mock.tracks[1].item_count = 3;
+    mock.tracks[1].items[0] = .{ .position = 0.0, .length = 10.0, .take_count = 1 };
+    mock.tracks[1].items[1] = .{ .position = 20.0, .length = 10.0, .take_count = 1 };
+    mock.tracks[1].items[2] = .{ .position = 50.0, .length = 10.0, .take_count = 1 };
 
     const allocator = std.testing.allocator;
 
@@ -761,8 +769,8 @@ test "pollTimeRange includes partially overlapping items" {
     var mock = MockBackend{
         .track_count = 1,
     };
-    mock.tracks[0].item_count = 1;
-    mock.tracks[0].items[0] = .{ .position = 5.0, .length = 10.0, .take_count = 1 }; // 5-15
+    mock.tracks[1].item_count = 1;
+    mock.tracks[1].items[0] = .{ .position = 5.0, .length = 10.0, .take_count = 1 }; // 5-15
 
     const allocator = std.testing.allocator;
 
@@ -855,4 +863,20 @@ test "computeHash differs for different states" {
     const state2 = State{ .items = &buffer2 };
 
     try std.testing.expect(state1.computeHash() != state2.computeHash());
+}
+
+test "itemsToJsonAlloc serializes projects larger than one fixed buffer" {
+    // A fixed 32 KB buffer held ~89 items; the broadcast was silently dropped.
+    var backing: [1 << 20]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&backing);
+    var list: [400]Item = undefined;
+    for (&list, 0..) |*it, i| {
+        it.* = .{ .track_idx = @intCast(i % 8), .item_idx = @intCast(i), .take_count = 1 };
+        const guid = "{01234567-89AB-CDEF-0123-456789ABCDEF}";
+        @memcpy(it.guid[0..guid.len], guid);
+        it.guid_len = guid.len;
+    }
+    const state = State{ .items = &list };
+    const json = try state.itemsToJsonAlloc(fba.allocator());
+    try std.testing.expect(try std.json.validate(std.testing.allocator, json));
 }

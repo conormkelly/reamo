@@ -15,10 +15,12 @@ pub const TracksMethods = struct {
         return self.track_count;
     }
 
+    /// 0-based user track index, like REAPER's GetTrack: never master.
+    /// Track pointers encode the unified index, so user track `idx` is idx + 1.
     pub fn getTrackByIdx(self: anytype, idx: c_int) ?*anyopaque {
         self.recordCall(.getTrackByIdx);
         if (idx < 0 or idx >= self.track_count) return null;
-        return state.encodeTrackPtr(idx);
+        return state.encodeTrackPtr(idx + 1);
     }
 
     pub fn getTrackByUnifiedIdx(self: anytype, idx: c_int) ?*anyopaque {
@@ -322,6 +324,14 @@ pub const TracksMethods = struct {
     /// Mock always returns true for valid-looking pointers.
     /// In tests, use track_count to control what's "valid".
     /// Uses <= because unified indexing: 0=master, 1..track_count=user tracks
+    /// The mock holds one project, `project_pointer` (null: the current one);
+    /// any other project has no tracks.
+    pub fn validateTrackPtrIn(self: anytype, project: ?*anyopaque, track: ?*anyopaque) bool {
+        self.recordCall(.validateTrackPtrIn);
+        if (project != null and project != self.project_pointer) return false;
+        return self.validateTrackPtr(track);
+    }
+
     pub fn validateTrackPtr(self: anytype, track: ?*anyopaque) bool {
         self.recordCall(.validateTrackPtr);
         if (track == null) return false;
@@ -335,7 +345,8 @@ pub const TracksMethods = struct {
         self.recordCall(.validateItemPtr);
         if (item == null) return false;
         const info = state.decodeItemPtr(item.?);
-        if (info.track_idx >= self.track_count) return false;
+        // Slots are unified indices: 0 = master, 1..track_count = user tracks
+        if (info.track_idx > self.track_count) return false;
         return info.item_idx < self.tracks[info.track_idx].item_count;
     }
 
@@ -346,7 +357,7 @@ pub const TracksMethods = struct {
         if (take == null) return false;
         // Takes use same encoding as items in mock
         const info = state.decodeItemPtr(take.?);
-        return info.track_idx < self.track_count;
+        return info.track_idx <= self.track_count; // unified slot, as in validateItemPtr
     }
 
     // =========================================================================
@@ -418,6 +429,15 @@ pub const TracksMethods = struct {
         if (info.track_idx >= state.MAX_TRACKS) return 0;
         if (info.item_idx >= state.MAX_ITEMS_PER_TRACK) return 0;
         return self.tracks[info.track_idx].items[info.item_idx].active_take_idx;
+    }
+
+    pub fn itemNotes(self: anytype, item: *anyopaque) []const u8 {
+        self.recordCall(.itemNotes);
+        const info = state.decodeItemPtr(item);
+        if (info.track_idx >= state.MAX_TRACKS) return "";
+        if (info.item_idx >= state.MAX_ITEMS_PER_TRACK) return "";
+        const mock_item = &self.tracks[info.track_idx].items[info.item_idx];
+        return mock_item.notes[0..mock_item.notes_len];
     }
 
     pub fn getItemNotes(self: anytype, item: *anyopaque, buf: []u8) []const u8 {

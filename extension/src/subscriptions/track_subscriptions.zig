@@ -198,7 +198,11 @@ pub const TrackSubscriptions = struct {
 
         client.mode = .range;
         client.range_start = @max(0, start);
-        client.range_end = @max(client.range_start, end);
+        // Saturating: range_start may itself be near maxInt(c_int).
+        client.range_end = @min(
+            @max(client.range_start, end),
+            client.range_start +| (constants.MAX_SUBSCRIPTION_RANGE_SPAN - 1),
+        );
         client.include_master = include_master;
 
         // Store extra GUIDs if provided
@@ -300,9 +304,11 @@ pub const TrackSubscriptions = struct {
         if (client.mode == .range) {
             const now = std.time.nanoTimestamp();
             const expiry = now + GRACE_PERIOD_NS;
+            // Stop at range_end before incrementing: range_end may be maxInt(c_int).
             var idx = client.range_start;
-            while (idx <= client.range_end) : (idx += 1) {
+            while (true) : (idx += 1) {
                 self.grace_until.put(idx, expiry) catch {};
+                if (idx == client.range_end) break;
             }
         }
 
@@ -352,7 +358,7 @@ pub const TrackSubscriptions = struct {
                     // Also resolve any extra GUIDs (hybrid subscription)
                     for (0..client.extra_guid_count) |i| {
                         const guid = client.getExtraGuid(i) orelse continue;
-                        const track = cache.resolve(guid) orelse continue;
+                        const track = cache.resolve(api, guid) orelse continue;
 
                         const extra_idx = api.getTrackIdx(track);
                         if (extra_idx >= 0 and extra_idx <= max_idx) {
@@ -364,7 +370,7 @@ pub const TrackSubscriptions = struct {
                     // Resolve each GUID to an index
                     for (0..client.guid_count) |i| {
                         const guid = client.getGuid(i) orelse continue;
-                        const track = cache.resolve(guid) orelse continue;
+                        const track = cache.resolve(api, guid) orelse continue;
 
                         // Get index from pointer
                         const idx = api.getTrackIdx(track);
@@ -692,4 +698,27 @@ test "slot recycling after client disconnect" {
     _ = try subs.subscribeRange(201, 0, 5, false);
     _ = try subs.subscribeRange(202, 0, 5, false);
     try std.testing.expectEqual(@as(usize, MAX_CLIENTS), subs.clientCount());
+}
+
+test "subscribeRange caps an oversized range instead of overflowing the count" {
+    const allocator = std.testing.allocator;
+    var subs = TrackSubscriptions.init(allocator);
+    defer subs.deinit();
+
+    const count = try subs.subscribeRange(1, 0, std.math.maxInt(c_int), false);
+    try std.testing.expectEqual(@as(usize, constants.MAX_SUBSCRIPTION_RANGE_SPAN), count);
+}
+
+test "removeClient after a range ending at maxInt(c_int) terminates with bounded grace entries" {
+    const allocator = std.testing.allocator;
+    var subs = TrackSubscriptions.init(allocator);
+    defer subs.deinit();
+
+    _ = try subs.subscribeRange(1, 1, std.math.maxInt(c_int), false);
+    subs.removeClient(1);
+    try std.testing.expect(subs.grace_until.count() <= constants.MAX_SUBSCRIPTION_RANGE_SPAN);
+
+    // A one-index range at the very top must not overflow the loop counter.
+    _ = try subs.subscribeRange(1, std.math.maxInt(c_int), std.math.maxInt(c_int), false);
+    subs.removeClient(1);
 }

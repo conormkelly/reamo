@@ -1,6 +1,6 @@
 # Playlist Engine Design Document
 
-This document describes the backend implementation of the Playlist (Cue List) feature in REAmo.
+This document describes the backend implementation of the Playlist feature in REAmo.
 
 ## Table of Contents
 
@@ -24,7 +24,7 @@ This document describes the backend implementation of the Playlist (Cue List) fe
 
 ## Purpose
 
-The playlist engine provides a **cue list** feature for live performance:
+The playlist engine plays regions in a chosen order for live performance:
 
 - Create ordered lists of REAPER regions
 - Each entry specifies loop count (-1=infinite, 0=skip, N=times)

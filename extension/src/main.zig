@@ -1,8 +1,10 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const reaper = @import("reaper.zig");
 const transport = @import("state/transport.zig");
 const project = @import("state/project.zig");
 const markers = @import("state/markers.zig");
+const project_load = @import("platform/project_load.zig");
 const items = @import("state/items.zig");
 const tracks = @import("state/tracks.zig");
 const tempomap = @import("state/tempomap.zig");
@@ -16,7 +18,6 @@ const gesture_state = @import("server/gesture_state.zig");
 const toggle_subscriptions = @import("subscriptions/toggle_subscriptions.zig");
 const project_notes = @import("subscriptions/project_notes.zig");
 const playlist = @import("state/playlist.zig");
-const errors = @import("core/errors.zig");
 const logging = @import("core/logging.zig");
 const tiered_state = @import("server/tiered_state.zig");
 const guid_cache = @import("state/guid_cache.zig");
@@ -38,9 +39,11 @@ const csurf_dirty = @import("server/csurf_dirty.zig");
 const host_validation = @import("server/host_validation.zig");
 const network_action = @import("platform/network_action.zig");
 const menu = @import("platform/menu.zig");
+const install_leftovers = @import("platform/install_leftovers.zig");
 const swell = @import("platform/swell.zig");
 const fast_timer = @import("platform/fast_timer.zig");
 const compat = @import("platform/compat.zig");
+const sigpipe = @import("platform/sigpipe.zig");
 const ztracy = @import("ztracy");
 const subscription_polling = @import("server/subscription_polling.zig");
 const tier_polling = @import("server/tier_polling.zig");
@@ -52,10 +55,34 @@ const audio_hook = @import("audio/audio_hook.zig");
 // Use custom panic handler that flushes log ring buffer before aborting
 pub const panic = logging.panic;
 
-// Suppress websocket library debug spam - only show warnings and errors
+// Libraries (httpz, websocket) log through std.log: keep their warnings and
+// errors, in reamo.log with everything else rather than on a stderr REAPER
+// users never see.
 pub const std_options: std.Options = .{
     .log_level = .warn,
+    .logFn = logToReamoLog,
 };
+
+fn logToReamoLog(
+    comptime level: std.log.Level,
+    comptime scope: @Type(.enum_literal),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    const prefix = if (scope == .default) "" else "[" ++ @tagName(scope) ++ "] ";
+    const ours: logging.Level = switch (level) {
+        .err => .err,
+        .warn => .warn,
+        .info => .info,
+        .debug => .debug,
+    };
+    // Library messages quote whatever they were given (URLs, peer
+    // addresses, client frames): escaped, so none can forge a log line.
+    var buf: [512]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    w.print(format, args) catch {};
+    logging.log(ours, prefix ++ "{f}", .{logging.escaped(w.buffered())});
+}
 
 // Configuration
 const FALLBACK_PORT: u16 = 9224;
@@ -88,6 +115,8 @@ var g_last_skeleton_buf: []track_skeleton.SkeletonTrack = &.{};
 
 // CSurf: Hash-based track change detection
 var g_prev_tracks_hash: u64 = 0;
+/// Whether the last hot-reload check couldn't stat index.html.
+var g_html_stat_failed: bool = false;
 var g_last_drift_log_time: i64 = 0; // Rate-limit drift warnings (max 1/sec)
 var g_http_server: ?http_server.HttpServer = null;
 var g_port: u16 = 0;
@@ -102,9 +131,6 @@ var g_last_regions_buf: [markers.MAX_REGIONS]markers.Region = undefined;
 var g_playlist_state: playlist.State = .{};
 var g_last_playlist: playlist.State = .{}; // For change detection
 var g_initialized: bool = false;
-
-// Error rate limiting for broadcast errors
-var g_error_limiter: errors.ErrorRateLimiter = .{};
 
 // Audio monitoring (binary WebSocket PCM streaming)
 var g_audio_stream: ?*audio_stream.AudioStreamManager = null;
@@ -134,32 +160,17 @@ const FILE_CHECK_INTERVAL: u32 = 60; // Check every ~2 seconds (60 * 33ms)
 // LOW TIER (1Hz): Tempomap, Project Notes - every 30th frame
 var g_frame_counter: u32 = 0;
 var g_init_complete: bool = false; // Safety flag to prevent timer callback running before init
+/// Set while either timer callback runs (main thread only). Something it
+/// calls can open a modal dialog: a phone action's script asking a question,
+/// a plugin's licence nag. On Windows a modal loop keeps delivering timer
+/// messages, so the timers would run again inside it: a second phone command
+/// inside the first, nesting their undo blocks and acting on a track the
+/// first still holds, or a frame resetting (or resizing) arenas the
+/// suspended one is using. Each callback returns at once while it's set,
+/// leaving the queue for when the dialog closes.
+var g_in_timer_callback: bool = false;
 var g_ws_started: bool = false; // Track if WebSocket server has been started
 const WS_START_DELAY_FRAMES: u32 = 30; // Wait ~1 second before starting WebSocket server
-
-/// Broadcast an error event to all clients with rate limiting
-/// Only broadcasts if enough time has passed since the last broadcast of this error type
-fn broadcastRateLimitedError(code: errors.ErrorCode, detail: ?[]const u8) void {
-    const shared_state = g_shared_state orelse return;
-    const current_time = std.time.timestamp();
-
-    if (g_error_limiter.shouldBroadcast(code, current_time)) {
-        const event = errors.ErrorEvent{ .code = code, .detail = detail };
-        // Use scratch allocator if available, otherwise use fixed buffer
-        if (g_tiered) |*tiered| {
-            const scratch = tiered.scratchAllocator();
-            if (event.toJsonAlloc(scratch)) |json| {
-                shared_state.broadcast(json);
-            } else |_| {}
-        } else {
-            // Fallback for errors before tiered state is initialized
-            var buf: [2048]u8 = undefined;
-            if (event.toJson(&buf)) |json| {
-                shared_state.broadcast(json);
-            }
-        }
-    }
-}
 
 // Timer callback for deferred initialization
 // First call does initialization, then immediately switches to processing timer.
@@ -178,7 +189,13 @@ fn initTimerCallbackImpl() !void {
     // First call: do initialization
     if (!g_initialized) {
         g_initialized = true;
-        try doInitialization();
+        doInitialization() catch |err| {
+            // The processing timer assumes everything doInitialization sets
+            // up; started without it, it would fail on every tick. REAmo
+            // stays off until REAPER restarts.
+            if (g_api) |*api| api.unregisterTimer(&initTimerCallback);
+            logging.err("REAmo failed to start ({s}) and is off until REAPER restarts", .{@errorName(err)});
+        };
         return;
     }
 
@@ -194,11 +211,11 @@ fn doInitialization() !void {
     const api = &(g_api orelse return error.ApiNotInitialized);
     logging.info("Deferred initialization starting...", .{});
 
-    g_allocator = std.heap.page_allocator;
+    // libc malloc, not page_allocator: caches and subscriptions make many small,
+    // short-lived allocations per tick, and page_allocator maps/unmaps a page
+    // for each one.
+    g_allocator = std.heap.c_allocator;
 
-    // Initialize logging with REAPER's resource path
-    logging.init(api.resourcePath());
-    logging.info("REAmo v{s} starting", .{protocol.EXTENSION_VERSION});
 
     // Initialize hot reload file path
     if (api.resourcePath()) |res_path| {
@@ -389,8 +406,10 @@ fn doInitialization() !void {
             if (port >= 1024) {
                 g_configured_port = port;
                 logging.info("Configured port from ExtState: {d}", .{port});
+            } else {
+                logging.warn("Ignoring saved port {d} (below 1024); using {d}", .{ port, g_configured_port });
             }
-        } else |_| {}
+        } else |_| logging.warn("Ignoring saved port '{f}' (not a port number); using {d}", .{ logging.untrusted(port_str), g_configured_port });
     }
 
     // Auto-detect machine hostname and add to allowed hosts for DNS rebinding protection.
@@ -401,7 +420,8 @@ fn doInitialization() !void {
         const hostname = compat.getHostname(&hostname_buf);
         if (hostname) |name| {
             _ = host_validation.addAllowedHost(name);
-            logging.info("Auto-detected hostname: {s}", .{name});
+            // Often the user's own name ("Jos-MacBook-Pro"): debug only.
+            logging.debug("Auto-detected hostname: {s}", .{name});
 
             // Also add hostname.local for mDNS (redundant with .local suffix match,
             // but makes getAllowedHosts() output clearer for the user dialog)
@@ -416,19 +436,16 @@ fn doInitialization() !void {
 
     // Read user-configured allowed hosts from ExtState (comma-separated)
     if (api.getExtStateValue("Reamo", "AllowedHosts")) |hosts_str| {
-        if (hosts_str.len > 0) {
-            var iter = std.mem.splitScalar(u8, hosts_str, ',');
-            while (iter.next()) |entry| {
-                const trimmed = std.mem.trim(u8, entry, " ");
-                if (trimmed.len > 0) {
-                    if (!host_validation.addAllowedHost(trimmed)) {
-                        logging.warn("Allowed hosts list full, skipping: {s}", .{trimmed});
-                        break;
-                    }
+        var iter = std.mem.splitScalar(u8, hosts_str, ',');
+        while (iter.next()) |entry| {
+            const trimmed = std.mem.trim(u8, entry, " ");
+            if (trimmed.len > 0) {
+                if (!host_validation.addAllowedHost(trimmed)) {
+                    logging.warn("An allowed host wasn't added ({d} characters): too long, or the list is full", .{trimmed.len});
                 }
             }
-            logging.info("Loaded {d} allowed hosts from ExtState", .{host_validation.getAllowedHostCount()});
         }
+        logging.info("Loaded {d} allowed hosts from ExtState", .{host_validation.getAllowedHostCount()});
     }
 
     // HTTP+WS server will be started in processTimerCallback after startup completes
@@ -443,6 +460,7 @@ fn doInitialization() !void {
 
     // Load playlist state from ProjExtState
     g_playlist_state.loadAll(&backend);
+    g_playlist_state.project = project.Identity.current(&backend);
     g_last_playlist = g_playlist_state;
     logging.info("Loaded {d} playlists from project", .{g_playlist_state.playlist_count});
     logging.info("Initialization complete, waiting for warmup", .{});
@@ -478,6 +496,9 @@ comptime {
 // SAFETY: This is a C-callable entry point. All Zig errors must be caught here
 // to prevent error propagation across the FFI boundary which would crash REAPER.
 fn processTimerCallback() callconv(.c) void {
+    if (g_in_timer_callback) return;
+    g_in_timer_callback = true;
+    defer g_in_timer_callback = false;
     doProcessing() catch |err| {
         logging.err("processTimerCallback failed: {s}", .{@errorName(err)});
         // Error is logged but not propagated - REAPER must not see Zig errors
@@ -490,6 +511,10 @@ fn processTimerCallback() callconv(.c) void {
 ///
 /// SAFETY: This is a C-callable entry point.
 fn commandQueueTimerCallback() callconv(.c) void {
+    if (g_in_timer_callback) return;
+    g_in_timer_callback = true;
+    defer g_in_timer_callback = false;
+
     // Jitter tracking
     const now = std.time.milliTimestamp();
     if (g_fast_timer_last_tick != 0) {
@@ -524,8 +549,13 @@ fn commandQueueTimerCallback() callconv(.c) void {
     const shared_state = g_shared_state orelse return;
     var backend = reaper.RealBackend{ .inner = api };
 
-    // Drain all pending commands
+    // Drain all pending commands, against the open project's playlists
+    var followed = false;
     while (shared_state.popCommand()) |cmd| {
+        if (!followed) {
+            _ = g_playlist_state.followProject(&backend, project.Identity.current(&backend));
+            followed = true;
+        }
         var command = cmd;
         defer command.deinit();
         commands.dispatch(&backend, command.client_id, command.data, shared_state, g_gesture_state, &g_playlist_state);
@@ -557,8 +587,20 @@ fn doProcessing() !void {
     const api = &(g_api orelse return error.ApiNotInitialized);
     const shared_state = g_shared_state orelse return error.StateNotInitialized;
 
-    // Begin new frame - resets scratch arena and swaps tier arenas based on frame counter
+    // Begin new frame - resets scratch arena and swaps tier arenas based on frame counter.
+    // The tier polls below use this same count: a tier swaps on the frame its
+    // regular poll runs, so between regular polls its current state is the
+    // latest poll, which the immediate (CSurf) polls compare against.
+    g_frame_counter +%= 1;
     var tiered = &(g_tiered orelse return error.TieredNotInitialized);
+    // A resize a poll asked for last tick, now that nothing holds tier state.
+    if (tiered.pending_sizes) |sizes| {
+        if (tiered.applyPendingResize(g_allocator)) {
+            logging.info("Arenas resized: {d}MB total", .{sizes.totalAllocated() >> 20});
+        } else |err| {
+            logging.err("Arena resize to {d}MB failed ({s}); keeping the current {d}MB", .{ sizes.totalAllocated() >> 20, @errorName(err), tiered.sizes.totalAllocated() >> 20 });
+        }
+    }
     try tiered.beginFrame(g_frame_counter);
 
     // Create backend for state polling (needed early for skeleton rebuild)
@@ -630,11 +672,11 @@ fn doProcessing() !void {
         while (attempt < MAX_PORT_ATTEMPTS) : (attempt += 1) {
             const port = g_configured_port + @as(u16, attempt);
             var srv = http_server.HttpServer.init(g_allocator, shared_state, port, g_html_path, g_web_dir) catch |err| {
-                logging.debug("http_server: port {d} init failed: {s}", .{ port, @errorName(err) });
+                logging.warn("Server: port {d} unavailable ({s}), trying the next", .{ port, @errorName(err) });
                 continue;
             };
             srv.start() catch |err| {
-                logging.debug("http_server: port {d} listen failed: {s}", .{ port, @errorName(err) });
+                logging.warn("Server: port {d} unavailable ({s}), trying the next", .{ port, @errorName(err) });
                 srv.deinit();
                 continue;
             };
@@ -657,13 +699,18 @@ fn doProcessing() !void {
 
         // Start 100Hz command queue timer for reduced latency
         g_fast_timer.start(&commandQueueTimerCallback) catch |err| {
-            logging.warn("FastTimer failed to start: {s} - falling back to 30Hz", .{@errorName(err)});
+            if (builtin.os.tag == .linux) {
+                logging.debug("Commands run on the 30 Hz timer (no fast timer on Linux)", .{});
+            } else {
+                logging.warn("Fast command timer didn't start ({s}); commands run at 30 Hz", .{@errorName(err)});
+            }
         };
     }
 
     // Process pending commands from WebSocket clients (fallback if fast timer not running)
     // Normally the 100Hz timer drains the queue; this is defensive fallback
     if (!g_fast_timer.isRunning()) {
+        _ = g_playlist_state.followProject(&backend, project.Identity.current(&backend));
         while (shared_state.popCommand()) |cmd| {
             var command = cmd;
             defer command.deinit();
@@ -697,6 +744,9 @@ fn doProcessing() !void {
     // Check for gesture timeouts
     client_management.checkGestureTimeouts(&client_ctx);
 
+    // Drain output queued behind slow clients' sockets before writing more
+    shared_state.flushPendingOutput();
+
     // Build snapshot context
     const snap_ctx = client_management.SnapshotContext{
         .shared_state = shared_state,
@@ -704,13 +754,12 @@ fn doProcessing() !void {
         .tiered = tiered,
         .playlist_state = &g_playlist_state,
         .last_markers_regions = g_last_markers.regions,
+        .guid_cache = g_guid_cache,
+        .item_cache = g_item_cache,
     };
 
     // Send snapshots to newly connected clients
     client_management.sendSnapshotsToNewClients(&snap_ctx);
-
-    // Increment frame counter for tiered polling
-    g_frame_counter +%= 1;
 
     // Skip all polling when no clients are connected.
     // CSurf dirty flags are already consumed above (they must be drained to avoid
@@ -851,6 +900,10 @@ fn doProcessing() !void {
 
         if (g_html_path) |path| {
             if (std.fs.cwd().statFile(path)) |stat| {
+                if (g_html_stat_failed) {
+                    g_html_stat_failed = false;
+                    logging.info("web/index.html is readable again", .{});
+                }
                 if (stat.mtime != g_html_mtime) {
                     logging.debug("HTML changed: mtime {} -> {}", .{ g_html_mtime, stat.mtime });
                     g_html_mtime = stat.mtime;
@@ -863,41 +916,37 @@ fn doProcessing() !void {
                     logging.debug("Broadcast reload event", .{});
                 }
             } else |err| {
-                logging.warn("Stat failed: {s}", .{@errorName(err)});
+                // Checked every 2 s: log the change, not every check.
+                if (!g_html_stat_failed) {
+                    g_html_stat_failed = true;
+                    logging.warn("Can't read web/index.html ({s}); phones can't load the page until it's back", .{@errorName(err)});
+                }
             }
         }
     }
 }
 
-/// Restart the HTTP server on a new port.
-/// Called from network_action when user changes port via menu.
-fn restartServer(new_port: u16) void {
-    const shared_state = g_shared_state orelse return;
+/// Move the server to `new_port` (Change Server Port in the REAmo menu). The new server is listening before the
+/// old one stops, so on failure REAmo is still serving where it was.
+fn restartServer(new_port: u16) anyerror!void {
+    const shared_state = g_shared_state orelse return error.NotInitialized;
 
-    // Stop existing server
-    if (g_http_server) |*server| {
-        logging.info("Restarting server: stopping on port {d}...", .{g_port});
-        server.deinit();
-        g_http_server = null;
-    }
-
-    // Start on new port
     var srv = http_server.HttpServer.init(g_allocator, shared_state, new_port, g_html_path, g_web_dir) catch |err| {
-        logging.err("restartServer: init failed on port {d}: {s}", .{ new_port, @errorName(err) });
-        return;
+        logging.err("Port change to {d} failed to set up: {s}; still serving on {d}", .{ new_port, @errorName(err), g_port });
+        return err;
     };
     srv.start() catch |err| {
-        logging.err("restartServer: listen failed on port {d}: {s}", .{ new_port, @errorName(err) });
+        logging.err("Port change to {d} failed to listen: {s}; still serving on {d}", .{ new_port, @errorName(err), g_port });
         srv.deinit();
-        return;
+        return err;
     };
 
+    if (g_http_server) |*old| old.deinit();
+    logging.info("Server moved from port {d} to {d}", .{ g_port, new_port });
     g_http_server = srv;
     g_port = new_port;
     g_configured_port = new_port;
     network_action.setPort(new_port);
-
-    logging.info("Server restarted on port {d}", .{new_port});
 }
 
 // Shutdown - called when REAPER unloads the extension
@@ -910,21 +959,21 @@ fn shutdown() void {
     if (g_api) |*api| {
         api.unregisterTimer(&processTimerCallback);
     }
-    logging.info("timers stopped", .{});
+    logging.debug("timers stopped", .{});
 
     // Unregister and clean up CSurf before other cleanup
     if (g_csurf) |cs| {
-        logging.info("cleaning up CSurf", .{});
+        logging.debug("cleaning up CSurf", .{});
         cs.unregister();
         cs.deinit();
         g_allocator.destroy(cs);
         g_csurf = null;
     }
-    logging.info("CSurf cleaned up", .{});
+    logging.debug("CSurf cleaned up", .{});
 
     // Stop audio streaming (joins network thread, unregisters audio hook)
     if (g_audio_stream) |mgr| {
-        logging.info("cleaning up audio stream", .{});
+        logging.debug("cleaning up audio stream", .{});
         // Stop thread if running (will also unregister audio hook)
         if (mgr.hasSubscribers()) {
             // Force unsubscribe all to trigger stopStreaming
@@ -946,91 +995,93 @@ fn shutdown() void {
         g_allocator.destroy(mgr);
         g_audio_stream = null;
     }
-    logging.info("audio stream cleaned up", .{});
+    logging.debug("audio stream cleaned up", .{});
 
     // Unregister extension menu
     menu.unregister();
 
+    if (g_plugin_register) |plugin_register| project_load.unregister(plugin_register);
+
     if (g_http_server) |*server| {
-        logging.info("stopping server", .{});
+        logging.debug("stopping server", .{});
         server.deinit();
         g_http_server = null;
     }
-    logging.info("server stopped", .{});
+    logging.debug("server stopped", .{});
 
     if (g_gesture_state) |gestures| {
-        logging.info("cleaning up gesture state", .{});
+        logging.debug("cleaning up gesture state", .{});
         gestures.deinit();
         g_allocator.destroy(gestures);
         g_gesture_state = null;
     }
-    logging.info("gesture state cleaned up", .{});
+    logging.debug("gesture state cleaned up", .{});
 
     if (g_toggle_subs) |toggles| {
-        logging.info("cleaning up toggle subscriptions", .{});
+        logging.debug("cleaning up toggle subscriptions", .{});
         commands.g_ctx.toggle_subs = null;
         toggles.deinit();
         g_allocator.destroy(toggles);
         g_toggle_subs = null;
     }
-    logging.info("toggle subscriptions cleaned up", .{});
+    logging.debug("toggle subscriptions cleaned up", .{});
 
     if (g_notes_subs) |notes| {
-        logging.info("cleaning up notes subscriptions", .{});
+        logging.debug("cleaning up notes subscriptions", .{});
         commands.g_ctx.notes_subs = null;
         notes.deinit();
         g_allocator.destroy(notes);
         g_notes_subs = null;
     }
-    logging.info("notes subscriptions cleaned up", .{});
+    logging.debug("notes subscriptions cleaned up", .{});
 
     if (g_track_subs) |subs| {
-        logging.info("cleaning up track subscriptions", .{});
+        logging.debug("cleaning up track subscriptions", .{});
         commands.g_ctx.track_subs = null;
         subs.deinit();
         g_allocator.destroy(subs);
         g_track_subs = null;
     }
-    logging.info("track subscriptions cleaned up", .{});
+    logging.debug("track subscriptions cleaned up", .{});
 
     if (g_peaks_subs) |subs| {
-        logging.info("cleaning up peaks subscriptions", .{});
+        logging.debug("cleaning up peaks subscriptions", .{});
         commands.g_ctx.peaks_subs = null;
         subs.deinit();
         g_allocator.destroy(subs);
         g_peaks_subs = null;
     }
-    logging.info("peaks subscriptions cleaned up", .{});
+    logging.debug("peaks subscriptions cleaned up", .{});
 
     if (g_routing_subs) |subs| {
-        logging.info("cleaning up routing subscriptions", .{});
+        logging.debug("cleaning up routing subscriptions", .{});
         commands.g_ctx.routing_subs = null;
         subs.deinit();
         g_allocator.destroy(subs);
         g_routing_subs = null;
     }
-    logging.info("routing subscriptions cleaned up", .{});
+    logging.debug("routing subscriptions cleaned up", .{});
 
     if (g_trackfx_subs) |subs| {
-        logging.info("cleaning up track FX subscriptions", .{});
+        logging.debug("cleaning up track FX subscriptions", .{});
         commands.g_ctx.trackfx_subs = null;
         subs.deinit();
         g_allocator.destroy(subs);
         g_trackfx_subs = null;
     }
-    logging.info("track FX subscriptions cleaned up", .{});
+    logging.debug("track FX subscriptions cleaned up", .{});
 
     if (g_trackfxparam_subs) |subs| {
-        logging.info("cleaning up track FX param subscriptions", .{});
+        logging.debug("cleaning up track FX param subscriptions", .{});
         commands.g_ctx.trackfxparam_subs = null;
         subs.deinit();
         g_allocator.destroy(subs);
         g_trackfxparam_subs = null;
     }
-    logging.info("track FX param subscriptions cleaned up", .{});
+    logging.debug("track FX param subscriptions cleaned up", .{});
 
     if (g_tuner_subs) |subs| {
-        logging.info("cleaning up tuner subscriptions", .{});
+        logging.debug("cleaning up tuner subscriptions", .{});
         commands.g_ctx.tuner_subs = null;
         // Remove all clients (cleans up JSFXs)
         if (g_api) |*api| {
@@ -1041,49 +1092,52 @@ fn shutdown() void {
         g_allocator.destroy(subs);
         g_tuner_subs = null;
     }
-    logging.info("tuner subscriptions cleaned up", .{});
+    logging.debug("tuner subscriptions cleaned up", .{});
 
     if (g_tile_cache) |t_cache| {
-        logging.info("cleaning up tile cache", .{});
+        logging.debug("cleaning up tile cache", .{});
         t_cache.deinit();
         g_allocator.destroy(t_cache);
         g_tile_cache = null;
     }
-    logging.info("tile cache cleaned up", .{});
+    logging.debug("tile cache cleaned up", .{});
 
     if (g_guid_cache) |cache| {
-        logging.info("cleaning up GUID cache", .{});
+        logging.debug("cleaning up GUID cache", .{});
         commands.g_ctx.guid_cache = null;
         cache.deinit();
         g_allocator.destroy(cache);
         g_guid_cache = null;
     }
-    logging.info("GUID cache cleaned up", .{});
+    logging.debug("GUID cache cleaned up", .{});
 
     if (g_item_cache) |icache| {
-        logging.info("cleaning up item GUID cache", .{});
+        logging.debug("cleaning up item GUID cache", .{});
         commands.g_ctx.item_cache = null;
         icache.deinit();
         g_allocator.destroy(icache);
         g_item_cache = null;
     }
-    logging.info("item GUID cache cleaned up", .{});
+    logging.debug("item GUID cache cleaned up", .{});
 
     if (g_shared_state) |state| {
-        logging.info("cleaning up shared state", .{});
+        logging.debug("cleaning up shared state", .{});
         state.deinit();
         g_allocator.destroy(state);
         g_shared_state = null;
     }
-    logging.info("shared state cleaned up", .{});
+    logging.debug("shared state cleaned up", .{});
 
     if (g_tiered) |*tiered| {
-        logging.info("cleaning up tiered arenas", .{});
+        logging.debug("cleaning up tiered arenas", .{});
         commands.g_ctx.tiered = null; // Clear global reference before deinit
         tiered.deinit(g_allocator);
         g_tiered = null;
     }
-    logging.info("tiered arenas cleaned up", .{});
+    logging.debug("tiered arenas cleaned up", .{});
+
+    // Last: every thread that writes to a socket has been joined above.
+    sigpipe.uninstall();
 
     logging.info("shutdown() complete", .{});
     logging.deinit();
@@ -1113,13 +1167,26 @@ export fn ReaperPluginEntry(hInstance: ?*anyopaque, rec: ?*reaper.PluginInfo) ca
     // Load REAPER API
     g_api = reaper.Api.load(info) orelse return 0;
 
+    // The log first, so everything after (menu registration included) is in it.
+    logging.init(g_api.?.resourcePath(), .{
+        .reamo_version = protocol.EXTENSION_VERSION,
+        .reaper_version = g_api.?.appVersion(),
+    });
+    logging.info("REAmo v{s} starting", .{protocol.EXTENSION_VERSION});
+    if (g_api.?.resourcePath()) |res| _ = install_leftovers.remove(res);
+
     // Save plugin_register for CSurf integration
     g_plugin_register = info.Register;
+
+    // Before any project loads: project-change detection counts loads.
+    if (!project_load.register(info.Register)) {
+        logging.warn("projectconfig registration failed; a project opened in the same tab may go unnoticed", .{});
+    }
 
     // Initialize SWELL bridge before menu registration.
     // Menu building (flag=0 callback) needs SWELL functions like CreatePopupMenu.
     // SWELLAPI_GetFunc must be obtained before any SWELL calls work.
-    _ = swell.init();
+    if (!swell.init()) logging.warn("SWELL bridge unavailable; the REAmo menu and dialogs may not work", .{});
 
     // Register Extensions menu NOW (before returning 1).
     // hookcustommenu flag=0 fires once when the menu is first created —
@@ -1132,6 +1199,10 @@ export fn ReaperPluginEntry(hInstance: ?*anyopaque, rec: ?*reaper.PluginInfo) ca
         }
     }
 
+    // Before any socket exists: a write to a dropped client must fail with
+    // EPIPE, not terminate REAPER. Paired with sigpipe.uninstall() in shutdown().
+    sigpipe.install();
+
     // Register deferred initialization timer
     g_api.?.registerTimer(&initTimerCallback);
 
@@ -1141,16 +1212,24 @@ export fn ReaperPluginEntry(hInstance: ?*anyopaque, rec: ?*reaper.PluginInfo) ca
 // Re-export tests from modules
 test {
     _ = @import("core/errors.zig");
+    _ = @import("platform/install_leftovers.zig");
     _ = @import("core/ffi.zig");
     _ = @import("core/logging.zig");
     _ = @import("core/protocol.zig");
+    _ = @import("core/utf8.zig");
+    _ = @import("platform/project_load.zig");
+    _ = @import("platform/sigpipe.zig");
+    _ = @import("platform/network_action.zig");
+    _ = @import("reaper/raw.zig");
     _ = @import("state/transport.zig");
+    _ = @import("state/bar_beat.zig");
     _ = @import("state/project.zig");
     _ = @import("state/markers.zig");
     _ = @import("state/items.zig");
     _ = @import("state/tracks.zig");
     _ = @import("commands/mod.zig");
     _ = @import("server/ws_server.zig");
+    _ = @import("server/http_server_stress_test.zig");
     _ = @import("server/gesture_state.zig");
     _ = @import("subscriptions/toggle_subscriptions.zig");
     _ = @import("server/subscription_polling.zig");

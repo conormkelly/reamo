@@ -9,7 +9,7 @@ import { useCallback, useState, useRef, useEffect, type ReactElement } from 'rea
 import { createPortal } from 'react-dom';
 import { Save, Undo2, Redo2, Gauge, Repeat, Minus, Plus } from 'lucide-react';
 import { BottomSheet } from '../Modal/BottomSheet';
-import { useReaper } from '../ReaperProvider';
+import { useReaper } from '../../hooks/useReaper';
 import { useReaperStore } from '../../store';
 import { useTimeSignature } from '../../hooks';
 import { action, metronome, countIn, repeat, tempo, timesig } from '../../core/WebSocketCommands';

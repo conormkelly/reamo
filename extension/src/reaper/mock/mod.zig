@@ -53,6 +53,8 @@ pub const MockBackend = struct {
     // =========================================================================
     // Transport state
     // =========================================================================
+    /// REAPER's major version, as GetAppVersion reports it.
+    major_version: ?u32 = 7,
     play_state: c_int = 0,
     play_position: f64 = 0.0,
     cursor_position: f64 = 0.0,
@@ -114,6 +116,9 @@ pub const MockBackend = struct {
 
     // Project identity (for project switch detection)
     project_pointer: ?*anyopaque = null, // Simulated ReaProject* pointer
+    closed_project_pointer: ?*anyopaque = null, // A project tab that has been closed
+    project_loads: u32 = 0, // Project loads, as counted by platform/project_load
+    extstate_writes_to_other_project: usize = 0,
     project_path: [512]u8 = [_]u8{0} ** 512, // Full path to .rpp file
     project_path_len: usize = 0,
     project_name: [128]u8 = [_]u8{0} ** 128, // Filename only
@@ -370,6 +375,7 @@ pub const MockBackend = struct {
     // Pointer Validation (delegated)
     // =========================================================================
     pub const validateTrackPtr = tracks.TracksMethods.validateTrackPtr;
+    pub const validateTrackPtrIn = tracks.TracksMethods.validateTrackPtrIn;
     pub const validateItemPtr = tracks.TracksMethods.validateItemPtr;
     pub const validateTakePtr = tracks.TracksMethods.validateTakePtr;
 
@@ -384,6 +390,7 @@ pub const MockBackend = struct {
     pub const getItemLocked = tracks.TracksMethods.getItemLocked;
     pub const getItemSelected = tracks.TracksMethods.getItemSelected;
     pub const getItemActiveTakeIdx = tracks.TracksMethods.getItemActiveTakeIdx;
+    pub const itemNotes = tracks.TracksMethods.itemNotes;
     pub const getItemNotes = tracks.TracksMethods.getItemNotes;
     pub const getItemGUID = tracks.TracksMethods.getItemGUID;
     pub const setItemPosition = tracks.TracksMethods.setItemPosition;
@@ -498,9 +505,7 @@ pub const MockBackend = struct {
     pub const markerCount = markers.MarkersMethods.markerCount;
     pub const enumMarker = markers.MarkersMethods.enumMarker;
     pub const addMarker = markers.MarkersMethods.addMarker;
-    pub const addMarkerWithId = markers.MarkersMethods.addMarkerWithId;
     pub const addRegion = markers.MarkersMethods.addRegion;
-    pub const addRegionWithId = markers.MarkersMethods.addRegionWithId;
     pub const updateMarker = markers.MarkersMethods.updateMarker;
     pub const updateRegion = markers.MarkersMethods.updateRegion;
     pub const deleteMarker = markers.MarkersMethods.deleteMarker;
@@ -520,6 +525,7 @@ pub const MockBackend = struct {
     pub const enumerateActions = project.ProjectMethods.enumerateActions;
     pub const reverseNamedCommandLookup = project.ProjectMethods.reverseNamedCommandLookup;
     pub const enumInstalledFX = project.ProjectMethods.enumInstalledFX;
+    pub const majorVersion = project.ProjectMethods.majorVersion;
     pub const isMetronomeEnabled = project.ProjectMethods.isMetronomeEnabled;
     pub const getMetronomeVolume = project.ProjectMethods.getMetronomeVolume;
     pub const setMetronomeVolume = project.ProjectMethods.setMetronomeVolume;
@@ -535,10 +541,14 @@ pub const MockBackend = struct {
     pub const doRedo = project.ProjectMethods.doRedo;
     pub const undoBeginBlock = project.ProjectMethods.undoBeginBlock;
     pub const undoEndBlock = project.ProjectMethods.undoEndBlock;
+    pub const undoRecordChange = project.ProjectMethods.undoRecordChange;
     pub const getExtStateValue = project.ProjectMethods.getExtStateValue;
     pub const setExtStateValue = project.ProjectMethods.setExtStateValue;
     pub const getProjExtStateValue = project.ProjectMethods.getProjExtStateValue;
     pub const setProjExtStateValue = project.ProjectMethods.setProjExtStateValue;
+    pub const setProjExtStateValueIn = project.ProjectMethods.setProjExtStateValueIn;
+    pub const validateProjectPtr = project.ProjectMethods.validateProjectPtr;
+    pub const projectLoadCount = project.ProjectMethods.projectLoadCount;
     pub const getProjectNotes = project.ProjectMethods.getProjectNotes;
     // Note: setProjectNotes is a test helper defined above, not delegated
     pub const getFrameRate = project.ProjectMethods.getFrameRate;
@@ -842,4 +852,13 @@ test "MockBackend receive bounds checking" {
     // Setters should return without crash
     _ = mock.trackReceiveSetVolume(track0, 0, 0.5);
     try std.testing.expect(!mock.trackReceiveSetMute(track0, 0, true));
+}
+
+test "MockBackend getTrackByIdx is 0-based over user tracks like REAPER's GetTrack" {
+    var m = MockBackend{ .track_count = 3 };
+    // Unified index 0 is master; GetTrack-style index 0 is the first user track.
+    try std.testing.expectEqual(m.getTrackByUnifiedIdx(1), m.getTrackByIdx(0));
+    try std.testing.expectEqual(m.getTrackByUnifiedIdx(3), m.getTrackByIdx(2));
+    try std.testing.expect(m.getTrackByIdx(0) != m.masterTrack());
+    try std.testing.expect(m.getTrackByIdx(3) == null);
 }

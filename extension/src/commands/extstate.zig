@@ -22,69 +22,23 @@ pub fn formatValueResponse(value: ?[]const u8, buf: []u8) ?[]const u8 {
     return stream.getWritten();
 }
 
-// Get global extended state value
-pub fn handleGet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const section = cmd.getString("section") orelse {
-        response.err("MISSING_SECTION", "section is required");
-        return;
-    };
-    const key = cmd.getString("key") orelse {
-        response.err("MISSING_KEY", "key is required");
-        return;
-    };
+/// The only project ExtState a client may touch: the mixer's custom banks.
+/// Clients get no general ExtState access — other extensions and scripts keep
+/// settings and secrets there, and some scripts execute what they load, so
+/// a remote client must not read or write it. REAmo's own server config
+/// (AllowedHosts, ServerPort) is global ExtState and has no command at all.
+const PROJ_EXTNAME = "Reamo";
 
-    // Convert to null-terminated strings
-    var section_buf: [65]u8 = undefined;
-    var key_buf: [65]u8 = undefined;
-    const section_z = mod.toNullTerminated(&section_buf, section);
-    const key_z = mod.toNullTerminated(&key_buf, key);
+/// Largest value a client may store (API.md limits).
+const MAX_PROJ_VALUE_LEN = 16384;
+const PROJ_KEYS = [_][]const u8{"CustomBanks"};
 
-    const value = api.getExtStateValue(section_z, key_z);
-
-    // Buffer: 2x max value (1024) for worst-case escaping + JSON overhead
-    var payload_buf: [2200]u8 = undefined;
-    if (formatValueResponse(value, &payload_buf)) |payload| {
-        response.success(payload);
-    } else {
-        response.err("VALUE_TOO_LONG", "Value exceeds buffer size");
+fn isAllowedProjState(extname: []const u8, key: []const u8) bool {
+    if (!std.mem.eql(u8, extname, PROJ_EXTNAME)) return false;
+    for (PROJ_KEYS) |allowed| {
+        if (std.mem.eql(u8, key, allowed)) return true;
     }
-}
-
-// Set global extended state value
-pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const section = cmd.getString("section") orelse {
-        response.err("MISSING_SECTION", "section is required");
-        return;
-    };
-    const key = cmd.getString("key") orelse {
-        response.err("MISSING_KEY", "key is required");
-        return;
-    };
-    const value = cmd.getString("value") orelse {
-        response.err("MISSING_VALUE", "value is required");
-        return;
-    };
-
-    // persist defaults to false
-    const persist = if (cmd.getInt("persist")) |p| p != 0 else false;
-
-    // Convert to null-terminated strings
-    var section_buf: [65]u8 = undefined;
-    var key_buf: [65]u8 = undefined;
-    var value_buf: [1025]u8 = undefined;
-    const section_z = mod.toNullTerminated(&section_buf, section);
-    const key_z = mod.toNullTerminated(&key_buf, key);
-
-    // Value can be longer
-    const value_len = @min(value.len, 1024);
-    @memcpy(value_buf[0..value_len], value[0..value_len]);
-    value_buf[value_len] = 0;
-    // SAFETY: @alignCast unnecessary - u8 has alignment 1, always valid
-    const value_z: [*:0]const u8 = @ptrCast(&value_buf);
-
-    api.setExtStateValue(section_z, key_z, value_z, persist);
-    logging.debug("Set extstate {s}/{s} (persist={any})", .{ section, key, persist });
-    response.success(null);
+    return false;
 }
 
 // Get project-specific extended state value
@@ -97,6 +51,10 @@ pub fn handleProjGet(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         response.err("MISSING_KEY", "key is required");
         return;
     };
+    if (!isAllowedProjState(extname, key)) {
+        response.err("FORBIDDEN", "extname/key is not accessible to clients");
+        return;
+    }
 
     // Convert to null-terminated strings
     var extname_buf: [65]u8 = undefined;
@@ -104,21 +62,22 @@ pub fn handleProjGet(api: anytype, cmd: protocol.CommandMessage, response: *mod.
     const extname_z = mod.toNullTerminated(&extname_buf, extname);
     const key_z = mod.toNullTerminated(&key_buf, key);
 
-    // 16KB+33KB buffers — use scratch arena, not stack (§1)
+    // Scratch arena, not stack (§1): values reach 16 KB
     const tiered = mod.g_ctx.tiered orelse {
         response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
         return;
     };
     const scratch = tiered.scratchAllocator();
 
-    const value_buf = scratch.alloc(u8, 16384) catch {
+    // One byte more than the largest value, which REAPER needs for the NUL.
+    const value_buf = scratch.alloc(u8, MAX_PROJ_VALUE_LEN + 1) catch {
         response.err("ALLOC_FAILED", "Failed to allocate buffer");
         return;
     };
     const value = api.getProjExtStateValue(extname_z, key_z, value_buf);
 
-    // Buffer: 2x max value (16384) for worst-case escaping + JSON overhead
-    const payload_buf = scratch.alloc(u8, 33000) catch {
+    // Worst-case escaping is 6 bytes per byte (control characters as \u00XX).
+    const payload_buf = scratch.alloc(u8, (if (value) |v| v.len else 0) * 6 + 64) catch {
         response.err("ALLOC_FAILED", "Failed to allocate buffer");
         return;
     };
@@ -139,10 +98,25 @@ pub fn handleProjSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         response.err("MISSING_KEY", "key is required");
         return;
     };
-    const value = cmd.getString("value") orelse {
+    if (!isAllowedProjState(extname, key)) {
+        response.err("FORBIDDEN", "extname/key is not accessible to clients");
+        return;
+    }
+    // Stored as the client wrote it: unescaped and whole. A value cut short
+    // (custom banks are JSON) would no longer parse and the UI would discard
+    // it, so an oversized value is refused rather than truncated.
+    const value = (cmd.getTextAlloc("value", std.heap.c_allocator) catch {
+        response.err("ALLOC_FAILED", "Failed to read value");
+        return;
+    }) orelse {
         response.err("MISSING_VALUE", "value is required");
         return;
     };
+    defer std.heap.c_allocator.free(value);
+    if (value.len > MAX_PROJ_VALUE_LEN) {
+        response.err("VALUE_TOO_LARGE", "value exceeds 16384 bytes");
+        return;
+    }
 
     // Convert to null-terminated strings
     var extname_buf: [65]u8 = undefined;
@@ -150,25 +124,7 @@ pub fn handleProjSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.
     const extname_z = mod.toNullTerminated(&extname_buf, extname);
     const key_z = mod.toNullTerminated(&key_buf, key);
 
-    // 16KB value buffer — use scratch arena, not stack (§1)
-    const tiered = mod.g_ctx.tiered orelse {
-        response.err("NOT_INITIALIZED", "Tiered arenas not initialized");
-        return;
-    };
-    const scratch = tiered.scratchAllocator();
-    const value_buf = scratch.alloc(u8, 16385) catch {
-        response.err("ALLOC_FAILED", "Failed to allocate buffer");
-        return;
-    };
-
-    // Value can be longer for project state
-    const value_len = @min(value.len, 16384);
-    @memcpy(value_buf[0..value_len], value[0..value_len]);
-    value_buf[value_len] = 0;
-    // SAFETY: @alignCast unnecessary - u8 has alignment 1, always valid
-    const value_z: [*:0]const u8 = @ptrCast(value_buf.ptr);
-
-    api.setProjExtStateValue(extname_z, key_z, value_z);
+    api.setProjExtStateValue(extname_z, key_z, value);
     logging.debug("Set proj extstate {s}/{s}", .{ extname, key });
     response.success(null);
 }
@@ -223,4 +179,26 @@ test "formatValueResponse returns null on buffer overflow" {
     var buf: [10]u8 = undefined; // Too small
     const result = formatValueResponse("this is a long value", &buf);
     try std.testing.expect(result == null);
+}
+
+test "project ExtState commands only reach REAmo's own CustomBanks key" {
+    const mock = @import("../reaper/mock/mod.zig");
+    var m = mock.MockBackend{};
+    // Other extensions' and scripts' state, and REAmo's own server config.
+    const forbidden = [_][]const u8{
+        \\{"type":"command","command":"extstate/projSet","extname":"SWS","key":"config","value":"x"}
+        ,
+        \\{"type":"command","command":"extstate/projSet","extname":"Reamo","key":"AllowedHosts","value":"evil.example"}
+        ,
+        \\{"type":"command","command":"extstate/projSet","extname":"reamo","key":"CustomBanks","value":"[]"}
+        ,
+    };
+    for (forbidden) |json| mod.testRunHandler(&m, handleProjSet, json);
+    mod.testRunHandler(&m, handleProjGet,
+        \\{"type":"command","command":"extstate/projGet","extname":"SomeScript","key":"api_key"}
+    );
+    try std.testing.expectEqual(@as(usize, 0), m.getCallCount(.setProjExtStateValue));
+    try std.testing.expectEqual(@as(usize, 0), m.getCallCount(.getProjExtStateValue));
+
+    try std.testing.expect(isAllowedProjState("Reamo", "CustomBanks"));
 }
