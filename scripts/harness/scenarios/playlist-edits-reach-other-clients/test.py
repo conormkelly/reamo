@@ -1,6 +1,6 @@
 """Every playlist edit made on one phone shows up on another phone.
 
-Band members share the setlist: one edits (rename, loop counts, reorder,
+Band members share the playlist: one edits (rename, loop counts, reorder,
 the "stop after last" switch), the others see the edit in their playlist
 event. Fire-and-forget, as PlaylistView sends them.
 """

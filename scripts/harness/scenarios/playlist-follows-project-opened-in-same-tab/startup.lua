@@ -1,5 +1,5 @@
 -- A tiny gig: three 2 s "songs" at 240 BPM 4/4 (1 s bars), the last one not
--- adjacent to the others, as setlists usually jump around the timeline.
+-- adjacent to the others, as playlists usually jump around the timeline.
 dofile(reaper.GetResourcePath() .. "/Scripts/harness.lua")
 harness.begin_project("/tmp/gig_start.rpp")
 reaper.SetTempoTimeSigMarker(0, -1, 0, -1, -1, 240, 4, 4, false)

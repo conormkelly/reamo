@@ -382,7 +382,7 @@ export function PlaylistView(): ReactElement {
         {currentPlaylist && currentPlaylist.entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center py-16">
             <p className="text-text-secondary mb-4">This playlist is empty</p>
-            <p className="text-text-muted text-sm mb-6">Add regions to build your setlist</p>
+            <p className="text-text-muted text-sm mb-6">Add regions to build your playlist</p>
             <button
               onClick={() => setShowRegionPicker(true)}
               className="px-4 py-2 bg-primary hover:bg-primary-hover rounded-lg font-medium transition-colors"

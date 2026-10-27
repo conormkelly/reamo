@@ -42,7 +42,7 @@ That's it.
 
 ## Coming Soon
 
-- **Cue Lists** — Build playlists from regions for rehearsal and arrangement
+- **Playlists** — Arrange regions into playlists for rehearsal and performance
 
 ## Requirements
 

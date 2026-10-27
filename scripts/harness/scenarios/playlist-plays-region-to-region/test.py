@@ -1,4 +1,4 @@
-"""A gig setlist: Intro x1, Verse x2, Outro x1, stop after the last.
+"""A gig playlist: Intro x1, Verse x2, Outro x1, stop after the last.
 
 Pressing play on the phone must play REAPER region to region in that order,
 loop the Verse twice, jump to the non-adjacent Outro, and stop the transport
@@ -62,4 +62,4 @@ with Client() as c:
     if rep != 0:
         problems.append("repeat left on after the playlist finished")
     assert not problems, "\n".join(problems)
-print("setlist played region to region and stopped")
+print("playlist played region to region and stopped")

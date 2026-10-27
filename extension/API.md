@@ -3429,7 +3429,7 @@ Sent to the subscribed client only.
 
 ## Playlist Commands
 
-Playlist (cue list) management for setlist/arrangement playback. Playlists contain ordered entries referencing regions with loop counts. The playlist engine monitors playback position and auto-advances at region boundaries using REAPER's native loop points for seamless looping.
+Playlist management for performance and arrangement playback. Playlists contain ordered entries referencing regions with loop counts. The playlist engine monitors playback position and auto-advances at region boundaries using REAPER's native loop points for seamless looping.
 
 **Data persistence:** Playlists are stored in project EXTSTATE and persist with the project file.
 
