@@ -4,7 +4,7 @@
 # Mounts (set up by run.sh):
 #   /harness   this directory (client library, lua helper, scenarios)
 #   /ext       reaper_reamo.so built for the container's architecture
-#   /web       the built frontend (index.html carries the hello token)
+#   /reamo     the built frontend (index.html carries the hello token)
 #   /effects   REAmo's own JSFX (extension/effects), installed as the release zip does
 #   /fixtures  the repo's test-fixtures (projects a startup.lua can open)
 #   /lic       optional reaper-license.rk (suppresses the evaluation nag)
@@ -43,7 +43,7 @@ mkdir -p "$HOME_DIR/UserPlugins" "$HOME_DIR/Scripts" "$HOME_DIR/reaper_www_root"
 cp -a "$HOME_DIR/InstallData/Effects" "$HOME_DIR/Effects"
 cp -a /effects/. "$HOME_DIR/Effects/"
 cp /ext/reaper_reamo.so "$HOME_DIR/UserPlugins/reaper_reamo.so"
-cp -a /web "$HOME_DIR/reaper_www_root/web"
+cp -a /reamo "$HOME_DIR/reaper_www_root/reamo"
 # Writable copy: REAPER writes peak files beside media, as in a real project dir.
 cp -a /fixtures /tmp/fixtures
 cp /harness/harness.lua "$HOME_DIR/Scripts/harness.lua"

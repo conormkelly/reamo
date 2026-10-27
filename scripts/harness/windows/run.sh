@@ -28,7 +28,7 @@ case "$zig_version" in
     0.15.*) ;;
     *) echo "error: need Zig 0.15.x (got '${zig_version:-none}'); set ZIG=/path/to/zig-0.15" >&2; exit 1 ;;
 esac
-[ -f "$ROOT/web/index.html" ] || { echo "error: no built frontend in web/; run: make frontend" >&2; exit 1; }
+[ -f "$ROOT/reamo/index.html" ] || { echo "error: no built frontend in reamo/; run: make frontend" >&2; exit 1; }
 ssh -o BatchMode=yes -o ConnectTimeout=8 "$HOST" "exit 0" \
     || { echo "error: can't reach the Windows PC as '$HOST' over ssh (see README, Windows runner)" >&2; exit 1; }
 
@@ -85,7 +85,7 @@ echo "Building extension for x86_64-windows (REAPER $REAPER_VERSION)..."
 stage="$OUT/stage"
 mkdir -p "$stage/harness"
 (cd "$HERE" && tar --exclude ./out --exclude ./reaper-license.rk --exclude __pycache__ -cf - .) | (cd "$stage/harness" && tar -xf -)
-cp -R "$ROOT/web" "$stage/web"
+cp -R "$ROOT/reamo" "$stage/reamo"
 cp -R "$ROOT/extension/effects" "$stage/effects"
 cp -R "$ROOT/test-fixtures" "$stage/fixtures"
 cp "$OUT/build/bin/reaper_reamo.dll" "$stage/reaper_reamo.dll"

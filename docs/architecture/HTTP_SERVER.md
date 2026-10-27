@@ -298,13 +298,13 @@ Both WebSocket implementations must be updated — `WebSocketConnection.ts` (dir
 
 Research confirmed ReaPack's `@provides` tag supports distributing directories of files via glob patterns and the `[data]` qualifier, which installs to `<REAPER resource path>/Data/`. Helgobox (ReaLearn/Playtime) uses `Data/helgoboss/realearn/` for auxiliary data. No existing REAPER extension serves a web UI from disk files — REAmo is novel here.
 
-**Decision: `<GetResourcePath()>/Data/REAmo/web/`** as the canonical location.
+**Decision: `<GetResourcePath()>/reaper_www_root/reamo/`** as the canonical location.
 
 - Extension discovers it at startup via `GetResourcePath()` (already used for other REAPER API calls)
-- ReaPack distributes files there via `@provides [data] web/*`
-- Installer/manual install copies to the same location
-- During development, frontend build copies `dist/*` there directly
-- `@embedFile` is available as a fallback for single-binary distribution if needed, but not required since ReaPack handles subdirectories natively
+- A folder named for REAmo, not a generic `web/`: other web control surfaces share `reaper_www_root/`, so the installer and uninstaller only ever touch REAmo's own folder
+- The release zip's installer copies it there; versions before 0.8.1 used `reaper_www_root/web/`, which the installer removes when its `index.html` is REAmo's
+- During development, the repo is checked out as `reaper_www_root/`, so the frontend build's `reamo/` output is the served folder
+- `@embedFile` is available as a fallback for single-binary distribution if needed, but not required
 
 **Verification:** `view-source:` shows `<script src="/assets/index-abc123.js">`. Network tab shows separate JS/CSS requests. Response headers include full security headers. `Cache-Control: immutable` on hashed assets. CSP uses `'self'` not `'unsafe-inline'`.
 
@@ -624,7 +624,7 @@ Verified by reading httpz source. Key findings:
 
 ReaPack's `@provides` tag supports distributing directories via glob patterns and a `[data]` qualifier that installs to `<REAPER resource path>/Data/`. Helgobox uses `Data/helgoboss/realearn/` for auxiliary files. No existing REAPER extension serves a web UI from disk — REAmo is novel here.
 
-**Decision:** `<GetResourcePath()>/Data/REAmo/web/` is the canonical location. ReaPack distributes via `@provides [data] web/*`. `@embedFile` available as fallback but not needed.
+**Decision:** `<GetResourcePath()>/reaper_www_root/reamo/` is the canonical location (see "Where do built files live?" above). `@embedFile` available as fallback but not needed.
 
 ### ~~4. PWA behavior on port change~~ — RESOLVED (pre-release non-issue)
 
@@ -662,8 +662,8 @@ Developers can test both paths. Frontend has a "legacy mode" fallback.
 
 ### After migration (phases 3–4)
 
-- `make frontend` builds to `<resource>/Data/REAmo/web/`
-- Extension serves from `Data/REAmo/web/` at startup (discovered via `GetResourcePath()`)
+- `make frontend` builds to `<resource>/reaper_www_root/reamo/`
+- Extension serves from `reaper_www_root/reamo/` at startup (discovered via `GetResourcePath()`)
 - `make dev` runs Vite dev server on 5173 with proxy to extension's WS on 9224 (standard Vite proxy config)
 - Hot reload during frontend dev: Vite serves directly, proxies WS to extension
 - Production: extension serves built files
@@ -684,11 +684,11 @@ zig build → install .dylib to UserPlugins
 
 ```bash
 # Frontend
-vite build → dist/index.html + dist/assets/* → cp to <resource>/Data/REAmo/web/
+vite build → dist/index.html + dist/assets/* → cp to <resource>/reaper_www_root/reamo/
 
 # Extension
 zig build → install .dylib to UserPlugins
-# (Extension reads Data/REAmo/web/ via GetResourcePath() at startup)
+# (Extension reads reaper_www_root/reamo/ via GetResourcePath() at startup)
 ```
 
 ---

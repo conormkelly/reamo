@@ -10,7 +10,7 @@
 #
 # Layout under %USERPROFILE%\reamo-harness (set up by run.sh):
 #   reaper\<version>\  pristine portable REAPER, unpacked from the installer
-#   stage\             harness\ (this directory's parent), web\, effects\,
+#   stage\             harness\ (this directory's parent), reamo\, effects\,
 #                      fixtures\, reaper_reamo.dll, optional reaper-license.rk
 #   run\REAPER\        this scenario's REAPER, copied fresh from reaper\<version>
 #   out\<name>\        screenshots, copied back to the controller
@@ -86,7 +86,7 @@ try {
     }
     Copy-Item "$Stage\effects\*" "$ReaperHome\Effects" -Recurse -Force
     Copy-Item "$Stage\reaper_reamo.dll" "$ReaperHome\UserPlugins\reaper_reamo.dll"
-    Copy-Item "$Stage\web" "$ReaperHome\reaper_www_root\web" -Recurse
+    Copy-Item "$Stage\reamo" "$ReaperHome\reaper_www_root\reamo" -Recurse
     # Writable copy: REAPER writes peak files beside media, as in a real project dir.
     Copy-Item "$Stage\fixtures" "$Tmp\fixtures" -Recurse
     # Fixtures load files from /harness, where the container mounts this
@@ -117,9 +117,9 @@ try {
     $env:HARNESS_OUT = $Out
     $env:TOUR_ONLY = "$($job.tour_only)"
     # What this run was built from, for scenarios that install it (the
-    # container's /ext, /web and /effects).
+    # container's /ext, /reamo and /effects).
     $env:HARNESS_EXT = $Stage
-    $env:HARNESS_WEB = "$Stage\web"
+    $env:HARNESS_WEB = "$Stage\reamo"
     $env:HARNESS_EFFECTS = "$Stage\effects"
     $env:PYTHONPATH = $Harness
     $env:PYTHONUTF8 = "1"
