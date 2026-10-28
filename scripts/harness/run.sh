@@ -104,6 +104,8 @@ esac
 
 OUT="$(mktemp -d)"
 trap 'rm -rf "$OUT"' EXIT
+. "$HERE/results.sh"
+record_tree
 # Containers read a snapshot of this directory taken now: Docker Desktop's
 # bind mounts can briefly serve a stale or truncated copy of a file that was
 # just edited, and a run should see one consistent version of the harness.
@@ -181,14 +183,18 @@ pass=0
 failed=()
 skipped=()
 for i in "${!scenarios[@]}"; do
+    s="${scenarios[$i]}"
+    out="$s"
+    [ "$(printf '%s\n' "${scenarios[@]}" | grep -cxF "$s")" -eq 1 ] || out="$s.$i"
+    keep_output "$ARTIFACTS/$out" "$OUT/run-$i.log"
     case "$(cat "$OUT/run-$i.status")" in
         0) pass=$((pass + 1)) ;;
-        77) skipped+=("${scenarios[$i]}") ;;
-        *) failed+=("${scenarios[$i]}") ;;
+        77) skipped+=("$s") ;;
+        *) failed+=("$s"); keep_failure "$ARTIFACTS/$out" "$s" linux "$REAPER_VERSION" ;;
     esac
 done
 
 echo
-[ ${#failed[@]} -eq 0 ] || echo "screenshots of failed scenarios: $ARTIFACTS/<scenario>/ (<scenario>.<run> when repeated)"
+print_kept_failures
 echo "harness on REAPER $REAPER_VERSION: $pass passed, ${#skipped[@]} skipped${skipped[*]:+ (${skipped[*]})}, ${#failed[@]} failed${failed[*]:+ (${failed[*]})}"
 [ ${#failed[@]} -eq 0 ]

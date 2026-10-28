@@ -45,6 +45,9 @@ done
 
 OUT="$(mktemp -d)"
 trap 'rm -rf "$OUT"' EXIT
+ARTIFACTS="$HERE/out"
+. "$HERE/results.sh"
+record_tree
 # macOS tar would add AppleDouble (._*) files for extended attributes.
 export COPYFILE_DISABLE=1
 
@@ -101,7 +104,6 @@ scp -q -o BatchMode=yes "$OUT/stage.tgz" "$HOST:$REMOTE/stage.tgz"
 ssh -o BatchMode=yes "$HOST" "if (Test-Path $REMOTE\\stage) { Remove-Item -Recurse -Force $REMOTE\\stage }; \
 New-Item -ItemType Directory $REMOTE\\stage | Out-Null; tar -xf $REMOTE\\stage.tgz -C $REMOTE\\stage; Remove-Item $REMOTE\\stage.tgz"
 
-ARTIFACTS="$HERE/out"
 mkdir -p "$ARTIFACTS"
 pass=0
 failed=()
@@ -120,18 +122,20 @@ for i in "${!scenarios[@]}"; do
     ssh -o BatchMode=yes "$HOST" "Remove-Item $REMOTE\\boot.log -ErrorAction SilentlyContinue" || true
     ssh -o BatchMode=yes "$HOST" "powershell -NoProfile -ExecutionPolicy Bypass -File $REMOTE\\stage\\harness\\windows\\run-scenario.ps1 $s $REAPER_VERSION $out$tour_only; exit \$LASTEXITCODE" || rc=$?
     echo "=== $s"
-    scp -q -o BatchMode=yes "$HOST:$REMOTE/boot.log" "$OUT/boot.log" 2>/dev/null && cat "$OUT/boot.log" \
-        || echo "(no log from the PC)"
+    scp -q -o BatchMode=yes "$HOST:$REMOTE/boot.log" "$OUT/boot.log" 2>/dev/null \
+        || echo "(no log from the PC)" >"$OUT/boot.log"
+    cat "$OUT/boot.log"
     rm -rf "${ARTIFACTS:?}/$out"
     scp -q -r -o BatchMode=yes "$HOST:$REMOTE/out/$out" "$ARTIFACTS/$out" 2>/dev/null || true
+    keep_output "$ARTIFACTS/$out" "$OUT/boot.log"
     case "$rc" in
         0) pass=$((pass + 1)) ;;
         77) skipped+=("$s") ;;
-        *) failed+=("$s") ;;
+        *) failed+=("$s"); keep_failure "$ARTIFACTS/$out" "$s" windows "$REAPER_VERSION" ;;
     esac
 done
 
 echo
-[ ${#failed[@]} -eq 0 ] || echo "screenshots of failed scenarios: $ARTIFACTS/<scenario>/ (<scenario>.<run> when repeated)"
+print_kept_failures
 echo "harness on REAPER $REAPER_VERSION (windows): $pass passed, ${#skipped[@]} skipped${skipped[*]:+ (${skipped[*]})}, ${#failed[@]} failed${failed[*]:+ (${failed[*]})}"
 [ ${#failed[@]} -eq 0 ]
