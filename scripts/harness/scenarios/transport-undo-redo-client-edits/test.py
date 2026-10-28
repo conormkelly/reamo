@@ -18,11 +18,19 @@ def settle(c, want_state, label):
         c.drain(0.2)
         got = reaper(STATE)
         undo, redo = reaper("return reaper.Undo_CanUndo2(0)"), reaper("return reaper.Undo_CanRedo2(0)")
-        tp = c.latest_event("transport")["payload"]
-        pp = c.latest_event("project")["payload"]
-        shown = [tp["bpm"], tp["timeSignature"]["numerator"], tp["timeSignature"]["denominator"]]
-        ok = (got == want_state and shown == want_state and pp["canUndo"] == undo and pp["canRedo"] == redo)
-        if ok or time.time() > deadline:
+        # The project event is sent on connect and then only on a change, so
+        # the first one may not have been read yet.
+        tev, pev = c.latest_event("transport"), c.latest_event("project")
+        if tev and pev:
+            tp, pp = tev["payload"], pev["payload"]
+            shown = [tp["bpm"], tp["timeSignature"]["numerator"], tp["timeSignature"]["denominator"]]
+            ok = (got == want_state and shown == want_state and pp["canUndo"] == undo and pp["canRedo"] == redo)
+            if ok:
+                break
+        if time.time() > deadline:
+            missing = [name for name, ev in (("transport", tev), ("project", pev)) if not ev]
+            if missing:
+                return [f"{label}: no {' or '.join(missing)} event within 2 s"]
             break
     print(f"  {label:28s} REAPER {got} shown {shown} undo={undo!r} redo={redo!r}")
     problems = []
@@ -36,7 +44,8 @@ def settle(c, want_state, label):
 
 
 with Client() as c:
-    c.wait_event("project")
+    # Not wait_event("project"): it takes the event off the client's list,
+    # and latest_event would then see none until the project next changes.
     problems = []
     problems += settle(c, [120, 4, 4], "start")
 
