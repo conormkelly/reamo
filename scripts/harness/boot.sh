@@ -102,6 +102,9 @@ alive=0
 pgrep -x reaper >/dev/null && alive=1
 
 LOG="$HOME_DIR/Logs/reamo.log"
+# Kept with the screenshots: REAmo's own account of the run, and REAPER's.
+[ ! -f "$LOG" ] || cp "$LOG" "$HARNESS_OUT/reamo.log"
+cp /tmp/reaper.out "$HARNESS_OUT/reaper.out" 2>/dev/null || true
 if [ -f "$LOG" ] && grep -qE "ERROR|PANIC" "$LOG"; then
     echo "--- reamo.log errors"
     grep -E "ERROR|PANIC" "$LOG" | grep -v "FastTimer" | head -20

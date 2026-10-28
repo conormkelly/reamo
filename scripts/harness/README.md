@@ -45,8 +45,20 @@ make release-check          # every scenario on oldest, then on pinned
 `make release-check` is the release gate: both runs must pass. When a new
 REAPER comes out, run on `latest`, then move `PINNED_REAPER` in `run.sh`.
 
-Screenshots in `out/` are per scenario, not per version: a later run of the
-same scenario on another version replaces them.
+### What a run keeps
+
+`out/<scenario>/` holds the scenario's latest run, on any OS or version:
+`output.log` (everything the scenario printed, including a failed
+assertion), `reamo.log`, its screenshots and, on Linux, `reaper.out`
+(REAPER's own console output, where a crash says why). A later run
+replaces it.
+
+A failed run is also copied to `out/failures/<when>-<os>-reaper<version>-<scenario>/`,
+which later runs leave alone, so a failure that doesn't come back can still
+be read. Its `replay.txt` has the command that runs it again and the code it
+ran: the commit, any uncommitted changes (in `worktree.diff`) and untracked
+files. The run ends by listing where each failure was kept. Delete
+`out/failures/` when you're done with them.
 
 ## Running on Windows
 
@@ -76,7 +88,8 @@ logged-in session, which:
 - sets plugin paths to an empty folder and Dummy Audio (`[audioconfig]
   mode=4`, as on Linux); REAPER still scans the standard VST3 folder, which
   the setup keeps the test user from listing;
-- runs `test.py`, then copies its log and screenshots back to `out/`.
+- runs `test.py`, then copies its log and screenshots back to `out/` (see
+  "What a run keeps").
 
 The PC runs one scenario at a time (one desktop, one port), and a new run
 ends any in progress, so don't start two Windows runs at once.
