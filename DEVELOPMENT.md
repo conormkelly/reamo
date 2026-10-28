@@ -25,6 +25,19 @@ This document captures implementation details, API quirks, and outstanding work 
 
 ## Quick Start
 
+First time, with Node 22+ and npm 11.16+ (`npm install -g npm@11` if
+`npm --version` is older; the frontend refuses an older npm):
+
+```bash
+cd frontend && npm ci && npm run prepare   # dependencies, then the git hooks
+```
+
+`frontend/.npmrc` turns off dependency install scripts, which also stops
+`npm ci` installing the git hooks, so `npm run prepare` does it. It also
+holds back any version published in the last 7 days, and refuses
+dependencies from git or a URL instead of the npm registry. Dependabot
+proposes updates weekly, with the same 7-day wait.
+
 ```bash
 make frontend    # Build frontend → index.html (auto-reloads on iPad)
 make extension   # Build extension → REAPER UserPlugins (restart REAPER to load)
