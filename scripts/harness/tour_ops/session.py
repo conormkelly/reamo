@@ -62,16 +62,29 @@ def expect_saved(t, want, changes=None, allow=(), timeout=3.0):
         t.c.drain(0.15)
 
 
-def playlist_event(t, pred, what, timeout=3.0, client=None):
-    """The phone's latest playlist event, once `pred(payload)` holds."""
+def playlist_event(t, pred, what, timeout=3.0, client=None, since=None):
+    """The phone's latest playlist event, once `pred(payload)` holds.
+
+    With `since` (an index into the client's events), any playlist event
+    received from there on will do: a state that lasts less than the test
+    takes to look, like one loop of a short region, was still shown."""
     c = client or t.c
     deadline = time.time() + timeout
     while True:
         ev = c.latest_event("playlist")
-        if ev is not None and pred(ev["payload"]):
-            return ev["payload"]
+        if since is None:
+            if ev is not None and pred(ev["payload"]):
+                return ev["payload"]
+        else:
+            for name, msg in c.events[since:]:
+                if name == "playlist" and pred(msg["payload"]):
+                    return msg["payload"]
         if time.time() > deadline:
-            raise Mismatch(f"playlist event never showed {what}; last: {ev and ev['payload']}")
+            trail = [(p["currentEntryIndex"], p["currentLoopIteration"], p["isPlaylistActive"])
+                     for p in (msg["payload"] for name, msg in c.events[since or 0:] if name == "playlist")]
+            raise Mismatch(f"playlist event never showed {what}; last: {ev and ev['payload']}; "
+                           f"(entry, loop, active) received{' in this step' if since is not None else ''}: "
+                           f"{trail[-12:]}")
         c.drain(0.1)
 
 
@@ -279,12 +292,15 @@ def _play_playlist(t, lists, pickup, intro, verse, chorus):
     t.expect(looping(verse))
     playlist_event(t, at_entry(idx, 1), "prev past the skipped entry: entry 1")
 
-    # The pickup, shorter than a bar, plays twice and then moves on.
+    # The pickup, shorter than a bar, plays twice and then moves on. Each
+    # loop lasts about a second, so its events are looked for among all
+    # received since the step began, not only the latest.
+    mark = len(t.c.events)
     t.ok("playlist/next")
     t.expect(looping(pickup))
-    playlist_event(t, at_entry(idx, 3), "next: entry 3")
+    playlist_event(t, at_entry(idx, 3), "next: entry 3", since=mark)
     playlist_event(t, lambda p: at_entry(idx, 3)(p) and p["currentLoopIteration"] == 2,
-                   "the pickup's second loop", timeout=6.0)
+                   "the pickup's second loop", timeout=6.0, since=mark)
     playlist_event(t, at_entry(idx, 4), "the Chorus after the pickup's two loops", timeout=8.0)
     t.expect(looping(chorus), timeout=4.0)
     wait_play_in(t, chorus[1], chorus[2], "after the pickup")
