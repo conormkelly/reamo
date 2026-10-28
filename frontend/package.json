@@ -42,7 +42,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.1.1",
-    "@vitest/coverage-v8": "^4.0.16",
+    "@vitest/coverage-v8": "^5.0.4",
     "autoprefixer": "^10.4.22",
     "cross-env": "^10.1.0",
     "eslint": "^9.39.1",
