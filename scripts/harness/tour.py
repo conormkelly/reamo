@@ -351,10 +351,10 @@ return out
             status, detail = "SKIP", str(e)
         except Mismatch as e:
             status, detail = "FAIL", str(e)
-            screenshot(f"fail-{name.replace('/', '_')}")
+            screenshot(f"fail-{name}")
         except Exception as e:  # a harness bug or a dead REAPER; keep going
             status, detail = "ERROR", f"{type(e).__name__}: {e}\n{traceback.format_exc(limit=3)}"
-            screenshot(f"error-{name.replace('/', '_')}")
+            screenshot(f"error-{name}")
         self.results.append((name, commands, status, detail, time.time() - t0))
         print(f"{status:5} {name} ({time.time() - t0:.1f}s)" + (f"\n      {detail}" if detail and status != "PASS" else ""))
         sys.stdout.flush()
