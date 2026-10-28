@@ -22,14 +22,17 @@ def project_settles(c, pred):
     deadline = time.time() + 2
     while time.time() < deadline:
         c.drain(0.2)
-        p = c.latest_event("project")["payload"]
-        if pred(p):
-            return p
-    return c.latest_event("project")["payload"]
+        ev = c.latest_event("project")
+        if ev and pred(ev["payload"]):
+            return ev["payload"]
+    ev = c.latest_event("project")
+    assert ev, "no project event within 2 s"
+    return ev["payload"]
 
 
 with Client() as c:
-    c.wait_event("project")
+    # Not wait_event("project"): it takes the event off the client's list,
+    # and latest_event would then see none until the project next changes.
     problems = []
 
     c.fire("metronome/toggle")
