@@ -75,6 +75,21 @@ function getInitialViewport(): { width: number; height: number } {
   };
 }
 
+/** Input types that bring up the on-screen keyboard. */
+const KEYBOARD_INPUT_TYPES = new Set([
+  'text', 'search', 'email', 'url', 'tel', 'password', 'number',
+]);
+
+/**
+ * Whether the focused element is one the on-screen keyboard opens for.
+ */
+function isEditingText(): boolean {
+  const el = document.activeElement;
+  if (el instanceof HTMLTextAreaElement) return true;
+  if (el instanceof HTMLInputElement) return KEYBOARD_INPUT_TYPES.has(el.type);
+  return el instanceof HTMLElement && el.isContentEditable;
+}
+
 /**
  * Hook to detect layout context including size classes and navigation position
  *
@@ -94,9 +109,15 @@ export function useLayoutContext(): LayoutContext {
 
   useEffect(() => {
     const updateViewport = () => {
-      setViewport({
-        width: window.innerWidth,
-        height: window.innerHeight,
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      setViewport((prev) => {
+        // The on-screen keyboard changes only the height (the viewport meta
+        // has interactive-widget=resizes-content), and only while a text
+        // field has focus. Following it would switch an upright phone to the
+        // side rail, remounting the view and closing the dialog being typed in.
+        if (width === prev.width && isEditingText()) return prev;
+        return { width, height };
       });
     };
 
