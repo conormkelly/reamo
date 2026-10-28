@@ -214,7 +214,12 @@ def open_project(path, dialogs=LOAD_DIALOGS, timeout=30.0, on_dialog=None):
 
 
 def screenshot(name):
-    """Save REAPER's whole X display as out/<scenario>/<name>.png on the host."""
+    """Save REAPER's whole X display as out/<scenario>/<name>.png on the host.
+
+    The name is reduced to letters, digits, '.', '_' and '-': on Windows a ':'
+    in a file name writes an alternate data stream, leaving an empty file
+    with the name cut at the colon."""
+    name = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-")
     path = os.path.join(os.environ.get("HARNESS_OUT", "/tmp"), f"{name}.png")
     if WINDOWS:
         return win_desktop.screenshot(path)
