@@ -4,7 +4,7 @@
  */
 
 import type { ReactElement } from 'react';
-import { Lock, Unlock } from 'lucide-react';
+import { Lock, LockOpen } from 'lucide-react';
 import { useReaperStore } from '../../store';
 
 export function MixerLockButton(): ReactElement {
@@ -22,7 +22,7 @@ export function MixerLockButton(): ReactElement {
       }`}
       title={mixerLocked ? 'Unlock mixer controls' : 'Lock mixer controls'}
     >
-      {mixerLocked ? <Lock size={18} /> : <Unlock size={18} />}
+      {mixerLocked ? <Lock size={18} /> : <LockOpen size={18} />}
     </button>
   );
 }

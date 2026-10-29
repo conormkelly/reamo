@@ -1,7 +1,7 @@
 /**
  * IconPicker - Searchable grid of curated DAW icons
  *
- * Uses the curated icon set (292 icons) instead of all 1663 Lucide icons.
+ * Uses the curated icon set (icons/commonIcons) instead of the full Lucide library.
  * Supports semantic search via iconSearchIndex (e.g., "record" finds Circle, Mic, Disc).
  *
  * Renders via portal to document.body to escape stacking contexts.
@@ -31,21 +31,21 @@ const FEATURED_ICONS: CommonIconName[] = [
   'Volume', 'Volume1', 'Volume2', 'VolumeX', 'VolumeOff',
   'Mic', 'MicOff', 'Headphones', 'Speaker', 'AudioLines', 'AudioWaveform',
   // Music
-  'Music', 'Music2', 'Piano', 'Radio',
+  'EighthNotes', 'EighthNote', 'Piano', 'Radio',
   // Editing
-  'Scissors', 'Copy', 'ClipboardPaste', 'Trash2', 'Undo2', 'Redo2',
+  'Scissors', 'Copy', 'ClipboardPaste', 'Trash', 'Undo2', 'Redo2',
   // Navigation
   'ZoomIn', 'ZoomOut', 'Move', 'Navigation', 'Target',
   // Markers/Regions
   'MapPin', 'Flag', 'Bookmark', 'RectangleHorizontal',
   // Settings
-  'Settings', 'Sliders', 'SlidersHorizontal', 'SlidersVertical',
+  'Settings', 'SlidersHorizontal', 'SlidersVertical',
   // Layout
   'Layers', 'Rows2', 'LayoutList', 'Grid3x3',
   // Common actions
   'Plus', 'Minus', 'Check', 'X', 'Save', 'RefreshCw',
   // Status
-  'Eye', 'EyeOff', 'Lock', 'Unlock', 'Power',
+  'Eye', 'EyeOff', 'Lock', 'LockOpen', 'Power',
 ];
 
 // Convert PascalCase to kebab-case for display

@@ -57,7 +57,7 @@ test.describe('Notes View - Connection State Stability', () => {
   test.use({ viewport: { width: 1024, height: 768 } });
 
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:5173');
+    await page.goto('/');
     await setupTestMode(page);
   });
 

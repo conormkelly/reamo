@@ -7,7 +7,7 @@ import {
   Minus,
   Plus,
   Infinity as InfinityIcon,
-  AlertTriangle,
+  TriangleAlert,
   GripVertical,
   X,
 } from 'lucide-react';
@@ -175,7 +175,7 @@ export function PlaylistEntryRow({
             <span className="font-medium truncate">{regionName}</span>
             {entry.deleted && (
               <span className="text-external-text text-xs flex items-center gap-1">
-                <AlertTriangle size={12} /> Deleted
+                <TriangleAlert size={12} /> Deleted
               </span>
             )}
           </div>

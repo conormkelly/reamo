@@ -7,7 +7,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, type ReactElement } 
 import {
   Plus,
   Pencil,
-  Trash2,
+  Trash,
   Play,
   Pause,
   Square,
@@ -366,7 +366,7 @@ export function PlaylistView(): ReactElement {
         className="p-1.5 bg-bg-surface hover:bg-error-action/20 rounded-lg transition-colors"
         title="Delete playlist"
       >
-        <Trash2 size={18} />
+        <Trash size={18} />
       </button>
     </ViewHeader>
   );

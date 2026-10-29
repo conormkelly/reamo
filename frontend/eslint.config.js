@@ -6,36 +6,32 @@
  * correspond to in the development guide.
  *
  * @see FRONTEND_DEVELOPMENT.md
- * @see docs/architecture/ESLINT_GOVERNANCE.md
  */
 
+import { defineConfig, globalIgnores } from 'eslint/config';
 import js from '@eslint/js';
 import globals from 'globals';
 import reactHooks from 'eslint-plugin-react-hooks';
-import reactRefresh from 'eslint-plugin-react-refresh';
+import { reactRefresh } from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
 import { reamoRules } from './eslint-rules/index.js';
 
-export default tseslint.config(
-  // Global ignores
-  { ignores: ['dist/', 'node_modules/', '.eslintcache', 'coverage/', 'playwright-report/'] },
+export default defineConfig(
+  globalIgnores(['dist/', 'node_modules/', '.eslintcache', 'coverage/', 'playwright-report/']),
 
   // Base TypeScript/React configuration
   {
     files: ['**/*.{ts,tsx}'],
-    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    extends: [js.configs.recommended, tseslint.configs.recommended, reactHooks.configs.flat.recommended],
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,
     },
     plugins: {
-      'react-hooks': reactHooks,
-      'react-refresh': reactRefresh,
+      'react-refresh': reactRefresh.plugin,
       reamo: reamoRules,
     },
     rules: {
-      // React hooks rules
-      ...reactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
 
       // =========================================================================
@@ -192,6 +188,13 @@ export default tseslint.config(
             {
               group: ['lucide-react/dist/esm/icons/*'],
               message: "Use direct imports from 'lucide-react' instead.",
+            },
+            {
+              // Rolldown keeps any statically imported module in the main
+              // chunk, so one static import or re-export of IconPicker
+              // defeats LazyIconPicker's import().
+              group: ['**/IconPicker'],
+              message: 'Use LazyIconPicker; IconPicker loads as its own chunk. See FRONTEND_DEVELOPMENT.md §14.',
             },
           ],
         },

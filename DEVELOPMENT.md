@@ -25,7 +25,7 @@ This document captures implementation details, API quirks, and outstanding work 
 
 ## Quick Start
 
-First time, with Node 22+ and npm 11.16+ (`npm install -g npm@11` if
+First time, with Node 22.22.2+ (or 24.15+) and npm 11.16+ (`npm install -g npm@11` if
 `npm --version` is older; the frontend refuses an older npm):
 
 ```bash

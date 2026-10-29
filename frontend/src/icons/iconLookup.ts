@@ -2,10 +2,9 @@
  * Look up Lucide icon components by name.
  *
  * Two-tier icon loading:
- * 1. Common icons (292) - loaded synchronously, covers 99% of DAW use cases
- * 2. Full library (1663) - lazy-loaded only when needed
- *
- * This reduces the main bundle by ~150-200 kB.
+ * 1. Common icons (the curated set in commonIcons.ts) - loaded synchronously,
+ *    covers 99% of DAW use cases
+ * 2. Full library (every lucide icon) - lazy-loaded only when needed
  */
 
 import type { ComponentType } from 'react';
@@ -13,6 +12,49 @@ import type { LucideProps } from 'lucide-react';
 import { commonIcons, type CommonIconName } from './commonIcons';
 
 export type LucideIcon = ComponentType<LucideProps>;
+
+/**
+ * Icon names that saved toolbar buttons and action sections may hold but that
+ * lucide-react exports only as deprecated aliases. Each maps to the canonical
+ * name of the same icon in the curated set, so a layout saved with "Trash2"
+ * still shows the bin.
+ */
+const LEGACY_ICON_NAMES: ReadonlyMap<string, CommonIconName> = new Map<string, CommonIconName>([
+  ['AlertCircle', 'CircleAlert'],
+  ['AlertOctagon', 'OctagonAlert'],
+  ['AlertTriangle', 'TriangleAlert'],
+  ['AlignCenter', 'TextAlignCenter'],
+  ['AlignLeft', 'TextAlignStart'],
+  ['AlignRight', 'TextAlignEnd'],
+  ['CheckCircle', 'CircleCheckBig'],
+  ['CheckCircle2', 'CircleCheck'],
+  ['CircleHelp', 'CircleQuestionMark'],
+  ['Edit', 'SquarePen'],
+  ['FileAudio', 'FileHeadphone'],
+  ['Filter', 'Funnel'],
+  ['FlipHorizontal', 'SquareCenterlineDashedHorizontal'],
+  ['FlipVertical', 'SquareCenterlineDashedVertical'],
+  ['HelpCircle', 'CircleQuestionMark'],
+  ['History', 'RotateCcwClock'],
+  ['Home', 'House'],
+  ['Loader2', 'LoaderCircle'],
+  ['MoreHorizontal', 'Ellipsis'],
+  ['MoreVertical', 'EllipsisVertical'],
+  ['Music', 'EighthNotes'],
+  ['Music2', 'EighthNote'],
+  ['Music3', 'HalfNote'],
+  ['Music4', 'SixteenthNotes'],
+  ['Sliders', 'SlidersVertical'],
+  ['SortAsc', 'ArrowUpNarrowWide'],
+  ['SortDesc', 'ArrowDownWideNarrow'],
+  ['SplitSquareHorizontal', 'SquareSplitHorizontal'],
+  ['SplitSquareVertical', 'SquareSplitVertical'],
+  ['Trash2', 'Trash'],
+  ['Unlock', 'LockOpen'],
+  ['Wand2', 'WandSparkles'],
+  ['Waves', 'WavesHorizontal'],
+  ['XCircle', 'CircleX'],
+]);
 
 // Cache for lazy-loaded full icon library
 let fullIconsCache: Record<string, LucideIcon> | null = null;
@@ -28,34 +70,42 @@ function kebabToPascal(name: string): string {
     .join('');
 }
 
+function lookup(table: Record<string, LucideIcon>, name: string): LucideIcon | null {
+  return Object.hasOwn(table, name) ? table[name] : null;
+}
+
+/**
+ * Canonical lucide name for a stored icon name: legacy alias names (in
+ * PascalCase or kebab-case) map to the icon's current name; any other name is
+ * returned unchanged.
+ */
+export function canonicalIconName(name: string): string {
+  return LEGACY_ICON_NAMES.get(name) ?? LEGACY_ICON_NAMES.get(kebabToPascal(name)) ?? name;
+}
+
 /**
  * Get icon component by name (sync - common icons only)
  * Returns null for icons not in the curated set.
  * For async access to all icons, use getIconComponentAsync.
  */
 export function getIconComponent(name: string): LucideIcon | null {
-  // Try exact match in common icons first (PascalCase)
-  if (name in commonIcons) {
-    return commonIcons[name as CommonIconName];
-  }
+  const canonical = canonicalIconName(name);
+  const pascalName = kebabToPascal(canonical);
 
-  // Convert kebab-case to PascalCase and try again
-  const pascalName = kebabToPascal(name);
-  if (pascalName in commonIcons) {
-    return commonIcons[pascalName as CommonIconName];
-  }
+  // Curated set: exact (PascalCase) name, then kebab-case converted
+  const common = lookup(commonIcons, canonical) ?? lookup(commonIcons, pascalName);
+  if (common) return common;
 
-  // Check if we've already loaded the full library
+  // Full library, once it has been loaded
   if (fullIconsCache) {
-    return fullIconsCache[name] || fullIconsCache[pascalName] || null;
+    return lookup(fullIconsCache, canonical) ?? lookup(fullIconsCache, pascalName);
   }
 
-  // Not in common icons and full library not loaded
   return null;
 }
 
 /**
- * Lazy-load the full icon library (1663 icons)
+ * Lazy-load the full icon library.
  * Only call this when you need access to uncommon icons.
  */
 async function loadFullIcons(): Promise<Record<string, LucideIcon>> {
@@ -82,6 +132,6 @@ export async function getIconComponentAsync(name: string): Promise<LucideIcon | 
 
   // Lazy-load full library for uncommon icons
   const allIcons = await loadFullIcons();
-  const pascalName = kebabToPascal(name);
-  return allIcons[name] || allIcons[pascalName] || null;
+  const canonical = canonicalIconName(name);
+  return lookup(allIcons, canonical) ?? lookup(allIcons, kebabToPascal(canonical));
 }

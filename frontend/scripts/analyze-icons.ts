@@ -84,9 +84,9 @@ const SYNONYMS: Record<string, string[]> = {
   level: ['Activity', 'ChartBar', 'Gauge'],
   meter: ['Activity', 'ChartBar', 'Gauge', 'Signal'],
   peak: ['TrendingUp', 'Mountain', 'Activity'],
-  clip: ['AlertTriangle', 'AlertOctagon', 'Scissors'],
-  fade: ['Blend', 'Waves', 'TrendingDown'],
-  crossfade: ['Blend', 'X', 'Waves'],
+  clip: ['TriangleAlert', 'OctagonAlert', 'Scissors'],
+  fade: ['Blend', 'WavesHorizontal', 'TrendingDown'],
+  crossfade: ['Blend', 'X', 'WavesHorizontal'],
 
   // Track operations
   track: ['Layers', 'List', 'Rows2', 'Rows3'],
@@ -109,11 +109,11 @@ const SYNONYMS: Record<string, string[]> = {
   cut: ['Scissors'],
   copy: ['Copy', 'ClipboardCopy', 'Files'],
   paste: ['ClipboardPaste', 'Clipboard'],
-  delete: ['Trash2', 'X', 'Eraser'],
-  remove: ['Trash2', 'Minus', 'X'],
+  delete: ['Trash', 'X', 'Eraser'],
+  remove: ['Trash', 'Minus', 'X'],
   undo: ['Undo2', 'RotateCcw'],
   redo: ['Redo2', 'RotateCw'],
-  split: ['Scissors', 'Split', 'SplitSquareHorizontal'],
+  split: ['Scissors', 'Split', 'SquareSplitHorizontal'],
   trim: ['Crop', 'Scissors', 'Slice'],
   crop: ['Crop', 'Scissors'],
   glue: ['Link', 'Merge', 'Combine'],
@@ -125,7 +125,7 @@ const SYNONYMS: Record<string, string[]> = {
   selection: ['Square', 'RectangleHorizontal'],
   deselect: ['SquareX', 'Square'],
   stretch: ['ArrowLeftRight', 'Expand', 'MoveHorizontal'],
-  quantize: ['Grid3x3', 'LayoutGrid', 'AlignCenter'],
+  quantize: ['Grid3x3', 'LayoutGrid', 'TextAlignCenter'],
 
   // Time/Navigation
   loop: ['Repeat', 'RefreshCw', 'RotateCcw', 'Repeat1'],
@@ -142,7 +142,7 @@ const SYNONYMS: Record<string, string[]> = {
   position: ['Navigation', 'MapPin', 'Crosshair'],
   cursor: ['MousePointer2', 'Navigation', 'Type'],
   grid: ['Grid3x3', 'LayoutGrid', 'Grid2x2'],
-  snap: ['Magnet', 'Grid3x3', 'AlignCenter'],
+  snap: ['Magnet', 'Grid3x3', 'TextAlignCenter'],
   zoom: ['ZoomIn', 'ZoomOut', 'Search'],
   scroll: ['MoveVertical', 'ChevronsUpDown', 'ArrowUpDown'],
 
@@ -152,51 +152,51 @@ const SYNONYMS: Record<string, string[]> = {
   count: ['ListOrdered', 'Hash', 'Binary'],
 
   // FX/Processing
-  fx: ['Wand2', 'Sparkles', 'Settings2'],
-  effect: ['Wand2', 'Sparkles', 'Settings2'],
-  effects: ['Wand2', 'Sparkles', 'Settings2'],
+  fx: ['WandSparkles', 'Sparkles', 'Settings2'],
+  effect: ['WandSparkles', 'Sparkles', 'Settings2'],
+  effects: ['WandSparkles', 'Sparkles', 'Settings2'],
   plugin: ['Plug', 'Package', 'Box'],
   plugins: ['Plug', 'Package', 'Boxes'],
   vst: ['Plug', 'Box', 'Package'],
-  eq: ['SlidersHorizontal', 'Sliders', 'Activity'],
+  eq: ['SlidersHorizontal', 'SlidersVertical', 'Activity'],
   compressor: ['ArrowDownUp', 'Minimize2', 'Shrink'],
-  reverb: ['Waves', 'AudioWaveform', 'Sparkles'],
+  reverb: ['WavesHorizontal', 'AudioWaveform', 'Sparkles'],
   delay: ['Clock', 'Timer', 'Repeat'],
-  filter: ['Filter', 'Funnel', 'SlidersHorizontal'],
-  bypass: ['CircleOff', 'XCircle', 'Ban'],
+  filter: ['Funnel', 'SlidersHorizontal'],
+  bypass: ['CircleOff', 'CircleX', 'Ban'],
 
   // MIDI
-  midi: ['Piano', 'Music', 'Keyboard'],
-  note: ['Music', 'Music2', 'FileMusic'],
-  notes: ['Music', 'Music2', 'ListMusic'],
+  midi: ['Piano', 'EighthNotes', 'Keyboard'],
+  note: ['EighthNotes', 'EighthNote', 'FileMusic'],
+  notes: ['EighthNotes', 'EighthNote', 'ListMusic'],
   velocity: ['TrendingUp', 'Gauge', 'Activity'],
-  pitch: ['TrendingUp', 'ArrowUpDown', 'Music'],
+  pitch: ['TrendingUp', 'ArrowUpDown', 'EighthNotes'],
   channel: ['Layers', 'Radio', 'Cast'],
-  cc: ['Sliders', 'SlidersHorizontal', 'Activity'],
+  cc: ['SlidersVertical', 'SlidersHorizontal', 'Activity'],
 
   // File operations
   save: ['Save', 'Download', 'HardDrive'],
   load: ['Upload', 'FolderOpen', 'FileUp'],
   import: ['Download', 'FileDown', 'ArrowDownToLine'],
   export: ['Upload', 'FileUp', 'ArrowUpFromLine'],
-  render: ['FileOutput', 'Film', 'FileAudio'],
-  bounce: ['FileOutput', 'FileAudio', 'ArrowDownToLine'],
-  file: ['File', 'FileAudio', 'FileText'],
+  render: ['FileOutput', 'Film', 'FileHeadphone'],
+  bounce: ['FileOutput', 'FileHeadphone', 'ArrowDownToLine'],
+  file: ['File', 'FileHeadphone', 'FileText'],
   project: ['FolderKanban', 'LayoutDashboard', 'FileStack'],
 
   // Automation
   automation: ['Activity', 'TrendingUp', 'Pencil'],
-  envelope: ['Activity', 'TrendingUp', 'Waves'],
-  write: ['Pencil', 'Edit', 'PenTool'],
+  envelope: ['Activity', 'TrendingUp', 'WavesHorizontal'],
+  write: ['Pencil', 'SquarePen', 'PenTool'],
   read: ['Eye', 'BookOpen', 'FileText'],
   touch: ['Hand', 'Pointer', 'Pencil'],
   latch: ['Lock', 'Pin', 'Anchor'],
 
   // UI/View
-  mixer: ['SlidersVertical', 'Sliders', 'LayoutDashboard'],
+  mixer: ['SlidersVertical', 'LayoutDashboard'],
   arrange: ['LayoutList', 'Rows2', 'PanelLeft'],
-  edit: ['Pencil', 'Edit', 'PenTool'],
-  editor: ['Pencil', 'Edit', 'Code'],
+  edit: ['Pencil', 'SquarePen', 'PenTool'],
+  editor: ['Pencil', 'SquarePen', 'Code'],
   browser: ['FolderTree', 'Folders', 'Search'],
   console: ['Terminal', 'Code', 'FileText'],
   dock: ['PanelBottom', 'PanelLeft', 'PanelRight'],
@@ -214,15 +214,15 @@ const SYNONYMS: Record<string, string[]> = {
   interface: ['Plug', 'Usb', 'Cable'],
 
   // Misc DAW
-  sample: ['AudioWaveform', 'Waves', 'FileAudio'],
-  waveform: ['AudioWaveform', 'Waves', 'Activity'],
-  wave: ['AudioWaveform', 'Waves'],
+  sample: ['AudioWaveform', 'WavesHorizontal', 'FileHeadphone'],
+  waveform: ['AudioWaveform', 'WavesHorizontal', 'Activity'],
+  wave: ['AudioWaveform', 'WavesHorizontal'],
   take: ['Layers', 'Copy', 'Files'],
   takes: ['Layers', 'Files', 'LayoutList'],
   item: ['RectangleHorizontal', 'Box', 'Square'],
   items: ['Rows2', 'LayoutList', 'Boxes'],
   pool: ['Database', 'Archive', 'Folder'],
-  media: ['Film', 'Video', 'FileAudio'],
+  media: ['Film', 'Video', 'FileHeadphone'],
   video: ['Film', 'Video', 'Clapperboard'],
 
   // Actions
@@ -230,33 +230,33 @@ const SYNONYMS: Record<string, string[]> = {
   add: ['Plus', 'CirclePlus', 'FilePlus'],
   create: ['Plus', 'FilePlus', 'FolderPlus'],
   lock: ['Lock', 'LockKeyhole'],
-  unlock: ['Unlock', 'LockKeyholeOpen'],
+  unlock: ['LockOpen', 'LockKeyholeOpen'],
   freeze: ['Snowflake', 'Pause', 'Lock'],
-  unfreeze: ['Sun', 'Play', 'Unlock'],
+  unfreeze: ['Sun', 'Play', 'LockOpen'],
   normalize: ['TrendingUp', 'Maximize2', 'Activity'],
-  reverse: ['FlipHorizontal', 'RotateCcw', 'ArrowLeftRight'],
-  invert: ['FlipVertical', 'RefreshCw'],
+  reverse: ['SquareCenterlineDashedHorizontal', 'RotateCcw', 'ArrowLeftRight'],
+  invert: ['SquareCenterlineDashedVertical', 'RefreshCw'],
 
   // High-frequency tokens from REAPER action analysis (added based on data)
-  selected: ['SquareCheck', 'Check', 'CheckCircle'],
+  selected: ['SquareCheck', 'Check', 'CircleCheckBig'],
   preset: ['Bookmark', 'Save', 'FileText', 'Star'],
   lane: ['Rows2', 'Layers', 'LayoutList'],
   lanes: ['Rows2', 'Rows3', 'Layers'],
   stereo: ['Speaker', 'Volume2', 'AudioLines'],
   mono: ['Speaker', 'Volume1', 'Circle'],
-  clear: ['X', 'Eraser', 'Trash2', 'XCircle'],
+  clear: ['X', 'Eraser', 'Trash', 'CircleX'],
   preview: ['Eye', 'Play', 'Search'],
   transport: ['Play', 'Pause', 'Square', 'SkipForward'],
-  master: ['Crown', 'Star', 'Home', 'Gauge'],
+  master: ['Crown', 'Star', 'House', 'Gauge'],
   color: ['Palette', 'Paintbrush', 'Circle'],
-  restore: ['RotateCcw', 'History', 'Undo2'],
+  restore: ['RotateCcw', 'RotateCcwClock', 'Undo2'],
   nudge: ['MoveHorizontal', 'ArrowRight', 'ArrowLeft'],
   comp: ['Layers', 'Combine', 'GitMerge'],  // comping
   chain: ['Link', 'GitBranch', 'Workflow'],
   slot: ['Box', 'Square', 'Package'],
-  properties: ['Settings', 'Sliders', 'Info'],
+  properties: ['Settings', 'SlidersVertical', 'Info'],
   active: ['CircleDot', 'Check', 'Power'],
-  envelopes: ['Activity', 'TrendingUp', 'Waves'],
+  envelopes: ['Activity', 'TrendingUp', 'WavesHorizontal'],
   channels: ['Layers', 'Rows2', 'LayoutList'],
   toolbar: ['Menu', 'LayoutDashboard', 'Grid3x3'],
   toolbars: ['Menu', 'LayoutDashboard', 'Grid3x3'],
@@ -270,49 +270,49 @@ const SYNONYMS: Record<string, string[]> = {
   points: ['CircleDot', 'Circle', 'Target'],
   point: ['CircleDot', 'Target', 'MapPin'],
   events: ['Calendar', 'Bell', 'Activity'],
-  config: ['Settings', 'Cog', 'Sliders'],
+  config: ['Settings', 'Cog', 'SlidersVertical'],
   go: ['ArrowRight', 'Navigation', 'Play'],
   live: ['Radio', 'Activity', 'Antenna'],
-  apply: ['Check', 'CheckCircle', 'Play'],
+  apply: ['Check', 'CircleCheckBig', 'Play'],
   tab: ['Columns2', 'LayoutList', 'PanelRight'],
   area: ['Square', 'Box', 'LayoutGrid'],
   locking: ['Lock', 'LockKeyhole'],
-  notation: ['Music', 'FileMusic', 'Piano'],
-  adjust: ['Sliders', 'SlidersHorizontal', 'Settings'],
+  notation: ['EighthNotes', 'FileMusic', 'Piano'],
+  adjust: ['SlidersVertical', 'SlidersHorizontal', 'Settings'],
   playing: ['Play', 'CirclePlay'],
 
   // Additional DAW terms (round 3 - from action search)
-  ruler: ['Ruler', 'LayoutList', 'AlignLeft'],
-  measure: ['Music', 'Clock', 'Hash'],
-  fader: ['SlidersVertical', 'Sliders', 'Gauge'],
+  ruler: ['Ruler', 'LayoutList', 'TextAlignStart'],
+  measure: ['EighthNotes', 'Clock', 'Hash'],
+  fader: ['SlidersVertical', 'Gauge'],
   playlist: ['ListMusic', 'List', 'LayoutList'],
   stem: ['GitBranch', 'Split', 'Layers'],
   cue: ['Flag', 'MapPin', 'Bell'],
-  ripple: ['Waves', 'Activity', 'RefreshCw'],
+  ripple: ['WavesHorizontal', 'Activity', 'RefreshCw'],
   scrub: ['FastForward', 'Rewind', 'Navigation'],
-  disarm: ['CircleOff', 'XCircle', 'Circle'],
+  disarm: ['CircleOff', 'CircleX', 'Circle'],
   rms: ['Activity', 'ChartBar', 'Gauge'],
-  wet: ['Droplet', 'Waves', 'Blend'],
+  wet: ['Droplet', 'WavesHorizontal', 'Blend'],
   dry: ['Sun', 'Circle', 'Blend'],
   routing: ['GitBranch', 'Split', 'Share2'],
-  scale: ['Music', 'SlidersVertical', 'TrendingUp'],
-  phase: ['RefreshCw', 'RotateCw', 'FlipHorizontal'],
-  bar: ['Music', 'Hash', 'LayoutList'],
-  beat: ['Music', 'Timer', 'Activity'],
-  threshold: ['Activity', 'TrendingUp', 'AlertTriangle'],
-  chord: ['Music', 'Piano', 'Layers'],
+  scale: ['EighthNotes', 'SlidersVertical', 'TrendingUp'],
+  phase: ['RefreshCw', 'RotateCw', 'SquareCenterlineDashedHorizontal'],
+  bar: ['EighthNotes', 'Hash', 'LayoutList'],
+  beat: ['EighthNotes', 'Timer', 'Activity'],
+  threshold: ['Activity', 'TrendingUp', 'TriangleAlert'],
+  chord: ['EighthNotes', 'Piano', 'Layers'],
   punch: ['Circle', 'CircleDot', 'Target'],
   jog: ['RotateCcw', 'RotateCw', 'RefreshCw'],
-  polarity: ['FlipVertical', 'RefreshCw', 'ArrowUpDown'],
+  polarity: ['SquareCenterlineDashedVertical', 'RefreshCw', 'ArrowUpDown'],
   consolidate: ['Combine', 'Merge', 'Layers'],
   collapse: ['ChevronDown', 'Minimize', 'Shrink'],
-  vca: ['SlidersVertical', 'Sliders', 'Gauge'],
-  heal: ['Heart', 'Sparkles', 'Wand2'],
+  vca: ['SlidersVertical', 'Gauge'],
+  heal: ['Heart', 'Sparkles', 'WandSparkles'],
   overdub: ['Layers', 'Circle', 'Plus'],
   window: ['AppWindow', 'Square', 'Maximize'],
-  help: ['HelpCircle', 'CircleHelp', 'Info'],
-  about: ['Info', 'HelpCircle', 'FileText'],
-  manual: ['BookOpen', 'FileText', 'HelpCircle'],
+  help: ['CircleQuestionMark', 'Info'],
+  about: ['Info', 'CircleQuestionMark', 'FileText'],
+  manual: ['BookOpen', 'FileText', 'CircleQuestionMark'],
   backup: ['HardDrive', 'Save', 'Archive'],
   batch: ['Layers', 'Files', 'LayoutList'],
   submix: ['GitBranch', 'Merge', 'Layers'],
@@ -326,34 +326,34 @@ const SYNONYMS: Record<string, string[]> = {
   online: ['Wifi', 'Cloud', 'CircleDot'],
 
   // Instruments
-  guitar: ['Guitar', 'Music', 'Music2'],
-  piano: ['Piano', 'KeyboardMusic', 'Music'],
-  drums: ['Drum', 'Drumstick', 'Music'],
+  guitar: ['Guitar', 'EighthNotes', 'EighthNote'],
+  piano: ['Piano', 'KeyboardMusic', 'EighthNotes'],
+  drums: ['Drum', 'Drumstick', 'EighthNotes'],
   drum: ['Drum', 'Drumstick', 'Circle'],
-  bass: ['Guitar', 'Music', 'AudioWaveform'],
-  synth: ['Piano', 'KeyboardMusic', 'Waves'],
-  keys: ['Piano', 'KeyboardMusic', 'Music'],
+  bass: ['Guitar', 'EighthNotes', 'AudioWaveform'],
+  synth: ['Piano', 'KeyboardMusic', 'WavesHorizontal'],
+  keys: ['Piano', 'KeyboardMusic', 'EighthNotes'],
   keyboard: ['KeyboardMusic', 'Piano', 'Keyboard'],
-  strings: ['Guitar', 'Music', 'Waves'],
+  strings: ['Guitar', 'EighthNotes', 'WavesHorizontal'],
 
   // Voice/Vocals
   vocal: ['MicVocal', 'Mic', 'User'],
   vocals: ['MicVocal', 'Mic', 'User'],
   voice: ['MicVocal', 'Speech', 'Mic'],
   singer: ['MicVocal', 'User', 'Mic'],
-  sing: ['MicVocal', 'Music', 'Mic'],
+  sing: ['MicVocal', 'EighthNotes', 'Mic'],
   speech: ['Speech', 'MicVocal', 'MessageSquare'],
   talk: ['Speech', 'MessageCircle', 'Mic'],
   person: ['User', 'PersonStanding', 'CircleUser'],
 
   // British/American spelling variants
-  bin: ['Trash2', 'X', 'Eraser'],  // UK for trash
-  rubbish: ['Trash2', 'X', 'Eraser'],  // UK for trash
+  bin: ['Trash', 'X', 'Eraser'],  // UK for trash
+  rubbish: ['Trash', 'X', 'Eraser'],  // UK for trash
   colour: ['Palette', 'Paintbrush', 'Circle'],  // UK for color
   favourite: ['Star', 'Heart', 'Bookmark'],  // UK for favorite
   favorite: ['Star', 'Heart', 'Bookmark'],
-  centre: ['AlignCenter', 'Target', 'Crosshair'],  // UK for center
-  center: ['AlignCenter', 'Target', 'Crosshair'],
+  centre: ['TextAlignCenter', 'Target', 'Crosshair'],  // UK for center
+  center: ['TextAlignCenter', 'Target', 'Crosshair'],
   organise: ['LayoutList', 'Layers', 'Group'],  // UK for organize
   organize: ['LayoutList', 'Layers', 'Group'],
   normalise: ['TrendingUp', 'Maximize2', 'Activity'],  // UK for normalize
@@ -375,7 +375,7 @@ const SYNONYMS: Record<string, string[]> = {
   infinite: ['Infinity', 'Repeat', 'RefreshCw'],
   forever: ['Infinity', 'Repeat', 'RefreshCw'],
   endless: ['Infinity', 'Repeat', 'RefreshCw'],
-  sustain: ['Infinity', 'Waves', 'Activity'],
+  sustain: ['Infinity', 'WavesHorizontal', 'Activity'],
   unlimited: ['Infinity', 'Expand', 'Maximize'],
 
   // Additional round 4 icons
@@ -387,7 +387,7 @@ const SYNONYMS: Record<string, string[]> = {
   stream: ['RadioTower', 'Radio', 'Wifi'],
   streaming: ['RadioTower', 'Radio', 'Wifi'],
   transmit: ['RadioTower', 'Send', 'Antenna'],
-  album: ['DiscAlbum', 'Disc', 'Music'],
+  album: ['DiscAlbum', 'Disc', 'EighthNotes'],
   release: ['DiscAlbum', 'Disc', 'Upload'],
   launch: ['Rocket', 'Play', 'Zap'],
   boost: ['Rocket', 'TrendingUp', 'Zap'],
@@ -396,17 +396,27 @@ const SYNONYMS: Record<string, string[]> = {
   lightning: ['Bolt', 'Zap', 'Sparkles'],
   electric: ['Bolt', 'Zap', 'Power'],
   energy: ['Bolt', 'Zap', 'Activity'],
+
+  // Words from lucide's alias names for curated icons (Music, Home, History,
+  // SortAsc, FlipHorizontal, MoreHorizontal) that the canonical names lack, so
+  // searching by them still finds the icon
+  music: ['EighthNotes', 'EighthNote', 'HalfNote', 'SixteenthNotes'],
+  home: ['House'],
+  history: ['RotateCcwClock'],
+  sort: ['ArrowUpNarrowWide', 'ArrowDownWideNarrow'],
+  flip: ['SquareCenterlineDashedHorizontal', 'SquareCenterlineDashedVertical'],
+  more: ['Ellipsis', 'EllipsisVertical'],
 };
 
 // Icons that are commonly used in codebase (from plan analysis)
 const CODEBASE_ICONS = [
-  'ALargeSmall', 'Activity', 'AlertCircle', 'AlertTriangle', 'AlignCenter', 'AlignLeft', 'AlignRight',
+  'ALargeSmall', 'Activity', 'CircleAlert', 'TriangleAlert', 'TextAlignCenter', 'TextAlignStart', 'TextAlignEnd',
   'ArrowLeftRight', 'AudioLines', 'Check', 'ChevronDown', 'ChevronLeft', 'ChevronRight', 'Circle',
   'CircleSmall', 'Clock', 'CopyPlus', 'Eye', 'EyeOff', 'Gauge', 'GripVertical', 'Headphones', 'Info',
-  'Layers', 'ListOrdered', 'Loader2', 'Lock', 'MapPin', 'MapPinPlus', 'Menu', 'Minus', 'Move', 'Navigation',
+  'Layers', 'ListOrdered', 'LoaderCircle', 'Lock', 'MapPin', 'MapPinPlus', 'Menu', 'Minus', 'Move', 'Navigation',
   'Palette', 'Pause', 'Pencil', 'Play', 'Plus', 'RectangleHorizontal', 'Redo2', 'RefreshCw', 'Repeat',
   'RotateCcw', 'Save', 'Scissors', 'Search', 'SkipBack', 'SkipForward', 'Square', 'ToggleLeft',
-  'ToggleRight', 'Trash2', 'Undo2', 'Unlink2', 'Unlock', 'Wifi', 'WifiOff', 'X', 'XCircle',
+  'ToggleRight', 'Trash', 'Undo2', 'Unlink2', 'LockOpen', 'Wifi', 'WifiOff', 'X', 'CircleX',
 ];
 
 // Additional DAW-relevant icons to always include
@@ -415,36 +425,36 @@ const ADDITIONAL_DAW_ICONS = [
   'FastForward', 'Rewind', 'StepBack', 'StepForward', 'CirclePlay', 'CirclePause', 'CircleStop',
   'Repeat1', 'Shuffle', 'Volume', 'Volume1', 'Volume2', 'VolumeX', 'VolumeOff',
   // Audio & Music
-  'Music', 'Music2', 'Music3', 'Music4', 'Mic', 'MicOff', 'MicVocal', 'AudioWaveform', 'Radio', 'Disc',
+  'EighthNotes', 'EighthNote', 'HalfNote', 'SixteenthNotes', 'Mic', 'MicOff', 'MicVocal', 'AudioWaveform', 'Radio', 'Disc',
   'Disc2', 'Disc3', 'Speaker', 'Headset', 'Guitar', 'Drum', 'Drumstick', 'KeyboardMusic', 'Piano',
   // Voice & People
   'Speech', 'PersonStanding', 'CircleUser', 'User',
   // Recording & Monitoring
-  'CircleDot', 'Target', 'Signal', 'SignalHigh', 'SignalMedium', 'SignalLow', 'Antenna', 'Waves',
+  'CircleDot', 'Target', 'Signal', 'SignalHigh', 'SignalMedium', 'SignalLow', 'Antenna', 'WavesHorizontal',
   // Editing & Selection
   'Copy', 'ClipboardCopy', 'ClipboardPaste', 'Scissors', 'Merge', 'Group', 'Ungroup', 'Crop', 'Eraser',
-  'PenTool', 'Wand2', 'History',
+  'PenTool', 'WandSparkles', 'RotateCcwClock',
   // Navigation & Zoom
   'ZoomIn', 'ZoomOut', 'Maximize', 'Maximize2', 'Minimize', 'Minimize2', 'Expand', 'MoveHorizontal',
   'MoveVertical', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ChevronsLeft', 'ChevronsRight',
-  'ChevronsUp', 'ChevronsDown', 'Home', 'CornerUpLeft',
+  'ChevronsUp', 'ChevronsDown', 'House', 'CornerUpLeft',
   // Time & Markers
   'Timer', 'TimerOff', 'TimerReset', 'Bookmark', 'BookmarkPlus', 'Flag', 'FlagOff', 'Pin', 'PinOff',
   // Layout & Grid
   'Grid2x2', 'Grid3x3', 'LayoutGrid', 'LayoutList', 'LayoutDashboard', 'Columns2', 'Columns3',
-  'Rows2', 'Rows3', 'PanelLeft', 'PanelRight', 'PanelBottom', 'SplitSquareHorizontal', 'SplitSquareVertical',
+  'Rows2', 'Rows3', 'PanelLeft', 'PanelRight', 'PanelBottom', 'SquareSplitHorizontal', 'SquareSplitVertical',
   // Settings & Preferences
-  'Settings', 'Settings2', 'Cog', 'SlidersHorizontal', 'SlidersVertical', 'Sliders', 'Wrench', 'Filter',
-  'ListFilter', 'SortAsc', 'SortDesc', 'ArrowUpDown', 'ArrowDownUp',
+  'Settings', 'Settings2', 'Cog', 'SlidersHorizontal', 'SlidersVertical', 'Wrench', 'Funnel',
+  'ListFilter', 'ArrowUpNarrowWide', 'ArrowDownWideNarrow', 'ArrowUpDown', 'ArrowDownUp',
   // File & Project
-  'File', 'FileAudio', 'FileMusic', 'FilePlus', 'FileMinus', 'FileX', 'Folder', 'FolderOpen',
+  'File', 'FileHeadphone', 'FileMusic', 'FilePlus', 'FileMinus', 'FileX', 'Folder', 'FolderOpen',
   'FolderPlus', 'FolderMinus', 'Download', 'Upload', 'Archive',
   // Status & Feedback
-  'CheckCircle', 'CheckCircle2', 'AlertOctagon', 'Bell', 'BellOff', 'BellRing', 'Power', 'PowerOff',
+  'CircleCheckBig', 'CircleCheck', 'OctagonAlert', 'Bell', 'BellOff', 'BellRing', 'Power', 'PowerOff',
   'Zap', 'ZapOff', 'Sparkles', 'Star', 'StarOff', 'Heart', 'HeartOff', 'Infinity',
   // Misc Useful
   'Link', 'Link2', 'ExternalLink', 'Share', 'Share2', 'Send', 'MessageCircle', 'MessageSquare',
-  'HelpCircle', 'CircleHelp', 'MoreHorizontal', 'MoreVertical', 'Grip', 'GripHorizontal',
+  'CircleQuestionMark', 'Ellipsis', 'EllipsisVertical', 'Grip', 'GripHorizontal',
   'Tag', 'Tags', 'Hash', 'AtSign', 'Command', 'Keyboard',
   // Additional round 4 (user-requested)
   'MonitorSpeaker', 'RadioTower', 'DiscAlbum', 'Rocket', 'Bolt',
@@ -642,11 +652,18 @@ function collectAllIcons(tokenToIcons: Map<string, string[]>): Set<string> {
 // File Generation
 // ============================================================================
 
+// Icon names that would shadow a JavaScript global if imported under their own name
+const SHADOWS_GLOBAL = new Set(['Infinity']);
+
 function generateCommonIconsFile(icons: Set<string>): string {
   const sortedIcons = [...icons].sort();
 
-  const imports = sortedIcons.join(',\n  ');
-  const entries = sortedIcons.map(icon => `  ${icon},`).join('\n');
+  const imports = sortedIcons
+    .map(icon => (SHADOWS_GLOBAL.has(icon) ? `${icon} as ${icon}Icon` : icon))
+    .join(',\n  ');
+  const entries = sortedIcons
+    .map(icon => (SHADOWS_GLOBAL.has(icon) ? `  ${icon}: ${icon}Icon,` : `  ${icon},`))
+    .join('\n');
 
   return `/**
  * Common Icons for DAW Control Surfaces

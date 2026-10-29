@@ -504,7 +504,7 @@ Zustand uses this internally - prevents tearing for 30Hz updates. **Never wrap m
 ### useRef Requires Initial Value
 
 ```typescript
-// Required in React 19 + TypeScript 5.9:
+// Required by React 19's types:
 const ref = useRef<HTMLDivElement>(null);  // NOT useRef<HTMLDivElement>()
 ```
 
@@ -1276,13 +1276,13 @@ cd frontend && npm run build && ls -lh dist/index.html
 npm run analyze
 ```
 
-### Curated Icon System (305 icons)
+### Curated Icon System (302 icons)
 
-Icons are curated in `src/icons/commonIcons.ts` instead of importing all 1,663 from lucide-react. This saves ~400 kB.
+Icons are curated in `src/icons/commonIcons.ts` instead of importing all ~1,900 from lucide-react. This saves ~400 kB.
 
 **Files:**
 
-- `src/icons/commonIcons.ts` - 305 curated DAW-relevant icons
+- `src/icons/commonIcons.ts` - 302 curated DAW-relevant icons
 - `src/icons/iconSearchIndex.ts` - Semantic search (e.g., "record" → Circle, Mic, Disc)
 - `scripts/analyze-icons.ts` - Maintenance script to regenerate (requires REAPER running)
 
@@ -1293,11 +1293,12 @@ Icons are curated in `src/icons/commonIcons.ts` instead of importing all 1,663 f
 3. Run `npx tsx scripts/analyze-icons.ts` (needs REAPER + REAmo extension)
 4. Rebuild frontend
 
+**Icon names:** use lucide's canonical names (`Trash`, `CircleX`, `LoaderCircle`), never its deprecated aliases (`Trash2`, `XCircle`, `Loader2`). Saved toolbar buttons and action sections can still hold alias names, so `LEGACY_ICON_NAMES` in `src/icons/iconLookup.ts` maps each alias the curated set used to offer to its canonical icon.
+
 ### Other Optimizations
 
-- `LazyIconPicker` via `React.lazy()`
-- `console.log`/`debugger` stripped in production (Vite esbuild)
-- No code splitting (vite-plugin-singlefile bundles everything into one HTML)
+- `LazyIconPicker` via `React.lazy()` loads `IconPicker` as its own chunk. Nothing may import `IconPicker` statically, the Toolbar barrel included: Rolldown keeps a module that is imported anywhere statically in the main chunk; `no-restricted-imports` enforces this.
+- `console.*` calls and `debugger` statements are dropped from production builds by the Oxc minifier (`build.rolldownOptions.output.minify` in `vite.config.ts`)
 
 ### Import Patterns
 
@@ -1306,7 +1307,7 @@ Icons are curated in `src/icons/commonIcons.ts` instead of importing all 1,663 f
 import { Play, Pause } from 'lucide-react';
 import { commonIcons } from '../icons/commonIcons';
 
-// BAD - includes all 1663 icons:
+// BAD - includes every lucide icon:
 import { icons } from 'lucide-react';
 ```
 
@@ -1882,7 +1883,6 @@ Always add a comment explaining why the exception is needed.
 - `eslint-rules/index.js` - Custom rule implementations
 - `lint-staged.config.js` - Pre-commit lint configuration
 - `.husky/pre-commit` - Git hook entry point
-- `docs/architecture/ESLINT_GOVERNANCE.md` - Full research and rationale
 
 ---
 

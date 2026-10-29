@@ -12,6 +12,17 @@ updates:
     cooldown:
       default-days: 7
       semver-major-days: 14
+    ignore:
+      # typescript-eslint drives TypeScript through its JS compiler API,
+      # which TypeScript 7 (the native compiler) doesn't provide, and its
+      # peer range stops before 7. Lift this when that range admits 7.
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
+      # The Node types follow the oldest Node that engines allows (22), so
+      # they can't offer APIs that Node lacks. Move their major together
+      # with engines and the workflows' node-version.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     groups:
       dev-minor-patch:
         dependency-type: development
@@ -34,6 +45,10 @@ updates:
     cooldown:
       default-days: 7
       semver-major-days: 14
+    ignore:
+      # As for /frontend: typescript-eslint can't drive TypeScript 7.
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
     groups:
       minor-patch:
         update-types: [minor, patch]

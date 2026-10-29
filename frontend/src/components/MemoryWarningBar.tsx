@@ -8,7 +8,7 @@
 
 import { useState, useCallback, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, Info, X } from 'lucide-react';
+import { TriangleAlert, Info, X } from 'lucide-react';
 import { useReaperStore } from '../store';
 import { useReaper } from '../hooks/useReaper';
 
@@ -79,7 +79,7 @@ export function MemoryWarningBar({ className = '' }: MemoryWarningBarProps): Rea
         data-testid="memory-warning-bar"
         className={`flex items-center justify-center gap-3 px-4 py-2 bg-memory-warning-bg ${className}`}
       >
-        <AlertTriangle size={16} className="text-memory-warning-icon flex-shrink-0" />
+        <TriangleAlert size={16} className="text-memory-warning-icon flex-shrink-0" />
         <span className="text-sm text-memory-warning-text">
           REAmo memory usage is high
         </span>
@@ -110,7 +110,7 @@ export function MemoryWarningBar({ className = '' }: MemoryWarningBarProps): Rea
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-2 mb-4">
-              <AlertTriangle size={20} className="text-memory-warning-icon" />
+              <TriangleAlert size={20} className="text-memory-warning-icon" />
               <h2 className="text-lg font-semibold text-text-primary">Memory Usage Warning</h2>
             </div>
 

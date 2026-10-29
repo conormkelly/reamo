@@ -15,6 +15,8 @@ import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
 import { useReaperStore } from '../index';
 import type { ToolbarAction } from './toolbarSlice';
 import { makeToggleKey, TOOLBAR_STORAGE_KEY, TOOLBAR_SETTINGS_KEY } from './toolbarSlice';
+import { commonIcons } from '../../icons/commonIcons';
+import { canonicalIconName } from '../../icons/iconLookup';
 
 // Node 25+ has a broken native localStorage that shadows jsdom's.
 // Provide a proper in-memory implementation for tests.
@@ -230,6 +232,17 @@ describe('toolbarSlice', () => {
       expect(actions.length).toBeGreaterThan(0);
       // Check that a known default exists
       expect(actions.some((a) => a.label === 'Split')).toBe(true);
+    });
+
+    it('default actions name icons by their canonical curated-set names', () => {
+      useReaperStore.getState().loadToolbarFromStorage();
+      const icons = useReaperStore.getState().toolbarActions.map((a) => a.icon);
+      expect(icons.length).toBeGreaterThan(0);
+      for (const icon of icons) {
+        expect(icon).toBeDefined();
+        expect(Object.hasOwn(commonIcons, icon!)).toBe(true);
+        expect(canonicalIconName(icon!)).toBe(icon);
+      }
     });
 
     it('saves defaults to localStorage on first load', () => {

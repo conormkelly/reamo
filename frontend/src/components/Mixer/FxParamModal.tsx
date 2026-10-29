@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useCallback, useRef, useState, useMemo, type ReactElement } from 'react';
-import { Loader2, Search, X } from 'lucide-react';
+import { LoaderCircle, Search, X } from 'lucide-react';
 import { BottomSheet } from '../Modal/BottomSheet';
 import { useReaper } from '../../hooks/useReaper';
 import { useReaperStore } from '../../store';
@@ -365,7 +365,7 @@ export function FxParamModal({
         {/* Loading state */}
         {skeletonLoading && !skeleton && (
           <div className="py-8 flex flex-col items-center gap-2 text-text-muted">
-            <Loader2 size={24} className="animate-spin" />
+            <LoaderCircle size={24} className="animate-spin" />
             <span className="text-base">Loading parameters...</span>
           </div>
         )}
