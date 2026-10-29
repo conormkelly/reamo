@@ -49,10 +49,11 @@ jobs:
       - name: Install npm
         run: npm install -g npm@11.21.1 && npm --version
 
+      # Checked against a pinned SHA-256 and never cached, so a release is
+      # built by exactly the compiler pinned in the script.
       - name: Install Zig
-        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
-        with:
-          version: 0.15.2
+        shell: bash
+        run: .github/scripts/install-zig.sh 0.15.2
 
       - name: Install system dependencies (Linux)
         if: matrix.platform == 'linux'
