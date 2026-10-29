@@ -2,9 +2,15 @@
   "name": "reamo-ws-integration",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22",
+    "npm": ">=11.16"
+  },
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",

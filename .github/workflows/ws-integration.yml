@@ -1,0 +1,73 @@
+name: WS integration tests
+
+# Dependency checks, typecheck and lint for the WebSocket integration test
+# suite, on every PR that touches it. The specs themselves need REAPER
+# running with the fixture project (make test-ws), so they don't run here.
+# Read-only, no secrets: the job runs code from the PR.
+on:
+  pull_request:
+    paths:
+      - 'tests/ws-integration/**'
+      - '.github/workflows/**'
+      - '.github/scripts/**'
+      - '.github/dependabot.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: tests/ws-integration
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+
+      # Node 22's own npm predates the settings in .npmrc and would refuse
+      # the install (package.json's engines); this is the npm they need.
+      - name: Install npm
+        run: npm install -g npm@11.21.1 && npm --version
+
+      - name: Install dependencies from the lockfile
+        run: npm ci --ignore-scripts
+
+      # Everything here is dev tooling that runs on developers' machines,
+      # none of it ships: high and critical fail.
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+
+      # Invalid signatures fail; missing ones and registry errors warn.
+      - name: Verify registry signatures
+        run: ../../.github/scripts/npm-audit-signatures.sh
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+  # Dependencies a PR adds or changes, judged by GitHub's advisory database.
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dev dependencies
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        with:
+          fail-on-scopes: development
+          fail-on-severity: high
