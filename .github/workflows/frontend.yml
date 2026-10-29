@@ -7,6 +7,7 @@ on:
     paths:
       - 'frontend/**'
       - '.github/workflows/**'
+      - '.github/scripts/**'
       - '.github/dependabot.yml'
   push:
     branches: [main]
@@ -51,32 +52,9 @@ jobs:
       - name: Audit all dependencies
         run: npm audit --audit-level=high
 
-      # A package whose registry signature doesn't verify fails. A missing
-      # signature or attestation only warns, and so does the check itself
-      # erroring (the registry's attestation service has transient failures).
+      # Invalid signatures fail; missing ones and registry errors warn.
       - name: Verify registry signatures
-        run: |
-          for attempt in 1 2 3; do
-            npm audit signatures --json > "$RUNNER_TEMP/signatures.json" 2>/dev/null || true
-            if jq -e '.error' "$RUNNER_TEMP/signatures.json" > /dev/null 2>&1; then
-              echo "::warning::npm audit signatures errored (attempt $attempt): $(jq -c '.error' "$RUNNER_TEMP/signatures.json")"
-              sleep 20
-              continue
-            fi
-            invalid=$(jq '(.invalid // []) | length' "$RUNNER_TEMP/signatures.json")
-            missing=$(jq '(.missing // []) | length' "$RUNNER_TEMP/signatures.json")
-            if [ "$invalid" -gt 0 ]; then
-              jq '.invalid' "$RUNNER_TEMP/signatures.json"
-              echo "::error::$invalid packages have invalid registry signatures or attestations"
-              exit 1
-            fi
-            if [ "$missing" -gt 0 ]; then
-              jq '.missing' "$RUNNER_TEMP/signatures.json"
-              echo "::warning::$missing packages have no registry signature or attestation"
-            fi
-            exit 0
-          done
-          echo "::warning::npm audit signatures didn't complete; not failing on it"
+        run: ../.github/scripts/npm-audit-signatures.sh
 
       - name: Lint
         run: npm run lint
