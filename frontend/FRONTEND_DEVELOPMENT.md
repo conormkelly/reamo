@@ -1295,9 +1295,8 @@ Icons are curated in `src/icons/commonIcons.ts` instead of importing all 1,663 f
 
 ### Other Optimizations
 
-- `LazyIconPicker` via `React.lazy()`
-- `console.log`/`debugger` stripped in production (Vite esbuild)
-- No code splitting (vite-plugin-singlefile bundles everything into one HTML)
+- `LazyIconPicker` via `React.lazy()` loads `IconPicker` as its own chunk. Nothing may import `IconPicker` statically, the Toolbar barrel included: Rolldown keeps a module that is imported anywhere statically in the main chunk; `no-restricted-imports` enforces this.
+- `console.*` calls and `debugger` statements are dropped from production builds by the Oxc minifier (`build.rolldownOptions.output.minify` in `vite.config.ts`)
 
 ### Import Patterns
 
