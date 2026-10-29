@@ -4,7 +4,7 @@
  */
 
 import { type ReactElement } from 'react';
-import { Trash2, RotateCcw, Check } from 'lucide-react';
+import { Trash, RotateCcw, Check } from 'lucide-react';
 import { useReaper } from '../../hooks/useReaper';
 import { useTransport } from '../../hooks/useTransport';
 import { transport } from '../../core/WebSocketCommands';
@@ -68,7 +68,7 @@ export function RecordingActionsBar({ className = '' }: RecordingActionsBarProps
           transition-colors
         "
       >
-        <Trash2 size={20} />
+        <Trash size={20} />
         <span className="text-base font-medium">Scrap</span>
       </button>
 

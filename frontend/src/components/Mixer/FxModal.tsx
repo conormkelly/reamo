@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef, type ReactElement } from 'react';
-import { ChevronLeft, ChevronRight, CircleDot, Plus, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CircleDot, Plus, Trash } from 'lucide-react';
 import { BottomSheet } from '../Modal/BottomSheet';
 import { useTrack } from '../../hooks/useTrack';
 import { useReaper } from '../../hooks/useReaper';
@@ -164,7 +164,7 @@ function FxRow({
           }`}
           title={deleteArmed ? 'Tap again to confirm delete' : 'Delete FX'}
         >
-          <Trash2 size={14} />
+          <Trash size={14} />
         </button>
       )}
 

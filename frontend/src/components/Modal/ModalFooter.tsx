@@ -13,7 +13,7 @@
  * </Modal>
  */
 
-import { Loader2 } from 'lucide-react';
+import { LoaderCircle } from 'lucide-react';
 
 export interface ModalFooterProps {
   /** Called when cancel button is clicked. If omitted, cancel button is hidden. */
@@ -80,7 +80,7 @@ export function ModalFooter({
               disabled={confirmDisabled || confirmLoading}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 ${CONFIRM_STYLES[confirmVariant]}`}
             >
-              {confirmLoading && <Loader2 size={14} className="animate-spin" />}
+              {confirmLoading && <LoaderCircle size={14} className="animate-spin" />}
               {confirmText}
             </button>
           )}

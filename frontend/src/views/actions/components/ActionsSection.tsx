@@ -8,9 +8,9 @@ import {
   GripVertical,
   Pencil,
   Plus,
-  AlignLeft,
-  AlignCenter,
-  AlignRight,
+  TextAlignStart,
+  TextAlignCenter,
+  TextAlignEnd,
 } from 'lucide-react';
 import { DynamicIcon } from '../../../components/Toolbar/DynamicIcon';
 import { ActionsGrid } from './ActionsGrid';
@@ -138,7 +138,7 @@ export function ActionsSection({
           <div className="flex items-center border border-border-default rounded overflow-hidden">
             {(['left', 'center', 'right'] as SectionAlign[]).map((align) => {
               const Icon =
-                align === 'left' ? AlignLeft : align === 'center' ? AlignCenter : AlignRight;
+                align === 'left' ? TextAlignStart : align === 'center' ? TextAlignCenter : TextAlignEnd;
               return (
                 <button
                   key={align}

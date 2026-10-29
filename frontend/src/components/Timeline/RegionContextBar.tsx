@@ -14,7 +14,7 @@
  */
 
 import { useState, useRef, useEffect, type ReactElement } from 'react';
-import { Plus, Trash2, CopyPlus, Crosshair } from 'lucide-react';
+import { Plus, Trash, CopyPlus, Crosshair } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../../hooks/useReaper';
 import { useTimeFormatters } from '../../hooks';
@@ -207,7 +207,7 @@ export function RegionContextBar({ onAddRegion, layout = 'horizontal', className
             }`}
             title={confirmDelete ? 'Tap again to confirm delete' : 'Delete region'}
           >
-            <Trash2 size={16} />
+            <Trash size={16} />
           </button>
           <button
             ref={addButtonRef}
@@ -281,7 +281,7 @@ export function RegionContextBar({ onAddRegion, layout = 'horizontal', className
           }`}
           title={confirmDelete ? 'Tap again to confirm delete' : 'Delete region'}
         >
-          <Trash2 size={16} />
+          <Trash size={16} />
         </button>
 
         {/* Add / Clone */}

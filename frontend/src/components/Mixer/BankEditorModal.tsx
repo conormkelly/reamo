@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, type ReactElement } from 'react';
-import { Layers, Zap, List, AlertTriangle, X } from 'lucide-react';
+import { Layers, Zap, List, TriangleAlert, X } from 'lucide-react';
 import { Modal, ModalContent, ModalFooter } from '../Modal';
 import { useTrackSkeleton } from '../../hooks';
 import type { CustomBank, BankType } from './banks';
@@ -411,7 +411,7 @@ export function BankEditorModal({
               <div className="bg-warning/10 border border-warning/30 rounded-lg p-3">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2 text-warning">
-                    <AlertTriangle size={16} />
+                    <TriangleAlert size={16} />
                     <span className="text-sm font-medium">
                       Missing Tracks ({missingTrackGuids.length})
                     </span>

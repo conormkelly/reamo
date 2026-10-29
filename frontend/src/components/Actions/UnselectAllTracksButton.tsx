@@ -4,7 +4,7 @@
  */
 
 import type { ReactElement } from 'react';
-import { XCircle } from 'lucide-react';
+import { CircleX } from 'lucide-react';
 import { useReaper } from '../../hooks/useReaper';
 import { useTracks } from '../../hooks';
 import { track as trackCmd } from '../../core/WebSocketCommands';
@@ -22,7 +22,7 @@ export function UnselectAllTracksButton(): ReactElement | null {
       className="p-2 rounded transition-colors bg-bg-elevated text-text-tertiary hover:bg-bg-hover"
       title="Deselect all tracks"
     >
-      <XCircle size={18} />
+      <CircleX size={18} />
     </button>
   );
 }

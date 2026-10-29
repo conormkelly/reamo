@@ -6,11 +6,11 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Trash2, ToggleLeft } from 'lucide-react';
+import { X, Trash, ToggleLeft } from 'lucide-react';
 import { LazyIconPicker } from './LazyIconPicker';
 import { ColorPickerInput } from './ColorPickerInput';
 import { ActionSearch, getStableActionId } from './ActionSearch';
-import { getIconComponent } from '../../icons/iconLookup';
+import { canonicalIconName, getIconComponent } from '../../icons/iconLookup';
 import type { ToolbarAction } from '../../store/slices/toolbarSlice';
 import { useReaperStore, type ReaperAction } from '../../store';
 import { getSectionName } from '../../core/constants';
@@ -78,7 +78,7 @@ export function ToolbarEditor({
   useEffect(() => {
     if (action) {
       setLabel(action.label);
-      setIcon(action.icon);
+      setIcon(action.icon ? canonicalIconName(action.icon) : undefined);
       setIconColor(action.iconColor || DEFAULT_ICON_COLOR);
       setTextColor(action.textColor || DEFAULT_TEXT_COLOR);
       setBackgroundColor(action.backgroundColor || DEFAULT_BG_COLOR);
@@ -496,7 +496,7 @@ export function ToolbarEditor({
                     : 'text-delete-text hover:text-delete-text-hover hover:bg-delete-dim-bg'
                 }`}
               >
-                <Trash2 size={16} />
+                <Trash size={16} />
                 {confirmingDelete ? 'Confirm?' : 'Delete'}
               </button>
             )}

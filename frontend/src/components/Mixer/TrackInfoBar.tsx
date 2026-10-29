@@ -7,7 +7,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback, type ReactElement } from 'react';
-import { Copy, Trash2, Folder } from 'lucide-react';
+import { Copy, Trash, Folder } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../../hooks/useReaper';
 import { useTrack } from '../../hooks/useTrack';
@@ -504,7 +504,7 @@ export function TrackInfoBar({
                   }`}
                   title={confirmDelete ? 'Click again to confirm delete' : 'Delete track'}
                 >
-                  <Trash2 size={20} />
+                  <Trash size={20} />
                 </button>
               </div>
             )}
@@ -593,7 +593,7 @@ export function TrackInfoBar({
                   }`}
                   title={confirmDelete ? 'Click again to confirm delete' : 'Delete track'}
                 >
-                  <Trash2 size={16} />
+                  <Trash size={16} />
                   <span className="text-xs">{confirmDelete ? 'Confirm' : 'Delete'}</span>
                 </button>
               </div>

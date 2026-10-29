@@ -1276,13 +1276,13 @@ cd frontend && npm run build && ls -lh dist/index.html
 npm run analyze
 ```
 
-### Curated Icon System (305 icons)
+### Curated Icon System (302 icons)
 
-Icons are curated in `src/icons/commonIcons.ts` instead of importing all 1,663 from lucide-react. This saves ~400 kB.
+Icons are curated in `src/icons/commonIcons.ts` instead of importing all ~1,900 from lucide-react. This saves ~400 kB.
 
 **Files:**
 
-- `src/icons/commonIcons.ts` - 305 curated DAW-relevant icons
+- `src/icons/commonIcons.ts` - 302 curated DAW-relevant icons
 - `src/icons/iconSearchIndex.ts` - Semantic search (e.g., "record" → Circle, Mic, Disc)
 - `scripts/analyze-icons.ts` - Maintenance script to regenerate (requires REAPER running)
 
@@ -1292,6 +1292,8 @@ Icons are curated in `src/icons/commonIcons.ts` instead of importing all 1,663 f
 2. Add synonyms to `SYNONYMS` object if semantic search needed
 3. Run `npx tsx scripts/analyze-icons.ts` (needs REAPER + REAmo extension)
 4. Rebuild frontend
+
+**Icon names:** use lucide's canonical names (`Trash`, `CircleX`, `LoaderCircle`), never its deprecated aliases (`Trash2`, `XCircle`, `Loader2`). Saved toolbar buttons and action sections can still hold alias names, so `LEGACY_ICON_NAMES` in `src/icons/iconLookup.ts` maps each alias the curated set used to offer to its canonical icon.
 
 ### Other Optimizations
 
@@ -1305,7 +1307,7 @@ Icons are curated in `src/icons/commonIcons.ts` instead of importing all 1,663 f
 import { Play, Pause } from 'lucide-react';
 import { commonIcons } from '../icons/commonIcons';
 
-// BAD - includes all 1663 icons:
+// BAD - includes every lucide icon:
 import { icons } from 'lucide-react';
 ```
 

@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, useCallback, type ReactElement } from 'react';
-import { Loader2, Check, X, ChevronDown } from 'lucide-react';
+import { LoaderCircle, Check, X, ChevronDown } from 'lucide-react';
 import { BottomSheet } from '../Modal/BottomSheet';
 import { useTrack } from '../../hooks/useTrack';
 import { useReaper } from '../../hooks/useReaper';
@@ -297,7 +297,7 @@ export function InputSelectionSheet({
         {/* Loading state */}
         {isLoading && (
           <div className="py-8 flex justify-center">
-            <Loader2 size={24} className="animate-spin text-text-muted" />
+            <LoaderCircle size={24} className="animate-spin text-text-muted" />
           </div>
         )}
 

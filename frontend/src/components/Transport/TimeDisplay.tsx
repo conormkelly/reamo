@@ -7,7 +7,7 @@
  */
 
 import { useRef, type ReactElement } from 'react';
-import { Loader2 } from 'lucide-react';
+import { LoaderCircle } from 'lucide-react';
 import { useTransport } from '../../hooks/useTransport';
 import { useTransportAnimation } from '../../hooks';
 import { PlayStateLabel } from '../../core/types';
@@ -54,7 +54,7 @@ export function TimeDisplay({
       )}
       <div className="text-2xl">
         {isSyncing ? (
-          <Loader2 className="w-6 h-6 text-text-muted animate-spin inline-block" />
+          <LoaderCircle className="w-6 h-6 text-text-muted animate-spin inline-block" />
         ) : (
           <>
             {format === 'time' && <span ref={timeRef}>0:00.000</span>}

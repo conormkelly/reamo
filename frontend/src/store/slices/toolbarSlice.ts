@@ -117,7 +117,7 @@ export interface ToolbarSlice {
 const DEFAULT_TOOLBAR_ACTIONS: ToolbarAction[] = [
   { id: 'default-split', type: 'reaper_action', label: 'Split', actionId: '40012', sectionId: 0, icon: 'Scissors', iconColor: '#f59e0b' },
   { id: 'default-glue', type: 'reaper_action', label: 'Glue', actionId: '40362', sectionId: 0, icon: 'Combine', iconColor: '#3b82f6' },
-  { id: 'default-delete', type: 'reaper_action', label: 'Delete', actionId: '40006', sectionId: 0, icon: 'Trash2', iconColor: '#ef4444' },
+  { id: 'default-delete', type: 'reaper_action', label: 'Delete', actionId: '40006', sectionId: 0, icon: 'Trash', iconColor: '#ef4444' },
   { id: 'default-marker', type: 'reaper_action', label: 'Marker', actionId: '40157', sectionId: 0, icon: 'MapPin', iconColor: '#10b981' },
   { id: 'default-duplicate', type: 'reaper_action', label: 'Dupe', actionId: '41295', sectionId: 0, icon: 'Copy', iconColor: '#8b5cf6' },
 ];

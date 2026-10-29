@@ -13,7 +13,7 @@
  */
 
 import { useState, useRef, useEffect, type ReactElement } from 'react';
-import { Plus, Trash2, CopyPlus, Crosshair } from 'lucide-react';
+import { Plus, Trash, CopyPlus, Crosshair } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useTimeFormatters } from '../../hooks';
 import { hexToReaperColor, reaperColorToHexWithFallback } from '../../utils';
@@ -447,7 +447,7 @@ export function RegionInfoBar({ className = '', onAddRegion, layout = 'horizonta
         }`}
         title={confirmDelete ? 'Tap again to confirm delete' : 'Delete region'}
       >
-        <Trash2 size={16} />
+        <Trash size={16} />
       </button>
       {onAddRegion && (
         <button
