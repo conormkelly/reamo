@@ -74,10 +74,12 @@ Copy these files from the ZIP to your REAPER resource path (Options > Show REAPE
 | File in ZIP | Copy to |
 |-------------|---------|
 | `reaper_reamo.dylib` / `.dll` / `.so` | `UserPlugins/` |
-| `web/` (entire folder) | `reaper_www_root/web/` |
+| `reamo/` (entire folder) | `reaper_www_root/reamo/` |
 | `effects/REAmo/PitchDetect.jsfx` | `Effects/REAmo/` |
 
 Restart REAPER.
+
+Versions before 0.8.1 used `reaper_www_root/web/`. If you copy the files manually rather than running the installer, delete that folder if it's REAmo's (its `index.html` title is REAmo).
 
 </details>
 

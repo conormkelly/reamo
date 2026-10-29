@@ -177,7 +177,7 @@ container. `boot.sh` (inside the container):
      also block the main thread
    - blank VST paths: no plugin scan
 2. installs the extension into `UserPlugins/`, the web UI into
-   `reaper_www_root/web/`, and the scenario's `startup.lua` as
+   `reaper_www_root/reamo/`, and the scenario's `startup.lua` as
    `Scripts/__startup.lua`, which REAPER runs at launch to build the fixture
 3. starts REAPER under `xvfb-run` (REAPER always opens a window), waits for
    the fixture to report ready and port 9224 to accept connections

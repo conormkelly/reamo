@@ -90,7 +90,7 @@ case "$zig_version" in
     *) echo "error: need Zig 0.15.x (got '${zig_version:-none}'); set ZIG=/path/to/zig-0.15" >&2; exit 1 ;;
 esac
 
-[ -f "$ROOT/web/index.html" ] || { echo "error: no built frontend in web/; run: make frontend" >&2; exit 1; }
+[ -f "$ROOT/reamo/index.html" ] || { echo "error: no built frontend in reamo/; run: make frontend" >&2; exit 1; }
 
 # Screenshots and other per-scenario artifacts (gitignored).
 ARTIFACTS="$HERE/out"
@@ -150,7 +150,7 @@ run_one() {
         while read -r cap; do [ -z "$cap" ] || caps+=(--cap-add "$cap"); done <"$HERE/scenarios/$s/capabilities"
     fi
     docker run --rm --name "reamo-v1-harness-$s-$$-$i" --network none --label reamo.harness=v1 \
-        -v "$OUT/harness:/harness:ro" -v "$OUT:/ext:ro" -v "$ROOT/web:/web:ro" \
+        -v "$OUT/harness:/harness:ro" -v "$OUT:/ext:ro" -v "$ROOT/reamo:/reamo:ro" \
         -v "$ROOT/extension/effects:/effects:ro" -v "$ROOT/test-fixtures:/fixtures:ro" \
         -v "$ARTIFACTS:/out" \
         ${lic_mount[@]+"${lic_mount[@]}"} ${caps[@]+"${caps[@]}"} -e HARNESS_GDB="${HARNESS_GDB:-0}" -e HARNESS_OUT_DIR="$out" -e TOUR_ONLY="${TOUR_ONLY:-}" \
