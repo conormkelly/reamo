@@ -23,6 +23,24 @@ updates:
         applies-to: security-updates
         patterns: ['*']
 
+  # The WebSocket integration tests' npm dependencies, all dev tooling.
+  # Same cooldown as the web UI, matching tests/ws-integration/.npmrc.
+  - package-ecosystem: npm
+    directory: /tests/ws-integration
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+    groups:
+      minor-patch:
+        update-types: [minor, patch]
+      security:
+        applies-to: security-updates
+        patterns: ['*']
+
   # Actions are pinned to commit SHAs; Dependabot moves the SHA and its
   # version comment together.
   - package-ecosystem: github-actions
