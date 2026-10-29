@@ -7,7 +7,7 @@
 
 import { useState, useRef, useEffect, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
-import { Filter, X } from 'lucide-react';
+import { Funnel, X } from 'lucide-react';
 import { usePortalPosition } from '../../hooks/usePortalPosition';
 import { QUICK_FILTERS, type BuiltinBankId } from './banks';
 import type { SkeletonTrack } from '../../core/WebSocketTypes';
@@ -104,7 +104,7 @@ export function QuickFilterDropdown({
           aria-expanded={isOpen}
           aria-haspopup="listbox"
         >
-          <Filter size={18} />
+          <Funnel size={18} />
         </button>
         {isQuickFilter && (
           <button

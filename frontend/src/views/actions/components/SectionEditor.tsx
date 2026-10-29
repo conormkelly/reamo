@@ -6,10 +6,11 @@
 
 import { useState, useEffect, useCallback, useRef, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Trash2 } from 'lucide-react';
+import { X, Trash } from 'lucide-react';
 import { LazyIconPicker } from '../../../components/Toolbar/LazyIconPicker';
 import { ColorPickerInput } from '../../../components/Toolbar/ColorPickerInput';
 import { DynamicIcon } from '../../../components/Toolbar/DynamicIcon';
+import { canonicalIconName } from '../../../icons/iconLookup';
 import type { ActionsSection, SizeOption } from '../../../store/slices/actionsViewSlice';
 
 // Default color (gray) - matches --color-bg-elevated token
@@ -35,7 +36,9 @@ export function SectionEditor({
   onClose,
 }: SectionEditorProps): ReactElement {
   const [name, setName] = useState(section?.name ?? '');
-  const [icon, setIcon] = useState<string | undefined>(section?.icon);
+  const [icon, setIcon] = useState<string | undefined>(
+    section?.icon ? canonicalIconName(section.icon) : undefined
+  );
   const [color, setColor] = useState<string | undefined>(section?.color);
   const [buttonSize, setButtonSize] = useState<SizeOption>(section?.buttonSize ?? 'md');
   const [buttonSpacing, setButtonSpacing] = useState<SizeOption>(section?.buttonSpacing ?? 'md');
@@ -293,7 +296,7 @@ export function SectionEditor({
                   : 'text-delete-text hover:text-delete-text-hover hover:bg-bg-elevated'
               }`}
             >
-              <Trash2 size={16} />
+              <Trash size={16} />
               <span>{confirmingDelete ? 'Confirm Delete' : 'Delete'}</span>
             </button>
           )}

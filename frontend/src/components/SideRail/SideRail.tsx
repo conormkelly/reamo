@@ -23,7 +23,7 @@ import {
   ListMusic,
   Zap,
   StickyNote,
-  Music,
+  EighthNotes,
   ChartBarBig,
   AudioWaveform,
 } from 'lucide-react';
@@ -43,7 +43,7 @@ const VIEW_ICONS: Record<ViewId, typeof SlidersHorizontal> = {
   playlist: ListMusic,
   actions: Zap,
   notes: StickyNote,
-  instruments: Music,
+  instruments: EighthNotes,
   tuner: AudioWaveform,
 };
 

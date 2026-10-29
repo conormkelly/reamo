@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect, type ReactElement } from 'react';
-import { Volume2, VolumeX, Trash2 } from 'lucide-react';
+import { Volume2, VolumeX, Trash } from 'lucide-react';
 import { useReaperStore } from '../../../store';
 import { volumeToDbString, faderToVolume, volumeToFader } from '../../../utils/volume';
 import { formatPan, MODE_LABELS, ROUTING_COLORS, type RoutingColorScheme } from './routingUtils';
@@ -339,7 +339,7 @@ export function HorizontalRoutingFader({
             }`}
             title={deleteArmed ? 'Tap again to confirm remove' : 'Remove'}
           >
-            <Trash2 size={14} />
+            <Trash size={14} />
           </button>
         )}
       </div>

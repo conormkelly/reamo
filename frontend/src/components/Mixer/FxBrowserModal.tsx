@@ -7,7 +7,7 @@
  */
 
 import { useState, useMemo, useEffect, useCallback, type ReactElement } from 'react';
-import { Search, X, Loader2 } from 'lucide-react';
+import { Search, X, LoaderCircle } from 'lucide-react';
 import { BottomSheet } from '../Modal/BottomSheet';
 import { useReaper } from '../../hooks/useReaper';
 import { useReaperStore } from '../../store';
@@ -204,7 +204,7 @@ export function FxBrowserModal({
           {/* Loading state */}
           {fxPluginListLoading && (
             <div className="py-8 flex flex-col items-center gap-2 text-text-muted">
-              <Loader2 size={24} className="animate-spin" />
+              <LoaderCircle size={24} className="animate-spin" />
               <span className="text-sm">Loading plugins...</span>
             </div>
           )}

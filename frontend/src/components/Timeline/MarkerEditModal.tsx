@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef, type ReactElement } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash } from 'lucide-react';
 import type { Marker } from '../../core/types';
 import {
   formatTime,
@@ -316,7 +316,7 @@ export function MarkerEditModal({
             }`}
             title={confirmDelete ? 'Tap again to confirm' : 'Delete marker'}
           >
-            <Trash2 size={14} />
+            <Trash size={14} />
             {confirmDelete ? 'Confirm' : 'Delete'}
           </button>
         }

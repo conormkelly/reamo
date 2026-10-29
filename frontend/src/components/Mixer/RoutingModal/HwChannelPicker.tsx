@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, type ReactElement } from 'react';
-import { Loader2 } from 'lucide-react';
+import { LoaderCircle } from 'lucide-react';
 import { useReaper } from '../../../hooks/useReaper';
 import { hw as hwCmd } from '../../../core/WebSocketCommands';
 
@@ -64,7 +64,7 @@ export function HwChannelPicker({
   if (isLoading) {
     return (
       <div className="py-8 flex justify-center">
-        <Loader2 size={24} className="animate-spin text-text-muted" />
+        <LoaderCircle size={24} className="animate-spin text-text-muted" />
       </div>
     );
   }

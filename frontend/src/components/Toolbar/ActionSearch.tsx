@@ -9,7 +9,7 @@
 
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Search, ToggleLeft, Loader2, ChevronDown } from 'lucide-react';
+import { Search, ToggleLeft, LoaderCircle, ChevronDown } from 'lucide-react';
 import { useReaperStore, type ReaperAction } from '../../store';
 import { getSectionName, REAPER_SECTIONS } from '../../core/constants';
 
@@ -177,7 +177,7 @@ export function ActionSearch({
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8 text-text-secondary">
-        <Loader2 className="animate-spin mr-2" size={20} />
+        <LoaderCircle className="animate-spin mr-2" size={20} />
         Loading actions...
       </div>
     );

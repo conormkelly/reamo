@@ -6,7 +6,7 @@
  */
 
 import { Component, type ReactNode } from 'react';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { TriangleAlert, RefreshCw } from 'lucide-react';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -48,7 +48,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
       return (
         <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-          <AlertTriangle className="w-12 h-12 text-warning-icon mb-4" />
+          <TriangleAlert className="w-12 h-12 text-warning-icon mb-4" />
           <h2 className="text-xl font-semibold mb-2">Something went wrong</h2>
           <p className="text-text-secondary mb-4 max-w-md">
             {this.state.error?.message || 'An unexpected error occurred'}

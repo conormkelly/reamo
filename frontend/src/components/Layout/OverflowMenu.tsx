@@ -8,7 +8,7 @@
  */
 
 import { useState, type ReactNode } from 'react';
-import { MoreVertical } from 'lucide-react';
+import { EllipsisVertical } from 'lucide-react';
 import { BottomSheet } from '../Modal/BottomSheet';
 
 export interface OverflowMenuItem {
@@ -65,7 +65,7 @@ export function OverflowMenu({
         aria-haspopup="menu"
         aria-expanded={isOpen}
       >
-        <MoreVertical className="w-5 h-5" />
+        <EllipsisVertical className="w-5 h-5" />
       </button>
 
       <BottomSheet

@@ -27,12 +27,12 @@ import {
 import {
   ChevronLeft,
   ChevronRight,
-  MoreHorizontal,
+  Ellipsis,
   Check,
   Scissors,
-  Trash2,
+  Trash,
   Lock,
-  Unlock,
+  LockOpen,
   X,
   ChevronUp,
   ChevronDown,
@@ -548,7 +548,7 @@ export function NavigateItemInfoBar({
       className="p-1.5 rounded hover:bg-bg-elevated"
       title="More options"
     >
-      <MoreHorizontal className="w-5 h-5" />
+      <Ellipsis className="w-5 h-5" />
     </button>
   );
 
@@ -629,7 +629,7 @@ export function NavigateItemInfoBar({
                   {singleItem.locked ? (
                     <Lock className="w-4 h-4" />
                   ) : (
-                    <Unlock className="w-4 h-4" />
+                    <LockOpen className="w-4 h-4" />
                   )}
                   {singleItem.locked ? 'Locked' : 'Unlocked'}
                 </button>
@@ -651,7 +651,7 @@ export function NavigateItemInfoBar({
                     onClick={handleDeleteTake}
                     className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-error-bg hover:bg-error/30 text-error-text transition-colors"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash className="w-4 h-4" />
                     Delete Take
                   </button>
                 )}
@@ -910,7 +910,7 @@ export function NavigateItemInfoBar({
                 disabled={!anyLocked}
                 className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm bg-bg-surface hover:bg-bg-hover text-text-secondary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <Unlock className="w-4 h-4" />
+                <LockOpen className="w-4 h-4" />
                 Unlock All
               </button>
             </div>
