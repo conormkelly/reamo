@@ -34,9 +34,6 @@ export function timeToBarBeat(
 
   // Find which tempo segment we're in
   let totalBars = 0;
-  let currentBpm = tempoMarkers[0].bpm;
-  let currentNum = tempoMarkers[0].timesigNum;
-  let currentDenom = tempoMarkers[0].timesigDenom;
 
   for (let i = 0; i < tempoMarkers.length; i++) {
     const marker = tempoMarkers[i];
@@ -44,10 +41,10 @@ export function timeToBarBeat(
     const segmentStart = marker.position;
     const segmentEnd = nextMarker ? nextMarker.position : Infinity;
 
-    // Update tempo/time sig at this marker
-    currentBpm = marker.bpm;
-    currentNum = marker.timesigNum;
-    currentDenom = marker.timesigDenom;
+    // Tempo and time signature in effect for this segment
+    const currentBpm = marker.bpm;
+    const currentNum = marker.timesigNum;
+    const currentDenom = marker.timesigDenom;
 
     if (timeSeconds < segmentEnd) {
       // Time falls within this segment
