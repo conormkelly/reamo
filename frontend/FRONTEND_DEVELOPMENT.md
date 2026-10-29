@@ -1882,7 +1882,6 @@ Always add a comment explaining why the exception is needed.
 - `eslint-rules/index.js` - Custom rule implementations
 - `lint-staged.config.js` - Pre-commit lint configuration
 - `.husky/pre-commit` - Git hook entry point
-- `docs/architecture/ESLINT_GOVERNANCE.md` - Full research and rationale
 
 ---
 

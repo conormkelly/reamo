@@ -3,8 +3,6 @@
  *
  * Runs ESLint on staged files before commit to catch issues early.
  * Uses --cache for performance (<2 second target for typical commits).
- *
- * @see docs/architecture/ESLINT_GOVERNANCE.md
  */
 
 export default {
