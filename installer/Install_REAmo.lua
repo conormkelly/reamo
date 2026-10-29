@@ -1,6 +1,8 @@
 -- Install_REAmo.lua
 -- Run via Actions > ReaScript: Run ReaScript... (Action ID 41060)
 -- Copies REAmo files from the extracted ZIP to the correct REAPER directories.
+-- The web UI goes in reaper_www_root/reamo/; REAmo's UI left in
+-- reaper_www_root/web/ by versions before 0.8.1 is removed.
 --
 -- Safe to run while REAmo is loaded, to update it. The running extension is
 -- never written over: REAPER is executing it, and on macOS changing a loaded
@@ -215,6 +217,14 @@ local function remove_stale(dst, rel, keep)
   return removed
 end
 
+-- Whether `dir` holds REAmo's page: every release's index.html has this
+-- title. Other web control surfaces use reaper_www_root/web/ too, and theirs
+-- may mention REAmo, so the title must match exactly.
+local function is_reamo_page(dir)
+  local html = read_file(dir .. sep .. "index.html")
+  return html ~= nil and html:find("<title>REAmo</title>", 1, true) ~= nil
+end
+
 ------------------------------------------------------------------------
 -- Installation
 ------------------------------------------------------------------------
@@ -241,9 +251,12 @@ else
     "\n(Expected at: " .. ext_src .. ")"
 end
 
--- 2. Web frontend → reaper_www_root/web/ (REAmo's own folder)
-local web_src = script_dir .. sep .. "web"
-local web_dst = resource_path .. sep .. "reaper_www_root" .. sep .. "web"
+-- 2. Web frontend → reaper_www_root/reamo/ (REAmo's own folder)
+local web_src = script_dir .. sep .. "reamo"
+local web_dst = resource_path .. sep .. "reaper_www_root" .. sep .. "reamo"
+-- Where versions before 0.8.1 installed it.
+local old_web = resource_path .. sep .. "reaper_www_root" .. sep .. "web"
+local moved_from_old_web = false
 if reaper.EnumerateFiles(web_src, 0) then
   local copied, web_errors = {}, {}
   copy_tree(web_src, web_dst, "", copied, web_errors)
@@ -252,6 +265,16 @@ if reaper.EnumerateFiles(web_src, 0) then
   installed[#installed + 1] = "Frontend: " .. count .. " files"
   if #web_errors == 0 then
     remove_stale(web_dst, "", copied)
+    if is_reamo_page(old_web) then
+      remove_stale(old_web, "", {})
+      if remove_empty_dir(old_web) then
+        moved_from_old_web = true
+        installed[#installed + 1] = "Removed REAmo's old folder reaper_www_root" .. sep .. "web"
+      else
+        errors[#errors + 1] = "Cannot remove REAmo's old folder " .. old_web ..
+          "\n(Close REAPER and delete it.)"
+      end
+    end
   else
     -- Keep the old files: the new set is incomplete.
     for _, e in ipairs(web_errors) do errors[#errors + 1] = e end
@@ -294,7 +317,9 @@ elseif updated then
     name .. " is installed.\n\n" ..
     "  " .. table.concat(installed, "\n  ") .. "\n\n" ..
     "Restart REAPER to finish the update: until then the previous\n" ..
-    "version keeps running.",
+    "version keeps running" ..
+    -- It serves the page from the folder just removed.
+    (moved_from_old_web and ", and phones can't load REAmo." or "."),
     "REAmo Install", 0)
 else
   reaper.ShowMessageBox(
