@@ -189,6 +189,13 @@ export default defineConfig(
               group: ['lucide-react/dist/esm/icons/*'],
               message: "Use direct imports from 'lucide-react' instead.",
             },
+            {
+              // Rolldown keeps any statically imported module in the main
+              // chunk, so one static import or re-export of IconPicker
+              // defeats LazyIconPicker's import().
+              group: ['**/IconPicker'],
+              message: 'Use LazyIconPicker; IconPicker loads as its own chunk. See FRONTEND_DEVELOPMENT.md §14.',
+            },
           ],
         },
       ],
