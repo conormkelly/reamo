@@ -558,6 +558,48 @@ export function InstrumentsView(): ReactElement {
     [pianoChannel, handlePitchBend]
   );
 
+  // Chord settings bottom sheet state
+  const [showChordsSettings, setShowChordsSettings] = useState(false);
+
+  // Chord pagination (portrait) — measure container to determine columns per page
+  const chordsContainerRef = useRef<HTMLDivElement>(null);
+  const [chordsColsPerPage, setChordsColsPerPage] = useState(4);
+  const [chordsPage, setChordsPage] = useState(0);
+  const TOTAL_CHORDS = 7;
+
+  useEffect(() => {
+    if (isLandscape || selectedInstrument !== 'chords') return;
+    const el = chordsContainerRef.current;
+    if (!el) return;
+    const measure = () => {
+      const available = el.clientWidth - 24; // p-3 padding
+      const minColWidth = 80;
+      const gap = 8;
+      const cols = Math.max(2, Math.min(TOTAL_CHORDS, Math.floor((available + gap) / (minColWidth + gap))));
+      setChordsColsPerPage(cols);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isLandscape, selectedInstrument]);
+
+  // Build page arrays from column count
+  const chordsPages = useMemo(() => {
+    const pages: number[][] = [];
+    for (let i = 0; i < TOTAL_CHORDS; i += chordsColsPerPage) {
+      pages.push(Array.from({ length: Math.min(chordsColsPerPage, TOTAL_CHORDS - i) }, (_, k) => i + k));
+    }
+    return pages;
+  }, [chordsColsPerPage]);
+
+  // Clamp page if cols-per-page changed and current page is now out of range
+  useEffect(() => {
+    if (chordsPage >= chordsPages.length) {
+      setChordsPage(chordsPages.length - 1);
+    }
+  }, [chordsPage, chordsPages.length]);
+
   // Render the current instrument - works in both orientations
   const renderInstrument = () => {
     switch (selectedInstrument) {
@@ -757,48 +799,6 @@ export function InstrumentsView(): ReactElement {
         return null;
     }
   };
-
-  // Chord settings bottom sheet state
-  const [showChordsSettings, setShowChordsSettings] = useState(false);
-
-  // Chord pagination (portrait) — measure container to determine columns per page
-  const chordsContainerRef = useRef<HTMLDivElement>(null);
-  const [chordsColsPerPage, setChordsColsPerPage] = useState(4);
-  const [chordsPage, setChordsPage] = useState(0);
-  const TOTAL_CHORDS = 7;
-
-  useEffect(() => {
-    if (isLandscape || selectedInstrument !== 'chords') return;
-    const el = chordsContainerRef.current;
-    if (!el) return;
-    const measure = () => {
-      const available = el.clientWidth - 24; // p-3 padding
-      const minColWidth = 80;
-      const gap = 8;
-      const cols = Math.max(2, Math.min(TOTAL_CHORDS, Math.floor((available + gap) / (minColWidth + gap))));
-      setChordsColsPerPage(cols);
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [isLandscape, selectedInstrument]);
-
-  // Build page arrays from column count
-  const chordsPages = useMemo(() => {
-    const pages: number[][] = [];
-    for (let i = 0; i < TOTAL_CHORDS; i += chordsColsPerPage) {
-      pages.push(Array.from({ length: Math.min(chordsColsPerPage, TOTAL_CHORDS - i) }, (_, k) => i + k));
-    }
-    return pages;
-  }, [chordsColsPerPage]);
-
-  // Clamp page if cols-per-page changed and current page is now out of range
-  useEffect(() => {
-    if (chordsPage >= chordsPages.length) {
-      setChordsPage(chordsPages.length - 1);
-    }
-  }, [chordsPage, chordsPages.length]);
 
   // Render header controls based on selected instrument
   const renderHeaderControls = () => {
