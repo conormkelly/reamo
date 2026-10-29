@@ -504,7 +504,7 @@ Zustand uses this internally - prevents tearing for 30Hz updates. **Never wrap m
 ### useRef Requires Initial Value
 
 ```typescript
-// Required in React 19 + TypeScript 5.9:
+// Required by React 19's types:
 const ref = useRef<HTMLDivElement>(null);  // NOT useRef<HTMLDivElement>()
 ```
 
