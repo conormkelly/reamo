@@ -220,10 +220,10 @@ Add/update these CSS custom properties and utilities:
 Update the viewport meta tag:
 
 ```html
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 ```
 
-The `interactive-widget=resizes-content` ensures virtual keyboard resizes content rather than overlaying it.
+No `interactive-widget`: the keyboard overlays the page. See UX_GUIDELINES.md §3 for why `resizes-content` is not used.
 
 ---
 
@@ -1198,7 +1198,7 @@ rg "localStorage" frontend/src/views/notes/
 **Verification**:
 
 - Test scrolling in both views
-- Test keyboard doesn't cause layout issues (thanks to `interactive-widget=resizes-content`)
+- Test keyboard doesn't cause layout issues (it overlays the page; the layout follows `screen.orientation`, not the viewport's shape)
 
 ---
 
