@@ -224,16 +224,16 @@ export function ToolbarEditor({
 
   return createPortal(
     <div
-      className={`fixed inset-0 bg-black/60 flex justify-center z-modal ${
-        showActionSearch ? 'items-start pt-2' : 'items-center'
+      className={`fixed inset-0 bg-black/60 flex justify-center z-modal overlay-safe-area ${
+        showActionSearch ? 'items-start [--overlay-gutter:0.5rem]' : 'items-center'
       }`}
       {...backdropDismiss}
     >
       {/* While choosing an action the dialog sits at the top and takes the
           full height, so results start above where a phone keyboard begins. */}
       <div
-        className={`bg-bg-surface rounded-lg shadow-xl w-96 max-w-[95vw] flex flex-col ${
-          showActionSearch ? 'h-[calc(100dvh-1rem)]' : 'max-h-[90dvh]'
+        className={`bg-bg-surface rounded-lg shadow-xl w-96 max-w-full flex flex-col ${
+          showActionSearch ? 'h-full' : 'max-h-full'
         }`}
         onClick={(e) => e.stopPropagation()}
       >

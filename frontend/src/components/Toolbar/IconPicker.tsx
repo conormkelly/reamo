@@ -108,11 +108,11 @@ export function IconPicker({ value, onChange, onClose }: IconPickerProps) {
   // Portal to body to escape stacking contexts
   return createPortal(
     <div
-      className="fixed inset-0 bg-black/60 flex items-center justify-center z-modal"
+      className="fixed inset-0 bg-black/60 flex items-center justify-center z-modal overlay-safe-area"
       {...backdropDismiss}
     >
       <div
-        className="bg-bg-surface rounded-lg shadow-xl w-[400px] max-w-[95vw] max-h-[80dvh] flex flex-col"
+        className="bg-bg-surface rounded-lg shadow-xl w-[400px] max-w-full max-h-[min(80dvh,100%)] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

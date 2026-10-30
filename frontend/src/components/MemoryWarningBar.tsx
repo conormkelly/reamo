@@ -104,11 +104,11 @@ export function MemoryWarningBar({ className = '' }: MemoryWarningBarProps): Rea
       {/* Info Modal - portaled to body to escape stacking contexts */}
       {showModal && createPortal(
         <div
-          className="fixed inset-0 bg-black/70 flex items-center justify-center z-modal"
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-modal overlay-safe-area"
           {...backdropDismiss}
         >
           <div
-            className="bg-bg-surface rounded-lg p-6 max-w-md mx-4 shadow-xl"
+            className="bg-bg-surface rounded-lg p-6 max-w-md max-h-full overflow-y-auto overscroll-contain shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-2 mb-4">

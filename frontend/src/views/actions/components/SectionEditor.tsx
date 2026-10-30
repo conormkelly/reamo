@@ -125,11 +125,11 @@ export function SectionEditor({
   // Portal to body to escape stacking contexts
   return createPortal(
     <div
-      className="fixed inset-0 bg-black/60 flex items-center justify-center z-modal p-4"
+      className="fixed inset-0 bg-black/60 flex items-center justify-center z-modal overlay-safe-area"
       {...backdropDismiss}
     >
       <div
-        className="bg-bg-surface rounded-lg w-full max-w-sm max-h-[90dvh] flex flex-col"
+        className="bg-bg-surface rounded-lg w-full max-w-sm max-h-full flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

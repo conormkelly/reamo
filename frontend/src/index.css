@@ -498,6 +498,16 @@ body {
   padding-right: env(safe-area-inset-right, 0px);
 }
 
+/* Dialog backdrop (fixed inset-0): keeps the panel clear of the status bar,
+ * notch and home indicator, and at least --overlay-gutter from every edge.
+ * Size the panel with max-h-full or h-full so it fits the space that's left. */
+.overlay-safe-area {
+  padding-top: max(var(--overlay-gutter, 1rem), var(--safe-top));
+  padding-right: max(var(--overlay-gutter, 1rem), var(--safe-right));
+  padding-bottom: max(var(--overlay-gutter, 1rem), var(--safe-bottom));
+  padding-left: max(var(--overlay-gutter, 1rem), var(--safe-left));
+}
+
 /* Fixed top bar (like header) */
 .fixed-top-safe {
   position: fixed;

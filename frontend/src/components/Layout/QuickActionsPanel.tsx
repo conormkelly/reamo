@@ -419,10 +419,10 @@ export function QuickActionsPanel({ isOpen, onClose }: QuickActionsPanelProps): 
       {/* Time Signature Dialog - portaled to body */}
       {showTimeSigDialog && createPortal(
         <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-modal"
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-modal overlay-safe-area"
           {...timeSigBackdropDismiss}
         >
-          <div className="bg-bg-surface rounded-lg p-4 shadow-xl border border-border-subtle min-w-[220px]">
+          <div className="bg-bg-surface rounded-lg p-4 shadow-xl border border-border-subtle min-w-[220px] max-h-full overflow-y-auto overscroll-contain">
             <div className="text-sm text-text-secondary mb-4 text-center">Time Signature</div>
 
             {/* Numerator */}

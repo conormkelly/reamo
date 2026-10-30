@@ -89,7 +89,7 @@ export function Modal({
   // This ensures the modal always appears above all other content
   return createPortal(
     <div
-      className="fixed inset-0 z-modal flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-modal flex items-center justify-center overlay-safe-area bg-black/60 backdrop-blur-sm"
       {...backdropDismiss}
       data-testid="modal-backdrop"
     >
@@ -99,7 +99,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
-        className={`bg-bg-deep rounded-xl shadow-2xl border border-border-subtle w-full ${WIDTH_CLASSES[width]} mx-4 max-h-[calc(100dvh-2rem)] flex flex-col overflow-hidden outline-none ${className}`}
+        className={`bg-bg-deep rounded-xl shadow-2xl border border-border-subtle w-full ${WIDTH_CLASSES[width]} max-h-full flex flex-col overflow-hidden outline-none ${className}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -119,7 +119,7 @@ export function Modal({
           )}
         </div>
 
-        {/* Content: never taller than the visible viewport. ModalContent
+        {/* Content: never taller than the safe area left on screen. ModalContent
             scrolls inside it, so ModalFooter's buttons stay in view; content
             without ModalContent scrolls as a whole. */}
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</div>

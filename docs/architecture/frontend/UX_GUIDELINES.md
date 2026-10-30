@@ -230,19 +230,20 @@ module.exports = {
 | Spacing | `rem` or Tailwind scale | Proportional, accessible |
 | Fixed chrome heights | `px` (48px, 56px) | Predictable layout |
 | Container-relative sizing | `cqw`, `cqh` | Component adaptability |
-| Modal max heights | `svh` | Stable, doesn't reflow |
+| Dialog max heights | `max-h-full` inside an `.overlay-safe-area` backdrop; `dvh` where a unit is needed | Never taller than what's visible, clear of the notch and home indicator |
 
 **Critical distinction:**
 
-- `svh` (small viewport height): Use for stable layouts—accounts for browser UI being visible
-- `dvh` (dynamic viewport height): Use for the app container—adapts as Safari toolbar hides
+- `dvh` (dynamic viewport height): Use for the app container and anything sized to the screen—follows Safari's toolbars as they show and hide. `vh` is the height with the toolbars hidden, so it overflows while they show; lint flags it.
+- `svh` (small viewport height): The height with the toolbars shown. Only where something must not resize as they move.
 - `lvh` (large viewport height): Use for background images only
 
-**Example: stable modal with dynamic app:**
+**Dialogs:** the backdrop is `fixed inset-0`, so it already matches the visible viewport. `.overlay-safe-area` pads it by the safe-area insets (at least `--overlay-gutter`, default 1rem), and the panel takes `max-h-full` of what's left:
 
-```css
-.app { height: 100dvh; }           /* App adapts to toolbar */
-.modal { max-height: 90svh; }      /* Modal stays stable */
+```tsx
+<div className="fixed inset-0 flex items-center justify-center overlay-safe-area">
+  <div className="max-h-full flex flex-col">…</div>
+</div>
 ```
 
 **Touch targets:** Research confirms **48×48px** as the modern consensus (Material Design 3). Apple's 44pt converts to 44px at 1x but the 48px standard provides better accessibility. Use `min-h-[48px] min-w-[48px]` with padding for adequate touch areas around smaller visual icons.
