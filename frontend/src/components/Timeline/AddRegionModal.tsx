@@ -132,10 +132,9 @@ export function AddRegionModal({ isOpen, onClose }: AddRegionModalProps): ReactE
       onClose={onClose}
       title="Add Region"
       width="sm"
-      className="max-h-[85dvh] flex flex-col"
     >
       {/* Scrollable content */}
-      <div className="p-modal space-y-4 overflow-y-auto flex-1">
+      <div className="p-modal space-y-4 min-h-0 flex-1 overflow-y-auto">
         {/* Name */}
         <div>
           <label className="block text-sm font-medium text-text-tertiary mb-1">Name</label>

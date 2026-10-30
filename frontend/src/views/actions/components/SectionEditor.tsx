@@ -12,6 +12,8 @@ import { ColorPickerInput } from '../../../components/Toolbar/ColorPickerInput';
 import { DynamicIcon } from '../../../components/Toolbar/DynamicIcon';
 import { canonicalIconName } from '../../../icons/iconLookup';
 import type { ActionsSection, SizeOption } from '../../../store/slices/actionsViewSlice';
+import { useBackdropDismiss } from '../../../hooks/useBackdropDismiss';
+import { useDialogFocus } from '../../../hooks/useDialogFocus';
 
 // Default color (gray) - matches --color-bg-elevated token
 const DEFAULT_SECTION_COLOR = '#374151'; // Keep hex for color picker
@@ -35,6 +37,8 @@ export function SectionEditor({
   onDelete,
   onClose,
 }: SectionEditorProps): ReactElement {
+  const backdropDismiss = useBackdropDismiss(onClose);
+  const focusRef = useDialogFocus(true);
   const [name, setName] = useState(section?.name ?? '');
   const [icon, setIcon] = useState<string | undefined>(
     section?.icon ? canonicalIconName(section.icon) : undefined
@@ -123,11 +127,13 @@ export function SectionEditor({
   // Portal to body to escape stacking contexts
   return createPortal(
     <div
-      className="fixed inset-0 bg-black/60 flex items-center justify-center z-modal p-4"
-      onClick={onClose}
+      className="fixed inset-0 bg-black/60 flex items-center justify-center z-modal overlay-safe-area"
+      {...backdropDismiss}
     >
       <div
-        className="bg-bg-surface rounded-lg w-full max-w-sm max-h-[90vh] flex flex-col"
+        ref={focusRef}
+        tabIndex={-1}
+        className="bg-bg-surface rounded-lg w-full max-w-sm max-h-full flex flex-col outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

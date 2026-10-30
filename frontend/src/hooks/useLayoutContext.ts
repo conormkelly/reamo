@@ -12,10 +12,25 @@
  * - 'bottom': Standard bottom TabBar + Transport (default)
  * - 'side': Side rail with nav + transport (landscape phones only)
  *
- * @see docs/architecture/RESPONSIVE_FRONTEND_FINAL.md
+ * Two questions, two signals. "Is the device on its side?" comes from the
+ * device (screen.orientation), which neither the on-screen keyboard nor a
+ * browser that leaves its viewport short can change. "How much room is
+ * there?" comes from the viewport. Reading orientation from the viewport's
+ * shape would put an upright phone into the side rail whenever its viewport
+ * is shortened, and the switch remounts the view, closing any open dialog.
+ *
+ * Every consumer reads one shared store, so they always agree, including
+ * a consumer that mounts while the keyboard is up.
+ *
+ * @see docs/architecture/frontend/RESPONSIVE_FRONTEND_FINAL.md
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useSyncExternalStore } from 'react';
+import {
+  HEIGHT_COMPACT_THRESHOLD,
+  WIDTH_EXPANDED_THRESHOLD,
+  WIDTH_MEDIUM_THRESHOLD,
+} from '../constants/layout';
 
 // =============================================================================
 // Types
@@ -30,13 +45,18 @@ export type HeightClass = 'compact' | 'regular';
 /** Navigation position - side rail for landscape-constrained phones */
 export type NavPosition = 'bottom' | 'side';
 
+/** Which way up the device is held; 'unknown' without screen.orientation. */
+export type DeviceOrientation = 'portrait' | 'landscape' | 'unknown';
+
 /** Complete layout context returned by the hook */
 export interface LayoutContext {
   /** Width class: compact (<600px), medium (600-839px), expanded (>=840px) */
   widthClass: WidthClass;
   /** Height class: compact (<480px), regular (>=480px) */
   heightClass: HeightClass;
-  /** True when width > height AND height < 480px (landscape phone) */
+  /** True when the device is on its side and the viewport is wider than tall */
+  isLandscape: boolean;
+  /** True when landscape AND height < 480px (landscape phone) */
   isLandscapeConstrained: boolean;
   /** Navigation position: 'side' when landscape-constrained, else 'bottom' */
   navPosition: NavPosition;
@@ -45,34 +65,56 @@ export interface LayoutContext {
 }
 
 // =============================================================================
-// Constants (also exported from constants/layout.ts)
-// =============================================================================
-
-/** Width threshold for medium size class (Material Design) */
-const WIDTH_MEDIUM = 600;
-
-/** Width threshold for expanded size class (Material Design) */
-const WIDTH_EXPANDED = 840;
-
-/** Height threshold below which we consider height "compact" */
-const HEIGHT_COMPACT = 480;
-
-// =============================================================================
-// Hook Implementation
+// Classification
 // =============================================================================
 
 /**
- * Get initial viewport dimensions (SSR-safe)
+ * The layout for a viewport on a device held a given way up.
+ *
+ * Landscape needs both the device on its side and a viewport wider than
+ * tall: a narrow Slide Over or split-screen window on a landscape iPad is
+ * portrait-shaped and keeps bottom navigation. Without screen.orientation,
+ * the viewport's shape decides alone.
  */
-function getInitialViewport(): { width: number; height: number } {
-  if (typeof window === 'undefined') {
-    // SSR fallback - assume portrait phone
-    return { width: 375, height: 667 };
-  }
+export function classifyLayout(
+  viewport: { width: number; height: number },
+  device: DeviceOrientation,
+): LayoutContext {
+  const { width, height } = viewport;
+
+  const widthClass: WidthClass =
+    width >= WIDTH_EXPANDED_THRESHOLD
+      ? 'expanded'
+      : width >= WIDTH_MEDIUM_THRESHOLD
+        ? 'medium'
+        : 'compact';
+
+  const heightClass: HeightClass = height < HEIGHT_COMPACT_THRESHOLD ? 'compact' : 'regular';
+
+  const viewportLandscape = width > height;
+  const isLandscape = device === 'unknown' ? viewportLandscape : device === 'landscape' && viewportLandscape;
+
+  // Tablets have regular height even in landscape, so they keep bottom nav.
+  const isLandscapeConstrained = isLandscape && heightClass === 'compact';
+
   return {
-    width: window.innerWidth,
-    height: window.innerHeight,
+    widthClass,
+    heightClass,
+    isLandscape,
+    isLandscapeConstrained,
+    navPosition: isLandscapeConstrained ? 'side' : 'bottom',
+    viewport,
   };
+}
+
+// =============================================================================
+// Shared store
+// =============================================================================
+
+function readDeviceOrientation(): DeviceOrientation {
+  const type = typeof screen === 'undefined' ? undefined : screen.orientation?.type;
+  if (!type) return 'unknown';
+  return type.startsWith('portrait') ? 'portrait' : 'landscape';
 }
 
 /** Input types that bring up the on-screen keyboard. */
@@ -90,6 +132,70 @@ function isEditingText(): boolean {
   return el instanceof HTMLElement && el.isContentEditable;
 }
 
+/** SSR fallback - assume an upright phone */
+const SERVER_LAYOUT = classifyLayout({ width: 375, height: 667 }, 'portrait');
+
+let current: LayoutContext | null = null;
+let currentDevice: DeviceOrientation = 'unknown';
+let watchedOrientation: ScreenOrientation | undefined;
+const listeners = new Set<() => void>();
+
+/** Re-read the viewport and device; returns whether the layout changed. */
+function refresh(): boolean {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  const device = readDeviceOrientation();
+
+  if (current) {
+    const prev = current.viewport;
+    if (device === currentDevice && width === prev.width && height === prev.height) return false;
+    // The on-screen keyboard changes only the height, and only while a text
+    // field has focus. Following it could take a landscape tablet under the
+    // side-rail height while someone types.
+    if (device === currentDevice && width === prev.width && isEditingText()) return false;
+  }
+
+  currentDevice = device;
+  current = classifyLayout({ width, height }, device);
+  return true;
+}
+
+function handleChange() {
+  if (refresh()) listeners.forEach((listener) => listener());
+}
+
+function subscribe(listener: () => void): () => void {
+  if (listeners.size === 0) {
+    // Nothing tracked the viewport while there were no subscribers.
+    refresh();
+    window.addEventListener('resize', handleChange);
+    watchedOrientation = typeof screen === 'undefined' ? undefined : screen.orientation;
+    watchedOrientation?.addEventListener('change', handleChange);
+  }
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) {
+      window.removeEventListener('resize', handleChange);
+      watchedOrientation?.removeEventListener('change', handleChange);
+      watchedOrientation = undefined;
+    }
+  };
+}
+
+function getSnapshot(): LayoutContext {
+  if (!current) refresh();
+  return current!;
+}
+
+function getServerSnapshot(): LayoutContext {
+  return SERVER_LAYOUT;
+}
+
+// =============================================================================
+// Hook
+// =============================================================================
+
 /**
  * Hook to detect layout context including size classes and navigation position
  *
@@ -105,66 +211,16 @@ function isEditingText(): boolean {
  * const showSecondaryPanel = !isLandscapeConstrained;
  */
 export function useLayoutContext(): LayoutContext {
-  const [viewport, setViewport] = useState(getInitialViewport);
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+}
 
-  useEffect(() => {
-    const updateViewport = () => {
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-      setViewport((prev) => {
-        // The on-screen keyboard changes only the height (the viewport meta
-        // has interactive-widget=resizes-content), and only while a text
-        // field has focus. Following it would switch an upright phone to the
-        // side rail, remounting the view and closing the dialog being typed in.
-        if (width === prev.width && isEditingText()) return prev;
-        return { width, height };
-      });
-    };
-
-    // Update in case SSR hydration differs from client
-    updateViewport();
-
-    // Listen for resize events
-    window.addEventListener('resize', updateViewport);
-
-    // Also listen for orientation change (mobile Safari sometimes misses resize)
-    window.addEventListener('orientationchange', updateViewport);
-
-    return () => {
-      window.removeEventListener('resize', updateViewport);
-      window.removeEventListener('orientationchange', updateViewport);
-    };
-  }, []);
-
-  return useMemo(() => {
-    const { width, height } = viewport;
-
-    // Determine width class (Material Design breakpoints)
-    const widthClass: WidthClass =
-      width >= WIDTH_EXPANDED
-        ? 'expanded'
-        : width >= WIDTH_MEDIUM
-          ? 'medium'
-          : 'compact';
-
-    // Determine height class
-    const heightClass: HeightClass = height < HEIGHT_COMPACT ? 'compact' : 'regular';
-
-    // Landscape-constrained: phone in landscape with very limited height
-    // Must be wider than tall AND have compact height
-    // This specifically targets phones in landscape, not tablets
-    const isLandscapeConstrained = width > height && height < HEIGHT_COMPACT;
-
-    // Navigation moves to side rail only when landscape-constrained
-    // Tablets (which have regular height even in landscape) keep bottom nav
-    const navPosition: NavPosition = isLandscapeConstrained ? 'side' : 'bottom';
-
-    return {
-      widthClass,
-      heightClass,
-      isLandscapeConstrained,
-      navPosition,
-      viewport,
-    };
-  }, [viewport]);
+/**
+ * Whether the device is on its side with a landscape-shaped viewport.
+ *
+ * Use this rather than an (orientation: landscape) media query: the media
+ * query follows the viewport's shape, so the on-screen keyboard flips it on
+ * an upright phone.
+ */
+export function useIsLandscape(): boolean {
+  return useLayoutContext().isLandscape;
 }

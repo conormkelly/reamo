@@ -258,16 +258,20 @@ export function TunerView(): ReactElement {
       }
     >
       {/* Main tuner content - always show skeleton, disabled when no signal */}
-      <div className="h-full flex flex-col items-center justify-center p-4 gap-4">
-        <TunerNote
-          noteName={displayNoteName}
-          octave={displayOctave}
-          inTune={inTune}
-          disabled={!hasSignal}
-        />
-        <TunerMeter cents={displayCents} inTune={inTune} disabled={!hasSignal} />
-        <div className="text-text-muted text-sm">
-          {hasSignal ? `${freq.toFixed(1)} Hz` : 'No input detected'}
+      {/* Centred by auto margins, so on a short screen it scrolls rather
+          than being clipped top and bottom */}
+      <div className="h-full overflow-y-auto overscroll-contain flex flex-col p-4">
+        <div className="my-auto flex flex-col items-center gap-4">
+          <TunerNote
+            noteName={displayNoteName}
+            octave={displayOctave}
+            inTune={inTune}
+            disabled={!hasSignal}
+          />
+          <TunerMeter cents={displayCents} inTune={inTune} disabled={!hasSignal} />
+          <div className="text-text-muted text-sm">
+            {hasSignal ? `${freq.toFixed(1)} Hz` : 'No input detected'}
+          </div>
         </div>
       </div>
 
@@ -278,7 +282,7 @@ export function TunerView(): ReactElement {
         ariaLabel="Select Track"
       >
         <h2 className="text-lg font-semibold text-text-primary px-4 pb-3">Select Track</h2>
-        <div className="max-h-[60vh] overflow-y-auto">
+        <div className="max-h-[60dvh] overflow-y-auto">
           {trackList.length === 0 ? (
             <p className="text-center text-text-tertiary py-8">No tracks available</p>
           ) : (

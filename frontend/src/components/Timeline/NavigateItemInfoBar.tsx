@@ -949,7 +949,7 @@ export function NavigateItemInfoBar({
         onClose={() => setShowSelectionSheet(false)}
         ariaLabel="Selected items"
       >
-        <div className="px-sheet-x pb-sheet-bottom max-h-[70vh] overflow-y-auto">
+        <div className="px-sheet-x pb-sheet-bottom max-h-[70dvh] overflow-y-auto">
           {/* Header */}
           <div className="text-center mb-4 pt-1">
             <h2 className="text-lg font-semibold text-text-primary">

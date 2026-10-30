@@ -180,13 +180,15 @@ export function ActionsView(): ReactElement {
     [editingAction, removeActionFromSection]
   );
 
-  // Vertical alignment classes
+  // Vertical alignment by auto margins rather than justify-content: sections
+  // taller than the view then overflow downwards, where the view scrolls.
+  // justify-end/center would push the top sections out above the scroll range.
   const verticalAlignClass =
     verticalAlign === 'center'
-      ? 'justify-center'
+      ? 'my-auto'
       : verticalAlign === 'bottom'
-        ? 'justify-end'
-        : 'justify-start';
+        ? 'mt-auto'
+        : '';
 
   // Build header content with edit controls
   const headerContent = (
@@ -273,8 +275,8 @@ export function ActionsView(): ReactElement {
         </div>
       ) : (
         // Sections list - uses verticalAlign preference
-        <div className={`h-full flex flex-col p-4 pt-0 ${verticalAlignClass}`}>
-          <div className="space-y-4">
+        <div className="min-h-full flex flex-col p-4 pt-0">
+          <div className={`space-y-4 ${verticalAlignClass}`}>
             {sections.map((section, index) => (
               <ActionsSection
                 key={section.id}

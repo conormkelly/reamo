@@ -89,8 +89,6 @@ export {
 } from './useFolderHierarchy';
 export {
   useMediaQuery,
-  useIsLandscape,
-  useIsPortrait,
   useIsPWA,
 } from './useMediaQuery';
 export { useContainerQuery } from './useContainerQuery';
@@ -112,7 +110,9 @@ export {
 } from './useAvailableContentHeight';
 export {
   useLayoutContext,
+  useIsLandscape,
   type LayoutContext,
+  type DeviceOrientation,
   type WidthClass,
   type HeightClass,
   type NavPosition,

@@ -17,9 +17,11 @@
  * </Modal>
  */
 
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { useBackdropDismiss } from '../../hooks/useBackdropDismiss';
+import { useDialogFocus } from '../../hooks/useDialogFocus';
 
 export interface ModalProps {
   /** Whether the modal is visible */
@@ -63,7 +65,7 @@ export function Modal({
   icon,
   className = '',
 }: ModalProps) {
-  const modalRef = useRef<HTMLDivElement>(null);
+  const focusRef = useDialogFocus(isOpen);
 
   // Escape key handler
   useEffect(() => {
@@ -79,24 +81,7 @@ export function Modal({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, closeOnEscape, onClose]);
 
-  // Focus management - focus modal on open
-  useEffect(() => {
-    if (!isOpen) return;
-
-    // Focus the modal container for keyboard navigation
-    const timer = setTimeout(() => {
-      modalRef.current?.focus();
-    }, 0);
-
-    return () => clearTimeout(timer);
-  }, [isOpen]);
-
-  // Backdrop click handler
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (closeOnBackdrop && e.target === e.currentTarget) {
-      onClose();
-    }
-  };
+  const backdropDismiss = useBackdropDismiss(onClose, closeOnBackdrop);
 
   if (!isOpen) return null;
 
@@ -104,21 +89,21 @@ export function Modal({
   // This ensures the modal always appears above all other content
   return createPortal(
     <div
-      className="fixed inset-0 z-modal flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={handleBackdropClick}
+      className="fixed inset-0 z-modal flex items-center justify-center overlay-safe-area bg-black/60 backdrop-blur-sm"
+      {...backdropDismiss}
       data-testid="modal-backdrop"
     >
       <div
-        ref={modalRef}
+        ref={focusRef}
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
-        className={`bg-bg-deep rounded-xl shadow-2xl border border-border-subtle w-full ${WIDTH_CLASSES[width]} mx-4 overflow-hidden outline-none ${className}`}
+        className={`bg-bg-deep rounded-xl shadow-2xl border border-border-subtle w-full ${WIDTH_CLASSES[width]} max-h-full flex flex-col overflow-hidden outline-none ${className}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
+        <div className="flex shrink-0 items-center justify-between px-4 py-3 border-b border-border-subtle">
           <h2 id="modal-title" className="text-lg font-semibold flex items-center gap-2">
             {icon}
             {title}
@@ -134,8 +119,10 @@ export function Modal({
           )}
         </div>
 
-        {/* Content */}
-        {children}
+        {/* Content: never taller than the safe area left on screen. ModalContent
+            scrolls inside it, so ModalFooter's buttons stay in view; content
+            without ModalContent scrolls as a whole. */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</div>
       </div>
     </div>,
     document.body

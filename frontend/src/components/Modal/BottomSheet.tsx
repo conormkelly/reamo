@@ -15,6 +15,8 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useBackdropDismiss } from '../../hooks/useBackdropDismiss';
+import { useDialogFocus } from '../../hooks/useDialogFocus';
 
 export interface BottomSheetProps {
   /** Whether the bottom sheet is visible */
@@ -39,7 +41,7 @@ export function BottomSheet({
   closeOnEscape = true,
   ariaLabel = 'Bottom sheet',
 }: BottomSheetProps) {
-  const sheetRef = useRef<HTMLDivElement>(null);
+  const focusRef = useDialogFocus(isOpen);
   const [isAnimating, setIsAnimating] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
 
@@ -100,23 +102,7 @@ export function BottomSheet({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, closeOnEscape, onClose]);
 
-  // Focus management - focus sheet on open
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const timer = setTimeout(() => {
-      sheetRef.current?.focus();
-    }, 0);
-
-    return () => clearTimeout(timer);
-  }, [isOpen]);
-
-  // Backdrop click handler
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (closeOnBackdrop && e.target === e.currentTarget) {
-      onClose();
-    }
-  };
+  const backdropDismiss = useBackdropDismiss(onClose, closeOnBackdrop);
 
   if (!shouldRender) return null;
 
@@ -127,11 +113,11 @@ export function BottomSheet({
       className={`fixed inset-0 z-modal flex items-end justify-center select-none transition-colors duration-200 ${
         isAnimating ? 'bg-black/60' : 'bg-black/0'
       }`}
-      onClick={handleBackdropClick}
+      {...backdropDismiss}
       data-testid="bottom-sheet-backdrop"
     >
       <div
-        ref={sheetRef}
+        ref={focusRef}
         tabIndex={-1}
         role="dialog"
         aria-modal="true"

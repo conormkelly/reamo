@@ -13,6 +13,8 @@ import { useReaper } from '../../hooks/useReaper';
 import { useReaperStore } from '../../store';
 import { useTimeSignature } from '../../hooks';
 import { action, metronome, countIn, repeat, tempo, timesig } from '../../core/WebSocketCommands';
+import { useBackdropDismiss } from '../../hooks/useBackdropDismiss';
+import { useDialogFocus } from '../../hooks/useDialogFocus';
 
 interface UndoRedoResponse {
   action: string | null;
@@ -188,11 +190,9 @@ export function QuickActionsPanel({ isOpen, onClose }: QuickActionsPanelProps): 
     [sendCommand]
   );
 
-  const handleTimeSigDialogClose = useCallback((e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
-      setShowTimeSigDialog(false);
-    }
-  }, []);
+  const closeTimeSigDialog = useCallback(() => setShowTimeSigDialog(false), []);
+  const timeSigBackdropDismiss = useBackdropDismiss(closeTimeSigDialog);
+  const timeSigFocusRef = useDialogFocus(showTimeSigDialog);
 
   // Format display name
   const displayName = projectName || 'Untitled';
@@ -421,10 +421,14 @@ export function QuickActionsPanel({ isOpen, onClose }: QuickActionsPanelProps): 
       {/* Time Signature Dialog - portaled to body */}
       {showTimeSigDialog && createPortal(
         <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-modal"
-          onClick={handleTimeSigDialogClose}
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-modal overlay-safe-area"
+          {...timeSigBackdropDismiss}
         >
-          <div className="bg-bg-surface rounded-lg p-4 shadow-xl border border-border-subtle min-w-[220px]">
+          <div
+            ref={timeSigFocusRef}
+            tabIndex={-1}
+            className="bg-bg-surface rounded-lg p-4 shadow-xl border border-border-subtle min-w-[220px] max-h-full overflow-y-auto overscroll-contain outline-none"
+          >
             <div className="text-sm text-text-secondary mb-4 text-center">Time Signature</div>
 
             {/* Numerator */}

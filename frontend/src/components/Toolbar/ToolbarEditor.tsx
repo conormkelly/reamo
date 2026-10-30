@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Trash, ToggleLeft } from 'lucide-react';
+import { X, Trash, ToggleLeft, ChevronLeft } from 'lucide-react';
 import { LazyIconPicker } from './LazyIconPicker';
 import { ColorPickerInput } from './ColorPickerInput';
 import { ActionSearch, getStableActionId } from './ActionSearch';
@@ -14,6 +14,8 @@ import { canonicalIconName, getIconComponent } from '../../icons/iconLookup';
 import type { ToolbarAction } from '../../store/slices/toolbarSlice';
 import { useReaperStore, type ReaperAction } from '../../store';
 import { getSectionName } from '../../core/constants';
+import { useBackdropDismiss } from '../../hooks/useBackdropDismiss';
+import { useDialogFocus } from '../../hooks/useDialogFocus';
 
 interface ToolbarEditorProps {
   action: ToolbarAction | null;
@@ -45,6 +47,8 @@ export function ToolbarEditor({
   onDelete,
   editorTitle = 'Toolbar Button',
 }: ToolbarEditorProps) {
+  const backdropDismiss = useBackdropDismiss(onClose);
+  const focusRef = useDialogFocus(true);
   // Form state
   const [label, setLabel] = useState('');
   const [icon, setIcon] = useState<string | undefined>(undefined);
@@ -63,6 +67,7 @@ export function ToolbarEditor({
 
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [showActionSearch, setShowActionSearch] = useState(false);
+  const searchFocusRef = useDialogFocus(showActionSearch);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   // Get action cache for looking up action details
@@ -222,15 +227,23 @@ export function ToolbarEditor({
 
   return createPortal(
     <div
-      className="fixed inset-0 bg-black/60 flex items-center justify-center z-modal"
-      onClick={onClose}
+      className={`fixed inset-0 bg-black/60 flex justify-center z-modal overlay-safe-area ${
+        showActionSearch ? 'items-start [--overlay-gutter:0.5rem]' : 'items-center'
+      }`}
+      {...backdropDismiss}
     >
+      {/* While choosing an action the dialog sits at the top and takes the
+          full height, so results start above where a phone keyboard begins. */}
       <div
-        className="bg-bg-surface rounded-lg shadow-xl w-96 max-w-[95vw] max-h-[90vh] overflow-y-auto"
+        ref={focusRef}
+        tabIndex={-1}
+        className={`bg-bg-surface rounded-lg shadow-xl w-96 max-w-full flex flex-col outline-none ${
+          showActionSearch ? 'h-full' : 'max-h-full'
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-modal border-b border-border-subtle">
+        <div className="flex shrink-0 items-center justify-between p-modal border-b border-border-subtle">
           <h2 className="text-lg font-medium">
             {isNew ? `Add ${editorTitle}` : `Edit ${editorTitle}`}
           </h2>
@@ -242,285 +255,290 @@ export function ToolbarEditor({
           </button>
         </div>
 
-        {/* Content */}
-        <div className="p-modal space-y-4">
-          {/* Label */}
-          <div>
-            <label className="block text-sm text-text-secondary mb-1">Label</label>
-            <input
-              type="text"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              className="w-full px-3 py-2 bg-bg-deep border border-border-default rounded text-text-primary"
-              placeholder="Button label"
-              autoFocus
-            />
+        {showActionSearch ? (
+          // Choosing an action takes the whole dialog, so the results list is
+          // its only scrolling area and fills the height that's left. The pane
+          // leaves while the dialog stays, so it handles focus like a dialog.
+          <div ref={searchFocusRef} tabIndex={-1} className="flex min-h-0 flex-1 flex-col p-modal outline-none">
+            <button
+              onClick={() => setShowActionSearch(false)}
+              className="mb-3 flex shrink-0 items-center gap-1 self-start text-sm text-text-secondary hover:text-text-primary transition-colors"
+            >
+              <ChevronLeft size={16} />
+              Back
+            </button>
+            <ActionSearch onSelect={handleActionSelect} selectedActionId={actionId} />
           </div>
+        ) : (
+          <>
+          {/* Content */}
+          <div className="p-modal space-y-4 min-h-0 flex-1 overflow-y-auto">
+            {/* Label */}
+            <div>
+              <label className="block text-sm text-text-secondary mb-1">Label</label>
+              <input
+                type="text"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                className="w-full px-3 py-2 bg-bg-deep border border-border-default rounded text-text-primary"
+                placeholder="Button label"
+                autoFocus
+              />
+            </div>
 
-          {/* Icon */}
-          <div>
-            <label className="block text-sm text-text-secondary mb-1">Icon</label>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowIconPicker(true)}
-                className="flex-1 px-3 py-2 bg-bg-deep border border-border-default rounded text-left text-text-tertiary hover:border-bg-hover flex items-center gap-2"
-              >
-                {icon ? (
-                  <>
-                    {(() => {
-                      const IconComponent = getIconComponent(icon);
-                      return IconComponent ? <IconComponent size={18} /> : null;
-                    })()}
-                    <span className="font-mono text-sm">{icon}</span>
-                  </>
-                ) : (
-                  'Select icon...'
-                )}
-              </button>
-              {icon && (
+            {/* Icon */}
+            <div>
+              <label className="block text-sm text-text-secondary mb-1">Icon</label>
+              <div className="flex gap-2">
                 <button
-                  onClick={() => setIcon(undefined)}
-                  className="px-3 py-2 bg-bg-elevated hover:bg-bg-hover rounded text-text-tertiary"
+                  onClick={() => setShowIconPicker(true)}
+                  className="flex-1 px-3 py-2 bg-bg-deep border border-border-default rounded text-left text-text-tertiary hover:border-bg-hover flex items-center gap-2"
                 >
-                  Clear
+                  {icon ? (
+                    <>
+                      {(() => {
+                        const IconComponent = getIconComponent(icon);
+                        return IconComponent ? <IconComponent size={18} /> : null;
+                      })()}
+                      <span className="font-mono text-sm">{icon}</span>
+                    </>
+                  ) : (
+                    'Select icon...'
+                  )}
                 </button>
+                {icon && (
+                  <button
+                    onClick={() => setIcon(undefined)}
+                    className="px-3 py-2 bg-bg-elevated hover:bg-bg-hover rounded text-text-tertiary"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Colors */}
+            <div className="grid grid-cols-3 gap-3">
+              <ColorPickerInput
+                label="Icon"
+                value={iconColor}
+                onChange={setIconColor}
+                defaultValue={DEFAULT_ICON_COLOR}
+              />
+              <ColorPickerInput
+                label="Text"
+                value={textColor}
+                onChange={setTextColor}
+                defaultValue={DEFAULT_TEXT_COLOR}
+              />
+              <ColorPickerInput
+                label="Background"
+                value={backgroundColor}
+                onChange={setBackgroundColor}
+                defaultValue={DEFAULT_BG_COLOR}
+              />
+            </div>
+
+            {/* Action Type */}
+            <div>
+              <label className="block text-sm text-text-secondary mb-2">Type</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { value: 'reaper_action', label: 'Action' },
+                  { value: 'midi_cc', label: 'MIDI CC' },
+                  { value: 'midi_pc', label: 'MIDI PC' },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setActionType(opt.value as ActionType)}
+                    className={`px-3 py-2 rounded text-sm transition-colors ${
+                      actionType === opt.value
+                        ? 'bg-primary text-text-on-primary'
+                        : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Action-specific fields */}
+            <div className="p-3 bg-bg-deep rounded border border-border-subtle">
+              {actionType === 'reaper_action' && (
+                <div>
+                  <label className="block text-sm text-text-secondary mb-1">
+                    Action
+                  </label>
+                  {actionId && currentActionFromCache ? (
+                    <div className="p-3 bg-bg-surface border border-border-default rounded">
+                      <div className="flex items-center gap-2 mb-1">
+                        {currentActionFromCache.isToggle && (
+                          <ToggleLeft size={14} className="text-text-secondary flex-shrink-0" />
+                        )}
+                        <span className="text-sm text-text-primary truncate flex-1">
+                          {currentActionFromCache.name}
+                        </span>
+                        {currentActionFromCache.sectionId !== 0 && (
+                          <span className="px-1.5 py-0.5 text-xs bg-bg-elevated text-text-tertiary rounded flex-shrink-0">
+                            {getSectionName(currentActionFromCache.sectionId)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-text-muted font-mono mb-2">
+                        {actionId}
+                      </div>
+                      <button
+                        onClick={() => setShowActionSearch(true)}
+                        className="w-full px-3 py-1.5 bg-bg-elevated hover:bg-bg-hover rounded text-sm text-text-tertiary transition-colors"
+                      >
+                        Change Action
+                      </button>
+                    </div>
+                  ) : actionId ? (
+                    // Action ID set but not found in cache (manual entry or cache not loaded)
+                    <div className="p-3 bg-bg-surface border border-border-default rounded">
+                      <div className="text-sm text-text-tertiary mb-1">
+                        Action ID: <span className="font-mono">{actionId}</span>
+                      </div>
+                      <div className="text-xs text-warning mb-2">
+                        Not found in action cache
+                      </div>
+                      <button
+                        onClick={() => setShowActionSearch(true)}
+                        className="w-full px-3 py-1.5 bg-bg-elevated hover:bg-bg-hover rounded text-sm text-text-tertiary transition-colors"
+                      >
+                        Search Actions
+                      </button>
+                    </div>
+                  ) : (
+                    // No action selected yet
+                    <button
+                      onClick={() => setShowActionSearch(true)}
+                      className="w-full px-3 py-2 bg-bg-surface border border-border-default border-dashed rounded text-text-secondary hover:border-bg-hover hover:text-text-tertiary transition-colors"
+                    >
+                      Search and Select Action...
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {actionType === 'midi_cc' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-sm text-text-secondary mb-1">CC#</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="127"
+                        value={cc}
+                        onChange={(e) => setCc(e.target.value)}
+                        className="w-full px-3 py-2 bg-bg-surface border border-border-default rounded text-text-primary"
+                        placeholder="0-127"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-text-secondary mb-1">Value</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="127"
+                        value={ccValue}
+                        onChange={(e) => setCcValue(e.target.value)}
+                        className="w-full px-3 py-2 bg-bg-surface border border-border-default rounded text-text-primary"
+                        placeholder="0-127"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-text-secondary mb-1">Channel</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="16"
+                        value={channel}
+                        onChange={(e) => setChannel(e.target.value)}
+                        className="w-full px-3 py-2 bg-bg-surface border border-border-default rounded text-text-primary"
+                        placeholder="1-16"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {actionType === 'midi_pc' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-sm text-text-secondary mb-1">Program</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="127"
+                        value={program}
+                        onChange={(e) => setProgram(e.target.value)}
+                        className="w-full px-3 py-2 bg-bg-surface border border-border-default rounded text-text-primary"
+                        placeholder="0-127"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-text-secondary mb-1">Channel</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="16"
+                        value={channel}
+                        onChange={(e) => setChannel(e.target.value)}
+                        className="w-full px-3 py-2 bg-bg-surface border border-border-default rounded text-text-primary"
+                        placeholder="1-16"
+                      />
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           </div>
 
-          {/* Colors */}
-          <div className="grid grid-cols-3 gap-3">
-            <ColorPickerInput
-              label="Icon"
-              value={iconColor}
-              onChange={setIconColor}
-              defaultValue={DEFAULT_ICON_COLOR}
-            />
-            <ColorPickerInput
-              label="Text"
-              value={textColor}
-              onChange={setTextColor}
-              defaultValue={DEFAULT_TEXT_COLOR}
-            />
-            <ColorPickerInput
-              label="Background"
-              value={backgroundColor}
-              onChange={setBackgroundColor}
-              defaultValue={DEFAULT_BG_COLOR}
-            />
-          </div>
-
-          {/* Action Type */}
-          <div>
-            <label className="block text-sm text-text-secondary mb-2">Type</label>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { value: 'reaper_action', label: 'Action' },
-                { value: 'midi_cc', label: 'MIDI CC' },
-                { value: 'midi_pc', label: 'MIDI PC' },
-              ].map((opt) => (
+          {/* Footer */}
+          <div className="flex shrink-0 items-center justify-between p-modal border-t border-border-subtle">
+            <div>
+              {!isNew && (
                 <button
-                  key={opt.value}
-                  onClick={() => setActionType(opt.value as ActionType)}
-                  className={`px-3 py-2 rounded text-sm transition-colors ${
-                    actionType === opt.value
-                      ? 'bg-primary text-text-on-primary'
-                      : 'bg-bg-elevated text-text-tertiary hover:bg-bg-hover'
+                  onClick={handleDeleteClick}
+                  className={`px-3 py-2 rounded transition-colors flex items-center gap-1 ${
+                    confirmingDelete
+                      ? 'bg-error-action text-text-on-error hover:bg-error'
+                      : 'text-delete-text hover:text-delete-text-hover hover:bg-delete-dim-bg'
                   }`}
                 >
-                  {opt.label}
+                  <Trash size={16} />
+                  {confirmingDelete ? 'Confirm?' : 'Delete'}
                 </button>
-              ))}
+              )}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={onClose}
+                className="px-4 py-2 bg-bg-elevated hover:bg-bg-hover rounded transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={!isValid}
+                className={`px-4 py-2 rounded transition-colors ${
+                  isValid
+                    ? 'bg-primary hover:bg-primary-hover text-text-on-primary'
+                    : 'bg-bg-elevated text-text-muted cursor-not-allowed'
+                }`}
+              >
+                {isNew ? 'Add' : 'Save'}
+              </button>
             </div>
           </div>
 
-          {/* Action-specific fields */}
-          <div className="p-3 bg-bg-deep rounded border border-border-subtle">
-            {actionType === 'reaper_action' && (
-              <div>
-                <label className="block text-sm text-text-secondary mb-1">
-                  Action
-                </label>
-                {showActionSearch ? (
-                  <div className="space-y-2">
-                    <ActionSearch
-                      onSelect={handleActionSelect}
-                      selectedActionId={actionId}
-                      maxHeight={300}
-                    />
-                    <button
-                      onClick={() => setShowActionSearch(false)}
-                      className="w-full px-3 py-2 bg-bg-elevated hover:bg-bg-hover rounded text-sm text-text-tertiary transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : actionId && currentActionFromCache ? (
-                  <div className="p-3 bg-bg-surface border border-border-default rounded">
-                    <div className="flex items-center gap-2 mb-1">
-                      {currentActionFromCache.isToggle && (
-                        <ToggleLeft size={14} className="text-text-secondary flex-shrink-0" />
-                      )}
-                      <span className="text-sm text-text-primary truncate flex-1">
-                        {currentActionFromCache.name}
-                      </span>
-                      {currentActionFromCache.sectionId !== 0 && (
-                        <span className="px-1.5 py-0.5 text-xs bg-bg-elevated text-text-tertiary rounded flex-shrink-0">
-                          {getSectionName(currentActionFromCache.sectionId)}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-text-muted font-mono mb-2">
-                      {actionId}
-                    </div>
-                    <button
-                      onClick={() => setShowActionSearch(true)}
-                      className="w-full px-3 py-1.5 bg-bg-elevated hover:bg-bg-hover rounded text-sm text-text-tertiary transition-colors"
-                    >
-                      Change Action
-                    </button>
-                  </div>
-                ) : actionId ? (
-                  // Action ID set but not found in cache (manual entry or cache not loaded)
-                  <div className="p-3 bg-bg-surface border border-border-default rounded">
-                    <div className="text-sm text-text-tertiary mb-1">
-                      Action ID: <span className="font-mono">{actionId}</span>
-                    </div>
-                    <div className="text-xs text-warning mb-2">
-                      Not found in action cache
-                    </div>
-                    <button
-                      onClick={() => setShowActionSearch(true)}
-                      className="w-full px-3 py-1.5 bg-bg-elevated hover:bg-bg-hover rounded text-sm text-text-tertiary transition-colors"
-                    >
-                      Search Actions
-                    </button>
-                  </div>
-                ) : (
-                  // No action selected yet
-                  <button
-                    onClick={() => setShowActionSearch(true)}
-                    className="w-full px-3 py-2 bg-bg-surface border border-border-default border-dashed rounded text-text-secondary hover:border-bg-hover hover:text-text-tertiary transition-colors"
-                  >
-                    Search and Select Action...
-                  </button>
-                )}
-              </div>
-            )}
-
-            {actionType === 'midi_cc' && (
-              <div className="space-y-3">
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <label className="block text-sm text-text-secondary mb-1">CC#</label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="127"
-                      value={cc}
-                      onChange={(e) => setCc(e.target.value)}
-                      className="w-full px-3 py-2 bg-bg-surface border border-border-default rounded text-text-primary"
-                      placeholder="0-127"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm text-text-secondary mb-1">Value</label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="127"
-                      value={ccValue}
-                      onChange={(e) => setCcValue(e.target.value)}
-                      className="w-full px-3 py-2 bg-bg-surface border border-border-default rounded text-text-primary"
-                      placeholder="0-127"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm text-text-secondary mb-1">Channel</label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="16"
-                      value={channel}
-                      onChange={(e) => setChannel(e.target.value)}
-                      className="w-full px-3 py-2 bg-bg-surface border border-border-default rounded text-text-primary"
-                      placeholder="1-16"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {actionType === 'midi_pc' && (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-sm text-text-secondary mb-1">Program</label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="127"
-                      value={program}
-                      onChange={(e) => setProgram(e.target.value)}
-                      className="w-full px-3 py-2 bg-bg-surface border border-border-default rounded text-text-primary"
-                      placeholder="0-127"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm text-text-secondary mb-1">Channel</label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="16"
-                      value={channel}
-                      onChange={(e) => setChannel(e.target.value)}
-                      className="w-full px-3 py-2 bg-bg-surface border border-border-default rounded text-text-primary"
-                      placeholder="1-16"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between p-modal border-t border-border-subtle">
-          <div>
-            {!isNew && (
-              <button
-                onClick={handleDeleteClick}
-                className={`px-3 py-2 rounded transition-colors flex items-center gap-1 ${
-                  confirmingDelete
-                    ? 'bg-error-action text-text-on-error hover:bg-error'
-                    : 'text-delete-text hover:text-delete-text-hover hover:bg-delete-dim-bg'
-                }`}
-              >
-                <Trash size={16} />
-                {confirmingDelete ? 'Confirm?' : 'Delete'}
-              </button>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 bg-bg-elevated hover:bg-bg-hover rounded transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={!isValid}
-              className={`px-4 py-2 rounded transition-colors ${
-                isValid
-                  ? 'bg-primary hover:bg-primary-hover text-text-on-primary'
-                  : 'bg-bg-elevated text-text-muted cursor-not-allowed'
-              }`}
-            >
-              {isNew ? 'Add' : 'Save'}
-            </button>
-          </div>
-        </div>
+          </>
+        )}
 
         {/* Icon Picker Modal */}
         {showIconPicker && (
