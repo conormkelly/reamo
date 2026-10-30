@@ -49,10 +49,10 @@ test.describe('On-screen keyboard', () => {
     await page.goto('/');
     await setupTestStore(page);
     await page.waitForSelector('[data-view="mixer"]', { state: 'visible' });
-    await page.getByRole('button', { name: 'Actions', exact: true }).click();
   });
 
   test('opening the keyboard keeps the New Section dialog open', async ({ page }) => {
+    await page.getByRole('button', { name: 'Actions', exact: true }).click();
     await page.getByRole('button', { name: 'Create Section' }).click();
     const name = page.getByPlaceholder('e.g., Transport, FX, Navigation');
     await expect(name).toBeFocused();
@@ -66,6 +66,7 @@ test.describe('On-screen keyboard', () => {
   });
 
   test('a section named with the keyboard up is created', async ({ page }) => {
+    await page.getByRole('button', { name: 'Actions', exact: true }).click();
     await page.getByRole('button', { name: 'Create Section' }).click();
     await resizeHeight(page, 400);
     await page.getByPlaceholder('e.g., Transport, FX, Navigation').fill('Drums');
@@ -74,6 +75,17 @@ test.describe('On-screen keyboard', () => {
 
     await expect(page.getByRole('heading', { name: 'New Section' })).toBeHidden();
     await expect(page.getByText('Drums')).toBeVisible();
+  });
+
+  test('the Create Track name field keeps focus once the dialog has opened', async ({ page }) => {
+    await page.getByRole('button', { name: 'Create track' }).click();
+    const name = page.getByLabel('Name (optional)');
+    await expect(name).toBeFocused();
+
+    // Past the dialog's own focus handling, which runs after the first tick.
+    await page.waitForTimeout(100);
+
+    await expect(name).toBeFocused();
   });
 
   test('turning the phone to landscape still moves navigation to the side', async ({ page }) => {

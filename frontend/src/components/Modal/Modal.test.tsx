@@ -2,8 +2,9 @@
  * Tests for Modal component
  */
 
+import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
 import { Modal } from './Modal';
 
 describe('Modal', () => {
@@ -144,6 +145,77 @@ describe('Modal', () => {
       render(<Modal {...defaultProps} width="xl" />);
       const modalPanel = screen.getByText('Modal content').closest('div[tabindex="-1"]');
       expect(modalPanel).toHaveClass('max-w-lg');
+    });
+  });
+
+  describe('focus', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('leaves focus on a field that autofocuses as the dialog opens', () => {
+      vi.useFakeTimers();
+      render(
+        <Modal {...defaultProps}>
+          <input aria-label="Name" autoFocus />
+        </Modal>
+      );
+      act(() => vi.runAllTimers());
+      expect(screen.getByLabelText('Name')).toHaveFocus();
+    });
+
+    it('leaves focus on an autofocused field under StrictMode, which detaches and reattaches refs', () => {
+      vi.useFakeTimers();
+      render(
+        <StrictMode>
+          <Modal {...defaultProps}>
+            <input aria-label="Name" autoFocus />
+          </Modal>
+        </StrictMode>
+      );
+      act(() => vi.runAllTimers());
+      expect(screen.getByLabelText('Name')).toHaveFocus();
+    });
+
+    it('focuses the dialog when nothing inside it takes focus', () => {
+      vi.useFakeTimers();
+      render(<Modal {...defaultProps} />);
+      act(() => vi.runAllTimers());
+      expect(screen.getByRole('dialog')).toHaveFocus();
+    });
+
+    it('blurs the focused field while it is still on the page when the dialog closes', () => {
+      const { rerender } = render(
+        <Modal {...defaultProps}>
+          <input aria-label="Name" autoFocus />
+        </Modal>
+      );
+      const input = screen.getByLabelText('Name');
+      const connectedAtBlur: boolean[] = [];
+      input.addEventListener('blur', () => connectedAtBlur.push(input.isConnected));
+
+      rerender(
+        <Modal {...defaultProps} isOpen={false}>
+          <input aria-label="Name" autoFocus />
+        </Modal>
+      );
+
+      expect(connectedAtBlur).toEqual([true]);
+    });
+
+    it('blurs the focused field before the dialog is unmounted', () => {
+      const { unmount } = render(
+        <Modal {...defaultProps}>
+          <input aria-label="Name" autoFocus />
+        </Modal>
+      );
+      const input = screen.getByLabelText('Name');
+      const connectedAtBlur: boolean[] = [];
+      input.addEventListener('blur', () => connectedAtBlur.push(input.isConnected));
+
+      unmount();
+
+      expect(connectedAtBlur).toEqual([true]);
     });
   });
 

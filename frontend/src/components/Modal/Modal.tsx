@@ -17,10 +17,11 @@
  * </Modal>
  */
 
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { useBackdropDismiss } from '../../hooks/useBackdropDismiss';
+import { useDialogFocus } from '../../hooks/useDialogFocus';
 
 export interface ModalProps {
   /** Whether the modal is visible */
@@ -64,7 +65,7 @@ export function Modal({
   icon,
   className = '',
 }: ModalProps) {
-  const modalRef = useRef<HTMLDivElement>(null);
+  const focusRef = useDialogFocus(isOpen);
 
   // Escape key handler
   useEffect(() => {
@@ -80,18 +81,6 @@ export function Modal({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, closeOnEscape, onClose]);
 
-  // Focus management - focus modal on open
-  useEffect(() => {
-    if (!isOpen) return;
-
-    // Focus the modal container for keyboard navigation
-    const timer = setTimeout(() => {
-      modalRef.current?.focus();
-    }, 0);
-
-    return () => clearTimeout(timer);
-  }, [isOpen]);
-
   const backdropDismiss = useBackdropDismiss(onClose, closeOnBackdrop);
 
   if (!isOpen) return null;
@@ -105,7 +94,7 @@ export function Modal({
       data-testid="modal-backdrop"
     >
       <div
-        ref={modalRef}
+        ref={focusRef}
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
