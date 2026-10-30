@@ -11,7 +11,7 @@ import { useState, useEffect } from 'react';
 /**
  * Hook to reactively match a media query
  *
- * @param query - CSS media query string (e.g., '(orientation: landscape)')
+ * @param query - CSS media query string (e.g., '(min-width: 768px)')
  * @returns boolean indicating if the media query matches
  *
  * @example
@@ -39,18 +39,6 @@ export function useMediaQuery(query: string): boolean {
 }
 
 // Convenience exports for common queries
-
-/**
- * Hook to detect landscape orientation
- * @returns true when device is in landscape mode
- */
-export const useIsLandscape = () => useMediaQuery('(orientation: landscape)');
-
-/**
- * Hook to detect portrait orientation
- * @returns true when device is in portrait mode
- */
-export const useIsPortrait = () => useMediaQuery('(orientation: portrait)');
 
 /**
  * Hook to detect PWA standalone mode

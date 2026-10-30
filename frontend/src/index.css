@@ -611,19 +611,6 @@ textarea {
 }
 
 /* =============================================================================
- * LANDSCAPE-CONSTRAINED MODE (Side Rail)
- * Triggers when height < 480px AND landscape orientation (phone landscape).
- * Used for side rail navigation to reclaim vertical space.
- * ============================================================================= */
-
-@media (max-height: 480px) and (orientation: landscape) {
-  :root {
-    /* CSS custom property for JS/CSS coordination */
-    --layout-mode: landscape-constrained;
-  }
-}
-
-/* =============================================================================
  * DUAL-RAIL LAYOUT (Landscape-Constrained Mode)
  * NavRail (left) and ContextRail (right) need to account for safe areas
  * The rail WIDTH must include safe area, not just internal padding
