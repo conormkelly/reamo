@@ -67,8 +67,6 @@ interface ActionSearchProps {
   onSelect: (action: ReaperAction) => void;
   /** Currently selected action ID (for highlighting) */
   selectedActionId?: string;
-  /** Optional max height for the list container */
-  maxHeight?: number;
   /** Initial section filter (default: ALL_SECTIONS) */
   initialSection?: number;
 }
@@ -99,7 +97,6 @@ function useDebounce<T>(value: T, delay: number): T {
 export function ActionSearch({
   onSelect,
   selectedActionId,
-  maxHeight = 400,
   initialSection = ALL_SECTIONS,
 }: ActionSearchProps) {
   const actionCache = useReaperStore((s) => s.actionCache);
@@ -202,32 +199,10 @@ export function ActionSearch({
   }
 
   return (
-    <div className="flex flex-col">
-      {/* Section filter */}
-      <div className="mb-3">
-        <label className="block text-xs text-text-secondary mb-1">Section</label>
-        <div className="relative">
-          <select
-            value={sectionFilter}
-            onChange={(e) => setSectionFilter(Number(e.target.value))}
-            className="w-full px-3 py-2 pr-8 bg-bg-deep border border-border-default rounded text-text-primary appearance-none focus:border-focus-border focus:outline-none"
-          >
-            <option value={ALL_SECTIONS}>All Sections</option>
-            {availableSections.map((sectionId) => (
-              <option key={sectionId} value={sectionId}>
-                {REAPER_SECTIONS[sectionId] ?? `Section ${sectionId}`}
-              </option>
-            ))}
-          </select>
-          <ChevronDown
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary pointer-events-none"
-            size={16}
-          />
-        </div>
-      </div>
-
-      {/* Search input */}
-      <div className="relative mb-3">
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* Search input first: on a phone the keyboard covers the lower part
+          of the screen, so the results should start as high as they can */}
+      <div className="relative mb-2 shrink-0">
         <Search
           className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary"
           size={18}
@@ -242,16 +217,32 @@ export function ActionSearch({
         />
       </div>
 
-      {/* Results count */}
-      <div className="text-xs text-text-muted mb-2">
-        {filtered.length === sortedActions.length
-          ? `${sortedActions.length} actions`
-          : `${filtered.length} of ${sortedActions.length} actions`}
-        {sectionFilter !== ALL_SECTIONS && (
-          <span className="ml-1">
-            in {REAPER_SECTIONS[sectionFilter] ?? `Section ${sectionFilter}`}
-          </span>
-        )}
+      {/* Results count and section filter on one line */}
+      <div className="mb-2 flex shrink-0 items-center gap-2">
+        <div className="flex-1 text-xs text-text-muted">
+          {filtered.length === sortedActions.length
+            ? `${sortedActions.length} actions`
+            : `${filtered.length} of ${sortedActions.length} actions`}
+        </div>
+        <div className="relative">
+          <select
+            aria-label="Section"
+            value={sectionFilter}
+            onChange={(e) => setSectionFilter(Number(e.target.value))}
+            className="py-1 pl-2 pr-7 text-sm bg-bg-deep border border-border-default rounded text-text-primary appearance-none focus:border-focus-border focus:outline-none"
+          >
+            <option value={ALL_SECTIONS}>All Sections</option>
+            {availableSections.map((sectionId) => (
+              <option key={sectionId} value={sectionId}>
+                {REAPER_SECTIONS[sectionId] ?? `Section ${sectionId}`}
+              </option>
+            ))}
+          </select>
+          <ChevronDown
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary pointer-events-none"
+            size={14}
+          />
+        </div>
       </div>
 
       {/* No results */}
@@ -265,8 +256,7 @@ export function ActionSearch({
       {filtered.length > 0 && (
         <div
           ref={parentRef}
-          className="overflow-auto border border-border-subtle rounded bg-bg-deep"
-          style={{ maxHeight }}
+          className="min-h-0 flex-1 overflow-auto border border-border-subtle rounded bg-bg-deep"
         >
           <div
             style={{
