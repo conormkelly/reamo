@@ -278,7 +278,7 @@ export function TunerView(): ReactElement {
         ariaLabel="Select Track"
       >
         <h2 className="text-lg font-semibold text-text-primary px-4 pb-3">Select Track</h2>
-        <div className="max-h-[60vh] overflow-y-auto">
+        <div className="max-h-[60dvh] overflow-y-auto">
           {trackList.length === 0 ? (
             <p className="text-center text-text-tertiary py-8">No tracks available</p>
           ) : (

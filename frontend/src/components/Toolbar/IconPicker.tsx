@@ -110,7 +110,7 @@ export function IconPicker({ value, onChange, onClose }: IconPickerProps) {
       onClick={onClose}
     >
       <div
-        className="bg-bg-surface rounded-lg shadow-xl w-[400px] max-w-[95vw] max-h-[80vh] flex flex-col"
+        className="bg-bg-surface rounded-lg shadow-xl w-[400px] max-w-[95vw] max-h-[80dvh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

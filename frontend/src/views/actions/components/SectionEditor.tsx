@@ -127,7 +127,7 @@ export function SectionEditor({
       onClick={onClose}
     >
       <div
-        className="bg-bg-surface rounded-lg w-full max-w-sm max-h-[90vh] flex flex-col"
+        className="bg-bg-surface rounded-lg w-full max-w-sm max-h-[90dvh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

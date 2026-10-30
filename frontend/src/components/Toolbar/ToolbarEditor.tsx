@@ -226,7 +226,7 @@ export function ToolbarEditor({
       onClick={onClose}
     >
       <div
-        className="bg-bg-surface rounded-lg shadow-xl w-96 max-w-[95vw] max-h-[90vh] overflow-y-auto"
+        className="bg-bg-surface rounded-lg shadow-xl w-96 max-w-[95vw] max-h-[90dvh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

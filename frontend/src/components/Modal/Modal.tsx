@@ -114,11 +114,11 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
-        className={`bg-bg-deep rounded-xl shadow-2xl border border-border-subtle w-full ${WIDTH_CLASSES[width]} mx-4 overflow-hidden outline-none ${className}`}
+        className={`bg-bg-deep rounded-xl shadow-2xl border border-border-subtle w-full ${WIDTH_CLASSES[width]} mx-4 max-h-[calc(100dvh-2rem)] flex flex-col overflow-hidden outline-none ${className}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
+        <div className="flex shrink-0 items-center justify-between px-4 py-3 border-b border-border-subtle">
           <h2 id="modal-title" className="text-lg font-semibold flex items-center gap-2">
             {icon}
             {title}
@@ -134,8 +134,10 @@ export function Modal({
           )}
         </div>
 
-        {/* Content */}
-        {children}
+        {/* Content: never taller than the visible viewport. ModalContent
+            scrolls inside it, so ModalFooter's buttons stay in view; content
+            without ModalContent scrolls as a whole. */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</div>
       </div>
     </div>,
     document.body
