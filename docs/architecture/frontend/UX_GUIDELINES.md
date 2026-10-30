@@ -92,8 +92,10 @@ Both iOS and Android now support `env(safe-area-inset-*)` when `viewport-fit=cov
 **Required meta viewport:**
 
 ```html
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 ```
+
+No `interactive-widget`: the on-screen keyboard overlays the page (the browser default, `resizes-visual`) instead of shrinking it. With `resizes-content`, current iOS WebKit shrinks the layout viewport for the keyboard as Android does, and WebKit hosts such as Brave can leave it shrunk after the keyboard closes, drawing the app in the top half of the screen.
 
 **CSS custom properties for safe areas:**
 
