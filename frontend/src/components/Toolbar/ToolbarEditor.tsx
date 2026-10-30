@@ -15,6 +15,7 @@ import type { ToolbarAction } from '../../store/slices/toolbarSlice';
 import { useReaperStore, type ReaperAction } from '../../store';
 import { getSectionName } from '../../core/constants';
 import { useBackdropDismiss } from '../../hooks/useBackdropDismiss';
+import { useDialogFocus } from '../../hooks/useDialogFocus';
 
 interface ToolbarEditorProps {
   action: ToolbarAction | null;
@@ -47,6 +48,7 @@ export function ToolbarEditor({
   editorTitle = 'Toolbar Button',
 }: ToolbarEditorProps) {
   const backdropDismiss = useBackdropDismiss(onClose);
+  const focusRef = useDialogFocus(true);
   // Form state
   const [label, setLabel] = useState('');
   const [icon, setIcon] = useState<string | undefined>(undefined);
@@ -65,6 +67,7 @@ export function ToolbarEditor({
 
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [showActionSearch, setShowActionSearch] = useState(false);
+  const searchFocusRef = useDialogFocus(showActionSearch);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   // Get action cache for looking up action details
@@ -232,7 +235,9 @@ export function ToolbarEditor({
       {/* While choosing an action the dialog sits at the top and takes the
           full height, so results start above where a phone keyboard begins. */}
       <div
-        className={`bg-bg-surface rounded-lg shadow-xl w-96 max-w-full flex flex-col ${
+        ref={focusRef}
+        tabIndex={-1}
+        className={`bg-bg-surface rounded-lg shadow-xl w-96 max-w-full flex flex-col outline-none ${
           showActionSearch ? 'h-full' : 'max-h-full'
         }`}
         onClick={(e) => e.stopPropagation()}
@@ -252,8 +257,9 @@ export function ToolbarEditor({
 
         {showActionSearch ? (
           // Choosing an action takes the whole dialog, so the results list is
-          // its only scrolling area and fills the height that's left.
-          <div className="flex min-h-0 flex-1 flex-col p-modal">
+          // its only scrolling area and fills the height that's left. The pane
+          // leaves while the dialog stays, so it handles focus like a dialog.
+          <div ref={searchFocusRef} tabIndex={-1} className="flex min-h-0 flex-1 flex-col p-modal outline-none">
             <button
               onClick={() => setShowActionSearch(false)}
               className="mb-3 flex shrink-0 items-center gap-1 self-start text-sm text-text-secondary hover:text-text-primary transition-colors"

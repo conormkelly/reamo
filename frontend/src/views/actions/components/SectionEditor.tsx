@@ -13,6 +13,7 @@ import { DynamicIcon } from '../../../components/Toolbar/DynamicIcon';
 import { canonicalIconName } from '../../../icons/iconLookup';
 import type { ActionsSection, SizeOption } from '../../../store/slices/actionsViewSlice';
 import { useBackdropDismiss } from '../../../hooks/useBackdropDismiss';
+import { useDialogFocus } from '../../../hooks/useDialogFocus';
 
 // Default color (gray) - matches --color-bg-elevated token
 const DEFAULT_SECTION_COLOR = '#374151'; // Keep hex for color picker
@@ -37,6 +38,7 @@ export function SectionEditor({
   onClose,
 }: SectionEditorProps): ReactElement {
   const backdropDismiss = useBackdropDismiss(onClose);
+  const focusRef = useDialogFocus(true);
   const [name, setName] = useState(section?.name ?? '');
   const [icon, setIcon] = useState<string | undefined>(
     section?.icon ? canonicalIconName(section.icon) : undefined
@@ -129,7 +131,9 @@ export function SectionEditor({
       {...backdropDismiss}
     >
       <div
-        className="bg-bg-surface rounded-lg w-full max-w-sm max-h-full flex flex-col"
+        ref={focusRef}
+        tabIndex={-1}
+        className="bg-bg-surface rounded-lg w-full max-w-sm max-h-full flex flex-col outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
