@@ -12,7 +12,6 @@
 
 import { useState, useEffect, useRef, type RefObject } from 'react';
 import { useReaperStore } from '../store';
-import { useIsLandscape } from './useMediaQuery';
 import { useReducedMotion } from './useReducedMotion';
 import { useLayoutContext, type NavPosition } from './useLayoutContext';
 import { PANEL_TRANSITION_MS } from '../constants/layout';
@@ -27,7 +26,7 @@ export interface UseAvailableContentHeightOptions {
 export interface UseAvailableContentHeightReturn {
   /** Measured height of content area in pixels */
   availableHeight: number;
-  /** Whether we're in landscape orientation */
+  /** Whether the device is on its side (see useLayoutContext) */
   isLandscape: boolean;
   /** True while panel is animating (heights may be stale) */
   isTransitioning: boolean;
@@ -56,13 +55,12 @@ export function useAvailableContentHeight(
   const [isTransitioning, setIsTransitioning] = useState(false);
   const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Get panel state and orientation
+  // Get panel state
   const panelExpanded = useReaperStore((s) => s.secondaryPanelExpanded[viewId]);
-  const isLandscape = useIsLandscape();
   const prefersReducedMotion = useReducedMotion();
 
-  // Get layout context for side rail detection
-  const { navPosition, isLandscapeConstrained } = useLayoutContext();
+  // Get layout context for orientation and side rail detection
+  const { navPosition, isLandscape, isLandscapeConstrained } = useLayoutContext();
 
   // Track previous panel state to detect changes
   const prevPanelExpandedRef = useRef(panelExpanded);

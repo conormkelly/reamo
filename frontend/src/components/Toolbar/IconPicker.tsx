@@ -12,6 +12,8 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { commonIcons, type CommonIconName } from '../../icons/commonIcons';
 import { searchIcons } from '../../icons/iconSearchIndex';
+import { useBackdropDismiss } from '../../hooks/useBackdropDismiss';
+import { useDialogFocus } from '../../hooks/useDialogFocus';
 
 interface IconPickerProps {
   value?: string;
@@ -57,6 +59,8 @@ function toKebabCase(str: string): string {
 }
 
 export function IconPicker({ value, onChange, onClose }: IconPickerProps) {
+  const backdropDismiss = useBackdropDismiss(onClose);
+  const focusRef = useDialogFocus(true);
   const [search, setSearch] = useState('');
 
   // Close on Escape
@@ -106,11 +110,13 @@ export function IconPicker({ value, onChange, onClose }: IconPickerProps) {
   // Portal to body to escape stacking contexts
   return createPortal(
     <div
-      className="fixed inset-0 bg-black/60 flex items-center justify-center z-modal"
-      onClick={onClose}
+      className="fixed inset-0 bg-black/60 flex items-center justify-center z-modal overlay-safe-area"
+      {...backdropDismiss}
     >
       <div
-        className="bg-bg-surface rounded-lg shadow-xl w-[400px] max-w-[95vw] max-h-[80vh] flex flex-col"
+        ref={focusRef}
+        tabIndex={-1}
+        className="bg-bg-surface rounded-lg shadow-xl w-[400px] max-w-full max-h-[min(80dvh,100%)] flex flex-col outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

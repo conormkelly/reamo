@@ -116,7 +116,7 @@ export function FolderNavSheet({
 
   return (
     <BottomSheet isOpen={isOpen} onClose={onClose} ariaLabel="Folder navigation">
-      <div className="flex flex-col max-h-[70vh]">
+      <div className="flex flex-col max-h-[70dvh]">
         {/* Header */}
         <div className="flex items-center justify-between px-4 pb-2">
           <h2 className="text-lg font-semibold text-text-primary">Folders</h2>

@@ -161,7 +161,7 @@ export function RegionPickerModal({
   }
 
   return (
-    <Modal isOpen onClose={onClose} title="Add Region" width="lg" className="max-h-[80vh] flex flex-col">
+    <Modal isOpen onClose={onClose} title="Add Region" width="lg">
       {/* Add All button */}
       <div className="p-3 border-b border-border-subtle">
         <button

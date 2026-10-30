@@ -166,6 +166,18 @@ export default defineConfig(
           message:
             'Use h-screen-safe or 100dvh instead of h-screen for iOS Safari URL bar. See FRONTEND_DEVELOPMENT.md §11.',
         },
+        // vh anywhere in a string: className values ("max-h-[90vh]"),
+        // style objects, cn()/clsx() arguments. iOS Safari sizes vh to the
+        // viewport with its toolbars hidden, so 90vh is taller than what's
+        // visible while they're shown.
+        {
+          selector: 'Literal[value=/[0-9]vh\\b/]',
+          message: 'Use dvh, not vh, for viewport-relative sizes (iOS Safari toolbars). See FRONTEND_DEVELOPMENT.md §11.',
+        },
+        {
+          selector: 'TemplateElement[value.raw=/[0-9]vh\\b/]',
+          message: 'Use dvh, not vh, for viewport-relative sizes (iOS Safari toolbars). See FRONTEND_DEVELOPMENT.md §11.',
+        },
       ],
 
       // =========================================================================

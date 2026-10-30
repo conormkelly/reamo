@@ -2,8 +2,9 @@
  * Tests for Modal component
  */
 
+import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
 import { Modal } from './Modal';
 
 describe('Modal', () => {
@@ -59,12 +60,21 @@ describe('Modal', () => {
   });
 
   describe('backdrop click', () => {
-    it('calls onClose when backdrop is clicked', () => {
+    it('calls onClose when the backdrop is tapped', () => {
       render(<Modal {...defaultProps} />);
-      // Click the backdrop (outer fixed div), not the inner dialog panel
+      // Tap the backdrop (outer fixed div), not the inner dialog panel
       const backdrop = screen.getByTestId('modal-backdrop');
+      fireEvent.pointerDown(backdrop);
       fireEvent.click(backdrop);
       expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('stays open when a tap inside the dialog is delivered to the backdrop', () => {
+      // iOS: closing the keyboard shifts the page between touch and click
+      render(<Modal {...defaultProps} />);
+      fireEvent.pointerDown(screen.getByText('Modal content'));
+      fireEvent.click(screen.getByTestId('modal-backdrop'));
+      expect(defaultProps.onClose).not.toHaveBeenCalled();
     });
 
     it('does not call onClose when modal content is clicked', () => {
@@ -73,9 +83,10 @@ describe('Modal', () => {
       expect(defaultProps.onClose).not.toHaveBeenCalled();
     });
 
-    it('does not close on backdrop click when closeOnBackdrop is false', () => {
+    it('does not close on a backdrop tap when closeOnBackdrop is false', () => {
       render(<Modal {...defaultProps} closeOnBackdrop={false} />);
-      const backdrop = screen.getByRole('dialog');
+      const backdrop = screen.getByTestId('modal-backdrop');
+      fireEvent.pointerDown(backdrop);
       fireEvent.click(backdrop);
       expect(defaultProps.onClose).not.toHaveBeenCalled();
     });
@@ -134,6 +145,77 @@ describe('Modal', () => {
       render(<Modal {...defaultProps} width="xl" />);
       const modalPanel = screen.getByText('Modal content').closest('div[tabindex="-1"]');
       expect(modalPanel).toHaveClass('max-w-lg');
+    });
+  });
+
+  describe('focus', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('leaves focus on a field that autofocuses as the dialog opens', () => {
+      vi.useFakeTimers();
+      render(
+        <Modal {...defaultProps}>
+          <input aria-label="Name" autoFocus />
+        </Modal>
+      );
+      act(() => vi.runAllTimers());
+      expect(screen.getByLabelText('Name')).toHaveFocus();
+    });
+
+    it('leaves focus on an autofocused field under StrictMode, which detaches and reattaches refs', () => {
+      vi.useFakeTimers();
+      render(
+        <StrictMode>
+          <Modal {...defaultProps}>
+            <input aria-label="Name" autoFocus />
+          </Modal>
+        </StrictMode>
+      );
+      act(() => vi.runAllTimers());
+      expect(screen.getByLabelText('Name')).toHaveFocus();
+    });
+
+    it('focuses the dialog when nothing inside it takes focus', () => {
+      vi.useFakeTimers();
+      render(<Modal {...defaultProps} />);
+      act(() => vi.runAllTimers());
+      expect(screen.getByRole('dialog')).toHaveFocus();
+    });
+
+    it('blurs the focused field while it is still on the page when the dialog closes', () => {
+      const { rerender } = render(
+        <Modal {...defaultProps}>
+          <input aria-label="Name" autoFocus />
+        </Modal>
+      );
+      const input = screen.getByLabelText('Name');
+      const connectedAtBlur: boolean[] = [];
+      input.addEventListener('blur', () => connectedAtBlur.push(input.isConnected));
+
+      rerender(
+        <Modal {...defaultProps} isOpen={false}>
+          <input aria-label="Name" autoFocus />
+        </Modal>
+      );
+
+      expect(connectedAtBlur).toEqual([true]);
+    });
+
+    it('blurs the focused field before the dialog is unmounted', () => {
+      const { unmount } = render(
+        <Modal {...defaultProps}>
+          <input aria-label="Name" autoFocus />
+        </Modal>
+      );
+      const input = screen.getByLabelText('Name');
+      const connectedAtBlur: boolean[] = [];
+      input.addEventListener('blur', () => connectedAtBlur.push(input.isConnected));
+
+      unmount();
+
+      expect(connectedAtBlur).toEqual([true]);
     });
   });
 
