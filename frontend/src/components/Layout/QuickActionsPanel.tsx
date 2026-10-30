@@ -13,6 +13,7 @@ import { useReaper } from '../../hooks/useReaper';
 import { useReaperStore } from '../../store';
 import { useTimeSignature } from '../../hooks';
 import { action, metronome, countIn, repeat, tempo, timesig } from '../../core/WebSocketCommands';
+import { useBackdropDismiss } from '../../hooks/useBackdropDismiss';
 
 interface UndoRedoResponse {
   action: string | null;
@@ -188,11 +189,8 @@ export function QuickActionsPanel({ isOpen, onClose }: QuickActionsPanelProps): 
     [sendCommand]
   );
 
-  const handleTimeSigDialogClose = useCallback((e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
-      setShowTimeSigDialog(false);
-    }
-  }, []);
+  const closeTimeSigDialog = useCallback(() => setShowTimeSigDialog(false), []);
+  const timeSigBackdropDismiss = useBackdropDismiss(closeTimeSigDialog);
 
   // Format display name
   const displayName = projectName || 'Untitled';
@@ -422,7 +420,7 @@ export function QuickActionsPanel({ isOpen, onClose }: QuickActionsPanelProps): 
       {showTimeSigDialog && createPortal(
         <div
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-modal"
-          onClick={handleTimeSigDialogClose}
+          {...timeSigBackdropDismiss}
         >
           <div className="bg-bg-surface rounded-lg p-4 shadow-xl border border-border-subtle min-w-[220px]">
             <div className="text-sm text-text-secondary mb-4 text-center">Time Signature</div>

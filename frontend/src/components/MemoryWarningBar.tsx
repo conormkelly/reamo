@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom';
 import { TriangleAlert, Info, X } from 'lucide-react';
 import { useReaperStore } from '../store';
 import { useReaper } from '../hooks/useReaper';
+import { useBackdropDismiss } from '../hooks/useBackdropDismiss';
 
 interface MemoryStats {
   high: { used: number; capacity: number; peak: number; utilization: number };
@@ -60,6 +61,7 @@ export function MemoryWarningBar({ className = '' }: MemoryWarningBarProps): Rea
   const handleCloseModal = useCallback(() => {
     setShowModal(false);
   }, []);
+  const backdropDismiss = useBackdropDismiss(handleCloseModal);
 
   // Don't show if no warning or already dismissed
   if (!memoryWarning || memoryWarningDismissed) {
@@ -103,7 +105,7 @@ export function MemoryWarningBar({ className = '' }: MemoryWarningBarProps): Rea
       {showModal && createPortal(
         <div
           className="fixed inset-0 bg-black/70 flex items-center justify-center z-modal"
-          onClick={handleCloseModal}
+          {...backdropDismiss}
         >
           <div
             className="bg-bg-surface rounded-lg p-6 max-w-md mx-4 shadow-xl"

@@ -20,6 +20,7 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { useBackdropDismiss } from '../../hooks/useBackdropDismiss';
 
 export interface ModalProps {
   /** Whether the modal is visible */
@@ -91,12 +92,7 @@ export function Modal({
     return () => clearTimeout(timer);
   }, [isOpen]);
 
-  // Backdrop click handler
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (closeOnBackdrop && e.target === e.currentTarget) {
-      onClose();
-    }
-  };
+  const backdropDismiss = useBackdropDismiss(onClose, closeOnBackdrop);
 
   if (!isOpen) return null;
 
@@ -105,7 +101,7 @@ export function Modal({
   return createPortal(
     <div
       className="fixed inset-0 z-modal flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={handleBackdropClick}
+      {...backdropDismiss}
       data-testid="modal-backdrop"
     >
       <div

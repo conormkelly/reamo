@@ -14,6 +14,7 @@ import { canonicalIconName, getIconComponent } from '../../icons/iconLookup';
 import type { ToolbarAction } from '../../store/slices/toolbarSlice';
 import { useReaperStore, type ReaperAction } from '../../store';
 import { getSectionName } from '../../core/constants';
+import { useBackdropDismiss } from '../../hooks/useBackdropDismiss';
 
 interface ToolbarEditorProps {
   action: ToolbarAction | null;
@@ -45,6 +46,7 @@ export function ToolbarEditor({
   onDelete,
   editorTitle = 'Toolbar Button',
 }: ToolbarEditorProps) {
+  const backdropDismiss = useBackdropDismiss(onClose);
   // Form state
   const [label, setLabel] = useState('');
   const [icon, setIcon] = useState<string | undefined>(undefined);
@@ -225,7 +227,7 @@ export function ToolbarEditor({
       className={`fixed inset-0 bg-black/60 flex justify-center z-modal ${
         showActionSearch ? 'items-start pt-2' : 'items-center'
       }`}
-      onClick={onClose}
+      {...backdropDismiss}
     >
       {/* While choosing an action the dialog sits at the top and takes the
           full height, so results start above where a phone keyboard begins. */}

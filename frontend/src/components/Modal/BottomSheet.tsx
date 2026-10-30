@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useBackdropDismiss } from '../../hooks/useBackdropDismiss';
 
 export interface BottomSheetProps {
   /** Whether the bottom sheet is visible */
@@ -111,12 +112,7 @@ export function BottomSheet({
     return () => clearTimeout(timer);
   }, [isOpen]);
 
-  // Backdrop click handler
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (closeOnBackdrop && e.target === e.currentTarget) {
-      onClose();
-    }
-  };
+  const backdropDismiss = useBackdropDismiss(onClose, closeOnBackdrop);
 
   if (!shouldRender) return null;
 
@@ -127,7 +123,7 @@ export function BottomSheet({
       className={`fixed inset-0 z-modal flex items-end justify-center select-none transition-colors duration-200 ${
         isAnimating ? 'bg-black/60' : 'bg-black/0'
       }`}
-      onClick={handleBackdropClick}
+      {...backdropDismiss}
       data-testid="bottom-sheet-backdrop"
     >
       <div

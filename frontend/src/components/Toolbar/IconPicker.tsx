@@ -12,6 +12,7 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { commonIcons, type CommonIconName } from '../../icons/commonIcons';
 import { searchIcons } from '../../icons/iconSearchIndex';
+import { useBackdropDismiss } from '../../hooks/useBackdropDismiss';
 
 interface IconPickerProps {
   value?: string;
@@ -57,6 +58,7 @@ function toKebabCase(str: string): string {
 }
 
 export function IconPicker({ value, onChange, onClose }: IconPickerProps) {
+  const backdropDismiss = useBackdropDismiss(onClose);
   const [search, setSearch] = useState('');
 
   // Close on Escape
@@ -107,7 +109,7 @@ export function IconPicker({ value, onChange, onClose }: IconPickerProps) {
   return createPortal(
     <div
       className="fixed inset-0 bg-black/60 flex items-center justify-center z-modal"
-      onClick={onClose}
+      {...backdropDismiss}
     >
       <div
         className="bg-bg-surface rounded-lg shadow-xl w-[400px] max-w-[95vw] max-h-[80dvh] flex flex-col"

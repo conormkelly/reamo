@@ -59,12 +59,21 @@ describe('Modal', () => {
   });
 
   describe('backdrop click', () => {
-    it('calls onClose when backdrop is clicked', () => {
+    it('calls onClose when the backdrop is tapped', () => {
       render(<Modal {...defaultProps} />);
-      // Click the backdrop (outer fixed div), not the inner dialog panel
+      // Tap the backdrop (outer fixed div), not the inner dialog panel
       const backdrop = screen.getByTestId('modal-backdrop');
+      fireEvent.pointerDown(backdrop);
       fireEvent.click(backdrop);
       expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('stays open when a tap inside the dialog is delivered to the backdrop', () => {
+      // iOS: closing the keyboard shifts the page between touch and click
+      render(<Modal {...defaultProps} />);
+      fireEvent.pointerDown(screen.getByText('Modal content'));
+      fireEvent.click(screen.getByTestId('modal-backdrop'));
+      expect(defaultProps.onClose).not.toHaveBeenCalled();
     });
 
     it('does not call onClose when modal content is clicked', () => {
@@ -73,9 +82,10 @@ describe('Modal', () => {
       expect(defaultProps.onClose).not.toHaveBeenCalled();
     });
 
-    it('does not close on backdrop click when closeOnBackdrop is false', () => {
+    it('does not close on a backdrop tap when closeOnBackdrop is false', () => {
       render(<Modal {...defaultProps} closeOnBackdrop={false} />);
-      const backdrop = screen.getByRole('dialog');
+      const backdrop = screen.getByTestId('modal-backdrop');
+      fireEvent.pointerDown(backdrop);
       fireEvent.click(backdrop);
       expect(defaultProps.onClose).not.toHaveBeenCalled();
     });

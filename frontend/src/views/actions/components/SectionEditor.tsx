@@ -12,6 +12,7 @@ import { ColorPickerInput } from '../../../components/Toolbar/ColorPickerInput';
 import { DynamicIcon } from '../../../components/Toolbar/DynamicIcon';
 import { canonicalIconName } from '../../../icons/iconLookup';
 import type { ActionsSection, SizeOption } from '../../../store/slices/actionsViewSlice';
+import { useBackdropDismiss } from '../../../hooks/useBackdropDismiss';
 
 // Default color (gray) - matches --color-bg-elevated token
 const DEFAULT_SECTION_COLOR = '#374151'; // Keep hex for color picker
@@ -35,6 +36,7 @@ export function SectionEditor({
   onDelete,
   onClose,
 }: SectionEditorProps): ReactElement {
+  const backdropDismiss = useBackdropDismiss(onClose);
   const [name, setName] = useState(section?.name ?? '');
   const [icon, setIcon] = useState<string | undefined>(
     section?.icon ? canonicalIconName(section.icon) : undefined
@@ -124,7 +126,7 @@ export function SectionEditor({
   return createPortal(
     <div
       className="fixed inset-0 bg-black/60 flex items-center justify-center z-modal p-4"
-      onClick={onClose}
+      {...backdropDismiss}
     >
       <div
         className="bg-bg-surface rounded-lg w-full max-w-sm max-h-[90dvh] flex flex-col"
