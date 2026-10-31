@@ -4,7 +4,8 @@
 /// - Range mode: Subscribe to unified indices [start, end] (e.g., visible viewport)
 /// - GUID mode: Subscribe to specific tracks by GUID (for pinned/selected tracks)
 ///
-/// Grace period prevents thrashing when scrolling (tracks stay subscribed briefly after leaving viewport).
+/// A client's tracks are polled only while it is subscribed: unsubscribing or
+/// disconnecting stops them on the next poll.
 ///
 /// Usage:
 ///   var subs = TrackSubscriptions.init(allocator);
@@ -22,9 +23,6 @@ const Allocator = std.mem.Allocator;
 pub const MAX_TRACKS_PER_CLIENT = constants.MAX_TRACKS_PER_CLIENT;
 pub const MAX_GUIDS_PER_CLIENT = constants.MAX_GUIDS_PER_CLIENT;
 pub const MAX_CLIENTS = constants.MAX_SUBSCRIPTION_CLIENTS;
-
-// Grace period: 500ms (tracks are expensive, but shorter than meter's 30s)
-pub const GRACE_PERIOD_NS: i128 = 500 * std.time.ns_per_ms;
 
 /// Subscription mode (mutually exclusive).
 pub const SubscriptionMode = enum {
@@ -58,6 +56,11 @@ pub const ClientSubscription = struct {
     // Always include master track (for pinned master meter display)
     include_master: bool = false,
 
+    /// Hash of the last tracks event this client was sent; null until the
+    /// first one after a (re)subscribe, so a new subscription gets data on
+    /// the next poll whether or not its tracks changed.
+    sent_hash: ?u64 = null,
+
     /// Clear subscription state.
     pub fn clear(self: *ClientSubscription) void {
         self.mode = .none;
@@ -66,6 +69,7 @@ pub const ClientSubscription = struct {
         self.guid_count = 0;
         self.extra_guid_count = 0;
         self.include_master = false;
+        self.sent_hash = null;
     }
 
     /// Get stored GUID at index.
@@ -91,10 +95,6 @@ pub const TrackSubscriptions = struct {
     /// Map from client_id to client slot index.
     client_id_to_slot: std.AutoHashMap(usize, usize),
 
-    /// Grace period: track_idx → expiry timestamp.
-    /// Tracks stay "subscribed" for grace period after leaving all viewports.
-    grace_until: std.AutoHashMap(c_int, i128),
-
     /// Reference counts for GUID-based subscriptions.
     /// Key is track index (resolved from GUID at subscription time).
     ref_counts: std.AutoHashMap(c_int, u8),
@@ -106,16 +106,11 @@ pub const TrackSubscriptions = struct {
     free_slots: [MAX_CLIENTS]usize = undefined,
     free_count: usize = 0,
 
-    /// Force broadcast flag - set when subscriptions change to ensure immediate data push.
-    /// The poll loop checks this and broadcasts tracks unconditionally when true.
-    force_broadcast: bool = false,
-
     pub fn init(allocator: Allocator) TrackSubscriptions {
         var subs = TrackSubscriptions{
             .allocator = allocator,
             .clients = undefined,
             .client_id_to_slot = std.AutoHashMap(usize, usize).init(allocator),
-            .grace_until = std.AutoHashMap(c_int, i128).init(allocator),
             .ref_counts = std.AutoHashMap(c_int, u8).init(allocator),
             .next_slot = 0,
         };
@@ -130,7 +125,6 @@ pub const TrackSubscriptions = struct {
 
     pub fn deinit(self: *TrackSubscriptions) void {
         self.client_id_to_slot.deinit();
-        self.grace_until.deinit();
         self.ref_counts.deinit();
     }
 
@@ -218,8 +212,8 @@ pub const TrackSubscriptions = struct {
             }
         }
 
-        // Force broadcast to ensure new subscriber gets immediate data
-        self.force_broadcast = true;
+        // New subscriber gets its tracks on the next poll
+        client.sent_hash = null;
 
         var count: usize = @intCast(client.range_end - client.range_start + 1);
         // Add 1 for master if requested and not already in range
@@ -268,8 +262,8 @@ pub const TrackSubscriptions = struct {
             client.guid_count += 1;
         }
 
-        // Force broadcast to ensure new subscriber gets immediate data
-        self.force_broadcast = true;
+        // New subscriber gets its tracks on the next poll
+        client.sent_hash = null;
 
         var count = client.guid_count;
         // Add 1 for master if requested and not already in GUID list
@@ -298,21 +292,7 @@ pub const TrackSubscriptions = struct {
     /// Remove a client entirely (called on disconnect).
     pub fn removeClient(self: *TrackSubscriptions, client_id: usize) void {
         const slot = self.client_id_to_slot.get(client_id) orelse return;
-        const client = &self.clients[slot];
-
-        // For range subscriptions, add indices to grace period
-        if (client.mode == .range) {
-            const now = std.time.nanoTimestamp();
-            const expiry = now + GRACE_PERIOD_NS;
-            // Stop at range_end before incrementing: range_end may be maxInt(c_int).
-            var idx = client.range_start;
-            while (true) : (idx += 1) {
-                self.grace_until.put(idx, expiry) catch {};
-                if (idx == client.range_end) break;
-            }
-        }
-
-        client.clear();
+        self.clients[slot].clear();
         _ = self.client_id_to_slot.remove(client_id);
 
         // Add slot to free list for reuse
@@ -321,7 +301,7 @@ pub const TrackSubscriptions = struct {
     }
 
     /// Get all track indices that should be polled.
-    /// Combines all client subscriptions (range + GUID resolved) plus grace period.
+    /// Combines all client subscriptions (range + GUID resolved).
     pub fn getSubscribedIndices(
         self: *TrackSubscriptions,
         cache: *const GuidCache,
@@ -335,60 +315,17 @@ pub const TrackSubscriptions = struct {
         const track_count = api.trackCount();
         const max_idx = track_count; // Unified: 0=master, 1..track_count = user tracks
 
+        const SetSink = struct {
+            set: *std.AutoHashMap(c_int, void),
+            fn add(sink: @This(), idx: c_int) void {
+                sink.set.put(idx, {}) catch {};
+            }
+        };
+
         // Process each client's subscription
         var slot_iter = self.client_id_to_slot.valueIterator();
         while (slot_iter.next()) |slot| {
-            const client = &self.clients[slot.*];
-
-            // Always include master if client requested it
-            if (client.include_master) {
-                seen.put(0, {}) catch {};
-            }
-
-            switch (client.mode) {
-                .none => {},
-                .range => {
-                    // Add all indices in range (clamped to valid)
-                    var idx = @max(0, client.range_start);
-                    const end = @min(client.range_end, max_idx);
-                    while (idx <= end) : (idx += 1) {
-                        seen.put(idx, {}) catch {};
-                    }
-
-                    // Also resolve any extra GUIDs (hybrid subscription)
-                    for (0..client.extra_guid_count) |i| {
-                        const guid = client.getExtraGuid(i) orelse continue;
-                        const track = cache.resolve(api, guid) orelse continue;
-
-                        const extra_idx = api.getTrackIdx(track);
-                        if (extra_idx >= 0 and extra_idx <= max_idx) {
-                            seen.put(extra_idx, {}) catch {};
-                        }
-                    }
-                },
-                .guids => {
-                    // Resolve each GUID to an index
-                    for (0..client.guid_count) |i| {
-                        const guid = client.getGuid(i) orelse continue;
-                        const track = cache.resolve(api, guid) orelse continue;
-
-                        // Get index from pointer
-                        const idx = api.getTrackIdx(track);
-                        if (idx >= 0 and idx <= max_idx) {
-                            seen.put(idx, {}) catch {};
-                        }
-                    }
-                },
-            }
-        }
-
-        // Add grace period tracks
-        const now = std.time.nanoTimestamp();
-        var grace_iter = self.grace_until.iterator();
-        while (grace_iter.next()) |entry| {
-            if (entry.value_ptr.* > now and entry.key_ptr.* <= max_idx) {
-                seen.put(entry.key_ptr.*, {}) catch {};
-            }
+            collectClientIndices(&self.clients[slot.*], cache, api, max_idx, SetSink{ .set = &seen });
         }
 
         // Copy to output buffer
@@ -406,28 +343,107 @@ pub const TrackSubscriptions = struct {
         return out_buf[0..count];
     }
 
-    /// Clean up expired grace period entries. Call periodically (e.g., in LOW tier).
-    pub fn expireGracePeriods(self: *TrackSubscriptions) void {
-        const now = std.time.nanoTimestamp();
+    /// Pass every unified index a client's subscription covers to `sink.add`,
+    /// clamped to the project's tracks (0 = master, 1..max_idx = user tracks).
+    /// An index may be passed more than once (a range and an extra GUID can
+    /// overlap). The one place a subscription becomes track indices, for the
+    /// poll's union and for each client's own share of it alike.
+    fn collectClientIndices(
+        client: *const ClientSubscription,
+        cache: *const GuidCache,
+        api: anytype,
+        max_idx: c_int,
+        sink: anytype,
+    ) void {
+        if (client.include_master) sink.add(0);
 
-        // Collect expired keys first
-        var expired_buf: [256]c_int = undefined;
-        var expired_count: usize = 0;
+        switch (client.mode) {
+            .none => {},
+            .range => {
+                var idx = @max(0, client.range_start);
+                const end = @min(client.range_end, max_idx);
+                while (idx <= end) : (idx += 1) sink.add(idx);
 
-        var iter = self.grace_until.iterator();
-        while (iter.next()) |entry| {
-            if (entry.value_ptr.* <= now) {
-                if (expired_count < expired_buf.len) {
-                    expired_buf[expired_count] = entry.key_ptr.*;
-                    expired_count += 1;
+                // Extra GUIDs (hybrid subscription)
+                for (0..client.extra_guid_count) |i| {
+                    const guid = client.getExtraGuid(i) orelse continue;
+                    const track = cache.resolve(api, guid) orelse continue;
+                    const extra_idx = api.getTrackIdx(track);
+                    if (extra_idx >= 0 and extra_idx <= max_idx) sink.add(extra_idx);
                 }
-            }
+            },
+            .guids => {
+                for (0..client.guid_count) |i| {
+                    const guid = client.getGuid(i) orelse continue;
+                    const track = cache.resolve(api, guid) orelse continue;
+                    const idx = api.getTrackIdx(track);
+                    if (idx >= 0 and idx <= max_idx) sink.add(idx);
+                }
+            },
+        }
+    }
+
+    /// The unified track indices one client is subscribed to, sorted and
+    /// without duplicates, allocated from `allocator`.
+    pub fn clientIndices(
+        client: *const ClientSubscription,
+        cache: *const GuidCache,
+        api: anytype,
+        allocator: Allocator,
+    ) Allocator.Error![]c_int {
+        const max_idx: c_int = api.trackCount();
+
+        var capacity: usize = 1 + client.extra_guid_count + client.guid_count; // master + GUIDs
+        if (client.mode == .range) {
+            const end = @min(client.range_end, max_idx);
+            if (end >= client.range_start) capacity += @intCast(end - client.range_start + 1);
         }
 
-        // Remove expired entries
-        for (expired_buf[0..expired_count]) |track_idx| {
-            _ = self.grace_until.remove(track_idx);
+        const buf = try allocator.alloc(c_int, capacity);
+        const ListSink = struct {
+            buf: []c_int,
+            len: *usize,
+            fn add(sink: @This(), idx: c_int) void {
+                sink.buf[sink.len.*] = idx;
+                sink.len.* += 1;
+            }
+        };
+        var len: usize = 0;
+        collectClientIndices(client, cache, api, max_idx, ListSink{ .buf = buf, .len = &len });
+
+        const indices = buf[0..len];
+        std.mem.sort(c_int, indices, {}, std.sort.asc(c_int));
+        var unique: usize = 0;
+        for (indices) |idx| {
+            if (unique > 0 and indices[unique - 1] == idx) continue;
+            indices[unique] = idx;
+            unique += 1;
         }
+        return indices[0..unique];
+    }
+
+    pub const ActiveClient = struct {
+        client_id: usize,
+        sub: *ClientSubscription,
+    };
+
+    /// Iterates the clients with a track subscription (mode other than none).
+    pub const ActiveClientIterator = struct {
+        subs: *TrackSubscriptions,
+        inner: std.AutoHashMap(usize, usize).Iterator,
+
+        pub fn next(self: *ActiveClientIterator) ?ActiveClient {
+            while (self.inner.next()) |entry| {
+                const sub = &self.subs.clients[entry.value_ptr.*];
+                if (sub.mode == .none) continue;
+                return .{ .client_id = entry.key_ptr.*, .sub = sub };
+            }
+            return null;
+        }
+    };
+
+    pub fn activeClients(self: *TrackSubscriptions) ActiveClientIterator {
+        return .{ .subs = self, .inner = self.client_id_to_slot.iterator() };
     }
 
     /// Check if there are any active subscriptions.
@@ -436,17 +452,6 @@ pub const TrackSubscriptions = struct {
         var iter = self.client_id_to_slot.valueIterator();
         while (iter.next()) |slot| {
             if (self.clients[slot.*].mode != .none) return true;
-        }
-        // Also check grace period
-        return self.grace_until.count() > 0;
-    }
-
-    /// Check and clear force_broadcast flag (atomic consume).
-    /// Returns true if flag was set, clears it in the process.
-    pub fn consumeForceBroadcast(self: *TrackSubscriptions) bool {
-        if (self.force_broadcast) {
-            self.force_broadcast = false;
-            return true;
         }
         return false;
     }
@@ -501,21 +506,27 @@ test "unsubscribe clears subscription" {
 
     subs.unsubscribe(1);
 
-    // Grace period keeps hasSubscriptions true briefly, but client mode is none
     const slot = subs.client_id_to_slot.get(1).?;
     try std.testing.expectEqual(SubscriptionMode.none, subs.clients[slot].mode);
+    try std.testing.expect(!subs.hasSubscriptions());
 }
 
-test "removeClient adds to grace period" {
+test "a disconnected client's tracks stop being polled at once" {
     const allocator = std.testing.allocator;
     var subs = TrackSubscriptions.init(allocator);
     defer subs.deinit();
 
+    const reaper = @import("../reaper.zig");
+    var mock = reaper.MockBackend{ .track_count = 10 };
+    var cache = GuidCache.init(allocator);
+    defer cache.deinit();
+
     _ = try subs.subscribeRange(1, 0, 2, false);
     subs.removeClient(1);
 
-    // Should have 3 tracks in grace period (indices 0, 1, 2)
-    try std.testing.expectEqual(@as(usize, 3), subs.grace_until.count());
+    try std.testing.expect(!subs.hasSubscriptions());
+    var buf: [32]c_int = undefined;
+    try std.testing.expectEqual(@as(usize, 0), subs.getSubscribedIndices(&cache, &mock, &buf).len);
 }
 
 test "getSubscribedIndices with range" {
@@ -707,18 +718,4 @@ test "subscribeRange caps an oversized range instead of overflowing the count" {
 
     const count = try subs.subscribeRange(1, 0, std.math.maxInt(c_int), false);
     try std.testing.expectEqual(@as(usize, constants.MAX_SUBSCRIPTION_RANGE_SPAN), count);
-}
-
-test "removeClient after a range ending at maxInt(c_int) terminates with bounded grace entries" {
-    const allocator = std.testing.allocator;
-    var subs = TrackSubscriptions.init(allocator);
-    defer subs.deinit();
-
-    _ = try subs.subscribeRange(1, 1, std.math.maxInt(c_int), false);
-    subs.removeClient(1);
-    try std.testing.expect(subs.grace_until.count() <= constants.MAX_SUBSCRIPTION_RANGE_SPAN);
-
-    // A one-index range at the very top must not overflow the loop counter.
-    _ = try subs.subscribeRange(1, std.math.maxInt(c_int), std.math.maxInt(c_int), false);
-    subs.removeClient(1);
 }

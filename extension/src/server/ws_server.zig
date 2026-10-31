@@ -362,6 +362,19 @@ pub const SharedState = struct {
         }
     }
 
+    // Called by main thread to send state a client subscribed to: as with
+    // broadcast, only a client that completed the hello handshake receives it.
+    // Returns whether the client is connected and handshaken.
+    pub fn sendToHandshakenClient(self: *SharedState, client_id: usize, message: []const u8) bool {
+        self.client_rwlock.lockShared();
+        defer self.client_rwlock.unlockShared();
+
+        if (!self.handshaken_clients.contains(client_id)) return false;
+        const conn = self.clients.get(client_id) orelse return false;
+        conn.writeText(message) catch |err| self.logWriteError(err);
+        return true;
+    }
+
     /// Send a binary frame to a specific client (for audio streaming).
     /// Same locking pattern as sendToClient but uses writeBin for binary frames.
     pub fn sendBinToClient(self: *SharedState, client_id: usize, data: []const u8) void {

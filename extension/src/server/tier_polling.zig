@@ -82,6 +82,9 @@ pub const TierContext = struct {
 pub const MutableState = struct {
     /// Previous track hash for change detection
     prev_tracks_hash: *u64,
+    /// Hash of the track indices polled last frame (subscription mode), so
+    /// drift logging can tell a subscription change from a missed callback
+    prev_polled_indices_hash: *u64,
     /// Rate-limit timestamp for drift warnings
     last_drift_log_time: *i64,
     /// Previous skeleton state for comparison
@@ -127,8 +130,6 @@ var g_items_cap: CapLatch = .{};
 pub const HighTierResult = struct {
     /// Current transport state (pointer into arena)
     transport_state: *const transport.State,
-    /// Whether tracks changed this frame
-    tracks_changed: bool,
 };
 
 // ============================================================================
@@ -212,11 +213,10 @@ pub fn pollHighTier(
     // ========================================================================
     const high_alloc = ctx.tiered.high.currentAllocator();
     const total_tracks: usize = @intCast(@max(0, ctx.backend.trackCount()));
-    var tracks_changed = false;
 
     if (ctx.track_subs) |track_subs| {
         if (track_subs.hasSubscriptions()) {
-            // Get subscribed track indices from all clients + grace period
+            // Get subscribed track indices from all clients
             const cache = ctx.guid_cache_ptr orelse {
                 logging.err("GUID cache not initialized for track subscriptions", .{});
                 return error.GuidCacheNotInitialized;
@@ -234,38 +234,41 @@ pub fn pollHighTier(
             // Poll metering for subscribed tracks
             high_state.metering.pollSubscribedInto(ctx.api, subscribed_indices);
 
-            // CSurf: Hash-based change detection with dirty flag force broadcast
-            const force_broadcast = track_subs.consumeForceBroadcast();
+            // Drift logging: the same tracks were polled as last frame, they
+            // changed, and no CSurf dirty flag said so, i.e. REAPER skipped a
+            // callback. A subscribe or scroll changes the polled set instead.
             const temp_state = tracks.State{ .tracks = high_state.tracks };
             const current_hash = temp_state.computeHash();
-            const hash_changed = current_hash != mutable.prev_tracks_hash.*;
-
-            // Combine all change signals
-            tracks_changed = hash_changed or force_broadcast or csurf_track_dirty;
-
-            // Drift logging: hash changed but no dirty flag = missed callback
-            if (csurf.enabled and hash_changed and !csurf_track_dirty and !force_broadcast) {
+            const indices_hash = std.hash.Wyhash.hash(0, std.mem.sliceAsBytes(subscribed_indices));
+            const same_indices = indices_hash == mutable.prev_polled_indices_hash.*;
+            mutable.prev_polled_indices_hash.* = indices_hash;
+            if (csurf.enabled and same_indices and current_hash != mutable.prev_tracks_hash.* and !csurf_track_dirty) {
                 const now_ms = std.time.milliTimestamp();
                 if (now_ms - mutable.last_drift_log_time.* > 1000) {
                     logging.debug("Track state drift detected without dirty flag (undo/selection/FX drag?)", .{});
                     mutable.last_drift_log_time.* = now_ms;
                 }
             }
+            mutable.prev_tracks_hash.* = current_hash;
 
-            if (tracks_changed) {
-                const scratch = ctx.scratchAllocator();
-                if (temp_state.toJsonWithTotalAlloc(scratch, null, total_tracks)) |json| {
-                    ctx.shared_state.broadcast(json);
-                } else |_| {}
-                mutable.prev_tracks_hash.* = current_hash;
-            }
-
-            // Broadcast separate meters event
-            if (high_state.metering.hasData()) {
-                const scratch = ctx.scratchAllocator();
-                if (high_state.metering.toJsonEventAlloc(scratch, high_state.tracks)) |json| {
-                    ctx.shared_state.broadcast(json);
-                } else |_| {}
+            const sent = sendTracksToSubscribers(
+                ctx.scratchAllocator(),
+                ctx.shared_state,
+                track_subs,
+                cache,
+                ctx.backend,
+                high_state.tracks,
+                &high_state.metering,
+                total_tracks,
+            );
+            if (sent.failure) |err| {
+                // Those clients missed this frame's events (tracks are retried
+                // next frame); usually the per-frame scratch running out.
+                const now_ms = std.time.milliTimestamp();
+                if (now_ms - g_last_track_send_failure_log_ms > 1000) {
+                    logging.warn("Couldn't build some clients' tracks or meters: {s}", .{@errorName(err)});
+                    g_last_track_send_failure_log_ms = now_ms;
+                }
             }
         } else {
             // No track subscriptions - skip track polling entirely
@@ -287,7 +290,7 @@ pub fn pollHighTier(
         const temp_state = tracks.State{ .tracks = high_state.tracks };
         const current_hash = temp_state.computeHash();
         const hash_changed = current_hash != mutable.prev_tracks_hash.*;
-        tracks_changed = hash_changed or csurf_track_dirty;
+        const tracks_changed = hash_changed or csurf_track_dirty;
 
         // Drift logging
         if (csurf.enabled and hash_changed and !csurf_track_dirty) {
@@ -317,9 +320,140 @@ pub fn pollHighTier(
 
     return HighTierResult{
         .transport_state = current_transport,
-        .tracks_changed = tracks_changed,
     };
 }
+
+/// One subscription's share of a frame's polled tracks and meters. Clients
+/// whose subscriptions resolve to the same indices share one, so each event
+/// is serialised once per distinct subscription, not once per client.
+const SubscriberView = struct {
+    indices: []const c_int,
+    state: tracks.State,
+    meters: *tracks.MeteringState,
+    /// Covers every field of the tracks event, the project's track total included
+    hash: u64,
+    tracks_json: ?[]const u8 = null,
+    meters_json: ?[]const u8 = null,
+
+    fn init(
+        scratch: std.mem.Allocator,
+        indices: []const c_int,
+        polled: []const tracks.Track,
+        metering: *const tracks.MeteringState,
+        total: usize,
+    ) std.mem.Allocator.Error!SubscriberView {
+        // polled, metering and indices are all in ascending index order
+        const subset = try scratch.alloc(tracks.Track, @min(indices.len, polled.len));
+        var n: usize = 0;
+        var i: usize = 0;
+        for (polled) |*t| {
+            while (i < indices.len and indices[i] < t.idx) i += 1;
+            if (i == indices.len) break;
+            if (indices[i] == t.idx) {
+                subset[n] = t.*;
+                n += 1;
+            }
+        }
+        const state = tracks.State{ .tracks = subset[0..n] };
+
+        const meters = try scratch.create(tracks.MeteringState);
+        meters.count = 0;
+        i = 0;
+        for (metering.meters[0..metering.count]) |m| {
+            while (i < indices.len and indices[i] < m.track_idx) i += 1;
+            if (i == indices.len) break;
+            if (indices[i] == m.track_idx) {
+                meters.meters[meters.count] = m;
+                meters.count += 1;
+            }
+        }
+
+        var hasher = std.hash.Wyhash.init(state.computeHash());
+        hasher.update(std.mem.asBytes(&total));
+        return .{ .indices = indices, .state = state, .meters = meters, .hash = hasher.final() };
+    }
+};
+
+/// Send each subscribed client the tracks and meters it subscribed to, and
+/// no others, out of this frame's poll of every client's tracks: a tracks
+/// event when its tracks differ from what it was last sent (or it has just
+/// subscribed), and a meters event every frame its tracks have meters.
+/// `polled` and `metering` hold the union of the subscriptions in ascending
+/// index order. `sender` is the SharedState (or a test double); only clients
+/// that completed the handshake receive anything. A client whose events
+/// can't be built this frame is skipped (its tracks are retried next frame);
+/// the result carries the first such error.
+pub fn sendTracksToSubscribers(
+    scratch: std.mem.Allocator,
+    sender: anytype,
+    subs: *track_subscriptions.TrackSubscriptions,
+    cache: *const guid_cache.GuidCache,
+    api: anytype,
+    polled: []const tracks.Track,
+    metering: *const tracks.MeteringState,
+    total: usize,
+) SendResult {
+    var views: [track_subscriptions.MAX_CLIENTS]SubscriberView = undefined;
+    var view_count: usize = 0;
+    var result: SendResult = .{};
+
+    var iter = subs.activeClients();
+    while (iter.next()) |entry| {
+        const indices = track_subscriptions.TrackSubscriptions.clientIndices(entry.sub, cache, api, scratch) catch |err| {
+            result.failure = result.failure orelse err;
+            continue;
+        };
+
+        const view: *SubscriberView = for (views[0..view_count]) |*v| {
+            if (std.mem.eql(c_int, v.indices, indices)) break v;
+        } else blk: {
+            const v = &views[view_count];
+            v.* = SubscriberView.init(scratch, indices, polled, metering, total) catch |err| {
+                result.failure = result.failure orelse err;
+                continue;
+            };
+            view_count += 1;
+            break :blk v;
+        };
+
+        const changed = if (entry.sub.sent_hash) |h| h != view.hash else true;
+        if (changed) {
+            if (view.tracks_json == null) {
+                view.tracks_json = view.state.toJsonWithTotalAlloc(scratch, null, total) catch |err| blk: {
+                    result.failure = result.failure orelse err;
+                    break :blk null;
+                };
+            }
+            if (view.tracks_json) |json| {
+                if (sender.sendToHandshakenClient(entry.client_id, json)) {
+                    entry.sub.sent_hash = view.hash;
+                    result.sent_tracks = true;
+                }
+            }
+        }
+
+        if (view.meters.hasData()) {
+            if (view.meters_json == null) {
+                view.meters_json = view.meters.toJsonEventAlloc(scratch, view.state.tracks) catch |err| blk: {
+                    result.failure = result.failure orelse err;
+                    break :blk null;
+                };
+            }
+            if (view.meters_json) |json| _ = sender.sendToHandshakenClient(entry.client_id, json);
+        }
+    }
+    return result;
+}
+
+pub const SendResult = struct {
+    /// Some client was sent a tracks event.
+    sent_tracks: bool = false,
+    /// The first error building a client's events this frame, if any.
+    failure: ?anyerror = null,
+};
+
+/// Main thread only (the high tier's).
+var g_last_track_send_failure_log_ms: i64 = 0;
 
 // ============================================================================
 // MEDIUM TIER (5Hz)
@@ -565,7 +699,6 @@ fn updateMarkersCache(
 // ============================================================================
 
 /// Poll LOW tier (1Hz): Tempomap, Skeleton, Project Notes.
-/// Also handles grace period expiration for track subscriptions.
 pub fn pollLowTier(
     ctx: *const TierContext,
     mutable: *MutableState,
@@ -684,13 +817,6 @@ fn pollLowTierRegular(
             }
         }
     }
-
-    // ========================================================================
-    // Expire subscription grace periods (1Hz cleanup)
-    // ========================================================================
-    if (ctx.track_subs) |track_subs| {
-        track_subs.expireGracePeriods();
-    }
 }
 
 // ============================================================================
@@ -707,4 +833,302 @@ test "TierContext.scratchAllocator returns valid allocator" {
 test "tier interval constants are correct" {
     try std.testing.expectEqual(@as(u32, 6), MEDIUM_TIER_INTERVAL);
     try std.testing.expectEqual(@as(u32, 30), LOW_TIER_INTERVAL);
+}
+
+/// Records what sendTracksToSubscribers sends, in place of SharedState.
+const RecordingSender = struct {
+    const Sent = struct { client_id: usize, json: []const u8 };
+
+    handshaken: []const usize,
+    sent: [64]Sent = undefined,
+    count: usize = 0,
+
+    pub fn sendToHandshakenClient(self: *RecordingSender, client_id: usize, message: []const u8) bool {
+        if (std.mem.indexOfScalar(usize, self.handshaken, client_id) == null) return false;
+        self.sent[self.count] = .{ .client_id = client_id, .json = message };
+        self.count += 1;
+        return true;
+    }
+
+    /// The JSON of the `event` events sent to `client_id`.
+    fn events(self: *const RecordingSender, client_id: usize, event: []const u8, out: [][]const u8) [][]const u8 {
+        var tag_buf: [64]u8 = undefined;
+        const tag = std.fmt.bufPrint(&tag_buf, "\"event\":\"{s}\"", .{event}) catch unreachable;
+        var n: usize = 0;
+        for (self.sent[0..self.count]) |s| {
+            if (s.client_id == client_id and std.mem.indexOf(u8, s.json, tag) != null) {
+                out[n] = s.json;
+                n += 1;
+            }
+        }
+        return out[0..n];
+    }
+};
+
+/// The track indices a tracks event carries, in its order, or a meters
+/// event carries, sorted.
+fn eventTrackIndices(json: []const u8) ![]c_int {
+    const alloc = std.testing.allocator;
+    const parsed = try std.json.parseFromSlice(std.json.Value, alloc, json, .{});
+    defer parsed.deinit();
+    var out: std.ArrayList(c_int) = .empty;
+    errdefer out.deinit(alloc);
+    const root = parsed.value.object;
+    if (std.mem.eql(u8, root.get("event").?.string, "tracks")) {
+        for (root.get("payload").?.object.get("tracks").?.array.items) |t| {
+            try out.append(alloc, @intCast(t.object.get("idx").?.integer));
+        }
+    } else {
+        var it = root.get("m").?.object.iterator();
+        while (it.next()) |e| try out.append(alloc, @intCast(e.value_ptr.object.get("i").?.integer));
+        std.mem.sort(c_int, out.items, {}, std.sort.asc(c_int));
+    }
+    return out.toOwnedSlice(alloc);
+}
+
+fn expectEventIndices(json: []const u8, want: []const c_int) !void {
+    const got = try eventTrackIndices(json);
+    defer std.testing.allocator.free(got);
+    try std.testing.expectEqualSlices(c_int, want, got);
+}
+
+/// Tracks as the poll leaves them for the union of the subscriptions in the
+/// tests below (1-3 and 6-8 of a 10-track project), with a meter each.
+fn polledTracks(buf: []tracks.Track, metering: *tracks.MeteringState) []tracks.Track {
+    const indices = [_]c_int{ 1, 2, 3, 6, 7, 8 };
+    metering.count = 0;
+    for (indices, 0..) |idx, i| {
+        buf[i] = .{ .idx = idx, .name_len = 0, .volume = 1.0 };
+        const guid = std.fmt.bufPrint(&buf[i].guid, "{{G{d}}}", .{idx}) catch unreachable;
+        buf[i].guid_len = guid.len;
+        metering.meters[i] = .{ .track_idx = idx, .peak_l = 0.5, .peak_r = 0.5 };
+        metering.count += 1;
+    }
+    return buf[0..indices.len];
+}
+
+const TestFixture = struct {
+    arena: std.heap.ArenaAllocator,
+    mock: reaper.MockBackend,
+    cache: guid_cache.GuidCache,
+    subs: track_subscriptions.TrackSubscriptions,
+    buf: [6]tracks.Track = undefined,
+    metering: tracks.MeteringState = .{},
+
+    fn init(self: *TestFixture) void {
+        self.* = .{
+            .arena = std.heap.ArenaAllocator.init(std.testing.allocator),
+            .mock = reaper.MockBackend{ .track_count = 10 },
+            .cache = guid_cache.GuidCache.init(std.testing.allocator),
+            .subs = track_subscriptions.TrackSubscriptions.init(std.testing.allocator),
+        };
+    }
+
+    fn deinit(self: *TestFixture) void {
+        self.subs.deinit();
+        self.cache.deinit();
+        self.arena.deinit();
+    }
+
+    fn polled(self: *TestFixture) []tracks.Track {
+        return polledTracks(&self.buf, &self.metering);
+    }
+
+    fn send(self: *TestFixture, sender: *RecordingSender, polled_tracks: []const tracks.Track, total: usize) bool {
+        return sendTracksToSubscribers(self.arena.allocator(), sender, &self.subs, &self.cache, &self.mock, polled_tracks, &self.metering, total).sent_tracks;
+    }
+
+    /// Poll the union of the subscriptions from the mock as pollHighTier
+    /// does, then send each subscriber its share.
+    fn pollAndSend(self: *TestFixture, sender: *RecordingSender) !void {
+        var union_buf: [64]c_int = undefined;
+        const union_indices = self.subs.getSubscribedIndices(&self.cache, &self.mock, &union_buf);
+        const state = try tracks.State.pollIndices(self.arena.allocator(), &self.mock, union_indices);
+        self.metering.pollSubscribedInto(&self.mock, union_indices);
+        _ = self.send(sender, state.tracks, @intCast(self.mock.track_count));
+    }
+};
+
+fn mockGuid(buf: []u8, idx: usize) []const u8 {
+    return std.fmt.bufPrint(buf, "{{00000000-0000-0000-0000-{d:0>12}}}", .{idx}) catch unreachable;
+}
+
+test "a GUID subscription with includeMaster is sent master and its tracks, nothing else" {
+    var f: TestFixture = undefined;
+    f.init();
+    defer f.deinit();
+    try f.cache.rebuild(&f.mock);
+
+    var g3: [40]u8 = undefined;
+    var g7: [40]u8 = undefined;
+    const guids = [_][]const u8{ mockGuid(&g7, 7), mockGuid(&g3, 3) };
+    _ = try f.subs.subscribeGuids(1, &guids, true);
+    _ = try f.subs.subscribeRange(2, 4, 5, false);
+
+    var sender = RecordingSender{ .handshaken = &.{ 1, 2 } };
+    try f.pollAndSend(&sender);
+
+    var out: [8][]const u8 = undefined;
+    const t = sender.events(1, "tracks", &out);
+    try std.testing.expectEqual(@as(usize, 1), t.len);
+    try expectEventIndices(t[0], &.{ 0, 3, 7 });
+    const m = sender.events(1, "meters", &out);
+    try std.testing.expectEqual(@as(usize, 1), m.len);
+    try expectEventIndices(m[0], &.{ 0, 3, 7 });
+}
+
+test "a subscription to no existing track is sent one tracks event with the total and no meters" {
+    var f: TestFixture = undefined;
+    f.init();
+    defer f.deinit();
+
+    _ = try f.subs.subscribeRange(1, 50, 60, false); // the project has 10 tracks
+    _ = try f.subs.subscribeRange(2, 1, 2, false);
+
+    var sender = RecordingSender{ .handshaken = &.{ 1, 2 } };
+    try f.pollAndSend(&sender);
+    try f.pollAndSend(&sender);
+
+    var out: [8][]const u8 = undefined;
+    const t = sender.events(1, "tracks", &out);
+    try std.testing.expectEqual(@as(usize, 1), t.len);
+    try std.testing.expectEqualStrings("{\"type\":\"event\",\"event\":\"tracks\",\"payload\":{\"total\":10,\"tracks\":[]}}", t[0]);
+    try std.testing.expectEqual(@as(usize, 0), sender.events(1, "meters", &out).len);
+}
+
+test "a track deleted from a GUID subscription is dropped from the phone's next tracks event" {
+    var f: TestFixture = undefined;
+    f.init();
+    defer f.deinit();
+    try f.cache.rebuild(&f.mock);
+
+    var g2: [40]u8 = undefined;
+    var g10: [40]u8 = undefined;
+    const guids = [_][]const u8{ mockGuid(&g2, 2), mockGuid(&g10, 10) };
+    _ = try f.subs.subscribeGuids(1, &guids, false);
+
+    var sender = RecordingSender{ .handshaken = &.{1} };
+    try f.pollAndSend(&sender);
+    var out: [8][]const u8 = undefined;
+    try expectEventIndices(sender.events(1, "tracks", &out)[0], &.{ 2, 10 });
+
+    // REAPER deletes track 10; the GUID cache has not been rebuilt yet.
+    f.mock.track_count = 9;
+    sender.count = 0;
+    try f.pollAndSend(&sender);
+    const t = sender.events(1, "tracks", &out);
+    try std.testing.expectEqual(@as(usize, 1), t.len);
+    try expectEventIndices(t[0], &.{2});
+    const m = sender.events(1, "meters", &out);
+    try std.testing.expectEqual(@as(usize, 1), m.len);
+    try expectEventIndices(m[0], &.{2});
+}
+
+test "each subscribed phone is sent only its own tracks and meters, and an unsubscribed one nothing" {
+    var f: TestFixture = undefined;
+    f.init();
+    defer f.deinit();
+
+    _ = try f.subs.subscribeRange(1, 1, 3, false);
+    _ = try f.subs.subscribeRange(2, 6, 8, false);
+    _ = try f.subs.subscribeRange(4, 1, 3, false);
+    f.subs.unsubscribe(4); // 3 never subscribed; 4 did, then stopped
+
+    var sender = RecordingSender{ .handshaken = &.{ 1, 2, 3, 4 } };
+    try std.testing.expect(f.send(&sender, f.polled(), 10));
+
+    var out: [8][]const u8 = undefined;
+    const Want = struct { client_id: usize, indices: []const c_int };
+    for ([_]Want{ .{ .client_id = 1, .indices = &.{ 1, 2, 3 } }, .{ .client_id = 2, .indices = &.{ 6, 7, 8 } } }) |w| {
+        const t = sender.events(w.client_id, "tracks", &out);
+        try std.testing.expectEqual(@as(usize, 1), t.len);
+        try expectEventIndices(t[0], w.indices);
+        const m = sender.events(w.client_id, "meters", &out);
+        try std.testing.expectEqual(@as(usize, 1), m.len);
+        try expectEventIndices(m[0], w.indices);
+    }
+    for (sender.sent[0..sender.count]) |s| {
+        try std.testing.expect(s.client_id != 3 and s.client_id != 4);
+    }
+}
+
+test "a phone is resent tracks only when its own tracks or the track total change, or it resubscribes" {
+    var f: TestFixture = undefined;
+    f.init();
+    defer f.deinit();
+
+    _ = try f.subs.subscribeRange(1, 1, 3, false);
+    _ = try f.subs.subscribeRange(2, 6, 8, false);
+    const polled = f.polled();
+    var sender = RecordingSender{ .handshaken = &.{ 1, 2 } };
+    _ = f.send(&sender, polled, 10);
+
+    var out: [8][]const u8 = undefined;
+
+    // Nothing changed: meters only
+    sender.count = 0;
+    try std.testing.expect(!f.send(&sender, polled, 10));
+    try std.testing.expectEqual(@as(usize, 0), sender.events(1, "tracks", &out).len);
+    try std.testing.expectEqual(@as(usize, 0), sender.events(2, "tracks", &out).len);
+    try std.testing.expectEqual(@as(usize, 1), sender.events(1, "meters", &out).len);
+    try std.testing.expectEqual(@as(usize, 1), sender.events(2, "meters", &out).len);
+
+    // Track 7, phone 2's, moves: phone 2 alone is sent tracks
+    sender.count = 0;
+    polled[4].volume = 0.5;
+    try std.testing.expect(f.send(&sender, polled, 10));
+    try std.testing.expectEqual(@as(usize, 0), sender.events(1, "tracks", &out).len);
+    try std.testing.expectEqual(@as(usize, 1), sender.events(2, "tracks", &out).len);
+
+    // A track added to the project changes every phone's total
+    sender.count = 0;
+    _ = f.send(&sender, polled, 11);
+    try std.testing.expectEqual(@as(usize, 1), sender.events(1, "tracks", &out).len);
+    try std.testing.expectEqual(@as(usize, 1), sender.events(2, "tracks", &out).len);
+
+    // Resubscribing to the same range is answered though nothing changed
+    sender.count = 0;
+    _ = try f.subs.subscribeRange(1, 1, 3, false);
+    _ = f.send(&sender, polled, 11);
+    try std.testing.expectEqual(@as(usize, 1), sender.events(1, "tracks", &out).len);
+    try std.testing.expectEqual(@as(usize, 0), sender.events(2, "tracks", &out).len);
+}
+
+test "phones with the same subscription share one serialisation" {
+    var f: TestFixture = undefined;
+    f.init();
+    defer f.deinit();
+
+    _ = try f.subs.subscribeRange(1, 1, 3, false);
+    _ = try f.subs.subscribeRange(2, 1, 3, false);
+    var sender = RecordingSender{ .handshaken = &.{ 1, 2 } };
+    _ = f.send(&sender, f.polled(), 10);
+
+    var out1: [8][]const u8 = undefined;
+    var out2: [8][]const u8 = undefined;
+    for ([_][]const u8{ "tracks", "meters" }) |event| {
+        const a = sender.events(1, event, &out1);
+        const b = sender.events(2, event, &out2);
+        try std.testing.expectEqual(@as(usize, 1), a.len);
+        try std.testing.expectEqual(@as(usize, 1), b.len);
+        try std.testing.expectEqual(a[0].ptr, b[0].ptr);
+    }
+}
+
+test "a phone that subscribed before its handshake is sent its tracks once it completes it" {
+    var f: TestFixture = undefined;
+    f.init();
+    defer f.deinit();
+
+    _ = try f.subs.subscribeRange(1, 1, 3, false);
+    const polled = f.polled();
+
+    var before = RecordingSender{ .handshaken = &.{} };
+    try std.testing.expect(!f.send(&before, polled, 10));
+    try std.testing.expectEqual(@as(usize, 0), before.count);
+
+    var after = RecordingSender{ .handshaken = &.{1} };
+    try std.testing.expect(f.send(&after, polled, 10));
+    var out: [8][]const u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 1), after.events(1, "tracks", &out).len);
 }

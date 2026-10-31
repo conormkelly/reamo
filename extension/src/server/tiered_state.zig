@@ -281,6 +281,9 @@ pub const CalculatedSizes = struct {
         // per-entity sizes match the initial estimates in their *ToJsonAlloc.
         // The tempo map is polled into scratch and serialized there in the
         // same frame as either (a new client's snapshot sends it with the rest).
+        // Each distinct track subscription's share of the polled tracks, its
+        // tracks and meters JSON included, also goes in scratch every frame:
+        // phones viewing different large parts of one project add up.
         const scratch_raw = @max(
             counts.tracks * 600, // ~600 bytes per track JSON (with GUID)
             counts.items * 512 + counts.markers * 224 + counts.regions * 320 + counts.fx_total * 320,

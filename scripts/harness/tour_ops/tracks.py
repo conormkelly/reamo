@@ -1023,7 +1023,7 @@ def _(t):
         wait_tracks_event(t, t.c, window, "after a mute in REAPER")
         reaper(MUTE % (g, was))
         wait_tracks_event(t, t.c, window, "after the mute is undone in REAPER")
-        # Leaving the mixer: tracks and meters stop once the grace period ends.
+        # Leaving the mixer: tracks and meters stop on the next poll.
         awaited(t, "track/unsubscribe")
         deadline = time.time() + 4
         while True:
@@ -1150,6 +1150,8 @@ def _(t):
     vol, cursor = t.d["tracks"][g]["vol"], t.d["project"]["cursor"]
     pos = t.d["tracks"][g]["pos"]
     try:
+        # The phone shows the mixer, so its meters carry every track.
+        awaited(t, "track/subscribe", range={"start": 0, "end": max(len(t.tracks()), 1)}, includeMaster=True)
         # The engineer pushes the kick +12 dB in REAPER and plays from its first hit.
         reaper(CLEAR_HOLDS + TRACK_VOL % (g, 4.0) + f"reaper.SetEditCurPos({start!r}, false, false); reaper.OnPlayButton()")
         deadline = time.time() + 4
@@ -1192,4 +1194,5 @@ def _(t):
                 raise Mismatch("after meter/clearClip:\n    " + "\n    ".join(problems))
     finally:
         reaper("reaper.OnStopButton()" + TRACK_VOL % (g, vol) + CLEAR_HOLDS + f"reaper.SetEditCurPos({cursor!r}, false, false)")
+        t.send("track/unsubscribe", awaited=True)
     t.expect({})
