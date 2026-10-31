@@ -5,7 +5,9 @@ on:
     tags:
       - 'v*'
 
-# Read-only by default; only the release job writes.
+# Read-only by default. Only the attest job can mint an OIDC token and only
+# the release job can write: the build jobs run dependency code (npm, Zig)
+# and get neither.
 permissions:
   contents: read
 
@@ -43,6 +45,23 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
+
+      - name: Get version
+        id: version
+        shell: bash
+        run: echo "version=$(node -p "require('./frontend/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      # The pre-push hook checks this too, but hooks can be skipped. A zip
+      # named for one version must not hold another.
+      - name: Check the tag matches the version
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match frontend/package.json version $VERSION (run scripts/bump-version.sh)"
+            exit 1
+          fi
 
       # Node 22's own npm predates the settings in frontend/.npmrc and would
       # refuse the install (package.json's engines); this is the npm they need.
@@ -101,18 +120,18 @@ jobs:
         shell: bash
         run: cd extension && zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-windows -Dcpu=baseline
 
-      - name: Get version
-        id: version
-        shell: bash
-        run: echo "version=$(node -p "require('./frontend/package.json').version")" >> "$GITHUB_OUTPUT"
-
       - name: Package release
         shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PLATFORM: ${{ matrix.platform }}
+          EXT_DIR: ${{ matrix.ext_dir }}
+          EXT_LIB: ${{ matrix.ext_lib }}
+          EXT_DEST: ${{ matrix.ext_dest }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          DIR="REAmo-v${VERSION}-${{ matrix.platform }}"
+          DIR="REAmo-v${VERSION}-${PLATFORM}"
           mkdir -p "${DIR}/reamo" "${DIR}/effects/REAmo"
-          cp "extension/zig-out/${{ matrix.ext_dir }}/${{ matrix.ext_lib }}" "${DIR}/${{ matrix.ext_dest }}"
+          cp "extension/zig-out/${EXT_DIR}/${EXT_LIB}" "${DIR}/${EXT_DEST}"
           cp -r reamo/* "${DIR}/reamo/"
           cp extension/effects/REAmo/PitchDetect.jsfx "${DIR}/effects/REAmo/"
           cp installer/Install_REAmo.lua "${DIR}/"
@@ -126,11 +145,13 @@ jobs:
           name: release-${{ matrix.platform }}
           path: REAmo-v*-${{ matrix.platform }}.zip
 
-  release:
+  # Check the packaged bytes users will download, not intermediate build
+  # output, before anything is attested or released: an attestation is public
+  # and permanent. macOS is checked against core2 (the oldest Intel Mac CPU);
+  # the checker extracts the x86_64 slice of the universal dylib itself.
+  verify:
     needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -147,15 +168,50 @@ jobs:
       - name: Install LLVM
         run: sudo apt-get update && sudo apt-get install -y llvm && llvm-objdump --version
 
-      # Check the packaged bytes users will download, not intermediate build
-      # output. macOS is checked against core2 (the oldest Intel Mac CPU);
-      # the checker extracts the x86_64 slice of the universal dylib itself.
       - name: Verify x86-64 CPU baseline
         run: |
           mkdir unpacked
           for zip in artifacts/REAmo-v*.zip; do unzip -q "$zip" -d unpacked; done
           python3 -I scripts/check-cpu-baseline.py unpacked/*/reaper_reamo.so unpacked/*/reaper_reamo.dll
           python3 -I scripts/check-cpu-baseline.py --profile core2 unpacked/*/reaper_reamo.dylib
+
+  # Signed SLSA build provenance for each zip, recorded with GitHub (Sigstore).
+  # Users check a download with:
+  #   gh attestation verify REAmo-v<version>-<platform>.zip -R conormkelly/reamo
+  # A job of its own so the OIDC token never reaches a job that runs
+  # dependency code or holds write access to the repository.
+  attest:
+    needs: [build, verify]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Attest build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: artifacts/REAmo-v*.zip
+
+  release:
+    needs: [build, verify, attest]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: artifacts
+          merge-multiple: true
 
       - name: Generate checksums
         run: |
