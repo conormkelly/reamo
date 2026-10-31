@@ -46,7 +46,7 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 
 **Events**
 
-- [Events (Broadcast)](#events-broadcast) — transport, tt, trackSkeleton, tracks, meters, markers, regions, fx_state, sends_state, tempoMap, items, project, playlist
+- [Events (Broadcast)](#events-broadcast) — transport, tt, trackSkeleton, tracks and meters (per client), markers, regions, fx_state, sends_state, tempoMap, items, project, playlist
 
 **Reference**
 
@@ -1412,7 +1412,7 @@ Get full send detail for a single track with pagination support. Use for on-dema
 
 ### `track/subscribe`
 
-Subscribe to track updates. Replaces any previous subscription for this client. Only subscribed tracks are included in the `tracks` event, polled at 30Hz. The event is broadcast to every client and carries the tracks any client is subscribed to, so a client picks out its own by `idx` or `g`.
+Subscribe to track updates. Replaces any previous subscription for this client. Only subscribed tracks are included in the `tracks` event, polled at 30Hz. Each client is sent the tracks it is subscribed to and no others, in its own `tracks` and `meters` events.
 
 **Two mutually exclusive modes:**
 
@@ -1459,7 +1459,7 @@ Subscribe to track updates. Replaces any previous subscription for this client. 
 **Notes:**
 
 - Subscribing immediately triggers a `tracks` event — new subscribers receive data on the next poll cycle without waiting for track state to change
-- Subscriptions include a 500ms grace period — when tracks leave the viewport, they continue being polled briefly for smoother scroll UX
+- Tracks leave the poll as soon as no client is subscribed to them: after `track/unsubscribe` or a disconnect, the next poll stops them
 - New clients receive a `trackSkeleton` event on connect (names + GUIDs for all tracks) to enable filtering and subscription
 - Clients must subscribe to receive `tracks` events — no subscription means no track data
 
@@ -3970,7 +3970,7 @@ Get memory usage statistics for all tiered arenas. Use for monitoring memory con
 
 ## Events (Broadcast)
 
-Events are sent to all connected clients when state changes. Polling occurs ~30ms.
+Events are sent to all connected clients when state changes. Polling occurs ~30ms. The exceptions are `tracks` and `meters`: each client is sent only the tracks it subscribed to with `track/subscribe`.
 
 ### `transport` Event
 
@@ -4091,7 +4091,7 @@ Lightweight track list broadcast at 1Hz when structure changes (add/delete/renam
 
 ### `tracks` Event
 
-Broadcast when track data changes for subscribed tracks. Clients must call `track/subscribe` to receive this event. The event goes to every connected client and carries every track any client is subscribed to.
+Sent to a client when the tracks it is subscribed to change. Clients must call `track/subscribe` to receive this event. It carries that client's subscribed tracks only.
 
 ```json
 {
@@ -4171,13 +4171,13 @@ Broadcast when track data changes for subscribed tracks. Clients must call `trac
 - Clients must call `track/subscribe` to receive tracks events — no subscription means no track data
 - Only subscribed tracks are included in the `tracks` array
 - `total` is user track count only (excludes master) for virtual scrollbar sizing
-- Polled at 30Hz; broadcast only when track data changes (not every frame)
+- Polled at 30Hz; sent only when the client's tracks or `total` change (not every frame), and once after each `track/subscribe`
 - Meter data is sent separately via the `meters` event (see below)
 - The track carries only counts of its FX and routes. The FX and sends themselves travel in the [`fx_state`](#fx_state-event) and [`sends_state`](#sends_state-event) events (all tracks), and in detail from `track/getFx`, `track/getSends`, `track/getHwOutputs`, [`trackFx/subscribe`](#trackfxsubscribe) and [`routing/subscribe`](#routingsubscribe)
 
 ### `meters` Event
 
-Broadcast at 30Hz for subscribed tracks. Meter data is tied to track subscriptions — subscribing to tracks via `track/subscribe` automatically includes meter data for those tracks. Uses map format keyed by GUID for O(1) frontend lookups.
+Sent at 30Hz to each subscribed client, for its subscribed tracks only. Meter data is tied to track subscriptions — subscribing to tracks via `track/subscribe` automatically includes meter data for those tracks. Uses map format keyed by GUID for O(1) frontend lookups.
 
 ```json
 {

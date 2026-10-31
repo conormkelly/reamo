@@ -115,6 +115,7 @@ var g_last_skeleton_buf: []track_skeleton.SkeletonTrack = &.{};
 
 // CSurf: Hash-based track change detection
 var g_prev_tracks_hash: u64 = 0;
+var g_prev_polled_indices_hash: u64 = 0;
 /// Whether the last hot-reload check couldn't stat index.html.
 var g_html_stat_failed: bool = false;
 var g_last_drift_log_time: i64 = 0; // Rate-limit drift warnings (max 1/sec)
@@ -789,6 +790,7 @@ fn doProcessing() !void {
     // Build mutable state references
     var mutable = tier_polling.MutableState{
         .prev_tracks_hash = &g_prev_tracks_hash,
+        .prev_polled_indices_hash = &g_prev_polled_indices_hash,
         .last_drift_log_time = &g_last_drift_log_time,
         .last_skeleton = &g_last_skeleton,
         .last_skeleton_buf = &g_last_skeleton_buf,

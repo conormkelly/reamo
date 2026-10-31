@@ -1,6 +1,6 @@
 """A phone that drops off the network (socket closed without unsubscribing) leaves
 nothing behind: a client that connects next gets no tracks/meters until it
-subscribes (after the 500 ms track grace period), and 40 connect-subscribe-drop cycles don't exhaust client slots."""
+subscribes, and 40 connect-subscribe-drop cycles don't exhaust client slots."""
 import time
 
 from reamo_client import Client
@@ -13,7 +13,7 @@ for i in range(40):
     a.wait_event("tracks")
     a.close()  # no unsubscribe, no close frame: Wi-Fi went away
 
-time.sleep(2.0)  # disconnect detection + 500 ms grace + 1 Hz grace cleanup
+time.sleep(2.0)  # disconnect detection
 
 with Client() as b:
     b.wait_event("trackSkeleton")
