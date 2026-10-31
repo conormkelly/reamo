@@ -2737,19 +2737,21 @@ Get all parameter names for an FX (skeleton fetch). **Returns data.**
 
 ### `trackFxParams/subscribe`
 
-Subscribe to FX parameter value updates. Receives values at 30Hz when subscribed.
+Subscribe to FX parameter value updates. Values are checked at 30Hz and sent when they change.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `trackGuid` | string | Yes | Track GUID |
 | `fxGuid` | string | Yes | FX GUID |
-| `rangeStart` | int | No | First param index to include (default: 0) |
-| `rangeEnd` | int | No | Last param index to include (default: 20) |
-| `indices` | int[] | No | Specific param indices (overrides range) |
+| `range` | object | No | `{"start": int, "end": int}`, inclusive; the form the web UI's command builder sends |
+| `rangeStart` | int | No | First param index to include (default: 0), if `range` is absent |
+| `rangeEnd` | int | No | Last param index to include (default: 20), if `range` is absent |
+| `indices` | int[] | No | Specific param indices (overrides range); at most 100 |
 
-**Range mode** (for scrollable views):
+**Range mode** (for scrollable views), in either form:
 
 ```json
+{"type": "command", "command": "trackFxParams/subscribe", "trackGuid": "{AAA}", "fxGuid": "{BBB}", "range": {"start": 0, "end": 20}, "id": "1"}
 {"type": "command", "command": "trackFxParams/subscribe", "trackGuid": "{AAA}", "fxGuid": "{BBB}", "rangeStart": 0, "rangeEnd": 20, "id": "1"}
 ```
 
@@ -2761,8 +2763,10 @@ Subscribe to FX parameter value updates. Receives values at 30Hz when subscribed
 
 **Notes:**
 
-- Each client can subscribe to one FX at a time; subscribing auto-unsubscribes from previous
-- After subscribing, receive `trackFxParams` events (see below)
+- Each client can subscribe to one FX at a time; subscribing replaces the previous subscription (FX, range or indices)
+- `indices` keeps the first 100 entries and drops the rest without an error. Range mode has no such limit, but each parameter in the range is read every tick, so keep ranges to what is on screen
+- Only the upper end is checked against the FX's parameter count: a range end past the last parameter is clamped to it, and indices at or past the count are skipped. A negative range start or negative indices are not rejected or clamped; they are read as given
+- After subscribing, receive `trackFxParams` events (see below). Every subscribe, including a re-subscribe to the same FX, is followed by an event even if no value changed
 
 ### `trackFxParams/unsubscribe`
 
@@ -2802,7 +2806,9 @@ Set an FX parameter value. Uses gesture-based undo coalescing.
 
 ### `trackFxParams` Event
 
-Sent to subscribed clients at 30Hz with current parameter values.
+Sent to a subscribed client when any of its subscribed values changes (checked at 30Hz), and once after every `trackFxParams/subscribe`.
+
+Each event is a complete snapshot of the subscription: `values` holds every subscribed parameter (except any whose value is not a finite number), not only the changed ones. A client can replace its values with each event; a parameter missing from it is no longer subscribed.
 
 ```json
 {

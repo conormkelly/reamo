@@ -23,6 +23,7 @@ vi.mock('../../hooks/useReaper', () => ({
 
 import { FxParamModal } from './FxParamModal';
 import { useReaperStore } from '../../store';
+import { stubClientSize } from '../../test/layout';
 
 const TRACK = '{TRACK-GUID-0001}';
 const FX = '{FX-GUID-0001}';
@@ -62,7 +63,12 @@ async function openModal(): Promise<void> {
 }
 
 describe('FxParamModal skeleton fetching', () => {
+  let restoreLayout: () => void;
+
   beforeEach(() => {
+    // The parameter list is virtualized: give it the phone list's height so
+    // its rows render
+    restoreLayout = stubClientSize('[data-testid="fx-param-list"]', { width: 360, height: 320 });
     vi.clearAllMocks();
     useReaperStore.getState().clearFxParamSubscription();
     useReaperStore.setState({ _fxParamSkeletonCache: new Map() });
@@ -84,6 +90,7 @@ describe('FxParamModal skeleton fetching', () => {
 
   afterEach(() => {
     cleanup();
+    restoreLayout();
   });
 
   it('does not refetch the skeleton while events report the nameHash getParams returned', async () => {

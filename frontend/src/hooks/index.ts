@@ -29,6 +29,12 @@ export {
   type UseVirtualizedSubscriptionOptions,
 } from './useVirtualizedSubscription';
 export {
+  useFxParamSubscription,
+  nextSubscriptionWindow,
+  type UseFxParamSubscriptionOptions,
+  type ListWindow,
+} from './useFxParamSubscription';
+export {
   useTransportSync,
   getTransportSyncState,
   isTransportSynced,
