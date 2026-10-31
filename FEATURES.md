@@ -135,6 +135,7 @@ Detailed feature list for REAmo. For quick start and installation, see [README.m
 ## Limitations
 
 - **No waveform editing** — View waveforms but no split/glue/crossfade
+- **Waveforms are a navigation guide** — They show each item's source audio, without fades or item volume, and section or reversed items may not match REAPER's display
 - **No MIDI editing** — Audio items only, MIDI items shown as blocks
 - **No comping lanes** — Basic take switching only
 - **No automation** — Automation isn't shown or editable yet
