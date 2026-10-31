@@ -23,6 +23,7 @@ frontend/coverage
 # Extension build artifacts (Zig)
 .zig-cache
 zig-out
+zig-pkg/
 
 # Editor directories and files
 .vscode/*
@@ -45,6 +46,31 @@ scripts/harness/reaper-license.rk
 
 # Session handover notes (local only)
 handover/
+
+# Local notes: keep them in notes/ or name them *.local.md.
+/notes/
+*.local.md
+
+# Secrets and signing material
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.keychain-db
+*.mobileprovision
+*.provisionprofile
+
+# REAPER's project backups, undo history and peak files (test fixtures)
+Backups/
+*.rpp-bak
+*.RPP-bak
+*.rpp-undo
+*.RPP-UNDO
+*.reapeaks
 
 # Live-REAPER harness screenshots and artifacts
 scripts/harness/out/

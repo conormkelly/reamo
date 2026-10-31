@@ -2,12 +2,16 @@
 # Pre-push hook: when pushing a version tag (v*), verify all version strings match.
 # Runs automatically via husky. Skips silently for non-tag pushes.
 
+# husky runs every hook with sh, whatever its shebang, and this one needs
+# bash: where sh is another shell (dash on Debian and Ubuntu), hand over.
+if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
+
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 # Read stdin for push refs — git provides: <local ref> <local sha> <remote ref> <remote sha>
-while read -r local_ref local_sha remote_ref remote_sha; do
+while read -r local_ref _ _ _; do
   # Only check version tags
   if ! [[ "$local_ref" =~ ^refs/tags/v([0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?)$ ]]; then
     continue
