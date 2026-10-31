@@ -829,9 +829,9 @@ return <div ref={elementRef} />;
 
 ### Virtual Scrolling
 
-- Mixer uses `useVirtualizedSubscription`
-- Only renders visible tracks
-- Critical for 100+ track projects
+- Long lists render only the rows on screen with TanStack Virtual (`ActionSearch`, `FxParamModal`)
+- The FX parameter list also subscribes only to the parameters around those rows (`useFxParamSubscription`): the extension pushes at most 100 per subscription
+- The mixer pages tracks in banks and subscribes to the bank plus a prefetch (`MixerView`)
 
 ### Icon Optimization
 

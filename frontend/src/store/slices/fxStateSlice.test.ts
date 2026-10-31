@@ -165,6 +165,29 @@ describe('fxParamSlice', () => {
       expect(vals.get(1)).toEqual({ value: 0.75, formatted: '+3.0 dB' });
     });
 
+    it('drops values of params missing from the latest event', () => {
+      // Each event is a snapshot of the subscribed params: once the
+      // subscription moves off param 0, its last value must not linger
+      useReaperStore.getState().handleFxParamsEvent({
+        trackGuid: '{T1}',
+        fxGuid: '{FX1}',
+        paramCount: 3,
+        nameHash: 123,
+        values: { '0': [0.5, '500 Hz'], '1': [0.75, '+3.0 dB'] },
+      });
+      useReaperStore.getState().handleFxParamsEvent({
+        trackGuid: '{T1}',
+        fxGuid: '{FX1}',
+        paramCount: 3,
+        nameHash: 123,
+        values: { '1': [0.8, '+4.0 dB'], '2': [0.1, '0.7'] },
+      });
+      const vals = useReaperStore.getState().fxParamValues;
+      expect(vals.has(0)).toBe(false);
+      expect(vals.get(1)).toEqual({ value: 0.8, formatted: '+4.0 dB' });
+      expect(vals.get(2)).toEqual({ value: 0.1, formatted: '0.7' });
+    });
+
     it('ignores events for wrong track', () => {
       useReaperStore.getState().handleFxParamsEvent({
         trackGuid: '{OTHER}',

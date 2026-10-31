@@ -37,7 +37,7 @@ export interface FxParamSlice {
   fxParamSkeletonLoading: boolean;
   fxParamSkeletonError: string | null;
 
-  // Live values pushed by backend (keyed by param index)
+  // Live values of the subscribed params, as of the latest event (keyed by param index)
   fxParamValues: Map<number, { value: number; formatted: string }>;
   fxParamCount: number;
 
@@ -116,8 +116,10 @@ export const createFxParamSlice: StateCreator<FxParamSlice, [], [], FxParamSlice
       });
     }
 
-    // Update values from event
-    const newValues = new Map(get().fxParamValues);
+    // Each event carries every subscribed parameter, so it replaces the
+    // values: parameters the subscription has moved away from are dropped
+    // rather than shown stale
+    const newValues = new Map<number, { value: number; formatted: string }>();
     for (const [idxStr, [value, formatted]] of Object.entries(payload.values)) {
       const idx = parseInt(idxStr, 10);
       newValues.set(idx, { value, formatted });

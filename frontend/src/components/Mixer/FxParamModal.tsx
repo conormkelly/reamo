@@ -2,15 +2,19 @@
  * FxParamModal - View and control FX parameters
  *
  * Shows parameter list with sliders for real-time control.
- * Uses subscription-based updates at 30Hz.
- * Supports search filter with sparse index subscription mode.
+ * The list is virtualized, and values arrive at 30Hz for a window of
+ * parameters around the rows on screen (useFxParamSubscription), so plugins
+ * with hundreds of parameters page through it as the list scrolls.
+ * Supports a search filter; its matches are subscribed by parameter index.
  * Uses gesture commands for proper undo coalescing.
  */
 
 import { useEffect, useCallback, useRef, useState, useMemo, type ReactElement } from 'react';
 import { LoaderCircle, Search, X } from 'lucide-react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { BottomSheet } from '../Modal/BottomSheet';
 import { useReaper } from '../../hooks/useReaper';
+import { useFxParamSubscription } from '../../hooks/useFxParamSubscription';
 import { useReaperStore } from '../../store';
 import { trackFxParams, gesture } from '../../core/WebSocketCommands';
 import type { FxParamsSkeletonPayload } from '../../core/WebSocketTypes';
@@ -28,8 +32,14 @@ export interface FxParamModalProps {
   fxName: string;
 }
 
-/** Max params to subscribe to when filtering (prevents overload) */
-const MAX_FILTERED_INDICES = 50;
+/** Estimated row height in px (py-3 + 16px name line + gap-1 + h-8 slider); rows are measured */
+const PARAM_ROW_ESTIMATE_PX = 84;
+
+/** Space between rows in px (0.375rem) */
+const PARAM_ROW_GAP_PX = 6;
+
+/** Rows rendered beyond each end of the visible ones */
+const RENDER_OVERSCAN = 5;
 
 /** Double-tap detection threshold in ms */
 const DOUBLE_TAP_THRESHOLD = 300;
@@ -37,19 +47,25 @@ const DOUBLE_TAP_THRESHOLD = 300;
 /**
  * Single parameter row with slider
  * Double-tap slider to reset to 0.5 (default value)
+ * Until the parameter's value has arrived the slider is disabled, so a drag
+ * or double-tap can't send a value judged against a placeholder.
  */
 function ParamRow({
+  paramIndex,
   name,
   value,
   formatted,
+  hasValue,
   onValueChange,
   onDragStart,
   onDragEnd,
   onReset,
 }: {
+  paramIndex: number;
   name: string;
   value: number;
   formatted: string;
+  hasValue: boolean;
   onValueChange: (value: number) => void;
   onDragStart: () => void;
   onDragEnd: () => void;
@@ -60,6 +76,7 @@ function ParamRow({
   const lastTapTimeRef = useRef(0);
 
   const handlePointerDown = useCallback(() => {
+    if (!hasValue) return;
     const now = Date.now();
     const timeSinceLastTap = now - lastTapTimeRef.current;
 
@@ -74,7 +91,7 @@ function ParamRow({
     lastTapTimeRef.current = now;
     isDraggingRef.current = true;
     onDragStart();
-  }, [onDragStart, onReset]);
+  }, [hasValue, onDragStart, onReset]);
 
   const handlePointerUp = useCallback(() => {
     if (isDraggingRef.current) {
@@ -85,10 +102,11 @@ function ParamRow({
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (!hasValue) return;
       const newValue = parseFloat(e.target.value);
       onValueChange(newValue);
     },
-    [onValueChange]
+    [hasValue, onValueChange]
   );
 
   // Handle pointer up outside of slider
@@ -109,8 +127,23 @@ function ParamRow({
     };
   }, [onDragEnd]);
 
+  // The list unmounts rows scrolled out of view: end a gesture still open,
+  // or its undo point is never closed
+  const onDragEndRef = useRef(onDragEnd);
+  useEffect(() => {
+    onDragEndRef.current = onDragEnd;
+  }, [onDragEnd]);
+  useEffect(() => {
+    return () => {
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false;
+        onDragEndRef.current();
+      }
+    };
+  }, []);
+
   return (
-    <div className="flex flex-col gap-1 py-3 px-3 bg-bg-surface rounded-lg">
+    <div data-param-index={paramIndex} className="flex flex-col gap-1 py-3 px-3 bg-bg-surface rounded-lg">
       {/* Name and value - 16px base text */}
       <div className="flex items-center justify-between gap-2">
         <span className="text-base text-text-primary truncate flex-1">{name}</span>
@@ -123,14 +156,16 @@ function ParamRow({
       <input
         ref={sliderRef}
         type="range"
+        aria-label={name}
         min={0}
         max={1}
         step={0.001}
         value={value}
+        disabled={!hasValue}
         onChange={handleChange}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
-        className="w-full h-8 accent-accent cursor-pointer touch-pan-y"
+        className="w-full h-8 accent-accent cursor-pointer touch-pan-y disabled:cursor-default disabled:opacity-40"
       />
     </div>
   );
@@ -169,9 +204,9 @@ export function FxParamModal({
     }
   }, [isOpen]);
 
-  // Filter skeleton based on search and compute indices to subscribe
-  const { filteredParams, subscribedIndices } = useMemo(() => {
-    if (!skeleton) return { filteredParams: [], subscribedIndices: [] };
+  // Filter skeleton based on search
+  const { filteredParams, filteredIndices } = useMemo(() => {
+    if (!skeleton) return { filteredParams: [], filteredIndices: [] };
 
     const searchLower = search.toLowerCase().trim();
     const filtered: Array<{ idx: number; name: string }> = [];
@@ -182,10 +217,7 @@ export function FxParamModal({
       }
     }
 
-    // Limit subscribed indices to prevent overload
-    const indices = filtered.slice(0, MAX_FILTERED_INDICES).map((p) => p.idx);
-
-    return { filteredParams: filtered, subscribedIndices: indices };
+    return { filteredParams: filtered, filteredIndices: filtered.map((p) => p.idx) };
   }, [skeleton, search]);
 
   // Subscribe on open, unsubscribe on close
@@ -237,13 +269,6 @@ export function FxParamModal({
     };
   }, [isOpen, subscription, skeletonLoading, trackGuid, fxGuid, sendCommandAsync, setFxParamSkeleton, setFxParamSkeletonError]);
 
-  // Update subscription with filtered indices
-  useEffect(() => {
-    if (!isOpen || !subscription || subscribedIndices.length === 0) return;
-
-    sendCommand(trackFxParams.subscribe(trackGuid, fxGuid, { indices: subscribedIndices }));
-  }, [isOpen, subscription, trackGuid, fxGuid, subscribedIndices, sendCommand]);
-
   // Handle value change
   const handleValueChange = useCallback(
     (paramIdx: number, value: number) => {
@@ -279,19 +304,35 @@ export function FxParamModal({
     [sendCommand, trackGuid, fxGuid]
   );
 
-  // Build param list with values from filtered params
-  const paramList = useMemo(() => {
-    return filteredParams.map(({ idx, name }) => {
-      const valueData = paramValues.get(idx);
-      return {
-        idx,
-        name,
-        value: valueData?.value ?? 0,
-        formatted: valueData?.formatted ?? '—',
-        hasValue: valueData !== undefined,
-      };
-    });
-  }, [filteredParams, paramValues]);
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual known limitation
+  const rowVirtualizer = useVirtualizer({
+    count: filteredParams.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => PARAM_ROW_ESTIMATE_PX,
+    gap: PARAM_ROW_GAP_PX,
+    overscan: RENDER_OVERSCAN,
+    getItemKey: (index) => filteredParams[index].idx,
+  });
+  const virtualRows = rowVirtualizer.getVirtualItems();
+
+  // Values follow the rows on screen; read range after getVirtualItems(),
+  // which computes it
+  useFxParamSubscription({
+    enabled: isOpen && subscription !== null,
+    trackGuid,
+    fxGuid,
+    paramIndices: filteredIndices,
+    visibleRange: rowVirtualizer.range,
+    sendCommand,
+  });
+
+  // A list with different rows (a filter, or a skeleton with other names)
+  // is shown from its top, as useFxParamSubscription expects; an equal list
+  // (a refetched skeleton with the same names) keeps its scroll position
+  const listKey = useMemo(() => filteredIndices.join(','), [filteredIndices]);
+  useEffect(() => {
+    rowVirtualizer.scrollToOffset(0);
+  }, [listKey, rowVirtualizer]);
 
   return (
     <BottomSheet
@@ -380,29 +421,44 @@ export function FxParamModal({
         {skeleton && skeleton.length > 0 && filteredParams.length > 0 && (
           <div
             ref={scrollContainerRef}
+            data-testid="fx-param-list"
             className="max-h-80 overflow-y-auto -mx-4 px-4"
           >
-            <div className="space-y-1.5">
-              {paramList.map((param) => (
-                <ParamRow
-                  key={param.idx}
-                  name={param.name}
-                  value={param.value}
-                  formatted={param.formatted}
-                  onValueChange={(v) => handleValueChange(param.idx, v)}
-                  onDragStart={() => handleDragStart(param.idx)}
-                  onDragEnd={() => handleDragEnd(param.idx)}
-                  onReset={() => handleReset(param.idx)}
-                />
-              ))}
+            <div
+              role="list"
+              aria-label="Parameters"
+              className="relative"
+              style={{ height: rowVirtualizer.getTotalSize() }}
+            >
+              {virtualRows.map((row) => {
+                const { idx, name } = filteredParams[row.index];
+                const valueData = paramValues.get(idx);
+                return (
+                  <div
+                    key={row.key}
+                    role="listitem"
+                    aria-setsize={filteredParams.length}
+                    aria-posinset={row.index + 1}
+                    data-index={row.index}
+                    ref={rowVirtualizer.measureElement}
+                    className="absolute top-0 left-0 w-full"
+                    style={{ transform: `translateY(${row.start}px)` }}
+                  >
+                    <ParamRow
+                      paramIndex={idx}
+                      name={name}
+                      value={valueData?.value ?? 0}
+                      formatted={valueData?.formatted ?? '—'}
+                      hasValue={valueData !== undefined}
+                      onValueChange={(v) => handleValueChange(idx, v)}
+                      onDragStart={() => handleDragStart(idx)}
+                      onDragEnd={() => handleDragEnd(idx)}
+                      onReset={() => handleReset(idx)}
+                    />
+                  </div>
+                );
+              })}
             </div>
-
-            {/* Truncation notice */}
-            {filteredParams.length > MAX_FILTERED_INDICES && (
-              <div className="mt-3 text-center text-sm text-text-muted">
-                Showing {MAX_FILTERED_INDICES} of {filteredParams.length} matches
-              </div>
-            )}
           </div>
         )}
       </div>
