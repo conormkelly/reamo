@@ -130,24 +130,24 @@ On the controller (the Mac or Linux machine that runs `run.sh`):
 
 1. Give the controller a fixed address (reserve it in the router; on macOS
    set the Wi-Fi's Private Wi-Fi address to Fixed), and the PC one too.
-2. Make a key just for the PC: `ssh-keygen -t ed25519 -f
-   ~/.ssh/id_ed25519_reamo_win -C reamo-harness`.
-3. Add it to `~/.ssh/config` as `reamo-win` (`run.sh` uses that name;
-   `HARNESS_WINDOWS_HOST` overrides it):
+2. Make an SSH key used only for the PC (`ssh-keygen -t ed25519 -f
+   <key file>`).
+3. Add the PC to `~/.ssh/config` under the alias `reamo-win` (`run.sh`'s
+   default; `HARNESS_WINDOWS_HOST` overrides it):
 
    ```
    Host reamo-win
     HostName <the PC's address>
-    User reamotest
-    IdentityFile ~/.ssh/id_ed25519_reamo_win
+    User <the test user>
+    IdentityFile <key file>
     IdentitiesOnly yes
    ```
 
 On the PC, in an elevated PowerShell while it still has internet access,
 run `windows/setup-test-pc.ps1 -ControllerIp <controller address>
--PublicKey "<the .pub file's line>"`. It:
+-PublicKey "<the .pub file's line>"` (`-User` names the test user). It:
 
-- creates `reamotest`, a standard (non-admin) user, and logs it in at boot
+- creates the test user, a standard (non-admin) account, and logs it in at boot
   (Sysinternals Autologon), since tests need its desktop;
 - installs OpenSSH Server: only that user, only by key, the key only from
   the controller's address (`from=`, in an admin-owned key file the test
@@ -155,7 +155,7 @@ run `windows/setup-test-pc.ps1 -ControllerIp <controller address>
 - installs Python;
 - hides the standard VST3 and CLAP folders from the test user, so no
   plugin's activation window blocks REAPER's startup (undo:
-  `icacls "<folder>" /remove:d reamotest`);
+  `icacls "<folder>" /remove:d <the test user>`);
 - refuses network connections to the test REAPER and Python, so Windows
   never asks to let them through the firewall (tests connect from the PC
   itself, which the firewall doesn't filter).
