@@ -344,7 +344,6 @@ export function retry(): void {
  * CRITICAL: Safari iOS zombies - never trust existing connection after backgrounding.
  * iOS suspension freezes WebSocket in pre-suspension state (readyState lies).
  * Always force full reconnect on Safari visibility return - from ANY state, not just connected.
- * This matches the old WebSocketConnection behavior exactly.
  */
 export function handleVisibilityChange(isVisible: boolean): void {
   if (isVisible) {
