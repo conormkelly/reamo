@@ -65,9 +65,10 @@ reaper.UpdateTimeline()
 assert reaper("return reaper.CountTempoTimeSigMarkers(0)") == N
 
 # A phone connecting to the session gets the whole map in its snapshot.
+# expect_reaper_map reads it with latest_event; wait_event would take it off
+# c.events, and the map then only shows if another broadcast happens to follow.
 with Client() as c:
-    c.wait_event("tempoMap", timeout=5)
-    expect_reaper_map(c, "snapshot")
+    expect_reaper_map(c, "snapshot", timeout=5.0)
 
     # The user makes the tempo change at marker 300 gradual.
     reaper("""
