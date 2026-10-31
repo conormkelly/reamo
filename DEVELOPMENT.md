@@ -347,13 +347,24 @@ test "transport/play runs correct command" {
 }
 ```
 
-### Library Choice
+### Server libraries (forked)
 
-**websocket.zig** (github.com/karlseguin/websocket.zig):
-
-- Uses epoll (Linux) / kqueue (macOS) for non-blocking I/O
-- Thread-safe `conn.write()` and `server.stop()`
-- Falls back to blocking mode on Windows
+- HTTP and WebSocket: **httpz** (http.zig), which embeds **websocket.zig**. Both
+  by karlseguin; REAmo pins our forks, `conormkelly/http.zig` and
+  `conormkelly/websocket.zig`.
+- Non-blocking (epoll/kqueue) on macOS and Linux; blocking, one thread per
+  connection, on Windows.
+- Each fork's `reamo` branch holds every fix REAmo needs on top of upstream.
+  - Fix on a topic branch, then merge it into `reamo` (merge commit).
+  - Pin `extension/build.zig.zon` (httpz) and httpz's own `build.zig.zon`
+    (websocket.zig) to a commit on `reamo`, never on a topic branch: a topic
+    branch can miss fixes that are only on `reamo`.
+  - Pin by commit URL. Get the hash with `zig fetch <url>`.
+- When a REAmo release ships, tag the pinned commit in each fork
+  `reamo-v<version>` (e.g. `reamo-v0.8.1`), so each release's fork code is
+  easy to find and diff.
+- Test a fork change before pushing: point the pin at the checkout with
+  `.path = "<relative path>"`, and put the URL pin back before committing.
 
 ## Data Flow
 
