@@ -9,7 +9,7 @@
  * Without min-h-0, flex items default to min-height: auto, which
  * prevents content from shrinking below its natural size, causing overflow.
  *
- * @see docs/architecture/UX_GUIDELINES.md §2 (View Layout Template), §4 (Height Management)
+ * @see docs/architecture/frontend/UX_GUIDELINES.md §2 (View Layout Template), §4 (Height Management)
  */
 
 import { type ReactNode } from 'react';

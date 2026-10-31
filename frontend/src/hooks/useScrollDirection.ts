@@ -4,7 +4,7 @@
  * Enables auto-hide behavior for navigation elements (future use).
  * Uses requestAnimationFrame for performance-safe scroll handling.
  *
- * @see docs/architecture/UX_GUIDELINES.md §7 (Footer Chrome Strategy)
+ * @see docs/architecture/frontend/UX_GUIDELINES.md §7 (Footer Chrome Strategy)
  */
 
 import { useState, useEffect, type RefObject } from 'react';

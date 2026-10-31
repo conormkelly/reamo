@@ -3,7 +3,7 @@
  *
  * Provides reactive media query matching with proper SSR handling and cleanup.
  *
- * @see docs/architecture/UX_GUIDELINES.md §7, §8, §9
+ * @see docs/architecture/frontend/UX_GUIDELINES.md §7, §8, §9
  */
 
 import { useState, useEffect } from 'react';
