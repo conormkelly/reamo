@@ -38,7 +38,7 @@ WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224
 - [Receive](#receive-commands) — setVolume, setMute, setPan, setMode, add, remove
 - [Hardware Output](#hardware-output-commands) — setVolume, setMute, setPan, setMode, add, remove, setDestChannel, listOutputs, getHwOutputs
 - [Routing](#routing-subscription-commands) — subscribe, unsubscribe
-- [Playlist](#playlist-commands) — create, delete, rename, addEntry, removeEntry, play, stop, next, prev
+- [Playlist](#playlist-commands) — create, delete, rename, addEntry, removeEntry, setLoopCount, reorderEntry, setStopAfterLast, play, playFromEntry, pause, stop, next, prev, advanceAfterLoop
 - [Audio Monitoring](#audio-monitoring-commands) — startStream, stopStream, status
 - [Lanes](#lanes-commands) — getState, swipeComp, setCompTarget, setLanePlays, createCompLane, moveCompUp, moveCompDown, deleteCompArea
 - [Preferences](#preferences-commands) — getSeekSettings, setSeekSettings
@@ -887,12 +887,11 @@ Adaptive waveform peaks subscription for multi-track timeline views. The backend
 
 ### LOD System
 
-8 LOD levels with 4x ratio between adjacent levels (see `docs/architecture/LOD_LEVELS.md`):
+7 LOD levels with 4x ratio between adjacent levels (rationale in `extension/src/state/peaks_tile.zig`):
 
 | LOD | Peaks/sec | Tile Duration | Viewport Duration | Use Case |
 |-----|-----------|---------------|-------------------|----------|
-| 7 | 1024 | 0.5s | < 5s | Fine detail |
-| 6 | 256 | 1s | 5s - 20s | Precision editing |
+| 6 | 256 | 1s | < 20s | Precision editing |
 | 5 | 64 | 4s | 20s - 75s | Normal editing |
 | 4 | 16 | 16s | 75s - 5min | Wide view |
 | 3 | 4 | 64s | 5min - 20min | Overview |
@@ -902,7 +901,6 @@ Adaptive waveform peaks subscription for multi-track timeline views. The backend
 
 LOD is selected based on viewport duration (`end - start`):
 
-- `< 5s` → LOD 7 (1024 peaks/sec)
 - `< 20s` → LOD 6 (256 peaks/sec)
 - `< 75s` → LOD 5 (64 peaks/sec)
 - `< 300s` → LOD 4 (16 peaks/sec)
@@ -964,7 +962,7 @@ Then, per tile, a 20-byte header, a 40-byte take GUID and the peak data:
 
 | Offset | Type | Field | Description |
 |--------|------|-------|-------------|
-| 0 | u8 | `lod` | LOD level (0-7, see LOD System above) |
+| 0 | u8 | `lod` | LOD level (0-6, see LOD System above) |
 | 1 | u8 | `channels` | 1 = mono, 2 = stereo |
 | 2 | u16 | `tileIndex` | Tile index within the item |
 | 4 | u16 | `numPeaks` | Peaks in this tile (at most 256) |
@@ -996,7 +994,7 @@ Update viewport for an existing subscription. Use this for zoom/pan without re-s
 
 **Errors:** `INVALID_PARAMS` (no complete `viewport`), `NOT_SUBSCRIBED` (no active peaks subscription).
 
-**Note:** The backend only sends new peak data when LOD changes. Panning at the same zoom level won't trigger new data - the frontend should slice from cached tiles.
+**Note:** The backend sends the tiles for the new viewport (plus a 50% buffer each side) on every viewport change. Tiles are cached by `{takeGuid, epoch, lod, tileIndex}` on both sides, so the frontend should keep the tiles it already has and draw from them.
 
 ### `peaks/unsubscribe`
 
@@ -4567,7 +4565,7 @@ Broadcast when playlist state changes (polled at 5Hz). Includes all playlists an
 | Resource | Max |
 |----------|-----|
 | Tracks polled | 128 |
-| Metered tracks | 16 |
+| Tracks per client subscription | 64 (meters follow subscribed tracks) |
 | Markers | 256 |
 | Regions | 256 |
 | Items | 512 |
@@ -4638,7 +4636,7 @@ REAPER's `SetProjectMarker4` API treats `color=0` as "don't modify color" rather
 
 **Audio Channel Detection**
 
-REAPER's `GetMediaSourceNumChannels` API sometimes returns incorrect values (e.g., 1 for stereo files). The extension works around this by always requesting stereo data from `AudioAccessor` and detecting mono/stereo by comparing L/R channel content.
+Peaks come from `GetMediaItemTake_Peaks`. The extension always asks it for 2 channels (REAPER writes 2 even for mono sources on some platforms) and sends 1 or 2 per tile, from the take source's `GetMediaSourceNumChannels` (capped at 2).
 
 **Master Track GUID**
 
