@@ -267,7 +267,9 @@ pub fn pollTrackFxParamSubscriptions(
             if (err == error.OutOfMemory) continue;
             // Track or FX not found - increment failure count
             if (trackfxparam_subs.recordFailure(entry.client_id)) {
-                // Auto-unsubscribe after 3 failures (~100ms at 30Hz)
+                // Auto-unsubscribe after 3 failures (~100ms at 30Hz): long
+                // enough for an undo that restores the FX to land without an
+                // error, short enough not to leave a dead modal open.
                 logging.warn("trackfxparam: auto-unsubscribing client {d} after repeated failures", .{entry.client_id});
 
                 // Send error event to client
@@ -297,7 +299,9 @@ pub fn pollTunerSubscriptions(
         const tuner = tuner_subs.getTrackTuner(entry.track_guid) orelse {
             // Track tuner not found - increment failure count
             if (tuner_subs.recordFailure(entry.client_id)) {
-                // Auto-unsubscribe after 3 failures (~100ms at 30Hz)
+                // Auto-unsubscribe after 3 failures (~100ms at 30Hz): long
+                // enough for an undo that restores the FX to land without an
+                // error, short enough not to leave a dead modal open.
                 logging.warn("tuner: auto-unsubscribing client {d} after repeated failures", .{entry.client_id});
 
                 // Send error event to client
