@@ -1,6 +1,6 @@
 /**
  * Input selection utilities for REAPER I_RECINPUT encoding
- * Based on research/REC_INPUT_SELECTION.md bitfield specification
+ * (bitfield layout as documented for I_RECINPUT in docs/reaper_plugin_functions.h)
  *
  * Audio encoding (bit 12 NOT set):
  *   - Bits 0-9: Input channel index (0-indexed)

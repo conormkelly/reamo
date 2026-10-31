@@ -5,6 +5,9 @@
  * ImageBitmaps can be drawn to canvas via drawImage() without re-parsing,
  * enabling 60fps timeline scrolling on iPad.
  *
+ * iPad Safari limits that shape this: 16 MP per canvas (4096x4096 physical
+ * pixels) and ~384 MB of canvas memory in total, so waveforms render at 1x DPR.
+ *
  * Memory management:
  * - LRU eviction at 200 tiles (~50MB budget)
  * - Always call bitmap.close() on eviction to free GPU memory

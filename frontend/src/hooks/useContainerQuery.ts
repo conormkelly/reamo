@@ -4,7 +4,7 @@
  * Uses ResizeObserver to detect container width changes, enabling
  * component-local responsive behavior independent of viewport size.
  *
- * @see docs/architecture/UX_GUIDELINES.md §8 (Header Overflow Pattern)
+ * @see docs/architecture/frontend/UX_GUIDELINES.md §8 (Header Overflow Pattern)
  */
 
 import { useState, useEffect, type RefObject } from 'react';

@@ -589,7 +589,7 @@ export const undo = {
   }),
   // NOTE: undo/begin and undo/end commands removed - they're dangerous with multiple clients
   // as REAPER doesn't support nested undo blocks. Use gesture-based undo coalescing instead.
-  // See research/REAPER_UNDO_BLOCKS.md for details.
+  // See DEVELOPMENT.md, "Common Pitfalls".
   /** Perform undo - returns { success: true, action: "description" } */
   do: (): WSCommand => ({ command: 'undo/do' }),
 };

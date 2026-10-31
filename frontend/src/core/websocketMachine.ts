@@ -104,9 +104,8 @@ const MAX_RETRY_DELAY = 30000;
  * attempt in a new page context often fails. This warmup connection triggers the
  * internal initialization so subsequent connections succeed.
  *
- * Previously used a srcdoc iframe, but srcdoc origins are "null" which the server's
- * Origin validation rejects (403). A direct warmup from the main page uses the
- * correct same-origin header.
+ * The warmup runs from the main page, not a srcdoc iframe: a srcdoc origin is
+ * "null", which the server's Origin validation rejects (403).
  */
 function warmupWebSocket(wsUrl: string): Promise<void> {
   return new Promise((resolve) => {
@@ -167,9 +166,8 @@ const discoveryActor = fromPromise<
 
   // Safari network warmup: fetch a lightweight HTTP endpoint before WebSocket.
   // Safari's network stack is lazy — the page's initial HTTP load isn't always
-  // enough to prepare WebSocket connections. Previously the EXTSTATE fetches
-  // provided this warmup accidentally. Without it, WebSocket attempts fail
-  // on first try and require retries.
+  // enough to prepare WebSocket connections. Without it, WebSocket attempts
+  // fail on first try and require retries.
   if (isSafari) {
     try {
       await fetch('/api/ping');

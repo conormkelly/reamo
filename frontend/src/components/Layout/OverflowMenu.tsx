@@ -4,7 +4,7 @@
  * Used for progressive disclosure of header controls on narrow viewports.
  * When the header becomes too crowded, secondary controls collapse into this menu.
  *
- * @see docs/architecture/UX_GUIDELINES.md §8 (Header Overflow Pattern)
+ * @see docs/architecture/frontend/UX_GUIDELINES.md §8 (Header Overflow Pattern)
  */
 
 import { useState, type ReactNode } from 'react';

@@ -2,7 +2,7 @@
 
 Concise guide for writing safe, correct Zig code in the REAmo REAPER extension. Read this before implementing new features.
 
-**For comprehensive details, see:** `DEVELOPMENT.md`
+**For architecture and REAPER API background, see [DEVELOPMENT.md](../DEVELOPMENT.md).**
 
 ---
 
@@ -17,10 +17,10 @@ Concise guide for writing safe, correct Zig code in the REAmo REAPER extension. 
 7. [REAPER API Gotchas](#7-reaper-api-gotchas) — Master track, colors, pointer validation
 8. [Numeric Safety](#8-numeric-safety) — Float-to-int, precision, linear vs dB
 9. [Threading Model](#9-threading-model) — Main thread only, mutex queue
-10. [Response Buffer Sizes](#10-response-buffer-sizes) — successLargePayload, dynamic JSON
-11. [Undo Block Rules](#11-undo-block-rules) — Naming, no nesting
+10. [Response Sizes](#10-response-sizes) — replies size themselves, dynamic JSON
+11. [Undo Rules](#11-undo-rules) — Naming, no nesting, gestures
 12. [Action ID Stability](#12-action-id-stability) — Native vs SWS storage
-13. [Testing](#13-testing) — **INVOKE `/reamo-ws` SKILL** for live testing, mock patterns
+13. [Testing](#13-testing) — Handler tests with the mock, the live-REAPER harness
 
 ---
 
@@ -105,19 +105,19 @@ const sentinel: [:0]const u8 = buf[0..offset :0];  // Runtime assertion
 
 The `:0` in `buf[0..offset :0]` asserts the sentinel exists — Zig will panic if `buf[offset] != 0`.
 
-### @ptrCast Pitfalls
+### No @ptrCast for C Strings
 
-**The crash:** Passing `@ptrCast(&buf)` when the C function expects `[*:0]const u8`.
+Pass a sentinel slice, never `@ptrCast(&buf)`. The cast compiles and points at the first byte, but it drops the type-checked `:0`: nothing proves the buffer is null-terminated, so a missing terminator becomes a read past the buffer inside REAPER.
 
 ```zig
 var param_buf: [32]u8 = undefined;
 @memcpy(param_buf[0..len], param[0..len]);
 param_buf[len] = 0;
 
-// BAD: @ptrCast(&param_buf) is *[32]u8, not [*:0]const u8
-const success = c_func(track, @ptrCast(&param_buf), ...);  // ABI mismatch!
+// BAD: compiles, but nothing checks param_buf[len] == 0
+const success = c_func(track, @ptrCast(&param_buf), ...);
 
-// GOOD: Sentinel slice coerces correctly
+// GOOD: the :0 slice asserts the terminator, then coerces to [*:0]const u8
 const param_ptr: [*:0]const u8 = param_buf[0..len :0];
 const success = c_func(track, param_ptr, ...);
 ```
@@ -372,18 +372,15 @@ When a handler needs a new REAPER API method:
 
 **The `validateBackend()` check catches missing methods at compile time.**
 
-### Mock Method Recording
+### Mock Call Recording
 
-Mocks track which methods were called for test assertions:
+Mock methods record their calls; assert on mock state or call counts:
 
 ```zig
 test "handler calls correct API method" {
-    var mock = MockBackend{};
-    var response = TestResponseWriter{};
-
-    myHandler(&mock, cmd, &response);
-
-    try testing.expect(mock.wasMethodCalled(.newMethod));
+    var m = mock.MockBackend{};
+    mod.testRunHandler(&m, myHandler, "{\"type\":\"command\",\"command\":\"feature/foo\"}");
+    try testing.expectEqual(@as(usize, 1), m.getCallCount(.newMethod));
 }
 ```
 
@@ -403,7 +400,6 @@ test "handler calls correct API method" {
 | Forget registry.zig | Always add new handlers to registry |
 | `1.0 / count` without check | Guard `count <= 0` first |
 | Assume start < end | `@min/@max` to normalize |
-| `response.success(large_data)` | `response.successLargePayload(large_data)` |
 | `api.undoEndBlock("Did thing")` | `api.undoEndBlock("REAmo: Did thing")` |
 | `GetTrack(proj, 0)` for master | `getTrackByUnifiedIdx(0)` |
 | `GetMediaTrackInfo_Value(master, "B_MUTE")` | `getMasterMuteFlags() & 1` |
@@ -552,7 +548,7 @@ const frac = @mod(beat_position, 1.0);
 
 // GOOD: Scale to ticks (integer), then modulo
 const ticks_per_beat: i32 = 960;
-const total_ticks = @as(i64, @intFromFloat(beat_position * @as(f64, @floatFromInt(ticks_per_beat))));
+const total_ticks = ffi.safeFloatToInt(i64, beat_position * @as(f64, @floatFromInt(ticks_per_beat))) catch 0;
 const tick_in_beat = @mod(total_ticks, ticks_per_beat);
 ```
 
@@ -594,26 +590,9 @@ Main Thread (REAPER context)          WebSocket Thread
 
 ---
 
-## 10. Response Buffer Sizes
+## 10. Response Sizes
 
-### The 512-Byte Trap
-
-`ResponseWriter.success()` uses a 512-byte buffer. Large payloads fail silently.
-
-```zig
-// BAD: Silent failure for large payloads
-response.success(large_json_string);  // Silently truncated
-
-// GOOD: Use large payload variant
-response.successLargePayload(large_json_string);
-```
-
-**When to use `successLargePayload()`:**
-
-- Project notes (user content)
-- Item peaks
-- State chunks
-- Anything potentially >500 bytes
+`response.success()` formats on a 512-byte stack buffer and falls back to an exact-size heap buffer, so large replies are sent whole. Payloads over 2 MB are refused with `RESPONSE_TOO_LARGE` (one frame must fit the socket send buffer). `successLargePayload()` is the same call, kept as a name for routinely large replies.
 
 ### JSON Serialization for Large Data
 
@@ -631,7 +610,7 @@ if (state.toJsonAlloc(scratch)) |json| { ... } else |_| {}
 
 ---
 
-## 11. Undo Block Rules
+## 11. Undo Rules
 
 ### Naming Convention
 
@@ -644,25 +623,14 @@ api.undoEndBlock("REAmo: Adjust time signature");  // Prefix required
 
 This makes debugging REAPER's undo history possible.
 
-### No Nested Undo Blocks
+### No Nested or Long-Lived Undo Blocks
 
-REAPER doesn't support nested undo blocks. Calling `undoBeginBlock()` twice before `undoEndBlock()` **corrupts REAPER's undo state**.
+REAPER doesn't support nested undo blocks: calling `undoBeginBlock()` twice before `undoEndBlock()` corrupts its undo state. Never hold a block open across timer ticks either: a gesture that ends by timeout or disconnect would never close it, and REAPER would record no undo points for the rest of the session.
 
-For concurrent gestures (multiple hw outputs being dragged), use reference counting:
+Gestures (`commands/gesture.zig`):
 
-```zig
-// Track active gestures
-if (is_new_gesture) {
-    if (gestures.beginHwUndoBlock()) {  // Returns true if count was 0
-        api.undoBeginBlock();
-    }
-}
-
-// On gesture end
-if (gestures.endHwUndoBlock()) {  // Returns true if count becomes 0
-    api.undoEndBlock("REAmo: Adjust audio hardware outputs");
-}
-```
+- Track volume/pan go through CSurf setters; the last `gesture/end` calls `CSurf_FlushUndo`.
+- Sends, receives, hardware outputs and FX parameters apply each change immediately; the last `gesture/end` on the control records one undo point (`undoRecordChange`).
 
 ---
 
@@ -699,27 +667,17 @@ cd extension && zig build test  # Extension only
 
 ### Live Testing with REAPER
 
-**INVOKE THE `/reamo-ws` SKILL** to test WebSocket commands against a running REAPER instance:
-
-```
-/reamo-ws tracks/subscribe {"startIdx": 0, "endIdx": 10}
-```
-
-This skill sends commands directly to the extension and shows responses — useful for debugging handlers without rebuilding the frontend. Use it to verify your handler works before writing tests.
+The [live-REAPER harness](../scripts/harness/README.md) runs the extension in a headless REAPER and drives it over WebSocket (`reamo_client.py`). Use it to check a handler against real REAPER behaviour.
 
 ### Test Pattern
 
+`mod.testRunHandler` runs a handler against the mock without a client; assert on the mock's state afterwards:
+
 ```zig
-test "handleFoo validates input" {
-    var mock = MockBackend{};
-    var response = TestResponseWriter{};
-
-    // Missing required param
-    const cmd = CommandMessage{ .command = "feature/foo" };
-    handleFoo(&mock, cmd, &response);
-
-    try testing.expect(response.has_error);
-    try testing.expectEqualStrings("MISSING_PARAM", response.error_code);
+test "transport/seekBeats goes to the bar the ruler shows" {
+    var m = mock.MockBackend{ .bar_offset = -5 };
+    mod.testRunHandler(&m, handleSeekBeats, "{\"type\":\"command\",\"command\":\"transport/seekBeats\",\"bar\":1,\"beat\":3}");
+    try std.testing.expectApproxEqAbs(@as(f64, 11.0), m.cursor_position, 1e-9);
 }
 ```
 
@@ -730,7 +688,7 @@ test "handleFoo validates input" {
 ### Core Safety Rules
 
 1. **Stack safety**: Use scratch arena, never >1KB stack buffers in timer callbacks
-2. **FFI correctness**: Sentinel slices for C strings, careful with @ptrCast
+2. **FFI correctness**: Sentinel slices for C strings, never `@ptrCast(&buf)`
 3. **Error handling**: Never silent failures, always log or return error
 4. **Numeric safety**: Always use `ffi.safeFloatToInt()`, never raw `@intFromFloat`
 5. **Input validation**: Check all params, guard division, normalize ranges
@@ -740,13 +698,13 @@ test "handleFoo validates input" {
 1. **Master track**: idx=0 in our API, use `getTrackByUnifiedIdx()`, not `GetTrack(proj, 0)`
 2. **Master mute/solo**: Use `getMasterMuteFlags()`, not `GetMediaTrackInfo_Value()`
 3. **Pointer validation**: Validate before use — tracks can be deleted mid-operation
-4. **Undo blocks**: Prefix with `"REAmo: "`, never nest
+4. **Undo blocks**: Prefix with `"REAmo: "`, never nest, never hold open across ticks
 
 ### Architecture Rules
 
 1. **Threading**: All REAPER API calls on main thread only
 2. **Registry**: Always add handlers to registry.zig
 3. **Backend pattern**: raw → real → mock, validateBackend catches errors
-4. **Response size**: Use `successLargePayload()` for anything potentially >500 bytes
+4. **Response size**: Replies size themselves up to 2 MB; build variable JSON with `toJsonAlloc`
 
 When in doubt, grep for existing patterns in `actions.zig`, `fx.zig`, `inputs.zig`.

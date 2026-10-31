@@ -1,14 +1,32 @@
 //! Fast Timer for Command Queue Processing
 //!
-//! Provides a 100Hz (10ms) timer for draining the WebSocket command queue,
-//! reducing latency from ~19ms (30Hz) to ~8ms average.
+//! A 100Hz (10ms) timer drains the WebSocket command queue, separate from the
+//! 30Hz polling timer, so every command (MIDI, transport, parameters) spends
+//! less time queued: at most one interval, so up to 33ms (~16ms average) at
+//! 30Hz vs up to 10ms (~5ms average) at 100Hz. These follow from the timer
+//! intervals; they are not measurements.
 //!
 //! Platform implementations:
-//! - macOS: dispatch_source (GCD) - precise timing, main thread callback
-//! - Windows: Win32 SetTimer with TIMERPROC
-//! - Linux: Falls back to 30Hz (TODO: implement via SWELL + hidden window)
+//! - macOS: dispatch_source (GCD) on the main queue.
+//! - Windows: Win32 SetTimer with TIMERPROC. Its default resolution is
+//!   ~15.6ms, so a 10ms timer may fire every 15-16ms unless timeBeginPeriod(1)
+//!   is in effect. Not yet measured; REAPER may already raise the resolution.
+//! - Linux: not implemented. zig_fast_timer_start returns false and commands
+//!   drain at 30Hz from the polling timer's fallback. SWELL's SetTimer with a
+//!   TIMERPROC (wrapping glib timers) is the likely route.
 //!
-//! The callback fires on the main thread, safe for REAPER API calls.
+//! The callback fires on the main thread, safe for REAPER API calls. If the
+//! timer fails to start, the 30Hz timer keeps draining the queue.
+//!
+//! Deliberately not done:
+//! - Draining from the audio hook (once per audio block, e.g. 375Hz at 128
+//!   samples/48kHz): it runs on the audio thread, where StuffMIDIMessage isn't
+//!   safe.
+//! - A lock-free queue: a mutex push/pop costs well under a microsecond
+//!   against a 10ms interval.
+//! - Virtual MIDI ports (CoreMIDI; on Windows the licensed virtualMIDI SDK or
+//!   a user-installed loopMIDI): they would skip the queue but make the user
+//!   pick the port in REAPER's preferences; armed tracks work as they are.
 
 const std = @import("std");
 const builtin = @import("builtin");

@@ -1,7 +1,6 @@
 /**
  * Toolbar - User-configurable action buttons
  * Horizontal scrollable button bar with edit mode
- * Collapse is now handled by parent CollapsibleSection wrapper
  */
 
 import { useEffect, useCallback, useState, useRef, type ReactElement } from 'react';
@@ -26,9 +25,7 @@ interface ToolbarProps {
 }
 
 /**
- * Header controls for Toolbar section (Edit/Add buttons)
- * Passed as headerControls to CollapsibleSection
- * Note: Alignment options removed - fixed 4×2 grid doesn't need alignment
+ * Header controls for the toolbar (Edit/Add buttons), rendered by TimelineView
  */
 export function ToolbarHeaderControls(): ReactElement {
   const {

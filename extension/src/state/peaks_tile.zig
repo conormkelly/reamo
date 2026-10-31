@@ -13,12 +13,18 @@
 ///   - LOD 5: 4s tiles,    64 peaks/sec (256 peaks/tile)     - 20-75s views
 ///   - LOD 6: 1s tiles,    256 peaks/sec (256 peaks/tile)    - <20s views (finest)
 ///
-/// Note: 256 peaks/sec at finest LOD is within REAPER's .reapeaks cache (~400 peaks/sec),
-/// enabling future optimization to read pre-computed peaks instead of AudioAccessor.
-///
-/// Design rationale (see docs/architecture/LOD_LEVELS.md):
-///   - 4x ratio between adjacent LODs for smooth fallback rendering
-///   - Target 2-4 peaks/pixel at 400px viewport width
+/// Design rationale:
+///   - 4x ratio between adjacent LODs: rendering an adjacent LOD's tiles
+///     scaled while the right ones load still looks acceptable, and 2x would
+///     need 14 levels to cover 1s-4hr.
+///   - 256 peaks/tile at every level keeps cache entries the same weight.
+///   - Target 2-4 peaks/pixel at a 400px viewport width; see
+///     lodFromViewportDuration for the threshold derivation.
+///   - The finest level (256 peaks/sec) stays below the ~400 peaks/sec that
+///     REAPER's .reapeaks files hold. A finer level would need peaks beyond
+///     what REAPER caches.
+///   - Viewports over ~5hr all use LOD 0. Longer sessions would add a coarser
+///     level (16384s tiles) on the same 4x pattern.
 ///
 /// Cache Key Format:
 ///   TileCacheKey { take_guid, epoch, lod_level, tile_index }
@@ -47,8 +53,8 @@ pub const TileConfig = struct {
     peaks_per_tile: usize, // Expected peaks per tile
 };
 
-/// LOD level configurations (indices 0-6, 4x ratio between adjacent levels)
-/// See docs/architecture/LOD_LEVELS.md for full rationale.
+/// LOD level configurations (indices 0-6, 4x ratio between adjacent levels).
+/// Rationale in the module doc comment.
 pub const TILE_CONFIGS = [7]TileConfig{
     .{ .duration = 4096.0, .peakrate = 0.0625, .peaks_per_tile = 256 }, // LOD 0: Multi-hour overview
     .{ .duration = 1024.0, .peakrate = 0.25, .peaks_per_tile = 256 }, // LOD 1: Hour+ views
@@ -86,7 +92,7 @@ pub const TileCacheKey = struct {
     /// Increments when source audio is edited, invalidating cached tiles.
     epoch: u32,
 
-    /// LOD level (0-7)
+    /// LOD level (0-6)
     lod_level: u3,
 
     /// Tile index: floor(startTime / tileDuration)
@@ -622,7 +628,7 @@ pub fn tilesForViewport(
         return null;
     }
 
-    // Select LOD based on viewport duration (thresholds from docs/architecture/LOD_LEVELS.md)
+    // Select LOD based on viewport duration (thresholds in lodFromViewportDuration)
     const lod: u3 = lodFromViewportDuration(duration);
 
     const config = TILE_CONFIGS[lod];
@@ -651,8 +657,18 @@ pub fn tilesForViewport(
 }
 
 /// Select LOD level based on viewport duration.
-/// Thresholds ensure >= 2 peaks/pixel at 400px viewport width.
-/// See docs/architecture/LOD_LEVELS.md for derivation.
+///
+/// Switch to the next coarser LOD once it still gives >= 2 peaks/pixel at a
+/// 400px viewport width:
+///   threshold = (2 peaks/px * 400px) / coarser_peaks_per_sec
+///             = 800 / coarser_peaks_per_sec
+/// rounded up: 6->5 at 12.5s (20s), 5->4 at 50s (75s), 4->3 at 200s (300s),
+/// 3->2 at 800s (1200s), 2->1 at 3200s (4800s), 1->0 at 12800s (19200s).
+///
+/// No hysteresis: fallback rendering (scaling an adjacent LOD's tiles)
+/// absorbs a mismatch near a threshold as a slightly blockier waveform, not a
+/// pop. If pinch-zoom ever thrashes tile fetches near a threshold, hold LOD
+/// changes until the gesture ends rather than adding hysteresis.
 pub fn lodFromViewportDuration(duration: f64) u3 {
     if (duration < 20.0) return 6; // 256 peaks/sec, < 20s (finest)
     if (duration < 75.0) return 5; // 64 peaks/sec, 20-75s
@@ -665,7 +681,7 @@ pub fn lodFromViewportDuration(duration: f64) u3 {
 
 /// Get LOD level from pixels per second.
 /// Alternative to lodFromViewportDuration when viewport width varies.
-/// See docs/architecture/LOD_LEVELS.md for threshold derivation.
+/// Same thresholds expressed per pixel at a 400px width.
 pub fn lodFromPixelsPerSecond(pixels_per_second: f64) u3 {
     if (pixels_per_second > 40.0) return 6; // Fine detail (finest)
     if (pixels_per_second > 10.0) return 5;

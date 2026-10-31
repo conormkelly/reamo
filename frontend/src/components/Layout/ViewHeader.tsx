@@ -6,7 +6,7 @@
  * Supports progressive disclosure via overflowItems prop - when provided,
  * an overflow menu (kebab icon) appears that opens a BottomSheet with these items.
  *
- * @see docs/architecture/UX_GUIDELINES.md §8 (Header Overflow Pattern)
+ * @see docs/architecture/frontend/UX_GUIDELINES.md §8 (Header Overflow Pattern)
  */
 
 import type { ReactElement, ReactNode } from 'react';

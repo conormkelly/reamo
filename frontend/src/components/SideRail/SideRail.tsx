@@ -10,7 +10,7 @@
  * Part of dual-rail layout: NavRail (left) + ContextRail (right)
  * Replaces TabBar + PersistentTransport when navPosition === 'side'
  *
- * @see docs/architecture/RESPONSIVE_FRONTEND_FINAL.md
+ * @see frontend/FRONTEND_DEVELOPMENT.md §21 (Dual-Rail Responsive Layout)
  */
 
 import type { ReactElement } from 'react';

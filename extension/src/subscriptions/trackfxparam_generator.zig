@@ -56,7 +56,13 @@ pub fn generateParamValues(
         return error.NotFound;
     };
 
-    // Get param count
+    // Read the parameter count every poll: it can change at runtime (VST2
+    // Cockos extension, VST3 restartComponent) and no CSurf callback reports
+    // it. GetNumParams is cheap enough to call every frame, and an
+    // out-of-range parameter index returns 0.0/false rather than crashing.
+    // paramCount and nameHash in every event let the client refetch its
+    // skeleton when either changes. FX inside containers aren't reachable:
+    // native containers need 0x2000000 addressing, third-party ones are opaque.
     const param_count = api.trackFxGetNumParams(track, fx_idx);
     if (param_count <= 0) {
         return .{

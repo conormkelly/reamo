@@ -13,7 +13,7 @@
  * Mirrors SecondaryPanel behavior but in vertical orientation.
  * Placed on right side of screen, complementing NavRail on left.
  *
- * @see docs/architecture/RESPONSIVE_FRONTEND_FINAL.md
+ * @see frontend/FRONTEND_DEVELOPMENT.md §21 (Dual-Rail Responsive Layout)
  */
 
 import { type ReactElement, type ReactNode, useState, useCallback, useId, useRef } from 'react';

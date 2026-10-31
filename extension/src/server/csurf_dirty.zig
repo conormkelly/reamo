@@ -11,8 +11,8 @@
 ///
 const std = @import("std");
 
-/// Research-backed constants from SWS Extension analysis
-/// See: research/REAPER_CSURF_API_BEHAVIOUR.md
+/// Safety-poll interval matches the 2s SWS uses. See DEVELOPMENT.md,
+/// "CSurf Push-Based Architecture".
 pub const SAFETY_POLL_INTERVAL: u32 = 60; // 2s at 30Hz (SWS-validated)
 pub const VOL_CHANGE_THRESHOLD: f64 = 0.001; // ~0.01dB
 pub const PAN_CHANGE_THRESHOLD: f64 = 0.005; // ~0.5%

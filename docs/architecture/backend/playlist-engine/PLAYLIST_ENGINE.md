@@ -5,6 +5,7 @@ This document describes the backend implementation of the Playlist feature in RE
 ## Table of Contents
 
 - [Purpose](#purpose)
+- [Required REAPER settings](#required-reaper-settings)
 - [Architecture Overview](#architecture-overview)
 - [Key Components](#key-components)
 - [Data Flow](#data-flow)
@@ -33,6 +34,20 @@ The playlist engine plays regions in a chosen order for live performance:
 - Persistent storage per-project via EXTSTATE
 
 **Use case:** A musician defines song sections as REAPER regions (Intro, Verse, Chorus, etc.), then builds playlists for different performances (e.g., "Friday Gig", "Short Set") that specify which sections to play and how many times to loop each.
+
+---
+
+## Required REAPER settings
+
+The Playlist view is hidden (left out of `VIEW_ORDER` in `frontend/src/viewRegistry.ts`) because the engine only works reliably with certain REAPER settings:
+
+- **Smooth seek**, so a non-contiguous transition plays to the end of the current measure before jumping ("play to end of N measures"). Without it, the seek lands immediately and the transition timing below is wrong.
+- Possibly others; the full list isn't identified yet.
+
+Known gaps:
+
+- Nothing checks or applies these settings. `preferences/getSeekSettings` and `preferences/setSeekSettings` (smooth seek on/off, measure count, seek mode) exist for this but no client calls them. The plan: entering Playlist mode reads the settings, applies the required ones and shows what changed, with an option to restore the user's own settings on leaving.
+- The harness's playlist steps run on fresh-REAPER defaults, so they can flake on transitions.
 
 ---
 
@@ -68,7 +83,7 @@ The playlist engine plays regions in a chosen order for live performance:
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  main.zig Timer Loop (30Hz)                                         │
+│  server/playlist_tick.zig (called from main.zig's 30Hz timer)       │
 │  - Calls engine.tick() every frame when playing                     │
 │  - Processes Action returns (seek, setup_native_loop, stop)         │
 │  - Syncs with external transport changes (user paused REAPER)       │
@@ -126,7 +141,7 @@ pub const Engine = struct {
 };
 ```
 
-The engine is **deliberately pure** — it takes transport position as input and returns `Action` values that the caller (main.zig) executes. This makes it fully unit-testable without mocking REAPER.
+The engine is **deliberately pure** — it takes transport position as input and returns `Action` values that the caller (`server/playlist_tick.zig`) executes. This makes it fully unit-testable without mocking REAPER.
 
 ### 4. Action (`playlist.Action`)
 
@@ -177,7 +192,7 @@ pub const State = struct {
 6. Returns success to client
 ```
 
-### Tick Loop (main.zig)
+### Tick Loop (`server/playlist_tick.zig`)
 
 Every 30Hz tick while `engine.isPlaying()`:
 
@@ -204,7 +219,7 @@ Position: 0───────────────────────
 
 When position enters proactive zone (150ms before region end):
 1. engine.tick() returns setup_native_loop with NEXT region's bounds
-2. main.zig sets loop points to next region
+2. playlist_tick.zig sets loop points to next region
 3. engine.next_loop_pending = true
 4. REAPER plays to end and seamlessly loops into next region
 5. Next tick detects we're in new region → engine advances entry_idx
@@ -384,18 +399,20 @@ Playlists are stored per-project using REAPER's **ProjExtState** API.
 
 ### Storage Format
 
+Section `Reamo`, keys `PlaylistCount` and `Playlist_N`:
+
 ```text
-Key: "REAmo/PlaylistCount"
+Key: "PlaylistCount"
 Value: "3"
 
-Key: "REAmo/Playlist_0"
+Key: "Playlist_0"
 Value: "Friday Gig|S:1|1,4|2,2|3,1"
         ↑          ↑   ↑
         │          │   └── Entries: regionId,loopCount (pipe-separated)
         │          └────── Settings: S:1 = stopAfterLast true
         └───────────────── Name (escaped if contains |)
 
-Key: "REAmo/Playlist_1"
+Key: "Playlist_1"
 Value: "Short Set|S:0|1,2|3,-1"
 ```
 
@@ -424,13 +441,6 @@ pub fn serialize(self: *const Playlist, buf: []u8) ?[]const u8 {
 ### Load/Save Operations
 
 ```zig
-// On project load / project change:
-if (g_playlist_state.dirty) {
-    g_playlist_state.saveAll(&backend);  // Flush pending changes first
-}
-g_playlist_state.reset();            // Clear stale data
-g_playlist_state.loadAll(&backend);  // Load from new project's ProjExtState
-
 // On playlist modification (via commands):
 state.markDirty(api.timePrecise());  // Mark for deferred persistence
 
@@ -441,25 +451,13 @@ _ = g_playlist_state.flushIfNeeded(&backend, backend.timePrecise());
 
 ### Project Change Detection
 
-When the project changes (detected via `projectStateChangeCount` resetting to 1):
+`State.project` holds the `project.Identity` the playlists were loaded from. `State.followProject` runs before every playlist command and on the medium tick (`main.zig`). When the open project is a different one:
 
-```zig
-// Stop playlist engine if playing
-if (g_playlist_state.engine.isActive()) {
-    _ = g_playlist_state.engine.stop();
-    backend.clearLoopPoints();
-}
+- playback of the old project's playlist stops, clearing the repeat and loop points it set;
+- unsaved edits are saved into the old project if it is still open in another tab, never into the new project (a project replaced in the same tab is gone, so those edits are dropped with a warning);
+- the new project's playlists are loaded.
 
-// Flush any pending changes to old project before loading new
-if (g_playlist_state.dirty) {
-    g_playlist_state.saveAll(&backend);
-    g_playlist_state.dirty = false;
-}
-
-// Reload playlists from new project
-g_playlist_state.reset();
-g_playlist_state.loadAll(&backend);
-```
+So a command never edits another project's playlists. Tests: the three `followProject` tests in `playlist.zig`.
 
 ---
 
@@ -517,26 +515,11 @@ var g_last_playlist: playlist.State = .{};  // For change detection
 
 1. Modified by commands (not polled from REAPER)
 2. Needs to persist across arena swaps
-3. Relatively small (~50KB for 16 playlists × 64 entries)
+3. Small (16 playlists × 64 entries)
 
 ### JSON Serialization
 
-```zig
-// Uses scratch arena for JSON output
-pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator, regions: ?[]const markers.Region) ![]const u8 {
-    var buf: [8192]u8 = undefined;  // Stack buffer for formatting
-    const json = self.toJson(&buf, regions) orelse return error.JsonSerializationFailed;
-    return allocator.dupe(u8, json);  // Copy to scratch arena
-}
-
-// In main.zig:
-const scratch = tiered.scratchAllocator();
-if (g_playlist_state.toJsonAlloc(scratch, g_last_markers.regions)) |json| {
-    shared_state.broadcast(json);
-}
-```
-
-The scratch arena is reset every frame, so the JSON string lives only for the broadcast duration.
+`State.toJsonAlloc` serializes through `protocol.serializeAlloc` into the scratch arena, sized from the playlist count, so the JSON lives only for the broadcast.
 
 ### Region Cache Buffers
 
@@ -847,126 +830,13 @@ if (state.engine.isPlaying() and
 - User on loop 2 of 2, changes to 1 → `loops_remaining` = 1 (graceful: finish current loop)
 - User sets to 0 (skip) → `loops_remaining` = 1 (finish current, then advance; not 0 which would hang)
 
-### Performance & Efficiency Analysis
+### Performance
 
-#### Memory Allocation Pattern
-
-**Playlist State:** Static storage (NOT arena-allocated)
-
-```zig
-// main.zig - lives for entire extension lifetime
-var g_playlist_state: playlist.State = .{};  // ~10KB static
-```
-
-**Why not arena?** Playlists are modified by commands (not polled), must persist across arena swaps, and are small enough that static allocation is simpler.
-
-**JSON Serialization:**
-
-```zig
-pub fn toJsonAlloc(self: *const State, allocator: std.mem.Allocator, regions: ?[]const markers.Region) ![]const u8 {
-    // Allocate from arena based on actual content size
-    const estimated_size = 512 + self.playlist_count * (256 + 64 * 60);
-    const buf_size = @max(estimated_size, 4096);
-    const buf = allocator.alloc(u8, buf_size) catch return error.OutOfMemory;
-    const json = self.toJson(buf, regions) orelse return error.JsonSerializationFailed;
-    return json;  // Already in arena, no copy needed
-}
-```
-
-**Design:** Allocates directly from scratch arena with size proportional to content. No stack buffer intermediate, no extra copy.
-
-#### Region Lookup Efficiency
-
-**Current: O(n) linear scan at 30Hz**
-
-```zig
-// main.zig tick loop - runs twice per tick (current + next entry)
-for (g_last_markers.regions) |*r| {
-    if (r.id == entry.region_id) {
-        region_start = r.start;
-        region_end = r.end;
-        break;
-    }
-}
-```
-
-**Cost analysis:**
-
-- MAX_REGIONS = 256
-- 2 scans per tick × 30Hz = 60 scans/second
-- Each scan: up to 256 comparisons
-- Total: up to 15,360 comparisons/second
-
-**Is this a problem?** No. Integer comparisons are extremely fast (~1 CPU cycle each). Even at 256 regions, this is negligible compared to other work in the tick loop.
-
-**If it became a problem:** Build a hashmap from region_id → region on MEDIUM tier poll:
-
-```zig
-var g_region_lookup: std.AutoHashMap(i32, *const markers.Region) = undefined;
-// Rebuild at 5Hz when regions change
-```
-
-But this adds complexity for minimal gain. Linear scan is fine for <= 256 regions.
-
-#### Deleted Region Detection in JSON
-
-**Current: O(entries × regions) nested loop**
-
-```zig
-for (0..p.entry_count) |j| {
-    const is_deleted = if (regions) |regs| blk: {
-        for (regs) |r| {  // O(n) scan for each entry
-            if (r.id == e.region_id) break :blk false;
-        }
-        break :blk true;
-    } else false;
-}
-```
-
-**Worst case:** 16 playlists × 64 entries × 256 regions = 262,144 comparisons per JSON serialization.
-
-**Is this a problem?** Only if JSON is generated frequently. Currently:
-
-- On command (occasional) ✓
-- On state change via `eql()` check (occasional) ✓
-- NOT at 30Hz ✓
-
-**Optimization if needed:** Pre-build a region ID set:
-
-```zig
-var region_exists: std.AutoHashMap(i32, void) = undefined;
-for (regions) |r| region_exists.put(r.id, {});
-// Then O(1) lookup per entry
-```
-
-#### Summary Table
-
-| Operation | Frequency | Complexity | Current Cost | Concern? |
-|-----------|-----------|------------|--------------|----------|
-| `engine.tick()` | 30Hz | O(1) | ~10 CPU cycles | No |
-| Region lookup (current) | 30Hz | O(n) | ~256 comparisons | No |
-| Region lookup (next) | 30Hz | O(n) | ~256 comparisons | No |
-| `eql()` change detection | 30Hz | O(playlists × entries) | ~1024 comparisons | No |
-| `toJson()` formatting | On change | O(playlists × entries) | ~1024 iterations | No |
-| Deleted region check | On change | O(entries × regions) | ~16K comparisons | Marginal |
-| `toJsonAlloc()` | On change | O(json_length) | Arena alloc | No |
-| `savePlaylist()` | Debounced | O(entry_count) | ProjExtState write | No |
-
-**No 30Hz persistence writes:** The tick loop only reads state and broadcasts JSON changes. ProjExtState writes are debounced (immediate when not playing, 1s delay during playback).
-
-#### Large Region Count Handling
-
-The design handles large region counts well:
-
-- Region cache is fixed-size: `[MAX_REGIONS]Region` where MAX_REGIONS = 256
-- Playlist entries reference regions by ID, not pointer (survives cache refresh)
-- Linear scans are bounded by MAX_REGIONS, not unbounded
-
-**Limitation:** Cannot have more than 256 regions in a project. This is a constants.zig limit, not a playlist engine limit. Increasing would affect memory footprint of `g_last_regions_buf`.
+Region lookups are linear scans over at most `MAX_REGIONS` (256), twice per 30Hz tick, and the deleted-region check runs only when the JSON is rebuilt (on change, not every tick). Both are negligible; a region-ID hashmap isn't worth the complexity. The project is capped at 256 regions by `core/constants.zig`.
 
 ### What Works Correctly
 
-All major live modification scenarios are now handled:
+Live modification during playback:
 
 - **Current entry loop count changes:** Synced to `engine.loops_remaining` immediately
 - **Next entry loop count changes:** Read fresh from playlist state each tick
@@ -989,23 +859,28 @@ The engine is fully unit-tested in `playlist.zig`:
 test "Engine tick - proactive loop setup on final loop (contiguous)" { ... }
 test "Engine tick - proactive loop setup on final loop (non-contiguous)" { ... }
 test "Engine infinite loop with advance after" { ... }
-test "Engine tick - duplicate region entries" { ... }
+test "Engine tick - duplicate region entries (same region twice in playlist)" { ... }
 test "Playlist serialize/deserialize" { ... }
 test "State toJson with deleted region detection" { ... }
 
-// Gap fix tests - live modification behavior
-test "Gap 1: loop count sync - modifying current entry updates loops_remaining" { ... }
-test "Gap 1: loop count sync - changing to infinite" { ... }
-test "Gap 1: loop count sync - reducing below current iteration lets loop finish" { ... }
-test "Gap 1: loop count sync - setting to zero (skip) still finishes current" { ... }
-test "Gap 2: remove entry before current - index shifts back" { ... }
-test "Gap 2: remove entry after current - no index change" { ... }
-test "Gap 2: remove current entry - skip to next" { ... }
-test "Gap 3: insert entry before current - index shifts forward" { ... }
-test "Gap 3: insert entry after current - no index change" { ... }
-test "Gap 3: reorder - move current entry to new position" { ... }
-test "Gap 3: reorder - entry moved forward past current" { ... }
-test "Gap 3: reorder - entry moved backward past current" { ... }
+// Live modification during playback
+test "raising the playing entry's loop count extends the loops still to play" { ... }
+test "setting the playing entry to infinite makes loops_remaining infinite" { ... }
+test "lowering the loop count below the current iteration finishes the current loop" { ... }
+test "setting the playing entry to zero loops finishes the current loop instead of hanging" { ... }
+test "removing an entry before the playing one keeps the engine on the same entry" { ... }
+test "removing an entry after the playing one leaves the engine index alone" { ... }
+test "removing the playing entry moves the engine to the next entry with fresh loops" { ... }
+test "inserting an entry before the playing one keeps the engine on the same entry" { ... }
+test "inserting an entry after the playing one leaves the engine index alone" { ... }
+test "moving the playing entry makes the engine follow it" { ... }
+test "moving an earlier entry past the playing one keeps the engine on the same entry" { ... }
+test "moving a later entry ahead of the playing one keeps the engine on the same entry" { ... }
+
+// Project changes
+test "followProject keeps the playlists while the same project stays open" { ... }
+test "followProject saves pending edits into the tab being left, never into the new project" { ... }
+test "followProject writes nothing anywhere when the project was replaced in the same tab" { ... }
 ```
 
 Run tests: `make test-extension`

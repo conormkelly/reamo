@@ -15,8 +15,8 @@
  * - NEVER-CLEAR rendering: clear only item regions, never entire canvas
  * - Synchronous fallback: adjacent LOD or direct peaks when tile not cached
  *
- * Per research doc: "Pre-render waveforms to ImageBitmap for GPU-accelerated blitting"
- * ctx.drawImage(cachedBitmap, ...) is blazing fast compared to fillRect loops.
+ * Waveforms are pre-rendered to ImageBitmaps (TileBitmapCache): drawImage of a
+ * cached bitmap is far cheaper than redrawing peaks with fillRect loops.
  */
 
 import { useRef, useEffect, useState, type ReactElement } from 'react';

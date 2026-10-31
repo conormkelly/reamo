@@ -21,7 +21,6 @@ import {
 
 /**
  * Scale bitmasks - bit N = semitone N is in scale
- * Values from research/CHORD_STRIP_TECH_REFERENCE.md
  */
 export const SCALE_BITMASKS: Record<ScaleType, number> = {
   // Bitmask = sum of 2^N for each semitone N in the scale

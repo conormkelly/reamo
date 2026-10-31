@@ -1,236 +1,143 @@
-# World-class responsive PWA architecture for REAmo
+# Responsive layout guidelines
 
-Android and iOS now both support safe area insets via `env(safe-area-inset-*)`, but **iOS blocks orientation lock entirely** while Android requires fullscreen mode—forcing a CSS-first responsive strategy rather than programmatic orientation control. The research reveals that professional music apps like KORG Gadget support both orientations with optimized layouts for each, rather than hard-blocking "wrong" orientations. For your **104px footer chrome**, UX research indicates this is acceptable in portrait (~12% of viewport) but problematic in landscape (~27%), suggesting auto-collapse behavior or per-view visibility.
+Layout rules for the REAmo frontend. Code comments cite these § numbers, so keep them stable. The shipped size classes and rails are in [FRONTEND_DEVELOPMENT.md §21](../../../frontend/FRONTEND_DEVELOPMENT.md#21-dual-rail-responsive-layout-landscape-phones); the layout budget is in §19.
 
 ---
 
 ## 1. App shell pattern: fixed chrome with flex-based content
 
-The optimal structure uses flex-direction column with explicit `min-h-0` on the scrollable content area—this pattern is critical because flex items default to `min-height: auto`, which breaks scrolling in fixed-height containers.
+`App.tsx` (bottom-navigation mode):
 
 ```html
-<!-- Recommended App Shell Structure -->
-<div class="h-dvh flex flex-col overflow-hidden">
-  <!-- Conditional banners (z-400) -->
+<div class="flex flex-col h-dvh overflow-hidden isolate ...">
   <ConnectionBanner class="shrink-0" />
-  <UpdateBanner class="shrink-0" />
   <MemoryWarningBar class="shrink-0" />
-  
-  <!-- Main content area - THE CRITICAL PATTERN -->
   <main class="flex-1 min-h-0 overflow-hidden">
-    <CurrentViewComponent class="h-full flex flex-col" />
+    <ErrorBoundary><ViewComponent /></ErrorBoundary>
   </main>
-  
-  <!-- Fixed footer chrome (z-300) -->
-  <RecordingActionsBar class="shrink-0" />
-  <TabBar class="shrink-0 h-12" />
-  <PersistentTransport class="shrink-0 h-14 pb-[env(safe-area-inset-bottom)]" />
+  <!-- RecordingActionsBar: position fixed, z-[310], above the footer -->
+  <TabBar class="shrink-0 z-fixed" />
+  <PersistentTransport class="shrink-0 z-fixed safe-area-bottom" />
 </div>
 ```
 
-**Why flex over grid for the app shell:** Flexbox handles dynamic conditional elements (banners appearing/disappearing) more naturally. Grid excels when you need two-dimensional control, which isn't required for a vertical app shell.
-
-**Key classes explained:**
-
-- `h-dvh` — Dynamic viewport height, responds to iOS Safari's collapsible address bar
-- `flex-1 min-h-0` — Takes remaining space AND allows children to scroll (breaks default flex behavior)
-- `shrink-0` — Prevents chrome from being compressed when content overflows
-- `overflow-hidden` on root — Prevents body scroll bounce on iOS
+- `h-dvh` on the root: follows Safari's collapsing toolbars.
+- `flex-1 min-h-0` on `<main>`: flex items default to `min-height: auto`, which stops them shrinking and breaks scrolling. `min-h-0` is what lets content scroll instead of overflowing.
+- `shrink-0` on chrome so overflowing content can't compress it.
+- `overflow-hidden` on the root stops iOS body bounce.
+- Flex, not grid: banners appear and disappear; a vertical shell needs no second dimension.
 
 ---
 
 ## 2. View layout template: proportional flex with explicit constraints
 
-Each view component should follow a consistent internal structure that guarantees content never overlaps footer chrome:
+Every view uses `components/Layout/ViewLayout.tsx` (`header`, `footer`, `children`, `scrollable`):
 
-```tsx
-// ViewLayoutTemplate.tsx
-interface ViewLayoutProps {
-  header?: React.ReactNode;
-  footer?: React.ReactNode;
-  children: React.ReactNode;
-  scrollable?: boolean; // default true
-}
-
-export function ViewLayout({ header, footer, children, scrollable = true }: ViewLayoutProps) {
-  return (
-    <div className="h-full flex flex-col">
-      {/* View Header - fixed height */}
-      {header && (
-        <header className="shrink-0 h-14 border-b">
-          {header}
-        </header>
-      )}
-      
-      {/* Main Content - flex-1 with min-h-0 is MANDATORY */}
-      <div className={cn(
-        "flex-1 min-h-0",
-        scrollable && "overflow-y-auto overscroll-contain"
-      )}>
-        {children}
-      </div>
-      
-      {/* View Footer (info bars, toolbars) */}
-      {footer && (
-        <footer className="shrink-0">
-          {footer}
-        </footer>
-      )}
-    </div>
-  );
-}
-```
-
-**Proportions guidance:** Rather than fixed percentages, use `shrink-0` for chrome and `flex-1` for content. This naturally distributes space while preventing overlap. The explicit `min-h-0` override is what makes this pattern work.
+- header and footer `shrink-0`; content `flex-1 min-h-0`, plus `overflow-y-auto overscroll-contain` when `scrollable` (the default).
+- Don't size sections with fixed percentages: `shrink-0` chrome plus `flex-1` content distributes the space and can't overlap.
 
 ---
 
 ## 3. Safe area strategy: unified cross-platform approach
 
-Both iOS and Android now support `env(safe-area-inset-*)` when `viewport-fit=cover` is set. The key differences are in **when** values appear and Chrome 135's new dynamic safe areas.
-
-**Required meta viewport:**
+Viewport meta (`frontend/index.html`):
 
 ```html
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 ```
 
-No `interactive-widget`: the on-screen keyboard overlays the page (the browser default, `resizes-visual`) instead of shrinking it. With `resizes-content`, current iOS WebKit shrinks the layout viewport for the keyboard as Android does, and WebKit hosts such as Brave can leave it shrunk after the keyboard closes, drawing the app in the top half of the screen.
+- `viewport-fit=cover` is required, or browsers letterbox notched displays instead of exposing the insets.
+- No `interactive-widget`: the on-screen keyboard overlays the page (the browser default, `resizes-visual`) instead of shrinking it. With `resizes-content`, current iOS WebKit shrinks the layout viewport for the keyboard as Android does, and WebKit hosts such as Brave can leave it shrunk after the keyboard closes, drawing the app in the top half of the screen.
 
-**CSS custom properties for safe areas:**
+Custom properties in `:root` (`index.css`): `--safe-top`, `--safe-right`, `--safe-bottom`, `--safe-left` (each `env(safe-area-inset-*, 0px)`) and `--safe-max-bottom: env(safe-area-max-inset-bottom, 34px)`.
 
-```css
-:root {
-  /* Fallbacks for browsers without safe area support */
-  --safe-top: env(safe-area-inset-top, 0px);
-  --safe-right: env(safe-area-inset-right, 0px);
-  --safe-bottom: env(safe-area-inset-bottom, 0px);
-  --safe-left: env(safe-area-inset-left, 0px);
-  
-  /* Chrome 135+ static maximum for performance */
-  --safe-max-bottom: env(safe-area-max-inset-bottom, 34px);
-}
-```
+Insets by platform:
 
-**Platform-specific behaviors:**
-
-| Platform | Top Inset | Bottom Inset | Notes |
-|----------|-----------|--------------|-------|
+| Platform | Top | Bottom | Notes |
+|----------|-----|--------|-------|
 | iOS with notch | 47-59px | 34px | Dynamic Island varies by model |
 | iOS without notch | 20px | 0px | Status bar height |
 | Android with notch | Varies | 0-48px | Gesture nav adds bottom inset |
 | Android no notch | 0px | 0px | Returns zero, not status bar |
 
-**Chrome 135+ optimization** (prevents layout thrashing during gesture navigation):
+- PWA standalone mode: WebKit can return `0px` from `env()` at first, so standalone rules use a 34px fallback (`.safe-area-bottom` in `index.css`).
+- Chrome 135+ on a `position: fixed` bottom element: pad with the static maximum and offset by the live inset, so Chrome keeps its smooth gesture-navigation animations. `padding-bottom: env(safe-area-inset-bottom)` directly on a fixed element makes Chrome turn them off.
 
-```css
-.bottom-nav {
-  /* Static padding using max value */
-  padding-bottom: var(--safe-max-bottom);
-  /* Dynamic positioning adjustment */
-  bottom: calc(var(--safe-bottom) - var(--safe-max-bottom));
-}
-```
+  ```css
+  .bottom-nav {
+    padding-bottom: var(--safe-max-bottom);
+    bottom: calc(var(--safe-bottom) - var(--safe-max-bottom));
+  }
+  ```
 
-**⚠️ Do NOT use** `padding-bottom: env(safe-area-inset-bottom)` directly on fixed elements—Chrome detects this pattern and disables smooth gesture animations.
+  Known gap: nothing uses this yet. The tab bar and transport are in flow (not fixed) and pad with `env(safe-area-inset-bottom)` via `.safe-area-bottom`; the recording actions bar is fixed and offsets by `env(safe-area-inset-bottom, 34px)`.
 
 ---
 
 ## 4. Height management strategy: preventing overflow without fixed proportions
 
-The symptom of "toolbar overlapping info bars" indicates missing `min-h-0` somewhere in the flex chain. Here's the debugging checklist and solution:
-
-**The problem:** When a flex column's child has content taller than available space, the child's `min-height: auto` (default) prevents shrinking, causing overflow.
-
-**The solution chain:**
+Content overlapping an info bar or toolbar means a missing `min-h-0` somewhere in the flex chain. Every level needs it:
 
 ```html
-<!-- Every flex container in the vertical chain needs this pattern -->
-<div class="h-dvh flex flex-col">           <!-- Root: explicit height -->
-  <header class="shrink-0">...</header>     <!-- Chrome: won't shrink -->
-  <main class="flex-1 min-h-0">             <!-- Content: CAN shrink below content -->
-    <div class="h-full flex flex-col">      <!-- Nested: inherit full height -->
+<div class="h-dvh flex flex-col">
+  <header class="shrink-0">...</header>
+  <main class="flex-1 min-h-0">
+    <div class="h-full flex flex-col">
       <div class="shrink-0">View header</div>
-      <div class="flex-1 min-h-0 overflow-y-auto"> <!-- Scrollable -->
-        <!-- Tall content goes here -->
-      </div>
-      <div class="shrink-0">Info bar</div>  <!-- Won't be overlapped -->
+      <div class="flex-1 min-h-0 overflow-y-auto">Tall content</div>
+      <div class="shrink-0">Info bar</div>
     </div>
   </main>
-  <footer class="shrink-0">...</footer>     <!-- Chrome: won't shrink -->
+  <footer class="shrink-0">...</footer>
 </div>
 ```
 
-**When vertical space is constrained (landscape phone):**
+When vertical space is short (landscape phone):
 
-1. Main content area scrolls, not individual sections
-2. View headers remain sticky within their scroll container
-3. Footer chrome either auto-hides or moves to side rail
-4. Never use `position: absolute` for elements that should respect layout flow
-
-**Tailwind classes reference:**
-
-- `shrink-0` → `flex-shrink: 0` (don't compress)
-- `flex-1` → `flex: 1 1 0%` (grow to fill, can shrink)
-- `min-h-0` → `min-height: 0` (allow shrinking below content)
+- the content area scrolls, not individual sections;
+- footer chrome moves to the side rail (§21 of the frontend guide);
+- never use `position: absolute` for something that should take part in layout.
 
 ---
 
 ## 5. Z-index system: scalable layering with CSS variables
 
-Define the semantic z-index scale in the `@theme` block of `frontend/src/index.css`. Tailwind 4 reads `--z-index-*` theme variables and generates `z-base` … `z-tooltip`; it ignores `tailwind.config.js` unless a stylesheet loads it with `@config`.
+The scale is in the `@theme` block of `frontend/src/index.css` as `--z-index-*`, which Tailwind 4 turns into `z-base` … `z-tooltip`:
 
-```css
-/* frontend/src/index.css */
-@theme {
-  --z-index-base: 0;
-  --z-index-elevated: 10;
-  --z-index-dropdown: 100;
-  --z-index-sticky: 200;
-  --z-index-fixed: 300;          /* App chrome (headers, footers) */
-  --z-index-modal-backdrop: 400;
-  --z-index-modal: 500;
-  --z-index-popover: 600;
-  --z-index-toast: 700;
-  --z-index-tooltip: 800;
-}
-```
+| Token | Value | Use |
+|-------|-------|-----|
+| `z-base` | 0 | Normal flow |
+| `z-elevated` | 10 | Raised within a view |
+| `z-dropdown` | 100 | Dropdowns |
+| `z-sticky` | 200 | Sticky view headers |
+| `z-fixed` | 300 | App chrome: tab bar, transport, rails |
+| `z-modal-backdrop` | 400 | Dialog backdrops |
+| `z-modal` | 500 | Dialogs, bottom sheets |
+| `z-popover` | 600 | Contextual menus |
+| `z-toast` | 700 | Toasts |
+| `z-tooltip` | 800 | Tooltips |
 
-**Layer assignments for REAmo:**
-
-| Element | Z-Index | Rationale |
-|---------|---------|-----------|
-| Base view content | 0 | Normal document flow |
-| Sticky view headers | z-sticky (200) | Above content, below fixed |
-| TabBar | z-fixed (300) | App-level fixed chrome |
-| PersistentTransport | z-fixed (300) | Same layer as TabBar |
-| RecordingActionsBar | z-fixed + 10 (310) | Above other fixed chrome |
-| Bottom sheets | z-modal (500) | Above all fixed chrome |
-| Contextual menus | z-popover (600) | Above modals if needed |
-| Toast notifications | z-toast (700) | Always visible |
-
-**Stacking context isolation:** the app root has `isolation: isolate`, and dialogs, sheets, menus and toasts portal to `document.body`, outside it. So every portaled layer stacks above the app chrome whatever z-index the chrome uses, and contextual menus use `z-popover` so they open above non-modal panels (`z-modal`).
+- The recording actions bar uses `z-[310]`, just above the other fixed chrome.
+- The app root has `isolation: isolate`, and dialogs, sheets, menus and toasts portal to `document.body`, outside it. So every portaled layer stacks above the app chrome whatever z-index the chrome uses, and contextual menus use `z-popover` so they open above non-modal panels (`z-modal`).
 
 ---
 
 ## 6. Responsive units recommendation
 
-| Element Type | Recommended Unit | Rationale |
-|--------------|------------------|-----------|
-| App container height | `dvh` with `vh` fallback | Responds to mobile browser chrome |
-| Touch targets | `px` (48px minimum) | Consistent touch experience |
-| Icon sizes | `px` (20-24px) | Visual consistency |
-| Typography | `rem` | Respects user accessibility |
-| Spacing | `rem` or Tailwind scale | Proportional, accessible |
-| Fixed chrome heights | `px` (48px, 56px) | Predictable layout |
+| Element | Unit | Why |
+|---------|------|-----|
+| App container height | `dvh` (`vh` fallback) | Follows mobile browser chrome |
+| Touch targets | `px`, 44px minimum | Fingers don't scale with screens |
+| Icons | `px` (20-24px) | Visual consistency |
+| Typography | `rem` | Respects user text size |
+| Spacing | `rem` / Tailwind scale / spacing tokens | Proportional |
+| Fixed chrome heights | `px` | Predictable layout |
 | Container-relative sizing | `cqw`, `cqh` | Component adaptability |
 | Dialog max heights | `max-h-full` inside an `.overlay-safe-area` backdrop; `dvh` where a unit is needed | Never taller than what's visible, clear of the notch and home indicator |
 
-**Critical distinction:**
-
-- `dvh` (dynamic viewport height): Use for the app container and anything sized to the screen—follows Safari's toolbars as they show and hide. `vh` is the height with the toolbars hidden, so it overflows while they show; lint flags it.
-- `svh` (small viewport height): The height with the toolbars shown. Only where something must not resize as they move.
-- `lvh` (large viewport height): Use for background images only
+- `dvh`: the app container and anything sized to the screen. `vh` is the height with Safari's toolbars hidden, so it overflows while they show; lint flags it.
+- `svh`: the height with the toolbars shown. Only where something must not resize as they move.
+- `lvh`: background images only.
 
 **Dialogs:** the backdrop is `fixed inset-0`, so it already matches the visible viewport. `.overlay-safe-area` pads it by the safe-area insets (at least `--overlay-gutter`, default 1rem), and the panel takes `max-h-full` of what's left:
 
@@ -240,269 +147,62 @@ Define the semantic z-index scale in the `@theme` block of `frontend/src/index.c
 </div>
 ```
 
-**Touch targets:** Research confirms **48×48px** as the modern consensus (Material Design 3). Apple's 44pt converts to 44px at 1x but the 48px standard provides better accessibility. Use `min-h-[48px] min-w-[48px]` with padding for adequate touch areas around smaller visual icons.
+**Touch targets:** 44×44px minimum (`--size-touch-target-min`, Apple HIG, WCAG 2.5.5). Pad around smaller visual icons to reach it.
 
 ---
 
-## 7. Footer chrome strategy: research-backed recommendations
+## 7. Footer chrome strategy
 
-### UX research findings (with citations)
-
-**Nielsen Norman Group** finds that navigation bars "take space on the page, and work well when the number of navigation options is small" and warns that "overall chrome may add up wasting too much space." [nngroup.com/articles/mobile-navigation-patterns]
-
-**Steven Hoober's thumb zone research** (1,333 observations) shows 75% of phone interactions are thumb-driven, with the bottom third being the "Natural Zone"—validating bottom placement of transport controls. [uxmatters.com/mt/archives/2013/02/how-do-users-really-hold-mobile-devices.php]
-
-**Material Design** explicitly states: "The bottom navigation bar can disappear and reappear to allow immersive content views" with scroll-to-hide behavior. [material.io/components/bottom-navigation]
-
-### Viewport analysis
-
-For your **104px footer** (TabBar 48px + PersistentTransport 56px):
-
-- **iPhone 14 portrait** (844px): 104px = 12.3% ✓ Acceptable
-- **iPhone 14 landscape** (390px): 104px = 26.7% ⚠️ Problematic
-- **iPad landscape** (1024px): 104px = 10.2% ✓ Acceptable
-
-### Recommended strategy
-
-**Implement scroll-aware footer behavior:**
-
-```tsx
-// useScrollDirection hook
-function useScrollDirection() {
-  const [direction, setDirection] = useState<'up' | 'down' | null>(null);
-  const [isAtTop, setIsAtTop] = useState(true);
-  
-  useEffect(() => {
-    let lastScrollY = window.scrollY;
-    
-    const handleScroll = () => {
-      const currentScrollY = window.scrollY;
-      setDirection(currentScrollY > lastScrollY ? 'down' : 'up');
-      setIsAtTop(currentScrollY < 10);
-      lastScrollY = currentScrollY;
-    };
-    
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
-  
-  return { direction, isAtTop };
-}
-```
-
-**Per-view footer visibility:**
-
-| View | TabBar | Transport | Rationale |
-|------|--------|-----------|-----------|
-| Timeline | Visible | Visible | Core workflow needs both |
-| Mixer | Visible | Visible | Same |
-| Clock | Hidden | Visible | Immersive display mode |
-| Instruments | Hidden | Compact | Maximum playing surface |
-| Actions | Visible | Hidden | Button grid is primary |
-
-**Landscape mode:** Auto-collapse TabBar, show only compact transport (play/stop/record in a single row) or move to side rail.
-
-**Professional music app pattern:** GarageBand, Cubasis, and KORG Gadget all keep transport controls **persistent and always accessible**. They're typically at the **top** of the screen in DAW apps, but bottom placement works for a remote control app where thumb access to transport is primary.
+- Footer chrome is the tab bar plus the persistent transport. Each is a user toggle (`showTabBar`, `showPersistentTransport`); Clock fullscreen hides both.
+- Landscape phones (height < 480px) move navigation and transport into the side rail instead of auto-hiding them.
+- Transport stays visible in every view: recording is the primary workflow.
+- Not built: per-view footer defaults (Clock hides the tab bar; Instruments shows a compact transport; Actions hides the transport; in landscape, Instruments and Clock hide both), merged with the user toggles; hiding the footer on scroll down (`hooks/useScrollDirection.ts` exists with no caller).
 
 ---
 
 ## 8. Header controls overflow pattern
 
-When ViewHeader has too many controls (Key, Scale, Octave, Gear) for narrow viewports:
-
-**Recommended pattern: Progressive disclosure with overflow menu**
-
-```tsx
-function ViewHeader({ title, primaryAction, secondaryActions, menuActions }) {
-  const containerRef = useRef(null);
-  const isNarrow = useContainerQuery(containerRef, 400); // < 400px
-  
-  return (
-    <header ref={containerRef} className="h-14 flex items-center justify-between px-4">
-      <h1 className="text-lg font-semibold truncate">{title}</h1>
-      
-      <div className="flex items-center gap-2">
-        {/* Primary action always visible */}
-        {primaryAction}
-        
-        {/* Secondary actions: visible when space allows */}
-        {!isNarrow && secondaryActions.map(action => (
-          <ActionButton key={action.id} {...action} />
-        ))}
-        
-        {/* Overflow menu: contains secondary actions when narrow + menu actions */}
-        <OverflowMenu 
-          items={[
-            ...(isNarrow ? secondaryActions : []),
-            ...menuActions
-          ]} 
-        />
-      </div>
-    </header>
-  );
-}
-```
-
-**Priority hierarchy for Chord Pads header:**
-
-1. **Always visible:** Gear menu (single icon)
-2. **First to collapse:** Octave selector (least frequently changed)
-3. **Second to collapse:** Scale selector
-4. **Last to collapse:** Key selector
-
-**Alternative: Bottom sheet for complex controls**
-For views with many interdependent controls (Key + Scale + Octave are related), a bottom sheet provides more space and allows showing relationships between options.
-
-**Material Design guidance:** Keep 2-3 most critical actions visible as icons; remaining actions go in kebab (three-dot) overflow menu.
+- `components/Layout/OverflowMenu.tsx` exists and `ViewHeader` accepts `overflowItems`, but no view passes any, and `hooks/useContainerQuery.ts` has no caller.
+- Not built: collapsing header controls into the overflow menu on narrow headers via a container query. Priority for the chord-pad header: gear always visible; Octave collapses first, then Scale, then Key. Alternative: one bottom sheet for Key + Scale + Octave, which are related.
 
 ---
 
 ## 9. Instruments orientation strategy
 
-### The API reality
-
-**`screen.orientation.lock()` does NOT work on iOS Safari**—period. This is the single most important constraint. Android Chrome supports it but requires fullscreen mode first.
-
-**Manifest `orientation` field:** Sets the default orientation at PWA launch but doesn't enforce runtime locking and has limited iOS support.
-
-### Professional music app patterns
-
-**KORG Gadget's approach** (industry best practice):
-> "It gives you an ideal music production workflow based mainly on the portrait orientation... When you want to focus on specifics, you can smoothly switch to landscape orientation."
-
-Key insight: KORG supports **both orientations with different optimized layouts**, not hard blocks.
-
-### Recommended strategy for REAmo instruments
-
-| Instrument | Portrait | Landscape | Strategy |
-|------------|----------|-----------|----------|
-| **Drum Pads** | 4×4 optimal | 4×4 with side controls | Both functional |
-| **Piano** | 2 octaves, scrollable | 4+ octaves | Soft prompt for landscape |
-| **Chord Pads** | Stacked/scrollable | 7 columns | Soft prompt for landscape |
-
-**Implementation:**
-
-```tsx
-function InstrumentView({ instrument }: { instrument: InstrumentType }) {
-  const isLandscape = useMediaQuery('(orientation: landscape)');
-  const preferredOrientation = INSTRUMENT_PREFERENCES[instrument];
-  
-  const showOrientationHint = 
-    preferredOrientation === 'landscape' && !isLandscape ||
-    preferredOrientation === 'portrait' && isLandscape;
-  
-  return (
-    <div className="h-full relative">
-      {/* Non-blocking orientation hint */}
-      {showOrientationHint && (
-        <OrientationHint 
-          preferred={preferredOrientation}
-          dismissible
-          className="absolute top-2 inset-x-4 z-10"
-        />
-      )}
-      
-      {/* Instrument renders in BOTH orientations */}
-      <InstrumentRenderer 
-        instrument={instrument}
-        layout={isLandscape ? 'landscape' : 'portrait'}
-      />
-    </div>
-  );
-}
-```
-
-**Piano in portrait:** Show 2 octaves with an octave shift control and smooth horizontal scroll. Many users successfully play piano apps in portrait with this pattern.
-
-**Drum pads in landscape:** Maintain 4×4 grid but add side panels for velocity, sample browser, or mixer controls—turning "wasted" horizontal space into useful functionality.
-
-**Never hard-block content.** WCAG 1.3.4 (Orientation) requires content to work in any orientation unless "a specific display orientation is essential." A remote control app doesn't meet the "essential" bar.
+- `screen.orientation.lock()` doesn't work on iOS Safari; Android needs fullscreen first. The manifest `orientation` field only sets the launch default.
+- So every instrument renders in both orientations, and nothing hard-blocks or prompts. WCAG 1.3.4 (Orientation) requires content to work in any orientation unless one is essential, which a remote control isn't.
+- Portrait piano: an 8-octave keyboard that scrolls horizontally; landscape: 2 octaves.
+- Not built: side panels (velocity, channel) beside the drum grid in landscape.
 
 ---
 
 ## 10. Holistic responsive system: how everything connects
 
-### The unified mental model
+Which tool:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        VIEWPORT (100dvh)                        │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │ Safe Area Top: env(safe-area-inset-top)                   │  │
-│  ├───────────────────────────────────────────────────────────┤  │
-│  │ Conditional Banners (shrink-0, z-400)                     │  │
-│  ├───────────────────────────────────────────────────────────┤  │
-│  │                                                           │  │
-│  │  ┌─────────────────────────────────────────────────────┐  │  │
-│  │  │ View Container (flex-1 min-h-0)                     │  │  │
-│  │  │  ┌───────────────────────────────────────────────┐  │  │  │
-│  │  │  │ View Header (shrink-0, z-sticky)              │  │  │  │
-│  │  │  ├───────────────────────────────────────────────┤  │  │  │
-│  │  │  │ Scrollable Content (flex-1 min-h-0 overflow)  │  │  │  │
-│  │  │  │   @container for component queries            │  │  │  │
-│  │  │  ├───────────────────────────────────────────────┤  │  │  │
-│  │  │  │ View Footer/Info Bars (shrink-0)              │  │  │  │
-│  │  │  └───────────────────────────────────────────────┘  │  │  │
-│  │  └─────────────────────────────────────────────────────┘  │  │
-│  │                                                           │  │
-│  ├───────────────────────────────────────────────────────────┤  │
-│  │ TabBar (shrink-0, 48px, z-fixed, hideable)                │  │
-│  ├───────────────────────────────────────────────────────────┤  │
-│  │ PersistentTransport (shrink-0, 56px, z-fixed)             │  │
-│  ├───────────────────────────────────────────────────────────┤  │
-│  │ Safe Area Bottom: env(safe-area-inset-bottom)             │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-```
+- Viewport size or orientation → media query, or `useLayoutContext` when JS needs it.
+- Container size → container query (built into Tailwind 4).
+- JS needs element dimensions → ResizeObserver, debounced.
+- PWA vs browser → `@media (display-mode: standalone)`.
 
-### Responsive technique decision tree
+Theme tokens (colours, spacing, sizes, z-index) are in the `@theme` block of `frontend/src/index.css`; safe-area, landscape and PWA rules are plain classes in the same file. `dvh`/`svh` utilities and container queries are built into Tailwind 4.
 
-```
-Need responsive behavior?
-├── Based on viewport size? → Media Query
-│   └── @media (orientation: landscape), @media (min-width: 768px)
-├── Based on container size? → Container Query  
-│   └── @container (min-width: 400px) { ... }
-├── Need JavaScript access to dimensions? → ResizeObserver (debounced)
-│   └── Complex conditional rendering, performance animations
-└── Based on PWA vs browser? → display-mode media query
-    └── @media (display-mode: standalone) { ... }
-```
+Anti-patterns:
 
-### Tailwind config extensions
+| Don't | Problem | Do |
+|-------|---------|----|
+| `height: 100vh` | Ignores mobile browser chrome | `100dvh` with `100vh` fallback |
+| `flex-1` without `min-h-0` | Overflows instead of scrolling | Always pair them |
+| `position: absolute` for layout | Leaves the flow, overlaps | Flex with `shrink-0` |
+| Ad hoc z-index values | Unpredictable layering | The §5 scale |
+| `padding: env(safe-area-*)` on fixed bottom elements | Chrome disables smooth gesture animations | The §3 `safe-area-max-inset-*` pattern |
+| Many undebounced ResizeObservers | Layout thrashing | Debounce 100-200ms, prefer CSS queries |
+| Hard-blocking an orientation | Accessibility violation | Layouts for both |
 
-Tailwind 4 doesn't read `tailwind.config.js` (see §5). Theme tokens (colours, spacing, sizes, the z-index scale) live in the `@theme` block of `frontend/src/index.css`; safe-area, landscape and PWA rules are plain classes in the same file (e.g. `.safe-area-left-landscape`). Container queries and `dvh`/`svh` heights are built into Tailwind 4.
+Performance:
 
-### Anti-patterns to eliminate
-
-| Anti-Pattern | Problem | Solution |
-|--------------|---------|----------|
-| `height: 100vh` | Doesn't account for mobile browser chrome | `height: 100dvh` with `100vh` fallback |
-| `flex-1` without `min-h-0` | Content overflows instead of scrolling | Always pair with `min-h-0` |
-| `position: absolute` for layout | Removed from flow, causes overlap | Use flexbox with `shrink-0` |
-| Unconstrained z-index | Z-index wars, unpredictable layering | Semantic z-index scale |
-| `padding: env(safe-area-*)` on fixed bottom elements | Chrome disables smooth gesture animations | Use `safe-area-max-inset-*` pattern |
-| Many ResizeObservers without debounce | Layout thrashing, performance issues | Debounce 100-200ms, prefer CSS queries |
-| Hard-blocking orientation | Accessibility violation, poor UX | Adaptive layouts with soft prompts |
-
-### Performance checklist
-
-- [ ] Use `contain: content` on independent card/widget components
-- [ ] Debounce ResizeObserver callbacks (100-200ms)
-- [ ] Animate only `transform` and `opacity` for 60fps
-- [ ] Use `overscroll-behavior: contain` to prevent pull-to-refresh interference
-- [ ] Set `will-change` only when animation is imminent, remove after
-- [ ] Batch DOM reads before writes in any JavaScript layout code
-- [ ] Use CSS container queries instead of ResizeObserver where possible
-
----
-
-## Conclusion: implementation priorities
-
-The research reveals three non-negotiable architectural decisions: **always use `flex-1 min-h-0`** on scrollable content containers to prevent overflow; **never rely on orientation lock** for iOS compatibility; and **use `100dvh`** for the app container with safe area insets applied to fixed chrome.
-
-For immediate implementation, prioritize fixing any views with toolbar overlap by ensuring the complete flex chain has `min-h-0` at every level. Then implement the per-view footer visibility system—hiding TabBar in immersive views (Clock, Instruments) will immediately improve the landscape experience without complex auto-hide logic.
-
-The research strongly suggests following KORG Gadget's approach for instruments: support both orientations with optimized layouts rather than blocking. A piano with 2 scrollable octaves in portrait is more useful than a "rotate your device" message, and satisfies accessibility requirements.
-
-For the header overflow issue, the progressive disclosure pattern with a kebab overflow menu is the established solution—keep the single most-changed control visible (likely Key selector for Chord Pads) and collapse others into the menu on narrow viewports.
+- Animate only `transform` and `opacity`.
+- `overscroll-behavior: contain` on scrollers, against pull-to-refresh.
+- `will-change` only while an animation is imminent.
+- Batch DOM reads before writes in JS layout code.
+- Not done: `contain: content` on independent widgets (nothing uses it yet).

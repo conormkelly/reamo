@@ -3,10 +3,9 @@
  * Supports: Drum Pads, Piano with mod/pitch wheels, Chord Pads
  *
  * - Uses ViewLayout for consistent structure
- * - Soft OrientationHint instead of hard orientation blocks
- * - All instruments work in both orientations
+ * - All instruments work in both orientations, with no orientation prompt
  *
- * @see docs/architecture/UX_GUIDELINES.md §9 (Instruments Orientation Strategy)
+ * @see docs/architecture/frontend/UX_GUIDELINES.md §9 (Instruments Orientation Strategy)
  */
 
 import { useState, useEffect, useCallback, useRef, useMemo, type ReactElement } from 'react';

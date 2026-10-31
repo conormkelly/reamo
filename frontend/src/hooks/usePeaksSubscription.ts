@@ -43,7 +43,7 @@ export type { PeaksViewport };
 /** Default number of peaks per item (for timeline blobs, fallback when no viewport) */
 const DEFAULT_SAMPLE_COUNT = 30;
 
-/** Debounce delay for viewport updates (ms) - per architecture doc */
+/** Debounce delay for viewport updates (ms): one update per pan/zoom settle, not per frame */
 const VIEWPORT_DEBOUNCE_MS = 200;
 
 /** Subscription options */
