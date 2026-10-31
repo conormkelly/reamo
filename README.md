@@ -129,9 +129,9 @@ A release needs `make release-check` to pass.
 
 ## Contributing
 
-1. Fork the repo
-2. Create a feature branch
-3. Open a Pull Request
+REAmo v1 is in maintenance mode: bug fixes are welcome, new features are
+planned for a later version. Please open an issue to discuss a change before
+sending a pull request. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
