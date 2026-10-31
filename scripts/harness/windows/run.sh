@@ -28,7 +28,7 @@ case "$zig_version" in
     0.15.*) ;;
     *) echo "error: need Zig 0.15.x (got '${zig_version:-none}'); set ZIG=/path/to/zig-0.15" >&2; exit 1 ;;
 esac
-[ -f "$ROOT/reamo/index.html" ] || { echo "error: no built frontend in reamo/; run: make frontend" >&2; exit 1; }
+[ -f "$ROOT/reamo/index.html" ] || { echo "error: no built frontend in reamo/; run: make frontend-build" >&2; exit 1; }
 ssh -o BatchMode=yes -o ConnectTimeout=8 "$HOST" "exit 0" \
     || { echo "error: can't reach the Windows PC as '$HOST' over ssh (see README, Windows runner)" >&2; exit 1; }
 

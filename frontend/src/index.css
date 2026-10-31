@@ -337,6 +337,23 @@
   --color-intent-success-hover: var(--color-success);
   --color-intent-secondary-bg: var(--color-bg-elevated);
   --color-intent-secondary-hover: var(--color-bg-hover);
+
+  /* =============================================================================
+   * Z-INDEX SCALE (UX_GUIDELINES.md §5)
+   * Generates z-base … z-tooltip. Portals mount on document.body, outside the
+   * app root's `isolate` stacking context, so portaled layers (dropdown, modal,
+   * toast) always stack above the app chrome (z-fixed).
+   * ============================================================================= */
+  --z-index-base: 0;
+  --z-index-elevated: 10;
+  --z-index-dropdown: 100;
+  --z-index-sticky: 200;
+  --z-index-fixed: 300;              /* app chrome: tab bar, transport, rails */
+  --z-index-modal-backdrop: 400;
+  --z-index-modal: 500;
+  --z-index-popover: 600;
+  --z-index-toast: 700;
+  --z-index-tooltip: 800;
 }
 
 :root {

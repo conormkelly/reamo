@@ -28,13 +28,23 @@ fi
 # Resolve project root (parent of scripts/)
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
+# sed -E over a file in place. BSD and GNU sed spell -i differently, so
+# write a copy and move it over the original.
+sed_in_place() {
+  if ! sed -E "$1" "$2" > "$2.tmp"; then
+    rm -f "$2.tmp"
+    return 1
+  fi
+  mv "$2.tmp" "$2"
+}
+
 echo "Bumping version to $VERSION"
 echo ""
 
 # --- extension/build.zig.zon ---
 FILE="$ROOT/extension/build.zig.zon"
 if [[ -f "$FILE" ]]; then
-  sed -i '' -E 's/\.version = "[^"]+"/\.version = "'"$VERSION"'"/' "$FILE"
+  sed_in_place 's/\.version = "[^"]+"/\.version = "'"$VERSION"'"/' "$FILE"
   echo "  Updated extension/build.zig.zon"
 else
   echo "  WARNING: extension/build.zig.zon not found"
@@ -43,7 +53,7 @@ fi
 # --- extension/src/core/protocol.zig ---
 FILE="$ROOT/extension/src/core/protocol.zig"
 if [[ -f "$FILE" ]]; then
-  sed -i '' -E 's/EXTENSION_VERSION = "[^"]+"/EXTENSION_VERSION = "'"$VERSION"'"/' "$FILE"
+  sed_in_place 's/EXTENSION_VERSION = "[^"]+"/EXTENSION_VERSION = "'"$VERSION"'"/' "$FILE"
   echo "  Updated extension/src/core/protocol.zig"
 else
   echo "  WARNING: extension/src/core/protocol.zig not found"
@@ -52,7 +62,7 @@ fi
 # --- extension/API.md ---
 FILE="$ROOT/extension/API.md"
 if [[ -f "$FILE" ]]; then
-  sed -i '' -E 's/"extensionVersion": "[^"]+"/"extensionVersion": "'"$VERSION"'"/' "$FILE"
+  sed_in_place 's/"extensionVersion": "[^"]+"/"extensionVersion": "'"$VERSION"'"/' "$FILE"
   echo "  Updated extension/API.md"
 else
   echo "  WARNING: extension/API.md not found"
@@ -94,7 +104,7 @@ fi
 # --- installer/README.txt ---
 FILE="$ROOT/installer/README.txt"
 if [[ -f "$FILE" ]]; then
-  sed -i '' -E 's/^REAmo v[^ ]+/REAmo v'"$VERSION"'/' "$FILE"
+  sed_in_place 's/^REAmo v[^ ]+/REAmo v'"$VERSION"'/' "$FILE"
   echo "  Updated installer/README.txt"
 else
   echo "  WARNING: installer/README.txt not found"
@@ -104,6 +114,8 @@ echo ""
 echo "Done. Version is now $VERSION across all files."
 echo ""
 echo "Next steps:"
-echo "  git add -A && git commit -m 'chore: bump version to $VERSION'"
-echo "  git tag v$VERSION"
-echo "  git push origin main --tags"
+echo "  git add extension/build.zig.zon extension/src/core/protocol.zig extension/API.md \\"
+echo "    frontend/package.json frontend/package-lock.json installer/README.txt"
+echo "  git commit -m 'chore: bump to v$VERSION'"
+echo "  git tag -s v$VERSION -m v$VERSION"
+echo "  git push origin HEAD v$VERSION"

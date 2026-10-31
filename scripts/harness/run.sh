@@ -90,7 +90,7 @@ case "$zig_version" in
     *) echo "error: need Zig 0.15.x (got '${zig_version:-none}'); set ZIG=/path/to/zig-0.15" >&2; exit 1 ;;
 esac
 
-[ -f "$ROOT/reamo/index.html" ] || { echo "error: no built frontend in reamo/; run: make frontend" >&2; exit 1; }
+[ -f "$ROOT/reamo/index.html" ] || { echo "error: no built frontend in reamo/; run: make frontend-build" >&2; exit 1; }
 
 # Screenshots and other per-scenario artifacts (gitignored).
 ARTIFACTS="$HERE/out"

@@ -9,6 +9,8 @@
  * - Polls for stats (buffer health, underflows)
  */
 
+import { decodeAudioFrame } from './audioFrame';
+
 export type AudioMonitorState = 'stopped' | 'buffering' | 'streaming' | 'error';
 
 export interface AudioWorkletStats {
@@ -26,6 +28,9 @@ const BUFFER_TARGET_S = 0.08; // 80ms
 export class AudioStreamManager {
   private audioContext: AudioContext | null = null;
   private workletNode: AudioWorkletNode | null = null;
+  /** Where frames go; 'none' until a path has fully started, so frames that
+   *  arrive while start() is still awaiting are dropped, not misrouted. */
+  private playbackPath: 'none' | 'worklet' | 'scheduling' = 'none';
   private state: AudioMonitorState = 'stopped';
   private onStateChange?: (state: AudioMonitorState) => void;
   private onStats?: (stats: AudioWorkletStats) => void;
@@ -80,11 +85,13 @@ export class AudioStreamManager {
       }
 
       if (this.audioContext.audioWorklet) {
-        // Secure context: AudioWorklet (off-main-thread, zero-copy transfer)
+        // Secure context: AudioWorklet (playback off the main thread)
         await this.startWithWorklet();
+        if (this.workletNode) this.playbackPath = 'worklet';
       } else {
         // Insecure context (HTTP over LAN): AudioBufferSourceNode scheduling
         this.startWithBufferScheduling();
+        this.playbackPath = 'scheduling';
       }
 
       this.setState('buffering');
@@ -103,6 +110,7 @@ export class AudioStreamManager {
       clearInterval(this.statsInterval);
       this.statsInterval = null;
     }
+    this.playbackPath = 'none';
     if (this.workletNode) {
       this.workletNode.port.postMessage('reset');
       this.workletNode.disconnect();
@@ -125,15 +133,22 @@ export class AudioStreamManager {
 
   /** Route a binary WebSocket frame to the audio pipeline */
   handleAudioFrame(data: ArrayBuffer): void {
-    if (this.workletNode) {
-      // AudioWorklet path: transfer ownership for zero-copy
-      this.workletNode.port.postMessage(data, [data]);
+    if (this.playbackPath === 'none') return;
+
+    const frame = decodeAudioFrame(data);
+    if (!frame) return;
+
+    if (this.playbackPath === 'worklet' && this.workletNode) {
+      // AudioWorklet path: transfer the channel buffers (zero-copy)
+      this.workletNode.port.postMessage(
+        { type: 'pcm', left: frame.left, right: frame.right },
+        [frame.left.buffer, frame.right.buffer],
+      );
       return;
     }
 
-    if (this.audioContext) {
-      // Buffer scheduling path: parse PCM and schedule playback
-      this.scheduleAudioBuffer(data);
+    if (this.playbackPath === 'scheduling' && this.audioContext) {
+      this.scheduleAudioBuffer(frame.left, frame.right);
     }
   }
 
@@ -219,33 +234,19 @@ export class AudioStreamManager {
   }
 
   /**
-   * Parse binary frame and schedule for playback.
-   * Frame format: [1-byte type 0x01][4-byte u32 LE sequence][interleaved i16 LE stereo PCM]
+   * Schedule one decoded frame for playback.
    *
    * Creates an AudioBuffer at the server's sample rate. If the AudioContext
    * runs at a different rate (e.g. iOS forcing 48kHz when REAPER is at 44.1kHz),
    * the browser resamples automatically during playback.
    */
-  private scheduleAudioBuffer(data: ArrayBuffer): void {
+  private scheduleAudioBuffer(left: Float32Array<ArrayBuffer>, right: Float32Array<ArrayBuffer>): void {
     const ctx = this.audioContext!;
     this.framesReceived++;
 
-    // Parse PCM: skip 5-byte header (1 type + 4 sequence), read interleaved i16 stereo
-    const HEADER_SIZE = 5;
-    const pairCount = (data.byteLength - HEADER_SIZE) / 4; // 4 bytes per stereo pair (2 * i16)
-    if (pairCount <= 0) return;
-
-    const view = new DataView(data);
-
-    const audioBuffer = ctx.createBuffer(2, pairCount, this.serverSampleRate);
-    const left = audioBuffer.getChannelData(0);
-    const right = audioBuffer.getChannelData(1);
-
-    for (let i = 0; i < pairCount; i++) {
-      const offset = HEADER_SIZE + i * 4;
-      left[i] = view.getInt16(offset, true) / 32768.0;
-      right[i] = view.getInt16(offset + 2, true) / 32768.0;
-    }
+    const audioBuffer = ctx.createBuffer(2, left.length, this.serverSampleRate);
+    audioBuffer.copyToChannel(left, 0);
+    audioBuffer.copyToChannel(right, 1);
 
     // Buffering phase: accumulate jitter buffer before starting playback
     if (this.fallbackBuffering) {

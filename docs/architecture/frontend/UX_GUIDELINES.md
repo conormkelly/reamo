@@ -178,27 +178,21 @@ The symptom of "toolbar overlapping info bars" indicates missing `min-h-0` somew
 
 ## 5. Z-index system: scalable layering with CSS variables
 
-Define a semantic z-index scale in your Tailwind config and CSS variables:
+Define the semantic z-index scale in the `@theme` block of `frontend/src/index.css`. Tailwind 4 reads `--z-index-*` theme variables and generates `z-base` … `z-tooltip`; it ignores `tailwind.config.js` unless a stylesheet loads it with `@config`.
 
-```javascript
-// tailwind.config.js
-module.exports = {
-  theme: {
-    extend: {
-      zIndex: {
-        'base': '0',
-        'elevated': '10',
-        'dropdown': '100',
-        'sticky': '200',
-        'fixed': '300',        // App chrome (headers, footers)
-        'modal-backdrop': '400',
-        'modal': '500',
-        'popover': '600',
-        'toast': '700',
-        'tooltip': '800',
-      }
-    }
-  }
+```css
+/* frontend/src/index.css */
+@theme {
+  --z-index-base: 0;
+  --z-index-elevated: 10;
+  --z-index-dropdown: 100;
+  --z-index-sticky: 200;
+  --z-index-fixed: 300;          /* App chrome (headers, footers) */
+  --z-index-modal-backdrop: 400;
+  --z-index-modal: 500;
+  --z-index-popover: 600;
+  --z-index-toast: 700;
+  --z-index-tooltip: 800;
 }
 ```
 
@@ -215,7 +209,7 @@ module.exports = {
 | Contextual menus | z-popover (600) | Above modals if needed |
 | Toast notifications | z-toast (700) | Always visible |
 
-**Stacking context isolation:** Use `isolation: isolate` on modal containers to create a fresh stacking context, preventing z-index conflicts with the rest of the app.
+**Stacking context isolation:** the app root has `isolation: isolate`, and dialogs, sheets, menus and toasts portal to `document.body`, outside it. So every portaled layer stacks above the app chrome whatever z-index the chrome uses, and contextual menus use `z-popover` so they open above non-modal panels (`z-modal`).
 
 ---
 
@@ -477,42 +471,7 @@ Need responsive behavior?
 
 ### Tailwind config extensions
 
-```javascript
-// tailwind.config.js
-module.exports = {
-  theme: {
-    extend: {
-      screens: {
-        'pwa': { raw: '(display-mode: standalone)' },
-        'landscape': { raw: '(orientation: landscape)' },
-        'portrait': { raw: '(orientation: portrait)' },
-      },
-      height: {
-        'dvh': '100dvh',
-        'svh': '100svh',
-        'screen-safe': 'calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom))',
-      },
-      spacing: {
-        'safe-top': 'env(safe-area-inset-top)',
-        'safe-bottom': 'env(safe-area-inset-bottom)',
-        'safe-left': 'env(safe-area-inset-left)',
-        'safe-right': 'env(safe-area-inset-right)',
-      },
-      zIndex: {
-        'dropdown': '100',
-        'sticky': '200',
-        'fixed': '300',
-        'modal-backdrop': '400',
-        'modal': '500',
-        'toast': '700',
-      }
-    }
-  },
-  plugins: [
-    require('@tailwindcss/container-queries'),
-  ],
-}
-```
+Tailwind 4 doesn't read `tailwind.config.js` (see §5). Theme tokens (colours, spacing, sizes, the z-index scale) live in the `@theme` block of `frontend/src/index.css`; safe-area, landscape and PWA rules are plain classes in the same file (e.g. `.safe-area-left-landscape`). Container queries and `dvh`/`svh` heights are built into Tailwind 4.
 
 ### Anti-patterns to eliminate
 

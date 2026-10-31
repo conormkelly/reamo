@@ -1230,9 +1230,11 @@ test {
     _ = @import("commands/mod.zig");
     _ = @import("server/ws_server.zig");
     _ = @import("server/http_server_stress_test.zig");
+    _ = @import("server/http_server_shutdown_test.zig");
     _ = @import("server/gesture_state.zig");
     _ = @import("subscriptions/toggle_subscriptions.zig");
     _ = @import("server/subscription_polling.zig");
+    _ = @import("server/tcp_nodelay_test.zig");
     _ = @import("server/tier_polling.zig");
     _ = @import("server/playlist_tick.zig");
     _ = @import("server/client_management.zig");
