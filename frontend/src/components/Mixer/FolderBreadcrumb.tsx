@@ -78,7 +78,7 @@ function BreadcrumbSegment({ folder, isLast, siblings, onSelect }: BreadcrumbSeg
       {isOpen && createPortal(
         <div
           ref={menuRef}
-          className="fixed min-w-[160px] max-w-[240px] bg-bg-surface rounded-lg shadow-xl border border-border-subtle py-1 z-dropdown"
+          className="fixed min-w-[160px] max-w-[240px] bg-bg-surface rounded-lg shadow-xl border border-border-subtle py-1 z-popover"
           style={{ top: position.top, left: position.left }}
           role="listbox"
         >

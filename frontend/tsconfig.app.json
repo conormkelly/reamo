@@ -29,5 +29,7 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "pages"]
+  "include": ["src", "pages"],
+  /* Tests that use Node APIs (fs, path) are type-checked by tsconfig.node.json */
+  "exclude": ["src/**/*.node.test.ts"]
 }
