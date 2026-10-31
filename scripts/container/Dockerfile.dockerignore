@@ -1,0 +1,37 @@
+# What the check image copies from the repo root: an allow-list of what the
+# checks need, so local notes, editor and agent settings, secrets and other
+# untracked files in a checkout never reach an image layer.
+*
+!Makefile
+!extension
+!frontend
+!tests
+!test-fixtures
+!scripts/container/install-zig.sh
+
+# Within those: dependencies, build output and anything local.
+**/node_modules
+**/.zig-cache
+**/zig-out
+**/zig-pkg
+frontend/dist
+frontend/coverage
+frontend/playwright-report
+frontend/test-results
+frontend/bundle-stats.html
+frontend/.husky
+test-fixtures/Backups
+**/*.rpp-bak
+**/*.RPP-bak
+**/*.rpp-undo
+**/*.RPP-UNDO
+**/*.reapeaks
+**/*.rk
+**/.env
+**/.env.*
+**/*.local
+**/*.local.*
+**/*.pem
+**/*.key
+**/.DS_Store
+**/__pycache__

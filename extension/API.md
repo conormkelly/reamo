@@ -1,6 +1,6 @@
 # REAmo WebSocket API Reference
 
-WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224` (ports 9224-9233 tried on startup).
+WebSocket extension for REAPER control surfaces. Connect to `ws://localhost:9224/ws` (or the next free port up to 9233, if 9224 was taken).
 
 ## Table of Contents
 

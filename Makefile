@@ -1,38 +1,83 @@
-.PHONY: all frontend extension dev-extension clean test test-frontend test-extension test-e2e \
-        test-ws dev dev-notests dev-cycle stop-reaper start-reaper frontend-dev install typecheck \
-        tracy release-native release-dir harness harness-image release-check
+# REAmo build, test and install commands. `make` (or `make help`) lists them.
+#
+# Every target is listed by `make help`: put a `## description` after its
+# name (and a `##@ Heading` above a group), or it won't show up.
 
-# Platform detection: library name and REAPER plugin directory
-ifeq ($(shell uname),Darwin)
-    EXT_LIB = libreaper_reamo.dylib
-    EXT_DEST = reaper_reamo.dylib
-    EXT_OUT_DIR = lib
-    PLATFORM = macos
-    REAPER_PLUGINS = $(HOME)/Library/Application Support/REAPER/UserPlugins
-    REAPER_WWW = $(HOME)/Library/Application Support/REAPER/reaper_www_root/reamo
-else ifeq ($(OS),Windows_NT)
+.DEFAULT_GOAL := help
+
+.PHONY: help install all frontend frontend-build extension dev-extension tracy \
+        frontend-dev dev dev-notests dev-cycle stop-reaper start-reaper \
+        check lint typecheck test test-frontend test-e2e test-extension zig-version \
+        test-ws test-ws-harness harness harness-image release-check \
+        container-image container-check clean
+
+# Zig 0.15.x. Point ZIG at it when the `zig` on PATH is another version:
+#   make test-extension ZIG=/path/to/zig-0.15/zig
+ZIG ?= zig
+export ZIG
+
+# The check image (scripts/container/Dockerfile).
+DEV_IMAGE ?= reamo-v1-dev
+export DEV_IMAGE
+
+# Platform: library name, REAPER's resource folders, and the optimize modes
+# (ZIG_TEST_OPTIMIZE matches release.yml's test step).
+# Linux: ReleaseSafe works around Zig 0.15 Debug codegen bug (MIR InvalidInstruction)
+# Windows: ReleaseSafe needed — Debug builds have 650KB+ stack frames that overflow the 1MB default thread stack
+ifeq ($(OS),Windows_NT)
     EXT_LIB = reaper_reamo.dll
     EXT_DEST = reaper_reamo.dll
     EXT_OUT_DIR = bin
-    PLATFORM = windows
     REAPER_PLUGINS = $(APPDATA)/REAPER/UserPlugins
     REAPER_WWW = $(APPDATA)/REAPER/reaper_www_root/reamo
+    ZIG_OPTIMIZE = -Doptimize=ReleaseSafe
+    ZIG_TEST_OPTIMIZE =
+else ifeq ($(shell uname),Darwin)
+    EXT_LIB = libreaper_reamo.dylib
+    EXT_DEST = reaper_reamo.dylib
+    EXT_OUT_DIR = lib
+    REAPER_PLUGINS = $(HOME)/Library/Application Support/REAPER/UserPlugins
+    REAPER_WWW = $(HOME)/Library/Application Support/REAPER/reaper_www_root/reamo
+    ZIG_OPTIMIZE =
+    ZIG_TEST_OPTIMIZE =
 else
     EXT_LIB = libreaper_reamo.so
     EXT_DEST = reaper_reamo.so
     EXT_OUT_DIR = lib
-    PLATFORM = linux
     REAPER_PLUGINS = $(HOME)/.config/REAPER/UserPlugins
     REAPER_WWW = $(HOME)/.config/REAPER/reaper_www_root/reamo
+    ZIG_OPTIMIZE = -Doptimize=ReleaseSafe
+    ZIG_TEST_OPTIMIZE = -Doptimize=ReleaseSafe
 endif
 
-# Default target: run tests first, then build
-all: test frontend extension
+# Copies the extension just built into REAPER's UserPlugins.
+define install_extension
+	@mkdir -p "$(REAPER_PLUGINS)"
+	cp "extension/zig-out/$(EXT_OUT_DIR)/$(EXT_LIB)" "$(REAPER_PLUGINS)/$(EXT_DEST)"
+endef
 
-# Build frontend, copy to www root, and install to REAPER's www root
-frontend:
-	@echo "Building frontend..."
+##@ Getting started
+
+help: ## List every target (the default)
+	@awk 'BEGIN { FS = ":.*## " } \
+		/^##@ / { printf "\n%s\n", substr($$0, 5); next } \
+		/^[a-zA-Z0-9_-]+:.*## / { printf "  %-17s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@echo
+	@echo "Targets marked (REAPER) write to your REAPER's resource folder or start/stop REAPER."
+
+install: ## Install npm dependencies from the lockfiles, the git hooks, and Playwright's Chromium
+	cd frontend && npm ci && npm run prepare
+	cd frontend && npx playwright install chromium
+	cd tests/ws-integration && npm ci
+
+##@ Build and install into your REAPER
+
+all: test frontend extension ## Run every test, then build and install both halves (REAPER)
+
+frontend-build: ## Build the web UI into reamo/
 	cd frontend && npm run build
+
+frontend: frontend-build ## Build the web UI and copy it to REAPER's reaper_www_root/reamo (REAPER)
 	@mkdir -p "$(REAPER_WWW)"
 	@if [ "$$(cd reamo && pwd)" != "$$(cd "$(REAPER_WWW)" && pwd)" ]; then \
 		cp -r reamo/* "$(REAPER_WWW)/"; \
@@ -40,206 +85,110 @@ frontend:
 	else \
 		echo "Build output already in place (repo is inside reaper_www_root)."; \
 	fi
-	@echo "Frontend built and installed."
 
-# Build and install Zig extension
-# Linux: ReleaseSafe works around Zig 0.15 Debug codegen bug (MIR InvalidInstruction)
-# Windows: ReleaseSafe needed — Debug builds have 650KB+ stack frames that overflow the 1MB default thread stack
-extension:
-	@echo "Building extension..."
-ifeq ($(shell uname),Linux)
-	cd extension && zig build -Doptimize=ReleaseSafe
-else ifeq ($(OS),Windows_NT)
-	cd extension && zig build -Doptimize=ReleaseSafe
-else
-	cd extension && zig build
-endif
-	@echo "Installing to REAPER UserPlugins..."
-	@mkdir -p "$(REAPER_PLUGINS)"
-	cp "extension/zig-out/$(EXT_OUT_DIR)/$(EXT_LIB)" "$(REAPER_PLUGINS)/$(EXT_DEST)"
+extension: zig-version ## Build the extension and copy it to REAPER's UserPlugins (REAPER)
+	cd extension && "$(ZIG)" build $(ZIG_OPTIMIZE)
+	$(install_extension)
 	@echo "Extension installed. Restart REAPER to load."
 
-# Build and install Zig extension in dev mode (fresh HTML reads per request)
-dev-extension:
-	@echo "Building extension (dev mode)..."
-ifeq ($(shell uname),Linux)
-	cd extension && zig build -Ddev=true -Doptimize=ReleaseSafe
-else ifeq ($(OS),Windows_NT)
-	cd extension && zig build -Ddev=true -Doptimize=ReleaseSafe
-else
-	cd extension && zig build -Ddev=true
-endif
-	@echo "Installing dev build to REAPER UserPlugins..."
-	@mkdir -p "$(REAPER_PLUGINS)"
-	cp "extension/zig-out/$(EXT_OUT_DIR)/$(EXT_LIB)" "$(REAPER_PLUGINS)/$(EXT_DEST)"
+dev-extension: zig-version ## As extension, in dev mode: the HTML is re-read on every request (REAPER)
+	cd extension && "$(ZIG)" build -Ddev=true $(ZIG_OPTIMIZE)
+	$(install_extension)
 	@echo "Dev extension installed (fresh HTML reads per request)."
 
-# Build extension with Tracy profiler enabled (ReleaseFast required for Zig 0.15)
-tracy:
-	@echo "Building extension with Tracy profiler..."
-	cd extension && zig build -Dtracy=true -Doptimize=ReleaseFast
-	@echo "Installing Tracy-enabled build to REAPER UserPlugins..."
-	@mkdir -p "$(REAPER_PLUGINS)"
-	cp "extension/zig-out/$(EXT_OUT_DIR)/$(EXT_LIB)" "$(REAPER_PLUGINS)/$(EXT_DEST)"
-	@echo ""
-	@echo "Tracy-enabled extension installed. To profile:"
-	@echo "  1. Start Tracy GUI: tracy (or open Tracy.app)"
-	@echo "  2. Launch REAPER"
-	@echo "  3. Connect Tracy to REAPER process"
-	@echo "  4. Trigger actions to profile (e.g., open Actions panel)"
+# ReleaseFast: Tracy builds need it on Zig 0.15.
+tracy: zig-version ## As extension, with the Tracy profiler compiled in (REAPER)
+	cd extension && "$(ZIG)" build -Dtracy=true -Doptimize=ReleaseFast
+	$(install_extension)
+	@echo "Tracy-enabled extension installed. Start the Tracy GUI, launch REAPER, connect to it."
 
-# Build extension with CSurf push-based callbacks enabled
-csurf:
-	@echo "Building extension with CSurf (push-based callbacks)..."
-	cd extension && zig build -Dcsurf=true
-	@echo "Installing CSurf-enabled build to REAPER UserPlugins..."
-	@mkdir -p "$(REAPER_PLUGINS)"
-	cp "extension/zig-out/$(EXT_OUT_DIR)/$(EXT_LIB)" "$(REAPER_PLUGINS)/$(EXT_DEST)"
-	@echo ""
-	@echo "CSurf-enabled extension installed. Restart REAPER to load."
-	@echo "Check extension log for 'CSurf registered for push-based callbacks'"
+##@ Develop
 
-# Clean build artifacts
-clean:
-	@echo "Cleaning frontend..."
-	rm -rf frontend/dist frontend/node_modules
-	rm -f index.html
-	@echo "Cleaning extension..."
-	rm -rf extension/.zig-cache extension/zig-out
-	@echo "Clean complete."
-
-# Install frontend dependencies
-install:
-	cd frontend && npm install
-
-# Run frontend dev server (hot reload for UI development)
-frontend-dev:
+frontend-dev: ## Vite dev server with hot reload, on port 5173
 	cd frontend && npm run dev
 
-# Rapid extension development: test, kill REAPER, build, install, relaunch
-# Runs all tests first, then restarts REAPER with stdout attached for debugging
-dev: test dev-cycle
+dev: test dev-cycle ## Every test, then dev-cycle (REAPER)
 
-# Quick dev cycle without tests (for rapid iteration after tests pass)
-dev-notests: dev-cycle
+dev-notests: dev-cycle ## dev-cycle without the tests (REAPER)
 
-# Internal: the actual kill/build/install/relaunch cycle
-dev-cycle: stop-reaper dev-extension start-reaper
+dev-cycle: zig-version stop-reaper dev-extension start-reaper ## Quit REAPER, install dev-extension, relaunch REAPER in this terminal (REAPER)
 
-# Stop REAPER (cross-platform)
-stop-reaper:
+stop-reaper: ## Quit REAPER (REAPER)
 	@echo "Stopping REAPER..."
 ifeq ($(OS),Windows_NT)
-	-@taskkill /IM reaper.exe /F 2>NUL || exit 0
+	-@MSYS_NO_PATHCONV=1 taskkill /IM reaper.exe /F 2>NUL || exit 0
 else
 	-@pkill -x REAPER 2>/dev/null || pkill -x reaper 2>/dev/null || true
 endif
 	@sleep 0.5
 
-# Start REAPER in foreground (cross-platform)
-# Keeps stdout/stderr attached for immediate visibility of panics/logs
-start-reaper:
+# Foreground, so a panic or log line shows up in this terminal at once.
+start-reaper: ## Launch REAPER in this terminal, its output attached (REAPER)
 	@echo "Launching REAPER in foreground (Ctrl+C to stop)..."
 ifeq ($(OS),Windows_NT)
 	@echo "On Windows, run REAPER manually from terminal for stdout visibility"
 	start "" "C:\Program Files\REAPER (x64)\reaper.exe"
-else
-ifeq ($(shell uname),Darwin)
+else ifeq ($(shell uname),Darwin)
 	/Applications/REAPER.app/Contents/MacOS/REAPER
 else
 	reaper
 endif
-endif
 
-# Run all tests (frontend unit + E2E + extension)
-test: test-frontend test-e2e test-extension
+##@ Check (no REAPER needed)
 
-# Run frontend unit tests (vitest)
-test-frontend:
-	@echo "Running frontend unit tests..."
+check: lint typecheck test ## Everything below: lint, typecheck and every test
+
+lint: ## ESLint, on frontend/ and tests/ws-integration/
+	cd frontend && npm run lint
+	cd tests/ws-integration && npm run lint
+
+typecheck: ## TypeScript, on frontend/ and tests/ws-integration/ (no build output)
+	cd frontend && npm exec -- tsc -b
+	cd tests/ws-integration && npm run typecheck
+
+test: test-frontend test-e2e test-extension ## Frontend unit and E2E tests, extension unit tests
+
+test-frontend: ## Frontend unit tests (Vitest)
 	cd frontend && npm test
 
-# Run frontend E2E tests (playwright)
-test-e2e:
-	@echo "Running E2E tests..."
+test-e2e: ## Frontend E2E tests (Playwright; starts Vite on 5173, or reuses one already there)
 	cd frontend && npm run test:e2e
 
-# Run WebSocket integration tests (requires REAPER running with extension loaded)
-test-ws:
-	@echo "Running WebSocket integration tests..."
-	@echo "(Requires REAPER running with the extension loaded)"
+test-extension: zig-version ## Extension unit tests (zig build test)
+	cd extension && "$(ZIG)" build test $(ZIG_TEST_OPTIMIZE)
+
+zig-version: ## Fail unless ZIG (default: the zig on PATH) is Zig 0.15.x
+	@v="$$("$(ZIG)" version 2>/dev/null)"; case "$$v" in 0.15.*) ;; \
+		*) echo "error: REAmo builds with Zig 0.15.x; '$(ZIG)' is '$${v:-not found}'. Run with ZIG=/path/to/zig-0.15/zig" >&2; exit 1 ;; esac
+
+##@ Against a real REAPER
+
+test-ws: ## tests/ws-integration against your running REAPER (test-fixtures/test-project-1.RPP open)
 	cd tests/ws-integration && npm test
 
-# Run live-REAPER harness scenarios: real headless REAPER in Docker, driven
-# over WebSocket. SCENARIOS="smoke item-notes-poll" runs a subset. See
-# scripts/harness/README.md (needs Docker, Zig 0.15 and a built reamo/).
-harness:
+test-ws-harness: ## tests/ws-integration against headless REAPER in Docker (needs frontend-build)
+	scripts/harness/ws-integration.sh
+
+harness: ## Harness scenarios on headless REAPER in Docker; SCENARIOS="smoke ..." for a subset
 	scripts/harness/run.sh $(SCENARIOS)
 
-# Build the harness image for REAPER_VERSION (pinned, oldest, latest or a
-# release like 6.0); run.sh builds it on first use.
-harness-image:
+harness-image: ## Build the harness image for REAPER_VERSION (pinned, oldest, latest or e.g. 6.0)
 	scripts/harness/run.sh --image-only
 
-# Release gate: every scenario on the oldest REAPER we support, then on the
-# pinned newest one. Both must pass.
-release-check:
+release-check: ## Release gate: every scenario on the oldest supported REAPER, then the pinned newest
 	scripts/harness/run.sh --reaper oldest
 	scripts/harness/run.sh --reaper pinned
 
-# Run extension unit tests (zig)
-test-extension:
-	@echo "Running extension tests..."
-	cd extension && zig build test
+##@ In a container (needs only Docker)
 
-# Type check frontend
-typecheck:
-	cd frontend && npm run build -- --mode development
+container-image: ## Build the check image: pinned Node, npm, Playwright's Chromium and Zig
+	docker build -f scripts/container/Dockerfile -t "$(DEV_IMAGE)" .
 
-# =============================================================================
-# Release packaging
-# =============================================================================
+container-check: container-image ## Run `make check` in the check image, on a copy of this working tree
+	docker run --rm --init --shm-size=1g "$(DEV_IMAGE)" make check
 
-# Version from frontend/package.json
-VERSION := $(shell node -p "require('./frontend/package.json').version")
-RELEASE_DIR := release/REAmo-v$(VERSION)
+##@ Housekeeping
 
-# Build release ZIP for the current platform (native build, no cross-compilation)
-# Used by CI matrix: each platform runner builds its own native binary
-release-native: frontend release-dir
-	@echo "=== Building native release v$(VERSION) ==="
-ifeq ($(shell uname),Darwin)
-	@# macOS universal binary (arm64 + x86_64 via lipo)
-	@echo "Building macOS arm64..."
-	cd extension && zig build -Doptimize=ReleaseSafe
-	cp extension/zig-out/lib/libreaper_reamo.dylib "$(RELEASE_DIR)/reaper_reamo_arm64.dylib"
-	@echo "Building macOS x86_64..."
-	cd extension && zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-macos
-	@echo "Creating macOS universal binary..."
-	lipo -create \
-		"$(RELEASE_DIR)/reaper_reamo_arm64.dylib" \
-		extension/zig-out/lib/libreaper_reamo.dylib \
-		-output "$(RELEASE_DIR)/reaper_reamo.dylib"
-	@rm "$(RELEASE_DIR)/reaper_reamo_arm64.dylib"
-else
-	@echo "Building $(EXT_DEST)..."
-	cd extension && zig build -Doptimize=ReleaseSafe
-	cp "extension/zig-out/$(EXT_OUT_DIR)/$(EXT_LIB)" "$(RELEASE_DIR)/$(EXT_DEST)"
-endif
-	@echo "Creating ZIP..."
-	cd release && zip -r "REAmo-v$(VERSION)-$(PLATFORM).zip" "REAmo-v$(VERSION)"
-	@echo ""
-	@echo "Release ready: release/REAmo-v$(VERSION)-$(PLATFORM).zip"
-
-# Create release directory structure with installer + frontend + JSFX
-release-dir:
-	@rm -rf "$(RELEASE_DIR)"
-	@mkdir -p "$(RELEASE_DIR)/reamo" "$(RELEASE_DIR)/effects/REAmo"
-	@# Installer scripts and README
-	cp installer/Install_REAmo.lua "$(RELEASE_DIR)/"
-	cp installer/Uninstall_REAmo.lua "$(RELEASE_DIR)/"
-	cp installer/README.txt "$(RELEASE_DIR)/"
-	@# Frontend (built by 'frontend' target)
-	cp -r reamo/* "$(RELEASE_DIR)/reamo/"
-	@# JSFX tuner plugin
-	cp extension/effects/REAmo/PitchDetect.jsfx "$(RELEASE_DIR)/effects/REAmo/"
+clean: ## Delete build output (reamo/, zig-out, caches) and node_modules
+	rm -rf frontend/dist frontend/node_modules tests/ws-integration/node_modules reamo
+	rm -rf extension/.zig-cache extension/zig-out
