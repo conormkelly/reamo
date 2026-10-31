@@ -250,20 +250,12 @@ def _visible_windows():
 
 def press(window_title, *keys):
     """Send keys (xdotool names, e.g. "Return", "Escape") to the first visible
-    window whose title contains `window_title`, as a user dismissing a dialog."""
-    if WINDOWS:
-        # An exact title first: a dialog that's closing ("REAmo Server Port")
-        # can still be listed above the one meant ("REAmo").
-        found = win_desktop.visible_windows()
-        ids = [wid for wid, title in found if title == window_title] or \
-            [wid for wid, title in found if window_title in title]
-        if not ids:
-            raise LookupError(f"no visible window titled like {window_title!r}; windows: {windows()}")
-        win_desktop.press_window(ids[0], *keys)
-        return
-    r = subprocess.run(["xdotool", "search", "--onlyvisible", "--name", window_title],
-                       capture_output=True, text=True, timeout=10)
-    ids = r.stdout.split()
+    window whose title contains `window_title`, as a user dismissing a dialog.
+    A window titled exactly that wins: a dialog that's closing ("REAmo Port
+    Change") can still be listed above the one meant ("REAmo")."""
+    found = _visible_windows()
+    ids = [wid for wid, title in found if title == window_title] or \
+        [wid for wid, title in found if window_title in title]
     if not ids:
         raise LookupError(f"no visible window titled like {window_title!r}; windows: {windows()}")
     _press_window(ids[0], *keys)

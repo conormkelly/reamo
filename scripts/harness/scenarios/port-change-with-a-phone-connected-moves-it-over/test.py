@@ -26,6 +26,8 @@ with Client(timeout=10) as phone:
     pending = submit('reaper.Main_OnCommand(reaper.NamedCommandLookup("_REAMO_CHANGE_PORT"), 0)')
     wait_window("REAmo Server Port")
     press("REAmo Server Port", "ctrl+a", *list(str(FREE)), "Return")
+    wait_window("REAmo Port Change")
+    press("REAmo Port Change", "Return")  # Yes is the default button
     wait_window("REAmo")  # the result message (titled just that), once the old server has stopped
     took = time.time() - start
     press("REAmo", "Return")
