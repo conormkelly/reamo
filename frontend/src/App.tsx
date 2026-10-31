@@ -318,12 +318,15 @@ function AppWithLoading() {
   const { connected } = useReaper();
   const [minTimePassed, setMinTimePassed] = useState(false);
   const loadUIPrefsFromStorage = useReaperStore((s) => s.loadUIPrefsFromStorage);
+  const loadLayoutFromStorage = useReaperStore((s) => s.loadLayoutFromStorage);
 
-  // Load persisted UI preferences from localStorage on startup
+  // Load persisted UI and layout preferences from localStorage on startup,
+  // while the loading screen is up, so views first render with them applied
   // Note: View filters and timeline state are session-scoped (not persisted)
   useEffect(() => {
     loadUIPrefsFromStorage();
-  }, [loadUIPrefsFromStorage]);
+    loadLayoutFromStorage();
+  }, [loadUIPrefsFromStorage, loadLayoutFromStorage]);
 
   useEffect(() => {
     const timer = setTimeout(() => setMinTimePassed(true), MIN_LOADING_MS);

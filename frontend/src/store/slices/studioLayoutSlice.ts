@@ -1,7 +1,8 @@
 /**
  * Layout preferences slice
  * Header-menu toggles: recording actions bar, pinned master, add-track button,
- * piano wheels. Each setter saves them to localStorage.
+ * piano wheels. Each setter saves them to localStorage; the app reads them back
+ * on startup with loadLayoutFromStorage.
  */
 
 import type { StateCreator } from 'zustand';
@@ -31,6 +32,10 @@ const getDefaultState = () => ({
   showPianoWheels: true // Show mod/pitch wheels by default
 });
 
+/** A stored value that is missing or not a boolean falls back to the default */
+const storedBoolean = (value: unknown, fallback: boolean): boolean =>
+  typeof value === 'boolean' ? value : fallback;
+
 export const createStudioLayoutSlice: StateCreator<StudioLayoutState> = (set, get) => ({
   ...getDefaultState(),
 
@@ -55,21 +60,23 @@ export const createStudioLayoutSlice: StateCreator<StudioLayoutState> = (set, ge
   },
 
   loadLayoutFromStorage: () => {
+    const defaults = getDefaultState();
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
-        const parsed = JSON.parse(stored);
+        const parsed: unknown = JSON.parse(stored);
+        const prefs = (typeof parsed === 'object' && parsed !== null ? parsed : {}) as Record<string, unknown>;
         set({
-          showRecordingActions: parsed.showRecordingActions ?? true,
-          pinMasterTrack: parsed.pinMasterTrack ?? true,
-          showAddTrackButton: parsed.showAddTrackButton ?? true,
-          showPianoWheels: parsed.showPianoWheels ?? true
+          showRecordingActions: storedBoolean(prefs.showRecordingActions, defaults.showRecordingActions),
+          pinMasterTrack: storedBoolean(prefs.pinMasterTrack, defaults.pinMasterTrack),
+          showAddTrackButton: storedBoolean(prefs.showAddTrackButton, defaults.showAddTrackButton),
+          showPianoWheels: storedBoolean(prefs.showPianoWheels, defaults.showPianoWheels)
         });
       }
     } catch (err) {
       console.error('Failed to load layout preferences from storage:', err);
       // Fall back to defaults on error
-      set(getDefaultState());
+      set(defaults);
     }
   },
 
