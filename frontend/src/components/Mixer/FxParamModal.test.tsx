@@ -176,4 +176,21 @@ describe('FxParamModal skeleton fetching', () => {
     await waitFor(() => expect(screen.getByText('Threshold')).toBeInTheDocument());
     expect(useReaperStore.getState().getCachedSkeleton(TRACK, FX_B)?.params).toEqual(['Threshold', 'Ratio']);
   });
+
+  it('shows "No parameters available" after an event reports the FX has no parameters', async () => {
+    await openModal();
+    expect(getParamsCalls()).toBe(1);
+
+    skeleton = { params: [], nameHash: 31 };
+    sendEvent(31, 0);
+    await waitFor(() => expect(screen.getByText('No parameters available')).toBeInTheDocument());
+    await settle();
+    expect(getParamsCalls()).toBe(2);
+    expect(screen.queryByText('Freq')).not.toBeInTheDocument();
+
+    // Later empty events match the empty skeleton.
+    sendEvent(31, 0);
+    await settle();
+    expect(getParamsCalls()).toBe(2);
+  });
 });

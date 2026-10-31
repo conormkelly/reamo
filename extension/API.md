@@ -2830,7 +2830,7 @@ Sent to subscribed clients at 30Hz with current parameter values.
 | `nameHash` | int | Hash of param names, as `trackFx/getParams` returns it; at most 2^53 - 1, so exact as a JavaScript number |
 | `values` | object | Map of param index to [normalized value, formatted string] |
 
-**Skeleton invalidation:** If `paramCount` or `nameHash` differs from cached skeleton, refetch with `trackFx/getParams`.
+**Skeleton invalidation:** If `paramCount` or `nameHash` differs from cached skeleton, refetch with `trackFx/getParams`. An FX that reports no parameters gets events with `paramCount` 0, empty `values` and the `nameHash` of no names.
 
 ### `trackFxParamsError` Event
 

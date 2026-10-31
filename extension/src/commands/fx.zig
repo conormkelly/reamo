@@ -543,6 +543,56 @@ test "trackFx/getParams reports the nameHash its trackFxParams events carry" {
     try std.testing.expectEqual(@as(?u64, ev.value.payload.nameHash), sk.value.nameHash);
 }
 
+test "an FX whose parameters drop to zero while subscribed gets a valid paramCount 0 event" {
+    const mock = @import("../reaper/mock/mod.zig");
+    const guid_cache = @import("../state/guid_cache.zig");
+    const generator = @import("../subscriptions/trackfxparam_generator.zig");
+    const subscriptions = @import("../subscriptions/trackfxparam_subscriptions.zig");
+    const alloc = std.testing.allocator;
+
+    var m = mock.MockBackend{ .track_count = 1 };
+    m.tracks[1].fx[0].setParam(0, "Freq", 0.5, "500 Hz");
+    m.tracks[1].fx[0].setParam(1, "Gain", 0.5, "0.0 dB");
+    m.tracks[1].fx_count = 1;
+    const track = m.getTrackByIdx(0).?;
+    var track_guid_buf: [64]u8 = undefined;
+    const track_guid = m.formatTrackGuid(track, &track_guid_buf);
+    var fx_guid_buf: [64]u8 = undefined;
+    const fx_guid = m.trackFxGetGuid(track, 0, &fx_guid_buf);
+    var cache = guid_cache.GuidCache.init(alloc);
+    defer cache.deinit();
+    try cache.rebuild(&m);
+    const client = subscriptions.ClientSubscription{ .active = true, .mode = .range, .range_start = 0, .range_end = 1 };
+
+    const before = try generator.generateParamValues(alloc, &m, &cache, track_guid, fx_guid, &client);
+    defer alloc.free(before.json);
+
+    // The plugin reports no parameters any more (VST3 restartComponent).
+    m.tracks[1].fx[0].param_count = 0;
+    const after = try generator.generateParamValues(alloc, &m, &cache, track_guid, fx_guid, &client);
+    defer alloc.free(after.json);
+
+    // A complete event, which the poll sends because it differs from the last one.
+    try std.testing.expect(after.json.len > 0);
+    try std.testing.expect(generator.hashParamValues(after.json) != generator.hashParamValues(before.json));
+    const Payload = struct { trackGuid: []const u8, fxGuid: []const u8, paramCount: i64, nameHash: u64, values: std.json.Value };
+    const opts: std.json.ParseOptions = .{ .ignore_unknown_fields = true };
+    const ev = try std.json.parseFromSlice(struct { type: []const u8, event: []const u8, payload: Payload }, alloc, after.json, opts);
+    defer ev.deinit();
+    try std.testing.expectEqualStrings("trackFxParams", ev.value.event);
+    try std.testing.expectEqualStrings(fx_guid, ev.value.payload.fxGuid);
+    try std.testing.expectEqual(@as(i64, 0), ev.value.payload.paramCount);
+    try std.testing.expectEqual(@as(usize, 0), ev.value.payload.values.object.count());
+
+    // Its nameHash is the one getParams returns for the empty skeleton.
+    const ctx = ParamNamesCtx(@TypeOf(&m)){ .api = &m, .track = track, .fx_idx = 0, .track_guid = track_guid, .fx_guid = fx_guid, .param_count = 0 };
+    const skeleton = try protocol.writeAlloc(alloc, 256, ctx, writeParamNames);
+    defer alloc.free(skeleton);
+    const sk = try std.json.parseFromSlice(struct { nameHash: u64 }, alloc, skeleton, opts);
+    defer sk.deinit();
+    try std.testing.expectEqual(sk.value.nameHash, ev.value.payload.nameHash);
+}
+
 test "trackFx/getParams reads each parameter name from the plugin once" {
     const mock = @import("../reaper/mock/mod.zig");
     const alloc = std.testing.allocator;

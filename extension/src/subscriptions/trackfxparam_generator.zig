@@ -61,16 +61,11 @@ pub fn generateParamValues(
     // it. GetNumParams is cheap enough to call every frame, and an
     // out-of-range parameter index returns 0.0/false rather than crashing.
     // paramCount and nameHash in every event let the client refetch its
-    // skeleton when either changes. FX inside containers aren't reachable:
-    // native containers need 0x2000000 addressing, third-party ones are opaque.
-    const param_count = api.trackFxGetNumParams(track, fx_idx);
-    if (param_count <= 0) {
-        return .{
-            .json = "",
-            .param_count = param_count,
-            .name_hash = 0,
-        };
-    }
+    // skeleton when either changes; an FX with no parameters still gets a
+    // complete event (paramCount 0, no values), so the client drops a skeleton
+    // that no longer applies. FX inside containers aren't reachable: native
+    // containers need 0x2000000 addressing, third-party ones are opaque.
+    const param_count = @max(api.trackFxGetNumParams(track, fx_idx), 0);
 
     // The same hash trackFx/getParams returns, so a client's cached skeleton
     // matches the events while the names are unchanged.
@@ -143,7 +138,7 @@ fn writeParamValues(ctx: anytype, w: anytype) !void {
 
     switch (ctx.client.mode) {
         .range => {
-            // Clamp range to actual param count (param_count > 0 guaranteed by the caller)
+            // Clamp range to actual param count; with no params the range is empty
             const range_start = ctx.client.range_start;
             const range_end = @min(ctx.client.range_end, param_count - 1);
 
