@@ -155,6 +155,55 @@ def reaper(lua, timeout=5.0):
     return submit(lua).result(timeout)
 
 
+# Where boot.sh puts the portable REAPER, and the file the fixture's
+# harness.ready() writes.
+REAPER_HOME = "/tmp/reaper"
+FIXTURE_READY = "/tmp/harness_fixture_ready"
+
+
+def _reaper_running():
+    return subprocess.run(["pgrep", "-x", "reaper"], capture_output=True).returncode == 0
+
+
+def restart_reaper(timeout=30.0):
+    """Quit REAPER as a user does (File: Quit REAPER) and start it again the
+    way boot.sh did. Returns once the fixture has run again and REAmo's
+    server accepts connections. The new run has a new session token.
+    Linux container only."""
+    global _rpc_ids
+    if WINDOWS:
+        raise RuntimeError("restart_reaper runs in the Linux container only")
+    submit("reaper.Main_OnCommand(40004, 0)")  # File: Quit REAPER
+    deadline = time.time() + timeout
+    while _reaper_running():
+        if time.time() > deadline:
+            screenshot("quit-timeout")
+            raise TimeoutError(f"REAPER did not quit within {timeout} s; windows: {windows()}")
+        time.sleep(0.1)
+
+    # The new REAPER's harness.lua serves RPC chunks from number 1 again.
+    os.remove(FIXTURE_READY)
+    for name in os.listdir(RPC_DIR):
+        os.remove(os.path.join(RPC_DIR, name))
+    _rpc_ids = itertools.count(1)
+    with open("/tmp/reaper.out", "ab") as out:
+        subprocess.Popen([os.path.join(REAPER_HOME, "reaper"), "-nosplash"],
+                         stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+
+    deadline = time.time() + timeout
+    while True:
+        if os.path.exists(FIXTURE_READY):
+            try:
+                socket.create_connection((HOST, PORT), timeout=1).close()
+                return
+            except OSError:
+                pass
+        if time.time() > deadline:
+            screenshot("restart-timeout")
+            raise TimeoutError(f"REAPER/REAmo not ready {timeout} s after restarting; windows: {windows()}")
+        time.sleep(0.25)
+
+
 def _ignore_all_missing(wid):
     """Click "Ignore all missing files" in REAPER's "Replace missing file..."
     dialog, as a user opening a project from another machine does. Return

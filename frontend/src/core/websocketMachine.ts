@@ -20,6 +20,7 @@
 
 import { setup, assign, fromCallback, fromPromise, type AnyActorRef } from 'xstate';
 import type { ServerMessage } from './WebSocketTypes';
+import { hardRefresh, storeVersion } from '../utils/versionStorage';
 
 // =============================================================================
 // Types
@@ -42,16 +43,20 @@ export interface WebSocketContext {
   token: string | null;
   discoveredPort: number | null;
   discoveredToken: string | null;
+  // A discovery has finished with the page's own <meta> token; every later
+  // discovery fetches the current token from '/' (it changes when REAPER
+  // restarts). A discovery stopped before it finished doesn't count.
+  pageTokenTried: boolean;
 
   // Retry tracking
   retryCount: number;
   maxRetries: number;
   lastError: string | null;
 
-  // HTML mtime for stale content detection
+  // HTML mtime and extension version from the last hello of this page load.
+  // A hello on a reconnect (possibly to a restarted REAPER) with either
+  // changed reloads the page.
   htmlMtime: number | null;
-
-  // Extension version (after hello)
   extensionVersion: string | null;
 
   // Socket reference (managed by actor)
@@ -89,6 +94,7 @@ const HELLO_TIMEOUT = 5000;        // Wait for hello response
 const PONG_TIMEOUT = 3000;         // Per API.md: pong must arrive within 3s
 const HEARTBEAT_INTERVAL = 10000;  // Per API.md: ping every 10s when visible
 const VERIFY_TIMEOUT = 5000;       // Ping/pong on visibility return
+const TOKEN_FETCH_TIMEOUT = 5000;  // GET '/' for the current session token
 
 // Retry delays
 const INITIAL_RETRY_DELAY = 1000;
@@ -136,13 +142,60 @@ function warmupWebSocket(wsUrl: string): Promise<void> {
 // =============================================================================
 
 /**
- * Discovery actor - reads port and token from same-origin <meta> tag
+ * Fetch the session token REAPER is using now: GET '/' from this page's own
+ * origin and read the `<meta name="reamo-token">` the extension injects.
+ *
+ * Every REAPER start makes a new token, so the one in this page's own <head>
+ * is refused once REAPER has restarted. Fetching '/' gives the page nothing
+ * a reload wouldn't: the response is readable only because it is same-origin
+ * (the server sends no CORS headers, and refuses a rebinding Host).
+ *
+ * Returns null if the page can't be fetched, isn't served (403/503), carries
+ * no token, or takes longer than TOKEN_FETCH_TIMEOUT.
+ */
+export async function fetchSessionToken(): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TOKEN_FETCH_TIMEOUT);
+  try {
+    const response = await fetch('/', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    const html = await response.text();
+    // DOMParser builds an inert document: scripts in it never run.
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    return doc.querySelector('meta[name="reamo-token"]')?.getAttribute('content') || null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The token in this page's own <meta>, from the REAPER run that served the page. */
+function readPageToken(): string | null {
+  return document.querySelector('meta[name="reamo-token"]')?.getAttribute('content') ?? null;
+}
+
+interface DiscoveryInput {
+  /** The page's own token may be stale: fetch the current one from '/'. */
+  refreshToken: boolean;
+  /** The token to keep using if the fetch gets none (else the page's own). */
+  knownToken: string | null;
+}
+
+/**
+ * Discovery actor - finds the port (from the page's URL) and the session
+ * token: the page's <meta> tag on the first discovery of a page load, a fresh
+ * fetch of '/' on every later one.
  * Also handles Safari PWA workarounds for WebSocket initialization
  */
 const discoveryActor = fromPromise<
   { port: number | null; token: string | null },
-  void
->(async () => {
+  DiscoveryInput
+>(async ({ input }) => {
   // Detect Safari and PWA mode
   const isSafari = navigator.userAgent.includes('Safari') && !navigator.userAgent.includes('Chrome');
   const isPWA = window.matchMedia('(display-mode: standalone)').matches;
@@ -158,9 +211,15 @@ const discoveryActor = fromPromise<
     await new Promise(r => setTimeout(r, 50));
   }
 
-  // Read token from <meta> tag injected by extension HTTP server
-  const metaEl = document.querySelector('meta[name="reamo-token"]');
-  const token = metaEl?.getAttribute('content') ?? null;
+  // The <meta> tag the extension's HTTP server injected into this page holds
+  // the token of the REAPER run that served it. Any later discovery may be
+  // talking to a REAPER that has restarted since, so it fetches the current one.
+  let token: string | null;
+  if (input.refreshToken) {
+    token = (await fetchSessionToken()) ?? input.knownToken ?? readPageToken();
+  } else {
+    token = readPageToken();
+  }
   const port = parseInt(window.location.port, 10) || null;
   console.log(`[WS] Same-origin mode: port=${port}`);
 
@@ -416,13 +475,21 @@ const heartbeatActor = fromCallback<WebSocketEvent, void>(() => {
 const canRetry = ({ context }: { context: WebSocketContext }) =>
   context.retryCount < context.maxRetries;
 
-const htmlMtimeChanged = (
+/**
+ * The server now runs other code than the page was loaded from: its
+ * index.html or extension version differs from the last hello's.
+ */
+const serverChanged = (
   { context }: { context: WebSocketContext },
-  params: { htmlMtime?: number }
+  params: { extensionVersion?: string; htmlMtime?: number }
 ) => {
-  if (params.htmlMtime === undefined) return false;
-  if (context.htmlMtime === null) return false;
-  return context.htmlMtime !== params.htmlMtime;
+  const htmlChanged =
+    params.htmlMtime !== undefined && context.htmlMtime !== null && context.htmlMtime !== params.htmlMtime;
+  const versionChanged =
+    params.extensionVersion !== undefined &&
+    context.extensionVersion !== null &&
+    context.extensionVersion !== params.extensionVersion;
+  return htmlChanged || versionChanged;
 };
 
 // =============================================================================
@@ -453,9 +520,9 @@ export const websocketMachine = setup({
   },
   guards: {
     canRetry,
-    htmlMtimeChanged: ({ context, event }) => {
+    serverChanged: ({ context, event }) => {
       if (event.type !== 'HELLO_RECEIVED') return false;
-      return htmlMtimeChanged({ context }, { htmlMtime: event.htmlMtime });
+      return serverChanged({ context }, { extensionVersion: event.extensionVersion, htmlMtime: event.htmlMtime });
     },
   },
   delays: {
@@ -490,8 +557,16 @@ export const websocketMachine = setup({
     clearError: assign({
       lastError: null,
     }),
-    reloadPage: () => {
-      window.location.reload();
+    markPageTokenTried: assign({
+      pageTokenTried: true,
+    }),
+    // Stores the new version first: the reloaded page's first-connect check
+    // (websocketActor) then finds it matching and doesn't reload a second time.
+    reloadPage: ({ context, event }) => {
+      if (event.type !== 'HELLO_RECEIVED') return;
+      const htmlMtime = event.htmlMtime ?? context.htmlMtime;
+      if (htmlMtime !== null) storeVersion(event.extensionVersion, htmlMtime);
+      void hardRefresh();
     },
     closeSocket: () => {
       closeSocketProperly();
@@ -505,6 +580,7 @@ export const websocketMachine = setup({
     token: null,
     discoveredPort: null,
     discoveredToken: null,
+    pageTokenTried: false,
     retryCount: 0,
     maxRetries: DEFAULT_MAX_RETRIES,
     lastError: null,
@@ -543,10 +619,15 @@ export const websocketMachine = setup({
     discovering: {
       invoke: {
         src: 'discovery',
+        input: ({ context }) => ({
+          refreshToken: context.pageTokenTried,
+          knownToken: context.discoveredToken,
+        }),
         onDone: {
           target: 'connecting',
           actions: [
             { type: 'logTransition', params: { from: 'discovering', to: 'connecting' } },
+            { type: 'markPageTokenTried' },
             {
               type: 'storeDiscoveryResults',
               params: ({ event }: { event: { output: { port: number | null; token: string | null } } }) => ({
@@ -560,6 +641,7 @@ export const websocketMachine = setup({
           target: 'connecting',
           actions: [
             { type: 'logTransition', params: { from: 'discovering', to: 'connecting (no discovery)' } },
+            { type: 'markPageTokenTried' },
           ],
         },
       },
@@ -624,7 +706,7 @@ export const websocketMachine = setup({
       on: {
         HELLO_RECEIVED: [
           {
-            guard: 'htmlMtimeChanged',
+            guard: 'serverChanged',
             actions: ['reloadPage'],
           },
           {
