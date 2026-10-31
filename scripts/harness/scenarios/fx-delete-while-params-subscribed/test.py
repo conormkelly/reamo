@@ -21,7 +21,8 @@ def chain_guids(c, want, timeout=2.0):
     deadline = time.time() + timeout
     while True:
         c.drain(0.1)
-        got = [f["fxGuid"] for f in c.latest_event("trackFxChain")["payload"]["fx"]]
+        ev = c.latest_event("trackFxChain")  # only re-sent on a change: none yet after wait_event
+        got = [f["fxGuid"] for f in ev["payload"]["fx"]] if ev else None
         if got == want or time.time() > deadline:
             return got
 
@@ -49,7 +50,8 @@ with Client() as a, Client() as b:
     deadline = time.time() + 2
     while True:
         b.drain(0.1)
-        v = b.latest_event("trackFxParams")["payload"]
+        ev = b.latest_event("trackFxParams")  # only re-sent on a change; until then the last values stand
+        v = ev["payload"] if ev else v
         if abs(v["values"]["0"][0] - 0.75) < 1e-5 or time.time() > deadline:
             break
     print("B after move:", v["fxGuid"] == eq, v["values"])
@@ -61,7 +63,6 @@ with Client() as a, Client() as b:
     err = b.wait_event("trackFxParamsError", timeout=2)
     print("B told:", err)
     b.drain(0.5)
-    late = [m for n, m in b.events if n == "trackFxParams"]
     b.events.clear()
     b.drain(0.5)
     assert not [m for n, m in b.events if n == "trackFxParams"], "param events kept coming after the FX was deleted"

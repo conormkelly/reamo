@@ -21,7 +21,7 @@ def tempo_settles(c, want):
 
 
 with Client() as c:
-    c.wait_event("transport")
+    c.events.append(("transport", c.wait_event("transport")))  # only re-sent when it changes
     problems = []
     for bpm in (960, 2, 133.33, 1):
         # On success the handler sends no response (the UI fires it), so an

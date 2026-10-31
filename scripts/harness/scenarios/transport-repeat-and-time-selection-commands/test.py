@@ -27,7 +27,7 @@ def settle(c, lua, want, label, problems):
 
 
 with Client() as c:
-    c.wait_event("transport")
+    c.events.append(("transport", c.wait_event("transport")))  # only re-sent when it changes
     problems = []
     c.fire("timeSelection/set", start=4, end=12.5)
     tp = settle(c, SEL, [4, 12.5], "timeSelection/set 4..12.5", problems)
@@ -35,6 +35,11 @@ with Client() as c:
     settle(c, CUR, 4, "timeSelection/goStart", problems)
     c.fire("timeSelection/goEnd")
     tp = settle(c, CUR, 12.5, "timeSelection/goEnd", problems)
+    deadline = time.time() + 2  # REAPER can settle before the event that reports it arrives
+    while (tp["timeSelection"] != {"start": 4, "end": 12.5} or tp["cursorPosition"] != 12.5) \
+            and time.time() < deadline:
+        c.drain(0.1)
+        tp = c.latest_event("transport")["payload"]
     if tp["timeSelection"] != {"start": 4, "end": 12.5} or tp["cursorPosition"] != 12.5:
         problems.append(f"transport event after goEnd: {tp}")
     c.fire("transport/seek", position=2)

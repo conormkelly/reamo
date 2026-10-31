@@ -101,7 +101,8 @@ with Client() as c:
     assert held.startswith(PREFIX), f"REAPER's last undo step isn't this one: {held!r}"
     want = held + "\ufffd" if cut else held
     if not wait_project(c, lambda p: p["canUndo"] == want):
+        ev = c.latest_event("project")
         problems.append(f"a description REAPER holds as {held!r}{' (cut)' if cut else ''}: "
-                        f"phones show {c.latest_event('project')['payload']['canUndo']!r}")
+                        f"phones show {ev['payload']['canUndo'] if ev else 'no project event'!r}")
 
 assert not problems, "\n".join(problems)
