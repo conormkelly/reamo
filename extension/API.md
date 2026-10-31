@@ -2723,6 +2723,7 @@ Get all parameter names for an FX (skeleton fetch). **Returns data.**
     "trackGuid": "{AAA}",
     "fxGuid": "{BBB}",
     "paramCount": 4,
+    "nameHash": 5167043298140219,
     "params": ["Gain", "Frequency", "Q", "Output"]
   }
 }
@@ -2730,7 +2731,8 @@ Get all parameter names for an FX (skeleton fetch). **Returns data.**
 
 **Notes:**
 
-- Frontend should cache this "skeleton" in an LRU cache
+- `nameHash` is the hash of the parameter names that `trackFxParams` events carry: the same names give the same value in both
+- Frontend should cache this "skeleton" with its `nameHash` in an LRU cache
 - Refetch when `paramCount` or `nameHash` in subscription events differ from cached
 
 ### `trackFxParams/subscribe`
@@ -2810,7 +2812,7 @@ Sent to subscribed clients at 30Hz with current parameter values.
     "trackGuid": "{AAA}",
     "fxGuid": "{BBB}",
     "paramCount": 50,
-    "nameHash": 3847291,
+    "nameHash": 5167043298140219,
     "values": {
       "0": [0.5, "-6.0 dB"],
       "5": [1.0, "On"],
@@ -2825,10 +2827,10 @@ Sent to subscribed clients at 30Hz with current parameter values.
 | `trackGuid` | string | Track GUID |
 | `fxGuid` | string | FX GUID |
 | `paramCount` | int | Total parameter count |
-| `nameHash` | int | Hash of param names (for skeleton invalidation) |
+| `nameHash` | int | Hash of param names, as `trackFx/getParams` returns it; at most 2^53 - 1, so exact as a JavaScript number |
 | `values` | object | Map of param index to [normalized value, formatted string] |
 
-**Skeleton invalidation:** If `paramCount` or `nameHash` differs from cached skeleton, refetch with `trackFx/getParams`.
+**Skeleton invalidation:** If `paramCount` or `nameHash` differs from cached skeleton, refetch with `trackFx/getParams`. An FX that reports no parameters gets events with `paramCount` 0, empty `values` and the `nameHash` of no names.
 
 ### `trackFxParamsError` Event
 

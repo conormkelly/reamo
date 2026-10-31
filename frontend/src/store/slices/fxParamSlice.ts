@@ -50,10 +50,10 @@ export interface FxParamSlice {
   handleFxParamsError: (payload: FxParamsErrorEventPayload) => void;
   /** Set skeleton from cache or fetch response */
   setFxParamSkeleton: (params: string[], hash: number) => void;
-  /** Set skeleton loading state */
-  setFxParamSkeletonLoading: (loading: boolean) => void;
   /** Set skeleton error */
   setFxParamSkeletonError: (error: string | null) => void;
+  /** Clear the skeleton error and mark the skeleton loading, so FxParamModal fetches it again */
+  retryFxParamSkeleton: () => void;
   /** Clear subscription and values */
   clearFxParamSubscription: () => void;
   /** Check if skeleton needs refresh (hash mismatch) */
@@ -157,17 +157,18 @@ export const createFxParamSlice: StateCreator<FxParamSlice, [], [], FxParamSlice
     });
   },
 
-  setFxParamSkeletonLoading: (loading) => {
-    set({
-      fxParamSkeletonLoading: loading,
-      fxParamSkeletonError: loading ? null : get().fxParamSkeletonError,
-    });
-  },
-
   setFxParamSkeletonError: (error) => {
     set({
       fxParamSkeletonLoading: false,
       fxParamSkeletonError: error,
+    });
+  },
+
+  retryFxParamSkeleton: () => {
+    if (!get().fxParamSubscription) return;
+    set({
+      fxParamSkeletonLoading: true,
+      fxParamSkeletonError: null,
     });
   },
 

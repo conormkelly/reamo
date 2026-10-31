@@ -428,8 +428,17 @@ export interface FxParamsEventPayload {
   trackGuid: string;
   fxGuid: string;
   paramCount: number;  // Total params (for skeleton invalidation)
-  nameHash: number;    // Hash of param names (for skeleton invalidation)
+  nameHash: number;    // Hash of param names, as trackFx/getParams returns it
   values: Record<string, [number, string]>; // "0": [normalized, formatted]
+}
+
+/** trackFx/getParams response payload: the FX's parameter skeleton */
+export interface FxParamsSkeletonPayload {
+  trackGuid: string;
+  fxGuid: string;
+  paramCount: number;
+  nameHash: number;    // Hash of param names, as trackFxParams events carry it
+  params: string[];
 }
 
 /** FX params error event (FX deleted while subscribed) */
