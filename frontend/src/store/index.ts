@@ -439,7 +439,7 @@ export type { ToolbarSlice, ToolbarAction, ToolbarActionBase, ToggleState } from
 export { TOOLBAR_STORAGE_KEY } from './slices/toolbarSlice';
 export type { ActionsSlice, ReaperAction } from './slices/actionsSlice';
 export { parseActionResponse } from './slices/actionsSlice';
-export type { StudioLayoutState, SectionId, SectionConfig } from './slices/studioLayoutSlice';
+export type { StudioLayoutState } from './slices/studioLayoutSlice';
 export type { NotesSlice } from './slices/notesSlice';
 export { getNotesIsDirty, getNotesIsOverLimit, getNotesCanSave } from './slices/notesSlice';
 export type { PlaylistSlice } from './slices/playlistSlice';
