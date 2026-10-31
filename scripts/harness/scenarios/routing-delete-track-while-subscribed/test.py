@@ -23,11 +23,12 @@ with Client() as a, Client() as b:
     deadline = time.time() + 2
     while True:
         a.drain(0.1); b.drain(0.1)
-        got = [r["srcName"] for r in a.latest_event("routing_state")["payload"]["receives"]]
+        ev = a.latest_event("routing_state")  # none until the receives change: wait_event took the subscribe snapshot
+        got = [r["srcName"] for r in ev["payload"]["receives"]] if ev else None
         if got == ["Guitar"] or time.time() > deadline:
             break
     print("bus receives after deleting Vocals:", got, "REAPER:", reaper("return reaper.GetTrackNumSends(reaper.GetTrack(0, 1), -1)"))
-    assert got == ["Guitar"], got
+    assert got == ["Guitar"], got if ev else "no routing_state event within 2 s of deleting Vocals"
 
     reaper("reaper.DeleteTrack(reaper.GetTrack(0, 1))")  # the user deletes the bus in REAPER
     a.drain(1.5); b.drain(0.5)

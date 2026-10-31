@@ -16,7 +16,8 @@ def wait_for(c, pred, what):
         ev = c.latest_event("playlist")
         if ev and pred(ev["payload"]):
             return ev["payload"]
-    raise AssertionError(f"{what}: other client still shows {c.latest_event('playlist')['payload']}")
+    ev = c.latest_event("playlist")
+    raise AssertionError(f"{what}: other client still shows {ev['payload'] if ev else 'no playlist event'}")
 
 
 problems = []

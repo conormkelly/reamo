@@ -48,8 +48,8 @@ def expect_reaper_labels(c, step):
 
 
 with Client() as c:
-    c.wait_event("markers")
-    c.wait_event("regions")
+    for name in ("markers", "regions"):  # only re-sent when they change: keep the snapshots
+        c.events.append((name, c.wait_event(name)))
     expect_reaper_labels(c, "120 BPM 4/4")
     assert shown(c)[0]["Verse"] == "3.1.00"
 

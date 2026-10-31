@@ -32,7 +32,7 @@ with Client() as c:
     g = c.wait_event("trackSkeleton")["payload"]["tracks"][1]["g"]
     time.sleep(1.2)  # GUID cache settles ~1 s after REAPER starts
     assert c.command("trackFx/subscribe", trackGuid=g)["success"]
-    c.wait_event("trackFxChain")
+    c.events.append(("trackFxChain", c.wait_event("trackFxChain")))  # only re-sent when it changes
     problems = []
     steps = [("trackFx/presetNext", {}), ("trackFx/presetNext", {}), ("trackFx/presetPrev", {}),
              ("trackFx/presetSet", {"presetIdx": 3}), ("trackFx/presetPrev", {})]
