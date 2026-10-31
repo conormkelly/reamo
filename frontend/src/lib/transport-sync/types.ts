@@ -59,13 +59,12 @@ export interface TimeProvider {
 }
 
 /**
- * Default time provider using Date.now() (Unix epoch time in ms).
+ * Default time provider: Date.now() in ms.
  *
- * IMPORTANT: We use Date.now() instead of performance.now() because:
- * - The server uses Unix epoch time (REAPER's time_precise() * 1000)
- * - NTP-style clock sync requires both sides to share the same time base
- * - performance.now() uses an arbitrary origin (page load time)
- * - Date.now() uses Unix epoch, matching the server
+ * The server stamps REAPER's time_precise() * 1000, which REAPER documents
+ * only as a precise timestamp, not as Unix epoch. The two clocks don't need
+ * a shared origin: ClockSync's NTP-style offset absorbs any constant
+ * difference. What matters is that both advance in real time.
  */
 export const defaultTimeProvider: TimeProvider = {
   now: () => Date.now(),

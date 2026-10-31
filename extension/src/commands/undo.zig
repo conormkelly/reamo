@@ -22,7 +22,7 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
 }
 
 // NOTE: undo/begin and undo/end commands deliberately removed - they're dangerous with multiple
-// clients as REAPER doesn't support nested undo blocks. See research/REAPER_UNDO_BLOCKS.md
+// clients as REAPER doesn't support nested undo blocks (DEVELOPMENT.md, "Common Pitfalls").
 // Use gesture-based undo coalescing instead (gesture/start, gesture/end).
 
 /// REAPER's description of the step, copied (at a character boundary, as

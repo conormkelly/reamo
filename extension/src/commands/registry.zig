@@ -173,7 +173,7 @@ pub const all = .{
     // Undo
     .{ "undo/add", undo.handleAdd },
     // NOTE: undo/begin and undo/end deliberately removed - they're dangerous with multiple clients
-    // as REAPER doesn't support nested undo blocks. See research/REAPER_UNDO_BLOCKS.md
+    // as REAPER doesn't support nested undo blocks (DEVELOPMENT.md, "Common Pitfalls").
     .{ "undo/do", undo.handleUndo },
     .{ "redo/do", undo.handleRedo },
 

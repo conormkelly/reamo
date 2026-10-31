@@ -4,7 +4,7 @@
 // This shim inherits from IReaperControlSurface and forwards all virtual calls
 // through C function pointers that Zig can implement.
 //
-// See: research/ZIG_CONTROL_SURFACE.md
+// See DEVELOPMENT.md, "CSurf Push-Based Architecture".
 
 #ifndef ZIG_CONTROL_SURFACE_H
 #define ZIG_CONTROL_SURFACE_H

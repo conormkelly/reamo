@@ -1,7 +1,8 @@
 /// CSurf (Control Surface) integration module
 ///
 /// Provides push-based callbacks from REAPER via IReaperControlSurface.
-/// This replaces some 30Hz polling with instant notifications for:
+/// Callbacks give instant notification (polling still runs; see DEVELOPMENT.md,
+/// "CSurf Push-Based Architecture") for:
 /// - Transport state (play/pause/record)
 /// - Track volume/pan/mute/solo/selection
 /// - FX parameter changes
@@ -9,8 +10,6 @@
 ///
 /// When built with -Dcsurf=true, uses C++ shim for IReaperControlSurface.
 /// When disabled, provides no-op stubs.
-///
-/// See: research/ZIG_CONTROL_SURFACE.md
 
 const std = @import("std");
 const logging = @import("../core/logging.zig");

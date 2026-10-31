@@ -882,7 +882,7 @@ fn doProcessing() !void {
     // HEARTBEAT SAFETY NET (every 2 seconds = 60 frames at 30Hz)
     // CSurf can miss events (rapid changes, ReaScript, undo/redo).
     // This forces full comparison of all subscribed state to catch drift.
-    // SWS-validated interval from research/REAPER_CSURF_API_BEHAVIOUR.md
+    // 2s is the interval SWS uses. Rationale: DEVELOPMENT.md, "CSurf Push-Based Architecture".
     // ========================================================================
     if (csurf.enabled and g_frame_counter % csurf_dirty.SAFETY_POLL_INTERVAL == 0) {
         if (g_dirty_flags) |flags| {
