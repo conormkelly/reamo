@@ -1,7 +1,7 @@
 /// Fixed Lanes / Swipe Comping command handlers.
 ///
 /// Implements backend commands for REAPER's fixed lane comping system.
-/// See docs/features/SWIPE_COMPING.md for implementation details.
+/// REAPER behaviour these rely on: docs/architecture/SWIPE_COMPING.md.
 const std = @import("std");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
