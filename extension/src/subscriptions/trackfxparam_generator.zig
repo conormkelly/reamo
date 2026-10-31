@@ -72,18 +72,17 @@ pub fn generateParamValues(
         };
     }
 
-    // Compute name hash for skeleton invalidation (hash of all param names concatenated)
-    var name_hash: u64 = 0;
+    // The same hash trackFx/getParams returns, so a client's cached skeleton
+    // matches the events while the names are unchanged.
+    var hasher = fx.ParamNameHasher{};
     {
-        var hasher = std.hash.Wyhash.init(0);
-        var name_buf: [256]u8 = undefined;
+        var name_buf: [fx.ParamNameHasher.name_buf_len]u8 = undefined;
         var i: c_int = 0;
         while (i < param_count) : (i += 1) {
-            const name = api.trackFxGetParamName(track, fx_idx, i, &name_buf);
-            hasher.update(name);
+            hasher.update(api.trackFxGetParamName(track, fx_idx, i, &name_buf));
         }
-        name_hash = hasher.final();
     }
+    const name_hash = hasher.final();
 
     // A big synth's parameters with long labels run well past any fixed
     // buffer; the message grows to fit (~100 bytes per parameter).

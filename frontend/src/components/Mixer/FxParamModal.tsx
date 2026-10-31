@@ -13,6 +13,7 @@ import { BottomSheet } from '../Modal/BottomSheet';
 import { useReaper } from '../../hooks/useReaper';
 import { useReaperStore } from '../../store';
 import { trackFxParams, gesture } from '../../core/WebSocketCommands';
+import type { FxParamsSkeletonPayload } from '../../core/WebSocketTypes';
 
 export interface FxParamModalProps {
   /** Whether the modal is open */
@@ -153,8 +154,8 @@ export function FxParamModal({
   const paramCount = useReaperStore((s) => s.fxParamCount);
   const setFxParamSubscription = useReaperStore((s) => s.setFxParamSubscription);
   const setFxParamSkeleton = useReaperStore((s) => s.setFxParamSkeleton);
-  const setFxParamSkeletonLoading = useReaperStore((s) => s.setFxParamSkeletonLoading);
   const setFxParamSkeletonError = useReaperStore((s) => s.setFxParamSkeletonError);
+  const retryFxParamSkeleton = useReaperStore((s) => s.retryFxParamSkeleton);
   const clearFxParamSubscription = useReaperStore((s) => s.clearFxParamSubscription);
 
   // Local search state
@@ -200,33 +201,41 @@ export function FxParamModal({
     };
   }, [isOpen, trackGuid, fxGuid, fxName, sendCommand, setFxParamSubscription, clearFxParamSubscription]);
 
-  // Fetch skeleton if needed
+  // Fetch the skeleton whenever the store marks it loading: on open without a
+  // cached skeleton, when a trackFxParams event's paramCount or nameHash
+  // differs from it (handleFxParamsEvent), and on Retry. The skeleton is
+  // stored with the nameHash getParams returns, the hash the events carry, so
+  // it is fetched again only when the names change. A failed fetch clears
+  // loading and shows the error with a Retry button; it is never retried in a
+  // loop. Without a skeleton nothing is subscribed and no event arrives, so
+  // after a failed first fetch only Retry fetches again. A response that
+  // arrives after the modal closed or switched FX is dropped.
   useEffect(() => {
-    if (!isOpen || !subscription) return;
-    if (skeleton !== null && !skeletonLoading) return;
+    if (!isOpen || !subscription || !skeletonLoading) return;
 
+    let cancelled = false;
     const fetchSkeleton = async () => {
-      setFxParamSkeletonLoading(true);
       try {
         const response = await sendCommandAsync(trackFxParams.getParams(trackGuid, fxGuid));
-        // Response format: { success: true, payload: { trackGuid, fxGuid, paramCount, params: string[] } }
-        const resp = response as { success?: boolean; payload?: { params?: string[]; paramCount?: number } };
-        if (resp?.success && resp.payload?.params) {
-          // TODO: Backend getParams doesn't return nameHash yet (v1.1 feature).
-          // Using paramCount as proxy - skeleton won't refresh if param names change
-          // without count changing. Real hash comes from trackFxParams events.
-          const initialHash = resp.payload.paramCount ?? resp.payload.params.length;
-          setFxParamSkeleton(resp.payload.params, initialHash);
+        if (cancelled) return;
+        const resp = response as { success?: boolean; payload?: Partial<FxParamsSkeletonPayload> };
+        const payload = resp?.success ? resp.payload : undefined;
+        if (Array.isArray(payload?.params) && typeof payload.nameHash === 'number') {
+          setFxParamSkeleton(payload.params, payload.nameHash);
         } else {
           setFxParamSkeletonError('Invalid skeleton response');
         }
       } catch (err) {
+        if (cancelled) return;
         setFxParamSkeletonError(err instanceof Error ? err.message : 'Failed to fetch parameters');
       }
     };
 
     fetchSkeleton();
-  }, [isOpen, subscription, skeleton, skeletonLoading, trackGuid, fxGuid, sendCommandAsync, setFxParamSkeleton, setFxParamSkeletonLoading, setFxParamSkeletonError]);
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, subscription, skeletonLoading, trackGuid, fxGuid, sendCommandAsync, setFxParamSkeleton, setFxParamSkeletonError]);
 
   // Update subscription with filtered indices
   useEffect(() => {
@@ -234,31 +243,6 @@ export function FxParamModal({
 
     sendCommand(trackFxParams.subscribe(trackGuid, fxGuid, { indices: subscribedIndices }));
   }, [isOpen, subscription, trackGuid, fxGuid, subscribedIndices, sendCommand]);
-
-  // Handle skeleton refresh on hash mismatch
-  useEffect(() => {
-    if (!isOpen || !subscription) return;
-    if (paramCount === 0) return;
-
-    // needsSkeletonRefresh is checked in handleFxParamsEvent, which sets skeletonLoading=true
-    // This effect is triggered when that happens
-    if (skeletonLoading && skeleton !== null) {
-      // Refetch skeleton
-      const fetchSkeleton = async () => {
-        try {
-          const response = await sendCommandAsync(trackFxParams.getParams(trackGuid, fxGuid));
-          const resp = response as { success?: boolean; payload?: { params?: string[]; paramCount?: number } };
-          if (resp?.success && resp.payload?.params) {
-            const newHash = resp.payload.paramCount ?? resp.payload.params.length;
-            setFxParamSkeleton(resp.payload.params, newHash);
-          }
-        } catch (err) {
-          setFxParamSkeletonError(err instanceof Error ? err.message : 'Failed to refresh parameters');
-        }
-      };
-      fetchSkeleton();
-    }
-  }, [isOpen, subscription, paramCount, skeletonLoading, skeleton, trackGuid, fxGuid, sendCommandAsync, setFxParamSkeleton, setFxParamSkeletonError]);
 
   // Handle value change
   const handleValueChange = useCallback(
@@ -357,8 +341,16 @@ export function FxParamModal({
 
         {/* Error state */}
         {skeletonError && (
-          <div className="py-8 text-center text-error-text text-base">
-            {skeletonError}
+          <div className="py-8 flex flex-col items-center gap-3 text-center">
+            <p className="text-error-text text-base">{skeletonError}</p>
+            <button
+              type="button"
+              onClick={retryFxParamSkeleton}
+              aria-label="Retry loading parameters"
+              className="min-h-11 min-w-11 px-4 py-2 text-base font-medium rounded-lg bg-bg-elevated hover:bg-bg-hover text-text-primary transition-colors"
+            >
+              Retry
+            </button>
           </div>
         )}
 

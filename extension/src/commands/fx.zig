@@ -328,9 +328,36 @@ pub fn handleMove(api: anytype, cmd: protocol.CommandMessage, response: *mod.Res
     response.success(resp_json);
 }
 
+/// Fingerprint of an FX's parameter names: `nameHash` in trackFx/getParams
+/// responses and trackFxParams events, which must agree for a client to
+/// tell whether its cached skeleton is current. Feed it every name in index
+/// order, each read into a `name_buf_len` buffer so both truncate alike.
+/// Each name is hashed with a terminator, so ["ab", "c"] and ["a", "bc"]
+/// differ. The result is kept to 53 bits so the JSON integer is exact as a
+/// JavaScript number.
+pub const ParamNameHasher = struct {
+    wyhash: std.hash.Wyhash = std.hash.Wyhash.init(0),
+
+    /// Buffer size for reading a parameter name to hash.
+    pub const name_buf_len = 256;
+
+    pub fn update(self: *ParamNameHasher, name: []const u8) void {
+        self.wyhash.update(name);
+        self.wyhash.update(&[_]u8{0});
+    }
+
+    pub fn final(self: *ParamNameHasher) u64 {
+        return self.wyhash.final() & max_safe_json_integer;
+    }
+};
+
+/// Largest integer a JavaScript number holds exactly (Number.MAX_SAFE_INTEGER).
+const max_safe_json_integer: u64 = (1 << 53) - 1;
+
 /// Get all parameter names for an FX (skeleton fetch).
 /// Params: trackGuid, fxGuid OR fxIndex
-/// Response: { "trackGuid": "...", "fxGuid": "...", "paramCount": N, "params": ["name1", "name2", ...] }
+/// Response: { "trackGuid": "...", "fxGuid": "...", "paramCount": N, "nameHash": H, "params": ["name1", "name2", ...] }
+/// `nameHash` is the ParamNameHasher result, as trackFxParams events carry it.
 pub fn handleGetParams(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const resolution = tracks.resolveTrack(api, cmd) orelse {
         logging.debug("trackFx/getParams: track not found", .{});
@@ -391,15 +418,19 @@ fn writeParamNames(ctx: anytype, w: anytype) !void {
     try w.writeAll("\",\"fxGuid\":\"");
     try protocol.writeJsonString(w, ctx.fx_guid);
     try w.print("\",\"paramCount\":{d},\"params\":[", .{ctx.param_count});
-    var name_buf: [256]u8 = undefined;
+    // One read of each name serves both the list and its hash.
+    var hasher = ParamNameHasher{};
+    var name_buf: [ParamNameHasher.name_buf_len]u8 = undefined;
     var i: c_int = 0;
     while (i < ctx.param_count) : (i += 1) {
+        const name = ctx.api.trackFxGetParamName(ctx.track, ctx.fx_idx, i, &name_buf);
+        hasher.update(name);
         if (i > 0) try w.writeByte(',');
         try w.writeByte('"');
-        try protocol.writeJsonString(w, ctx.api.trackFxGetParamName(ctx.track, ctx.fx_idx, i, &name_buf));
+        try protocol.writeJsonString(w, name);
         try w.writeByte('"');
     }
-    try w.writeAll("]}");
+    try w.print("],\"nameHash\":{d}}}", .{hasher.final()});
 }
 
 /// Helper: Resolve FX index from fxGuid or fxIndex parameter.
@@ -471,4 +502,77 @@ test "an FX added at a position lands there even where REAPER only appends" {
     try std.testing.expectEqual(@as(c_int, 3), addFxAt(&m, track, "ReaDelay", 7));
     try std.testing.expectEqual(@as(c_int, 4), addFxAt(&m, track, "ReaGate", null));
     try std.testing.expectEqualStrings("ReaGate", m.tracks[1].fx[4].getName());
+}
+
+test "trackFx/getParams reports the nameHash its trackFxParams events carry" {
+    const mock = @import("../reaper/mock/mod.zig");
+    const guid_cache = @import("../state/guid_cache.zig");
+    const generator = @import("../subscriptions/trackfxparam_generator.zig");
+    const subscriptions = @import("../subscriptions/trackfxparam_subscriptions.zig");
+    const alloc = std.testing.allocator;
+
+    var m = mock.MockBackend{ .track_count = 1 };
+    m.tracks[1].fx[0].setName("ReaEQ");
+    m.tracks[1].fx[0].setParam(0, "Freq", 0.5, "500 Hz");
+    m.tracks[1].fx[0].setParam(1, "Gain", 0.5, "0.0 dB");
+    m.tracks[1].fx[0].setParam(2, "Q", 0.5, "0.71");
+    m.tracks[1].fx_count = 1;
+    const track = m.getTrackByIdx(0).?;
+    var track_guid_buf: [64]u8 = undefined;
+    const track_guid = m.formatTrackGuid(track, &track_guid_buf);
+    var fx_guid_buf: [64]u8 = undefined;
+    const fx_guid = m.trackFxGetGuid(track, 0, &fx_guid_buf);
+
+    var cache = guid_cache.GuidCache.init(alloc);
+    defer cache.deinit();
+    try cache.rebuild(&m);
+    const client = subscriptions.ClientSubscription{ .active = true, .mode = .range, .range_start = 0, .range_end = 2 };
+    const event = try generator.generateParamValues(alloc, &m, &cache, track_guid, fx_guid, &client);
+    defer alloc.free(event.json);
+
+    const ctx = ParamNamesCtx(@TypeOf(&m)){ .api = &m, .track = track, .fx_idx = 0, .track_guid = track_guid, .fx_guid = fx_guid, .param_count = 3 };
+    const skeleton = try protocol.writeAlloc(alloc, 256, ctx, writeParamNames);
+    defer alloc.free(skeleton);
+
+    // Compare the values on the wire, as the client compares them.
+    const opts: std.json.ParseOptions = .{ .ignore_unknown_fields = true };
+    const ev = try std.json.parseFromSlice(struct { payload: struct { nameHash: u64 } }, alloc, event.json, opts);
+    defer ev.deinit();
+    const sk = try std.json.parseFromSlice(struct { nameHash: ?u64 = null }, alloc, skeleton, opts);
+    defer sk.deinit();
+    try std.testing.expectEqual(@as(?u64, ev.value.payload.nameHash), sk.value.nameHash);
+}
+
+test "trackFx/getParams reads each parameter name from the plugin once" {
+    const mock = @import("../reaper/mock/mod.zig");
+    const alloc = std.testing.allocator;
+    var m = mock.MockBackend{ .track_count = 1 };
+    m.tracks[1].fx[0].setParam(0, "Freq", 0.5, "");
+    m.tracks[1].fx[0].setParam(1, "Gain", 0.5, "");
+    m.tracks[1].fx[0].setParam(2, "Q", 0.5, "");
+    m.tracks[1].fx_count = 1;
+    const track = m.getTrackByIdx(0).?;
+
+    m.resetCalls();
+    const ctx = ParamNamesCtx(@TypeOf(&m)){ .api = &m, .track = track, .fx_idx = 0, .track_guid = "{T}", .fx_guid = "{F}", .param_count = 3 };
+    const skeleton = try protocol.writeAlloc(alloc, 4096, ctx, writeParamNames);
+    defer alloc.free(skeleton);
+    try std.testing.expectEqual(@as(usize, 3), m.getCallCount(.trackFxGetParamName));
+}
+
+test "ParamNameHasher tells apart names that concatenate alike and fits a JavaScript number" {
+    var a = ParamNameHasher{};
+    a.update("ab");
+    a.update("c");
+    var b = ParamNameHasher{};
+    b.update("a");
+    b.update("bc");
+    var none = ParamNameHasher{};
+
+    const ha = a.final();
+    const hb = b.final();
+    try std.testing.expect(ha != hb);
+    try std.testing.expect(ha <= max_safe_json_integer);
+    try std.testing.expect(hb <= max_safe_json_integer);
+    try std.testing.expect(none.final() <= max_safe_json_integer);
 }
