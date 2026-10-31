@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-#
 # Headless REAPER for driving the REAmo extension end to end.
 #
 # Bakes a pinned REAPER and its runtime dependencies only. The extension .so,
@@ -14,7 +12,10 @@
 # BuildKit sets TARGETARCH for the host: arm64 natively on Apple Silicon,
 # amd64 on an x86 Linux host or CI runner.
 
-FROM debian:bookworm-slim
+# The base image is pinned by digest, so every build starts from the same
+# Debian; a dated tag names the snapshot. Move it at least 7 days after Debian
+# publishes one. The apt packages below and the REAPER tarball are not pinned.
+FROM debian:bookworm-20261020-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8
 
 # RUNTIME (headless REAPER):
 #   xvfb xauth   REAPER always creates a window, even with nothing to show

@@ -1,6 +1,6 @@
 # REAmo Development Guide
 
-> **Writing Zig code?** Start with **[ZIG_GUIDE.md](ZIG_GUIDE.md)** — a concise guide covering memory safety, FFI correctness, and common pitfalls. This document is the comprehensive reference; the guide is the quick-start.
+> **Writing Zig code?** Start with **[ZIG_GUIDE.md](docs/ZIG_GUIDE.md)** — a concise guide covering memory safety, FFI correctness, and common pitfalls. This document is the comprehensive reference; the guide is the quick-start.
 
 This document captures implementation details, API quirks, and outstanding work for the REAmo REAPER web controller.
 
@@ -25,26 +25,60 @@ This document captures implementation details, API quirks, and outstanding work 
 
 ## Quick Start
 
-First time, with Node 22.22.2+ (or 24.15+) and npm 11.16+ (`npm install -g npm@11` if
-`npm --version` is older; the frontend refuses an older npm):
+`make` on its own lists every target with a line on what it does. The ones
+marked **(REAPER)** write into your REAPER's resource folder or quit and
+relaunch REAPER; nothing else touches REAPER.
+
+### Prerequisites
+
+| Tool | Version | Why |
+| ---- | ------- | --- |
+| Node | 22.22.2+ or 24.15+ (`frontend/package.json` engines) | frontend and `tests/ws-integration` |
+| npm | 11.16+ (`npm install -g npm@11` if older) | the `.npmrc` supply-chain settings need it; older npm is refused |
+| Zig | **0.15.x** exactly (release builds use 0.15.2) | the extension; 0.16 and later don't build it |
+| GNU Make, a POSIX shell | any | the Makefile (on Windows, Git Bash: see [docs/windows-dev-setup.md](docs/windows-dev-setup.md)) |
+| Docker | 23+ (BuildKit) | optional: the container checks and the live-REAPER harness |
+| Python 3 | any | optional: the harness's tour coverage check |
+
+If the `zig` on your `PATH` is another version, point the Makefile at 0.15:
+`make test-extension ZIG=/path/to/zig-0.15/zig` (or `export ZIG=...`). Every
+Zig target checks the version first and says so if it's wrong.
+
+### First run
 
 ```bash
-cd frontend && npm ci && npm run prepare   # dependencies, then the git hooks
+make install    # npm ci in frontend/ and tests/ws-integration/, the git hooks, Playwright's Chromium
+make check      # lint, typecheck, unit + E2E + Zig tests
 ```
 
-`frontend/.npmrc` turns off dependency install scripts, which also stops
-`npm ci` installing the git hooks, so `npm run prepare` does it. It also
-holds back any version published in the last 7 days, and refuses
-dependencies from git or a URL instead of the npm registry. Dependabot
-proposes updates weekly, with the same 7-day wait.
+On Linux, Chromium also needs system libraries: `cd frontend && sudo npx
+playwright install-deps chromium` once (or use `make container-check`).
+
+`frontend/.npmrc` (and `tests/ws-integration/.npmrc`) turn off dependency
+install scripts, which also stops `npm ci` installing the git hooks, so
+`make install` runs `npm run prepare` for them. They also hold back any
+version published in the last 7 days, and refuse dependencies from git or a
+URL instead of the npm registry. Dependabot proposes updates weekly, with the
+same 7-day wait.
+
+### With only Docker
 
 ```bash
-make frontend    # Build frontend → index.html (auto-reloads on iPad)
-make extension   # Build extension → REAPER UserPlugins (restart REAPER to load)
-make test        # Run all tests before committing
+make container-check    # `make check` in a container with pinned Node, npm, Chromium and Zig
 ```
 
-**Frontend changes** are visible immediately — the web UI auto-reloads when the HTML file is updated.
+This builds `scripts/container/Dockerfile` (Playwright's image, pinned by
+digest, plus npm 11.21.1 and Zig 0.15.2 checked against its SHA-256) and runs
+the checks on a copy of the working tree: nothing is written to the checkout.
+
+### Building into REAPER
+
+```bash
+make frontend    # Build the web UI → reamo/, and copy it to REAPER's reaper_www_root/reamo/ (REAPER)
+make extension   # Build the extension → REAPER's UserPlugins (REAPER; restart REAPER to load)
+```
+
+**Frontend changes** are visible immediately: the web UI auto-reloads when the HTML file is updated.
 
 **Extension changes** require restarting REAPER to load the new plugin.
 
@@ -53,86 +87,37 @@ make test        # Run all tests before committing
 ### Project Structure
 
 ```text
-reaper_www_root/
-├── extension/           # Zig REAPER extension (WebSocket server)
+<repo>/
+├── extension/              # Zig REAPER extension: HTTP + WebSocket server
+│   ├── build.zig(.zon)     # build options: -Dcsurf, -Ddev, -Dtracy; Zig 0.15.x
+│   ├── API.md              # WebSocket protocol reference (every command and event)
+│   ├── effects/REAmo/      # JSFX shipped with the extension (PitchDetect.jsfx, the tuner)
 │   └── src/
-│       ├── main.zig           # Entry point, timer loop, state broadcasting
-│       ├── constants.zig      # Shared MAX_* constants (MAX_TRACKS, MAX_ITEMS, etc.)
-│       ├── errors.zig         # Error type hierarchy, ErrorCode registry, rate limiting
-│       ├── ffi.zig            # FFI validation: safeFloatToInt(), NaN/Inf checks
-│       ├── logging.zig        # Ring buffer logging, crash recovery, log levels
-│       ├── protocol.zig       # JSON parsing for commands (no allocations)
-│       ├── reaper.zig         # Re-exports: RealBackend, MockBackend, raw types
-│       ├── reaper/            # REAPER API abstraction layer
-│       │   ├── raw.zig        # C function pointers (~80 raw functions)
-│       │   ├── types.zig      # Shared types (BeatsInfo, MarkerInfo, etc.)
-│       │   ├── backend.zig    # validateBackend() comptime check (~150 methods)
-│       │   ├── real.zig       # RealBackend - production wrapper around raw.Api
-│       │   └── mock/          # MockBackend for testing (7 files)
-│       │       ├── mod.zig        # MockBackend struct composition + delegation
-│       │       ├── state.zig      # MockTrack, MockItem, encoding helpers
-│       │       ├── transport.zig  # Transport mock methods
-│       │       ├── tracks.zig     # Track/item mock methods
-│       │       ├── markers.zig    # Marker/region mock methods
-│       │       ├── project.zig    # Project/undo/extstate mock methods
-│       │       └── preferences.zig # Smooth seek & preferences mock methods
-│       ├── frame_arena.zig    # DoubleBufferedState for swappable arenas
-│       ├── tiered_state.zig   # Tiered arenas: HIGH/MEDIUM/LOW + scratch
-│       ├── transport.zig      # Transport state polling (HIGH tier, 30Hz)
-│       ├── tracks.zig         # Track state & metering (HIGH tier, 30Hz)
-│       ├── items.zig          # Item/take state polling (MEDIUM tier, 5Hz)
-│       ├── markers.zig        # Marker/region state polling (MEDIUM tier, 5Hz)
-│       ├── project.zig        # Project state: length, BPM, undo, repeat
-│       ├── fx.zig             # FX chain state: plugins, enabled, presets
-│       ├── sends.zig          # Send state: destination, volume, pan, mute
-│       ├── tempomap.zig       # Tempo marker state (LOW tier, 1Hz)
-│       ├── track_skeleton.zig # Lightweight name+GUID list (LOW tier, 1Hz)
-│       ├── track_subscriptions.zig  # Per-client track viewport subscriptions (index range or GUIDs)
-│       ├── timeline_subscriptions.zig # Per-client time-range subscriptions (items only)
-│       ├── toggle_subscriptions.zig # Action toggle state subscriptions
-│       ├── project_notes.zig  # Project notes subscription management
-│       ├── guid_cache.zig     # O(1) GUID → track pointer lookup
-│       ├── gesture_state.zig  # Gesture tracking for undo coalescing
-│       ├── playlist.zig       # Playlist state (entries, loop counts)
-│       ├── ws_server.zig      # WebSocket server and client management
-│       ├── peaks_subscriptions.zig    # Per-client peak/waveform tile subscriptions
-│       ├── trackfx_subscriptions.zig  # Per-client FX chain subscriptions
-│       ├── trackfxparam_subscriptions.zig # Per-client FX param subscriptions
-│       ├── trackfxparam_generator.zig # FX param JSON generation with nameHash
-│       ├── csurf.zig          # CSurf callback → dirty flag wiring
-│       ├── csurf_dirty.zig    # DirtyFlags struct with BitSet(1024) per-track
-│       └── commands/          # Command handlers (120+ handlers in 30+ files)
-│           ├── mod.zig        # dispatch() with inline for, ResponseWriter
-│           ├── registry.zig   # Comptime tuple of all handlers
-│           ├── tracks.zig     # track/setVolume, track/setMute, etc.
-│           ├── transport.zig  # transport/play, transport/stop, etc.
-│           ├── playlist.zig   # playlist/create, play, stop, etc. (15 handlers)
-│           ├── timeline_subs.zig # timeline/subscribe, timeline/unsubscribe
-│           └── ...
-├── frontend/            # React/TypeScript web UI
-│   └── src/
-│       ├── core/              # Types, WebSocket connection
-│       │   ├── types.ts       # Track, Region, Marker types
-│       │   ├── WebSocketTypes.ts    # WSTrack, WSMeter, event payloads
-│       │   └── WebSocketCommands.ts # Command builders
-│       ├── store/             # Zustand state management
-│       │   ├── index.ts       # Main store, WebSocket message handler
-│       │   └── slices/        # State slices:
-│       │       ├── tracksSlice.ts      # Track state and metering
-│       │       ├── transportSlice.ts   # Transport state
-│       │       ├── peaksSlice.ts       # Tile cache with LRU eviction
-│       │       ├── fxChainSlice.ts     # FX chain subscription state
-│       │       ├── fxParamSlice.ts     # FX param state with skeleton cache
-│       │       ├── fxBrowserSlice.ts   # Installed plugin list cache
-│       │       └── ...
-│       ├── hooks/             # useTrack, useTracks, useTransport
-│       ├── components/        # React components
-│       │   └── Track/         # TrackStrip, LevelMeter, Fader, etc.
-│       └── utils/             # volume.ts, color.ts, pan.ts
-├── Scripts/Reamo/       # Lua scripts called by the Zig extension
-│   └── reamo_internal_fetch_peaks.lua  # Peak data fetching via GetMediaItemTake_Peaks
-├── Makefile             # Build commands: make all, make extension, make frontend
-└── index.html           # Built frontend (single-file, served by extension HTTP server)
+│       ├── main.zig        # entry point, timer loop, state broadcasting
+│       ├── core/           # protocol parsing, errors, FFI validation, logging, constants
+│       ├── reaper/         # REAPER API layer: raw.zig, RealBackend, MockBackend (mock/), CSurf C++ shim
+│       ├── server/         # HTTP server, WebSocket clients, host validation, CSurf dirty flags
+│       ├── state/          # polled REAPER state: transport, tracks, items, markers, FX, playlist...
+│       ├── subscriptions/  # per-client subscriptions (track viewport, peaks, FX, routing, notes)
+│       ├── commands/       # command handlers; registry.zig lists them, mod.zig dispatches
+│       ├── audio/          # audio hook and streaming
+│       └── platform/       # Extensions menu, timers, network detection, OS specifics
+├── frontend/               # React 19 + TypeScript + Vite web UI (builds into ../reamo/)
+│   ├── src/                # core/ (protocol, sync engines), store/ (Zustand slices), hooks/,
+│   │                       # components/, views/, utils/
+│   ├── e2e/                # Playwright E2E tests
+│   └── FRONTEND_DEVELOPMENT.md
+├── reamo/                  # built web UI (gitignored): what the extension serves
+├── tests/ws-integration/   # Vitest suite driving a real REAPER over WebSocket
+├── test-fixtures/          # test-project-1.RPP and its media, used by ws-integration and the harness
+├── scripts/
+│   ├── harness/            # live-REAPER harness: headless REAPER in Docker (README.md)
+│   ├── container/          # the check image `make container-check` runs in
+│   ├── bump-version.sh     # set the version in every file that carries it
+│   └── check-cpu-baseline.py  # release CI: no instructions beyond the baseline CPU
+├── installer/              # Install/Uninstall Lua scripts and README shipped in the release zip
+├── docs/                   # architecture notes, REAPER API headers, ZIG_GUIDE.md, Windows setup
+└── Makefile                # build, test and install targets: `make` lists them
 ```
 
 ### Threading Model
@@ -1723,29 +1708,44 @@ Non-technical musicians should never see error dialogs or need to configure port
 
 ## Build & Test
 
+`make` lists every target; the main ones:
+
 ```bash
-# Build everything (runs tests first, then builds)
-make all
-
-# Run all tests (frontend unit + E2E + extension)
-make test
-
-# Run individual test suites
+# Checks that need no REAPER
+make check            # lint + typecheck + test
+make lint             # ESLint: frontend/ and tests/ws-integration/
+make typecheck        # TypeScript: frontend/ and tests/ws-integration/
+make test             # test-frontend + test-e2e + test-extension
 make test-frontend    # Vitest unit tests
-make test-e2e         # Playwright E2E tests
+make test-e2e         # Playwright E2E tests (starts Vite on 5173, or reuses one already there)
 make test-extension   # Zig unit tests
+make container-check  # `make check` in the pinned check container (needs only Docker)
 
-# Build without tests
-make frontend         # Build frontend (index.html + static assets)
-make extension        # Build extension (installs to REAPER UserPlugins)
+# Against a real REAPER
+make test-ws          # tests/ws-integration against your REAPER, with test-fixtures/test-project-1.RPP open
+make test-ws-harness  # the same suite against headless REAPER in Docker
+make harness          # live-REAPER harness scenarios (scripts/harness/README.md)
+make release-check    # release gate: every scenario on the oldest and the pinned REAPER
 
-# Development
-make install          # Install frontend npm dependencies
+# Build
+make frontend-build   # web UI → reamo/ (nothing outside the checkout)
+make frontend         # frontend-build, then copy to REAPER's reaper_www_root/reamo/ (REAPER)
+make extension        # build, then copy to REAPER's UserPlugins (REAPER)
+make all              # test, then frontend and extension (REAPER)
 
-# Extension development cycle (tests → kill REAPER → build → relaunch)
-make dev              # Full cycle with tests
-make dev-notests      # Quick cycle without tests (for rapid iteration)
+# Extension development cycle (REAPER)
+make dev              # tests → quit REAPER → dev-extension → relaunch
+make dev-notests      # the same without the tests, for rapid iteration
+make frontend-dev     # Vite dev server with hot reload
 ```
+
+`make test-e2e` reuses a server already listening on 5173 (outside CI), so
+stop any other checkout's `make frontend-dev` first or it tests that code.
+
+Release zips are built only by `.github/workflows/release.yml`, which names
+every target and CPU explicitly (a build for the build machine's CPU can crash
+REAPER at startup on older ones) and checks them with
+`scripts/check-cpu-baseline.py`.
 
 ### Extension Development Workflow
 
@@ -1791,43 +1791,32 @@ Extension logs are written to:
 ~/.config/REAPER/Logs/reamo.log                      (Linux)
 ```
 
-Set `REAMO_LOG_LEVEL` environment variable to control verbosity: `err`, `warn`, `info`, `debug`
+Set the `REAMO_LOG_LEVEL` environment variable to control verbosity: `error`, `warn`, `info`, `debug`. The default is `info`, or `debug` in a Debug build (macOS `make extension` builds Debug).
 
 Log rotation: 1MB max, keeps last 3 files.
 
 ### Key Files & Resources
 
 - **REAPER API headers**: `docs/reaper_plugin_functions.h` — authoritative function signatures
+- **Protocol reference**: `extension/API.md` — every command and event
 - **Frontend types**: `frontend/src/core/types.ts` — command IDs, PlayState enum, protocol definitions
-- **Test client**: `extension/test-client.html` — browser-based WebSocket testing
 
 ### WebSocket Testing
 
-```bash
-# Connect with websocat (token from <meta> tag in HTML, or use any string for testing)
-echo '{"type":"hello","clientVersion":"1.0.0","protocolVersion":1,"token":"test"}' | \
-  websocat ws://localhost:9224
-
-# Send a command
-echo '{"type":"command","command":"track/setVolume","trackIdx":1,"volume":0.5,"id":"1"}' | \
-  websocat ws://localhost:9224
-```
-
-**Multi-command testing (hello + command + wait for response):**
-
-The shell environment may not handle subshells `(...)` directly. Wrap in `/bin/bash -c '...'` and use escaped quotes for JSON:
+The extension serves the web UI on `GET /` and upgrades `GET /ws`, on port
+9224, or the next free one up to 9233 if that's taken. A client
+must send the session token, which the served HTML carries as
+`<meta name="reamo-token" content="...">`, in its hello:
 
 ```bash
-# Pattern: hello handshake, then command, then wait for response
-/bin/bash -c 'TOKEN="your-token-here"
+# Hello, one command, then wait briefly for the response
+/bin/bash -c 'TOKEN=$(curl -s http://localhost:9224/ | sed -n "s/.*name=\"reamo-token\" content=\"\([0-9a-f]*\)\".*/\1/p")
 (echo "{\"type\":\"hello\",\"clientVersion\":\"1.0.0\",\"protocolVersion\":1,\"token\":\"$TOKEN\"}"
  echo "{\"type\":\"command\",\"command\":\"tempo/snap\",\"time\":15.7,\"id\":\"1\"}"
- sleep 0.3) | /opt/homebrew/bin/websocat ws://localhost:9224 2>&1'
+ sleep 0.3) | websocat ws://localhost:9224/ws 2>&1'
 
-# Filter for specific event types
-/bin/bash -c 'TOKEN="..."
-(echo "{\"type\":\"hello\",...}"
- sleep 0.3) | websocat ws://localhost:9224 2>&1 | grep -m1 "\"event\":\"transport\""'
+# Filter for specific event types: pipe the same into
+#   grep -m1 "\"event\":\"transport\""
 ```
 
 **Key escaping rules inside `/bin/bash -c '...'`:**
@@ -1836,15 +1825,14 @@ The shell environment may not handle subshells `(...)` directly. Wrap in `/bin/b
 - Variables like `$TOKEN` expand normally
 - Newlines between `echo` statements are fine
 
+For anything beyond a one-off, `tests/ws-integration/helpers/client.ts` and
+`scripts/harness/reamo_client.py` are complete clients.
+
 ### Enable Debug Logging
 
-In `extension/src/reaper.zig`:
-
-```zig
-pub const DEBUG_LOGGING = true;  // Set to true for console output
-```
-
-Then check REAPER's console (Actions → Show console).
+Extensions → REAmo → **Debug Logging (until REAPER restarts)** turns on
+debug-level logging to `reamo.log` for the session. To start at a given
+level, set `REAMO_LOG_LEVEL` before launching REAPER (see Log Files).
 
 ## WebSocket Compression
 

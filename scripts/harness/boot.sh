@@ -15,7 +15,9 @@
 set -uo pipefail
 
 SCENARIO="${1:?usage: boot.sh <scenario>}"
-SDIR="/harness/scenarios/$SCENARIO"
+# HARNESS_SCENARIO_DIR runs a scenario kept outside scenarios/, which a full
+# run doesn't pick up (ws-integration.sh's host for tests/ws-integration).
+SDIR="${HARNESS_SCENARIO_DIR:-/harness/scenarios/$SCENARIO}"
 HOME_DIR=/tmp/reaper
 READY=/tmp/harness_fixture_ready
 

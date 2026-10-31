@@ -18,13 +18,33 @@ afterwards**: a segfault is a failure even if the client saw no error.
 ## Requirements
 
 - Docker (Apple Silicon runs REAPER for aarch64 natively; x86_64 hosts use x86_64)
-- Zig 0.15.x, on `PATH` or via `ZIG=/path/to/zig`
-- A built frontend in `web/` (`make frontend`): `index.html` carries the
-  hello token the client reads, as the browser does
+- Zig 0.15.x, on `PATH` or via `ZIG=/path/to/zig` (`make harness ZIG=...`
+  works too)
+- A built frontend in `reamo/` (`make frontend-build`): `index.html` carries
+  the hello token the client reads, as the browser does
+- Python 3, for the tour coverage check a full run starts with
 - A REAPER licence file, see below
 
 The first run builds the `reamo-v1-harness:reaper-7.83` image (~30 s:
-Debian, REAPER 7.83, xvfb/GTK/ALSA, python3, gdb).
+Debian, REAPER 7.83, xvfb/GTK/ALSA, python3, gdb). The Debian base is pinned
+by digest in the `Dockerfile`.
+
+## The WebSocket integration suite
+
+`tests/ws-integration` asserts against `test-fixtures/test-project-1.RPP`.
+`make test-ws-harness` (`ws-integration.sh`) runs it against a headless
+REAPER with that project open, so it needs no desktop REAPER:
+
+```sh
+make test-ws-harness
+scripts/harness/ws-integration.sh --reaper oldest
+```
+
+REAPER runs as a harness scenario kept outside `scenarios/`
+(`ws-integration/test.py`, which opens the project and waits); the suite
+runs in the check image (`scripts/container/Dockerfile`) inside that
+container's network namespace, so it reaches `localhost:9224` as on a
+desktop. It passes only if every spec passes and REAPER is still running.
 
 ## Running against another REAPER release
 
@@ -76,7 +96,7 @@ screenshots wouldn't exist (Microsoft: containers "were designed to not have
 RDP or GUI support"), and a Windows VM needs its own licence.
 
 **How it runs.** `windows/run.sh` (on the controller) builds
-`reaper_reamo.dll`, copies a snapshot of this directory, `web/`, the effects,
+`reaper_reamo.dll`, copies a snapshot of this directory, `reamo/`, the effects,
 the fixtures and the licence to the PC, and runs each scenario there in turn.
 A process started over SSH has no desktop, so `windows/run-scenario.ps1`
 hands the scenario to `windows/boot.ps1` through a scheduled task in the
