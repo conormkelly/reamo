@@ -1,16 +1,17 @@
 //! Fast Timer for Command Queue Processing
 //!
-//! A 100Hz (10ms) timer drains the WebSocket command queue, separate from the
-//! 30Hz polling timer, so every command (MIDI, transport, parameters) spends
-//! less time queued: at most one interval, so up to 33ms (~16ms average) at
-//! 30Hz vs up to 10ms (~5ms average) at 100Hz. These follow from the timer
-//! intervals; they are not measurements.
+//! A 10ms timer (100Hz on macOS, ~63Hz on Windows) drains the WebSocket
+//! command queue, separate from the 30Hz polling timer, so every command
+//! (MIDI, transport, parameters) spends less time queued: at most one
+//! interval, so up to 33ms (~16ms average) at 30Hz vs up to 10ms (~5ms
+//! average) at 100Hz, or ~16ms (~8ms average) on Windows.
 //!
 //! Platform implementations:
 //! - macOS: dispatch_source (GCD) on the main queue.
-//! - Windows: Win32 SetTimer with TIMERPROC. Its default resolution is
-//!   ~15.6ms, so a 10ms timer may fire every 15-16ms unless timeBeginPeriod(1)
-//!   is in effect. Not yet measured; REAPER may already raise the resolution.
+//! - Windows: Win32 SetTimer with TIMERPROC. USER timers fire on the
+//!   ~15.6ms system tick, so the 10ms timer runs at ~63Hz (measured 15.8ms
+//!   on Windows 10 22H2, idle or playing); timeBeginPeriod(1) doesn't change
+//!   that (measured).
 //! - Linux: not implemented. zig_fast_timer_start returns false and commands
 //!   drain at 30Hz from the polling timer's fallback. SWELL's SetTimer with a
 //!   TIMERPROC (wrapping glib timers) is the likely route.
@@ -27,6 +28,9 @@
 //! - Virtual MIDI ports (CoreMIDI; on Windows the licensed virtualMIDI SDK or
 //!   a user-installed loopMIDI): they would skip the queue but make the user
 //!   pick the port in REAPER's preferences; armed tracks work as they are.
+//! - 100Hz on Windows: a high-resolution waitable timer on a worker thread,
+//!   posting to a main-thread window, measured 11ms, but its thread and
+//!   unload teardown aren't worth ~3ms of command wait.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -34,6 +38,20 @@ const logging = @import("../core/logging.zig");
 
 /// Timer interval in milliseconds (100Hz = 10ms)
 pub const COMMAND_TIMER_INTERVAL: c_uint = 10;
+
+/// The interval the timer fires at in practice: on Windows the 10ms request
+/// lands on the ~15.6ms system tick (measured 15.8ms average).
+pub const EXPECTED_INTERVAL_MS: i64 = if (builtin.os.tag == .windows) 16 else COMMAND_TIMER_INTERVAL;
+
+/// A tick counts as a slip when it is more than half an interval late,
+/// i.e. the main thread was busy through a tick.
+pub fn isSlip(delta_ms: i64) bool {
+    return isSlipAt(EXPECTED_INTERVAL_MS, delta_ms);
+}
+
+fn isSlipAt(interval_ms: i64, delta_ms: i64) bool {
+    return delta_ms > interval_ms + @divTrunc(interval_ms, 2);
+}
 
 /// Simple callback type (no parameters needed - state accessed via globals)
 pub const FastTimerCallback = *const fn () callconv(.c) void;
@@ -69,14 +87,14 @@ const win32 = if (builtin.os.tag == .windows) struct {
 // =============================================================================
 
 /// Fast timer for command queue processing.
-/// Uses platform-native timers for precise timing with main-thread callbacks.
+/// Uses platform-native timers with main-thread callbacks.
 pub const FastTimer = struct {
     timer_id: usize = 0,
     running: bool = false,
     callback: ?FastTimerCallback = null,
 
     /// Start the timer with the given callback.
-    /// The callback will fire every COMMAND_TIMER_INTERVAL ms on the main thread.
+    /// The callback fires on the main thread every EXPECTED_INTERVAL_MS or so.
     /// Returns error if timer creation fails.
     pub fn start(self: *FastTimer, callback: FastTimerCallback) !void {
         if (self.running) return;
@@ -142,5 +160,26 @@ fn win32TimerProc(_: ?*anyopaque, _: c_uint, _: usize, _: c_uint) callconv(.c) v
         if (timer.callback) |cb| {
             cb();
         }
+    }
+}
+
+test "a tick on the timer's grid is not a slip; a missed tick is" {
+    // Windows: measured 14-17ms between ticks, 29-32ms when a tick is missed.
+    try std.testing.expect(!isSlipAt(16, 17));
+    try std.testing.expect(!isSlipAt(16, 24));
+    try std.testing.expect(isSlipAt(16, 25));
+    try std.testing.expect(isSlipAt(16, 29));
+    // macOS: 10ms ticks.
+    try std.testing.expect(!isSlipAt(10, 15));
+    try std.testing.expect(isSlipAt(10, 16));
+}
+
+test "an on-time tick on this platform is not a slip" {
+    if (builtin.os.tag == .windows) {
+        try std.testing.expectEqual(@as(i64, 16), EXPECTED_INTERVAL_MS);
+        try std.testing.expect(!isSlip(18));
+    } else {
+        try std.testing.expectEqual(@as(i64, 10), EXPECTED_INTERVAL_MS);
+        try std.testing.expect(!isSlip(15));
     }
 }
