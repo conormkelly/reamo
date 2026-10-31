@@ -166,9 +166,8 @@ const discoveryActor = fromPromise<
 
   // Safari network warmup: fetch a lightweight HTTP endpoint before WebSocket.
   // Safari's network stack is lazy — the page's initial HTTP load isn't always
-  // enough to prepare WebSocket connections. Previously the EXTSTATE fetches
-  // provided this warmup accidentally. Without it, WebSocket attempts fail
-  // on first try and require retries.
+  // enough to prepare WebSocket connections. Without it, WebSocket attempts
+  // fail on first try and require retries.
   if (isSafari) {
     try {
       await fetch('/api/ping');

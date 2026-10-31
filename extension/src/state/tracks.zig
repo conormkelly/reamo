@@ -92,7 +92,7 @@ pub const Track = struct {
     hw_output_count: u16 = 0,
 
     // Record input (I_RECINPUT encoding): only present when rec_arm=true
-    // -1 = no input, see research/REC_INPUT_SELECTION.md for full encoding spec
+    // -1 = no input; encoding in commands/inputs.zig and frontend/src/utils/input.ts
     rec_input: ?c_int = null,
 
     // GUID for stable track identification (master uses "master", user tracks use REAPER GUID)

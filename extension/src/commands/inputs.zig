@@ -307,7 +307,7 @@ fn decodeRecInput(value: c_int) union(enum) { none, audio: DecodedAudio, midi: D
 }
 
 // ============================================================================
-// Tests - I_RECINPUT Encoding (from research/REC_INPUT_SELECTION.md)
+// Tests - I_RECINPUT Encoding
 // ============================================================================
 
 test "audio encoding - mono channel 1" {
