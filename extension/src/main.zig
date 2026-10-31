@@ -136,13 +136,14 @@ var g_initialized: bool = false;
 // Audio monitoring (binary WebSocket PCM streaming)
 var g_audio_stream: ?*audio_stream.AudioStreamManager = null;
 
-// Fast timer for 100Hz command queue processing (reduces latency from ~19ms to ~8ms)
+// Fast timer draining the command queue between 30Hz ticks (100Hz on macOS,
+// ~63Hz on Windows; see platform/fast_timer.zig)
 var g_fast_timer: fast_timer.FastTimer = .{};
 
 // Fast timer jitter tracking (for debugging)
-var g_fast_timer_last_tick: i64 = 0;
+var g_fast_timer_last_tick: ?std.time.Instant = null;
 var g_fast_timer_call_count: u64 = 0;
-var g_fast_timer_slip_count: u64 = 0; // Intervals > 15ms
+var g_fast_timer_slip_count: u64 = 0; // Ticks fast_timer.isSlip counts late
 var g_fast_timer_max_interval: i64 = 0;
 var g_fast_timer_total_interval: i64 = 0; // For average calculation
 
@@ -506,9 +507,9 @@ fn processTimerCallback() callconv(.c) void {
     };
 }
 
-/// 100Hz command queue timer callback
+/// Fast command queue timer callback (100Hz on macOS, ~63Hz on Windows).
 /// Called directly by OS timer - runs on main thread.
-/// Drains ALL pending commands for reduced latency (~8ms vs ~19ms at 30Hz).
+/// Drains ALL pending commands, so they wait less than a 30Hz tick.
 ///
 /// SAFETY: This is a C-callable entry point.
 fn commandQueueTimerCallback() callconv(.c) void {
@@ -517,17 +518,18 @@ fn commandQueueTimerCallback() callconv(.c) void {
     defer g_in_timer_callback = false;
 
     // Jitter tracking
-    const now = std.time.milliTimestamp();
-    if (g_fast_timer_last_tick != 0) {
-        const delta = now - g_fast_timer_last_tick;
+    // Monotonic, so a wall-clock step can't fake a slip or a negative interval.
+    const now = std.time.Instant.now() catch null;
+    if (now != null and g_fast_timer_last_tick != null) {
+        const delta: i64 = @intCast(now.?.since(g_fast_timer_last_tick.?) / std.time.ns_per_ms);
         g_fast_timer_total_interval += delta;
 
         if (delta > g_fast_timer_max_interval) {
             g_fast_timer_max_interval = delta;
         }
 
-        // Log slips (> 15ms when expecting 10ms)
-        if (delta > 15) {
+        // Log ticks the main thread was too busy to take on time
+        if (fast_timer.isSlip(delta)) {
             g_fast_timer_slip_count += 1;
             logging.debug("FastTimer slip: {}ms (slip #{}, call #{})", .{ delta, g_fast_timer_slip_count, g_fast_timer_call_count });
         }
@@ -535,7 +537,7 @@ fn commandQueueTimerCallback() callconv(.c) void {
     g_fast_timer_last_tick = now;
     g_fast_timer_call_count += 1;
 
-    // Log stats every 1000 calls (~10 seconds at 100Hz)
+    // Log stats every 1000 calls (~10 s at 100Hz, ~16 s on Windows)
     if (g_fast_timer_call_count % 1000 == 0 and g_fast_timer_call_count > 0) {
         const avg = @divTrunc(g_fast_timer_total_interval, @as(i64, @intCast(g_fast_timer_call_count)));
         logging.debug("FastTimer stats: calls={}, slips={}, avg={}ms, max={}ms", .{
@@ -698,7 +700,7 @@ fn doProcessing() !void {
 
         logging.info("HTTP+WS server started on port {d}", .{g_port});
 
-        // Start 100Hz command queue timer for reduced latency
+        // Start the fast command queue timer for reduced latency
         g_fast_timer.start(&commandQueueTimerCallback) catch |err| {
             if (builtin.os.tag == .linux) {
                 logging.debug("Commands run on the 30 Hz timer (no fast timer on Linux)", .{});
@@ -709,7 +711,7 @@ fn doProcessing() !void {
     }
 
     // Process pending commands from WebSocket clients (fallback if fast timer not running)
-    // Normally the 100Hz timer drains the queue; this is defensive fallback
+    // Normally the fast timer drains the queue; this is defensive fallback
     if (!g_fast_timer.isRunning()) {
         _ = g_playlist_state.followProject(&backend, project.Identity.current(&backend));
         while (shared_state.popCommand()) |cmd| {
@@ -1221,6 +1223,7 @@ test {
     _ = @import("core/utf8.zig");
     _ = @import("platform/project_load.zig");
     _ = @import("platform/sigpipe.zig");
+    _ = @import("platform/fast_timer.zig");
     _ = @import("platform/network_action.zig");
     _ = @import("reaper/raw.zig");
     _ = @import("state/transport.zig");

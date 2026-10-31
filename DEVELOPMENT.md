@@ -150,8 +150,9 @@ make extension   # Build the extension → REAPER's UserPlugins (REAPER; restart
 - **All REAPER API calls happen on the main thread.** CSurf callbacks and
   timer callbacks both run there.
 - The server threads only parse and queue: a command goes into a
-  mutex-protected queue, and the main thread drains it (100 Hz fast timer on
-  macOS/Windows, see `platform/fast_timer.zig`; otherwise the 30 Hz timer),
+  mutex-protected queue, and the main thread drains it (fast timer: 100 Hz on
+  macOS, ~63 Hz on Windows, see `platform/fast_timer.zig`; otherwise the 30 Hz
+  timer),
   calls REAPER, and queues responses.
 - Exceptions answered on the server thread, never touching REAPER:
   `clockSync` and `ping` (`server/http_server.zig`, types parsed in
