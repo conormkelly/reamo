@@ -157,9 +157,11 @@ var g_restart_server: ?RestartServerFn = null;
 var g_resource_path: ?[]const u8 = null;
 var g_server_port: u16 = 9224; // Extension's HTTP server port
 
-/// Update the server port (called from main.zig after server starts or port changes).
+/// Update the server port (called from main.zig after server starts or port
+/// changes). An open QR code window follows it.
 pub fn setPort(port: u16) void {
     g_server_port = port;
+    qr_window.setPort(port);
 }
 
 /// Get the current server port (used by menu.zig for dynamic title).

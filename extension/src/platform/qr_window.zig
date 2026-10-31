@@ -139,6 +139,14 @@ pub fn hide() void {
     }
 }
 
+/// Follow the server to `port`: an open window redraws its code for it.
+pub fn setPort(port: u16) void {
+    g_http_port = port;
+    if (g_hwnd == null) return;
+    renderCurrentNetwork();
+    swell.invalidateRect(g_hwnd, null, true);
+}
+
 /// Check if the QR window is currently visible.
 pub fn isVisible() bool {
     return g_hwnd != null;
@@ -170,19 +178,23 @@ pub fn nextNetwork() void {
     }
 }
 
+/// The URL the window encodes: the current network on the server's port.
+fn currentUrl(buf: *[128]u8) ?[:0]const u8 {
+    if (g_current_index >= g_network_count) return null;
+    var ip_buf: [16]u8 = undefined;
+    const ip_str = g_networks[g_current_index].ipString(&ip_buf);
+    return std.fmt.bufPrintZ(buf, "http://{s}:{d}/", .{ ip_str, g_http_port }) catch {
+        logging.err("qr_window: URL too long", .{});
+        return null;
+    };
+}
+
 /// Render the QR code for the current network.
 fn renderCurrentNetwork() void {
     if (g_current_index >= g_network_count) return;
 
-    const net = &g_networks[g_current_index];
-    var ip_buf: [16]u8 = undefined;
-    const ip_str = net.ipString(&ip_buf);
-
-    var url_buf: [128:0]u8 = undefined;
-    const url = std.fmt.bufPrintZ(&url_buf, "http://{s}:{d}/", .{ ip_str, g_http_port }) catch {
-        logging.err("qr_window: URL too long", .{});
-        return;
-    };
+    var url_buf: [128]u8 = undefined;
+    const url = currentUrl(&url_buf) orelse return;
 
     _ = qr_render.renderSliceToBGRA(url, &g_qr_buffer, QR_SIZE) catch |err| {
         logging.err("qr_window: failed to render QR: {s}", .{@errorName(err)});
@@ -364,4 +376,19 @@ fn dlgProc(hwnd: swell.HWND, msg: c_uint, wParam: usize, lParam: isize) callconv
             return swell.defWindowProc(hwnd, msg, wParam, lParam);
         },
     }
+}
+
+test "a port change moves the address the QR code window encodes" {
+    const network_action = @import("network_action.zig");
+    g_networks[0] = .{ .ip = .{ 192, 168, 1, 5 }, .interface_name = undefined, .interface_name_len = 0, .network_type = .wifi_lan };
+    g_network_count = 1;
+    g_current_index = 0;
+    defer {
+        g_network_count = 0;
+        network_action.setPort(9224);
+    }
+    network_action.setPort(9224);
+    network_action.setPort(9300);
+    var buf: [128]u8 = undefined;
+    try std.testing.expectEqualStrings("http://192.168.1.5:9300/", currentUrl(&buf).?);
 }
