@@ -22,7 +22,7 @@
  * Every consumer reads one shared store, so they always agree, including
  * a consumer that mounts while the keyboard is up.
  *
- * @see docs/architecture/frontend/RESPONSIVE_FRONTEND_FINAL.md
+ * @see frontend/FRONTEND_DEVELOPMENT.md §21 (Dual-Rail Responsive Layout)
  */
 
 import { useSyncExternalStore } from 'react';
