@@ -121,7 +121,7 @@ export function QuickFilterDropdown({
       {isOpen && createPortal(
         <div
           ref={menuRef}
-          className="fixed w-48 bg-bg-elevated border border-border-subtle rounded-lg shadow-lg z-dropdown overflow-hidden"
+          className="fixed w-48 bg-bg-elevated border border-border-subtle rounded-lg shadow-lg z-popover overflow-hidden"
           style={{ top: position.top, left: position.left, transform: 'translateX(-100%)' }}
           role="listbox"
         >
