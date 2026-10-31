@@ -5,7 +5,7 @@ The extension serves the web app and the WebSocket on one port, from `extension/
 ## What it does
 
 - **Library:** httpz (http.zig, which embeds websocket.zig), pinned to the `conormkelly/http.zig` fork in `extension/build.zig.zon`. The fork carries fixes upstream lacks: Windows socket handling, write backpressure, TCP_NODELAY on accepted sockets, and safe shutdown while clients are connecting.
-- **Port:** 9224 by default, or the one set with **Extensions > REAmo > Change Server Port...** (ExtState `Reamo/ServerPort`). If it's taken, the next nine are tried. Changing it restarts the server.
+- **Port:** 9224 by default, or the one set with **Extensions > REAmo > Change Server Port...** (ExtState `Reamo/ServerPort`). If it's taken, the next nine are tried. Changing it asks first (phones need the new address and lose what they saved under the old one), then restarts the server and shows the address phones open.
 - **Routes:**
   - `GET /`: `reamo/index.html` with the session token injected as `<meta name="reamo-token">` before `</head>`, plus the security headers. Served from memory; in dev mode (`make dev-extension`) read from disk on every request.
   - `GET /api/ping`: constant `{"ok":true}`, fetched before opening the WebSocket to wake Safari's lazy network stack.

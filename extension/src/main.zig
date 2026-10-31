@@ -1225,6 +1225,7 @@ test {
     _ = @import("platform/sigpipe.zig");
     _ = @import("platform/fast_timer.zig");
     _ = @import("platform/network_action.zig");
+    _ = @import("platform/qr_window.zig");
     _ = @import("reaper/raw.zig");
     _ = @import("state/transport.zig");
     _ = @import("state/bar_beat.zig");

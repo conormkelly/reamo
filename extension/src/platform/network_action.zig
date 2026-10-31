@@ -132,6 +132,15 @@ fn getUsbTroubleshootingMessage(host_os: HostOS, has_ios: bool, has_android: boo
     };
 }
 
+/// ShowMessageBox types and answers (reaper_plugin_functions.h). They are
+/// Win32's MB_* and ID* values, which SWELL shares.
+const MB_OK: c_int = 0;
+const MB_YESNO: c_int = 4;
+const IDOK: c_int = 1;
+const IDCANCEL: c_int = 2;
+const IDYES: c_int = 6;
+const IDNO: c_int = 7;
+
 /// Function type for ShowMessageBox
 const ShowMessageBoxFn = *const fn ([*:0]const u8, [*:0]const u8, c_int) callconv(.c) c_int;
 
@@ -156,10 +165,14 @@ var g_set_ext_state: ?SetExtStateFn = null;
 var g_restart_server: ?RestartServerFn = null;
 var g_resource_path: ?[]const u8 = null;
 var g_server_port: u16 = 9224; // Extension's HTTP server port
+/// Lists the networks phones can reach, likeliest first. Tests stand it in.
+var g_detect_networks: *const fn ([]network_detect.NetworkInfo) usize = network_detect.detectOrdered;
 
-/// Update the server port (called from main.zig after server starts or port changes).
+/// Update the server port (called from main.zig after server starts or port
+/// changes). An open QR code window follows it.
 pub fn setPort(port: u16) void {
     g_server_port = port;
+    qr_window.setPort(port);
 }
 
 /// Get the current server port (used by menu.zig for dynamic title).
@@ -396,8 +409,58 @@ fn errorText(err: anyerror) []const u8 {
     };
 }
 
-/// Show dialog to change the server port. The server moves, and the port
-/// is saved, only once the new port is listening.
+/// Room for any port-change message; every one is well under it.
+const port_msg_len = 512;
+
+// The port-change messages break their own lines: SWELL's message box
+// doesn't wrap, so a long line runs off the screen on Linux.
+
+/// The question asked before moving the server from `old_port` to
+/// `new_port`. A phone's address includes the port, so to the phone the
+/// moved server is a new site: its saved settings and home-screen app
+/// belong to the old address.
+fn confirmPortChangeText(buf: *[port_msg_len]u8, old_port: u16, new_port: u16) [:0]const u8 {
+    return std.fmt.bufPrintZ(buf,
+        \\Move REAmo from port {d} to {d}?
+        \\
+        \\Phones will need the new address, and apps added
+        \\to a home screen must be added again.
+        \\
+        \\Settings saved on phones (toolbars, layout,
+        \\sync offset, view options) don't carry over:
+        \\they're tied to the address.
+    , .{ old_port, new_port }) catch unreachable;
+}
+
+/// What to tell the user once the server is on `port`: the address phones
+/// open. `networks` is likeliest first, as the QR code window offers them,
+/// so the first is the one given; Show Network Addresses lists the rest.
+fn portChangedText(buf: *[port_msg_len]u8, port: u16, networks: []const network_detect.NetworkInfo) [:0]const u8 {
+    if (networks.len == 0) {
+        return std.fmt.bufPrintZ(buf,
+            \\REAmo is now on port {d}.
+            \\
+            \\No network was found for phones to reach it.
+            \\Once there is one, Extensions > REAmo >
+            \\Show Network Addresses gives the address.
+        , .{port}) catch unreachable;
+    }
+    var ip_buf: [16]u8 = undefined;
+    const more: []const u8 = if (networks.len > 1)
+        "\n\nFor other addresses: Extensions > REAmo >\nShow Network Addresses."
+    else
+        "";
+    return std.fmt.bufPrintZ(buf,
+        \\REAmo is now on port {d}.
+        \\
+        \\On phones, open:
+        \\http://{s}:{d}/{s}
+    , .{ port, networks[0].ipString(&ip_buf), port, more }) catch unreachable;
+}
+
+/// Show dialog to change the server port. The user confirms the move first;
+/// the server moves, and the port is saved, only once the new port is
+/// listening.
 pub fn showChangePort() void {
     const get_input = g_get_user_inputs orelse {
         logging.err("Network action: GetUserInputs not available", .{});
@@ -439,7 +502,17 @@ pub fn showChangePort() void {
     }
 
     const restart = g_restart_server orelse return;
-    var msg_buf: [192]u8 = undefined;
+    const show_msg = g_show_message_box orelse {
+        logging.err("Network action: ShowMessageBox not available to confirm the port change", .{});
+        return;
+    };
+
+    var msg_buf: [port_msg_len]u8 = undefined;
+    // Anything but Yes moves nothing.
+    if (show_msg(confirmPortChangeText(&msg_buf, g_server_port, new_port).ptr, "REAmo Port Change", MB_YESNO) != IDYES) {
+        return;
+    }
+
     const msg: [:0]const u8 = if (restart(new_port)) |_| blk: {
         // Saved only once the server is listening there, so a port that
         // failed is never the one REAmo tries at the next start.
@@ -448,11 +521,11 @@ pub fn showChangePort() void {
             const port_str = std.fmt.bufPrintZ(&port_z, "{d}", .{new_port}) catch unreachable;
             set_state("Reamo", "ServerPort", port_str.ptr, 1); // persist=true
         }
-        break :blk std.fmt.bufPrintZ(&msg_buf, "Server restarted on port {d}.\nClients should reconnect.", .{new_port}) catch unreachable;
+        var networks: [16]network_detect.NetworkInfo = undefined;
+        const count = g_detect_networks(&networks);
+        break :blk portChangedText(&msg_buf, new_port, networks[0..count]);
     } else |err| std.fmt.bufPrintZ(&msg_buf, "Couldn't start the server on port {d} ({s}).\nREAmo is still on port {d}.", .{ new_port, errorText(err), g_server_port }) catch unreachable;
-    if (g_show_message_box) |show_msg| {
-        _ = show_msg(msg.ptr, "REAmo", 0);
-    }
+    _ = show_msg(msg.ptr, "REAmo", MB_OK);
 }
 
 /// Show dialog to view/edit allowed hostnames for DNS rebinding protection.
@@ -626,4 +699,184 @@ test "showAllowedHosts hands the dialog a NUL-terminated default of whole hosts 
         try std.testing.expectEqualStrings(hosts[seen], entry);
     }
     try std.testing.expectEqual(@as(usize, 13), seen);
+}
+
+fn testNetwork(ip: [4]u8, network_type: network_detect.NetworkType) network_detect.NetworkInfo {
+    var n = network_detect.NetworkInfo{ .ip = ip, .interface_name = undefined, .interface_name_len = 3, .network_type = network_type };
+    @memcpy(n.interface_name[0..3], "en0");
+    return n;
+}
+
+fn contains(haystack: []const u8, needle: []const u8) bool {
+    return std.mem.indexOf(u8, haystack, needle) != null;
+}
+
+test "the port-change confirm names both ports and says phones need the new address, home-screen apps re-adding, and saved settings stay behind" {
+    var buf: [port_msg_len]u8 = undefined;
+    const text = confirmPortChangeText(&buf, 9224, 9300);
+    try std.testing.expect(contains(text, "9224"));
+    try std.testing.expect(contains(text, "9300"));
+    try std.testing.expect(contains(text, "new address"));
+    try std.testing.expect(contains(text, "home screen"));
+    try std.testing.expect(contains(text, "(toolbars, layout,\nsync offset, view options)"));
+    try std.testing.expect(contains(text, "tied to the address"));
+}
+
+test "the port-changed message gives a lone network's full URL on the new port" {
+    var buf: [port_msg_len]u8 = undefined;
+    const networks = [_]network_detect.NetworkInfo{testNetwork(.{ 192, 168, 1, 5 }, .wifi_lan)};
+    const text = portChangedText(&buf, 9300, &networks);
+    try std.testing.expect(contains(text, "http://192.168.1.5:9300/"));
+    try std.testing.expect(!contains(text, "Show Network Addresses"));
+}
+
+test "the port-changed message gives only the likeliest address and points to the full list when there are more" {
+    var buf: [port_msg_len]u8 = undefined;
+    const networks = [_]network_detect.NetworkInfo{
+        testNetwork(.{ 172, 20, 10, 2 }, .ios_usb),
+        testNetwork(.{ 192, 168, 1, 5 }, .wifi_lan),
+    };
+    const text = portChangedText(&buf, 9300, &networks);
+    try std.testing.expect(contains(text, "http://172.20.10.2:9300/"));
+    try std.testing.expect(!contains(text, "192.168.1.5"));
+    try std.testing.expect(contains(text, "Show Network Addresses"));
+}
+
+test "the port-changed message with no network found gives the new port and where the address will be listed" {
+    var buf: [port_msg_len]u8 = undefined;
+    const text = portChangedText(&buf, 9300, &.{});
+    try std.testing.expect(contains(text, "9300"));
+    try std.testing.expect(!contains(text, "http://"));
+    try std.testing.expect(contains(text, "Show Network Addresses"));
+}
+
+/// A scripted port change: stand-ins for REAPER's dialogs and the server
+/// restart, recording what showChangePort did.
+const PortChangeTest = struct {
+    const Box = struct { text: [port_msg_len]u8, text_len: usize, kind: c_int };
+
+    var entered: []const u8 = "";
+    var confirm_answer: c_int = 0;
+    var boxes: [4]Box = undefined;
+    var box_count: usize = 0;
+    var restarted_on: ?u16 = null;
+    var saved_port: ?u16 = null;
+    /// What the restart stand-in fails with; null when it succeeds.
+    var restart_error: ?anyerror = null;
+    var with_message_box = true;
+
+    fn getUserInputs(_: [*:0]const u8, _: c_int, _: [*:0]const u8, buf: [*]u8, _: c_int) callconv(.c) bool {
+        @memcpy(buf[0..entered.len], entered);
+        buf[entered.len] = 0;
+        return true;
+    }
+
+    fn showMessageBox(text: [*:0]const u8, _: [*:0]const u8, kind: c_int) callconv(.c) c_int {
+        const b = &boxes[box_count];
+        box_count += 1;
+        const m = std.mem.span(text);
+        @memcpy(b.text[0..m.len], m);
+        b.text_len = m.len;
+        b.kind = kind;
+        return if (kind == MB_YESNO) confirm_answer else IDOK;
+    }
+
+    fn setExtState(_: [*:0]const u8, key: [*:0]const u8, value: [*:0]const u8, _: c_int) callconv(.c) void {
+        if (std.mem.eql(u8, std.mem.span(key), "ServerPort")) {
+            saved_port = std.fmt.parseInt(u16, std.mem.span(value), 10) catch null;
+        }
+    }
+
+    fn restart(port: u16) anyerror!void {
+        if (restart_error) |err| return err;
+        restarted_on = port;
+    }
+
+    fn detect(buf: []network_detect.NetworkInfo) usize {
+        buf[0] = testNetwork(.{ 192, 168, 1, 5 }, .wifi_lan);
+        return 1;
+    }
+
+    fn boxText(i: usize) []const u8 {
+        return boxes[i].text[0..boxes[i].text_len];
+    }
+
+    /// Change Server Port from 9224, entering `entered_port` and answering
+    /// the confirm with `answer`.
+    fn run(entered_port: []const u8, answer: c_int) void {
+        entered = entered_port;
+        confirm_answer = answer;
+        box_count = 0;
+        restarted_on = null;
+        saved_port = null;
+        init(if (with_message_box) &showMessageBox else null, null, &getUserInputs, &setExtState, null);
+        setRestartCallback(&restart);
+        g_detect_networks = &detect;
+        setPort(9224);
+        showChangePort();
+    }
+
+    fn restore() void {
+        init(null, null, null, null, null);
+        g_restart_server = null;
+        g_detect_networks = network_detect.detectOrdered;
+        restart_error = null;
+        with_message_box = true;
+        setPort(9224);
+    }
+};
+
+test "a port change whose restart fails saves no port and says REAmo is still on the old one" {
+    defer PortChangeTest.restore();
+    PortChangeTest.restart_error = error.AddressInUse;
+    PortChangeTest.run("9300", IDYES);
+    try std.testing.expectEqual(@as(?u16, null), PortChangeTest.saved_port);
+    try std.testing.expectEqual(@as(usize, 2), PortChangeTest.box_count);
+    try std.testing.expect(contains(PortChangeTest.boxText(1), "REAmo is still on port 9224"));
+    try std.testing.expectEqual(@as(u16, 9224), getPort());
+}
+
+test "without ShowMessageBox to ask the confirm, a port change moves nothing" {
+    defer PortChangeTest.restore();
+    PortChangeTest.with_message_box = false;
+    PortChangeTest.run("9300", IDYES);
+    try std.testing.expectEqual(@as(?u16, null), PortChangeTest.restarted_on);
+    try std.testing.expectEqual(@as(?u16, null), PortChangeTest.saved_port);
+}
+test "answering No to the port-change confirm leaves the server and the saved port alone" {
+    defer PortChangeTest.restore();
+    PortChangeTest.run("9300", IDNO);
+    try std.testing.expectEqual(@as(usize, 1), PortChangeTest.box_count);
+    try std.testing.expectEqual(MB_YESNO, PortChangeTest.boxes[0].kind);
+    try std.testing.expectEqual(@as(?u16, null), PortChangeTest.restarted_on);
+    try std.testing.expectEqual(@as(?u16, null), PortChangeTest.saved_port);
+    try std.testing.expectEqual(@as(u16, 9224), getPort());
+}
+
+test "closing the port-change confirm with an answer other than Yes or No moves nothing" {
+    defer PortChangeTest.restore();
+    PortChangeTest.run("9300", IDCANCEL);
+    try std.testing.expectEqual(@as(usize, 1), PortChangeTest.box_count);
+    try std.testing.expectEqual(@as(?u16, null), PortChangeTest.restarted_on);
+    try std.testing.expectEqual(@as(?u16, null), PortChangeTest.saved_port);
+}
+
+test "answering Yes to the port-change confirm moves the server, saves the port, and gives the URL phones open" {
+    defer PortChangeTest.restore();
+    PortChangeTest.run("9300", IDYES);
+    try std.testing.expectEqual(@as(usize, 2), PortChangeTest.box_count);
+    try std.testing.expectEqual(MB_YESNO, PortChangeTest.boxes[0].kind);
+    try std.testing.expectEqual(MB_OK, PortChangeTest.boxes[1].kind);
+    try std.testing.expectEqual(@as(?u16, 9300), PortChangeTest.restarted_on);
+    try std.testing.expectEqual(@as(?u16, 9300), PortChangeTest.saved_port);
+    try std.testing.expect(contains(PortChangeTest.boxText(1), "http://192.168.1.5:9300/"));
+}
+
+test "an invalid or unchanged port asks no confirm and moves nothing" {
+    defer PortChangeTest.restore();
+    for ([_][]const u8{ "9224", "80", "abc" }) |entered| {
+        PortChangeTest.run(entered, IDYES);
+        for (PortChangeTest.boxes[0..PortChangeTest.box_count]) |b| try std.testing.expect(b.kind != MB_YESNO);
+        try std.testing.expectEqual(@as(?u16, null), PortChangeTest.restarted_on);
+    }
 }

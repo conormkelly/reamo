@@ -91,7 +91,7 @@ REAmo runs an HTTP server on your computer (default port 9224).
 
 - **Same computer:** `http://localhost:9224/`
 - **Other device:** `http://YOUR-IP:9224/` (shown in QR code dialog)
-- **Change port:** Extensions > REAmo > Change Server Port
+- **Change port:** Extensions > REAmo > Change Server Port. Phones then need the new address: re-add home-screen apps, and settings saved on phones (toolbars, layout, sync offset, view options) start fresh, as they're tied to the address.
 - **USB tethering:** Connect phone via USB for lowest latency. REAmo detects USB interfaces automatically.
 - **Tailscale/VPN:** Add your hostname in Extensions > REAmo > Allowed Hosts
 

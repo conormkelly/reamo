@@ -8,16 +8,28 @@ and the taken port was saved for next time.
 import socket
 import time
 
-from reamo_client import PORT, Client, press, reaper, submit, windows
+from reamo_client import PORT, Client, press, reaper, screenshot, submit, windows
 
 BUSY = 9300
+CONFIRM = "REAmo Port Change"
 
 
 def wait_window(title, timeout=15):
     deadline = time.time() + timeout
-    while not any(title in w for w in windows()):
+    while title not in windows():
         assert time.time() < deadline, f"no {title!r} window; windows: {windows()}"
         time.sleep(0.1)
+
+
+def change_port(port):
+    """Enter `port` in Change Server Port, answer Yes to the confirm, and
+    wait for the result message (titled just "REAmo")."""
+    wait_window("REAmo Server Port")
+    press("REAmo Server Port", "ctrl+a", *list(str(port)), "Return")
+    wait_window(CONFIRM)
+    press(CONFIRM, "Return")  # Yes is the default button
+    wait_window("REAmo")
+    time.sleep(0.5)
 
 
 squatter = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -29,10 +41,7 @@ with Client() as c:
     c.wait_event("trackSkeleton")
 
 pending = submit('reaper.Main_OnCommand(reaper.NamedCommandLookup("_REAMO_CHANGE_PORT"), 0)')
-wait_window("REAmo Server Port")
-press("REAmo Server Port", "ctrl+a", *list(str(BUSY)), "Return")
-wait_window("REAmo")  # the result message
-time.sleep(0.5)
+change_port(BUSY)
 print(f"windows after entering the busy port: {windows()}")
 press("REAmo", "Return")
 pending.result(10)
@@ -50,10 +59,8 @@ print(f"ok: still serving on {PORT}, saved port {saved!r}")
 # A free port: the server moves there, and the port is saved.
 FREE = 9301
 pending = submit('reaper.Main_OnCommand(reaper.NamedCommandLookup("_REAMO_CHANGE_PORT"), 0)')
-wait_window("REAmo Server Port")
-press("REAmo Server Port", "ctrl+a", *list(str(FREE)), "Return")
-wait_window("REAmo")
-time.sleep(0.5)
+change_port(FREE)
+screenshot("moved")
 press("REAmo", "Return")
 pending.result(10)
 with Client(port=FREE) as c:
