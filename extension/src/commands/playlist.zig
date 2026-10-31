@@ -156,7 +156,7 @@ pub fn handleAddEntry(api: anytype, cmd: protocol.CommandMessage, response: *mod
             return;
         }
 
-        // Gap 3 fix: Adjust engine.entry_idx when inserting before current position
+        // Inserting at or before the playing entry shifts it forward; keep the engine on it.
         if (state.engine.isActive() and
             state.engine.playlist_idx == playlist_idx_usize and
             at_usize <= state.engine.entry_idx)
@@ -222,7 +222,7 @@ pub fn handleRemoveEntry(api: anytype, cmd: protocol.CommandMessage, response: *
         return;
     }
 
-    // Gap 2 fix: Adjust engine.entry_idx when removing entries from active playlist
+    // Removing entries from the active playlist shifts indices; keep the engine on the right entry.
     if (state.engine.isActive() and state.engine.playlist_idx == playlist_idx_usize) {
         if (entry_idx_usize < state.engine.entry_idx) {
             // Removed before current position - shift index back
@@ -305,8 +305,8 @@ pub fn handleSetLoopCount(api: anytype, cmd: protocol.CommandMessage, response: 
 
     p.entries[entry_idx_usize].loop_count = loop_count;
 
-    // Gap 1 fix: If we're modifying the currently playing entry, sync loops_remaining
-    // This ensures live loop count changes take effect immediately
+    // Editing the playing entry's loop count syncs loops_remaining so the change
+    // takes effect during playback.
     if (state.engine.isPlaying() and
         state.engine.playlist_idx == playlist_idx_usize and
         state.engine.entry_idx == entry_idx_usize)
@@ -411,7 +411,7 @@ pub fn handleReorderEntry(api: anytype, cmd: protocol.CommandMessage, response: 
         return;
     };
 
-    // Gap 3 fix: Track current entry position before reorder
+    // Remember the playing entry's position before the reorder.
     const current_entry_idx = state.engine.entry_idx;
     const is_active_playlist = state.engine.isActive() and state.engine.playlist_idx == playlist_idx_usize;
 
@@ -420,7 +420,7 @@ pub fn handleReorderEntry(api: anytype, cmd: protocol.CommandMessage, response: 
         return;
     }
 
-    // Gap 3 fix: Adjust engine.entry_idx based on how reorder affected current position
+    // Keep the engine on the playing entry after the reorder.
     if (is_active_playlist) {
         if (current_entry_idx == from_idx_usize) {
             // We moved the current entry - follow it to its new position

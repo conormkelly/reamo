@@ -1099,10 +1099,10 @@ test "State toJson with deleted region detection" {
 }
 
 // =============================================================================
-// Gap Fix Tests - verify live modification behavior
+// Live edits to the playing playlist
 // =============================================================================
 
-test "Gap 1: loop count sync - modifying current entry updates loops_remaining" {
+test "raising the playing entry's loop count extends the loops still to play" {
     // Scenario: Playing entry at idx 2, on loop 3 of 4, user changes to 6 loops
     // Expected: loops_remaining should become 4 (6 - 2 completed)
     var state = State{};
@@ -1140,7 +1140,7 @@ test "Gap 1: loop count sync - modifying current entry updates loops_remaining" 
     try std.testing.expectEqual(@as(i32, 4), state.engine.loops_remaining);
 }
 
-test "Gap 1: loop count sync - changing to infinite" {
+test "setting the playing entry to infinite makes loops_remaining infinite" {
     var state = State{};
     _ = state.addPlaylist("Test");
     if (state.getPlaylist(0)) |p| {
@@ -1160,7 +1160,7 @@ test "Gap 1: loop count sync - changing to infinite" {
     try std.testing.expectEqual(@as(i32, -1), state.engine.loops_remaining);
 }
 
-test "Gap 1: loop count sync - reducing below current iteration lets loop finish" {
+test "lowering the loop count below the current iteration finishes the current loop" {
     // Scenario: On loop 2 of 2, user changes to 1 loop
     // Expected: loops_remaining = 1 (finish current loop, then advance)
     var state = State{};
@@ -1183,7 +1183,7 @@ test "Gap 1: loop count sync - reducing below current iteration lets loop finish
     try std.testing.expectEqual(@as(i32, 1), state.engine.loops_remaining);
 }
 
-test "Gap 1: loop count sync - setting to zero (skip) still finishes current" {
+test "setting the playing entry to zero loops finishes the current loop instead of hanging" {
     // Scenario: Currently playing, user sets loop_count = 0 (skip)
     // Expected: loops_remaining = 1 (finish current, then advance) not 0 (would hang)
     var state = State{};
@@ -1206,7 +1206,7 @@ test "Gap 1: loop count sync - setting to zero (skip) still finishes current" {
     try std.testing.expectEqual(@as(i32, 1), state.engine.loops_remaining);
 }
 
-test "Gap 2: remove entry before current - index shifts back" {
+test "removing an entry before the playing one keeps the engine on the same entry" {
     // Scenario: Entries [A, B, C, D], playing C (idx 2), remove B (idx 1)
     // Expected: entry_idx becomes 1 (C shifted to index 1)
     var state = State{};
@@ -1235,7 +1235,7 @@ test "Gap 2: remove entry before current - index shifts back" {
     try std.testing.expectEqual(@as(i32, 3), p.entries[state.engine.entry_idx].region_id);
 }
 
-test "Gap 2: remove entry after current - no index change" {
+test "removing an entry after the playing one leaves the engine index alone" {
     // Scenario: Entries [A, B, C, D], playing B (idx 1), remove D (idx 3)
     // Expected: entry_idx stays at 1
     var state = State{};
@@ -1261,7 +1261,7 @@ test "Gap 2: remove entry after current - no index change" {
     try std.testing.expectEqual(@as(i32, 2), p.entries[state.engine.entry_idx].region_id);
 }
 
-test "Gap 2: remove current entry - skip to next" {
+test "removing the playing entry moves the engine to the next entry with fresh loops" {
     // Scenario: Entries [A, B, C, D], playing B (idx 1), remove B
     // Expected: entry_idx stays at 1, loops_remaining reset for C (now at idx 1)
     var state = State{};
@@ -1296,7 +1296,7 @@ test "Gap 2: remove current entry - skip to next" {
     try std.testing.expectEqual(@as(i32, 1), state.engine.current_loop_iteration);
 }
 
-test "Gap 3: insert entry before current - index shifts forward" {
+test "inserting an entry before the playing one keeps the engine on the same entry" {
     // Scenario: Entries [A, B, C], playing B (idx 1), insert X at idx 0
     // Expected: entry_idx becomes 2 (B shifted to index 2)
     var state = State{};
@@ -1324,7 +1324,7 @@ test "Gap 3: insert entry before current - index shifts forward" {
     try std.testing.expectEqual(@as(i32, 2), p.entries[state.engine.entry_idx].region_id);
 }
 
-test "Gap 3: insert entry after current - no index change" {
+test "inserting an entry after the playing one leaves the engine index alone" {
     // Scenario: Entries [A, B, C], playing B (idx 1), insert X at idx 3
     // Expected: entry_idx stays at 1
     var state = State{};
@@ -1348,7 +1348,7 @@ test "Gap 3: insert entry after current - no index change" {
     try std.testing.expectEqual(@as(i32, 2), p.entries[state.engine.entry_idx].region_id);
 }
 
-test "Gap 3: reorder - move current entry to new position" {
+test "moving the playing entry makes the engine follow it" {
     // Scenario: Entries [A, B, C, D], playing B (idx 1), move B to idx 3
     // Expected: entry_idx becomes 3 (following B)
     var state = State{};
@@ -1378,7 +1378,7 @@ test "Gap 3: reorder - move current entry to new position" {
     try std.testing.expectEqual(@as(i32, 2), p.entries[state.engine.entry_idx].region_id);
 }
 
-test "Gap 3: reorder - entry moved forward past current" {
+test "moving an earlier entry past the playing one keeps the engine on the same entry" {
     // Scenario: Entries [A, B, C, D], playing C (idx 2), move A (idx 0) to idx 3
     // Expected: entry_idx becomes 1 (C shifted back)
     var state = State{};
@@ -1410,7 +1410,7 @@ test "Gap 3: reorder - entry moved forward past current" {
     try std.testing.expectEqual(@as(i32, 3), p.entries[state.engine.entry_idx].region_id);
 }
 
-test "Gap 3: reorder - entry moved backward past current" {
+test "moving a later entry ahead of the playing one keeps the engine on the same entry" {
     // Scenario: Entries [A, B, C, D], playing B (idx 1), move D (idx 3) to idx 0
     // Expected: entry_idx becomes 2 (B shifted forward)
     var state = State{};
