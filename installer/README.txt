@@ -11,7 +11,7 @@ INSTALL
 3. Actions > Run ReaScript > Run ReaScript...
 4. Select Install_REAmo.lua from the extracted folder
 5. Restart REAPER
-6. Extensions > REAmo > Show QR Code
+6. Extensions > REAmo > Show Connection QR Code...
 7. Scan the QR code with your phone
 
 Tip: Add to your home screen as a PWA for fullscreen (no browser address bar etc).
@@ -107,3 +107,9 @@ When reporting a crash, it helps to know:
   - Your OS and version (e.g. Windows 11, macOS Sonoma)
   - CPU architecture (Intel / AMD / Apple Silicon)
   - REAPER version
+
+Please also attach reamo.log, in the Logs folder of REAPER's resource folder
+(Extensions > REAmo > Open Log Folder opens it).
+For more detail, turn on Extensions > REAmo > Debug Logging, make the problem
+happen again, then attach the log. Debug logging records project and track
+names, and switches off when REAPER restarts.

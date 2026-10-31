@@ -13,7 +13,7 @@ Transport, mixer, timeline, tuner, instruments, notes — all from your phone or
 1. **Download** the latest release from [Releases](../../releases)
 2. **Run** `Install_REAmo.lua` in REAPER (Actions > Run ReaScript)
 3. **Restart REAPER**
-4. **Extensions > REAmo > Show QR Code** — scan it with your phone
+4. **Extensions > REAmo > Show Connection QR Code...** — scan it with your phone
 5. **Add to Home Screen** for a native app feel
 
 That's it.
@@ -46,10 +46,7 @@ That's it.
 
 ## Requirements
 
-REAPER 6.0 or later, on macOS, Windows or Linux. A few features need a newer REAPER:
-
-- **Comp lanes** (fixed item lanes) need REAPER 7.
-- On **REAPER 6.0**, the FX browser can't list your installed plugins.
+REAPER 6.0 or later, on macOS, Windows or Linux. On **REAPER 6.0**, the FX browser can't list your installed plugins.
 
 ## Installation
 
@@ -85,7 +82,7 @@ Versions before 0.8.1 used `reaper_www_root/web/`. If you copy the files manuall
 
 ## Connecting
 
-Scan the QR code: **Extensions > REAmo > Show QR Code**.
+Scan the QR code: **Extensions > REAmo > Show Connection QR Code...**.
 
 <details>
 <summary>Advanced connection options</summary>
@@ -111,11 +108,12 @@ If something goes wrong, turn on **Extensions > REAmo > Debug Logging**, make th
 **Zig** extension (WebSocket server) + **React 19** / **TypeScript** / **Zustand** / **Tailwind CSS 4** frontend.
 
 ```bash
-cd frontend && npm install && npm run dev   # Dev server with hot reload
-make all                                     # Test + build everything
+make install    # dependencies, git hooks, Playwright's Chromium
+make check      # lint, typecheck and every test
+make            # list every target
 ```
 
-See [extension/API.md](extension/API.md) for the WebSocket API.
+See [DEVELOPMENT.md](DEVELOPMENT.md) for the toolchain and architecture, and [extension/API.md](extension/API.md) for the WebSocket API.
 
 ### Testing against real REAPER
 

@@ -69,7 +69,7 @@ Detailed feature list for REAmo. For quick start and installation, see [README.m
 - Switch between takes on selected items
 - A/B compare takes without touching the computer
 - Delete active take, crop to active take
-- Color-based take rating: green (good), orange (maybe), red (bad)
+- Take colours, e.g. green, orange and red to rate takes
 
 ## Touch Instruments
 
@@ -83,7 +83,7 @@ Detailed feature list for REAmo. For quick start and installation, see [README.m
 
 - Stream REAPER's master output to your phone speakers or headphones
 - Hear your mix from the listening position
-- Works over WiFi (80–150ms latency) and USB (50–100ms)
+- Works over WiFi and USB tethering; USB usually has much less delay
 - Automatic reconnection when backgrounding/foregrounding
 - **Note:** Designed for mix checks and playback review, not live monitoring while recording
 - **iPhone:** Make sure the silent/ring switch is set to ring — it silences all Web Audio output
@@ -137,6 +137,6 @@ Detailed feature list for REAmo. For quick start and installation, see [README.m
 - **No waveform editing** — View waveforms but no split/glue/crossfade
 - **No MIDI editing** — Audio items only, MIDI items shown as blocks
 - **No comping lanes** — Basic take switching only
-- **No automation editing** — View automation but no touch-based drawing yet
+- **No automation** — Automation isn't shown or editable yet
 - **Single user** — Designed for single-user home studio
 - **Touch instrument speed** — Very rapid alternating touches may miss triggers on iOS Safari due to browser gesture detection. Fine for punching in ideas; a native app would be needed for virtuoso drum performances
