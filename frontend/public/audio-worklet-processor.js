@@ -1,12 +1,11 @@
 /**
  * PCM Playback AudioWorklet Processor
  *
- * Receives interleaved 16-bit stereo PCM frames from the main thread via MessagePort,
- * converts to float32, buffers in a ring, and outputs 128-sample render quanta.
+ * Receives decoded stereo PCM from the main thread via MessagePort, buffers it
+ * in a ring, and outputs 128-sample render quanta.
  *
- * Frame format (from server):
- *   [0..3]  u32 LE: sequence number
- *   [4..]   i16 LE: interleaved stereo PCM (L,R,L,R,...)
+ * Message: { type: 'pcm', left: Float32Array, right: Float32Array }
+ * The main thread decodes the server's wire format (src/audio/audioFrame.ts).
  */
 class PCMPlaybackProcessor extends AudioWorkletProcessor {
   constructor() {
@@ -31,8 +30,8 @@ class PCMPlaybackProcessor extends AudioWorkletProcessor {
     this.state = 'buffering'; // 'buffering' | 'playing'
 
     this.port.onmessage = (event) => {
-      if (event.data instanceof ArrayBuffer) {
-        this.handleFrame(event.data);
+      if (event.data?.type === 'pcm') {
+        this.handleFrame(event.data.left, event.data.right);
       } else if (event.data === 'getStats') {
         this.port.postMessage({
           type: 'stats',
@@ -55,23 +54,10 @@ class PCMPlaybackProcessor extends AudioWorkletProcessor {
     };
   }
 
-  handleFrame(buffer) {
-    // Header: 4 bytes (u32 sequence, skip for now)
-    const HEADER_SIZE = 4;
-    if (buffer.byteLength <= HEADER_SIZE) return;
-
-    const view = new DataView(buffer);
-    // const sequence = view.getUint32(0, true); // For future gap detection
-    const pcmBytes = buffer.byteLength - HEADER_SIZE;
-    const numSamples = pcmBytes / 4; // 2 channels * 2 bytes per sample
-
+  handleFrame(left, right) {
     this.framesReceived++;
 
-    for (let i = 0; i < numSamples; i++) {
-      const offset = HEADER_SIZE + i * 4;
-      const leftSample = view.getInt16(offset, true) / 32768.0;
-      const rightSample = view.getInt16(offset + 2, true) / 32768.0;
-
+    for (let i = 0; i < left.length; i++) {
       if (this.buffered >= this.bufferSize) {
         // Overflow: drop oldest by advancing read position
         this.readPos = (this.readPos + 1) % this.bufferSize;
@@ -79,8 +65,8 @@ class PCMPlaybackProcessor extends AudioWorkletProcessor {
         this.overflowCount++;
       }
 
-      this.leftBuffer[this.writePos] = leftSample;
-      this.rightBuffer[this.writePos] = rightSample;
+      this.leftBuffer[this.writePos] = left[i];
+      this.rightBuffer[this.writePos] = right[i];
       this.writePos = (this.writePos + 1) % this.bufferSize;
       this.buffered++;
     }
