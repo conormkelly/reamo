@@ -152,7 +152,7 @@ export default defineConfig(
         {
           selector: "CallExpression[callee.name='useReaperConnection']",
           message:
-            'Use useReaper() from ReaperProvider context instead. useReaperConnection() creates duplicate WebSocket connections. See FRONTEND_DEVELOPMENT.md §7.',
+            'Use useReaper() instead. useReaperConnection() registers the connection lifecycle effects; ReaperProvider calls it once, and a second caller registers them twice. See FRONTEND_DEVELOPMENT.md §7.',
         },
 
         // ---------------------------------------------------------------------

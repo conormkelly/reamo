@@ -1,12 +1,11 @@
 # REAmo Frontend Development Guide
 
-Best practices, patterns, and conventions for the REAmo React frontend.
+Patterns and conventions for the REAmo React frontend. ESLint messages cite the section numbers (§1a, §4, §5, §6, §7, §11, §14), so keep them stable. Responsive layout rules: [docs/architecture/frontend/UX_GUIDELINES.md](../docs/architecture/frontend/UX_GUIDELINES.md). Toolchain, build and the extension: [DEVELOPMENT.md](../DEVELOPMENT.md).
 
 **Quick Reference:**
 
-- Build: `make frontend` (auto-reloads on iPad)
+- Build: `make frontend`
 - Test: `npm run test` / `npm run test:e2e`
-- Bundle target: ≤1,050 kB
 
 ---
 
@@ -29,12 +28,12 @@ Best practices, patterns, and conventions for the REAmo React frontend.
 14. [Bundle Size](#14-bundle-size)
 15. [Error Handling](#15-error-handling)
 16. [Testing](#16-testing)
-17. [Common Mistakes (Real Examples)](#17-common-mistakes-real-examples)
+17. [Why the Checklist Says So](#17-why-the-checklist-says-so)
 18. [Anti-Patterns Checklist](#18-anti-patterns-checklist)
 19. [Layout Budget System](#19-layout-budget-system)
-20. [Centralized Constants](#20-centralized-constants)
+20. [Constants](#20-constants)
 21. [Dual-Rail Responsive Layout](#21-dual-rail-responsive-layout-landscape-phones)
-22. [Deferred/Future Work](#22-deferredfuture-work)
+22. [ESLint Governance & Pre-commit Hooks](#22-eslint-governance--pre-commit-hooks)
 
 ---
 
@@ -54,19 +53,19 @@ All colors are defined in `src/index.css` using Tailwind v4's `@theme` block:
 
 Use via Tailwind utilities: `bg-bg-surface`, `text-text-muted`, `bg-primary`
 
-### Token Categories (129 total)
+### Token Categories
 
-| Category | Count | Examples |
-|----------|-------|----------|
-| **Core UI** | 17 | `bg-app`, `bg-deep`, `bg-surface`, `bg-elevated`, `bg-hover`, `bg-disabled`, `text-primary`/`secondary`/`tertiary`/`muted`/`disabled`, `border-default`/`subtle`/`muted`, `primary`/`hover`/`active` |
-| **REAPER-Specific** | 10 | `playhead`, `marker-default`, `region-default`, `item-default`, `success`, `warning`, `error` |
-| **Region/Purple** | 6 | `accent-region`, `accent-region-hover`, `accent-region-dark`, `region-nav` variants |
-| **Recording** | 23 | `record` states, `scrap`/`retake`/`keep` variants with bg/hover/border/text each |
-| **Network** | 6 | `network-optimal`, `network-good`, `network-moderate`, `network-poor`, `network-degraded`, `network-reconnecting` |
-| **Timeline Editing** | 17 | `selection-preview`, `delta-positive`/`negative`, `count-in`, `sync` |
-| **Track Controls** | 15 | `meter-clip`/`hot`/`good`/`low`, `fader-fill`, `solo`, `monitor-auto`, `toggle-yellow` |
-| **Warnings/Errors** | 18 | `memory-warning`, `external-change`, `error-display`, `counter-warning` |
-| **Interactive** | 17 | `focus-ring`, `row-selected`, `delete`, `drag-target-ring`, `pending` |
+| Category | Examples |
+|----------|----------|
+| **Core UI** | `bg-app`, `bg-deep`, `bg-surface`, `bg-elevated`, `bg-hover`, `bg-disabled`, `text-primary`/`secondary`/`tertiary`/`muted`/`disabled`, `border-default`/`subtle`/`muted`, `primary`/`hover`/`active` |
+| **REAPER-Specific** | `playhead`, `marker-default`, `region-default`, `item-default`, `success`, `warning`, `error` |
+| **Region/Purple** | `accent-region`, `accent-region-hover`, `accent-region-dark`, `region-nav` variants |
+| **Recording** | `record` states, `scrap`/`retake`/`keep` variants with bg/hover/border/text each |
+| **Network** | `network-optimal`, `network-good`, `network-moderate`, `network-poor`, `network-degraded`, `network-reconnecting` |
+| **Timeline Editing** | `selection-preview`, `delta-positive`/`negative`, `count-in`, `sync` |
+| **Track Controls** | `meter-clip`/`hot`/`good`/`low`, `fader-fill`, `solo`, `monitor-auto`, `toggle-yellow` |
+| **Warnings/Errors** | `memory-warning`, `external-change`, `error-display`, `counter-warning` |
+| **Interactive** | `focus-ring`, `row-selected`, `delete`, `drag-target-ring`, `pending` |
 
 ### On-Color Text Tokens
 
@@ -79,9 +78,7 @@ For text on colored backgrounds (buttons), use `text-on-*` tokens:
 // Available: text-on-primary, text-on-success, text-on-error, text-on-accent
 ```
 
-### Feature-Specific Tokens (Added Post-Audit)
-
-These tokens were added after compliance audits found hardcoded colors:
+### Feature-Specific Tokens
 
 | Feature | Tokens | Purpose |
 |---------|--------|---------|
@@ -103,41 +100,27 @@ These tokens were added after compliance audits found hardcoded colors:
 - Use generic Tailwind colors for feature-specific styling (use semantic tokens)
 - Forget fallback for user-defined REAPER colors (use `reaperColorToHex()`)
 
-### Real Examples of Token Violations (Fixed)
-
 ```tsx
-// BAD - hardcoded amber for sends mode (was in MixerModeSelector)
+// BAD - hardcoded amber for sends mode
 <button className="bg-amber-500 text-white">Sends</button>
-
 // GOOD - semantic token
 <button className="bg-sends-primary text-on-primary">Sends</button>
 
-// BAD - hardcoded white for fader handle (was in Fader component)
+// BAD - hardcoded white for fader handle
 <div style={{ backgroundColor: 'white' }} />
-
 // GOOD - token reference
 <div className="bg-fader-handle" />
-
-// BAD - hardcoded hex for selection border (was in RegionInfoBar)
-<div className="border-white" />
-
-// GOOD - on-color token
-<div className="border-on-primary" />
 ```
 
-### Spacing Tokens (Phase 2)
+### Spacing Tokens
 
-**Goal:** World-class consistency and responsiveness. Raw Tailwind spacing classes (`p-4`, `gap-2`) scattered across 45+ files make it impossible to maintain visual rhythm or adjust spacing system-wide.
-
-**Solution:** Semantic spacing tokens using Tailwind 4's `--spacing-*` namespace, which auto-generates utility classes.
+Semantic spacing tokens use Tailwind 4's `--spacing-*` namespace, which generates utility classes, so visual rhythm can change in one place:
 
 ```css
 @theme {
   --spacing-modal: 1rem;  /* Generates p-modal, m-modal, gap-modal, etc. */
 }
 ```
-
-#### Spacing Token Categories
 
 | Category | Tokens | Purpose |
 |----------|--------|---------|
@@ -146,37 +129,16 @@ These tokens were added after compliance audits found hardcoded colors:
 | **Gaps** | `panel-gap`, `section-gap`, `inline-gap`, `tight-gap` | Flex/grid gap standardization |
 | **Audio** | `fader-track`, `meter-gap`, `channel-strip`, `transport` | Mixer/timeline-specific spacing |
 
-#### Usage
-
 ```tsx
-// Before - raw values with no semantic meaning
-<div className="p-4 space-y-4">Modal content</div>
-<div className="px-3 py-2">Info bar</div>
-
-// After - intent is clear, system-wide changes possible
 <div className="p-modal space-y-section-gap">Modal content</div>
 <div className="px-infobar-x py-infobar-y">Info bar</div>
 ```
 
-#### Three-Tier Hierarchy (Industry Standard)
-
-Following Shopify Polaris, GitHub Primer, Adobe Spectrum:
-
-1. **Primitives** - Tailwind's built-in `p-1`, `p-2`, `gap-3`, etc. (rarely use directly)
-2. **Semantic** - Intent-based tokens like `--spacing-modal`, `--spacing-view` (primary layer)
-3. **Component** - Highly specific like `--spacing-fader-track` (when needed)
-
-#### When to Tokenize
-
-**Rule:** Tokenize spacing values used **three or more times** across files. Single-use values stay as raw Tailwind.
-
-#### Gotchas
-
-- **Cannot nest `@theme` in `@media`** - Use responsive variants instead: `p-modal-compact md:p-modal`
-- **CSS is source of truth** - If JS needs spacing values, read via `getComputedStyle()`
-- **Don't duplicate `layout.ts`** - Those are layout dimensions (heights, widths), not spacing tokens
-
-See: `FRONTEND_CLEANUP_PHASE_2_FINDINGS.md`, `research/FRONTEND_SPACING_DESIGN.md`
+- Tiers: Tailwind primitives (`p-2`) rarely; semantic tokens (`--spacing-modal`) normally; component tokens (`--spacing-fader-track`) when needed.
+- Tokenize a value used three or more times across files. Single-use values stay raw Tailwind.
+- `@theme` can't nest in `@media`; use responsive variants (`p-modal-compact md:p-modal`).
+- CSS is the source of truth; JS reads spacing via `getComputedStyle()`.
+- Don't duplicate `constants/layout.ts`: those are layout dimensions, not spacing.
 
 ---
 
@@ -207,21 +169,7 @@ All interactive controls (buttons, inputs, selects) use shared height tokens def
 
 ### Intent Variants (Semantic Colors)
 
-Use intent tokens for button colors, not raw color tokens:
-
-```tsx
-// Good - semantic intent
-<button className="bg-intent-primary-bg hover:bg-intent-primary-hover">
-  Save
-</button>
-
-// Avoid - raw colors (unless for domain-specific meaning like solo=yellow)
-<button className="bg-primary hover:bg-primary-hover">
-  Save
-</button>
-```
-
-Intent tokens:
+Use intent tokens for button colors (`bg-intent-primary-bg hover:bg-intent-primary-hover`), not raw color tokens:
 
 - `--color-intent-primary-*` - Primary actions (save, confirm)
 - `--color-intent-danger-*` - Destructive actions (delete, cancel recording)
@@ -232,35 +180,18 @@ Intent tokens:
 
 ### Touch Targets
 
-**Minimum:** 44×44px (Apple HIG). Track control buttons are currently smaller for density; this is a known compromise documented for future accessibility work.
+**Minimum:** 44×44px (Apple HIG, WCAG 2.5.5). Known gap: track control buttons are smaller, for density.
 
-**Best practice:** Use `min-h-[--size-touch-target-min]` or `min-h-11` for touchable elements.
+**Best practice:** `min-h-11 min-w-11` (44px), or `min-h-(--size-touch-target-min)`, on touchable elements.
 
 ### Binary vs Tri-State Toggles
 
-**Binary toggles** (on/off states): Use `aria-pressed`
+- **Binary** (on/off): `aria-pressed={isActive}`.
+- **3+ states:** no `aria-pressed` (MonitorButton cycles Off → On → Auto; `aria-pressed` can't tell On from Auto). Use `aria-label={`Mode: ${state}`}` plus a live region:
 
 ```tsx
-<button aria-pressed={isActive}>
-  Toggle
-</button>
+<span role="status" aria-live="polite" className="sr-only">{stateChangeAnnouncement}</span>
 ```
-
-**Tri-state toggles** (3+ states): Do NOT use `aria-pressed`. Instead:
-
-```tsx
-// Use aria-label with current state
-<button aria-label={`Mode: ${currentState}`}>
-  <Icon />
-</button>
-
-// Announce changes with live region
-<span role="status" aria-live="polite" className="sr-only">
-  {stateChangeAnnouncement}
-</span>
-```
-
-Example: MonitorButton cycles Off → On → Auto. Using `aria-pressed` would be incorrect (screen readers wouldn't know the difference between On and Auto).
 
 ### Track Control Button Utilities
 
@@ -288,7 +219,6 @@ const lockedClasses = getLockedClasses(mixerLocked); // Disabled appearance when
 - Create buttons smaller than 32×32px (absolute minimum for any interactive element)
 
 ---
-
 ## 2. Code Organization
 
 ### File Structure
@@ -308,20 +238,21 @@ frontend/src/
 └── views/           # Top-level view components
 ```
 
+Folders are by layer (`components/`, `hooks/`, `store/`, …). Reorganising by feature is undecided; don't start it piecemeal.
+
 ### Barrel Exports (index.ts)
 
 Every feature folder should have an `index.ts`:
 
 ```typescript
 // components/Actions/index.ts
-export { ActionButton, type ActionButtonProps } from './ActionButton';
-export { MetronomeButton } from './MetronomeButton';
-export { UndoButton, RedoButton } from './UndoRedoButtons';
+export { MixerLockButton } from './MixerLockButton';
+export { UnselectAllTracksButton } from './UnselectAllTracksButton';
 ```
 
 - Export components AND their prop types
 - Group related exports with comments
-- Single import point: `import { ActionButton } from '../components/Actions'`
+- Single import point: `import { MixerLockButton } from '../components/Actions'`
 
 ### File Size Guidelines
 
@@ -330,19 +261,6 @@ export { UndoButton, RedoButton } from './UndoRedoButtons';
 | ≤200 | Target |
 | 400-500 | Review threshold |
 | 600+ | Refactor signal - split into focused files |
-
-### Feature-Based > Layer-Based
-
-Prefer colocating related code:
-
-```
-features/transport/
-  ├── components/
-  ├── hooks/
-  └── index.ts
-```
-
-Over scattering across `components/`, `hooks/`, etc.
 
 ---
 
@@ -372,7 +290,7 @@ Over scattering across `components/`, `hooks/`, etc.
 
 ### Timeline Gesture Hooks
 
-These hooks in `components/Timeline/hooks/` handle all timeline interactions:
+Timeline interaction hooks live in `components/Timeline/hooks/`, except `useViewport` and `useMarkerClusters`, which are in `src/hooks/`:
 
 | Hook | Purpose |
 |------|---------|
@@ -384,31 +302,14 @@ These hooks in `components/Timeline/hooks/` handle all timeline interactions:
 | `useEdgeScroll` | Auto-scroll when dragging near edges |
 | `useMarkerClusters` | Group nearby markers to prevent overlap |
 
+
 ---
 
 ## 4. Memory Safety (Critical for Hour-Long Sessions)
 
 ### Timer Cleanup Pattern
 
-Every hook with `setTimeout`/`setInterval` **MUST** have cleanup:
-
-```typescript
-const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-// In handler:
-timerRef.current = setTimeout(() => { ... }, 400);
-
-// Cleanup effect:
-useEffect(() => {
-  return () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-  };
-}, []);
-```
-
-### Two-Phase Timer Cleanup (Recommended)
-
-For complex components with multiple cancel paths, null the ref after clearing:
+Every hook with `setTimeout`/`setInterval` **MUST** have cleanup. Null the ref after clearing, so double-clears and "is a timer running?" checks stay safe:
 
 ```typescript
 const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -450,51 +351,18 @@ const [pressTimer, setPressTimer] = useState<ReturnType<typeof setTimeout> | nul
 const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 ```
 
-This was a real bug fixed in `ConnectionStatus.tsx` - using useState for timer IDs caused unnecessary re-renders and cleanup issues.
 
-### Components with this pattern (reference)
+### Event Listener and RAF Cleanup
 
-- `useLongPress`, `useDoubleTap`, `useMarkerDrag`
-- `TransportBar`, `PersistentTransport`, `TapTempoButton`
-- `ActionButton`, `RegionInfoBar`, `MarkerInfoBar`
-- `ColorPickerInput`, `TransportControls` (clock)
-
-### Event Listener Cleanup
-
-```typescript
-useEffect(() => {
-  const handler = () => { ... };
-  window.addEventListener('resize', handler);
-  return () => window.removeEventListener('resize', handler);
-}, []);
-```
-
-### RAF Cleanup
-
-```typescript
-const rafRef = useRef<number | null>(null);
-
-useEffect(() => {
-  const tick = () => {
-    // ... work
-    rafRef.current = requestAnimationFrame(tick);
-  };
-  rafRef.current = requestAnimationFrame(tick);
-
-  return () => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-  };
-}, []);
-```
+Return the remover from the effect: `removeEventListener` for listeners, `cancelAnimationFrame(rafRef.current)` for a RAF loop kept in a ref.
 
 ### Map/Set Bounds
 
 - `toggleStates`, `guidToIndex` Maps are bounded by project size (OK)
-- `PeaksCache` has LRU eviction (max 100 entries)
-- `pendingResponses` Map cleared on WebSocket disconnect
+- Peak tiles: `peaksSlice` keeps at most `MAX_TILE_CACHE_SIZE` (500) tiles; `core/TileBitmapCache.ts` keeps 200 rendered bitmaps (LRU, `bitmap.close()` on evict)
+- `pendingResponses` (`core/websocketActor.ts`): at most 100 in flight, each with a timeout; all rejected and cleared when the connection is lost, stopped or force-reconnected
 
 ---
-
 ## 5. React 19 Patterns
 
 ### useSyncExternalStore (via Zustand)
@@ -589,23 +457,21 @@ set({ toggleStates: newMap });
 
 ```typescript
 // CORRECT - shared connection:
-import { useReaper } from '../components/ReaperProvider';
+import { useReaper } from '../hooks/useReaper';
 const { sendCommand, sendCommandAsync } = useReaper();
 
-// WRONG - creates duplicate connection:
+// WRONG outside ReaperProvider:
 import { useReaperConnection } from '../hooks/useReaperConnection';
 ```
+
+The connection itself is a module-level XState actor (`core/websocketMachine.ts`, `core/websocketActor.ts`), so there's only ever one socket. `useReaperConnection` also registers the lifecycle effects (visibility, online/offline, action-cache fetch); `ReaperProvider` calls it once, and a second caller would register them twice.
 
 ### iOS Safari Considerations
 
 - WebSocket dies within 5 seconds of backgrounding
 - `onclose` may not fire (zombie connections)
 - Force reconnect on visibility change
-- Heartbeat ping/pong every 10s
-
-### pendingResponses Cleanup
-
-Cleared on disconnect via `clearPendingResponses()`, called from `stop()` and `forceReconnect()`.
+- Heartbeat ping/pong every 10s (`HEARTBEAT_INTERVAL`)
 
 ### Async Commands (sendCommandAsync)
 
@@ -622,7 +488,7 @@ try {
     // Use the converted time
   }
 } catch (error) {
-  // Handle timeout (5s) or disconnection
+  // Handle timeout (30s) or disconnection
   console.error('Command failed:', error);
 }
 ```
@@ -630,9 +496,9 @@ try {
 **Key behaviors:**
 
 - Rejects immediately if not connected
-- Automatically times out after 5 seconds
+- Times out after 30 seconds (`DEFAULT_REQUEST_TIMEOUT`)
 - Response matched via unique message ID
-- Pending responses cleared on disconnect/reconnect
+- Pending responses rejected and cleared on connection loss, stop and forced reconnect
 
 **When to use:**
 
@@ -647,203 +513,70 @@ try {
 
 ## 8. Modal System
 
-### Architecture Overview
-
-Modals use a three-part architecture:
+### Architecture
 
 | Component | Purpose |
 |-----------|---------|
 | `Modal` | Wrapper with Escape, backdrop, focus management |
 | `ModalContent` | Content area with consistent padding |
 | `ModalFooter` | Action buttons (Cancel/Confirm variants) |
-| `modalSlice` | Zustand slice for centralized state |
-| `ModalRoot` | Renders Timeline-related modals from state |
-
-### Basic Usage
+| `modalSlice` | Zustand slice for modals opened from several places |
+| `ModalRoot` | Renders the modalSlice modals |
 
 ```tsx
 import { Modal, ModalContent, ModalFooter } from '../components/Modal';
 
-function MyModal({ isOpen, onClose }: Props) {
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Edit Item">
-      <ModalContent>
-        <input ... />
-      </ModalContent>
-      <ModalFooter
-        onCancel={onClose}
-        onConfirm={handleSave}
-        confirmDisabled={!isValid}
-      />
-    </Modal>
-  );
-}
+<Modal isOpen={isOpen} onClose={onClose} title="Edit Item">
+  <ModalContent>
+    <input ... />
+  </ModalContent>
+  <ModalFooter onCancel={onClose} onConfirm={handleSave} confirmDisabled={!isValid} />
+</Modal>
 ```
 
-### Modal Props
-
-```typescript
-interface ModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  title: string;
-  children: ReactNode;
-  showCloseButton?: boolean; // default: true
-  closeOnBackdrop?: boolean; // default: true
-  closeOnEscape?: boolean;   // default: true
-  width?: 'sm' | 'md' | 'lg' | 'xl'; // default: 'md'
-  icon?: ReactNode;
-}
-```
-
-### ModalFooter Variants
-
-```tsx
-// Primary (default) - Save, Create, etc.
-<ModalFooter onCancel={close} onConfirm={save} confirmText="Save" />
-
-// Danger - Delete, Remove, etc.
-<ModalFooter
-  onCancel={close}
-  onConfirm={handleDelete}
-  confirmText="Delete"
-  confirmVariant="danger"
-/>
-
-// Success - Complete, Confirm, etc.
-<ModalFooter
-  onCancel={close}
-  onConfirm={handleComplete}
-  confirmText="Complete"
-  confirmVariant="success"
-/>
-
-// Loading state
-<ModalFooter
-  onCancel={close}
-  onConfirm={save}
-  confirmLoading={isSaving}
-/>
-```
+- `Modal` props: `isOpen`, `onClose`, `title`, `children`, `showCloseButton`, `closeOnBackdrop`, `closeOnEscape` (all default true), `width` (`'sm' | 'md' | 'lg' | 'xl'`, default `'md'`), `icon`, `className`.
+- `ModalFooter` props: `confirmText` (default "Save"), `confirmVariant` (`'primary' | 'danger' | 'success'`), `confirmDisabled`, `confirmLoading`, `leftContent`.
 
 ### Centralized Modal State (modalSlice)
 
-For modals that need to be opened from multiple places (e.g., Timeline components), use the centralized modalSlice:
-
 ```typescript
-// Opening a modal from any component
 const openMarkerEditModal = useReaperStore((s) => s.openMarkerEditModal);
 openMarkerEditModal(marker);
-
-// Closing modals
 const closeModal = useReaperStore((s) => s.closeModal);
-closeModal();
 ```
 
-Available actions:
-
-- `openMarkerEditModal(marker)` - Edit marker position/color
-- `openDeleteRegionModal(region, regionId)` - Confirm region deletion
-- `openAddRegionModal()` - Create new region
-- `openMakeSelectionModal()` - Set time selection
-- `closeModal()` - Close any open modal
-
-### ModalRoot
-
-`ModalRoot` in `App.tsx` renders all Timeline-related modals based on centralized state:
-
-```tsx
-// In App.tsx
-<ModalRoot />
-```
-
-This pattern decouples modal rendering from the components that trigger them, allowing Timeline.tsx to remain focused on timeline rendering.
-
-### When to Use Each Pattern
+Actions (`store/slices/modalSlice.ts`): `openMarkerEditModal(marker)`, `openAddRegionModal()`, `openMakeSelectionModal()`, `openTimelineSettingsModal()`, `openViewCustomizationModal()`, `closeModal()`. `ModalRoot` in `App.tsx` renders whichever is open, so the components that trigger them don't render them.
 
 | Pattern | Use Case |
 |---------|----------|
-| Local state | View-specific modals (CuesView playlists, Settings) |
-| modalSlice | Modals triggered from multiple places (Timeline, RegionInfoBar) |
-| ModalRoot | Centralizes Timeline modals (Marker, Region, Selection) |
+| Local state | View-specific modals (Playlist view, Settings) |
+| modalSlice + ModalRoot | Modals triggered from several places (Timeline, RegionInfoBar) |
 
 ### Portal Pattern for Overlays (CRITICAL)
 
 **All overlays must be portaled to `document.body`** to escape parent stacking contexts.
 
-#### Why Portals Are Required
-
-CSS stacking contexts are created by:
-
-- `isolation: isolate` (used at App root for z-index isolation)
-- `position` + `z-index` combinations
-- `transform`, `filter`, `will-change`, `opacity < 1`
-
-When a modal/dropdown is rendered inside a view component, even with `position: fixed` and `z-modal` (500), its z-index is evaluated **within the parent's stacking context**, not against the document root. This causes:
-
-- Modals appearing under footer elements
-- Dropdowns appearing behind faders
-- Color pickers appearing behind toolbars
-
-#### The Solution: Portal to Body
+- Stacking contexts come from `isolation: isolate` (the App root), `position` + `z-index`, and `transform`, `filter`, `will-change`, `opacity < 1`.
+- An overlay rendered inside a view is ranked within that view's context whatever its own z-index, so it ends up under the footer, behind faders or behind toolbars.
 
 ```tsx
 import { createPortal } from 'react-dom';
 
-// BAD - inline rendering, trapped in stacking context
-function Dropdown({ isOpen }) {
-  return (
-    <div className="relative">
-      <button>Open</button>
-      {isOpen && (
-        <div className="absolute top-full z-dropdown">
-          Menu content
-        </div>
-      )}
-    </div>
-  );
-}
-
-// GOOD - portaled to body, escapes all stacking contexts
-function Dropdown({ isOpen }) {
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const { position } = usePortalPosition(triggerRef, isOpen);
-
-  return (
-    <div className="relative">
-      <button ref={triggerRef}>Open</button>
-      {isOpen && createPortal(
-        <div
-          className="fixed z-dropdown"
-          style={{ top: position.top, left: position.left }}
-        >
-          Menu content
-        </div>,
-        document.body
-      )}
-    </div>
-  );
-}
-```
-
-#### usePortalPosition Hook
-
-For dropdowns/popovers that need to track a trigger element's position:
-
-```tsx
-import { usePortalPosition } from '../hooks/usePortalPosition';
-
 const triggerRef = useRef<HTMLButtonElement>(null);
 const { position } = usePortalPosition(triggerRef, isOpen, {
-  placement: 'bottom-start',  // 'bottom-start' | 'bottom-end' | 'top-start' | 'top-end'
-  offset: 4,                   // gap between trigger and dropdown
+  placement: 'bottom-start', // 'bottom-start' | 'bottom-end' | 'top-start' | 'top-end'
+  offset: 4,
 });
 
-// position.top, position.left - absolute coordinates
-// position.triggerWidth, position.triggerHeight - for width matching
+{isOpen && createPortal(
+  <div className="fixed z-dropdown" style={{ top: position.top, left: position.left }}>
+    Menu content
+  </div>,
+  document.body
+)}
 ```
 
-#### Components That Must Be Portaled
+`position` also carries `triggerWidth` and `triggerHeight` for width matching.
 
 | Type | Positioning | Components |
 |------|-------------|------------|
@@ -851,55 +584,20 @@ const { position } = usePortalPosition(triggerRef, isOpen, {
 | **Dropdowns** | `fixed` + `usePortalPosition` | `SettingsMenu`, `QuickFilterDropdown`, `FolderBreadcrumb` |
 | **Popovers** | `fixed` + `usePortalPosition` | `MarkerInfoBar` color picker, `RegionInfoBar` color picker |
 
-**Note:** Full-screen modals don't need `usePortalPosition` since they use `fixed inset-0` for viewport-centered positioning. Only dropdowns/popovers that need to track a trigger element's position require the hook.
+Full-screen modals don't need `usePortalPosition`; only overlays that track a trigger do.
 
-#### Click-Outside Handling for Portaled Elements
-
-Since portaled elements are no longer DOM children of the trigger, click-outside detection needs both refs:
+**Click-outside:** a portaled element isn't a DOM child of its trigger, so check both refs:
 
 ```tsx
-const triggerRef = useRef<HTMLButtonElement>(null);
-const menuRef = useRef<HTMLDivElement>(null);
-
-useEffect(() => {
-  if (!isOpen) return;
-
-  const handleClickOutside = (e: MouseEvent) => {
-    const target = e.target as Node;
-    const clickedTrigger = triggerRef.current?.contains(target);
-    const clickedMenu = menuRef.current?.contains(target);
-    if (!clickedTrigger && !clickedMenu) {
-      setIsOpen(false);
-    }
-  };
-
-  document.addEventListener('mousedown', handleClickOutside);
-  return () => document.removeEventListener('mousedown', handleClickOutside);
-}, [isOpen]);
+const handleClickOutside = (e: MouseEvent) => {
+  const target = e.target as Node;
+  if (!triggerRef.current?.contains(target) && !menuRef.current?.contains(target)) {
+    setIsOpen(false);
+  }
+};
 ```
 
-#### Accessibility for Portaled Dropdowns
-
-Maintain these ARIA attributes when portaling:
-
-```tsx
-// Trigger button
-<button
-  ref={triggerRef}
-  aria-expanded={isOpen}
-  aria-haspopup="listbox"  // or "true" for menus
->
-
-// Portaled dropdown
-{isOpen && createPortal(
-  <div role="listbox">
-    <button role="option" aria-selected={isSelected}>
-      Option
-    </button>
-  </div>,
-  document.body
-)}
-```
+**ARIA:** keep `aria-expanded` and `aria-haspopup` ("listbox", or "true" for menus) on the trigger, and `role="listbox"` / `role="option"` + `aria-selected` in the portaled content.
 
 ---
 
@@ -920,8 +618,8 @@ Or use Tailwind: `touch-none select-none`
 
 ### Touch Target Size
 
-- Minimum **44×44px** (WCAG 2.5.5)
-- Exception: color swatches at 24×24 (rarely used during performance)
+- Minimum **44×44px** (WCAG 2.5.5, Apple HIG)
+- Known gap: color swatches are 24×24
 
 ### Pointer Capture Safety
 
@@ -955,62 +653,17 @@ const handleTouchEnd = () => {
 
 ### Vertical Cancel Pattern
 
-Allow users to cancel drags by moving finger vertically (common UX pattern):
-
-```typescript
-const VERTICAL_CANCEL_THRESHOLD = 50;  // px
-
-const handlePointerMove = (e: PointerEvent) => {
-  const rect = containerRef.current?.getBoundingClientRect();
-  if (!rect) return;
-
-  // Cancel if finger moved too far vertically
-  const isOutsideVertically =
-    e.clientY < rect.top - VERTICAL_CANCEL_THRESHOLD ||
-    e.clientY > rect.bottom + VERTICAL_CANCEL_THRESHOLD;
-
-  if (isOutsideVertically) {
-    // Revert to original value, show preview state
-    setPreviewValue(originalValue);
-    return;
-  }
-
-  // Normal drag handling
-  const percent = (e.clientX - rect.left) / rect.width;
-  setPreviewValue(calculateValue(percent));
-};
-```
-
-Used in: `usePlayheadDrag`, `useMarkerDrag`, `usePanGesture`, `RegionInfoBar`
+Moving the finger more than `VERTICAL_CANCEL_THRESHOLD` (50px) above or below the control cancels the drag and reverts to the original value; moving back resumes it. Used in `usePlayheadDrag`, `useMarkerDrag`, `usePanGesture`, `RegionInfoBar`.
 
 ### Pointer Events Over Touch Events
 
-Always use `PointerEvent` instead of `TouchEvent`:
-
-```typescript
-// GOOD - unified pointer handling
-const handlePointerDown = (e: React.PointerEvent) => {
-  e.stopPropagation();
-  (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  // ...
-};
-
-// AVOID - separate touch/mouse handling
-const handleTouchStart = (e: React.TouchEvent) => { ... };
-const handleMouseDown = (e: React.MouseEvent) => { ... };
-```
-
-**Why PointerEvent?**
-
-- Single API for touch, mouse, pen
-- Built-in pointer capture
-- Better performance (no synthetic events)
+Use `PointerEvent`, not `TouchEvent` + `MouseEvent`: one API for touch, mouse and pen, with built-in pointer capture (`setPointerCapture` on pointerdown).
 
 ---
 
 ## 10. Timeline Coordinate Systems
 
-**This section exists because viewport coordinate bugs caused 3+ separate hotfixes.**
+Viewport coordinate mix-ups are the most repeated timeline bug.
 
 ### The Problem
 
@@ -1020,8 +673,6 @@ The timeline has two coordinate systems that are easy to confuse:
 |--------|-------|----------|
 | **Project coordinates** | 0 to `projectDuration` (e.g., 0-120s) | Storing positions, REAPER commands |
 | **Viewport coordinates** | `viewportStart` to `viewportEnd` (e.g., 45-75s) | Screen rendering, touch handling |
-
-### Common Mistake: Using Wrong Coordinate System
 
 ```typescript
 // BAD - uses full project duration for touch position
@@ -1034,30 +685,11 @@ const viewportDuration = viewportEnd - viewportStart;
 const time = viewportStart + (rawPercent * viewportDuration);
 ```
 
-**Why this matters:** When zoomed to view only 30s of a 120s project, touching the right edge of the screen should give `viewportEnd` (e.g., 75s), not `projectDuration` (120s).
+When zoomed to 30s of a 120s project, touching the right edge must give `viewportEnd` (e.g. 75s), not `projectDuration` (120s).
 
 ### Coordinate Conversion Functions
 
-Located in `components/Timeline/hooks/useViewport.ts`:
-
-```typescript
-// Time to screen percentage (for rendering)
-const timeToPercent = (time: number): number => {
-  const duration = viewportEnd - viewportStart;
-  return ((time - viewportStart) / duration) * 100;
-};
-
-// Screen percentage to time (for touch handling)
-const percentToTime = (percent: number): number => {
-  const duration = viewportEnd - viewportStart;
-  return viewportStart + (percent / 100) * duration;
-};
-
-// Check if time range overlaps viewport
-const isInView = (start: number, end: number, buffer = 0): boolean => {
-  return end >= viewportStart - buffer && start <= viewportEnd + buffer;
-};
-```
+`src/hooks/useViewport.ts` returns `timeToPercent(time)` (for rendering) and `percentToTime(percent)` (for touch handling), both relative to the visible range.
 
 ### When to Use Each System
 
@@ -1067,38 +699,12 @@ const isInView = (start: number, end: number, buffer = 0): boolean => {
 | Render element position | Viewport % | `left: ${timeToPercent(markerTime)}%` |
 | Handle touch/click | Viewport → Project | `percentToTime(clickPercent)` |
 | Store in Zustand | Project | `setPlayheadPosition(time)` |
-| Check visibility | Both | `isInView(regionStart, regionEnd)` |
 
-### Playhead Drag Example (Real Fix)
+### Overflow Clipping
 
-From commit `8d2b887` - playhead was jumping to wrong position when zoomed:
+`timeToPercent` returns values below 0% or above 100% for elements outside the viewport, so a region can be `left: -50%; width: 200%`:
 
-```typescript
-// BEFORE (broken when zoomed)
-const handlePointerMove = (e: PointerEvent) => {
-  const percent = (e.clientX - rect.left) / rect.width;
-  const newTime = percent * timelineDuration;  // Used full duration!
-  setPlayheadPosition(newTime);
-};
-
-// AFTER (correct)
-const handlePointerMove = (e: PointerEvent) => {
-  const percent = (e.clientX - rect.left) / rect.width;
-  const viewportDuration = viewportEnd - viewportStart;
-  const newTime = viewportStart + (percent * viewportDuration);
-  setPlayheadPosition(newTime);
-};
-```
-
-### Overflow Clipping (Another Real Fix)
-
-From commit `9825e73` - regions overflowed the viewport container:
-
-```typescript
-// renderTimeToPercent can return >100% or <0% for items outside viewport
-const leftPercent = timeToPercent(regionStart);  // Might be -50%
-const widthPercent = timeToPercent(regionEnd) - leftPercent;  // Might be 200%
-
+```tsx
 // Container MUST have overflow-hidden to clip these
 <div className="relative overflow-hidden">
   <div style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }} />
@@ -1108,8 +714,6 @@ const widthPercent = timeToPercent(regionEnd) - leftPercent;  // Might be 200%
 **Rule:** Any container that renders time-positioned elements MUST have `overflow-hidden`.
 
 ### Checklist for Timeline Features
-
-When adding new timeline interactions:
 
 - [ ] Am I using viewport coordinates for touch → time conversion?
 - [ ] Am I using project coordinates when sending to REAPER?
@@ -1160,13 +764,11 @@ try {
 }
 ```
 
-### Service Worker Cache Limit
+### Service Workers
 
-- iOS Safari: **50MB hard limit**
-- Total origin storage: ~20% of disk (60% if added to home screen)
+REAmo registers none; `utils/versionStorage.ts` unregisters any it finds, so a stale cached app can't outlive an extension update. If one is ever added: iOS Safari caps its cache at 50 MB.
 
 ---
-
 ## 12. Accessibility
 
 ### ARIA Live Regions
@@ -1180,22 +782,7 @@ try {
 
 ### Toggle Button Patterns
 
-**Binary toggles** (on/off): Use `aria-pressed="true|false"`
-
-```tsx
-<button aria-pressed={isActive}>Mute</button>
-```
-
-**Multi-state controls** (3+ states): Don't use `aria-pressed`. Use `aria-label` and live regions:
-
-```tsx
-<button aria-label={`Monitor: ${state}`}>...</button>
-<span role="status" aria-live="polite" className="sr-only">
-  Monitor changed to {state}
-</span>
-```
-
-See [Button System](#1a-button-system) for full patterns.
+Binary toggles use `aria-pressed`; 3+ state controls use `aria-label` with the current state plus a live region. See [Button System](#1a-button-system).
 
 ### Non-Color Indicators
 
@@ -1205,18 +792,11 @@ Track buttons use domain-standard colors (mute=blue, solo=yellow, arm=red) which
 - Position-based meaning (mute always leftmost)
 - Active state has visual difference beyond color (brightness, fill)
 
-**TODO:** Consider adding icons or shape indicators alongside color in future accessibility pass.
+Known gap: no icon or shape cue alongside the colour yet.
 
 ### Reduced Motion
 
-```css
-@media (prefers-reduced-motion: reduce) {
-  * {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-```
+`index.css` cuts animation and transition durations to ~0 under `@media (prefers-reduced-motion: reduce)`; `useReducedMotion` covers JS-driven animation.
 
 ---
 
@@ -1259,30 +839,22 @@ return <div ref={elementRef} />;
 - Individual icon imports elsewhere tree-shake correctly
 
 ---
-
 ## 14. Bundle Size
 
-### Target: ≤1,050 kB (single-file output)
-
-**Current**: ~652 kB (gzip: ~181 kB)
-
-### Monitoring
+No size budget is enforced. Check a build's output with:
 
 ```bash
-# Quick check
-cd frontend && npm run build && ls -lh dist/index.html
-
-# Visual bundle analyzer (opens browser)
-npm run analyze
+cd frontend && npm run build && ls -lh dist/assets/   # chunk sizes
+npm run analyze                                        # visual bundle analyzer
 ```
 
-### Curated Icon System (302 icons)
+### Curated Icon System
 
-Icons are curated in `src/icons/commonIcons.ts` instead of importing all ~1,900 from lucide-react. This saves ~400 kB.
+Icons are curated in `src/icons/commonIcons.ts` instead of importing all ~1,900 from lucide-react, which keeps hundreds of kB out of the bundle.
 
 **Files:**
 
-- `src/icons/commonIcons.ts` - 302 curated DAW-relevant icons
+- `src/icons/commonIcons.ts` - curated DAW-relevant icons
 - `src/icons/iconSearchIndex.ts` - Semantic search (e.g., "record" → Circle, Mic, Disc)
 - `scripts/analyze-icons.ts` - Maintenance script to regenerate (requires REAPER running)
 
@@ -1348,7 +920,6 @@ npm run test:e2e:ui    # Playwright with UI
 
 Coverage uses `@vitest/coverage-v8`. Run `npm run test:coverage` to see a text report.
 
-Current coverage (~44% statements).
 
 ### Store Reset Between Tests
 
@@ -1381,86 +952,16 @@ vi.useRealTimers();
 ```
 
 ---
+## 17. Why the Checklist Says So
 
-## 17. Common Mistakes (Real Examples)
+Bugs that produced the §18 rules:
 
-This section documents actual bugs from recent commits to prevent recurrence.
-
-### 1. Hardcoded Colors in Feature Code
-
-**Commit:** `6b63717` - Compliance audit
-
-**Symptom:** Sends mode used `bg-amber-500`, faders used `text-white`, routing indicators used inline hex.
-
-**Root Cause:** Developer used familiar Tailwind classes instead of checking for semantic tokens.
-
-**Fix:** Added `sends-*`, `routing-*`, `fader-*` tokens and migrated 9 components.
-
-**Prevention:** Before using any color class, check:
-
-1. Does a semantic token exist? → Use it
-2. Is this feature-specific? → Create a token in `index.css`
-3. Is this truly arbitrary? → Only then use Tailwind defaults
-
-### 2. Viewport vs Project Coordinates
-
-**Commits:** `8d2b887`, `9cf1e64`
-
-**Symptom:** Playhead jumped to wrong position when timeline was zoomed. Selection dragged to wrong time.
-
-**Root Cause:** Touch handlers used `projectDuration` instead of viewport range for coordinate conversion.
-
-**Fix:** Updated all timeline gesture hooks to accept and use `viewportStart`/`viewportEnd`.
-
-**Prevention:** See [Timeline Coordinate Systems](#10-timeline-coordinate-systems).
-
-### 3. Missing overflow-hidden
-
-**Commit:** `9825e73`
-
-**Symptom:** Region labels and selection indicators overflowed horizontally, causing page scroll.
-
-**Root Cause:** Timeline top bar and bottom bar containers lacked `overflow-hidden`.
-
-**Fix:** Added `overflow-hidden` to all timeline section containers.
-
-**Prevention:** Any container with percentage-positioned children MUST have `overflow-hidden`.
-
-### 4. Timer State Instead of Ref
-
-**Commit:** `6b63717`
-
-**Symptom:** `ConnectionStatus` component had unnecessary re-renders and cleanup race conditions.
-
-**Root Cause:** Timer ID stored in `useState` instead of `useRef`.
-
-**Fix:** Changed `const [pressTimer, setPressTimer] = useState(...)` to `const pressTimerRef = useRef(...)`.
-
-**Prevention:** Timer IDs never need to trigger re-renders. Always use `useRef`.
-
-### 5. Scattered select-none
-
-**Commit:** `f2bc367`
-
-**Symptom:** Inconsistent text selection behavior, redundant classes in 21+ files.
-
-**Root Cause:** Each component individually added `select-none` without coordination.
-
-**Fix:** Added single `select-none` to App.tsx root, removed from all children.
-
-**Prevention:** Global behaviors belong at the root. Check if behavior already exists before adding to a component.
-
-### 6. Missing Timer Cleanup
-
-**Commits:** `6b63717`, various
-
-**Symptom:** Memory leaks in long sessions, orphaned timeouts firing after unmount.
-
-**Root Cause:** `setTimeout` used without corresponding `useEffect` cleanup.
-
-**Fix:** Added cleanup effects to `TapTempoButton`, `RegionInfoBar`, `ConnectionStatus`.
-
-**Prevention:** Every `setTimeout`/`setInterval` MUST have a cleanup effect. Use the two-phase pattern.
+- **Hardcoded colors:** sends mode, faders and routing indicators used `bg-amber-500`, `text-white` and inline hex; the `sends-*`, `routing-*` and `fader-*` tokens replaced them. Before any color class: use a semantic token if one exists, add one to `index.css` if the color is feature-specific, raw Tailwind only if truly arbitrary.
+- **Viewport vs project coordinates:** the playhead and selection jumped to the wrong time when zoomed, because touch handlers used `projectDuration`. See §10.
+- **Missing `overflow-hidden`:** region labels and selection indicators overflowed the timeline bars and scrolled the page.
+- **Timer IDs in `useState`:** extra re-renders and cleanup races in `ConnectionStatus`. Timer IDs never need to trigger a render.
+- **Scattered `select-none`:** 21+ components set it separately and inconsistently. It's set once on the App root; global behaviour belongs at the root.
+- **Missing timer cleanup:** orphaned timeouts firing after unmount in long sessions. Every `setTimeout`/`setInterval` gets a cleanup effect (§4).
 
 ---
 
@@ -1486,14 +987,13 @@ This section documents actual bugs from recent commits to prevent recurrence.
 | `percent * projectDuration` for touch | `viewportStart + percent * viewportDuration` |
 | Percentage children without overflow | Add `overflow-hidden` to container |
 | `select-none` on individual components | Single `select-none` at App root |
-| Magic numbers for thresholds | Constants from `constants/` |
+| Magic numbers for thresholds | Named constants (§20) |
 | Inline modals/dropdowns with `z-*` | Portal to `document.body` with `createPortal` |
 | `absolute` positioning for dropdowns | `fixed` + `usePortalPosition` when portaled |
-| Whole hook object as useCallback dep | Infinite loops; `[bank]` recreates each render | Destructure stable fns: `const { goBack } = useBankNav()` |
-| Fixed rail width on notched device | 60px width - 34px notch = 26px content | `calc(60px + env(safe-area-inset-left))` |
+| Whole hook object as useCallback dep (`[bank]` is new each render: infinite loop) | Destructure stable fns: `const { goBack } = useBankNavigation()` |
+| Fixed rail width on notched device (60px - 34px notch = 26px content) | `calc(60px + env(safe-area-inset-left))` |
 
 ---
-
 ## 19. Layout Budget System
 
 The app is divided into discrete vertical sections, each with a **budget** of space. Content must fit within its budget — no overlap allowed.
@@ -1502,7 +1002,7 @@ The app is divided into discrete vertical sections, each with a **budget** of sp
 
 ```
 ┌─────────────────────────────────┐
-│     ViewHeader (~44px)          │  shrink-0, fixed
+│     ViewHeader                  │  shrink-0, fixed
 ├─────────────────────────────────┤
 │                                 │
 │     PRIMARY CONTENT             │  flex-1 (gets remaining)
@@ -1512,9 +1012,9 @@ The app is divided into discrete vertical sections, each with a **budget** of sp
 │     SECONDARY CONTENT           │  44-140px (collapsible)
 │     (SecondaryPanel)            │
 ├─────────────────────────────────┤
-│     Tab Bar (~44px)             │  optional via settings
+│     Tab Bar                     │  optional via settings
 ├─────────────────────────────────┤
-│     PersistentTransport (~80px) │  optional via settings
+│     PersistentTransport         │  optional via settings
 └─────────────────────────────────┘
 ```
 
@@ -1557,112 +1057,33 @@ const faderHeight = useMemo(() => {
 
 ### Layout Constants
 
-Centralized in `constants/layout.ts`:
+In `constants/layout.ts`: `PANEL_HEIGHT_COLLAPSED` (44) / `PANEL_HEIGHT_EXPANDED` (140) / `PANEL_TRANSITION_MS`, `STRIP_OVERHEAD_FULL` (164: color bar + name + pan + M/S + buttons + footer), `MIXER_CONTENT_PADDING` (36), `MIN_FADER_PORTRAIT` (80) / `MIN_FADER_LANDSCAPE` (50), `MAX_FADER_PERCENT` (0.7). Document the breakdown of any overhead constant next to it.
 
-```typescript
-// SecondaryPanel heights
-export const PANEL_HEIGHT_COLLAPSED = 44;
-export const PANEL_HEIGHT_EXPANDED = 140;
-export const PANEL_TRANSITION_MS = 200;
-
-// Mixer strip overhead (document the breakdown!)
-export const STRIP_OVERHEAD_FULL = 164;   // Color bar + name + pan + M/S + buttons + footer
-export const MIXER_CONTENT_PADDING = 32;  // Container padding + breathing room
-
-// Constraints
-export const MIN_FADER_PORTRAIT = 80;     // Touch usability floor
-export const MAX_FADER_PERCENT = 0.7;     // Prevent overflow ceiling
-```
-
-### Why This Matters
-
-- **Cross-device consistency**: Same mental model works on iPhone SE and iPad Pro
-- **No overlap bugs**: Each section stays in its lane
-- **Predictable behavior**: Expanding SecondaryPanel shrinks primary content predictably
-- **Easier debugging**: If something overflows, check if it exceeds its budget
+Why: the same model works from iPhone SE to iPad Pro; expanding SecondaryPanel shrinks primary content predictably; an overflow means something exceeded its budget.
 
 ### Common Mistakes
 
-```typescript
-// BAD - hardcoded magic numbers
-const faderHeight = panelExpanded ? 140 : 220;
-
-// GOOD - calculated from measured budget
-const faderHeight = useMemo(() => {
-  const budget = availableHeight - MIXER_CONTENT_PADDING;
-  return Math.max(MIN_FADER_PORTRAIT, budget - STRIP_OVERHEAD_FULL);
-}, [availableHeight]);
-
-// BAD - no overflow protection
-<div className="h-full flex items-center">
-
-// GOOD - overflow-hidden as safety net
-<div className="h-full flex items-center overflow-hidden">
-```
+- Hardcoded heights (`panelExpanded ? 140 : 220`) instead of a value calculated from the measured budget.
+- No `overflow-hidden` safety net on a budgeted container.
 
 ---
 
-## 20. Centralized Constants
+## 20. Constants
 
-Magic numbers scattered across the codebase make behavior inconsistent and hard to tune. Centralize these values.
+What's centralised:
 
-### Gesture Thresholds
+- `constants/layout.ts`: layout dimensions and thresholds (panel heights, strip overhead, fader limits, rail widths, size-class thresholds; see §19 and §21).
+- `constants/colors.ts`: marker and item color palettes.
 
-These should be in `constants/gestures.ts`:
+What isn't: gesture timings and thresholds are defined in each component, and they differ.
 
-```typescript
-// Timing (ms)
-export const LONG_PRESS_DURATION = 400;    // useLongPress, RegionInfoBar
-export const DOUBLE_TAP_WINDOW = 300;      // useDoubleTap
-export const HOLD_THRESHOLD = 500;         // FX modal, color picker reset
-export const CONFIRM_TIMEOUT = 3000;       // Delete confirmation
+- Long-press: 300 ms (`Toolbar/ToolbarButton.tsx`), 400 ms (`Timeline/TimelineFooter.tsx`), 500 ms (`RegionInfoBar.tsx`, `RegionContextBar.tsx`).
+- Hold-to-reset: 500 ms (`Toolbar/ColorPickerInput.tsx`, `AddRegionModal.tsx`, `MarkerEditModal.tsx`); hold delay 300 ms (`Mixer/BankNavigator.tsx`, `hooks/useRecordButton.ts`).
+- Double-tap: 300 ms (`Mixer/FxParamModal.tsx`).
+- `VERTICAL_CANCEL_THRESHOLD = 50` px, repeated in `usePlayheadDrag`, `useMarkerDrag`, `usePanGesture` and `useTimelinePointerEvents`.
+- Pan momentum: `FRICTION` and `MAX_VELOCITY_RATIO` in `usePanGesture.ts`.
 
-// Distance (px)
-export const VERTICAL_CANCEL_THRESHOLD = 50;  // Cancel drag if finger moves vertically
-export const TAP_MOVE_TOLERANCE = 10;         // Max move before tap becomes drag
-export const MARKER_CLUSTER_THRESHOLD = 40;   // Minimum px between markers
-
-// Velocity
-export const MIN_VELOCITY_THRESHOLD = 0.0005; // Momentum scrolling cutoff
-export const MAX_VELOCITY_CAP = 0.5;          // Prevent runaway scrolling
-export const FRICTION_COEFFICIENT = 0.965;    // Per-frame deceleration
-```
-
-### Timeline Constants
-
-These should be in `constants/timeline.ts`:
-
-```typescript
-export const MIN_VISIBLE_DURATION = 5;      // Minimum 5 seconds visible
-export const LOD_TEXT_THRESHOLD = 40;       // Hide region text below 40px
-export const EDGE_SCROLL_ZONE = 50;         // Edge scroll activation zone
-export const EDGE_SCROLL_SPEED = 0.5;       // Seconds per frame at edge
-```
-
-### Mixer/Layout Constants
-
-These are in `constants/layout.ts` (see §19 Layout Budget System):
-
-```typescript
-// Strip overhead (document breakdown for maintainability)
-export const STRIP_OVERHEAD_FULL = 164;    // Sum of non-fader elements
-export const MIXER_CONTENT_PADDING = 32;   // Container padding + breathing room
-
-// Fader constraints
-export const MIN_FADER_PORTRAIT = 80;      // Touch usability floor
-export const MIN_FADER_LANDSCAPE = 50;     // Compact mode minimum
-export const MAX_FADER_PERCENT = 0.7;      // Overflow prevention ceiling
-
-// Note: Fader height is now CALCULATED, not hardcoded
-// See useAvailableContentHeight hook and MixerView.tsx
-```
-
-### Why Centralize?
-
-1. **Consistency**: Same threshold everywhere
-2. **Tuning**: Change once, applies everywhere
-3. **Documentation**: Single place to understand system behavior
-4. **Testing**: Easy to mock/override in tests
+Known gap: there's no shared gesture or timeline constants module. When adding a gesture, name the constant at the top of the file and match the nearest existing value rather than inventing a new one.
 
 ---
 
@@ -1670,6 +1091,14 @@ export const MAX_FADER_PERCENT = 0.7;      // Overflow prevention ceiling
 
 When viewport height drops below 480px in landscape orientation, the app switches
 from bottom navigation to a dual-rail layout to reclaim vertical space.
+
+### Rules
+
+- Fingers don't scale with screens: size touch controls with pixel floors and ceilings, never percentages of the viewport (10% is 32px on a 320px phone).
+- Width is the primary layout trigger (vertical scrolling is expected), but height below 480px forces the side rail: bottom chrome would leave too little room.
+- Size classes follow Material Design's window size classes: width compact < 600px, medium 600-839px, expanded ≥ 840px; height compact < 480px (`constants/layout.ts`).
+- Orientation comes from the device (`screen.orientation`), room from the viewport, so the on-screen keyboard or a short browser viewport can't flip the layout (and remount the view).
+- Faders get their length from flex (the space available); their width stays fixed.
 
 ### Layout Modes
 
@@ -1708,7 +1137,7 @@ const { navPosition, isLandscapeConstrained, widthClass, heightClass } = useLayo
 
 **Components:**
 
-- `SideRail` (NavRail): Left side - 7 view tabs + play/stop/record
+- `SideRail` (NavRail): Left side - view tabs + play/stop/record
 - `ContextRail`: Right side - info tabs + bank nav + search + expandable panel
 - `ContextRailTab`: Individual tab button with badge support
 - `ContextRailPanel`: Animated slide-in overlay for expanded content
@@ -1741,92 +1170,43 @@ useEffect(() => {
 }, [isLandscapeConstrained, /* stable dependencies */]);
 ```
 
-**Critical:** Destructure stable function references from hooks to avoid infinite loops:
-
-```typescript
-// BAD - bank is new object each render, triggers infinite effect loop
-const bank = useBankNavigation({ ... });
-const handleBack = useCallback(() => bank.goBack(), [bank]); // ← infinite loop!
-
-// GOOD - goBack is stable (memoized inside the hook)
-const { goBack, goForward } = useBankNavigation({ ... });
-const handleBack = useCallback(() => goBack(), [goBack]); // ← stable
-```
+**Critical:** destructure stable functions from hooks (`const { goBack } = useBankNavigation(...)`) and depend on those; the `bank` object is new every render, so `[bank]` as a dependency loops forever.
 
 ### Safe Area Handling
 
-Rails must include device safe areas in their width calculations. The rail width
-equals content width PLUS safe area inset (not content INCLUDING safe area):
-
-```css
-/* NavRail (left) - 60px content + left inset */
-.nav-rail-width {
-  width: calc(60px + env(safe-area-inset-left, 0px));
-}
-
-/* ContextRail (right) - 72px content + right inset */
-.context-rail-width {
-  width: calc(72px + env(safe-area-inset-right, 0px));
-}
-
-/* PWA standalone mode with fallback for devices with notch */
-@media (display-mode: standalone) and (orientation: landscape) {
-  .nav-rail-width {
-    width: calc(60px + env(safe-area-inset-left, 34px));
-  }
-}
-```
+Rail width is content width **plus** the safe-area inset, not content including it: `calc(60px + env(safe-area-inset-left, 0px))` for the nav rail, `calc(72px + env(safe-area-inset-right, 0px))` for the context rail, with a 34px fallback in standalone landscape (`.nav-rail-width`, `.context-rail-width` in `index.css`).
 
 ### Layout Constants
 
-All dual-rail dimensions are in `constants/layout.ts`:
-
-```typescript
-export const NAV_RAIL_WIDTH = 60;           // Left rail content width
-export const CONTEXT_RAIL_WIDTH = 72;       // Right rail content width
-export const CONTEXT_PANEL_WIDTH = 200;     // Expanded overlay width
-export const HEIGHT_COMPACT_THRESHOLD = 480; // Triggers side rail mode
-```
+`constants/layout.ts`: `NAV_RAIL_WIDTH` (60), `CONTEXT_RAIL_WIDTH` (72), `CONTEXT_PANEL_WIDTH` (200), `HEIGHT_COMPACT_THRESHOLD` (480), `WIDTH_MEDIUM_THRESHOLD` (600), `WIDTH_EXPANDED_THRESHOLD` (840).
 
 ### Common Pitfalls
 
 | Mistake | Consequence | Fix |
 |---------|-------------|-----|
-| Using whole `bank` object as dependency | Infinite render loop | Destructure: `const { goBack } = useBankNavigation()` |
-| Fixed rail width without safe area | Controls cut off on notched devices | Use `calc(Xpx + env(safe-area-inset-*))` |
-| Forgetting cleanup in sync effect | Stale state after orientation change | Return cleanup function that nulls state |
+| Fixed rail width without safe area | Controls cut off on notched devices | `calc(Xpx + env(safe-area-inset-*))` |
+| Forgetting cleanup in sync effect | Stale state after orientation change | Return a cleanup that nulls the state |
 | Not hiding SecondaryPanel | Duplicate controls, wasted space | Check `isLandscapeConstrained` before rendering |
 
-### Reference
+### Not built yet
 
-- Research: `docs/architecture/RESPONSIVE_FRONTEND_FINAL.md`
-- Implementation plans: `responsive-docs/RESPONSIVE_PLAN_V1.md`, `RESPONSIVE_PLAN_V2.md`
+- Tablet layouts for the expanded width class: 2-3 channel strips side by side, revealing controls hidden on phones (EQ, dynamics), list + detail, and a capped content width.
+- A compact (36px) header in landscape; `ViewHeader` is the same height in every orientation.
+- Per-view footer defaults (in landscape, Instruments and Clock hide both the tab bar and the transport), merged with the user's tab bar and transport toggles. See UX_GUIDELINES §7.
 
 ---
 
-## 22. Deferred/Future Work
+## 22. ESLint Governance & Pre-commit Hooks
 
-Items intentionally not addressed yet:
+Custom ESLint rules and a pre-commit hook enforce the patterns in this document.
 
-| Item | Reason |
-|------|--------|
-| Canvas-based Timeline | Major refactor for compositor-only rendering |
-| Service worker | Offline caching not critical for local REAPER |
-| Test coverage expansion | Current coverage adequate |
-| 24×24 color swatches | Rarely used during performance |
-| Frame rate monitoring | No Battery API on iOS |
-
-### ESLint Governance & Pre-commit Hooks ✓
-
-**Status:** Implemented. Enforces patterns from this document via custom ESLint rules and pre-commit hooks.
-
-#### What's Automated
+### What's Automated
 
 | Rule | Section | Detection |
 |------|---------|-----------|
 | `reamo/require-effect-cleanup` | §4 Memory Safety | Warns on useEffect with timers/listeners without cleanup |
 | `reamo/no-state-for-timer-ids` | §4 Memory Safety | Warns on useState for timer/RAF IDs (use useRef) |
-| `reamo/prefer-button-primitive` | §1a Button System | Warns on raw `<button>` (off by default) |
+| `reamo/prefer-button-primitive` | §1a Button System | Warns on raw `<button>` (turned off in `eslint.config.js`) |
 | `no-restricted-syntax` | §5 React 19 | useRef<T>() without initial value |
 | `no-restricted-syntax` | §6 Zustand 5 | Array/object selectors without useShallow |
 | `no-restricted-syntax` | §6 Zustand 5 | Inline `?? {}` or `?? []` fallbacks |
@@ -1834,7 +1214,7 @@ Items intentionally not addressed yet:
 | `no-restricted-syntax` | §11 iOS Safari | h-screen without dvh |
 | `no-restricted-imports` | §14 Bundle Size | Barrel imports from lucide-react |
 
-#### Pre-commit Hook
+### Pre-commit Hook
 
 Runs automatically on staged `.ts`/`.tsx` files via Husky + lint-staged:
 
@@ -1846,7 +1226,7 @@ cd frontend && npx lint-staged
 
 Commits are blocked if warnings remain after auto-fix.
 
-#### Known Limitations
+### Known Limitations
 
 1. **Conditional cleanup detection**: `require-effect-cleanup` cannot detect cleanup returns inside `if` blocks. Only top-level returns are recognized:
 
@@ -1862,7 +1242,7 @@ Commits are blocked if warnings remain after auto-fix.
 
 2. **AST selector limits**: `no-restricted-syntax` patterns match syntax, not semantics. Some edge cases may false-positive.
 
-#### Adding Exceptions
+### Adding Exceptions
 
 For legitimate exceptions, add file-specific overrides in `eslint.config.js`:
 
@@ -1877,23 +1257,9 @@ For legitimate exceptions, add file-specific overrides in `eslint.config.js`:
 
 Always add a comment explaining why the exception is needed.
 
-#### Configuration Files
+### Configuration Files
 
 - `eslint.config.js` - Rule definitions and file overrides
 - `eslint-rules/index.js` - Custom rule implementations
 - `lint-staged.config.js` - Pre-commit lint configuration
 - `.husky/pre-commit` - Git hook entry point
-
----
-
-## Related Documentation
-
-| Document | Purpose |
-|----------|---------|
-| `docs/architecture/RESPONSIVE_FRONTEND_FINAL.md` | Responsive design research and guidelines |
-| `responsive-docs/RESPONSIVE_PLAN_V1.md` | Initial side rail implementation plan |
-| `responsive-docs/RESPONSIVE_PLAN_V2.md` | Dual-rail layout refinement plan |
-| `research/FRONTEND_AUDIT_PROGRESS.md` | Audit completion tracking |
-| `research/FRONTEND_PRODUCTION_REVIEW_CHECKLIST.md` | Original checklist with grep patterns |
-| `research/css-var-refactor.md` | Design token system reference |
-| `DEVELOPMENT.md` | Full-stack development guide (extension + frontend) |
