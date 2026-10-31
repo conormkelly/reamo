@@ -76,9 +76,8 @@ pub const ClientSubscription = struct {
     /// **QUANTIZED TO LOD LEVELS** to prevent cache thrashing on small viewport changes.
     /// This is critical - without quantization, every pan/zoom causes cache misses.
     ///
-    /// LOD levels (from docs/architecture/LOD_LEVELS.md):
-    /// - LOD 7: 1024 peaks/sec - viewport < 5s
-    /// - LOD 6: 256 peaks/sec  - viewport 5-20s
+    /// LOD levels (thresholds in peaks_tile.lodFromViewportDuration):
+    /// - LOD 6: 256 peaks/sec  - viewport < 20s
     /// - LOD 5: 64 peaks/sec   - viewport 20-75s
     /// - LOD 4: 16 peaks/sec   - viewport 75s-5min
     /// - LOD 3: 4 peaks/sec    - viewport 5-20min
@@ -95,7 +94,7 @@ pub const ClientSubscription = struct {
         return peaks_tile.TILE_CONFIGS[lod].peakrate;
     }
 
-    /// Get current LOD level (0-7) for cache keying
+    /// Get current LOD level (0-6) for cache keying
     pub fn viewportLOD(self: *const ClientSubscription) u8 {
         if (!self.hasViewport()) return 5; // Default LOD 5
         const duration = self.viewport_end - self.viewport_start;
@@ -372,9 +371,9 @@ pub const PeaksSubscriptions = struct {
         client.viewport_end = viewport.end;
         client.viewport_width_px = viewport.width_px;
 
-        // Always broadcast when viewport changes - tile cache prevents redundant work.
-        // Previously we only broadcast on LOD changes, but this meant zooming out
-        // within the same LOD (e.g., 1s → 5s, both LOD 6) didn't fetch new tiles.
+        // Broadcast on every viewport change, not only on LOD changes: zooming
+        // out within one LOD (e.g. 1s -> 5s, both LOD 6) needs tiles the client
+        // doesn't have yet. The tile cache keeps the repeat work cheap.
         if (viewport_changed) {
             if (new_lod != client.last_broadcast_lod) {
                 logging.info("peaks_subscriptions: LOD changed {d} -> {d}, triggering broadcast", .{

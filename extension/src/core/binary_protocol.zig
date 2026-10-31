@@ -24,7 +24,7 @@ pub const BinaryMessageType = enum(u8) {
 //
 // Per-tile:
 //   Header (20 bytes):
-//     u8   lod_level (0-7)
+//     u8   lod_level (0-6)
 //     u8   channels (1 or 2)
 //     u16  tile_index (LE)
 //     u16  num_peaks (LE, typically 256)
