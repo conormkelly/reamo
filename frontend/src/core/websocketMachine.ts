@@ -104,9 +104,8 @@ const MAX_RETRY_DELAY = 30000;
  * attempt in a new page context often fails. This warmup connection triggers the
  * internal initialization so subsequent connections succeed.
  *
- * Previously used a srcdoc iframe, but srcdoc origins are "null" which the server's
- * Origin validation rejects (403). A direct warmup from the main page uses the
- * correct same-origin header.
+ * The warmup runs from the main page, not a srcdoc iframe: a srcdoc origin is
+ * "null", which the server's Origin validation rejects (403).
  */
 function warmupWebSocket(wsUrl: string): Promise<void> {
   return new Promise((resolve) => {

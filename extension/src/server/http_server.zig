@@ -245,8 +245,7 @@ fn serveIndex(handler: Handler, req: *httpz.Request, res: *httpz.Response) !void
 
 /// Lightweight ping endpoint for Safari network stack warmup.
 /// The frontend fetches this before opening a WebSocket to ensure Safari's
-/// lazy networking layer is initialized (replaces the accidental warmup
-/// that EXTSTATE fetches previously provided).
+/// lazy networking layer is initialized.
 fn servePing(_: Handler, _: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
     res.body = "{\"ok\":true}";
