@@ -26,12 +26,27 @@
 //!   dip under 0.15, the deepest one must still be under 0.3, or there is
 //!   no pitch. Noise, which the JSFX turns into notes, reads as no pitch.
 //!
+//! YIN's period answers to every partial at once, and a real string's
+//! upper partials are sharp of whole multiples of the first (partial n by
+//! about 866 B n^2 cents), so on a stiff string YIN reads up to several
+//! cents sharp of the first partial f1, which is what a tuner should read.
+//! The frequency reported is therefore f1, measured by first_partial.zig
+//! from the phase slope of the partial nearest YIN's frequency over the
+//! input since the last onset (at most 0.3 s; 0.2 s is too short for B0,
+//! 0.4 s lags a turning peg and a glide), at a fine rate of 11-22 kHz.
+//! Where the first partial is too weak to measure well (a missing or
+//! buried fundamental) the two estimates are weighted by the inverse of
+//! their variances, YIN's taken as 1 cent: on sustained stiff strings the
+//! error falls from 4.4 cents (95th percentile) to 0.03 (`zig build
+//! tuner-targets`). An onset is an energy jump of 9 dB over the last 10-40 ms.
+//!
 //! The window is analysed only when `analyse` is called, not every hop.
 //! Nothing is allocated after `init`: the caller owns the `Analyser`
-//! (about 330 KB, so not on the stack) and calls `push` and `analyse` from
+//! (about 490 KB, so not on the stack) and calls `push` and `analyse` from
 //! one thread, not the audio thread.
 const std = @import("std");
 const fft_mod = @import("fft.zig");
+const first_partial = @import("first_partial.zig");
 
 /// What the tuner's user sets.
 pub const Settings = struct {
@@ -76,7 +91,34 @@ pub const Options = struct {
     /// this for a pitch; null reports the deepest dip whatever its depth,
     /// as the JSFX does.
     voicing_threshold: ?f64 = 0.3,
+    /// How YIN's period is refined to the first partial's frequency (see
+    /// first_partial.zig); null reports YIN's interpolated period.
+    refinement: ?first_partial.Method = .phase_slope,
+    /// The refinement measures at most this much of the input since the
+    /// last onset.
+    refine_window_s: f64 = 0.3,
+    /// The uncertainty given YIN's frequency as an estimate of the first
+    /// partial (mostly the pull of a stiff string's upper partials): the
+    /// reading weights YIN's and the refinement's frequencies by the
+    /// inverse of their variances.
+    yin_sigma_cents: f64 = 1,
 };
+
+/// The refinement's input is the analysed signal low-passed again and
+/// decimated to a rate from this up to twice it (the first partial is
+/// under 2 kHz); rates under it are kept as they are.
+const fine_rate_floor = 11025.0;
+/// The longest period the refinement averages over: YIN's longest
+/// (half the window) at the fastest fine rate.
+const max_fine_period: usize = @as(usize, @intFromFloat(@ceil(2 * fine_rate_floor * window_seconds / 2))) + 1;
+
+/// An onset is a 5 ms block of fine-rate input with `onset_ratio` times
+/// the mean energy of the blocks 10 to 40 ms before it, at least 50 ms
+/// after the last one.
+const onset_block_s = 0.005;
+const onset_history = 8;
+const onset_ratio = 8.0;
+const onset_refractory_s = 0.05;
 
 /// The tuner's analyser.
 pub const Analyser = AnalyserWith(.{});
@@ -84,6 +126,8 @@ pub const Analyser = AnalyserWith(.{});
 pub fn AnalyserWith(comptime options: Options) type {
     const max_window: usize = @intFromFloat(@ceil(window_seconds * options.max_analysis_rate));
     const max_fft = std.math.ceilPowerOfTwo(usize, max_window + max_window / 2) catch unreachable;
+    const max_fine: usize = if (options.refinement == null) 1 else @intFromFloat(@ceil(options.refine_window_s * 2 * fine_rate_floor));
+    const max_block: usize = @intFromFloat(@ceil(onset_block_s * 2 * fine_rate_floor));
     return struct {
         const Self = @This();
 
@@ -116,6 +160,27 @@ pub fn AnalyserWith(comptime options: Options) type {
         diff: [max_window / 2]f64,
         cmnd: [max_window / 2]f64,
 
+        /// Every `fine_decimation`-th analysed sample, low-passed again, at
+        /// `fine_rate`: the refinement's input. A ring of the last
+        /// `max_fine`, `fine_count` written in all.
+        fine_decimation: usize,
+        fine_rate: f64,
+        fine_lowpass: Biquad,
+        fine_phase: usize,
+        fine: [max_fine]f64,
+        fine_count: u64,
+        /// `fine_count` at the last onset.
+        onset_at: u64,
+        block_len: usize,
+        block_fill: usize,
+        block_energy: f64,
+        /// Energies of the last `onset_history` full blocks, newest at
+        /// `blocks_pos - 1`.
+        blocks: [onset_history]f64,
+        blocks_pos: usize,
+        segment: [max_fine]f64,
+        refine_work: first_partial.Work(max_fine_period),
+
         /// Sets up for `sample_rate` and starts from silence.
         pub fn init(self: *Self, sample_rate: f64) error{UnsupportedSampleRate}!void {
             if (!(sample_rate >= min_sample_rate and sample_rate <= max_sample_rate)) return error.UnsupportedSampleRate;
@@ -128,6 +193,11 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.window = window;
             self.fft_size = std.math.ceilPowerOfTwo(usize, window + window / 2) catch unreachable;
             self.lowpass = if (options.lowpass_hz) |hz| Biquad.lowpass(sample_rate, hz) else Biquad.passthrough;
+            self.fine_decimation = @max(1, @as(usize, @intFromFloat(@floor(analysis_rate / fine_rate_floor))));
+            self.fine_rate = analysis_rate / @as(f64, @floatFromInt(self.fine_decimation));
+            self.fine_lowpass = if (self.fine_decimation > 1) Biquad.lowpass(analysis_rate, 2000) else Biquad.passthrough;
+            self.block_len = @intFromFloat(@round(onset_block_s * self.fine_rate));
+            std.debug.assert(self.block_len <= max_block);
             self.fft.init();
             self.reset();
         }
@@ -140,6 +210,15 @@ pub fn AnalyserWith(comptime options: Options) type {
             @memset(&self.history, 0);
             @memset(&self.energy, 0);
             self.write_pos = 0;
+            self.fine_lowpass.clear();
+            self.fine_phase = 0;
+            @memset(&self.fine, 0);
+            self.fine_count = 0;
+            self.onset_at = 0;
+            self.block_fill = 0;
+            self.block_energy = 0;
+            @memset(&self.blocks, 0);
+            self.blocks_pos = 0;
         }
 
         /// Adds mono input. Non-finite samples count as silence, so one bad
@@ -157,8 +236,65 @@ pub fn AnalyserWith(comptime options: Options) type {
                     self.energy_acc = 0;
                     self.write_pos += 1;
                     if (self.write_pos == self.window) self.write_pos = 0;
+                    if (options.refinement != null) self.pushFine(y);
                 }
             }
+        }
+
+        fn pushFine(self: *Self, y: f64) void {
+            const v = self.fine_lowpass.step(y);
+            self.fine_phase += 1;
+            if (self.fine_phase < self.fine_decimation) return;
+            self.fine_phase = 0;
+            self.fine[@intCast(self.fine_count % max_fine)] = v;
+            self.fine_count += 1;
+            self.block_energy += v * v;
+            self.block_fill += 1;
+            if (self.block_fill < self.block_len) return;
+            // Blocks 2 to onset_history back, 10 to 40 ms before this one.
+            var before: f64 = 0;
+            for (2..onset_history) |k| before += self.blocks[(self.blocks_pos + onset_history - k) % onset_history];
+            before /= onset_history - 2;
+            const since_last = self.fine_count - self.onset_at;
+            const refractory: u64 = @intFromFloat(onset_refractory_s * self.fine_rate);
+            if (self.block_energy > onset_ratio * before and self.block_energy > 0 and (self.onset_at == 0 or since_last >= refractory)) {
+                self.onset_at = self.fine_count - self.block_len;
+            }
+            self.blocks[self.blocks_pos] = self.block_energy;
+            self.blocks_pos = (self.blocks_pos + 1) % onset_history;
+            self.block_energy = 0;
+            self.block_fill = 0;
+        }
+
+        /// The first partial's frequency near `guess_hz`, measured over the
+        /// input since the last onset (at most `refine_window_s` of it), and
+        /// its standard error in cents; null with too little input since
+        /// the onset to measure.
+        fn refine(self: *Self, guess_hz: f64) ?struct { hz: f64, sigma_cents: f64 } {
+            const method = options.refinement orelse return null;
+            const want: u64 = @intFromFloat(options.refine_window_s * self.fine_rate);
+            const since_onset = self.fine_count - self.onset_at;
+            const n: usize = @intCast(@min(@min(want, since_onset), @min(self.fine_count, max_fine)));
+            const start = self.fine_count - n;
+            for (self.segment[0..n], 0..) |*d, i| d.* = self.fine[@intCast((start + i) % max_fine)];
+            const e = first_partial.estimate(max_fine_period, &self.refine_work, self.segment[0..n], self.fine_rate, guess_hz, method) orelse return null;
+            // A partial a quarter-tone or more from the guess is not the
+            // one YIN found.
+            if (!(@abs(1200 * @log2(e.hz / guess_hz)) < 50)) return null;
+            // 1200 / ln 2 cents per unit of relative frequency; the standard
+            // error runs up to 15% under the observed scatter.
+            return .{ .hz = e.hz, .sigma_cents = 1.15 * 1731.234 * e.std_error_hz / e.hz };
+        }
+
+        /// YIN's `coarse` frequency and the refinement's, weighted by the
+        /// inverse of their variances (in cents, around `coarse`).
+        fn combine(self: *Self, coarse: f64) f64 {
+            const fine = self.refine(coarse) orelse return coarse;
+            if (!std.math.isFinite(fine.sigma_cents)) return coarse;
+            const vy = options.yin_sigma_cents * options.yin_sigma_cents;
+            const vf = fine.sigma_cents * fine.sigma_cents;
+            const offset = 1200 * @log2(fine.hz / coarse);
+            return coarse * std.math.pow(f64, 2, offset * vy / (vy + vf) / 1200);
         }
 
         /// The pitch of the last 92.9 ms of input.
@@ -173,7 +309,8 @@ pub fn AnalyserWith(comptime options: Options) type {
 
             self.difference();
             const best = self.pickPeriod() orelse return Reading.none;
-            const freq = self.analysis_rate / self.interpolate(best);
+            const coarse = self.analysis_rate / self.interpolate(best);
+            const freq = self.combine(coarse);
             const midi = 69 + 12 * @log2(freq / settings.reference_hz);
             const note = @floor(midi + 0.5);
             return .{
@@ -335,6 +472,29 @@ test "reads a steady sine within two hundredths of a cent from B0 to E6 at every
     }
 }
 
+test "reads a sustained stiff string's first partial within 0.05 cent, not a period pulled sharp by its upper partials" {
+    const buf = try generate(96000 * 2);
+    defer testing.allocator.destroy(buf);
+    for (required_rates) |sr| {
+        const a = try newAnalyser(sr);
+        defer testing.allocator.destroy(a);
+        // Electric-guitar E2, fretted bass B1 and a weak-fundamental E1.
+        const strings = [_]signals.StringOptions{
+            .{ .f0 = 82.4069, .inharmonicity = 1.1e-4 },
+            .{ .f0 = 61.7354, .inharmonicity = 1e-3 },
+            .{ .f0 = 41.2034, .inharmonicity = 2e-4, .fundamental_gain = 0.05 },
+        };
+        for (strings) |opts| {
+            const s = buf[0..@intFromFloat(sr * 1.5)];
+            signals.pluckedString(s, sr, opts);
+            a.reset();
+            const r = readAfter(a, s, .{});
+            errdefer std.debug.print("{d} Hz B {d} at {d}: {d} c\n", .{ opts.f0, opts.inharmonicity, sr, centsOff(r, opts.firstPartialHz(0)) });
+            try testing.expectApproxEqAbs(@as(f64, 0), centsOff(r, opts.firstPartialHz(0)), 0.05);
+        }
+    }
+}
+
 test "reads bass E1 and B0 at 88.2 and 96 kHz, where the JSFX's 4096 samples are too short" {
     const buf = try generate(96000);
     defer testing.allocator.destroy(buf);
@@ -364,13 +524,27 @@ test "a sawtooth's upper harmonics do not pull the reading at the top of the gui
     }
 }
 
-test "reads the fundamental of a tone whose fundamental is missing" {
-    const a = try newAnalyser(48000);
-    defer testing.allocator.destroy(a);
-    const buf = try generate(24000);
+test "reads a tone whose fundamental is missing within half a cent at every reading, at every required rate" {
+    const buf = try generate(96000);
     defer testing.allocator.destroy(buf);
-    signals.harmonics(buf, 48000, 98, &.{ 0, 0.3, 0.25, 0.2, 0.15, 0.1 });
-    try testing.expectApproxEqAbs(@as(f64, 0), centsOff(readAfter(a, buf, .{}), 98), 0.1);
+    for (required_rates) |sr| {
+        const a = try newAnalyser(sr);
+        defer testing.allocator.destroy(a);
+        for ([_]f64{ 55, 98, 110 }) |f0| {
+            const s = buf[0..@intFromFloat(sr)];
+            signals.harmonics(s, sr, f0, &.{ 0, 0.3, 0.25, 0.2, 0.15, 0.1 });
+            a.reset();
+            const tick: usize = @intFromFloat(@round(sr / 30));
+            var pos: usize = 0;
+            while (pos + tick <= s.len) : (pos += tick) {
+                a.push(s[pos .. pos + tick]);
+                if (pos < s.len / 3) continue;
+                const r = a.analyse(.{});
+                errdefer std.debug.print("{d} Hz at {d}, {d} s: {any}\n", .{ f0, sr, @as(f64, @floatFromInt(pos)) / sr, r });
+                try testing.expectApproxEqAbs(@as(f64, 0), centsOff(r, f0), 0.5);
+            }
+        }
+    }
 }
 
 test "a DC offset doesn't move the reading" {

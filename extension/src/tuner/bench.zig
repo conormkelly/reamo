@@ -123,11 +123,12 @@ fn jsfxCandidate(allocator: std.mem.Allocator) !Candidate {
 
 const candidate_notes = [_][2][]const u8{
     .{ "jsfx", "PitchDetect.jsfx ported: 4096 samples, analysed every 512, read at 30 Hz" },
-    .{ "analyser", "the tuner's: 2 kHz low-pass, analysed at 44.1-48 kHz, voicing gate 0.3" },
+    .{ "analyser", "the tuner's: 2 kHz low-pass, analysed at 44.1-48 kHz, voicing gate 0.3, first-partial refinement" },
     .{ "no-lowpass", "the analyser without its low-pass, so analysing at the input rate (the JSFX's YIN with a 92.9 ms window and the voicing gate)" },
     .{ "lowpass-1k", "the analyser with a 1 kHz low-pass" },
     .{ "rate-24k", "the analyser analysing at 22.05-24 kHz" },
     .{ "no-voicing", "the analyser reporting the deepest dip whatever its depth, as the JSFX" },
+    .{ "yin-only", "the analyser reporting YIN's period, without the first-partial refinement" },
 };
 
 var readings_buf: [256]Reading = undefined;
@@ -424,6 +425,7 @@ pub fn main() !void {
         try analyserCandidate(pitch.AnalyserWith(.{ .lowpass_hz = 1000 }), "lowpass-1k", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .max_analysis_rate = 24000 }), "rate-24k", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .voicing_threshold = null }), "no-voicing", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .refinement = null }), "yin-only", allocator),
     };
     var cands: [max_candidates]Candidate = undefined;
     var nc: usize = 0;

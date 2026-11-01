@@ -444,6 +444,10 @@ const GroupStats = struct {
     errors: std.ArrayList(f64) = .empty,
     /// Errors against the settled f1 (the glide's nu_inf).
     settled_errors: std.ArrayList(f64) = .empty,
+    /// Beating strings: errors against the instantaneous frequency of the
+    /// first partial's two polarisations together (a diagnostic, not a
+    /// target).
+    composite_errors: std.ArrayList(f64) = .empty,
     /// Reads in the 1-3 s span, and those that showed cents.
     span_reads: usize = 0,
     span_shown: usize = 0,
@@ -547,6 +551,7 @@ fn measure(alloc: std.mem.Allocator, st: *GroupStats, c: Case, sr: f64, rs: []co
         try st.errors.append(alloc, @abs(e));
         st.span_reads += 1;
         if (r.hz != null) st.span_shown += 1;
+        if (c.group == .beating) try st.composite_errors.append(alloc, if (r.hz) |hz| @abs(sig.cents(hz, s.compositeFirstPartialHz(t))) else std.math.inf(f64));
         try st.settled_errors.append(alloc, if (r.hz) |hz| @abs(sig.cents(hz, settled)) else std.math.inf(f64));
         case_worst = @max(case_worst, @abs(e));
         if (std.math.isFinite(e)) {
@@ -675,6 +680,11 @@ pub fn main() !void {
     const all = [_]Candidate{
         try jsfxCandidate(allocator),
         try analyserCandidate(pitch.Analyser, "analyser", "the tuner's analyser", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .refinement = null }), "yin-only", "the analyser reporting YIN's period, unrefined", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .refinement = .pll }), "refine-pll", "the first partial by a phase-locked loop", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .refinement = .dtft_newton }), "refine-dtft", "the first partial by Newton on its DTFT power", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .refine_window_s = 0.2 }), "refine-0.2s", "the phase slope over at most 0.2 s", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .refine_window_s = 0.4 }), "refine-0.4s", "the phase slope over at most 0.4 s", allocator),
     };
     var cands: [all.len]Candidate = undefined;
     var nc: usize = 0;
@@ -862,6 +872,10 @@ fn printDetail(w: anytype, c: Candidate, r: *Results) !void {
             st.flag_never,
         });
     }
+    const beating = r.group[@intFromEnum(Group.beating)];
+    const composite = try alloc.dupe(f64, beating.composite_errors.items);
+    defer alloc.free(composite);
+    try w.print("\nBeating, against the instantaneous frequency of both polarisations' first partial together: P95 {d:.3} c.", .{percentile(composite, 0.95)});
     const ramp = r.group[@intFromEnum(Group.ramp)];
     try w.print("\nRamp: {d} of {d} reads over the allowance, worst {d:.2} c; octave {d}, other wrong note {d}.\n", .{ ramp.ramp_over, ramp.ramp_reads, ramp.ramp_worst, ramp.octave, ramp.wrong_note });
     const two = r.group[@intFromEnum(Group.two_notes)];

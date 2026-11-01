@@ -303,6 +303,33 @@ pub const StringOptions = struct {
         return self.f0 * self.partialRatio(1) * self.pitch.factor(t);
     }
 
+    /// The instantaneous frequency of partial 1 with its second
+    /// polarisation, the rate of the phase of their sum, `t` seconds after
+    /// the pluck. Without a second polarisation it is `firstPartialHz`.
+    /// Two components a little apart, the weaker decaying sooner, move the
+    /// sum's phase both through their beat and through the change in their
+    /// amplitude ratio.
+    pub fn compositeFirstPartialHz(self: StringOptions, t: f64) f64 {
+        const p = self.polarisation orelse return self.firstPartialHz(t);
+        var rng = MinStd.init(self.seed);
+        const phase = tau * (rng.next() + 1) / 2;
+        const decay = @log(1000.0) / self.t60_s;
+        const detune = std.math.pow(f64, 2, p.cents / 1200);
+        const h = 1e-5;
+        var angles: [2]f64 = undefined;
+        for ([_]f64{ t - h, t + h }, 0..) |at, k| {
+            const a1 = tau * self.partialRatio(1) * self.f0 * self.pitch.integral(at) + phase;
+            const env1 = @exp(-decay * at);
+            const env2 = p.gain * @exp(-decay / p.t60_ratio * at);
+            const re = env1 * @cos(a1) + env2 * @cos(a1 * detune + 1);
+            const im = env1 * @sin(a1) + env2 * @sin(a1 * detune + 1);
+            angles[k] = std.math.atan2(im, re);
+        }
+        var d = angles[1] - angles[0];
+        d -= tau * @round(d / tau);
+        return d / (2 * h) / tau;
+    }
+
     /// The first partial's frequency once the pitch path has settled (the
     /// glide's nu_inf); for a ramp, its frequency at the pluck.
     pub fn settledFirstPartialHz(self: StringOptions) f64 {
@@ -722,6 +749,35 @@ test "pluckedString's first partial falls 60 dB in t60" {
     const early = rms(buf[0..4800]);
     const late = rms(buf[96000 .. 96000 + 4800]);
     try testing.expectApproxEqAbs(@as(f64, 60), 20 * std.math.log10(early / late), 0.5);
+}
+
+test "compositeFirstPartialHz is the rate of the first partial's phase with both polarisations" {
+    const sr = 48000.0;
+    const buf = try testing.allocator.alloc(f32, 2 * 48000);
+    defer testing.allocator.free(buf);
+    // Partial 1 alone, its polarisations 20 cents apart, the weaker dying
+    // three times as fast: the sum's frequency swings by cents.
+    const opts: StringOptions = .{
+        .f0 = 110,
+        .inharmonicity = 1e-4,
+        .max_hz = 150,
+        .t60_s = 2,
+        .polarisation = .{ .cents = 20, .gain = 0.5, .t60_ratio = 0.3 },
+    };
+    pluckedString(buf, sr, opts);
+    var swing: f64 = 0;
+    for ([_]usize{ 4800, 19200, 33600, 48000, 62400 }) |from| {
+        const m = crossingFrequency(buf, sr, from, 5);
+        // The mean of the composite frequency over the same span (Simpson).
+        const n = 100;
+        const h = (m.end_s - m.start_s) / n;
+        var sum = opts.compositeFirstPartialHz(m.start_s) + opts.compositeFirstPartialHz(m.end_s);
+        for (1..n) |i| sum += @as(f64, if (i % 2 == 1) 4 else 2) * opts.compositeFirstPartialHz(m.start_s + h * @as(f64, @floatFromInt(i)));
+        const mean_hz = sum * h / 3 / (m.end_s - m.start_s);
+        try testing.expectApproxEqAbs(@as(f64, 0), cents(m.hz, mean_hz), 0.01);
+        swing = @max(swing, @abs(cents(mean_hz, opts.firstPartialHz(0))));
+    }
+    try testing.expect(swing > 1);
 }
 
 test "pluckedString's second polarisation is detuned by its cents" {

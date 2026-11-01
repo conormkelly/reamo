@@ -140,7 +140,7 @@ pub fn build(b: *std.Build) void {
         "src/server/host_validation.zig",
         "src/audio/ring_buffer.zig",
         "src/tuner/jsfx_port.zig", // with fft.zig's and signals.zig's tests, which it imports
-        "src/tuner/pitch.zig",
+        "src/tuner/pitch.zig", // with first_partial.zig's tests, which it imports
         // protocol.zig, state/, subscription/ modules have ../ imports — tested via main.zig test block
     };
 
