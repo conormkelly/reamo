@@ -3,6 +3,15 @@
 //! sends, mixed to mono. Nothing goes into REAPER: no FX, so no undo point,
 //! no project change and nothing in the monitoring chain.
 //!
+//! What it hears is what REAPER sends the audio device's hardware outputs
+//! 1/2, after the master's FX, fader, pan and mute, plus anything else
+//! routed to those outputs (a track's hardware output, the metronome if it
+//! goes there). So a muted or faded-down master, or a master routed to
+//! other outputs, reads as silence, the same as nothing playing: the tuner
+//! can't tell them apart. On a device with one output it reads output 1
+//! alone; on one with none it reads nothing. The worker logs either once
+//! per opening (`outputs_reported`, and audio/status's missingOutput1/2).
+//!
 //! Every phone tuning the master shares one analyser, allocated when the
 //! first opens the tuner and freed when the last closes it. Three threads:
 //! - the audio thread only copies samples into the hook's mono ring;
@@ -140,8 +149,20 @@ pub const MasterTuner = struct {
     settings: pitch.Settings = .{},
     /// The latest reading; written by the worker, under `lock`.
     reading: pitch.Reading = .none,
+    /// Written by the worker, read by anyone.
+    outputs_reported: std.atomic.Value(OutputsReport) = std.atomic.Value(OutputsReport).init(.ok),
 
     pub const Snapshot = struct { reading: pitch.Reading, settings: pitch.Settings };
+
+    /// What the worker has found wrong with the device's outputs since the
+    /// tuner opened, each logged once.
+    pub const OutputsReport = enum(u8) {
+        ok,
+        /// A mono device: the tuner reads output 1 alone.
+        only_output_1,
+        /// No output 1: the tuner hears nothing.
+        none_from_device,
+    };
 
     /// A phone opens the master tuner. The first allocates the analyser,
     /// takes the audio hook and starts the worker; settings start from the
@@ -159,7 +180,7 @@ pub const MasterTuner = struct {
         // acquire left the ring empty, and the worker, its consumer from now
         // on, starts here.
         self.* = .{ .analysis = analysis, .subscribers = 1, .tick_ns = self.tick_ns };
-        self.worker = std.Thread.spawn(.{}, run, .{ self, analysis, &hook.tuner_ring }) catch |err| {
+        self.worker = std.Thread.spawn(.{}, run, .{ self, analysis, hook }) catch |err| {
             logging.err("tuner: couldn't start the master tuner's thread: {s}", .{@errorName(err)});
             self.* = .{ .tick_ns = self.tick_ns };
             return error.ThreadFailed;
@@ -208,13 +229,31 @@ pub const MasterTuner = struct {
     }
 
     /// The worker: a tick every 1/30 s until `stop` is set.
-    fn run(self: *MasterTuner, analysis: *Analysis, ring: *mono_ring.MonoRing) void {
+    fn run(self: *MasterTuner, analysis: *Analysis, hook: *audio_hook.Hook) void {
         var timer = std.time.Timer.start() catch {
             logging.err("tuner: no monotonic clock; the master tuner reads nothing", .{});
             return;
         };
+        const ring = &hook.tuner_ring;
+        const missing_1_at_open = hook.missing_output_1.load(.acquire);
+        const missing_2_at_open = hook.missing_output_2.load(.acquire);
         var due: u64 = 0;
         while (true) {
+            switch (self.outputs_reported.load(.acquire)) {
+                .ok => if (hook.missing_output_1.load(.acquire) != missing_1_at_open) {
+                    logging.warn("tuner: REAPER gives the audio hook no output 1 (does the device have outputs?); the master tuner hears nothing", .{});
+                    self.outputs_reported.store(.none_from_device, .release);
+                } else if (hook.missing_output_2.load(.acquire) != missing_2_at_open) {
+                    logging.info("tuner: the device has one output; the master tuner reads output 1 alone", .{});
+                    self.outputs_reported.store(.only_output_1, .release);
+                },
+                .only_output_1 => if (hook.missing_output_1.load(.acquire) != missing_1_at_open) {
+                    logging.warn("tuner: REAPER gives the audio hook no output 1 (does the device have outputs?); the master tuner hears nothing", .{});
+                    self.outputs_reported.store(.none_from_device, .release);
+                },
+                .none_from_device => {},
+            }
+
             self.lock.lock();
             const settings = self.settings;
             self.lock.unlock();
@@ -501,4 +540,24 @@ test "a refused hook frees the analyser and leaves the tuner closed" {
     try testing.expectError(error.AudioHookFailed, tuner.open(testing.allocator, rig.hook, &rig.reaper));
     try testing.expect(!tuner.isOpen());
     try testing.expectEqual(@as(?*Analysis, null), tuner.analysis);
+}
+
+test "the worker reports a device that gives the master no output to read" {
+    var rig = try Rig.init();
+    defer rig.deinit();
+    var tuner = MasterTuner{ .tick_ns = 2 * std.time.ns_per_ms };
+    try tuner.open(testing.allocator, rig.hook, &rig.reaper);
+    defer tuner.close(testing.allocator, rig.hook, &rig.reaper);
+    FakeDevice.outputs = 0;
+    defer FakeDevice.outputs = 2;
+
+    for (0..20) |_| {
+        rig.block(220, 0.5, 48000);
+        std.Thread.sleep(std.time.ns_per_ms);
+    }
+    var waited: u32 = 0;
+    while (tuner.outputs_reported.load(.acquire) != .none_from_device and waited < 2000) : (waited += 1) {
+        std.Thread.sleep(std.time.ns_per_ms);
+    }
+    try testing.expectEqual(MasterTuner.OutputsReport.none_from_device, tuner.outputs_reported.load(.acquire));
 }

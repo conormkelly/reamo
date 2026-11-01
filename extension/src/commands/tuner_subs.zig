@@ -29,7 +29,10 @@ const tuner_subscriptions = @import("../subscriptions/tuner_subscriptions.zig");
 /// }}
 ///
 /// With "trackGuid": "master", fxGuid is "" (no plugin is inserted) and
-/// threshold is the analyser's default, -90.
+/// threshold is the analyser's default, -90. The master tuner hears the
+/// device's hardware outputs 1/2, post master fader and mute
+/// (subscriptions/master_tuner.zig): a muted or faded-down master reads as
+/// silence.
 ///
 /// After subscribing, the client receives "tuner" events at 30Hz
 /// containing pitch detection data.

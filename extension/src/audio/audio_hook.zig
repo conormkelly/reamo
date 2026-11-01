@@ -36,6 +36,11 @@ pub const Hook = struct {
     stream_ring: ring_buffer.AudioRingBuffer = .{},
     /// Mono f32 for the tuner.
     tuner_ring: mono_ring.MonoRing = .{},
+    /// Post callbacks in which REAPER gave no output 1 (a device with no
+    /// outputs), and no output 2 (a mono device). Audio thread writes;
+    /// anyone reads.
+    missing_output_1: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
+    missing_output_2: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
 
     /// Take the hook for `user`, registering it with REAPER if nobody held
     /// it. `api` is anything with REAPER's registerAudioHook and
@@ -135,11 +140,19 @@ pub const Hook = struct {
         // Don't check output_nch — REAPER may not set it in the struct.
         const left = get_buffer(true, 0) orelse {
             _ = diag_no_left.fetchAdd(1, .monotonic);
+            _ = self.missing_output_1.fetchAdd(1, .monotonic);
             return;
         };
-        const right = get_buffer(true, 1) orelse return;
+        const maybe_right = get_buffer(true, 1);
+        if (maybe_right == null) _ = self.missing_output_2.fetchAdd(1, .monotonic);
 
         const users = self.users.load(.acquire);
+        // The tuner reads output 1 alone on a one-output device; the stream
+        // sends stereo pairs, so it has nothing to send there.
+        if (users & @intFromEnum(User.tuner) != 0) {
+            self.tuner_ring.write(left, maybe_right orelse left, sample_count, srate);
+        }
+        const right = maybe_right orelse return;
         if (users & @intFromEnum(User.stream) != 0) {
             // A rate outside u32, or NaN, can't be stored; the stream keeps
             // the last good one.
@@ -147,9 +160,6 @@ pub const Hook = struct {
                 self.stream_ring.sample_rate.store(@intFromFloat(srate), .release);
             }
             self.stream_ring.writeFromF64(left, right, sample_count);
-        }
-        if (users & @intFromEnum(User.tuner) != 0) {
-            self.tuner_ring.write(left, right, sample_count, srate);
         }
         _ = diag_write_count.fetchAdd(1, .monotonic);
     }
@@ -229,9 +239,12 @@ pub const FakeRegistrar = struct {
 /// the channels are module-level, as REAPER's own are per-callback.
 pub const FakeDevice = struct {
     pub var out: [2][8192]f64 = undefined;
+    /// How many of the two outputs GetBuffer hands out: 1 for a mono
+    /// device, 0 for one with none.
+    pub var outputs: c_int = 2;
 
     fn getBuffer(is_output: bool, idx: c_int) callconv(.c) ?[*]f64 {
-        if (!is_output or idx < 0 or idx > 1) return null;
+        if (!is_output or idx < 0 or idx >= outputs) return null;
         return &out[@intCast(idx)];
     }
 
@@ -448,4 +461,37 @@ test "the audio thread's path has no allocator and calls none" {
         std.debug.print("{s} in fn {s} ({s})\n", .{ word, f.name, f.file });
         return error.AllocatesOnTheAudioThread;
     };
+}
+
+test "with only output 1, the tuner reads it alone and the hook counts output 2 missing" {
+    const hook = try newHook();
+    defer testing.allocator.destroy(hook);
+    var reaper = FakeRegistrar{};
+    FakeDevice.outputs = 1;
+    defer FakeDevice.outputs = 2;
+    const left = [_]f64{0.5} ** 16;
+    _ = hook.acquire(&reaper, .tuner);
+    _ = hook.acquire(&reaper, .stream);
+    FakeDevice.block(hook, &left, &left, 48000);
+
+    var mono: [16]f32 = undefined;
+    try testing.expectEqual(@as(usize, 16), hook.tuner_ring.read(&mono).n);
+    try testing.expectEqual(@as(f32, 0.5), mono[0]);
+    try testing.expectEqual(@as(u64, 1), hook.missing_output_2.load(.acquire));
+    try testing.expectEqual(@as(u64, 0), hook.missing_output_1.load(.acquire));
+    // The stream sends stereo pairs; it has none to send.
+    try testing.expectEqual(@as(usize, 0), hook.stream_ring.available());
+}
+
+test "with no outputs at all, nothing is written and the hook counts output 1 missing" {
+    const hook = try newHook();
+    defer testing.allocator.destroy(hook);
+    var reaper = FakeRegistrar{};
+    FakeDevice.outputs = 0;
+    defer FakeDevice.outputs = 2;
+    const left = [_]f64{0.5} ** 16;
+    _ = hook.acquire(&reaper, .tuner);
+    FakeDevice.block(hook, &left, &left, 48000);
+    try testing.expectEqual(@as(usize, 0), hook.tuner_ring.available());
+    try testing.expectEqual(@as(u64, 1), hook.missing_output_1.load(.acquire));
 }
