@@ -1919,16 +1919,34 @@ test "the window's level after loud bursts is that of the quiet input left in it
     try testing.expectApproxEqAbs(@as(f64, -80), a.windowLevelDb(), 0.2);
 }
 
-test "reset forgets earlier input" {
-    const a = try newAnalyser(44100);
-    defer testing.allocator.destroy(a);
-    const buf = try generate(22050);
+test "after reset, the analyser reads new input exactly as a fresh one does" {
+    const used = try bareAnalyser(48000);
+    defer testing.allocator.destroy(used);
+    const fresh = try bareAnalyser(48000);
+    defer testing.allocator.destroy(fresh);
+    const buf = try generate(96000);
     defer testing.allocator.destroy(buf);
-    signals.sine(buf, 44100, 220, 0.5, 0);
-    a.push(buf);
-    try testing.expect(a.analyse(.{}).freq_hz > 0);
-    a.reset();
-    try testing.expectEqual(Reading.none, a.analyse(.{}));
+    const other = try generate(96000);
+    defer testing.allocator.destroy(other);
+    // Earlier input: buzz, then a note over it, so every state is used.
+    signals.mains(buf, 48000, 60, .buzz, -40);
+    signals.pluckedString(other[24000..], 48000, .{ .f0 = 110, .inharmonicity = 6.5e-5 });
+    signals.mix(buf, other);
+    var k: usize = 0;
+    while ((k + 1) * 1600 <= buf.len) : (k += 1) {
+        used.push(buf[k * 1600 .. (k + 1) * 1600]);
+        _ = used.analyse(.{});
+    }
+    used.reset();
+    // New input: silence, then E2.
+    @memset(buf, 0);
+    signals.pluckedString(buf[12000..], 48000, .{ .f0 = 82.4069, .inharmonicity = 1.1e-4 });
+    k = 0;
+    while ((k + 1) * 1600 <= buf.len) : (k += 1) {
+        used.push(buf[k * 1600 .. (k + 1) * 1600]);
+        fresh.push(buf[k * 1600 .. (k + 1) * 1600]);
+        try testing.expectEqual(fresh.analyse(.{}), used.analyse(.{}));
+    }
 }
 
 test "reads the same at 176.4 and 192 kHz and at rates between the common ones" {
