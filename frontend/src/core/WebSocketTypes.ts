@@ -466,6 +466,7 @@ export interface TunerEventPayload {
   settling?: boolean; // A note's attack: the note is known, the cents not yet
   stable?: boolean;   // The pitch has held still: the reading to tune by
   multiple?: boolean; // Several notes sound; the reading is one of them
+  starting?: boolean; // A new note's name is held back (its first ~0.1 s): no pitch yet, but not silence
   // Settings (for multi-client sync)
   referenceHz: number;  // A4 reference frequency (400-480)
   thresholdDb: number;  // Silence threshold in dB (-90 to -30)

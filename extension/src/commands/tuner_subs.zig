@@ -29,7 +29,9 @@ const tuner_subscriptions = @import("../subscriptions/tuner_subscriptions.zig");
 /// }}
 ///
 /// With "trackGuid": "master", fxGuid is "" (no plugin is inserted) and
-/// threshold is the analyser's default, -90. The master tuner hears the
+/// threshold is the analyser's default, -90. Its events add settling,
+/// stable, multiple and starting (a new note's name is held back for its
+/// first ~0.1 s) to the fields a track tuner's carry. The master tuner hears the
 /// device's hardware outputs 1/2, post master fader and mute
 /// (subscriptions/master_tuner.zig): a muted or faded-down master reads as
 /// silence.

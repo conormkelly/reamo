@@ -29,7 +29,7 @@ pub const Event = struct {
     /// none of them.
     flags: ?Flags,
 
-    pub const Flags = struct { settling: bool, stable: bool, multiple: bool };
+    pub const Flags = struct { settling: bool, stable: bool, multiple: bool, starting: bool };
 };
 
 /// The event JSON. `conf` repeats `clarity` (the same measure under its
@@ -45,7 +45,7 @@ pub fn writeEvent(w: anytype, track_guid: []const u8, ev: Event) !void {
     try w.print(",\"cents\":{d:.2},\"conf\":{d:.3},\"clarity\":{d:.3}", .{ ev.cents, ev.clarity, ev.clarity });
     try w.writeAll(if (in_tune) ",\"inTune\":true" else ",\"inTune\":false");
     if (ev.flags) |f| {
-        try w.print(",\"settling\":{},\"stable\":{},\"multiple\":{}", .{ f.settling, f.stable, f.multiple });
+        try w.print(",\"settling\":{},\"stable\":{},\"multiple\":{},\"starting\":{}", .{ f.settling, f.stable, f.multiple, f.starting });
     }
     // Settings (for multi-client sync - other clients can see if someone changed them)
     try w.print(",\"referenceHz\":{d:.1},\"thresholdDb\":{d:.0}}}}}", .{ ev.reference_hz, ev.threshold_db });
@@ -72,7 +72,7 @@ pub fn generateReadingEvent(
         .clarity = reading.clarity,
         .reference_hz = settings.reference_hz,
         .threshold_db = settings.silence_db,
-        .flags = .{ .settling = reading.settling, .stable = reading.stable, .multiple = reading.multiple },
+        .flags = .{ .settling = reading.settling, .stable = reading.stable, .multiple = reading.multiple, .starting = reading.starting },
     });
 }
 
@@ -204,6 +204,7 @@ test "a reading's event carries clarity under both names and the analyser's flag
         .settling = false,
         .stable = true,
         .multiple = false,
+        .starting = false,
     }, .{ .reference_hz = 442, .silence_db = -90 }) orelse return error.RenderFailed;
     defer std.testing.allocator.free(json.ptr[0..512]);
     const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json, .{});
@@ -220,6 +221,7 @@ test "a reading's event carries clarity under both names and the analyser's flag
     try std.testing.expect(!p.get("settling").?.bool);
     try std.testing.expect(p.get("stable").?.bool);
     try std.testing.expect(!p.get("multiple").?.bool);
+    try std.testing.expect(!p.get("starting").?.bool);
     try std.testing.expectEqual(@as(f64, 442.0), p.get("referenceHz").?.float);
     try std.testing.expectEqual(@as(i64, -90), p.get("thresholdDb").?.integer);
 }
@@ -230,13 +232,25 @@ test "an event from the JSFX has no flags, as the JSFX can't tell them" {
     const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json, .{});
     defer parsed.deinit();
     const p = parsed.value.object.get("payload").?.object;
-    try std.testing.expect(p.get("settling") == null and p.get("stable") == null and p.get("multiple") == null);
+    try std.testing.expect(p.get("settling") == null and p.get("stable") == null and p.get("multiple") == null and p.get("starting") == null);
     try std.testing.expectEqual(@as(f64, 0.9), p.get("conf").?.float);
     try std.testing.expectEqual(@as(f64, 0.9), p.get("clarity").?.float);
 }
 
 test "no pitch is never in tune, though its cents are 0" {
-    const json = try renderTest(.{ .freq = 0, .note = 0, .cents = 0, .clarity = 0, .reference_hz = 440, .threshold_db = -90, .flags = .{ .settling = false, .stable = false, .multiple = false } });
+    const json = try renderTest(.{ .freq = 0, .note = 0, .cents = 0, .clarity = 0, .reference_hz = 440, .threshold_db = -90, .flags = .{ .settling = false, .stable = false, .multiple = false, .starting = false } });
     defer std.testing.allocator.free(json.ptr[0..512]);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"inTune\":false") != null);
+}
+
+test "a reading held back as a note starts says so, with no pitch yet" {
+    var r = pitch.Reading.none;
+    r.starting = true;
+    const json = generateReadingEvent(std.testing.allocator, "master", r, .{}) orelse return error.RenderFailed;
+    defer std.testing.allocator.free(json.ptr[0..512]);
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json, .{});
+    defer parsed.deinit();
+    const p = parsed.value.object.get("payload").?.object;
+    try std.testing.expect(p.get("starting").?.bool);
+    try std.testing.expectEqual(@as(f64, 0), p.get("freq").?.float);
 }

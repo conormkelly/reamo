@@ -32,7 +32,8 @@
 //!
 //! A note shows no name, and so no pitch, until the analyser's window is
 //! wholly past its onset: about 0.1 s after a pluck, the first tick past
-//! the 93 ms window.
+//! the 93 ms window. Meanwhile the reading says `starting`, which tells a
+//! note on its way from silence.
 //!
 //! The analyser shows a note only from an onset: a string already ringing
 //! when the tuner opens shows once it is plucked again.
