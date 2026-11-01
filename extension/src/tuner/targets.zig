@@ -175,6 +175,10 @@ const Group = enum {
     hum_drift,
     /// Such hum alone.
     hum_drift_idle,
+    /// Bass tones with partial 2 12 or 17 dB over partial 1 and partial 3
+    /// weak (a bridge pickup's or a miked amp's spectrum): counted towards
+    /// octave errors, not towards lock-on.
+    bass_h2,
     /// Hum or buzz alone.
     hum,
     /// A noise floor alone.
@@ -263,7 +267,7 @@ fn string(s: Str, rolloff: f64) sig.StringOptions {
     return .{ .f0 = s.f0, .inharmonicity = s.b, .rolloff = rolloff, .t60_s = if (isBass(s.f0)) 8 else 6 };
 }
 
-const max_cases = 260;
+const max_cases = 280;
 var case_store: [max_cases]Case = undefined;
 var name_store: [max_cases][40]u8 = undefined;
 var case_count: usize = 0;
@@ -412,6 +416,25 @@ fn buildCases() []const Case {
         var o = string(s, 1);
         o.pluck_at = 1.0 / 3.0;
         add(.third, "{s} at a third", .{s.name}, .{ .name = "", .group = .third, .strings = .{ o, null } });
+    }
+    const h2_strings = [_]Str{
+        .{ .name = "E1", .f0 = 41.2034, .b = 2e-4 },
+        .{ .name = "F#1", .f0 = 46.2493, .b = 2e-4 },
+        .{ .name = "G#1", .f0 = 51.9131, .b = 2e-4 },
+        .{ .name = "A1", .f0 = 55.0, .b = 2e-4 },
+        .{ .name = "B1", .f0 = 61.7354, .b = 2e-4 },
+        .{ .name = "D2", .f0 = 73.4162, .b = 2e-4 },
+        .{ .name = "E2", .f0 = 82.4069, .b = 2e-4 },
+        .{ .name = "A2", .f0 = 110.0, .b = 6.5e-5 },
+    };
+    for (h2_strings) |hs| {
+        // With rolloff 1, partial 2 is 6 dB under partial 1; these gains
+        // put it 12 or 17 dB over, and partial 3 20 dB under where it was.
+        for ([_][2]f64{ .{ 12, 0.126 }, .{ 17, 0.0707 } }) |g| {
+            var o = string(hs, 1);
+            o.partial_gain = .{ g[1], 1, 0.1, 1 };
+            add(.bass_h2, "{s} h2 +{d} dB", .{ hs.name, g[0] }, .{ .name = "", .group = .bass_h2, .strings = .{ o, null } });
+        }
     }
     return case_store[0..case_count];
 }
@@ -1140,7 +1163,7 @@ fn printTargets(w: anytype, cands: []const Candidate, results: []Results) !void 
             const st = g[@intFromEnum(grp)];
             octave += st.octave;
             // Lock-on keeps the signals its baseline was measured on.
-            if (grp == .hum_target or grp == .ks_weak or grp == .third or grp == .hum_drift) continue;
+            if (grp == .hum_target or grp == .ks_weak or grp == .third or grp == .hum_drift or grp == .bass_h2) continue;
             lock_sum += st.lock_sum_ms;
             lock_n += st.lock_n;
             lock_never += st.lock_never;

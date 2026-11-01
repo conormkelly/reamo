@@ -282,6 +282,10 @@ pub const StringOptions = struct {
     /// partial n is scaled by |sin(n pi pluck_at)|, so plucking at a third
     /// takes out partials 3, 6, 9 and so on. Null for no such shaping.
     pluck_at: ?f64 = null,
+    /// Extra gains on partials 1 to 4 (a pickup or an amp shaping them): a
+    /// bridge pickup's bass can put partial 2 15 dB over partial 1 with
+    /// partial 3 weak.
+    partial_gain: [4]f64 = .{ 1, 1, 1, 1 },
     /// Time for partial 1 to fall 60 dB.
     t60_s: f64 = 6,
     /// Partial n's t60 is t60_s / (1 + t60_slope (n - 1)): upper partials
@@ -367,6 +371,7 @@ pub fn pluckedString(out: anytype, sample_rate: f64, opts: StringOptions) void {
         var a = 1 / std.math.pow(f64, n, opts.rolloff);
         if (count == 0) a *= opts.fundamental_gain;
         if (opts.pluck_at) |p| a *= @abs(@sin(n * std.math.pi * p));
+        if (count < 4) a *= opts.partial_gain[count];
         amps[count] = a;
         ratios[count] = ratio;
         phases[count] = tau * (rng.next() + 1) / 2;
@@ -833,6 +838,20 @@ test "pluckedString's fundamental_gain sets the fundamental under the octave" {
     const a1 = toneAmplitude(seg, sr, opts.firstPartialHz(0));
     const a2 = toneAmplitude(seg, sr, 2 * opts.f0 * @sqrt(1 + 4 * opts.inharmonicity));
     try testing.expectApproxEqAbs(@as(f64, -20), 20 * std.math.log10(a1 / a2), 0.5);
+}
+
+test "pluckedString's partial gains shape partials 1 to 4" {
+    const sr = 48000.0;
+    const buf = try testing.allocator.alloc(f32, 9600);
+    defer testing.allocator.free(buf);
+    // Partial 2 is 1/2 of partial 1 by the rolloff; with gains 0.1 and 1
+    // it stands 14 dB over partial 1, and partial 3 is 20 dB down.
+    pluckedString(buf, sr, .{ .f0 = 55, .inharmonicity = 0, .t60_slope = 0, .partial_gain = .{ 0.1, 1, 0.1, 1 } });
+    const a1 = toneAmplitude(buf, sr, 55);
+    const a2 = toneAmplitude(buf, sr, 110);
+    const a3 = toneAmplitude(buf, sr, 165);
+    try testing.expectApproxEqAbs(@as(f64, 20 * std.math.log10(5.0)), 20 * std.math.log10(a2 / a1), 0.3);
+    try testing.expectApproxEqAbs(@as(f64, 20 * std.math.log10(0.1 / 3.0 / 0.5)), 20 * std.math.log10(a3 / a2), 0.3);
 }
 
 test "pluckedString plucked at a third has no 3rd or 6th partial" {
