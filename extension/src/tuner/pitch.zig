@@ -15,12 +15,13 @@
 //!   string's sharp upper partials. The tuner's range ends near 2 kHz, so
 //!   no fundamental it reads is lost.
 //! - The window is a fixed 92.9 ms (the JSFX's 4096 samples at 44.1 kHz)
-//!   at every sample rate, analysed at 44.1-48 kHz: above 48 kHz only every
-//!   D-th filtered sample is kept (D = 2 at 88.2 and 96 kHz, 4 at 176.4
-//!   and 192 kHz), the low-pass doubling as the anti-alias filter. Bass E1
-//!   and B0 read at any rate, and the cost and memory stay those of the
-//!   48 kHz case. Analysing at 22-24 kHz would halve the cost but misses
-//!   the +-1 cent target at E6.
+//!   at every sample rate. Up to 48 kHz the input rate is analysed; above
+//!   it only every D-th filtered sample is kept, D the smallest whole
+//!   number that brings the rate to 48 kHz or under (2 at 88.2 and 96 kHz,
+//!   4 at 176.4 and 192 kHz), the low-pass doubling as the anti-alias
+//!   filter. Bass E1 and B0 read at any rate, and the cost and memory stay
+//!   those of the 48 kHz case. Analysing at 22-24 kHz would halve the cost
+//!   but misses the +-1 cent target at E6.
 //! - A pitch is reported only when the signal is periodic enough: with no
 //!   dip under 0.15, the deepest one must still be under 0.3, or there is
 //!   no pitch. Noise, which the JSFX turns into notes, reads as no pitch.
