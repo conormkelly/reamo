@@ -1096,9 +1096,9 @@ def read_baseline(run):
         return None, f"not in this run (make soak runs {BASELINE} beside it)"
     started = [d for d, _ in this_run(BASELINE, CONTROL_STARTED)]
     if not started:
-        return None, (f"{BASELINE} hadn't started by the end of this soak: run.sh starts scenarios in the "
-                      f"order named, HARNESS_JOBS at a time, so it runs alongside only if named first or "
-                      f"with HARNESS_JOBS of 2 or more (make soak does both)")
+        return None, (f"{BASELINE} hadn't started by the end of this soak: run.sh runs HARNESS_JOBS "
+                      f"scenarios at a time, so the two run alongside only with HARNESS_JOBS of 2 or more "
+                      f"(make soak sees to it)")
     deadline = time.monotonic() + BASELINE_WAIT_SECS
     while True:
         done = this_run(BASELINE, "soak-summary.json")
