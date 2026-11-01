@@ -460,6 +460,26 @@ backtraces in `reaper.out`.
 
 `out/long-session-baseline/` keeps the control's, without `baseline`.
 
+### When a number is high
+
+Narrow it in this order:
+
+1. **The baseline** (`baseline` in the summary). What the control shows
+   too is REAPER's own; only the difference points at REAmo.
+2. **Where it is.** `rss_growth_mb_by_mapping` says which memory grew: a
+   library's mapping, `[heap]` (the main malloc arena) or anonymous
+   (other malloc arenas, mmaps, thread stacks). `extension_memory`
+   (`debug/memoryStats`) covers only REAmo's polling-state arenas (the
+   30, 5 and 1 Hz tiers); growth outside them shows in the mappings only. `cpu_pct_by_thread_group`
+   and `soak-threads.csv` say which thread: `unnamed` is REAmo's server
+   or audio stream threads; `main` runs REAmo's timer and command
+   handlers as well as REAPER's UI; `reaper/audio_dm` runs REAmo's audio
+   hook as well as REAPER's audio; other `reaper/*` threads are REAPER's.
+3. **Which ops.** Rerun with `SOAK_OPS` cut down (`peaks`, `-audio`,
+   `trackFx`, ...): the op family the growth follows points at its
+   command handlers.
+4. **Profile the narrowed case.** Profiling is being evaluated separately.
+
 ### Where the limits come from
 
 Measured on REAPER 7.83, aarch64 Docker, up to seven runs at once:
@@ -475,6 +495,13 @@ Measured on REAPER 7.83, aarch64 Docker, up to seven runs at once:
   warm-up), hence slope and drift only from 60.
 - 15-minute runs of one op family each: growth up to 12 MB, in steps, then
   flat; CPU drift within 1.1 points.
+- Soak beside the control, 60 minutes, 20-minute warm-up: the control
+  (REAPER alone) held at 180 MB with no growth (slope 0.00 MB/h), CPU
+  15.4 % (main thread 3.2 %), 30 threads, none unnamed, 18 open files. The
+  soak held at 237 MB, 1.2 MB growth, 1.3 MB/h, CPU 18.3 % (main 5.6 %,
+  REAmo's unnamed threads 0.3 %), drift -0.5 points in both. The
+  difference is REAmo under the phones' load: 57 MB, 2.9 points of CPU
+  (2.4 on the main thread), 10 to 11 threads.
 
 The growth limit sits at twice the largest warm-up step, the slope limit
 far above the measured noise and well below a leak that matters over a
