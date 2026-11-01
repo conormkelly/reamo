@@ -436,31 +436,37 @@ test "acquire with a REAPER that has no audio hook API fails cleanly" {
     try std.testing.expect(!hook.registered);
 }
 
-test "the audio thread's path has no allocator and calls none" {
-    // REAPER's audio thread must never allocate. Checked statically, which
-    // catches a global allocator too (core/no_alloc.zig): the callback, the
-    // hook's work and the two rings' producer sides, and the tuner ring's
-    // consumer side for good measure.
-    if (comptime no_alloc.reachesAllocator(Hook)) @compileError("an allocator is reachable from Hook");
-    if (comptime no_alloc.paramsReachAllocator(@TypeOf(onAudioBuffer))) @compileError("an allocator is reachable from @TypeOf(onAudioBuffer)");
-    if (comptime no_alloc.paramsReachAllocator(@TypeOf(Hook.process))) @compileError("an allocator is reachable from @TypeOf(Hook.process)");
-    const Fn = struct { file: []const u8, name: []const u8, found: ?[]const u8 };
+test "the audio thread's path has no allocator, calls none and doesn't log" {
+    // REAPER's audio thread must never allocate, lock or log. A tripwire,
+    // not a proof (core/no_alloc.zig): no allocator or growing container
+    // reachable from the hook's types and the callback's parameters, and no
+    // allocation or logging named in the callback, the hook's work, the two
+    // rings' producer sides and the tuner ring's consumer side, or in any
+    // same-file function they call.
+    if (comptime no_alloc.reachesAllocation(Hook)) @compileError("an allocator or a growing container is reachable from Hook");
+    if (comptime no_alloc.paramsReachAllocation(@TypeOf(onAudioBuffer))) @compileError("an allocator or a growing container is reachable from @TypeOf(onAudioBuffer)");
+    if (comptime no_alloc.paramsReachAllocation(@TypeOf(Hook.process))) @compileError("an allocator or a growing container is reachable from @TypeOf(Hook.process)");
+    const Fn = struct { file: []const u8, source: []const u8, name: []const u8 };
     const hook_src = @embedFile("audio_hook.zig");
     const ring_src = @embedFile("ring_buffer.zig");
     const mono_src = @embedFile("mono_ring.zig");
     const fns = [_]Fn{
-        .{ .file = "audio_hook.zig", .name = "onAudioBuffer", .found = try no_alloc.allocationIn(hook_src, "onAudioBuffer") },
-        .{ .file = "audio_hook.zig", .name = "process", .found = try no_alloc.allocationIn(hook_src, "process") },
-        .{ .file = "ring_buffer.zig", .name = "writeFromF64", .found = try no_alloc.allocationIn(ring_src, "writeFromF64") },
-        .{ .file = "ring_buffer.zig", .name = "f64ToI16", .found = try no_alloc.allocationIn(ring_src, "f64ToI16") },
-        .{ .file = "mono_ring.zig", .name = "write", .found = try no_alloc.allocationIn(mono_src, "write") },
-        .{ .file = "mono_ring.zig", .name = "read", .found = try no_alloc.allocationIn(mono_src, "read") },
-        .{ .file = "mono_ring.zig", .name = "discard", .found = try no_alloc.allocationIn(mono_src, "discard") },
+        .{ .file = "audio_hook.zig", .source = hook_src, .name = "onAudioBuffer" },
+        .{ .file = "audio_hook.zig", .source = hook_src, .name = "process" },
+        .{ .file = "ring_buffer.zig", .source = ring_src, .name = "writeFromF64" },
+        .{ .file = "ring_buffer.zig", .source = ring_src, .name = "f64ToI16" },
+        .{ .file = "mono_ring.zig", .source = mono_src, .name = "write" },
+        .{ .file = "mono_ring.zig", .source = mono_src, .name = "read" },
+        .{ .file = "mono_ring.zig", .source = mono_src, .name = "discard" },
     };
-    for (fns) |f| if (f.found) |word| {
-        std.debug.print("{s} in fn {s} ({s})\n", .{ word, f.name, f.file });
-        return error.AllocatesOnTheAudioThread;
-    };
+    for (fns) |f| {
+        for ([_][]const []const u8{ &no_alloc.allocating, &no_alloc.logging }) |words| {
+            if (try no_alloc.forbiddenIn(f.source, f.name, words)) |word| {
+                std.debug.print("{s} in fn {s} ({s}) or a function it calls\n", .{ word, f.name, f.file });
+                return error.AllocatesOrLogsOnTheAudioThread;
+            }
+        }
+    }
 }
 
 test "with only output 1, the tuner reads it alone and the hook counts output 2 missing" {

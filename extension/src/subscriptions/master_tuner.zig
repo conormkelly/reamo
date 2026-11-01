@@ -443,12 +443,14 @@ test "a plug-in blowing up through the master doesn't stop the tuner reading" {
 
 test "the analysis tick and its thread have no allocator and call none" {
     // The analysis is allocated once, at open; every tick after that, on
-    // the worker at 30 Hz, must not allocate. Checked statically, which
-    // catches a global allocator too (core/no_alloc.zig). The analyser's
-    // own push and analyse are tuner/pitch.zig's to keep allocation-free.
-    if (comptime no_alloc.reachesAllocator(Analysis)) @compileError("an allocator is reachable from Analysis");
-    if (comptime no_alloc.paramsReachAllocator(@TypeOf(Analysis.tick))) @compileError("an allocator is reachable from @TypeOf(Analysis.tick)");
-    if (comptime no_alloc.paramsReachAllocator(@TypeOf(MasterTuner.run))) @compileError("an allocator is reachable from @TypeOf(MasterTuner.run)");
+    // the worker at 30 Hz, must not allocate. A tripwire against an
+    // allocation creeping in, not a proof (core/no_alloc.zig): it reads
+    // tick's and run's bodies and the same-file functions they call. The
+    // analyser's own push and analyse are tuner/pitch.zig's to keep
+    // allocation-free.
+    if (comptime no_alloc.reachesAllocation(Analysis)) @compileError("an allocator or a growing container is reachable from Analysis");
+    if (comptime no_alloc.paramsReachAllocation(@TypeOf(Analysis.tick))) @compileError("an allocator or a growing container is reachable from @TypeOf(Analysis.tick)");
+    if (comptime no_alloc.paramsReachAllocation(@TypeOf(MasterTuner.run))) @compileError("an allocator or a growing container is reachable from @TypeOf(MasterTuner.run)");
     const source = @embedFile("master_tuner.zig");
     for ([_][]const u8{ "tick", "run" }, [_]?[]const u8{ try no_alloc.allocationIn(source, "tick"), try no_alloc.allocationIn(source, "run") }) |name, found| {
         if (found) |word| {
