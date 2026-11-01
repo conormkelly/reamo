@@ -14,7 +14,9 @@ pub const Encoding = enum { int, float };
 pub const Wav = struct {
     sample_rate: u32,
     channels: u16,
-    bits: u16,
+    /// Bytes each sample's container takes (block_align / channels): 24-bit
+    /// samples may sit in 4-byte containers, left-justified.
+    width: u16,
     encoding: Encoding,
     /// The interleaved sample bytes.
     data: []const u8,
@@ -24,20 +26,20 @@ pub const Wav = struct {
     }
 
     fn frameBytes(self: Wav) usize {
-        return @as(usize, self.channels) * (self.bits / 8);
+        return @as(usize, self.channels) * self.width;
     }
 
     /// Sample `channel` of frame `frame`, scaled to -1 .. 1.
     pub fn sample(self: Wav, frame: usize, channel: usize) f32 {
-        const width = self.bits / 8;
-        const at = frame * self.frameBytes() + channel * width;
-        const b = self.data[at .. at + width];
+        const at = frame * self.frameBytes() + channel * self.width;
+        const b = self.data[at .. at + self.width];
         return switch (self.encoding) {
-            .float => if (self.bits == 32)
+            .float => if (self.width == 4)
                 @bitCast(std.mem.readInt(u32, b[0..4], .little))
             else
                 @floatCast(@as(f64, @bitCast(std.mem.readInt(u64, b[0..8], .little)))),
-            .int => switch (self.bits) {
+            // A whole container: valid bits are left-justified in it.
+            .int => switch (self.width * 8) {
                 8 => (@as(f32, @floatFromInt(b[0])) - 128) / 128,
                 16 => @as(f32, @floatFromInt(std.mem.readInt(i16, b[0..2], .little))) / 32768,
                 24 => @as(f32, @floatFromInt(std.mem.readInt(i24, b[0..3], .little))) / 8388608,
@@ -61,10 +63,16 @@ const format_pcm = 1;
 const format_float = 3;
 const format_extensible = 0xFFFE;
 
+/// Whether four bytes look like a RIFF chunk id: printable ASCII.
+fn isChunkId(b: []const u8) bool {
+    for (b) |c| if (c < 0x20 or c > 0x7e) return false;
+    return true;
+}
+
 pub fn parse(bytes: []const u8) Error!Wav {
     if (bytes.len < 12 or !std.mem.eql(u8, bytes[0..4], "RIFF") or !std.mem.eql(u8, bytes[8..12], "WAVE")) return error.NotWave;
     var at: usize = 12;
-    var fmt: ?struct { tag: u16, channels: u16, rate: u32, bits: u16 } = null;
+    var fmt: ?struct { tag: u16, channels: u16, rate: u32, block_align: u16, bits: u16 } = null;
     var data: ?[]const u8 = null;
     while (at + 8 <= bytes.len) {
         const id = bytes[at .. at + 4];
@@ -85,29 +93,35 @@ pub fn parse(bytes: []const u8) Error!Wav {
                 .tag = tag,
                 .channels = std.mem.readInt(u16, body[2..4], .little),
                 .rate = std.mem.readInt(u32, body[4..8], .little),
+                .block_align = std.mem.readInt(u16, body[12..14], .little),
                 .bits = std.mem.readInt(u16, body[14..16], .little),
             };
         } else if (std.mem.eql(u8, id, "data")) {
             data = body;
         }
-        // Chunks are padded to an even length.
-        at = body_at + size + (size & 1);
+        // Chunks are padded to an even length, but some writers leave the
+        // pad byte out: take the unpadded offset if only it starts a chunk.
+        at = body_at + size;
+        if (size & 1 == 1 and !(at + 4 <= bytes.len and isChunkId(bytes[at .. at + 4]) and !(at + 5 <= bytes.len and isChunkId(bytes[at + 1 .. at + 5])))) at += 1;
     }
     const f = fmt orelse return error.NoFormat;
     const d = data orelse return error.NoData;
     if (f.channels == 0 or f.rate == 0) return error.Unsupported;
+    // The container from block_align, or from the bits if it is missing.
+    const width: u16 = if (f.block_align != 0 and f.block_align % f.channels == 0) f.block_align / f.channels else (f.bits + 7) / 8;
+    if (f.bits == 0 or f.bits > width * 8) return error.Unsupported;
     const encoding: Encoding = switch (f.tag) {
         format_pcm => blk: {
-            if (f.bits != 8 and f.bits != 16 and f.bits != 24 and f.bits != 32) return error.Unsupported;
+            if (width < 1 or width > 4 or f.bits % 8 != 0) return error.Unsupported;
             break :blk .int;
         },
         format_float => blk: {
-            if (f.bits != 32 and f.bits != 64) return error.Unsupported;
+            if ((width != 4 and width != 8) or f.bits != width * 8) return error.Unsupported;
             break :blk .float;
         },
         else => return error.Unsupported,
     };
-    return .{ .sample_rate = f.rate, .channels = f.channels, .bits = f.bits, .encoding = encoding, .data = d };
+    return .{ .sample_rate = f.rate, .channels = f.channels, .width = width, .encoding = encoding, .data = d };
 }
 
 // =============================================================================
@@ -181,6 +195,60 @@ test "reads 32-bit float and 32-bit integer PCM" {
     std.mem.writeInt(i32, payload[0..4], -1073741824, .little);
     const int32 = try parse(build(&buf, format_pcm, 1, 96000, 32, payload[0..4], false));
     try testing.expectEqual(@as(f32, -0.5), int32.mono(0, null));
+}
+
+test "reads 24-bit samples held in 4-byte containers, as block_align says" {
+    var buf: [256]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    // Mono, 24 valid bits left-justified in 32-bit containers: 0.5, -0.5.
+    w.writeAll("RIFF") catch unreachable;
+    w.writeInt(u32, 4 + 8 + 40 + 8 + 8, .little) catch unreachable;
+    w.writeAll("WAVEfmt ") catch unreachable;
+    w.writeInt(u32, 40, .little) catch unreachable;
+    w.writeInt(u16, format_extensible, .little) catch unreachable;
+    w.writeInt(u16, 1, .little) catch unreachable;
+    w.writeInt(u32, 48000, .little) catch unreachable;
+    w.writeInt(u32, 48000 * 4, .little) catch unreachable;
+    // block_align 4, bits per sample 24.
+    w.writeInt(u16, 4, .little) catch unreachable;
+    w.writeInt(u16, 24, .little) catch unreachable;
+    w.writeInt(u16, 22, .little) catch unreachable;
+    w.writeInt(u16, 24, .little) catch unreachable;
+    w.writeInt(u32, 0, .little) catch unreachable;
+    w.writeInt(u16, format_pcm, .little) catch unreachable;
+    w.writeAll("\x00\x00\x00\x00\x10\x00\x80\x00\x00\xaa\x00\x38\x9b\x71") catch unreachable;
+    w.writeAll("data") catch unreachable;
+    w.writeInt(u32, 8, .little) catch unreachable;
+    w.writeInt(i32, 0x40000000, .little) catch unreachable;
+    w.writeInt(i32, -0x40000000, .little) catch unreachable;
+    const wav = try parse(w.buffered());
+    try testing.expectEqual(@as(usize, 2), wav.frames());
+    try testing.expectEqual(@as(f32, 0.5), wav.mono(0, null));
+    try testing.expectEqual(@as(f32, -0.5), wav.mono(1, null));
+}
+
+test "reads past an odd-length chunk written without its pad byte" {
+    var buf: [256]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    w.writeAll("RIFF") catch unreachable;
+    w.writeInt(u32, 0, .little) catch unreachable;
+    w.writeAll("WAVE") catch unreachable;
+    w.writeAll("LIST") catch unreachable;
+    w.writeInt(u32, 3, .little) catch unreachable;
+    w.writeAll("abc") catch unreachable;
+    w.writeAll("fmt ") catch unreachable;
+    w.writeInt(u32, 16, .little) catch unreachable;
+    w.writeInt(u16, format_pcm, .little) catch unreachable;
+    w.writeInt(u16, 1, .little) catch unreachable;
+    w.writeInt(u32, 44100, .little) catch unreachable;
+    w.writeInt(u32, 88200, .little) catch unreachable;
+    w.writeInt(u16, 2, .little) catch unreachable;
+    w.writeInt(u16, 16, .little) catch unreachable;
+    w.writeAll("data") catch unreachable;
+    w.writeInt(u32, 2, .little) catch unreachable;
+    w.writeInt(i16, 16384, .little) catch unreachable;
+    const wav = try parse(w.buffered());
+    try testing.expectEqual(@as(f32, 0.5), wav.mono(0, null));
 }
 
 test "refuses what isn't a WAV it can read" {
