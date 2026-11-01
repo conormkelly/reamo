@@ -269,6 +269,12 @@ pub const Options = struct {
     /// One held level there (an e-bow, a pad) never shows, and a note
     /// already showing is not affected.
     mains_start_hold: bool = true,
+    /// The first partial alone is reported when it and YIN disagree by more
+    /// than this many of their combined standard errors: YIN's 1 cent
+    /// holds for one string, but another note under it (a string ringing
+    /// in sympathy) pulls YIN's period by tens of cents while the first
+    /// partial's phase slope stays within a cent. Null to always combine.
+    yin_consistency: ?f64 = 3,
     /// Whether, while a note shows, the fine input less itself a period of
     /// that note earlier (whatever isn't that note) is watched for a jump
     /// as an onset is, and the note such an onset starts measured with the
@@ -877,6 +883,9 @@ pub fn AnalyserWith(comptime options: Options) type {
             const vy = options.yin_sigma_cents * options.yin_sigma_cents;
             const vf = fine.sigma_cents * fine.sigma_cents;
             const offset = 1200 * @log2(fine.hz / coarse);
+            if (options.yin_consistency) |k| {
+                if (@abs(offset) > k * @sqrt(vy + vf)) return fine.hz;
+            }
             return coarse * std.math.pow(f64, 2, offset * vy / (vy + vf) / 1200);
         }
 
@@ -2330,6 +2339,40 @@ test "a string plucked over another still ringing as loud reads the new string w
         }
         errdefer std.debug.print("{d} Hz then {d} Hz: first {any}\n", .{ pair[0], pair[1], first });
         try testing.expect(first.? <= at + 14400);
+    }
+}
+
+test "a string with another ringing 15 dB under it in sympathy reads its first partial within 2 cents, not YIN's pulled period" {
+    inline for ([_]?f64{ 3, null }) |k| {
+        const a = try testing.allocator.create(AnalyserWith(.{ .yin_consistency = k }));
+        defer testing.allocator.destroy(a);
+        try a.init(48000);
+        prime(a);
+        const buf = try generate(48000 * 2);
+        defer testing.allocator.destroy(buf);
+        const other = try generate(48000 * 2);
+        defer testing.allocator.destroy(other);
+        const note: signals.StringOptions = .{ .f0 = 110, .inharmonicity = 6.5e-5 };
+        @memset(buf[0..2400], 0);
+        signals.pluckedString(buf[2400..], 48000, note);
+        // The open E2 below, 15 dB under over the first half second.
+        signals.pluckedString(other[0 .. buf.len - 2400], 48000, .{ .f0 = 82.4069, .inharmonicity = 1.1e-4, .t60_s = 10, .seed = 5 });
+        signals.scale(other[0 .. buf.len - 2400], signals.rms(buf[2400..26400]) * std.math.pow(f64, 10, -15.0 / 20.0) / signals.rms(other[0..24000]));
+        signals.mix(buf[2400..], other[0 .. buf.len - 2400]);
+        signals.addNoise(buf, 3e-5, 10);
+        var worst: f64 = 0;
+        var pos: usize = 0;
+        while (pos + 1600 <= buf.len) : (pos += 1600) {
+            a.push(buf[pos .. pos + 1600]);
+            const r = a.analyse(.{});
+            const t = (@as(f64, @floatFromInt(pos + 1600)) - 2400) / 48000;
+            if (t < 0.5 or r.freq_hz == 0) continue;
+            worst = @max(worst, @abs(centsOff(r, note.firstPartialHz(t))));
+        }
+        if (k == null) {
+            // YIN's period pulls the combination 17 cents.
+            try testing.expect(worst > 10);
+        } else try testing.expect(worst <= 2);
     }
 }
 
