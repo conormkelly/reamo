@@ -13,6 +13,16 @@ and audio streaming running beside it:
   undo point, no state change and no dirty flag;
 - the tuner and the stream share the one audio hook: each keeps working
   when the other stops, and the hook goes when both have.
+
+Against the master tuner on the monitoring-chain JSFX (before the
+analyser), these fail: the plugin on the monitoring chain after open (the
+only project-state check that tells the two apart), the subscribe payload
+(threshold -60, an fxGuid), the missing clarity and flags, no stable
+reading, a ringing note showing without a pluck, and every hook check.
+These pass on both, and guard against regressions only: the A3 readings
+and cents, silence between notes, the stream's frames, and the undo
+history, state change count and dirty flag, which the monitoring chain
+never touched either.
 """
 import time
 
@@ -51,6 +61,11 @@ def status(c):
     r = c.command("audio/status")
     assert r["success"], r
     return r["payload"]
+
+
+def hook_users(c):
+    """Who holds the audio hook; {} from a REAmo that doesn't say."""
+    return status(c).get("hookUsers", {})
 
 
 def readings(c, seconds):
@@ -102,7 +117,7 @@ with Client() as a:
         problems.append(f"opening the master tuner put {now['monitoring FX']} plugin(s) on REAPER's monitoring FX chain")
     if p and (p["trackGuid"], p["reference"], p["threshold"], p["fxGuid"]) != ("master", 440.0, -90.0, ""):
         problems.append(f"subscribe payload {p}: want reference 440, threshold -90 (the analyser's), no fxGuid")
-    if not status(a)["hookUsers"]["tuner"]:
+    if not hook_users(a).get("tuner"):
         problems.append(f"the master tuner doesn't hold the audio hook: {status(a)}")
 
     seen = shows_a3(a, "first pluck")
@@ -112,7 +127,7 @@ with Client() as a:
             problems.append(f"tuner event has no {key}: {seen[-1]}")
     if not any(r.get("stable") for r in seen):
         problems.append(f"a steady 2 s note never read stable: {seen[-2:]}")
-    if seen and abs(seen[-1]["clarity"] - seen[-1]["conf"]) > 1e-9:
+    if seen and "clarity" in seen[-1] and abs(seen[-1]["clarity"] - seen[-1]["conf"]) > 1e-9:
         problems.append(f"conf and clarity differ: {seen[-1]}")
 
     # Silence between notes: no note.
@@ -147,7 +162,7 @@ with Client() as a:
             problems.append(f"the second phone sees settings {pb}, not the defaults the first one's reopen restored")
         shows_a3(b, "second phone, both open")
         assert a.command("tuner/unsubscribe")["success"]
-        if not status(b)["hookUsers"]["tuner"]:
+        if not hook_users(b).get("tuner"):
             problems.append("the first phone leaving took the hook from the second")
         shows_a3(b, "second phone, alone")
 
@@ -155,9 +170,9 @@ with Client() as a:
         r = b.command("audio/startStream")
         assert r["success"], r
         st = status(b)
-        print("tuner + stream:", st["hookRegistered"], st["hookUsers"])
-        if st["hookUsers"] != {"stream": True, "tuner": True}:
-            problems.append(f"with tuner and stream both on, hook users are {st['hookUsers']}")
+        print("tuner + stream:", st["hookRegistered"], st.get("hookUsers"))
+        if st.get("hookUsers") != {"stream": True, "tuner": True}:
+            problems.append(f"with tuner and stream both on, hook users are {st.get('hookUsers')}")
         frames = len(b.binary)
         shows_a3(b, "tuner beside the stream")
         if len(b.binary) == frames:
@@ -175,8 +190,8 @@ with Client() as a:
         b.drain(1.0)
         if len(b.binary) == frames:
             problems.append("the stream stopped when the tuner closed")
-        if status(b)["hookUsers"] != {"stream": True, "tuner": False}:
-            problems.append(f"after the tuner closed: {status(b)['hookUsers']}")
+        if hook_users(b) != {"stream": True, "tuner": False}:
+            problems.append(f"after the tuner closed: {hook_users(b)}")
         assert b.command("audio/stopStream")["success"]
         if status(b)["hookRegistered"]:
             problems.append(f"the hook stayed registered with nobody holding it: {status(b)}")
