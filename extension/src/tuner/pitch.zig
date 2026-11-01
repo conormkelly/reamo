@@ -127,7 +127,22 @@
 //! - rarely on bass, a twelfth or another non-octave wrong note: 0.15% of
 //!   settled readings on the held-out MDB-bass-synth stems;
 //! - under about 23 Hz (a 5-string's low B tuned more than about 2.5
-//!   tones down) it reads 10-17 cents sharp, outside the design range.
+//!   tones down) it reads 10-17 cents sharp, outside the design range;
+//! - a string within about 3 cents of a mains harmonic under strong
+//!   single-coil hum may blank: a G2 at 120.0 Hz over 60 Hz hum at -46
+//!   dBFS, plucked at -28 dBFS, shows on 11 of 30 readings in its first
+//!   second (on the owner's corpus, 29 readings at 7201433 and 7
+//!   since). The comb onset takes the hum, which
+//!   doesn't repeat at the note's period, for a new sound on the note;
+//!   with the comb onset off it shows throughout. The owner judged that
+//!   hum level unrealistic, so it is left as it is;
+//! - a string plucked an octave or a twelfth over one still ringing at
+//!   the same level keeps showing the ringing note: `comb_unrelated`
+//!   refuses the combed reading at those intervals (43 of 43 readings
+//!   wrong on A1 then A2, A2 then A3, E2 then E3, E2 then B3 and A2
+//!   then E4, damped to half and joined as loud), but without it the MDB
+//!   dev stems read more wrong octaves (0.55% to 0.62%) and other wrong
+//!   notes (0.65% to 0.79%), so it stays.
 //!
 //! Every tuned threshold and constant, with its unit and how the bench
 //! answers when it moves, is in thresholds.zig.
@@ -136,9 +151,10 @@
 //! and `gate` weighs about ten interacting flags (onsets, comb onsets and
 //! their takeback, the slow onset, mains hold, name hold, jump rule,
 //! legato restart). A change to any of them should be run against the
-//! unit tests, `zig build tuner-targets` and the MDB dev stems together;
-//! the gate's saved state for re-deciding with new settings is listed
-//! field by field in GateState and must grow with it.
+//! unit tests, `zig build tuner-targets` and the MDB dev stems together.
+//! Every field the gate changes while deciding belongs in GateState
+//! (`gs`), which is saved and restored whole to decide again with new
+//! settings; state kept outside it must change only with new input.
 //!
 //! The window is analysed only when `analyse` is called, not every hop.
 //! Nothing is allocated after `init`: the caller owns the `Analyser`
