@@ -659,11 +659,11 @@ def thread_ticks(pid):
     for tid in tids:
         try:
             stat = open(f"/proc/{pid}/task/{tid}/stat").read()
-        except OSError:
+            name = stat[stat.index("(") + 1:stat.rindex(")")]
+            rest = stat.rsplit(")", 1)[1].split()
+            out[int(tid)] = (name, int(rest[11]) + int(rest[12]))
+        except (OSError, ValueError, IndexError):
             continue
-        name = stat[stat.index("(") + 1:stat.rindex(")")]
-        rest = stat.rsplit(")", 1)[1].split()
-        out[int(tid)] = (name, int(rest[11]) + int(rest[12]))
     return out
 
 
@@ -831,6 +831,20 @@ class Run:
 
 
 def soak(run):
+    # Which REAPER this is comes first, before a phone connects: REAmo must
+    # be loaded in the soak and not in the control.
+    run.pid = pid = reaper_pid()
+    if not pid:
+        raise RuntimeError("no REAPER process")
+    maps = try_mapping_rss(pid)
+    if maps is None:
+        stats.problem("couldn't read REAPER's mappings (/proc/<pid>/smaps)")
+        return
+    loaded = "reaper_reamo.so" in maps
+    if loaded == CONTROL:
+        stats.problem(f"REAmo is {'loaded' if loaded else 'not loaded'} in REAPER, "
+                      f"and this is {'the control' if CONTROL else 'the soak'}")
+        return
     print("dialogs:", open_project("/tmp/corpus/band-session/band-session.RPP"), flush=True)
     time.sleep(1.5)  # the extension's GUID cache settles after a project load
     if not CONTROL:
@@ -847,14 +861,6 @@ def soak(run):
     time.sleep(0.5)
     run.undo_before = project_changes()
 
-    run.pid = pid = reaper_pid()
-    if not pid:
-        raise RuntimeError("no REAPER process")
-    loaded = "reaper_reamo.so" in (try_mapping_rss(pid) or {})
-    if loaded == CONTROL:
-        stats.problem(f"REAmo is {'loaded' if loaded else 'not loaded'} in REAPER, "
-                      f"and this is {'the control' if CONTROL else 'the soak'}")
-        return
     if not CONTROL:
         run.threads = [threading.Thread(target=desk, args=(world,), name="desk", daemon=True)]
         run.threads += [threading.Thread(target=phone, args=(n, world, run.ops), name=f"phone {n}",
@@ -869,8 +875,12 @@ def soak(run):
         thread_writer = csv.writer(threads_file)
         thread_writer.writerow(THREAD_COLUMNS)
         start = time.monotonic()
-        prev, prev_t = proc_sample(pid), start
-        prev_threads = thread_ticks(pid)
+        try:
+            prev, prev_t = proc_sample(pid), start
+            prev_threads = thread_ticks(pid)
+        except Gone:
+            stats.problem("REAPER exited before the first sample")
+            return
         run.thread_groups = group_threads(pid, prev_threads)
         playing, rpc_ms = 1, 0.0
         next_rpc = start + RPC_SECS
