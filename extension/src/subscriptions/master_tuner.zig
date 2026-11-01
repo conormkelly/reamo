@@ -22,8 +22,8 @@
 //!   each phone, and takes the phones' settings to the worker.
 //!
 //! The analysis is off the main thread because that is REAPER's UI
-//! thread. A tick (1/30 s of samples pushed, one analysis) costs 0.17 ms on
-//! average and at most 0.44 ms, ReleaseSafe at 44.1, 48 and 96 kHz over a
+//! thread. A tick (1/30 s of samples pushed, one analysis) costs 0.18 ms on
+//! average and at most 0.45 ms, ReleaseSafe at 44.1, 48 and 96 kHz over a
 //! 60 s session of notes and hum: half a percent of a core. That alone
 //! would fit in the poll, but on the worker the UI pays nothing for it
 //! whatever the analyser comes to cost (its tick has cost 20 times this
