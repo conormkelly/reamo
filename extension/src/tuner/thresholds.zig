@@ -15,7 +15,7 @@
 //! target to fail on each side. Values not swept say so.
 
 /// Bumped on any change to a value below.
-pub const version = 1;
+pub const version = 2;
 
 /// The analysis window and YIN.
 pub const yin = struct {
@@ -128,8 +128,13 @@ pub const mains = struct {
     pub const reading_max_hz = 4 * 60 * 1.02;
     /// Repeats at the mains period: normalised difference under
     /// `periodic_max` at a lag within `period_tolerance` of 1/50 or 1/60
-    /// s, over at least `periodic_min_s`. Not swept.
-    pub const period_tolerance = 0.01;
+    /// s, over at least `periodic_min_s`. 0.5% is the grids' own range
+    /// (49.75-50.25 Hz; Ireland runs 49.8-50.2): at 1%, synth notes
+    /// held at 49.5-49.6 Hz never showed. Not swept.
+    pub const period_tolerance = 0.005;
+    /// The lag the input repeats at best is looked for within this of the
+    /// mains period, and must fall within `period_tolerance` of it.
+    pub const search_span = 0.03;
     pub const periodic_max = 0.01;
     pub const periodic_min_s = 0.005;
     /// The level is seen to fall: by `fall_db` over each of the last two

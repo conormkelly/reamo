@@ -286,6 +286,12 @@ pub const Options = struct {
     /// One held level there (an e-bow, a pad) never shows, and a note
     /// already showing is not affected.
     mains_start_hold: bool = true,
+    /// Whether a reading at 2 to 4 times a mains frequency is taken for
+    /// mains only if the input doesn't also repeat at the reading's own
+    /// period (hum and buzz have their fundamental too; a note there
+    /// doesn't). Rectifier ripple with no fundamental at all is then not
+    /// held.
+    mains_own_period: bool = true,
     /// Whether a note shows no name until the window lies wholly after
     /// its onset (93 ms). An acoustic's body modes ring loudest at the
     /// pluck and can read as the octave under for the first 100 ms, and
@@ -366,6 +372,7 @@ const mains_fall_db = th.mains.fall_db;
 const mains_period_tolerance = th.mains.period_tolerance;
 const mains_periodic_max = th.mains.periodic_max;
 const mains_periodic_min_s = th.mains.periodic_min_s;
+const mains_search_span = th.mains.search_span;
 /// The first readings of hum or buzz that has just switched on are within
 /// this of 50 or 60 Hz times 1 to 4 (33 cents seen); only such readings
 /// wait for the input to be judged, and no note in tune at A = 440 Hz is
@@ -1238,11 +1245,23 @@ pub fn AnalyserWith(comptime options: Options) type {
         fn mainsLike(self: *const Self, hz: f64, now: f64, since_onset: usize) bool {
             if (!options.mains_start_hold or hz > mains_reading_max_hz) return false;
             var near = false;
+            var multiple = false;
             for ([_]f64{ 50, 60 }) |base| {
                 const k = @round(hz / base);
-                if (k >= 1 and @abs(1200 * @log2(hz / (k * base))) <= mains_first_cents / k) near = true;
+                if (k >= 1 and @abs(1200 * @log2(hz / (k * base))) <= mains_first_cents / k) {
+                    near = true;
+                    if (k >= 2) multiple = true;
+                }
             }
             if (!near or !self.mainsPeriodic(since_onset)) return false;
+            // Read at a multiple of the mains frequency, hum or buzz has
+            // its fundamental too, so it doesn't repeat at the reading's
+            // own period; a note there (a synth tone at 120 Hz) does.
+            if (options.mains_own_period and multiple) {
+                const own = self.analysis_rate / hz;
+                const lo: usize = @intFromFloat(@floor(own));
+                if (self.repeatsWithin(since_onset, lo, lo + 1)) return false;
+            }
             const latest = self.levelAt(now) orelse return true;
             const before = self.levelAt(now - mains_fall_s) orelse return true;
             const earlier = self.levelAt(now - 2 * mains_fall_s) orelse return true;
@@ -1270,18 +1289,59 @@ pub fn AnalyserWith(comptime options: Options) type {
             for ([_]f64{ 50, 60 }) |base| {
                 const lo: usize = @intFromFloat(@floor(self.analysis_rate / base * (1 - mains_period_tolerance)));
                 const hi: usize = @intFromFloat(@ceil(self.analysis_rate / base * (1 + mains_period_tolerance)));
-                if (len < hi + min_overlap) return true;
-                for (lo..hi + 1) |lag| {
-                    var diff: f64 = 0;
-                    var power: f64 = 0;
-                    for (0..len - lag) |i| {
-                        const a = self.history[(self.write_pos + w - 1 - i) % w] - mean;
-                        const b = self.history[(self.write_pos + w - 1 - i - lag) % w] - mean;
-                        diff += (a - b) * (a - b);
-                        power += a * a + b * b;
+                // The best lag is looked for over a wider span: a tone
+                // 2% off a mains period still nearly repeats at it, and
+                // only where it repeats best tells.
+                const wide_lo: usize = @intFromFloat(@floor(self.analysis_rate / base * (1 - mains_search_span)));
+                const wide_hi: usize = @intFromFloat(@ceil(self.analysis_rate / base * (1 + mains_search_span)));
+                if (len < wide_hi + min_overlap) return true;
+                var best_lag = wide_lo;
+                var best = std.math.inf(f64);
+                for (wide_lo..wide_hi + 1) |lag| {
+                    const e = self.normalisedDifference(len, mean, lag);
+                    if (e < best) {
+                        best = e;
+                        best_lag = lag;
                     }
-                    if (power > 0 and diff < mains_periodic_max * power) return true;
                 }
+                if (best_lag >= lo and best_lag <= hi and best < mains_periodic_max) return true;
+            }
+            return false;
+        }
+
+        /// The latest `len` samples of the window less `mean` against
+        /// themselves `lag` earlier: their squared difference over their
+        /// power (1 with none).
+        fn normalisedDifference(self: *const Self, len: usize, mean: f64, lag: usize) f64 {
+            const w = self.window;
+            var diff: f64 = 0;
+            var power: f64 = 0;
+            for (0..len - lag) |i| {
+                const a = self.history[(self.write_pos + w - 1 - i) % w] - mean;
+                const b = self.history[(self.write_pos + w - 1 - i - lag) % w] - mean;
+                diff += (a - b) * (a - b);
+                power += a * a + b * b;
+            }
+            return if (power > 0) diff / power else 1;
+        }
+
+        /// Whether the latest `since_onset` samples of the window, less
+        /// their mean, repeat at a lag from `lo` to `hi`; false with too
+        /// few to tell.
+        fn repeatsWithin(self: *const Self, since_onset: usize, lo: usize, hi: usize) bool {
+            const w = self.window;
+            const len = @min(since_onset, w);
+            const min_overlap: usize = @intFromFloat(@ceil(mains_periodic_min_s * self.analysis_rate));
+            if (len < hi + min_overlap) return false;
+            var mean: f64 = 0;
+            for (0..len) |i| mean += self.history[(self.write_pos + w - 1 - i) % w];
+            mean /= @floatFromInt(@max(len, 1));
+            return self.repeatsWithinFrom(len, mean, lo, hi);
+        }
+
+        fn repeatsWithinFrom(self: *const Self, len: usize, mean: f64, lo: usize, hi: usize) bool {
+            for (lo..hi + 1) |lag| {
+                if (self.normalisedDifference(len, mean, lag) < mains_periodic_max) return true;
             }
             return false;
         }
@@ -2495,6 +2555,23 @@ test "a piezo note shows no wrong name, even in its first 93 ms" {
     try testing.expectEqual(@as(usize, 0), wrong[0]);
     // Shown from the first reading, the body modes flash the octave under.
     try testing.expect(wrong[1] > 0);
+}
+
+test "synth notes holding their level at 49.5 Hz and at a pure 120 Hz show, though near mains frequencies" {
+    for ([_][2]f64{ .{ 49.5, 1.5 }, .{ 120, 4 } }) |tone| {
+        const a = try newAnalyser(48000);
+        defer testing.allocator.destroy(a);
+        const buf = try generate(48000 * 2);
+        defer testing.allocator.destroy(buf);
+        @memset(buf[0..12000], 0);
+        signals.pluckedString(buf[12000..], 48000, .{ .f0 = tone[0], .inharmonicity = 0, .rolloff = tone[1], .t60_s = 1000, .t60_slope = 0 });
+        signals.addNoise(buf, 3e-5, 13);
+        const note: i32 = @intFromFloat(@round(69 + 12 * @log2(tone[0] / 440)));
+        const r = countNotes(a, buf, 48000, 0.75, note);
+        errdefer std.debug.print("{d} Hz: {any}\n", .{ tone[0], r });
+        try testing.expect(r.shown >= 35);
+        try testing.expectEqual(@as(usize, 0), r.other);
+    }
 }
 
 test "an onset that shows no note expires, so without the slow onset a swell over hum long after a click never shows" {

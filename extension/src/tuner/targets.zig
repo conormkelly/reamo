@@ -1516,6 +1516,7 @@ pub fn main() !void {
         try analyserCandidate(pitch.AnalyserWith(.{ .floor_margin_db = 6, .slow_onset_db = 6 }), "sweep-floor-rise-6", "floor margin and slow-onset rise both -6 dB", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .floor_margin_db = 18, .onset_db = 15.03 }), "sweep-floor-onset+6", "floor margin and onset jump both +6 dB", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .floor_margin_db = 18, .slow_onset_db = 18 }), "sweep-floor-rise+6", "floor margin and slow-onset rise both +6 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .mains_own_period = false }), "mains-multiples-held", "readings at 2-4 times a mains frequency held even when the input repeats at their own period", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .names_after_window = false }), "names-at-once", "names shown from the first reading after an onset", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .hold_after_window = false }), "hold-from-first", "the octave hold anchored on the first two readings after an onset", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .yin_consistency = null }), "no-yin-consistency", "YIN and the first partial always combined", allocator),
