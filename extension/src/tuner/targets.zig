@@ -132,6 +132,13 @@ const targets = struct {
     const polar_never_pct = 10.0;
     const polar_flicker_cents = 0.15;
     const finding_bias_cents = 0.2;
+    /// A wrong note name is worse than about 60 ms of delay: no note in
+    /// the body group renamed once shown, and no reading from the onset
+    /// on whose name isn't f1(t)'s on any one-string signal (ramps
+    /// crossing a note's edge excepted, and the two-notes case judged by
+    /// its own rule), with lock-on outside the finding groups held at
+    /// its 42.6 / 83.3 ms; the body group's lock-on is reported.
+    const wrong_names = 0;
     /// Never green while wrong: no reading in hum_drift flagged stable
     /// more than 0.5 cent off f1(t).
     const drift_stable_wrong = 0;
@@ -918,6 +925,8 @@ const GroupStats = struct {
     /// apart, infinite if never) and the spread of the error against it
     /// over readings flagged stable; the worst signed mean error from 1 s
     /// of any one signal, and which.
+    /// Readings from the onset on whose note name isn't f1(t)'s.
+    wrong_name: usize = 0,
     finding_notes: usize = 0,
     name_changed: usize = 0,
     comp_settle_guitar: std.ArrayList(f64) = .empty,
@@ -1100,6 +1109,9 @@ fn measure(alloc: std.mem.Allocator, st: *GroupStats, c: Case, sr: f64, rs: []co
     var case_worst: f64 = 0;
     for (rs, 0..) |r, i| {
         const t = readTime(i, sr);
+        if (t > 0) if (r.note) |n| {
+            if (n != noteOf(s.firstPartialHz(t))) st.wrong_name += 1;
+        };
         if (t < 0.1) continue;
         const truth = s.firstPartialHz(t);
         if (r.multiple) st.multiple += 1;
@@ -1528,6 +1540,7 @@ pub fn main() !void {
     try printHumFit(w, cands[0..nc], results);
     try printStarts(w, cands[0..nc], results);
     try printFindings(w, cands[0..nc], results);
+    try printNames(w, cands[0..nc], results);
     for (cands[0..nc], results) |c, *r| try printDetail(w, c, r);
     try w.flush();
 }
@@ -1829,6 +1842,40 @@ fn quantiles(alloc: std.mem.Allocator, values: []const f64) !Quantiles {
         .never = never,
         .worst = if (finite > 0) copy[finite - 1] else std.math.inf(f64),
     };
+}
+
+fn printNames(w: anytype, cands: []const Candidate, results: []Results) !void {
+    try w.print(
+        \\
+        \\## Note names (targets: no body note renamed, no wrong name from the onset on, lock-on outside the finding groups <= {d:.1} / {d:.1} ms)
+        \\
+        \\| candidate | body notes renamed (of) | wrong-name readings: total, by group | lock-on avg / worst (ms) | body lock-on avg / worst (ms) | verdict |
+        \\|---|---|---|---|---|---|
+        \\
+    , .{ targets.lock_avg_ms, targets.lock_worst_ms });
+    for (cands, results) |c, *r| {
+        const g = &r.group;
+        var total: usize = 0;
+        var by: [512]u8 = undefined;
+        var len: usize = 0;
+        var lock_sum: f64 = 0;
+        var lock_n: usize = 0;
+        var lock_worst: f64 = 0;
+        for (groups) |grp| {
+            if (!grp.pitched() or grp == .ramp) continue;
+            const st = g[@intFromEnum(grp)];
+            total += st.wrong_name;
+            if (st.wrong_name > 0) len += (std.fmt.bufPrint(by[len..], " {s} {d};", .{ @tagName(grp), st.wrong_name }) catch "").len;
+            if (grp.finding() or grp == .hum_target or grp == .ks_weak or grp == .third or grp == .hum_drift or grp == .bass_h2) continue;
+            lock_sum += st.lock_sum_ms;
+            lock_n += st.lock_n;
+            lock_worst = @max(lock_worst, st.lock_worst_ms);
+        }
+        const body = g[@intFromEnum(Group.body)];
+        const lock_avg = lock_sum / @as(f64, @floatFromInt(@max(lock_n, 1)));
+        const ok = body.name_changed == 0 and total <= targets.wrong_names and lock_avg <= targets.lock_avg_ms + 1e-9 and lock_worst <= targets.lock_worst_ms + 1e-9;
+        try w.print("| {s} | {d} ({d}) | {d}:{s} | {d:.1} / {d:.1} | {d:.1} / {d:.1} | {s} |\n", .{ c.name, body.name_changed, body.finding_notes, total, by[0..len], lock_avg, lock_worst, body.lock_sum_ms / @as(f64, @floatFromInt(@max(body.lock_n, 1))), body.lock_worst_ms, verdict(ok) });
+    }
 }
 
 fn printFindings(w: anytype, cands: []const Candidate, results: []Results) !void {
