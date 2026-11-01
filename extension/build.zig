@@ -175,6 +175,22 @@ pub fn build(b: *std.Build) void {
     b.step("tuner-bench", "Run the tuner pitch-analyser bench (-- <name> runs only matching candidates)").dependOn(&run_tuner_bench.step);
     test_step.dependOn(&tuner_bench.step);
 
+    // The tuner analyser's pre-registered accuracy targets, on strings whose
+    // first partial is known exactly (src/tuner/targets.zig). Built by
+    // `zig build test` too.
+    const tuner_targets = b.addExecutable(.{
+        .name = "tuner-targets",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/tuner/targets.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_tuner_targets = b.addRunArtifact(tuner_targets);
+    if (b.args) |args| run_tuner_targets.addArgs(args);
+    b.step("tuner-targets", "Run the tuner pitch-analyser targets (-- <name> runs only matching candidates)").dependOn(&run_tuner_targets.step);
+    test_step.dependOn(&tuner_targets.step);
+
     // Main module tests - pulls in tests from all submodules via test block
     // Requires httpz, ztracy, qrcodegen, CSurf C++, and SWELL bridge
     const main_tests = b.addTest(.{
