@@ -41,10 +41,8 @@ const MAX_DELTA_MS = 50;
 
 export class TransportAnimationEngine {
   // Server state (authoritative)
-  private serverPosition = 0;
   private serverBpm = 120;
   private serverPlayState: PlayState = 0;
-  private lastServerTime = 0;
 
   // Time signature
   private timeSignatureNumerator = 4;
@@ -84,7 +82,6 @@ export class TransportAnimationEngine {
     timeSignatureDenominator?: number;
     barOffset?: number;
   }): void {
-    const now = performance.now();
     const wasPlaying = this.isPlaying();
     const previousPlayState = this.serverPlayState;
 
@@ -104,27 +101,9 @@ export class TransportAnimationEngine {
     this.serverPlayState = data.playState;
     this.lastPositionBeats = data.positionBeats;
 
-    // Calculate prediction error (position is in seconds, so just add elapsed seconds)
-    const elapsed = (now - this.lastServerTime) / 1000;
-    const predicted = this.serverPosition + (wasPlaying ? elapsed : 0);
-    const error = Math.abs(data.position - predicted);
-
-    // Decide correction strategy
-    const isSeekOrStateChange = error > SNAP_THRESHOLD ||
-                                 !wasPlaying ||
-                                 previousPlayState !== data.playState;
-
-    if (isSeekOrStateChange) {
-      // Hard snap for seeks or state changes
-      this.localPosition = data.position;
-    } else if (error > SMOOTH_THRESHOLD) {
-      // Smooth correction for drift
-      this.localPosition += (data.position - this.localPosition) * CORRECTION_FACTOR;
-    }
-    // Errors below SMOOTH_THRESHOLD are ignored
-
-    this.serverPosition = data.position;
-    this.lastServerTime = now;
+    // Hard snap on state changes; otherwise snap or smooth by display error
+    const isStateChange = !wasPlaying || previousPlayState !== data.playState;
+    this.correctToward(data.position, isStateChange);
 
     // Handle play state transitions
     const nowPlaying = this.isPlaying();
@@ -158,8 +137,10 @@ export class TransportAnimationEngine {
     }
 
     // Calculate delta with frame drop protection
+    // A snap stamps lastFrameTime with performance.now(), which can be later
+    // than the next frame's timestamp, so the delta is floored at 0.
     const deltaMs = this.lastFrameTime > 0 ? timestamp - this.lastFrameTime : 0;
-    const safeDelta = Math.min(deltaMs, MAX_DELTA_MS);
+    const safeDelta = Math.min(Math.max(deltaMs, 0), MAX_DELTA_MS);
     this.lastFrameTime = timestamp;
 
     // Interpolate position: add elapsed time in seconds (1x playback speed)
@@ -215,25 +196,35 @@ export class TransportAnimationEngine {
    */
   onTickUpdate(position: number, positionBeats: string): void {
     this.lastPositionBeats = positionBeats;
+    this.correctToward(position, false);
+  }
 
-    // Update server position and correct local interpolation
-    // This handles seeks during playback where position jumps
+  /**
+   * Correct the displayed position toward a server position.
+   *
+   * The error is measured against the displayed position, not against an
+   * extrapolation of the previous server sample: animation frames stop while
+   * the page is hidden, so the display falls behind even when server samples
+   * line up perfectly with each other.
+   *
+   * Snaps on a large error (seek, or a page returning from hidden), or when
+   * animation frames have stalled: nothing is being drawn then, so blending
+   * buys no smoothness and only leaves the display trailing the server.
+   * Otherwise a small error (drift, jitter) is blended, and one below
+   * SMOOTH_THRESHOLD is normal playback variance and ignored.
+   */
+  private correctToward(position: number, forceSnap: boolean): void {
     const now = performance.now();
-    const elapsed = (now - this.lastServerTime) / 1000;
-    const predicted = this.serverPosition + elapsed;
-    const error = Math.abs(position - predicted);
-
-    if (error > SNAP_THRESHOLD) {
-      // Large error (seek) - snap to server position
+    const error = Math.abs(position - this.localPosition);
+    const framesStalled = this.rafId !== null && now - this.lastFrameTime > MAX_DELTA_MS;
+    if (forceSnap || framesStalled || error > SNAP_THRESHOLD) {
+      // The snapped position is the position now: restart frame timing from
+      // here, or the next frame adds time the server sample already counts.
       this.localPosition = position;
+      this.lastFrameTime = now;
     } else if (error > SMOOTH_THRESHOLD) {
-      // Small drift - smooth correction
       this.localPosition += (position - this.localPosition) * CORRECTION_FACTOR;
     }
-    // Errors below SMOOTH_THRESHOLD are ignored (normal playback variance)
-
-    this.serverPosition = position;
-    this.lastServerTime = now;
   }
 
   /**
