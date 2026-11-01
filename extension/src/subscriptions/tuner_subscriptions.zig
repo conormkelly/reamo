@@ -269,8 +269,21 @@ pub const TunerSubscriptions = struct {
         const slot = self.getOrCreateSlot(client_id) orelse return error.TooManyClients;
         const client = &self.clients[slot];
 
-        // If client was previously subscribed to a different track, unsubscribe first
         if (client.active) {
+            // Already on this tuner (a page re-sending its subscribe): keep
+            // it and its settings, rather than tearing down and re-inserting
+            // a JSFX or resetting the master's analyser.
+            if (client.getTrackGuid()) |current| if (std.mem.eql(u8, current, track_guid)) {
+                if (isMaster(track_guid)) {
+                    self.activate(slot, MASTER_GUID);
+                    return self.masterResult(api);
+                }
+                if (self.findTrackTuner(track_guid)) |tuner| if (guid_cache.resolve(api, track_guid)) |track| {
+                    self.activate(slot, track_guid);
+                    return trackResult(tuner, track, api);
+                };
+            };
+            // Otherwise leave the previous tuner first.
             self.unsubscribeInternal(client_id, slot, api);
         }
 
@@ -324,12 +337,15 @@ pub const TunerSubscriptions = struct {
 
         self.activate(slot, track_guid);
         logging.debug("tuner: client {d} subscribed to track {s} (ref_count={d})", .{ client_id, track_guid, tuner.?.ref_count });
+        return trackResult(tuner.?, track, api);
+    }
 
+    fn trackResult(tuner: *const TrackTuner, track: *anyopaque, api: anytype) SubscribeResult {
         var result = SubscribeResult{
-            .track_guid = tuner.?.getTrackGuid(),
-            .fx_guid = tuner.?.getFxGuid(),
-            .reference_hz = tuner.?.reference_hz,
-            .threshold_db = tuner.?.silence_threshold,
+            .track_guid = tuner.getTrackGuid(),
+            .fx_guid = tuner.getFxGuid(),
+            .reference_hz = tuner.reference_hz,
+            .threshold_db = tuner.silence_threshold,
         };
         result.track_name_len = api.getTrackNameStr(track, &result.track_name_buf).len;
         return result;
@@ -352,6 +368,10 @@ pub const TunerSubscriptions = struct {
         try self.master.open(self.allocator, self.hook, api);
         if (self.master.subscribers == 1) logging.info("tuner: master tuner opened on the audio hook", .{});
         self.activate(slot, MASTER_GUID);
+        return self.masterResult(api);
+    }
+
+    fn masterResult(self: *TunerSubscriptions, api: anytype) SubscribeResult {
         const settings = self.master.snapshot().settings;
         var result = SubscribeResult{
             .track_guid = MASTER_GUID,
@@ -811,4 +831,46 @@ test "setParam on the master before anyone tunes it is refused" {
     try rig.init();
     defer rig.deinit();
     try std.testing.expectError(error.NotSubscribed, rig.subs.setParam(MASTER_GUID, .reference, 442, &rig.cache, &rig.api));
+}
+
+test "a phone subscribing again to the master it is on keeps the tuner and its settings" {
+    var rig: MasterRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+
+    _ = try rig.sub(1);
+    try rig.subs.setParam(MASTER_GUID, .reference, 442, &rig.cache, &rig.api);
+    const analysis = rig.subs.master.analysis;
+    const r = try rig.sub(1); // the page re-sends its subscribe, e.g. after a re-render
+    try std.testing.expectEqual(@as(f32, 442), r.reference_hz);
+    try std.testing.expectEqual(analysis, rig.subs.master.analysis);
+    try std.testing.expectEqual(@as(u8, 1), rig.subs.master.subscribers);
+    try std.testing.expectEqual(@as(u32, 1), rig.api.audio_hook_registers);
+    try std.testing.expectEqual(@as(u32, 0), rig.api.audio_hook_unregisters);
+}
+
+/// A GUID cache that knows one track, "{T1}", the mock's track 1.
+const OneTrack = struct {
+    fn resolve(_: *const OneTrack, api: anytype, guid: []const u8) ?*anyopaque {
+        if (isMaster(guid)) return api.masterTrack();
+        return if (std.mem.eql(u8, guid, "{T1}")) @import("../reaper/mock/state.zig").encodeTrackPtr(1) else null;
+    }
+};
+
+test "a phone subscribing again to the track it is on keeps the JSFX instead of re-inserting it" {
+    var api = MockBackend{ .track_count = 1 };
+    api.tracks[1].setName("Guitar");
+    var subs = TunerSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+    const cache = OneTrack{};
+
+    const first = try subs.subscribe(1, "{T1}", &cache, &api);
+    const fx_guid = first.fx_guid;
+    const again = try subs.subscribe(1, "{T1}", &cache, &api);
+    try std.testing.expectEqualStrings(fx_guid, again.fx_guid);
+    try std.testing.expectEqualStrings("Guitar", again.trackName());
+    try std.testing.expectEqual(@as(usize, 1), api.getCallCount(.trackFxAddByName));
+    try std.testing.expectEqual(@as(usize, 0), api.getCallCount(.trackFxDelete));
+    try std.testing.expectEqual(@as(u8, 1), subs.getTrackTuner("{T1}").?.ref_count);
+    subs.removeAllClients(&api);
 }
