@@ -137,6 +137,10 @@ const Group = enum {
     weak,
     /// Stiff strings whose two polarisations beat.
     beating,
+    /// Stiff strings plucked at a third of their length: no 3rd or 6th
+    /// partial (single strings for the several-notes flag; reported, no
+    /// error target of their own).
+    third,
     /// Guitar strings gliding down 2.6 or 10 cents, tau 0.3 s.
     glide_guitar,
     /// Bass strings gliding down from 4 or 9.6 cents, tau 0.6 s (up to 16
@@ -348,6 +352,12 @@ fn buildCases() []const Case {
     add(.noise, "rumble -40 dB", .{}, .{ .name = "", .group = .noise, .rumble_db = -40 });
     for ([_]f64{ 82.4069, 110, 41.2034 }) |hz| add(.muted, "muted {d} Hz", .{hz}, .{ .name = "", .group = .muted, .muted_hz = hz });
     add(.muted, "muted 82.4 Hz + 60 Hz hum", .{}, .{ .name = "", .group = .muted, .muted_hz = 82.4069, .hum = .{ .hz = 60, .kind = .hum, .db = -50 } });
+    // Appended last: a case's noise seed follows its place in this list.
+    for ([_]Str{ guitar[0], guitar[1], guitar[3], bass[1] }) |s| {
+        var o = string(s, 1);
+        o.pluck_at = 1.0 / 3.0;
+        add(.third, "{s} at a third", .{s.name}, .{ .name = "", .group = .third, .strings = .{ o, null } });
+    }
     return case_store[0..case_count];
 }
 
@@ -953,7 +963,7 @@ fn printTargets(w: anytype, cands: []const Candidate, results: []Results) !void 
             const st = g[@intFromEnum(grp)];
             octave += st.octave;
             // Lock-on keeps the signals its baseline was measured on.
-            if (grp == .hum_target or grp == .ks_weak) continue;
+            if (grp == .hum_target or grp == .ks_weak or grp == .third) continue;
             lock_sum += st.lock_sum_ms;
             lock_n += st.lock_n;
             lock_never += st.lock_never;
