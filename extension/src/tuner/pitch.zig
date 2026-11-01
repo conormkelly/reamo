@@ -40,6 +40,15 @@
 //! error falls from 4.4 cents (95th percentile) to 0.03 (`zig build
 //! tuner-targets`). An onset is an energy jump of 9 dB over the last 10-40 ms.
 //!
+//! After an onset, a jump of the frequency by an octave, a twelfth or two
+//! octaves (YIN's first dip moving between multiples of the period, as a
+//! note decays under hum or another note) is held back until three
+//! analyses in a row make it. A caller that knows the string can pass its
+//! range (`Settings.range`), and no period outside it is considered: the
+//! cure for a fundamental so weak that YIN reads the octave for the first
+//! few hundred milliseconds, which the spectrum can't cure without
+//! misreading notes under hum or over a ringing previous note.
+//!
 //! The window is analysed only when `analyse` is called, not every hop.
 //! Nothing is allocated after `init`: the caller owns the `Analyser`
 //! (about 490 KB, so not on the stack) and calls `push` and `analyse` from
@@ -55,7 +64,14 @@ pub const Settings = struct {
     reference_hz: f64 = 440,
     /// A window whose input RMS is under this many dBFS is silence.
     silence_db: f64 = -60,
+    /// An instrument's range (a guitar or bass mode's strings, a few
+    /// semitones either side): no period outside it is considered, so
+    /// nothing can read an octave or more outside it. Null for a chromatic
+    /// tuner's whole range.
+    range: ?Range = null,
 };
+
+pub const Range = struct { low_hz: f64, high_hz: f64 };
 
 pub const Reading = struct {
     /// 0 when there is no pitch: silence, noise, or no periodicity.
@@ -102,7 +118,12 @@ pub const Options = struct {
     /// reading weights YIN's and the refinement's frequencies by the
     /// inverse of their variances.
     yin_sigma_cents: f64 = 1,
+    /// After an onset, a jump of the frequency by 2, 3 or 4 times (either
+    /// way) is held back until this many analyses in a row agree; 0 for
+    /// none.
+    octave_hold: u8 = 3,
 };
+
 
 /// The refinement's input is the analysed signal low-passed again and
 /// decimated to a rate from this up to twice it (the first partial is
@@ -126,7 +147,8 @@ pub const Analyser = AnalyserWith(.{});
 pub fn AnalyserWith(comptime options: Options) type {
     const max_window: usize = @intFromFloat(@ceil(window_seconds * options.max_analysis_rate));
     const max_fft = std.math.ceilPowerOfTwo(usize, max_window + max_window / 2) catch unreachable;
-    const max_fine: usize = if (options.refinement == null) 1 else @intFromFloat(@ceil(options.refine_window_s * 2 * fine_rate_floor));
+    const fine_needed = options.refinement != null;
+    const max_fine: usize = if (!fine_needed) 1 else @intFromFloat(@ceil(options.refine_window_s * 2 * fine_rate_floor));
     const max_block: usize = @intFromFloat(@ceil(onset_block_s * 2 * fine_rate_floor));
     return struct {
         const Self = @This();
@@ -178,8 +200,24 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// `blocks_pos - 1`.
         blocks: [onset_history]f64,
         blocks_pos: usize,
+        /// The fine input since the last onset (at most refine_window_s),
+        /// oldest first, loaded by each analysis.
         segment: [max_fine]f64,
+        segment_len: usize,
         refine_work: first_partial.Work(max_fine_period),
+
+        /// Analysed samples kept in all.
+        kept_count: u64,
+        /// The octave hold: log2 of the frequency it holds to (NaN for
+        /// none), the onset it was set after, the jump waiting for
+        /// agreement and how many analyses in a row have made it, and the
+        /// last analysis's input and factor.
+        hold_log2: f64,
+        hold_onset: u64,
+        hold_pending: f64,
+        hold_count: u8,
+        hold_at: u64,
+        hold_factor: f64,
 
         /// Sets up for `sample_rate` and starts from silence.
         pub fn init(self: *Self, sample_rate: f64) error{UnsupportedSampleRate}!void {
@@ -215,6 +253,14 @@ pub fn AnalyserWith(comptime options: Options) type {
             @memset(&self.fine, 0);
             self.fine_count = 0;
             self.onset_at = 0;
+            self.segment_len = 0;
+            self.kept_count = 0;
+            self.hold_log2 = std.math.nan(f64);
+            self.hold_onset = 0;
+            self.hold_pending = 1;
+            self.hold_count = 0;
+            self.hold_at = std.math.maxInt(u64);
+            self.hold_factor = 1;
             self.block_fill = 0;
             self.block_energy = 0;
             @memset(&self.blocks, 0);
@@ -236,7 +282,8 @@ pub fn AnalyserWith(comptime options: Options) type {
                     self.energy_acc = 0;
                     self.write_pos += 1;
                     if (self.write_pos == self.window) self.write_pos = 0;
-                    if (options.refinement != null) self.pushFine(y);
+                    self.kept_count += 1;
+                    if (fine_needed) self.pushFine(y);
                 }
             }
         }
@@ -266,24 +313,63 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.block_fill = 0;
         }
 
-        /// The first partial's frequency near `guess_hz`, measured over the
-        /// input since the last onset (at most `refine_window_s` of it), and
-        /// its standard error in cents; null with too little input since
-        /// the onset to measure.
-        fn refine(self: *Self, guess_hz: f64) ?struct { hz: f64, sigma_cents: f64 } {
-            const method = options.refinement orelse return null;
+        /// Loads the fine input since the last onset, at most
+        /// `refine_window_s` of it, into `segment`.
+        fn loadSegment(self: *Self) void {
             const want: u64 = @intFromFloat(options.refine_window_s * self.fine_rate);
             const since_onset = self.fine_count - self.onset_at;
             const n: usize = @intCast(@min(@min(want, since_onset), @min(self.fine_count, max_fine)));
             const start = self.fine_count - n;
             for (self.segment[0..n], 0..) |*d, i| d.* = self.fine[@intCast((start + i) % max_fine)];
-            const e = first_partial.estimate(max_fine_period, &self.refine_work, self.segment[0..n], self.fine_rate, guess_hz, method) orelse return null;
+            self.segment_len = n;
+        }
+
+        /// The first partial's frequency near `guess_hz`, measured over the
+        /// loaded segment, and its standard error in cents; null with too
+        /// little input since the onset to measure.
+        fn refine(self: *Self, guess_hz: f64) ?struct { hz: f64, sigma_cents: f64 } {
+            const method = options.refinement orelse return null;
+            const e = first_partial.estimate(max_fine_period, &self.refine_work, self.segment[0..self.segment_len], self.fine_rate, guess_hz, method) orelse return null;
             // A partial a quarter-tone or more from the guess is not the
             // one YIN found.
             if (!(@abs(1200 * @log2(e.hz / guess_hz)) < 50)) return null;
             // 1200 / ln 2 cents per unit of relative frequency; the standard
             // error runs up to 15% under the observed scatter.
             return .{ .hz = e.hz, .sigma_cents = 1.15 * 1731.234 * e.std_error_hz / e.hz };
+        }
+
+        /// `f`, unless it is 2, 3 or 4 times (or a half, third or quarter
+        /// of) the frequency held since the onset, in which case the held
+        /// one, until `octave_hold` analyses in a row have made the jump.
+        fn holdOctave(self: *Self, f: f64) f64 {
+            if (options.octave_hold == 0) return f;
+            // Without new input, the same decision as last time.
+            if (self.kept_count == self.hold_at) return f / self.hold_factor;
+            self.hold_at = self.kept_count;
+            self.hold_factor = 1;
+            const lf = @log2(f);
+            if (self.onset_at != self.hold_onset or std.math.isNan(self.hold_log2)) {
+                self.hold_onset = self.onset_at;
+                self.hold_log2 = lf;
+                self.hold_count = 0;
+                return f;
+            }
+            const jumps = [_]f64{ 2, 3, 4, 0.5, 1.0 / 3.0, 0.25 };
+            const quarter_tone = 1.0 / 24.0;
+            for (jumps) |j| {
+                if (@abs(lf - self.hold_log2 - @log2(j)) > quarter_tone) continue;
+                if (j == self.hold_pending) self.hold_count += 1 else {
+                    self.hold_pending = j;
+                    self.hold_count = 1;
+                }
+                if (self.hold_count >= options.octave_hold) break;
+                self.hold_factor = j;
+                return f / j;
+            }
+            self.hold_log2 = lf;
+            self.hold_count = 0;
+            self.hold_pending = 1;
+            return f;
         }
 
         /// YIN's `coarse` frequency and the refinement's, weighted by the
@@ -308,8 +394,10 @@ pub fn AnalyserWith(comptime options: Options) type {
             if (20 * std.math.log10(@max(rms, 1e-7)) < settings.silence_db) return Reading.none;
 
             self.difference();
-            const best = self.pickPeriod() orelse return Reading.none;
-            const coarse = self.analysis_rate / self.interpolate(best);
+            const best = self.pickPeriod(settings.range) orelse return Reading.none;
+            const detected = self.analysis_rate / self.interpolate(best);
+            if (fine_needed) self.loadSegment();
+            const coarse = self.holdOctave(detected);
             const freq = self.combine(coarse);
             const midi = 69 + 12 * @log2(freq / settings.reference_hz);
             const note = @floor(midi + 0.5);
@@ -350,17 +438,24 @@ pub fn AnalyserWith(comptime options: Options) type {
 
         /// The period in analysed samples: the first local minimum of the
         /// normalised difference under `dip_threshold`, or else the deepest
-        /// one if it is under `options.voicing_threshold`.
-        fn pickPeriod(self: *const Self) ?usize {
+        /// one if it is under `options.voicing_threshold`; only periods
+        /// within `range` if there is one.
+        fn pickPeriod(self: *const Self, range: ?Range) ?usize {
             const half = self.window / 2;
-            const min_tau: usize = @max(2, @as(usize, @intFromFloat(self.analysis_rate / max_pitch_hz)));
+            var min_tau: usize = @max(2, @as(usize, @intFromFloat(self.analysis_rate / max_pitch_hz)));
+            var end = half - 1;
+            if (range) |r| {
+                if (r.high_hz > 0) min_tau = @max(min_tau, @as(usize, @intFromFloat(@floor(self.analysis_rate / r.high_hz))));
+                if (r.low_hz > 0) end = @min(end, @as(usize, @intFromFloat(@ceil(self.analysis_rate / r.low_hz))) + 2);
+                if (min_tau + 3 >= end) return null;
+            }
             const c = self.cmnd[0..half];
             var tau = min_tau;
-            while (tau < half - 2) : (tau += 1) {
+            while (tau < end - 1) : (tau += 1) {
                 if (c[tau] < dip_threshold and c[tau] < c[tau - 1] and c[tau] <= c[tau + 1]) return tau;
             }
             var best = min_tau;
-            for (min_tau + 1..half - 1) |t| {
+            for (min_tau + 1..end) |t| {
                 if (c[t] < c[best]) best = t;
             }
             const limit = options.voicing_threshold orelse return best;
@@ -493,6 +588,72 @@ test "reads a sustained stiff string's first partial within 0.05 cent, not a per
             try testing.expectApproxEqAbs(@as(f64, 0), centsOff(r, opts.firstPartialHz(0)), 0.05);
         }
     }
+}
+
+test "with a range set, a pluck whose fundamental starts 20 dB under its octave reads its own note from 100 ms" {
+    // The Karplus-Strong excitation with this seed leaves 880 Hz's
+    // fundamental 20 dB under its octave and its third harmonic weak, so
+    // YIN's first dip is at half the period for 0.4 s; without a range the
+    // analyser reads the octave until then.
+    const a = try newAnalyser(48000);
+    defer testing.allocator.destroy(a);
+    const buf = try generate(48000);
+    defer testing.allocator.destroy(buf);
+    signals.pluck(buf, 48000, 880, .{ .amp = 0.9, .t60_s = 3, .seed = 1014 });
+    // The high E string, 7 semitones either side of what it is tuned to.
+    const settings: Settings = .{ .range = .{ .low_hz = 587.33, .high_hz = 1318.51 } };
+    var pos: usize = 0;
+    while (pos + 1600 <= buf.len) : (pos += 1600) {
+        a.push(buf[pos .. pos + 1600]);
+        const r = a.analyse(settings);
+        if (pos < 4800) continue;
+        errdefer std.debug.print("at {d} s: {d} Hz\n", .{ @as(f64, @floatFromInt(pos + 1600)) / 48000, r.freq_hz });
+        try testing.expectEqual(@as(i32, 81), r.note);
+    }
+}
+
+test "after an onset, a jump of the pitch by an octave is held until three analyses in a row agree" {
+    const held = try newAnalyser(48000);
+    defer testing.allocator.destroy(held);
+    const free = try testing.allocator.create(AnalyserWith(.{ .octave_hold = 0 }));
+    defer testing.allocator.destroy(free);
+    try free.init(48000);
+    // E2, then E3 at the same level: no onset between them.
+    const buf = try generate(48000);
+    defer testing.allocator.destroy(buf);
+    signals.sine(buf[0..24000], 48000, 82.4069, 0.3, 0);
+    signals.sine(buf[24000..], 48000, 164.814, 0.3, 0);
+    var free_notes: [30]i32 = undefined;
+    var held_notes: [30]i32 = undefined;
+    for (0..30) |k| {
+        const block = buf[k * 1600 .. (k + 1) * 1600];
+        free.push(block);
+        held.push(block);
+        free_notes[k] = free.analyse(.{}).note;
+        held_notes[k] = held.analyse(.{}).note;
+    }
+    const jump = std.mem.indexOfScalar(i32, &free_notes, 52).?;
+    try testing.expectEqual(@as(i32, 40), free_notes[jump - 1]);
+    try testing.expectEqual(@as(i32, 40), held_notes[jump]);
+    try testing.expectEqual(@as(i32, 40), held_notes[jump + 1]);
+    for (held_notes[jump + 2 ..]) |n| try testing.expectEqual(@as(i32, 52), n);
+}
+
+test "a pitch jump that isn't an octave, a twelfth or two octaves is not held" {
+    const a = try newAnalyser(48000);
+    defer testing.allocator.destroy(a);
+    const buf = try generate(48000);
+    defer testing.allocator.destroy(buf);
+    // E2, then A2 at the same level.
+    signals.sine(buf[0..24000], 48000, 82.4069, 0.3, 0);
+    signals.sine(buf[24000..], 48000, 110, 0.3, 0);
+    var first_a2: ?usize = null;
+    for (0..30) |k| {
+        a.push(buf[k * 1600 .. (k + 1) * 1600]);
+        if (a.analyse(.{}).note == 45 and first_a2 == null) first_a2 = k;
+    }
+    // The window reaches past the change 3 analyses in (92.9 ms); no hold after that.
+    try testing.expect(first_a2.? <= 15 + 3);
 }
 
 test "reads bass E1 and B0 at 88.2 and 96 kHz, where the JSFX's 4096 samples are too short" {

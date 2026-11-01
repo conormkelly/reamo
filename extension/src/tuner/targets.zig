@@ -685,6 +685,7 @@ pub fn main() !void {
         try analyserCandidate(pitch.AnalyserWith(.{ .refinement = .dtft_newton }), "refine-dtft", "the first partial by Newton on its DTFT power", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .refine_window_s = 0.2 }), "refine-0.2s", "the phase slope over at most 0.2 s", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .refine_window_s = 0.4 }), "refine-0.4s", "the phase slope over at most 0.4 s", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .octave_hold = 0 }), "no-octave-hold", "the analyser without the octave hold", allocator),
     };
     var cands: [all.len]Candidate = undefined;
     var nc: usize = 0;
