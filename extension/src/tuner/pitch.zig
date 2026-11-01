@@ -793,7 +793,8 @@ pub fn AnalyserWith(comptime options: Options) type {
                 return;
             }
             const step_s = th.gate.floor_step_s;
-            self.floor_countdown = @intFromFloat(@round(step_s * self.analysis_rate));
+            // This call is one kept sample: the next update is a step on.
+            self.floor_countdown = @as(usize, @intFromFloat(@round(step_s * self.analysis_rate))) -| 1;
             if (self.note_active or self.floor_paused) return;
             // While a note that dropped out may still resume, the input is
             // that note, not the floor.
