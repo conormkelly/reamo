@@ -120,10 +120,24 @@ if pid is None:
     fail("REAPER isn't running at the start of the scenario")
 if int(proc_status(pid)["TracerPid"]) != 0:
     skip("REAPER is already under a debugger (HARNESS_GDB=1); this scenario attaches gdb itself")
-# REAmo serves files up to 4 MiB from its web folder. One that size takes
-# httpz more than one send on loopback.
+# REAmo serves files up to exactly 4 MiB from its web folder (one byte more
+# is FileTooBig, answered 404). One that size takes httpz more than one send
+# on loopback.
+LARGE_SIZE = 4 * 1024 * 1024
 with open(f"{REAPER_HOME}/reaper_www_root/reamo/large-download.bin", "wb") as f:
-    f.write(b"x" * (4 * 1024 * 1024))
+    f.write(b"x" * LARGE_SIZE)
+check = socket.create_connection((HOST, PORT), timeout=5)
+check.sendall(f"GET /large-download.bin HTTP/1.1\r\nHost: {HOST}:{PORT}\r\nConnection: close\r\n\r\n".encode())
+head = b""
+while b"\r\n\r\n" not in head:
+    chunk = check.recv(65536)
+    if not chunk:
+        break
+    head += chunk
+check.close()
+headers = head.split(b"\r\n\r\n", 1)[0]
+if not headers.startswith(b"HTTP/1.1 200") or f"\r\nContent-Length: {LARGE_SIZE}".encode() not in headers:
+    fail(f"the large download isn't served whole: {headers[:300]!r}")
 
 set_sigpipe_default(pid)
 print("SIGPIPE in REAPER is now SIG_DFL:", sigpipe_masks(pid))
