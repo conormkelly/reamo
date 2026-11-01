@@ -280,6 +280,16 @@ pub const Options = struct {
     /// One held level there (an e-bow, a pad) never shows, and a note
     /// already showing is not affected.
     mains_start_hold: bool = true,
+    /// Whether, until the window lies wholly after the onset, a messy
+    /// start shows no name: a reading whose YIN dip isn't under the dip
+    /// threshold, or more than a quarter tone from the one before it. An
+    /// acoustic's body modes ring loudest at the pluck and can read as the
+    /// octave under for the first 100 ms; a wrong name, even briefly, is
+    /// worse than that much delay.
+    early_check: bool = true,
+    /// With `early_check`, every start shows no name until the window lies
+    /// wholly after the onset.
+    early_all: bool = false,
     /// Whether the octave hold anchors only on analyses whose window lies
     /// wholly after the onset: an acoustic's body modes ring loudest at
     /// the pluck and can make the first readings the note's octave under,
@@ -562,6 +572,10 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// Whether the input had risen at the last analysis, with no note
         /// showing.
         rise_prev: bool,
+        /// The reading measured at the last analysis (0 for none) and the
+        /// onset count then.
+        early_prev_hz: f64,
+        early_onset: u64,
         /// The onset count the lowest levels were kept since.
         rise_onset: u64,
         /// `fine_count` at the latest analysis whose level was within
@@ -651,6 +665,8 @@ pub fn AnalyserWith(comptime options: Options) type {
             @memset(&self.rise_min, std.math.inf(f64));
             self.rise_last = 0;
             self.rise_prev = false;
+            self.early_prev_hz = 0;
+            self.early_onset = 0;
             self.rise_onset = 0;
             self.rise_quiet_at = 0;
             self.onset_seen = 0;
@@ -942,7 +958,9 @@ pub fn AnalyserWith(comptime options: Options) type {
             };
         }
 
-        const Measured = struct { hz: f64, clarity: f64 };
+        /// `clear`: YIN's dip at the period is under the dip threshold, not
+        /// the deepest of none that are.
+        const Measured = struct { hz: f64, clarity: f64, clear: bool };
 
         /// The first partial's frequency now, unsmoothed, or null for no pitch.
         fn measure(self: *Self, settings: Settings) ?Measured {
@@ -1004,7 +1022,7 @@ pub fn AnalyserWith(comptime options: Options) type {
                     self.hum_fit = (self.last_sigma / 1.15 / 1731.234 * raw.hz) / raw.std_error_hz;
                 }
             }
-            return .{ .hz = hz, .clarity = std.math.clamp(1 - self.cmnd[best], 0, 1) };
+            return .{ .hz = hz, .clarity = std.math.clamp(1 - self.cmnd[best], 0, 1), .clear = self.cmnd[best] < options.dip_threshold };
         }
 
         /// The RMS of the window's input (before the low-pass), dBFS.
@@ -1073,7 +1091,17 @@ pub fn AnalyserWith(comptime options: Options) type {
                     self.note_onset_count = self.onset_count;
                 }
             }
-            self.gate_open = self.note_active;
+            // While the window still holds input from before the onset, a
+            // messy start shows no name: a reading whose YIN dip isn't
+            // clear, or that disagrees with the one before it.
+            var held = false;
+            if (options.early_check and self.note_active and self.sinceOnset() < self.window) {
+                const prev = if (self.early_onset == self.onset_count) self.early_prev_hz else 0;
+                held = options.early_all or (prev > 0 and @abs(1200 * @log2(m.?.hz / prev)) >= 50);
+            }
+            self.early_prev_hz = if (m) |v| v.hz else 0;
+            self.early_onset = self.onset_count;
+            self.gate_open = self.note_active and !held;
             if (!self.note_active) self.learnHum();
             // An onset holds the floor until a note it started has ended, or
             // for `onset_floor_hold_s` if none shows (the window takes a while
@@ -1082,11 +1110,13 @@ pub fn AnalyserWith(comptime options: Options) type {
                 const since_onset = @as(f64, @floatFromInt(self.fine_count - self.onset_at)) / self.fine_rate;
                 if (self.note_onset_count == self.onset_count or since_onset >= onset_floor_hold_s) self.floor_paused = false;
             }
-            return if (self.note_active) m else null;
+            return if (self.gate_open) m else null;
         }
 
         fn saveGate(self: *Self) void {
             self.gate_before = .{
+                .early_prev_hz = self.early_prev_hz,
+                .early_onset = self.early_onset,
                 .rise_prev = self.rise_prev,
                 .floor_db = self.floor_db,
                 .onset_at = self.onset_at,
@@ -1102,6 +1132,8 @@ pub fn AnalyserWith(comptime options: Options) type {
 
         fn restoreGate(self: *Self) void {
             const g = self.gate_before;
+            self.early_prev_hz = g.early_prev_hz;
+            self.early_onset = g.early_onset;
             self.rise_prev = g.rise_prev;
             self.floor_db = g.floor_db;
             self.onset_at = g.onset_at;
@@ -1549,6 +1581,8 @@ pub fn AnalyserWith(comptime options: Options) type {
 
 /// The gate's state that one decision changes.
 const GateState = struct {
+    early_prev_hz: f64,
+    early_onset: u64,
     rise_prev: bool,
     floor_db: f64,
     onset_at: u64,
@@ -2441,6 +2475,41 @@ test "a piezo pluck whose body modes make its first readings two octaves under i
     try testing.expectEqual(@as(usize, 0), octave_reads[0]);
     // Anchored on the first two readings, the hold keeps them.
     try testing.expect(octave_reads[1] > 0);
+}
+
+test "in a piezo note's first 93 ms a name that disagrees with the reading before it is not shown, so fewer wrong names show" {
+    var wrong = [_]usize{ 0, 0 };
+    inline for ([_]bool{ true, false }, 0..) |check, which| {
+        for ([_]f64{ 110, 146.832, 329.628 }) |f0| {
+            for ([_]u64{ 1, 2, 3 }) |seed| {
+                const a = try testing.allocator.create(AnalyserWith(.{ .early_check = check }));
+                defer testing.allocator.destroy(a);
+                try a.init(48000);
+                prime(a);
+                const buf = try generate(24000);
+                defer testing.allocator.destroy(buf);
+                @memset(buf[0..2400], 0);
+                signals.pluckedString(buf[2400..], 48000, .{ .f0 = f0, .inharmonicity = 6.5e-5, .seed = seed });
+                const level = signals.rms(buf[2400..7200]);
+                for ([_][3]f64{ .{ 98, 0.6, -12 }, .{ 163, 0.4, -8 }, .{ 231, 0.3, -6 } }) |mode| {
+                    const amp = level * std.math.pow(f64, 10, mode[2] / 20) * std.math.sqrt2;
+                    for (buf[2400..], 0..) |*v, i| {
+                        const t = @as(f64, @floatFromInt(i)) / 48000;
+                        v.* += @floatCast(amp * @exp(-@log(1000.0) / mode[1] * t) * @sin(2 * std.math.pi * mode[0] * t));
+                    }
+                }
+                signals.addNoise(buf, 3e-5, 12);
+                const note: i32 = @intFromFloat(@round(69 + 12 * @log2(f0 / 440)));
+                var pos: usize = 0;
+                while (pos + 1600 <= buf.len) : (pos += 1600) {
+                    a.push(buf[pos .. pos + 1600]);
+                    const r = a.analyse(.{});
+                    if (r.freq_hz > 0 and r.note != note) wrong[which] += 1;
+                }
+            }
+        }
+    }
+    try testing.expect(wrong[0] < wrong[1]);
 }
 
 test "an onset that shows no note expires, so without the slow onset a swell over hum long after a click never shows" {
