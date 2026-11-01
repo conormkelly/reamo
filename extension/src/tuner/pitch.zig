@@ -213,6 +213,9 @@ pub const Options = struct {
     /// under `stable_cents_per_s`.
     stable_s: f64 = 0.3,
     stable_cents_per_s: f64 = 0.5,
+    /// `stable` also needs the shown pitch within this RMS of that line,
+    /// cents; null for no such check.
+    stable_spread_cents: ?f64 = 0.1,
     /// A note shows only while the window's level stands this many dB over
     /// a noise floor learned while no note shows (it follows the level down
     /// at once and up at `floor_rise_db_per_s`); null for no learned floor.
@@ -376,6 +379,10 @@ pub fn AnalyserWith(comptime options: Options) type {
         heard_several: bool,
         /// The lag the subharmonic check moved from, this analysis.
         moved_from: ?usize,
+        /// The refinement's last standard error (cents), and its ratio with
+        /// the hum taken out to without (0 with no hum taken out).
+        last_sigma: f64,
+        hum_fit: f64,
         /// The learned hum: the model in use (if `hum_valid`), the last
         /// learned (two in a row must agree), and the fine input it was
         /// learned at.
@@ -485,6 +492,8 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.segment_len = 0;
             self.heard_several = false;
             self.moved_from = null;
+            self.last_sigma = 0;
+            self.hum_fit = 0;
             self.hum_now = .{};
             self.hum_valid = false;
             self.hum_last = null;
@@ -621,6 +630,7 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// loaded segment, and its standard error in cents; null with too
         /// little input since the onset to measure.
         fn refine(self: *Self, guess_hz: f64) ?struct { hz: f64, sigma_cents: f64 } {
+            self.last_sigma = 0;
             const method = options.refinement orelse return null;
             const e = first_partial.estimate(max_fine_period, &self.refine_work, self.segment[0..self.segment_len], self.fine_rate, guess_hz, method) orelse return null;
             // A partial a quarter-tone or more from the guess is not the
@@ -628,7 +638,8 @@ pub fn AnalyserWith(comptime options: Options) type {
             if (!(@abs(1200 * @log2(e.hz / guess_hz)) < 50)) return null;
             // 1200 / ln 2 cents per unit of relative frequency; the standard
             // error runs up to 15% under the observed scatter.
-            return .{ .hz = e.hz, .sigma_cents = 1.15 * 1731.234 * e.std_error_hz / e.hz };
+            self.last_sigma = 1.15 * 1731.234 * e.std_error_hz / e.hz;
+            return .{ .hz = e.hz, .sigma_cents = self.last_sigma };
         }
 
         /// The several-notes verdict on the loaded segment's spectrum (its
@@ -746,6 +757,7 @@ pub fn AnalyserWith(comptime options: Options) type {
             var best = self.pickPeriod(settings.range) orelse return null;
             if (fine_needed) self.loadSegment();
             const hum_out = options.hum_model and self.hum_valid and fine_needed;
+            if (hum_out) @memcpy(self.windowed[0..self.segment_len], self.segment[0..self.segment_len]);
             if (hum_out) {
                 // Out of the band the refinement passes, about the note
                 // (the higher of the two periods considered, if two were).
@@ -772,7 +784,14 @@ pub fn AnalyserWith(comptime options: Options) type {
                     if (!j.heard(coarse)) return null;
                 }
             }
-            return .{ .hz = self.combine(coarse), .clarity = std.math.clamp(1 - self.cmnd[best], 0, 1) };
+            const hz = self.combine(coarse);
+            self.hum_fit = 0;
+            if (hum_out and self.last_sigma > 0) {
+                if (first_partial.estimate(max_fine_period, &self.refine_work, self.windowed[0..self.segment_len], self.fine_rate, coarse, .phase_slope)) |raw| {
+                    self.hum_fit = (self.last_sigma / 1.15 / 1731.234 * raw.hz) / raw.std_error_hz;
+                }
+            }
+            return .{ .hz = hz, .clarity = std.math.clamp(1 - self.cmnd[best], 0, 1) };
         }
 
         /// The RMS of the window's input (before the low-pass), dBFS.
@@ -1047,7 +1066,22 @@ pub fn AnalyserWith(comptime options: Options) type {
             if (now - oldest < options.stable_s - 0.05 or n < 3) return false;
             const den = n * stt - st * st;
             if (den <= 0) return false;
-            return @abs((n * stv - st * sv) / den) < options.stable_cents_per_s;
+            const slope = (n * stv - st * sv) / den;
+            if (!(@abs(slope) < options.stable_cents_per_s)) return false;
+            const spread_max = options.stable_spread_cents orelse return true;
+            // The shown pitch must also sit on that line: a pitch wobbling
+            // about it (a hum that no longer fits beating with the note)
+            // has turning points where the slope is flat.
+            const intercept = (sv - slope * st) / n;
+            var ss: f64 = 0;
+            for (0..self.history_len_used) |k| {
+                const i = (self.history_pos + history_len - 1 - k) % history_len;
+                const t = self.history_t[i] - now;
+                if (t < -options.stable_s - 1e-9) break;
+                const r = self.history_v[i] - (intercept + slope * t);
+                ss += r * r;
+            }
+            return @sqrt(ss / n) <= spread_max;
         }
 
         /// YIN's difference function d(tau) over the window, through the FFT

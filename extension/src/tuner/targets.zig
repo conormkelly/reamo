@@ -1056,6 +1056,7 @@ pub fn main() !void {
         try analyserCandidate(pitch.AnalyserWith(.{ .several_guard = false }), "no-several-guard", "the analyser without the several-notes guard", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .hum_model = false }), "no-hum-model", "the analyser without the learned hum taken out", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .subharmonic_check = false }), "no-subharmonic-check", "the analyser without the subharmonic check", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .stable_spread_cents = null }), "no-stable-spread", "stable on the slope alone", allocator),
     };
     var cands: [all.len]Candidate = undefined;
     var nc: usize = 0;
