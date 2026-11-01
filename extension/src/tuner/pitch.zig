@@ -1,5 +1,6 @@
-//! The tuner's pitch analyser: mono samples in, a frequency, note, cents
-//! and confidence out, whenever the caller asks (the tuner asks at 30 Hz).
+//! The tuner's pitch analyser: mono samples in, a frequency, note, cents,
+//! clarity and settling and stable flags out, whenever the caller asks (the
+//! tuner asks at 30 Hz).
 //!
 //! The pitch detector is YIN as PitchDetect.jsfx runs it (FFT
 //! autocorrelation, the difference function with exact energy terms, the
@@ -49,6 +50,11 @@
 //! few hundred milliseconds, which the spectrum can't cure without
 //! misreading notes under hum or over a ringing previous note.
 //!
+//! The note shows from the first reading after an onset; the reading is
+//! `settling` for 120 ms (a string's attack, about half its glide's time
+//! constant), and `stable` once the shown pitch's slope over 300 ms is
+//! under 0.5 cent a second.
+//!
 //! The window is analysed only when `analyse` is called, not every hop.
 //! Nothing is allocated after `init`: the caller owns the `Analyser`
 //! (about 490 KB, so not on the stack) and calls `push` and `analyse` from
@@ -74,16 +80,26 @@ pub const Settings = struct {
 pub const Range = struct { low_hz: f64, high_hz: f64 };
 
 pub const Reading = struct {
-    /// 0 when there is no pitch: silence, noise, or no periodicity.
+    /// The first partial's frequency as it should be shown, smoothed; 0
+    /// when there is no pitch: silence, noise, or no periodicity.
     freq_hz: f64,
     /// MIDI note nearest the frequency (A4 = 69).
     note: i32,
     /// From the note, -50 to +50.
     cents: f64,
-    /// 1 minus the aperiodicity at the detected period, 0 to 1.
-    confidence: f64,
+    /// How periodic the input is at the detected period, 0 to 1: 1 minus
+    /// YIN's normalised difference there (1 for a pure tone; noise and a
+    /// second note lower it).
+    clarity: f64,
+    /// Set for `Options.settle_s` after an onset or a jump of the pitch:
+    /// the note is known, but the string is still in its attack and the
+    /// cents mean little yet.
+    settling: bool = false,
+    /// Set once the shown pitch has moved under `Options.stable_cents_per_s`
+    /// over the last `Options.stable_s`: the reading to tune by.
+    stable: bool = false,
 
-    pub const none: Reading = .{ .freq_hz = 0, .note = 0, .cents = 0, .confidence = 0 };
+    pub const none: Reading = .{ .freq_hz = 0, .note = 0, .cents = 0, .clarity = 0 };
 };
 
 pub const min_sample_rate = 8000;
@@ -122,7 +138,35 @@ pub const Options = struct {
     /// way) is held back until this many analyses in a row agree; 0 for
     /// none.
     octave_hold: u8 = 3,
+    /// Whether the shown pitch is smoothed: readings far from the median
+    /// of the last five replaced by it (a Hampel filter), then a one-euro
+    /// filter, whose cutoff rises with the pitch's rate of change, so it
+    /// follows a turning peg and steadies a held note. Off: on the
+    /// synthetic strings the refined pitch is already steady (jitter
+    /// 0.005-0.07 cent) and the filter's lag costs more on gliding and
+    /// beating strings than it saves; real input may say otherwise.
+    smoothing: bool = false,
+    /// The one-euro filter's cutoff on a still pitch, Hz.
+    euro_min_hz: f64 = 0.5,
+    /// How much its cutoff rises per cent a second of change, Hz.
+    euro_beta: f64 = 3,
+    /// The cutoff of its estimate of the rate of change, Hz.
+    euro_rate_hz: f64 = 1,
+    /// How long after an onset (or a jump of more than a semitone) the
+    /// reading is `settling`.
+    settle_s: f64 = 0.12,
+    /// `stable` needs the shown pitch's least-squares slope over this long
+    /// under `stable_cents_per_s`.
+    stable_s: f64 = 0.3,
+    stable_cents_per_s: f64 = 0.5,
 };
+
+/// Analyses kept for the Hampel filter and for the stability slope.
+const hampel_len = 5;
+const history_len = 32;
+/// The Hampel filter replaces a reading more than 3 scaled median absolute
+/// deviations from the median, and at least this many cents.
+const hampel_floor_cents = 1.0;
 
 
 /// The refinement's input is the analysed signal low-passed again and
@@ -219,6 +263,27 @@ pub fn AnalyserWith(comptime options: Options) type {
         hold_at: u64,
         hold_factor: f64,
 
+        /// The shown pitch's tracking, in cents above 1 Hz: the input it
+        /// was last updated at, whether that analysis had a pitch, the
+        /// onset it follows, the filter's value and rate (cents a second),
+        /// the input time (seconds) of the last update and of the start of
+        /// the note, the last raw readings and the shown history.
+        track_at: u64,
+        track_voiced: bool,
+        track_onset: u64,
+        track_value: f64,
+        track_rate: f64,
+        track_time: f64,
+        track_start: f64,
+        recent: [hampel_len]f64,
+        recent_len: usize,
+        recent_pos: usize,
+        history_t: [history_len]f64,
+        history_v: [history_len]f64,
+        history_len_used: usize,
+        history_pos: usize,
+        last_clarity: f64,
+
         /// Sets up for `sample_rate` and starts from silence.
         pub fn init(self: *Self, sample_rate: f64) error{UnsupportedSampleRate}!void {
             if (!(sample_rate >= min_sample_rate and sample_rate <= max_sample_rate)) return error.UnsupportedSampleRate;
@@ -261,6 +326,18 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.hold_count = 0;
             self.hold_at = std.math.maxInt(u64);
             self.hold_factor = 1;
+            self.track_at = std.math.maxInt(u64);
+            self.track_voiced = false;
+            self.track_onset = 0;
+            self.track_value = 0;
+            self.track_rate = 0;
+            self.track_time = 0;
+            self.track_start = 0;
+            self.recent_len = 0;
+            self.recent_pos = 0;
+            self.history_len_used = 0;
+            self.history_pos = 0;
+            self.last_clarity = 0;
             self.block_fill = 0;
             self.block_energy = 0;
             @memset(&self.blocks, 0);
@@ -386,27 +463,136 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// The pitch of the last 92.9 ms of input.
         pub fn analyse(self: *Self, settings: Settings) Reading {
             if (!(settings.reference_hz > 0 and std.math.isFinite(settings.reference_hz))) return Reading.none;
-            const w = self.window;
+            const shown = self.track(self.measure(settings)) orelse return Reading.none;
+            const midi = 69 + 12 * @log2(shown.hz / settings.reference_hz);
+            const note = @floor(midi + 0.5);
+            return .{
+                .freq_hz = shown.hz,
+                .note = @intFromFloat(note),
+                .cents = (midi - note) * 100,
+                .clarity = shown.clarity,
+                .settling = shown.settling,
+                .stable = shown.stable,
+            };
+        }
 
+        const Measured = struct { hz: f64, clarity: f64 };
+
+        /// The first partial's frequency now, unsmoothed, or null for no pitch.
+        fn measure(self: *Self, settings: Settings) ?Measured {
+            const w = self.window;
             var energy: f64 = 0;
             for (self.energy[0..w]) |e| energy += e;
             const rms = @sqrt(energy / @as(f64, @floatFromInt(w * self.decimation)));
-            if (20 * std.math.log10(@max(rms, 1e-7)) < settings.silence_db) return Reading.none;
+            if (20 * std.math.log10(@max(rms, 1e-7)) < settings.silence_db) return null;
 
             self.difference();
-            const best = self.pickPeriod(settings.range) orelse return Reading.none;
+            const best = self.pickPeriod(settings.range) orelse return null;
             const detected = self.analysis_rate / self.interpolate(best);
             if (fine_needed) self.loadSegment();
             const coarse = self.holdOctave(detected);
-            const freq = self.combine(coarse);
-            const midi = 69 + 12 * @log2(freq / settings.reference_hz);
-            const note = @floor(midi + 0.5);
-            return .{
-                .freq_hz = freq,
-                .note = @intFromFloat(note),
-                .cents = (midi - note) * 100,
-                .confidence = std.math.clamp(1 - self.cmnd[best], 0, 1),
+            return .{ .hz = self.combine(coarse), .clarity = std.math.clamp(1 - self.cmnd[best], 0, 1) };
+        }
+
+        const Shown = struct { hz: f64, clarity: f64, settling: bool, stable: bool };
+
+        /// What to show for `m`, through the tracking state. The state moves
+        /// only with new input: analysing again without any shows the same.
+        fn track(self: *Self, m: ?Measured) ?Shown {
+            const now = @as(f64, @floatFromInt(self.kept_count)) / self.analysis_rate;
+            const fresh = self.kept_count != self.track_at;
+            self.track_at = self.kept_count;
+            const got = m orelse {
+                if (fresh) self.track_voiced = false;
+                return null;
             };
+            const x = 1200 * @log2(got.hz);
+            if (fresh) {
+                // An onset, a gap with no pitch, or a jump of over a
+                // semitone starts the note afresh.
+                const new_onset = self.onset_at != self.track_onset;
+                if (!self.track_voiced or new_onset or @abs(x - self.track_value) > 100) {
+                    self.track_onset = self.onset_at;
+                    self.track_start = if (new_onset and fine_needed)
+                        now - @as(f64, @floatFromInt(self.fine_count - self.onset_at)) / self.fine_rate
+                    else
+                        now;
+                    self.track_value = x;
+                    self.track_rate = 0;
+                    self.recent_len = 0;
+                    self.recent_pos = 0;
+                    self.history_len_used = 0;
+                } else if (options.smoothing) {
+                    self.smooth(x, now - self.track_time);
+                } else {
+                    self.track_value = x;
+                }
+                self.track_voiced = true;
+                self.track_time = now;
+                self.last_clarity = got.clarity;
+                self.history_t[self.history_pos] = now;
+                self.history_v[self.history_pos] = self.track_value;
+                self.history_pos = (self.history_pos + 1) % history_len;
+                self.history_len_used = @min(self.history_len_used + 1, history_len);
+            }
+            const settling = now - self.track_start < options.settle_s;
+            return .{
+                .hz = std.math.pow(f64, 2, self.track_value / 1200),
+                .clarity = self.last_clarity,
+                .settling = settling,
+                .stable = !settling and self.slopeSettled(now),
+            };
+        }
+
+        /// One step of the Hampel and one-euro filters with the reading `x`
+        /// (cents), `dt` seconds after the last.
+        fn smooth(self: *Self, x: f64, dt: f64) void {
+            self.recent[self.recent_pos] = x;
+            self.recent_pos = (self.recent_pos + 1) % hampel_len;
+            self.recent_len = @min(self.recent_len + 1, hampel_len);
+            var v = x;
+            if (self.recent_len >= 3) {
+                var sorted: [hampel_len]f64 = undefined;
+                const r = sorted[0..self.recent_len];
+                @memcpy(r, self.recent[0..self.recent_len]);
+                std.mem.sort(f64, r, {}, std.sort.asc(f64));
+                const median = r[r.len / 2];
+                for (r) |*d| d.* = @abs(d.* - median);
+                std.mem.sort(f64, r, {}, std.sort.asc(f64));
+                const mad = r[r.len / 2];
+                if (@abs(x - median) > @max(3 * 1.4826 * mad, hampel_floor_cents)) v = median;
+            }
+            if (!(dt > 0)) return;
+            const rate = (v - self.track_value) / dt;
+            self.track_rate += smoothingFactor(dt, options.euro_rate_hz) * (rate - self.track_rate);
+            const cutoff = options.euro_min_hz + options.euro_beta * @abs(self.track_rate);
+            self.track_value += smoothingFactor(dt, cutoff) * (v - self.track_value);
+        }
+
+        /// Whether the shown pitch's least-squares slope over the last
+        /// `stable_s` is under `stable_cents_per_s`, with that much shown.
+        fn slopeSettled(self: *const Self, now: f64) bool {
+            var n: f64 = 0;
+            var st: f64 = 0;
+            var sv: f64 = 0;
+            var stt: f64 = 0;
+            var stv: f64 = 0;
+            var oldest = now;
+            for (0..self.history_len_used) |k| {
+                const i = (self.history_pos + history_len - 1 - k) % history_len;
+                const t = self.history_t[i] - now;
+                if (t < -options.stable_s - 1e-9) break;
+                oldest = self.history_t[i];
+                n += 1;
+                st += t;
+                sv += self.history_v[i];
+                stt += t * t;
+                stv += t * self.history_v[i];
+            }
+            if (now - oldest < options.stable_s - 0.05 or n < 3) return false;
+            const den = n * stt - st * st;
+            if (den <= 0) return false;
+            return @abs((n * stv - st * sv) / den) < options.stable_cents_per_s;
         }
 
         /// YIN's difference function d(tau) over the window, through the FFT
@@ -475,6 +661,13 @@ pub fn AnalyserWith(comptime options: Options) type {
             return period + std.math.clamp((s0 - s2) / (2 * curvature), -1, 1);
         }
     };
+}
+
+/// The one-euro filter's smoothing factor for a step of `dt` seconds at
+/// cutoff `cutoff_hz`: a one-pole low-pass's.
+fn smoothingFactor(dt: f64, cutoff_hz: f64) f64 {
+    const tau = 1 / (2 * std.math.pi * cutoff_hz);
+    return 1 / (1 + tau / dt);
 }
 
 /// Second-order Butterworth low-pass (RBJ cookbook, Q = 1/sqrt(2)),
@@ -562,7 +755,7 @@ test "reads a steady sine within two hundredths of a cent from B0 to E6 at every
             const r = readAfter(a, s, .{});
             errdefer std.debug.print("{d} Hz at {d}: {any}\n", .{ f0, sr, r });
             try testing.expectApproxEqAbs(@as(f64, 0), centsOff(r, f0), 0.02);
-            try testing.expect(r.confidence > 0.95);
+            try testing.expect(r.clarity > 0.95);
         }
     }
 }
@@ -654,6 +847,65 @@ test "a pitch jump that isn't an octave, a twelfth or two octaves is not held" {
     }
     // The window reaches past the change 3 analyses in (92.9 ms); no hold after that.
     try testing.expect(first_a2.? <= 15 + 3);
+}
+
+test "after an onset the note shows at once and the cents settle for 120 ms" {
+    const a = try newAnalyser(48000);
+    defer testing.allocator.destroy(a);
+    const buf = try generate(48000);
+    defer testing.allocator.destroy(buf);
+    @memset(buf[0..9600], 0);
+    signals.pluckedString(buf[9600..], 48000, .{ .f0 = 110, .inharmonicity = 6.5e-5 });
+    var first: ?usize = null;
+    for (0..30) |k| {
+        a.push(buf[k * 1600 .. (k + 1) * 1600]);
+        const r = a.analyse(.{});
+        if (r.freq_hz == 0) continue;
+        if (first == null) first = k;
+        try testing.expectEqual(@as(i32, 45), r.note);
+        // Ticks are 1/30 s; the pluck is at tick 6.
+        const since_ms = (@as(f64, @floatFromInt(k + 1)) - 6) * 1000 / 30;
+        errdefer std.debug.print("{d} ms after the onset: {any}\n", .{ since_ms, r });
+        if (since_ms < 115) try testing.expect(r.settling);
+        if (since_ms > 155) try testing.expect(!r.settling);
+    }
+    try testing.expect(first.? <= 8);
+}
+
+test "a sustained string reads stable within a second and a turning peg never does" {
+    const buf = try generate(96000);
+    defer testing.allocator.destroy(buf);
+    const paths = [_]signals.PitchPath{ .steady, .{ .ramp = .{ .start_cents = -30, .cents_per_s = 5 } } };
+    for (paths) |path| {
+        const a = try newAnalyser(48000);
+        defer testing.allocator.destroy(a);
+        signals.pluckedString(buf, 48000, .{ .f0 = 82.4069, .inharmonicity = 1.1e-4, .t60_s = 10, .pitch = path });
+        var stable_at: ?usize = null;
+        for (0..60) |k| {
+            a.push(buf[k * 1600 .. (k + 1) * 1600]);
+            const r = a.analyse(.{});
+            if (r.stable and stable_at == null) stable_at = k;
+        }
+        switch (path) {
+            .steady => try testing.expect(stable_at.? < 30),
+            else => try testing.expect(stable_at == null),
+        }
+    }
+}
+
+test "the clarity of a clean tone is near 1 and of a noisy one lower" {
+    const a = try newAnalyser(48000);
+    defer testing.allocator.destroy(a);
+    const buf = try generate(24000);
+    defer testing.allocator.destroy(buf);
+    signals.sine(buf, 48000, 220, 0.3, 0);
+    const clean = readAfter(a, buf, .{}).clarity;
+    // About 11 dB under the tone inside the 2 kHz low-pass.
+    signals.addNoise(buf, 0.2, 9);
+    a.reset();
+    const noisy = readAfter(a, buf, .{}).clarity;
+    try testing.expect(clean > 0.99);
+    try testing.expect(noisy < clean - 0.05);
 }
 
 test "reads bass E1 and B0 at 88.2 and 96 kHz, where the JSFX's 4096 samples are too short" {

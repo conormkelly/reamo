@@ -359,7 +359,7 @@ const Candidate = struct {
 
 fn display(r: pitch.Reading) Display {
     if (r.freq_hz <= 0) return .{};
-    return .{ .note = r.note, .hz = r.freq_hz };
+    return .{ .note = r.note, .hz = if (r.settling) null else r.freq_hz, .stable = r.stable };
 }
 
 fn analyserCandidate(comptime T: type, name: []const u8, about: []const u8, allocator: std.mem.Allocator) !Candidate {
@@ -686,6 +686,7 @@ pub fn main() !void {
         try analyserCandidate(pitch.AnalyserWith(.{ .refine_window_s = 0.2 }), "refine-0.2s", "the phase slope over at most 0.2 s", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .refine_window_s = 0.4 }), "refine-0.4s", "the phase slope over at most 0.4 s", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .octave_hold = 0 }), "no-octave-hold", "the analyser without the octave hold", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .smoothing = true }), "smoothing", "the analyser with the Hampel and one-euro filters", allocator),
     };
     var cands: [all.len]Candidate = undefined;
     var nc: usize = 0;
