@@ -389,9 +389,13 @@ the same time, sampled the same way, on a REAPER without REAmo (its
 - No WebSocket probe, REAmo memory stats or refusals: those need REAmo.
 - It doesn't read or record the phones' settings (`SOAK_PHONES`,
   `SOAK_SEED`, `SOAK_OPS`, `SOAK_REFUSAL_PCT`).
-- They pair up by run id. When the soak ends (passed, failed or crashed)
-  it writes `soak-done.json`; the control stops at its next sample and
-  writes its summary. The soak waits up to 120 s for it, then reports
+- They pair up by run id. When the soak's script ends, passed or failed
+  (REAPER crashing included), it writes `soak-done.json`; the control
+  stops at its next sample and writes its summary. If the soak never gets
+  there (REAPER not ready at boot, its script killed), the control stops
+  on the soak's heartbeat, `soak-alive.json`, written at every sample:
+  none within 180 s of the control's start, or none for 30 s (six
+  samples, if longer). The soak waits up to 120 s for it, then reports
   both runs and the difference, against the first control if named
   twice. A failed soak isn't compared.
 - No comparison, and the summary says why, if the soak runs alone, or

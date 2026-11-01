@@ -167,6 +167,14 @@ WITH_BASELINE = not CONTROL and BASELINE in RUN_SCENARIOS
 WITH_SOAK = CONTROL and SOAK in RUN_SCENARIOS
 CONTROL_STARTED = "control-started.json"  # the control writes it as it starts
 SOAK_DONE = "soak-done.json"  # the soak writes it as it ends: the control then stops
+# The soak's heartbeat, written as its script starts and at every sample
+# ("sampling"). A soak that never gets to write SOAK_DONE (REAPER not
+# ready at boot, its script killed) stops the control through it: no
+# sampling heartbeat within SOAK_START_GRACE_SECS of the control's start,
+# or one older than SOAK_STALE_SECS.
+SOAK_ALIVE = "soak-alive.json"
+SOAK_START_GRACE_SECS = 180.0
+SOAK_STALE_SECS = max(30.0, 6 * SAMPLE_SECS)
 # How long after its end the soak waits for the control's summary.
 BASELINE_WAIT_SECS = 120.0
 
@@ -181,6 +189,23 @@ def write_json(path, data):
 
 def mark(name, **extra):
     write_json(os.path.join(OUT, name), {"run_id": RUN_ID, "time": time.time(), **extra})
+
+
+def soak_gone(run):
+    """Why the control should stop now, or None while a soak of this run
+    is still going. With the soak named twice, the first to end stops it."""
+    if this_run(SOAK, SOAK_DONE):
+        return "the soak ended"
+    now = time.time()
+    beats = [b["time"] for _, b in this_run(SOAK, SOAK_ALIVE) if b.get("sampling")]
+    if not beats:
+        if now - run.started > SOAK_START_GRACE_SECS:
+            return (f"the soak hadn't started sampling {SOAK_START_GRACE_SECS:.0f} s after the control "
+                    f"started (see its output: REAPER not ready, or its script died)")
+        return None
+    if now - max(beats) > SOAK_STALE_SECS:
+        return f"the soak's heartbeat stopped {now - max(beats):.0f} s ago (its script died?)"
+    return None
 
 
 def this_run(scenario, name):
@@ -944,8 +969,9 @@ def soak(run):
         playing, rpc_ms = 1, 0.0
         next_rpc = start + RPC_SECS
         while not stats.stop.wait(max(0.0, prev_t + SAMPLE_SECS - time.monotonic())):
-            if WITH_SOAK and this_run(SOAK, SOAK_DONE):
-                run.stopped_early = f"the soak ended {(time.monotonic() - start) / 60:.1f} min in"
+            gone = soak_gone(run) if WITH_SOAK else None
+            if gone:
+                run.stopped_early = f"{gone}, {(time.monotonic() - start) / 60:.1f} min in"
                 print(f"control: {run.stopped_early}, so it stops too", flush=True)
                 return
             now = time.monotonic()
@@ -991,6 +1017,8 @@ def soak(run):
             run.rows.append(row)
             writer.writerow(row)
             csv_file.flush()
+            if not CONTROL:
+                mark(SOAK_ALIVE, sampling=True)
             rest = round(row["cpu_pct"] - sum(t[3] for t in per_thread), 2)
             if rest:
                 per_thread.append(("", EXITED, EXITED, rest))
@@ -1185,8 +1213,7 @@ def main():
     print(f"soak: {MINUTES:g} min, warm-up {WARMUP_MINUTES:g} min, {load}, sample every {SAMPLE_SECS:g} s, "
           f"slope and drift {'checked' if slope_checked() else 'not checked (run too short)'}", flush=True)
     run = Run()
-    if CONTROL:
-        mark(CONTROL_STARTED)
+    mark(CONTROL_STARTED if CONTROL else SOAK_ALIVE)
     if not CONTROL:
         # A failure's replay line (results.sh) sets the seed this run used.
         with open(os.path.join(OUT, "replay.env"), "w") as f:
