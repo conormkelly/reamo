@@ -14,11 +14,6 @@ const std = @import("std");
 pub const capacity: usize = 1 << 16;
 const mask = capacity - 1;
 
-/// Samples over +60 dBFS are written as 0, as are NaN and infinities: no
-/// instrument gets there, and a broken plugin's blow-up must not reach the
-/// analyser, whose level tracking a huge finite sample can silence for good.
-const max_magnitude = 1000.0;
-
 pub const MonoRing = struct {
     samples: [capacity]f32 = [_]f32{0} ** capacity,
     /// Samples ever written. Producer-owned; the consumer reads it.
@@ -55,7 +50,9 @@ pub const MonoRing = struct {
         self.rate_bits.store(@bitCast(sample_rate), .monotonic);
         for (0..len) |i| {
             const m = (left[i] + right[i]) * 0.5;
-            self.samples[@intCast((w + i) & mask)] = if (@abs(m) <= max_magnitude) @floatCast(m) else 0;
+            // Beyond f32's range this is an infinity, which the analyser,
+            // like any sample over +60 dBFS or NaN, takes for silence.
+            self.samples[@intCast((w + i) & mask)] = @floatCast(m);
         }
         // Release: the samples (and the rate) are visible before the count.
         self.write_count.store(w + len, .release);
@@ -190,18 +187,23 @@ test "a block that doesn't fit is dropped whole, and the reader then skips to fr
     try testing.expectEqualSlices(f32, &.{ 0.5, 0.5, 0.5 }, out[0..3]);
 }
 
-test "non-finite and absurd samples are written as silence" {
+test "absurd and non-finite samples pass through for the analyser to take as silence" {
+    // The analyser counts samples beyond 1000 and non-finite ones as
+    // silence (thresholds.gate.max_sample); the ring passes them on, a value
+    // beyond f32's range as an infinity.
     const ring = try testing.allocator.create(MonoRing);
     defer testing.allocator.destroy(ring);
     ring.* = .{};
     const nan = std.math.nan(f64);
-    const inf = std.math.inf(f64);
-    const left = [_]f64{ nan, inf, 1e300, -inf, 0.5, 1e10, 999 };
-    const right = [_]f64{ 0, 0, 1e300, 0, 0.5, 1e10, 999 };
-    ring.write(&left, &right, 7, 48000);
-    var out: [7]f32 = undefined;
+    const left = [_]f64{ nan, 1e300, 1e10, 0.5 };
+    const right = [_]f64{ 0, 1e300, 1e10, 0.5 };
+    ring.write(&left, &right, 4, 48000);
+    var out: [4]f32 = undefined;
     _ = ring.read(&out);
-    try testing.expectEqualSlices(f32, &.{ 0, 0, 0, 0, 0.5, 0, 999 }, &out);
+    try testing.expect(std.math.isNan(out[0]));
+    try testing.expect(std.math.isPositiveInf(out[1]));
+    try testing.expectEqual(@as(f32, 1e10), out[2]);
+    try testing.expectEqual(@as(f32, 0.5), out[3]);
 }
 
 test "a block without a usable sample rate is not written" {

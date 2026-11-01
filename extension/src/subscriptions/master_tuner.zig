@@ -423,6 +423,20 @@ test "when the audio stops, the reading clears instead of holding the last note"
     try testing.expectEqual(@as(f64, 0), t.analysis.reading.freq_hz);
 }
 
+test "a plug-in blowing up through the master doesn't stop the tuner reading" {
+    var t = try analysisRig(testing.allocator);
+    defer t.rig.deinit();
+    defer testing.allocator.destroy(t.analysis);
+
+    t.rig.play(t.analysis, .{}, 220, 0, 44100, 0.3);
+    var burst: [256]f64 = undefined;
+    for (&burst, 0..) |*x, i| x.* = if (i % 2 == 0) 1e10 else std.math.inf(f64);
+    FakeDevice.block(t.rig.hook, &burst, &burst, 44100);
+    t.rig.play(t.analysis, .{}, 220, 0, 44100, 0.3);
+    t.rig.play(t.analysis, .{}, 220, 0.5, 44100, 1.0);
+    try expectA3(t.analysis.reading);
+}
+
 test "the analysis tick and its thread have no allocator and call none" {
     // The analysis is allocated once, at open; every tick after that, on
     // the worker at 30 Hz, must not allocate. Checked statically, which
