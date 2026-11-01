@@ -169,7 +169,11 @@ pub const TrackFxParamSubscriptions = struct {
         return slot;
     }
 
-    /// Subscribe to an FX's parameters in range mode.
+    /// Subscribe to an FX's parameters in range mode: indices range_start to
+    /// range_end, inclusive. A range that starts below 0 or ends before it
+    /// starts is error.InvalidRange; one of more than MAX_SUBSCRIBED_PARAMS
+    /// parameters is error.TooManyParams. A rejected subscribe leaves the
+    /// client's current subscription as it was.
     pub fn subscribeRange(
         self: *TrackFxParamSubscriptions,
         client_id: usize,
@@ -177,9 +181,13 @@ pub const TrackFxParamSubscriptions = struct {
         fx_guid: []const u8,
         range_start: c_int,
         range_end: c_int,
-    ) !void {
-        if (range_start > range_end) {
+    ) error{ InvalidRange, TooManyParams, TooManyClients }!void {
+        if (range_start < 0 or range_start > range_end) {
             return error.InvalidRange;
+        }
+        // Width in i64: range_end - range_start overflows c_int at the extremes
+        if (@as(i64, range_end) - range_start + 1 > MAX_SUBSCRIBED_PARAMS) {
+            return error.TooManyParams;
         }
 
         const slot = self.getOrCreateSlot(client_id) orelse return error.TooManyClients;
@@ -213,16 +221,25 @@ pub const TrackFxParamSubscriptions = struct {
         logging.debug("trackfxparam_subscriptions: client {d} subscribed to FX {s} params [{d}..{d}]", .{ client_id, fx_guid, range_start, range_end });
     }
 
-    /// Subscribe to an FX's parameters in indices mode.
+    /// Subscribe to an FX's parameters in indices mode. More than
+    /// MAX_SUBSCRIBED_PARAMS entries is error.TooManyParams and a negative
+    /// index is error.InvalidIndex; a rejected subscribe leaves the client's
+    /// current subscription as it was. An index given more than once is kept
+    /// once, at its first position: each event keys its values by index, so
+    /// a repeat can only name the same parameter. No indices subscribes to
+    /// no parameter values.
     pub fn subscribeIndices(
         self: *TrackFxParamSubscriptions,
         client_id: usize,
         track_guid: []const u8,
         fx_guid: []const u8,
         indices: []const c_int,
-    ) !void {
+    ) error{ InvalidIndex, TooManyParams, TooManyClients }!void {
         if (indices.len > MAX_SUBSCRIBED_PARAMS) {
             return error.TooManyParams;
+        }
+        for (indices) |idx| {
+            if (idx < 0) return error.InvalidIndex;
         }
 
         const slot = self.getOrCreateSlot(client_id) orelse return error.TooManyClients;
@@ -244,8 +261,14 @@ pub const TrackFxParamSubscriptions = struct {
         client.fx_guid_len = fx_len;
 
         client.mode = .indices;
-        @memcpy(client.indices[0..indices.len], indices);
-        client.indices_count = indices.len;
+        // At most MAX_SUBSCRIBED_PARAMS², 10,000 comparisons, once per subscribe
+        var count: usize = 0;
+        for (indices) |idx| {
+            if (std.mem.indexOfScalar(c_int, client.indices[0..count], idx) != null) continue;
+            client.indices[count] = idx;
+            count += 1;
+        }
+        client.indices_count = count;
 
         // Force broadcast on new subscription
         self.force_broadcast_clients[slot] = true;
@@ -253,7 +276,7 @@ pub const TrackFxParamSubscriptions = struct {
         // Clear previous hash to force full comparison
         self.prev_hash[slot] = 0;
 
-        logging.debug("trackfxparam_subscriptions: client {d} subscribed to FX {s} with {d} specific params", .{ client_id, fx_guid, indices.len });
+        logging.debug("trackfxparam_subscriptions: client {d} subscribed to FX {s} with {d} specific params", .{ client_id, fx_guid, count });
     }
 
     /// Unsubscribe a client.
@@ -583,4 +606,96 @@ test "includesParam for range mode" {
     try std.testing.expect(client.includesParam(10));
     try std.testing.expect(client.includesParam(15));
     try std.testing.expect(!client.includesParam(16));
+}
+
+test "subscribeRange accepts a range of exactly MAX_SUBSCRIBED_PARAMS parameters" {
+    var subs = TrackFxParamSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+
+    try subs.subscribeRange(1, "{track}", "{fx}", 0, MAX_SUBSCRIBED_PARAMS - 1);
+    const client = subs.getClient(1).?;
+    try std.testing.expectEqual(@as(c_int, 0), client.range_start);
+    try std.testing.expectEqual(@as(c_int, MAX_SUBSCRIBED_PARAMS - 1), client.range_end);
+
+    // The cap is on the range's width, not its position
+    try subs.subscribeRange(1, "{track}", "{fx}", 1000, 1000 + MAX_SUBSCRIBED_PARAMS - 1);
+}
+
+test "subscribeRange rejects a range wider than MAX_SUBSCRIBED_PARAMS parameters" {
+    var subs = TrackFxParamSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+
+    try std.testing.expectError(error.TooManyParams, subs.subscribeRange(1, "{track}", "{fx}", 0, MAX_SUBSCRIBED_PARAMS));
+    try std.testing.expectError(error.TooManyParams, subs.subscribeRange(1, "{track}", "{fx}", 0, std.math.maxInt(c_int)));
+    try std.testing.expect(subs.getClient(1) == null);
+}
+
+test "subscribeRange rejects a negative start" {
+    var subs = TrackFxParamSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+
+    try std.testing.expectError(error.InvalidRange, subs.subscribeRange(1, "{track}", "{fx}", -1, 5));
+    try std.testing.expectError(error.InvalidRange, subs.subscribeRange(1, "{track}", "{fx}", std.math.minInt(c_int), -1));
+    try std.testing.expect(subs.getClient(1) == null);
+}
+
+test "subscribeIndices accepts exactly MAX_SUBSCRIBED_PARAMS indices and rejects one more" {
+    var subs = TrackFxParamSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+
+    var indices: [MAX_SUBSCRIBED_PARAMS + 1]c_int = undefined;
+    for (&indices, 0..) |*idx, i| idx.* = @intCast(i);
+
+    try std.testing.expectError(error.TooManyParams, subs.subscribeIndices(1, "{track}", "{fx}", &indices));
+    try std.testing.expect(subs.getClient(1) == null);
+
+    try subs.subscribeIndices(1, "{track}", "{fx}", indices[0..MAX_SUBSCRIBED_PARAMS]);
+    try std.testing.expectEqual(@as(usize, MAX_SUBSCRIBED_PARAMS), subs.getClient(1).?.indices_count);
+}
+
+test "subscribeIndices rejects a negative index" {
+    var subs = TrackFxParamSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+
+    const indices = [_]c_int{ 0, 5, -1 };
+    try std.testing.expectError(error.InvalidIndex, subs.subscribeIndices(1, "{track}", "{fx}", &indices));
+    try std.testing.expect(subs.getClient(1) == null);
+}
+
+test "subscribeIndices keeps each repeated index once, in first-seen order" {
+    var subs = TrackFxParamSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+
+    const indices = [_]c_int{ 7, 3, 7, 7, 3, 9 };
+    try subs.subscribeIndices(1, "{track}", "{fx}", &indices);
+    const client = subs.getClient(1).?;
+    try std.testing.expectEqualSlices(c_int, &.{ 7, 3, 9 }, client.indices[0..client.indices_count]);
+}
+
+test "subscribeIndices with no indices subscribes to no parameter values" {
+    var subs = TrackFxParamSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+
+    try subs.subscribeIndices(1, "{track}", "{fx}", &.{});
+    const client = subs.getClient(1).?;
+    try std.testing.expectEqual(Mode.indices, client.mode);
+    try std.testing.expectEqual(@as(usize, 0), client.indices_count);
+    try std.testing.expect(!client.includesParam(0));
+}
+
+test "a rejected subscribe leaves the client's current subscription in place" {
+    var subs = TrackFxParamSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+
+    try subs.subscribeRange(1, "{track}", "{fx}", 10, 20);
+    const negative = [_]c_int{-3};
+    try std.testing.expectError(error.InvalidIndex, subs.subscribeIndices(1, "{track2}", "{fx2}", &negative));
+    try std.testing.expectError(error.TooManyParams, subs.subscribeRange(1, "{track2}", "{fx2}", 0, 500));
+    try std.testing.expectError(error.InvalidRange, subs.subscribeRange(1, "{track2}", "{fx2}", -1, 5));
+
+    const client = subs.getClient(1).?;
+    try std.testing.expectEqualStrings("{fx}", client.getFxGuid().?);
+    try std.testing.expectEqual(Mode.range, client.mode);
+    try std.testing.expectEqual(@as(c_int, 10), client.range_start);
+    try std.testing.expectEqual(@as(c_int, 20), client.range_end);
 }

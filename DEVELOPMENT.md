@@ -295,7 +295,7 @@ make extension   # Build the extension → REAPER's UserPlugins (REAPER; restart
 
 - `trackFx/subscribe`: one track's FX chain (`trackFxChain` event on change).
 - `trackFxParams/subscribe`: one FX's parameter values, by `range` or
-  `indices`. `paramCount` and `nameHash` in every event let the client refetch
+  `indices`, at most 100 of them (a larger request is rejected). `paramCount` and `nameHash` in every event let the client refetch
   its skeleton (`trackFx/getParams`, which returns the same `nameHash`) when
   the plugin's parameters change.
 - `routing/subscribe`: one track's sends, receives and hardware outputs at

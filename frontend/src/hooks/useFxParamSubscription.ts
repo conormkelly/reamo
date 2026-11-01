@@ -28,10 +28,10 @@ import { useReaperStore } from '../store';
 import { trackFxParams, type WSCommand } from '../core/WebSocketCommands';
 
 /**
- * Most parameters one subscription may cover. The extension keeps only the
- * first 100 indices of a request (MAX_SUBSCRIBED_PARAMS in
- * trackfxparam_subscriptions.zig), so a larger window would silently lose
- * its tail.
+ * Most parameters one subscription may cover. The extension rejects a
+ * request for more (MAX_SUBSCRIBED_PARAMS in trackfxparam_subscriptions.zig)
+ * with TOO_MANY_PARAMS and keeps the previous subscription, so a larger
+ * window would leave the list showing the old window's values.
  */
 export const MAX_SUBSCRIBED_PARAMS = 100;
 

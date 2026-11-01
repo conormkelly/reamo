@@ -5,8 +5,9 @@
  * on screen and moves it as the list scrolls. The page talks to a fake
  * extension over a routed WebSocket that answers like the real one:
  * trackFxParams/subscribe pushes the values of exactly the requested
- * parameters (indices mode keeps the first 100, as the extension's parser
- * does), so a row shows a value only if the subscription covers it.
+ * parameters, so a row shows a value only if the subscription covers it. A
+ * request for more than 100 parameters, or a negative one, is rejected with
+ * no event, as the extension rejects it.
  */
 
 import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
@@ -42,10 +43,27 @@ interface FakeReaper {
   gestures: Array<{ command: string; paramIdx: number }>;
 }
 
-/** Parameter indices a subscribe request covers, as the extension reads it. */
+/**
+ * The error code the extension answers a subscribe request with, or null
+ * if it accepts it.
+ */
+function subscribeError(req: SubscribeRequest): string | null {
+  if (req.indices) {
+    if (req.indices.length > MAX_SUBSCRIBED_PARAMS) return 'TOO_MANY_PARAMS';
+    if (req.indices.some((i) => i < 0)) return 'INVALID_INDEX';
+    return null;
+  }
+  const start = req.range?.start ?? 0;
+  const end = req.range?.end ?? 20;
+  if (start < 0 || start > end) return 'INVALID_RANGE';
+  if (end - start + 1 > MAX_SUBSCRIBED_PARAMS) return 'TOO_MANY_PARAMS';
+  return null;
+}
+
+/** Parameter indices an accepted subscribe request covers, as the extension reads it. */
 function coveredIndices(req: SubscribeRequest): number[] {
-  if (req.indices && req.indices.length > 0) {
-    return req.indices.slice(0, MAX_SUBSCRIBED_PARAMS);
+  if (req.indices) {
+    return [...new Set(req.indices)].filter((i) => i < PARAM_COUNT);
   }
   const start = req.range?.start ?? 0;
   const end = Math.min(req.range?.end ?? 20, PARAM_COUNT - 1);
@@ -104,12 +122,18 @@ async function installFakeReaper(page: Page): Promise<FakeReaper> {
           return;
 
         case 'trackFxParams/subscribe': {
-          respond(id);
           const req: SubscribeRequest = {
             indices: msg.indices as number[] | undefined,
             range: msg.range as SubscribeRequest['range'],
           };
           fake.subscribes.push(req);
+          const error = subscribeError(req);
+          if (error) {
+            // The previous subscription stays, so no event follows
+            if (id) send({ type: 'response', id, success: false, error: { code: error, message: error } });
+            return;
+          }
+          respond(id);
           const values: Record<string, [number, string]> = {};
           for (const i of coveredIndices(req)) {
             values[String(i)] = [i / PARAM_COUNT, formattedValue(i)];
