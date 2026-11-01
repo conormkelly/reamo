@@ -1516,6 +1516,7 @@ pub fn main() !void {
         try analyserCandidate(pitch.AnalyserWith(.{ .floor_margin_db = 6, .slow_onset_db = 6 }), "sweep-floor-rise-6", "floor margin and slow-onset rise both -6 dB", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .floor_margin_db = 18, .onset_db = 15.03 }), "sweep-floor-onset+6", "floor margin and onset jump both +6 dB", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .floor_margin_db = 18, .slow_onset_db = 18 }), "sweep-floor-rise+6", "floor margin and slow-onset rise both +6 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .restart_upward = false }), "no-restart-upward", "no restart at 2-4 times a pitch a jump stopped", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .comb_confirm = false }), "comb-onsets-kept", "every comb onset kept, even when it finds no new note", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .jump_stops = false }), "jumps-shown", "a reading that jumps without an onset is shown", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .legato_restart = false }), "no-legato-restart", "after a jump, nothing until the next onset", allocator),

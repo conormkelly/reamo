@@ -349,6 +349,10 @@ pub const Options = struct {
     /// or quarter) and holds within a quarter tone for a window starts
     /// showing without an onset: a legato bass line's next note.
     legato_restart: bool = true,
+    /// Whether that restart also takes a pitch 2, 3 or 4 times the stopped
+    /// one: a note first read an octave or twelfth under it corrects
+    /// upwards, while a fading note's ghosts fall.
+    restart_upward: bool = true,
     /// Without hum, the subharmonic check's longer period stands only if
     /// a partial near its frequency lies within this many dB of the
     /// strongest, once the spectrum since the onset can judge; null to
@@ -1167,14 +1171,15 @@ pub fn AnalyserWith(comptime options: Options) type {
             } else if (pitched and self.sounding()) {
                 const resuming = loud and self.note_may_resume and now - self.note_end < resume_s and self.onset_count == self.note_onset_count;
                 const at_onset = loud and !rise_onset and (!options.onset_gate or fresh_onset);
-                // After a jump stopped a note, a pitch that isn't 2, 3 or 4
-                // times the old one (or a half, third or quarter of it)
-                // and holds within a quarter tone for a window is a legato
-                // note, or the old one back after a moment's misreading,
-                // not the old one fading into a ghost.
+                // After a jump stopped a note, a pitch that holds within a
+                // quarter tone for a window starts showing: a legato note,
+                // the old one back after a moment's misreading, or 2, 3 or
+                // 4 times a reading that was a note's octave or twelfth
+                // under. Not a half, third or quarter of the old one: a
+                // note fading under hum falls to those.
                 var legato = false;
                 if (options.legato_restart and !at_onset and self.jump_from_hz > 0 and loud and self.onset_count == self.note_onset_count) {
-                    if (combRelated(m.?.hz, self.jump_from_hz)) {
+                    if (combRelated(m.?.hz, self.jump_from_hz) and !(options.restart_upward and m.?.hz > self.jump_from_hz)) {
                         self.jump_wait_hz = 0;
                     } else if (self.jump_wait_hz > 0 and @abs(1200 * @log2(m.?.hz / self.jump_wait_hz)) < 50) {
                         legato = now - self.jump_wait_since >= window_seconds;
