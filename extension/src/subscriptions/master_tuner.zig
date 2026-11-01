@@ -45,7 +45,7 @@ pub const silence_max_db = -30.0;
 /// The analysis rate: the tuner's 30 Hz. The analyser's `stable` flag needs
 /// analyses at most about 128 Hz apart, and the phones are sent readings at
 /// 30 Hz.
-const tick_ns: u64 = std.time.ns_per_s / 30;
+const default_tick_ns: u64 = std.time.ns_per_s / 30;
 
 /// Ticks without a sample before the reading clears and the analyser
 /// forgets: half a second at 30 Hz, longer than any audio block (8192
@@ -132,6 +132,8 @@ pub const MasterTuner = struct {
     worker: ?std.Thread = null,
     stop: std.Thread.ResetEvent = .{},
     subscribers: u8 = 0,
+    /// Time between the worker's ticks. Tests lengthen it.
+    tick_ns: u64 = default_tick_ns,
     /// What crosses between the main thread and the worker.
     lock: std.Thread.Mutex = .{},
     /// The phones' settings; written on the main thread, under `lock`.
@@ -157,10 +159,10 @@ pub const MasterTuner = struct {
         // From the hook's next block: nothing older belongs to this tuner.
         // The worker, the ring's consumer from now on, isn't running yet.
         hook.tuner_ring.discard();
-        self.* = .{ .analysis = analysis, .subscribers = 1 };
+        self.* = .{ .analysis = analysis, .subscribers = 1, .tick_ns = self.tick_ns };
         self.worker = std.Thread.spawn(.{}, run, .{ self, analysis, &hook.tuner_ring }) catch |err| {
             logging.err("tuner: couldn't start the master tuner's thread: {s}", .{@errorName(err)});
-            self.* = .{};
+            self.* = .{ .tick_ns = self.tick_ns };
             return error.ThreadFailed;
         };
     }
@@ -175,7 +177,7 @@ pub const MasterTuner = struct {
         if (self.worker) |t| t.join();
         hook.release(registrar, .tuner);
         if (self.analysis) |a| allocator.destroy(a);
-        self.* = .{};
+        self.* = .{ .tick_ns = self.tick_ns };
     }
 
     pub fn isOpen(self: *const MasterTuner) bool {
@@ -225,7 +227,7 @@ pub const MasterTuner = struct {
             self.lock.unlock();
 
             // Keep to the 30 Hz grid; after an overrun, start a new one.
-            due += tick_ns;
+            due += self.tick_ns;
             const now = timer.read();
             if (now >= due) {
                 due = now;
@@ -436,29 +438,43 @@ test "phones share one analyser, worker and hook until the last closes" {
     try testing.expectEqual(@as(u32, 1), rig.reaper.unregisters);
 }
 
-test "the worker reads a pluck the hook delivers in real time, and closing stops it promptly" {
+test "the worker reads a pluck the hook delivers in real time" {
     var rig = try Rig.init();
     defer rig.deinit();
     var tuner = MasterTuner{};
     try tuner.open(testing.allocator, rig.hook, &rig.reaper);
+    defer tuner.close(testing.allocator, rig.hook, &rig.reaper);
 
-    // 256 samples at 48 kHz is 5.3 ms: silence, then the pluck.
+    // Blocks of 256 samples at 48 kHz, one every 5.3 ms: 0.34 s of
+    // silence, then the pluck, sounding until the worker reads it (or 4 s,
+    // generous for a loaded machine).
+    const block_ns = 5_333_333;
     var timer = try std.time.Timer.start();
     var n: u64 = 0;
     while (n < 64) : (n += 1) {
         rig.block(220, 0, 48000);
-        std.Thread.sleep(n * 5_333_333 -| timer.read());
+        std.Thread.sleep(n * block_ns -| timer.read());
     }
-    while (n < 64 + 200) : (n += 1) {
+    while (n < 64 + 750) : (n += 1) {
         rig.block(220, 0.5, 48000);
-        std.Thread.sleep(n * 5_333_333 -| timer.read());
+        std.Thread.sleep(n * block_ns -| timer.read());
+        if (n > 64 + 60 and tuner.snapshot().reading.note == 57) break;
     }
     try expectA3(tuner.snapshot().reading);
+}
 
-    timer.reset();
+test "closing wakes the worker from its wait instead of letting it finish the tick" {
+    var rig = try Rig.init();
+    defer rig.deinit();
+    var tuner = MasterTuner{ .tick_ns = 60 * std.time.ns_per_s };
+    try tuner.open(testing.allocator, rig.hook, &rig.reaper);
+    std.Thread.sleep(10 * std.time.ns_per_ms); // the worker has ticked and is waiting
+
+    var timer = try std.time.Timer.start();
     tuner.close(testing.allocator, rig.hook, &rig.reaper);
-    // The worker wakes from its wait at once, not at its next tick.
-    try testing.expect(timer.read() < 20 * std.time.ns_per_ms);
+    // Waiting out the tick would take a minute.
+    try testing.expect(timer.read() < 10 * std.time.ns_per_s);
+    try testing.expectEqual(@as(u64, 60 * std.time.ns_per_s), tuner.tick_ns);
 }
 
 test "reopening starts afresh: default settings and no reading" {
