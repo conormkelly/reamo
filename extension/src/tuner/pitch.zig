@@ -106,7 +106,9 @@ pub const Settings = struct {
     /// An instrument's range (a guitar or bass mode's strings, a few
     /// semitones either side): no period outside it is considered, so
     /// nothing can read an octave or more outside it. Null for a chromatic
-    /// tuner's whole range.
+    /// tuner's whole range. A limit beyond the analyser's own range is
+    /// clamped to it, one that isn't a positive number is ignored, and a
+    /// range with nothing in it reads no pitch.
     range: ?Range = null,
 };
 
@@ -1009,8 +1011,16 @@ pub fn AnalyserWith(comptime options: Options) type {
             var min_tau: usize = @max(2, @as(usize, @intFromFloat(self.analysis_rate / max_pitch_hz)));
             var end = half - 1;
             if (range) |r| {
-                if (r.high_hz > 0) min_tau = @max(min_tau, @as(usize, @intFromFloat(@floor(self.analysis_rate / r.high_hz))));
-                if (r.low_hz > 0) end = @min(end, @as(usize, @intFromFloat(@ceil(self.analysis_rate / r.low_hz))) + 2);
+                // Limits outside the analyser's own lags are clamped to them,
+                // and a limit that isn't a positive number is ignored.
+                const lags_from: f64 = @floatFromInt(min_tau);
+                const lags_to: f64 = @floatFromInt(end);
+                if (r.high_hz > 0 and std.math.isFinite(r.high_hz)) {
+                    min_tau = @intFromFloat(std.math.clamp(@floor(self.analysis_rate / r.high_hz), lags_from, lags_to));
+                }
+                if (r.low_hz > 0 and std.math.isFinite(r.low_hz)) {
+                    end = @intFromFloat(std.math.clamp(@ceil(self.analysis_rate / r.low_hz) + 2, lags_from, lags_to));
+                }
                 if (min_tau + 3 >= end) return null;
             }
             const c = self.cmnd[0..half];
@@ -1857,6 +1867,28 @@ test "reads the same at 176.4 and 192 kHz and at rates between the common ones" 
         signals.sawtooth(s, sr, 110, 0.3);
         errdefer std.debug.print("at {d}\n", .{sr});
         try testing.expectApproxEqAbs(@as(f64, 0), centsOff(readAfter(a, s, .{}), 110), 0.05);
+    }
+}
+
+test "a range outside the analyser's own is clamped to it, an unusable limit ignored, and an empty one reads nothing" {
+    const a = try newAnalyser(48000);
+    defer testing.allocator.destroy(a);
+    const buf = try generate(24000);
+    defer testing.allocator.destroy(buf);
+    signals.sawtooth(buf, 48000, 110, 0.3);
+    a.push(buf);
+    const ranges = [_]Range{
+        .{ .low_hz = 1e-20, .high_hz = 1e20 },
+        .{ .low_hz = -5, .high_hz = std.math.inf(f64) },
+        .{ .low_hz = std.math.nan(f64), .high_hz = std.math.nan(f64) },
+    };
+    for (ranges) |rg| {
+        errdefer std.debug.print("{any}\n", .{rg});
+        try testing.expectApproxEqAbs(@as(f64, 0), centsOff(a.analyse(.{ .range = rg }), 110), 0.05);
+    }
+    for ([_]Range{ .{ .low_hz = 500, .high_hz = 400 }, .{ .low_hz = 0, .high_hz = 1e-20 } }) |rg| {
+        errdefer std.debug.print("{any}\n", .{rg});
+        try testing.expectEqual(@as(f64, 0), a.analyse(.{ .range = rg }).freq_hz);
     }
 }
 
