@@ -15,7 +15,7 @@
 //! target to fail on each side. Values not swept say so.
 
 /// Bumped on any change to a value below.
-pub const version = 3;
+pub const version = 4;
 
 /// The analysis window and YIN.
 pub const yin = struct {
@@ -210,6 +210,10 @@ pub const hold = struct {
     pub const stable_s = 0.3;
     pub const stable_cents_per_s = 0.5;
     pub const stable_spread_cents = 0.1;
+    /// Without a new onset, a showing note's reading may move at most this
+    /// far between analyses, cents; a bigger jump stops the note. A peg
+    /// turn moves a few cents per analysis. Not swept.
+    pub const jump_cents = 200.0;
     /// The Hampel filter (smoothing, off by default): `hampel_len`
     /// analyses, replacing a reading 3 scaled MADs and at least
     /// `hampel_floor_cents` from the median.

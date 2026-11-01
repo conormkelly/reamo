@@ -332,6 +332,18 @@ pub const Options = struct {
     /// Whether YIN's first dip gives way to one at twice its lag that is
     /// far deeper (see `subharmonic`).
     subharmonic_check: bool = true,
+    /// Whether a showing note whose reading jumps more than
+    /// `thresholds.hold.jump_cents` from the last analysis without a new
+    /// onset stops showing (and resumes only at an onset), rather than
+    /// showing the jump: a peg turn moves through adjacent semitones,
+    /// while a note fading under hum or another sound falls to a twelfth
+    /// or octaves down.
+    jump_stops: bool = true,
+    /// Whether, after such a jump, a new pitch that isn't harmonically
+    /// related to the stopped one (2, 3 or 4 times it, or a half, third
+    /// or quarter) and holds within a quarter tone for a window starts
+    /// showing without an onset: a legato bass line's next note.
+    legato_restart: bool = true,
     /// Without hum, the subharmonic check's longer period stands only if
     /// a partial near its frequency lies within this many dB of the
     /// strongest, once the spectrum since the onset can judge; null to
@@ -581,6 +593,13 @@ pub fn AnalyserWith(comptime options: Options) type {
         note_start: f64,
         note_end: f64,
         note_may_resume: bool,
+        /// The pitch measured at the note's last analysis, Hz (0 for none).
+        note_last_hz: f64,
+        /// The pitch a jump stopped a note at (0 if the last note didn't
+        /// end at a jump), and the new pitch waited on since when.
+        jump_from_hz: f64,
+        jump_wait_hz: f64,
+        jump_wait_since: f64,
         level_t: [level_history_len]f64,
         level_v: [level_history_len]f64,
         level_pos: usize,
@@ -676,6 +695,10 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.note_start = 0;
             self.note_end = -std.math.inf(f64);
             self.note_may_resume = false;
+            self.note_last_hz = 0;
+            self.jump_from_hz = 0;
+            self.jump_wait_hz = 0;
+            self.jump_wait_since = 0;
             self.level_pos = 0;
             self.level_used = 0;
             @memset(&self.rise_min, std.math.inf(f64));
@@ -1095,19 +1118,48 @@ pub fn AnalyserWith(comptime options: Options) type {
             const loud = if (options.floor_margin_db) |margin| std.math.isNan(self.floor_db) or level >= self.floor_db + margin else true;
             const pitched = m != null and level >= settings.silence_db;
             if (self.note_active) {
-                const keep = pitched and loud and self.sounding() and !self.mainsHeld(m.?.hz, now);
+                // Without a new onset the name may only move as far as a
+                // pitch moving continuously goes between two analyses: a
+                // bigger jump is the note fading into something else.
+                // Readings while the name is still held back don't count:
+                // they were never shown.
+                const named = !options.names_after_window or self.sinceOnset() >= self.window;
+                const jumped = options.jump_stops and pitched and named and self.onset_count == self.note_onset_count and self.note_last_hz > 0 and @abs(1200 * @log2(m.?.hz / self.note_last_hz)) > th.hold.jump_cents;
+                const keep = pitched and loud and !jumped and self.sounding() and !self.mainsHeld(m.?.hz, now);
                 if (!keep) {
                     self.note_active = false;
                     self.note_end = now;
                     // Only a moment without a pitch, the level still up, may
                     // resume without a new onset.
                     self.note_may_resume = !pitched and loud;
-                }
+                    self.jump_from_hz = if (jumped) self.note_last_hz else 0;
+                    self.jump_wait_hz = 0;
+                    self.note_last_hz = 0;
+                } else self.note_last_hz = if (named) m.?.hz else 0;
             } else if (pitched and self.sounding()) {
                 const resuming = loud and self.note_may_resume and now - self.note_end < resume_s and self.onset_count == self.note_onset_count;
                 const at_onset = loud and !rise_onset and (!options.onset_gate or fresh_onset);
-                if (resuming or (at_onset and !self.mainsLike(m.?.hz, now, self.sinceOnset()))) {
+                // After a jump stopped a note, a pitch that isn't 2, 3 or 4
+                // times the old one (or a half, third or quarter of it)
+                // and holds within a quarter tone for a window is a legato
+                // note, or the old one back after a moment's misreading,
+                // not the old one fading into a ghost.
+                var legato = false;
+                if (options.legato_restart and !at_onset and self.jump_from_hz > 0 and loud and self.onset_count == self.note_onset_count) {
+                    if (combRelated(m.?.hz, self.jump_from_hz)) {
+                        self.jump_wait_hz = 0;
+                    } else if (self.jump_wait_hz > 0 and @abs(1200 * @log2(m.?.hz / self.jump_wait_hz)) < 50) {
+                        legato = now - self.jump_wait_since >= window_seconds;
+                    } else {
+                        self.jump_wait_hz = m.?.hz;
+                        self.jump_wait_since = now;
+                    }
+                }
+                if (resuming or legato or (at_onset and !self.mainsLike(m.?.hz, now, self.sinceOnset()))) {
+                    self.jump_from_hz = 0;
+                    self.jump_wait_hz = 0;
                     if (!resuming) self.note_start = now;
+                    self.note_last_hz = if (!options.names_after_window or self.sinceOnset() >= self.window) m.?.hz else 0;
                     self.note_active = true;
                     self.note_onset_count = self.onset_count;
                 }
@@ -1129,6 +1181,10 @@ pub fn AnalyserWith(comptime options: Options) type {
 
         fn saveGate(self: *Self) void {
             self.gate_before = .{
+                .note_last_hz = self.note_last_hz,
+                .jump_from_hz = self.jump_from_hz,
+                .jump_wait_hz = self.jump_wait_hz,
+                .jump_wait_since = self.jump_wait_since,
                 .rise_prev = self.rise_prev,
                 .floor_db = self.floor_db,
                 .onset_at = self.onset_at,
@@ -1144,6 +1200,10 @@ pub fn AnalyserWith(comptime options: Options) type {
 
         fn restoreGate(self: *Self) void {
             const g = self.gate_before;
+            self.note_last_hz = g.note_last_hz;
+            self.jump_from_hz = g.jump_from_hz;
+            self.jump_wait_hz = g.jump_wait_hz;
+            self.jump_wait_since = g.jump_wait_since;
             self.rise_prev = g.rise_prev;
             self.floor_db = g.floor_db;
             self.onset_at = g.onset_at;
@@ -1654,6 +1714,10 @@ fn combRelated(hz: f64, other: f64) bool {
 
 /// The gate's state that one decision changes.
 const GateState = struct {
+    note_last_hz: f64,
+    jump_from_hz: f64,
+    jump_wait_hz: f64,
+    jump_wait_since: f64,
     rise_prev: bool,
     floor_db: f64,
     onset_at: u64,
@@ -1848,12 +1912,13 @@ test "with a range set, a pluck whose fundamental starts 20 dB under its octave 
 }
 
 test "after an onset, a jump of the pitch by an octave is held until three analyses in a row agree" {
-    // Without the comb onset, which takes the switch for a new note.
-    const held = try testing.allocator.create(AnalyserWith(.{ .comb_onset = false }));
+    // Without the comb onset, which takes the switch for a new note, and
+    // without stopping at a jump, which ends the note instead.
+    const held = try testing.allocator.create(AnalyserWith(.{ .comb_onset = false, .jump_stops = false }));
     defer testing.allocator.destroy(held);
     try held.init(48000);
     prime(held);
-    const free = try testing.allocator.create(AnalyserWith(.{ .octave_hold = 0, .comb_onset = false }));
+    const free = try testing.allocator.create(AnalyserWith(.{ .octave_hold = 0, .comb_onset = false, .jump_stops = false }));
     defer testing.allocator.destroy(free);
     try free.init(48000);
     prime(free);
@@ -2606,6 +2671,28 @@ test "synth notes holding their level at 49.5 Hz and at a pure 120 Hz show, thou
 test "a comb reading harmonically related to the ringing note is recognised, other intervals are not" {
     for ([_]f64{ 2, 3, 4, 0.5, 1.0 / 3.0, 0.25, 2.01 }) |r| try testing.expect(combRelated(110 * r, 110));
     for ([_]f64{ 4.0 / 3.0, 1.5, 1.2, 1.06 }) |r| try testing.expect(!combRelated(110 * r, 110));
+}
+
+test "a note whose reading jumps more than 2 semitones without an onset stops showing instead of showing the jump" {
+    // G4 decaying over a steady tone a twelfth under it, 30 dB down at
+    // the pluck: as G4 fades, the reading falls to the lower tone with no
+    // onset between.
+    const a = try newAnalyser(48000);
+    defer testing.allocator.destroy(a);
+    const buf = try generate(48000 * 4);
+    defer testing.allocator.destroy(buf);
+    const other = try generate(48000 * 4);
+    defer testing.allocator.destroy(other);
+    @memset(buf[0..12000], 0);
+    signals.pluckedString(buf[12000..], 48000, .{ .f0 = 391.995, .inharmonicity = 3e-5, .t60_s = 2 });
+    const level = signals.rms(buf[12000..16800]);
+    signals.sine(other[0 .. buf.len - 12000], 48000, 130.665, level * std.math.sqrt2 * std.math.pow(f64, 10, -30.0 / 20.0), 0);
+    signals.mix(buf[12000..], other[0 .. buf.len - 12000]);
+    signals.addNoise(buf, 3e-5, 14);
+    const r = countNotes(a, buf, 48000, 0, 67);
+    errdefer std.debug.print("{any}\n", .{r});
+    try testing.expect(r.shown > 10);
+    try testing.expectEqual(@as(usize, 0), r.other);
 }
 
 test "an onset that shows no note expires, so without the slow onset a swell over hum long after a click never shows" {

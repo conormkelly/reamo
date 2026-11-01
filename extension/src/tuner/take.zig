@@ -330,23 +330,22 @@ test "re-plucking a string makes a second note with its own truth" {
 }
 
 test "an octave error by the analyser shows against the truth" {
-    // The Karplus-Strong 880 Hz pluck whose fundamental starts 20 dB under
-    // its octave, its truth A5; the readings 0.1-0.2 s after the pluck are moved
-    // to A6, as an analyser reading the octave would show them.
+    // An A5 pluck; the readings 0.2-0.3 s after it are moved to A6, as an
+    // analyser reading the octave would show them.
     const fx = try fixture();
     defer testing.allocator.destroy(fx);
     const rate = 48000.0;
     const buf = try testing.allocator.alloc(f32, 48000 * 3);
     defer testing.allocator.free(buf);
     @memset(buf, 0);
-    sig.pluck(buf[14400..], rate, 880, .{ .amp = 0.9, .t60_s = 3, .seed = 1014 });
+    sig.pluckedString(buf[14400..], rate, .{ .f0 = 880, .inharmonicity = 4e-5, .t60_s = 3 });
     sig.addNoise(buf, 3e-5, 3);
     const x = try testing.allocator.alloc(f64, buf.len);
     defer testing.allocator.free(x);
     for (x, buf) |*d, v| d.* = v;
     const reads = try readTake(&fx.analyser, buf, rate, .{}, &fx.reads);
     for (reads) |*rd| {
-        if (rd.t >= 0.4 and rd.t < 0.5 and rd.r.freq_hz > 0) {
+        if (rd.t >= 0.5 and rd.t < 0.6 and rd.r.freq_hz > 0) {
             rd.r.freq_hz *= 2;
             rd.r.note += 12;
         }
