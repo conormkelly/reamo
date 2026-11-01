@@ -669,6 +669,13 @@ pub fn AnalyserWith(comptime options: Options) type {
             return coarse * std.math.pow(f64, 2, offset * vy / (vy + vf) / 1200);
         }
 
+        /// The input sample (counted from `init` or `reset`) where the last
+        /// onset began, to within a 5 ms block; null before the first.
+        pub fn lastOnset(self: *const Self) ?u64 {
+            if (self.onset_count == 0) return null;
+            return self.onset_at * self.fine_decimation * self.decimation;
+        }
+
         /// The pitch of the last 92.9 ms of input.
         pub fn analyse(self: *Self, settings: Settings) Reading {
             if (!(settings.reference_hz > 0 and std.math.isFinite(settings.reference_hz))) return Reading.none;
@@ -1493,6 +1500,24 @@ test "a note on a mains harmonic reads true, over buzz and after its own tail" {
             try testing.expectApproxEqAbs(@as(f64, 0), centsOff(r, opts.firstPartialHz(since)), 0.1);
         }
         try testing.expect(shown > 40);
+    }
+}
+
+test "reports where the last onset was, in input samples, within a 5 ms block" {
+    for ([_]f64{ 44100, 96000 }) |sr| {
+        const a = try bareAnalyser(sr);
+        defer testing.allocator.destroy(a);
+        const buf = try generate(96000);
+        defer testing.allocator.destroy(buf);
+        const at: usize = @intFromFloat(0.3 * sr);
+        @memset(buf[0..at], 0);
+        signals.pluckedString(buf[at..@intFromFloat(sr)], sr, .{ .f0 = 110, .inharmonicity = 6.5e-5 });
+        a.push(buf[0..at]);
+        try testing.expect(a.lastOnset() == null);
+        a.push(buf[at..@intFromFloat(sr)]);
+        const got = a.lastOnset().?;
+        errdefer std.debug.print("{d}: onset at {d}, plucked at {d}\n", .{ sr, got, at });
+        try testing.expect(@abs(@as(f64, @floatFromInt(got)) - @as(f64, @floatFromInt(at))) <= 0.005 * sr + 4);
     }
 }
 

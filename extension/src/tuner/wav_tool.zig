@@ -109,7 +109,7 @@ pub fn main() !void {
         a.push(mono[pos..end]);
         pos = end;
         if (pos == next_tick) {
-            const onset_input: u64 = a.onset_at * a.fine_decimation * a.decimation;
+            const onset_input: u64 = a.lastOnset() orelse 0;
             reads[nr] = .{ .t = @as(f64, @floatFromInt(pos)) / rate, .r = a.analyse(settings), .onset = onset_input };
             nr += 1;
             next_tick += tick;
