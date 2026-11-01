@@ -185,7 +185,9 @@ with Client() as a:
         # And the stream keeps going when the tuner closes.
         assert b.command("audio/startStream")["success"]
         assert b.command("tuner/unsubscribe")["success"]
-        b.drain(0.3)
+        # Counted while a note sounds: the stream sends no silent frames,
+        # and the 1 s gap between notes would hold none.
+        wait_phase(b, 0.2, 0.5)
         frames = len(b.binary)
         b.drain(1.0)
         if len(b.binary) == frames:
