@@ -22,13 +22,11 @@
 //!   each phone, and takes the phones' settings to the worker.
 //!
 //! The analysis is off the main thread because that is REAPER's UI
-//! thread. A tick (1/30 s of samples pushed, one analysis) costs 0.18 ms on
-//! average and at most 0.45 ms, ReleaseSafe at 44.1, 48 and 96 kHz over a
-//! 60 s session of notes and hum: half a percent of a core. That alone
-//! would fit in the poll, but on the worker the UI pays nothing for it
-//! whatever the analyser comes to cost (its tick has cost 20 times this
-//! before), and track tuners will add an analysis per tuned source. The
-//! reading and settings cross under a lock held only to copy them.
+//! thread: on the worker the UI pays nothing for the analysis, whatever a
+//! tick costs, and track tuners will add an analysis per tuned source. A
+//! tick (1/30 s of samples pushed, one reading) is timed by the analyser's
+//! targets bench, `make tuner-targets`, under "Per-tick cost". The reading
+//! and settings cross under a lock held only to copy them.
 //!
 //! A note shows no name, and so no pitch, until the analyser's window is
 //! wholly past its onset: about 0.1 s after a pluck, the first tick past

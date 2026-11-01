@@ -15,15 +15,14 @@ and audio streaming running beside it:
 - the tuner and the stream share the one audio hook: each keeps working
   when the other stops, and the hook goes when both have.
 
-Against the master tuner on the monitoring-chain JSFX (before the
-analyser), these fail: the plugin on the monitoring chain after open (the
-only project-state check that tells the two apart), the subscribe payload
-(threshold -60, an fxGuid), the missing clarity and flags, no stable
-reading, a ringing note showing without a pluck, and every hook check.
-These pass on both, and guard against regressions only: the A3 readings
-and cents, silence between notes, the stream's frames, and the undo
-history, state change count and dirty flag, which the monitoring chain
-never touched either.
+What tells a master tuner on the analyser from one on a JSFX in
+REAPER's monitoring chain: the empty monitoring chain after open (the only
+project-state check that does), the subscribe payload (threshold -90, no
+fxGuid), the clarity and flags in events, a stable reading, a ringing note
+showing nothing until plucked, and every hook check. The A3 readings and
+cents, silence between notes, the stream's frames, and the undo history,
+state change count and dirty flag pass with either: the monitoring chain
+leaves the project alone too, so these guard against regressions only.
 """
 import time
 
