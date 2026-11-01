@@ -91,15 +91,16 @@ pub const CommandMessage = struct {
         return jsonGetInt(self.raw, key);
     }
 
-    // Get an integer array parameter from the message
+    /// An integer array parameter, read into `out_values`: null when the key
+    /// is absent, an empty slice for an empty array, and an error (see
+    /// jsonGetIntArray) for a malformed array or one of more than max_items.
     pub fn getIntArray(
         self: CommandMessage,
         key: []const u8,
         comptime max_items: usize,
         out_values: *[max_items]c_int,
-    ) ?[]const c_int {
-        const count = jsonGetIntArray(self.raw, key, max_items, out_values) orelse return null;
-        if (count == 0) return null;
+    ) IntArrayError!?[]const c_int {
+        const count = try jsonGetIntArray(self.raw, key, max_items, out_values) orelse return null;
         return out_values[0..count];
     }
 };
@@ -294,7 +295,6 @@ pub fn jsonGetInt(data: []const u8, key: []const u8) ?c_int {
     return null;
 }
 
-
 /// Get a boolean value by key.
 /// Handles "key":true and "key":false (not quoted).
 pub fn jsonGetBool(data: []const u8, key: []const u8) ?bool {
@@ -455,16 +455,70 @@ pub fn jsonGetStringArray(
     return count;
 }
 
-/// Get an integer array from JSON.
+/// Index of the first byte of the value under `key`, or null if no `"key"`
+/// in `data` is followed by a colon. A `"key"` that is a string value
+/// rather than a key is passed over.
+fn findJsonValue(data: []const u8, key: []const u8) ?usize {
+    var pattern_buf: [64]u8 = undefined;
+    const pattern = std.fmt.bufPrint(&pattern_buf, "\"{s}\"", .{key}) catch return null;
+    var from: usize = 0;
+    while (std.mem.indexOfPos(u8, data, from, pattern)) |key_start| {
+        const after_key = skipJsonWhitespace(data, key_start + pattern.len, data.len);
+        if (after_key < data.len and data[after_key] == ':') {
+            return skipJsonWhitespace(data, after_key + 1, data.len);
+        }
+        from = key_start + pattern.len;
+    }
+    return null;
+}
+
+/// Get an integer field, telling an absent key from a bad value: null if
+/// the key is absent, error.Malformed if its value is not a JSON integer
+/// that fits a c_int (a float, an exponent, a string, null).
+pub fn jsonGetIntStrict(data: []const u8, key: []const u8) error{Malformed}!?c_int {
+    var pos = findJsonValue(data, key) orelse return null;
+    const num_start = pos;
+    if (pos < data.len and data[pos] == '-') pos += 1;
+    const digits_start = pos;
+    while (pos < data.len and data[pos] >= '0' and data[pos] <= '9') pos += 1;
+    if (pos == digits_start) return error.Malformed;
+
+    // A whole number ends at a delimiter: 1.5 and 1e9 are not integers
+    const after = skipJsonWhitespace(data, pos, data.len);
+    if (after < data.len and data[after] != ',' and data[after] != '}' and data[after] != ']') return error.Malformed;
+
+    return std.fmt.parseInt(c_int, data[num_start..pos], 10) catch error.Malformed;
+}
+
+/// Get a flat object field (no nested objects), braces included: null if
+/// the key is absent, error.Malformed if its value is not an object.
+pub fn jsonGetObject(data: []const u8, key: []const u8) error{Malformed}!?[]const u8 {
+    const open_brace = findJsonValue(data, key) orelse return null;
+    if (open_brace >= data.len or data[open_brace] != '{') return error.Malformed;
+    const close_brace = std.mem.indexOfScalarPos(u8, data, open_brace + 1, '}') orelse return error.Malformed;
+    return data[open_brace .. close_brace + 1];
+}
+
+/// Why an integer array that is present could not be read.
+pub const IntArrayError = error{
+    /// The value is not an array, or an element is not an integer that fits
+    /// a c_int.
+    Malformed,
+    /// The array holds more than max_items elements.
+    TooManyItems,
+};
+
+/// Get an integer array from JSON into `out_values`.
 /// E.g., for {"indices": [0, 5, 10]}, call jsonGetIntArray(data, "indices", ...)
-/// Returns the number of integers parsed, or null if the key is not found or
-/// the array holds anything other than integers.
+/// Returns the number of integers read (0 for an empty array), or null if
+/// the key is absent. An array longer than max_items is an error, never
+/// cut short.
 pub fn jsonGetIntArray(
     data: []const u8,
     key: []const u8,
     comptime max_items: usize,
     out_values: *[max_items]c_int,
-) ?usize {
+) IntArrayError!?usize {
     // Find the key
     var pattern_buf: [64]u8 = undefined;
     const pattern = std.fmt.bufPrint(&pattern_buf, "\"{s}\"", .{key}) catch return null;
@@ -475,11 +529,13 @@ pub fn jsonGetIntArray(
     // Find the colon
     const colon = std.mem.indexOfPos(u8, data, after_key, ":") orelse return null;
 
-    // Find opening bracket
-    const open_bracket = std.mem.indexOfPos(u8, data, colon + 1, "[") orelse return null;
+    // The value must be an array: null, a number or a string under the key
+    // is a malformed array, not an absent one.
+    const open_bracket = skipJsonWhitespace(data, colon + 1, data.len);
+    if (open_bracket >= data.len or data[open_bracket] != '[') return error.Malformed;
 
     // Find closing bracket
-    const close_bracket = std.mem.indexOfPos(u8, data, open_bracket + 1, "]") orelse return null;
+    const close_bracket = std.mem.indexOfPos(u8, data, open_bracket + 1, "]") orelse return error.Malformed;
 
     // Parse integers within brackets
     var count: usize = 0;
@@ -487,9 +543,12 @@ pub fn jsonGetIntArray(
 
     // Every iteration must consume a number or bail out: an element the
     // scanner cannot advance past would otherwise spin forever.
-    while (count < max_items) {
+    while (true) {
         pos = skipJsonWhitespace(data, pos, close_bracket);
         if (pos >= close_bracket) break;
+
+        // Another element with the output already full
+        if (count == max_items) return error.TooManyItems;
 
         // Find start of number (handles negative)
         const num_start = pos;
@@ -500,16 +559,16 @@ pub fn jsonGetIntArray(
         while (pos < close_bracket and data[pos] >= '0' and data[pos] <= '9') {
             pos += 1;
         }
-        if (pos == digits_start) return null;
+        if (pos == digits_start) return error.Malformed;
 
-        const value = std.fmt.parseInt(c_int, data[num_start..pos], 10) catch return null;
+        const value = std.fmt.parseInt(c_int, data[num_start..pos], 10) catch return error.Malformed;
         out_values[count] = value;
         count += 1;
 
         // A number must be followed by a separator or the end of the array.
         pos = skipJsonWhitespace(data, pos, close_bracket);
         if (pos >= close_bracket) break;
-        if (data[pos] != ',') return null;
+        if (data[pos] != ',') return error.Malformed;
         pos += 1;
     }
 
@@ -1164,7 +1223,7 @@ test "jsonGetStringArray respects max_items" {
 test "jsonGetIntArray basic" {
     const data = "{\"indices\":[0, 5, 10, 15]}";
     var values: [10]c_int = undefined;
-    const count = jsonGetIntArray(data, "indices", 10, &values).?;
+    const count = (try jsonGetIntArray(data, "indices", 10, &values)).?;
     try std.testing.expectEqual(@as(usize, 4), count);
     try std.testing.expectEqual(@as(c_int, 0), values[0]);
     try std.testing.expectEqual(@as(c_int, 5), values[1]);
@@ -1175,20 +1234,20 @@ test "jsonGetIntArray basic" {
 test "jsonGetIntArray empty array" {
     const data = "{\"indices\":[]}";
     var values: [10]c_int = undefined;
-    const count = jsonGetIntArray(data, "indices", 10, &values).?;
+    const count = (try jsonGetIntArray(data, "indices", 10, &values)).?;
     try std.testing.expectEqual(@as(usize, 0), count);
 }
 
 test "jsonGetIntArray missing key" {
     const data = "{\"other\":[1,2,3]}";
     var values: [10]c_int = undefined;
-    try std.testing.expect(jsonGetIntArray(data, "indices", 10, &values) == null);
+    try std.testing.expectEqual(@as(?usize, null), try jsonGetIntArray(data, "indices", 10, &values));
 }
 
 test "jsonGetIntArray with negative numbers" {
     const data = "{\"values\":[-5, 0, 10, -20]}";
     var values: [10]c_int = undefined;
-    const count = jsonGetIntArray(data, "values", 10, &values).?;
+    const count = (try jsonGetIntArray(data, "values", 10, &values)).?;
     try std.testing.expectEqual(@as(usize, 4), count);
     try std.testing.expectEqual(@as(c_int, -5), values[0]);
     try std.testing.expectEqual(@as(c_int, 0), values[1]);
@@ -1196,16 +1255,36 @@ test "jsonGetIntArray with negative numbers" {
     try std.testing.expectEqual(@as(c_int, -20), values[3]);
 }
 
-test "jsonGetIntArray respects max_items" {
-    const data = "{\"values\":[1, 2, 3, 4, 5]}";
+test "jsonGetIntArray reads an array of exactly max_items" {
+    const data = "{\"values\":[1, 2]}";
     var values: [2]c_int = undefined;
-    const count = jsonGetIntArray(data, "values", 2, &values).?;
+    const count = (try jsonGetIntArray(data, "values", 2, &values)).?;
     try std.testing.expectEqual(@as(usize, 2), count);
+    try std.testing.expectEqual(@as(c_int, 2), values[1]);
 }
 
-test "jsonGetIntArray returns null for non-integer elements instead of looping forever" {
-    // Each of these once spun REAPER's main thread forever: the scanner never
-    // advanced past a byte that was not whitespace, a comma, '-' or a digit.
+test "jsonGetIntArray reports an array longer than max_items instead of cutting it short" {
+    var values: [2]c_int = undefined;
+    try std.testing.expectError(error.TooManyItems, jsonGetIntArray("{\"values\":[1, 2, 3]}", "values", 2, &values));
+    // The excess is reported whatever it holds
+    try std.testing.expectError(error.TooManyItems, jsonGetIntArray("{\"values\":[1, 2, x]}", "values", 2, &values));
+}
+
+test "jsonGetIntArray reports a value that is not an array as malformed, not absent" {
+    const not_arrays = [_][]const u8{
+        "{\"indices\":null}",
+        "{\"indices\":5,\"other\":[1,2]}",
+        "{\"indices\":\"[1]\"}",
+    };
+    var values: [10]c_int = undefined;
+    for (not_arrays) |data| {
+        try std.testing.expectError(error.Malformed, jsonGetIntArray(data, "indices", 10, &values));
+    }
+}
+
+test "jsonGetIntArray reports non-integer elements as malformed instead of looping forever" {
+    // The scanner must stop at any byte it cannot consume (not whitespace, a
+    // comma, '-' or a digit), or it spins REAPER's main thread forever.
     const malformed = [_][]const u8{
         "{\"indices\":[1,x]}",
         "{\"indices\":[1.5]}",
@@ -1214,17 +1293,47 @@ test "jsonGetIntArray returns null for non-integer elements instead of looping f
         "{\"indices\":[\"0\"]}",
         "{\"indices\":[-]}",
         "{\"indices\":[1 2]}",
+        "{\"indices\":[99999999999]}",
+        "{\"indices\":[1,2",
     };
     var values: [10]c_int = undefined;
     for (malformed) |data| {
-        try std.testing.expectEqual(@as(?usize, null), jsonGetIntArray(data, "indices", 10, &values));
+        try std.testing.expectError(error.Malformed, jsonGetIntArray(data, "indices", 10, &values));
     }
+}
+
+test "jsonGetIntStrict tells an absent key from a value that is not an integer" {
+    try std.testing.expectEqual(@as(?c_int, 7), try jsonGetIntStrict("{\"a\": 7}", "a"));
+    try std.testing.expectEqual(@as(?c_int, -3), try jsonGetIntStrict("{\"a\":-3,\"b\":1}", "a"));
+    try std.testing.expectEqual(@as(?c_int, null), try jsonGetIntStrict("{\"b\":1}", "a"));
+
+    const malformed = [_][]const u8{
+        "{\"a\":1.5}",  "{\"a\":-1.5}", "{\"a\":1e9}", "{\"a\":\"1\"}",
+        "{\"a\":null}", "{\"a\":true}", "{\"a\":-}",   "{\"a\":99999999999}",
+        "{\"a\":+1}",   "{\"a\":}",
+    };
+    for (malformed) |data| {
+        try std.testing.expectError(error.Malformed, jsonGetIntStrict(data, "a"));
+    }
+}
+
+test "jsonGetIntStrict passes over the key's name used as a string value" {
+    try std.testing.expectEqual(@as(?c_int, 4), try jsonGetIntStrict("{\"mode\":\"a\",\"a\":4}", "a"));
+    try std.testing.expectEqual(@as(?c_int, null), try jsonGetIntStrict("{\"mode\":\"a\",\"b\":4}", "a"));
+}
+
+test "jsonGetObject returns the object under a key, null if absent, or reports a value that is not an object" {
+    try std.testing.expectEqualStrings("{\"start\":1}", (try jsonGetObject("{\"r\": {\"start\":1},\"x\":2}", "r")).?);
+    try std.testing.expectEqual(@as(?[]const u8, null), try jsonGetObject("{\"x\":{\"a\":1}}", "r"));
+    try std.testing.expectError(error.Malformed, jsonGetObject("{\"r\":5,\"x\":{\"a\":1}}", "r"));
+    try std.testing.expectError(error.Malformed, jsonGetObject("{\"r\":null}", "r"));
+    try std.testing.expectError(error.Malformed, jsonGetObject("{\"r\":{\"a\":1", "r"));
 }
 
 test "jsonGetIntArray accepts CRLF whitespace between elements" {
     const data = "{\"indices\":[\r\n1,\r\n2\r\n]}";
     var values: [10]c_int = undefined;
-    const count = jsonGetIntArray(data, "indices", 10, &values).?;
+    const count = (try jsonGetIntArray(data, "indices", 10, &values)).?;
     try std.testing.expectEqual(@as(usize, 2), count);
     try std.testing.expectEqual(@as(c_int, 2), values[1]);
 }

@@ -508,25 +508,36 @@ return reaper.TrackFX_GetFXGUID(tr, i)
                            f"{longest} bytes: the list ({size} bytes) can't exceed 64 KB")
             raise Mismatch(f"the fixture plugin's parameter list is only {size} bytes; it must exceed 64 KB")
 
-        # The parameter list scrolls to show every row at once on a tablet.
-        rows = list(range(len(names)))
-        mark = since(t.c)
-        t.ok("trackFxParams/subscribe", trackGuid=g, fxGuid=fg, range={"start": 0, "end": rows[-1]})
-        deadline = time.time() + 3.0
-        while True:
-            err = events_after(t.c, "trackFxParamsError", mark)
-            if err:
-                raise Mismatch(f"trackFxParams/subscribe over {len(rows)} params got {err[-1]} instead of values "
-                               f"(REAPER still has the FX)")
-            evs = [e for e in events_after(t.c, "trackFxParams", mark) if e["payload"].get("fxGuid") == fg]
-            if evs:
-                problems = values_problems(evs[-1]["payload"], param_facts(g, fg, rows), rows)
-                if problems:
-                    raise Mismatch("trackFxParams vs REAPER:\n    " + "\n    ".join(problems[:10]))
-                break
-            if time.time() > deadline:
-                raise Mismatch(f"no trackFxParams event for a {len(rows)}-param range subscription")
-            t.c.drain(0.1)
+        # A subscription covers at most 100 parameters: the whole list in one
+        # range is refused, and the list is paged in 100-row windows as the
+        # app's scrolled list does, here its top and its bottom.
+        last = len(names) - 1
+        r = t.send("trackFxParams/subscribe", trackGuid=g, fxGuid=fg, range={"start": 0, "end": last})
+        if r is None or r.get("success") or r.get("error", {}).get("code") != "TOO_MANY_PARAMS":
+            raise Mismatch(f"trackFxParams/subscribe over all {len(names)} params gave {r}, not TOO_MANY_PARAMS")
+        for start in (0, last - 99):
+            rows = list(range(start, start + 100))
+            mark = since(t.c)
+            t.ok("trackFxParams/subscribe", trackGuid=g, fxGuid=fg, range={"start": rows[0], "end": rows[-1]})
+            deadline = time.time() + 3.0
+            while True:
+                err = events_after(t.c, "trackFxParamsError", mark)
+                if err:
+                    raise Mismatch(f"trackFxParams/subscribe on params {rows[0]}..{rows[-1]} got {err[-1]} "
+                                   f"instead of values (REAPER still has the FX)")
+                # An event for the previous window can still land after the mark
+                evs = [e for e in events_after(t.c, "trackFxParams", mark)
+                       if e["payload"].get("fxGuid") == fg
+                       and sorted(int(k) for k in e["payload"].get("values", {})) == rows]
+                if evs:
+                    problems = values_problems(evs[-1]["payload"], param_facts(g, fg, rows), rows)
+                    if problems:
+                        raise Mismatch(f"trackFxParams on params {rows[0]}..{rows[-1]} vs REAPER:\n    "
+                                       + "\n    ".join(problems[:10]))
+                    break
+                if time.time() > deadline:
+                    raise Mismatch(f"no trackFxParams event carrying exactly params {rows[0]}..{rows[-1]}")
+                t.c.drain(0.1)
         t.ok("trackFxParams/unsubscribe")
     finally:
         reaper(f"""

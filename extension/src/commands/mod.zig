@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const utf8 = @import("../core/utf8.zig");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
@@ -163,6 +164,9 @@ pub const ResponseWriter = struct {
     playlist: ?*PlaylistState = null,
     /// Whether this command has been answered (see dispatch).
     responded: bool = false,
+    /// In tests, where replies go instead of shared_state (see
+    /// testRunHandlerReply); absent from other builds.
+    test_reply: if (builtin.is_test) ?*TestReply else void = if (builtin.is_test) null else {},
 
     /// Payload responses larger than this are refused rather than sent: one
     /// frame must fit the socket send buffer (see WsHandler.init).
@@ -173,6 +177,9 @@ pub const ResponseWriter = struct {
     /// get an exact-size heap buffer instead of being dropped, since the
     /// client would wait for them forever.
     fn reply(self: *ResponseWriter, comptime fmt: []const u8, args: anytype) void {
+        if (builtin.is_test) {
+            if (self.test_reply) |r| return r.record(fmt, args);
+        }
         var buf: [512]u8 = undefined;
         if (std.fmt.bufPrint(&buf, fmt, args)) |json| {
             self.shared_state.sendToClient(self.client_id, json);
@@ -380,6 +387,52 @@ pub fn testRunPlaylistHandler(api: anytype, comptime handler: anytype, json: []c
         .gestures = null,
         .playlist = playlist,
     };
+    handler(api, cmd, &response);
+}
+
+/// A handler's last reply to its client, captured by testRunHandlerReply.
+pub const TestReply = struct {
+    bytes: std.ArrayList(u8) = .empty,
+
+    pub fn deinit(self: *TestReply) void {
+        self.bytes.deinit(std.testing.allocator);
+    }
+
+    fn record(self: *TestReply, comptime fmt: []const u8, args: anytype) void {
+        self.bytes.clearRetainingCapacity();
+        self.bytes.print(std.testing.allocator, fmt, args) catch @panic("TestReply: out of memory");
+    }
+
+    /// The reply's JSON, empty if the handler sent none.
+    pub fn json(self: *const TestReply) []const u8 {
+        return self.bytes.items;
+    }
+
+    /// Whether the handler replied with success.
+    pub fn succeeded(self: *const TestReply) bool {
+        return std.mem.indexOf(u8, self.bytes.items, "\"success\":true") != null;
+    }
+
+    /// The error code of a failure reply, or null if the handler sent none.
+    pub fn errorCode(self: *const TestReply) ?[]const u8 {
+        if (std.mem.indexOf(u8, self.bytes.items, "\"success\":false") == null) return null;
+        return protocol.jsonGetString(self.bytes.items, "code");
+    }
+};
+
+/// testRunHandler for asserting on the reply: the command is answered as
+/// if it carried an id, and the reply lands in `reply` instead of a socket.
+pub fn testRunHandlerReply(api: anytype, comptime handler: anytype, json: []const u8, reply: *TestReply) void {
+    const cmd = protocol.CommandMessage.parse(json).?;
+    var shared: ws_server.SharedState = undefined;
+    var response = ResponseWriter{
+        .client_id = 1,
+        .cmd_id = cmd.getId() orelse "test",
+        .shared_state = &shared,
+        .gestures = null,
+        .test_reply = reply,
+    };
+    reply.bytes.clearRetainingCapacity();
     handler(api, cmd, &response);
 }
 

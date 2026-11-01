@@ -2746,7 +2746,7 @@ Subscribe to FX parameter value updates. Values are checked at 30Hz and sent whe
 | `range` | object | No | `{"start": int, "end": int}`, inclusive; the form the web UI's command builder sends |
 | `rangeStart` | int | No | First param index to include (default: 0), if `range` is absent |
 | `rangeEnd` | int | No | Last param index to include (default: 20), if `range` is absent |
-| `indices` | int[] | No | Specific param indices (overrides range); at most 100 |
+| `indices` | int[] | No | Specific param indices (overrides range, even when empty); at most 100 |
 
 **Range mode** (for scrollable views), in either form:
 
@@ -2764,9 +2764,13 @@ Subscribe to FX parameter value updates. Values are checked at 30Hz and sent whe
 **Notes:**
 
 - Each client can subscribe to one FX at a time; subscribing replaces the previous subscription (FX, range or indices)
-- `indices` keeps the first 100 entries and drops the rest without an error. Range mode has no such limit, but each parameter in the range is read every tick, so keep ranges to what is on screen
-- Only the upper end is checked against the FX's parameter count: a range end past the last parameter is clamped to it, and indices at or past the count are skipped. A negative range start or negative indices are not rejected or clamped; they are read as given
+- A subscription covers at most 100 parameters: a range of more than 100 (`0`-`99` is accepted, `0`-`100` is not) or more than 100 `indices` is rejected with `TOO_MANY_PARAMS`
+- A range end past the FX's last parameter is clamped to it, and indices at or past the parameter count are skipped
+- An index listed more than once is subscribed once. An empty `indices` list subscribes to no values: events still carry `paramCount` and `nameHash`
+- A rejected subscribe leaves the current subscription as it was
 - After subscribing, receive `trackFxParams` events (see below). Every subscribe, including a re-subscribe to the same FX, is followed by an event even if no value changed
+
+**Errors:** `MISSING_PARAM` (no `trackGuid` or `fxGuid`), `TOO_MANY_PARAMS` (more than 100 parameters), `INVALID_RANGE` (negative start, or end before start), `INVALID_INDEX` (a negative index), `INVALID_PARAMS` (`indices` is not an array of integers, `range` is not an object, or a range bound is present but not an integer), `TOO_MANY_CLIENTS`. A range bound that is absent takes its default.
 
 ### `trackFxParams/unsubscribe`
 
