@@ -77,12 +77,21 @@ pub const Judgement = struct {
     spectrum: Spectrum,
     /// The least power counted as a partial.
     present_min: f64,
+    /// The strongest power in the band judged; 0 if the spectrum was too
+    /// short or too quiet to judge at all.
+    strongest: f64 = 0,
 
     /// Whether a partial (a local maximum within `present_db` of the
     /// strongest peak) lies within a quarter-tone of `hz`: a weak
     /// fundamental does, a subharmonic common to two notes doesn't.
     pub fn heard(self: Judgement, hz: f64) bool {
         return present(self.spectrum, hz, 50, self.present_min);
+    }
+
+    /// Whether a partial within a quarter-tone of `hz` stands within `db`
+    /// of the strongest peak (and is heard).
+    pub fn heardWithin(self: Judgement, hz: f64, db: f64) bool {
+        return present(self.spectrum, hz, 50, @max(self.present_min, self.strongest * dbRatio(-db)));
     }
 };
 
@@ -92,10 +101,10 @@ pub const Judgement = struct {
 /// frequencies mean nothing, and the verdict is unknown.
 pub fn judge(sp: Spectrum, min_hz: f64, max_hz: f64, spacing_hz: f64, scratch: *Scratch) Judgement {
     const v = verdictOf(sp, min_hz, max_hz, spacing_hz, scratch);
-    return .{ .verdict = v.verdict, .fundamental_hz = v.fundamental_hz, .spectrum = sp, .present_min = v.present_min };
+    return .{ .verdict = v.verdict, .fundamental_hz = v.fundamental_hz, .spectrum = sp, .present_min = v.present_min, .strongest = v.strongest };
 }
 
-const Inner = struct { verdict: Verdict, present_min: f64 = std.math.inf(f64), fundamental_hz: ?f64 = null };
+const Inner = struct { verdict: Verdict, present_min: f64 = std.math.inf(f64), fundamental_hz: ?f64 = null, strongest: f64 = 0 };
 
 fn verdictOf(sp: Spectrum, min_hz: f64, max_hz: f64, spacing_hz: f64, scratch: *Scratch) Inner {
     if (spacing_hz < resolution * 4 / sp.length_s) return .{ .verdict = .unknown };
@@ -127,7 +136,7 @@ fn verdictOf(sp: Spectrum, min_hz: f64, max_hz: f64, spacing_hz: f64, scratch: *
     // Peaks closer than the main lobe merge, and their frequencies mean
     // nothing; a candidate's harmonics must be resolved to check them.
     const half_width = 4 / sp.length_s;
-    if (lowest < resolution * half_width) return .{ .verdict = .unknown, .present_min = present_min };
+    if (lowest < resolution * half_width) return .{ .verdict = .unknown, .present_min = present_min, .strongest = strongest };
     var unresolved = false;
     for ([_]f64{ 1, 2, 3 }) |d| {
         const c = lowest / d;
@@ -137,9 +146,9 @@ fn verdictOf(sp: Spectrum, min_hz: f64, max_hz: f64, spacing_hz: f64, scratch: *
             unresolved = true;
             continue;
         }
-        if (complete(sp, peaks, c, present_min)) return .{ .verdict = .one, .present_min = present_min, .fundamental_hz = c };
+        if (complete(sp, peaks, c, present_min)) return .{ .verdict = .one, .present_min = present_min, .fundamental_hz = c, .strongest = strongest };
     }
-    return .{ .verdict = if (unresolved) .unknown else .several, .present_min = present_min };
+    return .{ .verdict = if (unresolved) .unknown else .several, .present_min = present_min, .strongest = strongest };
 }
 
 fn dbRatio(db: f64) f64 {
@@ -239,6 +248,17 @@ const fft_mod = @import("fft.zig");
 const rate: f64 = 11025;
 const seg_len = 3307; // 0.3 s
 const fft_n = 4096;
+
+test "a partial within the given dB of the strongest is heard within it, one further down is not" {
+    var power = [_]f64{0} ** 64;
+    // Bins of 10 Hz: the strongest at 100 Hz, one 30 dB down at 50 Hz.
+    power[10] = 1;
+    power[5] = 1e-3;
+    const j: Judgement = .{ .verdict = .one, .spectrum = .{ .power = &power, .bin_hz = 10, .length_s = 0.3 }, .present_min = 1e-6, .strongest = 1 };
+    try testing.expect(j.heardWithin(50, 40));
+    try testing.expect(!j.heardWithin(50, 25));
+    try testing.expect(j.heardWithin(100, 25));
+}
 
 const Fixture = struct {
     fft: fft_mod.Fft(fft_n),

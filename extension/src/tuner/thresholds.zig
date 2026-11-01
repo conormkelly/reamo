@@ -15,7 +15,7 @@
 //! target to fail on each side. Values not swept say so.
 
 /// Bumped on any change to a value below.
-pub const version = 2;
+pub const version = 3;
 
 /// The analysis window and YIN.
 pub const yin = struct {
@@ -41,6 +41,11 @@ pub const yin = struct {
     /// ... gives way to a raw-difference dip near twice its lag under this
     /// share of it. Not swept.
     pub const subharmonic_ratio = 0.25;
+    /// Without hum, the longer period also needs a partial near its
+    /// frequency within this of the strongest, dB: bass whose 2nd partial
+    /// stands 12-17 dB over a weak fundamental has one; a clean note has
+    /// nothing at half its pitch within 35 dB. Not swept.
+    pub const subharmonic_confirm_db = 25.0;
 };
 
 /// The first-partial refinement and its combination with YIN.

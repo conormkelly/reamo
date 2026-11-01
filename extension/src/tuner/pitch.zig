@@ -317,6 +317,11 @@ pub const Options = struct {
     /// as loud adds no energy if the hand damps the first, and the two
     /// together read as their common subharmonic.
     comb_onset: bool = true,
+    /// Whether a reading of the input with the ringing note combed out is
+    /// refused when it is 2, 3 or 4 times that note or a half, third or
+    /// quarter of it: the comb takes out every partial the two share, so
+    /// what is left of harmonically related notes reads as either.
+    comb_unrelated: bool = true,
     /// Whether the spectrum of the input since the onset is checked for
     /// several notes (see several.zig).
     several_guard: bool = true,
@@ -327,6 +332,11 @@ pub const Options = struct {
     /// Whether YIN's first dip gives way to one at twice its lag that is
     /// far deeper (see `subharmonic`).
     subharmonic_check: bool = true,
+    /// Without hum, the subharmonic check's longer period stands only if
+    /// a partial near its frequency lies within this many dB of the
+    /// strongest, once the spectrum since the onset can judge; null to
+    /// trust the raw difference alone.
+    subharmonic_confirm_db: ?f64 = th.yin.subharmonic_confirm_db,
 };
 
 const subharmonic_min_dip = th.yin.subharmonic_min_dip;
@@ -976,7 +986,7 @@ pub fn AnalyserWith(comptime options: Options) type {
                 self.difference(self.comb_old_hz);
                 if (self.pickPeriod(settings.range)) |b| {
                     const hz = self.analysis_rate / self.interpolate(b);
-                    if (@abs(1200 * @log2(hz / self.comb_old_hz)) >= 50) {
+                    if (!(options.comb_unrelated and combRelated(hz, self.comb_old_hz)) and @abs(1200 * @log2(hz / self.comb_old_hz)) >= 50) {
                         best = b;
                         combed = true;
                     }
@@ -1001,10 +1011,19 @@ pub fn AnalyserWith(comptime options: Options) type {
                 // Hum adds periodicity at multiples of the period: under hum
                 // the longer period must have a partial heard at its
                 // frequency, once the hum is out.
+                const low = self.analysis_rate / self.interpolate(best);
                 if (hum_out) {
-                    const low = self.analysis_rate / self.interpolate(best);
                     const heard = if (self.judgeSeveral(low)) |j| j.heard(low) else false;
                     if (!heard) best = orig;
+                } else if (options.subharmonic_confirm_db) |db| {
+                    // Nor without hum does the longer period stand unless
+                    // the spectrum, once it can tell, has a partial near
+                    // its frequency: a clean note whose own period dips
+                    // a little (a slide, the window's edge) has nothing
+                    // at half its pitch.
+                    if (self.judgeSeveral(low)) |j| {
+                        if (j.strongest > 0 and !j.heardWithin(low, db)) best = orig;
+                    }
                 }
             }
             const detected = self.analysis_rate / self.interpolate(best);
@@ -1621,6 +1640,16 @@ pub fn AnalyserWith(comptime options: Options) type {
             return period + std.math.clamp((s0 - s2) / (2 * curvature), -1, 1);
         }
     };
+}
+
+/// Whether `hz` is within a quarter tone of 2, 3 or 4 times `other`, or
+/// of a half, third or quarter of it.
+fn combRelated(hz: f64, other: f64) bool {
+    const ratios = [_]f64{ 2, 3, 4, 0.5, 1.0 / 3.0, 0.25 };
+    for (ratios) |r| {
+        if (@abs(1200 * @log2(hz / (other * r))) < 50) return true;
+    }
+    return false;
 }
 
 /// The gate's state that one decision changes.
@@ -2572,6 +2601,11 @@ test "synth notes holding their level at 49.5 Hz and at a pure 120 Hz show, thou
         try testing.expect(r.shown >= 35);
         try testing.expectEqual(@as(usize, 0), r.other);
     }
+}
+
+test "a comb reading harmonically related to the ringing note is recognised, other intervals are not" {
+    for ([_]f64{ 2, 3, 4, 0.5, 1.0 / 3.0, 0.25, 2.01 }) |r| try testing.expect(combRelated(110 * r, 110));
+    for ([_]f64{ 4.0 / 3.0, 1.5, 1.2, 1.06 }) |r| try testing.expect(!combRelated(110 * r, 110));
 }
 
 test "an onset that shows no note expires, so without the slow onset a swell over hum long after a click never shows" {
