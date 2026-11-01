@@ -460,8 +460,16 @@ that span both halves:
 - **Updates:** the hello carries `extensionVersion` and `htmlMtime`; on a
   mismatch the app clears caches, unregisters service workers and reloads
   with a cache-busting query (`utils/versionStorage.ts`). Always automatic.
+  A reconnect whose hello differs from the page's last one in either value
+  stores the new values and hard-refreshes (`serverChanged` in
+  `core/websocketMachine.ts`), so the reloaded page's own check matches and
+  it reloads only once.
 - **Same origin:** the token comes from `<meta name="reamo-token">`, the port
-  from `location.port`.
+  from `location.port`. Every REAPER start makes a new token, so only the
+  first connect of a page load uses the meta tag; every later one fetches
+  `/` and reads the token from it (`fetchSessionToken`), keeping the last
+  token if that fails. A page left open across a REAPER restart reconnects
+  by itself, without a reload, whether or not the 4001 close arrives.
 
 ## Clock Synchronization
 

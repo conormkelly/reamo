@@ -47,9 +47,6 @@ export {
   isItemsEvent,
 } from './WebSocketTypes';
 
-// WebSocket connection
-export { WebSocketConnection, type WebSocketConnectionOptions } from './WebSocketConnection';
-
 // WebSocket commands
 export * as commands from './WebSocketCommands';
 

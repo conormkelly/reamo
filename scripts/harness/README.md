@@ -271,6 +271,15 @@ the oracle depends on it, re-read it inside your wait loop rather than once.
 A Lua error raises `ReaperError`. `harness.ready()` starts the RPC loop, so
 every fixture has it.
 
+`restart_reaper()` quits REAPER (File: Quit REAPER) and starts it again as
+`boot.sh` did; it returns once the fixture has run again and the server
+accepts connections, with `reaper()` working. The new run has a new session
+token. Linux only.
+
+- It needs a clean project: a dirty one raises the save prompt, and the quit times out.
+- The restarted REAPER isn't under gdb, even with `HARNESS_GDB=1`.
+- The scenario's `startup.lua` runs again in the new REAPER.
+
 ### Every supported REAPER
 
 Scenarios run on the oldest REAPER we support (6.0) as well as the newest,

@@ -28,9 +28,6 @@ export {
   isFxDisabled,
   getRecordMonitorState,
   isSendMuted,
-  // WebSocket connection
-  WebSocketConnection,
-  type WebSocketConnectionOptions,
   // Commands (WebSocket-based)
   commands,
 } from './core';
