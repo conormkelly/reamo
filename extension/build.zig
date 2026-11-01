@@ -210,6 +210,37 @@ pub fn build(b: *std.Build) void {
     b.step("tuner-wav", "Run the tuner analyser over a WAV file: -- take.wav [--out frames.csv] [--notes notes.csv] [--channel N]").dependOn(&run_tuner_wav.step);
     test_step.dependOn(&tuner_wav.step);
 
+    // Held-out check of the tuner analyser on MDB-bass-synth
+    // (src/tuner/heldout/mdb.zig). The dataset (CC BY-NC 4.0) stays outside
+    // the repository: pass its directory or set MDB_BASS_SYNTH. The runner
+    // sees the analyser and the WAV reader only as modules, through their
+    // public API. `zig build test` builds it and runs its own tests.
+    const heldout_pitch = b.createModule(.{
+        .root_source_file = b.path("src/tuner/pitch.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const heldout_wav = b.createModule(.{
+        .root_source_file = b.path("src/tuner/wav.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const tuner_mdb_module = b.createModule(.{
+        .root_source_file = b.path("src/tuner/heldout/mdb.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "pitch", .module = heldout_pitch },
+            .{ .name = "wav", .module = heldout_wav },
+        },
+    });
+    const tuner_mdb = b.addExecutable(.{ .name = "tuner-mdb", .root_module = tuner_mdb_module });
+    const run_tuner_mdb = b.addRunArtifact(tuner_mdb);
+    if (b.args) |args| run_tuner_mdb.addArgs(args);
+    b.step("tuner-mdb", "Run the tuner analyser over MDB-bass-synth: -- [dataset dir] [--out dir] [--tracks s] [--range lo hi] [--mix N]").dependOn(&run_tuner_mdb.step);
+    test_step.dependOn(&tuner_mdb.step);
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = tuner_mdb_module })).step);
+
     // Main module tests - pulls in tests from all submodules via test block
     // Requires httpz, ztracy, qrcodegen, CSurf C++, and SWELL bridge
     const main_tests = b.addTest(.{
