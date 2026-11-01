@@ -359,7 +359,7 @@ const Candidate = struct {
 
 fn display(r: pitch.Reading) Display {
     if (r.freq_hz <= 0) return .{};
-    return .{ .note = r.note, .hz = if (r.settling) null else r.freq_hz, .stable = r.stable };
+    return .{ .note = r.note, .hz = if (r.settling) null else r.freq_hz, .stable = r.stable, .multiple = r.multiple };
 }
 
 fn analyserCandidate(comptime T: type, name: []const u8, about: []const u8, allocator: std.mem.Allocator) !Candidate {
@@ -536,6 +536,7 @@ fn measure(alloc: std.mem.Allocator, st: *GroupStats, c: Case, sr: f64, rs: []co
         const t = readTime(i, sr);
         if (t < 0.1) continue;
         const truth = s.firstPartialHz(t);
+        if (r.multiple) st.multiple += 1;
         if (r.note) |n| {
             const d = @abs(n - noteOf(truth));
             if ((d >= 11 and d <= 13) or (d >= 23 and d <= 25) or (d >= 35 and d <= 37)) st.octave += 1 else if (d != 0) st.wrong_note += 1;
@@ -696,6 +697,7 @@ pub fn main() !void {
         try analyserCandidate(pitch.AnalyserWith(.{ .onset_gate = false }), "no-onset-gate", "the analyser showing notes without an onset", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .release_drop_db = null }), "no-release", "the analyser without the release check", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .mains_rule = true }), "mains-rule", "the analyser with the mains rule", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .several_guard = false }), "no-several-guard", "the analyser without the several-notes guard", allocator),
     };
     var cands: [all.len]Candidate = undefined;
     var nc: usize = 0;
@@ -855,13 +857,13 @@ fn printTargets(w: anytype, cands: []const Candidate, results: []Results) !void 
 
 fn printDetail(w: anytype, c: Candidate, r: *Results) !void {
     const alloc = std.heap.page_allocator;
-    try w.print("\n## {s}\n\n| group | reads | P95 |err| vs f1(t) (c) | shown in 1-3 s | P95 over shown (c) | P95 vs settled f1 (c) | worst (c) | worst jitter (c) | octave | other wrong note | lock-on avg / worst (ms), never | to stable within 1 c avg / worst (ms), never | first stable flag avg (ms), never |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n", .{c.name});
+    try w.print("\n## {s}\n\n| group | reads | P95 |err| vs f1(t) (c) | shown in 1-3 s | P95 over shown (c) | P95 vs settled f1 (c) | worst (c) | worst jitter (c) | octave | other wrong note | flagged several | lock-on avg / worst (ms), never | to stable within 1 c avg / worst (ms), never | first stable flag avg (ms), never |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n", .{c.name});
     for (groups) |grp| {
         if (!grp.pitched() or grp == .ramp) continue;
         const st = r.group[@intFromEnum(grp)];
         var jitter_buf: [64]u8 = undefined;
         const jitter = if (st.worst_jitter_len > 0) std.fmt.bufPrint(&jitter_buf, "{d:.3} {s}", .{ st.worst_jitter, st.worst_jitter_case[0..st.worst_jitter_len] }) catch "?" else "n/a";
-        try w.print("| {s} | {d} | {d:.3} | {d:.1}% | {d:.3} | {d:.3} | {d:.3} {s} | {s} | {d} | {d} | {d:.0} / {d:.0}, {d} | {d:.0} / {d:.0}, {d} | {d:.0}, {d} |\n", .{
+        try w.print("| {s} | {d} | {d:.3} | {d:.1}% | {d:.3} | {d:.3} | {d:.3} {s} | {s} | {d} | {d} | {d} | {d:.0} / {d:.0}, {d} | {d:.0} / {d:.0}, {d} | {d:.0}, {d} |\n", .{
             @tagName(grp),
             st.reads,
             p95(alloc, st, false),
@@ -873,6 +875,7 @@ fn printDetail(w: anytype, c: Candidate, r: *Results) !void {
             jitter,
             st.octave,
             st.wrong_note,
+            st.multiple,
             st.lock_sum_ms / @as(f64, @floatFromInt(@max(st.lock_n, 1))),
             st.lock_worst_ms,
             st.lock_never,

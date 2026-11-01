@@ -1,6 +1,6 @@
 //! The tuner's pitch analyser: mono samples in, a frequency, note, cents,
-//! clarity and settling and stable flags out, whenever the caller asks (the
-//! tuner asks at 30 Hz).
+//! clarity and settling, stable and multiple flags out, whenever the
+//! caller asks (the tuner asks at 30 Hz).
 //!
 //! The pitch detector is YIN as PitchDetect.jsfx runs it (FFT
 //! autocorrelation, the difference function with exact energy terms, the
@@ -61,6 +61,14 @@
 //! few hundred milliseconds, which the spectrum can't cure without
 //! misreading notes under hum or over a ringing previous note.
 //!
+//! Two notes together repeat at their common subharmonic, and YIN reads
+//! it: E2 and B2 as E1. The spectrum of the input since the onset tells
+//! one string from several (several.zig); with several, a reading at no
+//! partial of the input (a subharmonic) shows nothing, any other is one of
+//! the notes, and either way the reading is flagged `multiple`. The
+//! spectrum resolves a subharmonic f's harmonics only 8 / f seconds after
+//! the onset (0.19 s for E1), and until then the subharmonic can show.
+//!
 //! The note shows from the first reading after an onset; the reading is
 //! `settling` for 120 ms (a string's attack, about half its glide's time
 //! constant), and `stable` once the shown pitch's slope over 300 ms is
@@ -73,6 +81,7 @@
 const std = @import("std");
 const fft_mod = @import("fft.zig");
 const first_partial = @import("first_partial.zig");
+const several = @import("several.zig");
 
 /// What the tuner's user sets.
 pub const Settings = struct {
@@ -113,6 +122,9 @@ pub const Reading = struct {
     /// Set once the shown pitch has moved under `Options.stable_cents_per_s`
     /// over the last `Options.stable_s`: the reading to tune by.
     stable: bool = false,
+    /// Several notes are sounding: the reading, if there is one, is one
+    /// of them, never a subharmonic common to them (which shows none).
+    multiple: bool = false,
 
     pub const none: Reading = .{ .freq_hz = 0, .note = 0, .cents = 0, .clarity = 0 };
 };
@@ -196,6 +208,9 @@ pub const Options = struct {
     /// compressor or sustainer holds a string's level) would vanish after
     /// a second. It catches only buzz that switches on.
     mains_rule: bool = false,
+    /// Whether the spectrum of the input since the onset is checked for
+    /// several notes (see several.zig).
+    several_guard: bool = true,
 };
 
 const floor_rise_db_per_s = 20.0;
@@ -239,7 +254,7 @@ pub const Analyser = AnalyserWith(.{});
 pub fn AnalyserWith(comptime options: Options) type {
     const max_window: usize = @intFromFloat(@ceil(window_seconds * options.max_analysis_rate));
     const max_fft = std.math.ceilPowerOfTwo(usize, max_window + max_window / 2) catch unreachable;
-    const fine_needed = options.refinement != null or options.onset_gate;
+    const fine_needed = options.refinement != null or options.onset_gate or options.several_guard;
     const max_fine: usize = if (!fine_needed) 1 else @intFromFloat(@ceil(options.refine_window_s * 2 * fine_rate_floor));
     const max_block: usize = @intFromFloat(@ceil(onset_block_s * 2 * fine_rate_floor));
     return struct {
@@ -301,6 +316,11 @@ pub fn AnalyserWith(comptime options: Options) type {
         onset_count: u64,
         segment: [max_fine]f64,
         segment_len: usize,
+        windowed: [if (options.several_guard) max_fft else 1]f64,
+        spectrum: [if (options.several_guard) max_fft / 2 + 1 else 1]f64,
+        several_scratch: several.Scratch,
+        /// Whether the last analysis heard several notes.
+        heard_several: bool,
         refine_work: first_partial.Work(max_fine_period),
 
         /// Analysed samples kept in all.
@@ -397,6 +417,7 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.fine_count = 0;
             self.onset_at = 0;
             self.segment_len = 0;
+            self.heard_several = false;
             self.kept_count = 0;
             self.hold_set = false;
             self.hold_log2 = 0;
@@ -542,6 +563,25 @@ pub fn AnalyserWith(comptime options: Options) type {
             return .{ .hz = e.hz, .sigma_cents = 1.15 * 1731.234 * e.std_error_hz / e.hz };
         }
 
+        /// The several-notes verdict on the loaded segment's spectrum
+        /// (Blackman-Harris, its latest power of two at most) for partials
+        /// `spacing_hz` apart, or null with the guard off.
+        fn judgeSeveral(self: *Self, spacing_hz: f64) ?several.Judgement {
+            if (!options.several_guard or self.segment_len < 16) return null;
+            var n_fft = std.math.ceilPowerOfTwo(usize, self.segment_len) catch unreachable;
+            n_fft = @min(n_fft, max_fft);
+            const len = @min(self.segment_len, n_fft);
+            const seg = self.segment[self.segment_len - len .. self.segment_len];
+            for (self.windowed[0..len], seg, 0..) |*d, v, i| d.* = v * several.blackmanHarris(i, len);
+            self.fft.powerSpectrum(self.windowed[0..len], n_fft, &self.fft_work, self.spectrum[0 .. n_fft / 2 + 1]);
+            const sp: several.Spectrum = .{
+                .power = self.spectrum[0 .. n_fft / 2 + 1],
+                .bin_hz = self.fine_rate / @as(f64, @floatFromInt(n_fft)),
+                .length_s = @as(f64, @floatFromInt(len)) / self.fine_rate,
+            };
+            return several.judge(sp, 25, max_pitch_hz, spacing_hz, &self.several_scratch);
+        }
+
         /// `f`, unless it is 2, 3 or 4 times (or a half, third or quarter
         /// of) the frequency held since the onset, in which case the held
         /// one, until `octave_hold` analyses in a row have made the jump.
@@ -601,8 +641,13 @@ pub fn AnalyserWith(comptime options: Options) type {
         pub fn analyse(self: *Self, settings: Settings) Reading {
             if (!(settings.reference_hz > 0 and std.math.isFinite(settings.reference_hz))) return Reading.none;
             const level = self.windowLevelDb();
+            self.heard_several = false;
             const measured = if (level < settings.silence_db) null else self.measure(settings);
-            const shown = self.track(self.gate(measured, level, settings)) orelse return Reading.none;
+            const shown = self.track(self.gate(measured, level, settings)) orelse {
+                var r = Reading.none;
+                r.multiple = self.heard_several;
+                return r;
+            };
             const midi = 69 + 12 * @log2(shown.hz / settings.reference_hz);
             const note = @floor(midi + 0.5);
             return .{
@@ -612,6 +657,7 @@ pub fn AnalyserWith(comptime options: Options) type {
                 .clarity = shown.clarity,
                 .settling = shown.settling,
                 .stable = shown.stable,
+                .multiple = self.heard_several,
             };
         }
 
@@ -624,6 +670,14 @@ pub fn AnalyserWith(comptime options: Options) type {
             const detected = self.analysis_rate / self.interpolate(best);
             if (fine_needed) self.loadSegment();
             const coarse = self.holdOctave(detected);
+            // Of several notes, only one of them shows, never what repeats
+            // under them all.
+            if (self.judgeSeveral(coarse)) |j| {
+                if (j.verdict == .several) {
+                    self.heard_several = true;
+                    if (!j.heard(coarse)) return null;
+                }
+            }
             return .{ .hz = self.combine(coarse), .clarity = std.math.clamp(1 - self.cmnd[best], 0, 1) };
         }
 
@@ -1279,6 +1333,37 @@ test "with the mains rule, buzz that switches on stops reading once it has held 
     // On at 0.5 s; the level is judged from the first window wholly inside
     // it (93 ms on) over the next second, so nothing from 1.75 s.
     try testing.expectEqual(@as(usize, 0), countNotes(a, buf, 48000, 1.75, null).shown);
+}
+
+test "two strings at once read as no confident subharmonic once the spectrum resolves their common one" {
+    // The guard needs 8 / f seconds of input to resolve the harmonics of a
+    // subharmonic f (a Blackman-Harris main lobe two half-widths clear);
+    // before that a period detector's subharmonic can still show.
+    const buf = try generate(48000 * 2);
+    defer testing.allocator.destroy(buf);
+    const other = try generate(48000 * 2);
+    defer testing.allocator.destroy(other);
+    // Each pair and the common subharmonic YIN reads for it.
+    const pairs = [_][3]f64{ .{ 82.4069, 123.471, 41.2 }, .{ 110, 146.832, 36.7 }, .{ 195.998, 246.942, 49 }, .{ 82.4069, 116.541, 38.9 }, .{ 55, 82.4069, 27.5 } };
+    for (pairs) |p| {
+        const a = try newAnalyser(48000);
+        defer testing.allocator.destroy(a);
+        signals.pluckedString(buf, 48000, .{ .f0 = p[0], .inharmonicity = 1e-4, .peak = 0.35 });
+        signals.pluckedString(other, 48000, .{ .f0 = p[1], .inharmonicity = 1e-4, .peak = 0.35, .seed = 2 });
+        signals.mix(buf, other);
+        const lower: i32 = @intFromFloat(@round(69 + 12 * @log2(p[0] / 440)));
+        var multiple: usize = 0;
+        var k: usize = 0;
+        while ((k + 1) * 1600 <= buf.len) : (k += 1) {
+            a.push(buf[k * 1600 .. (k + 1) * 1600]);
+            const r = a.analyse(.{});
+            if (r.multiple) multiple += 1;
+            if (@as(f64, @floatFromInt(k + 1)) / 30 < 8 / p[2]) continue;
+            errdefer std.debug.print("{d} + {d} Hz, reading {d}: {any}\n", .{ p[0], p[1], k, r });
+            if (r.freq_hz > 0 and !r.multiple) try testing.expect(r.note >= lower - 1);
+        }
+        try testing.expect(multiple > 0);
+    }
 }
 
 test "reads bass E1 and B0 at 88.2 and 96 kHz, where the JSFX's 4096 samples are too short" {

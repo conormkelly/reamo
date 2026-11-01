@@ -55,8 +55,56 @@ pub fn Fft(comptime max_n: usize) type {
         /// samples packed as one complex sequence, the inverse on the
         /// spectrum's even and odd parts packed the same way.
         pub fn autocorrelate(self: *const Self, x: []const f64, n: usize, work: []Complex, r: []f64) void {
+            std.debug.assert(r.len >= 1 and x.len + r.len - 1 <= n);
+            const half = n / 2;
+            const z = work[0..half];
+            const stride = max_n / n;
+            self.packedPowerSpectrum(x, n, work);
+
+            // Repack for the inverse: y[m] = c[2m] + i c[2m+1], c the
+            // circular autocorrelation, is the half-size inverse transform
+            // of (P[k] + P[k+half]) + i (P[k] - P[k+half]) e^(+2 pi i k / n),
+            // and P[k+half] = P[half-k].
+            const p0 = z[0].re;
+            const p_half = z[0].im;
+            z[0] = .{ .re = p0 + p_half, .im = p0 - p_half };
+            for (1..half / 2 + 1) |k| {
+                const j = half - k;
+                const pk = z[k].re;
+                const pj = z[j].re;
+                const wk = self.twiddle[k * stride];
+                const wj = self.twiddle[j * stride];
+                z[k] = .{ .re = pk + pj + (pk - pj) * wk.im, .im = (pk - pj) * wk.re };
+                z[j] = .{ .re = pj + pk + (pj - pk) * wj.im, .im = (pj - pk) * wj.re };
+            }
+            self.inverseUnscaled(z);
+
+            const scale = 1 / @as(f64, @floatFromInt(n));
+            for (r, 0..) |*v, tau| {
+                const y = z[tau / 2];
+                v.* = (if (tau % 2 == 0) y.re else y.im) * scale;
+            }
+        }
+
+        /// The power spectrum |X[k]|^2 of the real sequence `x` zero-padded
+        /// to `n` points, for k = 0 .. n / 2, into `out` (n / 2 + 1 values).
+        /// `n` is a power of two from 4 to `max_n`, at least x.len; `work`
+        /// holds n / 2 values.
+        pub fn powerSpectrum(self: *const Self, x: []const f64, n: usize, work: []Complex, out: []f64) void {
+            std.debug.assert(out.len >= n / 2 + 1 and x.len <= n);
+            self.packedPowerSpectrum(x, n, work);
+            const half = n / 2;
+            for (out[1..half], work[1..half]) |*o, c| o.* = c.re;
+            out[0] = work[0].re;
+            out[half] = work[0].im;
+        }
+
+        /// The power spectrum of `x` zero-padded to `n` points through one
+        /// half-size transform, left in `work`: P[k] in work[k].re for
+        /// 0 < k < n / 2, P[0] in work[0].re and P[n / 2] in work[0].im.
+        fn packedPowerSpectrum(self: *const Self, x: []const f64, n: usize, work: []Complex) void {
             std.debug.assert(n >= 4 and n <= max_n and std.math.isPowerOfTwo(n));
-            std.debug.assert(r.len >= 1 and x.len + r.len - 1 <= n and work.len >= n / 2);
+            std.debug.assert(x.len <= n and work.len >= n / 2);
             const half = n / 2;
             const z = work[0..half];
             const stride = max_n / n;
@@ -85,30 +133,6 @@ pub fn Fft(comptime max_n: usize) type {
                 const pj = spectrumPower(zj, zk, self.twiddle[j * stride]);
                 z[k] = .{ .re = pk, .im = 0 };
                 z[j] = .{ .re = pj, .im = 0 };
-            }
-
-            // Repack for the inverse: y[m] = c[2m] + i c[2m+1], c the
-            // circular autocorrelation, is the half-size inverse transform
-            // of (P[k] + P[k+half]) + i (P[k] - P[k+half]) e^(+2 pi i k / n),
-            // and P[k+half] = P[half-k].
-            const p0 = z[0].re;
-            const p_half = z[0].im;
-            z[0] = .{ .re = p0 + p_half, .im = p0 - p_half };
-            for (1..half / 2 + 1) |k| {
-                const j = half - k;
-                const pk = z[k].re;
-                const pj = z[j].re;
-                const wk = self.twiddle[k * stride];
-                const wj = self.twiddle[j * stride];
-                z[k] = .{ .re = pk + pj + (pk - pj) * wk.im, .im = (pk - pj) * wk.re };
-                z[j] = .{ .re = pj + pk + (pj - pk) * wj.im, .im = (pj - pk) * wj.re };
-            }
-            self.inverseUnscaled(z);
-
-            const scale = 1 / @as(f64, @floatFromInt(n));
-            for (r, 0..) |*v, tau| {
-                const y = z[tau / 2];
-                v.* = (if (tau % 2 == 0) y.re else y.im) * scale;
             }
         }
 
@@ -268,6 +292,28 @@ test "autocorrelate equals the inverse of the full complex power spectrum" {
     var r: [2048]f64 = undefined;
     fft.autocorrelate(&x, 8192, &work, &r);
     for (r, 0..) |v, tau| try testing.expectApproxEqAbs(full[tau].re / 8192, v, 1e-9);
+}
+
+test "powerSpectrum matches the squared magnitude of a naive DFT for every size and length" {
+    var fft: Fft(256) = undefined;
+    fft.init();
+    var prng = std.Random.DefaultPrng.init(5);
+    const rnd = prng.random();
+    var x: [256]f64 = undefined;
+    for (&x) |*v| v.* = rnd.float(f64) * 2 - 1;
+    var work: [128]Complex = undefined;
+    var got: [129]f64 = undefined;
+    var n: usize = 4;
+    while (n <= 256) : (n <<= 1) {
+        for ([_]usize{ 1, n / 2 + 1, n }) |len| {
+            var padded: [256]Complex = undefined;
+            for (padded[0..n], 0..) |*c, i| c.* = .{ .re = if (i < len) x[i] else 0, .im = 0 };
+            var want: [256]Complex = undefined;
+            naiveDft(padded[0..n], want[0..n]);
+            fft.powerSpectrum(x[0..len], n, &work, got[0 .. n / 2 + 1]);
+            for (got[0 .. n / 2 + 1], want[0 .. n / 2 + 1]) |g, wv| try testing.expectApproxEqAbs(wv.re * wv.re + wv.im * wv.im, g, 1e-9);
+        }
+    }
 }
 
 test "a cosine at bin k puts N/2 into bins k and N-k and nothing elsewhere" {
