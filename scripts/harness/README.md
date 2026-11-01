@@ -225,7 +225,9 @@ scenarios/<name>/
   startup.lua   optional fixture, built through the ReaScript API
   test.py       drives the extension and asserts; non-zero exit = fail
   capabilities  optional Linux capabilities for the container, one per line
-                (NET_ADMIN lets test.py add network adapters with `ip`)
+                (NET_ADMIN lets test.py add network adapters with `ip`;
+                SYS_PTRACE lets it attach gdb to REAPER, as
+                clients-dropping-mid-write-survive-default-sigpipe does)
 ```
 
 ```lua
