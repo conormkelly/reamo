@@ -45,7 +45,6 @@ import json
 import math
 import os
 import queue
-import resource
 import signal
 import subprocess
 import sys
@@ -506,6 +505,7 @@ class _Child:
         if op not in OPS:
             raise ValueError(f"unknown op {op!r}; the ops are {', '.join(OPS)}")
         if op == "stats":
+            import resource  # Unix only; the parent side runs on Windows too
             ru = resource.getrusage(resource.RUSAGE_SELF)
             wall = time.monotonic() - self.started
             return {"sampleRate": self.sr, "bufferSize": self.bs, "callbacks": self.callbacks,

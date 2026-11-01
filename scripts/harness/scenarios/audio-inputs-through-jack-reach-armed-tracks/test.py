@@ -24,10 +24,11 @@ import os
 import statistics
 import time
 
-from jack_feeder import Feeder
 from reamo_client import reaper, skip_unless_linux
 
 skip_unless_linux("REAPER's inputs come from the container's JACK server")
+
+from jack_feeder import Feeder  # noqa: E402  after the skip: Linux only
 
 N = 4
 assert int(os.environ.get("HARNESS_JACK_INPUTS", "0")) == N, "boot.sh did not start JACK with jack-inputs"
